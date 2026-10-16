@@ -371,9 +371,15 @@ detected-tempo and timing/integrity guards stay in place.
   sequence authority, explicit limits/failure/cancel cleanup and lifecycle.
   Installed Node16.6 threshold and controlled long-body replay discriminate
   accepted data from delivery failure; eleven changed paths fail on old bac0.
- - [ ] Physically qualify explicit corrected client559a7e93 with current
+ - [x] Physically qualify explicit corrected client559a7e93 with current
   Gen321/be01 and controllerf6; require actual terminal ACK and all unchanged
   final connection/registration checks. Historical b272 exception stays unknown.
+  Run 898d6ca2 passes all nine checks and exact same-connection terminal ACK,
+  with independent full 300-window proof/fresh typed context and exact cleanup.
+  This is still instrumented, not ordinary immutable acceptance.
+ - [ ] Provision a strict current immutable fixture without modifying old
+  candidate/input pins; minimize any normal-save step under the existing
+  reference inspector contract. Then qualify ordinary long/group/suite.
  - [x] Retain bounded typed before/after leave-running postcondition diagnostics
   with nine unchanged named checks, redacted scalar differences/structured
   hashes, lifecycle timing/trace attribution and failure/cleanup regressions.

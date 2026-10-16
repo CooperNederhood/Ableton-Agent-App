@@ -46,11 +46,13 @@ connection records are not part of the current output inventory.
 
 ## Producer transport backpressure
 
-The shared Max producer client treats Node `socket.write(false)` as accepted
+The shared Max producer client's audio path treats Node `socket.write(false)` as accepted
 data awaiting drain, not failed delivery. Drain does not constitute a protocol
 ACK. Subsequent frames use a same-connection FIFO bounded by the existing
 pending-request quota (64 by default) and twice the negotiated maximum frame
-bytes across queued and socket-buffered data (256 KiB for native v2).
+bytes across queued and socket-buffered data (256 KiB for native v2, including
+wire newlines). The per-frame native-v2 limit remains 131072 JSON bytes excluding
+the newline; this local aggregate cap does not enlarge packet or capture budgets.
 
 The drain deadline is one second. Write-callback errors, socket error/close,
 quota exhaustion and drain timeout remain explicit failures. Stop cancels the
@@ -59,12 +61,14 @@ cannot affect a replacement socket. Accepted frames are never resent, and no
 offline or reconnect replay is introduced. Authentication, epochs, sequencing,
 ACK meaning and outer operation deadlines are unchanged.
 
-The existing producer status route emits bounded, redacted `write_backpressure`
+The existing producer `onStatus` callback emits bounded, redacted `write_backpressure`
 queued, started, progress, completed, failed and cancelled lifecycle/timing
 records with request, trace, correlation, causation, job/pass and queue-count/
 byte attribution. Raw frames or audio bodies are not added to status records.
-This transport is shared by MIDI and audio producers; subscription and agent
-delivery acknowledgement remain separate.
+The module is shared by MIDI and audio producers, but the new FIFO applies only
+to audio. MIDI retains its existing immediate accepted-write behavior on false
+and existing offline sample policy. Subscription and agent delivery
+acknowledgement remain separate.
 
 ## Runtime consumers
 

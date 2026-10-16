@@ -1,0 +1,3297 @@
+{
+  "runId": "898d6ca2-584f-4a0d-b1c8-f5865527572d",
+  "instrumentedDiagnosticOnly": true,
+  "acceptancePassed": false,
+  "actorPassed": true,
+  "postconditions": {
+    "schema": "native-listening-postconditions/v1",
+    "passed": true,
+    "checks": {
+      "snapshotPlaying": true,
+      "transportPlaying": true,
+      "recordingInactive": true,
+      "listenerIdle": true,
+      "listenerPassReleased": true,
+      "listenerJobReleased": true,
+      "connectionUnchanged": true,
+      "registrationUnchanged": true,
+      "bindingUnchanged": true
+    },
+    "failedChecks": [],
+    "before": {
+      "snapshotPlaying": {
+        "type": "boolean",
+        "value": false
+      },
+      "transportPlaying": {
+        "type": "boolean",
+        "value": false
+      },
+      "recording": {
+        "type": "object",
+        "sha256": "34273b0ade199171b1d5980b36c3b33b28f98058c054d459fd59e6d8e40b9c45"
+      },
+      "phase": {
+        "type": "string",
+        "value": "idle"
+      },
+      "passId": {
+        "type": "undefined"
+      },
+      "jobId": {
+        "type": "undefined"
+      },
+      "connectionId": {
+        "type": "string",
+        "value": "371a20ce-2a3c-4d93-9f56-019a6b2dcca5"
+      },
+      "registration": {
+        "type": "object",
+        "sha256": "2dbdd016f5d723491565fc813672d614eef54b60b55407a197f38cd5ae0ba9bb"
+      },
+      "inspection": {
+        "type": "array",
+        "sha256": "6c4cb259ca4863031fae237771e48f4cb110f089275f0d54a7a89e7c84eea769"
+      }
+    },
+    "after": {
+      "snapshotPlaying": {
+        "type": "boolean",
+        "value": true
+      },
+      "transportPlaying": {
+        "type": "boolean",
+        "value": true
+      },
+      "recording": {
+        "type": "object",
+        "sha256": "34273b0ade199171b1d5980b36c3b33b28f98058c054d459fd59e6d8e40b9c45"
+      },
+      "phase": {
+        "type": "string",
+        "value": "idle"
+      },
+      "passId": {
+        "type": "undefined"
+      },
+      "jobId": {
+        "type": "undefined"
+      },
+      "connectionId": {
+        "type": "string",
+        "value": "371a20ce-2a3c-4d93-9f56-019a6b2dcca5"
+      },
+      "registration": {
+        "type": "object",
+        "sha256": "2dbdd016f5d723491565fc813672d614eef54b60b55407a197f38cd5ae0ba9bb"
+      },
+      "inspection": {
+        "type": "array",
+        "sha256": "6c4cb259ca4863031fae237771e48f4cb110f089275f0d54a7a89e7c84eea769"
+      }
+    },
+    "differences": [],
+    "differencesTruncated": false
+  },
+  "captureOnlyAfterVerifierFailure": false,
+  "nativeProofIndependentlyAccepted": true,
+  "independentSignalQualified": true,
+  "freshProcessTypedRead": true,
+  "reopenProcessPid": 88732,
+  "contextId": "ddcb4f06-52a3-4d48-a6f0-a854bbd5ac40",
+  "terminalEventId": "79df78eb-a4a2-4dd4-9d6b-84aea9722ed2",
+  "traceId": "136f6147-357d-4d01-b086-c0fbc4468d9c",
+  "terminalAck": {
+    "version": 2,
+    "id": "7761c343-c3cc-4a26-88fb-209e29e59099",
+    "occurredAt": "2026-10-16T20:43:16.629Z",
+    "name": "output.ingress.acknowledged",
+    "source": "output-ingress",
+    "level": "info",
+    "outcome": "success",
+    "correlationId": "listener-58",
+    "trace": {
+      "traceId": "f412e734-b252-4262-80d1-fb76e2eb5b16",
+      "spanId": "fa5bc184-998e-4f40-84a0-a7dc29d912b7",
+      "parentSpanId": "f412e734-b252-4262-80d1-fb76e2eb5b16"
+    },
+    "attributes": {
+      "requestId": "listener-58",
+      "action": "listener",
+      "connectionId": "371a20ce-2a3c-4d93-9f56-019a6b2dcca5"
+    },
+    "sequence": 841,
+    "recordedAt": "2026-10-16T20:43:16.633Z"
+  },
+  "expected": {
+    "policy": {
+      "mode": "descriptive",
+      "maxClockDisagreementSamples": 64
+    },
+    "geometry": {
+      "sampleRate": 48000,
+      "vectorSize": 64,
+      "tempoBpm": 120,
+      "startBeat": 0.25,
+      "endBeat": 60.25,
+      "hopSamples": 4800,
+      "totalSamples": 1440000
+    },
+    "listenerId": "ableton-audio-listener:path:9f82c42276eaf24a280f9e2cc3848437",
+    "passId": "5e308395-5a7e-41c4-a2e8-707fec7441f5"
+  },
+  "observation": {
+    "listenerId": "ableton-audio-listener:path:9f82c42276eaf24a280f9e2cc3848437",
+    "passId": "5e308395-5a7e-41c4-a2e8-707fec7441f5",
+    "sampleRate": 48000,
+    "startSample": 1268736,
+    "endSample": 2708736,
+    "startBeat": 0.25,
+    "endBeat": 60.25,
+    "complete": true,
+    "limitations": [
+      "RMS dBFS is not perceptual LUFS.",
+      "Attacks are 100ms envelope-rise estimates, not exact onsets.",
+      "Each continuous rise emits at most one attack estimate; a plateau or fall rearms it.",
+      "FFT is rectangular 2048-sample non-overlap; stereo complex-bin energies are pooled, never waveforms downmixed.",
+      "Spectral points are latest complete FFT frames, not full 100ms spectral averages.",
+      "Constant tempo is assumed; stability is not independently verified; tempo automation is unsupported.",
+      "Termination: range_complete"
+    ],
+    "algorithm": {
+      "name": "native-max-stereo-energy-envelope-rise",
+      "version": "2.0.0",
+      "windowSamples": 2048,
+      "hopSamples": 4800,
+      "settings": {
+        "attackThresholdDb": 6,
+        "minAttackSpacingSamples": 4800
+      },
+      "units": {
+        "amplitude": "linear",
+        "rms": "dBFS",
+        "centroid": "Hz"
+      }
+    },
+    "summaries": {
+      "peak": [0.5, 0.5],
+      "rmsDbfs": [-24.502382344333178, -24.502382344333178],
+      "centroidHz": 453.04292871962406
+    },
+    "samples": [
+      {
+        "sample": 1273536,
+        "beat": 0.45,
+        "peak": [0.5, 0.5],
+        "rmsDbfs": [-9.059479597440777, -9.059479597440777],
+        "centroidHz": 441.81878382956603
+      },
+      {
+        "sample": 1278336,
+        "beat": 0.65,
+        "peak": [0.5, 0.5],
+        "rmsDbfs": [-15.670807124018676, -15.670807124018676],
+        "centroidHz": null
+      },
+      {
+        "sample": 1283136,
+        "beat": 0.85,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1287936,
+        "beat": 1.05,
+        "peak": [0.5, 0.5],
+        "rmsDbfs": [-15.670807124018676, -15.670807124018676],
+        "centroidHz": null
+      },
+      {
+        "sample": 1292736,
+        "beat": 1.25,
+        "peak": [0.5, 0.5],
+        "rmsDbfs": [-9.030910559543202, -9.030910559543202],
+        "centroidHz": 459.9441430352038
+      },
+      {
+        "sample": 1297536,
+        "beat": 1.45,
+        "peak": [0.5, 0.5],
+        "rmsDbfs": [-9.030910559543202, -9.030910559543202],
+        "centroidHz": 458.299937744762
+      },
+      {
+        "sample": 1302336,
+        "beat": 1.65,
+        "peak": [0.5, 0.5],
+        "rmsDbfs": [-15.670807124018676, -15.670807124018676],
+        "centroidHz": 562.1040773676847
+      },
+      {
+        "sample": 1307136,
+        "beat": 1.85,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1311936,
+        "beat": 2.05,
+        "peak": [0.5, 0.5],
+        "rmsDbfs": [-15.670807124018676, -15.670807124018676],
+        "centroidHz": null
+      },
+      {
+        "sample": 1316736,
+        "beat": 2.25,
+        "peak": [0.5, 0.5],
+        "rmsDbfs": [-9.030910559543202, -9.030910559543202],
+        "centroidHz": 459.8920976545878
+      },
+      {
+        "sample": 1321536,
+        "beat": 2.45,
+        "peak": [0.5, 0.5],
+        "rmsDbfs": [-9.030910559543202, -9.030910559543202],
+        "centroidHz": 445.75964533486007
+      },
+      {
+        "sample": 1326336,
+        "beat": 2.65,
+        "peak": [0.5, 0.5],
+        "rmsDbfs": [-15.670807124018676, -15.670807124018676],
+        "centroidHz": null
+      },
+      {
+        "sample": 1331136,
+        "beat": 2.85,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1335936,
+        "beat": 3.05,
+        "peak": [0.5, 0.5],
+        "rmsDbfs": [-15.670807124018676, -15.670807124018676],
+        "centroidHz": 463.2466056697571
+      },
+      {
+        "sample": 1340736,
+        "beat": 3.25,
+        "peak": [0.5, 0.5],
+        "rmsDbfs": [-9.030910559543202, -9.030910559543202],
+        "centroidHz": 442.64609047990683
+      },
+      {
+        "sample": 1345536,
+        "beat": 3.45,
+        "peak": [0.5, 0.5],
+        "rmsDbfs": [-9.030910559543202, -9.030910559543202],
+        "centroidHz": 452.69054977988236
+      },
+      {
+        "sample": 1350336,
+        "beat": 3.65,
+        "peak": [0.5, 0.5],
+        "rmsDbfs": [-15.670807124018676, -15.670807124018676],
+        "centroidHz": null
+      },
+      {
+        "sample": 1355136,
+        "beat": 3.85,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1359936,
+        "beat": 4.05,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1364736,
+        "beat": 4.25,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1369536,
+        "beat": 4.45,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1374336,
+        "beat": 4.65,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1379136,
+        "beat": 4.85,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1383936,
+        "beat": 5.05,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1388736,
+        "beat": 5.25,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1393536,
+        "beat": 5.45,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1398336,
+        "beat": 5.65,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1403136,
+        "beat": 5.85,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1407936,
+        "beat": 6.05,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1412736,
+        "beat": 6.25,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1417536,
+        "beat": 6.45,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1422336,
+        "beat": 6.65,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1427136,
+        "beat": 6.85,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1431936,
+        "beat": 7.05,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1436736,
+        "beat": 7.25,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1441536,
+        "beat": 7.45,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1446336,
+        "beat": 7.65,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1451136,
+        "beat": 7.85,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1455936,
+        "beat": 8.05,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1460736,
+        "beat": 8.25,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1465536,
+        "beat": 8.45,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1470336,
+        "beat": 8.65,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1475136,
+        "beat": 8.85,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1479936,
+        "beat": 9.05,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1484736,
+        "beat": 9.25,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1489536,
+        "beat": 9.45,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1494336,
+        "beat": 9.65,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1499136,
+        "beat": 9.85,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1503936,
+        "beat": 10.05,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1508736,
+        "beat": 10.25,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1513536,
+        "beat": 10.45,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1518336,
+        "beat": 10.65,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1523136,
+        "beat": 10.85,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1527936,
+        "beat": 11.05,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1532736,
+        "beat": 11.25,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1537536,
+        "beat": 11.45,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1542336,
+        "beat": 11.65,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1547136,
+        "beat": 11.85,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1551936,
+        "beat": 12.05,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1556736,
+        "beat": 12.25,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1561536,
+        "beat": 12.45,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1566336,
+        "beat": 12.65,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1571136,
+        "beat": 12.85,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1575936,
+        "beat": 13.05,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1580736,
+        "beat": 13.25,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1585536,
+        "beat": 13.45,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1590336,
+        "beat": 13.65,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1595136,
+        "beat": 13.85,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1599936,
+        "beat": 14.05,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1604736,
+        "beat": 14.25,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1609536,
+        "beat": 14.45,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1614336,
+        "beat": 14.65,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1619136,
+        "beat": 14.85,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1623936,
+        "beat": 15.05,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1628736,
+        "beat": 15.25,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1633536,
+        "beat": 15.45,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1638336,
+        "beat": 15.65,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1643136,
+        "beat": 15.85,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1647936,
+        "beat": 16.05,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1652736,
+        "beat": 16.25,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1657536,
+        "beat": 16.45,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1662336,
+        "beat": 16.65,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1667136,
+        "beat": 16.85,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1671936,
+        "beat": 17.05,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1676736,
+        "beat": 17.25,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1681536,
+        "beat": 17.45,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1686336,
+        "beat": 17.65,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1691136,
+        "beat": 17.85,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1695936,
+        "beat": 18.05,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1700736,
+        "beat": 18.25,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1705536,
+        "beat": 18.45,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1710336,
+        "beat": 18.65,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1715136,
+        "beat": 18.85,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1719936,
+        "beat": 19.05,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1724736,
+        "beat": 19.25,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1729536,
+        "beat": 19.45,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1734336,
+        "beat": 19.65,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1739136,
+        "beat": 19.85,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1743936,
+        "beat": 20.05,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1748736,
+        "beat": 20.25,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1753536,
+        "beat": 20.45,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1758336,
+        "beat": 20.65,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1763136,
+        "beat": 20.85,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1767936,
+        "beat": 21.05,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1772736,
+        "beat": 21.25,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1777536,
+        "beat": 21.45,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1782336,
+        "beat": 21.65,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1787136,
+        "beat": 21.85,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1791936,
+        "beat": 22.05,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1796736,
+        "beat": 22.25,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1801536,
+        "beat": 22.45,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1806336,
+        "beat": 22.65,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1811136,
+        "beat": 22.85,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1815936,
+        "beat": 23.05,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1820736,
+        "beat": 23.25,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1825536,
+        "beat": 23.45,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1830336,
+        "beat": 23.65,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1835136,
+        "beat": 23.85,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1839936,
+        "beat": 24.05,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1844736,
+        "beat": 24.25,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1849536,
+        "beat": 24.45,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1854336,
+        "beat": 24.65,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1859136,
+        "beat": 24.85,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1863936,
+        "beat": 25.05,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1868736,
+        "beat": 25.25,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1873536,
+        "beat": 25.45,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1878336,
+        "beat": 25.65,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1883136,
+        "beat": 25.85,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1887936,
+        "beat": 26.05,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1892736,
+        "beat": 26.25,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1897536,
+        "beat": 26.45,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1902336,
+        "beat": 26.65,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1907136,
+        "beat": 26.85,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1911936,
+        "beat": 27.05,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1916736,
+        "beat": 27.25,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1921536,
+        "beat": 27.45,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1926336,
+        "beat": 27.65,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1931136,
+        "beat": 27.85,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1935936,
+        "beat": 28.05,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1940736,
+        "beat": 28.25,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1945536,
+        "beat": 28.45,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1950336,
+        "beat": 28.65,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1955136,
+        "beat": 28.85,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1959936,
+        "beat": 29.05,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1964736,
+        "beat": 29.25,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1969536,
+        "beat": 29.45,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1974336,
+        "beat": 29.65,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1979136,
+        "beat": 29.85,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1983936,
+        "beat": 30.05,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1988736,
+        "beat": 30.25,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1993536,
+        "beat": 30.45,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1998336,
+        "beat": 30.65,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2003136,
+        "beat": 30.85,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2007936,
+        "beat": 31.05,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2012736,
+        "beat": 31.25,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2017536,
+        "beat": 31.45,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2022336,
+        "beat": 31.65,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2027136,
+        "beat": 31.85,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2031936,
+        "beat": 32.05,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2036736,
+        "beat": 32.25,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2041536,
+        "beat": 32.45,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2046336,
+        "beat": 32.65,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2051136,
+        "beat": 32.85,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2055936,
+        "beat": 33.05,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2060736,
+        "beat": 33.25,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2065536,
+        "beat": 33.45,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2070336,
+        "beat": 33.65,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2075136,
+        "beat": 33.85,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2079936,
+        "beat": 34.05,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2084736,
+        "beat": 34.25,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2089536,
+        "beat": 34.45,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2094336,
+        "beat": 34.65,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2099136,
+        "beat": 34.85,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2103936,
+        "beat": 35.05,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2108736,
+        "beat": 35.25,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2113536,
+        "beat": 35.45,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2118336,
+        "beat": 35.65,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2123136,
+        "beat": 35.85,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2127936,
+        "beat": 36.05,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2132736,
+        "beat": 36.25,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2137536,
+        "beat": 36.45,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2142336,
+        "beat": 36.65,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2147136,
+        "beat": 36.85,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2151936,
+        "beat": 37.05,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2156736,
+        "beat": 37.25,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2161536,
+        "beat": 37.45,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2166336,
+        "beat": 37.65,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2171136,
+        "beat": 37.85,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2175936,
+        "beat": 38.05,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2180736,
+        "beat": 38.25,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2185536,
+        "beat": 38.45,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2190336,
+        "beat": 38.65,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2195136,
+        "beat": 38.85,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2199936,
+        "beat": 39.05,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2204736,
+        "beat": 39.25,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2209536,
+        "beat": 39.45,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2214336,
+        "beat": 39.65,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2219136,
+        "beat": 39.85,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2223936,
+        "beat": 40.05,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2228736,
+        "beat": 40.25,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2233536,
+        "beat": 40.45,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2238336,
+        "beat": 40.65,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2243136,
+        "beat": 40.85,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2247936,
+        "beat": 41.05,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2252736,
+        "beat": 41.25,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2257536,
+        "beat": 41.45,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2262336,
+        "beat": 41.65,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2267136,
+        "beat": 41.85,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2271936,
+        "beat": 42.05,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2276736,
+        "beat": 42.25,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2281536,
+        "beat": 42.45,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2286336,
+        "beat": 42.65,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2291136,
+        "beat": 42.85,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2295936,
+        "beat": 43.05,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2300736,
+        "beat": 43.25,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2305536,
+        "beat": 43.45,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2310336,
+        "beat": 43.65,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2315136,
+        "beat": 43.85,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2319936,
+        "beat": 44.05,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2324736,
+        "beat": 44.25,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2329536,
+        "beat": 44.45,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2334336,
+        "beat": 44.65,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2339136,
+        "beat": 44.85,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2343936,
+        "beat": 45.05,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2348736,
+        "beat": 45.25,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2353536,
+        "beat": 45.45,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2358336,
+        "beat": 45.65,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2363136,
+        "beat": 45.85,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2367936,
+        "beat": 46.05,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2372736,
+        "beat": 46.25,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2377536,
+        "beat": 46.45,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2382336,
+        "beat": 46.65,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2387136,
+        "beat": 46.85,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2391936,
+        "beat": 47.05,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2396736,
+        "beat": 47.25,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2401536,
+        "beat": 47.45,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2406336,
+        "beat": 47.65,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2411136,
+        "beat": 47.85,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2415936,
+        "beat": 48.05,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2420736,
+        "beat": 48.25,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2425536,
+        "beat": 48.45,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2430336,
+        "beat": 48.65,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2435136,
+        "beat": 48.85,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2439936,
+        "beat": 49.05,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2444736,
+        "beat": 49.25,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2449536,
+        "beat": 49.45,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2454336,
+        "beat": 49.65,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2459136,
+        "beat": 49.85,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2463936,
+        "beat": 50.05,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2468736,
+        "beat": 50.25,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2473536,
+        "beat": 50.45,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2478336,
+        "beat": 50.65,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2483136,
+        "beat": 50.85,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2487936,
+        "beat": 51.05,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2492736,
+        "beat": 51.25,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2497536,
+        "beat": 51.45,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2502336,
+        "beat": 51.65,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2507136,
+        "beat": 51.85,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2511936,
+        "beat": 52.05,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2516736,
+        "beat": 52.25,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2521536,
+        "beat": 52.45,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2526336,
+        "beat": 52.65,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2531136,
+        "beat": 52.85,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2535936,
+        "beat": 53.05,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2540736,
+        "beat": 53.25,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2545536,
+        "beat": 53.45,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2550336,
+        "beat": 53.65,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2555136,
+        "beat": 53.85,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2559936,
+        "beat": 54.05,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2564736,
+        "beat": 54.25,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2569536,
+        "beat": 54.45,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2574336,
+        "beat": 54.65,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2579136,
+        "beat": 54.85,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2583936,
+        "beat": 55.05,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2588736,
+        "beat": 55.25,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2593536,
+        "beat": 55.45,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2598336,
+        "beat": 55.65,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2603136,
+        "beat": 55.85,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2607936,
+        "beat": 56.05,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2612736,
+        "beat": 56.25,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2617536,
+        "beat": 56.45,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2622336,
+        "beat": 56.65,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2627136,
+        "beat": 56.85,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2631936,
+        "beat": 57.05,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2636736,
+        "beat": 57.25,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2641536,
+        "beat": 57.45,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2646336,
+        "beat": 57.65,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2651136,
+        "beat": 57.85,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2655936,
+        "beat": 58.05,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2660736,
+        "beat": 58.25,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2665536,
+        "beat": 58.45,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2670336,
+        "beat": 58.65,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2675136,
+        "beat": 58.85,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2679936,
+        "beat": 59.05,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2684736,
+        "beat": 59.25,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2689536,
+        "beat": 59.45,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2694336,
+        "beat": 59.65,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2699136,
+        "beat": 59.85,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2703936,
+        "beat": 60.05,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 2708736,
+        "beat": 60.25,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      }
+    ],
+    "attacks": [
+      {
+        "sample": 1273536,
+        "beat": 0.45,
+        "strength": 110.94052040255923
+      },
+      {
+        "sample": 1287936,
+        "beat": 1.05,
+        "strength": 104.32919287598132
+      },
+      {
+        "sample": 1311936,
+        "beat": 2.05,
+        "strength": 104.32919287598132
+      },
+      {
+        "sample": 1335936,
+        "beat": 3.05,
+        "strength": 104.32919287598132
+      }
+    ],
+    "reduction": {
+      "originalSamples": 300,
+      "originalAttacks": 4,
+      "truncated": false
+    },
+    "schema": "audio-observation/v2",
+    "alignment": {
+      "schema": "listening-alignment/v2",
+      "policy": {
+        "mode": "descriptive",
+        "maxClockDisagreementSamples": 64
+      },
+      "sampleRate": 48000,
+      "vectorSize": 64,
+      "observedClockDisagreementSamples": 1,
+      "observedBeatDisagreementSamples": 1,
+      "alignment": "approximate",
+      "intendedUse": "descriptive-only",
+      "estimatedAbsoluteErrorSamples": null,
+      "verifiedAbsoluteErrorBoundSamples": null
+    }
+  },
+  "nativeCapture": {
+    "armed": {
+      "scope": "arrangement-descriptive/v2",
+      "policy": {
+        "mode": "descriptive",
+        "maxClockDisagreementSamples": 64
+      },
+      "geometry": {
+        "sampleRate": 48000,
+        "vectorSize": 64,
+        "tempoBpm": 120,
+        "startBeat": 0.25,
+        "endBeat": 60.25,
+        "hopSamples": 4800,
+        "totalSamples": 1440000
+      },
+      "nativeEpoch": 1,
+      "armCounter": 1180160,
+      "before": {
+        "dsp": [1, 48000, 64],
+        "frames": [
+          [0, 0.25, 1163712, 31, 1163712, 0, 1163712, 0, 0.25, 1163712, 31],
+          [0, 0.25, 1164224, 31, 1164224, 0, 1164224, 0, 0.25, 1164224, 31],
+          [0, 0.25, 1164736, 31, 1164736, 0, 1164736, 0, 0.25, 1164736, 31],
+          [0, 0.25, 1165248, 31, 1165248, 0, 1165248, 0, 0.25, 1165248, 31],
+          [0, 0.25, 1165760, 31, 1165760, 0, 1165760, 0, 0.25, 1165760, 31],
+          [0, 0.25, 1166272, 31, 1166272, 0, 1166272, 0, 0.25, 1166272, 31],
+          [0, 0.25, 1166784, 31, 1166784, 0, 1166784, 0, 0.25, 1166784, 31],
+          [0, 0.25, 1167296, 31, 1167296, 0, 1167296, 0, 0.25, 1167296, 31],
+          [0, 0.25, 1167808, 31, 1167808, 0, 1167808, 0, 0.25, 1167808, 31],
+          [0, 0.25, 1168320, 31, 1168320, 0, 1168320, 0, 0.25, 1168320, 31],
+          [0, 0.25, 1168832, 31, 1168832, 0, 1168832, 0, 0.25, 1168832, 31],
+          [0, 0.25, 1169344, 31, 1169344, 0, 1169344, 0, 0.25, 1169344, 31],
+          [0, 0.25, 1169856, 31, 1169856, 0, 1169856, 0, 0.25, 1169856, 31],
+          [0, 0.25, 1170368, 31, 1170368, 0, 1170368, 0, 0.25, 1170368, 31],
+          [0, 0.25, 1170880, 31, 1170880, 0, 1170880, 0, 0.25, 1170880, 31],
+          [0, 0.25, 1171392, 31, 1171392, 0, 1171392, 0, 0.25, 1171392, 31],
+          [0, 0.25, 1171904, 31, 1171904, 0, 1171904, 0, 0.25, 1171904, 31],
+          [0, 0.25, 1172416, 31, 1172416, 0, 1172416, 0, 0.25, 1172416, 31],
+          [0, 0.25, 1172928, 31, 1172928, 0, 1172928, 0, 0.25, 1172928, 31],
+          [0, 0.25, 1173440, 31, 1173440, 0, 1173440, 0, 0.25, 1173440, 31],
+          [0, 0.25, 1173952, 31, 1173952, 0, 1173952, 0, 0.25, 1173952, 31],
+          [0, 0.25, 1174464, 31, 1174464, 0, 1174464, 0, 0.25, 1174464, 31],
+          [0, 0.25, 1174976, 31, 1174976, 0, 1174976, 0, 0.25, 1174976, 31],
+          [0, 0.25, 1175488, 31, 1175488, 0, 1175488, 0, 0.25, 1175488, 31],
+          [0, 0.25, 1176000, 31, 1176000, 0, 1176000, 0, 0.25, 1176000, 31],
+          [0, 0.25, 1176512, 31, 1176512, 0, 1176512, 0, 0.25, 1176512, 31],
+          [0, 0.25, 1177024, 31, 1177024, 0, 1177024, 0, 0.25, 1177024, 31],
+          [0, 0.25, 1177536, 31, 1177536, 0, 1177536, 0, 0.25, 1177536, 31],
+          [0, 0.25, 1178048, 31, 1178048, 0, 1178048, 0, 0.25, 1178048, 31],
+          [0, 0.25, 1178560, 31, 1178560, 0, 1178560, 0, 0.25, 1178560, 31],
+          [0, 0.25, 1179072, 31, 1179072, 0, 1179072, 0, 0.25, 1179072, 31],
+          [0, 0.25, 1179584, 31, 1179584, 0, 1179584, 0, 0.25, 1179584, 31]
+        ]
+      },
+      "reset": {
+        "launchClock": -1,
+        "sourceClock": -1,
+        "onsetCount": 0,
+        "rejected": 0,
+        "active": 0,
+        "launchPhaseSamples": -1,
+        "firstSourceClock": -1,
+        "completedSamples": 0
+      }
+    },
+    "launched": {
+      "nativeEpoch": 1,
+      "armCounter": 1180160,
+      "launchClock": 88576,
+      "launchPhaseSamples": 0,
+      "rejected": 0,
+      "active": 1,
+      "host": {
+        "sample": 1269184,
+        "beat": 0.268666666666667,
+        "flags": 31,
+        "playing": true
+      }
+    },
+    "after": {
+      "dsp": [1, 48000, 64],
+      "frames": [
+        [
+          1, 60.279333333333355, 2709439, 31, 2709440, 0.279333333333355,
+          2709440, 1, 60.279333333333355, 2709439, 31
+        ],
+        [
+          1, 60.300666666666686, 2709951, 31, 2709952, 0.300666666666686,
+          2709952, 1, 60.300666666666686, 2709951, 31
+        ],
+        [
+          1, 60.322000000000024, 2710463, 31, 2710464, 0.322000000000024,
+          2710464, 1, 60.322000000000024, 2710463, 31
+        ],
+        [
+          1, 60.343333333333355, 2710975, 31, 2710976, 0.343333333333355,
+          2710976, 1, 60.343333333333355, 2710975, 31
+        ],
+        [
+          1, 60.364666666666686, 2711487, 31, 2711488, 0.364666666666686,
+          2711488, 1, 60.364666666666686, 2711487, 31
+        ],
+        [
+          1, 60.386000000000024, 2711999, 31, 2712000, 0.386000000000024,
+          2712000, 1, 60.386000000000024, 2711999, 31
+        ],
+        [
+          1, 60.407333333333355, 2712511, 31, 2712512, 0.407333333333355,
+          2712512, 1, 60.407333333333355, 2712511, 31
+        ],
+        [
+          1, 60.428666666666686, 2713023, 31, 2713024, 0.428666666666686,
+          2713024, 1, 60.428666666666686, 2713023, 31
+        ],
+        [
+          1, 60.450000000000024, 2713535, 31, 2713536, 0.450000000000024,
+          2713536, 1, 60.450000000000024, 2713535, 31
+        ],
+        [
+          1, 60.471333333333355, 2714047, 31, 2714048, 0.471333333333355,
+          2714048, 1, 60.471333333333355, 2714047, 31
+        ],
+        [
+          1, 60.492666666666686, 2714559, 31, 2714560, 0.492666666666686,
+          2714560, 1, 60.492666666666686, 2714559, 31
+        ],
+        [
+          1, 60.514000000000024, 2715071, 31, 2715072, 0.514000000000024,
+          2715072, 1, 60.514000000000024, 2715071, 31
+        ],
+        [
+          1, 60.535333333333355, 2715583, 31, 2715584, 0.535333333333355,
+          2715584, 1, 60.535333333333355, 2715583, 31
+        ],
+        [
+          1, 60.556666666666686, 2716095, 31, 2716096, 0.556666666666686,
+          2716096, 1, 60.556666666666686, 2716095, 31
+        ],
+        [
+          1, 60.578000000000024, 2716607, 31, 2716608, 0.578000000000024,
+          2716608, 1, 60.578000000000024, 2716607, 31
+        ],
+        [
+          1, 60.599333333333355, 2717119, 31, 2717120, 0.599333333333355,
+          2717120, 1, 60.599333333333355, 2717119, 31
+        ],
+        [
+          1, 60.620666666666686, 2717631, 31, 2717632, 0.620666666666686,
+          2717632, 1, 60.620666666666686, 2717631, 31
+        ],
+        [
+          1, 60.642000000000024, 2718143, 31, 2718144, 0.642000000000024,
+          2718144, 1, 60.642000000000024, 2718143, 31
+        ],
+        [
+          1, 60.663333333333355, 2718655, 31, 2718656, 0.663333333333355,
+          2718656, 1, 60.663333333333355, 2718655, 31
+        ],
+        [
+          1, 60.684666666666686, 2719167, 31, 2719168, 0.684666666666686,
+          2719168, 1, 60.684666666666686, 2719167, 31
+        ],
+        [
+          1, 60.70600000000002, 2719679, 31, 2719680, 0.706000000000017,
+          2719680, 1, 60.70600000000002, 2719679, 31
+        ],
+        [
+          1, 60.727333333333355, 2720191, 31, 2720192, 0.727333333333355,
+          2720192, 1, 60.727333333333355, 2720191, 31
+        ],
+        [
+          1, 60.748666666666686, 2720703, 31, 2720704, 0.748666666666686,
+          2720704, 1, 60.748666666666686, 2720703, 31
+        ],
+        [
+          1, 60.77000000000002, 2721215, 31, 2721216, 0.770000000000017,
+          2721216, 1, 60.77000000000002, 2721215, 31
+        ],
+        [
+          1, 60.791333333333355, 2721727, 31, 2721728, 0.791333333333355,
+          2721728, 1, 60.791333333333355, 2721727, 31
+        ],
+        [
+          1, 60.812666666666686, 2722239, 31, 2722240, 0.812666666666686,
+          2722240, 1, 60.812666666666686, 2722239, 31
+        ],
+        [
+          1, 60.83400000000002, 2722751, 31, 2722752, 0.834000000000017,
+          2722752, 1, 60.83400000000002, 2722751, 31
+        ],
+        [
+          1, 60.855333333333355, 2723263, 31, 2723264, 0.855333333333355,
+          2723264, 1, 60.855333333333355, 2723263, 31
+        ],
+        [
+          1, 60.87666666666669, 2723775, 31, 2723776, 0.876666666666686,
+          2723776, 1, 60.87666666666669, 2723775, 31
+        ],
+        [
+          1, 60.89800000000002, 2724287, 31, 2724288, 0.898000000000017,
+          2724288, 1, 60.89800000000002, 2724287, 31
+        ],
+        [
+          1, 60.919333333333356, 2724799, 31, 2724800, 0.919333333333356,
+          2724800, 1, 60.919333333333356, 2724799, 31
+        ],
+        [
+          1, 60.94066666666669, 2725311, 31, 2725312, 0.940666666666687,
+          2725312, 1, 60.94066666666669, 2725311, 31
+        ]
+      ]
+    },
+    "timingWitnesses": {
+      "minHostOffset": [
+        1, 26.188666666666663, 1891263, 31, 1891264, 0.188666666666663, 1891264,
+        1, 26.188666666666663, 1891263, 31
+      ],
+      "maxHostOffset": [
+        0, 0.25, 1163712, 31, 1163712, 0, 1163712, 0, 0.25, 1163712, 31
+      ],
+      "minBeatOrigin": [
+        1, 26.188666666666663, 1891263, 31, 1891264, 0.188666666666663, 1891264,
+        1, 26.188666666666663, 1891263, 31
+      ],
+      "maxBeatOrigin": [
+        1, 0.268666666666667, 1269184, 31, 1269184, 0.268666666666667, 1269184,
+        1, 0.268666666666667, 1269184, 31
+      ],
+      "maxPhaseDisagreement": [
+        1, 0.268666666666667, 1269184, 31, 1269184, 0.268666666666667, 1269184,
+        1, 0.268666666666667, 1269184, 31
+      ]
+    },
+    "envelopeWindows": [
+      [1273536, 0.352391983467829, 0.352391983467829],
+      [1278336, 0.164611299649744, 0.164611299649744],
+      [1283136, 0, 0],
+      [1287936, 0.164611299649744, 0.164611299649744],
+      [1292736, 0.353552955479479, 0.353552955479479],
+      [1297536, 0.353552955479479, 0.353552955479479],
+      [1302336, 0.164611299649744, 0.164611299649744],
+      [1307136, 0, 0],
+      [1311936, 0.164611299649744, 0.164611299649744],
+      [1316736, 0.353552955479479, 0.353552955479479],
+      [1321536, 0.353552955479479, 0.353552955479479],
+      [1326336, 0.164611299649744, 0.164611299649744],
+      [1331136, 0, 0],
+      [1335936, 0.164611299649744, 0.164611299649744],
+      [1340736, 0.353552955479479, 0.353552955479479],
+      [1345536, 0.353552955479479, 0.353552955479479],
+      [1350336, 0.164611299649744, 0.164611299649744],
+      [1355136, 0, 0],
+      [1359936, 0, 0],
+      [1364736, 0, 0],
+      [1369536, 0, 0],
+      [1374336, 0, 0],
+      [1379136, 0, 0],
+      [1383936, 0, 0],
+      [1388736, 0, 0],
+      [1393536, 0, 0],
+      [1398336, 0, 0],
+      [1403136, 0, 0],
+      [1407936, 0, 0],
+      [1412736, 0, 0],
+      [1417536, 0, 0],
+      [1422336, 0, 0],
+      [1427136, 0, 0],
+      [1431936, 0, 0],
+      [1436736, 0, 0],
+      [1441536, 0, 0],
+      [1446336, 0, 0],
+      [1451136, 0, 0],
+      [1455936, 0, 0],
+      [1460736, 0, 0],
+      [1465536, 0, 0],
+      [1470336, 0, 0],
+      [1475136, 0, 0],
+      [1479936, 0, 0],
+      [1484736, 0, 0],
+      [1489536, 0, 0],
+      [1494336, 0, 0],
+      [1499136, 0, 0],
+      [1503936, 0, 0],
+      [1508736, 0, 0],
+      [1513536, 0, 0],
+      [1518336, 0, 0],
+      [1523136, 0, 0],
+      [1527936, 0, 0],
+      [1532736, 0, 0],
+      [1537536, 0, 0],
+      [1542336, 0, 0],
+      [1547136, 0, 0],
+      [1551936, 0, 0],
+      [1556736, 0, 0],
+      [1561536, 0, 0],
+      [1566336, 0, 0],
+      [1571136, 0, 0],
+      [1575936, 0, 0],
+      [1580736, 0, 0],
+      [1585536, 0, 0],
+      [1590336, 0, 0],
+      [1595136, 0, 0],
+      [1599936, 0, 0],
+      [1604736, 0, 0],
+      [1609536, 0, 0],
+      [1614336, 0, 0],
+      [1619136, 0, 0],
+      [1623936, 0, 0],
+      [1628736, 0, 0],
+      [1633536, 0, 0],
+      [1638336, 0, 0],
+      [1643136, 0, 0],
+      [1647936, 0, 0],
+      [1652736, 0, 0],
+      [1657536, 0, 0],
+      [1662336, 0, 0],
+      [1667136, 0, 0],
+      [1671936, 0, 0],
+      [1676736, 0, 0],
+      [1681536, 0, 0],
+      [1686336, 0, 0],
+      [1691136, 0, 0],
+      [1695936, 0, 0],
+      [1700736, 0, 0],
+      [1705536, 0, 0],
+      [1710336, 0, 0],
+      [1715136, 0, 0],
+      [1719936, 0, 0],
+      [1724736, 0, 0],
+      [1729536, 0, 0],
+      [1734336, 0, 0],
+      [1739136, 0, 0],
+      [1743936, 0, 0],
+      [1748736, 0, 0],
+      [1753536, 0, 0],
+      [1758336, 0, 0],
+      [1763136, 0, 0],
+      [1767936, 0, 0],
+      [1772736, 0, 0],
+      [1777536, 0, 0],
+      [1782336, 0, 0],
+      [1787136, 0, 0],
+      [1791936, 0, 0],
+      [1796736, 0, 0],
+      [1801536, 0, 0],
+      [1806336, 0, 0],
+      [1811136, 0, 0],
+      [1815936, 0, 0],
+      [1820736, 0, 0],
+      [1825536, 0, 0],
+      [1830336, 0, 0],
+      [1835136, 0, 0],
+      [1839936, 0, 0],
+      [1844736, 0, 0],
+      [1849536, 0, 0],
+      [1854336, 0, 0],
+      [1859136, 0, 0],
+      [1863936, 0, 0],
+      [1868736, 0, 0],
+      [1873536, 0, 0],
+      [1878336, 0, 0],
+      [1883136, 0, 0],
+      [1887936, 0, 0],
+      [1892736, 0, 0],
+      [1897536, 0, 0],
+      [1902336, 0, 0],
+      [1907136, 0, 0],
+      [1911936, 0, 0],
+      [1916736, 0, 0],
+      [1921536, 0, 0],
+      [1926336, 0, 0],
+      [1931136, 0, 0],
+      [1935936, 0, 0],
+      [1940736, 0, 0],
+      [1945536, 0, 0],
+      [1950336, 0, 0],
+      [1955136, 0, 0],
+      [1959936, 0, 0],
+      [1964736, 0, 0],
+      [1969536, 0, 0],
+      [1974336, 0, 0],
+      [1979136, 0, 0],
+      [1983936, 0, 0],
+      [1988736, 0, 0],
+      [1993536, 0, 0],
+      [1998336, 0, 0],
+      [2003136, 0, 0],
+      [2007936, 0, 0],
+      [2012736, 0, 0],
+      [2017536, 0, 0],
+      [2022336, 0, 0],
+      [2027136, 0, 0],
+      [2031936, 0, 0],
+      [2036736, 0, 0],
+      [2041536, 0, 0],
+      [2046336, 0, 0],
+      [2051136, 0, 0],
+      [2055936, 0, 0],
+      [2060736, 0, 0],
+      [2065536, 0, 0],
+      [2070336, 0, 0],
+      [2075136, 0, 0],
+      [2079936, 0, 0],
+      [2084736, 0, 0],
+      [2089536, 0, 0],
+      [2094336, 0, 0],
+      [2099136, 0, 0],
+      [2103936, 0, 0],
+      [2108736, 0, 0],
+      [2113536, 0, 0],
+      [2118336, 0, 0],
+      [2123136, 0, 0],
+      [2127936, 0, 0],
+      [2132736, 0, 0],
+      [2137536, 0, 0],
+      [2142336, 0, 0],
+      [2147136, 0, 0],
+      [2151936, 0, 0],
+      [2156736, 0, 0],
+      [2161536, 0, 0],
+      [2166336, 0, 0],
+      [2171136, 0, 0],
+      [2175936, 0, 0],
+      [2180736, 0, 0],
+      [2185536, 0, 0],
+      [2190336, 0, 0],
+      [2195136, 0, 0],
+      [2199936, 0, 0],
+      [2204736, 0, 0],
+      [2209536, 0, 0],
+      [2214336, 0, 0],
+      [2219136, 0, 0],
+      [2223936, 0, 0],
+      [2228736, 0, 0],
+      [2233536, 0, 0],
+      [2238336, 0, 0],
+      [2243136, 0, 0],
+      [2247936, 0, 0],
+      [2252736, 0, 0],
+      [2257536, 0, 0],
+      [2262336, 0, 0],
+      [2267136, 0, 0],
+      [2271936, 0, 0],
+      [2276736, 0, 0],
+      [2281536, 0, 0],
+      [2286336, 0, 0],
+      [2291136, 0, 0],
+      [2295936, 0, 0],
+      [2300736, 0, 0],
+      [2305536, 0, 0],
+      [2310336, 0, 0],
+      [2315136, 0, 0],
+      [2319936, 0, 0],
+      [2324736, 0, 0],
+      [2329536, 0, 0],
+      [2334336, 0, 0],
+      [2339136, 0, 0],
+      [2343936, 0, 0],
+      [2348736, 0, 0],
+      [2353536, 0, 0],
+      [2358336, 0, 0],
+      [2363136, 0, 0],
+      [2367936, 0, 0],
+      [2372736, 0, 0],
+      [2377536, 0, 0],
+      [2382336, 0, 0],
+      [2387136, 0, 0],
+      [2391936, 0, 0],
+      [2396736, 0, 0],
+      [2401536, 0, 0],
+      [2406336, 0, 0],
+      [2411136, 0, 0],
+      [2415936, 0, 0],
+      [2420736, 0, 0],
+      [2425536, 0, 0],
+      [2430336, 0, 0],
+      [2435136, 0, 0],
+      [2439936, 0, 0],
+      [2444736, 0, 0],
+      [2449536, 0, 0],
+      [2454336, 0, 0],
+      [2459136, 0, 0],
+      [2463936, 0, 0],
+      [2468736, 0, 0],
+      [2473536, 0, 0],
+      [2478336, 0, 0],
+      [2483136, 0, 0],
+      [2487936, 0, 0],
+      [2492736, 0, 0],
+      [2497536, 0, 0],
+      [2502336, 0, 0],
+      [2507136, 0, 0],
+      [2511936, 0, 0],
+      [2516736, 0, 0],
+      [2521536, 0, 0],
+      [2526336, 0, 0],
+      [2531136, 0, 0],
+      [2535936, 0, 0],
+      [2540736, 0, 0],
+      [2545536, 0, 0],
+      [2550336, 0, 0],
+      [2555136, 0, 0],
+      [2559936, 0, 0],
+      [2564736, 0, 0],
+      [2569536, 0, 0],
+      [2574336, 0, 0],
+      [2579136, 0, 0],
+      [2583936, 0, 0],
+      [2588736, 0, 0],
+      [2593536, 0, 0],
+      [2598336, 0, 0],
+      [2603136, 0, 0],
+      [2607936, 0, 0],
+      [2612736, 0, 0],
+      [2617536, 0, 0],
+      [2622336, 0, 0],
+      [2627136, 0, 0],
+      [2631936, 0, 0],
+      [2636736, 0, 0],
+      [2641536, 0, 0],
+      [2646336, 0, 0],
+      [2651136, 0, 0],
+      [2655936, 0, 0],
+      [2660736, 0, 0],
+      [2665536, 0, 0],
+      [2670336, 0, 0],
+      [2675136, 0, 0],
+      [2679936, 0, 0],
+      [2684736, 0, 0],
+      [2689536, 0, 0],
+      [2694336, 0, 0],
+      [2699136, 0, 0],
+      [2703936, 0, 0],
+      [2708736, 0, 0]
+    ],
+    "spectralWindows": [
+      [1269760, 1271808, 441.81878382956603, 520135.6717988739],
+      [1275904, 1277952, 0, 0],
+      [1280000, 1282048, 0, 0],
+      [1284096, 1286144, 0, 0],
+      [1290240, 1292288, 459.9441430352038, 528684.8023917441],
+      [1294336, 1296384, 458.299937744762, 527897.9378773061],
+      [1298432, 1300480, 562.1040773676847, 38230.12592565449],
+      [1304576, 1306624, 0, 0],
+      [1308672, 1310720, 0, 0],
+      [1312768, 1314816, 459.8920976545878, 528660.0993741144],
+      [1318912, 1320960, 445.75964533486007, 521970.9242070699],
+      [1323008, 1325056, 0, 0],
+      [1327104, 1329152, 0, 0],
+      [1333248, 1335296, 463.2466056697571, 100213.62478667877],
+      [1337344, 1339392, 442.64609047990683, 520519.9940683018],
+      [1343488, 1345536, 452.69054977988236, 525230.3071698791],
+      [1347584, 1349632, 0, 0],
+      [1351680, 1353728, 0, 0],
+      [1357824, 1359872, 0, 0],
+      [1361920, 1363968, 0, 0],
+      [1366016, 1368064, 0, 0],
+      [1372160, 1374208, 0, 0],
+      [1376256, 1378304, 0, 0],
+      [1380352, 1382400, 0, 0],
+      [1386496, 1388544, 0, 0],
+      [1390592, 1392640, 0, 0],
+      [1394688, 1396736, 0, 0],
+      [1400832, 1402880, 0, 0],
+      [1404928, 1406976, 0, 0],
+      [1409024, 1411072, 0, 0],
+      [1415168, 1417216, 0, 0],
+      [1419264, 1421312, 0, 0],
+      [1423360, 1425408, 0, 0],
+      [1429504, 1431552, 0, 0],
+      [1433600, 1435648, 0, 0],
+      [1437696, 1439744, 0, 0],
+      [1443840, 1445888, 0, 0],
+      [1447936, 1449984, 0, 0],
+      [1452032, 1454080, 0, 0],
+      [1458176, 1460224, 0, 0],
+      [1462272, 1464320, 0, 0],
+      [1466368, 1468416, 0, 0],
+      [1472512, 1474560, 0, 0],
+      [1476608, 1478656, 0, 0],
+      [1480704, 1482752, 0, 0],
+      [1486848, 1488896, 0, 0],
+      [1490944, 1492992, 0, 0],
+      [1497088, 1499136, 0, 0],
+      [1501184, 1503232, 0, 0],
+      [1505280, 1507328, 0, 0],
+      [1511424, 1513472, 0, 0],
+      [1515520, 1517568, 0, 0],
+      [1519616, 1521664, 0, 0],
+      [1525760, 1527808, 0, 0],
+      [1529856, 1531904, 0, 0],
+      [1533952, 1536000, 0, 0],
+      [1540096, 1542144, 0, 0],
+      [1544192, 1546240, 0, 0],
+      [1548288, 1550336, 0, 0],
+      [1554432, 1556480, 0, 0],
+      [1558528, 1560576, 0, 0],
+      [1562624, 1564672, 0, 0],
+      [1568768, 1570816, 0, 0],
+      [1572864, 1574912, 0, 0],
+      [1576960, 1579008, 0, 0],
+      [1583104, 1585152, 0, 0],
+      [1587200, 1589248, 0, 0],
+      [1591296, 1593344, 0, 0],
+      [1597440, 1599488, 0, 0],
+      [1601536, 1603584, 0, 0],
+      [1605632, 1607680, 0, 0],
+      [1611776, 1613824, 0, 0],
+      [1615872, 1617920, 0, 0],
+      [1619968, 1622016, 0, 0],
+      [1626112, 1628160, 0, 0],
+      [1630208, 1632256, 0, 0],
+      [1634304, 1636352, 0, 0],
+      [1640448, 1642496, 0, 0],
+      [1644544, 1646592, 0, 0],
+      [1650688, 1652736, 0, 0],
+      [1654784, 1656832, 0, 0],
+      [1658880, 1660928, 0, 0],
+      [1665024, 1667072, 0, 0],
+      [1669120, 1671168, 0, 0],
+      [1673216, 1675264, 0, 0],
+      [1679360, 1681408, 0, 0],
+      [1683456, 1685504, 0, 0],
+      [1687552, 1689600, 0, 0],
+      [1693696, 1695744, 0, 0],
+      [1697792, 1699840, 0, 0],
+      [1701888, 1703936, 0, 0],
+      [1708032, 1710080, 0, 0],
+      [1712128, 1714176, 0, 0],
+      [1716224, 1718272, 0, 0],
+      [1722368, 1724416, 0, 0],
+      [1726464, 1728512, 0, 0],
+      [1730560, 1732608, 0, 0],
+      [1736704, 1738752, 0, 0],
+      [1740800, 1742848, 0, 0],
+      [1744896, 1746944, 0, 0],
+      [1751040, 1753088, 0, 0],
+      [1755136, 1757184, 0, 0],
+      [1759232, 1761280, 0, 0],
+      [1765376, 1767424, 0, 0],
+      [1769472, 1771520, 0, 0],
+      [1773568, 1775616, 0, 0],
+      [1779712, 1781760, 0, 0],
+      [1783808, 1785856, 0, 0],
+      [1787904, 1789952, 0, 0],
+      [1794048, 1796096, 0, 0],
+      [1798144, 1800192, 0, 0],
+      [1804288, 1806336, 0, 0],
+      [1808384, 1810432, 0, 0],
+      [1812480, 1814528, 0, 0],
+      [1818624, 1820672, 0, 0],
+      [1822720, 1824768, 0, 0],
+      [1826816, 1828864, 0, 0],
+      [1832960, 1835008, 0, 0],
+      [1837056, 1839104, 0, 0],
+      [1841152, 1843200, 0, 0],
+      [1847296, 1849344, 0, 0],
+      [1851392, 1853440, 0, 0],
+      [1855488, 1857536, 0, 0],
+      [1861632, 1863680, 0, 0],
+      [1865728, 1867776, 0, 0],
+      [1869824, 1871872, 0, 0],
+      [1875968, 1878016, 0, 0],
+      [1880064, 1882112, 0, 0],
+      [1884160, 1886208, 0, 0],
+      [1890304, 1892352, 0, 0],
+      [1894400, 1896448, 0, 0],
+      [1898496, 1900544, 0, 0],
+      [1904640, 1906688, 0, 0],
+      [1908736, 1910784, 0, 0],
+      [1912832, 1914880, 0, 0],
+      [1918976, 1921024, 0, 0],
+      [1923072, 1925120, 0, 0],
+      [1927168, 1929216, 0, 0],
+      [1933312, 1935360, 0, 0],
+      [1937408, 1939456, 0, 0],
+      [1941504, 1943552, 0, 0],
+      [1947648, 1949696, 0, 0],
+      [1951744, 1953792, 0, 0],
+      [1957888, 1959936, 0, 0],
+      [1961984, 1964032, 0, 0],
+      [1966080, 1968128, 0, 0],
+      [1972224, 1974272, 0, 0],
+      [1976320, 1978368, 0, 0],
+      [1980416, 1982464, 0, 0],
+      [1986560, 1988608, 0, 0],
+      [1990656, 1992704, 0, 0],
+      [1994752, 1996800, 0, 0],
+      [2000896, 2002944, 0, 0],
+      [2004992, 2007040, 0, 0],
+      [2009088, 2011136, 0, 0],
+      [2015232, 2017280, 0, 0],
+      [2019328, 2021376, 0, 0],
+      [2023424, 2025472, 0, 0],
+      [2029568, 2031616, 0, 0],
+      [2033664, 2035712, 0, 0],
+      [2037760, 2039808, 0, 0],
+      [2043904, 2045952, 0, 0],
+      [2048000, 2050048, 0, 0],
+      [2052096, 2054144, 0, 0],
+      [2058240, 2060288, 0, 0],
+      [2062336, 2064384, 0, 0],
+      [2066432, 2068480, 0, 0],
+      [2072576, 2074624, 0, 0],
+      [2076672, 2078720, 0, 0],
+      [2080768, 2082816, 0, 0],
+      [2086912, 2088960, 0, 0],
+      [2091008, 2093056, 0, 0],
+      [2095104, 2097152, 0, 0],
+      [2101248, 2103296, 0, 0],
+      [2105344, 2107392, 0, 0],
+      [2111488, 2113536, 0, 0],
+      [2115584, 2117632, 0, 0],
+      [2119680, 2121728, 0, 0],
+      [2125824, 2127872, 0, 0],
+      [2129920, 2131968, 0, 0],
+      [2134016, 2136064, 0, 0],
+      [2140160, 2142208, 0, 0],
+      [2144256, 2146304, 0, 0],
+      [2148352, 2150400, 0, 0],
+      [2154496, 2156544, 0, 0],
+      [2158592, 2160640, 0, 0],
+      [2162688, 2164736, 0, 0],
+      [2168832, 2170880, 0, 0],
+      [2172928, 2174976, 0, 0],
+      [2177024, 2179072, 0, 0],
+      [2183168, 2185216, 0, 0],
+      [2187264, 2189312, 0, 0],
+      [2191360, 2193408, 0, 0],
+      [2197504, 2199552, 0, 0],
+      [2201600, 2203648, 0, 0],
+      [2205696, 2207744, 0, 0],
+      [2211840, 2213888, 0, 0],
+      [2215936, 2217984, 0, 0],
+      [2220032, 2222080, 0, 0],
+      [2226176, 2228224, 0, 0],
+      [2230272, 2232320, 0, 0],
+      [2234368, 2236416, 0, 0],
+      [2240512, 2242560, 0, 0],
+      [2244608, 2246656, 0, 0],
+      [2248704, 2250752, 0, 0],
+      [2254848, 2256896, 0, 0],
+      [2258944, 2260992, 0, 0],
+      [2265088, 2267136, 0, 0],
+      [2269184, 2271232, 0, 0],
+      [2273280, 2275328, 0, 0],
+      [2279424, 2281472, 0, 0],
+      [2283520, 2285568, 0, 0],
+      [2287616, 2289664, 0, 0],
+      [2293760, 2295808, 0, 0],
+      [2297856, 2299904, 0, 0],
+      [2301952, 2304000, 0, 0],
+      [2308096, 2310144, 0, 0],
+      [2312192, 2314240, 0, 0],
+      [2316288, 2318336, 0, 0],
+      [2322432, 2324480, 0, 0],
+      [2326528, 2328576, 0, 0],
+      [2330624, 2332672, 0, 0],
+      [2336768, 2338816, 0, 0],
+      [2340864, 2342912, 0, 0],
+      [2344960, 2347008, 0, 0],
+      [2351104, 2353152, 0, 0],
+      [2355200, 2357248, 0, 0],
+      [2359296, 2361344, 0, 0],
+      [2365440, 2367488, 0, 0],
+      [2369536, 2371584, 0, 0],
+      [2373632, 2375680, 0, 0],
+      [2379776, 2381824, 0, 0],
+      [2383872, 2385920, 0, 0],
+      [2387968, 2390016, 0, 0],
+      [2394112, 2396160, 0, 0],
+      [2398208, 2400256, 0, 0],
+      [2402304, 2404352, 0, 0],
+      [2408448, 2410496, 0, 0],
+      [2412544, 2414592, 0, 0],
+      [2418688, 2420736, 0, 0],
+      [2422784, 2424832, 0, 0],
+      [2426880, 2428928, 0, 0],
+      [2433024, 2435072, 0, 0],
+      [2437120, 2439168, 0, 0],
+      [2441216, 2443264, 0, 0],
+      [2447360, 2449408, 0, 0],
+      [2451456, 2453504, 0, 0],
+      [2455552, 2457600, 0, 0],
+      [2461696, 2463744, 0, 0],
+      [2465792, 2467840, 0, 0],
+      [2469888, 2471936, 0, 0],
+      [2476032, 2478080, 0, 0],
+      [2480128, 2482176, 0, 0],
+      [2484224, 2486272, 0, 0],
+      [2490368, 2492416, 0, 0],
+      [2494464, 2496512, 0, 0],
+      [2498560, 2500608, 0, 0],
+      [2504704, 2506752, 0, 0],
+      [2508800, 2510848, 0, 0],
+      [2512896, 2514944, 0, 0],
+      [2519040, 2521088, 0, 0],
+      [2523136, 2525184, 0, 0],
+      [2527232, 2529280, 0, 0],
+      [2533376, 2535424, 0, 0],
+      [2537472, 2539520, 0, 0],
+      [2541568, 2543616, 0, 0],
+      [2547712, 2549760, 0, 0],
+      [2551808, 2553856, 0, 0],
+      [2555904, 2557952, 0, 0],
+      [2562048, 2564096, 0, 0],
+      [2566144, 2568192, 0, 0],
+      [2572288, 2574336, 0, 0],
+      [2576384, 2578432, 0, 0],
+      [2580480, 2582528, 0, 0],
+      [2586624, 2588672, 0, 0],
+      [2590720, 2592768, 0, 0],
+      [2594816, 2596864, 0, 0],
+      [2600960, 2603008, 0, 0],
+      [2605056, 2607104, 0, 0],
+      [2609152, 2611200, 0, 0],
+      [2615296, 2617344, 0, 0],
+      [2619392, 2621440, 0, 0],
+      [2623488, 2625536, 0, 0],
+      [2629632, 2631680, 0, 0],
+      [2633728, 2635776, 0, 0],
+      [2637824, 2639872, 0, 0],
+      [2643968, 2646016, 0, 0],
+      [2648064, 2650112, 0, 0],
+      [2652160, 2654208, 0, 0],
+      [2658304, 2660352, 0, 0],
+      [2662400, 2664448, 0, 0],
+      [2666496, 2668544, 0, 0],
+      [2672640, 2674688, 0, 0],
+      [2676736, 2678784, 0, 0],
+      [2680832, 2682880, 0, 0],
+      [2686976, 2689024, 0, 0],
+      [2691072, 2693120, 0, 0],
+      [2695168, 2697216, 0, 0],
+      [2701312, 2703360, 0, 0],
+      [2705408, 2707456, 0, 0]
+    ]
+  },
+  "positiveSpectralWindows": 9,
+  "spectralEnergy": 3811543.4875996225,
+  "sourceOverrides": [
+    {
+      "name": "audio_listener_native_controller.js",
+      "kind": "explicit-current-production-controller",
+      "baselineSha256": "99d99488058988fb88e7cc866fcd28fe3a9df988997b887ace68344299d5cfd5",
+      "sha256": "f6e1e2de0230c86fe2d534f98400648edb3160deaacbb2bb88e74bf667d6c9d2",
+      "bytes": 41787
+    },
+    {
+      "name": "ml_envelope_exact_endpoint_control_898d6ca2584f4a0db1c8f5865527572d.gendsp",
+      "kind": "unique-current-production-exact-endpoint-gen",
+      "sha256": "be01a84ea0c4c86e95375401f59306ce67e7afab1b263ef9b3ffe6502f3dbb91",
+      "bytes": 22122
+    },
+    {
+      "name": "audio_listener_native_analysis.maxpat",
+      "kind": "exact-endpoint-copied-reference",
+      "baselineSha256": "30445e5d222466f12776392e2cf21b0bc999a916c4570389735683730d91bd84",
+      "sha256": "4b3090f80362f895d43503892a8b00d00bf0643d40cb3ed3bd37835b0c535081",
+      "bytes": 42068
+    },
+    {
+      "name": "agent_signal_client_common.js",
+      "kind": "explicit-corrected-shared-client",
+      "baselineSha256": "bac0eea7cea1949cf8671c16fe91fd980c5652daa6272c493d034865974b881a",
+      "baselineBytes": 42093,
+      "sha256": "559a7e93552f2e09e1c5b9a11e3b508d147d15b5d173aa2f3933731b30442302",
+      "bytes": 46629
+    },
+    {
+      "name": "audio-listener-manifest.json",
+      "kind": "declared-corrected-shared-client-manifest",
+      "baselineSha256": "b4c2adfacf92248308e60a73bc751607aa9621e9cffc581f72b4d26fe2bc0b72",
+      "sha256": "9a1fc1260784fd06850588b102f0eb43319f23a4af55771c9227068e8a3290a0",
+      "bytes": 6104
+    }
+  ],
+  "cleanup": {
+    "instrumentationRestored": true,
+    "processStopped": true,
+    "fixtureCleaned": true,
+    "copiedResourcesUnchanged": true,
+    "sourcePinsUnchanged": true,
+    "processReceipt": {
+      "processStopped": true,
+      "observedAt": "2026-10-16T20:43:24.180Z",
+      "live": {
+        "pid": 87291,
+        "startedAt": "Fri Oct 16 16:42:13 2026",
+        "executable": "/Applications/Ableton Live 11 Suite.app/Contents/MacOS/Live",
+        "state": "absent"
+      },
+      "nativeNode": {
+        "pid": 88013,
+        "startedAt": "Fri Oct 16 16:42:19 2026",
+        "executable": "/Applications/Ableton Live 11 Suite.app/Contents/App-Resources/Max/Max.app/Contents/Resources/C74/packages/Node for Max/source/bin/osx/node/node",
+        "state": "absent"
+      }
+    },
+    "errors": []
+  },
+  "scope": "native-v2-corrected-client-long-capture/v1",
+  "sourceAttestation": {
+    "before": {
+      "verified": true,
+      "alreadyLoadedBeforeAttestation": true,
+      "loadedFromDeclaredCopiedPath": true,
+      "runtimeChildBindingVerified": true,
+      "prototypeRootsVerified": true,
+      "constructorBindingVerified": true,
+      "clientSha256": "559a7e93552f2e09e1c5b9a11e3b508d147d15b5d173aa2f3933731b30442302",
+      "clientBytes": 46629,
+      "classSha256": "3e15bb1df5146543fbfab5f77e13e8cdba4bf1c945664782ad705d433b6ed820",
+      "prototypeSha256": "4fea309257c46e9f5230c4e2c2a590085924f29a4cdd7a50aac0d9f0720f194c",
+      "changedFunctions": {
+        "constructor": "3e15bb1df5146543fbfab5f77e13e8cdba4bf1c945664782ad705d433b6ed820",
+        "connect": "54cece6b59eadaf85089f3fc93504b3f0a637d4d5f3a6891f82b025cad1f4c29",
+        "writeEncoded": "3986a875288776da2995dadbaea6b48e328c2c94a6dc65f13da9c734938fbd1f",
+        "writeAccepted": "d89d7dd6e50ec618dae1bae07eff9280355447c9614b702b42f3e86f58fbf641",
+        "waitForDrain": "e62740a7fe181c52a0ec3dee2750b502a77590c6f2a69830cd1440599e05d9bc",
+        "writeDrainStatus": "23caa9fb2d261ebb7ac06f037fad3db3bf9d5846b6495428b25a8ed1a08630ce",
+        "clearWriteDrain": "6da9e64efa4e55fa41ebc6e39b299e1df3382aaf983f3ab3525cb6f6715eef0a",
+        "failWrite": "ef40988b8bbebcd3d4eb5fa49e7a3d2da0ca8aedb08ab399cbb3d4e93699bcd1",
+        "handleClose": "8e672369e48c47857fdffdec025bcb1a11c2da14a59e54c97763ad23b3df0769",
+        "stop": "a7563bfa302e5fc99aabba90d2f3005cafc71630d13f246d53c6f404b9001862"
+      },
+      "manifestSha256": "9a1fc1260784fd06850588b102f0eb43319f23a4af55771c9227068e8a3290a0"
+    },
+    "after": {
+      "verified": true,
+      "alreadyLoadedBeforeAttestation": true,
+      "loadedFromDeclaredCopiedPath": true,
+      "runtimeChildBindingVerified": true,
+      "prototypeRootsVerified": true,
+      "constructorBindingVerified": true,
+      "clientSha256": "559a7e93552f2e09e1c5b9a11e3b508d147d15b5d173aa2f3933731b30442302",
+      "clientBytes": 46629,
+      "classSha256": "3e15bb1df5146543fbfab5f77e13e8cdba4bf1c945664782ad705d433b6ed820",
+      "prototypeSha256": "4fea309257c46e9f5230c4e2c2a590085924f29a4cdd7a50aac0d9f0720f194c",
+      "changedFunctions": {
+        "constructor": "3e15bb1df5146543fbfab5f77e13e8cdba4bf1c945664782ad705d433b6ed820",
+        "connect": "54cece6b59eadaf85089f3fc93504b3f0a637d4d5f3a6891f82b025cad1f4c29",
+        "writeEncoded": "3986a875288776da2995dadbaea6b48e328c2c94a6dc65f13da9c734938fbd1f",
+        "writeAccepted": "d89d7dd6e50ec618dae1bae07eff9280355447c9614b702b42f3e86f58fbf641",
+        "waitForDrain": "e62740a7fe181c52a0ec3dee2750b502a77590c6f2a69830cd1440599e05d9bc",
+        "writeDrainStatus": "23caa9fb2d261ebb7ac06f037fad3db3bf9d5846b6495428b25a8ed1a08630ce",
+        "clearWriteDrain": "6da9e64efa4e55fa41ebc6e39b299e1df3382aaf983f3ab3525cb6f6715eef0a",
+        "failWrite": "ef40988b8bbebcd3d4eb5fa49e7a3d2da0ca8aedb08ab399cbb3d4e93699bcd1",
+        "handleClose": "8e672369e48c47857fdffdec025bcb1a11c2da14a59e54c97763ad23b3df0769",
+        "stop": "a7563bfa302e5fc99aabba90d2f3005cafc71630d13f246d53c6f404b9001862"
+      },
+      "manifestSha256": "9a1fc1260784fd06850588b102f0eb43319f23a4af55771c9227068e8a3290a0"
+    }
+  },
+  "observer": {
+    "windowMs": 10000,
+    "status": "expired",
+    "count": 976,
+    "rejected": null,
+    "foreignCalls": 0,
+    "malformedRows": 0,
+    "observerErrors": 0
+  },
+  "qualificationLimits": {
+    "ordinaryImmutableAcceptance": false,
+    "globalReadinessPromoted": false,
+    "earlierB272ExceptionRecovered": false,
+    "physicalTimingBoundVerified": false
+  }
+}

@@ -816,6 +816,23 @@ the unretained b272 exception. Saved candidates still contain historical
 `bac0eea7`; physical follow-up must explicitly declare the corrected-client
 override and preserve original pins, rather than silently rebasing them.
 
+The explicitly attested corrected-client control `898d6ca2` then passes the
+reviewed actor and all nine unchanged final checks. The real terminal
+`listener-58` ACK is recorded on the same retained connection; a bounded complete
+profile query finds no ingress failures. Independent native proof/fresh typed
+retrieval confirms all 1,440,000 frames, 300 envelope/spectral windows and
+32 before/32 after rows, with context `ddcb4f06-52a3-4d48-a6f0-a854bbd5ac40`.
+Before/after loaded-module, class/prototype and ten-function attestations bind
+the actual running client to `559a7e93`; exact-owned 87291/88013 cleanup passes.
+
+Full evidence is `fixtures/native-v2-corrected-client-long-capture.json`.
+This is a passed instrumented control, not ordinary immutable acceptance or
+global readiness promotion. Signal peaks remain 0.5 and positive spectral energy
+independently qualifies; fresh FFT alignment legitimately changes the centroid
+and positive-window count. Approximate/descriptive-only authority and unknown
+physical timing bounds remain. No earlier failed verdict or missing exception
+is rewritten.
+
 ### Reviewed descriptive native runner scenarios
 
 The `native-listening-descriptive` group contains

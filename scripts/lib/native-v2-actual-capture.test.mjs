@@ -569,6 +569,93 @@ describe("actual corrected v2 native capture and durable context", () => {
     expect(record.serverTrace.analogousFalseMeansFailureBugFound).toBe(false);
   });
 
+  it("accepts the corrected-client actual full capture with fresh typed identity and real signal", async () => {
+    const record = await evidence(
+      "native-v2-corrected-client-long-capture.json",
+    );
+    expect(() => validate(record)).not.toThrow();
+    expect(record.actorPassed).toBe(true);
+    expect(record.nativeProofIndependentlyAccepted).toBe(true);
+    expect(record.freshProcessTypedRead).toBe(true);
+    expect(record.contextId).toBe("ddcb4f06-52a3-4d48-a6f0-a854bbd5ac40");
+    expect(record.observation.endSample - record.observation.startSample).toBe(
+      1440000,
+    );
+    expect(record.observation.samples).toHaveLength(300);
+    expect(record.nativeCapture.envelopeWindows).toHaveLength(300);
+    expect(record.nativeCapture.spectralWindows).toHaveLength(300);
+    expect(record.nativeCapture.armed.before.frames).toHaveLength(32);
+    expect(record.nativeCapture.after.frames).toHaveLength(32);
+    for (const peak of record.observation.summaries.peak)
+      expect(peak >= 0.4 && peak <= 0.6).toBe(true);
+    expect(
+      record.nativeCapture.spectralWindows.reduce(
+        (sum, window) => sum + window[3],
+        0,
+      ),
+    ).toBe(record.spectralEnergy);
+    expect(record.spectralEnergy).toBeGreaterThan(0);
+  });
+
+  it("requires every unchanged final check and the exact terminal ACK on the retained connection", async () => {
+    const record = await evidence(
+      "native-v2-corrected-client-long-capture.json",
+    );
+    expect(Object.keys(record.postconditions.checks)).toHaveLength(9);
+    expect(Object.values(record.postconditions.checks)).toEqual(
+      Array(9).fill(true),
+    );
+    expect(record.postconditions.failedChecks).toEqual([]);
+    expect(record.postconditions.differences).toEqual([]);
+    expect(record.terminalAck.attributes).toEqual({
+      requestId: "listener-58",
+      action: "listener",
+      connectionId: "371a20ce-2a3c-4d93-9f56-019a6b2dcca5",
+    });
+    expect(record.postconditions.before.connectionId.value).toBe(
+      record.terminalAck.attributes.connectionId,
+    );
+    expect(record.postconditions.after.connectionId).toEqual(
+      record.postconditions.before.connectionId,
+    );
+    expect(record.postconditions.after.registration).toEqual(
+      record.postconditions.before.registration,
+    );
+    for (const attestation of Object.values(record.sourceAttestation)) {
+      expect(attestation.verified).toBe(true);
+      expect(attestation.runtimeChildBindingVerified).toBe(true);
+      expect(attestation.prototypeRootsVerified).toBe(true);
+      expect(attestation.clientSha256).toBe(
+        "559a7e93552f2e09e1c5b9a11e3b508d147d15b5d173aa2f3933731b30442302",
+      );
+      expect(Object.keys(attestation.changedFunctions)).toHaveLength(10);
+    }
+  });
+
+  it("does not promote the passed instrumented control to ordinary acceptance or physical authority", async () => {
+    const record = await evidence(
+      "native-v2-corrected-client-long-capture.json",
+    );
+    expect(record.instrumentedDiagnosticOnly).toBe(true);
+    expect(record.acceptancePassed).toBe(false);
+    expect(record.qualificationLimits).toEqual({
+      ordinaryImmutableAcceptance: false,
+      globalReadinessPromoted: false,
+      earlierB272ExceptionRecovered: false,
+      physicalTimingBoundVerified: false,
+    });
+    expect(record.observation.alignment).toMatchObject({
+      alignment: "approximate",
+      intendedUse: "descriptive-only",
+      verifiedAbsoluteErrorBoundSamples: null,
+    });
+    expect(record.observer.windowMs).toBe(10000);
+    expect(record.observer.rejected).toBeNull();
+    expect(record.cleanup.processStopped).toBe(true);
+    expect(record.cleanup.fixtureCleaned).toBe(true);
+    expect(record.cleanup.errors).toEqual([]);
+  });
+
   it.each(["missing-window", "erased-spectrum", "changed-range"])(
     "rejects %s instead of treating completed prose or context identity as sufficient",
     async (change) => {

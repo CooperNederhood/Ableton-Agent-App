@@ -319,6 +319,49 @@ describe("actual corrected v2 native capture and durable context", () => {
     expect(record.cleanup.errors).toEqual([]);
   });
 
+  it("discriminates native exact-endpoint equality from rounded overshoot in the new precision capture only", async () => {
+    const record = await evidence("native-v2-exact-endpoint-observation.json");
+    const fault = record.privateFault;
+    expect(fault.values).toHaveLength(31);
+    expect(fault.values.slice(0, 9)).toEqual([1, 2, 1, 1, 1, 48000, 1, 0, 0]);
+    expect(fault.values.slice(25, 31)).toEqual([1, 0, 0, 0, 2, 1]);
+    expect(fault.endpointComparison).toBe("native_equal_one");
+    expect(fault.guardRecheckAgrees).toBe(true);
+    expect(fault.scaledResidualValid).toBe(true);
+    expect(fault.comparisonResidualAgrees).toBe(true);
+    expect(fault.values.slice(14, 19)).toEqual([-1, -1, -1, -1, -1]);
+    expect(fault.values[19] - record.rejectedEnvelope[14]).toBe(162000);
+    expect(fault.values[21] + fault.values[22] + 64).toBe(162000);
+    expect(record.rejectedEnvelope[13]).toBe(record.originalArmCounter);
+    const earlier = await evidence("native-v2-phase-boundary-observation.json");
+    expect(earlier.privateFault.exactBinaryEndpointProven).toBe(false);
+  });
+
+  it("does not turn endpoint diagnosis into ordinary capture or physical timing acceptance", async () => {
+    const record = await evidence("native-v2-exact-endpoint-observation.json");
+    expect(record.instrumentedDiagnosticOnly).toBe(true);
+    expect(record.acceptancePassed).toBe(false);
+    expect(record.contextIds).toEqual([]);
+    expect(record.privateFault.notVectorAtomic).toBe(true);
+    expect(record.observer.statuses).toEqual({
+      unwritten: 509,
+      incoherent: 0,
+      stale: 0,
+      "observed-fault": 1,
+    });
+    expect(record.observer.privateCount).toBe(510);
+    expect(record.observer.privateDecoderErrors).toBe(0);
+    for (const key of [
+      "instrumentationRestored",
+      "processStopped",
+      "fixtureCleaned",
+      "copiedResourcesUnchanged",
+      "sourcePinsUnchanged",
+    ])
+      expect(record.cleanup[key]).toBe(true);
+    expect(record.cleanup.errors).toEqual([]);
+  });
+
   it.each(["missing-window", "erased-spectrum", "changed-range"])(
     "rejects %s instead of treating completed prose or context identity as sufficient",
     async (change) => {

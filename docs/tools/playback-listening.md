@@ -708,6 +708,17 @@ This narrows the correction to periodic boundary semantics without authorizing
 arbitrary wrapping, a wider phase-step tolerance, or retroactive attribution
 to either earlier run.
 
+The distinct endpoint precision probe then compiled in owned run `cb1d2aba`.
+Its fault-time native predicates report equal-to-one 1, above-one 0 and
+below-one 0; the independently scaled residual `(phase - 1) * 1048576` is 0.
+The decoder reports `native_equal_one`, with matching epoch 1/serial 2 and
+comparison/residual agreement. The range branch rejected again; the strict
+step branch remained unevaluated. This supports an exact periodic endpoint
+correction, not admission of adjacent overshoot or an arbitrary epsilon.
+Evidence is `fixtures/native-v2-exact-endpoint-observation.json`; no context
+was published and all owned resources/processes were cleaned up. Do not
+retroassign the new native comparison to earlier runs with weaker probes.
+
 ### Reviewed descriptive native runner scenarios
 
 The `native-listening-descriptive` group contains

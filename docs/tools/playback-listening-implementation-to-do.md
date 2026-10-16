@@ -333,7 +333,11 @@ detected-tempo and timing/integrity guards stay in place.
   phase 1/residual 0 and previous phase 0.999958333333333; step checks unevaluated.
   Exact binary endpoint/epsilon remains unproven; original earlier inputs remain
   unknown. Preserve actual 27-field record, ownership, boundedness and cleanup.
- - [ ] Correct only justified periodic boundary semantics, retaining the strict
+ - [x] Disambiguate the rounded endpoint with native comparison flags and an
+   independently scaled residual. Run cb1d2aba reports native equal-to-one 1,
+   above-one/below-one 0 and scaled residual 0, with coherent owned fault record.
+   Earlier probes retain their original precision limits.
+ - [ ] Canonicalize only the exact periodic endpoint 1 to 0, retaining the strict
   0.01-sample step, counter, finite-input, configuration and coverage guards.
   Do not add an arbitrary epsilon or unconditional wrapping. Establish further
   native precision evidence if needed, then finish 30-second acceptance.

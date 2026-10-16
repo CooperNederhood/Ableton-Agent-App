@@ -355,6 +355,17 @@ No launch/context occurred, and exact-owned process/fixture cleanup succeeded.
 The spectrum failure remains unresolved; diagnostic delivery is not capture
 acceptance and does not replace the earlier run's missing raw values.
 
+A separate fail-only, runtime-instrumented probe retained 83 received clock
+packets over a 900 ms observation window. Its first4/last4 snapshots show the
+native counter remaining zero while independent host samples advance from
+1619904 to 1661888. Actual DSP was on at 48 kHz/vector64 and all three ABI values
+were 2. This rules out missing clock messages in that probe, but does not yet
+isolate Gen arithmetic from output/readback wiring. All measurement admission
+was blocked, failure was forced after 902 ms, and one genuine stop ACK arrived.
+No native arm/playback/context was authorized. Copied resources and original
+pins were unchanged, and exact-owned cleanup was verified. The bounded record is
+`fixtures/native-v2-counter-observation.json`, not ordinary capture acceptance.
+
 ### Reviewed descriptive native runner scenarios
 
 The `native-listening-descriptive` group contains

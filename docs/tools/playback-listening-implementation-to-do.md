@@ -168,6 +168,15 @@ detected-tempo and timing/integrity guards stay in place.
   failed journal record, no context and successful exact-owned cleanup in
   `fixtures/native-v2-spectrum-fault-diagnostic.json`; physical cause and
   successful fractional capture remain open.
+- [x] Observe actual raw clock packets in a bounded, nonaccepting diagnostic:
+  83 received packets, native counters zero, independent host counter advancing,
+  DSP on at 48 kHz/vector64, all ABI values 2. Retain first4/last4 snapshots,
+  forced failure at 902 ms, zero admission/arm/context, genuine stop ACK and
+  verified source/process/fixture preservation. Missing messages are not the
+  cause in this probe; the source/update/output distinction remains open.
+- [ ] Isolate the zero clock using a predeclared fresh diagnostic-only capped
+  versus uncapped clock-update contrast, without promoting the uncapped
+  expression to production or changing saturation requirements.
 - [x] Harden the actual shared v2 SDK's immutable inputs, wire/stage/size
   guards, reservation ownership and redacted failures without changing MIDI/v1.
   Cover optional cancellation reasons through the real authenticated TS ingress,

@@ -507,6 +507,23 @@ fixture cleanup succeed. The next diagnostic must retain the actual rejected
 values without suppressing, repairing or admitting data differently. The
 descriptive group and Desktop qualification remain blocked on ordinary capture.
 
+The subsequent read-only observer run `25e47a1f` retains the actual original
+controller input at rejection, without changing SDK/control/admission/validation/
+callback/timer/context behavior. Its 214 envelope invocations include the
+rejected row
+`[1,90624,-1,0,15,0,0,-1,0,0,0,0,0,1094144,1184768,2]`.
+The retained arm counter is also 1094144: this failure is the nonzero native
+rejection15 branch, not a changed arm counter. The original method throws the
+same error; the observed pass/generation matches the actor job. Receipt timing
+2260.733 ms is consumer-monotonic time from the first envelope, not native event
+time. The row's launch markers are rejected data, not an accepted launch proof.
+Actual inputs causing the Gen predicate still require focused diagnosis.
+These values belong only to this new instrumented run and do not fill the
+earlier ordinary run's missing row. No context is published; prototype
+restoration, exact-owned process shutdown, fixture cleanup and source/copied
+resource preservation succeed. See
+`fixtures/native-v2-envelope-rejection-observation.json`.
+
 ### Reviewed descriptive native runner scenarios
 
 The `native-listening-descriptive` group contains

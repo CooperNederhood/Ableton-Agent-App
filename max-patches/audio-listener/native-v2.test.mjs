@@ -78,6 +78,51 @@ test("v2 keeps both envelope-binding guard branches as hard failures with confir
   }
 });
 
+test("actual read-only rejection row preserves the armed counter and replays native rejection15", async () => {
+  const evidence = JSON.parse(
+    await readFile(
+      new URL(
+        "./fixtures/native-v2-envelope-rejection-observation.json",
+        import.meta.url,
+      ),
+      "utf8",
+    ),
+  );
+  const observed = evidence.observation;
+  assert.equal(evidence.instrumentedDiagnosticOnly, true);
+  assert.equal(evidence.acceptancePassed, false);
+  assert.deepEqual(evidence.sourceOverrides, []);
+  assert.equal(evidence.controlAdmissionValidationAndCallbacksUnchanged, true);
+  assert.equal(observed.controllerState, "armed");
+  assert.equal(observed.count, 214);
+  assert.equal(observed.rejectedRow.length, 16);
+  assert(observed.rejectedRow.every(Number.isFinite));
+  assert.equal(observed.rejectedRow[0], observed.nativeEpoch);
+  assert.equal(observed.rejectedRow[13], observed.originalArmCounter);
+  assert.equal(observed.rejectedRow[4], 15);
+  assert.equal(observed.armCounterMismatch, false);
+  assert.equal(observed.rejectedCounterNonzero, true);
+  assert.equal(observed.observedPassMatchesActorJob, true);
+  const f = v2Fixture();
+  f.controller.state = observed.controllerState;
+  const pass = {
+    nativeEpoch: observed.nativeEpoch,
+    armed: { armCounter: observed.originalArmCounter },
+  };
+  assert.throws(() => f.controller.envelope(pass, observed.rejectedRow), {
+    message: observed.originalErrorMessage,
+  });
+  assert.deepEqual(evidence.outcome.contextIds, []);
+  for (const key of [
+    "instrumentationRestored",
+    "processStopped",
+    "fixtureCleaned",
+    "copiedResourcesUnchanged",
+    "sourcePinsUnchanged",
+  ])
+    assert.equal(evidence.outcome[key], true);
+});
+
 test("actual diagnostic load retains the unpublished spectrum sentinel and denies arm", async () => {
   const evidence = JSON.parse(
     await readFile(

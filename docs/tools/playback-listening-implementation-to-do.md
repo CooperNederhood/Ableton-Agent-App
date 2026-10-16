@@ -251,6 +251,13 @@ detected-tempo and timing/integrity guards stay in place.
   owned-process/fixture cleanup. The rejected row is unavailable in this run;
   observe its actual arm-counter/rejection values without changing validation,
   callbacks, admission or stop semantics, then add an evidence-backed fix.
+- [x] Retain the actual original envelope input through a bounded read-only
+  observer, with unchanged controls/admission/validation/callbacks/timers.
+  New run `25e47a1f` sees native rejection15 and the unchanged arm counter1094144,
+  not a counter-binding change. Original error is rethrown, pass/generation
+  matches the actor, no context publishes and all restoration/cleanup/pins pass.
+  Keep the prior run's unavailable row null; rejected launch markers are not a
+  genuine launch proof. Map and measure the actual Gen predicate next.
 - [x] Harden the actual shared v2 SDK's immutable inputs, wire/stage/size
   guards, reservation ownership and redacted failures without changing MIDI/v1.
   Cover optional cancellation reasons through the real authenticated TS ingress,

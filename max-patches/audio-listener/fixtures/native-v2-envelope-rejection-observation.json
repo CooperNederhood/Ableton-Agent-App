@@ -1,0 +1,57 @@
+{
+  "formatVersion": 1,
+  "scope": "native-envelope-rejection-observation/v1",
+  "runId": "25e47a1f-5297-4257-b21d-b9dad0e1a15c",
+  "earlierUnclassifiedRunId": "d7bc78dd-96dd-46da-9287-f75804576e62",
+  "instrumentedDiagnosticOnly": true,
+  "acceptancePassed": false,
+  "sourceOverrides": [],
+  "controlAdmissionValidationAndCallbacksUnchanged": true,
+  "passId": "ca1e89fd-04e4-4843-8d40-50a980637b60",
+  "generation": "218480fe-eb59-4439-a583-c24dec4e1ff5",
+  "connectionEpoch": "a97bf7a7-94fd-4c6b-8b53-a6c0482d3f64",
+  "traceId": "a8099363-b9a3-4199-b5a0-1ecc96df1616",
+  "correlationId": "a8099363-b9a3-4199-b5a0-1ecc96df1616",
+  "observation": {
+    "count": 214,
+    "retention": "first4_last4_plus_one_rejected",
+    "controllerState": "armed",
+    "nativeEpoch": 1,
+    "armReceiptNativeEpoch": 1,
+    "originalArmCounter": 1094144,
+    "receivedAfterFirstEnvelopeMs": 2260.73320800066,
+    "lastUnrejectedRow": [
+      1, -1, -1, 0, 0, 0, -1, -1, 0, 0, 0, 0, 0, 1094144, -1, 2
+    ],
+    "rejectedRow": [
+      1, 90624, -1, 0, 15, 0, 0, -1, 0, 0, 0, 0, 0, 1094144, 1184768, 2
+    ],
+    "armCounterMismatch": false,
+    "rejectedCounterNonzero": true,
+    "originalErrorMessage": "native_envelope_binding_changed",
+    "foreignCalls": 0,
+    "malformedRows": 0,
+    "otherThrows": 0,
+    "observerErrors": 0,
+    "observedPassMatchesActorJob": true
+  },
+  "outcome": {
+    "actorOk": false,
+    "contextIds": [],
+    "instrumentationRestored": true,
+    "processStopped": true,
+    "fixtureCleaned": true,
+    "copiedResourcesUnchanged": true,
+    "sourcePinsUnchanged": true,
+    "errors": []
+  },
+  "limitations": [
+    "Actual SDK/control/admission/validation/arm/stop/context paths were unchanged; this is not the all-withheld diagnostic.",
+    "Receipt timing is consumer-monotonic observation timing, not native event time.",
+    "The exact controller input row identifies native rejection15, not an arm-counter change.",
+    "The row contains launch markers but is rejected, not an accepted native launch proof.",
+    "The inputs causing the Gen rejection predicate have not yet been observed directly.",
+    "Do not assign these newly retained values retroactively to the earlier unclassified run.",
+    "Installed Live11.3.43 observations do not qualify Live11.3.42."
+  ]
+}

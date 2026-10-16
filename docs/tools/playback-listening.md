@@ -238,6 +238,24 @@ v1 scenario does not opt into v2 or accept v2 inputs. Separately reviewed
 descriptive v2 scenarios are wired below, but still require a newly saved/pinned
 v2 fixture and real execution.
 
+Project-relative audio is now part of immutable fixture staging, not just an
+original-file hash check. The owned copied project receives the exact verified
+WAV snapshots at their project-relative paths before the Set is made available
+for launch. Project-relative references must agree with the pinned source;
+traversal, reserved paths, duplicate pins and symlinked output directories fail
+closed. Cancellation or copy failure removes only the owned partial fixture.
+Legacy explicitly provisioned absolute external references retain their old
+behavior. Staging returns bounded per-file receipts; persisted runner evidence
+contains only audio counts, byte counts and hashes, not audio bodies or new
+unredacted filenames.
+
+This corrects a separate fixture omission: the old stager validated the original
+WAVs but did not copy their `Audio/` tree, and the owned Live log reported a
+quarter-sine file-open exception. It does not establish what audio the earlier
+failed runs actually processed. Fail-before v1/v2 regressions reproduce the
+missing staged file; real pinned three-WAV dry staging now verifies their exact
+bytes and unchanged Set without launching Live.
+
 The v2 graph must construct the independent Max-JS guard as
 `js audio_listener_guard.js 2`: its fixed 60-second begin-to-stop budget covers
 up to 30 seconds of audio plus bounded preparation, launch and postchecks.
@@ -537,6 +555,16 @@ zero input or identify the actual faulty sample. A passive probe must latch the
 actual delayed inputs, explicit classification, original and equivalent bounded-
 word predicates, and render/counter state at the rejection15 branch before
 considering an equivalent guard correction.
+
+The first 36-field passive finite-input probe did not produce input evidence.
+Run `1da066a2` fails envelope ABI0 before arm, and the exact owned Live log
+reports `gen_domain: dsp.gen: [string -- main2.lua...]:697: failed to compile
+genpatcher`, followed by `gen~: failed to compile patcher`. The private probe,
+not the unchanged production baseline, requires native compilation correction.
+Its 113 inactive private messages are not zero-audio observations. Native stop
+acknowledgement is unconfirmed; owned process shutdown, instrumentation
+restoration, fixture cleanup and source/copied pin preservation succeed.
+No failing helper, packet or input is treated as acceptance evidence.
 
 ### Reviewed descriptive native runner scenarios
 

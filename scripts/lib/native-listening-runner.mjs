@@ -886,6 +886,11 @@ export async function createNativeListeningRunner({
             deviceSha256: fixture.deviceSha256,
             discoverySha256: fixture.discoverySha256,
             resourceCount: fixture.resourceCount,
+            audioResourceCount: fixture.audioResourceCount,
+            audioResources: fixture.audioResources.map(({ sha256, bytes }) => ({
+              sha256,
+              bytes,
+            })),
             nativeVersion: fixture.nativeVersion,
           },
           observedLiveVersion: (await runtime.application.getStatus())

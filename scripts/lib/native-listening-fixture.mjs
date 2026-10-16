@@ -55,6 +55,47 @@ function xmlValue(element, tag) {
   return value;
 }
 
+function assertProjectAudioPath(path, candidateName) {
+  const parts = path.split("/");
+  if (
+    path.length > 1024 ||
+    /[\\\0:]/.test(path) ||
+    !/\.wav$/i.test(path) ||
+    parts.some((part) => !part || part === "." || part === "..") ||
+    [candidateName, "Ableton Project Info"].includes(parts[0])
+  )
+    throw new Error("Unsafe fixture: project-relative audio path");
+}
+
+function projectAudioPath(input, path) {
+  const project = dirname(resolve(input.candidateDirectory));
+  const absolute = resolve(path);
+  if (!within(project, absolute)) return null;
+  const pathWithinProject = relative(project, absolute).split(sep).join("/");
+  assertProjectAudioPath(pathWithinProject, basename(input.candidateDirectory));
+  return pathWithinProject;
+}
+
+async function ensureAudioDirectory(root, path, signal) {
+  let directory = root;
+  for (const part of path.split("/").slice(0, -1)) {
+    signal?.throwIfAborted();
+    directory = join(directory, part);
+    try {
+      await mkdir(directory, { mode: 0o700 });
+    } catch (error) {
+      if (error.code !== "EEXIST") throw error;
+    }
+    const info = await lstat(directory);
+    if (
+      !info.isDirectory() ||
+      info.isSymbolicLink() ||
+      (await realpath(directory)) !== directory
+    )
+      throw new Error("Unsafe staged audio directory");
+  }
+}
+
 /** Inspection only: the Set is copied byte-for-byte, never rewritten. */
 export function inspectNativeFixtureSet(bytes, input) {
   const xml = gunzipSync(bytes, { maxOutputLength: 16 * 1024 * 1024 }).toString(
@@ -95,12 +136,24 @@ export function inspectNativeFixtureSet(bytes, input) {
       throw new Error(
         "Unsafe fixture: only explicitly provisioned WAV sources are supported",
       );
-    } else if (
-      !input.audioFiles.some((file) => resolve(file.path) === resolve(path))
-    ) {
-      throw new Error(
-        "Unsafe fixture: audio dependency was not explicitly provisioned",
-      );
+    } else {
+      if (
+        !input.audioFiles.some((file) => resolve(file.path) === resolve(path))
+      )
+        throw new Error(
+          "Unsafe fixture: audio dependency was not explicitly provisioned",
+        );
+      if (xmlValue(ref, "RelativePathType") === "3") {
+        const relativePath = xmlValue(ref, "RelativePath");
+        assertProjectAudioPath(
+          relativePath,
+          basename(input.candidateDirectory),
+        );
+        if (relativePath !== projectAudioPath(input, path))
+          throw new Error(
+            "Unsafe fixture: project-relative audio reference differs from its pinned source",
+          );
+      }
     }
   }
   return { nativeReferenceCount: native.length };
@@ -210,12 +263,26 @@ export async function stageNativeListeningFixture({
     )
       throw new Error("Missing native candidate resource");
     inspectNativeFixtureSet(source, input);
+    const audioSnapshots = [];
+    const audioSources = new Set();
     for (const file of input.audioFiles) {
       signal?.throwIfAborted();
       if (!hashPattern.test(file.sha256))
         throw new Error("Audio dependency hash pin required");
-      if (sha256(await boundedFile(file.path, 4 * 1024 * 1024)) !== file.sha256)
+      if (typeof file.path !== "string" || !/\.wav$/i.test(file.path))
+        throw new Error(
+          "Only explicitly provisioned WAV dependencies are supported",
+        );
+      const absolute = resolve(file.path);
+      if (audioSources.has(absolute))
+        throw new Error("Duplicate provisioned audio dependency");
+      audioSources.add(absolute);
+      const bytes = await boundedFile(absolute, 4 * 1024 * 1024);
+      if (sha256(bytes) !== file.sha256)
         throw new Error("Audio dependency hash mismatch");
+      const relativePath = projectAudioPath(input, absolute);
+      if (relativePath !== null)
+        audioSnapshots.push({ relativePath, bytes, sha256: file.sha256 });
     }
     const root = resolve(destination);
     if (
@@ -242,6 +309,16 @@ export async function stageNativeListeningFixture({
       }
       // Only the copied discovery file changes; code/device hashes remain pinned.
       await writeProducerDiscoveryConfiguration(candidate, storage);
+      for (const audio of audioSnapshots) {
+        signal?.throwIfAborted();
+        await ensureAudioDirectory(root, audio.relativePath, signal);
+        signal?.throwIfAborted();
+        await writeFile(join(root, audio.relativePath), audio.bytes, {
+          flag: "wx",
+          mode: 0o600,
+        });
+      }
+      signal?.throwIfAborted();
       const setPath = join(root, `${input.artifactPrefix}.als`);
       await writeFile(setPath, source, { flag: "wx", mode: 0o600 });
       return {
@@ -253,6 +330,16 @@ export async function stageNativeListeningFixture({
           await readFile(join(candidate, "agent_signal_storage.js")),
         ),
         resourceCount: snapshots.size,
+        audioResourceCount: audioSnapshots.length,
+        audioResources: Object.freeze(
+          audioSnapshots.map((audio) =>
+            Object.freeze({
+              relativePath: audio.relativePath,
+              sha256: audio.sha256,
+              bytes: audio.bytes.length,
+            }),
+          ),
+        ),
         async cleanup() {
           await stage("fixture-cleanup", () =>
             rm(root, { recursive: true, force: true }),

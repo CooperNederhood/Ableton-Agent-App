@@ -266,6 +266,18 @@ detected-tempo and timing/integrity guards stay in place.
   channel guard/passive equivalent word-guard results at rejection15, with exact
   render/counter state, before implementing a production correction. Preserve
   original guards, outputs, controls, timers, stop and admission in the probe.
+- [ ] Correct/minimize native compilation of the passive finite-input probe.
+  First run `1da066a2` fails envelope ABI0 with actual Gen compiler errors before
+  arm; no delayed values are observed. Preserve the unchanged production
+  baseline, failed helper pins and unconfirmed native-stop outcome.
+- [x] Copy verified project-owned WAV snapshots into each isolated fixture at
+  their exact project-relative paths before launch, rather than merely hashing
+  originals. Fail-before v1/v2 tests, nested/reference/tamper/duplicate/symlink/
+  snapshot-race/cancellation/cleanup and legacy absolute-source coverage pass;
+  dry staging verifies the three real pinned WAVs and unchanged Set. Persist
+  bounded count/hash/size receipts without audio bodies or new raw filenames.
+- [ ] Verify actual owned Live loading and processed source audio after the
+  fixture-copy repair; prior file-open exceptions do not prove zero input.
 - [x] Harden the actual shared v2 SDK's immutable inputs, wire/stage/size
   guards, reservation ownership and redacted failures without changing MIDI/v1.
   Cover optional cancellation reasons through the real authenticated TS ingress,

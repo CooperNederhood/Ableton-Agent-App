@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { Buffer } from "node:buffer";
+import { existsSync, symlinkSync, writeFileSync } from "node:fs";
 import {
   access,
   mkdir,
@@ -10,8 +11,8 @@ import {
   symlink,
   writeFile,
 } from "node:fs/promises";
-import { join, resolve } from "node:path";
-import { gzipSync } from "node:zlib";
+import { dirname, join, relative, resolve } from "node:path";
+import { gunzipSync, gzipSync } from "node:zlib";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { resolveLiveAgentStorage } from "@ableton-agent/storage";
 import * as storageServices from "@ableton-agent/storage";
@@ -115,7 +116,199 @@ export async function nativeFixtureInput({ nativeVersion = 1 } = {}) {
   };
 }
 
+async function addFixtureAudio(
+  f,
+  {
+    name = "tone.wav",
+    path = join(f.root, "Audio", name),
+    referenceType = "3",
+    relativePath = relative(f.root, path),
+  } = {},
+) {
+  const bytes = Buffer.from("test-only pinned WAV placeholder, never loaded");
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(path, bytes);
+  f.input.audioFiles.push({ path, sha256: hash(bytes) });
+  const reference = `<FileRef><RelativePathType Value="${referenceType}" /><RelativePath Value="${relativePath}" /><Path Value="${path}" /></FileRef>`;
+  f.source = gzipSync(
+    gunzipSync(f.source)
+      .toString("utf8")
+      .replace("</Ableton>", `${reference}</Ableton>`),
+  );
+  await writeFile(f.input.sourceSet, f.source);
+  f.input.sourceSetSha256 = hash(f.source);
+  return { bytes, path, relativePath };
+}
+
 describe("native listening fixture staging", () => {
+  it.each([1, 2])(
+    "copies project-relative WAV dependencies for v%i before returning a loadable fixture",
+    async (nativeVersion) => {
+      const f = await nativeFixtureInput({ nativeVersion });
+      const audio = await addFixtureAudio(f);
+      const staged = await stageNativeListeningFixture(f);
+      expect(await readFile(join(f.destination, audio.relativePath))).toEqual(
+        audio.bytes,
+      );
+      expect(staged.audioResourceCount).toBe(1);
+      expect(staged.audioResources).toEqual([
+        {
+          relativePath: audio.relativePath,
+          sha256: hash(audio.bytes),
+          bytes: audio.bytes.length,
+        },
+      ]);
+      expect(await readFile(staged.setPath)).toEqual(f.source);
+      expect(await readFile(audio.path)).toEqual(audio.bytes);
+      await staged.cleanup();
+      await expect(access(f.destination)).rejects.toThrow();
+      expect(await readFile(audio.path)).toEqual(audio.bytes);
+    },
+  );
+
+  it("preserves nested project sample paths and stages each declared owned WAV once", async () => {
+    const f = await nativeFixtureInput({ nativeVersion: 2 });
+    const first = await addFixtureAudio(f, {
+      path: join(f.root, "Samples", "Imported", "Transient 1.wav"),
+    });
+    const second = await addFixtureAudio(f, { name: "silence.wav" });
+    const staged = await stageNativeListeningFixture(f);
+    for (const audio of [first, second])
+      expect(await readFile(join(f.destination, audio.relativePath))).toEqual(
+        audio.bytes,
+      );
+    expect(staged.audioResourceCount).toBe(2);
+    await staged.cleanup();
+  });
+
+  it.each([
+    "../tone.wav",
+    "/operator-owned/tone.wav",
+    "Audio/../tone.wav",
+    "Audio//tone.wav",
+    "Audio/./tone.wav",
+    "Audio\\tone.wav",
+    "Native-Listener-Candidate/tone.wav",
+    "Ableton Project Info/tone.wav",
+    "Audio/different.wav",
+  ])(
+    "denies unsafe or inconsistent project audio reference %s",
+    async (path) => {
+      const f = await nativeFixtureInput({ nativeVersion: 2 });
+      await addFixtureAudio(f, { relativePath: path });
+      await expect(stageNativeListeningFixture(f)).rejects.toThrow(
+        /Unsafe fixture|project-relative/,
+      );
+      await expect(access(f.destination)).rejects.toThrow();
+    },
+  );
+
+  it("denies duplicate audio pins and changed or symlinked source audio before staging", async () => {
+    const f = await nativeFixtureInput();
+    const audio = await addFixtureAudio(f);
+    f.input.audioFiles.push({ ...f.input.audioFiles[0] });
+    await expect(stageNativeListeningFixture(f)).rejects.toThrow("Duplicate");
+    f.input.audioFiles.pop();
+    await writeFile(audio.path, "changed");
+    await expect(stageNativeListeningFixture(f)).rejects.toThrow(
+      "Audio dependency hash mismatch",
+    );
+    await rm(audio.path);
+    const target = join(f.root, "target.wav");
+    await writeFile(target, audio.bytes);
+    await symlink(target, audio.path);
+    await expect(stageNativeListeningFixture(f)).rejects.toThrow("regular");
+    await expect(access(f.destination)).rejects.toThrow();
+  });
+
+  it("copies the verified audio snapshot even if the source changes after validation", async () => {
+    const f = await nativeFixtureInput();
+    const audio = await addFixtureAudio(f);
+    let changed = false;
+    const staged = await stageNativeListeningFixture({
+      ...f,
+      signal: {
+        throwIfAborted() {
+          if (!changed && existsSync(f.destination)) {
+            writeFileSync(audio.path, "changed after pin verification");
+            changed = true;
+          }
+        },
+      },
+    });
+    expect(changed).toBe(true);
+    expect(await readFile(join(f.destination, audio.relativePath))).toEqual(
+      audio.bytes,
+    );
+    await staged.cleanup();
+  });
+
+  it("keeps legacy provisioned absolute external audio references unchanged", async () => {
+    const f = await nativeFixtureInput();
+    const external = resolve(
+      ".test-artifacts",
+      `native-external-audio-${randomUUID()}`,
+    );
+    roots.push(external);
+    const audio = await addFixtureAudio(f, {
+      path: join(external, "absolute.wav"),
+      referenceType: "0",
+      relativePath: "",
+    });
+    const staged = await stageNativeListeningFixture(f);
+    expect(staged.audioResourceCount).toBe(0);
+    expect(staged.audioResources).toEqual([]);
+    expect(await readFile(staged.setPath)).toEqual(f.source);
+    await staged.cleanup();
+    expect(await readFile(audio.path)).toEqual(audio.bytes);
+  });
+
+  it("refuses staged audio-directory symlinks without creating external directories or files", async () => {
+    const f = await nativeFixtureInput();
+    await addFixtureAudio(f, {
+      path: join(f.root, "Audio", "nested", "tone.wav"),
+    });
+    const outside = join(f.root, "outside");
+    await mkdir(outside);
+    let injected = false;
+    await expect(
+      stageNativeListeningFixture({
+        ...f,
+        signal: {
+          throwIfAborted() {
+            if (!injected && existsSync(f.destination)) {
+              symlinkSync(outside, join(f.destination, "Audio"));
+              injected = true;
+            }
+          },
+        },
+      }),
+    ).rejects.toThrow("Unsafe staged audio directory");
+    expect(await readdir(outside)).toEqual([]);
+    await expect(access(f.destination)).rejects.toThrow();
+  });
+
+  it("cleans a partially copied audio tree on cancellation without changing originals", async () => {
+    const f = await nativeFixtureInput({ nativeVersion: 2 });
+    const first = await addFixtureAudio(f, { name: "first.wav" });
+    const second = await addFixtureAudio(f, { name: "second.wav" });
+    await expect(
+      stageNativeListeningFixture({
+        ...f,
+        signal: {
+          throwIfAborted() {
+            if (existsSync(join(f.destination, first.relativePath)))
+              throw new Error("cancelled during audio copy");
+          },
+        },
+      }),
+    ).rejects.toThrow("cancelled during audio copy");
+    await expect(access(f.destination)).rejects.toThrow();
+    for (const audio of [first, second])
+      expect(await readFile(audio.path)).toEqual(audio.bytes);
+    expect(await readFile(f.input.sourceSet)).toEqual(f.source);
+  });
+
   it("explicitly stages v2 without relabelling or rewriting the pinned Set, candidate or original discovery", async () => {
     const f = await nativeFixtureInput({ nativeVersion: 2 });
     const staged = await stageNativeListeningFixture(f);
@@ -219,8 +412,10 @@ describe("native listening fixture staging", () => {
     terminal = "completed",
     humanGate = false,
     journalFlushFailure = false,
+    audioName,
   } = {}) {
     const f = await nativeFixtureInput();
+    if (audioName) await addFixtureAudio(f, { name: audioName });
     const inputPath = join(f.root, "provisioned-input.json");
     await writeFile(inputPath, JSON.stringify(f.input));
     const manifest = JSON.parse(
@@ -637,6 +832,23 @@ describe("native listening fixture staging", () => {
   }
 
   describe("native runner orchestration with production typed context services and test-only actor/capture", () => {
+    it("persists only bounded audio hash and size receipts, not filenames or audio bodies", async () => {
+      const f = await runnerFixture({
+        audioName: "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890.wav",
+      });
+      const result = await f.runner.run(async () => {});
+      expect(result.ok).toBe(true);
+      expect(result.fixture.audioResourceCount).toBe(1);
+      const bytes = await readFile(f.input.audioFiles[0].path);
+      expect(result.fixture.audioResources).toEqual([
+        { sha256: hash(bytes), bytes: bytes.length },
+      ]);
+      expect(JSON.stringify(result.fixture)).not.toContain("ghp_");
+      expect(JSON.stringify(result.fixture)).not.toContain("placeholder");
+      await f.runner.close({ processStopped: true });
+      await expect(access(f.runner.fixture.setPath)).rejects.toThrow();
+    });
+
     it("fails credential publication before ingress startup or actor work", async () => {
       const f = await runnerFixture({ failure: "credentials" });
       const result = await f.runner.run(async () => {});

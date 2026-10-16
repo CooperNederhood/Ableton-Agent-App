@@ -589,6 +589,19 @@ envelope resource are retained in
 `fixtures/native-v2-envelope-finite-guard-observation.json` and
 `fixtures/native-v2-envelope-wide-finite-bd4eb41.gendsp`.
 
+The current v2 envelope now uses the same inclusive1e12 bounded-word finite
+predicate as the physically observed spectrum. The predicate generator is
+shared without changing spectrum output bytes. The only envelope admission
+change is the equivalent finite check; all timing/phase/configuration/coverage/
+stop rules, descriptor math, outputs and ABI remain unchanged. Frozen v1 is
+unchanged. New envelope code SHA is
+`4184116450b5754a50f616fddeeb3b32a930a1f25d13c7b512517da4210c1c54`;
+pretty-JSON-plus-LF Gen SHA is
+`b732aed30d37910c72362c790160758dd96f5087e5093e2dff3a8924d7c7b508`.
+This source correction still requires fresh actual capture qualification.
+Historical idle-envelope observations bind the archived f633 resource, not
+this changed production revision.
+
 ### Reviewed descriptive native runner scenarios
 
 The `native-listening-descriptive` group contains

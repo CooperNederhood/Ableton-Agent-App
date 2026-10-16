@@ -3,6 +3,10 @@ import {
   SPECTRUM_STATE,
   SPECTRUM_STEP,
 } from "./native-source.mjs";
+import {
+  descriptiveFiniteWords,
+  descriptiveFinitePredicate,
+} from "./host-timing-source.mjs";
 
 export const TAGGED_SPECTRUM_CODE = `${SPECTRUM_STATE}
 History frameStart(-1); History frameValid(0);
@@ -56,24 +60,12 @@ export function clockSplitDocument() {
 // Same full-frame/native split-counter layout; rate comes from DSP, not the
 // calibration default. Publication still names the actual complete 2048 frame.
 export function descriptiveSpectrumCode() {
-  // Inclusive 1e12 is 953674 whole 2^20 words plus 331776. Never materialize
-  // that wide ceiling in Gen. Valid remainders also reject unordered/infinite
-  // inputs without relying on a large floating literal or a smaller limit.
-  // Subtract normalized words before scaling to keep remainder arithmetic small.
   const components = [1, 2, 3, 4];
   const finiteWords = components
-    .map(
-      (n) => `finiteHigh${n} = floor(abs(in${n}) / 1048576);
-finiteLow${n} = (abs(in${n}) / 1048576 - finiteHigh${n}) * 1048576;`,
-    )
+    .map((n) => descriptiveFiniteWords(`in${n}`, n))
     .join("\n");
   const finiteChecks = components
-    .map(
-      (
-        n,
-      ) => `(finiteHigh${n} >= 0 && finiteLow${n} >= 0 && finiteLow${n} < 1048576 &&
-      (finiteHigh${n} < 953674 || (finiteHigh${n} == 953674 && finiteLow${n} <= 331776)))`,
-    )
+    .map((n) => descriptiveFinitePredicate(n))
     .join(" &&\n    ");
   return (
     TAGGED_SPECTRUM_CODE.replace(

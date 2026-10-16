@@ -4,7 +4,11 @@ import {
   ENVELOPE_STEP,
   ENVELOPE_OUTPUT,
 } from "./native-source.mjs";
-import { hostTimingCode } from "./host-timing-source.mjs";
+import {
+  hostTimingCode,
+  descriptiveFiniteWords,
+  descriptiveFinitePredicate,
+} from "./host-timing-source.mjs";
 
 const reset = [...ENVELOPE_STATE.matchAll(/History (\w+)\((\d+)\);/g)]
   .map(([, name, initial]) => `${name} = ${initial};`)
@@ -107,8 +111,9 @@ preL.write(in2); preR.write(in3);`,
 origin = launchClock - launchPhaseSamples;
 renderIndex = clock - origin - passVector;
 if (active > 0 && renderIndex >= 0 && renderIndex < passTotal) {
+${["L", "R"].map((side) => descriptiveFiniteWords(`delayed${side}`, side)).join("\n")}
  if (renderIndex != completed + n) { active = 0; rejected = 11; }
- else if (!(abs(delayedL) <= 1000000000000 && abs(delayedR) <= 1000000000000)) {
+ else if (!(${["L", "R"].map((side) => descriptiveFinitePredicate(side)).join(" &&\n    ")})) {
   active = 0; rejected = 15;
  } else {
   sumL = sumL + delayedL * delayedL; sumR = sumR + delayedR * delayedR;

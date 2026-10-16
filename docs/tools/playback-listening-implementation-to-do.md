@@ -275,10 +275,11 @@ detected-tempo and timing/integrity guards stay in place.
   baseline, failed helper pins and unconfirmed native-stop outcome.
   Separate local-distance B executes and collects the owned fault. It is not a
   matched A/B against the missing-Audio run or proof of compiler internals.
-- [ ] Correct the production v2 delayed-stereo finite guard with equivalent
+- [x] Correct the production v2 delayed-stereo finite guard with equivalent
   inclusive1e12 bounded words, preserving qualified FFT bytes, frozen v1,
   original controls/timing/phase/coverage/stop rules and descriptor mathematics.
-  Qualify an explicitly pinned copied-current-envelope control before requesting
+  Share the emitted finite-predicate generator without changing FFT bytes.
+- [ ] Qualify an explicitly pinned copied-current-envelope control before requesting
   another normal immutable candidate save.
 - [x] Copy verified project-owned WAV snapshots into each isolated fixture at
   their exact project-relative paths before launch, rather than merely hashing

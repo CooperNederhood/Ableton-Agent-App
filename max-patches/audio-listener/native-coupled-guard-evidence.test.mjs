@@ -17,7 +17,7 @@ async function readEvidence() {
   );
 }
 
-test("actual corrected native envelope advances and admits valid comparisons while remaining disarmed", async () => {
+test("recorded corrected native envelope advances and admits valid comparisons while remaining disarmed", async () => {
   const evidence = JSON.parse(
     await readFile(
       new URL(
@@ -31,7 +31,18 @@ test("actual corrected native envelope advances and admits valid comparisons whi
   assert.equal(evidence.baselineRunId, baseline.runId);
   const documents = nativeRuntimeDocuments({ nativeVersion: 2 });
   for (const name of ["clock", "envelope"]) {
-    const document = documents[`audio_listener_native_${name}.gendsp`];
+    const document =
+      name === "envelope"
+        ? JSON.parse(
+            await readFile(
+              new URL(
+                "./fixtures/native-v2-envelope-wide-finite-bd4eb41.gendsp",
+                import.meta.url,
+              ),
+              "utf8",
+            ),
+          )
+        : documents[`audio_listener_native_${name}.gendsp`];
     const code = document.patcher.boxes.find(({ box }) => box.id === "code").box
       .code;
     assert.equal(

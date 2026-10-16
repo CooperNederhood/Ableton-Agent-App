@@ -88,6 +88,18 @@ export const DESCRIPTIVE_CONFIG_VALID = `configValid =
   captureVector == 64 || captureVector == 128 || captureVector == 256 ||
   captureVector == 512 || captureVector == 1024);`;
 
+// Inclusive 1e12 is 953674 whole 2^20 words plus 331776. Subtract normalized
+// words before scaling; no wide ceiling or large remainder product in Gen.
+export function descriptiveFiniteWords(value, suffix) {
+  return `finiteHigh${suffix} = floor(abs(${value}) / 1048576);
+finiteLow${suffix} = (abs(${value}) / 1048576 - finiteHigh${suffix}) * 1048576;`;
+}
+
+export function descriptiveFinitePredicate(suffix) {
+  return `(finiteHigh${suffix} >= 0 && finiteLow${suffix} >= 0 && finiteLow${suffix} < 1048576 &&
+      (finiteHigh${suffix} < 953674 || (finiteHigh${suffix} == 953674 && finiteLow${suffix} <= 331776)))`;
+}
+
 // Exact 2^44 comparisons without a wide Gen literal. Keep positivity/integer
 // checks at their original call sites; >= is not !< for unordered inputs.
 export function descriptiveCounterBound(value, atOrAbove = false) {

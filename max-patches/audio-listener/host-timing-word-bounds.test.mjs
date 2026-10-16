@@ -3,6 +3,10 @@ import test from "node:test";
 import { createHash } from "node:crypto";
 import { nativeRuntimeDocuments } from "./native-runtime-source.mjs";
 import { genModel } from "./gen-model.mjs";
+import {
+  descriptiveFiniteWords,
+  descriptiveFinitePredicate,
+} from "./host-timing-source.mjs";
 
 // Executable Gen subset only; native c7e9153f established the failing original
 // expressions. Replacing their literal by zero replays the observed failure,
@@ -265,6 +269,18 @@ test("v2 coupled changes reverse exactly to historical clock and envelope code w
       "epoch > seenEpoch && epoch < 17592186044416 && floor(epoch) == epoch",
     );
     if (name === "envelope") {
+      previous = replaceOne(
+        previous,
+        `${["L", "R"].map((side) => descriptiveFiniteWords(`delayed${side}`, side)).join("\n")}\n`,
+        "",
+      );
+      previous = replaceOne(
+        previous,
+        ["L", "R"]
+          .map((side) => descriptiveFinitePredicate(side))
+          .join(" &&\n    "),
+        "abs(delayedL) <= 1000000000000 && abs(delayedR) <= 1000000000000",
+      );
       previous = replaceOne(
         previous,
         "floor((in4) / 1048576) < 16777216",

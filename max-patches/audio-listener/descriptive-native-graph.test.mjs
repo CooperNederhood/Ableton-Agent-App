@@ -884,6 +884,117 @@ test("v2 clock stays monotonic across requests, stale/zero epochs and split-coun
   assert.equal(nearLimit.step()[1], bounded[1]);
 });
 
+test("v2 clock update and clock eligibility avoid the physically failing wide ceiling", () => {
+  const text = code(
+    nativeRuntimeDocuments({ nativeVersion: 2 })[
+      "audio_listener_native_clock.gendsp"
+    ],
+  );
+  const update = text.slice(text.indexOf("out8 = 2;") + "out8 = 2;".length);
+  const eligibility = text.match(/^out7 = ([^\n]+);$/m)[1];
+  // Actual A/B evidence isolated the wide-ceiling min update, not compiler
+  // internals. The JS numeric model alone accepted the failing native code.
+  for (const fragment of [update, eligibility])
+    for (const [literal] of fragment.matchAll(/\b\d+(?:\.\d+)?\b/g))
+      assert.ok(
+        Number(literal) <= 2147483647,
+        `native clock update/eligibility reintroduced wide ceiling: ${literal}`,
+      );
+  assert.doesNotMatch(update, /\bmin\s*\(/);
+  // This bounded fix must not retune the independently scoped epoch gate.
+  assert.match(
+    text,
+    /epoch > seenEpoch && epoch < 17592186044416 && floor\(epoch\) == epoch/,
+  );
+});
+
+test("v2 split clock saturation preserves the original integer min oracle and denial boundaries", () => {
+  const text = code(
+    nativeRuntimeDocuments({ nativeVersion: 2 })[
+      "audio_listener_native_clock.gendsp"
+    ],
+  );
+  const limit = 2 ** 44;
+  const word = 2 ** 20;
+  for (const rate of [44100, 48000]) {
+    for (const initial of [
+      0,
+      1,
+      word - 1,
+      word,
+      word + 1,
+      limit - word - 1,
+      limit - 2,
+      limit - 1,
+      limit,
+      limit + 1,
+      limit + word,
+      2 * limit - 1,
+      Number.MAX_SAFE_INTEGER,
+    ]) {
+      const gen = genModel(
+        text.replace("History clock(0)", `History clock(${initial})`),
+        8,
+        rate,
+      );
+      gen.configure({ ...config(rate), epoch: 1 });
+      let expected = initial;
+      for (let tick = 0; tick < 4; tick++) {
+        const row = gen.step();
+        assert.equal(row[1], expected, `rate=${rate}, initial=${initial}`);
+        assert.equal(row[2] * 64 + row[3], expected);
+        assert.equal(row[6], expected < limit ? 1 : 0);
+        assert.equal(row[7], 2);
+        expected = Math.min(limit, expected + 1);
+      }
+    }
+    for (const epoch of [0, -1, 0.5, NaN, Infinity, limit, limit + 1]) {
+      const gen = genModel(text, 8, rate);
+      gen.configure({ ...config(rate), epoch });
+      for (let tick = 0; tick < 3; tick++) {
+        const row = gen.step();
+        assert.equal(row[1], tick);
+        assert.equal(row[6], 0);
+      }
+    }
+    const saturated = genModel(
+      text.replace("History clock(0)", `History clock(${limit})`),
+      8,
+      rate,
+    );
+    saturated.configure(config(rate));
+    for (const patch of [
+      { epoch: 1 },
+      { epoch: 0 },
+      { epoch: 2 },
+      { epoch: 1 },
+      { epoch: limit - 1 },
+      { epoch: limit },
+      { epoch: limit - 1, cancel: 1 },
+    ]) {
+      saturated.configure(patch);
+      const row = saturated.step();
+      assert.equal(row[1], limit);
+      assert.equal(row[6], 0);
+    }
+    const gen = genModel(text, 8, rate);
+    gen.configure({ ...config(rate), epoch: limit - 1 });
+    assert.equal(gen.step()[6], 1);
+    for (const patch of [
+      { epoch: 0 },
+      { epoch: limit - 2 },
+      { epoch: limit - 1, cancel: 1 },
+      { cancel: 0, totalSamples: 0 },
+      { totalSamples: rate / 10, captureVector: 3 },
+    ]) {
+      gen.configure(patch);
+      const row = gen.step();
+      assert.equal(row[4], limit - 1);
+      assert.equal(row[6], 0);
+    }
+  }
+});
+
 test("missed launch, pre-roll underrun, invalid phase, incoherent motion and stopped transport fail closed", () => {
   const missed = fixture();
   assert.equal(missed.step(0.6)[4], 9);

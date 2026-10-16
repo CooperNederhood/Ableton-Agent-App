@@ -379,6 +379,17 @@ bin. The fail-only probe admitted no data or arm/playback/context and forced
 failure after 901 ms. Cleanup and unchanged original pins have explicit
 receipts. See `fixtures/native-v2-clock-update-control.json`.
 
+The v2 clock implementation now replaces that capped update with bounded
+high/low-word arithmetic. It preserves the original 17,592,186,044,416 ceiling,
+increments below it, holds at it and clamps oversized integer states to it.
+The directly coupled clock-eligibility check uses the equivalent high-word
+comparison and still denies the ceiling or higher. Epoch/configuration gates,
+other native sources, packet layouts and ABI2 remain unchanged. Boundary
+regressions cover zero/one, word rollover, ceiling-minus-one, ceiling, oversized
+states and configuration/cancellation/epoch denial; frozen v1 bytes remain
+unchanged. Native confirmation of this saturating implementation is still
+required; the earlier uncapped control does not provide it.
+
 ### Reviewed descriptive native runner scenarios
 
 The `native-listening-descriptive` group contains

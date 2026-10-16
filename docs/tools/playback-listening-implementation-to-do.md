@@ -182,9 +182,14 @@ detected-tempo and timing/integrity guards stay in place.
   counters at the same DSP geometry. Spectrum still rejects frames. Preserve
   both outcomes, forced failure at 901 ms, zero admission/arm/context and
   explicit exact-owned cleanup/original-pin receipts.
-- [ ] Replace the defective capped update with an equivalent saturating v2
+- [x] Replace the defective capped update with an equivalent saturating v2
   implementation, preserving the original counter ceiling and frozen v1.
-  Qualify the corrected clock and the separate remaining spectrum failure.
+  Bounded high/low-word update and equivalent eligibility comparison retain
+  saturation and denial; fail-before coverage includes rollover, ceiling edges,
+  oversized integer states and epoch/configuration/cancellation boundaries.
+- [ ] Qualify the corrected saturating clock in an actual fresh diagnostic
+  process, then isolate the separate remaining spectrum failure using actual
+  FFT-local sample rate and retained per-frame failed-predicate flags.
 - [x] Harden the actual shared v2 SDK's immutable inputs, wire/stage/size
   guards, reservation ownership and redacted failures without changing MIDI/v1.
   Cover optional cancellation reasons through the real authenticated TS ingress,

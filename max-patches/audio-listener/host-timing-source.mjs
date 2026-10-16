@@ -187,6 +187,9 @@ clock = min(17592186044416, clock + 1);`;
 
 // Native counter never resets on request/zero/cancel. Epoch high-water survives
 // queued epoch=0, so an old request cannot resurrect a completed pass.
+// The integer counter saturates at 2^24 high words of 2^20 samples. A native
+// controlled contrast isolated the wide-ceiling min update; bounded-word
+// arithmetic preserves the cap without putting that literal into the update.
 export const DESCRIPTIVE_CLOCK_CODE = `${DESCRIPTIVE_PARAMETERS}
 History clock(0); History seenEpoch(0); History resetAt(0);
 ${DESCRIPTIVE_CONFIG_VALID}
@@ -195,9 +198,12 @@ if (epoch > seenEpoch && epoch < 17592186044416 && floor(epoch) == epoch) {
 }
 position = clock - resetAt;
 vector = configValid ? captureVector : 1;
+clockHigh = floor(clock / 1048576);
+clockLow = clock - clockHigh * 1048576;
 out1 = position; out2 = clock;
 out3 = floor(clock / vector); out4 = clock - floor(clock / vector) * vector;
 out5 = seenEpoch; out6 = resetAt;
-out7 = configValid && epoch == seenEpoch && epoch > 0 && cancel == 0 && clock < 17592186044416 ? 1 : 0;
+out7 = configValid && epoch == seenEpoch && epoch > 0 && cancel == 0 && clockHigh < 16777216 ? 1 : 0;
 out8 = 2;
-clock = min(17592186044416, clock + 1);`;
+if (clockHigh < 16777216) { clock = clock + 1; }
+else { clock = clock - clockLow - (clockHigh - 16777216) * 1048576; }`;

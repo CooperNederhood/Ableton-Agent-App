@@ -212,9 +212,23 @@ detected-tempo and timing/integrity guards stay in place.
   arithmetic, fail-before emitted-code tests and independent bounds/adjacent
   doubles/sign/nonfinite/overflow regressions. All other guards/math/rate/ABI
   and frozen v1 remain unchanged.
-- [ ] Natively confirm the corrected full-range finite guard. The stricter
-  diagnostic control is not a production replacement or resource qualification;
-  compiler internals remain unproven.
+- [x] Natively confirm idle silence-frame publication from the corrected
+  full-range finite guard. Run `c7e9153f` pins the exact current production
+  spectrum resource/code, retains 85 valid advancing packets with zero invalid
+  count, and does not use the stricter diagnostic ceiling. Forced failure at
+  900 ms, zero admission/arm/context and explicit cleanup/pin receipts preserve
+  the nonaccepting scope. This does not qualify armed capture or compiler internals.
+- [x] Observe the coupled envelope guards without changing original outputs,
+  controls or arming. The same run retains 86 private 26-field tuples:
+  local clock/capped next/wide literal evaluate to zero; isolated comparison-only
+  epoch1 fails its bound; actual advancing counters below the ceiling fail
+  validity and projected ends below the ceiling trigger headroom rejection.
+  Live epoch remains zero; unconfigured idle state is not an arm failure.
+- [ ] Correct the directly coupled v2 envelope clock and epoch/counter/headroom
+  predicates with equivalent bounded arithmetic, preserving original ceilings,
+  strictness, generation/configuration/stop semantics and frozen v1.
+  Add fail-before regressions and then observe the corrected native predicates
+  before creating another normally saved immutable capture candidate.
 - [x] Harden the actual shared v2 SDK's immutable inputs, wire/stage/size
   guards, reservation ownership and redacted failures without changing MIDI/v1.
   Cover optional cancellation reasons through the real authenticated TS ingress,

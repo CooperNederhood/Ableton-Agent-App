@@ -1,0 +1,254 @@
+{
+  "patcher": {
+    "fileversion": 1,
+    "appversion": {
+      "major": 8,
+      "minor": 5,
+      "revision": 5,
+      "architecture": "x64",
+      "modernui": 1
+    },
+    "classnamespace": "dsp.gen",
+    "rect": [
+      0,
+      0,
+      800,
+      380
+    ],
+    "boxes": [
+      {
+        "box": {
+          "id": "code",
+          "maxclass": "codebox",
+          "code": "Param epoch(0); Param cancel(0);\nParam totalSamples(0); Param hopSamples(0); Param tempoBpm(0);\nParam startBeatFraction(0); Param captureVector(0);\nHistory clock(0); History seenEpoch(0); History resetAt(0);\nconfigValid =\n (samplerate == 44100 || samplerate == 48000) &&\n (totalSamples >= round(samplerate / 10) && totalSamples <= 30 * samplerate && floor(totalSamples) == totalSamples) &&\n (hopSamples == round(samplerate / 10)) &&\n (tempoBpm >= 20 && tempoBpm <= 999) &&\n (startBeatFraction >= 0 && startBeatFraction < 1) &&\n (captureVector == 1 || captureVector == 2 || captureVector == 4 ||\n  captureVector == 8 || captureVector == 16 || captureVector == 32 ||\n  captureVector == 64 || captureVector == 128 || captureVector == 256 ||\n  captureVector == 512 || captureVector == 1024);\nif (epoch > seenEpoch && epoch < 17592186044416 && floor(epoch) == epoch) {\n seenEpoch = epoch; resetAt = clock;\n}\nposition = clock - resetAt;\nvector = configValid ? captureVector : 1;\nclockHigh = floor(clock / 1048576);\nclockLow = clock - clockHigh * 1048576;\nout1 = position; out2 = clock;\nout3 = floor(clock / vector); out4 = clock - floor(clock / vector) * vector;\nout5 = seenEpoch; out6 = resetAt;\nout7 = configValid && epoch == seenEpoch && epoch > 0 && cancel == 0 && clockHigh < 16777216 ? 1 : 0;\nout8 = 2;\nif (clockHigh < 16777216) { clock = clock + 1; }\nelse { clock = clock - clockLow - (clockHigh - 16777216) * 1048576; }",
+          "numinlets": 0,
+          "numoutlets": 8,
+          "patching_rect": [
+            100,
+            50,
+            580,
+            240
+          ]
+        }
+      },
+      {
+        "box": {
+          "id": "out0",
+          "maxclass": "newobj",
+          "text": "out 1",
+          "numinlets": 1,
+          "numoutlets": 0,
+          "patching_rect": [
+            690,
+            20,
+            60,
+            22
+          ]
+        }
+      },
+      {
+        "box": {
+          "id": "out1",
+          "maxclass": "newobj",
+          "text": "out 2",
+          "numinlets": 1,
+          "numoutlets": 0,
+          "patching_rect": [
+            690,
+            55,
+            60,
+            22
+          ]
+        }
+      },
+      {
+        "box": {
+          "id": "out2",
+          "maxclass": "newobj",
+          "text": "out 3",
+          "numinlets": 1,
+          "numoutlets": 0,
+          "patching_rect": [
+            690,
+            90,
+            60,
+            22
+          ]
+        }
+      },
+      {
+        "box": {
+          "id": "out3",
+          "maxclass": "newobj",
+          "text": "out 4",
+          "numinlets": 1,
+          "numoutlets": 0,
+          "patching_rect": [
+            690,
+            125,
+            60,
+            22
+          ]
+        }
+      },
+      {
+        "box": {
+          "id": "out4",
+          "maxclass": "newobj",
+          "text": "out 5",
+          "numinlets": 1,
+          "numoutlets": 0,
+          "patching_rect": [
+            690,
+            160,
+            60,
+            22
+          ]
+        }
+      },
+      {
+        "box": {
+          "id": "out5",
+          "maxclass": "newobj",
+          "text": "out 6",
+          "numinlets": 1,
+          "numoutlets": 0,
+          "patching_rect": [
+            690,
+            195,
+            60,
+            22
+          ]
+        }
+      },
+      {
+        "box": {
+          "id": "out6",
+          "maxclass": "newobj",
+          "text": "out 7",
+          "numinlets": 1,
+          "numoutlets": 0,
+          "patching_rect": [
+            690,
+            230,
+            60,
+            22
+          ]
+        }
+      },
+      {
+        "box": {
+          "id": "out7",
+          "maxclass": "newobj",
+          "text": "out 8",
+          "numinlets": 1,
+          "numoutlets": 0,
+          "patching_rect": [
+            690,
+            265,
+            60,
+            22
+          ]
+        }
+      }
+    ],
+    "lines": [
+      {
+        "patchline": {
+          "source": [
+            "code",
+            0
+          ],
+          "destination": [
+            "out0",
+            0
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "code",
+            1
+          ],
+          "destination": [
+            "out1",
+            0
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "code",
+            2
+          ],
+          "destination": [
+            "out2",
+            0
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "code",
+            3
+          ],
+          "destination": [
+            "out3",
+            0
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "code",
+            4
+          ],
+          "destination": [
+            "out4",
+            0
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "code",
+            5
+          ],
+          "destination": [
+            "out5",
+            0
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "code",
+            6
+          ],
+          "destination": [
+            "out6",
+            0
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "code",
+            7
+          ],
+          "destination": [
+            "out7",
+            0
+          ]
+        }
+      }
+    ]
+  }
+}

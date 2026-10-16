@@ -3,9 +3,8 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { URL } from "node:url";
-import { nativeRuntimeDocuments } from "./native-runtime-source.mjs";
 
-test("actual saturating clock observation pins the corrected resource without certifying capture", async () => {
+test("actual saturating clock observation pins its historical resource without qualifying later changes", async () => {
   const evidence = JSON.parse(
     await readFile(
       new URL(
@@ -15,13 +14,14 @@ test("actual saturating clock observation pins the corrected resource without ce
       "utf8",
     ),
   );
-  const document = nativeRuntimeDocuments({ nativeVersion: 2 })[
-    "audio_listener_native_clock.gendsp"
-  ];
+  const resource = await readFile(
+    new URL(
+      "./fixtures/native-v2-clock-saturating-8e33f8d.gendsp",
+      import.meta.url,
+    ),
+  );
   assert.equal(
-    createHash("sha256")
-      .update(`${JSON.stringify(document, null, 2)}\n`)
-      .digest("hex"),
+    createHash("sha256").update(resource).digest("hex"),
     evidence.clockGenSha256,
   );
   assert.deepEqual(evidence.metadata.dsp, [1, 48000, 64]);

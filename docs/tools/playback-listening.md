@@ -428,8 +428,32 @@ literal comparison without narrowing the accepted range. Boundary regressions
 cover exact limits and adjacent doubles, signs, subword values, overflow,
 NaN/Infinity and the actual zero-input failure pattern at both rates. Other
 guards, spectral math, rate handling, ABI/wire and frozen v1 bytes remain
-unchanged. This corrected resource still requires native confirmation; the
-stricter control is not a substitute for it.
+unchanged.
+
+Actual nonaccepting run `c7e9153f` now confirms idle native silence-frame
+publication from that full-range production source: exact code hash
+`5bd377dc1eee13b58e1567880fb1a1d99cd0da0d1b20a104a913fbbfd08e34f4`,
+85 spectrum packets, first `[954368,0,0,952320,954368,0]`, last
+`[997376,0,0,995328,997376,0]`, and zero invalid frames. This run did not
+substitute the stricter ceiling. It also retained 86 private envelope diagnostic
+tuples without changing original outputs1–23, ABI16, controls or stopped-ACK
+routing. At actual DSP48k/vector64, local clock, computed capped-next clock and
+the tapped wide literal all evaluated to zero. A comparison-only isolated
+epoch1 failed its bound/full gate. Actual input counters advanced from 957696
+to 1000384 but failed validity; projected ends 1437696 to 1480384 triggered
+headroom rejection despite being below the intended ceiling.
+
+These are separate, non-vector-atomic private taps, not native ownership or
+arming receipts. Live epoch stayed zero and configuration stayed unset;
+the idle configuration is not itself a failure. The observations identify
+directly coupled envelope expressions requiring correction, not universal
+compiler behavior. The exact earlier corrected-clock resource is archived as
+`fixtures/native-v2-clock-saturating-8e33f8d.gendsp`; its physical record cannot
+qualify subsequent epoch-guard changes. The combined bounded record is
+`fixtures/native-v2-coupled-guard-observation.json`. Forced failure at 900 ms,
+zero measurement admission/native arm/playback/context, removal of the private
+callback, and exact-owned process/fixture/original-pin cleanup all succeeded.
+Idle FFT publication does not qualify an armed passage capture or Live11.3.42.
 
 ### Reviewed descriptive native runner scenarios
 

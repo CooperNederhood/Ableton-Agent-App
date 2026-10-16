@@ -396,6 +396,19 @@ bounded evidence are in `fixtures/native-v2-saturating-clock-observation.json`.
 This confirms advancement at the observed values, not a physical ceiling test
 or ordinary capture acceptance. The separate spectrum rejection remains.
 
+A diagnostic-only spectrum variant retained actual FFT-local sample rate and
+per-frame failed-predicate flags while preserving all original guards, math,
+main outputs and ABI. It reported `[48000, 4, 15, 0, 0]`: local rate 48 kHz,
+finite-comparison failure only, all four FFT components flagged, first faulty
+bin zero and reported maximum component magnitude zero. The corrected clock
+continued advancing, but original spectrum publication still failed. These
+repurposed private diagnostic outputs never entered the SDK/typed failure
+contract; live rate and retained flags are not atomic. The bounded evidence is
+`fixtures/native-v2-fft-guard-observation.json`. No production finite-bound
+rewrite follows from this observation alone; a stricter small-bound contrast
+is the next declared experiment. Forced failure at 902 ms admitted no capture,
+and exact-owned cleanup/original-pin receipts succeeded.
+
 ### Reviewed descriptive native runner scenarios
 
 The `native-listening-descriptive` group contains

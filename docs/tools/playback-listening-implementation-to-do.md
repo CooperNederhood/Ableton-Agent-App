@@ -193,8 +193,16 @@ detected-tempo and timing/integrity guards stay in place.
   resource is pinned; forced failure at 900 ms, zero admission/arm/context and
   successful cleanup/original-pin receipts. This is not a physical ceiling
   test or ordinary capture acceptance.
-- [ ] Isolate the separate remaining spectrum failure using actual FFT-local
+- [x] Isolate the separate remaining spectrum failure using actual FFT-local
   sample rate and retained per-frame failed-predicate flags.
+  Run `ae0be55a` reports `[48000,4,15,0,0]`: correct local rate, only finite
+  comparisons flagged, all four components, first faulty bin zero and reported
+  maximum component magnitude zero. Original guards/math/main outputs/ABI stay
+  unchanged; test-only diagnostic values never enter production SDK/History.
+  Zero admission/arm/context and explicit cleanup/pin receipts remain intact.
+- [ ] Contrast original wide finite-input comparisons with a stricter
+  small-bound diagnostic control on real inputs, then implement only an
+  evidence-backed equivalent production guard retaining the original bound.
 - [x] Harden the actual shared v2 SDK's immutable inputs, wire/stage/size
   guards, reservation ownership and redacted failures without changing MIDI/v1.
   Cover optional cancellation reasons through the real authenticated TS ingress,

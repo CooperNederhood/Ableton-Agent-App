@@ -201,6 +201,61 @@ describe("actual corrected v2 native capture and durable context", () => {
     });
   });
 
+  it("preserves the actual later rejection14 without inventing fault-time phase or retroattributing the earlier failure", async () => {
+    const record = await evidence("native-v2-long-envelope-rejection.json");
+    expect(record.rejected.values).toEqual([
+      1, 92160, -1, 0, 14, 0, 0, -1, 0, 0, 0, 0, 158400, 1083904, 1176064, 2,
+    ]);
+    expect(record.rejected.nativeEpoch).toBe(1);
+    expect(record.rejected.controllerState).toBe("capturing");
+    expect(record.rejected.values[13]).toBe(record.rejected.originalArmCounter);
+    expect(record.rejected.armCounterMismatch).toBe(false);
+    expect(record.rejected.values[14]).toBe(
+      record.rejected.values[13] + record.rejected.values[1],
+    );
+    expect(record.rejected.values[12] / 4800).toBe(33);
+    expect(record.rawFaultPhase).toBeNull();
+    expect(record.rawFaultPreviousPhase).toBeNull();
+    expect(record.phaseCauseProven).toBe(false);
+    expect(record.originalLongFailure).toEqual({
+      scenarioRunId: "41efa008-b5d2-4df4-86a4-be312f2b2aaf",
+      rejectedEnvelope: null,
+      nativeRejectionCode: null,
+    });
+    expect(record.spectrumRecoveryPhysicallyObserved).toBeNull();
+  });
+
+  it("keeps the current-controller diagnostic owned, reversible and outside ordinary capture acceptance", async () => {
+    const record = await evidence("native-v2-long-envelope-rejection.json");
+    expect(record.instrumentedDiagnosticOnly).toBe(true);
+    expect(record.acceptancePassed).toBe(false);
+    expect(record.contextIds).toEqual([]);
+    expect(record.controllerSha256).toBe(
+      "f6e1e2de0230c86fe2d534f98400648edb3160deaacbb2bb88e74bf667d6c9d2",
+    );
+    expect(record.declaredResourceOverrides.map((item) => item.name)).toEqual([
+      "audio_listener_native_controller.js",
+      "audio-listener-manifest.json",
+    ]);
+    expect(record.rejected).toMatchObject(record.owner);
+    expect(record.observer).toEqual({
+      count: 551,
+      foreignCalls: 0,
+      malformedRows: 0,
+      observerErrors: 0,
+      prototypeRestored: true,
+    });
+    for (const key of [
+      "instrumentationRestored",
+      "processStopped",
+      "fixtureCleaned",
+      "copiedResourcesUnchanged",
+      "sourcePinsUnchanged",
+    ])
+      expect(record.cleanup[key]).toBe(true);
+    expect(record.cleanup.errors).toEqual([]);
+  });
+
   it.each(["missing-window", "erased-spectrum", "changed-range"])(
     "rejects %s instead of treating completed prose or context identity as sufficient",
     async (change) => {

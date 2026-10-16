@@ -674,9 +674,21 @@ New controller SHA is
 The actual `c6a024c9` diagnostic did not retain its preceding coherent payload.
 The exact-packet regression therefore uses explicitly modeled matching prior
 state; physical recoverability is not established by that test. A missing or
-different prior payload still fails. Qualify the explicitly pinned current
-controller in an owned copied-resource diagnostic before claiming this earlier
-fault is resolved or returning to the unknown later envelope rejection.
+different prior payload still fails.
+
+A subsequent owned current-controller diagnostic `509eb299` reached the later
+envelope failure and retained actual rejection14:
+`[1,92160,-1,0,14,0,0,-1,0,0,0,0,158400,1083904,1176064,2]`.
+The controller was capturing; the arm counter remained1083904 and33 completed
+windows represented158400 samples. The current controller's loaded module and
+prototype were attested, only the controller and its copied manifest were
+overridden, no context was published, and restoration/process/fixture cleanup
+passed. Evidence is `fixtures/native-v2-long-envelope-rejection.json`.
+This establishes an actual new native rejection, not its raw phase cause:
+held launch distance0 is not fault-time `plugphasor~` input. The raw phase and
+previous phase remain unknown; no normalization or timing relaxation is
+justified yet. The original `41efa008` row/code remain null, and this later run
+does not prove physical recovery of the earlier `c6a024c9` acquisition.
 
 ### Reviewed descriptive native runner scenarios
 

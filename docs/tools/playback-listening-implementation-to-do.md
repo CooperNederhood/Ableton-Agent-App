@@ -309,7 +309,8 @@ detected-tempo and timing/integrity guards stay in place.
   rejected row/code as null, isolate through the read-only observer, and fix
   only the actual predicate. Do not relabel the failed group or widen timing.
 - [ ] Resolve the distinct earlier spectrum acquisition failure observed by
-  long-scenario observerc6a024c9 before an envelope rejection can be retained.
+  long-scenario observerc6a024c9; later envelope observation does not establish
+  physical recovery of that acquisition.
   Actual packet1134592/0/0/1132544/1136640/0 has an old complete interval and
   final tag advanced one2048sample frame, clean FFT diagnostics/ABI2, with
   0 reported frames at1706ms. Assess existing narrowly bounded discard policy;
@@ -319,10 +320,16 @@ detected-tempo and timing/integrity guards stay in place.
   with an exact matching retained coherent payload/counter, one FFT advance,
   existing1,000ms freshness and shared64-rejection quota. Never admit the packet,
   refresh timestamps, extend deadlines or change v1 recovery.
-- [ ] Physically qualify current controllerf6e1e2de through an explicitly pinned
+- [x] Physically load/attest current controllerf6e1e2de through an explicitly pinned
   copied-resource control. C6 did not retain its preceding coherent payload;
   exact-packet regression uses modeled prior state, not observed recovery.
-  Then observe the separate later envelope rejection without retroattribution.
+  Run509eb299 retains actual separate later rejection14 with unchanged arm
+  counter1083904 and158400 completed samples; no context and cleanup passes.
+  Original41efa raw row/code stay null; earlier C6 recovery remains unproven.
+ - [ ] Observe actual fault-time phase for the later rejection14 before changing
+  any phase guard. Packet held launch distance0 is not current raw phase.
+  Preserve main outputs/guards/control/deadlines with a reversible passive
+  latch, then add an evidence-backed regression and finish30second acceptance.
 - [x] Harden the actual shared v2 SDK's immutable inputs, wire/stage/size
   guards, reservation ownership and redacted failures without changing MIDI/v1.
   Cover optional cancellation reasons through the real authenticated TS ingress,

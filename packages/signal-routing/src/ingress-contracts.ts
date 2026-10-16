@@ -1,4 +1,8 @@
 import { z } from "zod";
+import {
+  producerDiagnosticsSchema,
+  type WRITE_DIAGNOSTIC_CAPABILITY,
+} from "./producer-diagnostics.js";
 
 import { outputProducerSchema, signalPayloadSchema } from "./contracts.js";
 import {
@@ -48,6 +52,7 @@ export const producerHeartbeatSchema = z
     type: z.literal("producer.heartbeat"),
     protocolVersion: z.literal(PRODUCER_PROTOCOL_VERSION),
     requestId: requestIdSchema,
+    diagnostics: producerDiagnosticsSchema.optional(),
   })
   .strict();
 
@@ -99,6 +104,7 @@ export interface ProducerAcknowledgement {
   readonly requestId: string;
   readonly action: "hello" | "signal" | "heartbeat" | "disconnect" | "listener";
   readonly connectionId?: string;
+  readonly producerDiagnostics?: readonly [typeof WRITE_DIAGNOSTIC_CAPABILITY];
 }
 
 export interface ProducerErrorResponse {
@@ -119,6 +125,7 @@ export interface SignalIngressDiscoveryDescriptor {
   readonly protocolVersion: typeof PRODUCER_PROTOCOL_VERSION;
   readonly maxFrameBytes: number;
   readonly secretPath?: string;
+  readonly producerDiagnostics?: readonly [typeof WRITE_DIAGNOSTIC_CAPABILITY];
   readonly listenerVersions?: readonly [1] | readonly [1, 2];
   readonly listenerCapabilities?:
     | readonly ["audio-listener/v1"]

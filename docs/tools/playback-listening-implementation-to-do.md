@@ -382,9 +382,13 @@ detected-tempo and timing/integrity guards stay in place.
   reference inspector contract. Then qualify ordinary long/group/suite.
   Hold the prepared current fixture's manual-save step until required status
   forwarding is complete and the final resource bundle is frozen.
- - [ ] Wire actual write-backpressure lifecycle into application-owned typed
-  History. Audio runtime currently ignores the client's onStatus callbacks;
-  preserve source timing/ownership/redaction and avoid recursive telemetry.
+ - [x] Wire actual write-backpressure callbacks through ordinary runtime and
+  negotiated authenticated heartbeats into application-owned typed History.
+  Preserve frozen source ownership/timing, bounds/redaction, deduplication and
+  nonfatal explicit coverage gaps without recursive telemetry or data replay.
+ - [ ] Qualify actual native History/socket metrics with new client3825e643 and
+  runtime d04205d1 while preserving all capture/ACK/final-state checks. Software
+  source/journal tests do not replace this physical qualification.
  - [x] Retain bounded typed before/after leave-running postcondition diagnostics
   with nine unchanged named checks, redacted scalar differences/structured
   hashes, lifecycle timing/trace attribution and failure/cleanup regressions.

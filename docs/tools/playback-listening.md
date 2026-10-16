@@ -833,14 +833,25 @@ and positive-window count. Approximate/descriptive-only authority and unknown
 physical timing bounds remain. No earlier failed verdict or missing exception
 is rewritten.
 
-A separate required observability gap remains: client559a7e93 emits bounded
+A separate required observability gap was identified: client559a7e93 emits bounded
 backpressure lifecycle callbacks, but the audio runtime ignores them. They do
 not reach application-owned local History. The passed898d6ca2 run contains no
 retained write-return/drain/watermark measurements, so its loaded-code identity
 does not independently prove whether that physical write entered backpressure.
-Do not call callback-only coverage journal coverage. Wire and qualify actual
-status forwarding before freezing the next ordinary candidate; the passed
-capture/ACK evidence remains valid under its original resource pins.
+Do not call callback-only coverage journal coverage; the passed capture/ACK
+evidence remains valid under its original resource pins.
+
+The software correction forwards actual callbacks through ordinary audio
+runtime `d04205d1` and shared client `3825e643` into optional authenticated
+heartbeat diagnostics. The existing application recorder/journal and typed
+queries receive real source stages, timing, frozen ownership and socket metrics,
+without routing them as musical observations. Negotiation, bounds, deduplication
+and explicit coverage limitations follow the
+[Output transport contract](../outputs/multi-agent-output-routing.md#producer-transport-backpressure).
+Seven typed-journal boundary regressions and 592 full Max checks pass, including
+the previously missing ordinary-runtime callback path. Native controllerf6 and
+Gen321 remain unchanged. Actual-native History qualification is still pending;
+hold the final candidate/save until the separately pinned resources are exercised.
 
 ### Reviewed descriptive native runner scenarios
 

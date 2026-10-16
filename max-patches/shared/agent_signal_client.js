@@ -9,6 +9,17 @@ const path = require("node:path");
 const PROTOCOL_VERSION = 1;
 const DEFAULT_MAX_FRAME_BYTES = 128 * 1024;
 const OUTBOUND_DRAIN_TIMEOUT_MS = 1000;
+const WRITE_DIAGNOSTIC_SCHEMA = "write-backpressure/v1";
+const WRITE_DIAGNOSTIC_REASONS = [
+  "write_backpressure",
+  "drain",
+  "pending_quota_exceeded",
+  "outbound_queue_quota_exceeded",
+  "outbound_write_failed",
+  "outbound_drain_timeout",
+  "disconnected",
+  "stopped"
+];
 const DEFAULT_DESCRIPTOR_ENV = "ABLETON_AGENT_SIGNAL_INGRESS_DESCRIPTOR";
 const DEFAULT_SECRET_ENV = "ABLETON_AGENT_SIGNAL_INGRESS_SECRET";
 const DEFAULT_SECRET_PATH_ENV = "ABLETON_AGENT_SIGNAL_INGRESS_SECRET_PATH";
@@ -598,6 +609,14 @@ class AgentSignalClient {
     this.heartbeatTimer = null;
     this.reconnectDelay = this.reconnectInitialMs;
     this.lastStatus = null;
+    this.writeDiagnosticEvents = [];
+    this.writeDiagnosticGaps = { overflow: 0, expired: 0, unsupported: 0 };
+    this.writeDiagnosticBatches = new Map();
+    this.writeDiagnosticsSupported = null;
+    this.writeDiagnosticOrder = 0;
+    this.onWriteDiagnostic =
+      options.onWriteDiagnostic ||
+      ((event) => this.collectWriteDiagnostic(event));
   }
 
   configureProducer(identity) {
@@ -697,6 +716,9 @@ class AgentSignalClient {
       return;
     }
     this.socket = socket;
+    if (this.signalKind === "audio" && !this.listener)
+      this.transportEpoch = this.randomUUID();
+    this.writeDiagnosticsSupported = null;
     this.failedWriteSocket = null;
     if (this.listener) {
       this.listener = { ...this.listener, connectionEpoch: this.randomUUID() };
@@ -841,7 +863,9 @@ class AgentSignalClient {
       return;
     }
     if (response.type === "producer.error") {
-      if (this.signalKind === "audio") this.listenerFailure(response.code);
+      const diagnostic = this.writeDiagnosticBatches.delete(response.requestId);
+      if (this.signalKind === "audio" && !diagnostic)
+        this.listenerFailure(response.code);
       this.emitStatus(
         "live",
         "server_error",
@@ -859,6 +883,21 @@ class AgentSignalClient {
 
     const pendingAction = this.pending.get(response.requestId);
     this.pending.delete(response.requestId);
+    if (pendingAction === "heartbeat" && response.action === "heartbeat") {
+      const batch = this.writeDiagnosticBatches.get(response.requestId);
+      if (batch) {
+        this.writeDiagnosticBatches.delete(response.requestId);
+        const ids = new Set(batch.eventIds);
+        this.writeDiagnosticEvents = this.writeDiagnosticEvents.filter(
+          (event) => !ids.has(event.eventId)
+        );
+        for (const key of Object.keys(this.writeDiagnosticGaps))
+          this.writeDiagnosticGaps[key] = Math.max(
+            0,
+            this.writeDiagnosticGaps[key] - (batch.gaps?.[key] || 0)
+          );
+      }
+    }
     if (response.action === "hello") {
       if (
         pendingAction !== "hello" ||
@@ -871,6 +910,19 @@ class AgentSignalClient {
       }
       this.authenticated = true;
       this.connectionId = response.connectionId;
+      this.writeDiagnosticsSupported =
+        Array.isArray(response.producerDiagnostics) &&
+        response.producerDiagnostics.includes(WRITE_DIAGNOSTIC_SCHEMA);
+      if (!this.writeDiagnosticsSupported) {
+        this.writeDiagnosticGaps.unsupported = Math.min(
+          Number.MAX_SAFE_INTEGER,
+          this.writeDiagnosticGaps.unsupported +
+            this.writeDiagnosticEvents.length
+        );
+        this.writeDiagnosticEvents.length = 0;
+        if (this.signalKind === "audio")
+          this.emitStatus("live", "write_diagnostics", "unsupported");
+      }
       this.reconnectDelay = this.reconnectInitialMs;
       this.emitStatus("live", "connected", response.connectionId);
       this.startHeartbeat();
@@ -920,11 +972,22 @@ class AgentSignalClient {
       if (!this.authenticated || !this.socket) {
         return;
       }
-      this.writeMessage({
+      const requestId = this.nextRequestId("heartbeat");
+      const diagnostics = this.heartbeatDiagnostics(requestId);
+      const message = {
         type: "producer.heartbeat",
         protocolVersion: PROTOCOL_VERSION,
-        requestId: this.nextRequestId("heartbeat")
-      });
+        requestId,
+        ...(diagnostics ? { diagnostics } : {})
+      };
+      if (diagnostics)
+        this.writeDiagnosticBatches.set(message.requestId, {
+          sentAt: this.now(),
+          eventIds: diagnostics.events.map((event) => event.eventId),
+          gaps: diagnostics.gaps
+        });
+      if (!this.writeMessage(message))
+        this.writeDiagnosticBatches.delete(message.requestId);
     }, this.heartbeatMs);
     this.heartbeatTimer.unref?.();
   }
@@ -934,6 +997,194 @@ class AgentSignalClient {
       this.clearInterval(this.heartbeatTimer);
       this.heartbeatTimer = null;
     }
+  }
+
+  expireWriteDiagnostics() {
+    const cutoff = this.now() - 60000;
+    for (const [requestId, batch] of this.writeDiagnosticBatches)
+      if (batch.sentAt <= cutoff) this.writeDiagnosticBatches.delete(requestId);
+    const retained = this.writeDiagnosticEvents.filter(
+      (event) => event.sourceTime > cutoff
+    );
+    const expired = this.writeDiagnosticEvents.length - retained.length;
+    this.writeDiagnosticEvents = retained;
+    if (expired) {
+      this.writeDiagnosticGaps.expired = Math.min(
+        Number.MAX_SAFE_INTEGER,
+        this.writeDiagnosticGaps.expired + expired
+      );
+      this.emitStatus("live", "write_diagnostics", "expired", expired);
+    }
+  }
+
+  collectWriteDiagnostic(event) {
+    const fields = [
+      "eventId",
+      "stage",
+      "sourceTime",
+      "order",
+      "elapsedMs",
+      "requestId",
+      "originConnectionId",
+      "connectionEpoch",
+      "queueCount",
+      "queueBytes",
+      "reason"
+    ];
+    const optional = [
+      "traceId",
+      "correlationId",
+      "causationId",
+      "jobId",
+      "passId",
+      "writeReturn",
+      "writableLength",
+      "writableHighWaterMark"
+    ];
+    const identifier = (value) =>
+      typeof value === "string" &&
+      value.length >= 1 &&
+      value.length <= 128 &&
+      ![this.loadedSecret, this.secret, this.env[DEFAULT_SECRET_ENV]].some(
+        (secret) => secret && value.includes(secret)
+      );
+    if (this.stopping || this.signalKind !== "audio") return false;
+    if (
+      !event ||
+      Object.keys(event).some(
+        (key) => !fields.includes(key) && !optional.includes(key)
+      ) ||
+      fields.some((key) => event[key] === undefined) ||
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+        event.eventId
+      ) ||
+      ![
+        "queued",
+        "started",
+        "progress",
+        "completed",
+        "failed",
+        "cancelled"
+      ].includes(event.stage) ||
+      !WRITE_DIAGNOSTIC_REASONS.includes(event.reason) ||
+      !["sourceTime", "order", "queueCount", "queueBytes"].every(
+        (key) => Number.isSafeInteger(event[key]) && event[key] >= 0
+      ) ||
+      !Number.isFinite(event.elapsedMs) ||
+      event.elapsedMs < 0 ||
+      ![
+        "requestId",
+        "originConnectionId",
+        "connectionEpoch",
+        ...optional.slice(0, 5)
+      ].every((key) => event[key] === undefined || identifier(event[key])) ||
+      (event.writeReturn !== undefined &&
+        typeof event.writeReturn !== "boolean") ||
+      !["writableLength", "writableHighWaterMark"].every(
+        (key) =>
+          event[key] === undefined ||
+          (Number.isSafeInteger(event[key]) && event[key] >= 0)
+      )
+    ) {
+      this.writeDiagnosticGaps.invalid = Math.min(
+        Number.MAX_SAFE_INTEGER,
+        (this.writeDiagnosticGaps.invalid || 0) + 1
+      );
+      this.emitStatus(
+        "live",
+        "write_diagnostics",
+        "invalid",
+        this.writeDiagnosticGaps.invalid
+      );
+      return false;
+    }
+    this.expireWriteDiagnostics();
+    if (this.writeDiagnosticsSupported === false) {
+      this.writeDiagnosticGaps.unsupported = Math.min(
+        Number.MAX_SAFE_INTEGER,
+        this.writeDiagnosticGaps.unsupported + 1
+      );
+      this.emitStatus(
+        "live",
+        "write_diagnostics",
+        "unsupported",
+        this.writeDiagnosticGaps.unsupported
+      );
+      return false;
+    }
+    if (
+      this.writeDiagnosticEvents.some((item) => item.eventId === event.eventId)
+    )
+      return false;
+    if (this.writeDiagnosticEvents.length >= 64) {
+      this.writeDiagnosticEvents.shift();
+      this.writeDiagnosticGaps.overflow = Math.min(
+        Number.MAX_SAFE_INTEGER,
+        this.writeDiagnosticGaps.overflow + 1
+      );
+      this.emitStatus(
+        "live",
+        "write_diagnostics",
+        "overflow",
+        this.writeDiagnosticGaps.overflow
+      );
+    }
+    this.writeDiagnosticEvents.push(Object.freeze({ ...event }));
+    return true;
+  }
+
+  heartbeatDiagnostics(requestId = "x".repeat(128)) {
+    this.expireWriteDiagnostics();
+    if (
+      !this.writeDiagnosticsSupported ||
+      this.writeDrain ||
+      this.writeQueue.length ||
+      this.socket?.writableLength > 0 ||
+      this.writeDiagnosticBatches.size
+    )
+      return null;
+    const diagnostics = {
+      schema: WRITE_DIAGNOSTIC_SCHEMA,
+      events: [],
+      ...(Object.values(this.writeDiagnosticGaps).some(Boolean)
+        ? { gaps: { ...this.writeDiagnosticGaps } }
+        : {})
+    };
+    for (const event of this.writeDiagnosticEvents.slice(0, 8)) {
+      diagnostics.events.push(event);
+      if (
+        Buffer.byteLength(JSON.stringify(diagnostics), "utf8") > 8192 ||
+        Buffer.byteLength(
+          JSON.stringify({
+            type: "producer.heartbeat",
+            protocolVersion: PROTOCOL_VERSION,
+            requestId,
+            diagnostics
+          }),
+          "utf8"
+        ) +
+          1 >
+          this.maxFrameBytes()
+      ) {
+        diagnostics.events.pop();
+        break;
+      }
+    }
+    if (
+      Buffer.byteLength(
+        JSON.stringify({
+          type: "producer.heartbeat",
+          protocolVersion: PROTOCOL_VERSION,
+          requestId,
+          diagnostics
+        }),
+        "utf8"
+      ) +
+        1 >
+      this.maxFrameBytes()
+    )
+      return null;
+    return diagnostics.events.length || diagnostics.gaps ? diagnostics : null;
   }
 
   writeMessage(message) {
@@ -977,7 +1228,13 @@ class AgentSignalClient {
       correlationId: message.correlationId,
       causationId: message.causationId,
       jobId: message.jobId,
-      passId: message.passId
+      passId: message.passId,
+      originConnectionId: this.connectionId,
+      connectionEpoch:
+        message.connectionEpoch ||
+        this.listener?.connectionEpoch ||
+        this.transportEpoch,
+      diagnostic: message.diagnostics !== undefined
     };
     if (queued) {
       this.writeQueue.push({ context, encoded });
@@ -996,6 +1253,11 @@ class AgentSignalClient {
               if (error) this.failWrite(socket, "outbound_write_failed", error);
             })
           : socket.write(encoded);
+      context.writeReturn = writable;
+      if (Number.isSafeInteger(socket.writableLength))
+        context.writableLength = socket.writableLength;
+      if (Number.isSafeInteger(socket.writableHighWaterMark))
+        context.writableHighWaterMark = socket.writableHighWaterMark;
       // false accepts this frame; only subsequent frames wait for drain.
       if (
         !writable &&
@@ -1055,6 +1317,48 @@ class AgentSignalClient {
 
   writeDrainStatus(stage, drain, reason = "") {
     const context = drain.context;
+    if (context.diagnostic) return;
+    if (
+      !context.diagnostic &&
+      context.originConnectionId &&
+      context.connectionEpoch
+    ) {
+      const event = {
+        eventId: this.randomUUID(),
+        stage,
+        sourceTime: Math.max(0, Math.floor(this.now())),
+        order: this.writeDiagnosticOrder++,
+        elapsedMs: Math.max(0, this.now() - drain.startedAt),
+        requestId: context.requestId,
+        originConnectionId: context.originConnectionId,
+        connectionEpoch: context.connectionEpoch,
+        queueCount: this.writeQueue.length,
+        queueBytes: this.writeQueueBytes,
+        reason:
+          reason || (stage === "completed" ? "drain" : "write_backpressure"),
+        writeReturn: context.writeReturn
+      };
+      for (const key of [
+        "traceId",
+        "correlationId",
+        "causationId",
+        "jobId",
+        "passId"
+      ])
+        if (context[key] !== undefined) event[key] = context[key];
+      for (const key of ["writableLength", "writableHighWaterMark"])
+        if (Number.isSafeInteger(drain.socket[key]) && drain.socket[key] >= 0)
+          event[key] = drain.socket[key];
+      try {
+        this.onWriteDiagnostic(Object.freeze(event));
+      } catch {
+        this.writeDiagnosticGaps.invalid = Math.min(
+          Number.MAX_SAFE_INTEGER,
+          (this.writeDiagnosticGaps.invalid || 0) + 1
+        );
+        this.emitStatus("live", "write_diagnostics", "callback_failed");
+      }
+    }
     this.emitStatus(
       "live",
       "write_backpressure",
@@ -1095,6 +1399,7 @@ class AgentSignalClient {
     this.failedWriteSocket = socket;
     this.clearWriteDrain("failed", reason);
     this.pending.clear();
+    this.writeDiagnosticBatches.clear();
     if (error)
       this.emitStatus("live", "socket_error", this.listenerErrorReason(error));
     socket.destroy();
@@ -1129,6 +1434,7 @@ class AgentSignalClient {
     this.connectionId = null;
     this.buffer = "";
     this.pending.clear();
+    this.writeDiagnosticBatches.clear();
     this.stopHeartbeat();
     if (this.listenerJob) this.listenerFailure("disconnected");
     this.listenerJob = null;
@@ -1169,7 +1475,18 @@ class AgentSignalClient {
       return;
     }
     this.lastStatus = key;
-    this.onStatus(...bounded);
+    if (bounded[1] === "write_diagnostics") {
+      try {
+        this.onStatus(...bounded);
+      } catch {
+        process.emitWarning(
+          "Producer write diagnostic status callback failed; observability coverage may be incomplete",
+          {
+            code: "ABLETON_WRITE_DIAGNOSTIC_STATUS"
+          }
+        );
+      }
+    } else this.onStatus(...bounded);
   }
 
   listenerFailure(reason) {
@@ -1465,6 +1782,8 @@ class AgentSignalClient {
     this.authenticated = false;
     this.connectionId = null;
     this.pending.clear();
+    this.writeDiagnosticBatches.clear();
+    this.writeDiagnosticEvents.length = 0;
     this.offlineQueue.length = 0;
     this.emitStatus("live", "stopped");
   }

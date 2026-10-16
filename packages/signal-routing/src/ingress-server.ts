@@ -30,6 +30,12 @@ import {
 } from "./ingress-contracts.js";
 import type { RouteResult } from "./router.js";
 import { recordSignalTelemetry, stableTelemetryId } from "./telemetry.js";
+import {
+  ProducerDiagnosticReceipts,
+  producerDiagnosticsSchema,
+  WRITE_DIAGNOSTIC_CAPABILITY,
+  writeDiagnosticTelemetry,
+} from "./producer-diagnostics.js";
 import type { NonBlockingObservabilityRecorder } from "@ableton-agent/observability";
 import {
   sanitizePersistedText,
@@ -177,6 +183,7 @@ export class SignalIngressServer implements ListenerService {
   readonly #listenerControls = new Map<string, PendingListenerControl>();
   readonly #resultListeners = new Set<(event: ListenerResultEvent) => void>();
   readonly #now: () => number;
+  readonly #producerDiagnosticReceipts: ProducerDiagnosticReceipts;
   readonly #secretBytes: Buffer;
   readonly #descriptor: DiscoveryDescriptorLifecycle | undefined;
   readonly #legacyDescriptor: DiscoveryDescriptorLifecycle | undefined;
@@ -240,6 +247,9 @@ export class SignalIngressServer implements ListenerService {
       options.legacyDescriptorPath === options.descriptorPath
         ? undefined
         : new DiscoveryDescriptorLifecycle(options.legacyDescriptorPath);
+    this.#producerDiagnosticReceipts = new ProducerDiagnosticReceipts(
+      this.#now,
+    );
     this.#server = createServer((socket) => this.#accept(socket));
     this.#server.on("error", (error) => {
       this.#diagnostic("server-error", error.message);
@@ -669,6 +679,7 @@ export class SignalIngressServer implements ListenerService {
         : { secretPath: this.#options.secretPath }),
       listenerVersions: [1, 2],
       listenerCapabilities: ["audio-listener/v1", "audio-listener/v2"],
+      producerDiagnostics: [WRITE_DIAGNOSTIC_CAPABILITY],
     };
     const descriptorStartedAt = this.#now();
     if (this.#legacyDescriptor) {
@@ -850,6 +861,19 @@ export class SignalIngressServer implements ListenerService {
       );
       return;
     }
+    // Optional diagnostics cannot turn a valid heartbeat into a capture failure.
+    let diagnostics: unknown;
+    if (
+      typeof input === "object" &&
+      input !== null &&
+      "type" in input &&
+      input.type === "producer.heartbeat" &&
+      "diagnostics" in input
+    ) {
+      const { diagnostics: batch, ...heartbeat } = input;
+      diagnostics = batch;
+      input = heartbeat;
+    }
     const parsed = producerMessageSchema.safeParse(input);
     if (!parsed.success) {
       await this.#fail(
@@ -913,6 +937,9 @@ export class SignalIngressServer implements ListenerService {
       case "producer.heartbeat":
         state.lastHeartbeatAt = this.#now();
         this.#options.registry.heartbeat(state.connectionId);
+        if (diagnostics !== undefined)
+          this.#producerDiagnostics(state, diagnostics);
+        else this.#rememberDiagnosticReceipt(state, message);
         await this.#ack(state, message.requestId, "heartbeat");
         break;
       case "signal.frame":
@@ -1162,6 +1189,7 @@ export class SignalIngressServer implements ListenerService {
             (owner.listenerVersion === 2 ? 15_000 : 5_000);
         }
       }
+      this.#rememberDiagnosticReceipt(state, message);
       this.#finishListenerControl(message.requestId, message);
       if (message.status === "cancelled" || message.status === "failed") {
         for (const [requestId, other] of this.#listenerControls) {
@@ -1216,6 +1244,7 @@ export class SignalIngressServer implements ListenerService {
         );
         return;
       }
+      this.#rememberDiagnosticReceipt(state, message);
       this.#listenerTelemetry(
         message.status === "progress"
           ? "progress"
@@ -1465,6 +1494,9 @@ export class SignalIngressServer implements ListenerService {
       requestId,
       action,
       ...(connectionId === undefined ? {} : { connectionId }),
+      ...(action === "hello" && state.listener !== undefined
+        ? { producerDiagnostics: [WRITE_DIAGNOSTIC_CAPABILITY] as const }
+        : {}),
     };
     if (state.processing) state.processing.phase = "ack-write";
     await this.#write(state, response);
@@ -1721,6 +1753,20 @@ export class SignalIngressServer implements ListenerService {
         );
     }
     const { connectionId, producer } = state;
+    if (connectionId && producer?.signalKind === "audio") {
+      recordSignalTelemetry(this.#options.telemetry, {
+        name: "output.producer.diagnostics.coverage-gap",
+        source: "output-ingress",
+        outcome: "unknown",
+        level: "warn",
+        attributes: {
+          connectionId,
+          instanceId: producer.instanceId,
+          reason: "disconnected",
+          sourceLifecycleCoverage: "unknown",
+        },
+      });
+    }
     if (
       producer !== undefined &&
       this.#liveInstances.get(producer.instanceId) === state
@@ -1737,6 +1783,119 @@ export class SignalIngressServer implements ListenerService {
         producerId: producer.producerId,
         instanceId: producer.instanceId,
       });
+    }
+  }
+
+  #rememberDiagnosticReceipt(
+    state: ClientState,
+    message: {
+      requestId: string;
+      traceId?: string;
+      correlationId?: string;
+      causationId?: string;
+      jobId?: string;
+      passId?: string;
+      connectionEpoch?: string;
+    },
+  ): void {
+    if (!state.connectionId || !state.producer || !state.listener) return;
+    this.#producerDiagnosticReceipts.remember({
+      producerId: state.producer.producerId,
+      instanceId: state.producer.instanceId,
+      connectionId: state.connectionId,
+      connectionEpoch: state.listener.connectionEpoch,
+      requestId: message.requestId,
+      ...("traceId" in message
+        ? {
+            traceId: message.traceId,
+            correlationId: message.correlationId!,
+            causationId: message.causationId!,
+            jobId: message.jobId!,
+            passId: message.passId!,
+          }
+        : {}),
+    });
+  }
+
+  #producerDiagnostics(state: ClientState, input: unknown): void {
+    if (!state.connectionId || !state.producer) return;
+    const reject = (reason: string, count: number) => {
+      try {
+        this.#diagnostic(
+          "invalid-message",
+          `Producer observability gap: ${reason}`,
+          state.connectionId,
+        );
+      } catch {
+        recordSignalTelemetry(this.#options.telemetry, {
+          name: "output.producer.diagnostics.handler-failed",
+          source: "output-ingress",
+          outcome: "failure",
+          level: "warn",
+          attributes: {
+            reason: "diagnostic_callback_failed",
+            deliveryConnectionId: state.connectionId!,
+          },
+        });
+      }
+      recordSignalTelemetry(this.#options.telemetry, {
+        name: "output.producer.diagnostics.coverage-gap",
+        source: "output-ingress",
+        outcome: "failure",
+        level: "warn",
+        attributes: {
+          deliveryConnectionId: state.connectionId!,
+          instanceId: state.producer!.instanceId,
+          reason,
+          count,
+        },
+      });
+    };
+    const parsed = producerDiagnosticsSchema.safeParse(input);
+    if (!parsed.success) {
+      reject("invalid_diagnostic_batch", 1);
+      return;
+    }
+    if (parsed.data.gaps) {
+      const count = Object.values(parsed.data.gaps).reduce<number>(
+        (a, b) => Math.min(Number.MAX_SAFE_INTEGER, a + (b ?? 0)),
+        0,
+      );
+      if (count) {
+        reject("source_reported_loss", count);
+        recordSignalTelemetry(this.#options.telemetry, {
+          name: "output.producer.diagnostics.source-gap",
+          source: "output-ingress",
+          outcome: "failure",
+          attributes: sanitizeTelemetryAttributes({
+            deliveryConnectionId: state.connectionId,
+            ...parsed.data.gaps,
+          }),
+        });
+      }
+    }
+    for (const event of parsed.data.events) {
+      const result = this.#producerDiagnosticReceipts.accept(
+        state.producer.producerId,
+        state.producer.instanceId,
+        event,
+      );
+      if (result.kind === "duplicate") continue;
+      if (result.kind === "rejected") {
+        reject(result.reason, 1);
+        continue;
+      }
+      const telemetry = writeDiagnosticTelemetry(
+        event,
+        result.origin,
+        state.connectionId,
+        this.#now(),
+      );
+      const queued = recordSignalTelemetry(this.#options.telemetry, {
+        ...telemetry,
+        attributes: sanitizeTelemetryAttributes(telemetry.attributes ?? {}),
+      });
+      if (!queued) reject("journal_unavailable", 1);
     }
   }
 
@@ -1762,6 +1921,7 @@ export class SignalIngressServer implements ListenerService {
   }
 
   async #stop(): Promise<void> {
+    this.#producerDiagnosticReceipts.clear();
     if (this.#idleTimer !== undefined) {
       clearInterval(this.#idleTimer);
       this.#idleTimer = undefined;

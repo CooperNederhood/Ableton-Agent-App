@@ -47,8 +47,8 @@ export function stableTelemetryId(value: string): string {
 export function recordSignalTelemetry(
   recorder: Pick<NonBlockingObservabilityRecorder, "enqueue"> | undefined,
   input: SignalTelemetryInput,
-): void {
-  if (recorder === undefined) return;
+): boolean {
+  if (recorder === undefined) return false;
   const correlationId = entityId(input.correlationId);
   const causationId = entityId(input.causationId);
   const liveSetId = entityId(input.liveSetId);
@@ -87,7 +87,9 @@ export function recordSignalTelemetry(
   };
   try {
     recorder.enqueue(event);
+    return true;
   } catch {
     // Instrumentation must never disrupt signal ingress or routing.
+    return false;
   }
 }

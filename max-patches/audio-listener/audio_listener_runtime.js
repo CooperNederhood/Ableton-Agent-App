@@ -1187,8 +1187,13 @@ function createRuntime({
         }
         fail(reason);
       },
-      onStatus: (_sink, state) => {
+      onWriteDiagnostic: (event) => {
+        if (current()) client?.collectWriteDiagnostic(event);
+      },
+      onStatus: (_sink, state, ...details) => {
         if (!current()) return;
+        if (state === "write_diagnostics")
+          output("diagnostic", "write_diagnostics", ...details);
         if (state === "disconnected") fail("disconnected");
         if (state === "authenticating" || state === "connected")
           refreshRegistration();

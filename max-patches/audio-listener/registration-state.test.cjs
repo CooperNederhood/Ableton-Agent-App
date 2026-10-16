@@ -65,6 +65,9 @@ function fixture({
     sendListenerResult(control, value) {
       events.push(["result", control, value]);
     }
+    collectWriteDiagnostic(event) {
+      events.push(["write-diagnostic", this, event]);
+    }
   }
   const runtime = createRuntime({
     maxApi: {
@@ -103,6 +106,49 @@ test("hosted registration does not require an unverified native preview flag", (
       f.output.filter((v) => v[0] === "diagnostic"),
       [],
     );
+  } finally {
+    f.runtime.stop();
+  }
+});
+
+test("ordinary runtime forwards transport diagnostics without native failure and fences retired registrations", () => {
+  const f = fixture({ certificate: SYNTHETIC_CERTIFICATE });
+  try {
+    f.poll();
+    const client = f.runtime.client;
+    client.options.onListenerControl({ ...OWNER, action: "prepare" });
+    client.options.onListenerControl({ ...OWNER, action: "arm" });
+    const state = f.runtime.engine.state;
+    const event = Object.freeze({ eventId: "test-write", stage: "completed" });
+    client.options.onWriteDiagnostic(event);
+    client.options.onStatus("live", "write_diagnostics", "unsupported");
+    client.options.onStatus("live", "write_diagnostics", "callback_failed");
+    assert.deepEqual(
+      f.output.filter(
+        (entry) =>
+          entry[0] === "diagnostic" && entry[1] === "write_diagnostics",
+      ),
+      [
+        ["diagnostic", "write_diagnostics", "unsupported"],
+        ["diagnostic", "write_diagnostics", "callback_failed"],
+      ],
+    );
+    assert.equal(f.runtime.engine.state, state);
+    assert.deepEqual(
+      f.events.filter((e) => e[0] === "write-diagnostic"),
+      [["write-diagnostic", client, event]],
+    );
+    f.handlers.identity(
+      JSON.stringify({
+        ...IDENTITY,
+        device: { id: "3", name: "replacement" },
+      }),
+    );
+    client.options.onWriteDiagnostic(event);
+    assert.equal(f.events.filter((e) => e[0] === "write-diagnostic").length, 1);
+    f.runtime.stop();
+    f.runtime.client.options.onWriteDiagnostic(event);
+    assert.equal(f.events.filter((e) => e[0] === "write-diagnostic").length, 1);
   } finally {
     f.runtime.stop();
   }

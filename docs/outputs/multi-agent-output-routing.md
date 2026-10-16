@@ -65,10 +65,33 @@ The existing producer `onStatus` callback emits bounded, redacted `write_backpre
 queued, started, progress, completed, failed and cancelled lifecycle/timing
 records with request, trace, correlation, causation, job/pass and queue-count/
 byte attribution. Raw frames or audio bodies are not added to status records.
-Callback emission alone does not qualify application-owned History coverage:
-the current audio runtime drops these backpressure callbacks. Forwarding them
-through authenticated application ingress into typed, redacted local History
-remains required; Max console/outlet output is not a substitute.
+Callback emission alone does not qualify application-owned History coverage.
+The ordinary audio runtime now forwards actual callbacks into bounded,
+metadata-only collection. Optional `write-backpressure/v1` diagnostics ride
+existing authenticated heartbeats after ordinary drain; support must be
+confirmed by the authenticated hello ACK, not a descriptor hint alone. Legacy
+peers keep unchanged heartbeats; missing support marks diagnostics unsupported,
+not a failed native capture.
+
+Collection retains at most 64 events for 60 seconds. Each batch fits both eight
+events and 8 KiB, plus the negotiated complete-frame limit. Within those bounds,
+source event IDs survive until heartbeat ACK; metadata-only redelivery after normal
+reconnect is deduplicated. Diagnostic writes suppress self-instrumentation.
+No measurement data is replayed and cancellation/shutdown is not delayed.
+
+Ingress records typed, redacted source lifecycle/timing and actual socket
+metrics. Frozen originating request receipts validate delayed capture
+ownership after release; the current delivery connection is recorded separately,
+never substituted as the source capture owner. Transport-only writes have no
+fabricated capture ownership. Diagnostics remain journal-only, not signal
+observations, agent input or automatic turns.
+
+Overflow, expiry, malformed or forged metadata, unsupported delivery and recorder
+errors are explicit nonfatal coverage failures. A heartbeat ACK is not a durable
+journal guarantee. Producer death before delivery can leave source coverage
+unknown; record the App-observed disconnect/gap rather than inventing a source
+completion/cancellation. Software callback-to-authenticated-ingress-to-typed-
+journal coverage passes; real-native History qualification remains separate.
 The module is shared by MIDI and audio producers, but the new FIFO applies only
 to audio. MIDI retains its existing immediate accepted-write behavior on false
 and existing offline sample policy. Subscription and agent delivery

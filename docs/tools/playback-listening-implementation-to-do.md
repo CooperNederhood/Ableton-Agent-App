@@ -258,6 +258,14 @@ detected-tempo and timing/integrity guards stay in place.
   matches the actor, no context publishes and all restoration/cleanup/pins pass.
   Keep the prior run's unavailable row null; rejected launch markers are not a
   genuine launch proof. Map and measure the actual Gen predicate next.
+- [x] Map native rejection15 to the unchanged delayed-stereo inclusive1e12
+  finite-input guard after render-index/continuity validation. Do not confuse
+  it with phase14/launch-distance9, interpret rounded phase distance as raw
+  phase, or infer actual audio from unchanged held descriptors.
+- [ ] Latch actual delayed inputs and explicit classification/original per-
+  channel guard/passive equivalent word-guard results at rejection15, with exact
+  render/counter state, before implementing a production correction. Preserve
+  original guards, outputs, controls, timers, stop and admission in the probe.
 - [x] Harden the actual shared v2 SDK's immutable inputs, wire/stage/size
   guards, reservation ownership and redacted failures without changing MIDI/v1.
   Cover optional cancellation reasons through the real authenticated TS ingress,

@@ -524,6 +524,20 @@ restoration, exact-owned process shutdown, fixture cleanup and source/copied
 resource preservation succeed. See
 `fixtures/native-v2-envelope-rejection-observation.json`.
 
+Source audit maps native rejection15 to the delayed-stereo finite-input guard
+`!(abs(delayedL) <= 1000000000000 && abs(delayedR) <= 1000000000000)`,
+after active render-index/continuity checks. It is not a phase rejection:
+phase faults use14 and unresolvable launch distance uses9. The row's index6 is
+rounded phase distance from requested start fraction0.25, not raw phase.
+At48k/120 BPM, raw phase0 would instead model distance18000 and rejection9.
+The exact row can also be reproduced with delayed NaN, Infinity, above-limit
+input or a synthetic false comparison on valid audio, including a fault later
+than the first rendered sample. Therefore zero held descriptors cannot establish
+zero input or identify the actual faulty sample. A passive probe must latch the
+actual delayed inputs, explicit classification, original and equivalent bounded-
+word predicates, and render/counter state at the rejection15 branch before
+considering an equivalent guard correction.
+
 ### Reviewed descriptive native runner scenarios
 
 The `native-listening-descriptive` group contains

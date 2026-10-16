@@ -22,6 +22,62 @@ const { nativeFailureDiagnosticV2Schema } =
 const TEMPO_LIMITATION =
   "Constant tempo is assumed; stability is not independently verified; tempo automation is unsupported.";
 
+test("actual corrected immutable v2 candidate arms before a later unclassified envelope-binding failure", async () => {
+  const evidence = JSON.parse(
+    await readFile(
+      new URL(
+        "./fixtures/native-v2-envelope-binding-failure.json",
+        import.meta.url,
+      ),
+      "utf8",
+    ),
+  );
+  nativeArmProofV2Schema.parse(evidence.nativeArm);
+  assert.equal(evidence.nativeArm.nativeEpoch, 1);
+  assert.equal(evidence.nativeArm.armCounter, 1026560);
+  assert.equal(evidence.nativeArm.before.frames.length, 32);
+  assert.deepEqual(evidence.nativeArm.before.dsp, [1, 48000, 64]);
+  assert.deepEqual(evidence.nativeArm.policy, {
+    mode: "descriptive",
+    maxClockDisagreementSamples: 64,
+  });
+  assert.equal(evidence.nativeArm.geometry.totalSamples, 84000);
+  assert.equal(evidence.failureReason, "native_envelope_binding_changed");
+  assert.equal(evidence.nativeLaunchReceiptRetained, false);
+  assert.equal(evidence.rejectedEnvelopePacket, null);
+  assert.equal(evidence.actualGuardOperand, null);
+  assert.equal(evidence.failureFrames, 0);
+  assert.equal(evidence.outcome.completed, false);
+  assert.equal(evidence.outcome.realLiveValidated, false);
+  assert.deepEqual(evidence.outcome.contextIds, []);
+  assert.equal(evidence.outcome.processStopped, true);
+  assert.equal(evidence.outcome.fixtureCleaned, true);
+});
+
+test("v2 keeps both envelope-binding guard branches as hard failures with confirmed modeled cleanup", async () => {
+  for (const field of [4, 13]) {
+    const f = v2Fixture();
+    await f.start();
+    const p = f.controller.pass;
+    const row = f.envelope();
+    row[field] = field === 4 ? 12 : row[field] + 1;
+    f.packet("envelope", row);
+    assert.equal(f.controller.state, "failed");
+    assert.equal(p.closed, true);
+    assert(
+      f.events.some(
+        (event) =>
+          event.type === "terminal" &&
+          event.status === "failed" &&
+          event.reason === "native_envelope_binding_changed",
+      ),
+    );
+    assert(f.controller.pendingDisarm);
+    f.packet("stopped", [0, 0, 2], p.generation);
+    assert.equal(f.controller.pendingDisarm, null);
+  }
+});
+
 test("actual diagnostic load retains the unpublished spectrum sentinel and denies arm", async () => {
   const evidence = JSON.parse(
     await readFile(

@@ -487,6 +487,26 @@ exact-owned process/fixture/original-pin cleanup all succeed. See
 fresh normally saved immutable candidate and genuine fractional capture, not
 another widening of timing limits.
 
+The operator normally saved the fresh corrected candidate; read-only inspection
+verified two AudioClips, one native device and project-local provisioned device/
+WAV references without rewriting Set XML. The next ordinary immutable
+fractional run `d7bc78dd` now passes genuine native arm: epoch1, arm counter
+1026560, 32 stopped preflight rows, DSP48k/vector64 and the unchanged descriptive/
+64 policy. Armed publication takes 372 ms. This is positive arm evidence, not
+just idle diagnostics. The later playback-start path fails
+`native_envelope_binding_changed`, with zero retained capture frames and no
+context. Its capture-phase failure elapsed time is 1715 ms; the generic
+capture-stage started event means waiting after arm, not a genuine launch.
+
+The original rejected envelope row was not retained, so neither a changed arm
+counter nor a nonzero native rejection code is assigned as its cause. The
+completed arm proof and bounded negative record are preserved in
+`fixtures/native-v2-envelope-binding-failure.json`; both guard branches remain
+hard failures in controlled tests. Exact-owned process shutdown and copied-
+fixture cleanup succeed. The next diagnostic must retain the actual rejected
+values without suppressing, repairing or admitting data differently. The
+descriptive group and Desktop qualification remain blocked on ordinary capture.
+
 ### Reviewed descriptive native runner scenarios
 
 The `native-listening-descriptive` group contains

@@ -240,9 +240,17 @@ detected-tempo and timing/integrity guards stay in place.
   Current FFT retains 88 clean silence frames. Forced failure902ms, zero
   admission/arm/context and successful genuine-stop/callback/process/fixture/
   original-pin cleanup preserve the nonaccepting scope.
-- [ ] Normally save/reopen the separately staged corrected candidate, strictly
-  pin its actual Set/device/resources/audio, and retry ordinary fractional
-  capture. Idle diagnostic success does not qualify a genuine arm or capture.
+- [x] Normally save the separately staged corrected candidate, strictly pin
+  its actual Set/device/resources/audio and retry ordinary fractional capture.
+  Read-only inspection verifies two AudioClips/one native device/project-local
+  dependencies. Run `d7bc78dd` now obtains a genuine epoch1 arm with 32 stopped
+  rows, arm counter1026560, DSP48k/vector64 and descriptive64 policy.
+- [ ] Resolve the subsequent actual `native_envelope_binding_changed` failure
+  before any descriptive group escalation. Preserve the accepted arm but no
+  genuine launch receipt, zero retained capture frames/no context and successful
+  owned-process/fixture cleanup. The rejected row is unavailable in this run;
+  observe its actual arm-counter/rejection values without changing validation,
+  callbacks, admission or stop semantics, then add an evidence-backed fix.
 - [x] Harden the actual shared v2 SDK's immutable inputs, wire/stage/size
   guards, reservation ownership and redacted failures without changing MIDI/v1.
   Cover optional cancellation reasons through the real authenticated TS ingress,

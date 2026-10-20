@@ -19,12 +19,13 @@ controlled successes below are not packaged Desktop acceptance.
   pass `47da7d1b`, 84,000 frames/18 windows, independent native proof, durable
   typed context/reopen and all nine postconditions. This remains runtime,
   not packaged Desktop, evidence.
-- [ ] Prove one clean first-attempt short capture in the rebuilt production
+- [x] Prove one clean first-attempt short capture in the rebuilt production
   package, independently verify context and retrieve it after restart.
   The unchanged package later captured pass `b6d0d6ca`, independently verified
   native proof/context and restored it through Outputs after full App restart.
-  That actor corrected invalid calls, so a clean updated-package turn remains
-  pending; attended authorization has since unblocked real native-vault startup.
+  That earlier actor corrected invalid calls and is not acceptance. Candidate
+  `9941556` now passes three natural Default turns with zero actor failures,
+  exact native/context verification and full App-restart UI retrieval.
 - [x] Clarify action-specific fields in actual SDK schemas and share
   queued-pass/no-shell-wait/no-retry guidance with configured listening agents.
   Remove the unconditional context-list-before-get instruction for known IDs.
@@ -32,13 +33,14 @@ controlled successes below are not packaged Desktop acceptance.
   denial, managed-agent prompt and native verifier regressions.
 - [x] Strengthen reviewed v2 manifests/runner to reject any failed actor tool
   instead of accepting a corrected workflow as clean.
-- [ ] Qualify the strengthened v2 runner and updated packaged Default agent
+- [x] Qualify the strengthened v2 runner and updated packaged Default agent
   with fresh owned Live processes; retain every failed attempt.
   The first strict fractional run at `7a3f713` used correct tool arguments
   but native pass `b4233bbf` failed with
   `listening_alignment_budget_exceeded` before its first envelope window.
   No context, correction or retry; owned process/fixture cleanup passed.
-  Group and updated-package qualification stopped at this gate.
+  That historical gate is followed by the recorded acquisition fixes below,
+  passing canonical group `67a6c7f9` and three clean packaged workflows.
 - [x] Retain bounded, traced fault-time native alignment measurements and
   FFT previous/current sequence packets through existing failure diagnostics.
   Add red controller/runtime/contract regressions and validate ingress, SDK,
@@ -79,10 +81,19 @@ controlled successes below are not packaged Desktop acceptance.
   exact discovery when authorized. Add a red-before/green-after full-Default
   regression preserving parameter/handler identities and restricted-scope guards.
   Owning tools/application suites: 315 passed.
-- [ ] Qualify the newly rebuilt candidate, not the rejected earlier package.
+- [x] Qualify the newly rebuilt candidate, not the rejected earlier package.
   The fractional manifest's attended packaged companion uses a natural request,
   full Default scope and ordinary approvals. The canonical CLI runtime prompt
   remains scripted and cannot substitute for these three packaged workflows.
+  Passes `db6e3409`, `d89d2011` and `a14c69e0` each independently verify 84,000
+  samples/18 windows, one stored context, unchanged payload after full App
+  restart through renderer/preload/main, exact process cleanup and source hashes.
+- [x] Fix validation-only composition fixture races by awaiting every owned
+  service/journal shutdown before removing files. Retain shutdown failures and
+  add red-before/green-after ordering and failure-preservation tests.
+  All 24 composition tests and the full 2,129 TypeScript/610 Max/212 Python
+  suites pass; 12 Electron and final signed real-vault regressions pass.
+  No production change, timeout increase or cleanup retry is used.
 - [x] Bound packaged-test graceful close and exact-owned fallback cleanup so
   a blocked native Keychain call cannot obscure the original first-window
   failure or prevent profile cleanup. Add controlled timeout/failure tests.
@@ -94,11 +105,17 @@ controlled successes below are not packaged Desktop acceptance.
   596 Max and 212 Python tests passed. Repair the rehoming regression's
   premature asynchronous terminal assertion; preserve its failure log and do
   not change production behavior merely to satisfy that assertion.
-- [ ] Continue diagnosis, regression tests and fixes through every failed
+- [x] Continue diagnosis, regression tests and fixes through every failed
   attempt until three consecutive clean same-package workflows with fresh
   owned processes and restart retrieval pass; only then request human
   normal-profile verification. Missing evidence is engineering work, not an
   external blocker or a reason to end the task.
+- [x] Prepare an unopened default-profile-bound Set/device/audio example and
+  exact signed build for human verification; leave the normal profile and
+  original source Set unchanged.
+- [ ] Complete normal-profile human verification. Static M4L development-panel
+  placeholder wording is not native capture status; the App owns pass progress
+  and results. Release/Live 11.3.42-specific qualification remains separate.
 
 The user-approved target is a usable developer build plus documented weak spots,
 not exhaustive certification. See the

@@ -2,14 +2,55 @@
 
 ## Target and limits
 
-**Current status: not accepted for dogfood.** The delivered package failed
-ordinary developer use: `68bf5bc1` exposed an unreconciled orphan App session,
-and `d3987415` exhausted the coordinator deadline after native arm succeeded,
-during the final App safety inspection. Both App defects are fixed in source,
-with red-before/green-after regressions. The rebuilt package below includes the
-fixes. An exact-package capture has now completed with independently verified
-native proof and durable context, including full App-restart retrieval, but
-the clean updated-agent handoff remains incomplete.
+**Current status: ready for bounded human verification, not release certified.**
+The corrected signed candidate passed **three consecutive natural Default-agent
+workflows**, each with fresh owned Live/App processes, an isolated profile,
+ordinary approvals, exactly one capture and zero failed/corrected actor calls.
+Each original observation was retrieved through Outputs/View observation after
+full same-profile App restart, with unchanged payload hash and no recapture.
+Exact process cleanup and unchanged source Set hashes passed for every run.
+The earlier ownership, preparation-deadline, native-acquisition and full-Default
+discovery defects have regression coverage; their failed receipts remain retained.
+
+| Run | Pass | Context |
+| --- | --- | --- |
+| 1 | `db6e3409-2686-4d0b-a9e7-a70fc6e358cf` | `c267118e-bd35-4fc8-9483-cffaad1a34df` |
+| 2 | `d89d2011-db94-446f-9751-e8a9ef26692b` | `e3015581-6783-4a1a-8c17-b934b974f55e` |
+| 3 | `a14c69e0-56b3-45de-b4be-8e3806b00787` | `2b6d3081-9e27-4211-ac88-ada399e5342c` |
+
+All three independently verified 84,000 samples/18 windows at 48 kHz for beats
+0.25-3.75, peak 0.5, RMS approximately -12.16 dBFS, centroid approximately
+450 Hz and four estimated attacks. Track/range association remains truthful:
+freshness and exclusive clip attribution are unknown. Each turn used ten
+successful calls, including seven reads of the same pending pass, not retries.
+The scripted runtime scenario's eight-call budget is unchanged and is not the
+separate attended companion's call budget.
+
+## Human verification example
+
+An unopened generated copy is prepared at
+`.test-artifacts/machine-listening-human-example-9941556/project/AA_NATIVE_DEVELOPER_DOGFOOD.als`.
+It includes the paired device, 26 resources and three calibration audio files;
+only its copied discovery configuration targets the shared resolver's `default`
+profile. Preparation did not modify the normal profile or original developer Set.
+
+1. Open that Set copy in Live 11 first, with transport stopped and recording off.
+2. Open `release/mac-arm64/Ableton Agent.app`, not an older installed build.
+   Select profile `default` and agent `Default`; wait for Connected.
+3. Use the fractional manifest's `desktopQualification.prompt`, or ask:
+   “Listen to the listener on track 3-ML-Calibration-quarter-sine over
+   Arrangement beats 0.25 through 3.75. Use one capture, retrieve its saved
+   observation and describe loudness, dynamics and brightness. Leave playback
+   running, change no contents, and stop without retrying if anything fails.”
+   Approve the bounded playback request.
+4. Expect a completed pass/context with the measurements above. Restart the App
+   and open Outputs/View observation: the same result must remain available
+   without another listening pass.
+
+This normal-profile human check has **not** been executed automatically.
+The M4L development panel still has static legacy “Capture not enabled yet”
+wording; it is not the native backend's pass status. Use the App's correlated
+pass, stored context and History, not that placeholder, as the result.
 
 ## Current source qualification
 
@@ -31,11 +72,13 @@ independent native proof, reopened typed context and all nine final checks.
 The original developer Set/device remain untouched. These are runtime/source
 checks, not packaged Desktop acceptance or App-restart retrieval.
 
-All 2,125 TypeScript, 610 Max and 212 Python tests pass after the workspace build
-finishes. One earlier unit run overlapped the build and timed out in an existing
-Desktop composition test; that failure is retained, not hidden by changing its
-timeout. Workspace types, build, targeted lint and all 12 ordinary isolated
-Electron checks pass. Recorded-data tests
+All 2,129 TypeScript, 610 Max and 212 Python tests pass after the workspace build.
+Two retained full-suite attempts exposed composition fixtures deleting files
+before owned services/journals stopped. A test-only ownership/shutdown fix has
+two regressions, including a failing-before shutdown-order check; no production
+behavior, timeout or cleanup retry changed. All 24 composition tests, workspace
+types, build, targeted lint, 12 ordinary Electron tests and the final signed
+native-vault provisioning/restart regression pass. Recorded-data tests
 cover strict-zero, phase wrap, genuine drift, stopped mismatches, rejection
 limits, unchanged FFT failure and exact coverage after reacquisition.
 
@@ -48,24 +91,26 @@ configuration contained all schema alternatives, but the full-scope early
 return omitted the explicit action catalogue used by restricted probes.
 That path is now covered by a failing-before/fixed-after regression and receives
 the catalogue plus exact-listener discovery guidance. Tools/application: 315
-tests pass. The replacement App candidate still needs rebuilding and qualification.
+tests pass. The replacement candidate's three packaged workflows above now pass.
 
-The remaining gate is three consecutive clean same-package workflows and full
-App-restart retrieval, using the fractional manifest's natural packaged-Default
-companion rather than its scripted runtime prompt. The count remains **0/3**.
-None is counted from diagnostic or source runs. Older timing
+The three-run gate is **3/3**, using the fractional manifest's natural
+packaged-Default companion rather than its scripted runtime prompt.
+None is counted from diagnostic or source runs. Private verifier corrections
+(misapplying the scripted call budget and expecting an unrendered duration
+literal rather than the actual sample boundaries) are retained with 17
+regressions; neither retried an actor turn or capture. Older timing
 and spectrum failures without rejected operands cannot be retroactively proven
 to have the same cause.
 
-The paired candidate is frozen from source `9c53154`: the ad-hoc signed arm64
+The paired candidate is frozen from source `9941556`: the ad-hoc signed arm64
 App verifies with CodeDirectory hash
-`9c0d59d71c6334e0b44c7c1af1b0777f8215031b` and unchanged `app.asar` SHA-256
-`324ddb928889734186efe3265e86454b6b43db1d844500903ceb757846fc97b6`.
+`c7628cd0e57e27a047a06d09051914f8c02cde1a` and `app.asar` SHA-256
+`b2315b563bbff4f5caeb8d8276bae111092eb139869f30a59084aeb13539ad0d`.
 The fixed external native bundle is separately pinned by manifest SHA-256
 `64fa4693763bacc6c40d8189fd10265f2ec23e014bcbd627fb1b25ca6eef9a61`;
-the normally saved device bytes remain unchanged. An isolated paired fixture
-and App profile were prepared; this candidate's first natural request is the
-failed `48528b95` attempt above, not acceptance. A changed App must be repinned.
+the normally saved device bytes remain unchanged. The failed `48528b95` attempt
+belongs to the preceding candidate, not these three successes.
+A changed App or native bundle must be repinned and requalified.
 App identity alone does not pin the external device's
 JS/graph resources.
 

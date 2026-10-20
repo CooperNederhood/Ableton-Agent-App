@@ -8,6 +8,16 @@ Architecture decision:
 
 ## Current target: developer dogfood
 
+The signed arm64 candidate built from `9941556` now passes three consecutive
+natural Default-agent packaged workflows with fresh isolated App/Live processes,
+ordinary approvals and no actor failures, corrections or recaptures. Each
+84,000-sample/18-window observation survives full App restart and production
+renderer/preload/main retrieval with unchanged IDs/payload. Source hashes and
+exact process cleanup pass. See the developer checklist for pins, receipts,
+known limits and the unopened normal-profile human example. This qualifies that
+bounded developer workflow on Live 11.3.43, not general release, physical timing,
+or a completed normal-profile human check.
+
 Native v2 failure snapshots now use the existing generation-owned
 `nativeFailureDiagnostic` route for alignment and FFT sequence rejections.
 Alignment snapshots preserve the exact rejecting check, anchor, previous and

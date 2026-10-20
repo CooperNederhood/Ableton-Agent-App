@@ -26,55 +26,102 @@ export const LISTENER_CAPABILITY_V2 = "audio-listener/v2" as const;
 export { listenerNativeStatusV2Schema };
 
 const diagnosticNumber = z.number().finite();
-export const nativeFailureDiagnosticV2Schema = z.strictObject({
-  scope: z.literal("native-spectrum-rejection/v1"),
-  generation: z
-    .string()
-    .regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i),
-  check: z.enum([
-    "end",
-    "start",
-    "frame",
-    "centroid",
-    "energy",
-    "silence_centroid",
-    "invalid_frames",
-    "bracket",
-  ]),
-  packet: z.tuple([
-    diagnosticNumber,
-    diagnosticNumber,
-    diagnosticNumber,
-    diagnosticNumber,
-    diagnosticNumber,
-    diagnosticNumber,
-  ]),
-  fftDiagnostics: z
-    .tuple([
-      diagnosticNumber,
-      diagnosticNumber,
-      diagnosticNumber,
-      diagnosticNumber,
-      diagnosticNumber,
-    ])
-    .nullable(),
-  metadata: z.strictObject({
-    dsp: z
-      .tuple([diagnosticNumber, diagnosticNumber, diagnosticNumber])
-      .nullable(),
-    fftInfo: z
+const diagnosticGeneration = z
+  .string()
+  .regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i);
+const diagnosticPacket = z.tuple([
+  diagnosticNumber,
+  diagnosticNumber,
+  diagnosticNumber,
+  diagnosticNumber,
+  diagnosticNumber,
+  diagnosticNumber,
+]);
+const nativeSpectrumFailureDiagnosticV2Schema = z
+  .strictObject({
+    scope: z.literal("native-spectrum-rejection/v1"),
+    generation: diagnosticGeneration,
+    check: z.enum([
+      "end",
+      "start",
+      "frame",
+      "centroid",
+      "energy",
+      "silence_centroid",
+      "invalid_frames",
+      "bracket",
+      "sequence",
+    ]),
+    packet: diagnosticPacket,
+    previousPacket: diagnosticPacket.optional(),
+    fftDiagnostics: z
       .tuple([
+        diagnosticNumber,
         diagnosticNumber,
         diagnosticNumber,
         diagnosticNumber,
         diagnosticNumber,
       ])
       .nullable(),
-    clockAbi: diagnosticNumber.nullable(),
-    envelopeAbi: diagnosticNumber.nullable(),
-    spectrumAbi: diagnosticNumber.nullable(),
+    metadata: z.strictObject({
+      dsp: z
+        .tuple([diagnosticNumber, diagnosticNumber, diagnosticNumber])
+        .nullable(),
+      fftInfo: z
+        .tuple([
+          diagnosticNumber,
+          diagnosticNumber,
+          diagnosticNumber,
+          diagnosticNumber,
+        ])
+        .nullable(),
+      clockAbi: diagnosticNumber.nullable(),
+      envelopeAbi: diagnosticNumber.nullable(),
+      spectrumAbi: diagnosticNumber.nullable(),
+    }),
+  })
+  .refine(
+    (value) =>
+      (value.check === "sequence") === (value.previousPacket !== undefined),
+    "Sequence rejection requires the previous packet; other checks do not carry it",
+  );
+const diagnosticClock = z.array(diagnosticNumber).length(11);
+const diagnosticDisagreement = z
+  .number()
+  .int()
+  .nonnegative()
+  .max(Number.MAX_SAFE_INTEGER);
+const nativeAlignmentFailureDiagnosticV2Schema = z.strictObject({
+  scope: z.literal("native-alignment-rejection/v1"),
+  generation: diagnosticGeneration,
+  check: z.enum(["host-offset", "clock-alignment", "launch-alignment"]),
+  geometry: nativeListeningGeometrySchema,
+  policy: listeningTimingPolicySchema,
+  anchorHostOffsetSamples: z
+    .number()
+    .int()
+    .min(-Number.MAX_SAFE_INTEGER)
+    .max(Number.MAX_SAFE_INTEGER),
+  startSample: diagnosticDisagreement.nullable(),
+  anchorClock: diagnosticClock,
+  previousClock: diagnosticClock.nullable(),
+  rejectedClock: diagnosticClock,
+  timingWitnesses: z.strictObject({
+    minHostOffset: diagnosticClock.nullable(),
+    maxHostOffset: diagnosticClock.nullable(),
+    minBeatOrigin: diagnosticClock.nullable(),
+    maxBeatOrigin: diagnosticClock.nullable(),
+    maxPhaseDisagreement: diagnosticClock.nullable(),
+  }),
+  measurements: z.strictObject({
+    observedClockDisagreementSamples: diagnosticDisagreement,
+    observedBeatDisagreementSamples: diagnosticDisagreement.nullable(),
   }),
 });
+export const nativeFailureDiagnosticV2Schema = z.discriminatedUnion("scope", [
+  nativeSpectrumFailureDiagnosticV2Schema,
+  nativeAlignmentFailureDiagnosticV2Schema,
+]);
 export type NativeFailureDiagnosticV2 = z.infer<
   typeof nativeFailureDiagnosticV2Schema
 >;

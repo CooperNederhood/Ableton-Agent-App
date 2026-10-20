@@ -224,6 +224,80 @@ test("v2 spectrum rejection freezes exact numeric input, latest non-authority de
   }
 });
 
+test("v2 alignment failures retain the actual rejected row and measurements before clearing capture state", async () => {
+  for (const check of ["host-offset", "clock-alignment"]) {
+    const f = v2Fixture();
+    await f.start();
+    const p = f.controller.pass;
+    const previous = [...p.clock];
+    const rejected = f.clock(
+      f.origin + 704,
+      true,
+      check === "host-offset" ? 65 : 0,
+    );
+    if (check === "clock-alignment") {
+      rejected[1] += (65 * f.geometry.tempoBpm) / (60 * f.geometry.sampleRate);
+      rejected[8] = rejected[1];
+      rejected[5] = rejected[1] % 1;
+    }
+    const expectedRow = [...rejected];
+    f.packet("clock", rejected);
+    assert.equal(f.controller.state, "failed");
+    assert.equal(f.controller.pass, null);
+    const diagnostic = p.nativeFailureDiagnostic;
+    nativeFailureDiagnosticV2Schema.parse(diagnostic);
+    assert.equal(diagnostic.scope, "native-alignment-rejection/v1");
+    assert.equal(diagnostic.check, check);
+    assert.deepEqual(diagnostic.rejectedClock, expectedRow);
+    assert.deepEqual(diagnostic.previousClock, previous);
+    assert.deepEqual(diagnostic.geometry, f.geometry);
+    assert.deepEqual(diagnostic.policy, f.timingPolicy);
+    assert.equal(diagnostic.anchorHostOffsetSamples, 1000000);
+    assert.equal(diagnostic.startSample, f.origin + 1000000);
+    assert.equal(
+      diagnostic.measurements.observedClockDisagreementSamples,
+      check === "host-offset" ? 65 : 0,
+    );
+    assert.equal(
+      diagnostic.measurements.observedBeatDisagreementSamples,
+      check === "host-offset" ? null : 65,
+    );
+    assert(Object.isFrozen(diagnostic));
+    assert(Object.isFrozen(diagnostic.rejectedClock));
+    rejected[2] = 999;
+    assert.deepEqual(diagnostic.rejectedClock, expectedRow);
+    const terminal = f.events.find((event) => event.type === "terminal");
+    assert.equal(terminal.reason, "listening_alignment_budget_exceeded");
+    assert.deepEqual(terminal.nativeFailureDiagnostic, diagnostic);
+    assert.equal(terminal.status, "failed");
+    assert.equal(terminal.nativeCapture, undefined);
+    assert.deepEqual(p.timingWitnesses, {});
+    f.packet("stopped", [0, 0, 2], p.generation);
+  }
+});
+
+test("v2 changed spectrum sequence retains both packets without relaxing the sequence guard", async () => {
+  const f = v2Fixture();
+  await f.start();
+  const p = f.controller.pass;
+  const previous = [...p.spectrum];
+  const rejected = [...previous];
+  rejected[2] += 1;
+  f.packet("spectrum", rejected);
+  assert.equal(f.controller.state, "failed");
+  const diagnostic = p.nativeFailureDiagnostic;
+  nativeFailureDiagnosticV2Schema.parse(diagnostic);
+  assert.equal(diagnostic.check, "sequence");
+  assert.deepEqual(diagnostic.previousPacket, previous);
+  assert.deepEqual(diagnostic.packet, rejected);
+  assert.equal(
+    f.events.find((event) => event.type === "terminal").reason,
+    "changed_native_spectrum_sequence",
+  );
+  assert(Object.isFrozen(diagnostic.previousPacket));
+  f.packet("stopped", [0, 0, 2], p.generation);
+});
+
 test("actual Max-JS spectrum_diagnostics handler forwards five finite values without fabricating missing metadata", async () => {
   const f = v2Fixture();
   f.controller.prepare(f.command);

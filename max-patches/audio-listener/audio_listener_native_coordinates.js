@@ -395,8 +395,14 @@ function nativeV2Alignment(timing, geometry, policy, offset, startSample) {
       ? nativeV2PhaseDisagreement(timing.maxPhaseDisagreement, geometry)
       : 0,
   );
-  if (Math.max(clock, beat) > policy.maxClockDisagreementSamples)
-    throw new Error("listening_alignment_budget_exceeded");
+  if (Math.max(clock, beat) > policy.maxClockDisagreementSamples) {
+    const error = new Error("listening_alignment_budget_exceeded");
+    error.alignmentMeasurements = Object.freeze({
+      observedClockDisagreementSamples: clock,
+      observedBeatDisagreementSamples: beat,
+    });
+    throw error;
+  }
   return {
     schema: "listening-alignment/v2",
     policy: { ...policy },

@@ -349,7 +349,10 @@ async function armedV2(
   return { control, fixture };
 }
 
-function spectrumFailureDiagnostic(): NativeFailureDiagnosticV2 {
+function spectrumFailureDiagnostic(): Extract<
+  NativeFailureDiagnosticV2,
+  { scope: "native-spectrum-rejection/v1" }
+> {
   return {
     scope: "native-spectrum-rejection/v1",
     generation: "55555555-5555-4555-8555-555555555555",
@@ -362,6 +365,38 @@ function spectrumFailureDiagnostic(): NativeFailureDiagnosticV2 {
       clockAbi: 2,
       envelopeAbi: 2,
       spectrumAbi: 2,
+    },
+  };
+}
+
+function alignmentFailureDiagnostic(): NativeFailureDiagnosticV2 {
+  const { proof } = createSyntheticNativeListeningFixtureV2();
+  const anchor = proof.armed.before.frames[0]!;
+  const previous = proof.armed.before.frames.at(-1)!;
+  const rejected = [...previous];
+  rejected[2] = previous[2] + 65;
+  rejected[9] = previous[9] + 65;
+  return {
+    scope: "native-alignment-rejection/v1",
+    generation: "55555555-5555-4555-8555-555555555555",
+    check: "host-offset",
+    policy: proof.armed.policy,
+    geometry: proof.armed.geometry,
+    anchorHostOffsetSamples: anchor[2] - anchor[4],
+    startSample: null,
+    anchorClock: anchor,
+    previousClock: previous,
+    rejectedClock: rejected,
+    timingWitnesses: {
+      minHostOffset: null,
+      maxHostOffset: null,
+      minBeatOrigin: null,
+      maxBeatOrigin: null,
+      maxPhaseDisagreement: null,
+    },
+    measurements: {
+      observedClockDisagreementSamples: 65,
+      observedBeatDisagreementSamples: null,
     },
   };
 }
@@ -562,9 +597,15 @@ describe("explicit native v2 authenticated ingress", () => {
     expect(failure.trace?.traceId).toBe(control.traceId);
   });
 
-  it.each(["reply", "result"] as const)(
-    "retains bounded %s failure snapshots in attributed typed telemetry, never capture authority",
-    async (kind) => {
+  it.each(
+    (["reply", "result"] as const).flatMap((kind) =>
+      (["spectrum", "alignment", "sequence"] as const).map(
+        (diagnosticKind) => [kind, diagnosticKind] as const,
+      ),
+    ),
+  )(
+    "retains bounded %s %s failure snapshots in attributed typed telemetry, never capture authority",
+    async (kind, diagnosticKind) => {
       const events: TelemetryEventEnvelope[] = [];
       const { server, endpoint } = await start({
         telemetry: {
@@ -577,14 +618,32 @@ describe("explicit native v2 authenticated ingress", () => {
       const received: ListenerResultEvent[] = [];
       server.onListenerResult((event) => received.push(event));
       const client = await listener(endpoint, nativeV2Metadata, 2);
-      const diagnostic = spectrumFailureDiagnostic();
-      if (kind === "reply") {
+      const diagnostic =
+        diagnosticKind === "alignment"
+          ? alignmentFailureDiagnostic()
+          : spectrumFailureDiagnostic();
+      if (
+        diagnostic.scope === "native-spectrum-rejection/v1" &&
+        diagnosticKind === "sequence"
+      ) {
+        diagnostic.check = "sequence";
+        diagnostic.previousPacket = [...diagnostic.packet];
+      }
+      if (
+        kind === "reply" &&
+        diagnostic.scope === "native-spectrum-rejection/v1"
+      ) {
         diagnostic.fftDiagnostics = null;
         diagnostic.metadata.clockAbi = null;
       }
       const failure = {
         status: "failed",
-        reason: "invalid_native_spectrum_packet",
+        reason:
+          diagnosticKind === "alignment"
+            ? "listening_alignment_budget_exceeded"
+            : diagnosticKind === "sequence"
+              ? "changed_native_spectrum_sequence"
+              : "invalid_native_spectrum_packet",
         nativeFailureDiagnostic: diagnostic,
       };
       if (kind === "reply") {

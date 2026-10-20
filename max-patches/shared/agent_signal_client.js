@@ -329,6 +329,64 @@ function validNativeFailureDiagnostic(value) {
     Array.isArray(values) &&
     values.length === length &&
     Array.from(values).every(Number.isFinite);
+  if (
+    typeof value?.generation !== "string" ||
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+      value.generation
+    )
+  )
+    return false;
+  if (value.scope === "native-alignment-rejection/v1") {
+    const nonnegative = (number) => Number.isSafeInteger(number) && number >= 0;
+    const witnessKeys = [
+      "minHostOffset",
+      "maxHostOffset",
+      "minBeatOrigin",
+      "maxBeatOrigin",
+      "maxPhaseDisagreement"
+    ];
+    return (
+      hasExactKeys(value, [
+        "scope",
+        "generation",
+        "check",
+        "geometry",
+        "policy",
+        "anchorHostOffsetSamples",
+        "startSample",
+        "anchorClock",
+        "previousClock",
+        "rejectedClock",
+        "timingWitnesses",
+        "measurements"
+      ]) &&
+      ["host-offset", "clock-alignment", "launch-alignment"].includes(
+        value.check
+      ) &&
+      validDescriptiveConfig({
+        geometry: value.geometry,
+        timingPolicy: value.policy
+      }) &&
+      Number.isSafeInteger(value.anchorHostOffsetSamples) &&
+      (value.startSample === null || nonnegative(value.startSample)) &&
+      tuple(value.anchorClock, 11) &&
+      tuple(value.rejectedClock, 11) &&
+      (value.previousClock === null || tuple(value.previousClock, 11)) &&
+      hasExactKeys(value.timingWitnesses, witnessKeys) &&
+      witnessKeys.every(
+        (key) =>
+          value.timingWitnesses[key] === null ||
+          tuple(value.timingWitnesses[key], 11)
+      ) &&
+      hasExactKeys(value.measurements, [
+        "observedClockDisagreementSamples",
+        "observedBeatDisagreementSamples"
+      ]) &&
+      nonnegative(value.measurements.observedClockDisagreementSamples) &&
+      (value.measurements.observedBeatDisagreementSamples === null ||
+        nonnegative(value.measurements.observedBeatDisagreementSamples))
+    );
+  }
   return (
     hasExactKeys(value, [
       "scope",
@@ -336,7 +394,8 @@ function validNativeFailureDiagnostic(value) {
       "check",
       "packet",
       "fftDiagnostics",
-      "metadata"
+      "metadata",
+      ...(value.check === "sequence" ? ["previousPacket"] : [])
     ]) &&
     value.scope === "native-spectrum-rejection/v1" &&
     typeof value.generation === "string" &&
@@ -351,9 +410,11 @@ function validNativeFailureDiagnostic(value) {
       "energy",
       "silence_centroid",
       "invalid_frames",
-      "bracket"
+      "bracket",
+      "sequence"
     ].includes(value.check) &&
     tuple(value.packet, 6) &&
+    (value.check !== "sequence" || tuple(value.previousPacket, 6)) &&
     (value.fftDiagnostics === null || tuple(value.fftDiagnostics, 5)) &&
     hasExactKeys(value.metadata, [
       "dsp",

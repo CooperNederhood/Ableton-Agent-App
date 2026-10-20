@@ -8,6 +8,23 @@ Architecture decision:
 
 ## Current target: developer dogfood
 
+Native v2 failure snapshots now use the existing generation-owned
+`nativeFailureDiagnostic` route for alignment and FFT sequence rejections.
+Alignment snapshots preserve the exact rejecting check, anchor, previous and
+rejected clock rows, immutable policy/geometry, bounded timing witnesses and
+the computed disagreements; an uncomputed beat disagreement is explicitly
+null. Sequence snapshots retain previous/current packets. They are accepted
+only on failed v2 replies/results, never as successful capture authority;
+legacy v1 and the 128 KiB frame ceiling are unchanged. Cleanup preserves the
+first failure snapshot without allowing another generation to inherit it.
+This closes the missing-evidence gap, not the underlying timing defect.
+
+Qualification is now an autonomous diagnose/regression/fix/retest loop. A
+failed attempt stops and cleans up that attempt, not the debugging task.
+The human handoff gate is three consecutive clean short packaged workflows
+from fresh owned App/Live launches, each with full restart retrieval. A failure
+invalidates that qualification sequence; unchanged retry-to-pass is forbidden.
+
 The packaged capture `b6d0d6ca` now also survives a full normal App exit and
 same-package/profile restart. Outputs retrieves the original context
 `ac0b00cd`, including exact sample coverage and unchanged measurements, through

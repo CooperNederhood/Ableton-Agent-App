@@ -105,6 +105,82 @@ const failureDiagnostic = {
 
 describe("bounded non-authority native failure diagnostics", () => {
   it.each(["reply", "result"] as const)(
+    "retains bounded alignment operands only on a failed v2 %s",
+    (kind) => {
+      const diagnostic = {
+        scope: "native-alignment-rejection/v1",
+        generation: failureDiagnostic.generation,
+        check: "host-offset",
+        geometry,
+        policy,
+        anchorHostOffsetSamples: 1000000,
+        startSample: null,
+        anchorClock: [0, 0, 1000000, 31, 0, 0, 0, 0, 0, 1000000, 31],
+        previousClock: [0, 0, 1000064, 31, 64, 0, 64, 0, 0, 1000064, 31],
+        rejectedClock: [0, 0, 1000193, 31, 128, 0, 128, 0, 0, 1000193, 31],
+        timingWitnesses: {
+          minHostOffset: null,
+          maxHostOffset: null,
+          minBeatOrigin: null,
+          maxBeatOrigin: null,
+          maxPhaseDisagreement: null,
+        },
+        measurements: {
+          observedClockDisagreementSamples: 65,
+          observedBeatDisagreementSamples: null,
+        },
+      };
+      const schema =
+        kind === "reply" ? listenerReplyV2Schema : listenerResultV2Schema;
+      const value = {
+        ...wire,
+        type: `listener.${kind}`,
+        sequence: 1,
+        status: "failed",
+        reason: "listening_alignment_budget_exceeded",
+        nativeFailureDiagnostic: diagnostic,
+      };
+      expect(schema.parse(value)).toMatchObject({
+        nativeFailureDiagnostic: diagnostic,
+      });
+      expect(
+        schema.safeParse({
+          ...fixture()[kind],
+          nativeFailureDiagnostic: diagnostic,
+        }).success,
+      ).toBe(false);
+      for (const patch of [
+        { rejectedClock: diagnostic.rejectedClock.slice(1) },
+        { previousClock: [...diagnostic.previousClock, 0] },
+        { anchorHostOffsetSamples: Infinity },
+        { startSample: -1 },
+        { check: "unknown" },
+        { geometry: { ...geometry, audio: "forbidden" } },
+        { policy: { ...policy, maxClockDisagreementSamples: 481 } },
+        {
+          measurements: {
+            ...diagnostic.measurements,
+            observedClockDisagreementSamples: -1,
+          },
+        },
+        {
+          timingWitnesses: {
+            ...diagnostic.timingWitnesses,
+            audio: "forbidden",
+          },
+        },
+        { generation: "credential=private-token" },
+      ])
+        expect(
+          schema.safeParse({
+            ...value,
+            nativeFailureDiagnostic: { ...diagnostic, ...patch },
+          }).success,
+        ).toBe(false);
+    },
+  );
+
+  it.each(["reply", "result"] as const)(
     "retains exact finite snapshots only on a failed v2 %s",
     (kind) => {
       const schema =

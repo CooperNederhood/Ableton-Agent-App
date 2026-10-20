@@ -560,25 +560,26 @@ class NativeCaptureController {
       throw new Error("native_host_phase_changed");
     if (this.nativeVersion === 2) {
       if (!nativeV2ClockRow(row)) throw new Error("incoherent_native_v2_clock");
-      if (p.anchorHostOffset === undefined)
+      if (p.anchorHostOffset === undefined) {
         p.anchorHostOffset = row[2] - row[4];
+        p.anchorClock = frozen(row);
+      }
       if (
         Math.abs(row[2] - row[4] - p.anchorHostOffset) >
         p.command.timingPolicy.maxClockDisagreementSamples
       )
-        throw new Error("listening_alignment_budget_exceeded");
+        throw this.alignmentError(p, "host-offset", row, {
+          observedClockDisagreementSamples: Math.abs(
+            row[2] - row[4] - p.anchorHostOffset,
+          ),
+          observedBeatDisagreementSamples: null,
+        });
       nativeV2RetainTiming(p.timingWitnesses, row, p.command.geometry);
       if (
         this.engine.pass?.startSample !== null &&
         this.engine.pass?.startSample !== undefined
       )
-        this.engine.pass.alignment = nativeV2Alignment(
-          p.timingWitnesses,
-          p.command.geometry,
-          p.command.timingPolicy,
-          p.anchorHostOffset,
-          this.engine.pass.startSample,
-        );
+        this.engine.pass.alignment = this.alignment(p, row, "clock-alignment");
     }
     p.clock = row;
     p.clockAt = this.now();
@@ -654,14 +655,67 @@ class NativeCaptureController {
     return `invalid_native_spectrum_packet_${field}_e${end}_s${start}_f${frame}_b${bad}`;
   }
 
+  alignmentError(p, check, row, measurements) {
+    const reason = "listening_alignment_budget_exceeded";
+    if (!p.nativeFailureDiagnostic) {
+      p.nativeFailureDiagnostic = frozen({
+        scope: "native-alignment-rejection/v1",
+        generation: p.generation,
+        check,
+        geometry: p.command.geometry,
+        policy: p.command.timingPolicy,
+        anchorHostOffsetSamples: p.anchorHostOffset,
+        startSample: this.engine.pass?.startSample ?? null,
+        anchorClock: p.anchorClock,
+        previousClock: p.clock ?? null,
+        rejectedClock: row,
+        timingWitnesses: Object.fromEntries(
+          [
+            "minHostOffset",
+            "maxHostOffset",
+            "minBeatOrigin",
+            "maxBeatOrigin",
+            "maxPhaseDisagreement",
+          ].map((key) => [key, p.timingWitnesses[key] ?? null]),
+        ),
+        measurements,
+      });
+      p.nativeFailureReason = reason;
+    }
+    return new Error(reason);
+  }
+
+  alignment(p, row, check) {
+    try {
+      return nativeV2Alignment(
+        p.timingWitnesses,
+        p.command.geometry,
+        p.command.timingPolicy,
+        p.anchorHostOffset,
+        this.engine.pass.startSample,
+      );
+    } catch (error) {
+      if (
+        error.message === "listening_alignment_budget_exceeded" &&
+        error.alignmentMeasurements
+      )
+        throw this.alignmentError(p, check, row, error.alignmentMeasurements);
+      throw error;
+    }
+  }
+
   spectrumPacketError(p, v, check) {
-    const reason = this.spectrumPacketReason(v, check);
+    const reason =
+      check === "sequence"
+        ? "changed_native_spectrum_sequence"
+        : this.spectrumPacketReason(v, check);
     if (this.nativeVersion === 2 && !p.nativeFailureDiagnostic) {
       p.nativeFailureDiagnostic = frozen({
         scope: "native-spectrum-rejection/v1",
         generation: p.generation,
         check,
         packet: v,
+        ...(check === "sequence" ? { previousPacket: p.spectrum } : {}),
         fftDiagnostics: p.spectrumDiagnostics,
         metadata: {
           dsp: p.metadata.dsp?.values ?? null,
@@ -724,7 +778,7 @@ class NativeCaptureController {
         (v[0] === previous[0] &&
           v.some((value, index) => value !== previous[index])))
     )
-      throw new Error("changed_native_spectrum_sequence");
+      throw this.spectrumPacketError(p, v, "sequence");
     p.spectrum = v;
     p.spectrumAt = this.now();
     if (p.assembler) {
@@ -1010,13 +1064,7 @@ class NativeCaptureController {
       host: { sample: row[2], beat: row[1], flags: row[3], playing: true },
     });
     if (this.nativeVersion === 2)
-      this.engine.pass.alignment = nativeV2Alignment(
-        p.timingWitnesses,
-        p.command.geometry,
-        p.command.timingPolicy,
-        p.anchorHostOffset,
-        this.engine.pass.startSample,
-      );
+      this.engine.pass.alignment = this.alignment(p, row, "launch-alignment");
     p.assembler = new NativeDescriptorAssembler({
       owner: p.owner,
       armCounter: v[13],
@@ -1226,6 +1274,7 @@ class NativeCaptureController {
     p.configurationReceipt = p.pendingArmAck = null;
     if (p.envelopeWindows) p.envelopeWindows.length = 0;
     if (p.timingWitnesses) p.timingWitnesses = {};
+    if (this.nativeVersion === 2) p.anchorClock = null;
     if (this.nativeVersion === 2) {
       p.tempoEvidence = null;
       p.spectrumDiagnostics = null;

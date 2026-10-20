@@ -259,6 +259,87 @@ test("v2 SDK retains bounded native failure snapshots without treating them as s
   }
 });
 
+test("v2 SDK validates actual alignment and sequence diagnostics before writing any frame", async () => {
+  const { v2Fixture } = require("../audio-listener/native-v2-fixture.cjs");
+  for (const kind of ["alignment", "sequence"]) {
+    const native = v2Fixture();
+    await native.start();
+    const pass = native.controller.pass;
+    if (kind === "alignment")
+      native.packet("clock", native.clock(native.origin + 704, true, 65));
+    else {
+      const packet = [...pass.spectrum];
+      packet[2] += 1;
+      native.packet("spectrum", packet);
+    }
+    const diagnostic = pass.nativeFailureDiagnostic;
+    for (const type of ["reply", "result"]) {
+      const send =
+        type === "reply" ? "sendListenerReply" : "sendListenerResult";
+      const f = fixture();
+      const control = f.control();
+      f.client.handleListenerControl(control);
+      const payload = {
+        status: "failed",
+        reason: pass.nativeFailureReason,
+        nativeFailureDiagnostic: diagnostic
+      };
+      assert.equal(f.client[send](control, payload), true);
+      const schema =
+        type === "reply" ? listenerReplyV2Schema : listenerResultV2Schema;
+      assert.deepEqual(
+        schema.parse(f.wire.at(-1)).nativeFailureDiagnostic,
+        diagnostic
+      );
+      const patches =
+        kind === "alignment"
+          ? [
+              { rejectedClock: Array(11) },
+              { previousClock: [SECRET] },
+              {
+                policy: {
+                  ...diagnostic.policy,
+                  maxClockDisagreementSamples: 481
+                }
+              },
+              {
+                measurements: {
+                  observedClockDisagreementSamples: -1,
+                  observedBeatDisagreementSamples: null
+                }
+              },
+              {
+                timingWitnesses: {
+                  ...diagnostic.timingWitnesses,
+                  audio: SECRET
+                }
+              }
+            ]
+          : [{ previousPacket: Array(6) }, { previousPacket: [SECRET] }];
+      for (const patch of [
+        ...patches,
+        { generation: SECRET },
+        { audio: SECRET }
+      ]) {
+        const g = fixture();
+        const prepare = g.control();
+        g.client.handleListenerControl(prepare);
+        assert.equal(
+          g.client[send](prepare, {
+            ...payload,
+            nativeFailureDiagnostic: { ...diagnostic, ...patch }
+          }),
+          false
+        );
+        assert.equal(g.wire.length, 0);
+        assert.equal(g.client.listenerSequence, 0);
+        assert(!JSON.stringify(g.failures).includes(SECRET));
+      }
+    }
+    native.packet("stopped", [0, 0, 2], pass.generation);
+  }
+});
+
 test("v2 discovery requires actual version/capability arrays, never substring matches or fallback", async () => {
   const f = fixture();
   listenerRegistrationV2Schema.parse(f.client.listener);

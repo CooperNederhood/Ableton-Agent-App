@@ -39,10 +39,19 @@ controlled successes below are not packaged Desktop acceptance.
   `listening_alignment_budget_exceeded` before its first envelope window.
   No context, correction or retry; owned process/fixture cleanup passed.
   Group and updated-package qualification stopped at this gate.
-- [ ] Retain bounded, traced fault-time native alignment measurements and
+- [x] Retain bounded, traced fault-time native alignment measurements and
+  FFT previous/current sequence packets through existing failure diagnostics.
+  Add red controller/runtime/contract regressions and validate ingress, SDK,
+  bounds, ownership, cancellation/replacement and legacy isolation.
+- [ ] Use the new snapshots to
   identify which guard/metric rejects the capture before proposing a fix.
-  Current failure History retains the reason and last accepted alignment,
-  not the rejected measurements. Do not raise tolerance or retry-to-pass.
+  Older failure History retains only the last accepted alignment.
+  Do not raise tolerance or retry-to-pass.
+- [ ] Continue diagnosis, regression tests and fixes through every failed
+  attempt until three consecutive clean same-package workflows with fresh
+  owned processes and restart retrieval pass; only then request human
+  normal-profile verification. Missing evidence is engineering work, not an
+  external blocker or a reason to end the task.
 
 The user-approved target is a usable developer build plus documented weak spots,
 not exhaustive certification. See the

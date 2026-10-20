@@ -34,6 +34,15 @@ controlled successes below are not packaged Desktop acceptance.
   instead of accepting a corrected workflow as clean.
 - [ ] Qualify the strengthened v2 runner and updated packaged Default agent
   with fresh owned Live processes; retain every failed attempt.
+  The first strict fractional run at `7a3f713` used correct tool arguments
+  but native pass `b4233bbf` failed with
+  `listening_alignment_budget_exceeded` before its first envelope window.
+  No context, correction or retry; owned process/fixture cleanup passed.
+  Group and updated-package qualification stopped at this gate.
+- [ ] Retain bounded, traced fault-time native alignment measurements and
+  identify which guard/metric rejects the capture before proposing a fix.
+  Current failure History retains the reason and last accepted alignment,
+  not the rejected measurements. Do not raise tolerance or retry-to-pass.
 
 The user-approved target is a usable developer build plus documented weak spots,
 not exhaustive certification. See the

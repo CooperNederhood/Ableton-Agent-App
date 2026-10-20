@@ -8,8 +8,8 @@ and `d3987415` exhausted the coordinator deadline after native arm succeeded,
 during the final App safety inspection. Both App defects are fixed in source,
 with red-before/green-after regressions. The rebuilt package below includes the
 fixes. An exact-package capture has now completed with independently verified
-native proof and durable context, but the clean agent-turn/restart handoff
-remains incomplete.
+native proof and durable context, including full App-restart retrieval, but
+the clean updated-agent handoff remains incomplete.
 
 The fixed source passed 1,023 application/runtime/Desktop/owned-host tests,
 all 12 Electron tests and 212 Python tests. The first-connect Electron test
@@ -71,6 +71,18 @@ coverage and measurements and no recapture. Normal-profile developer acceptance
 and a clean updated-agent turn remain pending. The owned Live copy was initially
 left stopped at an unreadable quit dialog; after developer approval, both owned
 apps subsequently closed normally. The original saved Set hash is unchanged.
+
+The guidance/verifier fix is committed at `7a3f713`. Its first strict
+fractional native run (`dc9d2801-1c09-4d59-99f3-365014bb0c2f`) made the correct
+three reviewed tool calls without validation errors or shell waits. Native
+pass `b4233bbf-8013-45eb-8231-94a4668878b2` nevertheless failed with
+`listening_alignment_budget_exceeded` in capture before any envelope window;
+no context was published. Typed failure History preserves the reason, trace,
+policy and geometry, but not the rejected measurements. The incomplete
+observation's last accepted disagreement is not the fault-time magnitude.
+The exact owned Live process exited, fixture cleanup passed and the original
+Set was unchanged. The run was not retried; the group and updated-package
+steps remain blocked rather than substituting a later successful run.
 
 The target is useful developer feedback, not general release certification.
 Use copies of projects and audio you own or generated test audio.

@@ -1837,11 +1837,14 @@ describe("CopilotAgentService managed sessions", () => {
           resolvedTools: ["ableton_context"],
         }),
       );
-      await service.createManagedAgent(
+      await service.resumeManagedAgent(
         configuration("resumed-listener", {
           resolvedTools: ["ableton_listening", "ableton_context"],
-          sdkSessionId: "persisted-sdk",
         }),
+        "persisted-sdk",
+      );
+      expect(service.getManagedAgentSessionId("resumed-listener")).toBe(
+        "persisted-sdk",
       );
       for (const index of [1, 3]) {
         const prompt = configs[index]?.customAgents?.[0]?.prompt;

@@ -31,6 +31,20 @@ failure/cancellation, owner/trace, timing, redaction, capture and cleanup
 lifecycle remain unchanged; updated guidance is recorded through existing SDK
 configuration/history boundaries.
 
+The first strict native qualification run at `7a3f713` failed again at the
+native timing guard: pass `b4233bbf-8013-45eb-8231-94a4668878b2`,
+`listening_alignment_budget_exceeded`, before producing an envelope window.
+The actor made the three reviewed calls with correct arguments, without
+correction or shell waiting; this does not make the failed capture a clean
+acceptance. No context was published. Typed History locates the rejection in
+native capture, but retains only the last accepted alignment, not the
+fault-time measurements or which disagreement exceeded the limit. Do not
+infer the rejected magnitude from that earlier alignment. The owned Live
+process exited, fixture cleanup passed and the source Set hash was unchanged.
+No retry, full-group run or updated-package qualification followed this
+failure. Retaining the rejected timing evidence and establishing its cause is
+the next gate; the default 64-sample policy and native guards are unchanged.
+
 The user-approved target is developer dogfooding, not exhaustive release
 certification. Ordinary, non-instrumented real-Live runs complete short fractional
 and 30-second captures,

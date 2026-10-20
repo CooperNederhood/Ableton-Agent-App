@@ -9,11 +9,16 @@ Architecture decision:
 ## Current target: developer dogfood
 
 The user-approved target is developer dogfooding, not exhaustive release
-certification. Current controlled real-Live runs complete 30-second captures,
+certification. Ordinary, non-instrumented real-Live runs complete short fractional
+and 30-second captures,
 independently validate native proof, preserve all nine final checks and the
 terminal connection/ACK, and retrieve durable track/range context in a fresh
-process. The newest device bundle still needs a normal save and ordinary
-short/long capture plus a representative isolated desktop handoff check.
+process. The newest device bundle is normally saved and structurally validated.
+The visible app also completed a short pass and fresh typed retrieval after a
+guarded native spectrum failure and a playing-transport denial. This is recovered
+functionality, not clean first-attempt reliability or a globally qualified release.
+Normal-profile connection is the developer's first-launch check; automation
+remains isolated.
 
 Use the [developer checklist](playback-listening-dogfood.md) for bounded handoff
 gates, exploratory weak spots and bug-report evidence. Missing low-level
@@ -23,6 +28,22 @@ defect. Authentication, exact binding, native completeness, recording guards
 and honest failure/cancellation remain mandatory; no integrity guard is waived.
 The checkpoints below retain historical evidence, not additional requirements
 to exhaust before developer use.
+
+The normal saved candidate passes structural inspection with one active
+`PatchSlot` listener reference; the older fixture's second reference was
+`SourceContext` provenance, not another device. The first ordinary fractional
+attempt (`c259b44e`) stopped before any tool call/pass because the agent
+misread the allowed actions. Its recorded scoped schema contains all three
+required actions; this does not establish an SDK schema-loss defect or an
+audio/DSP failure. Scoped listening descriptions now explicitly enumerate the
+selected action values while retaining identical schemas, validation and
+permissions. The subsequent ordinary short and 30-second runs passed independently.
+Their native proofs, fresh typed reads and all nine final checks are retained in
+`fixtures/native-v2-developer-dogfood-checkpoint.json`, alongside the separate
+failed group (`listening_alignment_budget_exceeded`, rejected magnitude unknown)
+and the visible app's failed first pass (`changed_native_spectrum_sequence`).
+The App's eventual successful retry does not relabel either failure. The default
+64-sample budget and all native integrity guards remain unchanged.
 
 ## Earlier acceptance checkpoint
 

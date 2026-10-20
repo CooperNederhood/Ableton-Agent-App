@@ -1479,13 +1479,20 @@ export function scopeAbletonTools(
           );
     const scopedParameters = agentFacingParameters(tool.name, parameters);
     if (scopedParameters === undefined) return [tool];
+    const scopedTool =
+      tool.name === "ableton_listening"
+        ? {
+            ...tool,
+            description: `${tool.description ?? ""}\nAllowed action values in this scope: ${selected.map((descriptor) => descriptor.action).join(", ")}. Each schema variant is an alternative selected by action, not a restriction to only the final variant. Use the arguments required by the selected action.`,
+          }
+        : tool;
     if (tool.handler === undefined) {
-      return [{ ...tool, parameters: scopedParameters }];
+      return [{ ...scopedTool, parameters: scopedParameters }];
     }
     const handler = tool.handler;
     return [
       {
-        ...tool,
+        ...scopedTool,
         parameters: scopedParameters,
         handler: async (params, invocation) => {
           const argumentError = abletonToolArgumentError(

@@ -8,9 +8,18 @@ The user-approved target is a usable developer build plus documented weak spots,
 not exhaustive certification. See the
 [dogfood handoff and user checklist](playback-listening-dogfood.md).
 
-- [ ] Finalize the normally saved current device bundle without source overrides.
-- [ ] Pass ordinary short fractional and 30-second capture/storage checks.
-- [ ] Pass a representative isolated desktop success/recovery walkthrough.
+- [x] Finalize the normally saved current device bundle without source overrides.
+- [x] Accept structurally valid single active `PatchSlot` binding without
+  requiring optional historical `SourceContext` provenance; retain exact
+  topology, path/type, resource and duplicate-listener guards.
+- [x] Explicitly enumerate scoped listening actions after the first ordinary
+  actor misread its correctly recorded schema; preserve argument validation
+  and permission boundaries. No audio pass ran in that failed attempt.
+- [x] Pass ordinary short fractional and 30-second capture/storage checks,
+  independently validating native proof, durable context and nine final checks.
+- [x] Exercise isolated desktop capture and guarded recovery; retain the initial
+  spectrum failure, playing-arm denial and later verified completion separately.
+  Clean first-attempt reliability and cancellation remain developer checks.
 - [x] Document prioritized developer tests, known uncertainties and bug-report
   evidence. Defer unresolved diagnostic completeness unless it demonstrates a
   functional, safety, persistence or recovery defect.

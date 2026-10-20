@@ -1884,6 +1884,90 @@ describe("Ableton tools", () => {
     expect(trackParameters.safeParse({ action: "list" }).success).toBe(false);
   });
 
+  it("explicitly advertises every scoped listening action without widening its runtime schema", () => {
+    const scoped = scopeAbletonTools(
+      createAbletonTools({
+        ...services(),
+        executeListeningOperation:
+          vi.fn<
+            NonNullable<AbletonToolServices["executeListeningOperation"]>
+          >(),
+      }),
+      {
+        allowedToolNames: ["ableton_listening"],
+        allowedOperationIds: [
+          "listening.inspect_listeners",
+          "listening.play_arrangement_and_listen",
+          "listening.get_pass",
+        ],
+      },
+    );
+    expect(scoped).toHaveLength(1);
+    const tool = scoped[0]!;
+    expect(tool.description).toContain(
+      "Allowed action values in this scope: inspect-listeners, play-arrangement-and-listen, get-pass.",
+    );
+    expect(tool.description).not.toContain("play-session-and-listen");
+    const parameters = tool.parameters as {
+      safeParse(value: unknown): { success: boolean };
+      toJSONSchema(): Record<string, unknown>;
+    };
+    expect(parameters.safeParse({ action: "inspect-listeners" }).success).toBe(
+      true,
+    );
+    expect(
+      parameters.safeParse({
+        action: "play-arrangement-and-listen",
+        listenerIds: ["listener"],
+        startBeat: 0.25,
+        endBeat: 3.75,
+        maximumDurationMs: 8000,
+      }).success,
+    ).toBe(true);
+    expect(
+      parameters.safeParse({ action: "get-pass", passId: "pass" }).success,
+    ).toBe(true);
+    expect(
+      parameters.safeParse({ action: "play-arrangement-and-listen" }).success,
+    ).toBe(false);
+    expect(
+      parameters.safeParse({ action: "cancel", passId: "pass" }).success,
+    ).toBe(false);
+    expect(parameters.toJSONSchema()).toMatchObject({
+      properties: {
+        action: {
+          enum: [
+            "get-pass",
+            "inspect-listeners",
+            "play-arrangement-and-listen",
+          ],
+        },
+      },
+    });
+  });
+
+  it("does not advertise capture actions in a lookup-only listening scope", () => {
+    const [tool] = scopeAbletonTools(
+      createAbletonTools({
+        ...services(),
+        executeListeningOperation:
+          vi.fn<
+            NonNullable<AbletonToolServices["executeListeningOperation"]>
+          >(),
+      }),
+      {
+        allowedToolNames: ["ableton_listening"],
+        allowedOperationIds: ["listening.get_pass"],
+      },
+    );
+    expect(tool?.description).toContain(
+      "Allowed action values in this scope: get-pass.",
+    );
+    expect(tool?.description).not.toContain(
+      "Allowed action values in this scope: inspect-listeners",
+    );
+  });
+
   it("fails closed when a connected capability document omits an action", () => {
     const scoped = scopeAbletonTools(createAbletonTools(services()), {
       allowedToolNames: ["ableton_recording"],

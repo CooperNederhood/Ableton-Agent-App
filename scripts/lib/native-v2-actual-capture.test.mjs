@@ -24,6 +24,117 @@ function validate(record) {
 }
 
 describe("actual corrected v2 native capture and durable context", () => {
+  describe("ordinary developer dogfood checkpoint", () => {
+    it("accepts real short and 30-second saved-device proofs and durable signal without instrumentation", async () => {
+      const record = await evidence(
+        "native-v2-developer-dogfood-checkpoint.json",
+      );
+      for (const [key, frames, windows] of [
+        ["short", 84000, 18],
+        ["long", 1440000, 300],
+      ]) {
+        const capture = record[key];
+        expect(() => validate(capture)).not.toThrow();
+        expect(
+          capture.observation.endSample - capture.observation.startSample,
+        ).toBe(frames);
+        expect(capture.observation.samples).toHaveLength(windows);
+        expect(capture.freshProcessTypedRead).toBe(true);
+        expect(capture.inspectorAttached).toBe(false);
+        expect(capture.sourceOverrides).toEqual([]);
+        expect(capture.observation.summaries.peak).toEqual([0.5, 0.5]);
+        expect(capture.spectralEnergy).toBeGreaterThan(0);
+        expect(Object.values(capture.postconditions.checks)).toEqual(
+          Array(9).fill(true),
+        );
+        expect(capture.fixture.sourceSetSha256).toBe(record.sourceSetSha256);
+      }
+      expect(record.activeListenerCount).toBe(1);
+      expect(record.optionalProvenanceReferenceRequired).toBe(false);
+      expect(record.releaseCertified).toBe(false);
+    });
+
+    it("retains the independent group timing failure with no context and an unknown rejected measurement", async () => {
+      const record = await evidence(
+        "native-v2-developer-dogfood-checkpoint.json",
+      );
+      expect(record.groupFailure).toMatchObject({
+        passed: false,
+        thirtySecondScenarioAttemptedInGroup: false,
+        rejectedMeasurementRetained: false,
+        rejectionMagnitudeSamples: null,
+        causeEstablished: false,
+        timingBudgetIncreased: false,
+      });
+      expect(record.groupFailure.error).toContain(
+        "listening_alignment_budget_exceeded",
+      );
+      expect(record.groupFailure.jobs[0]).toMatchObject({
+        stage: "failed",
+        contextIds: [],
+        cleanupPolicy: "leave-running",
+      });
+      expect(record.groupFailure.processCleanup).toMatchObject({
+        processStopped: true,
+        fixtureCleaned: true,
+      });
+    });
+
+    it("does not mislabel the initial zero-pass planning refusal as a missing action or native capture failure", async () => {
+      const record = await evidence(
+        "native-v2-developer-dogfood-checkpoint.json",
+      );
+      expect(record.initialPlanningFailure).toMatchObject({
+        passed: false,
+        jobs: [],
+        actualSdkSchemaLossEstablished: false,
+        disposition: "explicit-scoped-action-guidance-added",
+      });
+      expect(record.initialPlanningFailure.advertisedActions).toEqual([
+        "get-pass",
+        "inspect-listeners",
+        "play-arrangement-and-listen",
+      ]);
+    });
+
+    it("retains visible app recovery without promoting the failed first attempt or release readiness", async () => {
+      const record = await evidence(
+        "native-v2-developer-dogfood-checkpoint.json",
+      );
+      const capture = record.desktop;
+      expect(() => validate(capture)).not.toThrow();
+      expect(capture).toMatchObject({
+        independentlyQualified: true,
+        freshProcessTypedRead: true,
+        completedAfterGuardedFailures: true,
+        cleanFirstAttempt: false,
+        releaseCertified: false,
+        sourceOverrides: [],
+        expected: {
+          policy: { mode: "descriptive", maxClockDisagreementSamples: 64 },
+          geometry: { startBeat: 0.25, endBeat: 3.75, totalSamples: 84000 },
+        },
+      });
+      expect(capture.observation.samples).toHaveLength(18);
+      expect(capture.observation.summaries.peak).toEqual([0.5, 0.5]);
+      expect(capture.guardedFailures).toEqual([
+        {
+          passId: "d010225c-a6fa-47f9-981f-b31a664e782a",
+          reason: "changed_native_spectrum_sequence",
+        },
+      ]);
+      expect(capture.visible).toMatchObject({
+        finalResultVisible: true,
+        livePlaybackRunning: true,
+        assistantReportedRetry: true,
+        playingArmDenialReported: true,
+        desktopClosedNormally: true,
+      });
+      expect(record.desktopWalkthroughPassed).toBe(false);
+      expect(record.releaseCertified).toBe(false);
+    });
+  });
+
   describe("actual new-resource History qualification attempt", () => {
     it("accepts the full native proof and nine final checks without manufacturing a History pass", async () => {
       const record = await evidence(

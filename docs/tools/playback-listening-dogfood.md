@@ -12,22 +12,31 @@ Do not depend on exact physical onset timing, exclusive clip attribution,
 Session listening, transcription, pitch/key recognition, or tempo automation.
 Tempo-change work is deferred to issue #55.
 
-Real controlled runs have completed 30-second captures, retained track/range
-context, read it back in a fresh process, and preserved playback/connection
-postconditions. The latest normal saved bundle and visible app handoff still
-need validation. This document is a test plan, not a claim those gates passed.
+The normally saved bundle now passes ordinary, non-instrumented short fractional
+and 30-second captures: 84,000 frames/18 windows and 1,440,000 frames/300 windows,
+respectively. Both have independently validated native proof, real signal,
+fresh-process typed context retrieval and all nine runner postconditions.
+
+The isolated visible app also completed the short capture, displayed its result
+and retrieved durable context. It recovered after a first pass failed with
+`changed_native_spectrum_sequence` and an intervening playing-transport denial;
+this is **not a clean first-attempt pass**. The failed pass remains failed.
+The separate earlier group timing rejection also remains unresolved. Evidence
+is retained in `max-patches/audio-listener/fixtures/native-v2-developer-dogfood-checkpoint.json`.
 
 ## Before developer handoff
 
-- [ ] Freeze and normally save the final device bundle, retaining its sibling
+- [x] Freeze and normally save the final device bundle, retaining its sibling
       resources; verify the saved references and packaged source identity.
-- [ ] Bind discovery to the intended normal Desktop profile through the shared
-      storage resolver, not a preparation-only automation profile. Verify normal
-      app connection; a runner's disposable discovery rewrite is not this proof.
-- [ ] Run ordinary, non-instrumented short fractional and 30-second captures.
+- [x] Bind discovery to the intended normal Desktop profile through the shared
+      storage resolver, not a preparation-only automation profile.
+- [ ] Developer first launch: verify normal-profile app/device connection.
+      Isolated automation does not prove this normal-profile connection.
+- [x] Run ordinary, non-instrumented short fractional and 30-second captures.
       Require real signal, correct track/range, durable retrieval and cleanup.
-- [ ] Exercise the visible app's successful capture plus an actionable
-      failure/cancellation path with isolated runner-owned processes.
+- [x] Exercise visible capture and guarded failure/recovery with isolated
+      runner-owned processes. Retain first-attempt failures; cancellation is
+      still an exploratory developer check, not physically qualified here.
 - [ ] Record the exact app/device revision, Live version and sample rate for
       the developer build. Do not silently promote the prototype to globally
       qualified or physically precise.
@@ -35,6 +44,23 @@ need validation. This document is a test plan, not a claim those gates passed.
 These are the bounded handoff gates. Exhaustive diagnostic and hardware-matrix
 qualification is not a prerequisite for developer use unless it exposes a
 functional, safety, persistence or recovery defect.
+
+## Local developer setup
+
+Use the generated Apple Silicon app at `release/mac-arm64/Ableton Agent.app`;
+the installed `/Applications` app is not overwritten by this workflow.
+The normally saved developer bundle is in
+`~/Documents/Machine-Listening-Developer-Dogfood-nBR5zW/`. Open
+`Machine-Listening-Developer-Dogfood-Saved.als` and keep
+`Native-Listener-Candidate/` and all sibling resources together. No further
+device replacement or manual save is required.
+
+Use ordinary approval mode initially, a disposable project copy, a stopped
+transport and constant 120 BPM/48 kHz. The automation walkthrough used an isolated
+profile and YOLO; it is not a recommendation to disable developer approvals.
+Confirm the normal app reports Connected and discovers the intended listener.
+After a pass leaves playback running, explicitly stop it before another capture
+when doing so is safe. An already-playing arm is currently guarded.
 
 ## First dogfood pass
 
@@ -47,7 +73,7 @@ when available. Start with a simple constant-tempo Arrangement at 48 kHz.
 | Musical contrast | Capture comparable regions of silence, sustained sound and percussive sound. | Measurements and descriptions broadly distinguish the inputs. No invented pitch, transcription or exact clip ownership. A genuinely silent region is valid, not automatically a failure. |
 | Correct target | Use two audibly different tracks and two different regions. Capture each explicitly. | Each result belongs to the requested listener/track/range. No swapped target or previous-pass data. |
 | Boundaries and duration | Try a short nonzero/fractional range, then a 30-second range. | Requested coverage completes without a truncated tail, endless running state or unexplained timing rejection. A single capture over 30 seconds must be refused, not silently truncated or widened; an explicit multi-pass plan is different. |
-| Repeatability | Repeat a region several times, including while transport is already playing. | New passes finish and retain separate identities. No reconnect requirement, stuck busy state or accidental overwrite. Exact FFT-derived summaries need not be bit-identical. |
+| Repeatability | Repeat a region several times from stopped transport; separately try an already-playing request. | Completed passes retain separate identities. Already-playing arm is explicitly refused; stop safely before retrying. No reconnect requirement, stuck busy state or accidental overwrite. Exact FFT-derived summaries need not be bit-identical. |
 | Persistence | Note a saved result, close normally, reopen the same saved project/app and retrieve it. | The historical result remains available with its original identity/range. Missing or misattributed context is a priority bug. |
 | Cancellation and recovery | Cancel a running listening pass through its operation control, then try a short capture. | Cancellation is explicit, partial work is not advertised as complete, and the next pass works without restarting everything. Record actual playback behavior rather than assuming cancellation stops transport. |
 | Missing listener | In a throwaway copy, make the requested listener unavailable, then request a capture. Restore it and retry. | Actionable refusal/failure, no fabricated completed analysis, and recovery after the listener is restored. |
@@ -57,7 +83,9 @@ Example request, adjusted to an existing listener and a constant 120 BPM Set:
 > Use the listener on track "My Track" to listen to the Arrangement from bar 2
 > to bar 6. Describe its loudness, dynamics and brightness, and retrieve the
 > saved result when the listening pass completes. Leave playback running.
-> Do not edit clips, routing or devices.
+> Do not edit clips, routing or devices. If a pass fails, report its ID and
+> reason and stop; do not retry automatically. If transport is already playing,
+> ask before stopping it.
 
 This is four bars/eight seconds at 120 BPM. Check the resolved range in the
 result; do not rely on the assistant's wording alone.
@@ -71,6 +99,11 @@ result; do not rely on the assistant's wording alone.
 | Safety guards | On a disposable Set, try listening while recording is already active or the audio engine is unavailable. Expect a clear guard/failure, not disrupted recording or false success. |
 | Interruption | Quit/disconnect the device or Live during a disposable capture. Expect terminal failure/cancellation and understandable recovery, not a permanently active pass or completed context. |
 | Historical freshness | Edit the source after a capture, then retrieve the old result. It must remain historical/unknown-freshness rather than silently claiming to describe the edited audio. |
+| Agent action selection | A first ordinary actor refused before making any call despite all required actions being present in its recorded schema. Scoped descriptions now make action alternatives explicit. Report false "tool unavailable" claims separately from audio failures; this remains a natural-language reliability weak spot to watch. |
+| Default-agent retries and tool selection | The visible app recovered, but made failed tool attempts and retried the failed native pass after stopping transport. Do not judge only its final success: retain every failed pass/reason, keep approvals enabled and request no automatic retry when collecting a reproduction. This walkthrough does not establish clean first-attempt reliability. |
+| Timing rejection reliability | One ordinary short capture passed with real signal and durable context; the next group attempt failed with `listening_alignment_budget_exceeded` after two windows, published no context and cleaned up correctly. The rejected measurement/magnitude was not retained, so neither its cause nor a suitable tolerance increase is established. Report these failures; do not silently retry until success or loosen integrity guards. The group remains failed. |
+| Native spectrum rejection | The first visible-app pass failed with `changed_native_spectrum_sequence`; a later pass completed at the unchanged 64-sample default and survived fresh typed retrieval. The first failure's root cause is not established, and recovery does not erase it or justify relaxing the integrity guard. |
+| Device caption | The development device still displays a prototype "Capture not enabled yet" caption even though the per-pass v2 path can complete. Treat the App's authenticated discovery/pass result as authoritative; the static caption is not a live readiness indicator or a release certification. |
 | Portability | Save, close and reopen a copied project with its device resources. Missing JS/Gen/audio dependencies, reconnect failures and stale device bindings are priority bugs. |
 | Rate/vector settings | Controlled positive evidence is currently 48 kHz/vector 64. Try 44.1 kHz and other practical buffer/vector settings separately and record the actual settings. Intended support and unit coverage are not physical qualification of every combination. |
 | Live patch version | Current physical evidence is Live 11.3.43; the contextual target 11.3.42 is not separately qualified. Live 12 is outside scope. |

@@ -1,6 +1,8 @@
 import { mkdtemp, mkdir, readFile, rm } from "node:fs/promises";
+import { spawn } from "node:child_process";
 import { createServer, type Server } from "node:net";
 import { join, resolve } from "node:path";
+import { createInterface } from "node:readline";
 
 import { _electron as electron, expect, test } from "@playwright/test";
 import { sendAutomationMessage } from "../../packages/debug-control/src/client.js";
@@ -8,6 +10,7 @@ import { resolveLiveAgentStorage } from "../../packages/storage/src/index.js";
 import type { DesktopEntityContextApi } from "../../apps/desktop/src/context-contracts.js";
 import type { DesktopListeningPage } from "../../apps/desktop/src/listening-contracts.js";
 import { preferencesSchema } from "../../apps/desktop/src/contracts.js";
+import type { DesktopApi } from "../../apps/desktop/src/contracts.js";
 import {
   listeningFixturePassId,
   listeningFixtureSessionId,
@@ -23,6 +26,8 @@ import {
 const desktopPath = resolve("apps/desktop");
 
 interface ElectronTestDesktopApi {
+  agent: DesktopApi["agent"];
+  ableton: DesktopApi["ableton"];
   entityContext: DesktopEntityContextApi;
   agents: {
     listActive(): Promise<Array<{ id: string }>>;
@@ -129,6 +134,140 @@ async function launchAutomationDesktop() {
   });
   return { application, profile };
 }
+
+test("binds first-connected Live ownership through production main/preload and restores it after restart", async () => {
+  const { application, profile, environment } = await launchIsolatedDesktop();
+  const initialProcess = application.process();
+  let restarted: typeof application | undefined;
+  let simulator: ReturnType<typeof spawn> | undefined;
+  try {
+    const window = await application.firstWindow();
+    await window.waitForLoadState("domcontentloaded");
+    const sessions = () =>
+      window.evaluate(() =>
+        (
+          globalThis.window as unknown as {
+            desktop: ElectronTestDesktopApi;
+          }
+        ).desktop.agent.getSessions(),
+      );
+    await expect
+      .poll(async () => (await sessions()).length, { timeout: 30_000 })
+      .toBe(1);
+    const orphan = (await sessions())[0]!;
+    expect(orphan.liveSetId).toBe(`orphan:${orphan.id}`);
+    const port = Number(environment.ABLETON_AGENT_PORT);
+    const rejectingBridge = [...ownedRejectingBridges].find((server) => {
+      const address = server.address();
+      return (
+        address !== null && typeof address !== "string" && address.port === port
+      );
+    });
+    if (rejectingBridge === undefined)
+      throw new Error("Expected this test's rejecting bridge");
+    await new Promise<void>((resolve, reject) =>
+      rejectingBridge.close((error) => (error ? reject(error) : resolve())),
+    );
+    ownedRejectingBridges.delete(rejectingBridge);
+    simulator = spawn(
+      "python3",
+      [
+        "remote-script/simulator.py",
+        "--port",
+        String(port),
+        "--token",
+        environment.ABLETON_AGENT_TOKEN!,
+        "--connections",
+        "10",
+        "--saved-live-set",
+      ],
+      { cwd: process.cwd(), stdio: ["ignore", "pipe", "pipe"] },
+    );
+    const lines = createInterface({ input: simulator.stdout! });
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(
+          () => reject(new Error("Simulator startup timed out")),
+          5000,
+        );
+        const finish = (error?: Error) => {
+          clearTimeout(timer);
+          if (error === undefined) resolve();
+          else reject(error);
+        };
+        lines.once("line", (line) => {
+          try {
+            expect(JSON.parse(line)).toMatchObject({ host: "127.0.0.1", port });
+            finish();
+          } catch (error) {
+            finish(error instanceof Error ? error : new Error(String(error)));
+          }
+        });
+        simulator!.once("error", finish);
+        simulator!.once("exit", (code) =>
+          finish(new Error(`Simulator exited ${code}`)),
+        );
+      });
+    } finally {
+      lines.close();
+    }
+    await window.evaluate(() =>
+      (
+        globalThis.window as unknown as { desktop: ElectronTestDesktopApi }
+      ).desktop.ableton.connect(),
+    );
+    await expect
+      .poll(async () => (await sessions())[0]?.liveSetId)
+      .toBe("simulated-live-set");
+    expect((await sessions())[0]?.id).toBe(orphan.id);
+    await window.getByRole("button", { name: "Profiles", exact: true }).click();
+    await window
+      .getByRole("button", { name: "Expand unassigned Live Sets" })
+      .click();
+    await expect(
+      window.getByRole("button", {
+        name: "Expand Simulated Set Live Set",
+      }),
+    ).toBeVisible();
+    await expect(
+      window.getByRole("button", {
+        name: "Expand No connected Live Set Live Set",
+      }),
+    ).toHaveCount(0);
+    await application.close();
+    restarted = await electron.launch({
+      args: [desktopPath, `--user-data-dir=${join(profile, "electron")}`],
+      cwd: process.cwd(),
+      env: environment,
+    });
+    const reopened = await restarted.firstWindow();
+    await expect
+      .poll(() =>
+        reopened.evaluate(() =>
+          (
+            globalThis.window as unknown as { desktop: ElectronTestDesktopApi }
+          ).desktop.agent.getSessions(),
+        ),
+      )
+      .toContainEqual(
+        expect.objectContaining({
+          id: orphan.id,
+          liveSetId: "simulated-live-set",
+        }),
+      );
+  } finally {
+    await restarted?.close();
+    if (initialProcess.exitCode === null) await application.close();
+    if (simulator !== undefined && simulator.exitCode === null) {
+      const exited = new Promise<void>((resolve) =>
+        simulator!.once("exit", () => resolve()),
+      );
+      simulator.kill();
+      await exited;
+    }
+    await rm(profile, { recursive: true, force: true });
+  }
+});
 
 test("round-trips listening Settings through typed preload and the isolated profile across restart without Live", async () => {
   const launched = await launchIsolatedDesktop();

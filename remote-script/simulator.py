@@ -59,6 +59,7 @@ def simulated_palette_color(color_index):
 
 class SimulatorState(object):
     def __init__(self):
+        self.saved_live_set = False
         self.tempo = 120.0
         self.is_playing = False
         self.loop_enabled = False
@@ -2824,7 +2825,7 @@ def handle(request, token, state):
                 "remoteScriptVersion": REMOTE_SCRIPT_VERSION,
                 "liveSetId": "simulated-live-set",
                 "liveSetName": "Simulated Set",
-                "saved": False,
+                "saved": state.saved_live_set,
                 "diagnostics": [],
                 "capabilities": capabilities,
                 "capabilityDetails": capability_details,
@@ -2945,7 +2946,7 @@ def handle(request, token, state):
             {
                 "liveSetId": "simulated-live-set",
                 "liveSetName": "Simulated Set",
-                "saved": False,
+                "saved": state.saved_live_set,
                 "diagnostics": [],
             },
         )
@@ -5439,6 +5440,7 @@ def serve(
     delay_ms=0,
     emit_save_event=False,
     listening_fixture=False,
+    saved_live_set=False,
 ):
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -5449,6 +5451,7 @@ def serve(
         flush=True,
     )
     state = SimulatorState()
+    state.saved_live_set = saved_live_set
     if listening_fixture:
         listener = state.simulated_leaf_device("Audio Listener")
         listener["className"] = "MxDeviceAudioEffect"
@@ -5533,6 +5536,7 @@ def main():
     parser.add_argument("--delay-ms", type=int, default=0)
     parser.add_argument("--emit-save-event", action="store_true")
     parser.add_argument("--listening-fixture", action="store_true")
+    parser.add_argument("--saved-live-set", action="store_true")
     args = parser.parse_args()
     if args.connections < 1:
         parser.error("--connections must be at least 1")
@@ -5547,6 +5551,7 @@ def main():
         args.delay_ms,
         args.emit_save_event,
         args.listening_fixture,
+        args.saved_live_set,
     )
 
 

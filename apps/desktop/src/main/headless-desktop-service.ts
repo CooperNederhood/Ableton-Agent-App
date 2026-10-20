@@ -2664,10 +2664,11 @@ export class HeadlessDesktopService implements DesktopService {
   ): Promise<void> {
     const previous = this.#liveSetIdentity;
     const changesOwnership =
-      previous !== undefined &&
-      (previous.liveSetId !== identity.liveSetId ||
-        previous.saved !== identity.saved ||
-        previous.liveProjectId !== identity.liveProjectId);
+      previous === undefined
+        ? this.#activeSession() !== undefined
+        : previous.liveSetId !== identity.liveSetId ||
+          previous.saved !== identity.saved ||
+          previous.liveProjectId !== identity.liveProjectId;
     const observation = this.#observeLiveIdentity(identity);
     return changesOwnership
       ? this.#trackLiveSetOwnershipTransition(observation)
@@ -2735,13 +2736,13 @@ export class HeadlessDesktopService implements DesktopService {
       });
       return;
     }
-    if (previous === undefined) {
+    if (previous === undefined && this.#activeSession() === undefined) {
       this.#liveSetIdentity = identity;
       return;
     }
     await this.#queueSessionAction(async () => {
       if (this.#transitionCommitting) return;
-      if (!previous.saved && !identity.saved) {
+      if (previous?.saved === false && !identity.saved) {
         this.#liveSetIdentity = identity;
         const current = this.#activeSession();
         if (current !== undefined) {
@@ -2775,26 +2776,7 @@ export class HeadlessDesktopService implements DesktopService {
         (await this.#activeSessionIsCleanEphemeral())
       ) {
         const current = this.#requireActiveSession();
-        const updated = {
-          ...current,
-          liveSetId: identity.liveSetId,
-          liveSetName: identity.liveSetName,
-          ...(identity.liveProjectId === undefined
-            ? {}
-            : { liveProjectId: identity.liveProjectId }),
-          ...(identity.liveProjectName === undefined
-            ? {}
-            : { liveProjectName: identity.liveProjectName }),
-          updatedAt: new Date().toISOString(),
-        };
-        this.#ephemeralSessionIds.delete(current.id);
-        this.#sessions = [
-          updated,
-          ...this.#sessions.filter(({ id }) => id !== current.id),
-        ];
-        this.#liveSetIdentity = identity;
-        await this.#persistSessions();
-        await this.#associateActiveSession(identity);
+        const updated = await this.#promoteCurrentSession(identity, current.id);
         this.emit({ type: "session.context_restored", session: updated });
         return;
       }

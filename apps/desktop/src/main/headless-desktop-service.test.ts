@@ -4768,6 +4768,239 @@ describe("desktop adapter over the shared application", () => {
     await service.stop();
   });
 
+  it("binds an untouched disconnected-startup session when its first saved Live Set connects", async () => {
+    const state = defaultFakeState();
+    const connectedStatus = state.status;
+    state.status = { state: "disconnected" };
+    const { service, ableton, events, sessionStore } = await harness(
+      { ableton: state },
+      { liveSetIdentityPollIntervalMs: 5 },
+    );
+    try {
+      await service.start();
+      const session = (await service.getSessions())[0]!;
+      expect(session.liveSetId).toBe(`orphan:${session.id}`);
+      expect(await sessionStore.load()).toEqual([]);
+
+      ableton.state.status = connectedStatus;
+      await vi.waitFor(async () => {
+        expect(await service.getSessionForContext(session.id)).toMatchObject({
+          id: session.id,
+          liveSetId: state.liveIdentity.liveSetId,
+          liveSetName: state.liveIdentity.liveSetName,
+        });
+      });
+      expect(await sessionStore.load()).toContainEqual(
+        expect.objectContaining({
+          id: session.id,
+          liveSetId: state.liveIdentity.liveSetId,
+        }),
+      );
+      expect(
+        events.find(
+          (event) =>
+            event.type === "session.context_restored" &&
+            event.session.id === session.id,
+        ),
+      ).toMatchObject({
+        session: {
+          id: session.id,
+          liveSetId: state.liveIdentity.liveSetId,
+        },
+      });
+      expect(
+        events.filter(
+          (event) => event.type === "live_set.transition_requested",
+        ),
+      ).toEqual([]);
+    } finally {
+      await service.stop();
+    }
+  });
+
+  it("requires a transition decision when Live first connects after an offline conversation", async () => {
+    const state = defaultFakeState();
+    const connectedStatus = state.status;
+    state.status = { state: "disconnected" };
+    const { service, ableton, events, sessionStore } = await harness(
+      { ableton: state },
+      { liveSetIdentityPollIntervalMs: 5 },
+    );
+    try {
+      await service.start();
+      const session = (await service.getSessions())[0]!;
+      const agent = (await service.listActiveAgents())[0]!;
+      await service.sendToActiveAgent(
+        agent.id,
+        "Plan while Live is offline",
+        [],
+      );
+
+      ableton.state.status = connectedStatus;
+      await vi.waitFor(() => {
+        expect(
+          events.find(
+            (event) => event.type === "live_set.transition_requested",
+          ),
+        ).toMatchObject({
+          transition: {
+            kind: "unassociated",
+            currentSessionId: session.id,
+            liveSet: {
+              liveSetId: state.liveIdentity.liveSetId,
+            },
+            decisions: ["fork-current", "start-fresh"],
+          },
+        });
+      });
+      expect(await service.getSessionForContext(session.id)).toMatchObject({
+        liveSetId: `orphan:${session.id}`,
+      });
+      await expect(
+        service.sendToActiveAgent(
+          agent.id,
+          "Do not capture with stale ownership",
+          [],
+        ),
+      ).rejects.toThrow("transition decision");
+      expect(await sessionStore.load()).toEqual([]);
+    } finally {
+      await service.stop();
+    }
+  });
+
+  it.each(["session", "association"] as const)(
+    "rolls back first-connection ownership when %s persistence fails and permits an explicit recovery",
+    async (boundary) => {
+      const state = defaultFakeState();
+      const connectedStatus = state.status;
+      state.status = { state: "disconnected" };
+      const { service, ableton, sessionStore, liveSetSessionStore } =
+        await harness({ ableton: state });
+      try {
+        await service.start();
+        const session = (await service.getSessions())[0]!;
+        vi.spyOn(
+          boundary === "session" ? sessionStore : liveSetSessionStore,
+          "save",
+        ).mockRejectedValueOnce(
+          new Error("Synthetic first-connect write failure"),
+        );
+        ableton.state.status = connectedStatus;
+        await expect(service.getSnapshot()).rejects.toThrow(
+          "Synthetic first-connect write failure",
+        );
+        expect(await service.getSessionForContext(session.id)).toMatchObject({
+          liveSetId: `orphan:${session.id}`,
+        });
+        expect(await sessionStore.load()).toEqual([]);
+        expect(await liveSetSessionStore.load([session])).toEqual([]);
+
+        await service.getSnapshot();
+        expect(await service.getSessionForContext(session.id)).toMatchObject({
+          liveSetId: state.liveIdentity.liveSetId,
+        });
+        expect(await sessionStore.load()).toContainEqual(
+          expect.objectContaining({ id: session.id }),
+        );
+      } finally {
+        await service.stop();
+      }
+    },
+  );
+
+  it("offers the existing canonical session instead of claiming it for a first-connected orphan", async () => {
+    const first = await harness();
+    await first.service.start();
+    const canonical = (await first.service.getSessions())[0]!;
+    await first.service.stop();
+    const state = defaultFakeState();
+    const connectedStatus = state.status;
+    state.status = { state: "disconnected" };
+    const next = await harness({ ableton: state });
+    await next.sessionStore.save([canonical]);
+    await next.liveSetSessionStore.save(
+      await first.liveSetSessionStore.load([canonical]),
+    );
+    try {
+      await next.service.start();
+      const orphan = (await next.service.getSessions())[0]!;
+      expect(orphan.liveSetId).toBe(`orphan:${orphan.id}`);
+      next.ableton.state.status = connectedStatus;
+      await next.service.getSnapshot();
+      const requested = next.events.find(
+        (event) => event.type === "live_set.transition_requested",
+      );
+      expect(requested).toMatchObject({
+        transition: {
+          kind: "associated",
+          associatedSession: { id: canonical.id },
+          decisions: ["resume-associated", "start-fresh"],
+        },
+      });
+      if (requested?.type !== "live_set.transition_requested") {
+        throw new Error("Expected first-connection canonical decision");
+      }
+      expect(await next.service.getSessionForContext(orphan.id)).toMatchObject({
+        liveSetId: `orphan:${orphan.id}`,
+      });
+      const resumed = await next.service.resolveLiveSetTransition(
+        requested.transition.token,
+        "resume-associated",
+      );
+      expect(resumed.id).toBe(canonical.id);
+      expect(resumed.liveSetId).toBe(state.liveIdentity.liveSetId);
+    } finally {
+      await next.service.stop();
+    }
+  });
+
+  it("drains a first-connection ownership commit before shutdown and rejects new actions", async () => {
+    const state = defaultFakeState();
+    const connectedStatus = state.status;
+    state.status = { state: "disconnected" };
+    const { service, ableton, sessionStore } = await harness({
+      ableton: state,
+    });
+    const saving = deferred<void>();
+    const release = deferred<void>();
+    let stopping: Promise<void> | undefined;
+    try {
+      await service.start();
+      const session = (await service.getSessions())[0]!;
+      const save = sessionStore.save.bind(sessionStore);
+      vi.spyOn(sessionStore, "save").mockImplementationOnce(
+        async (sessions) => {
+          saving.resolve();
+          await release.promise;
+          await save(sessions);
+        },
+      );
+      ableton.state.status = connectedStatus;
+      const refresh = service.getSnapshot();
+      await saving.promise;
+      let stopped = false;
+      stopping = service.stop().then(() => {
+        stopped = true;
+      });
+      await settle();
+      expect(stopped).toBe(false);
+      await expect(service.createSession()).rejects.toThrow();
+      release.resolve();
+      await Promise.all([refresh, stopping]);
+      expect(await sessionStore.load()).toContainEqual(
+        expect.objectContaining({
+          id: session.id,
+          liveSetId: state.liveIdentity.liveSetId,
+        }),
+      );
+    } finally {
+      release.resolve();
+      if (stopping === undefined) await service.stop();
+      else await stopping;
+    }
+  });
+
   it("detects a Live Set change through the lifecycle-owned identity monitor", async () => {
     const directory = await temporaryDirectory();
     const { service, ableton, events } = await harness(

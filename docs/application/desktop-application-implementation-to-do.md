@@ -4,6 +4,18 @@ Companion specification: [Desktop Application](desktop-application.md)
 
 ## Electron shell
 
+- [x] Reconcile first connection after disconnected startup: adopt an untouched
+  orphan transactionally; require a decision for offline history or an existing
+  canonical session. Reuse ownership barriers and promotion rollback.
+- [x] Reproduce the orphan-binding defect before the fix; cover clean binding,
+  offline-conversation denial, canonical resume and session/association write
+  failures with explicit recovery.
+- [x] Verify first connection, visible ownership and restart restoration through
+  production Electron main/preload with an isolated protocol simulator.
+  The regression failed against the pre-fix build with the original orphan
+  identity, then passed with transactional binding. The full Electron suite
+  passed; this is not real-audio or packaged listening acceptance.
+
 - [x] Scaffold Electron, React, Vite, and strict TypeScript.
 - [x] Implement secure BrowserWindow defaults, context isolation, and disabled
   Node integration in the renderer.

@@ -365,7 +365,15 @@ monotonically so multiple App sessions for one Live Set have a deterministic
 creation order, while ordinary updates change only `updatedAt`. Unsaved Live
 Sets keep an explicit identity but their App sessions remain ephemeral during
 ordinary operation. Orphan sessions use an application-owned identity until
-Live connects. If the open Live Set changes after startup, Desktop blocks
+Live connects. The first connected identity must reconcile an existing orphan,
+not merely populate the identity cache. An untouched ephemeral session with no
+canonical conflict binds to the saved Set through the existing transactional
+promotion path, preserving App/agent IDs and rolling back ownership and
+associations on persistence failure. Existing offline conversation/configuration
+or a canonical association instead requires the normal explicit transition
+decision; first connection never silently reassigns that history.
+The first ownership-changing commit participates in the same bounded prompt
+barrier as later ownership changes. If the open Live Set changes after startup, Desktop blocks
 agent actions and Output delivery until the user resumes the associated App
 session, forks the current setup for the new Set, or starts fresh. Canonical
 association is keyed by `liveSetId`, so switching Sets inside one Live Project

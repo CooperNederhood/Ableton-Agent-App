@@ -8,6 +8,7 @@
   "include": [
     "desktop.spec.ts",
     "packaged-desktop.spec.ts",
+    "packaged-cleanup.ts",
     "listening-context-fixture.ts",
     "../../apps/desktop/src/renderer/global.d.ts"
   ]

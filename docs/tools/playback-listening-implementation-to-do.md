@@ -55,9 +55,13 @@ controlled successes below are not packaged Desktop acceptance.
   earlier sample or substitute environment credentials.
   PID55998's consent prompt preceded its sample, with no matching approval;
   next requires a human-attended exact-candidate authorization check.
-- [ ] Bound packaged-test graceful close and exact-owned fallback cleanup so
+- [x] Bound packaged-test graceful close and exact-owned fallback cleanup so
   a blocked native Keychain call cannot obscure the original first-window
   failure or prevent profile cleanup. Add controlled timeout/failure tests.
+  Fifteen regressions pass (six failed before the fix), including captured-child
+  scope, cleanup failures and retaining profiles when termination is unconfirmed.
+  Owning Desktop-main suite: 329 passed; full unit command: 2,123 TypeScript,
+  596 Max and 212 Python passed. Production vault/package unchanged; no launch.
 - [x] Run the full unit command after diagnostic changes: 2,108 TypeScript,
   596 Max and 212 Python tests passed. Repair the rehoming regression's
   premature asynchronous terminal assertion; preserve its failure log and do

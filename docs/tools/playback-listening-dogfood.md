@@ -155,16 +155,25 @@ consent prompt at 13:10:50.370 -0400, before its 13:11:05.285 native wait sample
 no matching approval was found. Earlier PID 88059's sample likewise preceded
 its matching approval. Neither establishes a post-consent application hang.
 The next startup check must be human-attended so the genuine OS prompt can be
-handled without an unattended timeout or credential bypass. The test's blocked
-graceful-close path is separately being corrected with unit regressions.
+handled without an unattended timeout or credential bypass.
 
-The full unit command now passes 2,108 TypeScript, 596 Max and 212 Python tests.
+The packaged-test cleanup now bounds graceful close and escalates only against
+its captured child process. It retains the original startup failure, attaches
+separate timed teardown evidence, and attempts independent cleanup even when
+another cleanup step fails. If the owned process cannot be confirmed stopped,
+its profile is retained. Fifteen controlled unit regressions pass; six failed
+before the fix. No production vault code or package bytes were changed.
+
+The full unit command now passes 2,123 TypeScript, 596 Max and 212 Python tests.
 Its initial run exposed a premature rehoming-test assertion: session fields can
 be visible while persistence/association is still awaited, before catalog
 refresh. The regression now waits for both ownership fields and refresh rather
 than treating the in-memory field update as the terminal boundary. No
-production rehoming behavior was changed. Types, build and the 12 ordinary
-Electron checks also passed; none substitutes for packaged native startup.
+production rehoming behavior was changed. Desktop/Electron types and targeted
+lint pass for the cleanup change; the preceding diagnostic build and 12 ordinary
+Electron checks also passed. No App or Live process was launched for this
+cleanup validation, and none of these checks substitutes for packaged native
+startup.
 
 Human verification remains blocked. The agreed gate is **three consecutive
 clean workflows on one unchanged package**, each with fresh owned App/Live

@@ -18,6 +18,10 @@ import {
   type DesktopApi,
 } from "../../apps/desktop/src/contracts.js";
 import { bridgeTokenKey } from "../../apps/desktop/src/main/bridge-credentials.js";
+import {
+  closeOwnedPackagedApplication,
+  withPackagedFixtureCleanup,
+} from "./packaged-cleanup.js";
 
 const releaseRoot = resolve("release");
 const syntheticBridgeToken = "a".repeat(64);
@@ -219,7 +223,7 @@ test("provisions and decrypts an installed token through the real packaged OS va
   const bridge = createServer((socket) => socket.destroy());
   const signal = createServer();
   let application: Awaited<ReturnType<typeof electron.launch>> | undefined;
-  try {
+  const run = async () => {
     await new Promise<void>((resolve) =>
       bridge.listen(0, "127.0.0.1", resolve),
     );
@@ -385,20 +389,41 @@ test("provisions and decrypts an installed token through the real packaged OS va
       expect(bytes.includes(Buffer.from(syntheticBridgeToken))).toBe(false);
       if (encrypted === undefined) encrypted = bytes;
       else expect(bytes.equals(encrypted)).toBe(true);
-      await application.close();
-      application = undefined;
+      const receipt = await closeOwnedPackagedApplication(application);
+      if (receipt.stopped) application = undefined;
+      await test.info().attach(`owned-packaged-${source}-shutdown`, {
+        body: JSON.stringify(receipt),
+        contentType: "application/json",
+      });
+      if (!receipt.successful)
+        throw new Error(
+          "Packaged vault restart shutdown failed; inspect its cleanup receipt",
+        );
     }
     expect(new Set(traceIds).size).toBe(2);
-  } finally {
-    await application?.close();
-    if (signal.listening)
-      await new Promise<void>((resolve, reject) =>
-        signal.close((error) => (error ? reject(error) : resolve())),
-      );
-    if (bridge.listening)
-      await new Promise<void>((resolve, reject) =>
-        bridge.close((error) => (error ? reject(error) : resolve())),
-      );
-    await rm(profile, { recursive: true, force: true });
-  }
+  };
+  await withPackagedFixtureCleanup({
+    run,
+    getApplication: () => application,
+    resources: [
+      async () => {
+        if (signal.listening)
+          await new Promise<void>((resolve, reject) =>
+            signal.close((error) => (error ? reject(error) : resolve())),
+          );
+      },
+      async () => {
+        if (bridge.listening)
+          await new Promise<void>((resolve, reject) =>
+            bridge.close((error) => (error ? reject(error) : resolve())),
+          );
+      },
+    ],
+    removeProfile: () => rm(profile, { recursive: true, force: true }),
+    report: (receipt) =>
+      test.info().attach("owned-packaged-fixture-cleanup", {
+        body: JSON.stringify(receipt),
+        contentType: "application/json",
+      }),
+  });
 });

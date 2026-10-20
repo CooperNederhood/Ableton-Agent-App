@@ -7,7 +7,9 @@ ordinary developer use: `68bf5bc1` exposed an unreconciled orphan App session,
 and `d3987415` exhausted the coordinator deadline after native arm succeeded,
 during the final App safety inspection. Both App defects are fixed in source,
 with red-before/green-after regressions. The rebuilt package below includes the
-fixes, but its end-to-end listening check remains **blocked**, not passed.
+fixes. An exact-package capture has now completed with independently verified
+native proof and durable context, but the clean agent-turn/restart handoff
+remains incomplete.
 
 The fixed source passed 1,023 application/runtime/Desktop/owned-host tests,
 all 12 Electron tests and 212 Python tests. The first-connect Electron test
@@ -47,6 +49,26 @@ plausible, but the reason the wait persists remains unresolved.
 The same owning run passed package startup/authentication, but the separate
 dual-architecture packaging check failed because this dogfood output contains
 only arm64, not the required x64 bundle. No x64 qualification is claimed.
+
+After those regressions, the unchanged package opened through the ordinary
+direct executable launch, with no environment token, and completed its first
+actual native capture using ordinary approval mode:
+pass `b6d0d6ca-1aaa-404b-901a-64742e4de7ac`,
+context `ac0b00cd-8c22-478c-a062-7af4bd00606b`,
+trace `9a9bc28a-d17e-4273-84b0-8beb6ce1f61a`.
+Independent verification checked the actual native proof against the requested
+0.25-3.75 beat geometry: 84,000 samples, 18 windows, stereo peak 0.5,
+RMS -12.16 dBFS and centroid 451.39 Hz. The result was visible in the packaged
+app and matched fresh-process typed retrieval after normal App exit. Track/range
+links retained unknown attribution/freshness; no exclusive clip claim was added.
+
+This is **not a clean agent-turn acceptance**: the Default agent first supplied
+`durationBeats` instead of `endBeat`, attempted a disabled `bash` wait, and used
+an invalid context-list call before correcting it. Exactly one real pass was
+created and it completed; the tool argument failures remain recorded. Full
+App-restart retrieval and normal-profile developer acceptance remain pending.
+The owned Live copy was stopped, but left open after an unreadable quit dialog;
+discard approval was unavailable. The original saved Set hash is unchanged.
 
 The target is useful developer feedback, not general release certification.
 Use copies of projects and audio you own or generated test audio.
@@ -110,7 +132,8 @@ device replacement or manual save is required.
 
 Use ordinary approval mode initially, a disposable project copy, a stopped
 transport and constant 120 BPM/48 kHz. The automation walkthrough used an isolated
-profile and YOLO; it is not a recommendation to disable developer approvals.
+profile and YOLO; the newest packaged capture used ordinary approvals.
+Neither is a recommendation to disable developer approvals.
 Confirm the normal app reports Connected and discovers the intended listener.
 After a pass leaves playback running, explicitly stop it before another capture
 when doing so is safe. An already-playing arm is currently guarded.
@@ -147,6 +170,7 @@ result; do not rely on the assistant's wording alone.
 
 | Area | Useful test / uncertainty |
 | --- | --- |
+| Packaged native startup | The new no-environment-token vault regression initially timed out, then passed twice without a package change; direct packaged startup subsequently worked. Capture any recurrence before retrying. These successes do not explain the original Keychain stall or certify another ad-hoc signature. |
 | Real project signal paths | Try drums, instruments, effect-heavy tracks, stereo/anti-phase audio and track level/mute/solo changes. Compare analysis to the signal reaching the listener: listener placement can differ from what the master output sounds like. Record placement and routing when results surprise you. |
 | Multiple listeners | Put listeners on different eligible tracks and request each explicitly. Ambiguity must be surfaced rather than capturing an arbitrary track. |
 | Safety guards | On a disposable Set, try listening while recording is already active or the audio engine is unavailable. Expect a clear guard/failure, not disrupted recording or false success. |
@@ -154,6 +178,7 @@ result; do not rely on the assistant's wording alone.
 | Historical freshness | Edit the source after a capture, then retrieve the old result. It must remain historical/unknown-freshness rather than silently claiming to describe the edited audio. |
 | Agent action selection | A first ordinary actor refused before making any call despite all required actions being present in its recorded schema. Scoped descriptions now make action alternatives explicit. Report false "tool unavailable" claims separately from audio failures; this remains a natural-language reliability weak spot to watch. |
 | Default-agent retries and tool selection | The visible app recovered, but made failed tool attempts and retried the failed native pass after stopping transport. Do not judge only its final success: retain every failed pass/reason, keep approvals enabled and request no automatic retry when collecting a reproduction. This walkthrough does not establish clean first-attempt reliability. |
+| Packaged argument selection | The newest package completed one real pass, but first used `durationBeats` instead of `endBeat`, attempted a disabled `bash` wait and confused context `list` with `get`. Preserve these failed calls independently from the successful native pass; this is an agent-interface reliability gap, not an audio-capture failure. |
 | Timing rejection reliability | One ordinary short capture passed with real signal and durable context; the next group attempt failed with `listening_alignment_budget_exceeded` after two windows, published no context and cleaned up correctly. The rejected measurement/magnitude was not retained, so neither its cause nor a suitable tolerance increase is established. Report these failures; do not silently retry until success or loosen integrity guards. The group remains failed. |
 | Native spectrum rejection | The first visible-app pass failed with `changed_native_spectrum_sequence`; a later pass completed at the unchanged 64-sample default and survived fresh typed retrieval. The first failure's root cause is not established, and recovery does not erase it or justify relaxing the integrity guard. |
 | Device caption | The development device still displays a prototype "Capture not enabled yet" caption even though the per-pass v2 path can complete. Treat the App's authenticated discovery/pass result as authoritative; the static caption is not a live readiness indicator or a release certification. |

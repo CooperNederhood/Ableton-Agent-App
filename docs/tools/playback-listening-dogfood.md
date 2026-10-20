@@ -127,11 +127,51 @@ These are the bounded handoff gates. Exhaustive diagnostic and hardware-matrix
 qualification is not a prerequisite for developer use unless it exposes a
 functional, safety, persistence or recovery defect.
 
-## Local developer setup
+## Latest diagnostic checkpoint
 
-Use the generated Apple Silicon app at `release/mac-arm64/Ableton Agent.app`;
+The fault-time evidence change is committed at `cae70d9`. Alignment failures now
+retain the actual rejected operands; spectrum-sequence failures retain the
+previous and current packets. These are diagnostic changes, **not established
+fixes** for the historical native failures. All timing and integrity guards,
+including the default64 limit, remain unchanged.
+
+An owned copy of the normally saved device was refreshed with current canonical
+sidecars. The device bytes are unchanged; only the three diagnostic JS resources
+and resolver-generated discovery storage differ from the previous candidate.
+The original developer project/device were not modified. A fresh short capture
+and the fractional/30-second group passed independently checked native coverage,
+signal, stored context and cleanup. Their observed alignment disagreements were
+1 sample for the short capture and 64 for the long one. A separate stopped-DSP
+warmup control passed with zero disagreement; it did not establish the proposed
+counter-range hypothesis or explain the old rejection.
+
+The newly signed arm64 diagnostic package has `app.asar` SHA-256
+`324ddb928889734186efe3265e86454b6b43db1d844500903ceb757846fc97b6`.
+Its real-vault regression again failed before the first window, at owned
+PID 55998, and then exceeded teardown's deadline. The native sample and failure
+trace are retained. No listening request was submitted and no packaged
+qualification run is counted. Earlier securityd records establish real consent
+prompts for earlier startup attempts; they do not alone explain this new
+process or prove a post-consent application hang.
+
+The full unit command now passes 2,108 TypeScript, 596 Max and 212 Python tests.
+Its initial run exposed a premature rehoming-test assertion: session fields can
+be visible while persistence/association is still awaited, before catalog
+refresh. The regression now waits for both ownership fields and refresh rather
+than treating the in-memory field update as the terminal boundary. No
+production rehoming behavior was changed. Types, build and the 12 ordinary
+Electron checks also passed; none substitutes for packaged native startup.
+
+Human verification remains blocked. The agreed gate is **three consecutive
+clean workflows on one unchanged package**, each with fresh owned App/Live
+launches, ordinary approvals, independent native/context checks and full App
+restart retrieval. Runtime successes and diagnostic controls do not count.
+
+## Last captured package setup (historical, not the current candidate)
+
+The earlier captured Apple Silicon app was at `release/mac-arm64/Ableton Agent.app`;
 the installed `/Applications` app is not overwritten by this workflow.
-The local package was rebuilt with the first-connection and readiness-budget
+That local package was rebuilt with the first-connection and readiness-budget
 fixes (`faa134a` and `349eebe`), ad-hoc signed and verified.
 Its `Contents/Resources/app.asar` SHA-256 is
 `78ca31e0d8230654af187bde063a1300e499dec0395760f351aa9315ca2006f2`.

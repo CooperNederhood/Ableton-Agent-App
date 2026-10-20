@@ -5156,13 +5156,13 @@ describe("desktop adapter over the shared application", () => {
     expect(refreshForSession).not.toHaveBeenCalled();
 
     save.mockRestore();
-    await vi.waitFor(async () =>
+    await vi.waitFor(async () => {
       expect((await service.getSessions())[0]).toMatchObject({
         liveProjectId: "live-project-1",
         liveProjectName: "Album",
-      }),
-    );
-    expect(refreshForSession).toHaveBeenCalledTimes(1);
+      });
+      expect(refreshForSession).toHaveBeenCalledTimes(1);
+    });
     await service.stop();
   });
 

@@ -47,6 +47,16 @@ controlled successes below are not packaged Desktop acceptance.
   identify which guard/metric rejects the capture before proposing a fix.
   Older failure History retains only the last accepted alignment.
   Do not raise tolerance or retry-to-pass.
+  The current-source short/group and stopped-DSP warmup control passed; they
+  did not reproduce or explain the original timing/spectrum rejection.
+- [ ] Resolve the latest immutable diagnostic package's real-vault startup
+  failure before sending its first listening request. Retain exact-PID native
+  samples and consent chronology; do not infer a post-consent hang from an
+  earlier sample or substitute environment credentials.
+- [x] Run the full unit command after diagnostic changes: 2,108 TypeScript,
+  596 Max and 212 Python tests passed. Repair the rehoming regression's
+  premature asynchronous terminal assertion; preserve its failure log and do
+  not change production behavior merely to satisfy that assertion.
 - [ ] Continue diagnosis, regression tests and fixes through every failed
   attempt until three consecutive clean same-package workflows with fresh
   owned processes and restart retrieval pass; only then request human

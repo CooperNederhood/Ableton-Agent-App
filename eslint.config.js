@@ -85,11 +85,7 @@ export default tseslint.config(
     languageOptions: {
       parserOptions: {
         projectService: {
-          allowDefaultProject: [
-            "vitest.config.ts",
-            "playwright.config.ts",
-            "tests/electron/packaged-desktop.spec.ts",
-          ],
+          allowDefaultProject: ["vitest.config.ts", "playwright.config.ts"],
         },
         tsconfigRootDir: import.meta.dirname,
       },

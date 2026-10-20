@@ -26,7 +26,27 @@ message was submitted and no pass/context was created. The developer was
 unavailable to check or handle any OS authentication prompt; access was not
 bypassed. Both owned processes were closed and the original
 saved Set hash was unchanged. The next physical check requires the developer
-to handle any macOS Keychain prompt for this new local signature.
+to handle any macOS Keychain prompt for this new local signature. A second
+isolated launch after the developer reported completing key entry reproduced
+the same native Keychain wait. This does not establish that the developer's
+entry failed or which application's authorization it applied to.
+
+The missing startup boundary now has a packaged regression:
+`pnpm exec playwright test --project=electron-packaged -g 'provisions and decrypts'`.
+It removes the environment-token override, uses the real OS vault, and requires
+installed-token provisioning followed by restart/decryption, encrypted-only
+persistence and typed, redacted credential lifecycle history. Its first run
+**failed** waiting for the first window. A later owning-suite run passed native
+provision/restart/decryption in 8.5 seconds with the unchanged package; no
+production fix explains that transition, so the original startup stall remains
+unresolved. Existing packaged startup/authentication tests inject
+`ABLETON_AGENT_TOKEN` and bypass provisioning/encryption. Playwright's Electron
+launcher does not itself mock Keychain. The candidate and installed app are
+ad-hoc signed with different hash-bound identities; fresh authorization is
+plausible, but the reason the wait persists remains unresolved.
+The same owning run passed package startup/authentication, but the separate
+dual-architecture packaging check failed because this dogfood output contains
+only arm64, not the required x64 bundle. No x64 qualification is claimed.
 
 The target is useful developer feedback, not general release certification.
 Use copies of projects and audio you own or generated test audio.

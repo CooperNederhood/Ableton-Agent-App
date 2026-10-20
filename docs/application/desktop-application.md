@@ -494,6 +494,20 @@ being exposed to renderer state or IPC. Multiple discovered installations with
 different tokens are an explicit configuration error rather than an
 auto-selection.
 
+Packaged startup qualification must exercise both credential boundaries.
+Environment-token startup/authentication checks do not test installed-token
+provisioning or native OS encryption. The macOS packaged regression therefore
+uses an isolated profile and synthetic Remote Script installation with no
+`ABLETON_AGENT_TOKEN`, mock Keychain, or basic password-store override. It must
+open the window, persist encrypted bytes, and then restart the same profile and
+decrypt through the real OS vault. Typed Desktop History must attribute ordered,
+redacted credential lifecycles to discovery and subsequent vault retrieval.
+A first-window timeout is a failed qualification, not an automatic skip; the
+test retains an exact-owned-process native sample before teardown. OS
+authentication remains a developer action. Ad-hoc builds have hash-bound
+signing identities, so another build's successful Keychain authorization does
+not qualify a newly signed package.
+
 ### Scoped automatic approval
 
 The composer handles `/yolo` as a local desktop command. Its grammar is

@@ -4,6 +4,19 @@ Companion specification: [Desktop Application](desktop-application.md)
 
 ## Electron shell
 
+- [x] Add a real packaged OS-vault regression without an environment-token or
+  mock-Keychain bypass: require installed-token provisioning, encrypted
+  persistence, same-profile restart/decrypt and typed credential lifecycle.
+  Capture a bounded native sample on first-window failure.
+- [x] Cover adapter encryption unavailability, encryption/decryption denial,
+  encrypted-byte preservation, missing credentials and invalid-key guards.
+- [x] Include packaged Electron tests in strict TypeScript project checking,
+  rather than ESLint's default inferred project.
+- [ ] Resolve intermittent native-vault startup. The first real regression run
+  timed out before the first window; a later run passed provision/restart/decrypt
+  with the unchanged package. No production fix explains that transition.
+  Do not count the later pass as proof of a repaired startup or package listening.
+
 - [x] Reconcile first connection after disconnected startup: adopt an untouched
   orphan transactionally; require a decision for offline history or an existing
   canonical session. Reuse ownership barriers and promotion rollback.

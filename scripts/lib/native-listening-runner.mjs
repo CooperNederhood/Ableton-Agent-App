@@ -68,7 +68,7 @@ const v2Scenarios = Object.freeze({
 });
 
 export function nativeDescriptivePrompt(capture) {
-  return `Make these calls sequentially, never in parallel: inspect-listeners, exactly one play-arrangement-and-listen for Arrangement beats ${capture.startBeat} through ${capture.endBeat} with maximumDurationMs ${capture.maximumDurationMs} and only the bound listener ID, then get-pass once using the returned passId. This is explicit native v2 with the App-owned descriptive timing policy capped at 64 samples, not strict v1 or physical timing qualification. Constant 120 BPM is assumed; tempo automation is unsupported. The candidate remains ready=false with native_per_pass_validation_required: never promote it or use another listener. Existing production guarded positioning owns the nonzero start before arming; do not seek, stop, repair positioning, or retry. If the pass failed or was cancelled, report the reason and end. If still nonterminal, report pending and end without polling; the harness waits for the real terminal job. Only if completed may you get typed context using its contextId and includeHistorical=true. Do not list passes or context. Queued acceptance is not completion. Leave transport running; do not record, launch Session clips, change the Set, install devices, or claim exclusive clip audio. Unknown attribution and freshness are valid historical track/range results.`;
+  return `Make these calls sequentially, never in parallel: inspect-listeners, exactly one play-arrangement-and-listen for Arrangement beats ${capture.startBeat} through ${capture.endBeat} with maximumDurationMs ${capture.maximumDurationMs} and only the bound listener ID, then get-pass once using the returned passId. This is explicit native v2 with the App-owned descriptive timing policy capped at 64 samples, not strict v1 or physical timing qualification. Constant 120 BPM is assumed; tempo automation is unsupported. The candidate remains ready=false with native_per_pass_validation_required: never promote it or use another listener. Existing production guarded positioning owns the nonzero start before arming; do not seek, stop, repair positioning, or retry. If any tool call fails, including argument validation or permission denial, report and end without correcting, retrying, or using a shell wait. If the pass failed or was cancelled, report the reason and end. If still nonterminal, report pending and end without polling; the harness waits for the real terminal job. Only if completed may you get typed context using its contextId and includeHistorical=true. Do not list passes or context. Queued acceptance is not completion. Leave transport running; do not record, launch Session clips, change the Set, install devices, or claim exclusive clip audio. Unknown attribution and freshness are valid historical track/range results.`;
 }
 
 export function reviewNativeScenario(manifest) {
@@ -100,6 +100,8 @@ export function reviewNativeScenario(manifest) {
           }) &&
           manifest.setupContract.tempoPolicy === "constant-tempo-assumed" &&
           manifest.setupContract.tempoAutomationSupported === false &&
+          Array.isArray(manifest.assertions) &&
+          manifest.assertions.includes("no-failed-actor-tools") &&
           isDeepStrictEqual(manifest.allowedTools, [
             "ableton_listening",
             "ableton_context",
@@ -713,6 +715,16 @@ export async function createNativeListeningRunner({
         let actorToolCalls = 0;
         unsubscribeApplication = runtime.application.subscribe((event) => {
           if (event.type === "operation.started") actorToolCalls++;
+          if (
+            reviewed.nativeVersion === 2 &&
+            event.type === "operation.failed" &&
+            humanGateError === undefined
+          ) {
+            humanGateError = new Error(
+              "Native scenario actor tool failed; no retry is permitted",
+            );
+            humanGate(humanGateError);
+          }
           if (
             [
               "agent.elicitation_requested",

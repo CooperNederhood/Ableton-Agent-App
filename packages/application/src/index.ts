@@ -182,6 +182,7 @@ import {
   scopeAbletonTools,
   type AbletonOperationLifecycleIdentity,
   SET_SQL_SEARCH_TOOL_NAME,
+  LISTENING_AGENT_GUIDANCE,
   type AbletonMutationAuthorizationContext,
   type ContextOperationParams,
   type ContextOperationResult,
@@ -3481,6 +3482,9 @@ export class CopilotAgentService implements AgentService {
     const shellGuidance = configuredToolNames.includes(BASH_TOOL_NAME)
       ? "\n\nThe bash tool is restricted to bounded, read-only inspection of Copilot large-output spill files. Use grep, bounded head/tail, wc, or jq against the exact spill path returned by a tool. Do not attempt writes, network access, arbitrary filesystem reads, or command execution outside that purpose."
       : "";
+    const listeningGuidance = configuredToolNames.includes("ableton_listening")
+      ? `\n\n${LISTENING_AGENT_GUIDANCE}`
+      : "";
     const config: SessionConfig = {
       clientName: "ableton-agent-app",
       ...(model === undefined ? {} : { model }),
@@ -3501,7 +3505,7 @@ export class CopilotAgentService implements AgentService {
           name: state.configuration.definitionName,
           displayName: state.configuration.label,
           description: state.configuration.description,
-          prompt: `${state.configuration.systemPrompt}${historyGuidance}${shellGuidance}`,
+          prompt: `${state.configuration.systemPrompt}${historyGuidance}${shellGuidance}${listeningGuidance}`,
           infer: false,
         },
       ],

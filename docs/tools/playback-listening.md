@@ -8,6 +8,29 @@ Architecture decision:
 
 ## Current target: developer dogfood
 
+The packaged capture `b6d0d6ca` now also survives a full normal App exit and
+same-package/profile restart. Outputs retrieves the original context
+`ac0b00cd`, including exact sample coverage and unchanged measurements, through
+production renderer/preload/main without another capture. The earlier actor
+still corrected invalid calls; this is persistence evidence, not a clean turn.
+
+Agent-facing action schemas now distinguish zero-based `startBeat` and absolute
+`endBeat` from Session-only `durationBeats`. A known context ID goes directly
+to `get`; `list` is for discovering IDs and does not accept `contextId`. The
+listening tool and configured listening agent share guidance that queued/arming
+is nonterminal, status uses the existing `get-pass`, and shell waits or extra
+playback calls are not waiting mechanisms. Explicit user no-retry instructions
+also cover validation/permission errors; a `retryable` error is not permission
+to retry. These are agent-facing instructions, not an NLP-enforced mutation
+policy or a change to the asynchronous job contract.
+
+The reviewed v2 scenarios now fail on any actor `operation.failed`, even if
+the actor could correct the call and later capture successfully. A regression
+demonstrates that the earlier runner accepted that recovered workflow. Existing
+failure/cancellation, owner/trace, timing, redaction, capture and cleanup
+lifecycle remain unchanged; updated guidance is recorded through existing SDK
+configuration/history boundaries.
+
 The user-approved target is developer dogfooding, not exhaustive release
 certification. Ordinary, non-instrumented real-Live runs complete short fractional
 and 30-second captures,

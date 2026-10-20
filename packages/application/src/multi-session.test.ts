@@ -1803,6 +1803,70 @@ describe("CopilotAgentService managed sessions", () => {
     ).toThrow("owned-pass completion boundary");
   });
 
+  it("guides listening agents through queued passes without shell waits and makes explicit no-retry requests override retryable tool errors", async () => {
+    const configs: (SessionConfig | ResumeSessionConfig)[] = [];
+    const service = new CopilotAgentService(
+      baseOptions({
+        executeListeningOperation: vi.fn(),
+        waitForListeningPass: vi.fn(),
+        executeContextOperation: vi.fn(),
+        clientFactory: () => ({
+          createSession: vi.fn(async (config: SessionConfig) => {
+            configs.push(config);
+            return createFakeSession(`session-${configs.length}`);
+          }),
+          resumeSession: vi.fn(
+            async (sessionId: string, config: ResumeSessionConfig) => {
+              configs.push(config);
+              return createFakeSession(sessionId);
+            },
+          ),
+          stop: vi.fn(async () => undefined),
+        }),
+      }),
+    );
+    try {
+      await service.start();
+      await service.createManagedAgent(
+        configuration("listener", {
+          resolvedTools: ["ableton_listening", "ableton_context", "bash"],
+        }),
+      );
+      await service.createManagedAgent(
+        configuration("lookup", {
+          resolvedTools: ["ableton_context"],
+        }),
+      );
+      await service.createManagedAgent(
+        configuration("resumed-listener", {
+          resolvedTools: ["ableton_listening", "ableton_context"],
+          sdkSessionId: "persisted-sdk",
+        }),
+      );
+      for (const index of [1, 3]) {
+        const prompt = configs[index]?.customAgents?.[0]?.prompt;
+        expect(prompt).toContain(
+          "Queued or arming is not completion or failure",
+        );
+        expect(prompt).toContain("Use get-pass with the returned passId");
+        expect(prompt).toContain("Never use bash or sleep to wait");
+        expect(prompt).toContain("endBeat, not durationBeats");
+        expect(prompt).toContain("known contextId goes to get, not list");
+        expect(prompt).toContain(
+          "An explicit user instruction to stop on any failure also covers argument-validation and permission failures",
+        );
+        expect(prompt).toContain(
+          "retryable describes technical recoverability, not permission to retry",
+        );
+      }
+      expect(configs[2]?.customAgents?.[0]?.prompt).not.toContain(
+        "Queued or arming is not completion or failure",
+      );
+    } finally {
+      await service.stop();
+    }
+  });
+
   it("attributes context queries to the invoking App session and agent, not the selected session", async () => {
     const configs: SessionConfig[] = [];
     const executeContextOperation = vi.fn<

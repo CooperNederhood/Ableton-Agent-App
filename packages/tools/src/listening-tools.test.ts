@@ -29,6 +29,35 @@ const sessionInput = {
 };
 
 describe("optional listening tool contracts", () => {
+  it("explains exact action arguments, queued status and known-context retrieval before a call", () => {
+    const [listening, context] = createListeningTools({
+      executeListeningOperation: async () => ({
+        action: "inspect-listeners",
+        listeners: [],
+        truncated: false,
+      }),
+      executeContextOperation: async () => ({ action: "list", entries: [] }),
+    });
+    expect(listening.description).toContain(
+      "play-arrangement-and-listen requires listenerIds, startBeat and endBeat",
+    );
+    expect(listening.description).toContain("durationBeats is Session-only");
+    expect(listening.description).toContain(
+      "Queued or arming is not completion or failure",
+    );
+    expect(listening.description).toContain(
+      "Use get-pass with the returned passId",
+    );
+    expect(listening.description).toContain("Never use bash or sleep to wait");
+    expect(context.description).toContain(
+      "When a contextId is already known, use get",
+    );
+    expect(context.description).toContain("list does not accept contextId");
+    expect(context.description).not.toContain(
+      "List compact summaries before requesting observation detail",
+    );
+  });
+
   it("warns that cancellation leaves playback running and Session onset is unsupported", () => {
     const [tool] = createListeningTools({
       executeListeningOperation: async () => ({

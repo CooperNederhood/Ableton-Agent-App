@@ -688,6 +688,13 @@ async function runnerV2(
               await host.executeListeningOperation(params, context);
               for (const fn of events) fn({ type: "operation.started" });
             }
+            if (failure === "actor-tool") {
+              for (const fn of events)
+                fn({
+                  type: "operation.failed",
+                  message: "Invalid tool arguments",
+                });
+            }
             return "Synthetic actor finishes during arming";
           },
         },
@@ -719,6 +726,20 @@ async function runnerV2(
 }
 
 describe("v2 runner expectation forwarding and production typed context reopening (synthetic capture only)", () => {
+  it("does not accept a corrected actor tool failure as a clean native workflow", async () => {
+    const f = await runnerV2(ids[0], { failure: "actor-tool" });
+    try {
+      const result = await f.runner.run(async () => {});
+      expect(result.ok).toBe(false);
+      expect(result.error).toContain("tool failed");
+      expect(f.wait).not.toHaveBeenCalled();
+      expect(f.appStop).toHaveBeenCalledOnce();
+      expect(f.ingressStop).toHaveBeenCalledOnce();
+    } finally {
+      await f.runner.close({ processStopped: true });
+    }
+  });
+
   it.each([
     [ids[0], 44100, 128, 18],
     [ids[0], 48000, 64, 18],

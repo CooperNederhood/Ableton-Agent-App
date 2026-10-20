@@ -65,10 +65,12 @@ links retained unknown attribution/freshness; no exclusive clip claim was added.
 This is **not a clean agent-turn acceptance**: the Default agent first supplied
 `durationBeats` instead of `endBeat`, attempted a disabled `bash` wait, and used
 an invalid context-list call before correcting it. Exactly one real pass was
-created and it completed; the tool argument failures remain recorded. Full
-App-restart retrieval and normal-profile developer acceptance remain pending.
-The owned Live copy was stopped, but left open after an unreadable quit dialog;
-discard approval was unavailable. The original saved Set hash is unchanged.
+created and it completed; the tool argument failures remain recorded. Full App-restart retrieval subsequently passed through Outputs and View
+observation on the same exact package/profile, with the original IDs, sample
+coverage and measurements and no recapture. Normal-profile developer acceptance
+and a clean updated-agent turn remain pending. The owned Live copy was initially
+left stopped at an unreadable quit dialog; after developer approval, both owned
+apps subsequently closed normally. The original saved Set hash is unchanged.
 
 The target is useful developer feedback, not general release certification.
 Use copies of projects and audio you own or generated test audio.

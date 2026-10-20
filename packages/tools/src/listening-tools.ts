@@ -25,8 +25,16 @@ const page = {
   limit: z.number().int().min(1).max(100).default(20),
 };
 
+export const LISTENING_AGENT_GUIDANCE =
+  "Use only actions present in your scoped schema. For Arrangement capture, play-arrangement-and-listen requires listenerIds, startBeat and endBeat: use the absolute endBeat, not durationBeats; durationBeats is Session-only. Queued or arming is not completion or failure. Use get-pass with the returned passId to inspect that same pass until terminal, respecting any explicit per-request polling limit. Never start another playback call to wait for the first. Never use bash or sleep to wait. Only after stage=completed, read its returned contextId with ableton_context: a known contextId goes to get, not list. Report failed, cancelled or interrupted passes honestly; do not describe queued acceptance as measured audio. An explicit user instruction to stop on any failure also covers argument-validation and permission failures: report and stop instead of correcting arguments, repairing or retrying. retryable describes technical recoverability, not permission to retry.";
+
 export const listeningOperationParamsSchema = z.discriminatedUnion("action", [
-  z.object({ action: z.literal("inspect-listeners") }).strict(),
+  z
+    .object({ action: z.literal("inspect-listeners") })
+    .strict()
+    .describe(
+      "Discover listeners. Supply only action; no listenerIds or passId.",
+    ),
   z
     .object({
       action: z.literal("play-session-and-listen"),
@@ -40,15 +48,33 @@ export const listeningOperationParamsSchema = z.discriminatedUnion("action", [
     .object({
       action: z.literal("play-arrangement-and-listen"),
       listenerIds,
-      startBeat: z.number().finite().nonnegative(),
-      endBeat: z.number().finite().positive(),
+      startBeat: z
+        .number()
+        .finite()
+        .nonnegative()
+        .describe("Absolute zero-based Arrangement starting beat, not bars."),
+      endBeat: z
+        .number()
+        .finite()
+        .positive()
+        .describe(
+          "The absolute ending beat, not a duration; must be greater than startBeat.",
+        ),
       maximumDurationMs: z.number().int().min(1).max(300_000).default(300_000),
     })
     .strict()
     .refine((range) => range.endBeat > range.startBeat, {
       message: "Arrangement end must follow its start",
-    }),
-  z.object({ action: z.literal("get-pass"), ...passTarget }).strict(),
+    })
+    .describe(
+      "Capture the exact Arrangement interval [startBeat, endBeat). durationBeats is not accepted. Returns a queued job, not a completed observation.",
+    ),
+  z
+    .object({ action: z.literal("get-pass"), ...passTarget })
+    .strict()
+    .describe(
+      "Inspect one existing pass using its returned passId; queued/arming/capturing is nonterminal. This does not create another capture.",
+    ),
   z.object({ action: z.literal("list-passes"), ...page }).strict(),
   z.object({ action: z.literal("cancel"), ...passTarget }).strict(),
 ]);
@@ -127,14 +153,20 @@ export const contextOperationParamsSchema = z.discriminatedUnion("action", [
       includeHistorical: z.boolean().default(false),
       ...page,
     })
-    .strict(),
+    .strict()
+    .describe(
+      "Discover context summaries by optional subjectId, listenerId or passId. Does not accept contextId; use get when the contextId is known.",
+    ),
   z
     .object({
       action: z.literal("get"),
       contextId: id,
       includeHistorical: z.boolean().default(false),
     })
-    .strict(),
+    .strict()
+    .describe(
+      "Read one known contextId, including an ID returned by a completed listening job. No preceding list is needed. Set includeHistorical=true to retrieve historical evidence.",
+    ),
   z
     .object({
       action: z.literal("prune"),
@@ -223,8 +255,7 @@ export function createListeningTools(
 ): [Tool<ListeningOperationParams>, Tool<ContextOperationParams>] {
   return [
     defineTool("ableton_listening", {
-      description:
-        "Discover exact audio listeners and explicitly play an Arrangement range while capturing bounded measurements. Requires stopped transport and verified recording off; never solos/mutes tracks or changes effects. A listener with limitation native_per_pass_validation_required may attempt fresh native validation even while ready=false. Descriptive v2 supports nonzero/fractional Arrangement starts, constant tempo, 44.1/48 kHz and one approximately 100 ms reporting hop through 30 seconds, using supported actual DSP metadata. Tempo stability is assumed, not independently verified; tempo automation is unsupported. Do not change tempo during a pass; a completed result is not proof that no change occurred. Existing detected tempo, timing and integrity failures still reject a pass. The App positions and independently reads back the stopped insert marker/position before native arm. Timing policy is frozen from trusted Settings once per pass, not selected by this tool; the configured budget bounds observed disagreement, not absolute accuracy. Approximate results are descriptive-only, with unknown absolute timing error and no exclusive clip attribution. There is no automatic legacy fallback: the old beat-zero/120 BPM/48 kHz prototype requires explicitly configured strict mode and its matching existing marker/0.2-beat grid through beat 20. Scope metadata is not readiness or timing proof: genuine per-pass arm proof is required before playback, measured launch and complete coverage before publication. Other uncommissioned listeners remain denied. Playback continues after completion, cancellation, failure, or timeout: cancel stops capture, not transport. Session listening is unsupported until quantized source onset is verified. Passes are owned by the active App session/agent; cancel only owned passes. Master/return measurements are mixes, not isolated clip facts. Read status and cleanupPolicy before treating a pass as completed; results persist only after verified context publication.",
+      description: `${LISTENING_AGENT_GUIDANCE} Discover exact audio listeners and explicitly play an Arrangement range while capturing bounded measurements. Requires stopped transport and verified recording off; never solos/mutes tracks or changes effects. A listener with limitation native_per_pass_validation_required may attempt fresh native validation even while ready=false. Descriptive v2 supports nonzero/fractional Arrangement starts, constant tempo, 44.1/48 kHz and one approximately 100 ms reporting hop through 30 seconds, using supported actual DSP metadata. Tempo stability is assumed, not independently verified; tempo automation is unsupported. Do not change tempo during a pass; a completed result is not proof that no change occurred. Existing detected tempo, timing and integrity failures still reject a pass. The App positions and independently reads back the stopped insert marker/position before native arm. Timing policy is frozen from trusted Settings once per pass, not selected by this tool; the configured budget bounds observed disagreement, not absolute accuracy. Approximate results are descriptive-only, with unknown absolute timing error and no exclusive clip attribution. There is no automatic legacy fallback: the old beat-zero/120 BPM/48 kHz prototype requires explicitly configured strict mode and its matching existing marker/0.2-beat grid through beat 20. Scope metadata is not readiness or timing proof: genuine per-pass arm proof is required before playback, measured launch and complete coverage before publication. Other uncommissioned listeners remain denied. Playback continues after completion, cancellation, failure, or timeout: cancel stops capture, not transport. Session listening is unsupported until quantized source onset is verified. Passes are owned by the active App session/agent; cancel only owned passes. Master/return measurements are mixes, not isolated clip facts. Read status and cleanupPolicy before treating a pass as completed; results persist only after verified context publication.`,
       parameters: listeningOperationParamsSchema,
       handler: async (params, invocation) => {
         const result = listeningOperationResultSchema.parse(
@@ -237,7 +268,7 @@ export function createListeningTools(
     }),
     defineTool("ableton_context", {
       description:
-        "Query typed listening context owned by the active App session. List compact summaries before requesting observation detail. Current-only reads revalidate identity/freshness; explicitly include historical entries to inspect stale or unresolved evidence. RMS dBFS is not LUFS; attacks and attribution can be uncertain. Pruning deletes only explicitly named App-session context, requires approval and confirm='prune-session-context', and never deletes Live clips or source audio. No arbitrary SQL, filesystem paths, raw audio, or generic context writes.",
+        "Query typed listening context owned by the active App session. When a contextId is already known, use get with that exact contextId; no preceding list is needed. Use list only to discover unknown IDs by optional subjectId, listenerId or passId; list does not accept contextId. Current-only reads revalidate identity/freshness; explicitly include historical entries to inspect stale or unresolved evidence. RMS dBFS is not LUFS; attacks and attribution can be uncertain. Pruning deletes only explicitly named App-session context, requires approval and confirm='prune-session-context', and never deletes Live clips or source audio. No arbitrary SQL, filesystem paths, raw audio, or generic context writes.",
       parameters: contextOperationParamsSchema,
       handler: async (params, invocation) => {
         const result = contextOperationResultSchema.parse(

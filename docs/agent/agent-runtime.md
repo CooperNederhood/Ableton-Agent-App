@@ -8,6 +8,17 @@ arbitrary code inside Ableton.
 
 ## Optional playback listening host
 
+Managed agents that expose `ableton_listening` receive the same application-owned
+action/async-status guidance as the tool description. It distinguishes absolute
+Arrangement end beats from Session duration, known-context `get` from discovery
+`list`, and queued status from completion. Waiting uses the owned `get-pass`
+within any explicit request limit, never a shell sleep or another playback call.
+Explicit user stop-on-failure instructions include malformed calls and permission
+denials; technically retryable does not mean authorized to retry. The existing
+strict tool schemas, approvals, shell policy, asynchronous jobs and lifecycle
+events remain authoritative. Agents without the listening tool do not receive
+this listening-specific prompt addition.
+
 `prepareListenerCapture` is the concrete same-ingress capture adapter. It
 subscribes before control, validates exact producer instances and connection
 epochs, prepares every selected listener, and arms all of them before returning

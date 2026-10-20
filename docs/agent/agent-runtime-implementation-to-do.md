@@ -4,6 +4,12 @@ Companion specification: [Agent Runtime](agent-runtime.md)
 
 ## Copilot integration
 
+- [x] Share action-specific listening and queued-pass/no-shell-wait guidance
+  between tool definitions and configured listening-agent prompts; preserve
+  scoped schemas, argument denial and explicit user no-retry instructions.
+- [x] Cover actual serialized default/scoped argument guidance, rejected
+  malformed playback/context calls and prompt omission for context-only agents.
+
 - [x] Compose optional listening hosts against the same bridge and authenticated
   ingress, preserving caller ownership, deferred trace and terminal-pass leases.
 - [x] Shut down listening capture/publication before normal runtime teardown.

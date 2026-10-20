@@ -21,8 +21,19 @@ controlled successes below are not packaged Desktop acceptance.
   not packaged Desktop, evidence.
 - [ ] Prove one clean first-attempt short capture in the rebuilt production
   package, independently verify context and retrieve it after restart.
-  Blocked before the package window opened by macOS Keychain access for the
-  new local signature. No message, listening pass or context was generated.
+  The unchanged package later captured pass `b6d0d6ca`, independently verified
+  native proof/context and restored it through Outputs after full App restart.
+  That actor corrected invalid calls, so a clean updated-package turn remains
+  pending; intermittent Keychain startup remains unexplained.
+- [x] Clarify action-specific fields in actual SDK schemas and share
+  queued-pass/no-shell-wait/no-retry guidance with configured listening agents.
+  Remove the unconditional context-list-before-get instruction for known IDs.
+- [x] Add red-before/green-after serialized default/scoped schema, invalid-call
+  denial, managed-agent prompt and native verifier regressions.
+- [x] Strengthen reviewed v2 manifests/runner to reject any failed actor tool
+  instead of accepting a corrected workflow as clean.
+- [ ] Qualify the strengthened v2 runner and updated packaged Default agent
+  with fresh owned Live processes; retain every failed attempt.
 
 The user-approved target is a usable developer build plus documented weak spots,
 not exhaustive certification. See the

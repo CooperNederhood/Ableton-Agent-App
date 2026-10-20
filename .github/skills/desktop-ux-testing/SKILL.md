@@ -58,6 +58,12 @@ exact process ownership. Keep its shell identifier and stop that exact host
 after closing Desktop; do not launch Live directly with `open`, its executable,
 or computer-use.
 
+For a saved-Set workflow, stage an isolated immutable fixture below
+`.test-artifacts/` and use `pnpm live:ux-host --fixture-path /absolute/copy.als`.
+The existing controller validates the bounded regular Set and exact process
+ownership before opening it at launch. Never pass the developer's original
+Set. Fixture startup is incompatible with `--computer-use`.
+
 When computer-use must coordinate launch and recovery decisions, instead use
 `pnpm live:ux-host --computer-use`, then launch the known Live app through
 computer-use after the host reports `runner.launch_requested`. This path

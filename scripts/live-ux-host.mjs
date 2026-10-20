@@ -4,7 +4,10 @@ import {
   LiveProcessController,
   createComputerUseLiveController,
 } from "./lib/live-process-controller.mjs";
-import { waitForRunnerOwnedLiveReady } from "./lib/live-ux-host.mjs";
+import {
+  liveUxFixturePath,
+  waitForRunnerOwnedLiveReady,
+} from "./lib/live-ux-host.mjs";
 
 const applicationPath =
   process.env.ABLETON_LIVE_APP ?? "/Applications/Ableton Live 11 Suite.app";
@@ -23,7 +26,10 @@ process.once("SIGINT", stopRequested);
 process.once("SIGTERM", stopRequested);
 
 try {
-  const liveProcess = await controller.launch(applicationPath);
+  const fixturePath = liveUxFixturePath(process.argv);
+  const liveProcess = await controller.launch(applicationPath, undefined, {
+    ...(fixturePath === undefined ? {} : { fixturePath }),
+  });
   launched = true;
   console.log(JSON.stringify({ type: "runner.process_owned", liveProcess }));
   const readiness = await waitForRunnerOwnedLiveReady(controller, {

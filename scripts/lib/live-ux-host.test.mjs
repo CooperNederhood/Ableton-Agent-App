@@ -1,6 +1,26 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { waitForRunnerOwnedLiveReady } from "./live-ux-host.mjs";
+import {
+  liveUxFixturePath,
+  waitForRunnerOwnedLiveReady,
+} from "./live-ux-host.mjs";
+
+describe("Live UX host fixture selection", () => {
+  it("preserves ordinary startup and forwards an explicit fixture for controller validation", () => {
+    expect(liveUxFixturePath([])).toBeUndefined();
+    expect(
+      liveUxFixturePath(["--fixture-path", ".test-artifacts/copy.als"]),
+    ).toBe(".test-artifacts/copy.als");
+  });
+  it.each([
+    ["--fixture-path"],
+    ["--fixture-path", "--computer-use"],
+    ["--fixture-path", "one.als", "--fixture-path", "two.als"],
+    ["--fixture-path", "one.als", "--computer-use"],
+  ])("denies incomplete or ambiguous fixture startup: %j", (...argv) => {
+    expect(() => liveUxFixturePath(argv)).toThrow();
+  });
+});
 
 describe("Live UX host readiness", () => {
   it("dismisses known dialogs until the Remote Script is ready", async () => {

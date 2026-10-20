@@ -2,6 +2,32 @@
 
 ## Target and limits
 
+**Current status: not accepted for dogfood.** The delivered package failed
+ordinary developer use: `68bf5bc1` exposed an unreconciled orphan App session,
+and `d3987415` exhausted the coordinator deadline after native arm succeeded,
+during the final App safety inspection. Both App defects are fixed in source,
+with red-before/green-after regressions. The rebuilt package below includes the
+fixes, but its end-to-end listening check remains **blocked**, not passed.
+
+The fixed source passed 1,023 application/runtime/Desktop/owned-host tests,
+all 12 Electron tests and 212 Python tests. The first-connect Electron test
+verified visible ownership and restart restoration. A fresh reviewed short
+native-runtime scenario independently verified pass
+`47da7d1b-10ae-4b45-a4cb-7e5c1c2879ec`, context
+`1b77622d-4fb9-4478-b6e4-c6feb00269f2`, 84,000 frames/18 windows and all nine
+postconditions on Live 11.3.43. These are not packaged listening acceptance.
+
+The exact new signed package was launched with ordinary approvals, an isolated
+profile and a runner-owned copy of the saved Set. Before opening its window,
+it blocked in macOS Keychain access (`SecKeychainFindGenericPassword` in the
+owned startup sample). No authentication prompt was directly observed, so the
+precise reason for that Keychain wait is not yet established. No listening
+message was submitted and no pass/context was created. The developer was
+unavailable to check or handle any OS authentication prompt; access was not
+bypassed. Both owned processes were closed and the original
+saved Set hash was unchanged. The next physical check requires the developer
+to handle any macOS Keychain prompt for this new local signature.
+
 The target is useful developer feedback, not general release certification.
 Use copies of projects and audio you own or generated test audio.
 
@@ -49,10 +75,12 @@ functional, safety, persistence or recovery defect.
 
 Use the generated Apple Silicon app at `release/mac-arm64/Ableton Agent.app`;
 the installed `/Applications` app is not overwritten by this workflow.
-The local package was built from source commit `6ea0d20`, ad-hoc signed and
-verified, and passed isolated packaged startup and GitHub CLI authentication/
-model-list checks. Its `Contents/Resources/app.asar` SHA-256 is
-`4017acd4e69cd9c273d510e97149507efec56efaff9bd4b3055d060acf061be9`.
+The local package was rebuilt with the first-connection and readiness-budget
+fixes (`faa134a` and `349eebe`), ad-hoc signed and verified.
+Its `Contents/Resources/app.asar` SHA-256 is
+`78ca31e0d8230654af187bde063a1300e499dec0395760f351aa9315ca2006f2`.
+The earlier `6ea0d20` package passed startup/authentication checks but failed
+developer listening; those checks do not certify this new package.
 This is a local developer build, not a notarized release.
 The normally saved developer bundle is in
 `~/Documents/Machine-Listening-Developer-Dogfood-nBR5zW/`. Open

@@ -17,7 +17,36 @@ null. Sequence snapshots retain previous/current packets. They are accepted
 only on failed v2 replies/results, never as successful capture authority;
 legacy v1 and the 128 KiB frame ceiling are unchanged. Cleanup preserves the
 first failure snapshot without allowing another generation to inherit it.
-This closes the missing-evidence gap, not the underlying timing defect.
+These snapshots enabled the following recorded-data fixes; historical failures
+without rejected operands cannot be retroactively assigned the same cause.
+
+A capture-only read-pressure diagnostic reproduced a 65-sample rejection:
+the initial host/native offset was -1, and a later host sample/beat pair was
+one complete 64-sample vector ahead of the native counter/phase pair. V2 now
+reuses v1's bounded mixed-vector reacquisition, generalized to the configured
+rate, tempo and vector size. It requires a previously phase-coherent playing
+row, an exact positive one-vector offset change and the same signed circular
+phase change. The rejected acquisition never updates the clock, alignment
+witnesses or capture proof. Other changes and stopped-clock mismatches remain
+hard failures; persistent mixed-vector reads exhaust the existing 64-rejection
+limit. The anchor, default64 and strict-zero policies are unchanged.
+
+A separate diagnostic retained an actual FFT jump from 2359296 to 2371584:
+five frames were missed inside the requested range, with zero invalid DSP
+frames. Missing FFT data still fails; it is not interpolated or accepted as
+silence. V2's authoritative clock and descriptor polling now uses scheduler
+`metro`, not low-priority `qmetro`, whose documented queue-overload behavior
+drops output. Idle/stop/generation ownership wiring and DSP algorithms are
+unchanged; default/v1 documents retain their exact bytes. Scheduler-only owned
+controls passed capture under read pressure. The canonical fractional/30-second
+group and a canonical 30-second capture with 56 read-only inspections also pass,
+with no source overrides and independent native/context/postcondition checks.
+This is not packaged qualification or full App-restart retrieval.
+
+Native-runner preflight timeouts also retain the last connection error code and
+message, redacted and bounded before persistence (128/1024 characters). They do
+not replace a concrete connection failure with only an uninformative `error`
+state or relax reconnect/readiness admission.
 
 Qualification is now an autonomous diagnose/regression/fix/retest loop. A
 failed attempt stops and cleans up that attempt, not the debugging task.

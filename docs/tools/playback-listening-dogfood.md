@@ -11,6 +11,42 @@ fixes. An exact-package capture has now completed with independently verified
 native proof and durable context, including full App-restart retrieval, but
 the clean updated-agent handoff remains incomplete.
 
+## Current source qualification
+
+Native failures are now reproduced with exact data, not inferred from a later
+success. Capture-only read pressure exposed a mixed-vector clock read reporting
+65 samples; its recorded replay failed before the fix. V2 now reuses bounded
+phase-corroborated reacquisition from v1 without changing the anchor or limit.
+The first fix then exposed a stopped-clock variant, which remains a hard
+failure rather than being ignored. A clock-only scheduler control exposed five
+missing FFT frames inside the requested range. The FFT loss guard remains
+unchanged. Both authoritative v2 samplers now use scheduler `metro`, not the
+dropping low-priority `qmetro`; default/v1 documents remain byte-identical.
+
+The canonical saved-device copy, with **no source overrides**, passes the
+ordinary fractional/30-second group. A separate canonical capture-only pressure
+diagnostic also completes 1,440,000 samples/300 windows under 56 concurrent
+sequential read-only inspections (maximum observed read duration 962 ms), with
+independent native proof, reopened typed context and all nine final checks.
+The original developer Set/device remain untouched. These are runtime/source
+checks, not packaged Desktop acceptance or App-restart retrieval.
+
+All 2,125 TypeScript, 610 Max and 212 Python tests pass after the workspace build
+finishes. One earlier unit run overlapped the build and timed out in an existing
+Desktop composition test; that failure is retained, not hidden by changing its
+timeout. Workspace types, build, targeted lint and all 12 ordinary isolated
+Electron checks pass. Recorded-data tests
+cover strict-zero, phase wrap, genuine drift, stopped mismatches, rejection
+limits, unchanged FFT failure and exact coverage after reacquisition.
+
+The remaining package gate still requires genuine human Keychain authorization,
+then three consecutive clean same-package workflows and full App-restart
+retrieval. None is counted from these diagnostic or source runs. Older timing
+and spectrum failures without rejected operands cannot be retroactively proven
+to have the same cause.
+
+## Earlier capture and startup receipts
+
 The fixed source passed 1,023 application/runtime/Desktop/owned-host tests,
 all 12 Electron tests and 212 Python tests. The first-connect Electron test
 verified visible ownership and restart restoration. A fresh reviewed short
@@ -127,7 +163,7 @@ These are the bounded handoff gates. Exhaustive diagnostic and hardware-matrix
 qualification is not a prerequisite for developer use unless it exposes a
 functional, safety, persistence or recovery defect.
 
-## Latest diagnostic checkpoint
+## Earlier diagnostic checkpoint before acquisition fixes
 
 The fault-time evidence change is committed at `cae70d9`. Alignment failures now
 retain the actual rejected operands; spectrum-sequence failures retain the

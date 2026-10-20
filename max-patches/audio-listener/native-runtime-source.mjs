@@ -468,6 +468,10 @@ export function nativeRuntimeDocuments({
   }
 
   if (nativeVersion === 2) {
+    // Authoritative samples cannot use qmetro's queue-overload drops.
+    for (const document of [clock, analysis])
+      box(document, "poll").text = "metro 10 @active 0";
+
     // Version selection is part of the opt-in graph, not a change to IO code or
     // shipping/default resources.
     for (const [document, id] of [

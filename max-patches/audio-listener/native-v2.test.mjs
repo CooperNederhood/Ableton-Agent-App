@@ -22,6 +22,310 @@ const { nativeFailureDiagnosticV2Schema } =
 const TEMPO_LIMITATION =
   "Constant tempo is assumed; stability is not independently verified; tempo automation is unsupported.";
 
+test("recorded low-priority spectrum frame loss remains a hard failure inside requested coverage", async () => {
+  const recorded = JSON.parse(
+    await readFile(
+      new URL(
+        "./fixtures/native-v2-scheduler-spectrum-gap.json",
+        import.meta.url,
+      ),
+      "utf8",
+    ),
+  );
+  assert.equal(recorded.packet[0] - recorded.previousPacket[0], 12288);
+  assert.equal(
+    (recorded.packet[0] - recorded.previousPacket[0]) / 2048 - 1,
+    recorded.missingFrameCount,
+  );
+  assert(recorded.packet[0] < recorded.requestedEndCounter);
+  assert.equal(recorded.packet[5], 0);
+  const f = v2Fixture();
+  await f.start();
+  const p = f.controller.pass;
+  p.spectrum = [...recorded.previousPacket];
+  f.packet("spectrum", recorded.packet);
+  assert.equal(f.controller.state, "failed");
+  assert.equal(p.nativeFailureDiagnostic.check, "sequence");
+  assert.deepEqual(
+    p.nativeFailureDiagnostic.previousPacket,
+    recorded.previousPacket,
+  );
+  assert.deepEqual(p.nativeFailureDiagnostic.packet, recorded.packet);
+  assert(
+    f.events.some(
+      (event) =>
+        event.type === "terminal" &&
+        event.status === "failed" &&
+        event.reason === recorded.failureReason,
+    ),
+  );
+  f.packet("stopped", [0, 0, 2], p.generation);
+  assert.equal(f.controller.pendingDisarm, null);
+});
+
+test("recorded v2 mixed-vector clock is reacquired without publishing a 65-sample alignment", async () => {
+  const recorded = JSON.parse(
+    await readFile(
+      new URL(
+        "./fixtures/native-v2-mixed-vector-clock-rejection.json",
+        import.meta.url,
+      ),
+      "utf8",
+    ),
+  );
+  const f = v2Fixture({
+    geometry: recorded.geometry,
+    policy: recorded.policy,
+    total: recorded.geometry.totalSamples,
+  });
+  f.controller.prepare(f.command);
+  const p = f.controller.pass;
+  f.controller.state = "capturing";
+  p.anchorClock = recorded.anchorClock;
+  p.anchorHostOffset = recorded.anchorHostOffsetSamples;
+  p.clock = recorded.previousClock;
+  assert.equal(
+    Math.abs(
+      recorded.rejectedClock[2] -
+        recorded.rejectedClock[4] -
+        p.anchorHostOffset,
+    ),
+    65,
+  );
+  assert.doesNotThrow(() => f.controller.clock(p, recorded.rejectedClock));
+  assert.equal(p.rejected, 1);
+  assert.deepEqual(p.clock, recorded.previousClock);
+  assert.deepEqual(p.timingWitnesses, {});
+  assert.equal(p.nativeFailureDiagnostic, null);
+  const progress = f.observed.find(
+    (event) =>
+      event.type === "native-preflight-stage" &&
+      event.stage === "progress" &&
+      event.reason === "phase_torn_native_clock",
+  );
+  assert(progress);
+  assert.equal(progress.generation, p.generation);
+  assert.equal(progress.passId, f.command.passId);
+  assert.equal(progress.traceId, f.command.traceId);
+  assert.equal(progress.correlationId, f.command.correlationId);
+  assert.equal(progress.rejected, 1);
+  assert(progress.elapsedMs >= 0);
+  f.controller.cancel(V2_OWNER);
+  f.packet("stopped", [0, 0, 2], p.generation);
+});
+
+test("recorded stopped 65-sample mismatch is never discarded without independent phase evidence", async () => {
+  const recorded = JSON.parse(
+    await readFile(
+      new URL(
+        "./fixtures/native-v2-mixed-vector-clock-rejection.json",
+        import.meta.url,
+      ),
+      "utf8",
+    ),
+  );
+  const stopped = recorded.stoppedVariant;
+  for (const state of ["preflight", "native-arming", "armed"]) {
+    const f = v2Fixture({
+      geometry: recorded.geometry,
+      policy: recorded.policy,
+      total: recorded.geometry.totalSamples,
+    });
+    f.controller.prepare(f.command);
+    f.controller.state = state;
+    const p = f.controller.pass;
+    p.anchorHostOffset = stopped.anchorHostOffsetSamples;
+    p.anchorClock = stopped.anchorClock;
+    p.clock = stopped.previousClock;
+    assert.throws(
+      () => f.controller.clock(p, stopped.rejectedClock),
+      /listening_alignment_budget_exceeded/,
+    );
+    assert.equal(p.rejected, 0);
+    assert.deepEqual(p.clock, stopped.previousClock);
+    assert.equal(p.nativeFailureDiagnostic.startSample, null);
+    assert.equal(
+      p.nativeFailureDiagnostic.measurements.observedClockDisagreementSamples,
+      65,
+    );
+    f.controller.cancel(V2_OWNER);
+    f.packet("stopped", [0, 0, 2], p.generation);
+  }
+});
+
+for (const rate of [44100, 48000]) {
+  for (const vector of [32, 64, 128]) {
+    test(`v2 ${rate}/vector${vector} reacquires a mixed-vector row and still completes independently verified coverage`, async () => {
+      const f = v2Fixture({ rate, vector, offset: -1 });
+      await f.start();
+      const p = f.controller.pass;
+      const coherent = f.clock(f.origin + 1024);
+      coherent[2]++;
+      coherent[9]++;
+      f.packet("clock", coherent);
+      const witnesses = structuredClone(p.timingWitnesses);
+      const torn = f.clock(f.origin + 2048);
+      const samplesPerBeat = (rate * 60) / f.geometry.tempoBpm;
+      torn[2] += vector + 1;
+      torn[9] = torn[2];
+      torn[1] += vector / samplesPerBeat;
+      torn[8] = torn[1];
+      f.packet("clock", torn);
+      assert.equal(f.controller.state, "capturing");
+      assert.equal(p.rejected, 1);
+      assert.deepEqual(p.clock, coherent);
+      assert.deepEqual(p.timingWitnesses, witnesses);
+      f.capture();
+      f.post();
+      const terminal = f.events.find(
+        (event) => event.type === "terminal" && event.status === "complete",
+      );
+      assert(terminal);
+      assert.equal(
+        terminal.observation.alignment.observedClockDisagreementSamples,
+        1,
+      );
+      assertNativeCaptureObservationV2(
+        terminal.nativeCapture,
+        terminal.observation,
+        {
+          listenerId: "v2-listener",
+          passId: f.command.passId,
+          policy: f.timingPolicy,
+          geometry: f.geometry,
+        },
+      );
+      assert(
+        Object.values(terminal.nativeCapture.timingWitnesses).every(
+          (row) => JSON.stringify(row) !== JSON.stringify(torn),
+        ),
+      );
+    });
+  }
+}
+
+test("v2 mixed-vector reacquisition remains bounded and cannot accept a persistent clock shift", async () => {
+  const f = v2Fixture({ offset: -1 });
+  await f.start();
+  const p = f.controller.pass;
+  const coherent = f.clock(f.origin + 1024);
+  coherent[2]++;
+  coherent[9]++;
+  f.packet("clock", coherent);
+  for (let index = 1; index <= 65; index++) {
+    const torn = f.clock(f.origin + 1024 + index * 64);
+    torn[2] += 65;
+    torn[9] = torn[2];
+    torn[1] += (64 * f.geometry.tempoBpm) / (60 * f.geometry.sampleRate);
+    torn[8] = torn[1];
+    f.packet("clock", torn);
+    if (index <= 64) assert.equal(f.controller.state, "capturing");
+  }
+  assert.equal(f.controller.state, "failed");
+  assert.equal(p.closed, true);
+  assert(
+    f.events.some(
+      (event) =>
+        event.type === "terminal" &&
+        event.status === "failed" &&
+        event.reason === "native_preflight_rejection_limit",
+    ),
+  );
+  f.packet("stopped", [0, 0, 2], p.generation);
+  assert.equal(f.controller.pendingDisarm, null);
+});
+
+test("v2 mixed-vector handling does not discard other phase directions, shifts or an already mismatched reference", async () => {
+  for (const [offsetStep, phaseStep, previousPhaseStep] of [
+    [64, 0, 0],
+    [64, 63, 0],
+    [64, -64, 0],
+    [64, 65, 0],
+    [65, 64, 0],
+    [128, 64, 0],
+    [64, 64, 1],
+  ]) {
+    const f = v2Fixture({ offset: -1 });
+    await f.start();
+    const p = f.controller.pass;
+    const samplesPerBeat = (f.geometry.sampleRate * 60) / f.geometry.tempoBpm;
+    const coherent = f.clock(f.origin + 1024);
+    coherent[2]++;
+    coherent[9]++;
+    coherent[5] -= previousPhaseStep / samplesPerBeat;
+    f.packet("clock", coherent);
+    const row = f.clock(f.origin + 2048);
+    row[2] += offsetStep + 1;
+    row[9] = row[2];
+    row[1] += phaseStep / samplesPerBeat;
+    row[8] = row[1];
+    f.packet("clock", row);
+    assert.equal(f.controller.state, "failed");
+    assert.equal(p.rejected, 0);
+    assert.equal(p.nativeFailureDiagnostic.check, "host-offset");
+    assert.equal(
+      p.nativeFailureDiagnostic.measurements.observedClockDisagreementSamples,
+      offsetStep + 1,
+    );
+    f.packet("stopped", [0, 0, 2], p.generation);
+    assert.equal(f.controller.pendingDisarm, null);
+  }
+});
+
+test("v2 mixed-vector phase comparison handles a host beat crossing the circular phase boundary", async () => {
+  const f = v2Fixture({
+    offset: -1,
+    geometry: { tempoBpm: 120, startBeat: 0.99, endBeat: 2.99 },
+  });
+  await f.start();
+  const p = f.controller.pass;
+  const coherent = f.clock(f.origin + 24152);
+  coherent[2]++;
+  coherent[9]++;
+  f.packet("clock", coherent);
+  const row = f.clock(f.origin + 24216);
+  row[2] += 65;
+  row[9] = row[2];
+  row[1] += 64 / 24000;
+  row[8] = row[1];
+  assert(row[1] % 1 < row[5]);
+  f.packet("clock", row);
+  assert.equal(f.controller.state, "capturing");
+  assert.equal(p.rejected, 1);
+  assert.deepEqual(p.clock, coherent);
+  f.controller.cancel(V2_OWNER);
+  f.packet("stopped", [0, 0, 2], p.generation);
+  assert.equal(f.controller.pendingDisarm, null);
+});
+
+test("v2 mixed-vector reacquisition leaves strict zero tolerance and proof unchanged", async () => {
+  const f = v2Fixture({
+    offset: 0,
+    policy: { mode: "strict", maxClockDisagreementSamples: 0 },
+    geometry: { tempoBpm: 120, startBeat: 0, endBeat: 2 },
+  });
+  await f.start();
+  const p = f.controller.pass;
+  const row = f.clock(f.origin + 2048);
+  row[2] += 64;
+  row[9] = row[2];
+  row[1] += 64 / 24000;
+  row[8] = row[1];
+  f.packet("clock", row);
+  assert.equal(p.rejected, 1);
+  f.capture();
+  f.post();
+  const terminal = validate(f);
+  assert.equal(
+    terminal.observation.alignment.observedClockDisagreementSamples,
+    0,
+  );
+  assert.equal(
+    terminal.observation.alignment.observedBeatDisagreementSamples,
+    0,
+  );
+});
+
 test("actual corrected immutable v2 candidate arms before a later unclassified envelope-binding failure", async () => {
   const evidence = JSON.parse(
     await readFile(

@@ -205,16 +205,19 @@ function nativeV2Configuration(geometry, policy) {
   });
 }
 
-function nativeV2PhaseDisagreement(row, geometry) {
+function nativeV2PhaseOffset(row, geometry) {
   const samplesPerBeat = (geometry.sampleRate * 60) / geometry.tempoBpm;
-  const difference = Math.abs(
-    Math.round(row[5] * samplesPerBeat) -
-      Math.round((row[1] % 1) * samplesPerBeat),
-  );
-  return Math.min(
-    difference,
-    Math.abs(Math.round(samplesPerBeat) - difference),
-  );
+  const period = Math.round(samplesPerBeat);
+  const difference =
+    Math.round((row[1] % 1) * samplesPerBeat) -
+    Math.round(row[5] * samplesPerBeat);
+  if (difference > period / 2) return difference - period;
+  if (difference < -period / 2) return difference + period;
+  return difference;
+}
+
+function nativeV2PhaseDisagreement(row, geometry) {
+  return Math.abs(nativeV2PhaseOffset(row, geometry));
 }
 
 function nativeV2ClockRow(row) {
@@ -422,6 +425,7 @@ module.exports = {
   nativePreflightTiming,
   NATIVE_V2_SCOPE,
   nativeV2Configuration,
+  nativeV2PhaseOffset,
   nativeV2PhaseDisagreement,
   nativeV2ClockRow,
   nativeV2HostBinding,

@@ -293,7 +293,7 @@ for (const rate of [44100, 48000]) {
     assert.equal(regressed.advance(1, 1)[4], 12);
   });
 }
-test("clock, spectrum, analysis geometry and default/v1 documents remain byte-identical", () => {
+test("clock, spectrum, non-scheduler analysis geometry and default/v1 documents remain byte-identical", () => {
   const docs = current();
   assert.equal(
     sha(code(docs["audio_listener_native_clock.gendsp"])),
@@ -303,10 +303,14 @@ test("clock, spectrum, analysis geometry and default/v1 documents remain byte-id
     sha(code(docs["audio_listener_native_spectrum.gendsp"])),
     "5bd377dc1eee13b58e1567880fb1a1d99cd0da0d1b20a104a913fbbfd08e34f4",
   );
+  const analysis = structuredClone(
+    docs["audio_listener_native_analysis.maxpat"],
+  );
+  const poll = analysis.patcher.boxes.find(({ box }) => box.id === "poll").box;
+  assert.equal(poll.text, "metro 10 @active 0");
+  poll.text = "qmetro 10 @active 0";
   assert.equal(
-    sha(
-      `${JSON.stringify(docs["audio_listener_native_analysis.maxpat"], null, 2)}\n`,
-    ),
+    sha(`${JSON.stringify(analysis, null, 2)}\n`),
     "b0f85f4833c79a1c34d1dad715fc6befac394a882e6c1100d92b93ecaed7aade",
   );
   assert.equal(

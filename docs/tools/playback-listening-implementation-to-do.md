@@ -43,12 +43,26 @@ controlled successes below are not packaged Desktop acceptance.
   FFT previous/current sequence packets through existing failure diagnostics.
   Add red controller/runtime/contract regressions and validate ingress, SDK,
   bounds, ownership, cancellation/replacement and legacy isolation.
-- [ ] Use the new snapshots to
-  identify which guard/metric rejects the capture before proposing a fix.
-  Older failure History retains only the last accepted alignment.
-  Do not raise tolerance or retry-to-pass.
-  The current-source short/group and stopped-DSP warmup control passed; they
-  did not reproduce or explain the original timing/spectrum rejection.
+- [x] Use new snapshots before changing native guards: the capture-only
+  read-pressure reproduction retained exact -1/64 offsets and a corroborating
+  one-vector phase mismatch, causing the measured 65-sample rejection.
+  Add red recorded-row/coverage tests and bounded v2 reacquisition using the
+  existing v1 pattern; retain genuine drift, strict-zero and stopped guards.
+- [x] Capture and replay the actual spectrum sequence failure: five FFT frames
+  were missed inside requested coverage, with no invalid DSP frames. Keep the
+  loss guard; move only v2 clock/descriptor acquisition off dropping `qmetro`.
+  Add a red authored-graph regression and preserve default/v1 byte identity.
+- [x] Retain bounded redacted connection code/message in native-runner preflight
+  failures. Two regressions failed before the fix; all 191 owning runner tests
+  pass. No failure admission or reconnect policy is relaxed.
+- [x] Qualify both acquisition fixes in the canonical fractional/30-second
+  group and under capture-only read pressure without diagnostic overrides.
+  Retain all previous failed runs, including the stopped timing variant and
+  clock-only scheduler control's FFT loss. Do not substitute these controls for
+  three clean packaged workflows or claim old unrecorded failures were replayed.
+  Canonical pressure pass `5615c0db` completed all 1,440,000 samples/300 windows
+  under 56 read-only inspections, with native proof, reopened typed context and
+  nine final checks. Full units: 2,125 TypeScript, 610 Max and 212 Python pass.
 - [ ] Resolve the latest immutable diagnostic package's real-vault startup
   failure before sending its first listening request. Retain exact-PID native
   samples and consent chronology; do not infer a post-consent hang from an

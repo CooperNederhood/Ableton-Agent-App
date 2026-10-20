@@ -49,6 +49,32 @@ const connected = (document, source, outlet, destination, inlet = 0) =>
       patchline.destination[1] === inlet,
   );
 
+test("v2 authoritative clock and descriptor sampling never use a dropping low-priority qmetro", () => {
+  for (const nativeVersion of [1, 2]) {
+    const documents = nativeRuntimeDocuments({ nativeVersion });
+    for (const name of [
+      "audio_listener_native_clock.maxpat",
+      "audio_listener_native_analysis.maxpat",
+    ]) {
+      const document = documents[name];
+      assert.equal(
+        boxes(document).get("poll").text,
+        nativeVersion === 2 ? "metro 10 @active 0" : "qmetro 10 @active 0",
+      );
+      assert(connected(document, "collector", 1, "nativeControl"));
+      assert(connected(document, "nativeControl", 0, "poll"));
+      assert(
+        connected(
+          document,
+          "poll",
+          0,
+          name.includes("clock") ? "order" : "pollOrder",
+        ),
+      );
+    }
+  }
+});
+
 test("opt-in authored native composition preserves the existing client, presentation and stereo path", () => {
   const authored = sourceDocuments()["Audio-Listener.maxpat"];
   const node = authored.patcher.boxes.find(({ box }) =>

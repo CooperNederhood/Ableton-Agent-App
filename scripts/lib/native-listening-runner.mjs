@@ -526,6 +526,22 @@ export async function createNativeListeningRunner({
               runtime.signals.listeners?.inspectListeners() ?? [];
             lastObserved = {
               state: status.state,
+              ...(status.state === "error"
+                ? {
+                    connectionError: {
+                      code:
+                        typeof status.code === "string"
+                          ? d.sanitizePersistedText(status.code).slice(0, 128)
+                          : null,
+                      message:
+                        typeof status.message === "string"
+                          ? d
+                              .sanitizePersistedText(status.message)
+                              .slice(0, 1024)
+                          : null,
+                    },
+                  }
+                : {}),
               liveSetName: status.liveSetName,
               saved: status.saved,
               listenerPaths: listeners

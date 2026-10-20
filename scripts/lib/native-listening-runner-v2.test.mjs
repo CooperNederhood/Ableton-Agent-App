@@ -367,7 +367,7 @@ describe("sequential fresh native process orchestration (mock process controller
 // These actor/capture adapters are synthetic unit scaffolding, never real acceptance.
 async function runnerV2(
   id,
-  { rate = 48000, vector = 64, failure, version = 2 } = {},
+  { rate = 48000, vector = 64, failure, version = 2, connectionError } = {},
 ) {
   const f = await nativeFixtureInput({ nativeVersion: 2 });
   const manifest = await load(id);
@@ -633,13 +633,23 @@ async function runnerV2(
         application: {
           start: async () => {},
           stop: appStop,
-          getStatus: async () => ({
-            state: "connected",
-            saved: true,
-            liveSetId: "set",
-            liveSetName: `${manifest.artifactPrefix}${runId}`,
-            liveVersion: "test-only",
-          }),
+          getStatus: async () => {
+            if (connectionError !== undefined) {
+              vi.setSystemTime(Date.now() + manifest.timeoutMs + 1);
+              return {
+                state: "error",
+                code: connectionError.code,
+                message: connectionError.message,
+              };
+            }
+            return {
+              state: "connected",
+              saved: true,
+              liveSetId: "set",
+              liveSetName: `${manifest.artifactPrefix}${runId}`,
+              liveVersion: "test-only",
+            };
+          },
           inspectSession: async () => ({
             isPlaying:
               failure === "postconditions" && job?.stage === "completed"
@@ -726,6 +736,46 @@ async function runnerV2(
 }
 
 describe("v2 runner expectation forwarding and production typed context reopening (synthetic capture only)", () => {
+  it.each([
+    {
+      code: "connection_failed",
+      message: "connect ECONNREFUSED 127.0.0.1:9877",
+      expected: "ECONNREFUSED",
+    },
+    {
+      code: "authentication_failed",
+      message: `Unauthorized bearer ghp_${"a".repeat(40)} ${"x".repeat(4000)}`,
+      expected: "Unauthorized",
+    },
+  ])(
+    "retains bounded redacted $code preflight evidence without actor playback",
+    async (connectionError) => {
+      const f = await runnerV2(ids[0], { connectionError });
+      vi.useFakeTimers({ toFake: ["Date"] });
+      try {
+        const result = await f.runner.run(async () => {});
+        expect(result.ok).toBe(false);
+        expect(result.error).toContain(connectionError.code);
+        expect(result.error).toContain(connectionError.expected);
+        expect(result.error).not.toContain(`ghp_${"a".repeat(40)}`);
+        expect(result.error.length).toBeLessThanOrEqual(2048);
+        expect(result.jobs).toEqual([]);
+        expect(f.wait).not.toHaveBeenCalled();
+        expect(result.approvals).toEqual([]);
+        const failure = result.lifecycle.find((event) =>
+          event.name.endsWith("native-preflight.failed"),
+        );
+        expect(failure.attributes.message).toContain(connectionError.expected);
+        expect(JSON.stringify(failure)).not.toContain(`ghp_${"a".repeat(40)}`);
+        expect(f.appStop).toHaveBeenCalledOnce();
+        expect(f.ingressStop).toHaveBeenCalledOnce();
+      } finally {
+        vi.useRealTimers();
+        await f.runner.close({ processStopped: true });
+      }
+    },
+  );
+
   it("does not accept a corrected actor tool failure as a clean native workflow", async () => {
     const f = await runnerV2(ids[0], { failure: "actor-tool" });
     try {

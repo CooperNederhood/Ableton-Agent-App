@@ -10,6 +10,8 @@ const {
   nativeHostBinding,
   NATIVE_V2_SCOPE,
   nativeV2Configuration,
+  nativeV2PhaseOffset,
+  nativeV2PhaseDisagreement,
   nativeV2ClockRow,
   nativeV2HostBinding,
   nativeV2RetainTiming,
@@ -526,16 +528,21 @@ class NativeCaptureController {
         (this.nativeVersion === 2 && row[1] < previous[1]))
     )
       throw new Error("native_clock_discontinuity");
+    const vectorSize =
+      this.nativeVersion === 2 ? p.command.geometry.vectorSize : 64;
     const phaseOffset =
-      (Math.round(row[1] * 24000) - Math.round(row[5] * 24000)) % 24000;
+      this.nativeVersion === 2
+        ? nativeV2PhaseOffset(row, p.command.geometry)
+        : (Math.round(row[1] * 24000) - Math.round(row[5] * 24000)) % 24000;
     if (
-      this.nativeVersion === 1 &&
       this.state === "capturing" &&
       previous &&
       previous[0] === 1 &&
       row[0] === 1 &&
-      row[2] - row[4] - (previous[2] - previous[4]) === 64 &&
-      phaseOffset === 64
+      row[2] - row[4] - (previous[2] - previous[4]) === vectorSize &&
+      phaseOffset === vectorSize &&
+      (this.nativeVersion === 1 ||
+        nativeV2PhaseDisagreement(previous, p.command.geometry) === 0)
     )
       return this.rejectBracket(p, "phase_torn_native_clock");
     if (

@@ -1884,6 +1884,26 @@ describe("Ableton tools", () => {
     expect(trackParameters.safeParse({ action: "list" }).success).toBe(false);
   });
 
+  it("advertises listener discovery in the full Default scope without changing its serialized schema", () => {
+    const set = createAbletonTools({
+      ...services(),
+      executeListeningOperation:
+        vi.fn<NonNullable<AbletonToolServices["executeListeningOperation"]>>(),
+    });
+    const original = toolByName(set, "ableton_listening");
+    const [tool] = scopeAbletonTools(set, {
+      allowedToolNames: ["ableton_listening"],
+    });
+    expect(tool?.description).toContain(
+      "Allowed action values in this scope: inspect-listeners, play-session-and-listen, play-arrangement-and-listen, get-pass, list-passes, cancel.",
+    );
+    expect(tool?.description).toContain(
+      "Discover listenerIds with inspect-listeners before the first capture; never guess them from track or device references.",
+    );
+    expect(tool?.parameters).toBe(original.parameters);
+    expect(tool?.handler).toBe(original.handler);
+  });
+
   it("explicitly advertises every scoped listening action without widening its runtime schema", () => {
     const scoped = scopeAbletonTools(
       createAbletonTools({

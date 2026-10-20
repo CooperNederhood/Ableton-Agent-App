@@ -1466,7 +1466,14 @@ export function scopeAbletonTools(
           options.capabilities[descriptor.requiredCapability] === true),
     );
     if (selected.length === 0) return [];
-    if (selected.length === descriptors.length) return [tool];
+    const scopedTool =
+      tool.name === "ableton_listening"
+        ? {
+            ...tool,
+            description: `${tool.description ?? ""}\nAllowed action values in this scope: ${selected.map((descriptor) => descriptor.action).join(", ")}. Each schema variant is an alternative selected by action, not a restriction to only the final variant. Use the arguments required by the selected action.${selected.some((descriptor) => descriptor.action === "inspect-listeners") ? " Discover listenerIds with inspect-listeners before the first capture; never guess them from track or device references." : ""}`,
+          }
+        : tool;
+    if (selected.length === descriptors.length) return [scopedTool];
     const parameters =
       selected.length === 1
         ? selected[0]!.inputSchema
@@ -1479,13 +1486,6 @@ export function scopeAbletonTools(
           );
     const scopedParameters = agentFacingParameters(tool.name, parameters);
     if (scopedParameters === undefined) return [tool];
-    const scopedTool =
-      tool.name === "ableton_listening"
-        ? {
-            ...tool,
-            description: `${tool.description ?? ""}\nAllowed action values in this scope: ${selected.map((descriptor) => descriptor.action).join(", ")}. Each schema variant is an alternative selected by action, not a restriction to only the final variant. Use the arguments required by the selected action.`,
-          }
-        : tool;
     if (tool.handler === undefined) {
       return [{ ...scopedTool, parameters: scopedParameters }];
     }

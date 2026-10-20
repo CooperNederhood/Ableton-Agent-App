@@ -24,7 +24,7 @@ controlled successes below are not packaged Desktop acceptance.
   The unchanged package later captured pass `b6d0d6ca`, independently verified
   native proof/context and restored it through Outputs after full App restart.
   That actor corrected invalid calls, so a clean updated-package turn remains
-  pending; intermittent Keychain startup remains unexplained.
+  pending; attended authorization has since unblocked real native-vault startup.
 - [x] Clarify action-specific fields in actual SDK schemas and share
   queued-pass/no-shell-wait/no-retry guidance with configured listening agents.
   Remove the unconditional context-list-before-get instruction for known IDs.
@@ -63,12 +63,26 @@ controlled successes below are not packaged Desktop acceptance.
   Canonical pressure pass `5615c0db` completed all 1,440,000 samples/300 windows
   under 56 read-only inspections, with native proof, reopened typed context and
   nine final checks. Full units: 2,125 TypeScript, 610 Max and 212 Python pass.
-- [ ] Resolve the latest immutable diagnostic package's real-vault startup
+- [x] Resolve the latest immutable diagnostic package's real-vault startup
   failure before sending its first listening request. Retain exact-PID native
   samples and consent chronology; do not infer a post-consent hang from an
   earlier sample or substitute environment credentials.
-  PID55998's consent prompt preceded its sample, with no matching approval;
-  next requires a human-attended exact-candidate authorization check.
+  PID55998's consent prompt preceded its sample, with no matching approval.
+  Human authorization subsequently unblocked the exact package; installed-token
+  provisioning and restart/decryption passed with unchanged encrypted bytes,
+  typed credential history and no environment-token override. The official
+  packaged native-vault regression also passed.
+- [x] Retain the first natural packaged Default-agent failure, pass `48528b95`:
+  no discovery, a guessed track-reference listener ID, and guarded failure before
+  capture. Verify the actual SDK configuration contains all action branches.
+  Fix the full-scope early return that skipped action-catalogue guidance; require
+  exact discovery when authorized. Add a red-before/green-after full-Default
+  regression preserving parameter/handler identities and restricted-scope guards.
+  Owning tools/application suites: 315 passed.
+- [ ] Qualify the newly rebuilt candidate, not the rejected earlier package.
+  The fractional manifest's attended packaged companion uses a natural request,
+  full Default scope and ordinary approvals. The canonical CLI runtime prompt
+  remains scripted and cannot substitute for these three packaged workflows.
 - [x] Bound packaged-test graceful close and exact-owned fallback cleanup so
   a blocked native Keychain call cannot obscure the original first-window
   failure or prevent profile cleanup. Add controlled timeout/failure tests.

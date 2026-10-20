@@ -54,6 +54,25 @@ The human handoff gate is three consecutive clean short packaged workflows
 from fresh owned App/Live launches, each with full restart retrieval. A failure
 invalidates that qualification sequence; unchanged retry-to-pass is forbidden.
 
+Human-authorized native-vault provisioning and full restart/decryption now pass
+on the unchanged signed candidate, without an environment-token override.
+The first subsequent natural Default-agent request failed before capture:
+pass `48528b95` used a track reference as its listener ID and correctly failed
+`listener_unavailable_or_ambiguous`. The actual SDK configuration retained every
+schema branch, including discovery; schema loss is not established. The
+full-operation scope returned before the explicit action catalogue added for
+restricted scopes. That path now receives the same catalogue and, when discovery
+is authorized, an instruction to discover exact IDs rather than guess them.
+The regression fails before the fix and preserves the full scope's parameter
+and handler identities. Lookup-only scopes do not advertise discovery as allowed.
+Existing configuration History retains this guidance with no new lifecycle or
+storage channel. Native guards and permission checks are unchanged.
+
+The fractional manifest also records a separate attended packaged-Default
+qualification request and assertions. Unlike the canonical runtime prompt, it
+does not prescribe tool names or their sequence. The CLI still executes the
+canonical runtime scenario; its result is not the companion's packaged evidence.
+
 The packaged capture `b6d0d6ca` now also survives a full normal App exit and
 same-package/profile restart. Outputs retrieves the original context
 `ac0b00cd`, including exact sample coverage and unchanged measurements, through

@@ -39,9 +39,21 @@ Electron checks pass. Recorded-data tests
 cover strict-zero, phase wrap, genuine drift, stopped mismatches, rejection
 limits, unchanged FFT failure and exact coverage after reacquisition.
 
-The remaining package gate still requires genuine human Keychain authorization,
-then three consecutive clean same-package workflows and full App-restart
-retrieval. None is counted from these diagnostic or source runs. Older timing
+Genuine human Keychain authorization has now unblocked the pinned package.
+Attended real-vault provisioning/restart/decryption and the official packaged
+regression pass without environment credentials. The first natural packaged
+Default-agent request then failed safely before capture: pass `48528b95`
+guessed a track reference instead of discovering the listener. Its actual SDK
+configuration contained all schema alternatives, but the full-scope early
+return omitted the explicit action catalogue used by restricted probes.
+That path is now covered by a failing-before/fixed-after regression and receives
+the catalogue plus exact-listener discovery guidance. Tools/application: 315
+tests pass. The replacement App candidate still needs rebuilding and qualification.
+
+The remaining gate is three consecutive clean same-package workflows and full
+App-restart retrieval, using the fractional manifest's natural packaged-Default
+companion rather than its scripted runtime prompt. The count remains **0/3**.
+None is counted from diagnostic or source runs. Older timing
 and spectrum failures without rejected operands cannot be retroactively proven
 to have the same cause.
 
@@ -52,8 +64,9 @@ App verifies with CodeDirectory hash
 The fixed external native bundle is separately pinned by manifest SHA-256
 `64fa4693763bacc6c40d8189fd10265f2ec23e014bcbd627fb1b25ca6eef9a61`;
 the normally saved device bytes remain unchanged. An isolated paired fixture
-and App profile are prepared, but this candidate has not been launched for
-packaged qualification. App identity alone does not pin the external device's
+and App profile were prepared; this candidate's first natural request is the
+failed `48528b95` attempt above, not acceptance. A changed App must be repinned.
+App identity alone does not pin the external device's
 JS/graph resources.
 
 ## Earlier capture and startup receipts

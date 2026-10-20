@@ -26,6 +26,32 @@ const load = async (id) =>
 const ids = ["native-descriptive-fractional", "native-descriptive-30-seconds"];
 
 describe("reviewed v2 contracts and pre-setup admission", () => {
+  it("keeps natural packaged Default qualification distinct from scripted runtime evidence", async () => {
+    const manifest = await load(ids[0]);
+    const qualification = manifest.desktopQualification;
+    expect(qualification).toMatchObject({
+      execution: "attended-packaged-desktop",
+      agent: "default",
+      approvals: "ordinary",
+      requiredConsecutiveRuns: 3,
+    });
+    expect(qualification.prompt).toContain(
+      "zero-based beat 0.25 through beat 3.75",
+    );
+    expect(qualification.prompt).toContain("exactly one capture");
+    expect(qualification.prompt).toContain(
+      "invalid arguments or permission denial",
+    );
+    expect(qualification.prompt).not.toMatch(
+      /ableton_listening|inspect-listeners|play-arrangement-and-listen|get-pass/,
+    );
+    expect(qualification.assertions).toContain(
+      "same-profile-full-app-restart-renderer-retrieval-without-recapture",
+    );
+    expect(manifest.maxToolCalls).toBe(8);
+    expect(manifest.maxMutations).toBe(1);
+    expect(() => reviewNativeScenario(manifest)).not.toThrow();
+  });
   it.each(ids)("admits only explicit pinned v2 input for %s", async (id) => {
     const f = await nativeFixtureInput({ nativeVersion: 2 });
     const path = join(f.root, "input.json");

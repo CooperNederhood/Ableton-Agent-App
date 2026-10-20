@@ -15,6 +15,8 @@ Companion checklist: [Developer Dogfood](playback-listening-dogfood.md)
       failure and playing-arm denial rather than claiming a clean first pass.
 - [ ] Explore cancellation and default-agent first-attempt reliability during
       developer use; do not silently retry integrity failures to qualify them.
-- [ ] Record the handoff build and remaining known issues.
+- [x] Record the handoff build and remaining known issues: Apple Silicon source
+      `6ea0d20`, locally signed package, passing packaged startup/authentication
+      checks; original installed app and normal profile remain untouched.
 - [ ] Triage developer findings by safety/data correctness, recovery, then
       descriptive quality and diagnostic completeness.

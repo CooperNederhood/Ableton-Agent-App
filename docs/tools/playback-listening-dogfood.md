@@ -37,7 +37,7 @@ is retained in `max-patches/audio-listener/fixtures/native-v2-developer-dogfood-
 - [x] Exercise visible capture and guarded failure/recovery with isolated
       runner-owned processes. Retain first-attempt failures; cancellation is
       still an exploratory developer check, not physically qualified here.
-- [ ] Record the exact app/device revision, Live version and sample rate for
+- [x] Record the exact app/device revision, Live version and sample rate for
       the developer build. Do not silently promote the prototype to globally
       qualified or physically precise.
 
@@ -49,6 +49,11 @@ functional, safety, persistence or recovery defect.
 
 Use the generated Apple Silicon app at `release/mac-arm64/Ableton Agent.app`;
 the installed `/Applications` app is not overwritten by this workflow.
+The local package was built from source commit `6ea0d20`, ad-hoc signed and
+verified, and passed isolated packaged startup and GitHub CLI authentication/
+model-list checks. Its `Contents/Resources/app.asar` SHA-256 is
+`4017acd4e69cd9c273d510e97149507efec56efaff9bd4b3055d060acf061be9`.
+This is a local developer build, not a notarized release.
 The normally saved developer bundle is in
 `~/Documents/Machine-Listening-Developer-Dogfood-nBR5zW/`. Open
 `Machine-Listening-Developer-Dogfood-Saved.als` and keep

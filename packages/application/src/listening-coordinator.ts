@@ -171,6 +171,11 @@ export interface ListeningJob {
 interface RunningJob {
   readonly controller: AbortController;
   readonly startedAt: number;
+  readinessBoundary?:
+    | "initial-inspection"
+    | "context-reservation"
+    | "listener-preparation"
+    | "post-arm-inspection";
   snapshot: ListeningJob;
   completion: Promise<ListeningJob>;
 }
@@ -477,12 +482,20 @@ export class ListeningCoordinator {
     let failure: unknown;
     let finalStage: ListeningStage = "completed";
     let contextIds: readonly string[] = [];
-    let timer = setTimeout(() => {
-      job.controller.abort(
-        new ListeningFailure("timeout", "Listener readiness timed out"),
-      );
-    }, listeningLimits.readinessTimeoutMs);
-    timer.unref?.();
+    const readinessTimer = () => {
+      const deadline = setTimeout(() => {
+        job.controller.abort(
+          new ListeningFailure(
+            "timeout",
+            `Listener readiness timed out during ${job.readinessBoundary}`,
+          ),
+        );
+      }, listeningLimits.readinessTimeoutMs);
+      deadline.unref?.();
+      return deadline;
+    };
+    job.readinessBoundary = "initial-inspection";
+    let timer = readinessTimer();
     try {
       checkAbort(signal);
       this.#transition(job, "validating");
@@ -492,6 +505,7 @@ export class ListeningCoordinator {
       );
       checkAbort(signal);
       validatePlaybackSnapshot(snapshot, job.snapshot.owner);
+      job.readinessBoundary = "context-reservation";
       this.#transition(job, "reserving-context");
       reservation = await bounded(
         this.options.services.reservePublication({
@@ -504,29 +518,25 @@ export class ListeningCoordinator {
         signal,
       );
       checkAbort(signal);
+      clearTimeout(timer);
+      timer = readinessTimer();
+      job.readinessBoundary = "listener-preparation";
       this.#transition(job, "arming");
-      const readiness = setTimeout(() => {
-        job.controller.abort(
-          new ListeningFailure("timeout", "Listener readiness timed out"),
-        );
-      }, listeningLimits.readinessTimeoutMs);
-      try {
-        capture = await bounded(
-          this.options.services.prepare({
-            request,
-            passId: job.snapshot.passId,
-            owner: job.snapshot.owner,
-            trace: job.snapshot.trace,
-            signal,
-          }),
+      capture = await bounded(
+        this.options.services.prepare({
+          request,
+          passId: job.snapshot.passId,
+          owner: job.snapshot.owner,
+          trace: job.snapshot.trace,
           signal,
-        );
-      } finally {
-        clearTimeout(readiness);
-      }
+        }),
+        signal,
+      );
       // Observe a rejected result immediately, including before playback starts.
       void capture.observations.catch(() => undefined);
       checkAbort(signal);
+      job.readinessBoundary = "post-arm-inspection";
+      this.#transition(job, "arming");
       validatePlaybackSnapshot(
         await bounded(
           this.options.services.inspect(request, signal, job.snapshot),
@@ -535,6 +545,7 @@ export class ListeningCoordinator {
         job.snapshot.owner,
       );
       checkAbort(signal);
+      delete job.readinessBoundary;
       this.#transition(job, "starting-playback");
       clearTimeout(timer);
       timer = setTimeout(() => {
@@ -721,6 +732,9 @@ export class ListeningCoordinator {
       passId: job.snapshot.passId,
       stage,
       contextIds,
+      ...(job.readinessBoundary === undefined
+        ? {}
+        : { readinessBoundary: job.readinessBoundary }),
       ...(job.snapshot.cleanupPolicy === undefined
         ? {}
         : { cleanupPolicy: job.snapshot.cleanupPolicy }),

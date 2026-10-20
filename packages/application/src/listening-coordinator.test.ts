@@ -461,7 +461,18 @@ describe("headless listening coordinator", () => {
       "listening.progress",
       "listening.progress",
       "listening.progress",
+      "listening.progress",
       "listening.cancelled",
+    ]);
+    expect(
+      events
+        .filter((event) => event.attributes.readinessBoundary !== undefined)
+        .map((event) => event.attributes.readinessBoundary),
+    ).toEqual([
+      "initial-inspection",
+      "context-reservation",
+      "listener-preparation",
+      "post-arm-inspection",
     ]);
     expect(events.map((event) => event.attributes.stage)).toContain(
       "reserving-context",
@@ -769,6 +780,159 @@ describe("headless listening coordinator", () => {
     expect(result.stage).toBe("failed");
     expect(result.error).toContain("readiness timed out");
     expect(f.services.startPlayback).not.toHaveBeenCalled();
+  });
+
+  it("does not let preflight consume the independent preparation and post-arm verification budget", async () => {
+    vi.useFakeTimers();
+    const delay = (ms: number) =>
+      new Promise<void>((resolve) => setTimeout(resolve, ms));
+    const f = fixture();
+    const inspect = f.services.inspect;
+    let reads = 0;
+    f.services.inspect = async (...args) => {
+      await delay(++reads === 1 ? 2500 : 2000);
+      return inspect(...args);
+    };
+    f.services.reservePublication = async () => {
+      await delay(500);
+      return { release: f.releaseReservation };
+    };
+    f.services.prepare = async ({ passId }) => {
+      await delay(6500);
+      return {
+        observations: Promise.resolve([observation(passId)]),
+        disarm: f.disarm,
+      };
+    };
+    const job = f.coordinator.start(request, owner, trace);
+    await vi.advanceTimersByTimeAsync(11_500);
+    expect(await f.coordinator.wait(job.passId, owner)).toMatchObject({
+      stage: "completed",
+      contextIds: ["entry"],
+      durationMs: 11_500,
+    });
+    expect(f.services.startPlayback).toHaveBeenCalledOnce();
+    expect(f.disarm).toHaveBeenCalledOnce();
+    expect(f.releaseReservation).toHaveBeenCalledOnce();
+  });
+
+  it("bounds preparation and post-arm verification together and identifies the stalled boundary", async () => {
+    vi.useFakeTimers();
+    const delay = (ms: number) =>
+      new Promise<void>((resolve) => setTimeout(resolve, ms));
+    const f = fixture();
+    const inspect = f.services.inspect;
+    let reads = 0;
+    f.services.inspect = async (...args) => {
+      if (++reads === 1) {
+        await delay(3000);
+        return inspect(...args);
+      }
+      return new Promise(() => {});
+    };
+    f.services.prepare = async () => {
+      await delay(6500);
+      return { observations: new Promise(() => {}), disarm: f.disarm };
+    };
+    const job = f.coordinator.start(request, owner, trace);
+    await vi.advanceTimersByTimeAsync(13_000);
+    expect(await f.coordinator.wait(job.passId, owner)).toMatchObject({
+      stage: "failed",
+      contextIds: [],
+      error: "Listener readiness timed out during post-arm-inspection",
+      durationMs: 13_000,
+    });
+    expect(f.services.startPlayback).not.toHaveBeenCalled();
+    expect(f.services.persist).not.toHaveBeenCalled();
+    expect(f.disarm).toHaveBeenCalledOnce();
+    expect(f.releaseReservation).toHaveBeenCalledOnce();
+    const terminal = telemetryEventEnvelopeSchema.parse(
+      f.enqueue.mock.calls.at(-1)?.[0],
+    );
+    expect(terminal).toMatchObject({
+      name: "listening.failed",
+      durationMs: 13_000,
+      sessionId: owner.sessionId,
+      liveSetId: owner.liveSetId,
+      trace: { traceId: trace.traceId },
+      correlationId: trace.correlationId,
+      causationId: trace.causationId,
+      attributes: { readinessBoundary: "post-arm-inspection" },
+    });
+  });
+
+  it.each([
+    "initial-inspection",
+    "context-reservation",
+    "listener-preparation",
+  ] as const)(
+    "bounds a stalled %s and releases only acquired resources",
+    async (boundary) => {
+      vi.useFakeTimers();
+      const f = fixture();
+      if (boundary === "initial-inspection")
+        f.services.inspect = () => new Promise(() => {});
+      else if (boundary === "context-reservation")
+        f.services.reservePublication = () => new Promise(() => {});
+      else f.services.prepare = () => new Promise(() => {});
+      const job = f.coordinator.start(request, owner, trace);
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(await f.coordinator.wait(job.passId, owner)).toMatchObject({
+        stage: "failed",
+        contextIds: [],
+        error: `Listener readiness timed out during ${boundary}`,
+        durationMs: 10_000,
+      });
+      expect(f.services.startPlayback).not.toHaveBeenCalled();
+      expect(f.services.persist).not.toHaveBeenCalled();
+      expect(f.disarm).not.toHaveBeenCalled();
+      expect(f.releaseReservation).toHaveBeenCalledTimes(
+        boundary === "listener-preparation" ? 1 : 0,
+      );
+      expect(f.enqueue.mock.calls.at(-1)?.[0]).toMatchObject({
+        name: "listening.failed",
+        attributes: { readinessBoundary: boundary },
+      });
+    },
+  );
+
+  it("cancels during post-arm inspection without playback and permits a later explicit pass", async () => {
+    const f = fixture();
+    const inspect = vi.mocked(f.services.inspect);
+    inspect
+      .mockImplementationOnce(async () => ({
+        liveSetId: owner.liveSetId,
+        isPlaying: false,
+        isRecording: false,
+        recordingStateKnown: true,
+        identityVerified: true,
+        listenersReady: true,
+        expectedCaptureMs: 100,
+      }))
+      .mockImplementationOnce(() => new Promise(() => {}));
+    const job = f.coordinator.start(request, owner, trace);
+    await vi.waitFor(() => expect(inspect).toHaveBeenCalledTimes(2));
+    expect(await f.coordinator.cancel(job.passId, owner)).toMatchObject({
+      stage: "cancelled",
+      contextIds: [],
+    });
+    expect(f.services.startPlayback).not.toHaveBeenCalled();
+    expect(f.services.persist).not.toHaveBeenCalled();
+    expect(f.disarm).toHaveBeenCalledOnce();
+    expect(f.releaseReservation).toHaveBeenCalledOnce();
+    expect(f.enqueue.mock.calls.at(-1)?.[0]).toMatchObject({
+      name: "listening.cancelled",
+      attributes: { readinessBoundary: "post-arm-inspection" },
+    });
+    const next = f.coordinator.start(request, owner, trace);
+    f.resolveCapture([observation(next.passId)]);
+    expect(await f.coordinator.wait(next.passId, owner)).toMatchObject({
+      stage: "completed",
+      contextIds: ["entry"],
+    });
+    expect(f.services.startPlayback).toHaveBeenCalledOnce();
+    expect(f.disarm).toHaveBeenCalledTimes(2);
+    expect(f.releaseReservation).toHaveBeenCalledTimes(2);
   });
 
   it.each(["inspection", "capture"] as const)(

@@ -1015,7 +1015,17 @@ also settles owned background passes after SDK idle; it never cancels another
 agent's pass. Under the Arrangement `leave-running` policy it never stops
 transport.
 
-The coordinator bounds readiness and each cleanup operation to ten seconds.
+The coordinator bounds preflight inspection plus context reservation to ten
+seconds, then gives listener preparation plus the final post-arm safety
+inspection a separate ten-second budget. Total pre-playback work is bounded to
+twenty seconds, not ten seconds per individual bridge read. There is one active
+deadline, replaced at the preparation boundary; an earlier preflight deadline
+must not truncate healthy preparation. Final ownership, recording and transport
+checks remain mandatory before playback. Readiness progress and timeout events
+retain the bounded `readinessBoundary` (`initial-inspection`,
+`context-reservation`, `listener-preparation` or `post-arm-inspection`); a
+timeout does not imply that the device failed to acknowledge arm.
+Each cleanup operation remains bounded to ten seconds.
 An unresponsive disarm or monitor-release adapter produces a visible failed pass
 even when the original request was cancellation.
 The playback/capture wall-clock budget starts at the playback mutation boundary;

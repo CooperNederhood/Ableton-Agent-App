@@ -4,6 +4,26 @@ Companion specification: [Playback Listening](playback-listening.md).
 
 ## Current priority: developer dogfood
 
+The delivered developer build failed immediately in ordinary use. Prior
+controlled successes below are not packaged Desktop acceptance.
+
+- [x] Trace developer timeout `d3987415`: native prepare/arm acknowledged;
+  the original ten-second coordinator timer expired in final safety inspection.
+- [x] Reproduce cumulative healthy-stage timeout before the fix. Separate
+  bounded preflight/reservation and preparation/final-inspection budgets;
+  preserve all safety checks, capture deadlines and cleanup.
+- [x] Cover healthy cumulative setup beyond ten seconds, stalled post-arm
+  inspection, traced boundary/timing, no playback/publication on timeout and
+  listener/quota release. Retain cancellation and takeover regressions.
+- [x] Rerun the reviewed fractional native scenario on the fixed source:
+  pass `47da7d1b`, 84,000 frames/18 windows, independent native proof, durable
+  typed context/reopen and all nine postconditions. This remains runtime,
+  not packaged Desktop, evidence.
+- [ ] Prove one clean first-attempt short capture in the rebuilt production
+  package, independently verify context and retrieve it after restart.
+  Blocked before the package window opened by macOS Keychain access for the
+  new local signature. No message, listening pass or context was generated.
+
 The user-approved target is a usable developer build plus documented weak spots,
 not exhaustive certification. See the
 [dogfood handoff and user checklist](playback-listening-dogfood.md).

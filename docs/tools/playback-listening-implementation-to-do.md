@@ -53,6 +53,11 @@ controlled successes below are not packaged Desktop acceptance.
   failure before sending its first listening request. Retain exact-PID native
   samples and consent chronology; do not infer a post-consent hang from an
   earlier sample or substitute environment credentials.
+  PID55998's consent prompt preceded its sample, with no matching approval;
+  next requires a human-attended exact-candidate authorization check.
+- [ ] Bound packaged-test graceful close and exact-owned fallback cleanup so
+  a blocked native Keychain call cannot obscure the original first-window
+  failure or prevent profile cleanup. Add controlled timeout/failure tests.
 - [x] Run the full unit command after diagnostic changes: 2,108 TypeScript,
   596 Max and 212 Python tests passed. Repair the rehoming regression's
   premature asynchronous terminal assertion; preserve its failure log and do

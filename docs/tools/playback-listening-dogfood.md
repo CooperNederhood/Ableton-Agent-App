@@ -150,9 +150,13 @@ The newly signed arm64 diagnostic package has `app.asar` SHA-256
 Its real-vault regression again failed before the first window, at owned
 PID 55998, and then exceeded teardown's deadline. The native sample and failure
 trace are retained. No listening request was submitted and no packaged
-qualification run is counted. Earlier securityd records establish real consent
-prompts for earlier startup attempts; they do not alone explain this new
-process or prove a post-consent application hang.
+qualification run is counted. Exact-PID securityd records now establish the
+consent prompt at 13:10:50.370 -0400, before its 13:11:05.285 native wait sample;
+no matching approval was found. Earlier PID 88059's sample likewise preceded
+its matching approval. Neither establishes a post-consent application hang.
+The next startup check must be human-attended so the genuine OS prompt can be
+handled without an unattended timeout or credential bypass. The test's blocked
+graceful-close path is separately being corrected with unit regressions.
 
 The full unit command now passes 2,108 TypeScript, 596 Max and 212 Python tests.
 Its initial run exposed a premature rehoming-test assertion: session fields can

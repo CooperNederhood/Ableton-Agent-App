@@ -45,6 +45,17 @@ retrieval. None is counted from these diagnostic or source runs. Older timing
 and spectrum failures without rejected operands cannot be retroactively proven
 to have the same cause.
 
+The paired candidate is frozen from source `9c53154`: the ad-hoc signed arm64
+App verifies with CodeDirectory hash
+`9c0d59d71c6334e0b44c7c1af1b0777f8215031b` and unchanged `app.asar` SHA-256
+`324ddb928889734186efe3265e86454b6b43db1d844500903ceb757846fc97b6`.
+The fixed external native bundle is separately pinned by manifest SHA-256
+`64fa4693763bacc6c40d8189fd10265f2ec23e014bcbd627fb1b25ca6eef9a61`;
+the normally saved device bytes remain unchanged. An isolated paired fixture
+and App profile are prepared, but this candidate has not been launched for
+packaged qualification. App identity alone does not pin the external device's
+JS/graph resources.
+
 ## Earlier capture and startup receipts
 
 The fixed source passed 1,023 application/runtime/Desktop/owned-host tests,

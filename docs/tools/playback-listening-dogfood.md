@@ -2,7 +2,7 @@
 
 ## Target and limits
 
-**Current status: ready for bounded human verification, not release certified.**
+**Current status: bounded normal-profile human MVP check passed, not release certified.**
 The corrected signed candidate passed **three consecutive natural Default-agent
 workflows**, each with fresh owned Live/App processes, an isolated profile,
 ordinary approvals, exactly one capture and zero failed/corrected actor calls.
@@ -28,7 +28,7 @@ separate attended companion's call budget.
 
 ## Human verification example
 
-An unopened generated copy is prepared at
+A generated copy is available at
 `.test-artifacts/machine-listening-human-example-9941556/project/AA_NATIVE_DEVELOPER_DOGFOOD.als`.
 It includes the paired device, 26 resources and three calibration audio files;
 only its copied discovery configuration targets the shared resolver's `default`
@@ -47,7 +47,17 @@ profile. Preparation did not modify the normal profile or original developer Set
    and open Outputs/View observation: the same result must remain available
    without another listening pass.
 
-This normal-profile human check has **not** been executed automatically.
+The developer completed this check manually in profile `default` with agent
+`Default`, after confirming Connected and saving Descriptive/64 settings.
+Reported pass `017e9804-969c-41b7-93e3-30bbb553af5e` produced context
+`90d5e6f8-99bc-445c-8bb2-e20ff21a5902`, with RMS approximately -12.16 dBFS,
+peak 0.5, mean centroid approximately 453 Hz and four estimated attacks.
+After fully quitting and reopening the App, the developer confirmed that exact
+context, pass ID and measurements remained available without another capture.
+This is human-reported desktop acceptance, not a separate independent native
+proof audit of that normal-profile pass. The three isolated runs above retain
+their independent machine verification.
+
 The M4L development panel still has static legacy “Capture not enabled yet”
 wording; it is not the native backend's pass status. Use the App's correlated
 pass, stored context and History, not that placeholder, as the result.

@@ -14,9 +14,12 @@ ordinary approvals and no actor failures, corrections or recaptures. Each
 84,000-sample/18-window observation survives full App restart and production
 renderer/preload/main retrieval with unchanged IDs/payload. Source hashes and
 exact process cleanup pass. See the developer checklist for pins, receipts,
-known limits and the unopened normal-profile human example. This qualifies that
-bounded developer workflow on Live 11.3.43, not general release, physical timing,
-or a completed normal-profile human check.
+known limits and the normal-profile human example. The developer subsequently
+reported normal-profile pass `017e9804` / context `90d5e6f8`, matching calibration
+measurements, and confirmed the same IDs/measurements after full App restart
+without recapture. That human-reported acceptance is separate from independent
+machine verification of the isolated runs. This qualifies the bounded developer
+workflow, not general release or physical timing accuracy.
 
 Native v2 failure snapshots now use the existing generation-owned
 `nativeFailureDiagnostic` route for alignment and FFT sequence rejections.

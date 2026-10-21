@@ -113,9 +113,13 @@ controlled successes below are not packaged Desktop acceptance.
 - [x] Prepare an unopened default-profile-bound Set/device/audio example and
   exact signed build for human verification; leave the normal profile and
   original source Set unchanged.
-- [ ] Complete normal-profile human verification. Static M4L development-panel
-  placeholder wording is not native capture status; the App owns pass progress
-  and results. Release/Live 11.3.42-specific qualification remains separate.
+- [x] Complete normal-profile human verification. The developer reported pass
+  `017e9804` / context `90d5e6f8` with the expected calibration measurements,
+  then confirmed that exact context, pass and measurements after full App exit
+  and reopen without recapture. This is human-reported desktop acceptance,
+  separate from the independently verified isolated runs. Static M4L
+  development-panel wording remains a known limitation; release and
+  Live 11.3.42-specific qualification remain separate.
 
 The user-approved target is a usable developer build plus documented weak spots,
 not exhaustive certification. See the

@@ -80,7 +80,7 @@ function v2Fixture(options = {}) {
       sample,
       31,
       counter,
-      beat % 1,
+      playing ? beat % 1 : (options.stoppedPhase ?? beat % 1),
       counter,
       Number(playing),
       beat,

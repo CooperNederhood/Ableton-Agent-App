@@ -581,6 +581,15 @@ class NativeCaptureController {
           ),
           observedBeatDisagreementSamples: null,
         });
+      // The message-rate host can report playing before plugphasor~ leaves
+      // its stopped value. Do not turn that startup bracket into capture proof.
+      if (
+        this.state === "armed" &&
+        previous?.[0] === 0 &&
+        row[0] === 1 &&
+        row[5] === previous[5]
+      )
+        return this.rejectBracket(p, "native_launch_phase_pending");
       nativeV2RetainTiming(p.timingWitnesses, row, p.command.geometry);
       if (
         this.engine.pass?.startSample !== null &&

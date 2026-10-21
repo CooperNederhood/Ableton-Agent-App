@@ -4,6 +4,43 @@ Companion specification: [Playback Listening](playback-listening.md).
 
 ## Current priority: developer dogfood
 
+### Reopened: edited-session sequences and whole-beat starts
+
+- [x] Preserve read-only History evidence for original success `017e9804`,
+  source rejection `c42c4eb6` and launch rejections `6de4abd8` / `2f7412ed`,
+  without changing or closing the user's edited Set. Retain exact native
+  operands and bounded traces in private diagnostic artifacts.
+- [x] Confirm the exact original 0.25–3.75 request succeeds again in the same
+  App session (`effa569f` / context `793afcce`). Do not equate this range with
+  0–4 or treat project revision increments as proof of edit causality.
+- [x] Reproduce the recorded launch snapshots at the narrow controller layer
+  before changing acquisition: host reports playing while native phase still
+  equals its stopped-anchor value. Clock disagreements are 32 samples; beat/
+  phase disagreements are 5,888 and 320, beyond the default 64-sample budget.
+  Distinguish stale startup evidence from genuine capture drift and preserve
+  strict-zero, FFT completeness, ownership and failure/cancellation guards.
+- [x] Compare actual conversation tool arguments, arm baselines and successful
+  native proofs. Listener/instance/connection, 120 BPM, 48 kHz/vector64, default
+  descriptive64 and maximumDurationMs8000 match. The successful first-playing
+  witnesses already have updated signal phase; failed witnesses still equal
+  their stopped-anchor phase. Source positioning/native arm succeeded in both
+  timing failures. This is startup polling order, not a proven edit/whole-beat
+  restriction; controlled fractional startup reproduces the same failure.
+- [x] Add nine startup regressions; seven fail without the fix, all pass with
+  it. While armed, boundedly reacquire first-playing rows whose phase remains
+  stopped before retaining timing evidence or consuming the launch packet.
+  Retain host-offset enforcement before reacquisition, genuine changing-phase
+  drift and strict-zero failure, complete native proof for starts0/0.25/4,
+  cancellation and stale-generation rejection. Full Max suite: 619 passed.
+- [ ] Diagnose the separate initial `arrangement_source_unknown` rejection.
+  The runtime guard rejects a listener whose Session override is not explicitly
+  false; retained failure events do not establish whether it was true or unknown.
+- [ ] Qualify the changed source candidate with repeated passes,
+  whole-beat ranges, controlled edits and recovery in one runner-owned Live
+  process. Existing fresh-launch/restart qualification is not this coverage.
+
+### Previously qualified bounded workflow
+
 The delivered developer build failed immediately in ordinary use. Prior
 controlled successes below are not packaged Desktop acceptance.
 

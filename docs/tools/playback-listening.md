@@ -21,6 +21,38 @@ without recapture. That human-reported acceptance is separate from independent
 machine verification of the isolated runs. This qualifies the bounded developer
 workflow, not general release or physical timing accuracy.
 
+**Reopened: repeated listening and whole-beat starts.** Subsequent normal-profile
+passes at beats 4–12 and 0–4 failed at native launch alignment after Set edits;
+an earlier 4–12 attempt failed source validation. The exact original 0.25–3.75
+request then succeeded again (`effa569f` / context `793afcce`), confirmed by
+application History. This does not establish that edits caused the failures or
+that the session stayed broken. Both retained launch snapshots show 32 samples
+of clock disagreement, but beat/phase disagreement of 5,888 and 320 samples,
+respectively, against the unchanged 64-sample budget. In each rejected row the
+native phase equals its stopped-anchor value although the host reports playing.
+The exact tool arguments, native arm baselines and completed native proofs now
+establish a startup acquisition race: message-rate host playing can precede the
+signal-rate phase update. The controller admitted the still-stopped phase as a
+playing timing witness, then rejected it when a valid native launch marker
+arrived. Successful calls first admitted already-updated phase rows. A controlled
+fractional-start replay also fails without the fix, so whole beats are not an
+inherent restriction or an established cause.
+
+The source candidate now keeps such first-playing brackets out of timing
+witnesses while armed, until phase differs from the last stopped row. It uses
+the existing bounded rejection limit and traced progress reason
+`native_launch_phase_pending`; the native launch packet remains pending.
+Host-offset limits are checked before reacquisition, and normal alignment,
+genuine moving-phase drift and FFT completeness checks remain unchanged.
+Seven of nine new regressions fail without the fix; all nine pass with it,
+including independently verified native coverage for starts 0, 0.25 and 4,
+bounded failure, strict-zero, cancellation and replacement-generation isolation.
+The full Max owning suite passes 619 tests. This is source/unit evidence, not
+installation or real-Live qualification of the new candidate. Fresh-process
+qualification above does not cover this edited-session sequence. The earlier
+source rejection remains separate: its actual Session-override tri-state was
+not retained in the inspection failure and cannot be recovered from that event.
+
 Native v2 failure snapshots now use the existing generation-owned
 `nativeFailureDiagnostic` route for alignment and FFT sequence rejections.
 Alignment snapshots preserve the exact rejecting check, anchor, previous and

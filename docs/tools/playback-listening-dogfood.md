@@ -1,8 +1,68 @@
 # Playback Listening Developer Dogfood
 
+## Updated timing-fix example
+
+**The reproduced launch/whole-beat timing defects are fixed at `98e30c8` and
+`5b6c5d1`, with failing-before/passing-after regressions.** Full Max ownership:
+629 tests; owning runner/device suites: 329 tests. The clean native bundle,
+without diagnostic overrides, passes all four reviewed real-Live descriptive
+scenarios, including the previously failing 0-4 and 4-12 ranges.
+
+Four additional ordinarily approved Default-agent captures complete in the
+same packaged App/Live processes, with manual Stop between requests:
+
+| Beats | Pass | Samples / windows |
+| --- | --- | --- |
+| 0.25-3.75 | `90972702-d9cc-4815-8fea-66cc36bb1f7b` | 84,000 / 18 |
+| 0-4 | `f1af9238-a1ed-433e-94e1-ef650ce97e31` | 96,000 / 20 |
+| 4-12 | `93615467-8b27-4806-8694-4fe0345cfb71` | 192,000 / 40 |
+| 0.25-3.75 | `a0ecd6f7-949c-4ed7-9ad3-13a01bc70218` | 84,000 / 18 |
+
+Independent verification checks native proofs, all four stored observations,
+eight range/contributor links, attribution and unchanged source Set bytes.
+After full App restart, all four original payload hashes match through
+production renderer/preload/main retrieval. Outputs renders the original IDs
+and selected context `15727646-8015-420c-b09b-0fb6a8d16e0e`, including its
+original sample bounds. Both owned Apps and dedicated Live are closed.
+The separate unsupported-stop turn and earlier setup failures remain retained.
+This is bounded repeat/restart evidence, not three new clean fresh-process
+workflows, controlled-edit qualification or resolution of the historical
+`arrangement_source_unknown` tri-state.
+
+**No App reinstall is required.** The fixed external native companions are
+pinned by manifest
+`c395d19d8df59e1e729d6aee826f4ab1726ce625ab592921813604f3fdac3846`;
+the signed App and normally saved device bytes are unchanged. Open a fresh
+Live process to load these companions. The distinct prepared Set is:
+`.test-artifacts/machine-listening-human-example-startup-fix/project/AA_NATIVE_DEVELOPER_DOGFOOD.als`.
+Its receipt is `.test-artifacts/machine-listening-human-example-startup-fix.json`.
+The normal profile, original Set, old example and installed App were untouched.
+
+1. Open this updated Set in Live 11 with recording off and transport stopped.
+2. Open `release/mac-arm64/Ableton Agent.app`, select profile `default` and
+   agent `Default`, and wait for Connected. Keep Descriptive/64 settings.
+3. Ask: "Use the listener on track 3-ML-Calibration-quarter-sine to listen to
+   Arrangement beats 0 through 4, at most 8 seconds. Use exactly one capture,
+   retrieve its saved observation, and report the pass/context IDs. Leave
+   playback running, change no contents, and stop without retrying if it fails."
+   Approve the bounded playback request. Expect 96,000 samples/20 windows at
+   48 kHz, peak 0.5 and RMS approximately -12.16 dBFS.
+4. **Stop Live manually before every further listen.** The pinned agent
+   catalogue cannot stop transport, and capture intentionally leaves it running.
+   Repeat with beats 0.25-3.75 and 4-12. This example's 4-12 interval is silent
+   on the listener track; expect completed silent measurements, not audio
+   from another track. A track-scoped listener does not hear other tracks.
+5. Fully quit/reopen the App and use Outputs/View observation to retrieve the
+   same saved results without recapture. Freshness and exclusive clip
+   attribution remain unknown.
+
+The remaining sections retain the **earlier `9941556` native-bundle**
+qualification and human check. Their three-fresh-process result does not
+qualify the changed native bundle above.
+
 ## Target and limits
 
-**Current status: bounded normal-profile human MVP check passed, not release certified.**
+**Historical status: bounded normal-profile human MVP check passed, not release certified.**
 The corrected signed candidate passed **three consecutive natural Default-agent
 workflows**, each with fresh owned Live/App processes, an isolated profile,
 ordinary approvals, exactly one capture and zero failed/corrected actor calls.
@@ -28,7 +88,7 @@ separate attended companion's call budget.
 
 ## Human verification example
 
-A generated copy is available at
+The earlier generated copy is available at
 `.test-artifacts/machine-listening-human-example-9941556/project/AA_NATIVE_DEVELOPER_DOGFOOD.als`.
 It includes the paired device, 26 resources and three calibration audio files;
 only its copied discovery configuration targets the shared resolver's `default`

@@ -42,7 +42,7 @@ Companion specification: [Playback Listening](playback-listening.md).
 - [x] Isolate the subsequent first-beat failure using explicitly diagnostic-only
   native probes with disjoint rejection classes. The unwrapped input exceeds
   one by less than nano-resolution; after normalization, 63 stationary phase
-  samples precede a 64-sample advance. Earlier overlapping numeric probe codes
+  samples precede a 64-sample advance at diagnostic precision. Earlier overlapping numeric probe codes
   are not sufficient to classify the failed guard by themselves.
 - [x] Add red-before/green-after endpoint and elapsed-phase regressions at both
   supported rates. Normalize at most 1e-9 upper phase excess; require catch-up
@@ -60,17 +60,35 @@ Companion specification: [Playback Listening](playback-listening.md).
   handoff. The pinned signed Default-agent catalogue does not expose transport
   stop; manually stop Live between captures, which intentionally leave it
   running. Preserve the unsupported-stop turn rather than claiming it captured.
+- [x] Verify four packaged Default-agent captures in the same owned App/Live
+  processes: 0.25-3.75, 0-4, 4-12, then 0.25-3.75. Independently verify native
+  proof, 84k/96k/192k/84k samples, 18/20/40/18 windows, four stored observations,
+  eight range/contributor links, trace attribution and unchanged source Set.
+  No failed capture or retry; manually stop transport between requests.
+  Retain the unsupported-stop turn and earlier bootstrap failures separately.
+  The fixture's 4-12 interval is silent on this track, not newly edited audio.
+- [x] Fully restart the same signed App/profile without recapture; retrieve
+  all four original observations through production renderer/preload/main IPC
+  and verify unchanged payload hashes. Inspect Outputs and the selected
+  observation's original IDs and sample bounds. Close both exact-owned App
+  processes and the dedicated Live process before human handoff.
+- [x] Stage the distinct `machine-listening-human-example-startup-fix` Set
+  with the qualified native companions, no diagnostic source overrides and
+  default-profile discovery. Leave the normal profile, old example, original
+  Set and installed App untouched; no App reinstall is required.
 - [ ] Diagnose the separate initial `arrangement_source_unknown` rejection.
   The runtime guard rejects a listener whose Session override is not explicitly
   false; retained failure events do not establish whether it was true or unknown.
-- [ ] Qualify the changed source candidate with repeated passes,
-  whole-beat ranges, controlled edits and recovery in one runner-owned Live
-  process. Existing fresh-launch/restart qualification is not this coverage.
+- [ ] Qualify controlled edits and recovery in one runner-owned Live process,
+  plus three clean fresh-process packaged workflows for the changed native
+  bundle. The four successful same-process captures above do not replace
+  those gates; historical fresh-launch/restart qualification used the old bundle.
 
 ### Previously qualified bounded workflow
 
-The delivered developer build failed immediately in ordinary use. Prior
-controlled successes below are not packaged Desktop acceptance.
+Later ordinary repeated use reopened qualification. The historical accepted
+fractional workflows below do not qualify the updated bundle or edited-session
+behavior.
 
 - [x] Trace developer timeout `d3987415`: native prepare/arm acknowledged;
   the original ten-second coordinator timer expired in final safety inspection.

@@ -8,7 +8,7 @@ Architecture decision:
 
 ## Current target: developer dogfood
 
-The signed arm64 candidate built from `9941556` now passes three consecutive
+The signed arm64 candidate built from `9941556` previously passed three consecutive
 natural Default-agent packaged workflows with fresh isolated App/Live processes,
 ordinary approvals and no actor failures, corrections or recaptures. Each
 84,000-sample/18-window observation survives full App restart and production
@@ -18,8 +18,9 @@ known limits and the normal-profile human example. The developer subsequently
 reported normal-profile pass `017e9804` / context `90d5e6f8`, matching calibration
 measurements, and confirmed the same IDs/measurements after full App restart
 without recapture. That human-reported acceptance is separate from independent
-machine verification of the isolated runs. This qualifies the bounded developer
-workflow, not general release or physical timing accuracy.
+machine verification of the isolated runs. Those historical checks qualify the
+original fractional workflow, not the updated native bundle, general release or
+physical timing accuracy.
 
 **Reopened: repeated listening and whole-beat starts.** Subsequent normal-profile
 passes at beats 4–12 and 0–4 failed at native launch alignment after Set edits;
@@ -53,8 +54,8 @@ a second failure after four windows of a 0-4 capture. Disjoint diagnostic-only
 native rejection codes established an upper phase endpoint greater than one
 whose excess rounded to zero at 1e-9 resolution. Exact input bits were not
 retained. After normalizing that representation boundary, a separate native
-witness established 63 stationary phase samples followed by an exact 64-sample
-advance (previous/current phase positions rounded to 0/64 samples). The prior
+witness established 63 stationary phase samples followed by a 64-sample advance
+at diagnostic precision (previous/current positions rounded to 0/64 samples). The prior
 guard allowed the stationary interval, but incorrectly required the eventual
 advance to represent only one sample.
 
@@ -86,9 +87,26 @@ The clean candidate, without diagnostic Gen overrides, now completes real 0-4
 and 4-12 captures individually and the entire four-scenario descriptive group
 (fractional, 0-4, 4-12 and 30 seconds), including independent native coverage,
 durable context, unchanged binding/recording and owned cleanup. The seven
-owning runner/device test files pass 329 tests. This is not yet same-process
-repeat/edit or packaged UI qualification of the updated device. The earlier
-source rejection remains separate: its actual Session-override tri-state was
+owning runner/device test files pass 329 tests. Fixes are committed at `98e30c8`
+and `5b6c5d1`; the native bundle manifest is
+`c395d19d8df59e1e729d6aee826f4ab1726ce625ab592921813604f3fdac3846`.
+
+The unchanged signed App now also completes four ordinarily approved Default-agent
+captures in the same owned App/Live processes: 0.25-3.75, 0-4, 4-12, then
+0.25-3.75 again. Independent native/context verification establishes respectively
+84,000/96,000/192,000/84,000 samples and 18/20/40/18 windows, four persisted
+observations, eight range/contributor links, original attribution and unchanged
+source Set bytes. After full App restart, all four observations are retrieved
+through the production renderer/preload/main API with unchanged payload hashes;
+Outputs renders the original IDs and selected observation's sample bounds.
+No capture failed or retried. Playback was stopped manually between captures;
+a separate unsupported agent stop request is retained, not counted as a capture.
+The 4-12 interval is silent on the fixture listener's track: this verifies
+timing/coverage, not new audio or edits on other tracks. This bounded repeated-use
+check does not replace three fresh-process packaged workflows for the changed
+bundle or establish controlled-edit/recovery behavior.
+
+The earlier source rejection remains separate: its actual Session-override tri-state was
 not retained in the inspection failure and cannot be recovered from that event.
 Generation-owned numeric envelope rejection details and startup reacquisition
 progress now reach typed History through `output.listener.native.progress`;

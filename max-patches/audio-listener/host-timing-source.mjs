@@ -120,7 +120,9 @@ else { clock = clock - clockLow - (clockHigh - 16777216) * 1048576; }`;
  * The first phase transition resolves a nearby requested origin, not absolute
  * accuracy: vector retention is a bounded assumption awaiting Max qualification.
  * in4 is the continuously running native counter; no scheduler timestamps.
- * Only the exact closed endpoint1 aliases0; overshoot remains invalid.
+ * The closed endpoint and at most 1e-9 upper representation excess alias0.
+ * This is at most 0.000144 sample at the largest supported beat length.
+ * A phase change must account for every sample since its last change.
  */
 export function descriptiveHostTimingCode({
   extraState = "",
@@ -136,7 +138,7 @@ History sealedEpoch(0);
 History passTotal(0); History passHop(0); History passTempo(0);
 History passFraction(0); History passVector(0); History passRate(0);
 ${extraState}
-periodicPhase = in1 == 1 ? 0 : in1;
+periodicPhase = in1 >= 1 && in1 - 1 <= 0.000000001 ? 0 : in1;
 ${DESCRIPTIVE_CONFIG_VALID}
 reportSamples = configValid ? floor((totalSamples + hopSamples - 1) / hopSamples) * hopSamples : 0;
 newRequest = epoch != seenEpoch && epoch != 0;
@@ -197,7 +199,7 @@ if (armed > 0 && periodicPhase != previousPhase) {
 } else if (active > 0 && periodicPhase != previousPhase) {
  phaseStep = periodicPhase - previousPhase;
  if (phaseStep < 0) { phaseStep = phaseStep + 1; }
- if (abs(phaseStep * beatSamples - 1) > 0.01) {
+ if (abs(phaseStep * beatSamples - (stablePhaseSamples + 1)) > 0.01) {
   active = 0; rejected = 14;
  }
 }

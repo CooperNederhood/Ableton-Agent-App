@@ -408,11 +408,11 @@ test("actual read-only rejection row preserves the armed counter and replays nat
   assert.equal(observed.rejectedCounterNonzero, true);
   assert.equal(observed.observedPassMatchesActorJob, true);
   const f = v2Fixture();
+  f.controller.prepare(f.command);
   f.controller.state = observed.controllerState;
-  const pass = {
-    nativeEpoch: observed.nativeEpoch,
-    armed: { armCounter: observed.originalArmCounter },
-  };
+  const pass = f.controller.pass;
+  pass.nativeEpoch = observed.nativeEpoch;
+  pass.armed = { armCounter: observed.originalArmCounter };
   assert.throws(() => f.controller.envelope(pass, observed.rejectedRow), {
     message: observed.originalErrorMessage,
   });

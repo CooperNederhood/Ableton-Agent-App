@@ -204,6 +204,42 @@ test("v2 registration reports actual DSP rate and vector without inferring captu
   }
 });
 
+test("v2 startup and envelope-rejection progress reaches the typed wire before the unchanged failure", async () => {
+  const f = fixture();
+  try {
+    await f.start();
+    const p = f.runtime.nativeController.pass;
+    f.runtime.nativeController.local(
+      p,
+      "progress",
+      "native_launch_phase_pending",
+    );
+    const packet = f.envelope();
+    packet[4] = 14;
+    f.packet("envelope", packet);
+    const reasons = f.wire
+      .filter((frame) => frame.status === "progress")
+      .map((frame) => frame.nativeLifecycle?.reason);
+    assert(reasons.includes("native_launch_phase_pending"));
+    const reason = `native_envelope_binding_r14_a${f.armCounter}_e${f.armCounter}_p${packet[6]}`;
+    assert(reasons.includes(reason));
+    const progress = f.wire.find(
+      (frame) => frame.nativeLifecycle?.reason === reason,
+    );
+    assert.equal(progress.nativeLifecycle.scope, "arrangement-descriptive/v2");
+    assert.equal(progress.nativeLifecycle.generation, p.generation);
+    assert.equal(progress.traceId, f.command.traceId);
+    assert.equal(progress.correlationId, f.command.correlationId);
+    assert.equal(progress.passId, f.command.passId);
+    assert(progress.nativeLifecycle.elapsedMs >= 0);
+    assert.equal(f.wire.filter((frame) => frame.status === "failed").length, 1);
+    assert.equal(f.wire.at(-1).reason, "native_envelope_binding_changed");
+    f.stopReceipt(p.generation);
+  } finally {
+    f.runtime.stop();
+  }
+});
+
 for (const rate of [44100, 48000]) {
   test(`explicit v2 ${rate}Hz runtime composes traced controls and App-valid proof without changing v1 registration`, async () => {
     const f = fixture({ rate, total: (rate / 10) * 299 + 1 });

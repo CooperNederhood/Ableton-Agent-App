@@ -51,6 +51,8 @@
       "id": "native-listening-descriptive",
       "scenarios": [
         "native-descriptive-fractional",
+        "native-descriptive-startup-0-4",
+        "native-descriptive-startup-4-12",
         "native-descriptive-30-seconds"
       ]
     }

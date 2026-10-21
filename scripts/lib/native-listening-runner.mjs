@@ -5,6 +5,7 @@ import { isDeepStrictEqual } from "node:util";
 
 import { stageNativeListeningFixture } from "./native-listening-fixture.mjs";
 import { createNativeRunnerLifecycle } from "./native-listening-lifecycle.mjs";
+import { waitForNativeBridge } from "./native-bridge-readiness.mjs";
 import {
   createNativeScenarioApproval,
   inspectNativeListeningPostconditions,
@@ -57,6 +58,20 @@ const v2Scenarios = Object.freeze({
     maximumDurationMs: 8000,
     timeoutMs: 60000,
     artifactPrefix: "AA_SMOKE_NV2_FRAC_",
+  }),
+  "native-descriptive-startup-0-4": Object.freeze({
+    startBeat: 0,
+    endBeat: 4,
+    maximumDurationMs: 8000,
+    timeoutMs: 60000,
+    artifactPrefix: "AA_SMOKE_NV2_START_0_4_",
+  }),
+  "native-descriptive-startup-4-12": Object.freeze({
+    startBeat: 4,
+    endBeat: 12,
+    maximumDurationMs: 8000,
+    timeoutMs: 60000,
+    artifactPrefix: "AA_SMOKE_NV2_START_4_12_",
   }),
   "native-descriptive-30-seconds": Object.freeze({
     startBeat: 0.25,
@@ -253,6 +268,7 @@ export async function createNativeListeningRunner({
   environment,
   runId,
   services = undefined,
+  waitForBridge = waitForNativeBridge,
 }) {
   const d = services ?? (await loadNativeRunnerServices());
   const reviewed = reviewNativeScenario(manifest);
@@ -504,6 +520,12 @@ export async function createNativeListeningRunner({
           }),
         );
         await lifecycle.stage("signal-start", () => runtime.signals.start());
+        const { port } = d.resolveAbletonSettingsFromEnvironment(environment);
+        await lifecycle.stage(
+          "bridge-readiness",
+          () => waitForBridge({ port, validateOwnership }),
+          { host: "127.0.0.1", port, timeoutMs: 60000 },
+        );
         await lifecycle.stage("application-start", () =>
           runtime.application.start({ startAgent: true }),
         );

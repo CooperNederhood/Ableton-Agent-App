@@ -20,7 +20,8 @@ const archive = JSON.parse(archiveText);
 const code = (document) => document.patcher.boxes[0].box.code;
 const current = () => nativeRuntimeDocuments({ nativeVersion: 2 });
 const envelope = () => code(current()[genName]);
-const canonicalAssignment = "periodicPhase = in1 == 1 ? 0 : in1;\n";
+const canonicalAssignment =
+  "periodicPhase = in1 >= 1 && in1 - 1 <= 0.000000001 ? 0 : in1;\n";
 
 function fixture({
   rate = 48000,
@@ -31,6 +32,7 @@ function fixture({
   launch = 128,
   stopped = 0.75,
   dense = true,
+  compare = true,
   source = () => [0.25, -0.25],
 } = {}) {
   // Gold model uses the immutable prior Gen with only its input canonicalized.
@@ -46,18 +48,21 @@ function fixture({
     gold.configure(settings);
     candidate.configure(settings);
   };
-  const step = (phase = stopped, counterOverride) => {
+  const step = (phase = stopped, counterOverride, referencePhase = phase) => {
     const nativeCounter = counterOverride ?? counter;
     const [left, right] = source(nativeCounter);
     const expected = gold.step(
-      phase === 1 ? 0 : phase,
+      referencePhase >= 1 && referencePhase - 1 <= 1e-9 ? 0 : referencePhase,
       left,
       right,
       nativeCounter,
     );
     row = candidate.step(phase, left, right, nativeCounter);
     counter++;
-    if (dense || clock < 256 || row[4] !== 0 || row[12] !== previousCount)
+    if (
+      compare &&
+      (dense || clock < 256 || row[4] !== 0 || row[12] !== previousCount)
+    )
       assert.deepEqual(
         row,
         expected,
@@ -82,9 +87,13 @@ function fixture({
     const phase = (fraction + (tick - launch) / ((rate * 60) / tempo)) % 1;
     return closed && phase === 0 ? 1 : phase;
   };
-  const advance = (phase, counterOverride) => {
+  const advance = (phase, counterOverride, referencePhase) => {
     clock++;
-    return step(phase === undefined ? natural(clock) : phase, counterOverride);
+    return step(
+      phase === undefined ? natural(clock) : phase,
+      counterOverride,
+      referencePhase,
+    );
   };
   return {
     gold,
@@ -106,7 +115,83 @@ function fixture({
     },
   };
 }
-test("archive predates correction and only exact equality canonicalization plus consistent phase uses change", () => {
+
+for (const rate of [44100, 48000]) {
+  test(`native 63-sample endpoint hold catches up by exactly 64 samples without losing audio at ${rate}`, () => {
+    const f = fixture({ rate, total: rate });
+    f.to(128 + rate / 2);
+    for (let offset = 1; offset <= 63; offset++) {
+      f.advance(1 + 1e-12, undefined, offset / (rate / 2));
+      assert.equal(f.row[4], 0);
+    }
+    f.advance(64 / (rate / 2));
+    assert.equal(f.row[4], 0);
+    f.to(128 + rate + 128);
+    assert.equal(f.row[12], rate);
+    assert.equal(f.rows.length, 10);
+    assert.equal(f.row[4], 0);
+  });
+  test(`phase catch-up is earned by elapsed samples, not a wider drift budget at ${rate}`, () => {
+    const beatSamples = rate / 2;
+    for (const held of [0, 1, 31, 63]) {
+      for (const residual of [0, 0.009, -0.009, 0.02, -0.02]) {
+        const f = fixture({ rate, total: rate, compare: false });
+        f.to(128 + beatSamples);
+        for (let i = 0; i < held; i++) assert.equal(f.advance(0)[4], 0);
+        const row = f.advance((held + 1 + residual) / beatSamples);
+        assert.equal(row[4], Math.abs(residual) > 0.01 ? 14 : 0);
+        if (row[4] !== 0) {
+          assert.equal(row[5], 0);
+          f.configure({ epoch: 0 });
+          assert.equal(f.step(0)[22], 0);
+        }
+      }
+    }
+    const unearned = fixture({ rate, total: rate, compare: false });
+    unearned.to(128 + beatSamples);
+    assert.equal(unearned.advance(64 / beatSamples)[4], 14);
+  });
+  test(`a whole-vector phase stall and cancellation remain terminal at ${rate}`, () => {
+    const stalled = fixture({ rate, total: rate, compare: false });
+    stalled.to(128 + rate / 2);
+    for (let i = 0; i < 63; i++) assert.equal(stalled.advance(0)[4], 0);
+    assert.equal(stalled.advance(0)[4], 3);
+    assert.equal(stalled.advance(64 / (rate / 2))[5], 0);
+    const cancelled = fixture({ rate, total: rate, compare: false });
+    cancelled.to(128 + rate / 2);
+    for (let i = 0; i < 31; i++) cancelled.advance(0);
+    cancelled.configure({ cancel: 1 });
+    assert.equal(cancelled.advance(32 / (rate / 2))[4], 4);
+    assert.equal(cancelled.row[5], 0);
+    cancelled.configure({ epoch: 0, cancel: 0 });
+    assert.equal(cancelled.step(0)[22], 0);
+    cancelled.configure({ epoch: 1 });
+    assert.equal(cancelled.step(0)[4], 4);
+    assert.equal(cancelled.row[5], 0);
+    assert.equal(cancelled.row[22], 0);
+  });
+  test(`sub-nanophase upper endpoint aliases zero without changing exact capture at ${rate}`, () => {
+    // Native classification proves >1 with nano-excess rounding to zero;
+    // these representative doubles are not claimed as the recorded bits.
+    for (const phase of [1 + 2 ** -52, 1 + 1e-12, 1 + 2 ** -30]) {
+      const f = fixture({ rate, total: rate });
+      f.to(128 + rate / 2 - 1);
+      f.advance(phase);
+      assert.equal(f.row[4], 0);
+      f.to(128 + rate + 128);
+      assert.equal(f.row[4], 0);
+      assert.equal(f.row[12], rate);
+      assert.equal(f.rows.length, 10);
+    }
+    for (const phase of [1 + 2 ** -29, 1.00001, -(2 ** -52)]) {
+      const f = fixture({ rate, total: rate });
+      f.to(128 + rate / 2 - 1);
+      assert.equal(f.advance(phase)[4], 14);
+      assert.equal(f.row[5], 0);
+    }
+  });
+}
+test("archive differs only in bounded endpoint normalization and elapsed-sample phase checks", () => {
   assert.equal(
     sha(archiveText),
     "b732aed30d37910c72362c790160758dd96f5087e5093e2dff3a8924d7c7b508",
@@ -119,8 +204,8 @@ test("archive predates correction and only exact equality canonicalization plus 
   assert.ok(text.includes(canonicalAssignment));
   assert.equal(
     (text.match(/\bin1\b/g) ?? []).length,
-    2,
-    "raw phase appears only in exact1 selector",
+    3,
+    "raw phase appears only in the bounded endpoint selector",
   );
   for (const fragment of [
     "phaseValid = periodicPhase >= 0 && periodicPhase < 1;",
@@ -130,10 +215,13 @@ test("archive predates correction and only exact equality canonicalization plus 
     "previousPhase = periodicPhase;",
   ])
     assert.ok(text.includes(fragment));
-  assert.ok(text.includes("if (abs(phaseStep * beatSamples - 1) > 0.01)"));
+  const stepGuard =
+    "if (abs(phaseStep * beatSamples - (stablePhaseSamples + 1)) > 0.01)";
+  assert.ok(text.includes(stepGuard));
   const reversed = text
     .replace(canonicalAssignment, "")
-    .replaceAll(/\bperiodicPhase\b/g, "in1");
+    .replaceAll(/\bperiodicPhase\b/g, "in1")
+    .replace(stepGuard, "if (abs(phaseStep * beatSamples - 1) > 0.01)");
   assert.equal(reversed, code(archive));
   const document = structuredClone(current()[genName]);
   document.patcher.boxes[0].box.code = reversed;
@@ -221,9 +309,9 @@ for (const rate of [44100, 48000]) {
     assert.equal(fractional.row[12], hop + 1);
     assert.equal(fractional.row[4], 0);
   });
-  test(`1 plus nearest representable overshoot, negatives/nonfinite and genuine jumps still fail at${rate}`, () => {
+  test(`out-of-bound excess, negatives/nonfinite and genuine jumps still fail at${rate}`, () => {
     for (const phase of [
-      1 + 2 ** -52,
+      1 + 2 ** -29,
       1.000000000000003,
       1.25,
       2,

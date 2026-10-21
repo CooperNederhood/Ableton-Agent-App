@@ -1,0 +1,56 @@
+{
+  "formatVersion": 1,
+  "id": "native-descriptive-startup-4-12",
+  "group": "native-listening-descriptive",
+  "execution": "native-listening-runtime",
+  "nativeVersion": 2,
+  "prompt": "Make these calls sequentially, never in parallel: inspect-listeners, exactly one play-arrangement-and-listen for Arrangement beats 4 through 12 with maximumDurationMs 8000 and only the bound listener ID, then get-pass once using the returned passId. This is explicit native v2 with the App-owned descriptive timing policy capped at 64 samples, not strict v1 or physical timing qualification. Constant 120 BPM is assumed; tempo automation is unsupported. The candidate remains ready=false with native_per_pass_validation_required: never promote it or use another listener. Existing production guarded positioning owns the nonzero start before arming; do not seek, stop, repair positioning, or retry. If any tool call fails, including argument validation or permission denial, report and end without correcting, retrying, or using a shell wait. If the pass failed or was cancelled, report the reason and end. If still nonterminal, report pending and end without polling; the harness waits for the real terminal job. Only if completed may you get typed context using its contextId and includeHistorical=true. Do not list passes or context. Queued acceptance is not completion. Leave transport running; do not record, launch Session clips, change the Set, install devices, or claim exclusive clip audio. Unknown attribution and freshness are valid historical track/range results.",
+  "artifactPrefix": "AA_SMOKE_NV2_START_4_12_",
+  "capture": { "startBeat": 4, "endBeat": 12, "maximumDurationMs": 8000 },
+  "allowedTools": ["ableton_listening", "ableton_context"],
+  "allowedActions": {
+    "ableton_listening": [
+      "inspect-listeners",
+      "play-arrangement-and-listen",
+      "get-pass"
+    ],
+    "ableton_context": ["get"]
+  },
+  "allowedRisks": ["read", "reversible"],
+  "maxToolCalls": 8,
+  "maxMutations": 1,
+  "timeoutMs": 60000,
+  "setupContract": {
+    "timingPolicy": {
+      "mode": "descriptive",
+      "maxClockDisagreementSamples": 64
+    },
+    "tempoPolicy": "constant-tempo-assumed",
+    "tempoAutomationSupported": false,
+    "inputOption": "--native-v2-fixture-input",
+    "nativeVersion": 2,
+    "sourcePolicy": "Explicit immutable hash-pinned v2 fixture and manifest; parent staging helper must accept nativeVersion=2. No v1 fallback, device installation or Set XML rewriting.",
+    "geometryPolicy": "Before actor playback, derive frozen geometry from independent stopped/recording-off/no-overrides 120 BPM inspection and the accepted v2 registration's 44100/48000 sample rate and vector size. Bind it to the App-owned queued pass ID before capture. Never derive expectations from returned proof or observation.",
+    "positioningPolicy": "Existing production v2 positioning and source guards only; no runner seek, insert-marker repair, stop or retry.",
+    "processPolicy": "Fresh exact-PID runner-owned process and unique artifact root for this scenario, even when sharing immutable source pins with other native scenarios. Shutdown and fixture cleanup must finish before the next launch.",
+    "reviewStatus": "Reviewed one-capture regression for the native-v2 stopped-phase startup race at exact Arrangement beats 4-12. Real-Live acceptance and physical timing accuracy remain unqualified; no retries or same-process repeated-pass claim."
+  },
+  "ordering": [
+    {
+      "before": "ableton_listening",
+      "beforeAction": "inspect-listeners",
+      "after": "ableton_listening",
+      "afterAction": "play-arrangement-and-listen"
+    }
+  ],
+  "assertions": [
+    "no-failed-actor-tools",
+    "stopped-native-v2-preflight",
+    "app-owned-frozen-expectation-before-capture",
+    "owned-terminal-job",
+    "independent-native-v2-proof-and-40-window-coverage",
+    "one-atomic-track-range-context",
+    "typed-historical-retrieval-and-reopen",
+    "unchanged-set-leave-running-idle-capture"
+  ]
+}

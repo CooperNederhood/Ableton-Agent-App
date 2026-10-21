@@ -224,3 +224,32 @@ test("cancellation while awaiting phase disarms once and cannot leak a launch in
   f.packet("stopped", [0, 0, 2], replacement.generation);
   assert.equal(f.controller.pendingDisarm, null);
 });
+
+test("a rejected native envelope retains its numeric cause and binding without changing the terminal reason", async () => {
+  const f = await armedFixture();
+  const p = f.controller.pass;
+  const rejected = f.envelope();
+  rejected[4] = 9;
+  f.packet("envelope", rejected);
+  assert.equal(f.controller.state, "failed");
+  assert(
+    f.events.some(
+      (event) =>
+        event.type === "terminal" &&
+        event.reason === "native_envelope_binding_changed",
+    ),
+  );
+  const diagnostic = f.observed.find(
+    (event) =>
+      event.reason ===
+      `native_envelope_binding_r9_a${f.armCounter}_e${f.armCounter}_p${rejected[6]}`,
+  );
+  assert(diagnostic);
+  assert.equal(diagnostic.generation, p.generation);
+  assert.equal(diagnostic.traceId, f.command.traceId);
+  assert.equal(diagnostic.correlationId, f.command.correlationId);
+  assert.equal(diagnostic.passId, f.command.passId);
+  assert(diagnostic.reason.length <= 128);
+  f.packet("stopped", [0, 0, 2], p.generation);
+  assert.equal(f.controller.pendingDisarm, null);
+});

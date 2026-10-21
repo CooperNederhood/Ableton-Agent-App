@@ -27,7 +27,14 @@ const predicate = ["L", "R"]
   .join(" &&\n    ");
 function historical(text) {
   return text
-    .replace("periodicPhase = in1 == 1 ? 0 : in1;\n", "")
+    .replace(
+      "periodicPhase = in1 >= 1 && in1 - 1 <= 0.000000001 ? 0 : in1;\n",
+      "",
+    )
+    .replace(
+      "abs(phaseStep * beatSamples - (stablePhaseSamples + 1))",
+      "abs(phaseStep * beatSamples - 1)",
+    )
     .replaceAll(/\bperiodicPhase\b/g, "in1")
     .replace(`${words}\n`, "")
     .replace(predicate, oldPredicate);

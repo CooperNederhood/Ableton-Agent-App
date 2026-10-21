@@ -871,8 +871,15 @@ class NativeCaptureController {
       p.resolve = p.reject = null;
       return;
     }
-    if (v[13] !== p.armed.armCounter || v[4] !== 0)
+    if (v[13] !== p.armed.armCounter || v[4] !== 0) {
+      if (this.nativeVersion === 2)
+        this.local(
+          p,
+          "progress",
+          `native_envelope_binding_r${diagnosticInteger(v[4])}_a${diagnosticInteger(v[13])}_e${diagnosticInteger(p.armed.armCounter)}_p${diagnosticInteger(v[6])}`,
+        );
       throw new Error("native_envelope_binding_changed");
+    }
     if (this.state === "armed") {
       if (v[1] < 0 && v[5] === 0) {
         if (

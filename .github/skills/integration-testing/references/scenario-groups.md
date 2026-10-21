@@ -109,10 +109,14 @@ unchanged, with `--native-fixture-input`.
 via `--native-v2-fixture-input`:
 
 - `native-descriptive-fractional`: beats 0.25–3.75, maximumDurationMs 8000.
+- `native-descriptive-startup-0-4`: exact beats 0–4 at 120 BPM,
+  maximumDurationMs 8000; one capture and 20 windows.
+- `native-descriptive-startup-4-12`: exact beats 4–12 at 120 BPM,
+  maximumDurationMs 8000; one capture and 40 windows.
 - `native-descriptive-30-seconds`: beats 0.25–60.25 at independently inspected
   120 BPM, maximumDurationMs 45000; exactly 30 seconds and 300 windows.
 
-Both use the frozen App-owned descriptive timing policy capped at 64 samples.
+All use the frozen App-owned descriptive timing policy capped at 64 samples.
 Before capture, geometry comes from independent tempo inspection and accepted
 44.1/48 kHz DSP registration/vector metadata; the expectation is bound to the
 App-owned queued pass ID, never reconstructed from producer results. Constant
@@ -122,7 +126,7 @@ unknown, not exclusive clip audio.
 
 Each scenario creates its own artifact namespace and fresh exact-PID owned Live
 process. The first process must finish shutdown and fixture cleanup before the
-second starts, even when they share immutable source pins. Native admission
+next starts, even when they share immutable source pins. Native admission
 rejects missing/wrong-version inputs, installation, approve-all, and external
 computer-use startup before build/setup. Full native selection requires both
 version-specific inputs; no substitution or silent fallback.
@@ -134,3 +138,10 @@ atomic context, typed reopening, unchanged Set and leave-running idle capture
 must all verify. Implementation and synthetic deterministic tests are complete;
 real fixture execution, resource resolution, and physical qualification remain
 separate acceptance work owned by the operator.
+
+The two exact integer-range startup regressions cover the native-v2 transition
+from stopped signal phase to host playback. They retain the same immutable v2
+input pins, current 44.1/48 kHz registration, exact approval bounds, no-failed-tool
+requirement and independent proof/context/cleanup verification as the fractional
+scenario. Their reviewed manifests and synthetic runner tests do not establish
+real-Live acceptance or same-process repeated-pass qualification.

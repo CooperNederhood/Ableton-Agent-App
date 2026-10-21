@@ -810,6 +810,7 @@ describe("native listening fixture staging", () => {
       environment: { ABLETON_AGENT_TOKEN: "x".repeat(40) },
       runId,
       services,
+      waitForBridge: async () => ({ attempts: 1, elapsedMs: 0 }),
     });
     return {
       ...f,

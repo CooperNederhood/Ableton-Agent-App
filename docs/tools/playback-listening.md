@@ -47,11 +47,56 @@ genuine moving-phase drift and FFT completeness checks remain unchanged.
 Seven of nine new regressions fail without the fix; all nine pass with it,
 including independently verified native coverage for starts 0, 0.25 and 4,
 bounded failure, strict-zero, cancellation and replacement-generation isolation.
-The full Max owning suite passes 619 tests. This is source/unit evidence, not
-installation or real-Live qualification of the new candidate. Fresh-process
-qualification above does not cover this edited-session sequence. The earlier
+At `98e30c8`, the full Max owning suite passed 619 tests; that checkpoint was
+source/unit evidence only. Subsequent isolated real-Live qualification exposed
+a second failure after four windows of a 0-4 capture. Disjoint diagnostic-only
+native rejection codes established an upper phase endpoint greater than one
+whose excess rounded to zero at 1e-9 resolution. Exact input bits were not
+retained. After normalizing that representation boundary, a separate native
+witness established 63 stationary phase samples followed by an exact 64-sample
+advance (previous/current phase positions rounded to 0/64 samples). The prior
+guard allowed the stationary interval, but incorrectly required the eventual
+advance to represent only one sample.
+
+V2 now aliases only the closed endpoint and up to 1e-9 upper representation
+excess to zero, at most 0.000144 sample at the largest supported beat length.
+Other out-of-range/nonfinite values still fail. A changing phase must account
+for `stablePhaseSamples + 1` elapsed samples, with the unchanged 0.01-sample
+residual limit. The existing one-vector stationary timeout, default64,
+strict-zero, native counter, FFT completeness, configuration and generation
+guards remain unchanged. Capture coverage still comes from every retained
+native audio sample, not interpolated phase or missing descriptor frames.
+The unsuccessful experiment adding an analysis-source `pong~` wrapper was
+removed; authored analysis geometry, clock/spectrum code and default/v1
+documents retain their prior bytes.
+
+Endpoint and elapsed-phase regressions fail before their respective fixes.
+They compare all 23 outputs with an independent continuously advancing
+historical-input oracle, cover both supported rates, exact sample/window
+coverage, unearned catch-up, adjacent drift residuals, stationary timeout,
+cancellation and sealed epochs. Full Max ownership: 629 passing tests.
+The native runner also waits boundedly for its exact-owned Remote Script TCP
+listener before starting the application; a fresh Live process can predate
+port readiness. The gate retries only startup refusal/timeout, retains ownership,
+supports cancellation and emits the existing traced/timed `bridge-readiness`
+lifecycle. It does not retry actor calls or captures, change App reconnect
+behavior or treat TCP readiness as authentication.
+
+The clean candidate, without diagnostic Gen overrides, now completes real 0-4
+and 4-12 captures individually and the entire four-scenario descriptive group
+(fractional, 0-4, 4-12 and 30 seconds), including independent native coverage,
+durable context, unchanged binding/recording and owned cleanup. The seven
+owning runner/device test files pass 329 tests. This is not yet same-process
+repeat/edit or packaged UI qualification of the updated device. The earlier
 source rejection remains separate: its actual Session-override tri-state was
 not retained in the inspection failure and cannot be recovered from that event.
+Generation-owned numeric envelope rejection details and startup reacquisition
+progress now reach typed History through `output.listener.native.progress`;
+the public `native_envelope_binding_changed` terminal reason is unchanged.
+The stopped-transport prerequisite remains explicit: the capture leaves
+playback running. The currently pinned signed Default-agent catalogue has no
+stop-transport action, so stop Live manually before requesting another pass;
+do not treat an unsupported request to stop as a native capture attempt.
 
 Native v2 failure snapshots now use the existing generation-owned
 `nativeFailureDiagnostic` route for alignment and FFT sequence rejections.

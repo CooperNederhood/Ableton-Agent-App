@@ -32,6 +32,34 @@ Companion specification: [Playback Listening](playback-listening.md).
   Retain host-offset enforcement before reacquisition, genuine changing-phase
   drift and strict-zero failure, complete native proof for starts0/0.25/4,
   cancellation and stale-generation rejection. Full Max suite: 619 passed.
+- [x] Fix the runner-only cold-start race: wait at most 60 seconds for the
+  exact-owned Live process's loopback bridge before application connection.
+  Retry only startup refusal/timeout, never an actor call/capture; retain
+  ownership, cancellation and traced/timed `bridge-readiness` lifecycle.
+- [x] Forward bounded numeric envelope-rejection and startup-reacquisition
+  progress through the existing typed native result/History wire. Keep the
+  public failure reason, trace/cause/generation and legacy v1 behavior.
+- [x] Isolate the subsequent first-beat failure using explicitly diagnostic-only
+  native probes with disjoint rejection classes. The unwrapped input exceeds
+  one by less than nano-resolution; after normalization, 63 stationary phase
+  samples precede a 64-sample advance. Earlier overlapping numeric probe codes
+  are not sufficient to classify the failed guard by themselves.
+- [x] Add red-before/green-after endpoint and elapsed-phase regressions at both
+  supported rates. Normalize at most 1e-9 upper phase excess; require catch-up
+  to equal elapsed samples with the unchanged 0.01-sample residual limit.
+  Retain out-of-range/nonfinite rejection, unearned-jump denial, vector-stall
+  timeout, cancellation, sealed epochs and exact native sample/window coverage.
+  Keep original graph/v1/clock/spectrum golden hashes rather than replacing them.
+  Full Max suite: 629 passed; owning runner/device suites: 329 passed.
+- [x] Qualify one clean immutable native bundle with no diagnostic Gen overrides:
+  real 0-4 and 4-12 captures individually, then all four descriptive scenarios,
+  including fractional and 30-second captures, native/context/postcondition
+  verification and exact-owned cleanup. This does not establish same-process
+  recovery or repeat/edit behavior in the packaged App.
+- [x] Make the existing stopped-transport prerequisite explicit in the updated
+  handoff. The pinned signed Default-agent catalogue does not expose transport
+  stop; manually stop Live between captures, which intentionally leave it
+  running. Preserve the unsupported-stop turn rather than claiming it captured.
 - [ ] Diagnose the separate initial `arrangement_source_unknown` rejection.
   The runtime guard rejects a listener whose Session override is not explicitly
   false; retained failure events do not establish whether it was true or unknown.

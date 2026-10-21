@@ -1004,7 +1004,7 @@ test("missed launch, pre-roll underrun, invalid phase, incoherent motion and sto
   const unprimed = genModel(descriptiveEnvelopeCode(), 16);
   unprimed.configure({ ...config(), epoch: 1 });
   assert.notEqual(unprimed.step(0, 0, 0, 0)[4], 0);
-  for (const phase of [-0.1, 1 + 2 ** -52, NaN, Infinity]) {
+  for (const phase of [-0.1, 1 + 2 ** -29, NaN, Infinity]) {
     const f = fixture();
     assert.equal(f.step(phase)[4], 14);
   }

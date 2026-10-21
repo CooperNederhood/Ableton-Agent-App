@@ -422,7 +422,14 @@ function createRuntime({
       nativePublished &&
       phase === "capture" &&
       event.stage === "progress" &&
-      ["phase_torn_native_clock", "torn_native_spectrum"].includes(event.reason)
+      ([
+        "phase_torn_native_clock",
+        "torn_native_spectrum",
+        "native_launch_phase_pending",
+      ].includes(event.reason) ||
+        /^native_envelope_binding_r(?:invalid|[0-9]{1,16})_a(?:invalid|[0-9]{1,16})_e(?:invalid|[0-9]{1,16})_p(?:invalid|[0-9]{1,16})$/.test(
+          event.reason,
+        ))
     ) {
       const startedAt = engine.pass?.startedAt;
       if (!Number.isFinite(startedAt))

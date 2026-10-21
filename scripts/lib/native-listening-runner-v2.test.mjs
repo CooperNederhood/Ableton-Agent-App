@@ -16,6 +16,7 @@ import { nativeFixtureInput } from "./native-listening-fixture.test.mjs";
 import {
   admitNativeScenarios,
   createNativeListeningRunner,
+  nativeDescriptivePrompt,
   reviewNativeScenario,
   runNativeScenarioGroup,
 } from "./native-listening-runner.mjs";
@@ -23,9 +24,61 @@ import { createNativeScenarioApproval } from "./native-listening-verification.mj
 
 const load = async (id) =>
   JSON.parse(await readFile(`integration/live-scenarios/${id}.json`, "utf8"));
-const ids = ["native-descriptive-fractional", "native-descriptive-30-seconds"];
+const startupCaptures = [
+  [
+    "native-descriptive-startup-0-4",
+    { startBeat: 0, endBeat: 4, maximumDurationMs: 8000 },
+  ],
+  [
+    "native-descriptive-startup-4-12",
+    { startBeat: 4, endBeat: 12, maximumDurationMs: 8000 },
+  ],
+];
+const ids = [
+  "native-descriptive-fractional",
+  "native-descriptive-30-seconds",
+  ...startupCaptures.map(([id]) => id),
+];
 
 describe("reviewed v2 contracts and pre-setup admission", () => {
+  it("includes both startup regressions without replacing the existing descriptive scenarios", async () => {
+    const suite = JSON.parse(
+      await readFile("integration/live-scenarios/suite.json", "utf8"),
+    );
+    expect(
+      suite.groups.find(({ id }) => id === "native-listening-descriptive")
+        .scenarios,
+    ).toEqual([ids[0], ...startupCaptures.map(([id]) => id), ids[1]]);
+  });
+  it.each(startupCaptures)(
+    "freezes the exact one-capture startup contract for %s",
+    async (id, capture) => {
+      const manifest = await load(id);
+      const reviewed = reviewNativeScenario(manifest);
+      expect(reviewed).toEqual({
+        nativeVersion: 2,
+        timingPolicy: { mode: "descriptive", maxClockDisagreementSamples: 64 },
+        capture,
+      });
+      expect(Object.isFrozen(reviewed)).toBe(true);
+      expect(Object.isFrozen(reviewed.capture)).toBe(true);
+      expect(Object.isFrozen(reviewed.timingPolicy)).toBe(true);
+      expect(manifest.prompt).toBe(nativeDescriptivePrompt(capture));
+      expect(manifest.maxToolCalls).toBe(8);
+      expect(manifest.maxMutations).toBe(1);
+      expect(manifest.timeoutMs).toBe(60000);
+      expect(manifest.assertions).toEqual([
+        "no-failed-actor-tools",
+        "stopped-native-v2-preflight",
+        "app-owned-frozen-expectation-before-capture",
+        "owned-terminal-job",
+        `independent-native-v2-proof-and-${(capture.endBeat - capture.startBeat) * 5}-window-coverage`,
+        "one-atomic-track-range-context",
+        "typed-historical-retrieval-and-reopen",
+        "unchanged-set-leave-running-idle-capture",
+      ]);
+    },
+  );
   it("keeps natural packaged Default qualification distinct from scripted runtime evidence", async () => {
     const manifest = await load(ids[0]);
     const qualification = manifest.desktopQualification;
@@ -132,110 +185,159 @@ describe("reviewed v2 contracts and pre-setup admission", () => {
       }),
     ).rejects.toThrow("version");
   });
-  it("snapshots the reviewed v2 approval range instead of retaining a mutable manifest reference", async () => {
-    const manifest = await load(ids[0]);
-    reviewNativeScenario(manifest);
-    const original = { ...manifest.capture };
-    const approval = createNativeScenarioApproval(manifest, {
-      listenerId: "owned",
-      passIds: new Set(),
-      contextIds: new Set(),
+  it.each(ids)(
+    "snapshots the reviewed %s approval range instead of retaining a mutable manifest reference",
+    async (id) => {
+      const manifest = await load(id);
+      reviewNativeScenario(manifest);
+      const original = { ...manifest.capture };
+      const approval = createNativeScenarioApproval(manifest, {
+        listenerId: "owned",
+        passIds: new Set(),
+        contextIds: new Set(),
+      });
+      manifest.capture.endBeat = 500;
+      await approval.request({
+        toolName: "ableton_listening",
+        risk: "read",
+        arguments: { action: "inspect-listeners" },
+      });
+      const request = (capture) => ({
+        toolName: "ableton_listening",
+        risk: "reversible",
+        arguments: {
+          action: "play-arrangement-and-listen",
+          ...capture,
+          listenerIds: ["owned"],
+        },
+      });
+      expect(await approval.request(request(manifest.capture))).toBe(false);
+      expect(await approval.request(request(original))).toBe(true);
+    },
+  );
+  describe.each(ids)("%s tampering", (id) => {
+    it.each([
+      [
+        "id",
+        (m) => {
+          m.id = "arbitrary";
+        },
+      ],
+      [
+        "start range",
+        (m) => {
+          m.capture.startBeat += 0.25;
+        },
+      ],
+      [
+        "range",
+        (m) => {
+          m.capture.endBeat++;
+        },
+      ],
+      [
+        "duration",
+        (m) => {
+          m.capture.maximumDurationMs++;
+        },
+      ],
+      [
+        "version",
+        (m) => {
+          m.nativeVersion = 1;
+        },
+      ],
+      [
+        "setup version",
+        (m) => {
+          m.setupContract.nativeVersion = 1;
+        },
+      ],
+      [
+        "input routing",
+        (m) => {
+          m.setupContract.inputOption = "--native-fixture-input";
+        },
+      ],
+      [
+        "policy",
+        (m) => {
+          m.setupContract.timingPolicy.maxClockDisagreementSamples = 65;
+        },
+      ],
+      [
+        "strict mode",
+        (m) => {
+          m.setupContract.timingPolicy.mode = "strict";
+        },
+      ],
+      [
+        "budget",
+        (m) => {
+          m.maxMutations = 2;
+        },
+      ],
+      [
+        "tool budget",
+        (m) => {
+          m.maxToolCalls++;
+        },
+      ],
+      [
+        "timeout",
+        (m) => {
+          m.timeoutMs++;
+        },
+      ],
+      [
+        "extra tool",
+        (m) => {
+          m.allowedTools.push("ableton_transport");
+        },
+      ],
+      [
+        "extra action",
+        (m) => {
+          m.allowedActions.ableton_listening.push("list-passes");
+        },
+      ],
+      [
+        "risk",
+        (m) => {
+          m.allowedRisks.push("destructive");
+        },
+      ],
+      [
+        "ordering",
+        (m) => {
+          m.ordering = [];
+        },
+      ],
+      [
+        "failed tools permitted",
+        (m) => {
+          m.assertions = m.assertions.filter(
+            (item) => item !== "no-failed-actor-tools",
+          );
+        },
+      ],
+      [
+        "prompt",
+        (m) => {
+          m.prompt += " Retry if denied.";
+        },
+      ],
+      [
+        "automation",
+        (m) => {
+          m.setupContract.tempoAutomationSupported = true;
+        },
+      ],
+    ])("denies tampered %s before staging", async (_label, mutate) => {
+      const m = await load(id);
+      mutate(m);
+      expect(() => reviewNativeScenario(m)).toThrow("Unreviewed");
     });
-    manifest.capture.endBeat = 500;
-    await approval.request({
-      toolName: "ableton_listening",
-      risk: "read",
-      arguments: { action: "inspect-listeners" },
-    });
-    const request = (capture) => ({
-      toolName: "ableton_listening",
-      risk: "reversible",
-      arguments: {
-        action: "play-arrangement-and-listen",
-        ...capture,
-        listenerIds: ["owned"],
-      },
-    });
-    expect(await approval.request(request(manifest.capture))).toBe(false);
-    expect(await approval.request(request(original))).toBe(true);
-  });
-  it.each([
-    [
-      "id",
-      (m) => {
-        m.id = "arbitrary";
-      },
-    ],
-    [
-      "range",
-      (m) => {
-        m.capture.endBeat++;
-      },
-    ],
-    [
-      "duration",
-      (m) => {
-        m.capture.maximumDurationMs++;
-      },
-    ],
-    [
-      "version",
-      (m) => {
-        m.nativeVersion = 1;
-      },
-    ],
-    [
-      "setup version",
-      (m) => {
-        m.setupContract.nativeVersion = 1;
-      },
-    ],
-    [
-      "input routing",
-      (m) => {
-        m.setupContract.inputOption = "--native-fixture-input";
-      },
-    ],
-    [
-      "policy",
-      (m) => {
-        m.setupContract.timingPolicy.maxClockDisagreementSamples = 65;
-      },
-    ],
-    [
-      "strict mode",
-      (m) => {
-        m.setupContract.timingPolicy.mode = "strict";
-      },
-    ],
-    [
-      "budget",
-      (m) => {
-        m.maxMutations = 2;
-      },
-    ],
-    [
-      "extra tool",
-      (m) => {
-        m.allowedTools.push("ableton_transport");
-      },
-    ],
-    [
-      "prompt",
-      (m) => {
-        m.prompt += " Retry if denied.";
-      },
-    ],
-    [
-      "automation",
-      (m) => {
-        m.setupContract.tempoAutomationSupported = true;
-      },
-    ],
-  ])("denies tampered %s before staging", async (_label, mutate) => {
-    const m = await load(ids[0]);
-    mutate(m);
-    expect(() => reviewNativeScenario(m)).toThrow("Unreviewed");
   });
   it.each(ids)(
     "allows one exact %s playback, no positioning repair or retries",
@@ -263,9 +365,25 @@ describe("reviewed v2 contracts and pre-setup admission", () => {
       expect(
         await a.request({
           ...play,
-          arguments: { ...play.arguments, startBeat: 0 },
+          arguments: {
+            ...play.arguments,
+            startBeat: manifest.capture.startBeat === 0 ? 0.25 : 0,
+          },
         }),
       ).toBe(false);
+      for (const changed of [
+        { endBeat: manifest.capture.endBeat + 0.25 },
+        { maximumDurationMs: manifest.capture.maximumDurationMs + 1 },
+        { listenerIds: ["unowned"] },
+      ]) {
+        expect(
+          await a.request({
+            ...play,
+            arguments: { ...play.arguments, ...changed },
+          }),
+        ).toBe(false);
+        expect(a.decisions.at(-1).reason).toBe("exact-listener-range-budget");
+      }
       expect(await a.request(play)).toBe(true);
       expect(await a.request(play)).toBe(false);
       expect(
@@ -275,6 +393,14 @@ describe("reviewed v2 contracts and pre-setup admission", () => {
           arguments: { action: "seek", time: 0.25 },
         }),
       ).toBe(false);
+      expect(
+        await a.request({
+          toolName: "ableton_listening",
+          risk: "read",
+          arguments: { action: "inspect-listeners" },
+        }),
+      ).toBe(false);
+      expect(a.decisions.at(-1).reason).toBe("tool-call-budget");
     },
   );
 });
@@ -342,13 +468,10 @@ describe("sequential fresh native process orchestration (mock process controller
   it("finishes orderly exact-PID shutdown and cleanup before creating the next unique fixture root", async () => {
     const f = await group();
     const result = await f.work;
-    expect(result).toHaveLength(2);
-    expect(f.stages).toEqual([
-      "process-launch",
-      "process-shutdown",
-      "process-launch",
-      "process-shutdown",
-    ]);
+    expect(result).toHaveLength(ids.length);
+    expect(f.stages).toEqual(
+      ids.flatMap(() => ["process-launch", "process-shutdown"]),
+    );
     expect(
       result.every(
         ({ result: item }) =>
@@ -359,18 +482,18 @@ describe("sequential fresh native process orchestration (mock process controller
     expect(f.createRunner.mock.calls[0][1]).not.toBe(
       f.createRunner.mock.calls[1][1],
     );
-    expect(f.log.map((s) => (s.startsWith("launch:") ? "launch" : s))).toEqual([
-      "empty",
-      "launch",
-      "evidence",
-      "quit",
-      "cleanup:true",
-      "empty",
-      "launch",
-      "evidence",
-      "quit",
-      "cleanup:true",
-    ]);
+    expect(
+      new Set(f.createRunner.mock.calls.map(([, runId]) => runId)).size,
+    ).toBe(ids.length);
+    expect(f.log.map((s) => (s.startsWith("launch:") ? "launch" : s))).toEqual(
+      ids.flatMap(() => [
+        "empty",
+        "launch",
+        "evidence",
+        "quit",
+        "cleanup:true",
+      ]),
+    );
   });
   it("stops at failure, preserves receipts and does not launch a second scenario", async () => {
     const f = await group({ failed: true });
@@ -393,7 +516,14 @@ describe("sequential fresh native process orchestration (mock process controller
 // These actor/capture adapters are synthetic unit scaffolding, never real acceptance.
 async function runnerV2(
   id,
-  { rate = 48000, vector = 64, failure, version = 2, connectionError } = {},
+  {
+    rate = 48000,
+    vector = 64,
+    failure,
+    version = 2,
+    connectionError,
+    bridgeReadinessError,
+  } = {},
 ) {
   const f = await nativeFixtureInput({ nativeVersion: 2 });
   const manifest = await load(id);
@@ -405,6 +535,10 @@ async function runnerV2(
   const appStop = vi.fn(),
     ingressStop = vi.fn(),
     wait = vi.fn();
+  const bridgeReadiness = vi.fn(async () => {
+    if (bridgeReadinessError) throw bridgeReadinessError;
+    return { attempts: 1, elapsedMs: 0 };
+  });
   let playing = false,
     host,
     configuration,
@@ -744,6 +878,7 @@ async function runnerV2(
     environment: { ABLETON_AGENT_TOKEN: "x".repeat(40) },
     runId,
     services,
+    waitForBridge: bridgeReadiness,
   });
   return {
     runner,
@@ -753,6 +888,7 @@ async function runnerV2(
     appStop,
     ingressStop,
     wait,
+    bridgeReadiness,
     events,
     results,
     get hostOptions() {
@@ -762,6 +898,77 @@ async function runnerV2(
 }
 
 describe("v2 runner expectation forwarding and production typed context reopening (synthetic capture only)", () => {
+  it("waits for owned bridge readiness before starting the application", async () => {
+    const f = await runnerV2(ids[0]);
+    const validateOwnership = vi.fn(async () => {});
+    try {
+      const result = await f.runner.run(validateOwnership);
+      expect(result.ok).toBe(true);
+      expect(f.bridgeReadiness).toHaveBeenCalledExactlyOnceWith({
+        port: 8765,
+        validateOwnership,
+      });
+      const names = result.lifecycle.map((event) => event.name);
+      const ready = names.indexOf(
+        "integration.native_listening.bridge-readiness.completed",
+      );
+      expect(ready).toBeGreaterThan(0);
+      expect(ready).toBeLessThan(
+        names.indexOf("integration.native_listening.application-start.started"),
+      );
+      const stages = result.lifecycle.filter((event) =>
+        event.name.includes("bridge-readiness."),
+      );
+      expect(stages.map((event) => event.stage)).toEqual([
+        "queued",
+        "started",
+        "progress",
+        "completed",
+      ]);
+      expect(new Set(stages.map((event) => event.trace.traceId)).size).toBe(1);
+      expect(new Set(stages.map((event) => event.correlationId)).size).toBe(1);
+      expect(stages.every((event) => event.durationMs >= 0)).toBe(true);
+      for (let index = 1; index < stages.length; index++)
+        expect(stages[index].causationId).toBe(stages[index - 1].id);
+    } finally {
+      await f.runner.close({ processStopped: true });
+    }
+  });
+
+  it.each(["Error", "AbortError"])(
+    "retains readiness %s and cleans up without actor calls",
+    async (name) => {
+      const failure = Object.assign(new Error("owned bridge unavailable"), {
+        name,
+      });
+      const f = await runnerV2(ids[0], { bridgeReadinessError: failure });
+      try {
+        const result = await f.runner.run(async () => {});
+        expect(result.ok).toBe(false);
+        expect(result.error).toContain("owned bridge unavailable");
+        expect(result.jobs).toEqual([]);
+        expect(result.approvals).toEqual([]);
+        expect(f.wait).not.toHaveBeenCalled();
+        expect(
+          result.lifecycle.some((event) =>
+            event.name.includes("application-start."),
+          ),
+        ).toBe(false);
+        expect(
+          result.lifecycle.some((event) =>
+            event.name.endsWith(
+              `bridge-readiness.${name === "AbortError" ? "cancelled" : "failed"}`,
+            ),
+          ),
+        ).toBe(true);
+        expect(f.appStop).toHaveBeenCalledOnce();
+        expect(f.ingressStop).toHaveBeenCalledOnce();
+      } finally {
+        await f.runner.close({ processStopped: true });
+      }
+    },
+  );
+
   it.each([
     {
       code: "connection_failed",
@@ -802,28 +1009,36 @@ describe("v2 runner expectation forwarding and production typed context reopenin
     },
   );
 
-  it("does not accept a corrected actor tool failure as a clean native workflow", async () => {
-    const f = await runnerV2(ids[0], { failure: "actor-tool" });
-    try {
-      const result = await f.runner.run(async () => {});
-      expect(result.ok).toBe(false);
-      expect(result.error).toContain("tool failed");
-      expect(f.wait).not.toHaveBeenCalled();
-      expect(f.appStop).toHaveBeenCalledOnce();
-      expect(f.ingressStop).toHaveBeenCalledOnce();
-    } finally {
-      await f.runner.close({ processStopped: true });
-    }
-  });
+  it.each(ids)(
+    "does not accept a corrected actor tool failure as a clean %s workflow",
+    async (id) => {
+      const f = await runnerV2(id, { failure: "actor-tool" });
+      try {
+        const result = await f.runner.run(async () => {});
+        expect(result.ok).toBe(false);
+        expect(result.error).toContain("tool failed");
+        expect(f.wait).not.toHaveBeenCalled();
+        expect(f.appStop).toHaveBeenCalledOnce();
+        expect(f.ingressStop).toHaveBeenCalledOnce();
+      } finally {
+        await f.runner.close({ processStopped: true });
+      }
+    },
+  );
 
   it.each([
     [ids[0], 44100, 128, 18],
     [ids[0], 48000, 64, 18],
     [ids[1], 44100, 64, 300],
     [ids[1], 48000, 128, 300],
+    [ids[2], 44100, 128, 20],
+    [ids[2], 48000, 64, 20],
+    [ids[3], 44100, 64, 40],
+    [ids[3], 48000, 128, 40],
   ])(
     "%s derives independent geometry at %s/vector%s before capture and verifies %s windows",
     async (id, rate, vector, windows) => {
+      const { capture } = await load(id);
       const f = await runnerV2(id, { rate, vector });
       try {
         const result = await f.runner.run(async () => {});
@@ -842,7 +1057,13 @@ describe("v2 runner expectation forwarding and production typed context reopenin
           listenerId: "native",
           passId: result.evidence.passId,
           policy: { mode: "descriptive", maxClockDisagreementSamples: 64 },
-          geometry: { sampleRate: rate, vectorSize: vector, tempoBpm: 120 },
+          geometry: {
+            sampleRate: rate,
+            vectorSize: vector,
+            tempoBpm: 120,
+            startBeat: capture.startBeat,
+            endBeat: capture.endBeat,
+          },
         });
         expect(f.p.assertNativeCaptureObservationV2.mock.calls[0][2]).toEqual(
           expected,
@@ -864,10 +1085,17 @@ describe("v2 runner expectation forwarding and production typed context reopenin
       expect(f.results.size).toBe(0);
     },
   );
-  it.each(["policy-proof", "positioning", "cancelled", "capture"])(
-    "fails %s without repair, retries or extra playback",
-    async (failure) => {
-      const f = await runnerV2(ids[0], { failure });
+  it.each(
+    ids.flatMap((id) =>
+      ["policy-proof", "positioning", "cancelled", "capture"].map((failure) => [
+        id,
+        failure,
+      ]),
+    ),
+  )(
+    "%s fails %s without repair, retries or extra playback",
+    async (id, failure) => {
+      const f = await runnerV2(id, { failure });
       try {
         const result = await f.runner.run(async () => {});
         expect(result.ok).toBe(false);

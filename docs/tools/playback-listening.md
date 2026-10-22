@@ -6,6 +6,31 @@ Companion checklist:
 Architecture decision:
 [ADR 0006](../architecture/decisions/0006-playback-listening-and-entity-context.md).
 
+## Development milestone and follow-ups
+
+On 2026-10-21 the developer approved treating this branch as a development
+milestone, with known investigations tracked separately rather than requiring
+release certification before merge. The delivered scope is bounded, on-demand,
+constant-tempo Arrangement listening with native measurements, typed durable
+range/track context, ordinary approvals and restart retrieval. It is not Session
+listening, exclusive clip attribution, verified tempo stability or physical
+timing certification. Review findings, regression tests and CI remain merge
+checks; the further qualification below is explicitly follow-up work.
+
+| Follow-up | Scope |
+| --- | --- |
+| [#55](https://github.com/CooperNederhood/Ableton-Agent-App/issues/55) | Independently detect tempo changes; current constant-tempo assumption remains explicit. |
+| [#56](https://github.com/CooperNederhood/Ableton-Agent-App/issues/56) | Advertise existing transport start/stop, tempo and loop actions clearly to the agent. |
+| [#57](https://github.com/CooperNederhood/Ableton-Agent-App/issues/57) | Diagnose the historical unknown Arrangement-source validation tri-state without weakening the guard. |
+| [#58](https://github.com/CooperNederhood/Ableton-Agent-App/issues/58) | Reproduce and resolve listener placement/rebinding failure after device-chain edits. |
+| [#59](https://github.com/CooperNederhood/Ableton-Agent-App/issues/59) | Extend controlled-edit/recovery and immutable fresh-process packaged qualification. |
+| [#60](https://github.com/CooperNederhood/Ableton-Agent-App/issues/60) | Replace obsolete capture-disabled wording in the saved M4L device without changing DSP behavior. |
+
+The evidence below is retained with its original scope. Deferred qualification
+is not relabelled passed, and historical receipts do not certify a changed
+candidate. Real-Live validation used installed 11.3.43; the supported target
+remains Live Suite 11.3.42 on Apple Silicon.
+
 ## Current target: developer dogfood
 
 The signed arm64 candidate built from `9941556` previously passed three consecutive
@@ -112,9 +137,14 @@ Generation-owned numeric envelope rejection details and startup reacquisition
 progress now reach typed History through `output.listener.native.progress`;
 the public `native_envelope_binding_changed` terminal reason is unchanged.
 The stopped-transport prerequisite remains explicit: the capture leaves
-playback running. The currently pinned signed Default-agent catalogue has no
-stop-transport action, so stop Live manually before requesting another pass;
-do not treat an unsupported request to stop as a native capture attempt.
+playback running. Actual normal-profile SDK registration contains all 17
+`ableton_transport` actions, including `set-playing` with `isPlaying: false`.
+The agent incorrectly claimed only `delete-cue-point` was available and never
+attempted a stop; it did not receive a stop permission denial. The description
+omits explicit start/stop, tempo and Arrangement-loop guidance; #56 tracks that
+fix and end-to-end agent verification. Manual Stop is the current dogfood
+workaround, not evidence that Live or the application lacks the capability.
+Do not count the agent's refusal as a native capture attempt.
 
 Native v2 failure snapshots now use the existing generation-owned
 `nativeFailureDiagnostic` route for alignment and FFT sequence rejections.

@@ -6,3 +6,6 @@ pnpm-lock.yaml
 playwright-report
 test-results
 max-patches/midi-capture/midi_capture_identity.js
+# Byte-pinned Max resources are checked by device and legacy fixture suites.
+max-patches/audio-listener/audio_listener_guard.js
+max-patches/audio-listener/fixtures/native-v1-6cceef6/audio_listener_guard.js

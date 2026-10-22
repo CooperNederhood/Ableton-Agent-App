@@ -4,6 +4,12 @@ Companion specification: [Playback Listening](playback-listening.md).
 
 ## Current priority: developer dogfood
 
+The developer approved this as a development milestone on 2026-10-21, with
+investigations and broader qualification explicitly deferred to linked issues.
+Unchecked follow-up items below are not claims of completed qualification and
+are no longer release-certification prerequisites for this milestone merge.
+Concrete review defects and CI failures still require resolution.
+
 ### Reopened: edited-session sequences and whole-beat starts
 
 - [x] Preserve read-only History evidence for original success `017e9804`,
@@ -57,9 +63,12 @@ Companion specification: [Playback Listening](playback-listening.md).
   verification and exact-owned cleanup. This does not establish same-process
   recovery or repeat/edit behavior in the packaged App.
 - [x] Make the existing stopped-transport prerequisite explicit in the updated
-  handoff. The pinned signed Default-agent catalogue does not expose transport
-  stop; manually stop Live between captures, which intentionally leave it
-  running. Preserve the unsupported-stop turn rather than claiming it captured.
+  handoff. Actual SDK registration includes `set-playing`; the agent's claim
+  that only `delete-cue-point` was available was incorrect, with no stop call
+  or permission denial. Description/discoverability is tracked in
+  [#56](https://github.com/CooperNederhood/Ableton-Agent-App/issues/56).
+  Manually stop Live between dogfood captures, which leave it running.
+  Preserve the refusal turn rather than claiming it captured.
 - [x] Verify four packaged Default-agent captures in the same owned App/Live
   processes: 0.25-3.75, 0-4, 4-12, then 0.25-3.75. Independently verify native
   proof, 84k/96k/192k/84k samples, 18/20/40/18 windows, four stored observations,
@@ -76,13 +85,38 @@ Companion specification: [Playback Listening](playback-listening.md).
   with the qualified native companions, no diagnostic source overrides and
   default-profile discovery. Leave the normal profile, old example, original
   Set and installed App untouched; no App reinstall is required.
-- [ ] Diagnose the separate initial `arrangement_source_unknown` rejection.
+- [ ] Follow-up [#57](https://github.com/CooperNederhood/Ableton-Agent-App/issues/57):
+  diagnose the separate initial `arrangement_source_unknown` rejection.
   The runtime guard rejects a listener whose Session override is not explicitly
   false; retained failure events do not establish whether it was true or unknown.
-- [ ] Qualify controlled edits and recovery in one runner-owned Live process,
+- [ ] Follow-up [#58](https://github.com/CooperNederhood/Ableton-Agent-App/issues/58):
+  reproduce and resolve listener binding after device-chain edits. Retained
+  inspection shows the same enabled Max listener at device index 1 after a
+  Delay at index 0, but discovery is unresolved and the next pass fails with
+  "Listener must be a Max for Live Audio Effect." Do not relax class/identity
+  guards or assume the exact failing path-registration cause is already proven.
+- [ ] Follow-up [#59](https://github.com/CooperNederhood/Ableton-Agent-App/issues/59):
+  qualify controlled edits and recovery in one runner-owned Live process,
   plus three clean fresh-process packaged workflows for the changed native
   bundle. The four successful same-process captures above do not replace
   those gates; historical fresh-launch/restart qualification used the old bundle.
+- [x] Record the milestone scope and follow-ups without reopening unrelated
+  transport-description implementation or presenting deferred checks as passed.
+- [ ] Follow-up [#60](https://github.com/CooperNederhood/Ableton-Agent-App/issues/60):
+  replace the obsolete saved-device capture-disabled caption without changing DSP
+  behavior or presenting a static label as native pass authority.
+
+## Historical checkpoints, not the current backlog
+
+The stage-local checkbox states below preserve the investigation chronology.
+They are not a second active merge checklist: later checkpoints supersede many
+earlier open tasks, while experiments without sufficient retained evidence remain
+unproven rather than being retroactively marked successful. The current milestone
+scope and issue-linked follow-ups above are authoritative.
+
+Session quantized-onset support, editor-preview isolation and physical timing
+commissioning remain outside this descriptive Arrangement MVP. Broader version,
+performance and release work also remains tracked in #1, #3 and #5.
 
 ### Previously qualified bounded workflow
 

@@ -82,7 +82,9 @@ describe("live agent storage", () => {
     await expect(stat(join(home, ".ableton-agent"))).rejects.toMatchObject({
       code: "ENOENT",
     });
-    await expect(stat(layout.signalIngressDescriptorPath)).rejects.toMatchObject({
+    await expect(
+      stat(layout.signalIngressDescriptorPath),
+    ).rejects.toMatchObject({
       code: "ENOENT",
     });
     await expect(stat(layout.signalIngressSecretPath)).rejects.toMatchObject({
@@ -118,30 +120,52 @@ describe("live agent storage", () => {
     expect((await stat(join(layout.profileRoot, "state"))).mode & 0o777).toBe(
       0o700,
     );
-    expect((await stat(layout.credentialsDirectory)).mode & 0o777).toBe(
-      0o700,
-    );
+    expect((await stat(layout.credentialsDirectory)).mode & 0o777).toBe(0o700);
   });
   it("resolves session-owned context beneath canonical profile/project or unassigned ownership", () => {
-    const layout = resolveLiveAgentStorage({ homeDirectory: "/Users/test", environment: {} });
+    const layout = resolveLiveAgentStorage({
+      homeDirectory: "/Users/test",
+      environment: {},
+    });
     for (const liveProjectId of [undefined, "project:1"]) {
       const context = {
-        liveSetId: "set:1", sessionId: "session:1",
+        liveSetId: "set:1",
+        sessionId: "session:1",
         ...(liveProjectId === undefined ? {} : { liveProjectId }),
       };
       const paths = resolveNestedSessionStorage(layout, context);
-      expect(paths.contextDirectory).toBe(join(paths.sessionDirectory, "context"));
-      expect(paths.entityContextPath).toBe(join(paths.contextDirectory, "entity-context.sqlite"));
-      expect(paths.entityContextPath).toContain("/.live-agent/profiles/default/");
+      expect(paths.contextDirectory).toBe(
+        join(paths.sessionDirectory, "context"),
+      );
+      expect(paths.entityContextPath).toBe(
+        join(paths.contextDirectory, "entity-context.sqlite"),
+      );
+      expect(paths.entityContextPath).toContain(
+        "/.live-agent/profiles/default/",
+      );
       expect(paths.entityContextPath).not.toContain("/observability/");
-      expect(resolveNestedSessionStorage(layout, { ...context, sessionId: "session:2" }).entityContextPath)
-        .not.toBe(paths.entityContextPath);
-      expect(resolveNestedSessionStorage(layout, { ...context, liveSetId: "set:2" }).entityContextPath)
-        .not.toBe(paths.entityContextPath);
+      expect(
+        resolveNestedSessionStorage(layout, {
+          ...context,
+          sessionId: "session:2",
+        }).entityContextPath,
+      ).not.toBe(paths.entityContextPath);
+      expect(
+        resolveNestedSessionStorage(layout, { ...context, liveSetId: "set:2" })
+          .entityContextPath,
+      ).not.toBe(paths.entityContextPath);
     }
-    const otherProfile = resolveLiveAgentStorage({ homeDirectory: "/Users/test", environment: {}, profile: "isolated" });
-    expect(resolveNestedSessionStorage(otherProfile, { liveSetId: "set:1", sessionId: "session:1" }).entityContextPath)
-      .toContain("/profiles/isolated/");
+    const otherProfile = resolveLiveAgentStorage({
+      homeDirectory: "/Users/test",
+      environment: {},
+      profile: "isolated",
+    });
+    expect(
+      resolveNestedSessionStorage(otherProfile, {
+        liveSetId: "set:1",
+        sessionId: "session:1",
+      }).entityContextPath,
+    ).toContain("/profiles/isolated/");
   });
   it("resolves bounded production-session artifacts under session-state", () => {
     const layout = resolveLiveAgentStorage({

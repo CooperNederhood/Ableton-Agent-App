@@ -1,5 +1,26 @@
 # Playback Listening Developer Dogfood
 
+## Development milestone status
+
+This is a developer/dogfood milestone, not a release-certified listening system.
+On 2026-10-21 the developer approved documenting outstanding investigations and
+fixing forward. The current native timing fixes and durable-context workflow
+remain the delivered scope. Further edit/recovery and fresh-launch qualification
+is tracked in [#59](https://github.com/CooperNederhood/Ableton-Agent-App/issues/59);
+the source-state investigation is
+[#57](https://github.com/CooperNederhood/Ableton-Agent-App/issues/57), and
+device-chain listener rebinding is
+[#58](https://github.com/CooperNederhood/Ableton-Agent-App/issues/58).
+The obsolete device-panel caption is separately tracked in
+[#60](https://github.com/CooperNederhood/Ableton-Agent-App/issues/60).
+
+Normal-profile typed History also records a completed 0-4 pass
+`5f7b2f32-0cb2-4010-936f-0b1f1f14a89c` and successful retrieval of context
+`407089b2-0c8d-43b5-8fc8-3372bbbe3b98` after the updated handoff. This is
+recorded normal-profile completion/retrieval, not a new independent native-proof
+audit or edited-session acceptance. A later pass after a device-chain edit
+failed safely without context publication; #58 retains that evidence.
+
 ## Updated timing-fix example
 
 **The reproduced launch/whole-beat timing defects are fixed at `98e30c8` and
@@ -24,7 +45,7 @@ After full App restart, all four original payload hashes match through
 production renderer/preload/main retrieval. Outputs renders the original IDs
 and selected context `15727646-8015-420c-b09b-0fb6a8d16e0e`, including its
 original sample bounds. Both owned Apps and dedicated Live are closed.
-The separate unsupported-stop turn and earlier setup failures remain retained.
+The separate agent stop-refusal turn and earlier setup failures remain retained.
 This is bounded repeat/restart evidence, not three new clean fresh-process
 workflows, controlled-edit qualification or resolution of the historical
 `arrangement_source_unknown` tri-state.
@@ -47,8 +68,12 @@ The normal profile, original Set, old example and installed App were untouched.
    playback running, change no contents, and stop without retrying if it fails."
    Approve the bounded playback request. Expect 96,000 samples/20 windows at
    48 kHz, peak 0.5 and RMS approximately -12.16 dBFS.
-4. **Stop Live manually before every further listen.** The pinned agent
-   catalogue cannot stop transport, and capture intentionally leaves it running.
+4. **Stop Live manually before every further listen.** Capture intentionally
+   leaves it running. The application already exposes transport stop through
+   `set-playing` / `isPlaying: false`; the agent incorrectly failed to recognize
+   it. [#56](https://github.com/CooperNederhood/Ableton-Agent-App/issues/56)
+   tracks the incomplete description and real-agent verification, not a missing
+   Live capability or proven permissions restriction.
    Repeat with beats 0.25-3.75 and 4-12. This example's 4-12 interval is silent
    on the listener track; expect completed silent measurements, not audio
    from another track. A track-scoped listener does not hear other tracks.

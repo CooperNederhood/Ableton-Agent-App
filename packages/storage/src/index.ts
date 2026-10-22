@@ -196,7 +196,11 @@ function resolveNestedSessionStorageAtRoot(
   return {
     sessionDirectory,
     contextDirectory: join(sessionDirectory, "context"),
-    entityContextPath: join(sessionDirectory, "context", "entity-context.sqlite"),
+    entityContextPath: join(
+      sessionDirectory,
+      "context",
+      "entity-context.sqlite",
+    ),
     manifestPath: join(sessionDirectory, "session.json"),
     artifactsDirectory,
     planPath: join(artifactsDirectory, "plan.md"),
@@ -383,7 +387,11 @@ export function resolveLiveAgentStorage(
     liveSetSessionsPath: join(profileRoot, "state", "live-set-sessions.json"),
     liveProjectsRegistryPath: join(profileRoot, "state", "live-projects.json"),
     credentialsDirectory: join(profileRoot, "credentials"),
-    signalIngressDescriptorPath: join(profileRoot, "state", "signal-ingress.json"),
+    signalIngressDescriptorPath: join(
+      profileRoot,
+      "state",
+      "signal-ingress.json",
+    ),
     signalIngressSecretPath: join(
       profileRoot,
       "credentials",

@@ -61,17 +61,6 @@ export default tseslint.config(
   },
   {
     files: ["max-patches/midi-capture/midi_capture_identity.js"],
-    languageOptions: {
-      globals: {
-        autowatch: "writable",
-        inlets: "writable",
-        LiveAPI: "readonly",
-        outlet: "readonly",
-        outlets: "writable",
-        post: "readonly",
-        Task: "readonly",
-      },
-    },
     rules: {
       "no-unused-vars": "off",
     },

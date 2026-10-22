@@ -12,6 +12,22 @@ Companion specification: [Test Strategy](test-strategy.md)
 - [x] Define test tags for unit, contract, integration, Electron, and real Live.
 - [x] Keep Max CJS/MJS node:test suites and private diagnostic helpers out of
   Vitest discovery; retain the dedicated Max test command.
+- [x] Preserve validator failure through CI diagnostic logging with explicit
+  Bash pipefail. Exercise the actual workflow command with controlled passing
+  and failing validators and assert retained stdout/stderr logs and cleanup.
+- [x] Synchronize first-connected session fixtures on restoration completion,
+  not early in-memory identity. Hold association persistence deterministically
+  to cover event absence before settlement and publication afterward.
+- [x] Pin CLI test subprocesses to the actual Node executable with explicit TS
+  loading, register exit observation before signaling, and use prompt events
+  rather than polling. Cover failed-test child/pipe cleanup and register
+  completion cleanup for timeout paths without increasing deadlines.
+- [x] Execute native source-schema tests on Node 20 with explicit TS loading
+  and supported asynchronous source resolution. Preserve root restrictions,
+  existing-JS preference and exact error propagation, including rejected
+  asynchronous resolution.
+- [x] Make plain-Node calibration build/check/verification use scoped TS imports;
+  cover child commands without inherited loaders or native type stripping.
 
 ## Coverage implementation
 

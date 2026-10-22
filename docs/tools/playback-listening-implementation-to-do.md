@@ -8,7 +8,7 @@ The developer approved this as a development milestone on 2026-10-21, with
 investigations and broader qualification explicitly deferred to linked issues.
 Unchecked follow-up items below are not claims of completed qualification and
 are no longer release-certification prerequisites for this milestone merge.
-Concrete review defects and CI failures still require resolution.
+Merge-blocking review defects and CI failures still require resolution.
 
 ### Reopened: edited-session sequences and whole-beat starts
 
@@ -105,6 +105,17 @@ Concrete review defects and CI failures still require resolution.
 - [ ] Follow-up [#60](https://github.com/CooperNederhood/Ableton-Agent-App/issues/60):
   replace the obsolete saved-device capture-disabled caption without changing DSP
   behavior or presenting a static label as native pass authority.
+- [ ] Follow-up [#62](https://github.com/CooperNederhood/Ableton-Agent-App/issues/62):
+  reject v2 WAV dependencies not consumed from immutable staged snapshots.
+  Cover external/absolute-only references and valid relative references with
+  absolute fallback metadata without silently rewriting Set XML. Current
+  milestone fixture evidence covers project-relative copied inputs only.
+- [x] Correct the startup fixture to await `session.context_restored`, not only
+  in-memory identity or the session-registry write. Reproduce the original
+  assertion with association persistence held; assert no premature restoration
+  and completion after release. No production event-order or timeout change.
+- [x] Prevent hosted validation from hiding native test failures behind `tee`.
+  Use explicit Bash pipefail and controlled success/failure exit/log regressions.
 
 ## Historical checkpoints, not the current backlog
 

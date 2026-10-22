@@ -4768,6 +4768,72 @@ describe("desktop adapter over the shared application", () => {
     await service.stop();
   });
 
+  it("publishes first-connection restoration only after association persistence settles", async () => {
+    const state = defaultFakeState();
+    const connectedStatus = state.status;
+    state.status = { state: "disconnected" };
+    const { service, ableton, events, sessionStore, liveSetSessionStore } =
+      await harness({ ableton: state });
+    const persisted = deferred<void>();
+    const release = deferred<void>();
+
+    try {
+      await service.start();
+      const session = (await service.getSessions())[0]!;
+      const save = liveSetSessionStore.save.bind(liveSetSessionStore);
+      vi.spyOn(liveSetSessionStore, "save").mockImplementationOnce(
+        async (associations) => {
+          await save(associations);
+          persisted.resolve();
+          await release.promise;
+        },
+      );
+
+      ableton.state.status = connectedStatus;
+      const refresh = service.getSnapshot();
+      await persisted.promise;
+
+      expect(await service.getSessionForContext(session.id)).toMatchObject({
+        id: session.id,
+        liveSetId: state.liveIdentity.liveSetId,
+      });
+      expect(await sessionStore.load()).toContainEqual(
+        expect.objectContaining({
+          id: session.id,
+          liveSetId: state.liveIdentity.liveSetId,
+        }),
+      );
+      const restoration = () =>
+        events.find(
+          (event) =>
+            event.type === "session.context_restored" &&
+            event.session.id === session.id,
+        );
+      expect(restoration()).toBeUndefined();
+
+      release.resolve();
+      await refresh;
+
+      expect(restoration()).toMatchObject({
+        session: {
+          id: session.id,
+          liveSetId: state.liveIdentity.liveSetId,
+        },
+      });
+      expect(
+        await liveSetSessionStore.load(await sessionStore.load()),
+      ).toContainEqual(
+        expect.objectContaining({
+          sessionId: session.id,
+          liveSetId: state.liveIdentity.liveSetId,
+        }),
+      );
+    } finally {
+      release.resolve();
+      await service.stop();
+    }
+  });
+
   it("binds an untouched disconnected-startup session when its first saved Live Set connects", async () => {
     const state = defaultFakeState();
     const connectedStatus = state.status;
@@ -4789,6 +4855,18 @@ describe("desktop adapter over the shared application", () => {
           liveSetId: state.liveIdentity.liveSetId,
           liveSetName: state.liveIdentity.liveSetName,
         });
+        expect(
+          events.find(
+            (event) =>
+              event.type === "session.context_restored" &&
+              event.session.id === session.id,
+          ),
+        ).toMatchObject({
+          session: {
+            id: session.id,
+            liveSetId: state.liveIdentity.liveSetId,
+          },
+        });
       });
       expect(await sessionStore.load()).toContainEqual(
         expect.objectContaining({
@@ -4796,18 +4874,6 @@ describe("desktop adapter over the shared application", () => {
           liveSetId: state.liveIdentity.liveSetId,
         }),
       );
-      expect(
-        events.find(
-          (event) =>
-            event.type === "session.context_restored" &&
-            event.session.id === session.id,
-        ),
-      ).toMatchObject({
-        session: {
-          id: session.id,
-          liveSetId: state.liveIdentity.liveSetId,
-        },
-      });
       expect(
         events.filter(
           (event) => event.type === "live_set.transition_requested",

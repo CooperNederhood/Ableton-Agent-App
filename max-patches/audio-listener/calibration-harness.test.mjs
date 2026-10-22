@@ -3,6 +3,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile, mkdtemp, rm, writeFile, readdir } from "node:fs/promises";
 import { createRequire } from "node:module";
+import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import vm from "node:vm";
@@ -81,6 +82,34 @@ function syntheticComplete(c) {
 test("separate calibration staging/check API exists without a production commissioning bypass", () => {
   assert.equal(typeof builder.buildCalibration, "function");
   assert.equal(typeof builder.checkCalibrationArtifact, "function");
+});
+test("plain Node calibration CLI builds and checks without inherited TS loading or native stripping", async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), "native-commissioning-cli-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const env = { ...process.env };
+  delete env.NODE_OPTIONS;
+  const flags = process.allowedNodeEnvironmentFlags.has(
+    "--experimental-strip-types",
+  )
+    ? ["--no-experimental-strip-types"]
+    : [];
+  const entry = fileURLToPath(
+    new URL("../../scripts/audio-listener-device.mjs", import.meta.url),
+  );
+  for (const args of [
+    ["build-calibration", "--out", dir],
+    ["check-calibration-artifact", dir],
+  ]) {
+    const result = spawnSync(process.execPath, [...flags, entry, ...args], {
+      env,
+      encoding: "utf8",
+      timeout: 20_000,
+      killSignal: "SIGKILL",
+    });
+    assert.ifError(result.error);
+    assert.equal(result.status, 0, result.stderr);
+  }
+  await builder.checkCalibrationArtifact(dir);
 });
 test("portable native commissioning patch exists and routes real PCM signals into exact analyzer", async () => {
   const d = JSON.parse(

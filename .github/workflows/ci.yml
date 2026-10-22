@@ -35,6 +35,7 @@ jobs:
           git fetch --no-tags origin "${{ github.base_ref }}"
           pnpm contracts:compat "origin/${{ github.base_ref }}"
       - name: Format, lint, typecheck, and test
+        shell: bash
         run: pnpm check 2>&1 | tee ci-validation.log
       - name: Upload failure diagnostics
         if: failure()

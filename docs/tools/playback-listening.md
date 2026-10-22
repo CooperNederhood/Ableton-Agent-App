@@ -25,11 +25,34 @@ checks; the further qualification below is explicitly follow-up work.
 | [#58](https://github.com/CooperNederhood/Ableton-Agent-App/issues/58) | Reproduce and resolve listener placement/rebinding failure after device-chain edits. |
 | [#59](https://github.com/CooperNederhood/Ableton-Agent-App/issues/59) | Extend controlled-edit/recovery and immutable fresh-process packaged qualification. |
 | [#60](https://github.com/CooperNederhood/Ableton-Agent-App/issues/60) | Replace obsolete capture-disabled wording in the saved M4L device without changing DSP behavior. |
+| [#62](https://github.com/CooperNederhood/Ableton-Agent-App/issues/62) | Close immutable-fixture admission gaps for externally referenced WAVs; current qualification covers project-relative copied inputs only. |
 
 The evidence below is retained with its original scope. Deferred qualification
 is not relabelled passed, and historical receipts do not certify a changed
 candidate. Real-Live validation used installed 11.3.43; the supported target
 remains Live Suite 11.3.42 on Apple Silicon.
+
+### Milestone branch review
+
+Scoped independent reviews covered native/device resources, protocol/bridge/
+Remote Script, Desktop/CLI, and runtime/storage/runner; parent review covered
+application/tools and documentation/CI. The external-WAV admission finding is
+explicitly deferred above, with qualification limited to demonstrated copied
+project-relative inputs.
+
+The merge preparation fixed a false-green CI pipeline that let `tee` hide native
+test failures, explicit Node 20 TS loading and supported source-resolution hooks,
+and two test-only synchronization/process-identity defects. Restoration is still
+published only after persistence settles; CLI SIGINT targets the actual Node
+process. Deterministic regressions cover original failures, async resolver error
+propagation, plain-Node calibration commands and owned child cleanup. Native DSP,
+timing tolerances and qualified resource bytes are unchanged by these corrections.
+
+The final local `pnpm check` passes build, formatting, lint, types, documentation,
+contracts and all 2,235 TypeScript, 631 Max and 212 Python tests. Separate pinned
+Node 20.20.2 runs also pass all 2,235 TypeScript and 631 Max tests with zero skips.
+Hosted checks on the final PR revision remain a separate merge gate; earlier
+green status that masked native failures is not accepted as validation.
 
 ## Current target: developer dogfood
 
@@ -524,7 +547,12 @@ for launch. Project-relative references must agree with the pinned source;
 traversal, reserved paths, duplicate pins and symlinked output directories fail
 closed. Cancellation or copy failure removes only the owned partial fixture.
 Legacy explicitly provisioned absolute external references retain their old
-behavior. Staging returns bounded per-file receipts; persisted runner evidence
+behavior. Review found that current v2 admission also permits some external
+references without staged audio snapshots; #62 tracks fail-closed admission
+and reference-resolution coverage. The milestone's immutable-input evidence
+covers project-relative copied resources only, not arbitrary external WAVs.
+Audio receipts must not be interpreted as covering omitted external dependencies.
+Staging returns bounded per-file receipts; persisted runner evidence
 contains only audio counts, byte counts and hashes, not audio bodies or new
 unredacted filenames.
 

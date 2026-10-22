@@ -2,6 +2,7 @@ import { mkdir, readFile, writeFile, readdir, stat } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { tsImport } from "tsx/esm/api";
 import {
   decodeAmxd,
   encodeAmxd,
@@ -689,8 +690,10 @@ export async function buildCalibration(outDirectory) {
     resources: publication,
   });
   // Tooling-only import. No TypeScript/parent-package dependency is shipped.
-  const { createKnownListeningFixture } =
-    await import("../packages/test-support/src/listening-fixture.ts");
+  const { createKnownListeningFixture } = await tsImport(
+    "../packages/test-support/src/listening-fixture.ts",
+    import.meta.url,
+  );
   const fixtures = [];
   for (const id of CALIBRATION_FIXTURES) {
     const input = createKnownListeningFixture(id);
@@ -785,8 +788,10 @@ export async function checkCalibrationArtifact(directory) {
       throw new Error(`calibration must use exact owned resources: ${name}`);
     }
   }
-  const { createKnownListeningFixture } =
-    await import("../packages/test-support/src/listening-fixture.ts");
+  const { createKnownListeningFixture } = await tsImport(
+    "../packages/test-support/src/listening-fixture.ts",
+    import.meta.url,
+  );
   for (const id of CALIBRATION_FIXTURES) {
     const input = createKnownListeningFixture(id);
     if (
@@ -834,8 +839,10 @@ export async function main(argv = process.argv.slice(2)) {
     (argv.length === 2 ||
       (argv.length === 4 && argv[2] === "--artifact" && argv[3]))
   ) {
-    const { verifyCalibrationReportFile } =
-      await import("../max-patches/audio-listener/calibration-verifier.mjs");
+    const { verifyCalibrationReportFile } = await tsImport(
+      "../max-patches/audio-listener/calibration-verifier.mjs",
+      import.meta.url,
+    );
     const result = await verifyCalibrationReportFile(argv[1], {
       artifactDirectory: argv[3],
     });

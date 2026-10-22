@@ -20,7 +20,7 @@ From the repository root, with the existing development dependencies:
 node scripts/audio-listener-device.mjs check-calibration
 node scripts/audio-listener-device.mjs build-calibration --out /tmp/runner-native-commissioning
 node scripts/audio-listener-device.mjs check-calibration-artifact /tmp/runner-native-commissioning
-node --test max-patches/audio-listener/*.test.cjs max-patches/audio-listener/*.test.mjs
+node --import tsx --test max-patches/audio-listener/*.test.cjs max-patches/audio-listener/*.test.mjs
 ```
 
 The staging directory must be explicit, empty and separate from canonical
@@ -206,7 +206,9 @@ implementation and independent real-device evidence.
 ## Executable independent numeric verifier
 
 After a runner has produced an actual report, run this **offline, read-only**
-command from the development checkout (Node with TypeScript stripping support):
+command from the development checkout with its existing development dependencies.
+The CLI uses scoped `tsx` loading on Node 20 and does not require native
+TypeScript stripping:
 
 ```sh
 node scripts/audio-listener-device.mjs verify-calibration-report \

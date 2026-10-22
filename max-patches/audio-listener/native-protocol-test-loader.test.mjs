@@ -16,6 +16,25 @@ const missing = (url = requested) =>
     url,
   });
 
+test("async nextResolve rejection retains the exact owned TS fallback", async () => {
+  const calls = [];
+  const resolved = { url: requested.slice(0, -3) + ".ts" };
+  assert.equal(
+    await resolveNativeProtocolSource(
+      specifier,
+      context,
+      async (id, actualContext) => {
+        calls.push(id);
+        assert.equal(actualContext, context);
+        if (id === specifier) throw missing();
+        return resolved;
+      },
+    ),
+    resolved,
+  );
+  assert.deepEqual(calls, [specifier, resolved.url]);
+});
+
 test("native protocol tests resolve emitted .js imports to actual TS source dependencies", async () => {
   const calls = [];
   const resolved = {
@@ -23,12 +42,16 @@ test("native protocol tests resolve emitted .js imports to actual TS source depe
     format: "module-typescript",
   };
   assert.equal(
-    resolveNativeProtocolSource(specifier, context, (id, actualContext) => {
-      calls.push(id);
-      assert.equal(actualContext, context);
-      if (id === specifier) throw missing();
-      return resolved;
-    }),
+    await resolveNativeProtocolSource(
+      specifier,
+      context,
+      (id, actualContext) => {
+        calls.push(id);
+        assert.equal(actualContext, context);
+        if (id === specifier) throw missing();
+        return resolved;
+      },
+    ),
     resolved,
   );
   assert.deepEqual(calls, [specifier, resolved.url]);
@@ -48,7 +71,7 @@ test("native v2 wire tests resolve only the owned protocol/signal TS source grap
     import.meta.url,
   ).href;
   const calls = [];
-  resolveNativeProtocolSource(
+  await resolveNativeProtocolSource(
     "@ableton-agent/protocol",
     { parentURL: signalParent },
     (id) => {
@@ -64,7 +87,7 @@ test("native v2 wire tests resolve only the owned protocol/signal TS source grap
   assert.equal(typeof listenerResultV2Schema.safeParse, "function");
 });
 
-test("existing JS modules and imports outside the two TS source roots retain normal resolution", () => {
+test("existing JS modules and imports outside the two TS source roots retain normal resolution", async () => {
   for (const [id, actualContext] of [
     [specifier, context],
     ["zod", context],
@@ -91,7 +114,7 @@ test("existing JS modules and imports outside the two TS source roots retain nor
     const calls = [];
     const resolved = { url: "unchanged" };
     assert.equal(
-      resolveNativeProtocolSource(
+      await resolveNativeProtocolSource(
         id,
         actualContext,
         (value, receivedContext) => {
@@ -106,7 +129,7 @@ test("existing JS modules and imports outside the two TS source roots retain nor
   }
 });
 
-test("unrelated resolution failures and missing TS fallbacks are never hidden", () => {
+test("unrelated resolution failures and missing TS fallbacks are never hidden", async () => {
   for (const cause of [
     new Error("loader failed"),
     Object.assign(new Error("denied"), {
@@ -116,7 +139,7 @@ test("unrelated resolution failures and missing TS fallbacks are never hidden", 
     missing(new URL("./different.js", parentURL).href),
   ]) {
     let calls = 0;
-    assert.throws(
+    await assert.rejects(
       () =>
         resolveNativeProtocolSource(specifier, context, () => {
           calls++;
@@ -128,7 +151,7 @@ test("unrelated resolution failures and missing TS fallbacks are never hidden", 
   }
   const missingTS = missing(requested.slice(0, -3) + ".ts");
   const calls = [];
-  assert.throws(
+  await assert.rejects(
     () =>
       resolveNativeProtocolSource(specifier, context, (id) => {
         calls.push(id);

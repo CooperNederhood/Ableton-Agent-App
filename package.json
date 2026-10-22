@@ -45,7 +45,7 @@
     "audio-listener:check": "node scripts/audio-listener-device.mjs check",
     "max-patch-knowledge:check": "node scripts/check-max-patch-knowledge.mjs",
     "test": "pnpm test:ts && pnpm test:max-patches && pnpm test:python",
-    "test:max-patches": "node --test max-patches/**/*.test.cjs max-patches/**/*.test.mjs",
+    "test:max-patches": "node --import tsx --test max-patches/**/*.test.cjs max-patches/**/*.test.mjs",
     "test:electron": "pnpm build && playwright test --project=electron",
     "test:electron:packaged": "playwright test --project=electron-packaged",
     "test:ts": "vitest run",

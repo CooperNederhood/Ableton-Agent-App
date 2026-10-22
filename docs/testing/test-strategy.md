@@ -15,8 +15,28 @@ Tests use filename and command-level classifications:
 
 Every critical path requires success, failure, denial/guard, and cleanup
 coverage. Bug fixes must include a regression test at the narrowest owning
-boundary. Vitest runs with ten-second test/hook deadlines and zero retries;
+boundary. Vitest runs with default ten-second test/hook deadlines and zero retries;
 flaky tests are fixed or explicitly quarantined rather than silently retried.
+
+Hosted validation runs `pnpm check` through `tee` using explicitly selected Bash,
+which enables pipefail. The validator's failure must fail the job and retain
+stdout/stderr diagnostics; a successful log writer is not evidence that tests
+passed. A deterministic test reads the actual workflow step and exercises both
+successful and failing validators with controlled executables.
+
+CLI subprocess tests launch `process.execPath --import tsx`, preserving the
+actual runtime and process identity instead of signaling a package-manager
+shell shim. Prompt readiness and exit observation are event-driven. Test-owned
+children and pipes are reaped on assertion failure or test completion, including
+timeout paths; existing readiness/test deadlines are not extended.
+
+The Max test command explicitly loads `tsx` on the hosted Node 20 runtime.
+Native source-schema tests use the supported asynchronous module resolver,
+restricted to the existing protocol/signal source roots, rather than newer
+`registerHooks` or implicit native TypeScript stripping. Plain-Node calibration
+CLI commands use scoped TS imports, including transitive verifier imports;
+their subprocess regression removes inherited loader options and disables native
+stripping where available.
 
 ## Goals
 

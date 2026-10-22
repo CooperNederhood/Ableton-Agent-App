@@ -1,0 +1,58 @@
+{
+  "formatVersion": 1,
+  "evidenceKind": "actual-runner-owned-live-failure",
+  "nativeVersion": 2,
+  "scope": "arrangement-descriptive/v2",
+  "runId": "3de2099b-0ce0-40a8-a0f8-c3855cab705f",
+  "scenarioRunId": "951b97d3-c994-4a12-ac9f-64c4e626f284",
+  "passId": "f1dc303c-8def-487c-b460-5ec53e777f1d",
+  "jobId": "898616dc-e268-4ba6-86e4-caf0b314ef4b",
+  "requestId": "66f9369a-d35e-4dfd-bfa9-195e3817d921",
+  "attemptStartedAt": "2026-10-16T03:37:34.342Z",
+  "failureReason": "invalid_native_spectrum_packet_end_einvalid_sinvalid_finvalid_b494",
+  "pins": {
+    "sourceSetSha256": "ac1b41be9f11b05bdfe390e74bfb0887156dfad782808f9d66f5c8d890de229a",
+    "candidateManifestSha256": "0bdf2f029a5ce1f801f44f2843b3299dab7fb094a4392794eef9eef399730c6c",
+    "deviceSha256": "8e45ecf31aee11fc5acbc7de95d504197d303e306a34710b25c83c20d8f3511a",
+    "implementationCommit": "fbfcbeb"
+  },
+  "journalEvidence": {
+    "name": "output.listener.failed",
+    "id": "6ac0d200-631b-4d36-aaf9-86ecfa9239dc",
+    "occurredAt": "2026-10-16T03:38:02.388Z",
+    "recordedAt": "2026-10-16T03:38:02.409Z",
+    "sequence": 544,
+    "durationMs": 42,
+    "traceId": "d9ad3d7c-a4bc-406e-b297-78825e21020b",
+    "correlationId": "d9ad3d7c-a4bc-406e-b297-78825e21020b",
+    "causationId": "toolu_01Agxr9eBDN36Q7rVqwEAB9g",
+    "nativeFailureDiagnostic": {
+      "scope": "native-spectrum-rejection/v1",
+      "generation": "fbb4597c-9815-4117-bcd5-13921a28a0a3",
+      "check": "end",
+      "packet": [-1, 0, 0, -1, -1, 494],
+      "fftDiagnostics": [0, 1, 0, 1, 255],
+      "metadata": {
+        "dsp": null,
+        "fftInfo": [2048, 2048, 2048, 1],
+        "clockAbi": null,
+        "envelopeAbi": null,
+        "spectrumAbi": 2
+      }
+    }
+  },
+  "limitations": {
+    "physicalCause": "unresolved",
+    "metadata": "Null means not received at rejection, not an inferred DSP failure.",
+    "fftDiagnostics": "Latest passive taps; not vector-atomic with the main packet.",
+    "authority": "Failure diagnosis only; no arm, launch, completion or stop proof."
+  },
+  "outcome": {
+    "completed": false,
+    "contextIds": [],
+    "processStopped": true,
+    "fixtureCleaned": true,
+    "transportCleanup": "leave-running",
+    "realLiveValidated": false
+  }
+}

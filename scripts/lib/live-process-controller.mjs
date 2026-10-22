@@ -1,9 +1,9 @@
 import { Buffer } from "node:buffer";
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { open, readdir, stat } from "node:fs/promises";
+import { lstat, open, readdir, realpath, stat } from "node:fs/promises";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { join, relative, resolve, sep } from "node:path";
 import { clearTimeout } from "node:timers";
 
 const LIVE_EXECUTABLE_SUFFIX = ".app/Contents/MacOS/Live";
@@ -46,6 +46,7 @@ export class LiveProcessController {
   #randomUUID;
   #requestQuit;
   #handleStartupDialogs;
+  #requestLaunch;
 
   constructor({
     listProcesses = listLiveProcesses,
@@ -55,6 +56,7 @@ export class LiveProcessController {
     randomUUID: createRunId = randomUUID,
     requestQuit = requestLiveQuit,
     handleStartupDialogs = dismissKnownLiveStartupDialogs,
+    requestLaunch,
   } = {}) {
     this.#listProcesses = listProcesses;
     this.#run = run;
@@ -63,6 +65,7 @@ export class LiveProcessController {
     this.#randomUUID = createRunId;
     this.#requestQuit = requestQuit;
     this.#handleStartupDialogs = handleStartupDialogs;
+    this.#requestLaunch = requestLaunch;
   }
 
   publicRecord() {
@@ -78,17 +81,52 @@ export class LiveProcessController {
     }
   }
 
-  async launch(applicationPath, timeoutMs = 90_000) {
+  async launch(
+    applicationPath,
+    timeoutMs = this.#requestLaunch === undefined ? 90_000 : 600_000,
+    { fixturePath } = {},
+  ) {
     if (this.#owned !== undefined) {
       throw new Error("This controller already owns a Live process");
     }
     await this.assertNoPreExistingLive();
+    if (fixturePath !== undefined) {
+      const path = resolve(fixturePath);
+      const suffix = relative(resolve(".test-artifacts"), path);
+      const info = await lstat(path);
+      if (
+        !path.endsWith(".als") ||
+        suffix.startsWith(`..${sep}`) ||
+        suffix === ".." ||
+        !info.isFile() ||
+        info.isSymbolicLink() ||
+        info.size === 0 ||
+        info.size > 8 * 1024 * 1024 ||
+        (await realpath(path)) !== path
+      )
+        throw new Error("Startup fixture must be a bounded runner-owned Set");
+      fixturePath = path;
+    }
     const before = new Set((await this.#listProcesses()).map(({ pid }) => pid));
-    const launched = await this.#run("open", ["-n", "-a", applicationPath], {
-      timeoutMs: 15_000,
-    });
-    if (launched.status !== 0) {
-      throw new Error(`Unable to launch Live: ${launched.stderr.trim()}`);
+    if (this.#requestLaunch !== undefined) {
+      if (fixturePath === undefined) await this.#requestLaunch(applicationPath);
+      else await this.#requestLaunch(applicationPath, { fixturePath });
+    } else {
+      const launched = await this.#run(
+        "open",
+        [
+          "-n",
+          "-a",
+          applicationPath,
+          ...(fixturePath === undefined ? [] : [fixturePath]),
+        ],
+        {
+          timeoutMs: 15_000,
+        },
+      );
+      if (launched.status !== 0) {
+        throw new Error(`Unable to launch Live: ${launched.stderr.trim()}`);
+      }
     }
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
@@ -96,6 +134,13 @@ export class LiveProcessController {
         ({ pid }) => !before.has(pid),
       );
       if (candidates.length === 1) {
+        if (
+          candidates[0].command !== `${applicationPath}/Contents/MacOS/Live`
+        ) {
+          throw new Error(
+            "Launched Live executable does not match the requested application",
+          );
+        }
         this.#owned = {
           ...candidates[0],
           applicationPath,
@@ -104,6 +149,7 @@ export class LiveProcessController {
         };
         return this.publicRecord();
       }
+
       if (candidates.length > 1) {
         throw new Error(
           "Live launch produced multiple candidate processes; ownership is ambiguous",
@@ -158,15 +204,13 @@ export class LiveProcessController {
     try {
       await this.#requestQuit(owned);
     } catch {
-      this.#kill(owned.pid, "SIGTERM");
+      await this.#signalOwnedIfRunning(owned.pid, "SIGTERM");
     }
     if (!(await this.#waitForExit(owned.pid, timeoutMs))) {
-      await this.validateOwnership();
-      this.#kill(owned.pid, "SIGTERM");
+      await this.#signalOwnedIfRunning(owned.pid, "SIGTERM");
     }
     if (!(await this.#waitForExit(owned.pid, timeoutMs))) {
-      await this.validateOwnership();
-      this.#kill(owned.pid, "SIGKILL");
+      await this.#signalOwnedIfRunning(owned.pid, "SIGKILL");
       if (!(await this.#waitForExit(owned.pid, 5_000))) {
         throw new Error(
           `Unable to terminate runner-owned Live PID ${owned.pid}`,
@@ -174,6 +218,16 @@ export class LiveProcessController {
       }
     }
     this.#owned = undefined;
+  }
+
+  async #signalOwnedIfRunning(pid, signal) {
+    if (this.#processHasExited(pid)) return;
+    await this.validateOwnership();
+    try {
+      this.#kill(pid, signal);
+    } catch (error) {
+      if (error?.code !== "ESRCH") throw error;
+    }
   }
 
   async #waitForExit(pid, timeoutMs) {
@@ -194,6 +248,25 @@ export class LiveProcessController {
       throw error;
     }
   }
+}
+
+export function createComputerUseLiveController() {
+  return new LiveProcessController({
+    requestLaunch: async (applicationPath) => {
+      console.log(
+        JSON.stringify({
+          type: "runner.launch_requested",
+          applicationPath,
+          launchVia: "computer-use",
+          startedAt: new Date().toISOString(),
+        }),
+      );
+    },
+    handleStartupDialogs: async () => "none",
+    requestQuit: async (owned) => {
+      process.kill(owned.pid, "SIGTERM");
+    },
+  });
 }
 
 async function requestLiveQuit() {

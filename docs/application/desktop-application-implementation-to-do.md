@@ -4,6 +4,31 @@ Companion specification: [Desktop Application](desktop-application.md)
 
 ## Electron shell
 
+- [x] Add a real packaged OS-vault regression without an environment-token or
+  mock-Keychain bypass: require installed-token provisioning, encrypted
+  persistence, same-profile restart/decrypt and typed credential lifecycle.
+  Capture a bounded native sample on first-window failure.
+- [x] Cover adapter encryption unavailability, encryption/decryption denial,
+  encrypted-byte preservation, missing credentials and invalid-key guards.
+- [x] Include packaged Electron tests in strict TypeScript project checking,
+  rather than ESLint's default inferred project.
+- [ ] Resolve intermittent native-vault startup. The first real regression run
+  timed out before the first window; a later run passed provision/restart/decrypt
+  with the unchanged package. No production fix explains that transition.
+  Do not count the later pass as proof of a repaired startup or package listening.
+
+- [x] Reconcile first connection after disconnected startup: adopt an untouched
+  orphan transactionally; require a decision for offline history or an existing
+  canonical session. Reuse ownership barriers and promotion rollback.
+- [x] Reproduce the orphan-binding defect before the fix; cover clean binding,
+  offline-conversation denial, canonical resume and session/association write
+  failures with explicit recovery.
+- [x] Verify first connection, visible ownership and restart restoration through
+  production Electron main/preload with an isolated protocol simulator.
+  The regression failed against the pre-fix build with the original orphan
+  identity, then passed with transactional binding. The full Electron suite
+  passed; this is not real-audio or packaged listening acceptance.
+
 - [x] Scaffold Electron, React, Vite, and strict TypeScript.
 - [x] Implement secure BrowserWindow defaults, context isolation, and disabled
   Node integration in the renderer.
@@ -98,12 +123,68 @@ presentation state and say so; they are not applied to Live.
 
 ## Configuration and persistence
 
+- [x] Define strictly typed read-only context list/detail IPC and preload APIs
+  with explicit App-session scope and application-attributed query traces.
+- [x] Add bounded Outputs context summaries/detail, historical inclusion,
+  unknown-freshness labels, retry, and session/profile race protection.
+- [x] Record ordered query lifecycle, timing, sanitized failure, and supported
+  cancellation events without impersonating an agent.
+- [x] Include the context restart fixture and primary Electron suite in strict
+  test-project typechecking through the normal quality gate.
+- [x] Wire canonical session repositories and publication references into
+  production Desktop composition and pass the Electron restart regression.
+- [x] Compose the concrete listening factory with the existing runtime and
+  context ports, reject missing invoking owners/unavailable ingress explicitly,
+  and preserve ordered listening shutdown and the native commissioning gate.
+- [ ] Validate stored listening context and listening lifecycle presentation
+  visually in a fresh isolated Desktop/runner-owned Live session.
+- [x] Present bounded, sanitized listening job DTOs through read-only inventory
+  IPC/preload and typed main-process lifecycle change/reset events.
+- [x] Present owned listening progress/cancellation after SDK idle through the
+  existing agent cancellation path, with expected-session guards and explicit
+  leave-playback-running policy and actionable failures.
+- [x] Cover selected-agent/session/profile races, stale inventory, bounded
+  ownership, redaction, traced UI reads and cleanup in deterministic tests.
+- [x] Verify isolated synthetic Electron listening lifecycle regression.
+- [x] Isolate every primary Electron launch/restart from inherited credentials,
+  home directories, SDK/renderer overrides and production bridge/signal ports;
+  verify preference-selected endpoints without weakening UI postconditions.
+- [ ] Complete physical listening lifecycle acceptance after permission and
+  runner-owned Live/native timing prerequisites are satisfied.
+
 - [x] Store conversations in versioned App sessions with
   multiple active agents.
 - [x] Persist session-level agent overrides and output subscriptions.
 - [x] Persist per-active-agent automatic approval with a safe default, atomic
   selected/all updates, session-switch revalidation, and shutdown draining.
 - [x] Implement validated preferences and migration support.
+- [x] Default older preferences to descriptive listening with a 64-sample
+  observed clock/beat disagreement acceptance limit; validate whole-sample
+  0–480 advanced limits and strict zero/no-fallback consistency through the
+  existing profile preferences store and typed IPC.
+- [x] Apply successfully persisted listening policy changes only to future
+  passes through an application-owned immutable policy provider.
+- [x] Add Settings controls and truthful v2 quality detail at actual sample
+  rates, unknown absolute error/bound, and separate historical v1 labelling.
+- [x] Show constant-tempo assumption/not independently verified and unsupported
+  automation for v2 context, including historical producers with no warning.
+- [x] Bind Settings save feedback to the submitted draft revision; retain edits
+  made during persistence without falsely labelling them saved. Component
+  regressions reproduce both stale-success cases before the fix.
+- [x] Verify listening preferences and mixed v1/v2 typed historical context
+  through isolated Electron IPC/profile restarts (11-test owning suite).
+  One earlier intermittent 128-to-64 Settings result remains unexplained;
+  17 targeted repetitions and subsequent complete-suite runs did not reproduce
+  it. Do not treat revision-feedback hardening as its established root cause.
+- [x] Accept unique nonempty v1/v2 context-kind declarations at the Desktop
+  session boundary while preserving v1-only references and the existing
+  schema-version-2 context database path.
+- [x] Reconcile supported kinds additively through the existing atomic
+  registry/ownership-manifest publisher, retaining declarations on stale
+  requests and leaving observation bytes/ownership unchanged.
+- [ ] Qualify descriptive listening Settings and quality display in the
+  integrated runner-owned Live/Desktop UX loop after deterministic integration
+  validation (synthetic component/IPC tests alone do not qualify real UX).
 - [x] Persist one canonical App-session association per saved `liveSetId` in
   `live-set-sessions.json`, while retaining historical App sessions.
 - [x] Adopt Desktop session schema v4 with required Live Set identity and

@@ -1,0 +1,69 @@
+{
+  "scope": "native-v2-mixed-vector-clock-rejection/v1",
+  "diagnosticOnly": true,
+  "packagedQualification": false,
+  "scenarioRunId": "26ef77a9-62ed-4a01-88b8-662dd9870dab",
+  "passId": "b128f59c-7a7f-49c1-b6eb-c6d9df97b436",
+  "traceId": "c4251c0f-6cca-42d0-88a6-64d2cd609027",
+  "failureReason": "listening_alignment_budget_exceeded",
+  "check": "host-offset",
+  "geometry": {
+    "sampleRate": 48000,
+    "vectorSize": 64,
+    "tempoBpm": 120,
+    "startBeat": 0.25,
+    "endBeat": 60.25,
+    "hopSamples": 4800,
+    "totalSamples": 1440000
+  },
+  "policy": {
+    "mode": "descriptive",
+    "maxClockDisagreementSamples": 64
+  },
+  "anchorHostOffsetSamples": -1,
+  "startSample": 960511,
+  "anchorClock": [0, 0.25, 856511, 31, 856512, 0, 856512, 0, 0.25, 856511, 31],
+  "previousClock": [
+    1, 4.492666666666665, 1062336, 31, 1062336, 0.492666666666665, 1062336, 1,
+    4.492666666666665, 1062336, 31
+  ],
+  "rejectedClock": [
+    1, 4.513999999999998, 1062848, 31, 1062784, 0.511333333333335, 1062784, 1,
+    4.513999999999998, 1062848, 31
+  ],
+  "observedClockDisagreementSamples": 65,
+  "stoppedVariant": {
+    "scenarioRunId": "fcdef01f-cb10-47f0-a97a-c4b6cdcbeea8",
+    "passId": "ae1d8252-8eaf-44b1-b6b7-43291282c941",
+    "traceId": "628cebd8-b7ef-440d-8e48-80d0a5e1c5df",
+    "startSample": null,
+    "anchorHostOffsetSamples": -1,
+    "anchorClock": [
+      0, 0.25, 874943, 31, 874944, 0, 874944, 0, 0.25, 874943, 31
+    ],
+    "previousClock": [
+      0, 0.25, 972224, 31, 972224, 0, 972224, 0, 0.25, 972224, 31
+    ],
+    "rejectedClock": [
+      0, 0.25, 972736, 31, 972672, 0, 972672, 0, 0.25, 972736, 31
+    ],
+    "observedClockDisagreementSamples": 65,
+    "outcome": {
+      "completed": false,
+      "contextIds": [],
+      "processStopped": true,
+      "fixtureCleaned": true
+    }
+  },
+  "readPressure": {
+    "startedJobStage": "capturing",
+    "readCount": 2,
+    "maximumReadDurationMs": 907.0034579999992
+  },
+  "outcome": {
+    "completed": false,
+    "contextIds": [],
+    "processStopped": true,
+    "fixtureCleaned": true
+  }
+}

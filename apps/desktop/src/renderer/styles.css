@@ -583,6 +583,38 @@ small,
   color: var(--muted);
 }
 
+.entity-context-panel {
+  margin: 16px 0;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  overflow-wrap: anywhere;
+}
+.entity-context-panel > p,
+.entity-context-list p {
+  color: var(--muted);
+}
+.entity-context-list {
+  display: grid;
+  gap: 12px;
+  padding: 0;
+  list-style: none;
+}
+.entity-context-list li {
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+.entity-context-panel dl {
+  display: grid;
+  grid-template-columns: minmax(120px, 1fr) minmax(0, 3fr);
+  gap: 8px 16px;
+}
+.entity-context-panel dd {
+  margin: 0;
+}
+
 .events-mode-tabs {
   display: flex;
   gap: 6px;
@@ -3105,4 +3137,18 @@ kbd {
     animation-duration: 0.01ms !important;
     scroll-behavior: auto !important;
   }
+}
+.listening-pass-panel {
+  margin-block: 1rem;
+  padding: 1rem;
+  border: 1px solid var(--border-color, #555);
+  border-radius: 8px;
+}
+.listening-pass-panel button {
+  margin-inline-end: 0.5rem;
+  margin-block-end: 0.5rem;
+}
+.listening-pass-panel li {
+  padding-block: 0.75rem;
+  overflow-wrap: anywhere;
 }

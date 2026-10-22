@@ -94,11 +94,109 @@ interface DesktopApi {
     setCaptureEnabled(enabled: boolean): Promise<void>;
     clear(input?: HistoryDeleteScope): Promise<void>;
   };
+  entityContext: {
+    list(input: DesktopContextListRequest): Promise<DesktopContextPage>;
+    get(input: DesktopContextGetRequest): Promise<DesktopContextDetail>;
+  };
 }
 ```
 
 Do not expose generic `invoke(channel, payload)` or Node primitives to the
 renderer.
+
+`entity-context:list` and `entity-context:get` are read-only, strictly validated
+main-process boundaries scoped to an explicit App session. Preload creates a
+WebCrypto trace/correlation/causation tuple for each query and main forwards it
+through the shared context host to the application-owned repository. UI reads
+are application actors, never fabricated model-agent operations. Main records
+queued, started, completed, failed, and supported cancellation query events with
+bounded sanitized errors and elapsed timing. The renderer receives no database
+path, SQL, prune, arbitrary context-write, or filesystem capability.
+Public query input types preserve schema defaults: historical inclusion
+defaults to false and list pages default to twenty items; validated results
+remain separate output DTOs.
+
+Outputs includes a **Stored listening context** panel with bounded paginated
+summaries and detail, an explicit historical-inclusion control, and retryable
+errors. Unknown freshness is displayed as unknown rather than certified fresh;
+mixed or unresolved attribution is not presented as isolated clip evidence.
+Changing App session or profile refresh epoch clears selection and invalidates
+pending results; mismatched detail IDs are rejected. Reading stored context
+does not depend on the listener remaining connected. A context-file or
+composition failure is an actionable error, not a successful empty page.
+
+When canonical profile storage is configured, production Desktop composition
+shares one session-context manager between SDK queries/resume inventory and the
+main-only context reader. Ownership resolves by the invoking session, not the
+selected conversation. First publication registers that exact session and
+manifest; ordinary empty reads do not publish metadata. JsonSessionStore
+ownership transitions use the manager's close/relocate/reopen transaction.
+The same runtime's concrete listening factory supplies SDK discovery, pass and
+cancellation ports alongside context queries. Its owner resolver uses the
+invoking session ID, never the selected conversation; absent canonical storage
+does not construct a listening host. Native capture remains explicitly gated
+before controls pending real-device timing evidence. Producer readiness
+self-report cannot unlock this gate. Arrangement capture cleanup leaves playback
+running; cancelling a pass does not stop Live.
+Shutdown first quiesces listening while ingress is available, preserves the
+existing ingress-before-application stop order, then closes context handles
+after runtime/action drain and before journal closure. A quiescence failure
+retains ingress for cleanup; a context-close failure is surfaced rather than
+reported as clean shutdown.
+
+Outputs also includes **Listening passes**, scoped to the explicit App-session
+and selected agent. `listening:list` is the only listening inventory IPC/preload
+method: it accepts bounded identifiers, a limit of at most 100, and an optional
+UI trace; it exposes no SQL, paths, controls, raw audio or mutation API. Main
+retains at most 100 runtime lifecycle snapshots, evicts only terminal jobs, and
+rejects foreign owners, rebound pass IDs and unsupported playback-ownership
+claims. These snapshots are ephemeral lifecycle state, not stored observations
+or proof of certified native capture. All outbound strings are sanitized and
+bounded. `HeadlessDesktopService.reportListeningJob(job)` is the concrete
+runtime's `onChange` adapter and emits typed `listening.changed` snapshots;
+the coordinator remains the authority for capture lifecycle and original traces.
+
+The panel shows queued, validation, reservation, arming, playback-start, capture,
+publication and terminal stages, elapsed duration and actionable failure detail.
+It explicitly states that bounded Arrangement playback is **left running** on
+completion, cancellation, failure and timeout; Session capture is unsupported
+and production timing certification is still unavailable. The cancel control
+uses the existing `agents:cancel` service path for that agent's active turn and
+all its owned captures, including after SDK idle. Its expected App-session ID is
+revalidated before cancellation; no arbitrary renderer actor, direct bridge stop
+or transport-ownership token is introduced.
+
+Inventory and user-cancellation boundaries record ordered queued, started,
+progress, completed, failed or supported cancelled events with sanitized payloads,
+elapsed timing and UI trace/causation IDs. UI reads are application-attributed,
+with the target agent recorded as a subject rather than a fabricated model
+actor. The presentation relay preserves coordinator agent/Set attribution and
+does not start an independent capture lifecycle. Selection/profile changes,
+shutdown and owner removal clear stale views and subscriptions; monotonic
+inventory revisions prevent late queries from replacing newer events.
+Deterministic component/main/IPC/preload tests and an isolated, explicitly
+synthetic Electron event fixture cover these boundaries. Synthetic presentation
+is not positive measured-Max evidence. Physical visual acceptance remains gated
+on Accessibility/Screen Recording permissions and a runner-owned Live process;
+pre-existing user Live instances must not be controlled.
+
+Electron regressions use workspace-owned homes, caches and temporary directories,
+an allowlisted child environment with no inherited credentials/SDK or renderer
+overrides, and owned rejecting bridge endpoints. Both bridge and signal ports
+are written into resolver-owned preferences before launch: Desktop selects its
+bridge port from `preferences.abletonPort`, not `ABLETON_AGENT_PORT`. A process
+environment port override alone is therefore not sufficient isolation. Explicit
+synthetic fixture credentials/endpoints are the only permitted overrides;
+restart and automation launches retain the same protection. The secure-contract
+test verifies the exact owned preference port and preserves the exact
+**No connected Live Set** tree postcondition rather than matching arbitrary
+user Set names. Owned servers and profiles are closed/removed by the harness.
+Persistent launch-isolation coverage lives in the normal Desktop Vitest suite,
+not the excluded Electron test directory:
+`pnpm exec vitest run apps/desktop/src/main/desktop-test-environment.test.ts`.
+It uses synthetic environments and actual shared-resolver preference writes
+for initial/restart and normal/automation profiles, including the reviewed
+51234 bridge port versus the unsafe product default 8765.
 
 ### Renderer
 
@@ -267,7 +365,15 @@ monotonically so multiple App sessions for one Live Set have a deterministic
 creation order, while ordinary updates change only `updatedAt`. Unsaved Live
 Sets keep an explicit identity but their App sessions remain ephemeral during
 ordinary operation. Orphan sessions use an application-owned identity until
-Live connects. If the open Live Set changes after startup, Desktop blocks
+Live connects. The first connected identity must reconcile an existing orphan,
+not merely populate the identity cache. An untouched ephemeral session with no
+canonical conflict binds to the saved Set through the existing transactional
+promotion path, preserving App/agent IDs and rolling back ownership and
+associations on persistence failure. Existing offline conversation/configuration
+or a canonical association instead requires the normal explicit transition
+decision; first connection never silently reassigns that history.
+The first ownership-changing commit participates in the same bounded prompt
+barrier as later ownership changes. If the open Live Set changes after startup, Desktop blocks
 agent actions and Output delivery until the user resumes the associated App
 session, forks the current setup for the new Set, or starts fresh. Canonical
 association is keyed by `liveSetId`, so switching Sets inside one Live Project
@@ -341,6 +447,37 @@ Store non-secret preferences separately from credentials. Important settings:
 - Remote Script location.
 - Diagnostic logging level.
 - Whether the application window stays above other applications.
+- Listening alignment acceptance: defaults to descriptive mode with a
+  64-sample observed clock/beat disagreement limit. Advanced limits are whole
+  samples from 0 through 480; strict mode explicitly requires zero with no
+  fallback. This policy is persisted in the existing profile-owned
+  `config/preferences.json` via `JsonPreferencesStore` and typed preferences
+  IPC. A successful save updates only the policy used by future passes;
+  each pass freezes its starting policy. A failed persistence operation
+  leaves the active policy unchanged. Save feedback belongs to the submitted
+  draft revision: editing after a save clears the success message, and edits
+  made during persistence remain unsaved when the older request completes.
+  The pending save still disables duplicate submission.
+- Stored v2 listening detail distinguishes the pass's configured acceptance
+  limit from measured clock and beat disagreement, converting each to
+  milliseconds at the observation's actual sample rate. All v2 observations
+  remain approximate and descriptive-only, even in strict mode at zero
+  disagreement. Estimated absolute timing error and verified absolute error
+  bound remain unknown; observed disagreement is not physical uncertainty.
+  V2 detail also states that constant tempo is assumed and stability is not
+  independently verified; tempo automation remains unsupported. Completion is
+  not evidence that tempo stayed constant.
+  Historical v1 timing uncertainty retains its legacy label and is not
+  relabelled as v2 alignment.
+- Desktop session context declarations accept one or both unique
+  `audio-observation/v1` and `audio-observation/v2` kinds. Existing v1-only
+  declarations remain readable; the canonical schema version 2 and
+  `context/entity-context.sqlite` path do not change.
+  Context publication reconciles supported kinds additively through the
+  existing atomic registry/ownership-manifest save. Repeated or stale v1-only
+  publication cannot remove an existing v2 declaration, change ownership, or
+  rewrite observation content; persistence failure/cancellation leaves the
+  in-memory declaration unchanged.
 - Whether anonymous operational telemetry is enabled.
 - Local detailed-history capture (default on), retention status, clear, and
   per-session deletion controls.
@@ -356,6 +493,20 @@ Remote Scripts directory. A discovered token is copied into the vault without
 being exposed to renderer state or IPC. Multiple discovered installations with
 different tokens are an explicit configuration error rather than an
 auto-selection.
+
+Packaged startup qualification must exercise both credential boundaries.
+Environment-token startup/authentication checks do not test installed-token
+provisioning or native OS encryption. The macOS packaged regression therefore
+uses an isolated profile and synthetic Remote Script installation with no
+`ABLETON_AGENT_TOKEN`, mock Keychain, or basic password-store override. It must
+open the window, persist encrypted bytes, and then restart the same profile and
+decrypt through the real OS vault. Typed Desktop History must attribute ordered,
+redacted credential lifecycles to discovery and subsequent vault retrieval.
+A first-window timeout is a failed qualification, not an automatic skip; the
+test retains an exact-owned-process native sample before teardown. OS
+authentication remains a developer action. Ad-hoc builds have hash-bound
+signing identities, so another build's successful Keychain authorization does
+not qualify a newly signed package.
 
 ### Scoped automatic approval
 

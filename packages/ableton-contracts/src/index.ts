@@ -9,6 +9,18 @@ export interface AbletonService {
   getLiveIdentity(): Promise<Protocol.LiveIdentity>;
   ping(): Promise<Protocol.PingResult>;
   inspectSession(): Promise<Protocol.SessionSnapshot>;
+  inspectListeningContext?(
+    params: Protocol.InspectListeningContextParams,
+  ): Promise<Protocol.InspectListeningContextResult>;
+  positionListeningPlayback?(
+    params: Protocol.PositionListeningPlaybackParams,
+  ): Promise<Protocol.PositionListeningPlaybackResult>;
+  startListeningPlayback?(
+    params: Protocol.StartListeningPlaybackParams,
+  ): Promise<Protocol.StartListeningPlaybackResult>;
+  stopListeningPlayback?(
+    params: Protocol.StopListeningPlaybackParams,
+  ): Promise<Protocol.StopListeningPlaybackResult>;
   inspectCuratedLiveState?(): Promise<Protocol.InspectCuratedLiveStateResult>;
   executeScenesOperation?(
     params: Protocol.ScenesOperationParams,

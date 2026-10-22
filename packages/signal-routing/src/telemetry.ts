@@ -19,6 +19,7 @@ function entityId(value: string | undefined): string | undefined {
 }
 
 export interface SignalTelemetryInput {
+  readonly id?: TelemetryEventEnvelope["id"];
   readonly name: string;
   readonly source: string;
   readonly level?: TelemetryEventEnvelope["level"];
@@ -46,8 +47,8 @@ export function stableTelemetryId(value: string): string {
 export function recordSignalTelemetry(
   recorder: Pick<NonBlockingObservabilityRecorder, "enqueue"> | undefined,
   input: SignalTelemetryInput,
-): void {
-  if (recorder === undefined) return;
+): boolean {
+  if (recorder === undefined) return false;
   const correlationId = entityId(input.correlationId);
   const causationId = entityId(input.causationId);
   const liveSetId = entityId(input.liveSetId);
@@ -63,7 +64,7 @@ export function recordSignalTelemetry(
       : undefined;
   const event: TelemetryEventEnvelope = {
     version: 2,
-    id: randomUUID(),
+    id: input.id ?? randomUUID(),
     occurredAt: input.occurredAt ?? new Date().toISOString(),
     name: input.name,
     source: input.source,
@@ -86,7 +87,9 @@ export function recordSignalTelemetry(
   };
   try {
     recorder.enqueue(event);
+    return true;
   } catch {
     // Instrumentation must never disrupt signal ingress or routing.
+    return false;
   }
 }

@@ -1,0 +1,400 @@
+{
+  "schema": "native-stopped-preflight-evidence/v1",
+  "calibrationOnly": true,
+  "productionReady": false,
+  "nativeTiming": "UNVERIFIED",
+  "generation": "18bde6bc-b6f9-4a66-a26f-83569a59868a",
+  "purpose": "Actual stopped native IO and recorded preflight-coordinate validation, not fresh runtime arm, capture, onset or publication acceptance",
+  "counts": {
+    "tempo": 1,
+    "fftInfo": 1,
+    "abi-spectrum": 1,
+    "spectrum": 85,
+    "abi-envelope": 1,
+    "envelope": 85,
+    "dsp": 1,
+    "abi-clock": 1,
+    "clock": 84
+  },
+  "elapsedMs": 905,
+  "rejected": 0,
+  "abi": {
+    "clock": [1],
+    "envelope": [1],
+    "spectrum": [1]
+  },
+  "preflight": {
+    "before": {
+      "dsp": [1, 48000, 64],
+      "frames": [
+        [0, 0, 1732770836, 31, 553408, 0, 553408, 0, 0, 1732770836, 31],
+        [0, 0, 1732771348, 31, 553920, 0, 553920, 0, 0, 1732771348, 31],
+        [0, 0, 1732771860, 31, 554432, 0, 554432, 0, 0, 1732771860, 31],
+        [0, 0, 1732772372, 31, 554944, 0, 554944, 0, 0, 1732772372, 31],
+        [0, 0, 1732772884, 31, 555456, 0, 555456, 0, 0, 1732772884, 31],
+        [0, 0, 1732773396, 31, 555968, 0, 555968, 0, 0, 1732773396, 31],
+        [0, 0, 1732773908, 31, 556480, 0, 556480, 0, 0, 1732773908, 31],
+        [0, 0, 1732774420, 31, 556992, 0, 556992, 0, 0, 1732774420, 31],
+        [0, 0, 1732774932, 31, 557504, 0, 557504, 0, 0, 1732774932, 31],
+        [0, 0, 1732775444, 31, 558016, 0, 558016, 0, 0, 1732775444, 31],
+        [0, 0, 1732775956, 31, 558528, 0, 558528, 0, 0, 1732775956, 31],
+        [0, 0, 1732776468, 31, 559040, 0, 559040, 0, 0, 1732776468, 31],
+        [0, 0, 1732776980, 31, 559552, 0, 559552, 0, 0, 1732776980, 31],
+        [0, 0, 1732777492, 31, 560064, 0, 560064, 0, 0, 1732777492, 31],
+        [0, 0, 1732778004, 31, 560576, 0, 560576, 0, 0, 1732778004, 31],
+        [0, 0, 1732778516, 31, 561088, 0, 561088, 0, 0, 1732778516, 31],
+        [0, 0, 1732779028, 31, 561600, 0, 561600, 0, 0, 1732779028, 31],
+        [0, 0, 1732779540, 31, 562112, 0, 562112, 0, 0, 1732779540, 31],
+        [0, 0, 1732780052, 31, 562624, 0, 562624, 0, 0, 1732780052, 31],
+        [0, 0, 1732780564, 31, 563136, 0, 563136, 0, 0, 1732780564, 31],
+        [0, 0, 1732781076, 31, 563648, 0, 563648, 0, 0, 1732781076, 31],
+        [0, 0, 1732781588, 31, 564160, 0, 564160, 0, 0, 1732781588, 31],
+        [0, 0, 1732782100, 31, 564672, 0, 564672, 0, 0, 1732782100, 31],
+        [0, 0, 1732782612, 31, 565184, 0, 565184, 0, 0, 1732782612, 31],
+        [0, 0, 1732783124, 31, 565696, 0, 565696, 0, 0, 1732783124, 31],
+        [0, 0, 1732783636, 31, 566208, 0, 566208, 0, 0, 1732783636, 31],
+        [0, 0, 1732784148, 31, 566720, 0, 566720, 0, 0, 1732784148, 31],
+        [0, 0, 1732784660, 31, 567232, 0, 567232, 0, 0, 1732784660, 31],
+        [0, 0, 1732785172, 31, 567744, 0, 567744, 0, 0, 1732785172, 31],
+        [0, 0, 1732785684, 31, 568256, 0, 568256, 0, 0, 1732785684, 31],
+        [0, 0, 1732786196, 31, 568768, 0, 568768, 0, 0, 1732786196, 31],
+        [0, 0, 1732786708, 31, 569280, 0, 569280, 0, 0, 1732786708, 31]
+      ]
+    },
+    "fftInformation": [2048, 2048, 2048, 1],
+    "spectrum": [567296, 0, 0, 565248, 567296, 0]
+  },
+  "host": {
+    "playing": false,
+    "dspOn": true,
+    "sampleRate": 48000,
+    "vectorSize": 64,
+    "tempoBpm": 120,
+    "beat": 0,
+    "sample": 1732786708,
+    "flags": 31
+  },
+  "binding": {
+    "hostOffsetSamples": 1732217428,
+    "hostBeatZeroSample": null,
+    "lastCounter": 569280
+  },
+  "fftGrid": 596,
+  "invalidFrames": 0,
+  "envelope": [
+    [0, -1, -1, 0, 0, 0, -1, -1, 0, 0, 0, 0, 0, -1, -1, 1],
+    [0, -1, -1, 0, 0, 0, -1, -1, 0, 0, 0, 0, 0, -1, -1, 1],
+    [0, -1, -1, 0, 0, 0, -1, -1, 0, 0, 0, 0, 0, -1, -1, 1],
+    [0, -1, -1, 0, 0, 0, -1, -1, 0, 0, 0, 0, 0, -1, -1, 1],
+    [0, -1, -1, 0, 0, 0, -1, -1, 0, 0, 0, 0, 0, -1, -1, 1],
+    [0, -1, -1, 0, 0, 0, -1, -1, 0, 0, 0, 0, 0, -1, -1, 1],
+    [0, -1, -1, 0, 0, 0, -1, -1, 0, 0, 0, 0, 0, -1, -1, 1],
+    [0, -1, -1, 0, 0, 0, -1, -1, 0, 0, 0, 0, 0, -1, -1, 1]
+  ],
+  "codeSha256": {
+    "audio_listener_native_clock.gendsp": "4f0ea237b7ab15e924d13c405d5ec18356e8b462cfc4dce019574aac1aace609",
+    "audio_listener_native_envelope.gendsp": "576dd22f78af80c3e9522d1afb79ce3215d80c9a796da625d83c9011dcc6b9c9",
+    "audio_listener_native_spectrum.gendsp": "1047d920aeb476ff9e53c3d0237820fff6096e5d13e19d5da19e19402a295850",
+    "audio_listener_native_split.gendsp": "ca4f185fe40e778428aca5bd5703f3ce724f42586cabc183f6e722d68ab0fa20",
+    "audio_listener_native_clock.maxpat": "f75dda34abeecf12577f1fd3f80c4f164bfc48370814bfe9043bfa03adc3d3f5",
+    "audio_listener_native_fft.maxpat": "60aa48fb673e06fd35298fc04094ab8fd9f2591a683515fbfc329a376b2ee6ec",
+    "audio_listener_native_analysis.maxpat": "95a73f377b8409e96df5e9daa53615826eef64264e934dcbe4f015fc8abc1668",
+    "audio_listener_native_io.js": "a7bbbd64d0409b2d062cfc586b2761b61cbe37a1e07f575f822a1543375e0667"
+  },
+  "limits": {
+    "nativeArmObserved": false,
+    "nativeLaunchObserved": false,
+    "capturePublished": false,
+    "cachedEvidenceMayAuthorizeRuntime": false,
+    "pythonTrackPropertyAvailability": "not_established"
+  },
+  "observations": {
+    "trackBackToArranger": "not_exposed_by_max_liveapi",
+    "transportAcknowledgements": "Max stop, seek and continue require later independent readback",
+    "sourceStart": "Continue after confirmed stopped beat0 resumed near the previous stop position, not beat0; do not infer requested onset from the stopped display"
+  },
+  "states": [
+    {
+      "at": "2026-10-14T11:01:25.147Z",
+      "calibrationOnly": true,
+      "productionReady": false,
+      "trackBackToArrangerEvidence": "not_exposed_by_max_liveapi",
+      "tracks": [
+        {
+          "name": "1-MIDI",
+          "playing": -1,
+          "fired": -1
+        },
+        {
+          "name": "2-MIDI",
+          "playing": -1,
+          "fired": -1
+        },
+        {
+          "name": "3-ML-Calibration-quarter-sine",
+          "playing": -1,
+          "fired": -1
+        },
+        {
+          "name": "4-Audio",
+          "playing": -1,
+          "fired": -1
+        }
+      ],
+      "is_playing": 1,
+      "current_song_time": 12431.070375,
+      "tempo": 120,
+      "loop": 0,
+      "back_to_arranger": 0,
+      "record_mode": 0,
+      "session_record": 0,
+      "arrangement_overdub": 0,
+      "session_automation_record": 0
+    },
+    {
+      "at": "2026-10-14T11:02:09.855Z",
+      "calibrationOnly": true,
+      "productionReady": false,
+      "trackBackToArrangerEvidence": "not_exposed_by_max_liveapi",
+      "tracks": [
+        {
+          "name": "1-MIDI",
+          "playing": -1,
+          "fired": -1
+        },
+        {
+          "name": "2-MIDI",
+          "playing": -1,
+          "fired": -1
+        },
+        {
+          "name": "3-ML-Calibration-quarter-sine",
+          "playing": -1,
+          "fired": -1
+        },
+        {
+          "name": "4-Audio",
+          "playing": -1,
+          "fired": -1
+        }
+      ],
+      "is_playing": 0,
+      "current_song_time": 12431.125333333333,
+      "tempo": 120,
+      "loop": 0,
+      "back_to_arranger": 0,
+      "record_mode": 0,
+      "session_record": 0,
+      "arrangement_overdub": 0,
+      "session_automation_record": 0
+    },
+    {
+      "at": "2026-10-14T11:03:00.646Z",
+      "calibrationOnly": true,
+      "productionReady": false,
+      "trackBackToArrangerEvidence": "not_exposed_by_max_liveapi",
+      "tracks": [
+        {
+          "name": "1-MIDI",
+          "playing": -1,
+          "fired": -1
+        },
+        {
+          "name": "2-MIDI",
+          "playing": -1,
+          "fired": -1
+        },
+        {
+          "name": "3-ML-Calibration-quarter-sine",
+          "playing": -1,
+          "fired": -1
+        },
+        {
+          "name": "4-Audio",
+          "playing": -1,
+          "fired": -1
+        }
+      ],
+      "is_playing": 0,
+      "current_song_time": 12431.125333333333,
+      "tempo": 120,
+      "loop": 0,
+      "back_to_arranger": 0,
+      "record_mode": 0,
+      "session_record": 0,
+      "arrangement_overdub": 0,
+      "session_automation_record": 0
+    },
+    {
+      "at": "2026-10-14T11:03:06.791Z",
+      "calibrationOnly": true,
+      "productionReady": false,
+      "trackBackToArrangerEvidence": "not_exposed_by_max_liveapi",
+      "tracks": [
+        {
+          "name": "1-MIDI",
+          "playing": -1,
+          "fired": -1
+        },
+        {
+          "name": "2-MIDI",
+          "playing": -1,
+          "fired": -1
+        },
+        {
+          "name": "3-ML-Calibration-quarter-sine",
+          "playing": -1,
+          "fired": -1
+        },
+        {
+          "name": "4-Audio",
+          "playing": -1,
+          "fired": -1
+        }
+      ],
+      "is_playing": 0,
+      "current_song_time": 0,
+      "tempo": 120,
+      "loop": 0,
+      "back_to_arranger": 0,
+      "record_mode": 0,
+      "session_record": 0,
+      "arrangement_overdub": 0,
+      "session_automation_record": 0
+    },
+    {
+      "at": "2026-10-14T11:05:16.773Z",
+      "calibrationOnly": true,
+      "productionReady": false,
+      "trackBackToArrangerEvidence": "not_exposed_by_max_liveapi",
+      "tracks": [
+        {
+          "name": "1-MIDI",
+          "playing": -1,
+          "fired": -1
+        },
+        {
+          "name": "2-MIDI",
+          "playing": -1,
+          "fired": -1
+        },
+        {
+          "name": "3-ML-Calibration-quarter-sine",
+          "playing": -1,
+          "fired": -1
+        },
+        {
+          "name": "4-Audio",
+          "playing": -1,
+          "fired": -1
+        }
+      ],
+      "is_playing": 0,
+      "current_song_time": 0,
+      "tempo": 120,
+      "loop": 0,
+      "back_to_arranger": 0,
+      "record_mode": 0,
+      "session_record": 0,
+      "arrangement_overdub": 0,
+      "session_automation_record": 0
+    },
+    {
+      "at": "2026-10-14T11:05:32.077Z",
+      "calibrationOnly": true,
+      "productionReady": false,
+      "trackBackToArrangerEvidence": "not_exposed_by_max_liveapi",
+      "tracks": [
+        {
+          "name": "1-MIDI",
+          "playing": -1,
+          "fired": -1
+        },
+        {
+          "name": "2-MIDI",
+          "playing": -1,
+          "fired": -1
+        },
+        {
+          "name": "3-ML-Calibration-quarter-sine",
+          "playing": -1,
+          "fired": -1
+        },
+        {
+          "name": "4-Audio",
+          "playing": -1,
+          "fired": -1
+        }
+      ],
+      "is_playing": 1,
+      "current_song_time": 12461.657041593824,
+      "tempo": 120,
+      "loop": 0,
+      "back_to_arranger": 0,
+      "record_mode": 0,
+      "session_record": 0,
+      "arrangement_overdub": 0,
+      "session_automation_record": 0
+    },
+    {
+      "at": "2026-10-14T11:06:24.357Z",
+      "calibrationOnly": true,
+      "productionReady": false,
+      "trackBackToArrangerEvidence": "not_exposed_by_max_liveapi",
+      "tracks": [
+        {
+          "name": "1-MIDI",
+          "playing": -1,
+          "fired": -1
+        },
+        {
+          "name": "2-MIDI",
+          "playing": -1,
+          "fired": -1
+        },
+        {
+          "name": "3-ML-Calibration-quarter-sine",
+          "playing": -1,
+          "fired": -1
+        },
+        {
+          "name": "4-Audio",
+          "playing": -1,
+          "fired": -1
+        }
+      ],
+      "is_playing": 1,
+      "current_song_time": 12566.237041593824,
+      "tempo": 120,
+      "loop": 0,
+      "back_to_arranger": 0,
+      "record_mode": 0,
+      "session_record": 0,
+      "arrangement_overdub": 0,
+      "session_automation_record": 1
+    }
+  ],
+  "cleanup": {
+    "before": {
+      "boxes": 130,
+      "lines": 150
+    },
+    "after": {
+      "boxes": 130,
+      "lines": 150
+    },
+    "exactGraphRestored": true,
+    "temporaryRootObjectsRemoved": 6,
+    "transportLeftRunning": true,
+    "automationArmBefore": 1,
+    "automationArmDuringMeasurement": 0,
+    "automationArmRestored": 1,
+    "preservedProcesses": {
+      "live": 28747,
+      "desktop": 31535,
+      "max": 5197
+    },
+    "audioRecordedOrExported": false,
+    "deviceSavedOrPromoted": false
+  }
+}

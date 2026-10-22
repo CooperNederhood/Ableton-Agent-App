@@ -18,6 +18,8 @@ export {
   type AgentRuntime,
   type AgentRuntimeOptions,
   type AgentSettings,
+  type ListeningRuntimeDependencies,
+  type ListeningRuntimeHost,
 } from "./composition.js";
 export {
   DefaultSignalRuntime,
@@ -49,3 +51,14 @@ export {
   type PreparedContextCacheStatus,
   type PreparedProjectContextStoreOptions,
 } from "./prepared-context.js";
+export {
+  prepareListenerCapture,
+  type PrepareListenerCaptureInput,
+  type ListeningCaptureProgress,
+  type PreparedListeningCapture as PreparedListenerCapture,
+} from "./listening-capture.js";
+export {
+  createListeningRuntimeHost,
+  type ListeningRuntimeHostOptions,
+  type ConcreteListeningRuntimeHost,
+} from "./listening-runtime-host.js";

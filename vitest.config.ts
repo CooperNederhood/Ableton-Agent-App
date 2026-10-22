@@ -9,7 +9,8 @@ export default defineConfig({
     exclude: [
       ...configDefaults.exclude,
       "tests/electron/**",
-      "max-patches/**/*.test.cjs",
+      "max-patches/**/*.test.{cjs,mjs}",
+      ".test-artifacts/**",
     ],
     testTimeout: 10_000,
     hookTimeout: 10_000,
@@ -17,6 +18,9 @@ export default defineConfig({
   },
   resolve: {
     alias: {
+      "@ableton-agent/protocol/testing": source(
+        "./packages/protocol/src/testing.ts",
+      ),
       "@ableton-agent/ableton-contracts": source(
         "./packages/ableton-contracts/src/index.ts",
       ),

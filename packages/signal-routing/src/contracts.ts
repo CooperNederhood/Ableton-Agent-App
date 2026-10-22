@@ -6,6 +6,7 @@ import {
 } from "./assignment-id.js";
 
 export const SIGNAL_PROTOCOL_VERSION = 1 as const;
+export const DEFAULT_MAX_INGRESS_FRAME_BYTES = 128 * 1024;
 export const MAX_SIGNAL_PAYLOAD_BYTES = 64 * 1024;
 export const MAX_AUDIO_FEATURES = 256;
 export const MAX_AUDIO_ASSET_BYTES = 32 * 1024 * 1024;
@@ -48,10 +49,13 @@ export const outputProducerSchema = z
   })
   .refine(
     (producer) =>
-      producer.schemaVersion ===
-      (producer.signalKind === "midi"
-        ? "midi-sample/v1"
-        : "audio-reference/v1"),
+      producer.signalKind === "midi"
+        ? producer.schemaVersion === "midi-sample/v1"
+        : [
+            "audio-reference/v1",
+            "audio-observation/v1",
+            "audio-observation/v2",
+          ].includes(producer.schemaVersion),
     {
       path: ["schemaVersion"],
       message: "Schema version must match the producer signal kind",

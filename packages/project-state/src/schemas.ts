@@ -1,3 +1,8 @@
+import {
+  sessionContextStoreReferenceSchema,
+  type SessionContextStoreReference,
+} from "./context-schemas.js";
+
 export interface Schema<T> {
   readonly parse: (value: unknown) => T;
 }
@@ -836,14 +841,15 @@ export interface AppSession {
   readonly activeLiveSetId?: string;
   readonly startedAt: string;
   readonly updatedAt: string;
+  readonly contextStore?: SessionContextStoreReference;
 }
 export const appSessionSchema = schema<AppSession>((value) => {
   const input = record(
     value,
-    ["id", "activeLiveSetId", "startedAt", "updatedAt"],
+    ["id", "activeLiveSetId", "startedAt", "updatedAt", "contextStore"],
     "app session",
   );
-  return present(
+  const session = present(
     {
       id: idSchema.parse(input.id),
       startedAt: timestampSchema.parse(input.startedAt),
@@ -851,6 +857,13 @@ export const appSessionSchema = schema<AppSession>((value) => {
     },
     "activeLiveSetId",
     optional(input.activeLiveSetId, idSchema.parse),
+  );
+  return present(
+    session,
+    "contextStore",
+    optional(input.contextStore, (reference) =>
+      sessionContextStoreReferenceSchema.parse(reference),
+    ),
   );
 });
 

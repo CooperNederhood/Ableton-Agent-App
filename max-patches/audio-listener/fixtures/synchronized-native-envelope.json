@@ -1,0 +1,586 @@
+{
+  "schema": "synchronized-native-envelope-evidence/v1",
+  "calibrationOnly": true,
+  "productionReady": false,
+  "nativeTiming": "UNVERIFIED",
+  "scope": "local-origin-envelope-only",
+  "host": {
+    "liveVersion": "11.3.43 (2025-10-06_b466d4f56c)",
+    "sampleRate": 48000,
+    "vectorSize": 64,
+    "tempoBpm": 120,
+    "arrangementStartBeat": 0
+  },
+  "source": {
+    "kind": "quarter-sine",
+    "sha256": "f04440ac779afee5aa9352244d03312c9b03b65d5e798fad01c68b47a14e7f21",
+    "sampleCount": 96000
+  },
+  "genSha256": "df4109755cccfed6210495cce1d0924ee45e757f0fa70211eba05a7cdea3cae0",
+  "frameEncoding": "activeFrames are consecutive stereo peak/RMS rows; silentTailWindows appends exact zero rows. All collected endpoints were verified as consecutive multiples of 4800 before encoding. FFT fields are uncollected placeholders.",
+  "runs": [
+    {
+      "name": "fresh",
+      "sourceOffsetSamples": 0,
+      "exportedAt": "2026-10-14T05:10:49.581Z",
+      "schema": "hosted-native-envelope/v1",
+      "calibrationOnly": true,
+      "productionReady": false,
+      "nativeTiming": "UNVERIFIED",
+      "traceId": "00d26f77-475a-4451-8ac0-f23ca0d059d7",
+      "sampleRate": 48000,
+      "envelopeWindowSamples": 4800,
+      "maxFrames": 100,
+      "outcome": "collected",
+      "reason": "bounded_window_end",
+      "sourceRequestedAtMs": 9,
+      "events": [
+        {
+          "stage": "queued",
+          "eventId": "00d26f77-475a-4451-8ac0-f23ca0d059d7:native:1:0",
+          "traceId": "00d26f77-475a-4451-8ac0-f23ca0d059d7",
+          "correlationId": "00d26f77-475a-4451-8ac0-f23ca0d059d7",
+          "causationId": "00d26f77-475a-4451-8ac0-f23ca0d059d7",
+          "elapsedMs": 0,
+          "frames": 0
+        },
+        {
+          "stage": "started",
+          "eventId": "00d26f77-475a-4451-8ac0-f23ca0d059d7:native:1:1",
+          "traceId": "00d26f77-475a-4451-8ac0-f23ca0d059d7",
+          "correlationId": "00d26f77-475a-4451-8ac0-f23ca0d059d7",
+          "causationId": "00d26f77-475a-4451-8ac0-f23ca0d059d7:native:1:0",
+          "elapsedMs": 0,
+          "frames": 0
+        },
+        {
+          "stage": "armed",
+          "eventId": "00d26f77-475a-4451-8ac0-f23ca0d059d7:native:1:2",
+          "traceId": "00d26f77-475a-4451-8ac0-f23ca0d059d7",
+          "correlationId": "00d26f77-475a-4451-8ac0-f23ca0d059d7",
+          "causationId": "00d26f77-475a-4451-8ac0-f23ca0d059d7:native:1:1",
+          "elapsedMs": 9,
+          "frames": 0
+        },
+        {
+          "stage": "source-start-requested",
+          "eventId": "00d26f77-475a-4451-8ac0-f23ca0d059d7:native:1:3",
+          "traceId": "00d26f77-475a-4451-8ac0-f23ca0d059d7",
+          "correlationId": "00d26f77-475a-4451-8ac0-f23ca0d059d7",
+          "causationId": "00d26f77-475a-4451-8ac0-f23ca0d059d7:native:1:2",
+          "elapsedMs": 9,
+          "frames": 0
+        },
+        {
+          "stage": "native-launched",
+          "eventId": "00d26f77-475a-4451-8ac0-f23ca0d059d7:native:1:4",
+          "traceId": "00d26f77-475a-4451-8ac0-f23ca0d059d7",
+          "correlationId": "00d26f77-475a-4451-8ac0-f23ca0d059d7",
+          "causationId": "00d26f77-475a-4451-8ac0-f23ca0d059d7:native:1:3",
+          "elapsedMs": 20,
+          "frames": 0
+        },
+        {
+          "stage": "progress",
+          "eventId": "00d26f77-475a-4451-8ac0-f23ca0d059d7:native:1:5",
+          "traceId": "00d26f77-475a-4451-8ac0-f23ca0d059d7",
+          "correlationId": "00d26f77-475a-4451-8ac0-f23ca0d059d7",
+          "causationId": "00d26f77-475a-4451-8ac0-f23ca0d059d7:native:1:4",
+          "elapsedMs": 2516,
+          "frames": 25
+        },
+        {
+          "stage": "progress",
+          "eventId": "00d26f77-475a-4451-8ac0-f23ca0d059d7:native:1:6",
+          "traceId": "00d26f77-475a-4451-8ac0-f23ca0d059d7",
+          "correlationId": "00d26f77-475a-4451-8ac0-f23ca0d059d7",
+          "causationId": "00d26f77-475a-4451-8ac0-f23ca0d059d7:native:1:5",
+          "elapsedMs": 5012,
+          "frames": 50
+        },
+        {
+          "stage": "progress",
+          "eventId": "00d26f77-475a-4451-8ac0-f23ca0d059d7:native:1:7",
+          "traceId": "00d26f77-475a-4451-8ac0-f23ca0d059d7",
+          "correlationId": "00d26f77-475a-4451-8ac0-f23ca0d059d7",
+          "causationId": "00d26f77-475a-4451-8ac0-f23ca0d059d7:native:1:6",
+          "elapsedMs": 7518,
+          "frames": 75
+        },
+        {
+          "stage": "progress",
+          "eventId": "00d26f77-475a-4451-8ac0-f23ca0d059d7:native:1:8",
+          "traceId": "00d26f77-475a-4451-8ac0-f23ca0d059d7",
+          "correlationId": "00d26f77-475a-4451-8ac0-f23ca0d059d7",
+          "causationId": "00d26f77-475a-4451-8ac0-f23ca0d059d7:native:1:7",
+          "elapsedMs": 10015,
+          "frames": 100
+        },
+        {
+          "stage": "completed",
+          "eventId": "00d26f77-475a-4451-8ac0-f23ca0d059d7:native:1:9",
+          "traceId": "00d26f77-475a-4451-8ac0-f23ca0d059d7",
+          "correlationId": "00d26f77-475a-4451-8ac0-f23ca0d059d7",
+          "causationId": "00d26f77-475a-4451-8ac0-f23ca0d059d7:native:1:8",
+          "elapsedMs": 10015,
+          "frames": 100
+        }
+      ],
+      "scope": "signal-preroll-envelope-only",
+      "nativeEpoch": 1,
+      "originClock": 512,
+      "nativeMarker": [1, 513, 72513, 4, 0, 0, 1, 513],
+      "frameCount": 100,
+      "chunkCount": 13,
+      "activeFrames": [
+        [0.5, 0.5, 0.34713641522274874, 0.34713641522274874],
+        [0.5, 0.5, 0.35355295547947874, 0.35355295547947874],
+        [0.5, 0.5, 0.24155082913218567, 0.24155082913218567],
+        [0, 0, 0, 0],
+        [0, 0, 0, 0],
+        [0.5, 0.5, 0.3476300464841661, 0.3476300464841661],
+        [0.5, 0.5, 0.35355295547947874, 0.35355295547947874],
+        [0.5, 0.5, 0.24155082913218567, 0.24155082913218567],
+        [0, 0, 0, 0],
+        [0, 0, 0, 0],
+        [0.5, 0.5, 0.3476300464841661, 0.3476300464841661],
+        [0.5, 0.5, 0.35355295547947874, 0.35355295547947874],
+        [0.5, 0.5, 0.24155082913218567, 0.24155082913218567],
+        [0, 0, 0, 0],
+        [0, 0, 0, 0],
+        [0.5, 0.5, 0.3476300464841661, 0.3476300464841661],
+        [0.5, 0.5, 0.35355295547947874, 0.35355295547947874],
+        [0.5, 0.5, 0.24155082913218567, 0.24155082913218567]
+      ],
+      "silentTailWindows": 82
+    },
+    {
+      "name": "held",
+      "sourceOffsetSamples": 0,
+      "exportedAt": "2026-10-14T05:15:55.001Z",
+      "schema": "hosted-native-envelope/v1",
+      "calibrationOnly": true,
+      "productionReady": false,
+      "nativeTiming": "UNVERIFIED",
+      "traceId": "d33d0cd4-3e88-45b4-851a-6eb6d733fbb6",
+      "sampleRate": 48000,
+      "envelopeWindowSamples": 4800,
+      "maxFrames": 100,
+      "outcome": "collected",
+      "reason": "bounded_window_end",
+      "sourceRequestedAtMs": 9,
+      "events": [
+        {
+          "stage": "queued",
+          "eventId": "d33d0cd4-3e88-45b4-851a-6eb6d733fbb6:native:2:0",
+          "traceId": "d33d0cd4-3e88-45b4-851a-6eb6d733fbb6",
+          "correlationId": "d33d0cd4-3e88-45b4-851a-6eb6d733fbb6",
+          "causationId": "d33d0cd4-3e88-45b4-851a-6eb6d733fbb6",
+          "elapsedMs": 0,
+          "frames": 0
+        },
+        {
+          "stage": "started",
+          "eventId": "d33d0cd4-3e88-45b4-851a-6eb6d733fbb6:native:2:1",
+          "traceId": "d33d0cd4-3e88-45b4-851a-6eb6d733fbb6",
+          "correlationId": "d33d0cd4-3e88-45b4-851a-6eb6d733fbb6",
+          "causationId": "d33d0cd4-3e88-45b4-851a-6eb6d733fbb6:native:2:0",
+          "elapsedMs": 0,
+          "frames": 0
+        },
+        {
+          "stage": "armed",
+          "eventId": "d33d0cd4-3e88-45b4-851a-6eb6d733fbb6:native:2:2",
+          "traceId": "d33d0cd4-3e88-45b4-851a-6eb6d733fbb6",
+          "correlationId": "d33d0cd4-3e88-45b4-851a-6eb6d733fbb6",
+          "causationId": "d33d0cd4-3e88-45b4-851a-6eb6d733fbb6:native:2:1",
+          "elapsedMs": 9,
+          "frames": 0
+        },
+        {
+          "stage": "source-start-requested",
+          "eventId": "d33d0cd4-3e88-45b4-851a-6eb6d733fbb6:native:2:3",
+          "traceId": "d33d0cd4-3e88-45b4-851a-6eb6d733fbb6",
+          "correlationId": "d33d0cd4-3e88-45b4-851a-6eb6d733fbb6",
+          "causationId": "d33d0cd4-3e88-45b4-851a-6eb6d733fbb6:native:2:2",
+          "elapsedMs": 9,
+          "frames": 0
+        },
+        {
+          "stage": "native-launched",
+          "eventId": "d33d0cd4-3e88-45b4-851a-6eb6d733fbb6:native:2:4",
+          "traceId": "d33d0cd4-3e88-45b4-851a-6eb6d733fbb6",
+          "correlationId": "d33d0cd4-3e88-45b4-851a-6eb6d733fbb6",
+          "causationId": "d33d0cd4-3e88-45b4-851a-6eb6d733fbb6:native:2:3",
+          "elapsedMs": 20,
+          "frames": 0
+        },
+        {
+          "stage": "progress",
+          "eventId": "d33d0cd4-3e88-45b4-851a-6eb6d733fbb6:native:2:5",
+          "traceId": "d33d0cd4-3e88-45b4-851a-6eb6d733fbb6",
+          "correlationId": "d33d0cd4-3e88-45b4-851a-6eb6d733fbb6",
+          "causationId": "d33d0cd4-3e88-45b4-851a-6eb6d733fbb6:native:2:4",
+          "elapsedMs": 2516,
+          "frames": 25
+        },
+        {
+          "stage": "progress",
+          "eventId": "d33d0cd4-3e88-45b4-851a-6eb6d733fbb6:native:2:6",
+          "traceId": "d33d0cd4-3e88-45b4-851a-6eb6d733fbb6",
+          "correlationId": "d33d0cd4-3e88-45b4-851a-6eb6d733fbb6",
+          "causationId": "d33d0cd4-3e88-45b4-851a-6eb6d733fbb6:native:2:5",
+          "elapsedMs": 5012,
+          "frames": 50
+        },
+        {
+          "stage": "progress",
+          "eventId": "d33d0cd4-3e88-45b4-851a-6eb6d733fbb6:native:2:7",
+          "traceId": "d33d0cd4-3e88-45b4-851a-6eb6d733fbb6",
+          "correlationId": "d33d0cd4-3e88-45b4-851a-6eb6d733fbb6",
+          "causationId": "d33d0cd4-3e88-45b4-851a-6eb6d733fbb6:native:2:6",
+          "elapsedMs": 7518,
+          "frames": 75
+        },
+        {
+          "stage": "progress",
+          "eventId": "d33d0cd4-3e88-45b4-851a-6eb6d733fbb6:native:2:8",
+          "traceId": "d33d0cd4-3e88-45b4-851a-6eb6d733fbb6",
+          "correlationId": "d33d0cd4-3e88-45b4-851a-6eb6d733fbb6",
+          "causationId": "d33d0cd4-3e88-45b4-851a-6eb6d733fbb6:native:2:7",
+          "elapsedMs": 10015,
+          "frames": 100
+        },
+        {
+          "stage": "completed",
+          "eventId": "d33d0cd4-3e88-45b4-851a-6eb6d733fbb6:native:2:9",
+          "traceId": "d33d0cd4-3e88-45b4-851a-6eb6d733fbb6",
+          "correlationId": "d33d0cd4-3e88-45b4-851a-6eb6d733fbb6",
+          "causationId": "d33d0cd4-3e88-45b4-851a-6eb6d733fbb6:native:2:8",
+          "elapsedMs": 10016,
+          "frames": 100
+        }
+      ],
+      "scope": "signal-preroll-envelope-only",
+      "nativeEpoch": 2,
+      "originClock": 512,
+      "nativeMarker": [2, 576, 72513, 4, 0, 0, 64, 513],
+      "frameCount": 100,
+      "chunkCount": 13,
+      "activeFrames": [
+        [0.5, 0.5, 0.34713641522274874, 0.34713641522274874],
+        [0.5, 0.5, 0.35355295547947874, 0.35355295547947874],
+        [0.5, 0.5, 0.24155082913218567, 0.24155082913218567],
+        [0, 0, 0, 0],
+        [0, 0, 0, 0],
+        [0.5, 0.5, 0.3476300464841661, 0.3476300464841661],
+        [0.5, 0.5, 0.35355295547947874, 0.35355295547947874],
+        [0.5, 0.5, 0.24155082913218567, 0.24155082913218567],
+        [0, 0, 0, 0],
+        [0, 0, 0, 0],
+        [0.5, 0.5, 0.3476300464841661, 0.3476300464841661],
+        [0.5, 0.5, 0.35355295547947874, 0.35355295547947874],
+        [0.5, 0.5, 0.24155082913218567, 0.24155082913218567],
+        [0, 0, 0, 0],
+        [0, 0, 0, 0],
+        [0.5, 0.5, 0.3476300464841661, 0.3476300464841661],
+        [0.5, 0.5, 0.35355295547947874, 0.35355295547947874],
+        [0.5, 0.5, 0.24155082913218567, 0.24155082913218567]
+      ],
+      "silentTailWindows": 82
+    },
+    {
+      "name": "silent-edge",
+      "sourceOffsetSamples": 12048,
+      "exportedAt": "2026-10-14T05:18:23.952Z",
+      "schema": "hosted-native-envelope/v1",
+      "calibrationOnly": true,
+      "productionReady": false,
+      "nativeTiming": "UNVERIFIED",
+      "traceId": "cfe11d25-b673-4f1d-ab61-5a725bafa457",
+      "sampleRate": 48000,
+      "envelopeWindowSamples": 4800,
+      "maxFrames": 100,
+      "outcome": "collected",
+      "reason": "bounded_window_end",
+      "sourceRequestedAtMs": 9,
+      "events": [
+        {
+          "stage": "queued",
+          "eventId": "cfe11d25-b673-4f1d-ab61-5a725bafa457:native:3:0",
+          "traceId": "cfe11d25-b673-4f1d-ab61-5a725bafa457",
+          "correlationId": "cfe11d25-b673-4f1d-ab61-5a725bafa457",
+          "causationId": "cfe11d25-b673-4f1d-ab61-5a725bafa457",
+          "elapsedMs": 0,
+          "frames": 0
+        },
+        {
+          "stage": "started",
+          "eventId": "cfe11d25-b673-4f1d-ab61-5a725bafa457:native:3:1",
+          "traceId": "cfe11d25-b673-4f1d-ab61-5a725bafa457",
+          "correlationId": "cfe11d25-b673-4f1d-ab61-5a725bafa457",
+          "causationId": "cfe11d25-b673-4f1d-ab61-5a725bafa457:native:3:0",
+          "elapsedMs": 0,
+          "frames": 0
+        },
+        {
+          "stage": "armed",
+          "eventId": "cfe11d25-b673-4f1d-ab61-5a725bafa457:native:3:2",
+          "traceId": "cfe11d25-b673-4f1d-ab61-5a725bafa457",
+          "correlationId": "cfe11d25-b673-4f1d-ab61-5a725bafa457",
+          "causationId": "cfe11d25-b673-4f1d-ab61-5a725bafa457:native:3:1",
+          "elapsedMs": 9,
+          "frames": 0
+        },
+        {
+          "stage": "source-start-requested",
+          "eventId": "cfe11d25-b673-4f1d-ab61-5a725bafa457:native:3:3",
+          "traceId": "cfe11d25-b673-4f1d-ab61-5a725bafa457",
+          "correlationId": "cfe11d25-b673-4f1d-ab61-5a725bafa457",
+          "causationId": "cfe11d25-b673-4f1d-ab61-5a725bafa457:native:3:2",
+          "elapsedMs": 9,
+          "frames": 0
+        },
+        {
+          "stage": "native-launched",
+          "eventId": "cfe11d25-b673-4f1d-ab61-5a725bafa457:native:3:4",
+          "traceId": "cfe11d25-b673-4f1d-ab61-5a725bafa457",
+          "correlationId": "cfe11d25-b673-4f1d-ab61-5a725bafa457",
+          "causationId": "cfe11d25-b673-4f1d-ab61-5a725bafa457:native:3:3",
+          "elapsedMs": 21,
+          "frames": 0
+        },
+        {
+          "stage": "progress",
+          "eventId": "cfe11d25-b673-4f1d-ab61-5a725bafa457:native:3:5",
+          "traceId": "cfe11d25-b673-4f1d-ab61-5a725bafa457",
+          "correlationId": "cfe11d25-b673-4f1d-ab61-5a725bafa457",
+          "causationId": "cfe11d25-b673-4f1d-ab61-5a725bafa457:native:3:4",
+          "elapsedMs": 2516,
+          "frames": 25
+        },
+        {
+          "stage": "progress",
+          "eventId": "cfe11d25-b673-4f1d-ab61-5a725bafa457:native:3:6",
+          "traceId": "cfe11d25-b673-4f1d-ab61-5a725bafa457",
+          "correlationId": "cfe11d25-b673-4f1d-ab61-5a725bafa457",
+          "causationId": "cfe11d25-b673-4f1d-ab61-5a725bafa457:native:3:5",
+          "elapsedMs": 5012,
+          "frames": 50
+        },
+        {
+          "stage": "progress",
+          "eventId": "cfe11d25-b673-4f1d-ab61-5a725bafa457:native:3:7",
+          "traceId": "cfe11d25-b673-4f1d-ab61-5a725bafa457",
+          "correlationId": "cfe11d25-b673-4f1d-ab61-5a725bafa457",
+          "causationId": "cfe11d25-b673-4f1d-ab61-5a725bafa457:native:3:6",
+          "elapsedMs": 7519,
+          "frames": 75
+        },
+        {
+          "stage": "progress",
+          "eventId": "cfe11d25-b673-4f1d-ab61-5a725bafa457:native:3:8",
+          "traceId": "cfe11d25-b673-4f1d-ab61-5a725bafa457",
+          "correlationId": "cfe11d25-b673-4f1d-ab61-5a725bafa457",
+          "causationId": "cfe11d25-b673-4f1d-ab61-5a725bafa457:native:3:7",
+          "elapsedMs": 10014,
+          "frames": 100
+        },
+        {
+          "stage": "completed",
+          "eventId": "cfe11d25-b673-4f1d-ab61-5a725bafa457:native:3:9",
+          "traceId": "cfe11d25-b673-4f1d-ab61-5a725bafa457",
+          "correlationId": "cfe11d25-b673-4f1d-ab61-5a725bafa457",
+          "causationId": "cfe11d25-b673-4f1d-ab61-5a725bafa457:native:3:8",
+          "elapsedMs": 10015,
+          "frames": 100
+        }
+      ],
+      "scope": "signal-preroll-envelope-only",
+      "nativeEpoch": 3,
+      "originClock": 512,
+      "nativeMarker": [3, 576, 60465, 3, 0, 0, 64, 12465],
+      "frameCount": 100,
+      "chunkCount": 13,
+      "activeFrames": [
+        [0, 0, 0, 0],
+        [0, 0, 0, 0],
+        [0.5, 0.5, 0.24443374134110513, 0.24443374134110513],
+        [0.5, 0.5, 0.35355295547947874, 0.35355295547947874],
+        [0.5, 0.5, 0.345609025297401, 0.345609025297401],
+        [0, 0, 0, 0],
+        [0, 0, 0, 0],
+        [0.5, 0.5, 0.24443374134110513, 0.24443374134110513],
+        [0.5, 0.5, 0.35355295547947874, 0.35355295547947874],
+        [0.5, 0.5, 0.345609025297401, 0.345609025297401],
+        [0, 0, 0, 0],
+        [0, 0, 0, 0],
+        [0.5, 0.5, 0.24443374134110513, 0.24443374134110513],
+        [0.5, 0.5, 0.35355295547947874, 0.35355295547947874],
+        [0.5, 0.5, 0.345609025297401, 0.345609025297401]
+      ],
+      "silentTailWindows": 85
+    },
+    {
+      "name": "cancelled",
+      "sourceOffsetSamples": 0,
+      "exportedAt": "2026-10-14T05:19:31.795Z",
+      "schema": "hosted-native-envelope/v1",
+      "calibrationOnly": true,
+      "productionReady": false,
+      "nativeTiming": "UNVERIFIED",
+      "traceId": "aec771d4-a2c7-4d72-8953-06aaf1a45815",
+      "sampleRate": 48000,
+      "envelopeWindowSamples": 4800,
+      "maxFrames": 100,
+      "outcome": "cancelled",
+      "reason": "operator_cancelled",
+      "sourceRequestedAtMs": 10,
+      "events": [
+        {
+          "stage": "queued",
+          "eventId": "aec771d4-a2c7-4d72-8953-06aaf1a45815:native:4:0",
+          "traceId": "aec771d4-a2c7-4d72-8953-06aaf1a45815",
+          "correlationId": "aec771d4-a2c7-4d72-8953-06aaf1a45815",
+          "causationId": "aec771d4-a2c7-4d72-8953-06aaf1a45815",
+          "elapsedMs": 0,
+          "frames": 0
+        },
+        {
+          "stage": "started",
+          "eventId": "aec771d4-a2c7-4d72-8953-06aaf1a45815:native:4:1",
+          "traceId": "aec771d4-a2c7-4d72-8953-06aaf1a45815",
+          "correlationId": "aec771d4-a2c7-4d72-8953-06aaf1a45815",
+          "causationId": "aec771d4-a2c7-4d72-8953-06aaf1a45815:native:4:0",
+          "elapsedMs": 0,
+          "frames": 0
+        },
+        {
+          "stage": "armed",
+          "eventId": "aec771d4-a2c7-4d72-8953-06aaf1a45815:native:4:2",
+          "traceId": "aec771d4-a2c7-4d72-8953-06aaf1a45815",
+          "correlationId": "aec771d4-a2c7-4d72-8953-06aaf1a45815",
+          "causationId": "aec771d4-a2c7-4d72-8953-06aaf1a45815:native:4:1",
+          "elapsedMs": 10,
+          "frames": 0
+        },
+        {
+          "stage": "source-start-requested",
+          "eventId": "aec771d4-a2c7-4d72-8953-06aaf1a45815:native:4:3",
+          "traceId": "aec771d4-a2c7-4d72-8953-06aaf1a45815",
+          "correlationId": "aec771d4-a2c7-4d72-8953-06aaf1a45815",
+          "causationId": "aec771d4-a2c7-4d72-8953-06aaf1a45815:native:4:2",
+          "elapsedMs": 10,
+          "frames": 0
+        },
+        {
+          "stage": "native-launched",
+          "eventId": "aec771d4-a2c7-4d72-8953-06aaf1a45815:native:4:4",
+          "traceId": "aec771d4-a2c7-4d72-8953-06aaf1a45815",
+          "correlationId": "aec771d4-a2c7-4d72-8953-06aaf1a45815",
+          "causationId": "aec771d4-a2c7-4d72-8953-06aaf1a45815:native:4:3",
+          "elapsedMs": 21,
+          "frames": 0
+        },
+        {
+          "stage": "progress",
+          "eventId": "aec771d4-a2c7-4d72-8953-06aaf1a45815:native:4:5",
+          "traceId": "aec771d4-a2c7-4d72-8953-06aaf1a45815",
+          "correlationId": "aec771d4-a2c7-4d72-8953-06aaf1a45815",
+          "causationId": "aec771d4-a2c7-4d72-8953-06aaf1a45815:native:4:4",
+          "elapsedMs": 2517,
+          "frames": 25
+        },
+        {
+          "stage": "cancelled",
+          "eventId": "aec771d4-a2c7-4d72-8953-06aaf1a45815:native:4:6",
+          "traceId": "aec771d4-a2c7-4d72-8953-06aaf1a45815",
+          "correlationId": "aec771d4-a2c7-4d72-8953-06aaf1a45815",
+          "causationId": "aec771d4-a2c7-4d72-8953-06aaf1a45815:native:4:5",
+          "elapsedMs": 2741,
+          "frames": 27
+        }
+      ],
+      "scope": "signal-preroll-envelope-only",
+      "nativeEpoch": 4,
+      "originClock": 512,
+      "nativeMarker": [4, 576, 72513, 4, 0, 1, 64, 513],
+      "frameCount": 27,
+      "chunkCount": 4,
+      "activeFrames": [
+        [0.5, 0.5, 0.34713641522274874, 0.34713641522274874],
+        [0.5, 0.5, 0.35355295547947874, 0.35355295547947874],
+        [0.5, 0.5, 0.24155082913218567, 0.24155082913218567],
+        [0, 0, 0, 0],
+        [0, 0, 0, 0],
+        [0.5, 0.5, 0.3476300464841661, 0.3476300464841661],
+        [0.5, 0.5, 0.35355295547947874, 0.35355295547947874],
+        [0.5, 0.5, 0.24155082913218567, 0.24155082913218567],
+        [0, 0, 0, 0],
+        [0, 0, 0, 0],
+        [0.5, 0.5, 0.3476300464841661, 0.3476300464841661],
+        [0.5, 0.5, 0.35355295547947874, 0.35355295547947874],
+        [0.5, 0.5, 0.24155082913218567, 0.24155082913218567],
+        [0, 0, 0, 0],
+        [0, 0, 0, 0],
+        [0.5, 0.5, 0.3476300464841661, 0.3476300464841661],
+        [0.5, 0.5, 0.35355295547947874, 0.35355295547947874],
+        [0.5, 0.5, 0.24155082913218567, 0.24155082913218567]
+      ],
+      "silentTailWindows": 9
+    },
+    {
+      "name": "moving-arm-denied",
+      "sourceOffsetSamples": 0,
+      "exportedAt": "2026-10-14T05:20:16.083Z",
+      "schema": "hosted-native-envelope/v1",
+      "calibrationOnly": true,
+      "productionReady": false,
+      "nativeTiming": "UNVERIFIED",
+      "traceId": "bdb17330-e4ea-447f-8ac0-a6fe79bc787c",
+      "sampleRate": 48000,
+      "envelopeWindowSamples": 4800,
+      "maxFrames": 100,
+      "outcome": "failed",
+      "reason": "native_rejected_1",
+      "sourceRequestedAtMs": null,
+      "events": [
+        {
+          "stage": "queued",
+          "eventId": "bdb17330-e4ea-447f-8ac0-a6fe79bc787c:native:5:0",
+          "traceId": "bdb17330-e4ea-447f-8ac0-a6fe79bc787c",
+          "correlationId": "bdb17330-e4ea-447f-8ac0-a6fe79bc787c",
+          "causationId": "bdb17330-e4ea-447f-8ac0-a6fe79bc787c",
+          "elapsedMs": 0,
+          "frames": 0
+        },
+        {
+          "stage": "started",
+          "eventId": "bdb17330-e4ea-447f-8ac0-a6fe79bc787c:native:5:1",
+          "traceId": "bdb17330-e4ea-447f-8ac0-a6fe79bc787c",
+          "correlationId": "bdb17330-e4ea-447f-8ac0-a6fe79bc787c",
+          "causationId": "bdb17330-e4ea-447f-8ac0-a6fe79bc787c:native:5:0",
+          "elapsedMs": 0,
+          "frames": 0
+        },
+        {
+          "stage": "failed",
+          "eventId": "bdb17330-e4ea-447f-8ac0-a6fe79bc787c:native:5:2",
+          "traceId": "bdb17330-e4ea-447f-8ac0-a6fe79bc787c",
+          "correlationId": "bdb17330-e4ea-447f-8ac0-a6fe79bc787c",
+          "causationId": "bdb17330-e4ea-447f-8ac0-a6fe79bc787c:native:5:1",
+          "elapsedMs": 9,
+          "frames": 0
+        }
+      ],
+      "scope": "signal-preroll-envelope-only",
+      "nativeEpoch": 5,
+      "originClock": null,
+      "nativeMarker": [5, -1, -1, 0, 1, 0, -1, -1],
+      "frameCount": 0,
+      "chunkCount": 0,
+      "activeFrames": [],
+      "silentTailWindows": 0
+    }
+  ]
+}

@@ -1,0 +1,733 @@
+{
+  "schemaVersion": 1,
+  "scope": "native-v2-descriptive-group-observation/v1",
+  "runId": "a8785498-acc8-4951-90c6-c5b6866d6538",
+  "passed": false,
+  "selection": "native-listening-descriptive",
+  "attemptOrder": [
+    "native-descriptive-fractional",
+    "native-descriptive-30-seconds"
+  ],
+  "fractional": {
+    "scope": "ordinary-native-v2-qualification/v1",
+    "runId": "a8785498-acc8-4951-90c6-c5b6866d6538",
+    "parentGroupPassed": false,
+    "scenarioId": "native-descriptive-fractional",
+    "scenarioRunId": "6b011ecc-ac26-405b-acf1-6f049334a969",
+    "instrumentedDiagnosticOnly": false,
+    "sourceOverrides": [],
+    "inspectorAttached": false,
+    "independentlyQualified": true,
+    "freshProcessTypedRead": true,
+    "processPid": 7559,
+    "qualifiedAt": "2026-10-16T16:10:25.733Z",
+    "contextId": "220431ab-2274-47d9-a91a-3711345ddb7e",
+    "expected": {
+      "policy": {
+        "mode": "descriptive",
+        "maxClockDisagreementSamples": 64
+      },
+      "geometry": {
+        "sampleRate": 48000,
+        "vectorSize": 64,
+        "tempoBpm": 120,
+        "startBeat": 0.25,
+        "endBeat": 3.75,
+        "hopSamples": 4800,
+        "totalSamples": 84000
+      },
+      "listenerId": "ableton-audio-listener:path:9f82c42276eaf24a280f9e2cc3848437",
+      "passId": "fc32813b-766a-44b7-9274-d221e8748f6b"
+    },
+    "observation": {
+      "listenerId": "ableton-audio-listener:path:9f82c42276eaf24a280f9e2cc3848437",
+      "passId": "fc32813b-766a-44b7-9274-d221e8748f6b",
+      "sampleRate": 48000,
+      "startSample": 1138688,
+      "endSample": 1222688,
+      "startBeat": 0.25,
+      "endBeat": 3.75,
+      "complete": true,
+      "limitations": [
+        "RMS dBFS is not perceptual LUFS.",
+        "Attacks are 100ms envelope-rise estimates, not exact onsets.",
+        "Each continuous rise emits at most one attack estimate; a plateau or fall rearms it.",
+        "FFT is rectangular 2048-sample non-overlap; stereo complex-bin energies are pooled, never waveforms downmixed.",
+        "Spectral points are latest complete FFT frames, not full 100ms spectral averages.",
+        "Constant tempo is assumed; stability is not independently verified; tempo automation is unsupported.",
+        "Termination: range_complete"
+      ],
+      "algorithm": {
+        "name": "native-max-stereo-energy-envelope-rise",
+        "version": "2.0.0",
+        "windowSamples": 2048,
+        "hopSamples": 4800,
+        "settings": {
+          "attackThresholdDb": 6,
+          "minAttackSpacingSamples": 4800
+        },
+        "units": {
+          "amplitude": "linear",
+          "rms": "dBFS",
+          "centroid": "Hz"
+        }
+      },
+      "summaries": {
+        "peak": [0.5, 0.5],
+        "rmsDbfs": [-12.161550283999496, -12.161550283999496],
+        "centroidHz": 451.38889484672416
+      },
+      "samples": [
+        {
+          "sample": 1143488,
+          "beat": 0.45,
+          "peak": [0.5, 0.5],
+          "rmsDbfs": [-9.059479597440777, -9.059479597440777],
+          "centroidHz": 447.39029992910383
+        },
+        {
+          "sample": 1148288,
+          "beat": 0.65,
+          "peak": [0.5, 0.5],
+          "rmsDbfs": [-15.670807124018676, -15.670807124018676],
+          "centroidHz": null
+        },
+        {
+          "sample": 1153088,
+          "beat": 0.85,
+          "peak": [0, 0],
+          "rmsDbfs": [null, null],
+          "centroidHz": null
+        },
+        {
+          "sample": 1157888,
+          "beat": 1.05,
+          "peak": [0.5, 0.5],
+          "rmsDbfs": [-15.670807124018676, -15.670807124018676],
+          "centroidHz": 436.9435236156233
+        },
+        {
+          "sample": 1162688,
+          "beat": 1.25,
+          "peak": [0.5, 0.5],
+          "rmsDbfs": [-9.030910559543202, -9.030910559543202],
+          "centroidHz": 451.93272416080794
+        },
+        {
+          "sample": 1167488,
+          "beat": 1.45,
+          "peak": [0.5, 0.5],
+          "rmsDbfs": [-9.030910559543202, -9.030910559543202],
+          "centroidHz": 457.1211083071845
+        },
+        {
+          "sample": 1172288,
+          "beat": 1.65,
+          "peak": [0.5, 0.5],
+          "rmsDbfs": [-15.670807124018676, -15.670807124018676],
+          "centroidHz": null
+        },
+        {
+          "sample": 1177088,
+          "beat": 1.85,
+          "peak": [0, 0],
+          "rmsDbfs": [null, null],
+          "centroidHz": null
+        },
+        {
+          "sample": 1181888,
+          "beat": 2.05,
+          "peak": [0.5, 0.5],
+          "rmsDbfs": [-15.670807124018676, -15.670807124018676],
+          "centroidHz": 463.0484819636294
+        },
+        {
+          "sample": 1186688,
+          "beat": 2.25,
+          "peak": [0.5, 0.5],
+          "rmsDbfs": [-9.030910559543202, -9.030910559543202],
+          "centroidHz": 453.1574981231822
+        },
+        {
+          "sample": 1191488,
+          "beat": 2.45,
+          "peak": [0.5, 0.5],
+          "rmsDbfs": [-9.030910559543202, -9.030910559543202],
+          "centroidHz": 457.6507657069662
+        },
+        {
+          "sample": 1196288,
+          "beat": 2.65,
+          "peak": [0.5, 0.5],
+          "rmsDbfs": [-15.670807124018676, -15.670807124018676],
+          "centroidHz": null
+        },
+        {
+          "sample": 1201088,
+          "beat": 2.85,
+          "peak": [0, 0],
+          "rmsDbfs": [null, null],
+          "centroidHz": null
+        },
+        {
+          "sample": 1205888,
+          "beat": 3.05,
+          "peak": [0.5, 0.5],
+          "rmsDbfs": [-15.670807124018676, -15.670807124018676],
+          "centroidHz": null
+        },
+        {
+          "sample": 1210688,
+          "beat": 3.25,
+          "peak": [0.5, 0.5],
+          "rmsDbfs": [-9.030910559543202, -9.030910559543202],
+          "centroidHz": 445.3607892963953
+        },
+        {
+          "sample": 1215488,
+          "beat": 3.45,
+          "peak": [0.5, 0.5],
+          "rmsDbfs": [-9.030910559543202, -9.030910559543202],
+          "centroidHz": 442.12948329022106
+        },
+        {
+          "sample": 1220288,
+          "beat": 3.65,
+          "peak": [0.5, 0.5],
+          "rmsDbfs": [-15.670807124018676, -15.670807124018676],
+          "centroidHz": 596.3580516272124
+        },
+        {
+          "sample": 1222688,
+          "beat": 3.75,
+          "peak": [0, 0],
+          "rmsDbfs": [null, null],
+          "centroidHz": null
+        }
+      ],
+      "attacks": [
+        {
+          "sample": 1143488,
+          "beat": 0.45,
+          "strength": 110.94052040255923
+        },
+        {
+          "sample": 1157888,
+          "beat": 1.05,
+          "strength": 104.32919287598132
+        },
+        {
+          "sample": 1181888,
+          "beat": 2.05,
+          "strength": 104.32919287598132
+        },
+        {
+          "sample": 1205888,
+          "beat": 3.05,
+          "strength": 104.32919287598132
+        }
+      ],
+      "reduction": {
+        "originalSamples": 18,
+        "originalAttacks": 4,
+        "truncated": false
+      },
+      "schema": "audio-observation/v2",
+      "alignment": {
+        "schema": "listening-alignment/v2",
+        "policy": {
+          "mode": "descriptive",
+          "maxClockDisagreementSamples": 64
+        },
+        "sampleRate": 48000,
+        "vectorSize": 64,
+        "observedClockDisagreementSamples": 0,
+        "observedBeatDisagreementSamples": 0,
+        "alignment": "approximate",
+        "intendedUse": "descriptive-only",
+        "estimatedAbsoluteErrorSamples": null,
+        "verifiedAbsoluteErrorBoundSamples": null
+      }
+    },
+    "nativeCapture": {
+      "armed": {
+        "scope": "arrangement-descriptive/v2",
+        "policy": {
+          "mode": "descriptive",
+          "maxClockDisagreementSamples": 64
+        },
+        "geometry": {
+          "sampleRate": 48000,
+          "vectorSize": 64,
+          "tempoBpm": 120,
+          "startBeat": 0.25,
+          "endBeat": 3.75,
+          "hopSamples": 4800,
+          "totalSamples": 84000
+        },
+        "nativeEpoch": 1,
+        "armCounter": 1042944,
+        "before": {
+          "dsp": [1, 48000, 64],
+          "frames": [
+            [0, 0.25, 1026496, 31, 1026496, 0, 1026496, 0, 0.25, 1026496, 31],
+            [0, 0.25, 1027008, 31, 1027008, 0, 1027008, 0, 0.25, 1027008, 31],
+            [0, 0.25, 1027520, 31, 1027520, 0, 1027520, 0, 0.25, 1027520, 31],
+            [0, 0.25, 1028032, 31, 1028032, 0, 1028032, 0, 0.25, 1028032, 31],
+            [0, 0.25, 1028544, 31, 1028544, 0, 1028544, 0, 0.25, 1028544, 31],
+            [0, 0.25, 1029056, 31, 1029056, 0, 1029056, 0, 0.25, 1029056, 31],
+            [0, 0.25, 1029568, 31, 1029568, 0, 1029568, 0, 0.25, 1029568, 31],
+            [0, 0.25, 1030080, 31, 1030080, 0, 1030080, 0, 0.25, 1030080, 31],
+            [0, 0.25, 1030592, 31, 1030592, 0, 1030592, 0, 0.25, 1030592, 31],
+            [0, 0.25, 1031104, 31, 1031104, 0, 1031104, 0, 0.25, 1031104, 31],
+            [0, 0.25, 1031616, 31, 1031616, 0, 1031616, 0, 0.25, 1031616, 31],
+            [0, 0.25, 1032128, 31, 1032128, 0, 1032128, 0, 0.25, 1032128, 31],
+            [0, 0.25, 1032640, 31, 1032640, 0, 1032640, 0, 0.25, 1032640, 31],
+            [0, 0.25, 1033152, 31, 1033152, 0, 1033152, 0, 0.25, 1033152, 31],
+            [0, 0.25, 1033664, 31, 1033664, 0, 1033664, 0, 0.25, 1033664, 31],
+            [0, 0.25, 1034176, 31, 1034176, 0, 1034176, 0, 0.25, 1034176, 31],
+            [0, 0.25, 1034688, 31, 1034688, 0, 1034688, 0, 0.25, 1034688, 31],
+            [0, 0.25, 1035200, 31, 1035200, 0, 1035200, 0, 0.25, 1035200, 31],
+            [0, 0.25, 1035712, 31, 1035712, 0, 1035712, 0, 0.25, 1035712, 31],
+            [0, 0.25, 1036224, 31, 1036224, 0, 1036224, 0, 0.25, 1036224, 31],
+            [0, 0.25, 1036736, 31, 1036736, 0, 1036736, 0, 0.25, 1036736, 31],
+            [0, 0.25, 1037248, 31, 1037248, 0, 1037248, 0, 0.25, 1037248, 31],
+            [0, 0.25, 1037760, 31, 1037760, 0, 1037760, 0, 0.25, 1037760, 31],
+            [0, 0.25, 1038272, 31, 1038272, 0, 1038272, 0, 0.25, 1038272, 31],
+            [0, 0.25, 1038784, 31, 1038784, 0, 1038784, 0, 0.25, 1038784, 31],
+            [0, 0.25, 1039296, 31, 1039296, 0, 1039296, 0, 0.25, 1039296, 31],
+            [0, 0.25, 1039808, 31, 1039808, 0, 1039808, 0, 0.25, 1039808, 31],
+            [0, 0.25, 1040320, 31, 1040320, 0, 1040320, 0, 0.25, 1040320, 31],
+            [0, 0.25, 1040832, 31, 1040832, 0, 1040832, 0, 0.25, 1040832, 31],
+            [0, 0.25, 1041344, 31, 1041344, 0, 1041344, 0, 0.25, 1041344, 31],
+            [0, 0.25, 1041856, 31, 1041856, 0, 1041856, 0, 0.25, 1041856, 31],
+            [0, 0.25, 1042368, 31, 1042368, 0, 1042368, 0, 0.25, 1042368, 31]
+          ]
+        },
+        "reset": {
+          "launchClock": -1,
+          "sourceClock": -1,
+          "onsetCount": 0,
+          "rejected": 0,
+          "active": 0,
+          "launchPhaseSamples": -1,
+          "firstSourceClock": -1,
+          "completedSamples": 0
+        }
+      },
+      "launched": {
+        "nativeEpoch": 1,
+        "armCounter": 1042944,
+        "launchClock": 95744,
+        "launchPhaseSamples": 0,
+        "rejected": 0,
+        "active": 1,
+        "host": {
+          "sample": 1139136,
+          "beat": 0.268666666666667,
+          "flags": 31,
+          "playing": true
+        }
+      },
+      "after": {
+        "dsp": [1, 48000, 64],
+        "frames": [
+          [
+            1, 3.852666666666668, 1225152, 31, 1225152, 0.852666666666671,
+            1225152, 1, 3.852666666666668, 1225152, 31
+          ],
+          [
+            1, 3.874000000000001, 1225664, 31, 1225664, 0.874000000000004,
+            1225664, 1, 3.874000000000001, 1225664, 31
+          ],
+          [
+            1, 3.895333333333334, 1226176, 31, 1226176, 0.895333333333337,
+            1226176, 1, 3.895333333333334, 1226176, 31
+          ],
+          [
+            1, 3.916666666666667, 1226688, 31, 1226688, 0.916666666666671,
+            1226688, 1, 3.916666666666667, 1226688, 31
+          ],
+          [
+            1, 3.938000000000001, 1227200, 31, 1227200, 0.938000000000004,
+            1227200, 1, 3.938000000000001, 1227200, 31
+          ],
+          [
+            1, 3.959333333333334, 1227712, 31, 1227712, 0.959333333333337,
+            1227712, 1, 3.959333333333334, 1227712, 31
+          ],
+          [
+            1, 3.980666666666667, 1228224, 31, 1228224, 0.980666666666671,
+            1228224, 1, 3.980666666666667, 1228224, 31
+          ],
+          [
+            1, 4.002000000000001, 1228736, 31, 1228736, 0.002000000000002,
+            1228736, 1, 4.002000000000001, 1228736, 31
+          ],
+          [
+            1, 4.023333333333332, 1229248, 31, 1229248, 0.023333333333332,
+            1229248, 1, 4.023333333333332, 1229248, 31
+          ],
+          [
+            1, 4.044666666666664, 1229760, 31, 1229760, 0.044666666666665,
+            1229760, 1, 4.044666666666664, 1229760, 31
+          ],
+          [
+            1, 4.065999999999997, 1230272, 31, 1230272, 0.065999999999997,
+            1230272, 1, 4.065999999999997, 1230272, 31
+          ],
+          [
+            1, 4.087333333333332, 1230784, 31, 1230784, 0.087333333333332,
+            1230784, 1, 4.087333333333332, 1230784, 31
+          ],
+          [
+            1, 4.108666666666664, 1231296, 31, 1231296, 0.108666666666664,
+            1231296, 1, 4.108666666666664, 1231296, 31
+          ],
+          [
+            1, 4.129999999999997, 1231808, 31, 1231808, 0.129999999999997,
+            1231808, 1, 4.129999999999997, 1231808, 31
+          ],
+          [
+            1, 4.151333333333332, 1232320, 31, 1232320, 0.151333333333332,
+            1232320, 1, 4.151333333333332, 1232320, 31
+          ],
+          [
+            1, 4.172666666666665, 1232832, 31, 1232832, 0.172666666666665,
+            1232832, 1, 4.172666666666665, 1232832, 31
+          ],
+          [
+            1, 4.193999999999997, 1233344, 31, 1233344, 0.193999999999997,
+            1233344, 1, 4.193999999999997, 1233344, 31
+          ],
+          [
+            1, 4.215333333333331, 1233856, 31, 1233856, 0.215333333333331,
+            1233856, 1, 4.215333333333331, 1233856, 31
+          ],
+          [
+            1, 4.236666666666665, 1234368, 31, 1234368, 0.236666666666665,
+            1234368, 1, 4.236666666666665, 1234368, 31
+          ],
+          [
+            1, 4.257999999999997, 1234880, 31, 1234880, 0.257999999999997,
+            1234880, 1, 4.257999999999997, 1234880, 31
+          ],
+          [
+            1, 4.279333333333331, 1235392, 31, 1235392, 0.279333333333331,
+            1235392, 1, 4.279333333333331, 1235392, 31
+          ],
+          [
+            1, 4.300666666666665, 1235904, 31, 1235904, 0.300666666666665,
+            1235904, 1, 4.300666666666665, 1235904, 31
+          ],
+          [
+            1, 4.321999999999997, 1236416, 31, 1236416, 0.321999999999997,
+            1236416, 1, 4.321999999999997, 1236416, 31
+          ],
+          [
+            1, 4.343333333333331, 1236928, 31, 1236928, 0.343333333333331,
+            1236928, 1, 4.343333333333331, 1236928, 31
+          ],
+          [
+            1, 4.364666666666665, 1237440, 31, 1237440, 0.364666666666665,
+            1237440, 1, 4.364666666666665, 1237440, 31
+          ],
+          [
+            1, 4.385999999999997, 1237952, 31, 1237952, 0.385999999999997,
+            1237952, 1, 4.385999999999997, 1237952, 31
+          ],
+          [
+            1, 4.407333333333331, 1238464, 31, 1238464, 0.407333333333331,
+            1238464, 1, 4.407333333333331, 1238464, 31
+          ],
+          [
+            1, 4.428666666666665, 1238976, 31, 1238976, 0.428666666666665,
+            1238976, 1, 4.428666666666665, 1238976, 31
+          ],
+          [
+            1, 4.449999999999998, 1239488, 31, 1239488, 0.449999999999998,
+            1239488, 1, 4.449999999999998, 1239488, 31
+          ],
+          [
+            1, 4.471333333333331, 1240000, 31, 1240000, 0.471333333333331,
+            1240000, 1, 4.471333333333331, 1240000, 31
+          ],
+          [
+            1, 4.492666666666665, 1240512, 31, 1240512, 0.492666666666665,
+            1240512, 1, 4.492666666666665, 1240512, 31
+          ],
+          [
+            1, 4.513999999999998, 1241024, 31, 1241024, 0.514000000000001,
+            1241024, 1, 4.513999999999998, 1241024, 31
+          ]
+        ]
+      },
+      "timingWitnesses": {
+        "minHostOffset": [
+          0, 0.25, 1026496, 31, 1026496, 0, 1026496, 0, 0.25, 1026496, 31
+        ],
+        "maxHostOffset": [
+          0, 0.25, 1026496, 31, 1026496, 0, 1026496, 0, 0.25, 1026496, 31
+        ],
+        "minBeatOrigin": [
+          1, 0.268666666666667, 1139136, 31, 1139136, 0.268666666666667,
+          1139136, 1, 0.268666666666667, 1139136, 31
+        ],
+        "maxBeatOrigin": [
+          1, 0.268666666666667, 1139136, 31, 1139136, 0.268666666666667,
+          1139136, 1, 0.268666666666667, 1139136, 31
+        ],
+        "maxPhaseDisagreement": [
+          1, 0.268666666666667, 1139136, 31, 1139136, 0.268666666666667,
+          1139136, 1, 0.268666666666667, 1139136, 31
+        ]
+      },
+      "envelopeWindows": [
+        [1143488, 0.352391983467829, 0.352391983467829],
+        [1148288, 0.164611299649744, 0.164611299649744],
+        [1153088, 0, 0],
+        [1157888, 0.164611299649744, 0.164611299649744],
+        [1162688, 0.353552955479479, 0.353552955479479],
+        [1167488, 0.353552955479479, 0.353552955479479],
+        [1172288, 0.164611299649744, 0.164611299649744],
+        [1177088, 0, 0],
+        [1181888, 0.164611299649744, 0.164611299649744],
+        [1186688, 0.353552955479479, 0.353552955479479],
+        [1191488, 0.353552955479479, 0.353552955479479],
+        [1196288, 0.164611299649744, 0.164611299649744],
+        [1201088, 0, 0],
+        [1205888, 0.164611299649744, 0.164611299649744],
+        [1210688, 0.353552955479479, 0.353552955479479],
+        [1215488, 0.353552955479479, 0.353552955479479],
+        [1220288, 0.164611299649744, 0.164611299649744],
+        [1222688, 0, 0]
+      ],
+      "spectralWindows": [
+        [1140736, 1142784, 447.39029992910383, 522734.04581429233],
+        [1144832, 1146880, 0, 0],
+        [1150976, 1153024, 0, 0],
+        [1155072, 1157120, 436.9435236156233, 70879.292428404],
+        [1159168, 1161216, 451.93272416080794, 524871.9408365081],
+        [1165312, 1167360, 457.1211083071845, 527335.2115511976],
+        [1169408, 1171456, 0, 0],
+        [1173504, 1175552, 0, 0],
+        [1179648, 1181696, 463.0484819636294, 216688.12045395718],
+        [1183744, 1185792, 453.1574981231822, 525451.2711278888],
+        [1187840, 1189888, 457.6507657069662, 527587.9106318009],
+        [1193984, 1196032, 0, 0],
+        [1198080, 1200128, 0, 0],
+        [1202176, 1204224, 0, 0],
+        [1208320, 1210368, 445.3607892963953, 521784.7160815096],
+        [1212416, 1214464, 442.12948329022106, 520279.8896361081],
+        [1216512, 1218560, 596.3580516272124, 6961.504172580317],
+        [1220608, 1222656, 0, 0]
+      ]
+    },
+    "positiveSpectralWindows": 10,
+    "spectralEnergy": 3964573.9027342475,
+    "evidence": {
+      "passId": "fc32813b-766a-44b7-9274-d221e8748f6b",
+      "contextId": "220431ab-2274-47d9-a91a-3711345ddb7e",
+      "listenerId": "ableton-audio-listener:path:9f82c42276eaf24a280f9e2cc3848437",
+      "startBeat": 0.25,
+      "endBeat": 3.75,
+      "sampleRate": 48000,
+      "stereoFrames": 84000,
+      "envelopeWindows": 18,
+      "spectralWindows": 18,
+      "beforeFrames": 32,
+      "afterFrames": 32,
+      "estimatedAttacks": 4,
+      "alignment": {
+        "schema": "listening-alignment/v2",
+        "policy": {
+          "mode": "descriptive",
+          "maxClockDisagreementSamples": 64
+        },
+        "sampleRate": 48000,
+        "vectorSize": 64,
+        "observedClockDisagreementSamples": 0,
+        "observedBeatDisagreementSamples": 0,
+        "alignment": "approximate",
+        "intendedUse": "descriptive-only",
+        "estimatedAbsoluteErrorSamples": null,
+        "verifiedAbsoluteErrorBoundSamples": null
+      },
+      "requestedRange": {
+        "startBeat": 0.25,
+        "endBeat": 3.75
+      },
+      "observationSchema": "audio-observation/v2",
+      "attribution": "unknown",
+      "freshness": "unknown",
+      "cleanupPolicy": "leave-running",
+      "independentlyAcceptedNativeProof": true
+    },
+    "fixture": {
+      "sourceSetSha256": "49536f2efce676190212ef5e3a870a3759188ae44683ab938fe8c9c19b1459e0",
+      "deviceSha256": "8e45ecf31aee11fc5acbc7de95d504197d303e306a34710b25c83c20d8f3511a",
+      "discoverySha256": "8f9a6c1607b9740b836d19864b27539824acc0ab7c58005d0e130a25e69a6efc",
+      "resourceCount": 26,
+      "audioResourceCount": 3,
+      "audioResources": [
+        {
+          "sha256": "f04440ac779afee5aa9352244d03312c9b03b65d5e798fad01c68b47a14e7f21",
+          "bytes": 384044
+        },
+        {
+          "sha256": "8eae3e725b8d18004a9561871a2582b295cd53077ae1ea3c3f43c6755367d26e",
+          "bytes": 384044
+        },
+        {
+          "sha256": "e3a90286b3b5420103c5d188beff5aeb90737b9ee66c505ee43582c8af92a32b",
+          "bytes": 384044
+        }
+      ],
+      "nativeVersion": 2
+    },
+    "processCleanup": {
+      "processStopped": true,
+      "fixtureCleaned": true,
+      "transportCleanup": "leave-running"
+    },
+    "observedLiveVersion": "11.3.43",
+    "supportedTargetQualified": false
+  },
+  "thirtySecond": {
+    "scenarioId": "native-descriptive-30-seconds",
+    "scenarioRunId": "41efa008-b5d2-4df4-86a4-be312f2b2aaf",
+    "passed": false,
+    "passId": "79e8621b-173e-44dc-a529-973ae99f8e0d",
+    "contextIds": [],
+    "error": "native_envelope_binding_changed",
+    "rejectedEnvelope": null,
+    "nativeRejectionCode": null,
+    "reportedFrames": 33,
+    "captureElapsedMs": 5151,
+    "phase": "capture",
+    "armObserved": true,
+    "launchObserved": true,
+    "nativeLifecycle": [
+      {
+        "name": "output.listener.native.preflight.queued",
+        "phase": "preflight",
+        "stage": "queued",
+        "elapsedMs": 0,
+        "frames": 0
+      },
+      {
+        "name": "output.listener.native.preflight.started",
+        "phase": "preflight",
+        "stage": "started",
+        "elapsedMs": 1,
+        "frames": 0
+      },
+      {
+        "name": "output.listener.native.preflight.completed",
+        "phase": "preflight",
+        "stage": "completed",
+        "elapsedMs": 349,
+        "frames": 0
+      },
+      {
+        "name": "output.listener.native.reset.queued",
+        "phase": "reset",
+        "stage": "queued",
+        "elapsedMs": 1,
+        "frames": 0
+      },
+      {
+        "name": "output.listener.native.reset.started",
+        "phase": "reset",
+        "stage": "started",
+        "elapsedMs": 1,
+        "frames": 0
+      },
+      {
+        "name": "output.listener.native.reset.progress",
+        "phase": "reset",
+        "stage": "progress",
+        "elapsedMs": 10,
+        "frames": 0,
+        "reason": "waiting_native_reset"
+      },
+      {
+        "name": "output.listener.native.reset.completed",
+        "phase": "reset",
+        "stage": "completed",
+        "elapsedMs": 22,
+        "frames": 0,
+        "reason": "native_arm_acknowledged"
+      },
+      {
+        "name": "output.listener.native.queued",
+        "phase": "capture",
+        "stage": "queued",
+        "elapsedMs": 0,
+        "frames": 0
+      },
+      {
+        "name": "output.listener.native.started",
+        "phase": "capture",
+        "stage": "started",
+        "elapsedMs": 0,
+        "frames": 0
+      },
+      {
+        "name": "output.listener.native.progress",
+        "phase": "capture",
+        "stage": "progress",
+        "elapsedMs": 21,
+        "frames": 0,
+        "reason": "native_arm_acknowledged"
+      },
+      {
+        "name": "output.listener.native.progress",
+        "phase": "capture",
+        "stage": "progress",
+        "elapsedMs": 1781,
+        "frames": 0,
+        "reason": "native_launch_observed"
+      },
+      {
+        "name": "output.listener.native.progress",
+        "phase": "capture",
+        "stage": "progress",
+        "elapsedMs": 2772,
+        "frames": 10
+      },
+      {
+        "name": "output.listener.native.progress",
+        "phase": "capture",
+        "stage": "progress",
+        "elapsedMs": 3795,
+        "frames": 20
+      },
+      {
+        "name": "output.listener.native.progress",
+        "phase": "capture",
+        "stage": "progress",
+        "elapsedMs": 4776,
+        "frames": 30
+      },
+      {
+        "name": "output.listener.native.failed",
+        "phase": "capture",
+        "stage": "failed",
+        "elapsedMs": 5151,
+        "frames": 33,
+        "reason": "native_envelope_binding_changed"
+      }
+    ],
+    "processCleanup": {
+      "processStopped": true,
+      "fixtureCleaned": true,
+      "transportCleanup": "leave-running"
+    }
+  },
+  "limitations": [
+    "The fractional pass does not turn this failed group into a pass.",
+    "The long-capture rejected packet and native reason code were not retained; do not assign an earlier failure code or infer phase from elapsed time.",
+    "Approximate descriptive quality and installed11.3.43 do not establish a physical timing bound or11.3.42 qualification."
+  ]
+}

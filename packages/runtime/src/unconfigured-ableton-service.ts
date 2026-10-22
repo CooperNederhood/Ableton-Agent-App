@@ -1,5 +1,7 @@
 import type { AbletonService } from "@ableton-agent/ableton-contracts";
 import type {
+  InspectListeningContextParams,
+  InspectListeningContextResult,
   AudioClipsOperationResult,
   CapabilityDocument,
   CreateArrangementMidiClipResult,
@@ -66,6 +68,12 @@ export const CONFIGURATION_MISSING_MESSAGE =
  * pretending an Ableton connection exists.
  */
 export class UnconfiguredAbletonService implements AbletonService {
+  public async inspectListeningContext(
+    params: InspectListeningContextParams,
+  ): Promise<InspectListeningContextResult> {
+    void params;
+    this.#unavailable();
+  }
   public constructor(
     private readonly message: string = CONFIGURATION_MISSING_MESSAGE,
   ) {}

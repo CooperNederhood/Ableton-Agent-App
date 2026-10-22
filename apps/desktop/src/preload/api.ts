@@ -5,7 +5,7 @@ import {
   ipcSchemas,
   type DesktopApi,
   type IpcChannel,
-  type RequestOf,
+  type RequestInputOf,
   type ResponseOf,
 } from "../contracts.js";
 import { eventChannel } from "../main/ipc.js";
@@ -23,15 +23,39 @@ export interface PreloadTransport {
 }
 
 export function createDesktopApi(transport: PreloadTransport): DesktopApi {
+  const trace = () => ({
+    traceId: globalThis.crypto.randomUUID(),
+    correlationId: globalThis.crypto.randomUUID(),
+    causationId: globalThis.crypto.randomUUID(),
+  });
   const invoke = async <C extends IpcChannel>(
     channel: C,
-    request: RequestOf<C>,
+    request: RequestInputOf<C>,
   ): Promise<ResponseOf<C>> => {
     const payload = ipcSchemas[channel].request.parse(request);
     const response = await transport.invoke(channel, payload);
     return ipcSchemas[channel].response.parse(response) as ResponseOf<C>;
   };
   return {
+    listening: {
+      list: (request) =>
+        invoke("listening:list", {
+          ...request,
+          trace: request.trace ?? trace(),
+        }),
+    },
+    entityContext: {
+      list: (request) =>
+        invoke("entity-context:list", {
+          ...request,
+          trace: request.trace ?? trace(),
+        }),
+      get: (request) =>
+        invoke("entity-context:get", {
+          ...request,
+          trace: request.trace ?? trace(),
+        }),
+    },
     lifecycle: {
       get: async () => (await invoke("app:lifecycle", {})).state,
     },
@@ -124,7 +148,13 @@ export function createDesktopApi(transport: PreloadTransport): DesktopApi {
           context,
           agentMode,
         }),
-      cancel: (instanceId) => invoke("agents:cancel", { instanceId }),
+      cancel: (instanceId, options) =>
+        invoke("agents:cancel", {
+          instanceId,
+          ...(options === undefined
+            ? {}
+            : { ...options, trace: options.trace ?? trace() }),
+        }),
     },
     skills: {
       read: (name) => invoke("skills:read", { name }),

@@ -13,6 +13,12 @@ import uuid
 from collections import deque
 
 from AbletonAgent.protocol import FrameDecoder, encode_frame
+from AbletonAgent.errors import ProtocolFailure
+from AbletonAgent.listening_simulator import inspect_simulated_listening_context, build_listening_simulator_context
+from AbletonAgent.listening_playback import (
+    OWNERSHIP_LIMITATION, PLAYBACK_CAPABILITIES, POSITION_LIMITATION, START_LIMITATION,
+    position_listening_playback, start_listening_playback, stop_listening_playback,
+)
 from AbletonAgent.core_domain_commands import (
     ROUTING_SNAPSHOT_LIMIT,
     ROUTING_SNAPSHOT_SECONDS,
@@ -53,6 +59,7 @@ def simulated_palette_color(color_index):
 
 class SimulatorState(object):
     def __init__(self):
+        self.saved_live_set = False
         self.tempo = 120.0
         self.is_playing = False
         self.loop_enabled = False
@@ -165,6 +172,7 @@ class SimulatorState(object):
         self.link_enabled = False
         self.back_to_arrangement = False
         self.current_song_time = 0.0
+        self.arrangement_start_marker = 0.0
         self.routing_snapshots = {}
         self.next_note_id = 1
         self.live_event_subscriptions = {}
@@ -1020,7 +1028,7 @@ def response(request, result):
     }
 
 
-def failure(request, code, message):
+def failure(request, code, message, details=None):
     return {
         "protocolVersion": PROTOCOL_VERSION,
         "kind": "response",
@@ -1030,7 +1038,7 @@ def failure(request, code, message):
             "code": code,
             "message": message,
             "retryable": False,
-            "details": {},
+            "details": details or {},
         },
     }
 
@@ -2572,6 +2580,36 @@ def handle(request, token, state):
         return None
     command = request.get("command")
     params = request.get("params", {})
+    if command in PLAYBACK_CAPABILITIES:
+        try:
+            if command in ("listening.position_playback", "listening.start_playback"):
+                context = build_listening_simulator_context(state)
+                operation = (position_listening_playback
+                             if command == "listening.position_playback" else start_listening_playback)
+                result = operation(
+                    context, params, identity_builder=lambda _song: {"liveSetId": "simulated-live-set"})
+                settled, errors = [], []
+                result.start(settled.append, errors.append)
+                for _ in range(4):
+                    if settled or errors or not context.pending_callbacks:
+                        break
+                    context.pending_callbacks.pop(0)()
+                if errors:
+                    raise errors[0]
+                if len(settled) != 1:
+                    raise ProtocolFailure("lom_error", "Simulator guarded start did not settle")
+                result = settled[0]
+                state.arrangement_start_marker = context.song.start_time
+                state.current_song_time = context.song.current_song_time
+                return response(request, result)
+            return response(request, stop_listening_playback(state, params))
+        except ProtocolFailure as error:
+            return failure(request, error.code, error.message, error.details)
+    if command == "listening.inspect_context":
+        try:
+            return response(request, inspect_simulated_listening_context(state, params))
+        except ProtocolFailure as error:
+            return failure(request, error.code, error.message)
     core_response = _handle_core_domain(request, command, params, state)
     if core_response is not None:
         return core_response
@@ -2595,6 +2633,10 @@ def handle(request, token, state):
                     "system.ping": True,
                     "live_set.get_identity": True,
                     "session.inspect": True,
+                    "listening.inspect_context": True,
+                    "listening.position_playback": True,
+                    "listening.start_playback": True,
+                    "listening.stop_playback": False,
                     "transport.set_tempo": True,
                     "transport.set_playing": True,
                     "transport.inspect_arrangement": True,
@@ -2766,7 +2808,12 @@ def handle(request, token, state):
                 "evidence": "public" if supported else "unavailable",
                 "minimumLiveVersion": "11.0",
                 "testedLiveVersions": ["simulator"] if supported else [],
-                "limitations": [],
+                "limitations": ([{
+                    "listening.position_playback": POSITION_LIMITATION,
+                    "listening.start_playback": START_LIMITATION,
+                    "listening.stop_playback": OWNERSHIP_LIMITATION,
+                }[name]]
+                                if name in PLAYBACK_CAPABILITIES else []),
             }
             for name, supported in capabilities.items()
         }
@@ -2778,7 +2825,7 @@ def handle(request, token, state):
                 "remoteScriptVersion": REMOTE_SCRIPT_VERSION,
                 "liveSetId": "simulated-live-set",
                 "liveSetName": "Simulated Set",
-                "saved": False,
+                "saved": state.saved_live_set,
                 "diagnostics": [],
                 "capabilities": capabilities,
                 "capabilityDetails": capability_details,
@@ -2899,7 +2946,7 @@ def handle(request, token, state):
             {
                 "liveSetId": "simulated-live-set",
                 "liveSetName": "Simulated Set",
-                "saved": False,
+                "saved": state.saved_live_set,
                 "diagnostics": [],
             },
         )
@@ -5392,6 +5439,8 @@ def serve(
     delay_command=None,
     delay_ms=0,
     emit_save_event=False,
+    listening_fixture=False,
+    saved_live_set=False,
 ):
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -5402,6 +5451,17 @@ def serve(
         flush=True,
     )
     state = SimulatorState()
+    state.saved_live_set = saved_live_set
+    if listening_fixture:
+        listener = state.simulated_leaf_device("Audio Listener")
+        listener["className"] = "MxDeviceAudioEffect"
+        state.tracks[0]["devices"].append(listener)
+        state.tracks[0]["arrangementClips"] = [{
+            "reference": str(uuid.uuid4()), "name": "Listening Source",
+            "kind": "audio", "startTime": 0.0, "endTime": 8.0,
+            "isRecording": False, "filePath": "/Music/source.wav",
+            "gain": 0.8, "warping": True, "warpMode": 0,
+        }]
     try:
         for _ in range(connections):
             connection, _address = server.accept()
@@ -5475,6 +5535,8 @@ def main():
     parser.add_argument("--delay-command")
     parser.add_argument("--delay-ms", type=int, default=0)
     parser.add_argument("--emit-save-event", action="store_true")
+    parser.add_argument("--listening-fixture", action="store_true")
+    parser.add_argument("--saved-live-set", action="store_true")
     args = parser.parse_args()
     if args.connections < 1:
         parser.error("--connections must be at least 1")
@@ -5488,6 +5550,8 @@ def main():
         args.delay_command,
         args.delay_ms,
         args.emit_save_event,
+        args.listening_fixture,
+        args.saved_live_set,
     )
 
 

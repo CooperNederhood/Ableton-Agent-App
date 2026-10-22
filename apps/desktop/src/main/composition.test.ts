@@ -1,5 +1,11 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { join, resolve } from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -12,16 +18,42 @@ import {
   type TelemetryEventEnvelope,
 } from "@ableton-agent/observability";
 
-import { preferencesSchema } from "../contracts.js";
+import { preferencesSchema, sessionSchema } from "../contracts.js";
+import { resolveLiveAgentStorage } from "@ableton-agent/storage";
+import * as runtimeModule from "@ableton-agent/runtime";
 import { ApprovalCoordinator, ApprovalPolicyController } from "./approvals.js";
 import { bridgeTokenKey } from "./bridge-credentials.js";
-import { createDesktopComposition, DesktopJournalHost } from "./composition.js";
+import {
+  createDesktopComposition as composeDesktop,
+  DesktopJournalHost,
+  resolveDesktopSignalOptions,
+} from "./composition.js";
 import { installRemoteScript } from "./remote-script-install.js";
 
 const directories: string[] = [];
+type OwnedService = Pick<
+  Awaited<ReturnType<typeof composeDesktop>>["service"],
+  "stop"
+>;
+const services = new Set<OwnedService>();
+
+async function createDesktopComposition(
+  options: Parameters<typeof composeDesktop>[0],
+) {
+  const composition = await composeDesktop(options);
+  const stop = composition.service.stop.bind(composition.service);
+  composition.service.stop = async () => {
+    await stop();
+    services.delete(composition.service);
+  };
+  services.add(composition.service);
+  return composition;
+}
 
 async function paths() {
-  const directory = await mkdtemp(join(tmpdir(), "ableton-desktop-comp-"));
+  const root = resolve(".test-artifacts");
+  await mkdir(root, { recursive: true });
+  const directory = await mkdtemp(join(root, "composition-cleanup-fixture-"));
   directories.push(directory);
   return {
     directory,
@@ -33,15 +65,349 @@ async function paths() {
   };
 }
 
-afterEach(async () => {
+async function cleanupFixtures() {
+  for (const service of services) {
+    await service.stop();
+  }
   await Promise.all(
     directories
       .splice(0)
       .map((directory) => rm(directory, { recursive: true, force: true })),
   );
-});
+}
+
+afterEach(cleanupFixtures);
 
 describe("desktop composition", () => {
+  it("preserves fixture files and surfaces an owned shutdown failure", async () => {
+    const location = await paths();
+    const failure = new Error("fixture shutdown failed");
+    const stop = vi.fn().mockRejectedValue(failure);
+    const service: OwnedService = {
+      stop,
+    };
+    services.add(service);
+    try {
+      await expect(cleanupFixtures()).rejects.toBe(failure);
+      expect(stop).toHaveBeenCalledOnce();
+      await expect(readdir(location.directory)).resolves.toEqual([]);
+    } finally {
+      services.delete(service);
+    }
+  });
+
+  it("awaits owned journal shutdown before removing fixture files", async () => {
+    const location = await paths();
+    const open = LocalObservabilityJournal.open.bind(LocalObservabilityJournal);
+    let journal: LocalObservabilityJournal | undefined;
+    const capture = vi
+      .spyOn(LocalObservabilityJournal, "open")
+      .mockImplementation(async (options) => {
+        journal = await open(options);
+        return journal;
+      });
+    const releaseShutdown = deferred<void>();
+    const shutdownEntered = deferred<void>();
+    let cleanup: Promise<void> | undefined;
+    let service:
+      Awaited<ReturnType<typeof composeDesktop>>["service"] | undefined;
+    try {
+      ({ service } = await createDesktopComposition({
+        ...location,
+        environment: {},
+      }));
+      if (journal === undefined)
+        throw new Error("Fixture journal was not opened");
+      const ownedJournal = journal;
+      const shutdown = ownedJournal.shutdown.bind(ownedJournal);
+      vi.spyOn(ownedJournal, "shutdown").mockImplementation(async () => {
+        shutdownEntered.resolve(undefined);
+        await releaseShutdown.promise;
+        await shutdown();
+      });
+
+      cleanup = cleanupFixtures();
+      expect(
+        await Promise.race([
+          shutdownEntered.promise.then(() => "shutdown"),
+          cleanup.then(() => "removed"),
+        ]),
+      ).toBe("shutdown");
+      expect(ownedJournal.isOpen).toBe(true);
+      await expect(readdir(location.directory)).resolves.toContain(
+        "agent-set-event-history.sqlite",
+      );
+      releaseShutdown.resolve(undefined);
+      await cleanup;
+      expect(ownedJournal.isOpen).toBe(false);
+      await expect(readdir(location.directory)).rejects.toMatchObject({
+        code: "ENOENT",
+      });
+    } finally {
+      releaseShutdown.resolve(undefined);
+      await cleanup;
+      if (journal?.isOpen) {
+        await service?.stop();
+        await rm(location.directory, { recursive: true, force: true });
+      }
+      capture.mockRestore();
+    }
+  });
+
+  it("loads the persisted listening policy into the runtime provider before any pass", async () => {
+    const location = await paths();
+    await writeFile(
+      location.preferencesPath,
+      JSON.stringify(
+        preferencesSchema.parse({
+          listening: { mode: "descriptive", maxClockDisagreementSamples: 128 },
+        }),
+      ),
+    );
+    const storage = resolveLiveAgentStorage({
+      environment: {
+        LIVE_AGENT_HOME: join(location.directory, "owned-storage"),
+      },
+    });
+    const factory = vi.spyOn(runtimeModule, "createListeningRuntimeHost");
+    let composition:
+      Awaited<ReturnType<typeof createDesktopComposition>> | undefined;
+    try {
+      composition = await createDesktopComposition({
+        ...location,
+        storage,
+        environment: {},
+      });
+      const policy = factory.mock.calls[0]?.[1].resolveTimingPolicy?.();
+      expect(policy).toEqual({
+        mode: "descriptive",
+        maxClockDisagreementSamples: 128,
+      });
+      expect(Object.isFrozen(policy)).toBe(true);
+    } finally {
+      await composition?.service.stop();
+      factory.mockRestore();
+    }
+  });
+
+  it("composes listening with the existing runtime and resolves the invoking owner", async () => {
+    const location = await paths();
+    const storage = resolveLiveAgentStorage({
+      environment: {
+        LIVE_AGENT_HOME: join(location.directory, "owned-storage"),
+        LIVE_AGENT_PROFILE: "listening-composition",
+      },
+    });
+    const createHost = runtimeModule.createListeningRuntimeHost;
+    const created: {
+      host?: ReturnType<typeof createHost>;
+    } = {};
+    const factory = vi
+      .spyOn(runtimeModule, "createListeningRuntimeHost")
+      .mockImplementation((dependencies, options) => {
+        const host = createHost(dependencies, options);
+        created.host = host;
+        return host;
+      });
+    let composition:
+      Awaited<ReturnType<typeof createDesktopComposition>> | undefined;
+    try {
+      composition = await createDesktopComposition({
+        ...location,
+        agentsDirectory: resolve("agents"),
+        skillsDirectory: resolve("skills"),
+        environment: {},
+        storage,
+      });
+      expect(factory).toHaveBeenCalledOnce();
+      const invocation = factory.mock.calls[0];
+      expect(invocation?.[0].signals).toBe(composition.runtime.signals);
+      const resolvePolicy = invocation?.[1].resolveTimingPolicy;
+      expect(resolvePolicy).toBeTypeOf("function");
+      const startingPolicy = resolvePolicy?.();
+      expect(startingPolicy).toEqual({
+        mode: "descriptive",
+        maxClockDisagreementSamples: 64,
+      });
+      expect(Object.isFrozen(startingPolicy)).toBe(true);
+      await composition.service.start();
+      await composition.service.setPreferences(
+        preferencesSchema.parse({
+          listening: { mode: "strict", maxClockDisagreementSamples: 0 },
+        }),
+      );
+      expect(resolvePolicy?.()).toEqual({
+        mode: "strict",
+        maxClockDisagreementSamples: 0,
+      });
+      expect(startingPolicy).toEqual({
+        mode: "descriptive",
+        maxClockDisagreementSamples: 64,
+      });
+      const host = created.host;
+      if (host === undefined)
+        throw new Error("Listening factory did not return a host");
+      expect(host.waitForListeningPass).toBeTypeOf("function");
+      expect(host.executeContextOperation).toBeTypeOf("function");
+      expect(host.getSessionContextInventory).toBeTypeOf("function");
+      const context = {
+        sessionId: "invoking-session-not-selected",
+        agentId: "invoking-agent",
+        trace: {
+          traceId: "00000000-0000-4000-8000-000000000001",
+          correlationId: "00000000-0000-4000-8000-000000000002",
+          causationId: "00000000-0000-4000-8000-000000000003",
+        },
+      };
+      const ownership = vi
+        .spyOn(composition.service, "getSessionForContext")
+        .mockResolvedValue(
+          sessionSchema.parse({
+            version: 4,
+            id: context.sessionId,
+            title: "Invoking session",
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+            liveSetId: "invoking-live-set",
+            liveSetName: "Invoking Set",
+          }),
+        );
+      await expect(
+        host.executeListeningOperation(
+          { action: "inspect-listeners" },
+          context,
+        ),
+      ).rejects.toMatchObject({
+        code: "listener_ingress_unavailable",
+      });
+      ownership.mockResolvedValue(undefined);
+      await expect(
+        host.executeListeningOperation(
+          {
+            action: "play-arrangement-and-listen",
+            listenerIds: ["uncommissioned-listener"],
+            startBeat: 0,
+            endBeat: 4,
+            maximumDurationMs: 300_000,
+          },
+          context,
+        ),
+      ).rejects.toThrow(
+        "No App session belongs to the invoking listening owner",
+      );
+      expect(ownership).toHaveBeenCalledWith(context.sessionId);
+      const lifecycle = vi
+        .spyOn(composition.service, "reportListeningJob")
+        .mockImplementation(() => {});
+      const now = new Date().toISOString();
+      const job = {
+        passId: "00000000-0000-4000-8000-000000000004",
+        owner: {
+          sessionId: context.sessionId,
+          liveSetId: "invoking-live-set",
+          agentId: context.agentId,
+        },
+        trace: context.trace,
+        stage: "failed" as const,
+        createdAt: now,
+        updatedAt: now,
+        durationMs: 10,
+        contextIds: [],
+        cleanupPolicy: "leave-running" as const,
+        error: "Synthetic callback fixture; native timing remains unverified",
+      };
+      expect(invocation?.[1].onChange).toBeTypeOf("function");
+      invocation?.[1].onChange?.(job);
+      expect(lifecycle).toHaveBeenCalledWith(job);
+      const shutdown = vi.spyOn(host, "shutdown");
+      await composition.service.stop();
+      composition = undefined;
+      expect(shutdown).toHaveBeenCalled();
+    } finally {
+      await composition?.service.stop();
+      factory.mockRestore();
+    }
+  });
+
+  it("does not construct listening without canonical session storage", async () => {
+    const location = await paths();
+    const factory = vi.spyOn(runtimeModule, "createListeningRuntimeHost");
+    try {
+      const composition = await createDesktopComposition({
+        ...location,
+        environment: {},
+      });
+      try {
+        expect(factory).not.toHaveBeenCalled();
+      } finally {
+        await composition.service.stop();
+      }
+    } finally {
+      factory.mockRestore();
+    }
+  });
+
+  it("uses canonical profile discovery and credential references without implicit legacy publication", () => {
+    const storage = resolveLiveAgentStorage({
+      environment: {
+        LIVE_AGENT_HOME: "/tmp/owned-signal-profile",
+        LIVE_AGENT_PROFILE: "automation",
+      },
+    });
+    expect(resolveDesktopSignalOptions({ storage }, 9001)).toEqual({
+      port: 9001,
+      descriptorPath: storage.signalIngressDescriptorPath,
+      secretPath: storage.signalIngressSecretPath,
+    });
+    expect(
+      resolveDesktopSignalOptions(
+        {
+          storage,
+          legacySignalDescriptorPath: "/tmp/owned-legacy/descriptor.json",
+        },
+        9001,
+      ),
+    ).toMatchObject({
+      legacyDescriptorPath: "/tmp/owned-legacy/descriptor.json",
+      secretPath: storage.signalIngressSecretPath,
+    });
+    expect(
+      resolveDesktopSignalOptions(
+        {
+          storage,
+          legacySignalDescriptorPath: storage.legacySignalIngressDescriptorPath,
+        },
+        9001,
+      ),
+    ).toEqual({
+      port: 9001,
+      descriptorPath: storage.signalIngressDescriptorPath,
+      secretPath: storage.signalIngressSecretPath,
+      legacyDescriptorPath: storage.legacySignalIngressDescriptorPath,
+    });
+  });
+
+  it("preserves explicit discovery overrides and does not invent paths without storage", () => {
+    const storage = resolveLiveAgentStorage({
+      environment: { LIVE_AGENT_HOME: "/tmp/owned-signal-profile" },
+    });
+    expect(
+      resolveDesktopSignalOptions(
+        {
+          storage,
+          signalDescriptorPath: "/tmp/endpoint.json",
+          signalSecretPath: "/tmp/credential",
+        },
+        9001,
+      ),
+    ).toEqual({
+      port: 9001,
+      descriptorPath: "/tmp/endpoint.json",
+      secretPath: "/tmp/credential",
+    });
+    expect(resolveDesktopSignalOptions({}, 9001)).toEqual({ port: 9001 });
+  });
+
   it("replays bootstrap storage migration lifecycle into local history", async () => {
     const location = await paths();
     const traceId = "00000000-0000-4000-8000-000000000001";

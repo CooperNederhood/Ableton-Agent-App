@@ -47,6 +47,9 @@ importers:
       '@ableton-agent/application':
         specifier: workspace:*
         version: link:../../packages/application
+      '@ableton-agent/observability':
+        specifier: workspace:*
+        version: link:../../packages/observability
       '@ableton-agent/protocol':
         specifier: workspace:*
         version: link:../../packages/protocol
@@ -115,6 +118,9 @@ importers:
       '@ableton-agent/observability':
         specifier: workspace:*
         version: link:../../packages/observability
+      '@ableton-agent/project-state':
+        specifier: workspace:*
+        version: link:../../packages/project-state
       '@ableton-agent/protocol':
         specifier: workspace:*
         version: link:../../packages/protocol
@@ -216,6 +222,9 @@ importers:
       '@ableton-agent/observability':
         specifier: workspace:*
         version: link:../observability
+      '@ableton-agent/project-state':
+        specifier: workspace:*
+        version: link:../project-state
       '@ableton-agent/protocol':
         specifier: workspace:*
         version: link:../protocol
@@ -276,9 +285,18 @@ importers:
 
   packages/project-state:
     dependencies:
+      '@ableton-agent/observability':
+        specifier: workspace:*
+        version: link:../observability
+      '@ableton-agent/protocol':
+        specifier: workspace:*
+        version: link:../protocol
       sql.js:
         specifier: ^1.14.1
         version: 1.14.1
+      zod:
+        specifier: ^4.3.6
+        version: 4.4.3
     devDependencies:
       '@types/sql.js':
         specifier: ^1.4.11
@@ -341,6 +359,9 @@ importers:
       '@ableton-agent/observability':
         specifier: workspace:*
         version: link:../observability
+      '@ableton-agent/protocol':
+        specifier: workspace:*
+        version: link:../protocol
       zod:
         specifier: ^4.0.17
         version: 4.4.3

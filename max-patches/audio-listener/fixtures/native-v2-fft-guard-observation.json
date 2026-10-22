@@ -1,0 +1,82 @@
+{
+  "formatVersion": 1,
+  "evidenceKind": "actual-instrumented-nonaccepting-fft-guard-observation",
+  "runId": "ae0be55a-e172-4f53-8bda-7e033b3e6969",
+  "acceptancePassed": false,
+  "captureOrContextAuthorized": false,
+  "scope": "native-spectrum-guard-probe/v1",
+  "productionDiagnosticShape": false,
+  "forwardedToSdk": false,
+  "usedAsNativeFailureDiagnostic": false,
+  "pins": {
+    "clockGenSha256": "93ae44d762c13109256312db52325ec1e03b156b0eec9cc2459d16fda334fdf4",
+    "packagedSpectrumGenSha256": "610161b44c7845e3408e4c97aaf9d9b60071b7e8ea800dbc3627383c73a128f9",
+    "normalizedBaselineSpectrumGenSha256": "17c62fad85e4df88abe6e201d534c347e482a78e860f8d11998c091fd5618b6e",
+    "baselineSpectrumCodeSha256": "78c98638f4c84578c3410a6998f42aa3bfc3f58c1fee5f72975fd37a4e0f33e6",
+    "probeSpectrumGenSha256": "b9750d7e2b8573d5a4b9fc9aa6bcb51feb96c67dd6279fd9f2640d049919664e",
+    "probeSpectrumCodeSha256": "f97dd86c7ec15e36a544080b997ddf0ed1a0846ed65da4a2789d48ab8c3e766a"
+  },
+  "preservation": {
+    "mainOutputsAndAbiUnchanged": true,
+    "guardsAndMathUnchanged": true,
+    "diagnosticOutputsOverridden": [6, 7, 8, 9, 10],
+    "baselineSerializationDifference": "Packaged JSON omits only the final LF; parsed documents and code match.",
+    "originalPackagedGensRetained": true
+  },
+  "fieldMap": [
+    "fftLocalLiveSampleRate",
+    "lastFailedFrameFaultMask",
+    "finiteComponentMask",
+    "firstFaultyBin",
+    "maxAbsComponentAtFirstFault"
+  ],
+  "faultBits": {
+    "rate": 1,
+    "binShapeOrOrder": 2,
+    "finite": 4,
+    "splitWords": 8,
+    "continuity": 16
+  },
+  "componentBits": {
+    "leftReal": 1,
+    "leftImaginary": 2,
+    "rightReal": 4,
+    "rightImaginary": 8
+  },
+  "observed": {
+    "diagnosticPacketCount": 87,
+    "snapshotPolicy": "first4_last4_disjoint",
+    "first": [48000, 4, 15, 0, 0],
+    "last": [48000, 4, 15, 0, 0],
+    "firstReceivedAfterBeginMs": 18,
+    "lastReceivedAfterBeginMs": 893,
+    "clockFirst": [
+      0, 0.25, 1002432, 31, 1002432, 0, 1002432, 0, 0.25, 1002432, 31
+    ],
+    "clockLast": [
+      0, 0.25, 1044416, 31, 1044416, 0, 1044416, 0, 0.25, 1044416, 31
+    ],
+    "spectrumFirst": [-1, 0, 0, -1, -1, 488],
+    "spectrumLast": [-1, 0, 0, -1, -1, 509]
+  },
+  "instrumentation": {
+    "failureAfterBeginMs": 902,
+    "maximumDelayMs": 1000,
+    "measurementPacketsAdmitted": 0,
+    "nativeArmControlsForwarded": 0
+  },
+  "cleanup": {
+    "processStopped": true,
+    "fixtureCleaned": true,
+    "sourcePinsUnchanged": true,
+    "errors": []
+  },
+  "limitations": [
+    "Live local sample rate and retained failed-frame flags are separately sampled, not vector atomic.",
+    "Magnitude is clipped to1048576; minus1 marks unordered magnitude.",
+    "Flags reset each frame and latch only in the original failed-frame branch.",
+    "Repurposed diagnostic values never enter the production SDK or typed failure contract.",
+    "Native comparisons failed on all four FFT components; compiler internals and a production correction remain unproven.",
+    "No native arm, playback, measurement admission, context publication or readiness promotion."
+  ]
+}

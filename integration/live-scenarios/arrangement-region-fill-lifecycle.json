@@ -2,7 +2,7 @@
   "formatVersion": 1,
   "id": "arrangement-region-fill-lifecycle",
   "group": "arrangement-and-cues",
-  "prompt": "Create a temporary Session MIDI clip, fill a multi-tile Arrangement region with one bulk call, verify the exact result, and remove every generated artifact.",
+  "prompt": "Create a temporary Session MIDI clip, fill a multi-tile Arrangement region with one bulk call, then explicitly inspect the Arrangement before any deletion. Verify the exact result from that inspection and remove every generated artifact using identity-bound cleanup.",
   "artifactPrefix": "AA_SMOKE_FILL_",
   "allowedTools": [
     "ableton_session",

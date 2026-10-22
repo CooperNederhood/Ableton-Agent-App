@@ -1,0 +1,88 @@
+{
+  "schemaVersion": 1,
+  "scope": "native-v2-long-envelope-rejection/v1",
+  "runId": "509eb299-00c6-43d0-bd3c-1e39af56e3c6",
+  "scenarioId": "native-descriptive-30-seconds",
+  "instrumentedDiagnosticOnly": true,
+  "acceptancePassed": false,
+  "owner": {
+    "generation": "d1d98c81-e801-4ac6-919f-538876fd0a5a",
+    "passId": "b8c1b346-1f7c-47b1-a65d-e2acc170be9f",
+    "connectionEpoch": "7a3cec94-3ecd-42c7-9813-0e0d3b18f71f",
+    "traceId": "96b0c421-a4c6-439c-b701-05a2ddd712e0",
+    "correlationId": "96b0c421-a4c6-439c-b701-05a2ddd712e0"
+  },
+  "controllerSha256": "f6e1e2de0230c86fe2d534f98400648edb3160deaacbb2bb88e74bf667d6c9d2",
+  "declaredResourceOverrides": [
+    {
+      "name": "audio_listener_native_controller.js",
+      "kind": "explicit-current-production-controller",
+      "baselineSha256": "99d99488058988fb88e7cc866fcd28fe3a9df988997b887ace68344299d5cfd5",
+      "sha256": "f6e1e2de0230c86fe2d534f98400648edb3160deaacbb2bb88e74bf667d6c9d2",
+      "bytes": 41787
+    },
+    {
+      "name": "audio-listener-manifest.json",
+      "kind": "declared-current-controller-manifest",
+      "baselineSha256": "6fb3b4b81b85c82a0abf949cb14abcfc3b7383097eaec49be9e8a0abe054c1a4",
+      "sha256": "1f5718fe6ae3df4041ec00926432757717ee0c5122a954a67d9b4377f1094abd",
+      "bytes": 5870
+    }
+  ],
+  "productionEnvelopeGenSha256": "b732aed30d37910c72362c790160758dd96f5087e5093e2dff3a8924d7c7b508",
+  "rejected": {
+    "generation": "d1d98c81-e801-4ac6-919f-538876fd0a5a",
+    "passId": "b8c1b346-1f7c-47b1-a65d-e2acc170be9f",
+    "connectionEpoch": "7a3cec94-3ecd-42c7-9813-0e0d3b18f71f",
+    "traceId": "96b0c421-a4c6-439c-b701-05a2ddd712e0",
+    "correlationId": "96b0c421-a4c6-439c-b701-05a2ddd712e0",
+    "nativeEpoch": 1,
+    "controllerState": "capturing",
+    "receivedAfterFirstEnvelopeMs": 5673.536332964897,
+    "values": [
+      1, 92160, -1, 0, 14, 0, 0, -1, 0, 0, 0, 0, 158400, 1083904, 1176064, 2
+    ],
+    "originalArmCounter": 1083904,
+    "armReceiptNativeEpoch": 1,
+    "comparisonApplicable": true,
+    "armCounterMismatch": false,
+    "rejectedCounterNonzero": true,
+    "v4": 14,
+    "v13": 1083904,
+    "originalErrorMessage": "native_envelope_binding_changed",
+    "check": "native_envelope_binding_changed"
+  },
+  "rawFaultPhase": null,
+  "rawFaultPreviousPhase": null,
+  "phaseCauseProven": false,
+  "spectrumRecoveryPhysicallyObserved": null,
+  "originalLongFailure": {
+    "scenarioRunId": "41efa008-b5d2-4df4-86a4-be312f2b2aaf",
+    "rejectedEnvelope": null,
+    "nativeRejectionCode": null
+  },
+  "observer": {
+    "count": 551,
+    "foreignCalls": 0,
+    "malformedRows": 0,
+    "observerErrors": 0,
+    "prototypeRestored": true
+  },
+  "contextIds": [],
+  "cleanup": {
+    "instrumentationRestored": true,
+    "processStopped": true,
+    "fixtureCleaned": true,
+    "copiedResourcesUnchanged": true,
+    "sourcePinsUnchanged": true,
+    "livePid": 23940,
+    "nativeNodePid": 24726,
+    "errors": []
+  },
+  "limitations": [
+    "Actual new run rejects with code14 and an unchanged arm counter; do not retroassign that code to the earlier unobserved row.",
+    "Held launch phase-distance0 is not actual raw phase at the fault.",
+    "Raw phase NaN/out-of-range/boundary causes remain unobserved; no phase normalization or guard relaxation is justified yet.",
+    "The loaded current controller reaches this later failure, but no explicit physical recovery claim is established for the earlier spectrum packet."
+  ]
+}

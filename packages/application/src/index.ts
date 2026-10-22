@@ -182,11 +182,21 @@ import {
   scopeAbletonTools,
   type AbletonOperationLifecycleIdentity,
   SET_SQL_SEARCH_TOOL_NAME,
+  LISTENING_AGENT_GUIDANCE,
   type AbletonMutationAuthorizationContext,
+  type ContextOperationParams,
+  type ContextOperationResult,
+  type ListeningOperationParams,
+  type ListeningOperationResult,
   type MutationTarget,
   type SetHistoryQueryService,
   type ToolApprovalRequester,
 } from "@ableton-agent/tools";
+import {
+  ListeningFailure,
+  type ListeningJob,
+  type ListeningTrace,
+} from "./listening-coordinator.js";
 import { resolveLiveAgentStorage } from "@ableton-agent/storage";
 import {
   BuiltInTools,
@@ -611,6 +621,18 @@ function validateElicitationContent(
 }
 
 export type { AbletonService } from "@ableton-agent/ableton-contracts";
+export * from "./listening-coordinator.js";
+export {
+  readConnectedListenerBinding,
+  resolveListenerBinding,
+  type ConnectedListenerBinding,
+  type ListenerBindingSelection,
+  type ListenerBindingResolution,
+  type ListenerBridgeTarget,
+} from "./listener-binding.js";
+export * from "./listening-host.js";
+export * from "./listening-publication.js";
+export * from "./session-context-host.js";
 
 export interface ApplicationServices {
   agent: AgentService;
@@ -654,7 +676,32 @@ interface CopilotClientAdapter {
   stop(): Promise<unknown>;
 }
 
+export interface ListeningExecutionContext {
+  readonly sessionId: string;
+  readonly agentId: string;
+  readonly trace: ListeningTrace;
+  readonly actorKind?: "agent" | "application";
+  readonly signal?: AbortSignal;
+}
+
 export interface CopilotAgentServiceOptions {
+  executeListeningOperation?: (
+    params: ListeningOperationParams,
+    context: ListeningExecutionContext,
+  ) => Promise<ListeningOperationResult>;
+  executeContextOperation?: (
+    params: ContextOperationParams,
+    context: ListeningExecutionContext,
+  ) => Promise<ContextOperationResult>;
+  /** Resolves only after capture, persistence and cleanup reach a terminal state. */
+  waitForListeningPass?: (
+    passId: string,
+    context: ListeningExecutionContext,
+  ) => Promise<Pick<ListeningJob, "passId" | "stage" | "error">>;
+  getSessionContextInventory?: (
+    appSessionId: string,
+    context: ListeningExecutionContext,
+  ) => Promise<string>;
   events: EventPublisher;
   logger?: Logger;
   setHistoryQuery?: SetHistoryQueryService;
@@ -1318,6 +1365,16 @@ interface ManagedSessionState {
   automaticDrainScheduled: boolean;
   readonly pendingAutomatic: Map<string, PendingAutomaticTurn>;
   readonly operations: Map<string, ObservedOperation>;
+  listeningAbortController: AbortController;
+  readonly listeningPasses: Map<
+    string,
+    {
+      readonly completion: Promise<unknown>;
+      readonly trace: MutableRuntimeTrace;
+      readonly context: ListeningExecutionContext;
+    }
+  >;
+  readonly listeningInvocations: Set<Promise<ListeningOperationResult>>;
   readonly permissionRejections: Map<string, PendingPermissionRejection>;
   readonly directPlanRequests: Map<
     string,
@@ -1721,16 +1778,35 @@ export class CopilotAgentService implements AgentService {
   readonly #clientFactory: () => CopilotClientAdapter;
   readonly #logger: Logger;
   #client: CopilotClientAdapter | undefined;
-  #toolSet: ReturnType<typeof createAbletonTools> | undefined;
+  readonly #toolSets = new WeakMap<
+    ManagedSessionState,
+    ReturnType<typeof createAbletonTools>
+  >();
+  readonly #listeningContexts = new WeakMap<
+    ToolInvocation,
+    ListeningExecutionContext
+  >();
   readonly #mutationAuthorizer =
     createAbletonMutationAuthorizer(abletonToolMetadata);
   readonly #mutationLockManager = createAbletonMutationLockManager();
   readonly #states = new Map<string, ManagedSessionState>();
+  readonly #listeningCompletions = new WeakMap<
+    ToolInvocation,
+    Promise<unknown>
+  >();
   readonly #lifecycleTails = new Map<string, Promise<void>>();
   readonly #planArtifacts: FilePlanArtifactStore;
   readonly #largeOutputDirectory: string;
 
   public constructor(private readonly options: CopilotAgentServiceOptions) {
+    if (
+      options.executeListeningOperation !== undefined &&
+      options.waitForListeningPass === undefined
+    ) {
+      throw new Error(
+        "Listening requires an owned-pass completion boundary to retain the transport lease",
+      );
+    }
     this.#logger = options.logger ?? noopLogger;
     const storage = resolveLiveAgentStorage({ homeDirectory: homedir() });
     this.#largeOutputDirectory =
@@ -1767,7 +1843,65 @@ export class CopilotAgentService implements AgentService {
     return this.#states.get(key)?.session?.sessionId;
   }
 
-  #deferWorkflowJobCompletion(result: unknown): Promise<unknown> | undefined {
+  #deferWorkflowJobCompletion(
+    result: unknown,
+    state: ManagedSessionState,
+    invocation: ToolInvocation,
+  ): Promise<unknown> | undefined {
+    if (
+      result !== null &&
+      typeof result === "object" &&
+      ["play-session-and-listen", "play-arrangement-and-listen"].includes(
+        String(Reflect.get(result, "action")),
+      ) &&
+      this.options.waitForListeningPass !== undefined
+    ) {
+      const tracked = this.#listeningCompletions.get(invocation);
+      if (tracked !== undefined) return tracked;
+      const job: unknown = Reflect.get(result, "job");
+      const passId: unknown =
+        job !== null && typeof job === "object"
+          ? Reflect.get(job, "passId")
+          : undefined;
+      if (typeof passId !== "string") {
+        throw new Error("Listening result did not identify its owned pass");
+      }
+      const context = this.#listeningExecutionContext(state, invocation);
+      const completion = this.options
+        .waitForListeningPass(passId, context)
+        .then((terminalJob) => {
+          if (
+            terminalJob.passId !== passId ||
+            terminalJob.stage !== "completed"
+          ) {
+            const error = new Error(
+              terminalJob.error ??
+                `Listening pass ${passId} did not complete (${terminalJob.stage})`,
+            );
+            if (terminalJob.stage === "cancelled") error.name = "AbortError";
+            throw error;
+          }
+          return { passId, verified: true };
+        });
+      state.listeningPasses.set(passId, {
+        completion,
+        context,
+        trace: {
+          traceId: context.trace.traceId,
+          turnId: context.trace.correlationId,
+          occurrenceIds: [...(state.activeTurn?.trace.occurrenceIds ?? [])],
+          deliveryIds: [...(state.activeTurn?.trace.deliveryIds ?? [])],
+        },
+      });
+      this.#listeningCompletions.set(invocation, completion);
+      const clear = () => {
+        if (state.listeningPasses.get(passId)?.completion === completion) {
+          state.listeningPasses.delete(passId);
+        }
+      };
+      void completion.then(clear, clear);
+      return completion;
+    }
     const initial = workflowJobState(result);
     if (initial === undefined) {
       return undefined;
@@ -1824,8 +1958,83 @@ export class CopilotAgentService implements AgentService {
     return result;
   }
 
-  #abletonToolSet(): ReturnType<typeof createAbletonTools> {
-    this.#toolSet ??= createAbletonTools({
+  #listeningExecutionContext(
+    state: ManagedSessionState,
+    invocation: ToolInvocation,
+  ): ListeningExecutionContext {
+    const existing = this.#listeningContexts.get(invocation);
+    if (existing !== undefined) return existing;
+    const sessionId = state.configuration.productionSessionId;
+    if (sessionId === undefined) {
+      throw new Error(
+        "Listening/context operations require App-session ownership",
+      );
+    }
+    const correlationId = state.activeTurn?.id ?? randomUUID();
+    const context: ListeningExecutionContext = {
+      sessionId,
+      agentId: state.key,
+      signal: state.listeningAbortController.signal,
+      trace: {
+        traceId: state.activeTurn?.trace.traceId ?? correlationId,
+        correlationId,
+        causationId: invocation.toolCallId,
+      },
+    };
+    this.#listeningContexts.set(invocation, context);
+    return context;
+  }
+
+  #abletonToolSet(
+    state: ManagedSessionState,
+  ): ReturnType<typeof createAbletonTools> {
+    const existing = this.#toolSets.get(state);
+    if (existing !== undefined) return existing;
+    const toolSet = createAbletonTools({
+      ...(this.options.executeListeningOperation === undefined
+        ? {}
+        : {
+            executeListeningOperation: (params, invocation) => {
+              const context = this.#listeningExecutionContext(
+                state,
+                invocation,
+              );
+              const starts =
+                params.action === "play-session-and-listen" ||
+                params.action === "play-arrangement-and-listen";
+              const execution = Promise.resolve()
+                .then(() =>
+                  this.options.executeListeningOperation!(params, context),
+                )
+                .then((result) => {
+                  if (starts) {
+                    void this.#deferWorkflowJobCompletion(
+                      result,
+                      state,
+                      invocation,
+                    );
+                  }
+                  return result;
+                });
+              if (starts) {
+                state.listeningInvocations.add(execution);
+                const clear = () => {
+                  state.listeningInvocations.delete(execution);
+                };
+                void execution.then(clear, clear);
+              }
+              return execution;
+            },
+          }),
+      ...(this.options.executeContextOperation === undefined
+        ? {}
+        : {
+            executeContextOperation: (params, invocation) =>
+              this.options.executeContextOperation!(
+                params,
+                this.#listeningExecutionContext(state, invocation),
+              ),
+          }),
       ...(this.options.setHistoryQuery === undefined
         ? {}
         : { setHistoryQuery: this.options.setHistoryQuery }),
@@ -1954,7 +2163,8 @@ export class CopilotAgentService implements AgentService {
       fillArrangementRegion: this.options.fillArrangementRegion,
       setArrangementClipProperties: this.options.setArrangementClipProperties,
     });
-    return this.#toolSet;
+    this.#toolSets.set(state, toolSet);
+    return toolSet;
   }
 
   async #mutationContext(
@@ -2027,7 +2237,7 @@ export class CopilotAgentService implements AgentService {
         // remains guarded by the bridge's fail-closed capability checks.
       }
     }
-    const tools = scopeAbletonTools(this.#abletonToolSet(), {
+    const tools = scopeAbletonTools(this.#abletonToolSet(state), {
       allowedToolNames: [
         ...bareToolNames(state.configuration.resolvedTools),
         SET_SQL_SEARCH_TOOL_NAME,
@@ -2221,7 +2431,11 @@ export class CopilotAgentService implements AgentService {
             deferCompletion: (result) => {
               const operation = resolveAbletonOperation(tool.name, args);
               return operation?.descriptor.duration === "long"
-                ? this.#deferWorkflowJobCompletion(result)
+                ? this.#deferWorkflowJobCompletion(
+                    result,
+                    state,
+                    modelInvocation,
+                  )
                 : undefined;
             },
             onLifecycle: (event) => {
@@ -2380,6 +2594,9 @@ export class CopilotAgentService implements AgentService {
       automaticDrainScheduled: false,
       pendingAutomatic: new Map(),
       operations: new Map(),
+      listeningAbortController: new AbortController(),
+      listeningPasses: new Map(),
+      listeningInvocations: new Set(),
       permissionRejections: new Map(),
       directPlanRequests: new Map(),
       elicitationRequests: new Map(),
@@ -3126,6 +3343,69 @@ export class CopilotAgentService implements AgentService {
     const agentPolicy = createAgentPolicy({
       getAbletonStatus: this.options.getAbletonStatus,
       inspectSession: this.options.inspectSession,
+      ...(this.options.getSessionContextInventory === undefined
+        ? {}
+        : {
+            sessionContext: {
+              getInventory: async () => {
+                const appSessionId = state.configuration.productionSessionId;
+                if (appSessionId === undefined) {
+                  throw new Error(
+                    "App-session context requires session ownership",
+                  );
+                }
+                const contextRequestId = randomUUID();
+                const context: ListeningExecutionContext = {
+                  sessionId: appSessionId,
+                  agentId: state.key,
+                  trace: {
+                    traceId:
+                      state.activeTurn?.trace.traceId ?? contextRequestId,
+                    correlationId: state.activeTurn?.id ?? contextRequestId,
+                    causationId: contextRequestId,
+                  },
+                };
+                const startedAt = Date.now();
+                const attributes = {
+                  appSessionId,
+                  contextRequestId,
+                  ...context.trace,
+                };
+                this.#recordRuntime(
+                  state,
+                  "agent.context_inventory.queued",
+                  attributes,
+                );
+                this.#recordRuntime(
+                  state,
+                  "agent.context_inventory.started",
+                  attributes,
+                );
+                try {
+                  const inventory = await this.options
+                    .getSessionContextInventory!(appSessionId, context);
+                  this.#recordRuntime(
+                    state,
+                    "agent.context_inventory.completed",
+                    {
+                      ...attributes,
+                      durationMs: Math.max(0, Date.now() - startedAt),
+                      characters: inventory.length,
+                    },
+                  );
+                  return inventory;
+                } catch (error) {
+                  this.#recordRuntime(state, "agent.context_inventory.failed", {
+                    ...attributes,
+                    durationMs: Math.max(0, Date.now() - startedAt),
+                    error:
+                      error instanceof Error ? error.message : String(error),
+                  });
+                  throw error;
+                }
+              },
+            },
+          }),
       ...(this.options.preparedContextProvider === undefined
         ? {}
         : {
@@ -3202,6 +3482,9 @@ export class CopilotAgentService implements AgentService {
     const shellGuidance = configuredToolNames.includes(BASH_TOOL_NAME)
       ? "\n\nThe bash tool is restricted to bounded, read-only inspection of Copilot large-output spill files. Use grep, bounded head/tail, wc, or jq against the exact spill path returned by a tool. Do not attempt writes, network access, arbitrary filesystem reads, or command execution outside that purpose."
       : "";
+    const listeningGuidance = configuredToolNames.includes("ableton_listening")
+      ? `\n\n${LISTENING_AGENT_GUIDANCE}`
+      : "";
     const config: SessionConfig = {
       clientName: "ableton-agent-app",
       ...(model === undefined ? {} : { model }),
@@ -3222,7 +3505,7 @@ export class CopilotAgentService implements AgentService {
           name: state.configuration.definitionName,
           displayName: state.configuration.label,
           description: state.configuration.description,
-          prompt: `${state.configuration.systemPrompt}${historyGuidance}${shellGuidance}`,
+          prompt: `${state.configuration.systemPrompt}${historyGuidance}${shellGuidance}${listeningGuidance}`,
           infer: false,
         },
       ],
@@ -4033,10 +4316,119 @@ export class CopilotAgentService implements AgentService {
     state.elicitationRequests.clear();
   }
 
+  async #cancelListeningWork(
+    state: ManagedSessionState,
+    reason: string,
+  ): Promise<void> {
+    const startedAt = Date.now();
+    const pending = [...state.listeningPasses.entries()];
+    const invocations = [...state.listeningInvocations];
+    const record = (
+      passId: string,
+      pass: (typeof pending)[number][1],
+      phase: "queued" | "started" | "progress" | "completed" | "failed",
+      error?: string,
+    ) =>
+      this.#recordRuntime(
+        state,
+        `agent.listening_cancel.${phase}`,
+        {
+          passId,
+          reason,
+          toolCallId: pass.context.trace.causationId,
+          appSessionId: pass.context.sessionId,
+          durationMs: Math.max(0, Date.now() - startedAt),
+          ...(error === undefined ? {} : { error }),
+        },
+        { trace: pass.trace },
+      );
+    for (const [passId, pass] of pending) {
+      record(passId, pass, "queued");
+      record(passId, pass, "started");
+    }
+    const controller = state.listeningAbortController;
+    state.listeningAbortController = new AbortController();
+    const cancellation = new ListeningFailure(
+      "cancelled",
+      `Listening caller cancelled: ${reason}`,
+    );
+    cancellation.name = "AbortError";
+    controller.abort(cancellation);
+    const requests = pending.map(async ([passId, pass]) => {
+      const result = await this.options.executeListeningOperation!(
+        { action: "cancel", passId },
+        pass.context,
+      );
+      if (
+        result.action !== "cancel" ||
+        result.job.passId !== passId ||
+        !["completed", "cancelled"].includes(result.job.stage)
+      ) {
+        throw new Error(
+          "Listening cancellation returned no clean terminal receipt",
+        );
+      }
+    });
+    const invocationResults = await Promise.allSettled(invocations);
+    const requestResults = await Promise.allSettled(requests);
+    for (const [index, result] of requestResults.entries()) {
+      const pass = pending[index];
+      if (result.status === "fulfilled" && pass !== undefined) {
+        record(pass[0], pass[1], "progress");
+      }
+    }
+    const tracked = new Map(pending);
+    for (const [passId, pass] of state.listeningPasses) {
+      if (!tracked.has(passId)) {
+        tracked.set(passId, pass);
+        record(passId, pass, "queued");
+        record(passId, pass, "started");
+      }
+    }
+    const passes = [...tracked];
+    const results = await Promise.allSettled(
+      passes.map(([, pass]) => pass.completion),
+    );
+    const failures: unknown[] = [];
+    for (const result of [...invocationResults, ...requestResults]) {
+      if (result.status === "rejected") {
+        const error: unknown = result.reason;
+        if (!(error instanceof Error && error.name === "AbortError")) {
+          failures.push(error);
+        }
+      }
+    }
+    for (const [index, result] of results.entries()) {
+      const pendingPass = passes[index];
+      if (pendingPass === undefined) continue;
+      if (result.status === "rejected") {
+        const error: unknown = result.reason;
+        if (!(error instanceof Error && error.name === "AbortError")) {
+          failures.push(error);
+          record(
+            pendingPass[0],
+            pendingPass[1],
+            "failed",
+            error instanceof Error ? error.message : "Listening cleanup failed",
+          );
+          continue;
+        }
+      }
+      record(pendingPass[0], pendingPass[1], "completed");
+    }
+    if (failures.length > 0) {
+      throw new AggregateError(
+        failures,
+        "Listening cancellation did not complete cleanly",
+      );
+    }
+  }
+
   async #disconnectState(
     state: ManagedSessionState,
     options: { removeFromRegistry?: boolean; reason?: unknown } = {},
   ): Promise<void> {
+    await this.#cancelListeningWork(state, "session_disconnected");
     this.#cancelActiveTurnTimeout(state, "session_disconnected");
     state.unsubscribe?.();
     state.unsubscribe = undefined;
@@ -4382,7 +4774,10 @@ export class CopilotAgentService implements AgentService {
     try {
       this.#cancelPendingPlans(state, "turn_timed_out");
       this.#cancelPendingElicitations(state, "turn_timed_out");
-      await session.abort();
+      await Promise.all([
+        session.abort(),
+        this.#cancelListeningWork(state, "turn_timed_out"),
+      ]);
       this.#recordRuntime(
         state,
         "agent.abort.completed",
@@ -4732,7 +5127,13 @@ export class CopilotAgentService implements AgentService {
   public async cancel(): Promise<boolean> {
     const state = this.#states.get(DEFAULT_AGENT_INSTANCE_KEY);
     const session = state?.session;
-    if (!session || !state || state.inFlightTurns === 0) {
+    if (
+      !session ||
+      !state ||
+      (state.inFlightTurns === 0 &&
+        state.listeningPasses.size === 0 &&
+        state.listeningInvocations.size === 0)
+    ) {
       return false;
     }
     this.#recordRuntime(state, "agent.abort.requested", {
@@ -4742,7 +5143,10 @@ export class CopilotAgentService implements AgentService {
       this.#cancelActiveTurnTimeout(state, "user_cancelled");
       this.#cancelPendingPlans(state, "user_cancelled");
       this.#cancelPendingElicitations(state, "user_cancelled");
-      await session.abort();
+      await Promise.all([
+        state.inFlightTurns === 0 ? Promise.resolve() : session.abort(),
+        this.#cancelListeningWork(state, "user_cancelled"),
+      ]);
       if (state.activeTurn !== undefined) {
         this.#finishWorkingTurn(
           state,
@@ -4773,7 +5177,13 @@ export class CopilotAgentService implements AgentService {
   public async cancelManagedAgent(instanceId: string): Promise<boolean> {
     const state = this.#states.get(instanceId);
     const session = state?.session;
-    if (!state || !session || state.inFlightTurns === 0) {
+    if (
+      !state ||
+      !session ||
+      (state.inFlightTurns === 0 &&
+        state.listeningPasses.size === 0 &&
+        state.listeningInvocations.size === 0)
+    ) {
       return false;
     }
     this.#recordRuntime(state, "agent.abort.requested", {
@@ -4783,7 +5193,10 @@ export class CopilotAgentService implements AgentService {
       this.#cancelActiveTurnTimeout(state, "user_cancelled");
       this.#cancelPendingPlans(state, "user_cancelled");
       this.#cancelPendingElicitations(state, "user_cancelled");
-      await session.abort();
+      await Promise.all([
+        state.inFlightTurns === 0 ? Promise.resolve() : session.abort(),
+        this.#cancelListeningWork(state, "user_cancelled"),
+      ]);
       if (state.activeTurn !== undefined) {
         this.#finishWorkingTurn(
           state,

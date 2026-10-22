@@ -1682,7 +1682,14 @@ describe("Ableton tools", () => {
               name as (typeof deprecatedAbletonToolNames)[number],
             ),
         ),
-    ).toEqual(abletonToolMetadata.map((metadata) => metadata.name));
+    ).toEqual(
+      abletonToolMetadata
+        .filter(
+          ({ name }) =>
+            name !== "ableton_listening" && name !== "ableton_context",
+        )
+        .map((metadata) => metadata.name),
+    );
     expect(toolSet.availableTools).not.toContain(
       "custom:ableton_tracks_delete",
     );
@@ -1792,6 +1799,39 @@ describe("Ableton tools", () => {
     ]);
   });
 
+  it("registers optional listening and context tools only for configured services", () => {
+    const base = services();
+    const defaults = createAbletonTools(base);
+    expect(defaults.availableTools).not.toContain("custom:ableton_listening");
+    expect(defaults.availableTools).not.toContain("custom:ableton_context");
+
+    const listening = createAbletonTools({
+      ...base,
+      executeListeningOperation:
+        vi.fn<NonNullable<AbletonToolServices["executeListeningOperation"]>>(),
+    });
+    expect(listening.availableTools).toContain("custom:ableton_listening");
+    expect(listening.availableTools).not.toContain("custom:ableton_context");
+
+    const configured = createAbletonTools({
+      ...base,
+      executeListeningOperation:
+        vi.fn<NonNullable<AbletonToolServices["executeListeningOperation"]>>(),
+      executeContextOperation:
+        vi.fn<NonNullable<AbletonToolServices["executeContextOperation"]>>(),
+    });
+    expect(
+      configured.tools
+        .map(({ name }) => name)
+        .filter(
+          (name) =>
+            !deprecatedAbletonToolNames.includes(
+              name as (typeof deprecatedAbletonToolNames)[number],
+            ),
+        ),
+    ).toEqual(abletonToolMetadata.map(({ name }) => name));
+  });
+
   it("prunes grouped tool actions by operation allowlist and capabilities", () => {
     const scoped = scopeAbletonTools(createAbletonTools(services()), {
       allowedToolNames: ["ableton_recording", "ableton_tracks"],
@@ -1842,6 +1882,195 @@ describe("Ableton tools", () => {
       }).success,
     ).toBe(true);
     expect(trackParameters.safeParse({ action: "list" }).success).toBe(false);
+  });
+
+  it("advertises listener discovery in the full Default scope without changing its serialized schema", () => {
+    const set = createAbletonTools({
+      ...services(),
+      executeListeningOperation:
+        vi.fn<NonNullable<AbletonToolServices["executeListeningOperation"]>>(),
+    });
+    const original = toolByName(set, "ableton_listening");
+    const [tool] = scopeAbletonTools(set, {
+      allowedToolNames: ["ableton_listening"],
+    });
+    expect(tool?.description).toContain(
+      "Allowed action values in this scope: inspect-listeners, play-session-and-listen, play-arrangement-and-listen, get-pass, list-passes, cancel.",
+    );
+    expect(tool?.description).toContain(
+      "Discover listenerIds with inspect-listeners before the first capture; never guess them from track or device references.",
+    );
+    expect(tool?.parameters).toBe(original.parameters);
+    expect(tool?.handler).toBe(original.handler);
+  });
+
+  it("explicitly advertises every scoped listening action without widening its runtime schema", () => {
+    const scoped = scopeAbletonTools(
+      createAbletonTools({
+        ...services(),
+        executeListeningOperation:
+          vi.fn<
+            NonNullable<AbletonToolServices["executeListeningOperation"]>
+          >(),
+      }),
+      {
+        allowedToolNames: ["ableton_listening"],
+        allowedOperationIds: [
+          "listening.inspect_listeners",
+          "listening.play_arrangement_and_listen",
+          "listening.get_pass",
+        ],
+      },
+    );
+    expect(scoped).toHaveLength(1);
+    const tool = scoped[0]!;
+    expect(tool.description).toContain(
+      "Allowed action values in this scope: inspect-listeners, play-arrangement-and-listen, get-pass.",
+    );
+    expect(tool.description).not.toContain("play-session-and-listen");
+    const parameters = tool.parameters as {
+      safeParse(value: unknown): { success: boolean };
+      toJSONSchema(): Record<string, unknown>;
+    };
+    expect(parameters.safeParse({ action: "inspect-listeners" }).success).toBe(
+      true,
+    );
+    expect(
+      parameters.safeParse({
+        action: "play-arrangement-and-listen",
+        listenerIds: ["listener"],
+        startBeat: 0.25,
+        endBeat: 3.75,
+        maximumDurationMs: 8000,
+      }).success,
+    ).toBe(true);
+    expect(
+      parameters.safeParse({ action: "get-pass", passId: "pass" }).success,
+    ).toBe(true);
+    expect(
+      parameters.safeParse({ action: "play-arrangement-and-listen" }).success,
+    ).toBe(false);
+    expect(
+      parameters.safeParse({ action: "cancel", passId: "pass" }).success,
+    ).toBe(false);
+    expect(parameters.toJSONSchema()).toMatchObject({
+      properties: {
+        action: {
+          enum: [
+            "get-pass",
+            "inspect-listeners",
+            "play-arrangement-and-listen",
+          ],
+        },
+      },
+    });
+  });
+
+  it.each(["default", "scoped"] as const)(
+    "preserves action-specific listening guidance in the %s SDK schema and rejects the recorded invalid calls before execution",
+    async (scope) => {
+      const executeListeningOperation =
+        vi.fn<NonNullable<AbletonToolServices["executeListeningOperation"]>>();
+      const executeContextOperation =
+        vi.fn<NonNullable<AbletonToolServices["executeContextOperation"]>>();
+      const set = createAbletonTools({
+        ...services(),
+        executeListeningOperation,
+        executeContextOperation,
+      });
+      const tools =
+        scope === "default"
+          ? [
+              toolByName(set, "ableton_listening"),
+              toolByName(set, "ableton_context"),
+            ]
+          : scopeAbletonTools(set, {
+              allowedToolNames: ["ableton_listening", "ableton_context"],
+              allowedOperationIds: [
+                "listening.inspect_listeners",
+                "listening.play_arrangement_and_listen",
+                "listening.get_pass",
+                "context.list",
+                "context.get",
+              ],
+            });
+      const listening = tools.find(({ name }) => name === "ableton_listening")!;
+      const context = tools.find(({ name }) => name === "ableton_context")!;
+      interface ActionSchema {
+        description?: string;
+        properties?: Record<string, { const?: unknown; description?: string }>;
+        required?: string[];
+      }
+      const parameters = listening.parameters as {
+        toJSONSchema(): { oneOf?: ActionSchema[]; anyOf?: ActionSchema[] };
+      };
+      const schema = parameters.toJSONSchema();
+      const arrangement = (schema.oneOf ?? schema.anyOf)?.find(
+        (variant) =>
+          variant.properties?.action?.const === "play-arrangement-and-listen",
+      );
+      expect(arrangement?.description).toContain(
+        "durationBeats is not accepted",
+      );
+      expect(arrangement?.properties?.startBeat?.description).toContain(
+        "zero-based",
+      );
+      expect(arrangement?.properties?.endBeat?.description).toContain(
+        "absolute ending beat",
+      );
+      expect(arrangement?.required).toEqual(
+        expect.arrayContaining(["listenerIds", "startBeat", "endBeat"]),
+      );
+      const invalidCalls = [
+        {
+          tool: listening,
+          arguments: {
+            action: "play-arrangement-and-listen",
+            listenerIds: ["listener"],
+            startBeat: 0.25,
+            durationBeats: 3.5,
+            maximumDurationMs: 8000,
+          },
+        },
+        {
+          tool: context,
+          arguments: { action: "list", contextId: "known-context" },
+        },
+      ];
+      for (const [index, invalid] of invalidCalls.entries()) {
+        const result = await invalid.tool.handler?.(invalid.arguments, {
+          sessionId: "sdk",
+          toolCallId: `invalid-${index}`,
+          toolName: invalid.tool.name,
+          arguments: invalid.arguments,
+        });
+        expect(result).toMatchObject({ resultType: "failure" });
+      }
+      expect(executeListeningOperation).not.toHaveBeenCalled();
+      expect(executeContextOperation).not.toHaveBeenCalled();
+    },
+  );
+
+  it("does not advertise capture actions in a lookup-only listening scope", () => {
+    const [tool] = scopeAbletonTools(
+      createAbletonTools({
+        ...services(),
+        executeListeningOperation:
+          vi.fn<
+            NonNullable<AbletonToolServices["executeListeningOperation"]>
+          >(),
+      }),
+      {
+        allowedToolNames: ["ableton_listening"],
+        allowedOperationIds: ["listening.get_pass"],
+      },
+    );
+    expect(tool?.description).toContain(
+      "Allowed action values in this scope: get-pass.",
+    );
+    expect(tool?.description).not.toContain(
+      "Allowed action values in this scope: inspect-listeners",
+    );
   });
 
   it("fails closed when a connected capability document omits an action", () => {

@@ -1,0 +1,123 @@
+{
+  "formatVersion": 1,
+  "classification": "instrumented-capability-probe",
+  "productionAcceptance": false,
+  "sourceOnset": "unverified",
+  "requestedStartBeat": 5.25,
+  "events": [
+    {
+      "eventId": "b4dd78fb-37f8-4ba5-93bc-8ffddfb9acfc",
+      "traceId": "213a6840-7df5-4689-964e-225f52a012cf",
+      "stage": "queued",
+      "elapsedMs": 0.038625000000180876,
+      "values": {}
+    },
+    {
+      "eventId": "9ab65baa-5b34-4f1a-b6e2-25751140c928",
+      "traceId": "213a6840-7df5-4689-964e-225f52a012cf",
+      "stage": "progress",
+      "elapsedMs": 0.30916699999927744,
+      "values": {
+        "stage": "property_inventory",
+        "properties": {
+          "name": {
+            "untitled": false,
+            "empty": true
+          },
+          "file_path": {
+            "saved": false
+          },
+          "start_time": {
+            "value": 128.0
+          },
+          "current_song_time": {
+            "value": 827.3726500062437
+          },
+          "is_playing": {
+            "value": false
+          },
+          "loop": {
+            "value": false
+          },
+          "back_to_arranger": {
+            "value": false
+          },
+          "record_mode": {
+            "value": false
+          },
+          "session_record": {
+            "value": false
+          },
+          "session_automation_record": {
+            "value": false
+          },
+          "overdub": {
+            "value": false
+          }
+        }
+      }
+    },
+    {
+      "eventId": "19e00f63-da47-40d3-893a-e439db9a8b96",
+      "traceId": "213a6840-7df5-4689-964e-225f52a012cf",
+      "stage": "started",
+      "elapsedMs": 0.48220799999931785,
+      "values": {
+        "before": {
+          "marker": 128.0,
+          "position": 827.3726500062437,
+          "playing": false
+        }
+      }
+    },
+    {
+      "eventId": "8d32c9aa-9bf5-4d2a-9f19-43dddff44351",
+      "traceId": "213a6840-7df5-4689-964e-225f52a012cf",
+      "stage": "progress",
+      "elapsedMs": 199.97274999999883,
+      "values": {
+        "stage": "independent_marker_readback",
+        "marker": 5.25,
+        "position": 827.3726500062437,
+        "playing": false
+      }
+    },
+    {
+      "eventId": "81b989ba-3e11-4c14-bd59-aac753e56ef8",
+      "traceId": "213a6840-7df5-4689-964e-225f52a012cf",
+      "stage": "progress",
+      "elapsedMs": 400.1791669999992,
+      "values": {
+        "stage": "independent_position_readback",
+        "marker": 5.25,
+        "position": 5.25,
+        "playing": false
+      }
+    },
+    {
+      "eventId": "6406faf6-fbee-4206-9c2a-be0b30ec4ad8",
+      "traceId": "213a6840-7df5-4689-964e-225f52a012cf",
+      "stage": "progress",
+      "elapsedMs": 599.9470420000001,
+      "values": {
+        "stage": "independent_play_readback",
+        "marker": 5.25,
+        "position": 5.642222222222222,
+        "playing": true
+      }
+    },
+    {
+      "eventId": "b5a918e9-4870-425f-a11b-c862839a3a07",
+      "traceId": "213a6840-7df5-4689-964e-225f52a012cf",
+      "stage": "completed",
+      "elapsedMs": 809.1570419999989,
+      "values": {
+        "restored": {
+          "marker": 128.0,
+          "position": 827.3726500062437,
+          "playing": false
+        }
+      }
+    }
+  ]
+}

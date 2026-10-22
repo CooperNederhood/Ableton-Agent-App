@@ -1,6 +1,18 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
+import { sanitizePersistedText } from "@ableton-agent/observability";
+import type {
+  ContextOperationOptions,
+  SessionContextPublicationRequest,
+} from "@ableton-agent/project-state";
+import type { DesktopSessionContextTransitionHandler } from "./desktop-session-context.js";
+import type { ListeningJob } from "@ableton-agent/application";
+import type {
+  DesktopListeningCancellationOptions,
+  DesktopListeningListRequest,
+  DesktopListeningPage,
+} from "../listening-contracts.js";
 
 import {
   readLiveProjectsRegistry,
@@ -60,7 +72,11 @@ import type {
   AgentEventListener,
   LiveEventDefinition,
 } from "@ableton-agent/agent-config";
-import { preferencesSchema, sessionSchema } from "../contracts.js";
+import {
+  desktopSessionOwnershipManifestSchema,
+  preferencesSchema,
+  sessionSchema,
+} from "../contracts.js";
 
 export interface DesktopService {
   start(): Promise<void>;
@@ -78,6 +94,10 @@ export interface DesktopService {
   createSession(): Promise<string>;
   getSessions(): Promise<DesktopSession[]>;
   persistActiveSession(): Promise<DesktopSession>;
+  getSessionForContext(sessionId: string): Promise<DesktopSession | undefined>;
+  publishSessionContext(
+    request: SessionContextPublicationRequest,
+  ): Promise<DesktopSession>;
   resumeSession(sessionId: string): Promise<void>;
   closeSession(): Promise<void>;
   getAgentCatalog(): Promise<DesktopAgentCatalog>;
@@ -149,7 +169,14 @@ export interface DesktopService {
     context?: ContextChip[],
     agentMode?: DesktopAgentMode,
   ): Promise<{ accepted: true; messageId: string }>;
-  cancelActiveAgent(instanceId: string): Promise<{ cancelled: boolean }>;
+  cancelActiveAgent(
+    instanceId: string,
+    options?: DesktopListeningCancellationOptions,
+  ): Promise<{ cancelled: boolean }>;
+  reportListeningJob(job: ListeningJob): void;
+  listListeningJobs(
+    request: DesktopListeningListRequest,
+  ): Promise<DesktopListeningPage>;
   connect(): Promise<DesktopConnectionStatus>;
   getStatus(): Promise<DesktopConnectionStatus>;
   getCapabilities(): Promise<string[]>;
@@ -285,10 +312,18 @@ export class JsonPreferencesStore {
 }
 
 export class JsonSessionStore {
+  #contextTransition: DesktopSessionContextTransitionHandler | undefined;
+  #tail: Promise<void> = Promise.resolve();
   public constructor(
     private readonly path: string,
     private readonly storage?: LiveAgentStorageLayout,
   ) {}
+
+  public setSessionContextTransitionHandler(
+    handler: DesktopSessionContextTransitionHandler,
+  ): void {
+    this.#contextTransition = handler;
+  }
 
   public async load(): Promise<DesktopSession[]> {
     try {
@@ -321,20 +356,89 @@ export class JsonSessionStore {
         };
   }
 
-  public async save(sessions: readonly DesktopSession[]): Promise<void> {
+  public save(
+    sessions: readonly DesktopSession[],
+    options: ContextOperationOptions = {},
+  ): Promise<void> {
+    const parsed = sessionSchema.array().parse(sessions);
+    const sanitize = (value: unknown): unknown => {
+      if (typeof value === "string")
+        return sanitizePersistedText(value).slice(0, 256 * 1024);
+      if (Array.isArray(value)) return value.map(sanitize);
+      if (value !== null && typeof value === "object")
+        return Object.fromEntries(
+          Object.entries(value).map(([key, child]) => [key, sanitize(child)]),
+        );
+      return value;
+    };
+    const validated = sessionSchema.array().parse(sanitize(parsed));
+    const result = this.#tail.then(() => this.#save(validated, options));
+    this.#tail = result.then(
+      () => undefined,
+      () => undefined,
+    );
+    return result;
+  }
+
+  async #save(
+    sessions: readonly DesktopSession[],
+    options: ContextOperationOptions,
+  ): Promise<void> {
+    options.signal?.throwIfAborted();
     await mkdir(dirname(this.path), { recursive: true });
     const previousSessions =
       this.storage === undefined ? [] : await this.load();
+    if (
+      previousSessions.some(
+        (before) =>
+          before.contextStore !== undefined &&
+          !sessions.some(({ id }) => id === before.id),
+      )
+    ) {
+      throw new Error(
+        "Context-owning App sessions cannot be implicitly removed from the registry",
+      );
+    }
+    if (
+      previousSessions.some(
+        (before) =>
+          before.contextStore !== undefined &&
+          sessions.some(
+            (after) =>
+              after.id === before.id && after.contextStore === undefined,
+          ),
+      )
+    ) {
+      throw new Error(
+        "A declared context store cannot be silently removed from its session manifest",
+      );
+    }
     const hierarchySnapshot =
       this.storage === undefined
         ? []
         : await this.#snapshotHierarchyFiles(previousSessions, sessions);
-    const relocations =
-      this.storage === undefined
-        ? []
-        : await this.#relocateLiveSetStorage(previousSessions, sessions);
+    const changesOwnership = previousSessions.some((before) =>
+      sessions.some(
+        (after) =>
+          after.id === before.id &&
+          (after.liveSetId !== before.liveSetId ||
+            after.liveProjectId !== before.liveProjectId),
+      ),
+    );
+    const transition = changesOwnership
+      ? await this.#contextTransition?.(previousSessions, sessions, options)
+      : undefined;
+    let relocations: Array<{
+      source: LiveSetStorageLocation;
+      destination: LiveSetStorageLocation;
+    }> = [];
     const temporaryPath = `${this.path}.${randomUUID()}.tmp`;
     try {
+      relocations =
+        this.storage === undefined
+          ? []
+          : await this.#relocateLiveSetStorage(previousSessions, sessions);
+      options.signal?.throwIfAborted();
       await writeFile(
         temporaryPath,
         JSON.stringify(sessionSchema.array().parse(sessions), undefined, 2),
@@ -342,7 +446,10 @@ export class JsonSessionStore {
       );
       await this.#writeSessionManifests(sessions);
       await this.#writeLiveHierarchy(sessions);
+      await transition?.apply();
+      options.signal?.throwIfAborted();
       await rename(temporaryPath, this.path);
+      transition?.complete();
     } catch (error) {
       const rollbackErrors: unknown[] = [];
       try {
@@ -375,6 +482,11 @@ export class JsonSessionStore {
           rollbackErrors.push(rollbackError);
         }
       }
+      try {
+        await transition?.rollback();
+      } catch (rollbackError) {
+        rollbackErrors.push(rollbackError);
+      }
       if (rollbackErrors.length > 0) {
         throw new AggregateError(
           [error, ...rollbackErrors],
@@ -400,6 +512,7 @@ export class JsonSessionStore {
         sessionId: session.id,
       });
       paths.add(storagePaths.liveSet.metadataPath);
+      paths.add(storagePaths.manifestPath);
       if (storagePaths.project !== undefined) {
         paths.add(storagePaths.project.metadataPath);
       }
@@ -506,6 +619,33 @@ export class JsonSessionStore {
       source: LiveSetStorageLocation;
       destination: LiveSetStorageLocation;
     }> = [];
+    for (const relocation of requested.values()) {
+      const siblings = previousSessions.filter(
+        (record) =>
+          record.liveSetId === relocation.source.liveSetId &&
+          record.liveProjectId ===
+            (relocation.source.ownership === "project"
+              ? relocation.source.projectId
+              : undefined),
+      );
+      const destinationProject =
+        relocation.destination.ownership === "project"
+          ? relocation.destination.projectId
+          : undefined;
+      if (
+        siblings.some((before) => {
+          const after = sessions.find(({ id }) => id === before.id);
+          return (
+            after !== undefined &&
+            (after.liveSetId !== relocation.destination.liveSetId ||
+              after.liveProjectId !== destinationProject)
+          );
+        })
+      )
+        throw new Error(
+          "All App sessions in a relocating Live Set directory must transition together",
+        );
+    }
     try {
       for (const relocation of requested.values()) {
         if (
@@ -585,7 +725,7 @@ export class JsonSessionStore {
       await writeFile(
         temporaryPath,
         JSON.stringify(
-          {
+          desktopSessionOwnershipManifestSchema.parse({
             version: 1,
             appSessionId: session.id,
             title: session.title,
@@ -593,6 +733,9 @@ export class JsonSessionStore {
             updatedAt: session.updatedAt,
             liveSetId: session.liveSetId,
             liveSetName: session.liveSetName,
+            ...(session.contextStore === undefined
+              ? {}
+              : { contextStore: session.contextStore }),
             ...(session.liveProjectId === undefined
               ? {}
               : { liveProjectId: session.liveProjectId }),
@@ -603,7 +746,7 @@ export class JsonSessionStore {
             sdkSessionIds: session.activeAgents.flatMap(({ sdkSessionId }) =>
               sdkSessionId === undefined ? [] : [sdkSessionId],
             ),
-          },
+          }),
           undefined,
           2,
         ),

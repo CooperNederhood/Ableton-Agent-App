@@ -50,6 +50,41 @@ Companion specification: [Local Storage Layout](local-storage.md)
   `project-state/{liveProjectId}/` from a required typed ownership context.
 - [x] Reserve profile, project, Live Set, and app-session `memory/` ownership
   directories without defining memory behavior.
+- [x] Resolve App-session `context/entity-context.sqlite` through typed
+  Set/Project/session ownership, separate from profile-wide history.
+- [x] Add typed, redacted observations, subject/freshness links, atomic pass
+  publication, quota reservations and explicit context pruning.
+- [x] Register v1/v2 observation kinds with exact payload-version agreement,
+  preserve approximate v2 quality in typed summaries/detail/resume, and reject
+  exclusive descriptive attribution. Retain old kind declarations and reconcile
+  additive supported kinds through atomic registry/manifest publication without
+  changing the owned path or database format.
+- [x] Expose canonical profile signal-discovery and local authentication-key
+  paths for portable producer companions.
+- [x] Implement invoking-session first-publication registry/manifest API and
+  main-process context manager with durable resume inventory and per-query IDs.
+- [x] Implement context transition leases that close handles before subtree
+  relocation, preserve provenance, and roll back headers/manifests on failure.
+- [x] Cover unknown/foreign owners, corrupt/missing/undeclared stores, symlinks,
+  quotas/cache admission, cancellation, cleanup, and independent App sessions.
+- [x] Guard queued reservations during relocation and isolate stale evicted
+  handles from replacement repository cache entries.
+- [x] Clear closed-handle reservation ownership after cancelled pre-publication
+  setup and reopen empty inventory without claiming persisted observations.
+- [x] Accept trusted application get/list readers without model-agent
+  attribution and deny writes through their cached repository facade.
+- [x] Combine invocation and operation cancellation signals during queued
+  repository resolution without opening or promoting a cancelled session.
+- [ ] Wire the manager and transition handler into production composition and
+  validate complete shutdown/resume through isolated Desktop acceptance gates.
+- [x] Wire canonical Desktop descriptor/credential references and explicit
+  legacy MIDI compatibility with the same authentication secret and ingress.
+- [x] Resolve migration-only legacy descriptor/key paths through storage without
+  relocating them into custom roots or implicitly publishing them at bootstrap.
+- [x] Cover owned credential cleanup, publication failure/cancellation,
+  redacted lifecycle events and isolated Electron profile discovery.
+- [ ] Complete real installed-device and cross-profile compatibility validation
+  without reusing the user's Live process.
 
 ## Migration and safety
 

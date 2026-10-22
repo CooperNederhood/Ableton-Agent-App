@@ -1,0 +1,62 @@
+{
+  "formatVersion": 1,
+  "id": "native-playback-and-listen",
+  "group": "native-listening",
+  "execution": "native-listening-runtime",
+  "prompt": "Make these calls sequentially, never in parallel: inspect-listeners, then exactly one play-arrangement-and-listen call for Arrangement beats 0 through 4 with maximumDurationMs 8000 and only the bound listener ID, then get-pass once using the returned passId. The staged developer candidate legitimately remains ready=false with native_per_pass_validation_required; attempt fresh per-pass validation, never promote it or use any other listener. If the pass failed or was cancelled, report its exact reason and stop without further calls. If it is still nonterminal, report pending and end the turn without more polling: the harness independently waits for the real terminal job. Only if get-pass reports completed may you call ableton_context get with contextId taken from that job's contextIds and includeHistorical=true. A passId is never a contextId. Do not call list-passes or context list. Queued or arming acceptance is not completion. Leave playback running: do not stop, rewind, record, launch Session clips, change the Set, install devices, or claim exclusive clip audio. Unknown attribution and freshness are valid historical track/range results.",
+  "artifactPrefix": "AA_SMOKE_NATIVE_",
+  "allowedTools": ["ableton_listening", "ableton_context"],
+  "allowedActions": {
+    "ableton_listening": [
+      "inspect-listeners",
+      "play-arrangement-and-listen",
+      "get-pass"
+    ],
+    "ableton_context": ["get"]
+  },
+  "allowedRisks": ["read", "reversible"],
+  "maxToolCalls": 8,
+  "maxMutations": 1,
+  "timeoutMs": 60000,
+  "setupContract": {
+    "timingPolicy": { "mode": "strict", "maxClockDisagreementSamples": 0 },
+    "inputOption": "--native-fixture-input",
+    "inputFormatVersion": 1,
+    "requiredInputFields": [
+      "sourceSet",
+      "sourceSetSha256",
+      "candidateDirectory",
+      "candidateManifestSha256",
+      "deviceFile",
+      "deviceSha256",
+      "audioFiles",
+      "canonicalPath",
+      "trackName",
+      "deviceName"
+    ],
+    "audioFileFields": ["path", "sha256"],
+    "sourcePolicy": "Immutable explicitly provisioned Set with project-relative native candidate references. Every referenced WAV must be explicitly hash-pinned. External Max devices, unprovisioned audio, symlinks and mismatched resources fail before launch; no XML rewriting or installation.",
+    "stagingPolicy": "Fresh .test-artifacts/native-listening-{runId}/fixture; byte-identical copied Set and candidate code/device, only copied discovery configuration regenerated with the shared storage resolver for the isolated automation profile.",
+    "processPolicy": "No pre-existing Live permitted. Launch the copied Set only through the runner's newly recorded exact PID. Never adopt another process.",
+    "insertMarkerPolicy": "Fresh-load the approved saved zero-marker fixture. currentSongTime/currentBeat zero plus stopped transport does not prove Song.start_time zero. The public inspection schemas do not expose the insert marker; Python must independently enforce it after genuine arming and before source mutation. A mismatch is a failed pass with no published contexts, never repaired by transport stop/seek, retry, or guard weakening.",
+    "cleanupPolicy": "Capture completion/cancellation/failure leaves transport running. Application shutdown, exact-PID Live shutdown and owned fixture deletion are separate stages. Retain fixtures beneath surviving processes.",
+    "productionComposition": "createAgentRuntime + createListeningRuntimeHost + createSessionContextHost + createDesktopSessionContextManager + JsonSessionStore + publishSignalSecrets. Start ingress explicitly after publishing private canonical-profile discovery credentials; stop ingress and remove only owned credentials during shutdown. No test capture adapter, new product API, Desktop window or readiness promotion.",
+    "reviewStatus": "Candidate-only pinned fixture provisioned with explicit user approval. Actual copied-candidate registration, stopped preflight, genuine arm and native launch succeeded; the first actor-driven cold capture failed clock continuity after five windows and published nothing. Full runner acceptance and portable resource qualification remain incomplete; existing operator-owned SDK passes are not runner evidence."
+  },
+  "ordering": [
+    {
+      "before": "ableton_listening",
+      "beforeAction": "inspect-listeners",
+      "after": "ableton_listening",
+      "afterAction": "play-arrangement-and-listen"
+    }
+  ],
+  "assertions": [
+    "stopped-native-preflight",
+    "owned-terminal-job",
+    "independent-native-proof",
+    "one-atomic-track-range-context",
+    "typed-historical-retrieval-and-reopen",
+    "unchanged-set-leave-running-idle-capture"
+  ]
+}

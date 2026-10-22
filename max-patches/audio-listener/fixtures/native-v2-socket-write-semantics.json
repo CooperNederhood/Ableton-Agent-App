@@ -1,0 +1,110 @@
+{
+  "schema": "native-socket-write-semantic-fix/v1",
+  "controlledSoftwareOnly": true,
+  "liveOrMaxHostsStarted": false,
+  "commitsCreated": false,
+  "actualB272UnderlyingExceptionRecovered": false,
+  "actualActorPassed": false,
+  "earlierDc7SpecificField": "unknown; not retroassigned",
+  "provenBug": "Pinned audio producer interpreted socket.write(false) as failed delivery, immediately reported backpressure and destroyed an already accepted frame's socket.",
+  "runtime": {
+    "version": "v16.6.0",
+    "source": "Existing Node for Max executable named by actual b272 process receipt; executed only as a standalone bounded loopback test, never launched Live or Max.",
+    "writableHighWaterMark": 16384,
+    "exactWireThresholdIncludesNewline": true,
+    "standardNetCases": [
+      { "wireBytes": 16383, "writeReturn": true, "deliveredFully": true },
+      {
+        "wireBytes": 16384,
+        "writeReturn": false,
+        "deliveredFully": true,
+        "drained": true
+      },
+      {
+        "wireBytes": 16385,
+        "writeReturn": false,
+        "deliveredFully": true,
+        "drained": true
+      },
+      {
+        "wireBytes": 45773,
+        "writeReturn": false,
+        "deliveredFully": true,
+        "drained": true
+      }
+    ]
+  },
+  "retainedPayload": {
+    "qualifiedArtifact": ".test-artifacts/native-v2-long-diagnostic-qualified-b27296c3-e0ca-4ab9-9389-39e4cbb1229a.json",
+    "qualifiedArtifactSha256": "cf46c485252c0f4b184e3f5ba572e106306c11c2c6c353675ac3cfb56b936331",
+    "observationAndNativeCaptureCompactBodyBytes": 45772,
+    "originalWirePacketRetained": false,
+    "controlledReplayWireBytes": 45879,
+    "controlledReplayIsNotAnActualNativeExecution": true
+  },
+  "originalProducer": {
+    "moduleSha256": "bac0eea7cea1949cf8671c16fe91fd980c5652daa6272c493d034865974b881a",
+    "moduleBytes": 42093,
+    "immutableGitBlob": "524abf06998d5d3db578b7cac465f812e30e6879",
+    "controlledReplayDeliveredFrames": 1,
+    "controlledReplayReturn": false,
+    "controlledReplayImmediateSocketDestroyed": true,
+    "controlledReplayPeerClosedBeforeDelayedAck": true,
+    "controlledReplayFailure": "backpressure"
+  },
+  "correctedProducer": {
+    "path": "max-patches/shared/agent_signal_client.js",
+    "moduleSha256": "559a7e93552f2e09e1c5b9a11e3b508d147d15b5d173aa2f3933731b30442302",
+    "moduleBytes": 46629,
+    "controlledReplayDeliveredFrames": 1,
+    "controlledReplayReturn": true,
+    "controlledReplayImmediateSocketDestroyed": false,
+    "controlledReplayDrained": true,
+    "controlledReplayDelayedAckConsumed": true,
+    "controlledReplayPendingAfterAck": 0,
+    "controlledReplayFailureCount": 0,
+    "acceptedFrameResent": false,
+    "drainTimeoutMs": 1000,
+    "queuedPlusSocketBufferedWireByteLimit": "2 * negotiated maxFrameBytes, at most 262144 for native v2",
+    "pendingRequestQuota": "Existing default 64, unchanged; queued requests count toward it.",
+    "queueScope": "Current socket only; no offline audio replay or reconnect replay.",
+    "cleanup": "Write callback error, socket error/close, byte/pending quota or drain timeout remains fatal; stop cancels the wait and drops queued frames. Timer/listeners/pending queue are cleaned; stale callbacks cannot affect a replacement socket.",
+    "wireAndAuthority": "No payload, sequence, authentication, epoch, ACK or outer job/watchdog deadline contract changes. Drain is not a protocol ACK."
+  },
+  "serverTrace": {
+    "analogousFalseMeansFailureBugFound": false,
+    "responseContainsNativeCaptureBody": false,
+    "reconstructedActualTerminalAckWireBytes": 144,
+    "originalAckWirePacketRetained": false,
+    "existingDrainHandling": "Ingress already waits for drain with close/error handling and a 1000 ms timeout.",
+    "earlierFailureDiagnosticsRetained": true
+  },
+  "regressions": {
+    "controlledChangedPathFailuresOnPinnedOriginal": 10,
+    "authenticatedTcpFailureOnPinnedOriginal": 1,
+    "unchangedImmediateWriteAndMidiControlPassesOnOriginal": true,
+    "targetedProducerTestsPassed": 41,
+    "authenticatedIngressTestsPassed": 48,
+    "owningServerAndNativeRunnerTestsPassed": 323,
+    "standardPnpmMaxTestsPassed": 578,
+    "frozenPrivateIntegrationTestsPassed": 181,
+    "typecheckBuildLintFormatting": "passed",
+    "tcpPostconditions": "Synthetic 30-second proof completes once, receives terminal protocol ACK, releases listener owner and retains the identical connection ID and epoch."
+  },
+  "evidence": {
+    "originalNode16": ".test-artifacts/native-socket-write-node16-original-ack-replay.json",
+    "correctedNode16": ".test-artifacts/native-socket-write-node16-corrected-ack-replay.json",
+    "pinnedOriginalRegressions": ".test-artifacts/native-socket-write-pinned-baseline-regressions.log",
+    "pinnedOriginalTcpRegression": ".test-artifacts/native-socket-write-ingress-before.log",
+    "standardMax": ".test-artifacts/native-socket-write-max-after.log",
+    "owningSuites": ".test-artifacts/native-socket-write-owning-after.log",
+    "actualB272ArtifactSha256StillUnchanged": "d37161933ab982d8dee38664f65e114f26f0fc652b23cea7b8d3236d475baa9c"
+  },
+  "parentHandoff": {
+    "documentationOwnedByParent": "Document accepted-not-ACKed write(false), bounded per-connection drain/FIFO admission and fatal limits/cleanup. Existing producer status route emits redacted write_backpressure queued/started/progress/completed/failed/cancelled with request/trace/correlation/causation/job/pass IDs, elapsed milliseconds and queue count/bytes. No raw frame or audio persistence was added.",
+    "savedAndCopiedCandidatesEdited": false,
+    "historicalHelpersAdaptersFlagsAndReceiptsRebased": false,
+    "physicalFollowup": "No physical run performed or ordinary qualification claimed. Saved candidate's copied common client remains the historical bac0 module; parent must explicitly stage and declare the corrected client resource override and new pin for any separately authorized physical run.",
+    "remainingUncertainty": "The source bug and exact real-Node16 threshold are proven independently. This matches b272's retained payload size and timeline but does not recover its unpersisted exception or relabel either b272 or dc7 actor failure as success."
+  }
+}

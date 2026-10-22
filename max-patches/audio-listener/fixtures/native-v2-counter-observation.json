@@ -1,0 +1,99 @@
+{
+  "formatVersion": 1,
+  "evidenceKind": "actual-instrumented-nonaccepting-native-observation",
+  "runId": "e7b07595-7778-4a28-bb7f-5693cc7da2d9",
+  "passId": "e0b9256c-ad7e-4379-8a6d-d469fea9c699",
+  "generation": "e84ce46e-894b-4626-a420-7f943b64c069",
+  "traceId": "91212f60-df74-4e41-a48d-c1394625bcfb",
+  "correlationId": "91212f60-df74-4e41-a48d-c1394625bcfb",
+  "sourceOverrides": [],
+  "acceptancePassed": false,
+  "captureOrContextAuthorized": false,
+  "pins": {
+    "sourceSetSha256": "ac1b41be9f11b05bdfe390e74bfb0887156dfad782808f9d66f5c8d890de229a",
+    "candidateManifestSha256": "0bdf2f029a5ce1f801f44f2843b3299dab7fb094a4392794eef9eef399730c6c",
+    "deviceSha256": "8e45ecf31aee11fc5acbc7de95d504197d303e306a34710b25c83c20d8f3511a",
+    "controllerSha256": "99d99488058988fb88e7cc866fcd28fe3a9df988997b887ace68344299d5cfd5",
+    "instrumentationSha256": "115f39128386bdef9d6b9142e63816bdb1421ce4831877e46bedafe673a87e81"
+  },
+  "instrumentation": {
+    "installedBeforeRunnerRun": true,
+    "windowMs": 900,
+    "maximumDelayMs": 1000,
+    "failureAfterBeginMs": 902,
+    "failureReason": "diagnostic_only_native_counter_observation",
+    "measurementPacketsAdmitted": 0,
+    "nativeArmControlsForwarded": 0,
+    "blockedNativeArmControls": 0,
+    "rejectedForeignPackets": 0,
+    "malformedPackets": 0,
+    "forwardedStopAcks": 1
+  },
+  "metadata": {
+    "dsp": [1, 48000, 64],
+    "fftInfo": [2048, 2048, 2048, 1],
+    "clockAbi": 2,
+    "envelopeAbi": 2,
+    "spectrumAbi": 2
+  },
+  "clock": {
+    "count": 83,
+    "snapshotPolicy": "first4_last4_disjoint",
+    "snapshots": [
+      {
+        "receivedAfterBeginMs": 18,
+        "values": [0, 0.25, 1619904, 31, 0, 0, 0, 0, 0.25, 1619904, 31]
+      },
+      {
+        "receivedAfterBeginMs": 29,
+        "values": [0, 0.25, 1620416, 31, 0, 0, 0, 0, 0.25, 1620416, 31]
+      },
+      {
+        "receivedAfterBeginMs": 39,
+        "values": [0, 0.25, 1620928, 31, 0, 0, 0, 0, 0.25, 1620928, 31]
+      },
+      {
+        "receivedAfterBeginMs": 49,
+        "values": [0, 0.25, 1621440, 31, 0, 0, 0, 0, 0.25, 1621440, 31]
+      },
+      {
+        "receivedAfterBeginMs": 860,
+        "values": [0, 0.25, 1660352, 31, 0, 0, 0, 0, 0.25, 1660352, 31]
+      },
+      {
+        "receivedAfterBeginMs": 872,
+        "values": [0, 0.25, 1660864, 31, 0, 0, 0, 0, 0.25, 1660864, 31]
+      },
+      {
+        "receivedAfterBeginMs": 883,
+        "values": [0, 0.25, 1661376, 31, 0, 0, 0, 0, 0.25, 1661376, 31]
+      },
+      {
+        "receivedAfterBeginMs": 893,
+        "values": [0, 0.25, 1661888, 31, 0, 0, 0, 0, 0.25, 1661888, 31]
+      }
+    ]
+  },
+  "spectrum": {
+    "count": 88,
+    "first": [-1, 0, 0, -1, -1, 790],
+    "last": [-1, 0, 0, -1, -1, 810],
+    "firstDiagnostics": [0, 1, 0, 1, 255],
+    "lastDiagnostics": [0, 1, 0, 1, 255]
+  },
+  "outcome": {
+    "completed": false,
+    "contextIds": [],
+    "copiedResourcesUnchanged": true,
+    "originalPinsUnchanged": true,
+    "processStopped": true,
+    "fixtureCleaned": true
+  },
+  "limitations": [
+    "Instrumented fail-only run, not ordinary scenario acceptance.",
+    "Only first4/last4 raw clock snapshots retained; count is not complete sample retention.",
+    "Receipt times are scheduler times, not native sample timestamps.",
+    "Zero received native counters do not independently isolate Gen arithmetic from output/readback wiring.",
+    "No cap rewrite, downstream counter substitution or readiness promotion is justified by this observation alone."
+  ]
+}

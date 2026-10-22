@@ -275,6 +275,41 @@ See [Live Events](../events/live-events.md).
 
 ## Security
 
+### Guarded listening playback
+
+`listening.position_playback` supports guarded stopped Arrangement positioning
+before native arm. It validates exact Set/revision, bounded listener targets,
+recording-off, disabled loop and no Session override/pending launch. It writes
+the requested insert marker only if needed, independently reads it on a later
+Live tick, writes the stopped position only if needed, then independently reads
+that position on another tick. Source fingerprints and safety/identity are
+revalidated between stages, including after our own revision-changing writes.
+It never starts or stops transport. Partial failures remain explicitly
+indeterminate and report the observed marker/current position; the surfaced
+message warns that position may have changed. It does not restore a
+marker/position over user activity.
+
+`listening.start_playback` retains its matching-insert-marker guard, skips
+redundant seeks that could reset an armed native phase, independently verifies
+any needed seek, calls `start_playing` (not `continue_playing`, which resumes the
+old stopped location), and verifies playing on a later tick. Both commands
+leave routing, solo/mute, loop and Back to Arrangement unchanged. The App must
+freshly inspect source/revision after positioning and before native arm/start.
+
+The result is `{schemaVersion:1,mode:"arrangement",cleanupPolicy:"leave-running",
+startedAtBeat,sourceOnset:"unverified"}`. Playback deliberately continues after
+capture completion, cancellation, disconnect and errors. There is no ownership
+token, automatic stop, or verified sounding-onset claim. Session start and
+`listening.stop_playback` remain unsupported. Native timing readiness is a
+separate application gate.
+
+Pre-mutation denials include `mutated:false`. Once a seek/start has been
+attempted, failures report `mutationState:"indeterminate"`, the failed
+`stage`, bounded observed `playing/currentBeat`, and the leave-running policy;
+they never guess rollback or stop independent user playback. Existing executor
+and bridge command events carry queued/start/completion/failure timing and trace
+context. The command registers no monitoring resources or delayed cleanup.
+
 - Bind to `127.0.0.1`, never `0.0.0.0`.
 - Require a per-installation authentication token.
 - Reject requests before authentication completes.

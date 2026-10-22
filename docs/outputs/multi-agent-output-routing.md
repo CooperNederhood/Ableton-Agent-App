@@ -44,6 +44,69 @@ the workspace. Missing or disconnected producers do not delete subscriptions;
 routing resumes when the same stable producer ID reconnects. Disconnected
 connection records are not part of the current output inventory.
 
+## Producer transport backpressure
+
+The shared Max producer client's audio path treats Node `socket.write(false)` as accepted
+data awaiting drain, not failed delivery. Drain does not constitute a protocol
+ACK. Subsequent frames use a same-connection FIFO bounded by the existing
+pending-request quota (64 by default) and twice the negotiated maximum frame
+bytes across queued and socket-buffered data (256 KiB for native v2, including
+wire newlines). The per-frame native-v2 limit remains 131072 JSON bytes excluding
+the newline; this local aggregate cap does not enlarge packet or capture budgets.
+
+The drain deadline is one second. Write-callback errors, socket error/close,
+quota exhaustion and drain timeout remain explicit failures. Stop cancels the
+wait and drops queued frames; timers/listeners are removed and stale callbacks
+cannot affect a replacement socket. Accepted frames are never resent, and no
+offline or reconnect replay is introduced. Authentication, epochs, sequencing,
+ACK meaning and outer operation deadlines are unchanged.
+
+The existing producer `onStatus` callback emits bounded, redacted `write_backpressure`
+queued, started, progress, completed, failed and cancelled lifecycle/timing
+records with request, trace, correlation, causation, job/pass and queue-count/
+byte attribution. Raw frames or audio bodies are not added to status records.
+Callback emission alone does not qualify application-owned History coverage.
+The ordinary audio runtime now forwards actual callbacks into bounded,
+metadata-only collection. Optional `write-backpressure/v1` diagnostics ride
+existing authenticated heartbeats after ordinary drain; support must be
+confirmed by the authenticated hello ACK, not a descriptor hint alone. Legacy
+peers keep unchanged heartbeats; missing support marks diagnostics unsupported,
+not a failed native capture.
+
+Collection retains at most 64 events for 60 seconds. Each batch fits both eight
+events and 8 KiB, plus the negotiated complete-frame limit. Within those bounds,
+source event IDs survive until heartbeat ACK; metadata-only redelivery after normal
+reconnect is deduplicated. Diagnostic writes suppress self-instrumentation.
+No measurement data is replayed and cancellation/shutdown is not delayed.
+
+Ingress records typed, redacted source lifecycle/timing and actual socket
+metrics as `output.producer.write-backpressure.{stage}`. Coverage diagnostics
+use `output.producer.diagnostics.{coverage-gap,source-gap,handler-failed}`.
+IDs are at most 128 string units; source age must be below 60 seconds, with at
+most one second future tolerance. App audit receipts and source-order streams
+are capped at 2,048 each, dedup identities at 4,096, all with 60-second TTL.
+Dedup identity is authenticated producer + instance + source event ID.
+Frozen originating request receipts validate delayed capture
+ownership after release; the current delivery connection is recorded separately,
+never substituted as the source capture owner. Transport-only writes have no
+fabricated capture ownership. Diagnostics remain journal-only, not signal
+observations, agent input or automatic turns.
+
+Overflow, expiry, malformed or forged metadata, unsupported delivery and recorder
+errors are explicit nonfatal coverage failures. A heartbeat ACK is not a durable
+journal guarantee. Producer death before delivery can leave source coverage
+unknown; record the App-observed disconnect/gap rather than inventing a source
+completion/cancellation. Software callback-to-authenticated-ingress-to-typed-
+journal coverage passes; real-native History qualification remains separate.
+The first new-resource physical attempt (`f3b93259`) passes native capture and
+final checks but retains no source write-lifecycle rows, only an unknown-coverage
+disconnect. Neither source callbacks/write-return nor its cause were observed;
+the separately retained failed History gate must not be promoted to a pass.
+The module is shared by MIDI and audio producers, but the new FIFO applies only
+to audio. MIDI retains its existing immediate accepted-write behavior on false
+and existing offline sample policy. Subscription and agent delivery
+acknowledgement remain separate.
+
 ## Runtime consumers
 
 SignalRuntime tracks a set of active agent consumers rather than one active SDK

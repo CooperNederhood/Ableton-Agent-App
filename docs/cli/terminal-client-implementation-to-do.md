@@ -47,6 +47,20 @@ Companion specification: [Terminal Client](terminal-client.md)
   stream without exposing raw job result payloads.
 - [x] Implement explicit non-interactive approval policies.
 - [x] Return structured JSON operation and final-result data.
+- [x] Persist bounded, private, redacted atomic run checkpoints before startup
+  and during tool activity; finalize failure evidence without assistant prose.
+- [x] Recover matching run-specific checkpoints after missing final stdout;
+  fail closed on incomplete/truncated evidence and forbid automatic retry.
+- [x] Support computer-use-coordinated runner launches with pre-existing-process
+  denial, exact executable/PID attestation, no scripted dialog actions and
+  owned-process-only cleanup.
+- [x] Give externally coordinated launches a bounded ten-minute startup window,
+  retaining ordinary/explicit deadlines and refusing late process ownership,
+  with a regression that fails under the prior ninety-second default.
+- [x] Make reviewed region-fill inspection and identity-bound cleanup explicit
+  in scenario guidance, retaining the deny-before-inspection guard and budgets.
+- [x] Fail and cancel noninteractive SDK human gates without supplying answers
+  or approvals, with prompt/schema guidance and regression coverage.
 - [x] Ensure diagnostics avoid model invocation where possible.
 
 ## Tests
@@ -56,6 +70,9 @@ Companion specification: [Terminal Client](terminal-client.md)
 - [x] Snapshot representative plain and colored transcripts.
 - [x] Integration-test interactive prompts with fake input/output adapters.
 - [x] Integration-test one-shot commands against the simulated Remote Script.
+- [x] Cover stalled partial mutations, trace redaction, terminal ordering,
+  atomic-file cleanup, private permissions, write failure, and checkpoint
+  recovery/identity guards.
 - [~] Test interruption, denial, timeout, disconnect, and agent failure.
   (Interruption, denial, and disconnect are covered; timeout and generic
   agent-failure paths are not yet tested.)

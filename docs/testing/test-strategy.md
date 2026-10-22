@@ -5,6 +5,9 @@
 Tests use filename and command-level classifications:
 
 - `*.test.ts` for deterministic unit and package integration tests.
+- Max patch `*.test.cjs` and `*.test.mjs` use `pnpm test:max-patches`
+  (`node:test`), not Vitest. Private `.test-artifacts/` diagnostic helpers also
+  stay outside Vitest discovery and run only through their explicit commands.
 - Generated protocol fixtures plus Python decoder tests for `contract`.
 - Simulator-backed bridge tests for `integration`.
 - Playwright projects named `electron` for packaged desktop tests.
@@ -12,8 +15,28 @@ Tests use filename and command-level classifications:
 
 Every critical path requires success, failure, denial/guard, and cleanup
 coverage. Bug fixes must include a regression test at the narrowest owning
-boundary. Vitest runs with ten-second test/hook deadlines and zero retries;
+boundary. Vitest runs with default ten-second test/hook deadlines and zero retries;
 flaky tests are fixed or explicitly quarantined rather than silently retried.
+
+Hosted validation runs `pnpm check` through `tee` using explicitly selected Bash,
+which enables pipefail. The validator's failure must fail the job and retain
+stdout/stderr diagnostics; a successful log writer is not evidence that tests
+passed. A deterministic test reads the actual workflow step and exercises both
+successful and failing validators with controlled executables.
+
+CLI subprocess tests launch `process.execPath --import tsx`, preserving the
+actual runtime and process identity instead of signaling a package-manager
+shell shim. Prompt readiness and exit observation are event-driven. Test-owned
+children and pipes are reaped on assertion failure or test completion, including
+timeout paths; existing readiness/test deadlines are not extended.
+
+The Max test command explicitly loads `tsx` on the hosted Node 20 runtime.
+Native source-schema tests use the supported asynchronous module resolver,
+restricted to the existing protocol/signal source roots, rather than newer
+`registerHooks` or implicit native TypeScript stripping. Plain-Node calibration
+CLI commands use scoped TS imports, including transitive verifier imports;
+their subprocess regression removes inherited loader options and disables native
+stripping where available.
 
 ## Goals
 
@@ -170,6 +193,16 @@ Critical workflows:
 The external driver uses the local stdio MCP adapter only to submit a message.
 Computer-use owns screenshots and visual inspection of the Electron app and
 Ableton Live.
+
+The runner-owned UX host keeps ordinary Remote Script readiness bounded to
+120 seconds. With `pnpm live:ux-host --computer-use`, launch/dialog handling is
+coordinated externally and readiness has a bounded 600-second deadline so a
+manual recovery decision does not silently inherit the ordinary deadline.
+Explicit helper deadlines remain authoritative. Coordinated startup disables
+automatic recovery discard; recovery decisions require the operator's approval.
+Timeouts still fail visibly and clean up only the identity-attested owned
+process. A connected socket or cached snapshot does not establish fresh bridge
+readiness after a Set transition.
 
 ### CLI integration tests
 

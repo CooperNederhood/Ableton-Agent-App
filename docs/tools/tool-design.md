@@ -15,6 +15,42 @@ Agent tools should be:
 - Structured in both success and failure.
 - Verifiable.
 
+## Audio metadata and playback observations
+
+The existing `ableton_audio_clips` read surface returns identity-bound source
+metadata: gain/pitch, warp state/mode and available modes, start/end/loop
+markers, RAM mode, file path, sample length/rate, and paginated warp markers.
+Unavailable LOM fields remain null; source metadata is not an audio descriptor.
+`ableton_mixer_routing` meter reads expose bounded input/output left/right
+values, not a waveform, spectral analysis, or calibrated perceptual loudness.
+
+[Playback Listening](playback-listening.md) defines the optional playback-first
+analysis surface and App-session context. Reuse shared MIDI producer
+registration/connection infrastructure, but keep signal-rate measurement timing
+distinct from MIDI event timestamps. The application owns context publication;
+devices never receive database handles or arbitrary context-write access.
+
+Read-only context queries and playback-and-listen have different risks.
+Play-and-listen requires session transport authorization and retains the
+mutation lease until the app-owned pass terminates. Cancellation remains
+owner-scoped and must not wait for the lease held by the pass it cancels.
+Context pruning is destructive and requires exact reviewed scope. Capability
+gates must not advertise unvalidated production audio timing solely because
+MCP development tools are connected.
+
+Listening timing policy is trusted application configuration, not a model
+argument or producer-selected budget. Freeze it once per pass. Default
+descriptive v2 accepts at most the configured observed disagreement (64 samples
+by default, advanced 0..480), independently of exact native coverage. Strict
+requires zero without fallback. Approximate/descriptive-only context and unknown
+absolute error never authorize sample-exact or real-time actions. Preserve v1
+history without relabelling it; a legacy device cannot silently satisfy a
+descriptive request. Actual native/visible qualification remains separate from
+the implemented App configuration, validation and typed context surfaces.
+Constant tempo is an explicit assumption, not independently verified stability.
+Completion cannot certify unchanged tempo; tempo automation is unsupported.
+Existing detected-tempo and timing/integrity failures remain hard rejections.
+
 ## Three levels
 
 ### Inspection tools

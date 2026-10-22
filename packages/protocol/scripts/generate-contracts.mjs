@@ -67,6 +67,12 @@ function sampleFromSchema(schema) {
       if (schema.format === "uri") return "ableton://fixture";
       if (schema.pattern?.startsWith("^live-event"))
         return "live-event.00000000-0000-4000-8000-000000000099";
+      if (schema.pattern === "^[a-f0-9]{64}$") return "a".repeat(64);
+      if (schema.pattern?.startsWith("^live_set")) {
+        return schema.pattern.includes("devices")
+          ? "live_set tracks 0 devices 0"
+          : "live_set tracks 0";
+      }
       return "x".repeat(Math.max(1, schema.minLength ?? 0));
     case "integer":
     case "number": {
@@ -94,6 +100,30 @@ function sampleCommandParams(name, schema) {
   const sample = sampleFromSchema(z.toJSONSchema(schema));
   if (name === "special_devices.set_simpler_markers") {
     sample.end = 1;
+  }
+
+  if (name === "listening.inspect_context") {
+    sample.range.endBeat = 1;
+    sample.listeners[0].expectedClassName = "MxDeviceAudioEffect";
+  }
+  if (
+    name === "listening.start_playback" ||
+    name === "listening.position_playback"
+  ) {
+    sample.range.endBeat = 1;
+    sample.listeners[0].expectedClassName = "MxDeviceAudioEffect";
+  }
+  return sample;
+}
+
+function sampleCommandResult(name, schema) {
+  const sample = sampleFromSchema(z.toJSONSchema(schema));
+  if (name === "listening.stop_playback") sample.stopped = true;
+  if (name === "listening.inspect_context") {
+    for (const listener of sample.listeners) {
+      listener.canonicalPath = "live_set tracks 0 devices 0";
+      listener.binding.expectedClassName = "MxDeviceAudioEffect";
+    }
   }
   return sample;
 }
@@ -270,7 +300,7 @@ const commandFixtures = {
         sampleCommandParams(name, definition.params),
       );
       const result = definition.result.parse(
-        sampleFromSchema(z.toJSONSchema(definition.result)),
+        sampleCommandResult(name, definition.result),
       );
       const commandRequestId = `00000000-0000-4000-8000-${String(index + 1000).padStart(12, "0")}`;
       return [
@@ -283,6 +313,22 @@ const commandFixtures = {
             command: name,
             params,
           }),
+          ...(name === "listening.inspect_context"
+            ? {
+                canonicalPathRequest: requestEnvelopeSchema.parse({
+                  protocolVersion: PROTOCOL_VERSION,
+                  kind: "request",
+                  requestId: commandRequestId,
+                  command: name,
+                  params: definition.params.parse({
+                    ...params,
+                    listeners: [
+                      { canonicalPath: "live_set tracks 0 devices 0" },
+                    ],
+                  }),
+                }),
+              }
+            : {}),
           success: successResponseEnvelopeSchema.parse({
             protocolVersion: PROTOCOL_VERSION,
             kind: "response",

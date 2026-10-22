@@ -1,0 +1,94 @@
+{
+  "formatVersion": 1,
+  "evidenceKind": "actual-instrumented-nonaccepting-current-spectrum-and-envelope-guards",
+  "runId": "c7e9153f-6e6f-47c7-a243-5257a3b42850",
+  "acceptancePassed": false,
+  "captureOrContextAuthorized": false,
+  "dsp": [1, 48000, 64],
+  "spectrum": {
+    "currentProductionSourceObserved": true,
+    "savedCandidateModified": false,
+    "inclusiveFiniteBound": 1000000000000,
+    "stricterSubsetControl": false,
+    "codeSha256": "5bd377dc1eee13b58e1567880fb1a1d99cd0da0d1b20a104a913fbbfd08e34f4",
+    "genSha256": "a515b56b91f25d0e4b05dede4c92ceb7e362d1af160d1dff444333fd512a071f",
+    "packetCount": 85,
+    "first": [954368, 0, 0, 952320, 954368, 0],
+    "last": [997376, 0, 0, 995328, 997376, 0],
+    "diagnosticsFirst": [-1, -1, -1, -1, 0],
+    "diagnosticsLast": [-1, -1, -1, -1, 0],
+    "abi": 2
+  },
+  "envelope": {
+    "scope": "native-envelope-guard-probe/v1",
+    "baselineCodeSha256": "6213d92358ab76ccef514a7cfb717a7e8e286cb930fa3894560f71173ea33d18",
+    "baselineGenSha256": "4ccc2454477bd0a410a864b38f8ed806cba063b15fe26f372fc779e613e0aaa7",
+    "originalOutputs1Through23AndAbi16Preserved": true,
+    "originalControlsConfigurationAndStoppedAckRoutingPreserved": true,
+    "notVectorAtomic": true,
+    "forwardedToSdk": false,
+    "packetCount": 86,
+    "fields": [
+      "actualGenSampleRate",
+      "clockOnEntry",
+      "liveEpoch",
+      "seenEpochBefore",
+      "liveEpochBound",
+      "liveEpochFullGate",
+      "isolatedProbeEpoch",
+      "probeEpochBound",
+      "probeEpochFullGate",
+      "actualInputCounter",
+      "actualCounterValid",
+      "actualProjectedEnd",
+      "headroomReject",
+      "actualConfigValid",
+      "wasRunningOnEntry",
+      "newLiveRequest",
+      "rejectedAfter",
+      "seenEpochAfter",
+      "sealedEpochAfter",
+      "armCounterAfter",
+      "counterEqualsArmPlusClock",
+      "clockBeforeUpdate",
+      "computedCappedNextClock",
+      "evaluatedWideLiteral",
+      "actualReportSamples",
+      "actualCaptureVector"
+    ],
+    "first": [
+      48000, 0, 0, 0, 0, 0, 1, 0, 0, 957696, 0, 1437696, 1, 0, 0, 0, 0, 0, 0,
+      -1, 0, 0, 0, 0, 0, 0
+    ],
+    "last": [
+      48000, 0, 0, 0, 0, 0, 1, 0, 0, 1000384, 0, 1480384, 1, 0, 0, 0, 0, 0, 0,
+      -1, 0, 0, 0, 0, 0, 0
+    ]
+  },
+  "instrumentation": {
+    "failureAfterBeginMs": 900,
+    "maximumDelayMs": 1000,
+    "measurementPacketsAdmitted": 0,
+    "nativeArmControlsForwarded": 0,
+    "forwardedStopAcks": 1,
+    "privateHandlerRegisteredBeforeBegin": true,
+    "privateHandlerRemoved": true,
+    "malformedMessages": 0,
+    "foreignMessages": 0
+  },
+  "cleanup": {
+    "processStopped": true,
+    "fixtureCleaned": true,
+    "sourcePinsUnchanged": true,
+    "errors": []
+  },
+  "limitations": [
+    "Corrected full-range spectrum publication is observed for idle silence, not an armed passage capture.",
+    "Envelope comparisons and the capped local-clock update still use the original code in this run.",
+    "Separate diagnostic taps are not vector atomic and do not establish native generation ownership.",
+    "The isolated probeEpoch1 is comparison-only; liveEpoch remains zero and no native request is armed.",
+    "No measurement admission, playback, context publication or readiness promotion.",
+    "Observed expression failures do not establish compiler internals or universal wide-literal behavior.",
+    "Installed Live11.3.43 observations do not qualify Live11.3.42."
+  ]
+}

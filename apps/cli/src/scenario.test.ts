@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import type { HeadlessApplication } from "@ableton-agent/application";
 import type { SessionSnapshot } from "@ableton-agent/protocol";
@@ -73,6 +73,7 @@ describe("integration scenarios", () => {
       "tracks-core-inspection",
       "scenes-core-inspection",
       "transport-core-inspection",
+      "operator-quarter-note-fixture",
     ]) {
       await expect(loadScenarioManifest(id)).resolves.toMatchObject({ id });
     }
@@ -89,6 +90,298 @@ describe("integration scenarios", () => {
       `expectedName is the track name "${context.trackNames[0]}"`,
     );
   });
+
+  it("requires an explicit region-fill inspection before identity-bound cleanup without widening approval", async () => {
+    const manifest = await loadScenarioManifest(
+      "arrangement-region-fill-lifecycle",
+    );
+    const context = createScenarioRunContext(manifest);
+    const prompt = scenarioPrompt(manifest.prompt, context);
+    const trackName = context.trackNames[0]!;
+    const clipName = context.clipNames[0]!;
+    expect(prompt).toContain(
+      'Call ableton_arrangement action "inspect" before any deletion',
+    );
+    expect(prompt).toContain(
+      "The fill-region result does not replace this inspection",
+    );
+    expect(prompt).toContain(`expectedName is the track name "${trackName}"`);
+    expect(manifest.maxToolCalls).toBe(14);
+    expect(manifest.maxMutations).toBe(8);
+
+    for (const approval of [
+      request("ableton_tracks", "reversible", {
+        action: "create",
+        kind: "midi",
+        name: trackName,
+      }),
+      request("ableton_session_clips", "reversible", {
+        action: "create-midi",
+        expectedName: trackName,
+        name: clipName,
+        sceneIndex: 5,
+        length: 4,
+      }),
+      request("ableton_arrangement", "reversible", {
+        action: "fill-region",
+        expectedName: trackName,
+        sceneIndex: 5,
+        regionStart: 32,
+        regionEnd: 42,
+      }),
+    ]) {
+      expect(await context.approvals.request(approval)).toBe(true);
+    }
+    const deletion = request("ableton_arrangement", "destructive", {
+      action: "delete-clip",
+      expectedName: trackName,
+      expectedClipReference: "generated-tile",
+      expectedStartTime: 32,
+    });
+    expect(await context.approvals.request(deletion)).toBe(false);
+    expect(context.approvals.decisions.at(-1)?.reason).toBe(
+      "ordering_requires_ableton_arrangement_inspect",
+    );
+    expect(
+      await context.approvals.request(
+        request("ableton_arrangement", "read", {
+          action: "inspect",
+          expectedName: trackName,
+        }),
+      ),
+    ).toBe(true);
+    expect(await context.approvals.request(deletion)).toBe(true);
+  });
+
+  it("bounds the Operator source fixture without claiming measured listening", async () => {
+    const manifest = await loadScenarioManifest(
+      "operator-quarter-note-fixture",
+    );
+    const context = createScenarioRunContext(manifest);
+    const prompt = scenarioPrompt(manifest.prompt, context);
+    expect(manifest.group).toBe("listening-fixtures");
+    expect(manifest.maxMutations).toBe(5);
+    expect(prompt).toContain("pitch 69, starts 0, 1, 2, 3");
+    expect(prompt).toContain("duration 0.5, velocity 100");
+    expect(prompt).toContain("Do not start playback");
+    expect(prompt).toContain("not a verified sine waveform");
+    expect(prompt).toContain('Use ableton_arrangement action "duplicate-clip"');
+    expect(prompt).toContain('NOT ableton_session_clips action "duplicate"');
+    expect(prompt).toContain("allowPerNoteExpressionLoss false");
+    expect(prompt).toContain("destinationTime 0");
+    expect(prompt).toContain("do not call ask_user");
+    expect(prompt).toContain("Use only this reviewed tool/action surface:");
+    expect(prompt).toContain("do not substitute an unlisted MIDI query tool");
+    expect(manifest.allowedTools).not.toContain("ableton_transport");
+    expect(manifest.allowedTools).not.toContain("ableton_listening");
+    expect(manifest.allowedActions.ableton_arrangement).toEqual([
+      "duplicate-clip",
+      "inspect",
+    ]);
+    expect(prompt).not.toContain(
+      'For ableton_arrangement with action "replace-notes"',
+    );
+    expect(manifest.browserLoadTargets).toEqual([
+      { trackNameSuffix: "Operator Quarter Notes", itemName: "Operator" },
+    ]);
+    expect(
+      await context.approvals.request(
+        request("ableton_arrangement", "reversible", {
+          action: "create-midi-clip",
+          expectedName: context.trackNames[0],
+          name: context.clipNames[0],
+          startTime: 0,
+          length: 4,
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      await context.approvals.request(
+        request("ableton_browser", "read", {
+          action: "search",
+          query: "Operator",
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      await context.approvals.request(
+        request("ableton_tracks", "reversible", {
+          action: "create",
+          kind: "midi",
+          name: context.trackNames[0],
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      await context.approvals.request(
+        request("ableton_browser", "reversible", {
+          action: "load-item",
+          expectedName: context.trackNames[0],
+          expectedItemName: "Operator",
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      await context.approvals.request(
+        request("ableton_transport", "reversible", {
+          action: "set-playing",
+          isPlaying: true,
+        }),
+      ),
+    ).toBe(false);
+  });
+
+  it.each(["valid", "wrong-device", "wrong-notes"] as const)(
+    "verifies the Operator source from independent bridge reads: %s",
+    async (result) => {
+      const manifest = await loadScenarioManifest(
+        "operator-quarter-note-fixture",
+      );
+      const context = createScenarioRunContext(manifest);
+      const trackName = context.trackNames[0]!;
+      const clipName = context.clipNames[0]!;
+      const trackReference = "00000000-0000-4000-8000-000000000011";
+      const clipReference = "00000000-0000-4000-8000-000000000012";
+      const baseline: SessionSnapshot = {
+        tempo: 120,
+        timeSignature: { numerator: 4, denominator: 4 },
+        isPlaying: false,
+        trackCount: 0,
+        tracks: [],
+        clips: [],
+      };
+      const snapshot: SessionSnapshot = {
+        ...baseline,
+        trackCount: 1,
+        clips: [
+          {
+            reference: clipReference,
+            trackReference,
+            trackIndex: 0,
+            sceneIndex: 0,
+            name: clipName,
+            kind: "midi",
+            length: 4,
+            noteCount: 4,
+            isPlaying: false,
+            isTriggered: false,
+          },
+        ],
+        tracks: [
+          {
+            index: 0,
+            reference: trackReference,
+            name: trackName,
+            kind: "midi",
+            color: null,
+            isMuted: false,
+            isSoloed: false,
+            isArmed: false,
+            volume: 0.85,
+            pan: 0,
+          },
+        ],
+      };
+      const clip = {
+        reference: clipReference,
+        trackReference,
+        trackIndex: 0,
+        name: clipName,
+        kind: "midi" as const,
+        startTime: 0,
+        endTime: 4,
+        length: 4,
+        noteCount: 4,
+      };
+      const notes = [0, 1, 2, 3].map((startTime) => ({
+        pitch: result === "wrong-notes" ? 68 : 69,
+        startTime,
+        duration: 0.5,
+        velocity: 100,
+        mute: false,
+      }));
+      const unexpected = vi.fn(async () => {
+        throw new Error("Unexpected source-fixture inspection");
+      });
+      const inspectNotes = vi.fn(async () => ({
+        clip,
+        notes,
+        totalNotes: 4,
+        offset: 0,
+        limit: 2048,
+        truncated: false,
+      }));
+      const application: Parameters<typeof verifyScenario>[0] = {
+        inspectSession: async () => snapshot,
+        inspectDevices: async () => ({
+          devices: [
+            {
+              reference: "00000000-0000-4000-8000-000000000013",
+              trackReference,
+              trackIndex: 0,
+              index: 0,
+              name: result === "wrong-device" ? "Analog" : "Operator",
+              className: "Operator",
+              classDisplayName: "Operator",
+              enabled: true,
+              parameterCount: 0,
+              canHaveChains: false,
+              canHaveDrumPads: false,
+            },
+          ],
+          total: 1,
+          offset: 0,
+          limit: 32,
+        }),
+        inspectArrangement: async () => ({
+          clips: [clip],
+          total: 1,
+          offset: 0,
+          limit: 512,
+        }),
+        inspectArrangementMidiNotes: inspectNotes,
+        inspectMidiNotes: async () => ({
+          clip: {
+            reference: clipReference,
+            trackReference,
+            trackIndex: 0,
+            sceneIndex: 0,
+            name: clipName,
+            length: 4,
+            noteCount: 4,
+          },
+          notes,
+          totalNotes: 4,
+          offset: 0,
+          limit: 128,
+          truncated: false,
+        }),
+        inspectArrangementTransport: unexpected,
+        getStatus: unexpected,
+        getCapabilities: unexpected,
+      };
+      const verified = await verifyScenario(application, context, baseline);
+      expect(
+        verified.map(({ assertion, passed }) => ({ assertion, passed })),
+      ).toEqual([
+        { assertion: "track-device", passed: result !== "wrong-device" },
+        { assertion: "session-midi-pattern", passed: result !== "wrong-notes" },
+        {
+          assertion: "arrangement-midi-pattern",
+          passed: result !== "wrong-notes",
+        },
+      ]);
+      expect(inspectNotes).toHaveBeenCalledWith(
+        expect.objectContaining({
+          expectedReference: trackReference,
+          expectedClipReference: clipReference,
+          expectedName: trackName,
+          expectedStartTime: 0,
+        }),
+      );
+      expect(unexpected).not.toHaveBeenCalled();
+    },
+  );
 
   it("states zero-based Session indices and track identity fields", async () => {
     const manifest = await loadScenarioManifest("session-clip-lifecycle");

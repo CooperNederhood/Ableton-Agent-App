@@ -3,9 +3,75 @@ import { describe, expect, it, vi } from "vitest";
 import { createDesktopApi, type PreloadTransport } from "./api.js";
 
 describe("preload API", () => {
+  it("exposes only bounded listening reads and routes owned cancellation through the existing agent domain", async () => {
+    const instanceId = "00000000-0000-4000-8000-000000000001";
+    const transport = transportFor({
+      "listening:list": { sessionId: "session", revision: 0, jobs: [] },
+      "agents:cancel": { cancelled: true },
+    });
+    const api = createDesktopApi(transport);
+    await expect(
+      api.listening.list({ sessionId: "session", agentId: instanceId }),
+    ).resolves.toEqual({
+      sessionId: "session",
+      revision: 0,
+      jobs: [],
+    });
+    expect(Object.keys(api.listening)).toEqual(["list"]);
+    expect(vi.mocked(transport.invoke).mock.calls[0]?.[1]).toMatchObject({
+      sessionId: "session",
+      agentId: instanceId,
+      limit: 100,
+    });
+    expect(vi.mocked(transport.invoke).mock.calls[0]?.[1]).toHaveProperty(
+      "trace.traceId",
+    );
+    await api.agents.cancel(instanceId, { sessionId: "session" });
+    expect(vi.mocked(transport.invoke).mock.calls[1]).toEqual([
+      "agents:cancel",
+      expect.objectContaining({
+        instanceId,
+        sessionId: "session",
+      }),
+    ]);
+    expect(vi.mocked(transport.invoke).mock.calls[1]?.[1]).toHaveProperty(
+      "trace.traceId",
+    );
+    await expect(
+      api.listening.list({
+        sessionId: "session",
+        agentId: instanceId,
+        limit: 101,
+      }),
+    ).rejects.toThrow();
+    await expect(
+      api.listening.list({
+        sessionId: "session",
+        agentId: instanceId,
+        sql: "SELECT *",
+      } as never),
+    ).rejects.toThrow();
+    expect(vi.mocked(transport.invoke)).toHaveBeenCalledTimes(2);
+    const malformed = createDesktopApi(
+      transportFor({
+        "listening:list": {
+          sessionId: "session",
+          revision: 0,
+          jobs: [],
+          path: "/private",
+        },
+      }),
+    );
+    await expect(
+      malformed.listening.list({ sessionId: "session", agentId: instanceId }),
+    ).rejects.toThrow();
+  });
+
   it("exposes named domains without a generic invoke or Node primitive", () => {
     const api = createDesktopApi(transportFor({}));
     expect(Object.keys(api)).toEqual([
+      "listening",
+      "entityContext",
       "lifecycle",
       "agent",
       "agents",
@@ -27,6 +93,49 @@ describe("preload API", () => {
     expect("require" in api).toBe(false);
   });
 
+  it("exposes bounded read-only context queries and preserves UI trace identifiers", async () => {
+    const transport = transportFor({
+      "entity-context:list": { action: "list", entries: [] },
+    });
+    const api = createDesktopApi(transport);
+    const request = {
+      sessionId: "session",
+      includeHistorical: false,
+      limit: 20,
+    };
+    await expect(api.entityContext.list(request)).resolves.toEqual({
+      action: "list",
+      entries: [],
+    });
+    const calls = vi.mocked(transport.invoke).mock.calls;
+    expect(calls[0]?.[0]).toBe("entity-context:list");
+    expect(calls[0]?.[1]).toMatchObject(request);
+    const suppliedTrace = {
+      traceId: "00000000-0000-4000-8000-000000000001",
+      correlationId: "00000000-0000-4000-8000-000000000002",
+      causationId: "00000000-0000-4000-8000-000000000003",
+    };
+    await api.entityContext.list({ ...request, trace: suppliedTrace });
+    expect(vi.mocked(transport.invoke).mock.calls[1]?.[1]).toMatchObject({
+      trace: suppliedTrace,
+    });
+    const invalid = { ...request, sql: "SELECT * FROM entries" };
+    await expect(api.entityContext.list(invalid)).rejects.toThrow();
+    expect(vi.mocked(transport.invoke)).toHaveBeenCalledTimes(2);
+    expect(Object.keys(api.entityContext)).toEqual(["list", "get"]);
+  });
+  it("applies context query defaults before crossing the preload/main boundary", async () => {
+    const transport = transportFor({
+      "entity-context:list": { action: "list", entries: [] },
+    });
+    const api = createDesktopApi(transport);
+    await api.entityContext.list({ sessionId: "session" });
+    expect(vi.mocked(transport.invoke).mock.calls[0]?.[1]).toMatchObject({
+      sessionId: "session",
+      includeHistorical: false,
+      limit: 20,
+    });
+  });
   it("validates responses and filters malformed events", async () => {
     const listeners: Array<(event: never, value: unknown) => void> = [];
     const transport = transportFor(

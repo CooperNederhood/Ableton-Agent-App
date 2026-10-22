@@ -1,0 +1,155 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
+import { readFile } from "node:fs/promises";
+import { URL } from "node:url";
+
+test("actual saturating clock observation pins its historical resource without qualifying later changes", async () => {
+  const evidence = JSON.parse(
+    await readFile(
+      new URL(
+        "./fixtures/native-v2-saturating-clock-observation.json",
+        import.meta.url,
+      ),
+      "utf8",
+    ),
+  );
+  const resource = await readFile(
+    new URL(
+      "./fixtures/native-v2-clock-saturating-8e33f8d.gendsp",
+      import.meta.url,
+    ),
+  );
+  assert.equal(
+    createHash("sha256").update(resource).digest("hex"),
+    evidence.clockGenSha256,
+  );
+  assert.deepEqual(evidence.metadata.dsp, [1, 48000, 64]);
+  assert.equal(evidence.metadata.clockAbi, 2);
+  let previousCounter = -1;
+  for (const { values } of evidence.clock.snapshots) {
+    assert(values[4] > previousCounter);
+    assert.equal(values[4], values[6]);
+    assert.equal(values[4], values[2]);
+    assert.equal(values[4], values[9]);
+    previousCounter = values[4];
+  }
+  assert.equal(evidence.clock.snapshots.length, 8);
+  assert.equal(evidence.clock.count, 83);
+  assert.equal(evidence.spectrum.last[0], -1);
+  assert.equal(evidence.acceptancePassed, false);
+  assert.equal(evidence.captureOrContextAuthorized, false);
+  assert.equal(evidence.instrumentation.measurementPacketsAdmitted, 0);
+  assert.equal(evidence.instrumentation.nativeArmControlsForwarded, 0);
+  assert.deepEqual(evidence.cleanup, {
+    processStopped: true,
+    fixtureCleaned: true,
+    sourcePinsUnchanged: true,
+    errors: [],
+  });
+});
+
+test("actual one-statement clock control advances counters but does not claim spectrum acceptance", async () => {
+  const evidence = JSON.parse(
+    await readFile(
+      new URL(
+        "./fixtures/native-v2-clock-update-control.json",
+        import.meta.url,
+      ),
+      "utf8",
+    ),
+  );
+  const baseline = JSON.parse(
+    await readFile(
+      new URL("./fixtures/native-v2-counter-observation.json", import.meta.url),
+      "utf8",
+    ),
+  );
+  assert.equal(evidence.baselineRunId, baseline.runId);
+  assert.equal(
+    evidence.packagingControl.baselineManifestSha256,
+    baseline.pins.candidateManifestSha256,
+  );
+  assert.deepEqual(evidence.metadata.dsp, baseline.metadata.dsp);
+  assert.equal(evidence.clockUpdate.codeboxUpdateCount, 1);
+  assert.equal(evidence.packagingControl.referenceUpdateCount, 1);
+  assert.equal(evidence.clock.count, 83);
+  assert.equal(evidence.clock.snapshots.length, 8);
+  let previousCounter = -1;
+  for (const { values } of evidence.clock.snapshots) {
+    assert.equal(values.length, 11);
+    assert(values.every(Number.isFinite));
+    assert(values[4] > previousCounter);
+    assert.equal(values[4], values[6]);
+    assert.equal(values[4], values[2]);
+    assert.equal(values[4], values[9]);
+    previousCounter = values[4];
+  }
+  assert.equal(evidence.spectrum.first[0], -1);
+  assert.equal(evidence.spectrum.last[0], -1);
+  assert(evidence.spectrum.last[5] > evidence.spectrum.first[5]);
+  assert.deepEqual(
+    evidence.spectrum.lastDiagnostics,
+    [1085440, -1, -1, -1, 255],
+  );
+  assert.equal(evidence.productionCorrection, false);
+  assert.equal(evidence.acceptancePassed, false);
+  assert.equal(evidence.instrumentation.measurementPacketsAdmitted, 0);
+  assert.equal(evidence.instrumentation.nativeArmControlsForwarded, 0);
+  assert(
+    evidence.instrumentation.failureAfterBeginMs <=
+      evidence.instrumentation.maximumDelayMs,
+  );
+  assert.deepEqual(evidence.cleanup, {
+    processStopped: true,
+    fixtureCleaned: true,
+    sourcePinsUnchanged: true,
+    errors: [],
+  });
+});
+
+test("actual fail-only v2 probe distinguishes received zero counters from missing clock messages", async () => {
+  const evidence = JSON.parse(
+    await readFile(
+      new URL("./fixtures/native-v2-counter-observation.json", import.meta.url),
+      "utf8",
+    ),
+  );
+  assert.deepEqual(evidence.sourceOverrides, []);
+  assert.deepEqual(evidence.metadata.dsp, [1, 48000, 64]);
+  assert.equal(evidence.metadata.clockAbi, 2);
+  assert.equal(evidence.clock.count, 83);
+  assert.equal(evidence.clock.snapshots.length, 8);
+  let previousHost = -1;
+  for (const { values } of evidence.clock.snapshots) {
+    assert.equal(values.length, 11);
+    assert(values.every(Number.isFinite));
+    assert(values[2] > previousHost);
+    assert.equal(values[9], values[2]);
+    assert.equal(values[4], 0);
+    assert.equal(values[6], 0);
+    assert.equal(values[0], 0);
+    assert.equal(values[1], 0.25);
+    previousHost = values[2];
+  }
+  assert.deepEqual(evidence.spectrum.first, [-1, 0, 0, -1, -1, 790]);
+  assert.deepEqual(evidence.spectrum.last, [-1, 0, 0, -1, -1, 810]);
+  assert.deepEqual(evidence.spectrum.lastDiagnostics, [0, 1, 0, 1, 255]);
+  assert.equal(evidence.instrumentation.measurementPacketsAdmitted, 0);
+  assert.equal(evidence.instrumentation.nativeArmControlsForwarded, 0);
+  assert.equal(evidence.instrumentation.forwardedStopAcks, 1);
+  assert(
+    evidence.instrumentation.failureAfterBeginMs <=
+      evidence.instrumentation.maximumDelayMs,
+  );
+  assert.equal(evidence.acceptancePassed, false);
+  assert.equal(evidence.captureOrContextAuthorized, false);
+  assert.deepEqual(evidence.outcome.contextIds, []);
+  for (const key of [
+    "copiedResourcesUnchanged",
+    "originalPinsUnchanged",
+    "processStopped",
+    "fixtureCleaned",
+  ])
+    assert.equal(evidence.outcome[key], true);
+});

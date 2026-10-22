@@ -1,0 +1,2372 @@
+{
+  "schema": "native-sdk-capture-evidence/v1",
+  "calibrationOnly": true,
+  "productionReady": false,
+  "nativeTiming": "INDEPENDENTLY_VALIDATED_FOR_RECORDED_PASS_ONLY",
+  "liveVersion": "11.3.43",
+  "appCommit": "b7569dd",
+  "captureRuntime": {
+    "desktopPid": 52905,
+    "livePid": 40127,
+    "isolatedProfile": true
+  },
+  "candidateSha256": "5c4c5cb51cac5d03905939e2d5b372aef31f9fb22ad406061a7c2b0c27b1796f",
+  "codeSha256": {
+    "audio_listener_native_controller.js": "29df0521293af0f354e85648d624c51c72916c08a322bd6a20fe7db2ea7b9908",
+    "audio_listener_engine.js": "5fe39f29af1d1af2f469335e4afadf437603dcb3386e0b1397d94eac2c732767",
+    "audio_listener_native_assembler.js": "987b4b76e36b6494badcfc2a52af0929fcca4329fa2e28ca245caa9a2de0487c",
+    "audio_listener_native_coordinates.js": "640c93faa774b4c9b11b88c3bdaa7e36cbe4d078e2ce261917928912798f6225",
+    "audio_listener_native_io.js": "a7bbbd64d0409b2d062cfc586b2761b61cbe37a1e07f575f822a1543375e0667",
+    "audio_listener_native_clock.gendsp": "4f0ea237b7ab15e924d13c405d5ec18356e8b462cfc4dce019574aac1aace609",
+    "audio_listener_native_envelope.gendsp": "576dd22f78af80c3e9522d1afb79ce3215d80c9a796da625d83c9011dcc6b9c9",
+    "audio_listener_native_spectrum.gendsp": "1047d920aeb476ff9e53c3d0237820fff6096e5d13e19d5da19e19402a295850",
+    "audio_listener_native_split.gendsp": "ca4f185fe40e778428aca5bd5703f3ce724f42586cabc183f6e722d68ab0fa20"
+  },
+  "sdkCodeSha256": {
+    "audio_listener_runtime.js": "3006d0674d38460044312b5eb086b04bc4fb5fe179bfea31ce0762f6c2b40594",
+    "audio_listener_native_max.js": "84d6432d43526e2f9469e8fdcd06a08a6a959aeee3c4ae5e1c0a661a942454db",
+    "audio_listener_guard.js": "868508005df7c71d673a6da1da50341897970f8c1823a955a8932e237c400a81"
+  },
+  "source": {
+    "fixture": "quarter-sine",
+    "sha256": "f04440ac779afee5aa9352244d03312c9b03b65d5e798fad01c68b47a14e7f21",
+    "settledWindows": [
+      {
+        "index": 1,
+        "rmsDbfs": [-9.03091055954321, -9.03091055954321]
+      },
+      {
+        "index": 6,
+        "rmsDbfs": [-9.03091055954321, -9.03091055954321]
+      },
+      {
+        "index": 11,
+        "rmsDbfs": [-9.03091055954321, -9.03091055954321]
+      },
+      {
+        "index": 16,
+        "rmsDbfs": [-9.03091055954321, -9.03091055954321]
+      }
+    ],
+    "fittedGain": false,
+    "fittedShift": false,
+    "caveat": "Only settled windows compare to bare PCM; Live edge processing is not fitted away."
+  },
+  "traceId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+  "passId": "596663d0-0a70-4285-8d95-894df152524e",
+  "contextId": "335ff745-4c1c-4d61-b7b6-57a84aec4881",
+  "initiatingToolCallId": "toolu_01XFoMS1vQwze9VXFsto6gPe",
+  "captureRequest": {
+    "action": "play-arrangement-and-listen",
+    "endBeat": 4,
+    "listenerIds": [
+      "ableton-audio-listener:path:dcbd6e2713f93ba1ef342a59d62345cb"
+    ],
+    "maximumDurationMs": 8000,
+    "startBeat": 0
+  },
+  "listenersBeforeCapture": [
+    {
+      "listenerId": "ableton-audio-listener:path:9f82c42276eaf24a280f9e2cc3848437",
+      "instanceId": "40758669-7a93-4dcb-a4e4-13eb2c2af17f",
+      "trackReference": "89095848-38d0-4263-8276-8825d531f95e",
+      "deviceReference": "e25a9d7d-7c52-411d-932f-758e73e9893a",
+      "displayName": "Audio-Listener",
+      "ready": false,
+      "limitations": [
+        "real_live_timing_validation_required",
+        "source_onset_unverified"
+      ]
+    },
+    {
+      "listenerId": "ableton-audio-listener:path:dcbd6e2713f93ba1ef342a59d62345cb",
+      "instanceId": "fa37de2d-266b-4a75-80cf-79630ea42eb5",
+      "trackReference": "89095848-38d0-4263-8276-8825d531f95e",
+      "deviceReference": "18c7067c-d52c-486f-ac37-61b5158c41fc",
+      "displayName": "Audio-Listener",
+      "ready": false,
+      "limitations": [
+        "native_per_pass_validation_required",
+        "source_onset_unverified"
+      ]
+    }
+  ],
+  "terminalJob": {
+    "passId": "596663d0-0a70-4285-8d95-894df152524e",
+    "stage": "completed",
+    "createdAt": "2026-10-14T22:21:17.302Z",
+    "updatedAt": "2026-10-14T22:21:25.501Z",
+    "durationMs": 8199,
+    "contextIds": ["335ff745-4c1c-4d61-b7b6-57a84aec4881"],
+    "cleanupPolicy": "leave-running"
+  },
+  "terminal": {
+    "observation": {
+      "schema": "audio-observation/v1",
+      "listenerId": "ableton-audio-listener:path:dcbd6e2713f93ba1ef342a59d62345cb",
+      "passId": "596663d0-0a70-4285-8d95-894df152524e",
+      "sampleRate": 48000,
+      "startSample": 129561486,
+      "endSample": 129657486,
+      "startBeat": 0,
+      "endBeat": 4,
+      "complete": true,
+      "limitations": [
+        "RMS dBFS is not perceptual LUFS.",
+        "Attacks are 100ms envelope-rise estimates, not exact onsets.",
+        "Each continuous rise emits at most one attack estimate; a plateau or fall rearms it.",
+        "FFT is rectangular 2048-sample non-overlap; stereo complex-bin energies are pooled, never waveforms downmixed.",
+        "Spectral points are latest complete FFT frames, not full 100ms spectral averages.",
+        "Termination: range_complete"
+      ],
+      "algorithm": {
+        "name": "native-max-stereo-energy-envelope-rise",
+        "version": "1.0.1",
+        "windowSamples": 2048,
+        "hopSamples": 4800,
+        "settings": {
+          "attackThresholdDb": 6,
+          "minAttackSpacingSamples": 4800
+        },
+        "units": {
+          "amplitude": "linear",
+          "rms": "dBFS",
+          "centroid": "Hz"
+        },
+        "timingUncertaintySamples": 64
+      },
+      "summaries": {
+        "peak": [0.5, 0.5],
+        "rmsDbfs": [-12.159430090285273, -12.159430090285273],
+        "centroidHz": 453.29712384376825
+      },
+      "samples": [
+        {
+          "sample": 129566286,
+          "beat": 0.2,
+          "peak": [0.5, 0.5],
+          "rmsDbfs": [-9.189996513620962, -9.189996513620962],
+          "centroidHz": 458.9387292403871
+        },
+        {
+          "sample": 129571086,
+          "beat": 0.4,
+          "peak": [0.5, 0.5],
+          "rmsDbfs": [-9.030910559543202, -9.030910559543202],
+          "centroidHz": 459.8920976545878
+        },
+        {
+          "sample": 129575886,
+          "beat": 0.6,
+          "peak": [0.5, 0.5],
+          "rmsDbfs": [-12.339829348859507, -12.339829348859507],
+          "centroidHz": 448.8961758049372
+        },
+        {
+          "sample": 129580686,
+          "beat": 0.8,
+          "peak": [0, 0],
+          "rmsDbfs": [null, null],
+          "centroidHz": null
+        },
+        {
+          "sample": 129585486,
+          "beat": 1,
+          "peak": [0, 0],
+          "rmsDbfs": [null, null],
+          "centroidHz": null
+        },
+        {
+          "sample": 129590286,
+          "beat": 1.2,
+          "peak": [0.5, 0.5],
+          "rmsDbfs": [-9.177653870110186, -9.177653870110186],
+          "centroidHz": 441.60679995863154
+        },
+        {
+          "sample": 129595086,
+          "beat": 1.4,
+          "peak": [0.5, 0.5],
+          "rmsDbfs": [-9.030910559543202, -9.030910559543202],
+          "centroidHz": 442.64609047990683
+        },
+        {
+          "sample": 129599886,
+          "beat": 1.6,
+          "peak": [0.5, 0.5],
+          "rmsDbfs": [-12.339829348859507, -12.339829348859507],
+          "centroidHz": null
+        },
+        {
+          "sample": 129604686,
+          "beat": 1.8,
+          "peak": [0, 0],
+          "rmsDbfs": [null, null],
+          "centroidHz": null
+        },
+        {
+          "sample": 129609486,
+          "beat": 2,
+          "peak": [0, 0],
+          "rmsDbfs": [null, null],
+          "centroidHz": null
+        },
+        {
+          "sample": 129614286,
+          "beat": 2.2,
+          "peak": [0.5, 0.5],
+          "rmsDbfs": [-9.177653870110186, -9.177653870110186],
+          "centroidHz": 459.6006454738272
+        },
+        {
+          "sample": 129619086,
+          "beat": 2.4,
+          "peak": [0.5, 0.5],
+          "rmsDbfs": [-9.030910559543202, -9.030910559543202],
+          "centroidHz": 456.76785451580264
+        },
+        {
+          "sample": 129623886,
+          "beat": 2.6,
+          "peak": [0.5, 0.5],
+          "rmsDbfs": [-12.339829348859507, -12.339829348859507],
+          "centroidHz": 460.0318917994178
+        },
+        {
+          "sample": 129628686,
+          "beat": 2.8,
+          "peak": [0, 0],
+          "rmsDbfs": [null, null],
+          "centroidHz": null
+        },
+        {
+          "sample": 129633486,
+          "beat": 3,
+          "peak": [0, 0],
+          "rmsDbfs": [null, null],
+          "centroidHz": null
+        },
+        {
+          "sample": 129638286,
+          "beat": 3.2,
+          "peak": [0.5, 0.5],
+          "rmsDbfs": [-9.177653870110186, -9.177653870110186],
+          "centroidHz": 459.3621710728763
+        },
+        {
+          "sample": 129643086,
+          "beat": 3.4,
+          "peak": [0.5, 0.5],
+          "rmsDbfs": [-9.030910559543202, -9.030910559543202],
+          "centroidHz": 447.8440982561969
+        },
+        {
+          "sample": 129647886,
+          "beat": 3.6,
+          "peak": [0.5, 0.5],
+          "rmsDbfs": [-12.339829348859507, -12.339829348859507],
+          "centroidHz": 433.571917007109
+        },
+        {
+          "sample": 129652686,
+          "beat": 3.8,
+          "peak": [0, 0],
+          "rmsDbfs": [null, null],
+          "centroidHz": null
+        },
+        {
+          "sample": 129657486,
+          "beat": 4,
+          "peak": [0, 0],
+          "rmsDbfs": [null, null],
+          "centroidHz": null
+        }
+      ],
+      "attacks": [
+        {
+          "sample": 129566286,
+          "beat": 0.2,
+          "strength": 110.81000348637903
+        },
+        {
+          "sample": 129590286,
+          "beat": 1.2,
+          "strength": 110.82234612988981
+        },
+        {
+          "sample": 129614286,
+          "beat": 2.2,
+          "strength": 110.82234612988981
+        },
+        {
+          "sample": 129638286,
+          "beat": 3.2,
+          "strength": 110.82234612988981
+        }
+      ],
+      "reduction": {
+        "originalSamples": 20,
+        "originalAttacks": 4,
+        "truncated": false
+      }
+    },
+    "nativeCapture": {
+      "armed": {
+        "scope": "arrangement-beat0-120bpm-48000hz-vector64/v1",
+        "nativeEpoch": 1,
+        "armCounter": 120839168,
+        "before": {
+          "dsp": [1, 48000, 64],
+          "frames": [
+            [0, 0, 129442126, 31, 120821696, 0, 120821696, 0, 0, 129442126, 31],
+            [0, 0, 129442638, 31, 120822208, 0, 120822208, 0, 0, 129442638, 31],
+            [0, 0, 129443150, 31, 120822720, 0, 120822720, 0, 0, 129443150, 31],
+            [0, 0, 129443662, 31, 120823232, 0, 120823232, 0, 0, 129443662, 31],
+            [0, 0, 129444174, 31, 120823744, 0, 120823744, 0, 0, 129444174, 31],
+            [0, 0, 129444686, 31, 120824256, 0, 120824256, 0, 0, 129444686, 31],
+            [0, 0, 129445198, 31, 120824768, 0, 120824768, 0, 0, 129445198, 31],
+            [0, 0, 129445710, 31, 120825280, 0, 120825280, 0, 0, 129445710, 31],
+            [0, 0, 129446222, 31, 120825792, 0, 120825792, 0, 0, 129446222, 31],
+            [0, 0, 129446734, 31, 120826304, 0, 120826304, 0, 0, 129446734, 31],
+            [0, 0, 129447246, 31, 120826816, 0, 120826816, 0, 0, 129447246, 31],
+            [0, 0, 129447758, 31, 120827328, 0, 120827328, 0, 0, 129447758, 31],
+            [0, 0, 129448270, 31, 120827840, 0, 120827840, 0, 0, 129448270, 31],
+            [0, 0, 129448782, 31, 120828352, 0, 120828352, 0, 0, 129448782, 31],
+            [0, 0, 129449294, 31, 120828864, 0, 120828864, 0, 0, 129449294, 31],
+            [0, 0, 129449806, 31, 120829376, 0, 120829376, 0, 0, 129449806, 31],
+            [0, 0, 129450318, 31, 120829888, 0, 120829888, 0, 0, 129450318, 31],
+            [0, 0, 129450830, 31, 120830400, 0, 120830400, 0, 0, 129450830, 31],
+            [0, 0, 129451342, 31, 120830912, 0, 120830912, 0, 0, 129451342, 31],
+            [0, 0, 129451854, 31, 120831424, 0, 120831424, 0, 0, 129451854, 31],
+            [0, 0, 129452366, 31, 120831936, 0, 120831936, 0, 0, 129452366, 31],
+            [0, 0, 129452878, 31, 120832448, 0, 120832448, 0, 0, 129452878, 31],
+            [0, 0, 129453390, 31, 120832960, 0, 120832960, 0, 0, 129453390, 31],
+            [0, 0, 129453902, 31, 120833472, 0, 120833472, 0, 0, 129453902, 31],
+            [0, 0, 129454414, 31, 120833984, 0, 120833984, 0, 0, 129454414, 31],
+            [0, 0, 129454926, 31, 120834496, 0, 120834496, 0, 0, 129454926, 31],
+            [0, 0, 129455438, 31, 120835008, 0, 120835008, 0, 0, 129455438, 31],
+            [0, 0, 129455950, 31, 120835520, 0, 120835520, 0, 0, 129455950, 31],
+            [0, 0, 129456462, 31, 120836032, 0, 120836032, 0, 0, 129456462, 31],
+            [0, 0, 129456974, 31, 120836544, 0, 120836544, 0, 0, 129456974, 31],
+            [0, 0, 129457486, 31, 120837056, 0, 120837056, 0, 0, 129457486, 31],
+            [0, 0, 129457998, 31, 120837568, 0, 120837568, 0, 0, 129457998, 31]
+          ]
+        },
+        "reset": {
+          "launchClock": -1,
+          "sourceClock": -1,
+          "onsetCount": 0,
+          "rejected": 0,
+          "active": 0,
+          "launchPhaseSamples": -1,
+          "firstSourceClock": -1,
+          "completedSamples": 0
+        }
+      },
+      "launched": {
+        "nativeEpoch": 1,
+        "armCounter": 120839168,
+        "launchClock": 101889,
+        "launchPhaseSamples": 1,
+        "rejected": 0,
+        "active": 1,
+        "host": {
+          "sample": 129561934,
+          "beat": 0.018666666666667,
+          "flags": 31,
+          "playing": true
+        }
+      },
+      "after": {
+        "dsp": [1, 48000, 64],
+        "frames": [
+          [
+            1, 4.071999999999997, 129659214, 31, 121038784, 0.071999999999997,
+            121038784, 1, 4.071999999999997, 129659214, 31
+          ],
+          [
+            1, 4.093333333333331, 129659726, 31, 121039296, 0.093333333333331,
+            121039296, 1, 4.093333333333331, 129659726, 31
+          ],
+          [
+            1, 4.114666666666665, 129660238, 31, 121039808, 0.114666666666665,
+            121039808, 1, 4.114666666666665, 129660238, 31
+          ],
+          [
+            1, 4.135999999999997, 129660750, 31, 121040320, 0.135999999999997,
+            121040320, 1, 4.135999999999997, 129660750, 31
+          ],
+          [
+            1, 4.157333333333331, 129661262, 31, 121040832, 0.157333333333331,
+            121040832, 1, 4.157333333333331, 129661262, 31
+          ],
+          [
+            1, 4.178666666666665, 129661774, 31, 121041344, 0.178666666666665,
+            121041344, 1, 4.178666666666665, 129661774, 31
+          ],
+          [
+            1, 4.199999999999998, 129662286, 31, 121041856, 0.199999999999998,
+            121041856, 1, 4.199999999999998, 129662286, 31
+          ],
+          [
+            1, 4.221333333333331, 129662798, 31, 121042368, 0.221333333333331,
+            121042368, 1, 4.221333333333331, 129662798, 31
+          ],
+          [
+            1, 4.242666666666665, 129663310, 31, 121042880, 0.242666666666665,
+            121042880, 1, 4.242666666666665, 129663310, 31
+          ],
+          [
+            1, 4.263999999999998, 129663822, 31, 121043392, 0.263999999999998,
+            121043392, 1, 4.263999999999998, 129663822, 31
+          ],
+          [
+            1, 4.285333333333331, 129664334, 31, 121043904, 0.285333333333331,
+            121043904, 1, 4.285333333333331, 129664334, 31
+          ],
+          [
+            1, 4.306666666666665, 129664846, 31, 121044416, 0.306666666666665,
+            121044416, 1, 4.306666666666665, 129664846, 31
+          ],
+          [
+            1, 4.327999999999998, 129665358, 31, 121044928, 0.327999999999998,
+            121044928, 1, 4.327999999999998, 129665358, 31
+          ],
+          [
+            1, 4.349333333333331, 129665870, 31, 121045440, 0.349333333333331,
+            121045440, 1, 4.349333333333331, 129665870, 31
+          ],
+          [
+            1, 4.370666666666664, 129666382, 31, 121045952, 0.370666666666664,
+            121045952, 1, 4.370666666666664, 129666382, 31
+          ],
+          [
+            1, 4.391999999999998, 129666894, 31, 121046464, 0.391999999999998,
+            121046464, 1, 4.391999999999998, 129666894, 31
+          ],
+          [
+            1, 4.413333333333331, 129667406, 31, 121046976, 0.413333333333331,
+            121046976, 1, 4.413333333333331, 129667406, 31
+          ],
+          [
+            1, 4.434666666666664, 129667918, 31, 121047488, 0.434666666666664,
+            121047488, 1, 4.434666666666664, 129667918, 31
+          ],
+          [
+            1, 4.455999999999998, 129668430, 31, 121048000, 0.455999999999998,
+            121048000, 1, 4.455999999999998, 129668430, 31
+          ],
+          [
+            1, 4.477333333333331, 129668942, 31, 121048512, 0.477333333333331,
+            121048512, 1, 4.477333333333331, 129668942, 31
+          ],
+          [
+            1, 4.498666666666664, 129669454, 31, 121049024, 0.498666666666664,
+            121049024, 1, 4.498666666666664, 129669454, 31
+          ],
+          [
+            1, 4.519999999999998, 129669966, 31, 121049536, 0.520000000000001,
+            121049536, 1, 4.519999999999998, 129669966, 31
+          ],
+          [
+            1, 4.541333333333331, 129670478, 31, 121050048, 0.541333333333335,
+            121050048, 1, 4.541333333333331, 129670478, 31
+          ],
+          [
+            1, 4.562666666666664, 129670990, 31, 121050560, 0.562666666666668,
+            121050560, 1, 4.562666666666664, 129670990, 31
+          ],
+          [
+            1, 4.583999999999998, 129671502, 31, 121051072, 0.584000000000001,
+            121051072, 1, 4.583999999999998, 129671502, 31
+          ],
+          [
+            1, 4.605333333333332, 129672014, 31, 121051584, 0.605333333333335,
+            121051584, 1, 4.605333333333332, 129672014, 31
+          ],
+          [
+            1, 4.626666666666664, 129672526, 31, 121052096, 0.626666666666668,
+            121052096, 1, 4.626666666666664, 129672526, 31
+          ],
+          [
+            1, 4.647999999999998, 129673038, 31, 121052608, 0.648000000000001,
+            121052608, 1, 4.647999999999998, 129673038, 31
+          ],
+          [
+            1, 4.669333333333332, 129673550, 31, 121053120, 0.669333333333335,
+            121053120, 1, 4.669333333333332, 129673550, 31
+          ],
+          [
+            1, 4.690666666666664, 129674062, 31, 121053632, 0.690666666666668,
+            121053632, 1, 4.690666666666664, 129674062, 31
+          ],
+          [
+            1, 4.711999999999998, 129674574, 31, 121054144, 0.712000000000002,
+            121054144, 1, 4.711999999999998, 129674574, 31
+          ],
+          [
+            1, 4.733333333333331, 129675086, 31, 121054656, 0.733333333333334,
+            121054656, 1, 4.733333333333331, 129675086, 31
+          ]
+        ]
+      },
+      "spectralWindows": [
+        [129563022, 129565070, 458.9387292403871, 528203.5472993858],
+        [129567118, 129569166, 459.8920976545878, 528660.0993741144],
+        [129573262, 129575310, 448.8961758049372, 15414.199127839865],
+        [129577358, 129579406, 0, 0],
+        [129581454, 129583502, 0, 0],
+        [129587598, 129589646, 441.60679995863154, 520037.5098501983],
+        [129591694, 129593742, 442.64609047990683, 520519.9940683018],
+        [129597838, 129599886, 0, 0],
+        [129601934, 129603982, 0, 0],
+        [129606030, 129608078, 0, 0],
+        [129612174, 129614222, 459.6006454738272, 528520.4281009745],
+        [129616270, 129618318, 456.76785451580264, 527166.6088954232],
+        [129620366, 129622414, 460.0318917994178, 246611.16289052716],
+        [129626510, 129628558, 0, 0],
+        [129630606, 129632654, 0, 0],
+        [129634702, 129636750, 459.3621710728763, 528406.5352081093],
+        [129640846, 129642894, 447.8440982561969, 522946.8503094925],
+        [129644942, 129646990, 433.571917007109, 98874.80202534974],
+        [129649038, 129651086, 0, 0],
+        [129655182, 129657230, 0, 0]
+      ]
+    }
+  },
+  "coordinates": {
+    "startSample": 129561486,
+    "originCounter": 120941056,
+    "hostOffsetSamples": 8620430
+  },
+  "typedContext": {
+    "action": "get",
+    "entry": {
+      "contextId": "335ff745-4c1c-4d61-b7b6-57a84aec4881",
+      "passId": "596663d0-0a70-4285-8d95-894df152524e",
+      "listenerId": "ableton-audio-listener:path:dcbd6e2713f93ba1ef342a59d62345cb",
+      "subjectId": "e31f6a9c30a9e6fbc1f19301a3682efdd180eddfc3162d0ea20b20c7691c95d2",
+      "kind": "audio-observation/v1",
+      "createdAt": "2026-10-14T22:21:25.454Z",
+      "freshness": "unknown",
+      "summary": "arrangement-range: 3-ML-Calibration-quarter-sine. Observed beats 0-4. Attribution unknown; primary association. Peak 0.5000, 0.5000 linear. RMS -12.16 dBFS, -12.16 dBFS; not LUFS. Centroid 453.3 Hz. Freshness unknown; historical bindings are not current bridge references"
+    },
+    "observation": {
+      "schema": "audio-observation/v1",
+      "listenerId": "ableton-audio-listener:path:dcbd6e2713f93ba1ef342a59d62345cb",
+      "passId": "596663d0-0a70-4285-8d95-894df152524e",
+      "sampleRate": 48000,
+      "startSample": 129561486,
+      "endSample": 129657486,
+      "startBeat": 0,
+      "endBeat": 4,
+      "complete": true,
+      "limitations": [
+        "RMS dBFS is not perceptual LUFS.",
+        "Attacks are 100ms envelope-rise estimates, not exact onsets.",
+        "Each continuous rise emits at most one attack estimate; a plateau or fall rearms it.",
+        "FFT is rectangular 2048-sample non-overlap; stereo complex-bin energies are pooled, never waveforms downmixed.",
+        "Spectral points are latest complete FFT frames, not full 100ms spectral averages.",
+        "Termination: range_complete"
+      ],
+      "algorithm": {
+        "name": "native-max-stereo-energy-envelope-rise",
+        "version": "1.0.1",
+        "windowSamples": 2048,
+        "hopSamples": 4800,
+        "settings": {
+          "attackThresholdDb": 6,
+          "minAttackSpacingSamples": 4800
+        },
+        "units": {
+          "amplitude": "linear",
+          "rms": "dBFS",
+          "centroid": "Hz"
+        },
+        "timingUncertaintySamples": 64
+      },
+      "summaries": {
+        "peak": [0.5, 0.5],
+        "rmsDbfs": [-12.159430090285273, -12.159430090285273],
+        "centroidHz": 453.29712384376825
+      },
+      "samples": [
+        {
+          "sample": 129566286,
+          "beat": 0.2,
+          "peak": [0.5, 0.5],
+          "rmsDbfs": [-9.189996513620962, -9.189996513620962],
+          "centroidHz": 458.9387292403871
+        },
+        {
+          "sample": 129571086,
+          "beat": 0.4,
+          "peak": [0.5, 0.5],
+          "rmsDbfs": [-9.030910559543202, -9.030910559543202],
+          "centroidHz": 459.8920976545878
+        },
+        {
+          "sample": 129575886,
+          "beat": 0.6,
+          "peak": [0.5, 0.5],
+          "rmsDbfs": [-12.339829348859507, -12.339829348859507],
+          "centroidHz": 448.8961758049372
+        },
+        {
+          "sample": 129580686,
+          "beat": 0.8,
+          "peak": [0, 0],
+          "rmsDbfs": [null, null],
+          "centroidHz": null
+        },
+        {
+          "sample": 129585486,
+          "beat": 1,
+          "peak": [0, 0],
+          "rmsDbfs": [null, null],
+          "centroidHz": null
+        },
+        {
+          "sample": 129590286,
+          "beat": 1.2,
+          "peak": [0.5, 0.5],
+          "rmsDbfs": [-9.177653870110186, -9.177653870110186],
+          "centroidHz": 441.60679995863154
+        },
+        {
+          "sample": 129595086,
+          "beat": 1.4,
+          "peak": [0.5, 0.5],
+          "rmsDbfs": [-9.030910559543202, -9.030910559543202],
+          "centroidHz": 442.64609047990683
+        },
+        {
+          "sample": 129599886,
+          "beat": 1.6,
+          "peak": [0.5, 0.5],
+          "rmsDbfs": [-12.339829348859507, -12.339829348859507],
+          "centroidHz": null
+        },
+        {
+          "sample": 129604686,
+          "beat": 1.8,
+          "peak": [0, 0],
+          "rmsDbfs": [null, null],
+          "centroidHz": null
+        },
+        {
+          "sample": 129609486,
+          "beat": 2,
+          "peak": [0, 0],
+          "rmsDbfs": [null, null],
+          "centroidHz": null
+        },
+        {
+          "sample": 129614286,
+          "beat": 2.2,
+          "peak": [0.5, 0.5],
+          "rmsDbfs": [-9.177653870110186, -9.177653870110186],
+          "centroidHz": 459.6006454738272
+        },
+        {
+          "sample": 129619086,
+          "beat": 2.4,
+          "peak": [0.5, 0.5],
+          "rmsDbfs": [-9.030910559543202, -9.030910559543202],
+          "centroidHz": 456.76785451580264
+        },
+        {
+          "sample": 129623886,
+          "beat": 2.6,
+          "peak": [0.5, 0.5],
+          "rmsDbfs": [-12.339829348859507, -12.339829348859507],
+          "centroidHz": 460.0318917994178
+        },
+        {
+          "sample": 129628686,
+          "beat": 2.8,
+          "peak": [0, 0],
+          "rmsDbfs": [null, null],
+          "centroidHz": null
+        },
+        {
+          "sample": 129633486,
+          "beat": 3,
+          "peak": [0, 0],
+          "rmsDbfs": [null, null],
+          "centroidHz": null
+        },
+        {
+          "sample": 129638286,
+          "beat": 3.2,
+          "peak": [0.5, 0.5],
+          "rmsDbfs": [-9.177653870110186, -9.177653870110186],
+          "centroidHz": 459.3621710728763
+        },
+        {
+          "sample": 129643086,
+          "beat": 3.4,
+          "peak": [0.5, 0.5],
+          "rmsDbfs": [-9.030910559543202, -9.030910559543202],
+          "centroidHz": 447.8440982561969
+        },
+        {
+          "sample": 129647886,
+          "beat": 3.6,
+          "peak": [0.5, 0.5],
+          "rmsDbfs": [-12.339829348859507, -12.339829348859507],
+          "centroidHz": 433.571917007109
+        },
+        {
+          "sample": 129652686,
+          "beat": 3.8,
+          "peak": [0, 0],
+          "rmsDbfs": [null, null],
+          "centroidHz": null
+        },
+        {
+          "sample": 129657486,
+          "beat": 4,
+          "peak": [0, 0],
+          "rmsDbfs": [null, null],
+          "centroidHz": null
+        }
+      ],
+      "attacks": [
+        {
+          "sample": 129566286,
+          "beat": 0.2,
+          "strength": 110.81000348637903
+        },
+        {
+          "sample": 129590286,
+          "beat": 1.2,
+          "strength": 110.82234612988981
+        },
+        {
+          "sample": 129614286,
+          "beat": 2.2,
+          "strength": 110.82234612988981
+        },
+        {
+          "sample": 129638286,
+          "beat": 3.2,
+          "strength": 110.82234612988981
+        }
+      ],
+      "reduction": {
+        "originalSamples": 20,
+        "originalAttacks": 4,
+        "truncated": false
+      }
+    }
+  },
+  "typedGet": {
+    "id": "0796f4b2-4a4a-4fcc-87de-4615cb55b09f",
+    "occurredAt": "2026-10-14T22:56:07.208Z"
+  },
+  "lifecycle": [
+    {
+      "id": "d081ec08-f8c9-4e23-b948-899972fc49e3",
+      "sequence": 14241,
+      "name": "listening.runtime.context-inventory.queued",
+      "occurredAt": "2026-10-14T22:21:09.181Z",
+      "durationMs": 0,
+      "outcome": "success",
+      "correlationId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+      "causationId": "928fa2d9-6447-49cb-b495-da2cdbd61250",
+      "trace": {
+        "traceId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+        "spanId": "074d69ad-7be6-42da-8d78-dd6a45de3c49"
+      },
+      "attributes": {
+        "detail": "[Undefined]"
+      }
+    },
+    {
+      "id": "1be0fb08-c2d8-4327-89d5-1686b6932863",
+      "sequence": 14242,
+      "name": "listening.runtime.context-inventory.started",
+      "occurredAt": "2026-10-14T22:21:09.181Z",
+      "durationMs": 0,
+      "outcome": "success",
+      "correlationId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+      "causationId": "928fa2d9-6447-49cb-b495-da2cdbd61250",
+      "trace": {
+        "traceId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+        "spanId": "d30ff7e1-22cd-4f64-83f5-da02438c6b72"
+      },
+      "attributes": {
+        "detail": "[Undefined]"
+      }
+    },
+    {
+      "id": "cbf3a8b1-97ef-4878-a831-bd6824ef08f9",
+      "sequence": 14256,
+      "name": "listening.runtime.context-inventory.completed",
+      "occurredAt": "2026-10-14T22:21:09.219Z",
+      "durationMs": 38,
+      "outcome": "success",
+      "correlationId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+      "causationId": "928fa2d9-6447-49cb-b495-da2cdbd61250",
+      "trace": {
+        "traceId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+        "spanId": "1b5ff938-4656-419e-bc15-2150b256bcf4"
+      },
+      "attributes": {
+        "detail": "[Undefined]"
+      }
+    },
+    {
+      "id": "7a570265-bbf6-4c28-a0c2-864d39361058",
+      "sequence": 14302,
+      "name": "listening.runtime.operation.queued",
+      "occurredAt": "2026-10-14T22:21:11.089Z",
+      "durationMs": 0,
+      "outcome": "success",
+      "correlationId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+      "causationId": "toolu_01HdgJnCiQqNW81V3zT7x9A9",
+      "trace": {
+        "traceId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+        "spanId": "ec566614-ab9f-4f6a-9ba5-1115c400d1b5"
+      },
+      "attributes": {
+        "detail": "[Undefined]"
+      }
+    },
+    {
+      "id": "347b95ed-3abc-448c-803b-6d9a8dab5162",
+      "sequence": 14303,
+      "name": "listening.runtime.operation.started",
+      "occurredAt": "2026-10-14T22:21:11.089Z",
+      "durationMs": 0,
+      "outcome": "success",
+      "correlationId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+      "causationId": "toolu_01HdgJnCiQqNW81V3zT7x9A9",
+      "trace": {
+        "traceId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+        "spanId": "f6451983-a0f3-4eee-a6b7-1f2afd95483f"
+      },
+      "attributes": {
+        "detail": "[Undefined]"
+      }
+    },
+    {
+      "id": "1d043c0b-5cda-442e-82aa-33d21f949772",
+      "sequence": 14304,
+      "name": "listening.runtime.discovery.queued",
+      "occurredAt": "2026-10-14T22:21:11.090Z",
+      "durationMs": 0,
+      "outcome": "success",
+      "correlationId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+      "causationId": "toolu_01HdgJnCiQqNW81V3zT7x9A9",
+      "trace": {
+        "traceId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+        "spanId": "98efa695-0da0-43c8-8aad-7085d4d18b99"
+      },
+      "attributes": {
+        "detail": "[Undefined]"
+      }
+    },
+    {
+      "id": "ce42ca0a-494a-450c-89d4-9d9c44f70f45",
+      "sequence": 14305,
+      "name": "listening.runtime.discovery.started",
+      "occurredAt": "2026-10-14T22:21:11.090Z",
+      "durationMs": 0,
+      "outcome": "success",
+      "correlationId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+      "causationId": "toolu_01HdgJnCiQqNW81V3zT7x9A9",
+      "trace": {
+        "traceId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+        "spanId": "ff792451-7f0e-41d1-89c4-f7d4099ea999"
+      },
+      "attributes": {
+        "detail": "[Undefined]"
+      }
+    },
+    {
+      "id": "b8298520-e39f-407d-a7dd-1064d7b4701a",
+      "sequence": 14324,
+      "name": "listening.runtime.discovery.completed",
+      "occurredAt": "2026-10-14T22:21:14.103Z",
+      "durationMs": 3013,
+      "outcome": "success",
+      "correlationId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+      "causationId": "toolu_01HdgJnCiQqNW81V3zT7x9A9",
+      "trace": {
+        "traceId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+        "spanId": "35cee6ad-851c-4dcd-a39a-b777981ed58e"
+      },
+      "attributes": {
+        "detail": "[Undefined]"
+      }
+    },
+    {
+      "id": "0f5a5fde-f043-41f9-b8bc-4fe4d33d7ccc",
+      "sequence": 14325,
+      "name": "listening.runtime.operation.completed",
+      "occurredAt": "2026-10-14T22:21:14.105Z",
+      "durationMs": 3016,
+      "outcome": "success",
+      "correlationId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+      "causationId": "toolu_01HdgJnCiQqNW81V3zT7x9A9",
+      "trace": {
+        "traceId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+        "spanId": "5d12a74d-a43f-4350-b293-a5ef18a16aa3"
+      },
+      "attributes": {
+        "detail": "[Undefined]"
+      }
+    },
+    {
+      "id": "68ca68a7-2c36-42e3-895a-986c44387aad",
+      "sequence": 14483,
+      "name": "listening.runtime.operation.queued",
+      "occurredAt": "2026-10-14T22:21:17.302Z",
+      "durationMs": 0,
+      "outcome": "success",
+      "correlationId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+      "causationId": "toolu_01XFoMS1vQwze9VXFsto6gPe",
+      "trace": {
+        "traceId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+        "spanId": "e75e40b1-d5a9-4c2f-84ff-0aa0b3d13de7"
+      },
+      "attributes": {
+        "detail": "[Undefined]"
+      }
+    },
+    {
+      "id": "6ce717d1-4532-43bc-bd0d-bd12586893cc",
+      "sequence": 14484,
+      "name": "listening.runtime.operation.started",
+      "occurredAt": "2026-10-14T22:21:17.302Z",
+      "durationMs": 0,
+      "outcome": "success",
+      "correlationId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+      "causationId": "toolu_01XFoMS1vQwze9VXFsto6gPe",
+      "trace": {
+        "traceId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+        "spanId": "71d2ef2d-cdab-4a05-9fed-9dd42bb8bec4"
+      },
+      "attributes": {
+        "detail": "[Undefined]"
+      }
+    },
+    {
+      "id": "80963c1a-c6fd-47f4-8c36-083a1e6ba656",
+      "sequence": 14485,
+      "name": "listening.runtime.owner-resolution.queued",
+      "occurredAt": "2026-10-14T22:21:17.302Z",
+      "durationMs": 0,
+      "outcome": "success",
+      "correlationId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+      "causationId": "toolu_01XFoMS1vQwze9VXFsto6gPe",
+      "trace": {
+        "traceId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+        "spanId": "91731a02-142e-453b-a2ef-e4d44dbbbeb9"
+      },
+      "attributes": {
+        "detail": "[Undefined]"
+      }
+    },
+    {
+      "id": "0befc038-abd6-44dc-a05c-8e7e8b251cbf",
+      "sequence": 14486,
+      "name": "listening.runtime.owner-resolution.started",
+      "occurredAt": "2026-10-14T22:21:17.302Z",
+      "durationMs": 0,
+      "outcome": "success",
+      "correlationId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+      "causationId": "toolu_01XFoMS1vQwze9VXFsto6gPe",
+      "trace": {
+        "traceId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+        "spanId": "dd35d8bf-fc78-4418-97c0-706413dd43b3"
+      },
+      "attributes": {
+        "detail": "[Undefined]"
+      }
+    },
+    {
+      "id": "5c681351-ae54-4144-b157-4e6c5d64219d",
+      "sequence": 14487,
+      "name": "listening.runtime.owner-resolution.completed",
+      "occurredAt": "2026-10-14T22:21:17.302Z",
+      "durationMs": 0,
+      "outcome": "success",
+      "correlationId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+      "causationId": "toolu_01XFoMS1vQwze9VXFsto6gPe",
+      "trace": {
+        "traceId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+        "spanId": "d134e6fc-53d2-4394-ac2c-627699debc26"
+      },
+      "attributes": {
+        "detail": "[Undefined]"
+      }
+    },
+    {
+      "id": "03e7d391-c87f-4f5b-8521-52598282656a",
+      "sequence": 14492,
+      "name": "listening.runtime.inspection.queued",
+      "occurredAt": "2026-10-14T22:21:17.304Z",
+      "durationMs": 0,
+      "outcome": "success",
+      "correlationId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+      "causationId": "toolu_01XFoMS1vQwze9VXFsto6gPe",
+      "trace": {
+        "traceId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+        "spanId": "4b5bc02e-fd6e-428c-8d8b-707f4afd55eb"
+      },
+      "attributes": {
+        "detail": "[Undefined]"
+      }
+    },
+    {
+      "id": "6c10e7a2-0eca-4290-9126-4543d2884906",
+      "sequence": 14493,
+      "name": "listening.runtime.inspection.started",
+      "occurredAt": "2026-10-14T22:21:17.304Z",
+      "durationMs": 0,
+      "outcome": "success",
+      "correlationId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+      "causationId": "toolu_01XFoMS1vQwze9VXFsto6gPe",
+      "trace": {
+        "traceId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+        "spanId": "a8a4ce79-ef21-4cec-91c1-a7fb73f959f1"
+      },
+      "attributes": {
+        "detail": "[Undefined]"
+      }
+    },
+    {
+      "id": "acb7ade1-ed1d-422c-8f77-161d8240b947",
+      "sequence": 14495,
+      "name": "listening.runtime.operation.completed",
+      "occurredAt": "2026-10-14T22:21:17.305Z",
+      "durationMs": 3,
+      "outcome": "success",
+      "correlationId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+      "causationId": "toolu_01XFoMS1vQwze9VXFsto6gPe",
+      "trace": {
+        "traceId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+        "spanId": "f41d2381-783c-434f-a5de-c9abf913555c"
+      },
+      "attributes": {
+        "detail": "[Undefined]"
+      }
+    },
+    {
+      "id": "3da69b04-1124-43e8-92c2-6d33ffad226d",
+      "sequence": 14497,
+      "name": "listening.runtime.wait.queued",
+      "occurredAt": "2026-10-14T22:21:17.305Z",
+      "durationMs": 0,
+      "outcome": "success",
+      "correlationId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+      "causationId": "toolu_01XFoMS1vQwze9VXFsto6gPe",
+      "trace": {
+        "traceId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+        "spanId": "515c9ea3-606d-43b8-a8be-946a57520388"
+      },
+      "attributes": {
+        "detail": "[Undefined]"
+      }
+    },
+    {
+      "id": "16b35e1e-2b03-45bc-8673-64b432e1bc2f",
+      "sequence": 14498,
+      "name": "listening.runtime.wait.started",
+      "occurredAt": "2026-10-14T22:21:17.305Z",
+      "durationMs": 0,
+      "outcome": "success",
+      "correlationId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+      "causationId": "toolu_01XFoMS1vQwze9VXFsto6gPe",
+      "trace": {
+        "traceId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+        "spanId": "bef439e9-9b34-4ee8-aa4c-4bc40afc828f"
+      },
+      "attributes": {
+        "detail": "[Undefined]"
+      }
+    },
+    {
+      "id": "7ee0543c-4437-48f1-a50a-236f4001ab17",
+      "sequence": 14557,
+      "name": "listening.runtime.inspection.completed",
+      "occurredAt": "2026-10-14T22:21:18.901Z",
+      "durationMs": 1597,
+      "outcome": "success",
+      "correlationId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+      "causationId": "toolu_01XFoMS1vQwze9VXFsto6gPe",
+      "trace": {
+        "traceId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+        "spanId": "2f799988-c434-408e-b9f9-1b18167cbc36"
+      },
+      "attributes": {
+        "detail": "[Undefined]"
+      }
+    },
+    {
+      "id": "c29696cb-1fcd-4071-acaa-dd967e21a670",
+      "sequence": 14560,
+      "name": "listening.runtime.reservation.queued",
+      "occurredAt": "2026-10-14T22:21:18.902Z",
+      "durationMs": 0,
+      "outcome": "success",
+      "correlationId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+      "causationId": "toolu_01XFoMS1vQwze9VXFsto6gPe",
+      "trace": {
+        "traceId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+        "spanId": "3d94f3cb-9731-4add-a3c7-5d603ef2fb17"
+      },
+      "attributes": {
+        "detail": "[Undefined]"
+      }
+    },
+    {
+      "id": "aa46164d-3c15-4857-9241-b233eaccbe4b",
+      "sequence": 14561,
+      "name": "listening.runtime.reservation.started",
+      "occurredAt": "2026-10-14T22:21:18.902Z",
+      "durationMs": 0,
+      "outcome": "success",
+      "correlationId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+      "causationId": "toolu_01XFoMS1vQwze9VXFsto6gPe",
+      "trace": {
+        "traceId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+        "spanId": "120fb634-9b91-4eff-bf86-b386c6058f49"
+      },
+      "attributes": {
+        "detail": "[Undefined]"
+      }
+    },
+    {
+      "id": "1e1c6245-bffa-4593-8ec4-93bf16291348",
+      "sequence": 14570,
+      "name": "listening.runtime.reservation.completed",
+      "occurredAt": "2026-10-14T22:21:18.906Z",
+      "durationMs": 4,
+      "outcome": "success",
+      "correlationId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+      "causationId": "toolu_01XFoMS1vQwze9VXFsto6gPe",
+      "trace": {
+        "traceId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+        "spanId": "295040ce-123a-4072-a8c7-ac3655fbbe83"
+      },
+      "attributes": {
+        "detail": "[Undefined]"
+      }
+    },
+    {
+      "id": "f271595c-a0dd-4f8b-b3e4-6e8e12faae36",
+      "sequence": 14573,
+      "name": "listening.runtime.capture-preparation.queued",
+      "occurredAt": "2026-10-14T22:21:18.907Z",
+      "durationMs": 0,
+      "outcome": "success",
+      "correlationId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+      "causationId": "toolu_01XFoMS1vQwze9VXFsto6gPe",
+      "trace": {
+        "traceId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+        "spanId": "a43c4c01-5805-4703-89e9-e5fdf2c0991b"
+      },
+      "attributes": {
+        "detail": "[Undefined]"
+      }
+    },
+    {
+      "id": "b631bce8-a58a-49b7-9628-efce2e474651",
+      "sequence": 14574,
+      "name": "listening.runtime.capture-preparation.started",
+      "occurredAt": "2026-10-14T22:21:18.907Z",
+      "durationMs": 1,
+      "outcome": "success",
+      "correlationId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+      "causationId": "toolu_01XFoMS1vQwze9VXFsto6gPe",
+      "trace": {
+        "traceId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+        "spanId": "74cf7ebf-1a81-4812-b0b2-73b3489b3b3a"
+      },
+      "attributes": {
+        "detail": "[Undefined]"
+      }
+    },
+    {
+      "id": "6fc97ccb-a3e1-42bb-a1de-5a31204e21ee",
+      "sequence": 14602,
+      "name": "listening.runtime.operation.queued",
+      "occurredAt": "2026-10-14T22:21:18.955Z",
+      "durationMs": 0,
+      "outcome": "success",
+      "correlationId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+      "causationId": "toolu_012TPbTsk1hV6G7c5Tg1Hm8X",
+      "trace": {
+        "traceId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+        "spanId": "17a76119-9d4a-4f65-87ab-18ac4c31fe9d"
+      },
+      "attributes": {
+        "detail": "[Undefined]"
+      }
+    },
+    {
+      "id": "38a8b7fc-9516-4fed-b4c1-b14fc9436c40",
+      "sequence": 14603,
+      "name": "listening.runtime.operation.started",
+      "occurredAt": "2026-10-14T22:21:18.955Z",
+      "durationMs": 0,
+      "outcome": "success",
+      "correlationId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+      "causationId": "toolu_012TPbTsk1hV6G7c5Tg1Hm8X",
+      "trace": {
+        "traceId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+        "spanId": "815c92b2-fcd6-4c22-8fd6-5e5a4bb2bbb5"
+      },
+      "attributes": {
+        "detail": "[Undefined]"
+      }
+    },
+    {
+      "id": "87b043a1-1723-4af6-8b6d-33c82a03ff41",
+      "sequence": 14604,
+      "name": "listening.runtime.operation.completed",
+      "occurredAt": "2026-10-14T22:21:18.955Z",
+      "durationMs": 0,
+      "outcome": "success",
+      "correlationId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+      "causationId": "toolu_012TPbTsk1hV6G7c5Tg1Hm8X",
+      "trace": {
+        "traceId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+        "spanId": "d8f77e2b-8714-423b-9126-149b2c87ea03"
+      },
+      "attributes": {
+        "detail": "[Undefined]"
+      }
+    },
+    {
+      "id": "1d413124-8846-46a0-a758-548a52cbc42e",
+      "sequence": 14679,
+      "name": "listening.runtime.operation.queued",
+      "occurredAt": "2026-10-14T22:21:20.459Z",
+      "durationMs": 0,
+      "outcome": "success",
+      "correlationId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+      "causationId": "toolu_01R3Tx8VFNNRJ8gULmbAUEDq",
+      "trace": {
+        "traceId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+        "spanId": "984cb0e5-63fc-4d74-a60d-d90c63eacac5"
+      },
+      "attributes": {
+        "detail": "[Undefined]"
+      }
+    },
+    {
+      "id": "b8ecdc4f-60c6-4cf3-ab26-124d479c09b6",
+      "sequence": 14680,
+      "name": "listening.runtime.operation.started",
+      "occurredAt": "2026-10-14T22:21:20.459Z",
+      "durationMs": 0,
+      "outcome": "success",
+      "correlationId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+      "causationId": "toolu_01R3Tx8VFNNRJ8gULmbAUEDq",
+      "trace": {
+        "traceId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+        "spanId": "9c640c72-875e-49fc-aee2-167a7fd0b389"
+      },
+      "attributes": {
+        "detail": "[Undefined]"
+      }
+    },
+    {
+      "id": "f159c10d-18ce-4e1d-8696-138c453b91d1",
+      "sequence": 14681,
+      "name": "listening.runtime.operation.completed",
+      "occurredAt": "2026-10-14T22:21:20.460Z",
+      "durationMs": 1,
+      "outcome": "success",
+      "correlationId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+      "causationId": "toolu_01R3Tx8VFNNRJ8gULmbAUEDq",
+      "trace": {
+        "traceId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+        "spanId": "fffef107-5fae-499c-8784-7f750bed783f"
+      },
+      "attributes": {
+        "detail": "[Undefined]"
+      }
+    },
+    {
+      "id": "4638dc89-010b-4172-b9ec-b7e0ac347125",
+      "sequence": 14711,
+      "name": "output.listener.completed",
+      "occurredAt": "2026-10-14T22:21:20.953Z",
+      "durationMs": 437,
+      "outcome": "success",
+      "correlationId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+      "causationId": "toolu_01XFoMS1vQwze9VXFsto6gPe",
+      "trace": {
+        "traceId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+        "spanId": "441d0092-b689-4073-844c-5a2b9f9e9b68"
+      },
+      "attributes": {
+        "connectionId": "c670ce8c-1e18-44b7-88f9-63579d154a5b",
+        "producerId": "ableton-audio-listener:path:dcbd6e2713f93ba1ef342a59d62345cb",
+        "instanceId": "fa37de2d-266b-4a75-80cf-79630ea42eb5",
+        "trackId": "2",
+        "deviceId": "15",
+        "connectionEpoch": "68ef3eef-f47b-44e3-8f59-eee26d224d31",
+        "jobId": "ec88c881-43d8-45d4-aaa6-0407b2c927ff",
+        "passId": "596663d0-0a70-4285-8d95-894df152524e",
+        "requestId": "85cd998a-521e-4adb-810c-cfa89eeb5ba4",
+        "status": "armed"
+      }
+    },
+    {
+      "id": "7278cc3b-0bbc-4652-b4c9-ff6d457b4f4a",
+      "sequence": 14715,
+      "name": "listening.runtime.capture-preparation.completed",
+      "occurredAt": "2026-10-14T22:21:20.960Z",
+      "durationMs": 2054,
+      "outcome": "success",
+      "correlationId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+      "causationId": "toolu_01XFoMS1vQwze9VXFsto6gPe",
+      "trace": {
+        "traceId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+        "spanId": "84948cb4-662a-42ab-8028-53016a3e1247"
+      },
+      "attributes": {
+        "detail": "[Undefined]"
+      }
+    },
+    {
+      "id": "f54b9c81-9e8a-49a3-b2de-347d569e9698",
+      "sequence": 14716,
+      "name": "listening.runtime.inspection.queued",
+      "occurredAt": "2026-10-14T22:21:20.961Z",
+      "durationMs": 0,
+      "outcome": "success",
+      "correlationId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+      "causationId": "toolu_01XFoMS1vQwze9VXFsto6gPe",
+      "trace": {
+        "traceId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+        "spanId": "e15df135-219e-421c-9f23-497c8a79d076"
+      },
+      "attributes": {
+        "detail": "[Undefined]"
+      }
+    },
+    {
+      "id": "28d9acfb-e9d9-4e48-982c-6ad547b284a4",
+      "sequence": 14717,
+      "name": "listening.runtime.inspection.started",
+      "occurredAt": "2026-10-14T22:21:20.961Z",
+      "durationMs": 0,
+      "outcome": "success",
+      "correlationId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+      "causationId": "toolu_01XFoMS1vQwze9VXFsto6gPe",
+      "trace": {
+        "traceId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+        "spanId": "e4400048-8210-4115-b5fc-eefbb6ceef18"
+      },
+      "attributes": {
+        "detail": "[Undefined]"
+      }
+    },
+    {
+      "id": "0b6383a2-a984-42e8-8e8d-a6ecb3489685",
+      "sequence": 14722,
+      "name": "output.listener.native.preflight.queued",
+      "occurredAt": "2026-10-14T22:21:20.965Z",
+      "durationMs": 0,
+      "outcome": "success",
+      "correlationId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+      "causationId": "toolu_01XFoMS1vQwze9VXFsto6gPe",
+      "trace": {
+        "traceId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+        "spanId": "0b6383a2-a984-42e8-8e8d-a6ecb3489685"
+      },
+      "attributes": {
+        "connectionId": "c670ce8c-1e18-44b7-88f9-63579d154a5b",
+        "producerId": "ableton-audio-listener:path:dcbd6e2713f93ba1ef342a59d62345cb",
+        "instanceId": "fa37de2d-266b-4a75-80cf-79630ea42eb5",
+        "connectionEpoch": "68ef3eef-f47b-44e3-8f59-eee26d224d31",
+        "jobId": "ec88c881-43d8-45d4-aaa6-0407b2c927ff",
+        "passId": "596663d0-0a70-4285-8d95-894df152524e",
+        "eventId": "962c3c7e-4a3b-4ac7-b829-88d03a4e8842",
+        "causationId": "toolu_01XFoMS1vQwze9VXFsto6gPe",
+        "phase": "preflight",
+        "generation": "c16cd3d0-9706-48c7-b141-259a7c6368b2",
+        "stage": "queued",
+        "nativeEpoch": 1,
+        "elapsedMs": 0,
+        "frames": 0
+      }
+    },
+    {
+      "id": "3eef99f8-47d6-42e3-85ed-af17f65b67d7",
+      "sequence": 14726,
+      "name": "output.listener.native.preflight.started",
+      "occurredAt": "2026-10-14T22:21:20.967Z",
+      "durationMs": 1,
+      "outcome": "success",
+      "correlationId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+      "causationId": "0b6383a2-a984-42e8-8e8d-a6ecb3489685",
+      "trace": {
+        "traceId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+        "spanId": "3eef99f8-47d6-42e3-85ed-af17f65b67d7"
+      },
+      "attributes": {
+        "connectionId": "c670ce8c-1e18-44b7-88f9-63579d154a5b",
+        "producerId": "ableton-audio-listener:path:dcbd6e2713f93ba1ef342a59d62345cb",
+        "instanceId": "fa37de2d-266b-4a75-80cf-79630ea42eb5",
+        "connectionEpoch": "68ef3eef-f47b-44e3-8f59-eee26d224d31",
+        "jobId": "ec88c881-43d8-45d4-aaa6-0407b2c927ff",
+        "passId": "596663d0-0a70-4285-8d95-894df152524e",
+        "eventId": "6206dac6-f4e2-4e41-bbcc-941ead55a1bd",
+        "causationId": "962c3c7e-4a3b-4ac7-b829-88d03a4e8842",
+        "phase": "preflight",
+        "generation": "c16cd3d0-9706-48c7-b141-259a7c6368b2",
+        "stage": "started",
+        "nativeEpoch": 1,
+        "elapsedMs": 1,
+        "frames": 0
+      }
+    },
+    {
+      "id": "73682e90-00a5-4281-8009-8ff80c507ec6",
+      "sequence": 14730,
+      "name": "output.listener.native.preflight.progress",
+      "occurredAt": "2026-10-14T22:21:20.968Z",
+      "durationMs": 44,
+      "outcome": "success",
+      "correlationId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+      "causationId": "3eef99f8-47d6-42e3-85ed-af17f65b67d7",
+      "trace": {
+        "traceId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+        "spanId": "73682e90-00a5-4281-8009-8ff80c507ec6"
+      },
+      "attributes": {
+        "connectionId": "c670ce8c-1e18-44b7-88f9-63579d154a5b",
+        "producerId": "ableton-audio-listener:path:dcbd6e2713f93ba1ef342a59d62345cb",
+        "instanceId": "fa37de2d-266b-4a75-80cf-79630ea42eb5",
+        "connectionEpoch": "68ef3eef-f47b-44e3-8f59-eee26d224d31",
+        "jobId": "ec88c881-43d8-45d4-aaa6-0407b2c927ff",
+        "passId": "596663d0-0a70-4285-8d95-894df152524e",
+        "eventId": "77b5505d-60f1-4b49-8bc2-7776b2344cfa",
+        "causationId": "6206dac6-f4e2-4e41-bbcc-941ead55a1bd",
+        "phase": "preflight",
+        "generation": "c16cd3d0-9706-48c7-b141-259a7c6368b2",
+        "stage": "progress",
+        "nativeEpoch": 1,
+        "elapsedMs": 44,
+        "frames": 0,
+        "reason": "torn_native_clock"
+      }
+    },
+    {
+      "id": "15de4107-6f49-4ca1-8a33-5df05d58ece7",
+      "sequence": 14734,
+      "name": "output.listener.native.preflight.completed",
+      "occurredAt": "2026-10-14T22:21:20.969Z",
+      "durationMs": 399,
+      "outcome": "success",
+      "correlationId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+      "causationId": "73682e90-00a5-4281-8009-8ff80c507ec6",
+      "trace": {
+        "traceId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+        "spanId": "15de4107-6f49-4ca1-8a33-5df05d58ece7"
+      },
+      "attributes": {
+        "connectionId": "c670ce8c-1e18-44b7-88f9-63579d154a5b",
+        "producerId": "ableton-audio-listener:path:dcbd6e2713f93ba1ef342a59d62345cb",
+        "instanceId": "fa37de2d-266b-4a75-80cf-79630ea42eb5",
+        "connectionEpoch": "68ef3eef-f47b-44e3-8f59-eee26d224d31",
+        "jobId": "ec88c881-43d8-45d4-aaa6-0407b2c927ff",
+        "passId": "596663d0-0a70-4285-8d95-894df152524e",
+        "eventId": "775825f0-edcd-4e05-8676-1fef276cd6b1",
+        "causationId": "77b5505d-60f1-4b49-8bc2-7776b2344cfa",
+        "phase": "preflight",
+        "generation": "c16cd3d0-9706-48c7-b141-259a7c6368b2",
+        "stage": "completed",
+        "nativeEpoch": 1,
+        "elapsedMs": 399,
+        "frames": 0
+      }
+    },
+    {
+      "id": "8e0cf522-06cc-46c7-8dfa-6536d93f22dc",
+      "sequence": 14738,
+      "name": "output.listener.native.reset.queued",
+      "occurredAt": "2026-10-14T22:21:20.970Z",
+      "durationMs": 4,
+      "outcome": "success",
+      "correlationId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+      "causationId": "15de4107-6f49-4ca1-8a33-5df05d58ece7",
+      "trace": {
+        "traceId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+        "spanId": "8e0cf522-06cc-46c7-8dfa-6536d93f22dc"
+      },
+      "attributes": {
+        "connectionId": "c670ce8c-1e18-44b7-88f9-63579d154a5b",
+        "producerId": "ableton-audio-listener:path:dcbd6e2713f93ba1ef342a59d62345cb",
+        "instanceId": "fa37de2d-266b-4a75-80cf-79630ea42eb5",
+        "connectionEpoch": "68ef3eef-f47b-44e3-8f59-eee26d224d31",
+        "jobId": "ec88c881-43d8-45d4-aaa6-0407b2c927ff",
+        "passId": "596663d0-0a70-4285-8d95-894df152524e",
+        "eventId": "ef1ec8b8-437b-4e21-8c46-4b8e5106457d",
+        "causationId": "775825f0-edcd-4e05-8676-1fef276cd6b1",
+        "phase": "reset",
+        "generation": "c16cd3d0-9706-48c7-b141-259a7c6368b2",
+        "stage": "queued",
+        "nativeEpoch": 1,
+        "elapsedMs": 4,
+        "frames": 0
+      }
+    },
+    {
+      "id": "0d0ad629-ea12-4f91-8db4-7afaed809722",
+      "sequence": 14742,
+      "name": "output.listener.native.reset.started",
+      "occurredAt": "2026-10-14T22:21:20.972Z",
+      "durationMs": 4,
+      "outcome": "success",
+      "correlationId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+      "causationId": "8e0cf522-06cc-46c7-8dfa-6536d93f22dc",
+      "trace": {
+        "traceId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+        "spanId": "0d0ad629-ea12-4f91-8db4-7afaed809722"
+      },
+      "attributes": {
+        "connectionId": "c670ce8c-1e18-44b7-88f9-63579d154a5b",
+        "producerId": "ableton-audio-listener:path:dcbd6e2713f93ba1ef342a59d62345cb",
+        "instanceId": "fa37de2d-266b-4a75-80cf-79630ea42eb5",
+        "connectionEpoch": "68ef3eef-f47b-44e3-8f59-eee26d224d31",
+        "jobId": "ec88c881-43d8-45d4-aaa6-0407b2c927ff",
+        "passId": "596663d0-0a70-4285-8d95-894df152524e",
+        "eventId": "f5393fd5-a42f-4b64-81ca-6aaf49c0878b",
+        "causationId": "ef1ec8b8-437b-4e21-8c46-4b8e5106457d",
+        "phase": "reset",
+        "generation": "c16cd3d0-9706-48c7-b141-259a7c6368b2",
+        "stage": "started",
+        "nativeEpoch": 1,
+        "elapsedMs": 4,
+        "frames": 0
+      }
+    },
+    {
+      "id": "f2372441-579e-49a8-8b52-81b78dbddb3a",
+      "sequence": 14746,
+      "name": "output.listener.native.reset.progress",
+      "occurredAt": "2026-10-14T22:21:20.973Z",
+      "durationMs": 5,
+      "outcome": "success",
+      "correlationId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+      "causationId": "15de4107-6f49-4ca1-8a33-5df05d58ece7",
+      "trace": {
+        "traceId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+        "spanId": "f2372441-579e-49a8-8b52-81b78dbddb3a"
+      },
+      "attributes": {
+        "connectionId": "c670ce8c-1e18-44b7-88f9-63579d154a5b",
+        "producerId": "ableton-audio-listener:path:dcbd6e2713f93ba1ef342a59d62345cb",
+        "instanceId": "fa37de2d-266b-4a75-80cf-79630ea42eb5",
+        "connectionEpoch": "68ef3eef-f47b-44e3-8f59-eee26d224d31",
+        "jobId": "ec88c881-43d8-45d4-aaa6-0407b2c927ff",
+        "passId": "596663d0-0a70-4285-8d95-894df152524e",
+        "eventId": "cb5a02c9-d054-4aab-8366-df9d1366ba8b",
+        "causationId": "775825f0-edcd-4e05-8676-1fef276cd6b1",
+        "phase": "reset",
+        "generation": "c16cd3d0-9706-48c7-b141-259a7c6368b2",
+        "stage": "progress",
+        "nativeEpoch": 1,
+        "elapsedMs": 5,
+        "frames": 0,
+        "reason": "waiting_native_reset"
+      }
+    },
+    {
+      "id": "804ea423-4fed-49d5-885e-078b3af09e80",
+      "sequence": 14750,
+      "name": "output.listener.native.reset.progress",
+      "occurredAt": "2026-10-14T22:21:20.974Z",
+      "durationMs": 6,
+      "outcome": "success",
+      "correlationId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+      "causationId": "f2372441-579e-49a8-8b52-81b78dbddb3a",
+      "trace": {
+        "traceId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+        "spanId": "804ea423-4fed-49d5-885e-078b3af09e80"
+      },
+      "attributes": {
+        "connectionId": "c670ce8c-1e18-44b7-88f9-63579d154a5b",
+        "producerId": "ableton-audio-listener:path:dcbd6e2713f93ba1ef342a59d62345cb",
+        "instanceId": "fa37de2d-266b-4a75-80cf-79630ea42eb5",
+        "connectionEpoch": "68ef3eef-f47b-44e3-8f59-eee26d224d31",
+        "jobId": "ec88c881-43d8-45d4-aaa6-0407b2c927ff",
+        "passId": "596663d0-0a70-4285-8d95-894df152524e",
+        "eventId": "4299b635-cbe0-41af-9cf7-bd1cd6f8c6e2",
+        "causationId": "cb5a02c9-d054-4aab-8366-df9d1366ba8b",
+        "phase": "reset",
+        "generation": "c16cd3d0-9706-48c7-b141-259a7c6368b2",
+        "stage": "progress",
+        "nativeEpoch": 1,
+        "elapsedMs": 6,
+        "frames": 0,
+        "reason": "waiting_native_reset"
+      }
+    },
+    {
+      "id": "d2ba989a-7660-4fdd-8fb5-17ee0ac39107",
+      "sequence": 14754,
+      "name": "output.listener.native.reset.progress",
+      "occurredAt": "2026-10-14T22:21:20.976Z",
+      "durationMs": 18,
+      "outcome": "success",
+      "correlationId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+      "causationId": "804ea423-4fed-49d5-885e-078b3af09e80",
+      "trace": {
+        "traceId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+        "spanId": "d2ba989a-7660-4fdd-8fb5-17ee0ac39107"
+      },
+      "attributes": {
+        "connectionId": "c670ce8c-1e18-44b7-88f9-63579d154a5b",
+        "producerId": "ableton-audio-listener:path:dcbd6e2713f93ba1ef342a59d62345cb",
+        "instanceId": "fa37de2d-266b-4a75-80cf-79630ea42eb5",
+        "connectionEpoch": "68ef3eef-f47b-44e3-8f59-eee26d224d31",
+        "jobId": "ec88c881-43d8-45d4-aaa6-0407b2c927ff",
+        "passId": "596663d0-0a70-4285-8d95-894df152524e",
+        "eventId": "e3090cd9-50eb-4a51-a54d-8657251ca209",
+        "causationId": "4299b635-cbe0-41af-9cf7-bd1cd6f8c6e2",
+        "phase": "reset",
+        "generation": "c16cd3d0-9706-48c7-b141-259a7c6368b2",
+        "stage": "progress",
+        "nativeEpoch": 1,
+        "elapsedMs": 18,
+        "frames": 0,
+        "reason": "waiting_native_reset"
+      }
+    },
+    {
+      "id": "043051f1-9360-48cb-886a-692fd3e00098",
+      "sequence": 14758,
+      "name": "output.listener.native.reset.completed",
+      "occurredAt": "2026-10-14T22:21:20.977Z",
+      "durationMs": 30,
+      "outcome": "success",
+      "correlationId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+      "causationId": "d2ba989a-7660-4fdd-8fb5-17ee0ac39107",
+      "trace": {
+        "traceId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+        "spanId": "043051f1-9360-48cb-886a-692fd3e00098"
+      },
+      "attributes": {
+        "connectionId": "c670ce8c-1e18-44b7-88f9-63579d154a5b",
+        "producerId": "ableton-audio-listener:path:dcbd6e2713f93ba1ef342a59d62345cb",
+        "instanceId": "fa37de2d-266b-4a75-80cf-79630ea42eb5",
+        "connectionEpoch": "68ef3eef-f47b-44e3-8f59-eee26d224d31",
+        "jobId": "ec88c881-43d8-45d4-aaa6-0407b2c927ff",
+        "passId": "596663d0-0a70-4285-8d95-894df152524e",
+        "eventId": "5831bf15-ed96-4a51-8ac9-fbe08a3eb49e",
+        "causationId": "e3090cd9-50eb-4a51-a54d-8657251ca209",
+        "phase": "reset",
+        "generation": "c16cd3d0-9706-48c7-b141-259a7c6368b2",
+        "stage": "completed",
+        "nativeEpoch": 1,
+        "elapsedMs": 30,
+        "frames": 0,
+        "reason": "native_arm_acknowledged"
+      }
+    },
+    {
+      "id": "5a4599b1-9b01-41c8-8218-f281f991defc",
+      "sequence": 14762,
+      "name": "output.listener.native.queued",
+      "occurredAt": "2026-10-14T22:21:20.979Z",
+      "durationMs": 1,
+      "outcome": "success",
+      "correlationId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+      "causationId": "15de4107-6f49-4ca1-8a33-5df05d58ece7",
+      "trace": {
+        "traceId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+        "spanId": "5a4599b1-9b01-41c8-8218-f281f991defc"
+      },
+      "attributes": {
+        "connectionId": "c670ce8c-1e18-44b7-88f9-63579d154a5b",
+        "producerId": "ableton-audio-listener:path:dcbd6e2713f93ba1ef342a59d62345cb",
+        "instanceId": "fa37de2d-266b-4a75-80cf-79630ea42eb5",
+        "connectionEpoch": "68ef3eef-f47b-44e3-8f59-eee26d224d31",
+        "jobId": "ec88c881-43d8-45d4-aaa6-0407b2c927ff",
+        "passId": "596663d0-0a70-4285-8d95-894df152524e",
+        "eventId": "3cb454bf-bfa6-41fe-8875-6a67167234b2",
+        "causationId": "775825f0-edcd-4e05-8676-1fef276cd6b1",
+        "phase": "capture",
+        "generation": "c16cd3d0-9706-48c7-b141-259a7c6368b2",
+        "stage": "queued",
+        "nativeEpoch": 1,
+        "elapsedMs": 1,
+        "frames": 0
+      }
+    },
+    {
+      "id": "79985bcf-04dc-435a-8f78-c46ada728b51",
+      "sequence": 14766,
+      "name": "output.listener.native.started",
+      "occurredAt": "2026-10-14T22:21:20.980Z",
+      "durationMs": 1,
+      "outcome": "success",
+      "correlationId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+      "causationId": "5a4599b1-9b01-41c8-8218-f281f991defc",
+      "trace": {
+        "traceId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+        "spanId": "79985bcf-04dc-435a-8f78-c46ada728b51"
+      },
+      "attributes": {
+        "connectionId": "c670ce8c-1e18-44b7-88f9-63579d154a5b",
+        "producerId": "ableton-audio-listener:path:dcbd6e2713f93ba1ef342a59d62345cb",
+        "instanceId": "fa37de2d-266b-4a75-80cf-79630ea42eb5",
+        "connectionEpoch": "68ef3eef-f47b-44e3-8f59-eee26d224d31",
+        "jobId": "ec88c881-43d8-45d4-aaa6-0407b2c927ff",
+        "passId": "596663d0-0a70-4285-8d95-894df152524e",
+        "eventId": "5b93bb72-7544-4fe6-bf65-366d7287c65e",
+        "causationId": "3cb454bf-bfa6-41fe-8875-6a67167234b2",
+        "phase": "capture",
+        "generation": "c16cd3d0-9706-48c7-b141-259a7c6368b2",
+        "stage": "started",
+        "nativeEpoch": 1,
+        "elapsedMs": 1,
+        "frames": 0
+      }
+    },
+    {
+      "id": "90bb3136-37ad-4b88-85d0-12a9d56d8088",
+      "sequence": 14770,
+      "name": "output.listener.native.progress",
+      "occurredAt": "2026-10-14T22:21:20.981Z",
+      "durationMs": 30,
+      "outcome": "success",
+      "correlationId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+      "causationId": "79985bcf-04dc-435a-8f78-c46ada728b51",
+      "trace": {
+        "traceId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+        "spanId": "90bb3136-37ad-4b88-85d0-12a9d56d8088"
+      },
+      "attributes": {
+        "connectionId": "c670ce8c-1e18-44b7-88f9-63579d154a5b",
+        "producerId": "ableton-audio-listener:path:dcbd6e2713f93ba1ef342a59d62345cb",
+        "instanceId": "fa37de2d-266b-4a75-80cf-79630ea42eb5",
+        "connectionEpoch": "68ef3eef-f47b-44e3-8f59-eee26d224d31",
+        "jobId": "ec88c881-43d8-45d4-aaa6-0407b2c927ff",
+        "passId": "596663d0-0a70-4285-8d95-894df152524e",
+        "eventId": "d7a9aeda-2516-4353-9dfa-5b012f828084",
+        "causationId": "5b93bb72-7544-4fe6-bf65-366d7287c65e",
+        "phase": "capture",
+        "generation": "c16cd3d0-9706-48c7-b141-259a7c6368b2",
+        "stage": "progress",
+        "nativeEpoch": 1,
+        "elapsedMs": 30,
+        "frames": 0,
+        "reason": "native_arm_acknowledged"
+      }
+    },
+    {
+      "id": "9e1ea065-8378-4a1c-a83b-35e8cdb97bf7",
+      "sequence": 14779,
+      "name": "listening.runtime.inspection.completed",
+      "occurredAt": "2026-10-14T22:21:22.653Z",
+      "durationMs": 1692,
+      "outcome": "success",
+      "correlationId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+      "causationId": "toolu_01XFoMS1vQwze9VXFsto6gPe",
+      "trace": {
+        "traceId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+        "spanId": "285ee318-b6c1-4459-9865-61d2ed513836"
+      },
+      "attributes": {
+        "detail": "[Undefined]"
+      }
+    },
+    {
+      "id": "cb7fdf12-c5d5-4a11-80f2-17e2f6aaa0b9",
+      "sequence": 14782,
+      "name": "listening.runtime.playback-start.queued",
+      "occurredAt": "2026-10-14T22:21:22.655Z",
+      "durationMs": 0,
+      "outcome": "success",
+      "correlationId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+      "causationId": "toolu_01XFoMS1vQwze9VXFsto6gPe",
+      "trace": {
+        "traceId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+        "spanId": "ccc2ffbf-aa69-4671-ab45-a72570fb6e35"
+      },
+      "attributes": {
+        "detail": "[Undefined]"
+      }
+    },
+    {
+      "id": "f45158b1-3f56-41d1-ac24-f2e9d18f7e80",
+      "sequence": 14783,
+      "name": "listening.runtime.playback-start.started",
+      "occurredAt": "2026-10-14T22:21:22.655Z",
+      "durationMs": 0,
+      "outcome": "success",
+      "correlationId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+      "causationId": "toolu_01XFoMS1vQwze9VXFsto6gPe",
+      "trace": {
+        "traceId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+        "spanId": "7620f6ea-1cac-4e96-8a47-38306e1c583a"
+      },
+      "attributes": {
+        "detail": "[Undefined]"
+      }
+    },
+    {
+      "id": "7c01568e-0889-4c56-9d86-ce4ed95c4a42",
+      "sequence": 14936,
+      "name": "output.listener.progress",
+      "occurredAt": "2026-10-14T22:21:23.081Z",
+      "durationMs": 2570,
+      "outcome": "success",
+      "correlationId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+      "causationId": "toolu_01XFoMS1vQwze9VXFsto6gPe",
+      "trace": {
+        "traceId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+        "spanId": "59d2fa4f-cd0c-47ec-86e7-4bd603ec4b7d"
+      },
+      "attributes": {
+        "connectionId": "c670ce8c-1e18-44b7-88f9-63579d154a5b",
+        "producerId": "ableton-audio-listener:path:dcbd6e2713f93ba1ef342a59d62345cb",
+        "instanceId": "fa37de2d-266b-4a75-80cf-79630ea42eb5",
+        "trackId": "2",
+        "deviceId": "15",
+        "connectionEpoch": "68ef3eef-f47b-44e3-8f59-eee26d224d31",
+        "jobId": "ec88c881-43d8-45d4-aaa6-0407b2c927ff",
+        "passId": "596663d0-0a70-4285-8d95-894df152524e",
+        "requestId": "listener-175",
+        "status": "progress"
+      }
+    },
+    {
+      "id": "21a021ec-3cd5-488f-8ef7-a698d29fee31",
+      "sequence": 14937,
+      "name": "output.listener.native.progress",
+      "occurredAt": "2026-10-14T22:21:23.082Z",
+      "durationMs": 2163,
+      "outcome": "success",
+      "correlationId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+      "causationId": "90bb3136-37ad-4b88-85d0-12a9d56d8088",
+      "trace": {
+        "traceId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+        "spanId": "21a021ec-3cd5-488f-8ef7-a698d29fee31"
+      },
+      "attributes": {
+        "connectionId": "c670ce8c-1e18-44b7-88f9-63579d154a5b",
+        "producerId": "ableton-audio-listener:path:dcbd6e2713f93ba1ef342a59d62345cb",
+        "instanceId": "fa37de2d-266b-4a75-80cf-79630ea42eb5",
+        "connectionEpoch": "68ef3eef-f47b-44e3-8f59-eee26d224d31",
+        "jobId": "ec88c881-43d8-45d4-aaa6-0407b2c927ff",
+        "passId": "596663d0-0a70-4285-8d95-894df152524e",
+        "eventId": "1c26703f-af8a-46fd-8599-61e8d9b891d7",
+        "causationId": "d7a9aeda-2516-4353-9dfa-5b012f828084",
+        "phase": "capture",
+        "generation": "c16cd3d0-9706-48c7-b141-259a7c6368b2",
+        "stage": "progress",
+        "nativeEpoch": 1,
+        "elapsedMs": 2163,
+        "frames": 0,
+        "reason": "native_launch_observed"
+      }
+    },
+    {
+      "id": "a5baa77b-93dc-47a8-b338-3429dbffbdd0",
+      "sequence": 14952,
+      "name": "listening.runtime.native-onset.queued",
+      "occurredAt": "2026-10-14T22:21:23.353Z",
+      "durationMs": 0,
+      "outcome": "success",
+      "correlationId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+      "causationId": "toolu_01XFoMS1vQwze9VXFsto6gPe",
+      "trace": {
+        "traceId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+        "spanId": "d44d1274-d284-4d16-8f25-2eec2297cd26"
+      },
+      "attributes": {
+        "detail": "[Undefined]"
+      }
+    },
+    {
+      "id": "88819424-fb7e-49b3-91a4-c7555a3eacb5",
+      "sequence": 14953,
+      "name": "listening.runtime.native-onset.started",
+      "occurredAt": "2026-10-14T22:21:23.353Z",
+      "durationMs": 0,
+      "outcome": "success",
+      "correlationId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+      "causationId": "toolu_01XFoMS1vQwze9VXFsto6gPe",
+      "trace": {
+        "traceId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+        "spanId": "0c19c408-0703-4d94-8e4f-a23527550fe3"
+      },
+      "attributes": {
+        "detail": "[Undefined]"
+      }
+    },
+    {
+      "id": "065f013e-419f-45ef-bcce-490172f91214",
+      "sequence": 14954,
+      "name": "listening.runtime.native-onset.completed",
+      "occurredAt": "2026-10-14T22:21:23.354Z",
+      "durationMs": 1,
+      "outcome": "success",
+      "correlationId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+      "causationId": "toolu_01XFoMS1vQwze9VXFsto6gPe",
+      "trace": {
+        "traceId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+        "spanId": "ed69867a-ec74-4f7e-81b5-ee3112ec6049"
+      },
+      "attributes": {
+        "detail": "[Undefined]"
+      }
+    },
+    {
+      "id": "d8f30b2c-a4e9-49e0-87ee-d376e33bd46a",
+      "sequence": 14955,
+      "name": "listening.runtime.playback-start.completed",
+      "occurredAt": "2026-10-14T22:21:23.354Z",
+      "durationMs": 699,
+      "outcome": "success",
+      "correlationId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+      "causationId": "toolu_01XFoMS1vQwze9VXFsto6gPe",
+      "trace": {
+        "traceId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+        "spanId": "0a7966ad-7dad-4878-b9d4-246575ff86f7"
+      },
+      "attributes": {
+        "detail": "[Undefined]"
+      }
+    },
+    {
+      "id": "a5ca419d-3968-44d2-8f5c-43ecedece3b3",
+      "sequence": 15042,
+      "name": "output.listener.native.progress",
+      "occurredAt": "2026-10-14T22:21:24.090Z",
+      "durationMs": 3172,
+      "outcome": "success",
+      "correlationId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+      "causationId": "21a021ec-3cd5-488f-8ef7-a698d29fee31",
+      "trace": {
+        "traceId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+        "spanId": "a5ca419d-3968-44d2-8f5c-43ecedece3b3"
+      },
+      "attributes": {
+        "connectionId": "c670ce8c-1e18-44b7-88f9-63579d154a5b",
+        "producerId": "ableton-audio-listener:path:dcbd6e2713f93ba1ef342a59d62345cb",
+        "instanceId": "fa37de2d-266b-4a75-80cf-79630ea42eb5",
+        "connectionEpoch": "68ef3eef-f47b-44e3-8f59-eee26d224d31",
+        "jobId": "ec88c881-43d8-45d4-aaa6-0407b2c927ff",
+        "passId": "596663d0-0a70-4285-8d95-894df152524e",
+        "eventId": "68042ebd-d549-42c1-9e0f-69b2f699786a",
+        "causationId": "1c26703f-af8a-46fd-8599-61e8d9b891d7",
+        "phase": "capture",
+        "generation": "c16cd3d0-9706-48c7-b141-259a7c6368b2",
+        "stage": "progress",
+        "nativeEpoch": 1,
+        "elapsedMs": 3172,
+        "frames": 10
+      }
+    },
+    {
+      "id": "68632bf5-ef95-46dd-81f4-4ab2bb180b07",
+      "sequence": 15131,
+      "name": "output.listener.native.progress",
+      "occurredAt": "2026-10-14T22:21:25.114Z",
+      "durationMs": 4196,
+      "outcome": "success",
+      "correlationId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+      "causationId": "a5ca419d-3968-44d2-8f5c-43ecedece3b3",
+      "trace": {
+        "traceId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+        "spanId": "68632bf5-ef95-46dd-81f4-4ab2bb180b07"
+      },
+      "attributes": {
+        "connectionId": "c670ce8c-1e18-44b7-88f9-63579d154a5b",
+        "producerId": "ableton-audio-listener:path:dcbd6e2713f93ba1ef342a59d62345cb",
+        "instanceId": "fa37de2d-266b-4a75-80cf-79630ea42eb5",
+        "connectionEpoch": "68ef3eef-f47b-44e3-8f59-eee26d224d31",
+        "jobId": "ec88c881-43d8-45d4-aaa6-0407b2c927ff",
+        "passId": "596663d0-0a70-4285-8d95-894df152524e",
+        "eventId": "9adffed4-65c6-4380-baa1-45955bcbd917",
+        "causationId": "68042ebd-d549-42c1-9e0f-69b2f699786a",
+        "phase": "capture",
+        "generation": "c16cd3d0-9706-48c7-b141-259a7c6368b2",
+        "stage": "progress",
+        "nativeEpoch": 1,
+        "elapsedMs": 4196,
+        "frames": 20
+      }
+    },
+    {
+      "id": "c006756e-b82f-49c5-83d1-ab5bd06a6175",
+      "sequence": 15161,
+      "name": "output.listener.native.progress",
+      "occurredAt": "2026-10-14T22:21:25.445Z",
+      "durationMs": 4527,
+      "outcome": "success",
+      "correlationId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+      "causationId": "68632bf5-ef95-46dd-81f4-4ab2bb180b07",
+      "trace": {
+        "traceId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+        "spanId": "c006756e-b82f-49c5-83d1-ab5bd06a6175"
+      },
+      "attributes": {
+        "connectionId": "c670ce8c-1e18-44b7-88f9-63579d154a5b",
+        "producerId": "ableton-audio-listener:path:dcbd6e2713f93ba1ef342a59d62345cb",
+        "instanceId": "fa37de2d-266b-4a75-80cf-79630ea42eb5",
+        "connectionEpoch": "68ef3eef-f47b-44e3-8f59-eee26d224d31",
+        "jobId": "ec88c881-43d8-45d4-aaa6-0407b2c927ff",
+        "passId": "596663d0-0a70-4285-8d95-894df152524e",
+        "eventId": "dced545f-df01-43a9-9d59-c2d8d959346b",
+        "causationId": "9adffed4-65c6-4380-baa1-45955bcbd917",
+        "phase": "capture",
+        "generation": "c16cd3d0-9706-48c7-b141-259a7c6368b2",
+        "stage": "progress",
+        "nativeEpoch": 1,
+        "elapsedMs": 4527,
+        "frames": 20,
+        "reason": "native_host_postcheck_complete"
+      }
+    },
+    {
+      "id": "5a5becdc-f81d-4014-8546-a7b905cef178",
+      "sequence": 15165,
+      "name": "output.listener.native.completed",
+      "occurredAt": "2026-10-14T22:21:25.446Z",
+      "durationMs": 4528,
+      "outcome": "success",
+      "correlationId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+      "causationId": "c006756e-b82f-49c5-83d1-ab5bd06a6175",
+      "trace": {
+        "traceId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+        "spanId": "5a5becdc-f81d-4014-8546-a7b905cef178"
+      },
+      "attributes": {
+        "connectionId": "c670ce8c-1e18-44b7-88f9-63579d154a5b",
+        "producerId": "ableton-audio-listener:path:dcbd6e2713f93ba1ef342a59d62345cb",
+        "instanceId": "fa37de2d-266b-4a75-80cf-79630ea42eb5",
+        "connectionEpoch": "68ef3eef-f47b-44e3-8f59-eee26d224d31",
+        "jobId": "ec88c881-43d8-45d4-aaa6-0407b2c927ff",
+        "passId": "596663d0-0a70-4285-8d95-894df152524e",
+        "eventId": "98c889fe-ba30-4476-b163-53759a6cdd9c",
+        "causationId": "dced545f-df01-43a9-9d59-c2d8d959346b",
+        "phase": "capture",
+        "generation": "c16cd3d0-9706-48c7-b141-259a7c6368b2",
+        "stage": "completed",
+        "nativeEpoch": 1,
+        "elapsedMs": 4528,
+        "frames": 20,
+        "reason": "range_complete"
+      }
+    },
+    {
+      "id": "b7877c24-cb13-4747-9f71-a42a2123222d",
+      "sequence": 15168,
+      "name": "output.listener.completed",
+      "occurredAt": "2026-10-14T22:21:25.450Z",
+      "durationMs": 4938,
+      "outcome": "success",
+      "correlationId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+      "causationId": "toolu_01XFoMS1vQwze9VXFsto6gPe",
+      "trace": {
+        "traceId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+        "spanId": "edbbb219-9015-419e-81a2-fe0f386859ba"
+      },
+      "attributes": {
+        "connectionId": "c670ce8c-1e18-44b7-88f9-63579d154a5b",
+        "producerId": "ableton-audio-listener:path:dcbd6e2713f93ba1ef342a59d62345cb",
+        "instanceId": "fa37de2d-266b-4a75-80cf-79630ea42eb5",
+        "trackId": "2",
+        "deviceId": "15",
+        "connectionEpoch": "68ef3eef-f47b-44e3-8f59-eee26d224d31",
+        "jobId": "ec88c881-43d8-45d4-aaa6-0407b2c927ff",
+        "passId": "596663d0-0a70-4285-8d95-894df152524e",
+        "requestId": "listener-180",
+        "status": "completed",
+        "reason": "range_complete"
+      }
+    },
+    {
+      "id": "d3163e17-0bad-492f-b7b0-322903026fb4",
+      "sequence": 15177,
+      "name": "listening.runtime.publication.queued",
+      "occurredAt": "2026-10-14T22:21:25.455Z",
+      "durationMs": 0,
+      "outcome": "success",
+      "correlationId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+      "causationId": "toolu_01XFoMS1vQwze9VXFsto6gPe",
+      "trace": {
+        "traceId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+        "spanId": "b35d0402-db01-4e77-93a8-6fe57202b34f"
+      },
+      "attributes": {
+        "detail": "[Undefined]"
+      }
+    },
+    {
+      "id": "3d8c80e6-930e-4a25-bb38-acdb6eb34e1d",
+      "sequence": 15178,
+      "name": "listening.runtime.publication.started",
+      "occurredAt": "2026-10-14T22:21:25.455Z",
+      "durationMs": 0,
+      "outcome": "success",
+      "correlationId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+      "causationId": "toolu_01XFoMS1vQwze9VXFsto6gPe",
+      "trace": {
+        "traceId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+        "spanId": "b25705eb-187a-403d-9856-62e258e333f1"
+      },
+      "attributes": {
+        "detail": "[Undefined]"
+      }
+    },
+    {
+      "id": "44509d78-2729-4eca-96e3-7d78c5ffaefa",
+      "sequence": 15186,
+      "name": "context.session-publication.queued",
+      "occurredAt": "2026-10-14T22:21:25.460Z",
+      "outcome": "unknown",
+      "correlationId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+      "causationId": "toolu_01XFoMS1vQwze9VXFsto6gPe",
+      "trace": {
+        "traceId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+        "spanId": "44509d78-2729-4eca-96e3-7d78c5ffaefa"
+      },
+      "attributes": {}
+    },
+    {
+      "id": "4a7c12bc-8714-4e9f-86e3-f277ffcb1ad0",
+      "sequence": 15187,
+      "name": "context.session-publication.started",
+      "occurredAt": "2026-10-14T22:21:25.460Z",
+      "durationMs": 0,
+      "outcome": "unknown",
+      "correlationId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+      "causationId": "44509d78-2729-4eca-96e3-7d78c5ffaefa",
+      "trace": {
+        "traceId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+        "spanId": "4a7c12bc-8714-4e9f-86e3-f277ffcb1ad0"
+      },
+      "attributes": {}
+    },
+    {
+      "id": "46305792-a90e-450a-82b0-2fc0baca0e71",
+      "sequence": 15188,
+      "name": "context.session-publication.progress",
+      "occurredAt": "2026-10-14T22:21:25.460Z",
+      "durationMs": 0,
+      "outcome": "unknown",
+      "correlationId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+      "causationId": "4a7c12bc-8714-4e9f-86e3-f277ffcb1ad0",
+      "trace": {
+        "traceId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+        "spanId": "46305792-a90e-450a-82b0-2fc0baca0e71"
+      },
+      "attributes": {
+        "phase": "publishing-registry-and-manifest"
+      }
+    },
+    {
+      "id": "2111928e-a0e4-4a63-8a6b-f8e82f7ce8ad",
+      "sequence": 15189,
+      "name": "desktop.context.publication.queued",
+      "occurredAt": "2026-10-14T22:21:25.464Z",
+      "durationMs": 0.0519170000043232,
+      "outcome": "unknown",
+      "correlationId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+      "causationId": "toolu_01XFoMS1vQwze9VXFsto6gPe",
+      "trace": {
+        "traceId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+        "spanId": "2111928e-a0e4-4a63-8a6b-f8e82f7ce8ad"
+      },
+      "attributes": {}
+    },
+    {
+      "id": "b4d1454e-c737-4c5a-a7ee-e4f71d5ab80a",
+      "sequence": 15190,
+      "name": "desktop.context.publication.started",
+      "occurredAt": "2026-10-14T22:21:25.464Z",
+      "durationMs": 0.18733299999439623,
+      "outcome": "unknown",
+      "correlationId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+      "causationId": "2111928e-a0e4-4a63-8a6b-f8e82f7ce8ad",
+      "trace": {
+        "traceId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+        "spanId": "b4d1454e-c737-4c5a-a7ee-e4f71d5ab80a"
+      },
+      "attributes": {}
+    },
+    {
+      "id": "0fea5b2f-e1db-4958-8069-0f1dd4e8afaa",
+      "sequence": 15191,
+      "name": "desktop.context.publication.progress",
+      "occurredAt": "2026-10-14T22:21:25.464Z",
+      "durationMs": 0.2060419999907026,
+      "outcome": "unknown",
+      "correlationId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+      "causationId": "b4d1454e-c737-4c5a-a7ee-e4f71d5ab80a",
+      "trace": {
+        "traceId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+        "spanId": "0fea5b2f-e1db-4958-8069-0f1dd4e8afaa"
+      },
+      "attributes": {}
+    },
+    {
+      "id": "9361d4d1-69ed-443f-9c99-f445b01ddaf5",
+      "sequence": 15192,
+      "name": "desktop.context.publication.completed",
+      "occurredAt": "2026-10-14T22:21:25.491Z",
+      "durationMs": 27.736416999992798,
+      "outcome": "success",
+      "correlationId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+      "causationId": "0fea5b2f-e1db-4958-8069-0f1dd4e8afaa",
+      "trace": {
+        "traceId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+        "spanId": "9361d4d1-69ed-443f-9c99-f445b01ddaf5"
+      },
+      "attributes": {}
+    },
+    {
+      "id": "3fdb4044-0bba-4685-8bdd-0082952d3596",
+      "sequence": 15193,
+      "name": "context.session-publication.completed",
+      "occurredAt": "2026-10-14T22:21:25.492Z",
+      "durationMs": 32.35716699999466,
+      "outcome": "success",
+      "correlationId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+      "causationId": "46305792-a90e-450a-82b0-2fc0baca0e71",
+      "trace": {
+        "traceId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+        "spanId": "3fdb4044-0bba-4685-8bdd-0082952d3596"
+      },
+      "attributes": {}
+    },
+    {
+      "id": "95c4496e-d04a-45dd-b9af-d0b62e9078fa",
+      "sequence": 15195,
+      "name": "listening.runtime.publication.completed",
+      "occurredAt": "2026-10-14T22:21:25.500Z",
+      "durationMs": 45,
+      "outcome": "success",
+      "correlationId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+      "causationId": "toolu_01XFoMS1vQwze9VXFsto6gPe",
+      "trace": {
+        "traceId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+        "spanId": "45c83c93-4dca-4d2c-abac-ae5b4ac1572a"
+      },
+      "attributes": {
+        "detail": "[Undefined]"
+      }
+    },
+    {
+      "id": "340cf57b-9d9d-4060-9e4d-784539013e13",
+      "sequence": 15202,
+      "name": "listening.runtime.wait.completed",
+      "occurredAt": "2026-10-14T22:21:25.501Z",
+      "durationMs": 8196,
+      "outcome": "success",
+      "correlationId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+      "causationId": "toolu_01XFoMS1vQwze9VXFsto6gPe",
+      "trace": {
+        "traceId": "a69b0602-53e6-47ba-8585-5609c149e1f7",
+        "spanId": "b3483fb1-7018-44b0-9af8-e08c3a1ea7bb"
+      },
+      "attributes": {
+        "detail": "[Undefined]"
+      }
+    }
+  ],
+  "bridgeCommands": [
+    "live_set.get_identity",
+    "listening.inspect_context",
+    "live_set.get_identity",
+    "live_set.get_identity",
+    "listening.inspect_context",
+    "live_set.get_identity",
+    "live_set.get_identity",
+    "listening.inspect_context",
+    "live_set.get_identity",
+    "live_set.get_identity",
+    "listening.inspect_context",
+    "live_set.get_identity",
+    "live_set.get_identity",
+    "listening.inspect_context",
+    "live_set.get_identity",
+    "listening.start_playback"
+  ],
+  "resume": {
+    "verified": true,
+    "method": "typed-context-get-after-desktop-process-restart",
+    "desktopPid": 62352,
+    "typedGetId": "0796f4b2-4a4a-4fcc-87de-4615cb55b09f",
+    "occurredAt": "2026-10-14T22:56:07.208Z",
+    "endpointPublishedAt": "2026-10-14T22:54:17.356Z",
+    "listenersAfter": [
+      {
+        "listenerId": "ableton-audio-listener:path:9f82c42276eaf24a280f9e2cc3848437",
+        "instanceId": "353bf226-b2e1-4328-b33d-3d53d7158dfb",
+        "trackReference": "89095848-38d0-4263-8276-8825d531f95e",
+        "deviceReference": "e25a9d7d-7c52-411d-932f-758e73e9893a",
+        "displayName": "Audio-Listener",
+        "ready": false,
+        "limitations": [
+          "real_live_timing_validation_required",
+          "source_onset_unverified"
+        ]
+      },
+      {
+        "listenerId": "ableton-audio-listener:path:dcbd6e2713f93ba1ef342a59d62345cb",
+        "instanceId": "fa37de2d-266b-4a75-80cf-79630ea42eb5",
+        "trackReference": "89095848-38d0-4263-8276-8825d531f95e",
+        "deviceReference": "18c7067c-d52c-486f-ac37-61b5158c41fc",
+        "displayName": "Audio-Listener",
+        "ready": false,
+        "limitations": [
+          "native_per_pass_validation_required",
+          "source_onset_unverified"
+        ]
+      }
+    ],
+    "transportAfter": {
+      "currentSongTime": 4162.531708333333,
+      "isPlaying": true,
+      "tempo": 120,
+      "timeSignature": {
+        "numerator": 4,
+        "denominator": 4
+      },
+      "metronome": false,
+      "launchQuantization": 4,
+      "recordQuantization": 0,
+      "linkEnabled": false,
+      "backToArrangement": false
+    },
+    "toolCalls": [
+      {
+        "toolName": "ableton_listening",
+        "arguments": {
+          "action": "inspect-listeners"
+        }
+      },
+      {
+        "toolName": "ableton_transport",
+        "arguments": {
+          "action": "get"
+        }
+      },
+      {
+        "toolName": "ableton_context",
+        "arguments": {
+          "action": "get",
+          "contextId": "335ff745-4c1c-4d61-b7b6-57a84aec4881",
+          "includeHistorical": false
+        }
+      }
+    ]
+  }
+}

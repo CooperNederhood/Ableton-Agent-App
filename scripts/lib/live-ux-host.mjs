@@ -1,12 +1,28 @@
 import { connect } from "node:net";
 
+export function liveUxFixturePath(argv) {
+  const positions = argv.flatMap((value, index) =>
+    value === "--fixture-path" ? [index] : [],
+  );
+  if (positions.length === 0) return undefined;
+  const value = argv[positions[0] + 1];
+  if (positions.length !== 1 || !value || value.startsWith("--"))
+    throw new Error(
+      "--fixture-path requires exactly one runner-owned Set path",
+    );
+  if (argv.includes("--computer-use"))
+    throw new Error("Fixture startup requires the exact-PID shell launch path");
+  return value;
+}
+
 export async function waitForRunnerOwnedLiveReady(
   controller,
   {
-    discardRecovery = true,
+    coordinatedStartup = false,
+    discardRecovery = !coordinatedStartup,
     host = "127.0.0.1",
     port = 8765,
-    timeoutMs = 120_000,
+    timeoutMs = coordinatedStartup ? 600_000 : 120_000,
     isReady = () => canConnect(host, port),
     sleep = (milliseconds) =>
       new Promise((resolve) => setTimeout(resolve, milliseconds)),

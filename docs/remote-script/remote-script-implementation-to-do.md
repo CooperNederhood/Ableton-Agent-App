@@ -120,6 +120,12 @@ Companion specification: [Remote Script](remote-script.md)
 
 ## Tests
 
+- [x] Add guarded Arrangement positioning-before-arm with deferred independent
+  marker/position reads, no redundant writes, source/revision/safety checks,
+  explicit partial failures, no start/stop/rollback and simulator persistence.
+- [ ] Qualify the new positioning command through the integrated ordinary
+  listening host against a fresh runner-owned Live 11 process.
+
 - [~] Build fake Song, Track, Clip, Device, Browser, and Application objects.
 - [x] Add capability-detected recording, grooves, selection/view, Live history,
   Session automation, warp-marker, Browser adapter, specialized-device, and
@@ -156,6 +162,13 @@ Companion specification: [Remote Script](remote-script.md)
   simulator coverage.
 
 ## Exit criteria
+
+- [x] Implement bounded, main-thread guarded Arrangement seek/continue with
+  explicit leave-running cleanup policy and no ownership/stop token.
+- [x] Cover changed Set/revision/targets, unknown recording/source state,
+  partial mutations, ordering and no rollback using Python and bridge simulators.
+- [ ] Validate guarded Arrangement start against runner-owned Live 11.3.42;
+  native capture timing and Session sounding onset remain unverified.
 
 - [x] No model, cloud, MCP, or third-party dependency exists in the script.
 - [x] All commands are registered, validated, scheduled, and tested.

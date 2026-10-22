@@ -72,6 +72,12 @@ import {
   workflowJobOperationResultSchema,
   type CommandName,
 } from "@ableton-agent/protocol";
+import {
+  contextOperationParamsSchema,
+  contextOperationResultSchema,
+  listeningOperationParamsSchema,
+  listeningOperationResultSchema,
+} from "./listening-tools.js";
 import { z, type ZodType } from "zod";
 
 import type {
@@ -148,7 +154,7 @@ export interface AbletonOperationDescriptor {
   readonly mutationTarget: MutationTarget;
   readonly editScope: AbletonOperationEditScope;
   readonly requiredCapability: string;
-  readonly protocolCommand: CommandName;
+  readonly protocolCommand?: CommandName;
   readonly lifecycleEvents: {
     readonly requested: "agent.operation.requested";
     readonly policyEvaluated: "agent.operation.policy";
@@ -181,6 +187,8 @@ export interface AbletonOperationDescriptor {
     | "executeWarpMarkerOperation"
     | "executeSpecializedDeviceOperation"
     | "executeWorkflowJobOperation"
+    | "executeListeningOperation"
+    | "executeContextOperation"
     | keyof Pick<
         AbletonToolServices,
         | "getConnectionStatus"
@@ -334,6 +342,70 @@ const operationLifecycleEvents = {
   failed: "agent.operation.failed",
   cancelled: "agent.operation.cancelled",
 } as const;
+
+function applicationContextDescriptors(): readonly AbletonOperationDescriptor[] {
+  return [
+    ...listeningOperationParamsSchema.options.map((inputSchema) => {
+      const action = inputSchema.shape.action.value;
+      const plays = action.startsWith("play-");
+      return {
+        operationId: `listening.${action.replaceAll("-", "_")}`,
+        action,
+        toolName: "ableton_listening",
+        title: plays
+          ? "Play and listen to audio"
+          : "Inspect or cancel listening",
+        inputSchema,
+        resultSchema: listeningOperationResultSchema,
+        risk: plays ? "reversible" : "read",
+        duration: plays ? "long" : "short",
+        mutationTarget: plays ? "session" : "read",
+        editScope: plays ? "session" : "none",
+        requiredCapability: "application.listening",
+        handlerBinding: "executeListeningOperation",
+        lifecycleEvents: operationLifecycleEvents,
+        affectedTrackReferences: (input: unknown) =>
+          normalizeReferences(collectTrackReferences(input)),
+        lifecycleIdentity: (input: unknown) => ({
+          domain: "listening",
+          action,
+          targetKind: plays ? "playback-listeners" : "listening-pass",
+          targetReferences: normalizeReferences(
+            collectExpectedReferences(input),
+          ),
+        }),
+      } satisfies AbletonOperationDescriptor;
+    }),
+    ...contextOperationParamsSchema.options.map((inputSchema) => {
+      const action = inputSchema.shape.action.value;
+      const prunes = action === "prune";
+      return {
+        operationId: `context.${action}`,
+        action,
+        toolName: "ableton_context",
+        title: prunes
+          ? "Prune App-session context"
+          : "Read App-session context",
+        inputSchema,
+        resultSchema: contextOperationResultSchema,
+        risk: prunes ? "destructive" : "read",
+        duration: "short",
+        mutationTarget: prunes ? "session" : "read",
+        editScope: prunes ? "session" : "none",
+        requiredCapability: "application.context",
+        handlerBinding: "executeContextOperation",
+        lifecycleEvents: operationLifecycleEvents,
+        affectedTrackReferences: () => [],
+        lifecycleIdentity: () => ({
+          domain: "context",
+          action,
+          targetKind: "session-context",
+          targetReferences: [],
+        }),
+      } satisfies AbletonOperationDescriptor;
+    }),
+  ];
+}
 
 function coreOperationDescriptor(
   definition: CoreOperationDefinition,
@@ -1535,6 +1607,7 @@ export const abletonOperationDescriptors = [
     readActions: new Set(["get", "list"]),
     granularProtocol: true,
   }),
+  ...applicationContextDescriptors(),
 ] as const satisfies readonly AbletonOperationDescriptor[];
 
 export const abletonToolOperationPatterns = abletonOperationDescriptors.map(

@@ -1,0 +1,101 @@
+{
+  "formatVersion": 1,
+  "evidenceKind": "actual-runner-owned-live-arm-then-failure",
+  "runId": "d7bc78dd-96dd-46da-9287-f75804576e62",
+  "scenarioRunId": "b6edbf54-7158-4ed9-8cff-cd92694430b0",
+  "scenarioId": "native-descriptive-fractional",
+  "passId": "710d2c6a-53d9-4127-a949-b04a7ddf4b46",
+  "pins": {
+    "sourceSetSha256": "219ebb631b5b73ce8999306c480cc2b233a81aa28eb0e4485322e0d95f31a25f",
+    "manifestSha256": "1a207a4c21368bfd2855673de73eedb9f6ca3ceb309140d94056efdadf03e4f7",
+    "deviceSha256": "8e45ecf31aee11fc5acbc7de95d504197d303e306a34710b25c83c20d8f3511a"
+  },
+  "armedDurationMs": 372,
+  "nativeArm": {
+    "scope": "arrangement-descriptive/v2",
+    "policy": {
+      "mode": "descriptive",
+      "maxClockDisagreementSamples": 64
+    },
+    "geometry": {
+      "sampleRate": 48000,
+      "vectorSize": 64,
+      "tempoBpm": 120,
+      "startBeat": 0.25,
+      "endBeat": 3.75,
+      "hopSamples": 4800,
+      "totalSamples": 84000
+    },
+    "nativeEpoch": 1,
+    "armCounter": 1026560,
+    "before": {
+      "dsp": [1, 48000, 64],
+      "frames": [
+        [0, 0.25, 1010112, 31, 1010112, 0, 1010112, 0, 0.25, 1010112, 31],
+        [0, 0.25, 1010624, 31, 1010624, 0, 1010624, 0, 0.25, 1010624, 31],
+        [0, 0.25, 1011136, 31, 1011136, 0, 1011136, 0, 0.25, 1011136, 31],
+        [0, 0.25, 1011648, 31, 1011648, 0, 1011648, 0, 0.25, 1011648, 31],
+        [0, 0.25, 1012160, 31, 1012160, 0, 1012160, 0, 0.25, 1012160, 31],
+        [0, 0.25, 1012672, 31, 1012672, 0, 1012672, 0, 0.25, 1012672, 31],
+        [0, 0.25, 1013184, 31, 1013184, 0, 1013184, 0, 0.25, 1013184, 31],
+        [0, 0.25, 1013696, 31, 1013696, 0, 1013696, 0, 0.25, 1013696, 31],
+        [0, 0.25, 1014208, 31, 1014208, 0, 1014208, 0, 0.25, 1014208, 31],
+        [0, 0.25, 1014720, 31, 1014720, 0, 1014720, 0, 0.25, 1014720, 31],
+        [0, 0.25, 1015232, 31, 1015232, 0, 1015232, 0, 0.25, 1015232, 31],
+        [0, 0.25, 1015744, 31, 1015744, 0, 1015744, 0, 0.25, 1015744, 31],
+        [0, 0.25, 1016256, 31, 1016256, 0, 1016256, 0, 0.25, 1016256, 31],
+        [0, 0.25, 1016768, 31, 1016768, 0, 1016768, 0, 0.25, 1016768, 31],
+        [0, 0.25, 1017280, 31, 1017280, 0, 1017280, 0, 0.25, 1017280, 31],
+        [0, 0.25, 1017792, 31, 1017792, 0, 1017792, 0, 0.25, 1017792, 31],
+        [0, 0.25, 1018304, 31, 1018304, 0, 1018304, 0, 0.25, 1018304, 31],
+        [0, 0.25, 1018816, 31, 1018816, 0, 1018816, 0, 0.25, 1018816, 31],
+        [0, 0.25, 1019328, 31, 1019328, 0, 1019328, 0, 0.25, 1019328, 31],
+        [0, 0.25, 1019840, 31, 1019840, 0, 1019840, 0, 0.25, 1019840, 31],
+        [0, 0.25, 1020352, 31, 1020352, 0, 1020352, 0, 0.25, 1020352, 31],
+        [0, 0.25, 1020864, 31, 1020864, 0, 1020864, 0, 0.25, 1020864, 31],
+        [0, 0.25, 1021376, 31, 1021376, 0, 1021376, 0, 0.25, 1021376, 31],
+        [0, 0.25, 1021888, 31, 1021888, 0, 1021888, 0, 0.25, 1021888, 31],
+        [0, 0.25, 1022400, 31, 1022400, 0, 1022400, 0, 0.25, 1022400, 31],
+        [0, 0.25, 1022912, 31, 1022912, 0, 1022912, 0, 0.25, 1022912, 31],
+        [0, 0.25, 1023424, 31, 1023424, 0, 1023424, 0, 0.25, 1023424, 31],
+        [0, 0.25, 1023936, 31, 1023936, 0, 1023936, 0, 0.25, 1023936, 31],
+        [0, 0.25, 1024448, 31, 1024448, 0, 1024448, 0, 0.25, 1024448, 31],
+        [0, 0.25, 1024960, 31, 1024960, 0, 1024960, 0, 0.25, 1024960, 31],
+        [0, 0.25, 1025472, 31, 1025472, 0, 1025472, 0, 0.25, 1025472, 31],
+        [0, 0.25, 1025984, 31, 1025984, 0, 1025984, 0, 0.25, 1025984, 31]
+      ]
+    },
+    "reset": {
+      "launchClock": -1,
+      "sourceClock": -1,
+      "onsetCount": 0,
+      "rejected": 0,
+      "active": 0,
+      "launchPhaseSamples": -1,
+      "firstSourceClock": -1,
+      "completedSamples": 0
+    }
+  },
+  "failureReason": "native_envelope_binding_changed",
+  "captureFailureElapsedMs": 1715,
+  "failureFrames": 0,
+  "rejectedEnvelopePacket": null,
+  "actualGuardOperand": null,
+  "nativeLaunchReceiptRetained": false,
+  "outcome": {
+    "completed": false,
+    "realLiveValidated": false,
+    "contextIds": [],
+    "processStopped": true,
+    "fixtureCleaned": true,
+    "transportCleanup": "leave-running"
+  },
+  "limitations": [
+    "The actual native arm is positive evidence, not a completed capture.",
+    "The generic capture-stage started event denotes waiting after arm, not a genuine launch receipt.",
+    "The rejected envelope values were not retained; neither the changed arm-counter nor rejection-code branch is assigned as the actual cause.",
+    "Playback start was requested and failed; exact transport state at failure was not independently retained.",
+    "A later observer must not retroactively fill missing values in this run.",
+    "Installed Live11.3.43 observations do not qualify Live11.3.42."
+  ]
+}

@@ -201,6 +201,25 @@ Initial stable error codes:
 
 ## Schema ownership
 
+### Listening start cleanup contract
+
+`listening.position_playback` is an additive Arrangement-only serialized
+mutation with the same bounded owner/pass/Set/revision/listener/range guards.
+Its result includes requested beat, independently observed marker/current beat,
+`playing:false`, changed-field flags, `cleanupPolicy:"leave-running"` and
+`sourceOnset:"unverified"`. All three beat fields must agree; the bridge also
+matches them to its request. This is stopped positioning before arm, not an
+onset/ownership certificate. The App must re-inspect afterward.
+
+`listening.start_playback` returns only `schemaVersion:1`, `mode:"arrangement"`,
+`cleanupPolicy:"leave-running"`, `startedAtBeat` (requested beat after verified
+seek), and `sourceOnset:"unverified"`. No ownership field is accepted. This
+acknowledges guarded marker start with later readback, not exact audible onset. Session start and
+stop remain unsupported; bounded listener capture cleanup must not stop Live.
+Partial mutation errors retain explicit indeterminate stage/observation details
+without claiming rollback. Command correlation/trace uses the existing request
+envelope, not arbitrary fields in the strict parameters.
+
 TypeScript schemas are canonical for the application packages. Export JSON
 Schema fixtures and validate them against Python-side parsing in contract tests.
 Do not rely on manually synchronized interfaces.

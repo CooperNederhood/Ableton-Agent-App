@@ -1,11 +1,20 @@
 import { clearInterval, setInterval } from "node:timers";
 
-import { LiveProcessController } from "./lib/live-process-controller.mjs";
-import { waitForRunnerOwnedLiveReady } from "./lib/live-ux-host.mjs";
+import {
+  LiveProcessController,
+  createComputerUseLiveController,
+} from "./lib/live-process-controller.mjs";
+import {
+  liveUxFixturePath,
+  waitForRunnerOwnedLiveReady,
+} from "./lib/live-ux-host.mjs";
 
 const applicationPath =
   process.env.ABLETON_LIVE_APP ?? "/Applications/Ableton Live 11 Suite.app";
-const controller = new LiveProcessController();
+const coordinatedStartup = process.argv.includes("--computer-use");
+const controller = coordinatedStartup
+  ? createComputerUseLiveController()
+  : new LiveProcessController();
 let launched = false;
 let stopRequested;
 const stopped = new Promise((resolve) => {
@@ -17,9 +26,16 @@ process.once("SIGINT", stopRequested);
 process.once("SIGTERM", stopRequested);
 
 try {
-  const liveProcess = await controller.launch(applicationPath);
+  const fixturePath = liveUxFixturePath(process.argv);
+  const liveProcess = await controller.launch(applicationPath, undefined, {
+    ...(fixturePath === undefined ? {} : { fixturePath }),
+  });
   launched = true;
-  const readiness = await waitForRunnerOwnedLiveReady(controller);
+  console.log(JSON.stringify({ type: "runner.process_owned", liveProcess }));
+  const readiness = await waitForRunnerOwnedLiveReady(controller, {
+    coordinatedStartup,
+    discardRecovery: !coordinatedStartup,
+  });
   console.log(
     JSON.stringify({
       ready: true,

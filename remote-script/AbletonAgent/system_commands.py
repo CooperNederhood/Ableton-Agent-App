@@ -3631,3 +3631,6 @@ def register_system_commands(registry):
     from .workflow_adapter_commands import register_workflow_adapter_commands
 
     register_workflow_adapter_commands(registry)
+    from .listening_commands import register_listening_commands
+
+    register_listening_commands(registry)

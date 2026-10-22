@@ -5,6 +5,8 @@ import {
   APPLICATION_TOOL_NAMES,
   APPROVED_BUILTIN_TOOL_NAMES,
   EXPLICIT_ONLY_BUILTIN_TOOL_NAMES,
+  createSessionContextHost,
+  ListeningFailure,
 } from "@ableton-agent/application";
 import {
   createNonBlockingObservabilityRecorder,
@@ -34,9 +36,12 @@ import {
 } from "@ableton-agent/storage";
 import {
   createAgentRuntime,
+  createListeningRuntimeHost,
   RuntimeConfigurationError,
   type AgentRuntime,
+  type ListeningRuntimeHost,
   type LiveSetSaveAction,
+  type SignalRuntimeOptions,
 } from "@ableton-agent/runtime";
 import type { Logger } from "@ableton-agent/shared";
 import {
@@ -66,6 +71,9 @@ import {
   type LiveSetSnapshotHistoryRepository,
 } from "./headless-desktop-service.js";
 import { JsonLiveSetSessionStore } from "./live-set-session-store.js";
+import type { DesktopEntityContextApi } from "../context-contracts.js";
+import { createDesktopContextReader } from "./desktop-context-reader.js";
+import { createDesktopSessionContextManager } from "./desktop-session-context.js";
 
 export interface DesktopCompositionOptions {
   preferencesPath: string;
@@ -76,6 +84,8 @@ export interface DesktopCompositionOptions {
   skillsDirectory: string;
   storage?: LiveAgentStorageLayout;
   signalDescriptorPath?: string;
+  signalSecretPath?: string;
+  legacySignalDescriptorPath?: string;
   /** Copilot session storage owned by the desktop app. */
   agentBaseDirectory: string;
   /** Environment inherited only by the embedded Copilot runtime. */
@@ -100,12 +110,43 @@ export interface DesktopCompositionOptions {
 }
 
 export interface DesktopComposition {
+  readonly entityContext?: DesktopEntityContextApi;
   service: HeadlessDesktopService;
   runtime: AgentRuntime;
   telemetry: ReturnType<typeof createNonBlockingObservabilityRecorder>;
   preferences: DesktopPreferences;
   /** Main-process-only credential used by the bridge and Signal ingress. */
   bridgeToken?: string;
+}
+
+export function resolveDesktopSignalOptions(
+  options: Pick<
+    DesktopCompositionOptions,
+    | "storage"
+    | "signalDescriptorPath"
+    | "signalSecretPath"
+    | "legacySignalDescriptorPath"
+  >,
+  port: number,
+): Pick<
+  SignalRuntimeOptions,
+  "port" | "descriptorPath" | "secretPath" | "legacyDescriptorPath"
+> {
+  const descriptorPath =
+    options.signalDescriptorPath ??
+    options.storage?.signalIngressDescriptorPath;
+  const secretPath =
+    options.signalSecretPath ?? options.storage?.signalIngressSecretPath;
+  return {
+    port,
+    ...(descriptorPath === undefined ? {} : { descriptorPath }),
+    ...(secretPath === undefined ? {} : { secretPath }),
+    ...(options.legacySignalDescriptorPath === undefined
+      ? {}
+      : {
+          legacyDescriptorPath: options.legacySignalDescriptorPath,
+        }),
+  };
 }
 
 const missingTokenDetail =
@@ -632,6 +673,7 @@ export async function createDesktopComposition(
     });
   }
   const preferences = await loadPreferences(preferencesStore, notices);
+  let listeningTimingPolicy = Object.freeze({ ...preferences.listening });
   const eventJournalPath =
     options.eventJournalPath ??
     join(dirname(options.preferencesPath), "agent-set-event-history.sqlite");
@@ -787,6 +829,39 @@ export async function createDesktopComposition(
     read?: () => ReturnType<HeadlessDesktopService["getSessions"]>;
   } = {};
   const serviceRef: { current?: HeadlessDesktopService } = {};
+  const contextLifetime = new AbortController();
+  const contextManager =
+    storage === undefined
+      ? undefined
+      : createDesktopSessionContextManager({
+          storage,
+          recorder: telemetry,
+          resolveSession: async (id) => {
+            if (serviceRef.current === undefined) {
+              throw new Error("Desktop context ownership is not ready");
+            }
+            return serviceRef.current.getSessionForContext(id);
+          },
+          publishSessionContext: async (request) => {
+            if (serviceRef.current === undefined) {
+              throw new Error("Desktop context publication is not ready");
+            }
+            return serviceRef.current.publishSessionContext(request);
+          },
+        });
+  if (contextManager !== undefined) {
+    sessionStore.setSessionContextTransitionHandler(
+      contextManager.prepareSessionTransition,
+    );
+  }
+  const contextHost =
+    contextManager === undefined
+      ? undefined
+      : createSessionContextHost({
+          resolveRepository: contextManager.resolveRepository,
+          signal: contextLifetime.signal,
+        });
+  let listeningHost: ListeningRuntimeHost | undefined;
   const snapshotHistory =
     options.snapshotHistory ??
     (journalHost.journal === undefined
@@ -893,12 +968,51 @@ export async function createDesktopComposition(
           ? [identitySettlementAction]
           : [identitySettlementAction, snapshotCaptureAction],
     },
-    signal: {
-      port: preferences.signalPort,
-      ...(options.signalDescriptorPath === undefined
-        ? {}
-        : { descriptorPath: options.signalDescriptorPath }),
-    },
+    signal: resolveDesktopSignalOptions(options, preferences.signalPort),
+    ...(contextManager === undefined || contextHost === undefined
+      ? {}
+      : {
+          listening: (
+            dependencies: Parameters<typeof createListeningRuntimeHost>[0],
+          ) => {
+            const host = createListeningRuntimeHost(dependencies, {
+              contextPorts: contextHost,
+              resolveTimingPolicy: () => listeningTimingPolicy,
+              onChange: (job) => {
+                if (serviceRef.current === undefined) {
+                  throw new Error("Desktop listening lifecycle is not ready");
+                }
+                serviceRef.current.reportListeningJob(job);
+              },
+              resolveOwner: async (context) => {
+                const session = await serviceRef.current?.getSessionForContext(
+                  context.sessionId,
+                );
+                if (session === undefined) {
+                  throw new ListeningFailure(
+                    "permission_denied",
+                    "No App session belongs to the invoking listening owner",
+                  );
+                }
+                return {
+                  sessionId: session.id,
+                  liveSetId: session.liveSetId,
+                  agentId: context.agentId,
+                };
+              },
+              resolveRepository: (_owner, context) =>
+                contextManager.resolveRepository(context),
+            });
+            listeningHost = {
+              ...host,
+              shutdown: async () => {
+                await host.shutdown();
+                contextLifetime.abort();
+              },
+            };
+            return listeningHost;
+          },
+        }),
     ...(options.logger === undefined ? {} : { logger: options.logger }),
     telemetry,
   };
@@ -946,6 +1060,12 @@ export async function createDesktopComposition(
     ...(snapshotHistory === undefined ? {} : { snapshotHistory }),
     ...(journalHost.journal === undefined ? {} : { eventJournal: journalHost }),
     eventHistoryUnavailable: journalHost.journal === undefined,
+    ...(contextManager === undefined
+      ? {}
+      : { closeSessionContext: () => contextManager.close() }),
+    ...(listeningHost === undefined
+      ? {}
+      : { quiesceListening: listeningHost.shutdown.bind(listeningHost) }),
     reconfigureEventJournal,
     onEventHistoryEnabledChange: (enabled) => journalHost.setEnabled(enabled),
     ...(options.logger === undefined ? {} : { logger: options.logger }),
@@ -955,6 +1075,9 @@ export async function createDesktopComposition(
       ? {}
       : { onLoggingLevelChange: options.onLoggingLevelChange }),
     onApprovalPolicyChange: (policy) => approvalPolicy.setPolicy(policy),
+    onListeningTimingPolicyChange: (policy) => {
+      listeningTimingPolicy = Object.freeze({ ...policy });
+    },
     onAgentTurnTimeoutChange: (minutes) => {
       agentTurnTimeoutMs = minutes * 60_000;
     },
@@ -970,6 +1093,14 @@ export async function createDesktopComposition(
     service: desktopService,
     runtime,
     telemetry,
+    ...(contextHost === undefined
+      ? {}
+      : {
+          entityContext: createDesktopContextReader({
+            execute: contextHost.executeContextOperation,
+            telemetry,
+          }),
+        }),
     ...(token === undefined ? {} : { bridgeToken: token }),
     preferences:
       journalHost.journal === undefined

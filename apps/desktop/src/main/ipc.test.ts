@@ -3,8 +3,180 @@ import { describe, expect, it, vi } from "vitest";
 import type { DesktopService } from "./desktop-service.js";
 import type { DiagnosticsActions, ProfileManagerActions } from "./ipc.js";
 import { createIpcHandlers, registerIpc } from "./ipc.js";
+import type { DesktopEntityContextApi } from "../context-contracts.js";
+import { preferencesSchema } from "../contracts.js";
 
 describe("desktop IPC", () => {
+  it("guards listening preferences and round-trips policy through existing typed handlers", async () => {
+    const registered = new Map<
+      string,
+      (event: never, payload: unknown) => Promise<unknown>
+    >();
+    const preferences = preferencesSchema.parse({
+      listening: { mode: "strict", maxClockDisagreementSamples: 0 },
+    });
+    const setPreferences = vi.fn(async () => preferences);
+    const getPreferences = vi.fn(async () => preferences);
+    let trusted = false;
+    const ipcMain = {
+      handle: (
+        channel: string,
+        handler: (event: never, payload: unknown) => Promise<unknown>,
+      ) => {
+        registered.set(channel, handler);
+      },
+      removeHandler: vi.fn(),
+    };
+    const unregister = registerIpc(
+      ipcMain,
+      { setPreferences, getPreferences } as unknown as DesktopService,
+      {} as DiagnosticsActions,
+      () => trusted,
+    );
+    const set = registered.get("preferences:set")!;
+    await expect(set({} as never, preferences)).rejects.toThrow("Untrusted");
+    trusted = true;
+    await expect(
+      set({} as never, {
+        ...preferences,
+        listening: { mode: "strict", maxClockDisagreementSamples: 1 },
+      }),
+    ).rejects.toThrow();
+    expect(setPreferences).not.toHaveBeenCalled();
+    await expect(set({} as never, preferences)).resolves.toEqual(preferences);
+    expect(setPreferences).toHaveBeenCalledWith(preferences);
+    await expect(
+      registered.get("preferences:get")!({} as never, {}),
+    ).resolves.toEqual(preferences);
+    setPreferences.mockRejectedValueOnce(
+      new Error("owned persistence failure"),
+    );
+    await expect(set({} as never, preferences)).rejects.toThrow(
+      "persistence failure",
+    );
+    unregister();
+    expect(ipcMain.removeHandler).toHaveBeenCalledWith("preferences:set");
+  });
+
+  it("guards bounded listening inventory and carries expected session ownership into existing cancellation", async () => {
+    const registered = new Map<
+      string,
+      (event: never, payload: unknown) => Promise<unknown>
+    >();
+    const listListeningJobs = vi.fn(async () => ({
+      sessionId: "session",
+      revision: 0,
+      jobs: [],
+    }));
+    const cancelActiveAgent = vi.fn(async () => ({ cancelled: true }));
+    const ipcMain = {
+      handle: (
+        channel: string,
+        handler: (event: never, payload: unknown) => Promise<unknown>,
+      ) => {
+        registered.set(channel, handler);
+      },
+      removeHandler: vi.fn(),
+    };
+    let trusted = false;
+    const unregister = registerIpc(
+      ipcMain,
+      {
+        listListeningJobs,
+        cancelActiveAgent,
+      } as unknown as DesktopService,
+      {} as DiagnosticsActions,
+      () => trusted,
+    );
+    const list = registered.get("listening:list")!;
+    const agentId = "00000000-0000-4000-8000-000000000001";
+    const request = { sessionId: "session", agentId };
+    await expect(list({} as never, request)).rejects.toThrow("Untrusted");
+    trusted = true;
+    await expect(
+      list({} as never, { ...request, path: "/private" }),
+    ).rejects.toThrow();
+    await expect(
+      list({} as never, { ...request, limit: 101 }),
+    ).rejects.toThrow();
+    await expect(list({} as never, request)).resolves.toEqual({
+      sessionId: "session",
+      revision: 0,
+      jobs: [],
+    });
+    expect(listListeningJobs).toHaveBeenCalledWith({ ...request, limit: 100 });
+    await registered.get("agents:cancel")!({} as never, {
+      instanceId: agentId,
+      sessionId: "session",
+    });
+    expect(cancelActiveAgent).toHaveBeenCalledWith(agentId, {
+      sessionId: "session",
+    });
+    listListeningJobs.mockRejectedValueOnce(
+      new Error("Synthetic inventory failure"),
+    );
+    await expect(list({} as never, request)).rejects.toThrow(
+      "inventory failure",
+    );
+    unregister();
+    expect(ipcMain.removeHandler).toHaveBeenCalledWith("listening:list");
+  });
+
+  it("guards typed context reads, denies renderer SQL and removes owned handlers", async () => {
+    const registered = new Map<
+      string,
+      (event: never, payload: unknown) => Promise<unknown>
+    >();
+    const ipcMain = {
+      handle: (
+        channel: string,
+        handler: (event: never, payload: unknown) => Promise<unknown>,
+      ) => {
+        registered.set(channel, handler);
+      },
+      removeHandler: vi.fn(),
+    };
+    const list = vi.fn<DesktopEntityContextApi["list"]>(async () => ({
+      action: "list",
+      entries: [],
+    }));
+    const get = vi.fn<DesktopEntityContextApi["get"]>();
+    let trusted = false;
+    const unregister = registerIpc(
+      ipcMain,
+      {} as DesktopService,
+      {} as DiagnosticsActions,
+      () => trusted,
+      undefined,
+      undefined,
+      { list, get },
+    );
+    const read = registered.get("entity-context:list");
+    if (read === undefined)
+      throw new Error("Context handler was not registered");
+    await expect(read({} as never, { sessionId: "session" })).rejects.toThrow(
+      "Untrusted",
+    );
+    expect(list).not.toHaveBeenCalled();
+    trusted = true;
+    await expect(
+      read({} as never, { sessionId: "session", sql: "SELECT *" }),
+    ).rejects.toThrow();
+    expect(list).not.toHaveBeenCalled();
+    await expect(read({} as never, { sessionId: "session" })).resolves.toEqual({
+      action: "list",
+      entries: [],
+    });
+    expect(list).toHaveBeenCalledWith({
+      sessionId: "session",
+      includeHistorical: false,
+      limit: 20,
+    });
+    unregister();
+    expect(ipcMain.removeHandler).toHaveBeenCalledWith("entity-context:list");
+    expect(ipcMain.removeHandler).toHaveBeenCalledWith("entity-context:get");
+  });
+
   it("routes scoped agent definition saves through the profile manager", async () => {
     const saveAgentDefinition = vi.fn().mockResolvedValue({
       catalog: { definitions: [], skills: [], diagnostics: [] },

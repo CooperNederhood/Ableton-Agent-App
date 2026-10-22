@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import { commandCatalog } from "./catalog.js";
 import { PROTOCOL_VERSION } from "./constants.js";
+import { inspectListeningContextParamsSchema } from "./listening-live-schemas.js";
 import {
   failureResponseEnvelopeSchema,
   messageEnvelopeSchema,
@@ -13,6 +14,22 @@ import {
 } from "./schemas.js";
 
 describe("generated protocol contracts", () => {
+  it("round-trips the canonical listening path discovery fixture", async () => {
+    const fixture = JSON.parse(
+      await readFile(
+        new URL("../contracts/command-fixtures.json", import.meta.url),
+        "utf8",
+      ),
+    ) as { commands: Record<string, { canonicalPathRequest?: unknown }> };
+    const request = requestEnvelopeSchema.parse(
+      fixture.commands["listening.inspect_context"]?.canonicalPathRequest,
+    );
+    const params = inspectListeningContextParamsSchema.parse(request.params);
+    expect(params.listeners).toEqual([
+      { canonicalPath: "live_set tracks 0 devices 0" },
+    ]);
+    expect(params.bindingQueryId).toBeDefined();
+  });
   it("keeps every command in the checked-in JSON Schema artifact", async () => {
     const document = JSON.parse(
       await readFile(

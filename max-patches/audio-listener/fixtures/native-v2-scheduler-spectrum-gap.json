@@ -1,0 +1,36 @@
+{
+  "scope": "native-v2-scheduler-spectrum-gap/v1",
+  "diagnosticOnly": true,
+  "packagedQualification": false,
+  "scenarioRunId": "0a3f7771-a6e8-4b8d-b119-a9222c5c8694",
+  "passId": "f4e47c1f-8454-44c8-9bbd-40e73dbaaea8",
+  "traceId": "fbff1f59-fa60-485f-afd0-8d6f5f6d9f35",
+  "sourceOverrides": [
+    {
+      "resource": "audio_listener_native_clock.maxpat",
+      "change": "clock-only high-priority sampler; analysis remains qmetro",
+      "sha256": "dc9c1542d9c6ca0cc579a60377300cffbeaaf382b16cdd36b10f4dce8a9485ce"
+    }
+  ],
+  "controllerState": "capturing",
+  "failureReason": "changed_native_spectrum_sequence",
+  "check": "sequence",
+  "sampleRate": 48000,
+  "vectorSize": 64,
+  "nativeOriginCounter": 961536,
+  "requestedEndCounter": 2401536,
+  "completedEnvelopeWindows": 291,
+  "requestedEnvelopeWindows": 300,
+  "previousPacket": [2359296, 0, 0, 2357248, 2359296, 0],
+  "packet": [2371584, 0, 0, 2369536, 2371584, 0],
+  "frameAdvanceSamples": 12288,
+  "missingFrameCount": 5,
+  "invalidNativeFrames": 0,
+  "fftDiagnostics": [-1, -1, -1, -1, 0],
+  "outcome": {
+    "completed": false,
+    "contextIds": [],
+    "processStopped": true,
+    "fixtureCleaned": true
+  }
+}

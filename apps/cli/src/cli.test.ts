@@ -1,4 +1,9 @@
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
 import { describe, expect, it, vi } from "vitest";
+import { z } from "zod";
 
 import {
   HeadlessApplication,
@@ -32,6 +37,7 @@ const richTerminal: TerminalPresentation = {
   unicode: true,
   colors: createColorizer(false),
 };
+const runTraceSchema = z.record(z.string(), z.unknown());
 
 it("renders bounded workflow-job lifecycle progress", () => {
   expect(
@@ -858,6 +864,188 @@ function interactiveInput(lines: readonly string[]): InteractiveInput {
 }
 
 describe("CLI", () => {
+  it("fails a noninteractive human gate promptly without inventing an answer", async () => {
+    const fixture = application({ state: "disconnected" });
+    const cancel = vi.spyOn(fixture.agent, "cancel");
+    const stop = vi.spyOn(fixture.agent, "stop");
+    vi.spyOn(fixture.agent, "send").mockImplementation(async () => {
+      fixture.events.publish({
+        type: "agent.elicitation_requested",
+        request: {
+          requestId: "unanswered",
+          message: "Choose another mutation?",
+          properties: {},
+          required: [],
+        },
+      });
+      return await new Promise(() => undefined);
+    });
+    await expect(
+      runCommand(
+        { name: "run", prompt: "reviewed fixture", json: true },
+        fixture.application,
+        output().io,
+      ),
+    ).rejects.toMatchObject({
+      code: "approval_required",
+      message:
+        "Non-interactive run cannot resolve agent.elicitation_requested; no answer or approval was supplied",
+    });
+    expect(cancel).toHaveBeenCalledOnce();
+    expect(stop).toHaveBeenCalledOnce();
+  });
+  it("checkpoints partial tool activity before a stalled turn and retains its failure", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "cli-partial-trace-"));
+    const tracePath = join(directory, "trace.json");
+    const fixture = application({ state: "disconnected" });
+    const failure = new Error("Turn timed out; password=private-value");
+    const agentStop = vi.spyOn(fixture.agent, "stop");
+    vi.spyOn(fixture.agent, "send").mockImplementation(async () => {
+      fixture.events.publish({
+        type: "operation.started",
+        operationId: "partial-mutation",
+        toolName: "ableton_tracks",
+        label: "Creating fixture track",
+        agentInstanceId: "fixture-agent",
+        sdkSessionId: "fixture-session",
+        arguments: { name: "AA_SMOKE_test password=private-value" },
+      });
+      fixture.events.publish({
+        type: "operation.completed",
+        operationId: "partial-mutation",
+        toolName: "ableton_tracks",
+        summary: "Created fixture track",
+      });
+      await vi.waitFor(async () => {
+        const trace = runTraceSchema.parse(
+          JSON.parse(await readFile(tracePath, "utf8")),
+        );
+        expect(trace).toMatchObject({
+          ok: false,
+          traceState: "running",
+          operations: [
+            {
+              type: "operation.started",
+              toolName: "ableton_tracks",
+              agentInstanceId: "fixture-agent",
+              sdkSessionId: "fixture-session",
+            },
+            { type: "operation.completed" },
+          ],
+        });
+        expect(JSON.stringify(trace)).not.toContain("private-value");
+      });
+      throw failure;
+    });
+    try {
+      await expect(
+        runCommand(
+          { name: "run", prompt: "fixture", json: true, tracePath },
+          fixture.application,
+          output().io,
+        ),
+      ).rejects.toBe(failure);
+      const trace = runTraceSchema.parse(
+        JSON.parse(await readFile(tracePath, "utf8")),
+      );
+      expect(trace).toMatchObject({
+        ok: false,
+        traceState: "failed",
+        exitClassification: "run_failed",
+        operations: [
+          { type: "operation.started", toolName: "ableton_tracks" },
+          { type: "operation.completed" },
+        ],
+      });
+      expect(trace.finishedAt).toEqual(expect.any(String));
+      expect(trace.error).toContain("Turn timed out");
+      expect(JSON.stringify(trace)).not.toContain("private-value");
+      expect(agentStop).toHaveBeenCalledOnce();
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("finalizes a successful checkpoint without persisting assistant text", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "cli-complete-trace-"));
+    const tracePath = join(directory, "trace.json");
+    const fixture = application({ state: "disconnected" }, "private prose");
+    try {
+      expect(
+        await runCommand(
+          { name: "run", prompt: "fixture", json: true, tracePath },
+          fixture.application,
+          output().io,
+        ),
+      ).toBe(EXIT_CODES.SUCCESS);
+      const trace = runTraceSchema.parse(
+        JSON.parse(await readFile(tracePath, "utf8")),
+      );
+      expect(trace).toMatchObject({
+        ok: true,
+        traceState: "completed",
+      });
+      expect(trace.startedAt).toEqual(expect.any(String));
+      expect(trace.finishedAt).toEqual(expect.any(String));
+      expect(JSON.stringify(trace)).not.toContain("private prose");
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("does not invoke the agent when the initial trace cannot be persisted", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "cli-trace-denial-"));
+    const fixture = application({ state: "disconnected" });
+    const stop = vi.spyOn(fixture.application, "stop");
+    const send = vi.spyOn(fixture.agent, "send");
+    try {
+      await expect(
+        runCommand(
+          { name: "run", prompt: "fixture", json: true, tracePath: directory },
+          fixture.application,
+          output().io,
+        ),
+      ).rejects.toThrow();
+      expect(send).not.toHaveBeenCalled();
+      expect(fixture.agentStart).not.toHaveBeenCalled();
+      expect(stop).toHaveBeenCalledOnce();
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("preserves cancellation evidence and cleanup without claiming postconditions", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "cli-cancel-trace-"));
+    const tracePath = join(directory, "trace.json");
+    const cancelled = new Error("Capture cancelled");
+    const fixture = application(
+      { state: "disconnected" },
+      "unused",
+      false,
+      false,
+      cancelled,
+    );
+    const agentStop = vi.spyOn(fixture.agent, "stop");
+    try {
+      await expect(
+        runCommand(
+          { name: "run", prompt: "fixture", json: true, tracePath },
+          fixture.application,
+          output().io,
+        ),
+      ).rejects.toBe(cancelled);
+      expect(JSON.parse(await readFile(tracePath, "utf8"))).toMatchObject({
+        ok: false,
+        traceState: "failed",
+        error: "Capture cancelled",
+        assertions: [],
+      });
+      expect(agentStop).toHaveBeenCalledOnce();
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
   it("parses a one-shot prompt", () => {
     expect(parseArgs(["run", "inspect", "the", "set", "--json"])).toEqual({
       name: "run",

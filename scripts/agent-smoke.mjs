@@ -4,6 +4,7 @@ import { dirname, resolve } from "node:path";
 
 import {
   LiveProcessController,
+  createComputerUseLiveController,
   runProcess,
 } from "./lib/live-process-controller.mjs";
 import {
@@ -13,9 +14,16 @@ import {
 import {
   classifyScenario,
   collectToolNames,
+  recoverScenarioTrace,
   shouldRetryAgentScenario,
 } from "./lib/scenario-evidence.mjs";
 import { createIsolatedScenarioSession } from "./lib/scenario-session.mjs";
+import {
+  admitNativeScenarios,
+  createNativeListeningRunner,
+  reviewNativeScenario,
+  runNativeScenarioGroup,
+} from "./lib/native-listening-runner.mjs";
 
 function option(name) {
   const index = process.argv.indexOf(`--${name}`);
@@ -40,7 +48,9 @@ const requestedScenarios = (option("scenarios") ?? "")
   .split(",")
   .map((value) => value.trim())
   .filter(Boolean);
-const controller = new LiveProcessController();
+const controller = hasFlag("computer-use")
+  ? createComputerUseLiveController()
+  : new LiveProcessController();
 const evidence = {
   formatVersion: 1,
   runId: randomUUID(),
@@ -59,6 +69,27 @@ const coveredTools = new Set();
 
 let failed = false;
 try {
+  const suite = await loadScenarioSuite();
+  const selectedGroups = selectScenarioGroups(suite, evidence.selection);
+  const nativeGroups = new Map();
+  for (const group of selectedGroups.filter((entry) =>
+    ["native-listening", "native-listening-descriptive"].includes(entry.id),
+  )) {
+    const manifests = await Promise.all(group.scenarios.map(loadManifest));
+    if (manifests.some((manifest) => manifest.group !== group.id))
+      throw new Error(
+        "Native selection group does not match its reviewed manifest",
+      );
+    nativeGroups.set(group.id, manifests);
+  }
+  await admitNativeScenarios({
+    manifests: [...nativeGroups.values()].flat(),
+    skipInstall: hasFlag("skip-install"),
+    computerUse: hasFlag("computer-use"),
+    approveAll: hasFlag("approve-all"),
+    inputV1: option("native-fixture-input"),
+    inputV2: option("native-v2-fixture-input"),
+  });
   await controller.assertNoPreExistingLive();
   if (!hasFlag("skip-build")) {
     const build = await runProcess("pnpm", ["build"], { timeoutMs: 600_000 });
@@ -76,13 +107,11 @@ try {
     throw new Error("Installed Remote Script token is missing or invalid");
   }
   const environment = { ...process.env, ABLETON_AGENT_TOKEN: token };
-  const suite = await loadScenarioSuite();
-  const selectedGroups = selectScenarioGroups(suite, evidence.selection);
   for (const selectedGroup of selectedGroups) {
     const group = selectedGroup.id;
-    const scenarios = await Promise.all(
-      selectedGroup.scenarios.map(loadManifest),
-    );
+    const scenarios =
+      nativeGroups.get(group) ??
+      (await Promise.all(selectedGroup.scenarios.map(loadManifest)));
     for (const manifest of scenarios) {
       if (manifest.group !== group) {
         throw new Error(
@@ -97,14 +126,103 @@ try {
       passed: false,
     };
     evidence.groups.push(groupEvidence);
+    if (
+      scenarios.some(
+        (manifest) => manifest.execution === "native-listening-runtime",
+      )
+    ) {
+      const results = await runNativeScenarioGroup({
+        manifests: scenarios,
+        controller,
+        applicationPath,
+        createRunner: (manifest, scenarioRunId) =>
+          createNativeListeningRunner({
+            manifest,
+            inputPath: option(
+              reviewNativeScenario(manifest).nativeVersion === 2
+                ? "native-v2-fixture-input"
+                : "native-fixture-input",
+            ),
+            directory: resolve(
+              ".test-artifacts",
+              `native-listening-${scenarioRunId}`,
+            ),
+            environment,
+            runId: scenarioRunId,
+          }),
+        onResult: async (manifest, result, scenarioRunId, liveProcess) => {
+          const tracePath = resolve(
+            dirname(output),
+            "traces",
+            evidence.runId,
+            `${manifest.id}.json`,
+          );
+          evidence.liveProcess = liveProcess;
+          await mkdir(dirname(tracePath), { recursive: true });
+          await writeFile(
+            tracePath,
+            `${JSON.stringify(result, undefined, 2)}\n`,
+            { mode: 0o600 },
+          );
+          evidence.scenarios.push({
+            id: manifest.id,
+            group,
+            scenarioRunId,
+            liveProcess,
+            status: result.ok ? 0 : 5,
+            classification: result.ok ? "pass" : "fail",
+            passed: result.ok,
+            toolNames: manifest.allowedTools,
+            tracePath,
+            result,
+            stderr: "",
+          });
+        },
+      });
+      for (const { manifest, result } of results) {
+        const scenario = evidence.scenarios.find(
+          (item) => item.id === manifest.id && item.group === group,
+        );
+        await writeFile(
+          scenario.tracePath,
+          `${JSON.stringify(result, undefined, 2)}\n`,
+          { mode: 0o600 },
+        );
+      }
+      groupEvidence.passed =
+        results.length === scenarios.length &&
+        results.every(({ result }) => result.ok);
+      groupEvidence.finishedAt = new Date().toISOString();
+      if (!groupEvidence.passed) {
+        failed = true;
+        break;
+      }
+      for (const manifest of scenarios)
+        for (const tool of manifest.allowedTools) coveredTools.add(tool);
+      continue;
+    }
     await controller.launch(applicationPath);
     evidence.liveProcess = controller.publicRecord();
-    await waitForBridge(environment, controller, evidence);
+    if (hasFlag("computer-use")) {
+      console.log(
+        JSON.stringify({
+          type: "runner.process_owned",
+          liveProcess: evidence.liveProcess,
+        }),
+      );
+    }
+    await waitForBridge(
+      environment,
+      controller,
+      evidence,
+      hasFlag("computer-use") ? 600_000 : 120_000,
+    );
     let groupPassed = true;
     for (const manifest of scenarios) {
       const tracePath = resolve(
         dirname(output),
         "traces",
+        evidence.runId,
         `${manifest.id}.json`,
       );
       if (
@@ -164,6 +282,7 @@ try {
             : resolve(
                 dirname(output),
                 "traces",
+                evidence.runId,
                 `${manifest.id}.attempt-2.json`,
               );
         result = await runCli(
@@ -184,6 +303,11 @@ try {
           environment,
           manifest.timeoutMs + 30_000,
         );
+        result = await recoverScenarioTrace(
+          result,
+          finalTracePath,
+          manifest.id,
+        );
         classification = classifyScenario(manifest, result);
         attempts.push({
           attempt,
@@ -191,6 +315,8 @@ try {
           status: result.status,
           classification,
           tracePath: finalTracePath,
+          evidenceSource: result.evidenceSource,
+          traceEvidenceError: result.traceEvidenceError,
         });
         if (
           classification !== "fail" ||
@@ -219,6 +345,8 @@ try {
         attempts,
         toolNames,
         tracePath: finalTracePath,
+        evidenceSource: result.evidenceSource,
+        traceEvidenceError: result.traceEvidenceError,
         result: result.json,
         stderr: bounded(result.stderr),
       });
@@ -297,10 +425,13 @@ async function loadManifest(id) {
     manifest.execution !== "live-event-runtime" &&
     manifest.execution !== "capability-surface" &&
     manifest.execution !== "cue-point-runtime" &&
-    manifest.execution !== "routing-runtime"
+    manifest.execution !== "routing-runtime" &&
+    manifest.execution !== "native-listening-runtime"
   ) {
     throw new Error(`Invalid scenario execution mode: ${manifest.execution}`);
   }
+  if (manifest.execution === "native-listening-runtime")
+    reviewNativeScenario(manifest);
   if (
     (manifest.execution === "live-event-runtime" ||
       manifest.execution === "capability-surface" ||

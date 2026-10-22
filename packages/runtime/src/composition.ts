@@ -713,7 +713,37 @@ export interface AgentSettings {
   resolveSkill?: CopilotAgentServiceOptions["resolveSkill"];
 }
 
+export interface ListeningRuntimeHost {
+  executeListeningOperation?: CopilotAgentServiceOptions["executeListeningOperation"];
+  executeContextOperation?: CopilotAgentServiceOptions["executeContextOperation"];
+  waitForListeningPass?: CopilotAgentServiceOptions["waitForListeningPass"];
+  getSessionContextInventory?: CopilotAgentServiceOptions["getSessionContextInventory"];
+  shutdown(): Promise<void>;
+}
+
+export interface ListeningRuntimeDependencies {
+  readonly ableton: AbletonService;
+  readonly signals: SignalRuntime;
+  readonly events: EventPublisher;
+  readonly telemetry?: NonBlockingObservabilityRecorder;
+}
+
+function validateListeningHost(host: ListeningRuntimeHost | undefined): void {
+  if (
+    host?.executeListeningOperation !== undefined &&
+    host.waitForListeningPass === undefined
+  ) {
+    throw new RuntimeConfigurationError(
+      "Listening requires an owned-pass completion boundary to retain the transport lease",
+    );
+  }
+}
+
 export interface AgentRuntimeOptions {
+  /** Optional host factory receives the same bridge/ingress as all other tools. */
+  listening?:
+    | ListeningRuntimeHost
+    | ((dependencies: ListeningRuntimeDependencies) => ListeningRuntimeHost);
   ableton: AbletonBridgeSettings;
   agent?: AgentSettings;
   events?: EventPublisher;
@@ -764,6 +794,7 @@ class RuntimeAwareHeadlessApplication extends HeadlessApplication {
     private readonly liveEvents: LiveEventRuntime,
     private readonly liveSetSaves: LiveSetSaveRuntime,
     private readonly preparedContext: PreparedProjectContextStore,
+    private readonly listening: ListeningRuntimeHost | undefined,
   ) {
     super(services);
   }
@@ -795,9 +826,13 @@ class RuntimeAwareHeadlessApplication extends HeadlessApplication {
 
   public override async stop(): Promise<void> {
     try {
-      await this.liveSetSaves.stop();
-      await this.liveEvents.stop();
-      await super.stop();
+      try {
+        await this.listening?.shutdown();
+      } finally {
+        await this.liveSetSaves.stop();
+        await this.liveEvents.stop();
+        await super.stop();
+      }
     } finally {
       this.preparedContext.stop();
       this.#managedAgentInstanceIds.clear();
@@ -1057,6 +1092,9 @@ export function createAbletonService(
  * presentation concerns only.
  */
 export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
+  if (typeof options.listening !== "function") {
+    validateListeningHost(options.listening);
+  }
   const events = options.events ?? new InMemoryEventPublisher();
   const logger = options.logger ?? noopLogger;
   const { ableton, configured } = options.abletonService
@@ -1102,6 +1140,18 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
       ? {}
       : { telemetry: options.telemetry }),
   });
+  const listening =
+    typeof options.listening === "function"
+      ? options.listening({
+          ableton,
+          signals,
+          events,
+          ...(options.telemetry === undefined
+            ? {}
+            : { telemetry: options.telemetry }),
+        })
+      : options.listening;
+  validateListeningHost(listening);
   const preparedContext = new PreparedProjectContextStore({
     events,
     getAbletonStatus: () => ableton.getStatus(),
@@ -1137,6 +1187,22 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
   });
   const agent = new CopilotAgentService({
     events,
+    ...(listening?.executeListeningOperation === undefined
+      ? {}
+      : {
+          executeListeningOperation: listening.executeListeningOperation,
+        }),
+    ...(listening?.executeContextOperation === undefined
+      ? {}
+      : { executeContextOperation: listening.executeContextOperation }),
+    ...(listening?.waitForListeningPass === undefined
+      ? {}
+      : { waitForListeningPass: listening.waitForListeningPass }),
+    ...(listening?.getSessionContextInventory === undefined
+      ? {}
+      : {
+          getSessionContextInventory: listening.getSessionContextInventory,
+        }),
     ...(options.setHistoryQuery === undefined
       ? {}
       : { setHistoryQuery: options.setHistoryQuery }),
@@ -1175,7 +1241,20 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
       : { requestToolApproval: options.requestToolApproval }),
     askForReadApproval: options.askForReadApproval ?? false,
     getAbletonStatus: () => ableton.getStatus(),
-    getAbletonCapabilities: () => ableton.getCapabilities(),
+    getAbletonCapabilities: async () => {
+      const document = await ableton.getCapabilities();
+      if (listening === undefined) return document;
+      return {
+        ...document,
+        capabilities: {
+          ...document.capabilities,
+          "application.listening":
+            listening.executeListeningOperation !== undefined,
+          "application.context":
+            listening.executeContextOperation !== undefined,
+        },
+      };
+    },
     inspectSession: () => ableton.inspectSession(),
     executeScenesOperation: (params) => ableton.executeScenesOperation!(params),
     executeTracksOperation: (params) => ableton.executeTracksOperation!(params),
@@ -1272,6 +1351,7 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
     liveEvents,
     liveSetSaves,
     preparedContext,
+    listening,
   );
   signals.setDeliveryService(application);
   liveEvents.setDeliveryService(application);

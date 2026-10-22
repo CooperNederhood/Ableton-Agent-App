@@ -34,6 +34,7 @@ async function startSimulator(
     delayCommand?: string;
     delayMs?: number;
     emitSaveEvent?: boolean;
+    listeningFixture?: boolean;
   } = {},
 ): Promise<number> {
   const args = [
@@ -47,6 +48,7 @@ async function startSimulator(
       ? []
       : ["--delay-ms", String(options.delayMs)]),
     ...(options.emitSaveEvent === true ? ["--emit-save-event"] : []),
+    ...(options.listeningFixture === true ? ["--listening-fixture"] : []),
   ];
   simulator = spawn("python3", args, {
     cwd: new URL("../../..", import.meta.url),
@@ -78,6 +80,582 @@ afterEach(() => {
 });
 
 describe("AbletonBridgeService", () => {
+  it("positions fractional Arrangement playback before arm with fresh readback and correlated mutation lifecycle", async () => {
+    const port = await startSimulator(token, { listeningFixture: true });
+    const telemetry: TelemetryEventEnvelope[] = [];
+    const service = new AbletonBridgeService({
+      authenticationToken: token,
+      events: new InMemoryEventPublisher(),
+      port,
+      telemetry: { enqueue: (event) => telemetry.push(event) },
+    });
+    await service.start();
+    try {
+      expect((await service.getCapabilities()).capabilities).toMatchObject({
+        "listening.position_playback": true,
+        "listening.start_playback": true,
+        "listening.stop_playback": false,
+      });
+      const inspection = await service.inspectListeningContext({
+        schemaVersion: 1,
+        listeners: [{ canonicalPath: "live_set tracks 0 devices 1" }],
+        range: { startBeat: 5.25, endBeat: 9.5 },
+      });
+      const params = {
+        schemaVersion: 1 as const,
+        mode: "arrangement" as const,
+        ownerId: "session",
+        passId: "10000000-0000-4000-8000-000000000001",
+        expectedLiveSetId: "simulated-live-set",
+        expectedProjectRevision: inspection.projectRevision,
+        listeners: [inspection.listeners[0]!.binding],
+        range: { startBeat: 5.25, endBeat: 9.5 },
+      };
+      for (const change of [
+        { expectedLiveSetId: "another-set" },
+        { expectedProjectRevision: inspection.projectRevision + 1 },
+      ])
+        await expect(
+          service.positionListeningPlayback({ ...params, ...change }),
+        ).rejects.toMatchObject({ code: "conflict" });
+      const read = () =>
+        service.inspectListeningContext({
+          schemaVersion: 1,
+          listeners: params.listeners,
+          range: params.range,
+        });
+      expect((await read()).transport).toMatchObject({
+        playing: false,
+        currentBeat: 0,
+      });
+      registerCorrelationContext({
+        correlationId: "guarded-position",
+        traceId: "11111111-1111-4111-8111-111111111111",
+        causationId: "approved-listening",
+      });
+      expect(
+        await withCorrelation("guarded-position", () =>
+          service.positionListeningPlayback(params),
+        ),
+      ).toMatchObject({
+        requestedStartBeat: 5.25,
+        insertMarkerBeat: 5.25,
+        currentBeat: 5.25,
+        playing: false,
+        sourceOnset: "unverified",
+        cleanupPolicy: "leave-running",
+        changed: { insertMarker: true, currentPosition: true },
+      });
+      expect((await read()).transport).toMatchObject({
+        playing: false,
+        currentBeat: 5.25,
+      });
+      expect((await service.positionListeningPlayback(params)).changed).toEqual(
+        {
+          insertMarker: false,
+          currentPosition: false,
+        },
+      );
+      const stages = telemetry.filter(
+        (event) =>
+          event.attributes.command === "listening.position_playback" &&
+          event.correlationId === "guarded-position",
+      );
+      expect(stages.map((event) => event.name)).toEqual([
+        "bridge.request.queued",
+        "bridge.request.dispatched",
+        "bridge.request.completed",
+      ]);
+      expect(
+        stages.every(
+          (event) =>
+            event.trace?.traceId === "11111111-1111-4111-8111-111111111111",
+        ),
+      ).toBe(true);
+      await service.startListeningPlayback({
+        ...params,
+        expectedProjectRevision: (await read()).projectRevision,
+      });
+      expect((await read()).transport).toMatchObject({
+        playing: true,
+        currentBeat: 5.25,
+      });
+      await expect(
+        service.positionListeningPlayback(params),
+      ).rejects.toMatchObject({
+        code: "conflict",
+      });
+      expect((await read()).transport.playing).toBe(true);
+    } finally {
+      unregisterCorrelationContext("guarded-position");
+      await service.stop();
+    }
+  });
+  it("starts guarded Arrangement playback, leaves it running, and never enables stop ownership", async () => {
+    const port = await startSimulator(token, { listeningFixture: true });
+    const requests: string[] = [];
+    const telemetry: TelemetryEventEnvelope[] = [];
+    const service = new AbletonBridgeService({
+      authenticationToken: token,
+      events: new InMemoryEventPublisher(),
+      port,
+      onRequest: (request) => requests.push(request.command),
+      telemetry: {
+        enqueue: (event) => {
+          telemetry.push(event);
+        },
+      },
+    });
+    await service.start();
+    try {
+      const capabilities = await service.getCapabilities();
+      expect(capabilities.capabilities).toMatchObject({
+        "listening.start_playback": true,
+        "listening.stop_playback": false,
+      });
+      expect(
+        capabilities.capabilityDetails?.["listening.start_playback"]?.evidence,
+      ).toBe("public");
+      expect(
+        capabilities.capabilityDetails?.["listening.start_playback"]
+          ?.limitations.length,
+      ).toBeGreaterThan(0);
+      const context = await service.inspectListeningContext({
+        schemaVersion: 1,
+        listeners: [{ canonicalPath: "live_set tracks 0 devices 1" }],
+        range: { startBeat: 0, endBeat: 8 },
+      });
+      const requestCount = requests.length;
+      const passId = "10000000-0000-4000-8000-000000000001";
+      const start = {
+        schemaVersion: 1 as const,
+        mode: "arrangement" as const,
+        ownerId: "session",
+        passId,
+        expectedLiveSetId: "simulated-live-set",
+        expectedProjectRevision: context.projectRevision,
+        listeners: [context.listeners[0]!.binding],
+        range: { startBeat: 0, endBeat: 8 },
+      };
+      const deniedStarts: Array<[Partial<typeof start>, string]> = [
+        [{ expectedLiveSetId: "changed-set" }, "conflict"],
+        [{ expectedProjectRevision: context.projectRevision + 1 }, "conflict"],
+        [{ range: { startBeat: 4, endBeat: 8 } }, "conflict"],
+        [
+          {
+            listeners: [
+              {
+                ...context.listeners[0]!.binding,
+                expectedDeviceReference: passId,
+              },
+            ],
+          },
+          "stale_reference",
+        ],
+      ];
+      for (const [change, code] of deniedStarts)
+        await expect(
+          service.startListeningPlayback({ ...start, ...change }),
+        ).rejects.toMatchObject({ code });
+      expect(
+        (
+          await service.inspectListeningContext({
+            schemaVersion: 1,
+            listeners: [context.listeners[0]!.binding],
+            range: { startBeat: 0, endBeat: 8 },
+          })
+        ).transport,
+      ).toMatchObject({ playing: false, currentBeat: 0 });
+      registerCorrelationContext({
+        correlationId: "guarded-start",
+        traceId: "11111111-1111-4111-8111-111111111111",
+        causationId: "approved-listening",
+      });
+      expect(
+        await withCorrelation("guarded-start", () =>
+          service.startListeningPlayback(start),
+        ),
+      ).toEqual({
+        schemaVersion: 1,
+        mode: "arrangement",
+        cleanupPolicy: "leave-running",
+        startedAtBeat: 0,
+        sourceOnset: "unverified",
+      });
+      const stages = telemetry.filter(
+        (event) =>
+          event.attributes.command === "listening.start_playback" &&
+          event.correlationId === "guarded-start",
+      );
+      expect(stages.map((event) => event.name)).toEqual([
+        "bridge.request.queued",
+        "bridge.request.dispatched",
+        "bridge.request.completed",
+      ]);
+      expect(
+        stages.every(
+          (event) =>
+            event.trace?.traceId === "11111111-1111-4111-8111-111111111111",
+        ),
+      ).toBe(true);
+      await expect(service.startListeningPlayback(start)).rejects.toMatchObject(
+        { code: "conflict" },
+      );
+      const afterStartCount = requests.length;
+      await expect(
+        service.startListeningPlayback({
+          ...start,
+          mode: "session",
+          clip: {
+            view: "session",
+            track: start.listeners[0]!.track,
+            sceneIndex: 0,
+            expectedClipReference: passId,
+            expectedClipName: "Audio",
+          },
+        }),
+      ).rejects.toMatchObject({ code: "unsupported_capability" });
+      const afterSessionCount = requests.length;
+      await expect(
+        service.stopListeningPlayback({
+          schemaVersion: 1,
+          ownership: {
+            ownerId: "session",
+            passId,
+            generation: passId,
+            liveSetId: "simulated-live-set",
+          },
+        }),
+      ).rejects.toMatchObject({ code: "unsupported_capability" });
+      expect(requests.length).toBeGreaterThan(requestCount);
+      expect(afterSessionCount).toBe(afterStartCount + 1);
+      expect(requests).toHaveLength(afterSessionCount);
+      expect(requests).not.toContain("transport.set_playing");
+      const running = await service.inspectListeningContext({
+        schemaVersion: 1,
+        listeners: [context.listeners[0]!.binding],
+        range: { startBeat: 0, endBeat: 8 },
+      });
+      expect(running.transport.playing).toBe(true);
+      expect(running.listeners[0]?.sessionOverride).toBe(false);
+    } finally {
+      unregisterCorrelationContext("guarded-start");
+      await service.stop();
+    }
+  });
+  it("independently attests canonical listening paths with per-query trace linkage", async () => {
+    const port = await startSimulator(token, { listeningFixture: true });
+    const telemetry: TelemetryEventEnvelope[] = [];
+    const requests: Array<{
+      command: string;
+      correlationId?: string;
+      params: Readonly<Record<string, unknown>>;
+    }> = [];
+    const service = new AbletonBridgeService({
+      authenticationToken: token,
+      events: new InMemoryEventPublisher(),
+      port,
+      onRequest: (request) => requests.push(request),
+      telemetry: {
+        enqueue: (event) =>
+          telemetry.push(telemetryEventEnvelopeSchema.parse(event)),
+      },
+    });
+    const queryId = "10000000-0000-4000-8000-000000000001";
+    const params = {
+      schemaVersion: 1 as const,
+      bindingQueryId: queryId,
+      listeners: [{ canonicalPath: "live_set tracks 0 devices 1" }],
+      range: { startBeat: 0, endBeat: 16 },
+    };
+    await service.start();
+    registerCorrelationContext({
+      correlationId: "path-binding-query",
+      traceId: "11111111-1111-4111-8111-111111111111",
+      causationId: "binding-discovery",
+    });
+    try {
+      const result = await withCorrelation("path-binding-query", () =>
+        service.inspectListeningContext(params),
+      );
+      const listener = result.listeners[0]!;
+      expect(result.bindingQueryId).toBe(queryId);
+      expect(listener.pathAttestation).toEqual({
+        schemaVersion: 1,
+        source: "remote-script-lom",
+        canonicalTrackPath: "live_set tracks 0",
+        canonicalDevicePath: "live_set tracks 0 devices 1",
+        trackReference: listener.binding.track.expectedReference,
+        deviceReference: listener.binding.expectedDeviceReference,
+        placement: { kind: "track-device", deviceIndex: 1 },
+      });
+      expect(listener.binding.expectedClassName).toBe("MxDeviceAudioEffect");
+      expect(result.transport.playing).toBe(false);
+      expect(requests.at(-1)).toMatchObject({
+        correlationId: "path-binding-query",
+        params: { bindingQueryId: queryId },
+      });
+      const stages = telemetry.filter(
+        (event) => event.attributes.command === "listening.inspect_context",
+      );
+      expect(stages.map((event) => event.name)).toEqual([
+        "bridge.request.queued",
+        "bridge.request.dispatched",
+        "bridge.request.completed",
+      ]);
+      expect(
+        stages.every(
+          (event) =>
+            event.trace?.traceId === "11111111-1111-4111-8111-111111111111",
+        ),
+      ).toBe(true);
+      for (const [path, code] of [
+        ["live_set tracks 0 devices 0", "conflict"],
+        ["live_set tracks 0 devices 2", "not_found"],
+        [
+          "live_set tracks 0 devices 1 chains 0 devices 0",
+          "unsupported_capability",
+        ],
+      ]) {
+        await expect(
+          service.inspectListeningContext({
+            ...params,
+            listeners: [{ canonicalPath: path! }],
+          }),
+        ).rejects.toMatchObject({ code });
+      }
+      const requestCount = requests.length;
+      await expect(
+        service.inspectListeningContext({
+          ...params,
+          listeners: [{ canonicalPath: "live_set this_device" }],
+        }),
+      ).rejects.toThrow();
+      expect(requests).toHaveLength(requestCount);
+      expect(
+        (await service.inspectListeningContext(params)).transport.playing,
+      ).toBe(false);
+    } finally {
+      unregisterCorrelationContext("path-binding-query");
+      await service.stop();
+    }
+  });
+  it("cancels bounded listening inspection and clears its read-only queue on shutdown", async () => {
+    const port = await startSimulator(token, {
+      listeningFixture: true,
+      delayCommand: "listening.inspect_context",
+      delayMs: 100,
+    });
+    const telemetry: TelemetryEventEnvelope[] = [];
+    const service = new AbletonBridgeService({
+      authenticationToken: token,
+      events: new InMemoryEventPublisher(),
+      port,
+      telemetry: {
+        enqueue: (event) =>
+          telemetry.push(telemetryEventEnvelopeSchema.parse(event)),
+      },
+    });
+    await service.start();
+    const snapshot = await service.inspectSession();
+    const track = snapshot.tracks[0]!;
+    const devices = await service.inspectDevices({
+      index: 0,
+      expectedReference: track.reference,
+      expectedName: track.name,
+      offset: 0,
+      limit: 32,
+    });
+    const device = devices.devices.find(
+      (item) => item.className === "MxDeviceAudioEffect",
+    )!;
+    const params = {
+      schemaVersion: 1 as const,
+      listeners: [
+        {
+          track: {
+            kind: "regular" as const,
+            index: 0,
+            expectedReference: track.reference,
+            expectedName: track.name,
+          },
+          deviceIndex: device.index,
+          expectedDeviceReference: device.reference,
+          expectedDeviceName: device.name,
+          expectedClassName: device.className,
+        },
+      ],
+      range: { startBeat: 0, endBeat: 8 },
+    };
+    const results = Promise.allSettled([
+      service.inspectListeningContext(params),
+      service.inspectListeningContext(params),
+    ]);
+    try {
+      await waitFor(
+        () =>
+          telemetry.filter(
+            (event) =>
+              event.name === "bridge.request.queued" &&
+              event.attributes.command === "listening.inspect_context",
+          ).length === 2,
+      );
+      await service.stop();
+      expect(
+        (await results).every((result) => result.status === "rejected"),
+      ).toBe(true);
+      expect(
+        telemetry.filter(
+          (event) =>
+            event.name === "bridge.request.cancelled" &&
+            event.attributes.command === "listening.inspect_context",
+        ),
+      ).toHaveLength(2);
+    } finally {
+      await service.stop();
+    }
+  });
+  it("inspects bounded listening context with truthful clip identity and inherited traces", async () => {
+    const port = await startSimulator(token, { listeningFixture: true });
+    const telemetry: TelemetryEventEnvelope[] = [];
+    const requests: Array<{ command: string; correlationId?: string }> = [];
+    const events = new InMemoryEventPublisher();
+    const service = new AbletonBridgeService({
+      authenticationToken: token,
+      events,
+      port,
+      onRequest: (request) => requests.push(request),
+      telemetry: {
+        enqueue: (event) =>
+          telemetry.push(telemetryEventEnvelopeSchema.parse(event)),
+      },
+    });
+    await service.start();
+    try {
+      const snapshot = await service.inspectSession();
+      const track = snapshot.tracks[0]!;
+      const devices = await service.inspectDevices({
+        index: 0,
+        expectedReference: track.reference,
+        expectedName: track.name,
+        offset: 0,
+        limit: 32,
+      });
+      const device = devices.devices.find(
+        (item) => item.className === "MxDeviceAudioEffect",
+      )!;
+      const params = {
+        schemaVersion: 1 as const,
+        listeners: [
+          {
+            track: {
+              kind: "regular" as const,
+              index: 0,
+              expectedReference: track.reference,
+              expectedName: track.name,
+            },
+            deviceIndex: device.index,
+            expectedDeviceReference: device.reference,
+            expectedDeviceName: device.name,
+            expectedClassName: device.className,
+          },
+        ],
+        range: { startBeat: 0, endBeat: 16 },
+        maxParameters: 1,
+      };
+      registerCorrelationContext({
+        correlationId: "listening-inspection",
+        traceId: "11111111-1111-4111-8111-111111111111",
+        causationId: "approved-listening",
+      });
+      const context = await withCorrelation("listening-inspection", () =>
+        service.inspectListeningContext(params),
+      );
+      unregisterCorrelationContext("listening-inspection");
+      expect(context.transport).toMatchObject({
+        playing: false,
+        safeToStart: true,
+        recording: { recordMode: false, sessionRecord: false },
+      });
+      expect(context.listeners[0]).toMatchObject({
+        verified: true,
+        canonicalPath: "live_set tracks 0 devices 1",
+        dependenciesTruncated: true,
+        fingerprint: { completeness: "unknown" },
+        clips: [
+          {
+            target: {
+              view: "arrangement",
+              expectedClipName: "Listening Source",
+            },
+            interval: { startBeat: 0, endBeat: 8 },
+            activity: "inactive",
+            fingerprint: { completeness: "unknown" },
+          },
+        ],
+      });
+      const stages = telemetry.filter(
+        (event) => event.attributes.command === "listening.inspect_context",
+      );
+      expect(stages.map((event) => event.name)).toEqual([
+        "bridge.request.queued",
+        "bridge.request.dispatched",
+        "bridge.request.completed",
+      ]);
+      expect(
+        stages.every(
+          (event) =>
+            event.trace?.traceId === "11111111-1111-4111-8111-111111111111",
+        ),
+      ).toBe(true);
+      expect(stages.at(-1)).toMatchObject({
+        causationId: "approved-listening",
+      });
+      expect(stages.at(-1)?.durationMs).toBeGreaterThanOrEqual(0);
+      expect(requests.at(-1)).toMatchObject({
+        command: "listening.inspect_context",
+        correlationId: "listening-inspection",
+      });
+      const count = requests.length;
+      await expect(
+        service.inspectListeningContext({ ...params, maxClips: 65 }),
+      ).rejects.toThrow();
+      expect(requests).toHaveLength(count);
+      await expect(
+        service.inspectListeningContext({
+          ...params,
+          listeners: [{ ...params.listeners[0]!, expectedDeviceName: "Moved" }],
+        }),
+      ).rejects.toMatchObject({ code: "stale_reference" });
+      expect(
+        telemetry.some(
+          (event) =>
+            event.name === "bridge.request.failed" &&
+            event.attributes.command === "listening.inspect_context",
+        ),
+      ).toBe(true);
+      await service.executeRecordingOperation({
+        action: "set-arrangement-record",
+        enabled: true,
+      });
+      expect(
+        (await service.inspectListeningContext(params)).transport.safeToStart,
+      ).toBe(false);
+      await service.executeRecordingOperation({
+        action: "set-arrangement-record",
+        enabled: false,
+      });
+      await service.setPlaying(true);
+      expect(
+        (await service.inspectListeningContext(params)).listeners[0]?.clips[0]
+          ?.activity,
+      ).toBe("active");
+      await service.setPlaying(false);
+    } finally {
+      unregisterCorrelationContext("listening-inspection");
+      await service.stop();
+    }
+  });
   it("validates and publishes identity-complete Live Set save events", async () => {
     const port = await startSimulator(token, { emitSaveEvent: true });
     const service = new AbletonBridgeService({

@@ -1,0 +1,29 @@
+{
+  "formatVersion": 1,
+  "classification": "instrumented_diagnostic_failure",
+  "runId": "e78c82e7-dab4-441e-aa6f-a25043dd036a",
+  "passId": "80665877-8175-4014-a53b-74daea02f7af",
+  "controllerSha256": "acf6f1c075c632a5d9c6655815c4b7b3ec8ea8e58effb301046b3307bc16b21c",
+  "originalCandidateModified": false,
+  "sourceOverrideDiagnostic": true,
+  "acceptanceEvidence": false,
+  "spectrum": {
+    "row": [1224704, 0, 0, 1224704, 1226752, 0],
+    "previous": [1224704, 0, 0, 1222656, 1224704, 0],
+    "state": "armed",
+    "throwLineNumberZeroBased": 444
+  },
+  "terminal": {
+    "stage": "failed",
+    "reason": "invalid_native_spectrum_packet",
+    "contextIds": [],
+    "approvedActorCalls": 3,
+    "deniedActorCalls": 0
+  },
+  "limitations": [
+    "The first FFT end tag still holds the previous complete frame.",
+    "The start and duplicate end tags describe the next 2048-sample frame.",
+    "No values from this incoherent packet are valid replacement spectrum data.",
+    "Exact scheduler mechanism remains unproven; this is not acceptance."
+  ]
+}

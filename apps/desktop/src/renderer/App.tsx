@@ -4,6 +4,7 @@ import {
   type SkillInvocation,
 } from "@ableton-agent/agent-config/skill-invocation";
 import { createAgentEventListenerId } from "@ableton-agent/agent-config/live-event-id";
+import { DEFAULT_LISTENING_TIMING_POLICY } from "@ableton-agent/protocol";
 import {
   MAX_LIVE_EVENT_MESSAGE_PREFIX_LENGTH,
   resolvePreparedContextConfiguration,
@@ -75,6 +76,8 @@ import {
 } from "./inspector-layout";
 import { parseYoloCommand, yoloCommandUsage } from "./yolo-command";
 import { ProfileManagerView } from "./ProfileManagerView";
+import { EntityContextPanel } from "./EntityContextPanel";
+import { ListeningPassPanel } from "./ListeningPassPanel";
 
 type CatalogSkill = DesktopState["agentCatalog"]["skills"][number];
 
@@ -1112,7 +1115,11 @@ export function App(): React.JSX.Element {
             }
           />
         ) : state.activeView === "outputs" ? (
-          <OutputsView state={state} dispatch={dispatch} />
+          <OutputsView
+            state={state}
+            dispatch={dispatch}
+            contextEpoch={profileRefreshToken}
+          />
         ) : state.activeView === "events" ? (
           <EventsView state={state} dispatch={dispatch} />
         ) : state.activeView === "browser" ? (
@@ -2400,9 +2407,11 @@ export function EventCard({
 export function OutputsView({
   state,
   dispatch,
+  contextEpoch = 0,
 }: {
   state: DesktopState;
   dispatch: React.Dispatch<Parameters<typeof desktopReducer>[1]>;
+  contextEpoch?: number;
 }): React.JSX.Element {
   const [refreshing, setRefreshing] = useState(false);
   const [removingAssignmentId, setRemovingAssignmentId] = useState<string>();
@@ -2487,6 +2496,21 @@ export function OutputsView({
           </button>
         </div>
       </div>
+      <EntityContextPanel
+        sessionId={state.activeSessionId}
+        api={
+          typeof window === "undefined"
+            ? undefined
+            : window.desktop?.entityContext
+        }
+        contextEpoch={contextEpoch}
+      />
+      <ListeningPassPanel
+        sessionId={state.activeSessionId}
+        agentId={selectedAgentInstance(state)?.id}
+        api={typeof window === "undefined" ? undefined : window.desktop}
+        contextEpoch={contextEpoch}
+      />
       {unavailable && (
         <div className="notice" role="status">
           {state.outputs.status.state === "disabled" ||
@@ -7453,16 +7477,34 @@ export function SettingsView({
 }): React.JSX.Element {
   const [draft, setDraft] = useState(state.preferences);
   const [historyAction, setHistoryAction] = useState("");
+  const [saveState, setSaveState] = useState<
+    "idle" | "saving" | "saved" | "failed"
+  >("idle");
+  const [saveError, setSaveError] = useState("");
+  const editRevision = useRef(0);
   const autoApprovalOverrideCount =
     activeSession(state)?.activeAgents.filter(({ autoApprove }) => autoApprove)
       .length ?? 0;
   const save = async (event: FormEvent): Promise<void> => {
     event.preventDefault();
-    const preferences = await window.desktop.preferences.set(draft);
-    dispatch({
-      type: "event",
-      event: { type: "preferences.changed", preferences },
-    });
+    const submittedRevision = editRevision.current;
+    setSaveState("saving");
+    setSaveError("");
+    try {
+      const preferences = await window.desktop.preferences.set(draft);
+      dispatch({
+        type: "event",
+        event: { type: "preferences.changed", preferences },
+      });
+      setSaveState(
+        editRevision.current === submittedRevision ? "saved" : "idle",
+      );
+    } catch {
+      setSaveState("failed");
+      setSaveError(
+        "Settings could not be fully saved. Check active preferences before retrying.",
+      );
+    }
   };
   return (
     <section className="page-panel">
@@ -7470,7 +7512,14 @@ export function SettingsView({
         <h1>Settings</h1>
         <span>Non-secret preferences</span>
       </div>
-      <form className="settings-form" onSubmit={(event) => void save(event)}>
+      <form
+        className="settings-form"
+        onSubmit={(event) => void save(event)}
+        onChangeCapture={() => {
+          editRevision.current += 1;
+          if (saveState === "saved") setSaveState("idle");
+        }}
+      >
         <fieldset className="window-settings">
           <legend>Window</legend>
           <label className="checkbox">
@@ -7486,6 +7535,65 @@ export function SettingsView({
           <small>
             Keep Ableton Agent visible above other apps, including across macOS
             Spaces and over full-screen windows.
+          </small>
+        </fieldset>
+        <fieldset className="listening-settings">
+          <legend>Listening alignment acceptance</legend>
+          <label>
+            Listening timing mode
+            <select
+              value={draft.listening.mode}
+              onChange={(event) =>
+                setDraft({
+                  ...draft,
+                  listening:
+                    event.target.value === "strict"
+                      ? { mode: "strict", maxClockDisagreementSamples: 0 }
+                      : { ...DEFAULT_LISTENING_TIMING_POLICY },
+                })
+              }
+            >
+              <option value="descriptive">Descriptive (default)</option>
+              <option value="strict">
+                Strict (zero observed disagreement)
+              </option>
+            </select>
+          </label>
+          <label>
+            Configured acceptance limit (samples)
+            <input
+              type="number"
+              min="0"
+              max="480"
+              step="1"
+              required
+              disabled={draft.listening.mode === "strict"}
+              value={
+                Number.isNaN(draft.listening.maxClockDisagreementSamples)
+                  ? ""
+                  : draft.listening.maxClockDisagreementSamples
+              }
+              onChange={(event) => {
+                if (draft.listening.mode !== "descriptive") return;
+                setDraft({
+                  ...draft,
+                  listening: {
+                    mode: "descriptive",
+                    maxClockDisagreementSamples: event.target.valueAsNumber,
+                  },
+                });
+              }}
+            />
+          </label>
+          <small>
+            Advanced: 0–480 whole samples; descriptive default 64. This limits
+            observed clock/beat disagreement, not physical timing uncertainty or
+            a verified absolute error bound. Strict requires zero observed
+            disagreement with no fallback. All new observations remain
+            approximate and descriptive-only, including at zero disagreement.
+            Milliseconds are shown with measurements at the actual observation
+            sample rate. Saved changes apply only to new passes; an active pass
+            keeps its starting policy.
           </small>
         </fieldset>
         <label>
@@ -7716,9 +7824,16 @@ export function SettingsView({
           </div>
           {historyAction && <small role="status">{historyAction}</small>}
         </fieldset>
-        <button className="primary" type="submit">
+        <button
+          className="primary"
+          type="submit"
+          disabled={saveState === "saving"}
+        >
           Save settings
         </button>
+        {saveState === "saving" && <p role="status">Saving settings…</p>}
+        {saveState === "saved" && <p role="status">Settings saved.</p>}
+        {saveState === "failed" && <p role="alert">{saveError}</p>}
       </form>
       <p className="muted">
         Credentials are never exposed to this renderer and are stored separately

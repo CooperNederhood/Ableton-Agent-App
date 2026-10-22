@@ -61,6 +61,48 @@ ableton-agent run "summarize the current arrangement"
 Runs one prompt, waits for the agent to become idle, prints the result, and
 returns a stable exit code.
 
+`run --trace PATH` writes private, atomic, bounded evidence checkpoints before
+startup and after operation lifecycle events. A stalled turn therefore leaves
+`traceState: "running"` with the observed tool activity; a rejected turn writes
+`traceState: "failed"` with its sanitized error and timestamps. Neither state
+proves that mutations were absent or that postconditions passed. A finalized
+turn uses `"completed"` and retains the existing deterministic assertions and
+exit classification. Assistant prose remains stdout-only.
+
+Trace writes coalesce pending snapshots without reordering terminal evidence.
+Credentials embedded in strings are redacted, audio/binary bodies are omitted,
+and the existing depth, field, string, and 64-item array bounds apply. Traces
+have a 2 MiB encoded limit; write/size failures are explicit and prevent a
+success claim. Operation/approval truncation is visible. The smoke runner uses
+run-specific trace paths and can recover a matching checkpoint when a killed
+CLI produced no final JSON. Incomplete or truncated evidence never qualifies
+for a recovered pass or an automatic retry.
+
+One-shot runs fail explicitly with `approval_required` when the SDK requests
+human elicitation or plan approval. They cancel the invoking agent and preserve
+failed trace evidence instead of suspending indefinitely or inventing an
+answer. Interactive chat retains its separate human-input behavior.
+
+For computer-use commissioning, `pnpm live:agent-smoke --computer-use`
+and `pnpm live:ux-host --computer-use` emit `runner.launch_requested` only
+after rejecting existing Live processes. Launch Live 11 through computer-use
+at that point; the runner records the new exact executable/PID/start identity
+and emits `runner.process_owned`. This mode runs no shell launch or scripted
+dialog actions. Handle dialogs through the approved computer-use policy.
+Cleanup terminates only the validated disposable runner PID; it does not save
+the generated test Set. The same scenario guards and readiness checks apply.
+Externally coordinated launches have a ten-minute default launch deadline,
+matching the coordinated bridge-readiness budget and allowing time for app
+approval and startup UI handling. Ordinary launches retain the ninety-second
+default. An explicit launch deadline remains authoritative; timeout never
+claims or terminates a process that appears afterward.
+
+Reviewed region-fill scenarios explicitly require a separate Arrangement
+inspection before cleanup; the fill operation's own result is not that read.
+Prompt guidance distinguishes track identity/name from each tile's clip
+identity/start time. Missing inspection still denies deletion; action/risk
+allowlists, mutation budgets and ordering guards remain unchanged.
+
 ### Diagnostics
 
 ```bash

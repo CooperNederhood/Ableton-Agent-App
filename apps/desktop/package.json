@@ -27,6 +27,7 @@
     "@ableton-agent/debug-control": "workspace:*",
     "@ableton-agent/observability": "workspace:*",
     "@ableton-agent/protocol": "workspace:*",
+    "@ableton-agent/project-state": "workspace:*",
     "@ableton-agent/runtime": "workspace:*",
     "@ableton-agent/shared": "workspace:*",
     "@ableton-agent/signal-routing": "workspace:*",

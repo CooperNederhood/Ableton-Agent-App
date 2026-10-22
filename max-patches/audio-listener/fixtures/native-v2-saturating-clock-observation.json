@@ -1,0 +1,100 @@
+{
+  "formatVersion": 1,
+  "evidenceKind": "actual-instrumented-nonaccepting-saturating-clock-observation",
+  "runId": "dfd61716-9ee9-4b2f-8688-22665bdb9b6a",
+  "implementationCommit": "8e33f8d",
+  "acceptancePassed": false,
+  "captureOrContextAuthorized": false,
+  "clockGenSha256": "93ae44d762c13109256312db52325ec1e03b156b0eec9cc2459d16fda334fdf4",
+  "baselineClockGenSha256": "5e3b97e93fbe77bfd4714fa3be6089846faaa84fac1dc52acb7324b79d00a4b3",
+  "resourceName": "ml_counter_sat_dfd617169ee94b2f868822665bdb9b6a.gendsp",
+  "declaredChanges": [
+    "bounded-word-decomposition",
+    "coupled-eligibility-comparison",
+    "bounded-saturating-counter-update",
+    "single-clock-gen-reference",
+    "declared-manifest-adjustment"
+  ],
+  "metadata": {
+    "dsp": [1, 48000, 64],
+    "clockAbi": 2
+  },
+  "clock": {
+    "count": 83,
+    "snapshotPolicy": "first4_last4_disjoint",
+    "snapshots": [
+      {
+        "receivedAfterBeginMs": 15,
+        "values": [
+          0, 0.25, 1012160, 31, 1012160, 0, 1012160, 0, 0.25, 1012160, 31
+        ]
+      },
+      {
+        "receivedAfterBeginMs": 25,
+        "values": [
+          0, 0.25, 1012672, 31, 1012672, 0, 1012672, 0, 0.25, 1012672, 31
+        ]
+      },
+      {
+        "receivedAfterBeginMs": 36,
+        "values": [
+          0, 0.25, 1013184, 31, 1013184, 0, 1013184, 0, 0.25, 1013184, 31
+        ]
+      },
+      {
+        "receivedAfterBeginMs": 46,
+        "values": [
+          0, 0.25, 1013696, 31, 1013696, 0, 1013696, 0, 0.25, 1013696, 31
+        ]
+      },
+      {
+        "receivedAfterBeginMs": 857,
+        "values": [
+          0, 0.25, 1052608, 31, 1052608, 0, 1052608, 0, 0.25, 1052608, 31
+        ]
+      },
+      {
+        "receivedAfterBeginMs": 868,
+        "values": [
+          0, 0.25, 1053120, 31, 1053120, 0, 1053120, 0, 0.25, 1053120, 31
+        ]
+      },
+      {
+        "receivedAfterBeginMs": 878,
+        "values": [
+          0, 0.25, 1053632, 31, 1053632, 0, 1053632, 0, 0.25, 1053632, 31
+        ]
+      },
+      {
+        "receivedAfterBeginMs": 889,
+        "values": [
+          0, 0.25, 1054144, 31, 1054144, 0, 1054144, 0, 0.25, 1054144, 31
+        ]
+      }
+    ]
+  },
+  "spectrum": {
+    "count": 85,
+    "first": [-1, 0, 0, -1, -1, 493],
+    "last": [-1, 0, 0, -1, -1, 514],
+    "lastDiagnostics": [1048576, -1, -1, -1, 255]
+  },
+  "instrumentation": {
+    "failureAfterBeginMs": 900,
+    "maximumDelayMs": 1000,
+    "measurementPacketsAdmitted": 0,
+    "nativeArmControlsForwarded": 0
+  },
+  "cleanup": {
+    "processStopped": true,
+    "fixtureCleaned": true,
+    "sourcePinsUnchanged": true,
+    "errors": []
+  },
+  "limitations": [
+    "Confirms advancement at observed counters, not a physical multi-year ceiling test.",
+    "Counter saturation and oversized-state behavior have deterministic regression coverage.",
+    "Copied diagnostic resources and runtime instrumentation are not ordinary immutable-candidate acceptance.",
+    "Spectrum still rejects frames; no capture or context was authorized."
+  ]
+}

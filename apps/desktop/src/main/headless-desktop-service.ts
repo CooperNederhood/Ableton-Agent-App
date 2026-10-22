@@ -1,10 +1,16 @@
 import { randomUUID } from "node:crypto";
+import { performance } from "node:perf_hooks";
+import {
+  contextTraceSchema,
+  type SessionContextPublicationRequest,
+} from "@ableton-agent/project-state";
 
 import {
   DEFAULT_SIGNAL_USAGE_INSTRUCTION,
   isMissingCopilotSessionError,
   type AgentSessionConfiguration,
   type HeadlessApplication,
+  type ListeningJob,
 } from "@ableton-agent/application";
 import {
   createAgentEventListenerId,
@@ -42,6 +48,9 @@ import {
   stableTelemetryId,
 } from "@ableton-agent/signal-routing";
 import {
+  createNonBlockingObservabilityRecorder,
+  sanitizeTelemetryAttributes,
+  sanitizePersistedText,
   type ConfigurationSnapshotPage,
   type ConfigurationSnapshotQuery,
   type JournalHealth,
@@ -55,6 +64,7 @@ import type { AutomationTrace } from "@ableton-agent/debug-control";
 
 import {
   desktopActiveAgentSchema,
+  desktopSessionContextStoreReferenceSchema,
   desktopAgentCatalogSchema,
   desktopAgentConversationSettingsSchema,
   desktopAgentModelsSchema,
@@ -117,6 +127,18 @@ import type {
   LiveSetSessionAssociation,
   LiveSetSessionStore,
 } from "./live-set-session-store.js";
+import {
+  desktopListeningJobSchema,
+  desktopListeningListRequestSchema,
+  desktopListeningPageSchema,
+  desktopListeningTraceSchema,
+  desktopListeningStageSchema,
+  listeningTerminal,
+  type DesktopListeningJob,
+  type DesktopListeningCancellationOptions,
+  type DesktopListeningListRequest,
+  type DesktopListeningPage,
+} from "../listening-contracts.js";
 
 /** Devices and parameters read per track when building a Live Set snapshot. */
 const deviceReadLimit = 32;
@@ -235,6 +257,9 @@ export interface HeadlessDesktopServiceOptions {
     policy: DesktopPreferences["approvalPolicy"],
   ) => void;
   onAgentTurnTimeoutChange?: (minutes: number) => void;
+  onListeningTimingPolicyChange?: (
+    policy: DesktopPreferences["listening"],
+  ) => void;
   onAgentReasoningVisibilityChange?: (
     visibility: DesktopPreferences["agentReasoningVisibility"],
   ) => void;
@@ -248,6 +273,10 @@ export interface HeadlessDesktopServiceOptions {
   saveCaptureDelayMs?: number;
   /** Main-process-owned journal. It is never exposed to the renderer. */
   eventJournal?: DesktopEventJournal;
+  /** Close context handles after runtime/action drain and before journal closure. */
+  closeSessionContext?: () => Promise<void>;
+  /** Disarm owned listeners while their authenticated ingress is still alive. */
+  quiesceListening?: () => Promise<void>;
   reconfigureEventJournal?: (policy: RetentionPolicy) => Promise<void>;
   onEventHistoryEnabledChange?: (enabled: boolean) => void;
   eventHistoryUnavailable?: boolean;
@@ -308,6 +337,9 @@ export class HeadlessDesktopService implements DesktopService {
   #unsubscribeSignals: (() => void) | undefined;
   #unsubscribeLiveEvents: (() => void) | undefined;
   #sessions: DesktopSession[] = [];
+  readonly #listeningJobs = new Map<string, DesktopListeningJob>();
+  readonly #retiredListeningPasses = new Set<string>();
+  #listeningRevision = 0;
   #preferences: DesktopPreferences = preferencesSchema.parse({});
   #preferenceSaveTail: Promise<void> = Promise.resolve();
   #sessionActionTail: Promise<void> = Promise.resolve();
@@ -503,6 +535,15 @@ export class HeadlessDesktopService implements DesktopService {
       this.#report("Preferences could not be saved", error);
     }
     try {
+      await this.options.quiesceListening?.();
+    } catch (error) {
+      this.#report(
+        "Listening shutdown failed; ingress remains available for cleanup",
+        error,
+      );
+      throw error;
+    }
+    try {
       await this.#signals.stop();
     } catch (error) {
       this.#report("Signal ingress shutdown reported failures", error);
@@ -511,6 +552,13 @@ export class HeadlessDesktopService implements DesktopService {
       await this.#application.stop();
     } catch (error) {
       this.#report("Shutdown reported failures", error);
+    }
+    let contextShutdownFailure: { error: unknown } | undefined;
+    try {
+      await this.options.closeSessionContext?.();
+    } catch (error) {
+      contextShutdownFailure = { error };
+      this.#report("Context storage shutdown reported failures", error);
     }
     await this.#eventJournal?.shutdown();
     this.#eventJournal = undefined;
@@ -526,6 +574,9 @@ export class HeadlessDesktopService implements DesktopService {
     this.#automaticStreamMessageIds.clear();
     this.#activeAppSessionId = undefined;
     this.#publishAutoApprovedAgentIds();
+    if (contextShutdownFailure !== undefined) {
+      throw contextShutdownFailure.error;
+    }
     this.#logger.info("Desktop service stopped", {
       durationMs: Date.now() - startedAt,
     });
@@ -772,6 +823,125 @@ export class HeadlessDesktopService implements DesktopService {
 
   public async getSessions(): Promise<DesktopSession[]> {
     return [...this.#sessions];
+  }
+
+  public async getSessionForContext(
+    sessionId: string,
+  ): Promise<DesktopSession | undefined> {
+    const session = this.#sessions.find(({ id }) => id === sessionId);
+    return session === undefined ? undefined : structuredClone(session);
+  }
+
+  public publishSessionContext(
+    request: SessionContextPublicationRequest,
+  ): Promise<DesktopSession> {
+    this.#assertAccepting(true);
+    const trace = contextTraceSchema.parse(request.trace);
+    const reference = desktopSessionContextStoreReferenceSchema.parse(
+      request.contextStore,
+    );
+    const startedAt = performance.now();
+    const journal = this.#eventJournal;
+    const recorder =
+      journal === undefined
+        ? undefined
+        : createNonBlockingObservabilityRecorder({
+            enqueue: (event) => journal.enqueue(event),
+            enqueueConfigurationSnapshot: () => undefined,
+          });
+    let cause = trace.causationId;
+    const emit = (stage: string, error?: unknown) => {
+      const id = randomUUID();
+      recorder?.enqueue({
+        version: 2,
+        id,
+        occurredAt: new Date().toISOString(),
+        name: `desktop.context.publication.${stage}`,
+        source: "desktop",
+        category: "context",
+        stage,
+        level: stage === "failed" ? "error" : "info",
+        outcome:
+          stage === "completed"
+            ? "success"
+            : stage === "failed"
+              ? "failure"
+              : stage === "cancelled"
+                ? "cancelled"
+                : "unknown",
+        durationMs: performance.now() - startedAt,
+        sessionId: request.sessionId,
+        liveSetId: request.liveSetId,
+        activeAgentId: request.activeAgentId,
+        correlationId: trace.correlationId,
+        causationId: cause,
+        trace: { traceId: trace.traceId, spanId: id },
+        attributes: sanitizeTelemetryAttributes(
+          error === undefined ? {} : { error },
+        ),
+      });
+      cause = id;
+    };
+    emit("queued");
+    return this.#queueSessionAction(async () => {
+      emit("started");
+      try {
+        request.signal?.throwIfAborted();
+        const session = this.#sessions.find(
+          ({ id }) => id === request.sessionId,
+        );
+        if (
+          session === undefined ||
+          session.liveSetId !== request.liveSetId ||
+          !session.activeAgents.some(({ id }) => id === request.activeAgentId)
+        ) {
+          throw new Error(
+            "Context publication requires the exact invoking App session, Live Set and agent",
+          );
+        }
+        emit("progress");
+        const next = {
+          ...session,
+          contextStore: desktopSessionContextStoreReferenceSchema.parse({
+            ...reference,
+            kinds: [
+              ...new Set([
+                ...(session.contextStore?.kinds ?? []),
+                ...reference.kinds,
+              ]),
+            ],
+          }),
+          updatedAt: new Date().toISOString(),
+        };
+        const sessions = this.#sessions.map((candidate) =>
+          candidate.id === session.id ? next : candidate,
+        );
+        await this.options.sessionStore.save(
+          sessions.filter(
+            ({ id }) => id === session.id || !this.#ephemeralSessionIds.has(id),
+          ),
+          {
+            trace,
+            activeAgentId: request.activeAgentId,
+            ...(request.signal === undefined ? {} : { signal: request.signal }),
+          },
+        );
+        this.#sessions = sessions;
+        this.#ephemeralSessionIds.delete(session.id);
+        this.emit({
+          type: "sessions.changed",
+          sessions: [...this.#sessions],
+          ...(this.#activeAppSessionId === undefined
+            ? {}
+            : { activeSessionId: this.#activeAppSessionId }),
+        });
+        emit("completed");
+        return structuredClone(next);
+      } catch (error) {
+        emit(request.signal?.aborted === true ? "cancelled" : "failed", error);
+        throw error;
+      }
+    });
   }
 
   public async persistActiveSession(): Promise<DesktopSession> {
@@ -1552,21 +1722,313 @@ export class HeadlessDesktopService implements DesktopService {
 
   public async cancelActiveAgent(
     instanceId: string,
+    options?: DesktopListeningCancellationOptions,
   ): Promise<{ cancelled: boolean }> {
-    this.#requireActiveAgent(instanceId);
-    const turn = this.#managedTurns.get(instanceId);
-    if (turn === undefined) return { cancelled: false };
-    const cancelled = await this.#application.cancelManagedAgent(instanceId);
-    if (cancelled) {
-      turn.cancelRequested = true;
-      this.emit({
-        type: "diagnostic",
-        level: "warning",
-        message:
-          "Cancellation requested. Changes already applied in Live are not undone.",
+    return this.#listeningOperation(
+      "cancel",
+      {
+        sessionId:
+          options?.sessionId ?? this.#activeAppSessionId ?? "unassigned",
+        agentId: instanceId,
+      },
+      options?.trace,
+      async () => {
+        this.#assertAccepting();
+        if (
+          options !== undefined &&
+          options.sessionId !== this.#activeAppSessionId
+        )
+          throw new Error(
+            "The selected App session changed. Refresh before cancelling capture.",
+          );
+        this.#requireActiveAgent(instanceId);
+        const turn = this.#managedTurns.get(instanceId);
+        const cancelled =
+          await this.#application.cancelManagedAgent(instanceId);
+        if (cancelled) {
+          if (turn !== undefined) turn.cancelRequested = true;
+          this.emit({
+            type: "diagnostic",
+            level: "warning",
+            message:
+              "Cancellation requested for this agent's turn and owned captures. Cancellation does not stop Live transport; changes already applied are not undone.",
+          });
+        }
+        return { cancelled };
+      },
+    );
+  }
+
+  public reportListeningJob(source: ListeningJob): void {
+    const startedAt = performance.now();
+    const session = this.#sessions.find(
+      ({ id }) => id === source.owner.sessionId,
+    );
+    if (
+      this.#lifecycle === "stopped" ||
+      this.#retiredListeningPasses.has(source.passId) ||
+      session === undefined ||
+      session.liveSetId !== source.owner.liveSetId ||
+      !session.activeAgents.some(({ id }) => id === source.owner.agentId)
+    ) {
+      throw new Error(
+        "Listening lifecycle owner is unavailable or changed; refresh the App session.",
+      );
+    }
+    const sanitize = (value: unknown): unknown => {
+      if (typeof value === "string") return sanitizePersistedText(value);
+      if (Array.isArray(value)) return value.map(sanitize);
+      if (value !== null && typeof value === "object")
+        return Object.fromEntries(
+          Object.entries(value).map(([key, child]) => [key, sanitize(child)]),
+        );
+      return value;
+    };
+    if (source.cleanupPolicy === "stop-owned")
+      throw new Error(
+        "Desktop bounded listening has no playback ownership token; stop-owned policy is unsupported.",
+      );
+    const job = desktopListeningJobSchema.parse(
+      sanitize({
+        passId: source.passId,
+        sessionId: source.owner.sessionId,
+        liveSetId: source.owner.liveSetId,
+        agentId: source.owner.agentId,
+        trace: source.trace,
+        stage: source.stage,
+        createdAt: source.createdAt,
+        updatedAt: source.updatedAt,
+        durationMs: source.durationMs,
+        contextIds: source.contextIds.slice(0, 100),
+        ...(source.error === undefined
+          ? {}
+          : {
+              error: sanitizePersistedText(source.error).slice(0, 2048),
+            }),
+        cleanupPolicy: "leave-running",
+        evidence: "lifecycle-only",
+      }),
+    );
+    const previous = this.#listeningJobs.get(job.passId);
+    if (
+      previous !== undefined &&
+      (previous.sessionId !== job.sessionId ||
+        previous.liveSetId !== job.liveSetId ||
+        previous.agentId !== job.agentId ||
+        previous.trace.traceId !== job.trace.traceId)
+    )
+      throw new Error(
+        "Listening pass identity cannot be rebound to another owner.",
+      );
+    if (
+      previous !== undefined &&
+      (job.updatedAt < previous.updatedAt ||
+        job.durationMs < previous.durationMs ||
+        (listeningTerminal(previous.stage) && job.stage !== previous.stage) ||
+        (!listeningTerminal(job.stage) &&
+          desktopListeningStageSchema.options.indexOf(job.stage) <
+            desktopListeningStageSchema.options.indexOf(previous.stage)))
+    ) {
+      this.#recordListening(
+        "presentation",
+        "progress",
+        job,
+        job.trace,
+        performance.now() - startedAt,
+        {
+          ignored: "stale-job",
+        },
+      );
+      return;
+    }
+    if (previous === undefined && this.#listeningJobs.size >= 100) {
+      const expired = [...this.#listeningJobs].find(([, value]) =>
+        listeningTerminal(value.stage),
+      );
+      if (expired === undefined)
+        throw new Error(
+          "Listening inventory is full with active captures. Cancel owned work before retrying.",
+        );
+      this.#retireListeningPass(expired[0]);
+    }
+    this.#listeningJobs.set(job.passId, job);
+    this.#listeningRevision++;
+    this.#recordListening(
+      "presentation",
+      "completed",
+      job,
+      job.trace,
+      performance.now() - startedAt,
+      {
+        passId: job.passId,
+        listeningStage: job.stage,
+        cleanupPolicy: job.cleanupPolicy,
+        listeningDurationMs: job.durationMs,
+        ...(job.error === undefined ? {} : { error: job.error }),
+      },
+    );
+    this.emit({
+      type: "listening.changed",
+      page: this.#listeningPage(session.id),
+    });
+  }
+
+  public async listListeningJobs(
+    request: DesktopListeningListRequest,
+  ): Promise<DesktopListeningPage> {
+    const parsed = desktopListeningListRequestSchema.parse(request);
+    return this.#listeningOperation(
+      "inventory",
+      parsed,
+      parsed.trace,
+      async () => {
+        this.#assertAccepting(true);
+        const session = this.#sessions.find(
+          ({ id }) => id === parsed.sessionId,
+        );
+        if (
+          session === undefined ||
+          !session.activeAgents.some(({ id }) => id === parsed.agentId)
+        )
+          throw new Error(
+            "Unknown App session or agent for listening inventory. Select an available agent and refresh.",
+          );
+        return desktopListeningPageSchema.parse({
+          ...this.#listeningPage(session.id),
+          jobs: [...this.#listeningJobs.values()]
+            .filter(
+              (job) =>
+                job.sessionId === session.id &&
+                job.liveSetId === session.liveSetId &&
+                job.agentId === parsed.agentId,
+            )
+            .slice(-parsed.limit)
+            .reverse(),
+        });
+      },
+    );
+  }
+
+  #listeningPage(sessionId: string): DesktopListeningPage {
+    return structuredClone({
+      sessionId,
+      revision: this.#listeningRevision,
+      jobs: [...this.#listeningJobs.values()]
+        .filter((job) => job.sessionId === sessionId)
+        .slice(-100)
+        .reverse(),
+    });
+  }
+
+  #retireListeningPass(passId: string): void {
+    this.#listeningJobs.delete(passId);
+    this.#retiredListeningPasses.add(passId);
+    if (this.#retiredListeningPasses.size > 100)
+      this.#retiredListeningPasses.delete(
+        this.#retiredListeningPasses.values().next().value!,
+      );
+  }
+
+  #recordListening(
+    action: string,
+    stage: string,
+    owner: { sessionId: string; agentId: string; liveSetId?: string },
+    trace: DesktopListeningJob["trace"],
+    durationMs: number,
+    attributes: Record<string, unknown> = {},
+  ): string {
+    const id = randomUUID();
+    const journal = this.#eventJournal;
+    if (journal !== undefined) {
+      createNonBlockingObservabilityRecorder({
+        enqueue: (event) => journal.enqueue(event),
+        enqueueConfigurationSnapshot: () => undefined,
+      }).enqueue({
+        version: 2,
+        id,
+        occurredAt: new Date().toISOString(),
+        name: `desktop.listening.${action}.${stage}`,
+        source: "desktop",
+        category: "listening",
+        stage,
+        level: stage === "failed" ? "error" : "info",
+        outcome:
+          stage === "completed"
+            ? "success"
+            : stage === "failed"
+              ? "failure"
+              : stage === "cancelled"
+                ? "cancelled"
+                : "unknown",
+        durationMs,
+        sessionId: owner.sessionId,
+        ...(owner.liveSetId === undefined
+          ? {}
+          : { liveSetId: owner.liveSetId }),
+        ...(action === "presentation" ? { activeAgentId: owner.agentId } : {}),
+        trace: { traceId: trace.traceId, spanId: id },
+        correlationId: trace.correlationId,
+        causationId: trace.causationId,
+        attributes: sanitizeTelemetryAttributes({
+          ...attributes,
+          actorKind:
+            action === "presentation" ? "agent-lifecycle-relay" : "application",
+          subjectAgentId: owner.agentId,
+        }),
       });
     }
-    return { cancelled };
+    return id;
+  }
+
+  async #listeningOperation<T>(
+    action: string,
+    owner: { sessionId: string; agentId: string },
+    supplied: DesktopListeningJob["trace"] | undefined,
+    operation: () => Promise<T>,
+  ): Promise<T> {
+    let trace = desktopListeningTraceSchema.parse(
+      supplied ?? {
+        traceId: randomUUID(),
+        correlationId: randomUUID(),
+        causationId: randomUUID(),
+      },
+    );
+    const startedAt = performance.now();
+    const emit = (stage: string, attributes: Record<string, unknown> = {}) => {
+      trace = {
+        ...trace,
+        causationId: this.#recordListening(
+          action,
+          stage,
+          owner,
+          trace,
+          performance.now() - startedAt,
+          attributes,
+        ),
+      };
+    };
+    emit("queued");
+    emit("started");
+    try {
+      emit("progress");
+      const result = await operation();
+      emit("completed");
+      return result;
+    } catch (error) {
+      emit(
+        error instanceof Error && error.name === "AbortError"
+          ? "cancelled"
+          : "failed",
+        { error },
+      );
+      const safe = new Error(
+        sanitizePersistedText(
+          error instanceof Error ? error.message : "Listening operation failed",
+        ).slice(0, 2048),
+      );
+      if (error instanceof Error) safe.name = error.name;
+      throw safe;
+    }
   }
 
   public async resumeSession(sessionId: string): Promise<void> {
@@ -1622,6 +2084,10 @@ export class HeadlessDesktopService implements DesktopService {
           this.emit({ type: "agents.catalog_changed", catalog });
         }
       });
+      for (const [passId, job] of this.#listeningJobs)
+        if (job.sessionId === session.id) this.#retireListeningPass(passId);
+      this.#listeningRevision++;
+      this.emit({ type: "listening.reset", reason: "session-closed" });
       this.emit({
         type: "sessions.changed",
         sessions: [...this.#sessions],
@@ -2103,7 +2569,8 @@ export class HeadlessDesktopService implements DesktopService {
     const wasEphemeral = this.#ephemeralSessionIds.has(current.id);
     const updatedAt = new Date().toISOString();
     const rehomed = this.#sessions.map((session) =>
-      session.id === current.id
+      session.liveSetId === current.liveSetId &&
+      session.liveProjectId === current.liveProjectId
         ? {
             ...session,
             liveSetId: identity.liveSetId,
@@ -2197,10 +2664,11 @@ export class HeadlessDesktopService implements DesktopService {
   ): Promise<void> {
     const previous = this.#liveSetIdentity;
     const changesOwnership =
-      previous !== undefined &&
-      (previous.liveSetId !== identity.liveSetId ||
-        previous.saved !== identity.saved ||
-        previous.liveProjectId !== identity.liveProjectId);
+      previous === undefined
+        ? this.#activeSession() !== undefined
+        : previous.liveSetId !== identity.liveSetId ||
+          previous.saved !== identity.saved ||
+          previous.liveProjectId !== identity.liveProjectId;
     const observation = this.#observeLiveIdentity(identity);
     return changesOwnership
       ? this.#trackLiveSetOwnershipTransition(observation)
@@ -2268,13 +2736,13 @@ export class HeadlessDesktopService implements DesktopService {
       });
       return;
     }
-    if (previous === undefined) {
+    if (previous === undefined && this.#activeSession() === undefined) {
       this.#liveSetIdentity = identity;
       return;
     }
     await this.#queueSessionAction(async () => {
       if (this.#transitionCommitting) return;
-      if (!previous.saved && !identity.saved) {
+      if (previous?.saved === false && !identity.saved) {
         this.#liveSetIdentity = identity;
         const current = this.#activeSession();
         if (current !== undefined) {
@@ -2308,26 +2776,7 @@ export class HeadlessDesktopService implements DesktopService {
         (await this.#activeSessionIsCleanEphemeral())
       ) {
         const current = this.#requireActiveSession();
-        const updated = {
-          ...current,
-          liveSetId: identity.liveSetId,
-          liveSetName: identity.liveSetName,
-          ...(identity.liveProjectId === undefined
-            ? {}
-            : { liveProjectId: identity.liveProjectId }),
-          ...(identity.liveProjectName === undefined
-            ? {}
-            : { liveProjectName: identity.liveProjectName }),
-          updatedAt: new Date().toISOString(),
-        };
-        this.#ephemeralSessionIds.delete(current.id);
-        this.#sessions = [
-          updated,
-          ...this.#sessions.filter(({ id }) => id !== current.id),
-        ];
-        this.#liveSetIdentity = identity;
-        await this.#persistSessions();
-        await this.#associateActiveSession(identity);
+        const updated = await this.#promoteCurrentSession(identity, current.id);
         this.emit({ type: "session.context_restored", session: updated });
         return;
       }
@@ -3093,6 +3542,15 @@ export class HeadlessDesktopService implements DesktopService {
         }
       }
       this.#preferences = preferences;
+      if (
+        previous.listening.mode !== preferences.listening.mode ||
+        previous.listening.maxClockDisagreementSamples !==
+          preferences.listening.maxClockDisagreementSamples
+      ) {
+        this.options.onListeningTimingPolicyChange?.(
+          Object.freeze({ ...preferences.listening }),
+        );
+      }
       this.emit({
         type: "preferences.changed",
         preferences: this.#preferences,
@@ -4808,6 +5266,32 @@ export class HeadlessDesktopService implements DesktopService {
   }
 
   private emit(event: DesktopAppEvent): void {
+    if (event.type === "sessions.changed") {
+      let removed = false;
+      for (const [id, job] of this.#listeningJobs) {
+        const owner = this.#sessions.find(
+          ({ id: sessionId }) => sessionId === job.sessionId,
+        );
+        if (
+          owner === undefined ||
+          owner.liveSetId !== job.liveSetId ||
+          !owner.activeAgents.some(({ id: agentId }) => agentId === job.agentId)
+        ) {
+          this.#retireListeningPass(id);
+          removed = true;
+        }
+      }
+      if (removed) {
+        this.#listeningRevision++;
+        this.emit({ type: "listening.reset", reason: "ownership-changed" });
+      }
+    }
+    if (event.type === "lifecycle.changed" && event.state === "stopped") {
+      for (const passId of this.#listeningJobs.keys())
+        this.#retireListeningPass(passId);
+      this.#listeningRevision++;
+      this.emit({ type: "listening.reset", reason: "shutdown" });
+    }
     for (const listener of this.#listeners) listener(event);
   }
 

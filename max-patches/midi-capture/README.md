@@ -104,6 +104,12 @@ queue is full. Status transitions use the patch's existing `status` outlet.
 The ingress converts authenticated `signal.frame` messages into
 `SignalEnvelope` values using the connection ID returned by `producer.hello`.
 
+The compatibility client reuses `max-patches/shared/agent_signal_client.js`.
+MIDI continues treating `socket.write(false)` as accepted data and retains its
+existing offline sample/coalescing policy. The shared module's new bounded
+audio drain/FIFO does not change MIDI acceptance, framing or capture behavior;
+socket drain is not an application protocol acknowledgement.
+
 ## Tests
 
 ```sh

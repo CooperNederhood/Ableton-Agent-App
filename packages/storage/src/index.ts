@@ -60,6 +60,11 @@ export interface LiveAgentStorageLayout {
   readonly liveSetSessionsPath: string;
   readonly liveProjectsRegistryPath: string;
   readonly credentialsDirectory: string;
+  readonly signalIngressDescriptorPath: string;
+  readonly signalIngressSecretPath: string;
+  /** Migration-only defaults; never selected or provisioned implicitly. */
+  readonly legacySignalIngressDescriptorPath: string;
+  readonly legacySignalIngressSecretPath: string;
   readonly copilotDirectory: string;
   readonly copilotToolOutputDirectory: string;
   readonly observabilityDirectory: string;
@@ -81,6 +86,8 @@ export interface ResolveLiveAgentStorageOptions {
 
 export interface AppSessionStoragePaths {
   readonly sessionDirectory: string;
+  readonly contextDirectory: string;
+  readonly entityContextPath: string;
   readonly manifestPath: string;
   readonly artifactsDirectory: string;
   readonly planPath: string;
@@ -188,6 +195,12 @@ function resolveNestedSessionStorageAtRoot(
   const artifactStateDirectory = join(sessionDirectory, "artifact-state");
   return {
     sessionDirectory,
+    contextDirectory: join(sessionDirectory, "context"),
+    entityContextPath: join(
+      sessionDirectory,
+      "context",
+      "entity-context.sqlite",
+    ),
     manifestPath: join(sessionDirectory, "session.json"),
     artifactsDirectory,
     planPath: join(artifactsDirectory, "plan.md"),
@@ -374,6 +387,26 @@ export function resolveLiveAgentStorage(
     liveSetSessionsPath: join(profileRoot, "state", "live-set-sessions.json"),
     liveProjectsRegistryPath: join(profileRoot, "state", "live-projects.json"),
     credentialsDirectory: join(profileRoot, "credentials"),
+    signalIngressDescriptorPath: join(
+      profileRoot,
+      "state",
+      "signal-ingress.json",
+    ),
+    signalIngressSecretPath: join(
+      profileRoot,
+      "credentials",
+      "signal-ingress-secret.json",
+    ),
+    legacySignalIngressDescriptorPath: join(
+      options.homeDirectory ?? homedir(),
+      ".ableton-agent",
+      "signal-ingress.json",
+    ),
+    legacySignalIngressSecretPath: join(
+      options.homeDirectory ?? homedir(),
+      ".ableton-agent",
+      "signal-ingress.secret",
+    ),
     copilotDirectory: join(profileRoot, "copilot"),
     copilotToolOutputDirectory: join(profileRoot, "copilot", "tool-output"),
     observabilityDirectory: join(profileRoot, "observability"),

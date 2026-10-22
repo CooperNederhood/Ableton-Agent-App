@@ -18,9 +18,32 @@ from AbletonAgent.messages import (  # noqa: E402
     select_protocol_version,
     validate_request,
 )
+from simulator import SimulatorState, handle  # noqa: E402
 
 
 class FrameProtocolTests(unittest.TestCase):
+    def test_simulator_saved_fixture_agrees_between_handshake_and_identity(self):
+        for saved in (False, True):
+            with self.subTest(saved=saved):
+                state = SimulatorState()
+                self.assertFalse(state.saved_live_set)
+                state.saved_live_set = saved
+                for command, params in (
+                    ("system.hello", {
+                        "authenticationToken": "synthetic-token",
+                        "supportedProtocolVersions": [PROTOCOL_VERSION],
+                    }),
+                    ("live_set.get_identity", {}),
+                ):
+                    result = handle({
+                        "kind": "request", "requestId": "fixture",
+                        "command": command, "params": params,
+                    }, "synthetic-token", state)
+                    self.assertTrue(result["ok"])
+                    self.assertEqual(result["result"]["saved"], saved)
+                    self.assertEqual(
+                        result["result"]["liveSetId"], "simulated-live-set")
+
     def test_typescript_contract_fixtures_round_trip_in_python(self):
         fixture_path = (
             REMOTE_SCRIPT_ROOT.parent

@@ -1,0 +1,600 @@
+{
+  "schema": "native-runner-clock-failure-evidence/v1",
+  "calibrationOnly": true,
+  "productionReady": false,
+  "liveVersion": "11.3.43",
+  "runnerBaselineCommit": "fad9c43",
+  "runnerHadUncommittedBootstrapCorrections": true,
+  "classification": "failed_native_capture_with_secondary_actor_policy_denial",
+  "runId": "dc9f0685-b491-4076-adbc-f103fa1a4fbe",
+  "passId": "699856d9-23de-4acc-bdaa-13e368722b48",
+  "fixture": {
+    "sourceSetSha256": "d1a9d81a52ea88f0a518a7bd8ad996660ee829b1c9e4e22787c9660626702875",
+    "candidateManifestSha256": "3869f9c81ed4d9ffed3226ddc4db8c4e49eea1c68c6bb982da361926cf6feee8",
+    "deviceSha256": "5c4c5cb51cac5d03905939e2d5b372aef31f9fb22ad406061a7c2b0c27b1796f"
+  },
+  "nativeArm": {
+    "scope": "arrangement-beat0-120bpm-48000hz-vector64/v1",
+    "nativeEpoch": 1,
+    "armCounter": 1133056,
+    "before": {
+      "dsp": [1, 48000, 64],
+      "frames": [
+        [0, 0, 1116096, 31, 1116096, 0, 1116096, 0, 0, 1116096, 31],
+        [0, 0, 1116608, 31, 1116608, 0, 1116608, 0, 0, 1116608, 31],
+        [0, 0, 1117120, 31, 1117120, 0, 1117120, 0, 0, 1117120, 31],
+        [0, 0, 1117632, 31, 1117632, 0, 1117632, 0, 0, 1117632, 31],
+        [0, 0, 1118144, 31, 1118144, 0, 1118144, 0, 0, 1118144, 31],
+        [0, 0, 1118656, 31, 1118656, 0, 1118656, 0, 0, 1118656, 31],
+        [0, 0, 1119168, 31, 1119168, 0, 1119168, 0, 0, 1119168, 31],
+        [0, 0, 1119680, 31, 1119680, 0, 1119680, 0, 0, 1119680, 31],
+        [0, 0, 1120192, 31, 1120192, 0, 1120192, 0, 0, 1120192, 31],
+        [0, 0, 1120704, 31, 1120704, 0, 1120704, 0, 0, 1120704, 31],
+        [0, 0, 1121216, 31, 1121216, 0, 1121216, 0, 0, 1121216, 31],
+        [0, 0, 1121728, 31, 1121728, 0, 1121728, 0, 0, 1121728, 31],
+        [0, 0, 1122240, 31, 1122240, 0, 1122240, 0, 0, 1122240, 31],
+        [0, 0, 1122752, 31, 1122752, 0, 1122752, 0, 0, 1122752, 31],
+        [0, 0, 1123264, 31, 1123264, 0, 1123264, 0, 0, 1123264, 31],
+        [0, 0, 1123776, 31, 1123776, 0, 1123776, 0, 0, 1123776, 31],
+        [0, 0, 1124288, 31, 1124288, 0, 1124288, 0, 0, 1124288, 31],
+        [0, 0, 1124800, 31, 1124800, 0, 1124800, 0, 0, 1124800, 31],
+        [0, 0, 1125312, 31, 1125312, 0, 1125312, 0, 0, 1125312, 31],
+        [0, 0, 1125824, 31, 1125824, 0, 1125824, 0, 0, 1125824, 31],
+        [0, 0, 1126336, 31, 1126336, 0, 1126336, 0, 0, 1126336, 31],
+        [0, 0, 1126848, 31, 1126848, 0, 1126848, 0, 0, 1126848, 31],
+        [0, 0, 1127360, 31, 1127360, 0, 1127360, 0, 0, 1127360, 31],
+        [0, 0, 1127872, 31, 1127872, 0, 1127872, 0, 0, 1127872, 31],
+        [0, 0, 1128384, 31, 1128384, 0, 1128384, 0, 0, 1128384, 31],
+        [0, 0, 1128896, 31, 1128896, 0, 1128896, 0, 0, 1128896, 31],
+        [0, 0, 1129408, 31, 1129408, 0, 1129408, 0, 0, 1129408, 31],
+        [0, 0, 1129920, 31, 1129920, 0, 1129920, 0, 0, 1129920, 31],
+        [0, 0, 1130432, 31, 1130432, 0, 1130432, 0, 0, 1130432, 31],
+        [0, 0, 1130944, 31, 1130944, 0, 1130944, 0, 0, 1130944, 31],
+        [0, 0, 1131456, 31, 1131456, 0, 1131456, 0, 0, 1131456, 31],
+        [0, 0, 1131968, 31, 1131968, 0, 1131968, 0, 0, 1131968, 31]
+      ]
+    },
+    "reset": {
+      "launchClock": -1,
+      "sourceClock": -1,
+      "onsetCount": 0,
+      "rejected": 0,
+      "active": 0,
+      "launchPhaseSamples": -1,
+      "firstSourceClock": -1,
+      "completedSamples": 0
+    }
+  },
+  "nativeLaunch": {
+    "nativeEpoch": 1,
+    "armCounter": 1133056,
+    "launchClock": 91649,
+    "launchPhaseSamples": 1,
+    "rejected": 0,
+    "active": 1,
+    "host": {
+      "sample": 1225152,
+      "beat": 0.018666666666667,
+      "flags": 31,
+      "playing": true
+    }
+  },
+  "partialObservation": {
+    "schema": "audio-observation/v1",
+    "listenerId": "ableton-audio-listener:path:9f82c42276eaf24a280f9e2cc3848437",
+    "passId": "699856d9-23de-4acc-bdaa-13e368722b48",
+    "sampleRate": 48000,
+    "startSample": 1224704,
+    "endSample": 1248704,
+    "startBeat": 0,
+    "endBeat": 1,
+    "complete": false,
+    "limitations": [
+      "RMS dBFS is not perceptual LUFS.",
+      "Attacks are 100ms envelope-rise estimates, not exact onsets.",
+      "Each continuous rise emits at most one attack estimate; a plateau or fall rearms it.",
+      "FFT is rectangular 2048-sample non-overlap; stereo complex-bin energies are pooled, never waveforms downmixed.",
+      "Spectral points are latest complete FFT frames, not full 100ms spectral averages.",
+      "Termination: native_clock_discontinuity"
+    ],
+    "algorithm": {
+      "name": "native-max-stereo-energy-envelope-rise",
+      "version": "1.0.1",
+      "windowSamples": 2048,
+      "hopSamples": 4800,
+      "settings": {
+        "attackThresholdDb": 6,
+        "minAttackSpacingSamples": 4800
+      },
+      "units": {
+        "amplitude": "linear",
+        "rms": "dBFS",
+        "centroid": "Hz"
+      },
+      "timingUncertaintySamples": 64
+    },
+    "summaries": {
+      "peak": [0.5, 0.5],
+      "rmsDbfs": [-12.163104975783641, -12.163104975783641],
+      "centroidHz": 445.3001785713305
+    },
+    "samples": [
+      {
+        "sample": 1229504,
+        "beat": 0.2,
+        "peak": [0.5, 0.5],
+        "rmsDbfs": [-9.189996513620962, -9.189996513620962],
+        "centroidHz": 447.39029992910383
+      },
+      {
+        "sample": 1234304,
+        "beat": 0.4,
+        "peak": [0.5, 0.5],
+        "rmsDbfs": [-9.030910559543202, -9.030910559543202],
+        "centroidHz": 443.20220892811875
+      },
+      {
+        "sample": 1239104,
+        "beat": 0.6,
+        "peak": [0.5, 0.5],
+        "rmsDbfs": [-12.339829348859507, -12.339829348859507],
+        "centroidHz": null
+      },
+      {
+        "sample": 1243904,
+        "beat": 0.8,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      },
+      {
+        "sample": 1248704,
+        "beat": 1,
+        "peak": [0, 0],
+        "rmsDbfs": [null, null],
+        "centroidHz": null
+      }
+    ],
+    "attacks": [
+      {
+        "sample": 1229504,
+        "beat": 0.2,
+        "strength": 110.81000348637903
+      }
+    ],
+    "reduction": {
+      "originalSamples": 5,
+      "originalAttacks": 1,
+      "truncated": false
+    }
+  },
+  "terminalJob": {
+    "passId": "699856d9-23de-4acc-bdaa-13e368722b48",
+    "stage": "failed",
+    "cleanupPolicy": "leave-running",
+    "contextIds": [],
+    "error": "native_clock_discontinuity"
+  },
+  "lifecycle": [
+    {
+      "sequence": 563,
+      "name": "output.listener.completed",
+      "occurredAt": "2026-10-15T00:57:57.540Z",
+      "durationMs": 406,
+      "trace": {
+        "traceId": "19081343-6f75-40ff-b964-a5995755ee56",
+        "spanId": "5cbd89b1-061e-44d1-84cf-36a7d79b5a28"
+      },
+      "attributes": {
+        "connectionId": "5d262e04-1843-4699-80fb-f972bf57b46f",
+        "producerId": "ableton-audio-listener:path:9f82c42276eaf24a280f9e2cc3848437",
+        "instanceId": "d646914b-076e-49a0-8549-c8dd56b7f37b",
+        "trackId": "2",
+        "deviceId": "15",
+        "connectionEpoch": "8721fc38-6673-456d-9274-0cbe36c33ae4",
+        "jobId": "eae11f0e-bd5b-4fa4-83cd-3c512a39adc5",
+        "passId": "699856d9-23de-4acc-bdaa-13e368722b48",
+        "requestId": "96f1f90d-43f7-4890-8a7c-1e2be091e1e1",
+        "status": "armed"
+      }
+    },
+    {
+      "sequence": 574,
+      "name": "output.listener.native.preflight.queued",
+      "occurredAt": "2026-10-15T00:57:57.552Z",
+      "durationMs": 0,
+      "trace": {
+        "traceId": "19081343-6f75-40ff-b964-a5995755ee56",
+        "spanId": "9b7b1346-7687-470a-8752-d4e0039eca8c"
+      },
+      "attributes": {
+        "connectionId": "5d262e04-1843-4699-80fb-f972bf57b46f",
+        "producerId": "ableton-audio-listener:path:9f82c42276eaf24a280f9e2cc3848437",
+        "instanceId": "d646914b-076e-49a0-8549-c8dd56b7f37b",
+        "connectionEpoch": "8721fc38-6673-456d-9274-0cbe36c33ae4",
+        "jobId": "eae11f0e-bd5b-4fa4-83cd-3c512a39adc5",
+        "passId": "699856d9-23de-4acc-bdaa-13e368722b48",
+        "eventId": "6199367a-9f1d-4021-aec1-b9a3cf23b02d",
+        "causationId": "toolu_01VbUpQiiSRvTABrD1EzuyHU",
+        "phase": "preflight",
+        "generation": "41588dbc-02e4-4aaf-8548-b67a03526688",
+        "stage": "queued",
+        "nativeEpoch": 1,
+        "elapsedMs": 0,
+        "frames": 0
+      }
+    },
+    {
+      "sequence": 578,
+      "name": "output.listener.native.preflight.started",
+      "occurredAt": "2026-10-15T00:57:57.554Z",
+      "durationMs": 1,
+      "trace": {
+        "traceId": "19081343-6f75-40ff-b964-a5995755ee56",
+        "spanId": "fa29a049-07fa-4e68-8a3e-f7a111f51035"
+      },
+      "attributes": {
+        "connectionId": "5d262e04-1843-4699-80fb-f972bf57b46f",
+        "producerId": "ableton-audio-listener:path:9f82c42276eaf24a280f9e2cc3848437",
+        "instanceId": "d646914b-076e-49a0-8549-c8dd56b7f37b",
+        "connectionEpoch": "8721fc38-6673-456d-9274-0cbe36c33ae4",
+        "jobId": "eae11f0e-bd5b-4fa4-83cd-3c512a39adc5",
+        "passId": "699856d9-23de-4acc-bdaa-13e368722b48",
+        "eventId": "d75883d7-f183-46fd-acf0-cf90d08b4740",
+        "causationId": "6199367a-9f1d-4021-aec1-b9a3cf23b02d",
+        "phase": "preflight",
+        "generation": "41588dbc-02e4-4aaf-8548-b67a03526688",
+        "stage": "started",
+        "nativeEpoch": 1,
+        "elapsedMs": 1,
+        "frames": 0
+      }
+    },
+    {
+      "sequence": 582,
+      "name": "output.listener.native.preflight.completed",
+      "occurredAt": "2026-10-15T00:57:57.556Z",
+      "durationMs": 381,
+      "trace": {
+        "traceId": "19081343-6f75-40ff-b964-a5995755ee56",
+        "spanId": "9aec5a4b-1440-4b8f-8483-554ee72fc8ef"
+      },
+      "attributes": {
+        "connectionId": "5d262e04-1843-4699-80fb-f972bf57b46f",
+        "producerId": "ableton-audio-listener:path:9f82c42276eaf24a280f9e2cc3848437",
+        "instanceId": "d646914b-076e-49a0-8549-c8dd56b7f37b",
+        "connectionEpoch": "8721fc38-6673-456d-9274-0cbe36c33ae4",
+        "jobId": "eae11f0e-bd5b-4fa4-83cd-3c512a39adc5",
+        "passId": "699856d9-23de-4acc-bdaa-13e368722b48",
+        "eventId": "0dd0121a-489c-4eb6-af0c-e204c730e58c",
+        "causationId": "d75883d7-f183-46fd-acf0-cf90d08b4740",
+        "phase": "preflight",
+        "generation": "41588dbc-02e4-4aaf-8548-b67a03526688",
+        "stage": "completed",
+        "nativeEpoch": 1,
+        "elapsedMs": 381,
+        "frames": 0
+      }
+    },
+    {
+      "sequence": 586,
+      "name": "output.listener.native.reset.queued",
+      "occurredAt": "2026-10-15T00:57:57.557Z",
+      "durationMs": 0,
+      "trace": {
+        "traceId": "19081343-6f75-40ff-b964-a5995755ee56",
+        "spanId": "aaa0d768-8d77-45a8-870f-63f2fe0b3084"
+      },
+      "attributes": {
+        "connectionId": "5d262e04-1843-4699-80fb-f972bf57b46f",
+        "producerId": "ableton-audio-listener:path:9f82c42276eaf24a280f9e2cc3848437",
+        "instanceId": "d646914b-076e-49a0-8549-c8dd56b7f37b",
+        "connectionEpoch": "8721fc38-6673-456d-9274-0cbe36c33ae4",
+        "jobId": "eae11f0e-bd5b-4fa4-83cd-3c512a39adc5",
+        "passId": "699856d9-23de-4acc-bdaa-13e368722b48",
+        "eventId": "d3f4aacc-5c55-4140-a812-06632755c891",
+        "causationId": "0dd0121a-489c-4eb6-af0c-e204c730e58c",
+        "phase": "reset",
+        "generation": "41588dbc-02e4-4aaf-8548-b67a03526688",
+        "stage": "queued",
+        "nativeEpoch": 1,
+        "elapsedMs": 0,
+        "frames": 0
+      }
+    },
+    {
+      "sequence": 590,
+      "name": "output.listener.native.reset.started",
+      "occurredAt": "2026-10-15T00:57:57.558Z",
+      "durationMs": 1,
+      "trace": {
+        "traceId": "19081343-6f75-40ff-b964-a5995755ee56",
+        "spanId": "0e70d878-de3f-4b8c-8e4c-12b725cc88db"
+      },
+      "attributes": {
+        "connectionId": "5d262e04-1843-4699-80fb-f972bf57b46f",
+        "producerId": "ableton-audio-listener:path:9f82c42276eaf24a280f9e2cc3848437",
+        "instanceId": "d646914b-076e-49a0-8549-c8dd56b7f37b",
+        "connectionEpoch": "8721fc38-6673-456d-9274-0cbe36c33ae4",
+        "jobId": "eae11f0e-bd5b-4fa4-83cd-3c512a39adc5",
+        "passId": "699856d9-23de-4acc-bdaa-13e368722b48",
+        "eventId": "34221899-fa40-4e35-82d3-1d1830ea8bb0",
+        "causationId": "d3f4aacc-5c55-4140-a812-06632755c891",
+        "phase": "reset",
+        "generation": "41588dbc-02e4-4aaf-8548-b67a03526688",
+        "stage": "started",
+        "nativeEpoch": 1,
+        "elapsedMs": 1,
+        "frames": 0
+      }
+    },
+    {
+      "sequence": 594,
+      "name": "output.listener.native.reset.progress",
+      "occurredAt": "2026-10-15T00:57:57.560Z",
+      "durationMs": 1,
+      "trace": {
+        "traceId": "19081343-6f75-40ff-b964-a5995755ee56",
+        "spanId": "e380321d-5198-4759-8b58-1545aac88abf"
+      },
+      "attributes": {
+        "connectionId": "5d262e04-1843-4699-80fb-f972bf57b46f",
+        "producerId": "ableton-audio-listener:path:9f82c42276eaf24a280f9e2cc3848437",
+        "instanceId": "d646914b-076e-49a0-8549-c8dd56b7f37b",
+        "connectionEpoch": "8721fc38-6673-456d-9274-0cbe36c33ae4",
+        "jobId": "eae11f0e-bd5b-4fa4-83cd-3c512a39adc5",
+        "passId": "699856d9-23de-4acc-bdaa-13e368722b48",
+        "eventId": "15757f66-6ee6-47dc-8108-b4181df9fd56",
+        "causationId": "0dd0121a-489c-4eb6-af0c-e204c730e58c",
+        "phase": "reset",
+        "generation": "41588dbc-02e4-4aaf-8548-b67a03526688",
+        "stage": "progress",
+        "nativeEpoch": 1,
+        "elapsedMs": 1,
+        "frames": 0,
+        "reason": "waiting_native_reset"
+      }
+    },
+    {
+      "sequence": 598,
+      "name": "output.listener.native.reset.progress",
+      "occurredAt": "2026-10-15T00:57:57.561Z",
+      "durationMs": 7,
+      "trace": {
+        "traceId": "19081343-6f75-40ff-b964-a5995755ee56",
+        "spanId": "d3146790-17f1-49db-838a-4043439cf9c2"
+      },
+      "attributes": {
+        "connectionId": "5d262e04-1843-4699-80fb-f972bf57b46f",
+        "producerId": "ableton-audio-listener:path:9f82c42276eaf24a280f9e2cc3848437",
+        "instanceId": "d646914b-076e-49a0-8549-c8dd56b7f37b",
+        "connectionEpoch": "8721fc38-6673-456d-9274-0cbe36c33ae4",
+        "jobId": "eae11f0e-bd5b-4fa4-83cd-3c512a39adc5",
+        "passId": "699856d9-23de-4acc-bdaa-13e368722b48",
+        "eventId": "ea541a06-971e-4d43-ac9e-bac7b64c5596",
+        "causationId": "15757f66-6ee6-47dc-8108-b4181df9fd56",
+        "phase": "reset",
+        "generation": "41588dbc-02e4-4aaf-8548-b67a03526688",
+        "stage": "progress",
+        "nativeEpoch": 1,
+        "elapsedMs": 7,
+        "frames": 0,
+        "reason": "waiting_native_reset"
+      }
+    },
+    {
+      "sequence": 602,
+      "name": "output.listener.native.reset.completed",
+      "occurredAt": "2026-10-15T00:57:57.563Z",
+      "durationMs": 18,
+      "trace": {
+        "traceId": "19081343-6f75-40ff-b964-a5995755ee56",
+        "spanId": "b6e3fbae-1b35-4f88-8cd1-1c15dc306f9f"
+      },
+      "attributes": {
+        "connectionId": "5d262e04-1843-4699-80fb-f972bf57b46f",
+        "producerId": "ableton-audio-listener:path:9f82c42276eaf24a280f9e2cc3848437",
+        "instanceId": "d646914b-076e-49a0-8549-c8dd56b7f37b",
+        "connectionEpoch": "8721fc38-6673-456d-9274-0cbe36c33ae4",
+        "jobId": "eae11f0e-bd5b-4fa4-83cd-3c512a39adc5",
+        "passId": "699856d9-23de-4acc-bdaa-13e368722b48",
+        "eventId": "c7d1cf7c-e30c-4f0b-8891-b0949759909f",
+        "causationId": "ea541a06-971e-4d43-ac9e-bac7b64c5596",
+        "phase": "reset",
+        "generation": "41588dbc-02e4-4aaf-8548-b67a03526688",
+        "stage": "completed",
+        "nativeEpoch": 1,
+        "elapsedMs": 18,
+        "frames": 0,
+        "reason": "native_arm_acknowledged"
+      }
+    },
+    {
+      "sequence": 606,
+      "name": "output.listener.native.queued",
+      "occurredAt": "2026-10-15T00:57:57.564Z",
+      "durationMs": 0,
+      "trace": {
+        "traceId": "19081343-6f75-40ff-b964-a5995755ee56",
+        "spanId": "9121c1bf-e972-4b31-8e93-402e29948cec"
+      },
+      "attributes": {
+        "connectionId": "5d262e04-1843-4699-80fb-f972bf57b46f",
+        "producerId": "ableton-audio-listener:path:9f82c42276eaf24a280f9e2cc3848437",
+        "instanceId": "d646914b-076e-49a0-8549-c8dd56b7f37b",
+        "connectionEpoch": "8721fc38-6673-456d-9274-0cbe36c33ae4",
+        "jobId": "eae11f0e-bd5b-4fa4-83cd-3c512a39adc5",
+        "passId": "699856d9-23de-4acc-bdaa-13e368722b48",
+        "eventId": "b6e1de3c-18e9-45c0-8b9d-ae1a2a56fc30",
+        "causationId": "0dd0121a-489c-4eb6-af0c-e204c730e58c",
+        "phase": "capture",
+        "generation": "41588dbc-02e4-4aaf-8548-b67a03526688",
+        "stage": "queued",
+        "nativeEpoch": 1,
+        "elapsedMs": 0,
+        "frames": 0
+      }
+    },
+    {
+      "sequence": 610,
+      "name": "output.listener.native.started",
+      "occurredAt": "2026-10-15T00:57:57.565Z",
+      "durationMs": 0,
+      "trace": {
+        "traceId": "19081343-6f75-40ff-b964-a5995755ee56",
+        "spanId": "a5d520a9-4fdd-4104-8610-f1038c801ff6"
+      },
+      "attributes": {
+        "connectionId": "5d262e04-1843-4699-80fb-f972bf57b46f",
+        "producerId": "ableton-audio-listener:path:9f82c42276eaf24a280f9e2cc3848437",
+        "instanceId": "d646914b-076e-49a0-8549-c8dd56b7f37b",
+        "connectionEpoch": "8721fc38-6673-456d-9274-0cbe36c33ae4",
+        "jobId": "eae11f0e-bd5b-4fa4-83cd-3c512a39adc5",
+        "passId": "699856d9-23de-4acc-bdaa-13e368722b48",
+        "eventId": "a86cd859-8d14-4487-a215-d4ab3822586a",
+        "causationId": "b6e1de3c-18e9-45c0-8b9d-ae1a2a56fc30",
+        "phase": "capture",
+        "generation": "41588dbc-02e4-4aaf-8548-b67a03526688",
+        "stage": "started",
+        "nativeEpoch": 1,
+        "elapsedMs": 0,
+        "frames": 0
+      }
+    },
+    {
+      "sequence": 614,
+      "name": "output.listener.native.progress",
+      "occurredAt": "2026-10-15T00:57:57.566Z",
+      "durationMs": 17,
+      "trace": {
+        "traceId": "19081343-6f75-40ff-b964-a5995755ee56",
+        "spanId": "a37c8c02-2c5e-4040-8b0c-02da18d79c8d"
+      },
+      "attributes": {
+        "connectionId": "5d262e04-1843-4699-80fb-f972bf57b46f",
+        "producerId": "ableton-audio-listener:path:9f82c42276eaf24a280f9e2cc3848437",
+        "instanceId": "d646914b-076e-49a0-8549-c8dd56b7f37b",
+        "connectionEpoch": "8721fc38-6673-456d-9274-0cbe36c33ae4",
+        "jobId": "eae11f0e-bd5b-4fa4-83cd-3c512a39adc5",
+        "passId": "699856d9-23de-4acc-bdaa-13e368722b48",
+        "eventId": "8051a6ca-b68c-467f-aeee-fb80c6d48ab2",
+        "causationId": "a86cd859-8d14-4487-a215-d4ab3822586a",
+        "phase": "capture",
+        "generation": "41588dbc-02e4-4aaf-8548-b67a03526688",
+        "stage": "progress",
+        "nativeEpoch": 1,
+        "elapsedMs": 17,
+        "frames": 0,
+        "reason": "native_arm_acknowledged"
+      }
+    },
+    {
+      "sequence": 634,
+      "name": "output.listener.progress",
+      "occurredAt": "2026-10-15T00:57:59.457Z",
+      "durationMs": 2334,
+      "trace": {
+        "traceId": "19081343-6f75-40ff-b964-a5995755ee56",
+        "spanId": "2a16ac61-f381-4f2e-8a67-974fc24abbde"
+      },
+      "attributes": {
+        "connectionId": "5d262e04-1843-4699-80fb-f972bf57b46f",
+        "producerId": "ableton-audio-listener:path:9f82c42276eaf24a280f9e2cc3848437",
+        "instanceId": "d646914b-076e-49a0-8549-c8dd56b7f37b",
+        "trackId": "2",
+        "deviceId": "15",
+        "connectionEpoch": "8721fc38-6673-456d-9274-0cbe36c33ae4",
+        "jobId": "eae11f0e-bd5b-4fa4-83cd-3c512a39adc5",
+        "passId": "699856d9-23de-4acc-bdaa-13e368722b48",
+        "requestId": "listener-16",
+        "status": "progress"
+      }
+    },
+    {
+      "sequence": 635,
+      "name": "output.listener.native.progress",
+      "occurredAt": "2026-10-15T00:57:59.458Z",
+      "durationMs": 1935,
+      "trace": {
+        "traceId": "19081343-6f75-40ff-b964-a5995755ee56",
+        "spanId": "76f19172-b8b1-4caf-803a-a83301dae27d"
+      },
+      "attributes": {
+        "connectionId": "5d262e04-1843-4699-80fb-f972bf57b46f",
+        "producerId": "ableton-audio-listener:path:9f82c42276eaf24a280f9e2cc3848437",
+        "instanceId": "d646914b-076e-49a0-8549-c8dd56b7f37b",
+        "connectionEpoch": "8721fc38-6673-456d-9274-0cbe36c33ae4",
+        "jobId": "eae11f0e-bd5b-4fa4-83cd-3c512a39adc5",
+        "passId": "699856d9-23de-4acc-bdaa-13e368722b48",
+        "eventId": "4ffd689c-16ac-4427-8453-918f1e80f5ca",
+        "causationId": "8051a6ca-b68c-467f-aeee-fb80c6d48ab2",
+        "phase": "capture",
+        "generation": "41588dbc-02e4-4aaf-8548-b67a03526688",
+        "stage": "progress",
+        "nativeEpoch": 1,
+        "elapsedMs": 1935,
+        "frames": 0,
+        "reason": "native_launch_observed"
+      }
+    },
+    {
+      "sequence": 679,
+      "name": "output.listener.native.failed",
+      "occurredAt": "2026-10-15T00:57:59.988Z",
+      "durationMs": 2470,
+      "trace": {
+        "traceId": "19081343-6f75-40ff-b964-a5995755ee56",
+        "spanId": "94e5166e-903d-40a1-8bba-3d96e29c37c8"
+      },
+      "attributes": {
+        "connectionId": "5d262e04-1843-4699-80fb-f972bf57b46f",
+        "producerId": "ableton-audio-listener:path:9f82c42276eaf24a280f9e2cc3848437",
+        "instanceId": "d646914b-076e-49a0-8549-c8dd56b7f37b",
+        "connectionEpoch": "8721fc38-6673-456d-9274-0cbe36c33ae4",
+        "jobId": "eae11f0e-bd5b-4fa4-83cd-3c512a39adc5",
+        "passId": "699856d9-23de-4acc-bdaa-13e368722b48",
+        "eventId": "af48631c-5e3e-4d35-bdd0-020e0be7b3d4",
+        "causationId": "4ffd689c-16ac-4427-8453-918f1e80f5ca",
+        "phase": "capture",
+        "generation": "41588dbc-02e4-4aaf-8548-b67a03526688",
+        "stage": "failed",
+        "nativeEpoch": 1,
+        "elapsedMs": 2470,
+        "frames": 5,
+        "reason": "native_clock_discontinuity"
+      }
+    },
+    {
+      "sequence": 682,
+      "name": "output.listener.failed",
+      "occurredAt": "2026-10-15T00:57:59.994Z",
+      "durationMs": 2870,
+      "trace": {
+        "traceId": "19081343-6f75-40ff-b964-a5995755ee56",
+        "spanId": "a85e4ab4-0300-4543-8da0-452e16c964de"
+      },
+      "attributes": {
+        "connectionId": "5d262e04-1843-4699-80fb-f972bf57b46f",
+        "producerId": "ableton-audio-listener:path:9f82c42276eaf24a280f9e2cc3848437",
+        "instanceId": "d646914b-076e-49a0-8549-c8dd56b7f37b",
+        "trackId": "2",
+        "deviceId": "15",
+        "connectionEpoch": "8721fc38-6673-456d-9274-0cbe36c33ae4",
+        "jobId": "eae11f0e-bd5b-4fa4-83cd-3c512a39adc5",
+        "passId": "699856d9-23de-4acc-bdaa-13e368722b48",
+        "requestId": "listener-18",
+        "status": "failed",
+        "reason": "native_clock_discontinuity"
+      }
+    }
+  ],
+  "policyDenialCount": 1,
+  "publicationEventCount": 0,
+  "typedSession": {
+    "sessionId": "6074f2cf-1309-44cd-832f-3498090fef36",
+    "liveSetId": "9dd610430567a1fecc039587",
+    "activeAgentId": "7612b553-9492-4103-b0f6-8a0a2a7e9c4c",
+    "hasContextStore": false
+  },
+  "limitation": "The rejected raw clock row was not recorded; regression, excessive gap and offset change are not distinguished. Do not infer a root cause or successful runner acceptance."
+}

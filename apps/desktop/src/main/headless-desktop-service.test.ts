@@ -15,6 +15,7 @@ import {
 import {
   MissingCopilotSessionError,
   type AgentSkillDescriptor,
+  type ListeningJob,
 } from "@ableton-agent/application";
 import type {
   AgentLiveEventListener,
@@ -40,15 +41,19 @@ import {
   resolveLiveAgentStorage,
   resolveNestedSessionStorage,
 } from "@ableton-agent/storage";
+import { SESSION_CONTEXT_STORE_REFERENCE } from "@ableton-agent/project-state";
+import { randomUUID } from "node:crypto";
 
 import {
   desktopAgentCatalogSchema,
+  desktopSessionContextStoreReferenceSchema,
   preferencesSchema,
   sessionSchema,
   type DesktopAppEvent,
   type DesktopActiveAgent,
   type DesktopAgentCatalog,
   type DesktopAgentModel,
+  type DesktopPreferences,
   type DesktopSession,
 } from "../contracts.js";
 import { ApprovalCoordinator, ApprovalPolicyController } from "./approvals.js";
@@ -270,6 +275,9 @@ async function harness(
       policy: ReturnType<typeof preferencesSchema.parse>["approvalPolicy"],
     ) => void;
     onAgentTurnTimeoutChange?: (minutes: number) => void;
+    onListeningTimingPolicyChange?: (
+      policy: ReturnType<typeof preferencesSchema.parse>["listening"],
+    ) => void;
     onAgentReasoningVisibilityChange?: (
       visibility: ReturnType<
         typeof preferencesSchema.parse
@@ -718,9 +726,7 @@ describe("desktop persistence stores", () => {
           liveProjectName: "Album",
         },
       ]),
-    ).rejects.toThrow(
-      "Session persistence failed and storage relocation rollback was incomplete",
-    );
+    ).rejects.toMatchObject({ code: "EISDIR" });
 
     await expect(store.load()).resolves.toEqual([session]);
     await expect(
@@ -864,6 +870,392 @@ describe("desktop persistence stores", () => {
 });
 
 describe("desktop adapter over the shared application", () => {
+  it("publishes listening policy only after persistence, preserves failed saves, and drains queued changes", async () => {
+    const onListeningTimingPolicyChange =
+      vi.fn<(policy: DesktopPreferences["listening"]) => void>();
+    const { service, preferencesStore, events } = await harness(
+      {},
+      {
+        onListeningTimingPolicyChange,
+      },
+    );
+    await service.start();
+    events.length = 0;
+    const original = await service.getPreferences();
+    expect(original.listening).toEqual({
+      mode: "descriptive",
+      maxClockDisagreementSamples: 64,
+    });
+    await service.setPreferences({ ...original, loggingLevel: "debug" });
+    expect(onListeningTimingPolicyChange).not.toHaveBeenCalled();
+    events.length = 0;
+    const save = vi.spyOn(preferencesStore, "save");
+    save.mockRejectedValueOnce(new Error("disk unavailable"));
+    await expect(
+      service.setPreferences({
+        ...original,
+        listening: { mode: "strict", maxClockDisagreementSamples: 0 },
+      }),
+    ).rejects.toThrow("disk unavailable");
+    expect(onListeningTimingPolicyChange).not.toHaveBeenCalled();
+    expect((await service.getPreferences()).listening).toEqual(
+      original.listening,
+    );
+
+    let release: (() => void) | undefined;
+    save.mockRestore();
+    const persist = preferencesStore.save.bind(preferencesStore);
+    const delayed = vi
+      .spyOn(preferencesStore, "save")
+      .mockImplementationOnce(async (value) => {
+        await new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        await persist(value);
+      });
+    const strict = service.setPreferences({
+      ...original,
+      listening: { mode: "strict", maxClockDisagreementSamples: 0 },
+    });
+    await vi.waitFor(() => expect(release).toBeTypeOf("function"));
+    expect(onListeningTimingPolicyChange).not.toHaveBeenCalled();
+    const descriptive = service.setPreferences({
+      ...original,
+      listening: { mode: "descriptive", maxClockDisagreementSamples: 480 },
+    });
+    release?.();
+    await Promise.all([strict, descriptive]);
+    expect(
+      onListeningTimingPolicyChange.mock.calls.map(([policy]) => policy),
+    ).toEqual([
+      { mode: "strict", maxClockDisagreementSamples: 0 },
+      { mode: "descriptive", maxClockDisagreementSamples: 480 },
+    ]);
+    const firstPolicy = onListeningTimingPolicyChange.mock.calls[0]?.[0];
+    expect(Object.isFrozen(firstPolicy)).toBe(true);
+    expect(firstPolicy).toEqual({
+      mode: "strict",
+      maxClockDisagreementSamples: 0,
+    });
+    expect((await preferencesStore.load()).listening).toEqual({
+      mode: "descriptive",
+      maxClockDisagreementSamples: 480,
+    });
+    expect(
+      events.filter((event) => event.type === "preferences.changed"),
+    ).toHaveLength(2);
+    delayed.mockRestore();
+    await service.stop();
+    await expect(service.setPreferences(original)).rejects.toThrow(
+      "not accepting actions",
+    );
+    expect(onListeningTimingPolicyChange).toHaveBeenCalledTimes(2);
+  });
+
+  it("publishes bounded redacted owned listening lifecycle and traced read-only inventory without model-agent query attribution", async () => {
+    const records: Parameters<DesktopEventJournal["enqueue"]>[0][] = [];
+    const eventJournal = {
+      enqueue: vi.fn(
+        async (event: Parameters<DesktopEventJournal["enqueue"]>[0]) => {
+          records.push(event);
+        },
+      ),
+      enqueueConfigurationSnapshot: vi.fn().mockResolvedValue(undefined),
+      shutdown: vi.fn().mockResolvedValue(undefined),
+    } as unknown as DesktopEventJournal;
+    const { service, events, agent } = await harness({}, { eventJournal });
+    await service.start();
+    const first = (await service.listActiveAgents())[0]!;
+    const second = await service.createActiveAgent("default");
+    const owner = (await service.getSessions()).find((value) =>
+      value.activeAgents.some(({ id }) => id === first.id),
+    )!;
+    const trace = {
+      traceId: randomUUID(),
+      correlationId: "synthetic-lifecycle",
+      causationId: "fixture",
+    };
+    const job: ListeningJob = {
+      passId: "synthetic-service-pass",
+      owner: {
+        sessionId: owner.id,
+        liveSetId: owner.liveSetId,
+        agentId: first.id,
+      },
+      trace,
+      stage: "queued",
+      createdAt: "2026-10-12T00:00:00.000Z",
+      updatedAt: "2026-10-12T00:00:00.000Z",
+      durationMs: 0,
+      contextIds: [],
+      cleanupPolicy: "leave-running",
+    };
+    const failureDetail = [
+      "Synthetic fixture:",
+      "Bearer",
+      "secret-do-not-expose-1234567890",
+    ].join(" ");
+    expect(failureDetail).toContain("secret-do-not-expose");
+    for (const stage of [
+      "queued",
+      "validating",
+      "reserving-context",
+      "arming",
+      "starting-playback",
+      "capturing",
+      "persisting",
+      "failed",
+    ] as const)
+      service.reportListeningJob({
+        ...job,
+        stage,
+        error: failureDetail,
+        durationMs: 2000,
+      });
+    service.reportListeningJob({ ...job, stage: "queued" });
+    const queryTrace = {
+      ...trace,
+      traceId: randomUUID(),
+      causationId: "query",
+    };
+    const request = {
+      sessionId: owner.id,
+      agentId: first.id,
+      trace: queryTrace,
+    };
+    const result = await service.listListeningJobs(request);
+    expect(result.jobs).toHaveLength(1);
+    expect(result.jobs[0]).toMatchObject({
+      stage: "failed",
+      evidence: "lifecycle-only",
+      cleanupPolicy: "leave-running",
+    });
+    expect(JSON.stringify(result)).not.toContain("secret-do-not-expose");
+    result.jobs.splice(0);
+    expect((await service.listListeningJobs(request)).jobs).toHaveLength(1);
+    expect(
+      (await service.listListeningJobs({ ...request, agentId: second.id }))
+        .jobs,
+    ).toEqual([]);
+    await expect(
+      service.listListeningJobs({ ...request, sessionId: "foreign" }),
+    ).rejects.toThrow("Unknown App session");
+    await expect(
+      service.listListeningJobs({ ...request, agentId: randomUUID() }),
+    ).rejects.toThrow("Unknown App session");
+    await expect(
+      service.listListeningJobs({ ...request, limit: 101 }),
+    ).rejects.toThrow();
+    expect(() =>
+      service.reportListeningJob({
+        ...job,
+        owner: { ...job.owner, liveSetId: "foreign" },
+      }),
+    ).toThrow("owner");
+    expect(() =>
+      service.reportListeningJob({
+        ...job,
+        owner: { ...job.owner, agentId: second.id },
+      }),
+    ).toThrow("rebound");
+    expect(() =>
+      service.reportListeningJob({ ...job, cleanupPolicy: "stop-owned" }),
+    ).toThrow("ownership token");
+    expect(() =>
+      service.reportListeningJob({ ...job, passId: "x".repeat(129) }),
+    ).toThrow();
+    await settle();
+    const queryEvents = records.filter(
+      (value) => value.trace?.traceId === queryTrace.traceId,
+    );
+    expect(queryEvents.slice(0, 4).map((value) => value.stage)).toEqual([
+      "queued",
+      "started",
+      "progress",
+      "completed",
+    ]);
+    expect(
+      queryEvents.every((value) => value.activeAgentId === undefined),
+    ).toBe(true);
+    expect(
+      queryEvents.every((value) => typeof value.durationMs === "number"),
+    ).toBe(true);
+    expect(queryEvents[1]?.causationId).toBe(queryEvents[0]?.id);
+    expect(JSON.stringify(records)).not.toContain("secret-do-not-expose");
+    expect(events.some((event) => event.type === "listening.changed")).toBe(
+      true,
+    );
+    const cancellationTrace = {
+      ...trace,
+      traceId: randomUUID(),
+      causationId: "cancel",
+    };
+    vi.spyOn(agent, "cancelManagedAgent").mockRejectedValueOnce(
+      new DOMException(failureDetail, "AbortError"),
+    );
+    const cancellation = service.cancelActiveAgent(first.id, {
+      sessionId: owner.id,
+      trace: cancellationTrace,
+    });
+    await expect(cancellation).rejects.toMatchObject({ name: "AbortError" });
+    await expect(cancellation).rejects.not.toThrow("secret-do-not-expose");
+    await settle();
+    const cancellationEvents = records.filter(
+      (value) => value.trace?.traceId === cancellationTrace.traceId,
+    );
+    expect(cancellationEvents.map((value) => value.stage)).toEqual([
+      "queued",
+      "started",
+      "progress",
+      "cancelled",
+    ]);
+    expect(
+      cancellationEvents.every((value) => value.activeAgentId === undefined),
+    ).toBe(true);
+    expect(JSON.stringify(cancellationEvents)).not.toContain(
+      "secret-do-not-expose",
+    );
+    await service.stop();
+    expect(
+      events.some(
+        (event) =>
+          event.type === "listening.reset" && event.reason === "shutdown",
+      ),
+    ).toBe(true);
+    expect(() => service.reportListeningJob(job)).toThrow("owner");
+  });
+
+  it("bounds active listening jobs, evicts only terminal entries and resets inventory when ownership disappears", async () => {
+    const { service, events } = await harness();
+    await service.start();
+    const first = (await service.listActiveAgents())[0]!;
+    const owner = (await service.getSessions()).find((value) =>
+      value.activeAgents.some(({ id }) => id === first.id),
+    )!;
+    const job: ListeningJob = {
+      passId: "synthetic-bounded",
+      owner: {
+        sessionId: owner.id,
+        liveSetId: owner.liveSetId,
+        agentId: first.id,
+      },
+      trace: {
+        traceId: randomUUID(),
+        correlationId: "synthetic",
+        causationId: "fixture",
+      },
+      stage: "queued",
+      createdAt: "2026-10-12T00:00:00.000Z",
+      updatedAt: "2026-10-12T00:00:00.000Z",
+      durationMs: 0,
+      contextIds: [],
+    };
+    for (let index = 0; index < 100; index++)
+      service.reportListeningJob({ ...job, passId: `synthetic-${index}` });
+    expect(() => service.reportListeningJob(job)).toThrow("inventory is full");
+    service.reportListeningJob({
+      ...job,
+      passId: "synthetic-0",
+      stage: "completed",
+    });
+    service.reportListeningJob(job);
+    const page = await service.listListeningJobs({
+      sessionId: owner.id,
+      agentId: first.id,
+    });
+    expect(page.jobs).toHaveLength(100);
+    expect(page.jobs.some(({ passId }) => passId === "synthetic-0")).toBe(
+      false,
+    );
+    expect(() =>
+      service.reportListeningJob({
+        ...job,
+        passId: "synthetic-0",
+        stage: "completed",
+      }),
+    ).toThrow("owner");
+    await service.deactivateActiveAgent(first.id);
+    expect(
+      events.some(
+        (event) =>
+          event.type === "listening.reset" &&
+          event.reason === "ownership-changed",
+      ),
+    ).toBe(true);
+    await service.stop();
+  });
+
+  it("uses original managed cancellation after SDK idle and denies stale-session and failed cancellations explicitly", async () => {
+    const { service, agent } = await harness();
+    await service.start();
+    const first = (await service.listActiveAgents())[0]!;
+    const owner = (await service.getSessions()).find((value) =>
+      value.activeAgents.some(({ id }) => id === first.id),
+    )!;
+    const cancel = vi
+      .spyOn(agent, "cancelManagedAgent")
+      .mockResolvedValueOnce(true);
+    await expect(
+      service.cancelActiveAgent(first.id, { sessionId: owner.id }),
+    ).resolves.toEqual({ cancelled: true });
+    expect(cancel).toHaveBeenCalledWith(first.id);
+    await expect(
+      service.cancelActiveAgent(first.id, { sessionId: "stale" }),
+    ).rejects.toThrow("selected App session changed");
+    expect(cancel).toHaveBeenCalledTimes(1);
+    cancel.mockRejectedValueOnce(new Error("Synthetic cleanup failed"));
+    await expect(
+      service.cancelActiveAgent(first.id, { sessionId: owner.id }),
+    ).rejects.toThrow("cleanup failed");
+    await service.stop();
+  });
+
+  it("resets closed-session lifecycle without accepting retired late callbacks on resume", async () => {
+    const { service, events } = await harness();
+    await service.start();
+    const first = (await service.listActiveAgents())[0]!;
+    const owner = (await service.getSessions()).find((value) =>
+      value.activeAgents.some(({ id }) => id === first.id),
+    )!;
+    const job: ListeningJob = {
+      passId: "synthetic-closed-pass",
+      owner: {
+        sessionId: owner.id,
+        liveSetId: owner.liveSetId,
+        agentId: first.id,
+      },
+      trace: {
+        traceId: randomUUID(),
+        correlationId: "synthetic",
+        causationId: "fixture",
+      },
+      stage: "cancelled",
+      createdAt: "2026-10-12T00:00:00.000Z",
+      updatedAt: "2026-10-12T00:00:00.000Z",
+      durationMs: 1000,
+      contextIds: [],
+    };
+    service.reportListeningJob(job);
+    await service.closeSession();
+    expect(
+      events.some(
+        (event) =>
+          event.type === "listening.reset" && event.reason === "session-closed",
+      ),
+    ).toBe(true);
+    expect(
+      (
+        await service.listListeningJobs({
+          sessionId: owner.id,
+          agentId: first.id,
+        })
+      ).jobs,
+    ).toEqual([]);
+    await service.resumeSession(owner.id);
+    expect(() => service.reportListeningJob(job)).toThrow("owner");
+    await service.stop();
+  });
+
   it("maps missing CLI authentication and refreshes through the application", async () => {
     const { service, application } = await harness(
       {},
@@ -3287,8 +3679,8 @@ describe("desktop adapter over the shared application", () => {
     await expect(service.cancel()).resolves.toEqual({ cancelled: true });
     await settle();
 
-    // The first cancel never reached the agent: no turn was in flight.
-    expect(agent.cancelCalls).toBe(1);
+    // SDK idle does not rule out background-owned listening work.
+    expect(agent.cancelCalls).toBe(2);
     expect(
       events.find(
         (event) =>
@@ -4049,6 +4441,7 @@ describe("desktop adapter over the shared application", () => {
         refresh: () => Promise.resolve(defaultCatalog()),
       },
     });
+
     const events: DesktopAppEvent[] = [];
     service.subscribe((event) => events.push(event));
 
@@ -4069,6 +4462,205 @@ describe("desktop adapter over the shared application", () => {
       type: "sessions.changed",
       activeSessionId: active.id,
     });
+  });
+
+  it("publishes context for the invoking ephemeral session without changing UI selection and rolls back denial/failure/cancellation", async () => {
+    const directory = await temporaryDirectory();
+    const storage = resolveLiveAgentStorage({
+      homeDirectory: directory,
+      environment: {},
+      profile: "test",
+    });
+    const ableton = defaultFakeState();
+    ableton.liveIdentity = {
+      liveSetId: "set:unsaved",
+      liveSetName: "Untitled",
+      saved: false,
+      diagnostics: [],
+    };
+    const fake = createFakeApplication({ ableton });
+    const sessionStore = new JsonSessionStore(storage.sessionsPath, storage);
+    const service = new HeadlessDesktopService({
+      application: fake.application,
+      approvals: new ApprovalCoordinator(),
+      preferencesStore: new JsonPreferencesStore(storage.preferencesPath),
+      sessionStore,
+      agentCatalog: {
+        current: defaultCatalog(),
+        refresh: () => Promise.resolve(defaultCatalog()),
+      },
+    });
+    const events: DesktopAppEvent[] = [];
+    service.subscribe((event) => events.push(event));
+    await service.start();
+    try {
+      const invoking = (await service.getSessions())[0]!;
+      const selectedId = await service.createSession();
+      const selected = (await service.getSessions()).find(
+        ({ id }) => id === selectedId,
+      )!;
+      const request = {
+        sessionId: invoking.id,
+        liveSetId: invoking.liveSetId,
+        activeAgentId: invoking.activeAgents[0]!.id,
+        contextStore: desktopSessionContextStoreReferenceSchema.parse({
+          ...SESSION_CONTEXT_STORE_REFERENCE,
+          kinds: ["audio-observation/v1"],
+        }),
+        trace: {
+          traceId: randomUUID(),
+          correlationId: "tool:context",
+          causationId: "call:context",
+        },
+      };
+      expect(await sessionStore.load()).toEqual([]);
+      await expect(
+        service.publishSessionContext({ ...request, sessionId: randomUUID() }),
+      ).rejects.toThrow("invoking");
+      await expect(
+        service.publishSessionContext({ ...request, liveSetId: "set:foreign" }),
+      ).rejects.toThrow("invoking");
+      await expect(
+        service.publishSessionContext({
+          ...request,
+          activeAgentId: randomUUID(),
+        }),
+      ).rejects.toThrow("invoking");
+      const published = await service.publishSessionContext(request);
+      expect(published.contextStore).toEqual(request.contextStore);
+      expect((await sessionStore.load()).map(({ id }) => id)).toEqual([
+        invoking.id,
+      ]);
+      expect(
+        [...events]
+          .reverse()
+          .find((event) => event.type === "sessions.changed"),
+      ).toMatchObject({
+        activeSessionId: selectedId,
+      });
+      const manifest = JSON.parse(
+        await readFile(
+          resolveNestedSessionStorage(storage, {
+            sessionId: invoking.id,
+            liveSetId: invoking.liveSetId,
+          }).manifestPath,
+          "utf8",
+        ),
+      ) as Record<string, unknown>;
+      expect(manifest.contextStore).toEqual(request.contextStore);
+      const ownedPaths = resolveNestedSessionStorage(storage, {
+        sessionId: invoking.id,
+        liveSetId: invoking.liveSetId,
+      });
+      await mkdir(ownedPaths.contextDirectory, { recursive: true });
+      const retainedObservationBytes = "synthetic-existing-observation-content";
+      await writeFile(ownedPaths.entityContextPath, retainedObservationBytes);
+      const upgradeRequest = {
+        ...request,
+        contextStore: SESSION_CONTEXT_STORE_REFERENCE,
+      };
+      const save = vi.spyOn(sessionStore, "save");
+      save.mockRejectedValueOnce(
+        new Error("registration upgrade persistence failed"),
+      );
+      await expect(
+        service.publishSessionContext(upgradeRequest),
+      ).rejects.toThrow("registration upgrade persistence failed");
+      expect(
+        (await service.getSessionForContext(invoking.id))?.contextStore,
+      ).toEqual(request.contextStore);
+      expect((await sessionStore.load())[0]?.contextStore).toEqual(
+        request.contextStore,
+      );
+      const cancelledUpgrade = new AbortController();
+      cancelledUpgrade.abort();
+      await expect(
+        service.publishSessionContext({
+          ...upgradeRequest,
+          signal: cancelledUpgrade.signal,
+        }),
+      ).rejects.toThrow();
+      const unchangedManifest: unknown = JSON.parse(
+        await readFile(ownedPaths.manifestPath, "utf8"),
+      );
+      expect(unchangedManifest).toMatchObject({
+        contextStore: request.contextStore,
+      });
+      expect(
+        (await service.getSessionForContext(invoking.id))?.contextStore,
+      ).toEqual(request.contextStore);
+      expect(await readFile(ownedPaths.entityContextPath, "utf8")).toBe(
+        retainedObservationBytes,
+      );
+      const upgraded = await service.publishSessionContext(upgradeRequest);
+      expect(upgraded).toMatchObject({
+        id: invoking.id,
+        liveSetId: invoking.liveSetId,
+        createdAt: invoking.createdAt,
+        contextStore: SESSION_CONTEXT_STORE_REFERENCE,
+      });
+      expect(upgraded.activeAgents).toEqual(invoking.activeAgents);
+      expect(save).toHaveBeenLastCalledWith(
+        expect.arrayContaining([expect.objectContaining({ id: invoking.id })]),
+        expect.objectContaining({
+          trace: request.trace,
+          activeAgentId: request.activeAgentId,
+        }),
+      );
+      for (const repeated of [upgradeRequest, request]) {
+        expect(
+          (await service.publishSessionContext(repeated)).contextStore,
+        ).toEqual(SESSION_CONTEXT_STORE_REFERENCE);
+        const persisted = await sessionStore.load();
+        expect(persisted.map(({ id }) => id)).toEqual([invoking.id]);
+        expect(persisted[0]?.contextStore).toEqual(
+          SESSION_CONTEXT_STORE_REFERENCE,
+        );
+        const manifestValue: unknown = JSON.parse(
+          await readFile(ownedPaths.manifestPath, "utf8"),
+        );
+        expect(manifestValue).toMatchObject({
+          contextStore: SESSION_CONTEXT_STORE_REFERENCE,
+        });
+        expect(await readFile(ownedPaths.entityContextPath, "utf8")).toBe(
+          retainedObservationBytes,
+        );
+      }
+      save.mockRestore();
+      const selectedRequest = {
+        ...request,
+        sessionId: selected.id,
+        activeAgentId: selected.activeAgents[0]!.id,
+      };
+      const abort = new AbortController();
+      abort.abort();
+      await expect(
+        service.publishSessionContext({
+          ...selectedRequest,
+          signal: abort.signal,
+        }),
+      ).rejects.toThrow();
+      vi.spyOn(sessionStore, "save").mockRejectedValueOnce(
+        new Error("registry failure"),
+      );
+      await expect(
+        service.publishSessionContext(selectedRequest),
+      ).rejects.toThrow("registry failure");
+      expect(
+        (await service.getSessionForContext(selected.id))?.contextStore,
+      ).toBeUndefined();
+      expect((await sessionStore.load()).map(({ id }) => id)).toEqual([
+        invoking.id,
+      ]);
+      expect(await service.getSessionForContext(randomUUID())).toBeUndefined();
+      const clone = await service.getSessionForContext(invoking.id);
+      clone!.title = "changed external copy";
+      expect((await service.getSessionForContext(invoking.id))?.title).not.toBe(
+        "changed external copy",
+      );
+    } finally {
+      await service.stop();
+    }
   });
 
   it("requests a decision when the open Live Set changes mid-run", async () => {
@@ -4174,6 +4766,305 @@ describe("desktop adapter over the shared application", () => {
       catalog: { sessionId: session.id, skills: [] },
     });
     await service.stop();
+  });
+
+  it("publishes first-connection restoration only after association persistence settles", async () => {
+    const state = defaultFakeState();
+    const connectedStatus = state.status;
+    state.status = { state: "disconnected" };
+    const { service, ableton, events, sessionStore, liveSetSessionStore } =
+      await harness({ ableton: state });
+    const persisted = deferred<void>();
+    const release = deferred<void>();
+
+    try {
+      await service.start();
+      const session = (await service.getSessions())[0]!;
+      const save = liveSetSessionStore.save.bind(liveSetSessionStore);
+      vi.spyOn(liveSetSessionStore, "save").mockImplementationOnce(
+        async (associations) => {
+          await save(associations);
+          persisted.resolve();
+          await release.promise;
+        },
+      );
+
+      ableton.state.status = connectedStatus;
+      const refresh = service.getSnapshot();
+      await persisted.promise;
+
+      expect(await service.getSessionForContext(session.id)).toMatchObject({
+        id: session.id,
+        liveSetId: state.liveIdentity.liveSetId,
+      });
+      expect(await sessionStore.load()).toContainEqual(
+        expect.objectContaining({
+          id: session.id,
+          liveSetId: state.liveIdentity.liveSetId,
+        }),
+      );
+      const restoration = () =>
+        events.find(
+          (event) =>
+            event.type === "session.context_restored" &&
+            event.session.id === session.id,
+        );
+      expect(restoration()).toBeUndefined();
+
+      release.resolve();
+      await refresh;
+
+      expect(restoration()).toMatchObject({
+        session: {
+          id: session.id,
+          liveSetId: state.liveIdentity.liveSetId,
+        },
+      });
+      expect(
+        await liveSetSessionStore.load(await sessionStore.load()),
+      ).toContainEqual(
+        expect.objectContaining({
+          sessionId: session.id,
+          liveSetId: state.liveIdentity.liveSetId,
+        }),
+      );
+    } finally {
+      release.resolve();
+      await service.stop();
+    }
+  });
+
+  it("binds an untouched disconnected-startup session when its first saved Live Set connects", async () => {
+    const state = defaultFakeState();
+    const connectedStatus = state.status;
+    state.status = { state: "disconnected" };
+    const { service, ableton, events, sessionStore } = await harness(
+      { ableton: state },
+      { liveSetIdentityPollIntervalMs: 5 },
+    );
+    try {
+      await service.start();
+      const session = (await service.getSessions())[0]!;
+      expect(session.liveSetId).toBe(`orphan:${session.id}`);
+      expect(await sessionStore.load()).toEqual([]);
+
+      ableton.state.status = connectedStatus;
+      await vi.waitFor(async () => {
+        expect(await service.getSessionForContext(session.id)).toMatchObject({
+          id: session.id,
+          liveSetId: state.liveIdentity.liveSetId,
+          liveSetName: state.liveIdentity.liveSetName,
+        });
+        expect(
+          events.find(
+            (event) =>
+              event.type === "session.context_restored" &&
+              event.session.id === session.id,
+          ),
+        ).toMatchObject({
+          session: {
+            id: session.id,
+            liveSetId: state.liveIdentity.liveSetId,
+          },
+        });
+      });
+      expect(await sessionStore.load()).toContainEqual(
+        expect.objectContaining({
+          id: session.id,
+          liveSetId: state.liveIdentity.liveSetId,
+        }),
+      );
+      expect(
+        events.filter(
+          (event) => event.type === "live_set.transition_requested",
+        ),
+      ).toEqual([]);
+    } finally {
+      await service.stop();
+    }
+  });
+
+  it("requires a transition decision when Live first connects after an offline conversation", async () => {
+    const state = defaultFakeState();
+    const connectedStatus = state.status;
+    state.status = { state: "disconnected" };
+    const { service, ableton, events, sessionStore } = await harness(
+      { ableton: state },
+      { liveSetIdentityPollIntervalMs: 5 },
+    );
+    try {
+      await service.start();
+      const session = (await service.getSessions())[0]!;
+      const agent = (await service.listActiveAgents())[0]!;
+      await service.sendToActiveAgent(
+        agent.id,
+        "Plan while Live is offline",
+        [],
+      );
+
+      ableton.state.status = connectedStatus;
+      await vi.waitFor(() => {
+        expect(
+          events.find(
+            (event) => event.type === "live_set.transition_requested",
+          ),
+        ).toMatchObject({
+          transition: {
+            kind: "unassociated",
+            currentSessionId: session.id,
+            liveSet: {
+              liveSetId: state.liveIdentity.liveSetId,
+            },
+            decisions: ["fork-current", "start-fresh"],
+          },
+        });
+      });
+      expect(await service.getSessionForContext(session.id)).toMatchObject({
+        liveSetId: `orphan:${session.id}`,
+      });
+      await expect(
+        service.sendToActiveAgent(
+          agent.id,
+          "Do not capture with stale ownership",
+          [],
+        ),
+      ).rejects.toThrow("transition decision");
+      expect(await sessionStore.load()).toEqual([]);
+    } finally {
+      await service.stop();
+    }
+  });
+
+  it.each(["session", "association"] as const)(
+    "rolls back first-connection ownership when %s persistence fails and permits an explicit recovery",
+    async (boundary) => {
+      const state = defaultFakeState();
+      const connectedStatus = state.status;
+      state.status = { state: "disconnected" };
+      const { service, ableton, sessionStore, liveSetSessionStore } =
+        await harness({ ableton: state });
+      try {
+        await service.start();
+        const session = (await service.getSessions())[0]!;
+        vi.spyOn(
+          boundary === "session" ? sessionStore : liveSetSessionStore,
+          "save",
+        ).mockRejectedValueOnce(
+          new Error("Synthetic first-connect write failure"),
+        );
+        ableton.state.status = connectedStatus;
+        await expect(service.getSnapshot()).rejects.toThrow(
+          "Synthetic first-connect write failure",
+        );
+        expect(await service.getSessionForContext(session.id)).toMatchObject({
+          liveSetId: `orphan:${session.id}`,
+        });
+        expect(await sessionStore.load()).toEqual([]);
+        expect(await liveSetSessionStore.load([session])).toEqual([]);
+
+        await service.getSnapshot();
+        expect(await service.getSessionForContext(session.id)).toMatchObject({
+          liveSetId: state.liveIdentity.liveSetId,
+        });
+        expect(await sessionStore.load()).toContainEqual(
+          expect.objectContaining({ id: session.id }),
+        );
+      } finally {
+        await service.stop();
+      }
+    },
+  );
+
+  it("offers the existing canonical session instead of claiming it for a first-connected orphan", async () => {
+    const first = await harness();
+    await first.service.start();
+    const canonical = (await first.service.getSessions())[0]!;
+    await first.service.stop();
+    const state = defaultFakeState();
+    const connectedStatus = state.status;
+    state.status = { state: "disconnected" };
+    const next = await harness({ ableton: state });
+    await next.sessionStore.save([canonical]);
+    await next.liveSetSessionStore.save(
+      await first.liveSetSessionStore.load([canonical]),
+    );
+    try {
+      await next.service.start();
+      const orphan = (await next.service.getSessions())[0]!;
+      expect(orphan.liveSetId).toBe(`orphan:${orphan.id}`);
+      next.ableton.state.status = connectedStatus;
+      await next.service.getSnapshot();
+      const requested = next.events.find(
+        (event) => event.type === "live_set.transition_requested",
+      );
+      expect(requested).toMatchObject({
+        transition: {
+          kind: "associated",
+          associatedSession: { id: canonical.id },
+          decisions: ["resume-associated", "start-fresh"],
+        },
+      });
+      if (requested?.type !== "live_set.transition_requested") {
+        throw new Error("Expected first-connection canonical decision");
+      }
+      expect(await next.service.getSessionForContext(orphan.id)).toMatchObject({
+        liveSetId: `orphan:${orphan.id}`,
+      });
+      const resumed = await next.service.resolveLiveSetTransition(
+        requested.transition.token,
+        "resume-associated",
+      );
+      expect(resumed.id).toBe(canonical.id);
+      expect(resumed.liveSetId).toBe(state.liveIdentity.liveSetId);
+    } finally {
+      await next.service.stop();
+    }
+  });
+
+  it("drains a first-connection ownership commit before shutdown and rejects new actions", async () => {
+    const state = defaultFakeState();
+    const connectedStatus = state.status;
+    state.status = { state: "disconnected" };
+    const { service, ableton, sessionStore } = await harness({
+      ableton: state,
+    });
+    const saving = deferred<void>();
+    const release = deferred<void>();
+    let stopping: Promise<void> | undefined;
+    try {
+      await service.start();
+      const session = (await service.getSessions())[0]!;
+      const save = sessionStore.save.bind(sessionStore);
+      vi.spyOn(sessionStore, "save").mockImplementationOnce(
+        async (sessions) => {
+          saving.resolve();
+          await release.promise;
+          await save(sessions);
+        },
+      );
+      ableton.state.status = connectedStatus;
+      const refresh = service.getSnapshot();
+      await saving.promise;
+      let stopped = false;
+      stopping = service.stop().then(() => {
+        stopped = true;
+      });
+      await settle();
+      expect(stopped).toBe(false);
+      await expect(service.createSession()).rejects.toThrow();
+      release.resolve();
+      await Promise.all([refresh, stopping]);
+      expect(await sessionStore.load()).toContainEqual(
+        expect.objectContaining({
+          id: session.id,
+          liveSetId: state.liveIdentity.liveSetId,
+        }),
+      );
+    } finally {
+      release.resolve();
+      if (stopping === undefined) await service.stop();
+      else await stopping;
+    }
   });
 
   it("detects a Live Set change through the lifecycle-owned identity monitor", async () => {
@@ -4331,13 +5222,13 @@ describe("desktop adapter over the shared application", () => {
     expect(refreshForSession).not.toHaveBeenCalled();
 
     save.mockRestore();
-    await vi.waitFor(async () =>
+    await vi.waitFor(async () => {
       expect((await service.getSessions())[0]).toMatchObject({
         liveProjectId: "live-project-1",
         liveProjectName: "Album",
-      }),
-    );
-    expect(refreshForSession).toHaveBeenCalledTimes(1);
+      });
+      expect(refreshForSession).toHaveBeenCalledTimes(1);
+    });
     await service.stop();
   });
 
@@ -4978,40 +5869,77 @@ describe("desktop adapter over the shared application", () => {
     },
   );
 
-  it("starts ingress before the application and stops it first", async () => {
-    const directory = await temporaryDirectory();
-    const lifecycle: string[] = [];
-    const fake = createFakeApplication();
-    const originalStart = fake.application.start.bind(fake.application);
-    const originalStop = fake.application.stop.bind(fake.application);
-    fake.application.start = async (options) => {
-      lifecycle.push("application:start");
-      await originalStart(options);
-    };
-    fake.application.stop = async () => {
-      lifecycle.push("application:stop");
-      await originalStop();
-    };
-    const service = new HeadlessDesktopService({
-      application: fake.application,
-      approvals: new ApprovalCoordinator(),
-      preferencesStore: new JsonPreferencesStore(
-        join(directory, "preferences.json"),
-      ),
-      sessionStore: new JsonSessionStore(join(directory, "sessions.json")),
-      signals: new FakeSignalRuntime(lifecycle),
-    });
+  it.each(["none", "success", "quiesce-failure", "context-failure"] as const)(
+    "preserves ingress lifecycle and orders listening/context cleanup (%s)",
+    async (mode) => {
+      const directory = await temporaryDirectory();
+      const lifecycle: string[] = [];
+      let failQuiesce = mode === "quiesce-failure";
+      const fake = createFakeApplication();
+      const originalStart = fake.application.start.bind(fake.application);
+      const originalStop = fake.application.stop.bind(fake.application);
+      fake.application.start = async (options) => {
+        lifecycle.push("application:start");
+        await originalStart(options);
+      };
+      fake.application.stop = async () => {
+        lifecycle.push("application:stop");
+        await originalStop();
+      };
+      const service = new HeadlessDesktopService({
+        application: fake.application,
+        approvals: new ApprovalCoordinator(),
+        preferencesStore: new JsonPreferencesStore(
+          join(directory, "preferences.json"),
+        ),
+        sessionStore: new JsonSessionStore(join(directory, "sessions.json")),
+        signals: new FakeSignalRuntime(lifecycle),
+        ...(mode === "none"
+          ? {}
+          : {
+              quiesceListening: async () => {
+                lifecycle.push("listening:quiesce");
+                if (failQuiesce) {
+                  failQuiesce = false;
+                  throw new Error("Listener cleanup failed");
+                }
+              },
+              closeSessionContext: async () => {
+                lifecycle.push("context:close");
+                if (mode === "context-failure") {
+                  throw new Error("Context close failed");
+                }
+              },
+            }),
+      });
 
-    await service.start();
-    await service.stop();
+      await service.start();
+      if (mode === "quiesce-failure") {
+        await expect(service.stop()).rejects.toThrow("Listener cleanup failed");
+        expect(lifecycle).toEqual([
+          "signals:start",
+          "application:start",
+          "listening:quiesce",
+        ]);
+        await service.stop();
+        return;
+      }
+      if (mode === "context-failure") {
+        await expect(service.stop()).rejects.toThrow("Context close failed");
+      } else {
+        await service.stop();
+      }
 
-    expect(lifecycle).toEqual([
-      "signals:start",
-      "application:start",
-      "signals:stop",
-      "application:stop",
-    ]);
-  });
+      expect(lifecycle).toEqual([
+        "signals:start",
+        "application:start",
+        ...(mode === "none" ? [] : ["listening:quiesce"]),
+        "signals:stop",
+        "application:stop",
+        ...(mode === "none" ? [] : ["context:close"]),
+      ]);
+    },
+  );
 
   it("rejects sends while a session transition is in progress", async () => {
     const { service, agent } = await harness();

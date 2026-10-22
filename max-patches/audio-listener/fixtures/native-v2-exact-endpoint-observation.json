@@ -1,0 +1,77 @@
+{
+  "schemaVersion": 1,
+  "scope": "native-v2-exact-endpoint-observation/v1",
+  "runId": "cb1d2aba-c219-428c-9bb9-d6581d0f2d76",
+  "scenarioId": "native-descriptive-30-seconds",
+  "instrumentedDiagnosticOnly": true,
+  "acceptancePassed": false,
+  "contextIds": [],
+  "owner": {
+    "generation": "71b232f6-7cd3-4bb9-adf0-37df2cbcae51",
+    "passId": "2681d3d0-2c06-4e3b-b415-428d755143ee",
+    "connectionEpoch": "1ed6d6ac-6b19-4ba2-a229-6424579b384d",
+    "traceId": "efe44140-52a2-408d-88ef-61769a661cdf",
+    "correlationId": "efe44140-52a2-408d-88ef-61769a661cdf",
+    "nativeEpoch": 1
+  },
+  "pins": {
+    "controller": "f6e1e2de0230c86fe2d534f98400648edb3160deaacbb2bb88e74bf667d6c9d2",
+    "baselineGenDocument": "b732aed30d37910c72362c790160758dd96f5087e5093e2dff3a8924d7c7b508",
+    "probeModule": "f574c2c440fd15d17f63f7162a9d00340e838b7d689da887e1722c91975c5d76",
+    "probeCode": "60590069be0c641211419848d84b539f68052638e8bc466e6308766516eff223",
+    "probeGenDocument": "def05203ace89786b9cdbd7a1f7b7b68300abf01946b2820a739fb0f6afd02cf",
+    "decoder": "544f665295542fb3703a4d8ba49ba51c86a666ca173d34ca9f3b2f497b208930",
+    "copiedAnalysis": "8e4dc3afcc7021406d11aa13e07f77ab282800a86e7f8dec28c9dd68fc1f488d",
+    "combinedManifest": "1c75227c9317fc4de49d47782b22688e0d7dc728dfa2a287762600ed459ff075"
+  },
+  "rejectedEnvelope": [
+    1, 87040, -1, 0, 14, 0, 0, -1, 0, 0, 0, 0, 158400, 1210880, 1297920, 2
+  ],
+  "originalArmCounter": 1210880,
+  "controllerState": "capturing",
+  "privateFault": {
+    "scope": "native-envelope-phase-endpoint-probe/v1",
+    "receivedAfterFirstEnvelopeMs": 5545.933875024319,
+    "status": "observed-fault",
+    "values": [
+      1, 2, 1, 1, 1, 48000, 1, 0, 0, 0.999958333333333, 0, -0.000041666666667,
+      0, 1, -1, -1, -1, -1, -1, 1459920, 249040, 158400, 3536, 120, 1210880, 1,
+      0, 0, 0, 2, 1
+    ],
+    "endpointComparison": "native_equal_one",
+    "guardRecheckAgrees": true,
+    "rawResidualValid": true,
+    "previousResidualValid": true,
+    "scaledResidualValid": true,
+    "comparisonResidualAgrees": true,
+    "notVectorAtomic": true
+  },
+  "observer": {
+    "mainCount": 545,
+    "privateCount": 510,
+    "statuses": {
+      "unwritten": 509,
+      "incoherent": 0,
+      "stale": 0,
+      "observed-fault": 1
+    },
+    "privateDecoderErrors": 0
+  },
+  "cleanup": {
+    "instrumentationRestored": true,
+    "processStopped": true,
+    "fixtureCleaned": true,
+    "copiedResourcesUnchanged": true,
+    "sourcePinsUnchanged": true,
+    "livePid": 40373,
+    "nativeNodePid": 41347,
+    "errors": []
+  },
+  "limitations": [
+    "Native predicates report equal-to-one1, above-one0 and below-one0; scaled residual0 agrees. These are observations of the native comparison, not an IEEE bit-pattern inspection.",
+    "The actual range branch rejected; step fields remain unevaluated sentinels.",
+    "This supports only exact endpoint canonicalization, not epsilon admission or arbitrary wrapping.",
+    "Do not retroassign equality, branch or input to earlier1a8b61cd,509eb299 or41efa008.",
+    "No capture acceptance, certified physical timing, vector atomicity or earlier spectrum-recovery claim."
+  ]
+}

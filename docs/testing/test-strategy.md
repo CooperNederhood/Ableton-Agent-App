@@ -199,6 +199,21 @@ and approval rejection of a clip name in the track-name field. Retain prior
 failed runs; do not broaden guards or treat corrected guidance as empirical
 acceptance before rerunning the failed scenario and complete owning group.
 
+#### Reviewed scenario planning contract
+
+Render every reviewed tool/action ordering constraint into the actor prompt,
+including tool-wide constraints without invented action names. Sequential
+execution alone does not tell the actor which action must precede another.
+Keep the unhinted `transport-stop` prompt unchanged.
+
+When every assertion verifies only loaded tracks/devices, successful load
+results may finish the actor task; the runner still independently verifies
+the exact final state. Uncertain outcomes may use only reviewed inspections,
+not unlisted Drum Rack pad/chain actions. Do not apply this completion shortcut
+to scenarios with additional note, parameter, lifecycle or tool-call assertions.
+Regress both guidance and unchanged rejection of unreviewed actions; retain
+prior failed runs and require fresh scenario/group/remaining-suite acceptance.
+
 ### Electron end-to-end tests
 
 Critical workflows:

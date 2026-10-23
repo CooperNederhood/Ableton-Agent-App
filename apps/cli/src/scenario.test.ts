@@ -532,6 +532,104 @@ describe("integration scenarios", () => {
     }
   });
 
+  it("defines completion when all scenario assertions verify loaded devices", async () => {
+    const manifest = await loadScenarioManifest("808-track");
+    const context = createScenarioRunContext(manifest);
+    const prompt = scenarioPrompt(manifest.prompt, context);
+
+    expect(prompt).toContain(
+      "If completed load-item results confirm every requested device on its generated track, finish the task.",
+    );
+    expect(prompt).toContain(
+      "The runner independently verifies the exact final tracks and devices.",
+    );
+    expect(prompt).toContain(
+      "Do not inspect Drum Rack pads or chains unless that exact action is listed in the reviewed surface.",
+    );
+  });
+
+  it("does not shortcut scenarios with additional assertions", async () => {
+    for (const id of [
+      "piano-and-string-bass",
+      "auto-filter-audio",
+      "four-on-floor",
+      "echo-parameter-inspection",
+    ]) {
+      const manifest = await loadScenarioManifest(id);
+      const context = createScenarioRunContext(manifest);
+      expect(scenarioPrompt(manifest.prompt, context)).not.toContain(
+        "If completed load-item results confirm every requested device",
+      );
+    }
+  });
+
+  it("surfaces every reviewed action-order constraint to the actor", async () => {
+    for (const id of ["808-track", "session-clip-lifecycle"]) {
+      const manifest = await loadScenarioManifest(id);
+      const context = createScenarioRunContext(manifest);
+      const prompt = scenarioPrompt(manifest.prompt, context);
+      for (const constraint of manifest.ordering) {
+        expect(prompt).toContain(
+          `Wait for a completed ${constraint.before} action "${constraint.beforeAction}" call before requesting ${constraint.after} action "${constraint.afterAction}".`,
+        );
+      }
+    }
+  });
+
+  it("states tool-wide ordering without inventing an action", async () => {
+    const manifest = await loadScenarioManifest("808-track");
+    const context = createScenarioRunContext({
+      ...manifest,
+      ordering: [{ before: "ableton_browser", after: "ableton_tracks" }],
+    });
+    expect(scenarioPrompt(manifest.prompt, context)).toContain(
+      "Wait for a completed ableton_browser call before requesting ableton_tracks.",
+    );
+  });
+
+  it("continues denying unreviewed pad inspection after an approved device load", async () => {
+    const manifest = await loadScenarioManifest("808-track");
+    const context = createScenarioRunContext(manifest);
+    expect(manifest.allowedActions.ableton_devices).toEqual(["inspect"]);
+    expect(manifest.maxMutations).toBe(2);
+    for (const approval of [
+      request("ableton_browser", "read", {
+        action: "search",
+        query: "808",
+      }),
+      request("ableton_tracks", "reversible", {
+        action: "create",
+        kind: "midi",
+        name: context.trackNames[0],
+      }),
+      request("ableton_browser", "reversible", {
+        action: "load-item",
+        index: 14,
+        expectedName: context.trackNames[0],
+        expectedItemName: "808 Core Kit.adg",
+      }),
+    ]) {
+      expect(await context.approvals.request(approval)).toBe(true);
+    }
+    expect(
+      await context.approvals.request(
+        request("ableton_devices", "read", {
+          action: "inspect-drum-rack-pads",
+          index: 14,
+          expectedReference: "generated-track",
+          expectedName: context.trackNames[0],
+          deviceIndex: 0,
+          expectedDeviceReference: "loaded-device",
+          expectedDeviceName: "808 Core Kit",
+        }),
+      ),
+    ).toBe(false);
+    expect(context.approvals.decisions.at(-1)).toMatchObject({
+      approved: false,
+      reason: "argument_guard_rejected",
+    });
+  });
+
   it("loads every agent scenario manifest with grouped action constraints", async () => {
     for (const id of [
       "connection-and-session",

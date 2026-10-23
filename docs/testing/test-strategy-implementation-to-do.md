@@ -147,7 +147,8 @@ Companion specification: [Test Strategy](test-strategy.md)
     changing code, prompts, guards or budgets, but complete-group reproduction
     `be123273-529f-4db2-aaca-78730b71516d` fails at the same guard. Preserve both
     outcomes; do not call the broader suite green or hide failures with retries.
-    Seven later non-native scenarios remain unexecuted in this qualification.
+    The seven later scenarios were initially unreached; subsequent qualification
+    after the guidance fix is recorded below.
     Native listening groups require separate version-pinned fixture inputs and
     are not claimed as executed by #56.
   - [x] Reproduce missing Session clip containing-track identity guidance and
@@ -159,11 +160,45 @@ Companion specification: [Test Strategy](test-strategy.md)
     All 497 owning tool/application/CLI/runner tests, build and affected package
     typechecks pass after the fix. The complete serialized TypeScript suite
     passes all 2316 tests; changed-source lint, docs and protocol contracts pass.
-  - [ ] Rerun the failing Session lifecycle, its complete group and seven
-    remaining non-native scenarios after the guidance fix. Acquire a fresh
-    explicit Live slot only after #58 releases its current ownership. Prior
-    failures remain evidence; do not claim a complete real-Live suite pass
-    from unit/SDK registration tests.
+  - [x] Requalify the failing Session lifecycle and its complete group after
+    #58's explicit slot release, independent process-absence verification and
+    fresh branch-script installation. Focused run
+    `02d837d6-d7d8-4f66-a991-df0609236ec7` and owning-group run
+    `607350d0-1a62-4198-aef7-60a0021eea08` pass with correct containing-track
+    launch identity, zero approval denials and independently restored Sets.
+    Both retain recovered invalid-argument probes (track delete and Session
+    duplicate respectively); neither is claimed error-free. Exact-owned
+    cleanup succeeds for Live PIDs 61233 and 62410.
+  - [x] Qualify all seven previously unreached non-native scenarios. Run
+    `5d955dbb-c852-4b50-a33d-f3bd00fd4cd2` passes Arrangement clip lifecycle,
+    Arrangement region fill, cue lifecycle, piano/string-bass instruments,
+    Auto Filter, Echo parameter inspection and the exact Operator MIDI fixture.
+    Arrangement lifecycle scenarios independently restore the Set; both retain
+    recovered invalid-argument probes without approval denials. The other five
+    scenarios pass without tool failures. All four exact-owned Live processes
+    (63173, 63496, 63799, 64122) finish successful cleanup.
+  - [ ] Finish current-snapshot remaining-suite qualification for transport,
+    inspection, Live Events and tracks. Prior failures remain evidence; do not
+    equate recovered passes with error-free turns or claim native-fixture or
+    exact Live 11.3.42 qualification.
+  - [x] Fix two additional reviewed-harness planning omissions exposed by
+    current-snapshot escalation. Run
+    `b745a2ad-16bb-43d3-b8e4-a97ab6411477` passed nine scenarios, but `808-track`
+    attempted unreviewed pad inspection after loading the correct device.
+    Loading-only completion guidance passed focused run
+    `9b1bcd63-8d36-4eed-987d-c0052ee3edec`, but owning-group run
+    `f1ce2cbe-7510-42a5-9a6a-524d198b43bc` exposed the missing explicit
+    search-before-create instruction: browsing children did not satisfy the
+    unchanged search ordering guard. Render existing ordering constraints
+    into prompts, including tool-wide cases. Three new guidance assertions
+    fail before their fixes; negative tests preserve unreviewed-action denial
+    and exclude scenarios with additional assertions from early completion.
+    All 121 owning CLI tests, CLI types/lint/build pass. Neither manifest,
+    allowlist, approval guard, budget nor production mutation behavior changes.
+    Focused run `4f082703-73ce-4cd9-9dc7-a2784ec4df0c` and complete tracks run
+    `2bbcef23-2951-4679-816f-c29541116079` pass with successful exact-owned
+    cleanup. `808-track` is error-free in both; track lifecycle retains two
+    recovered argument probes. Preserve both earlier failing traces.
   - [x] Run the broad repository quality components for #56.
     Build, repository formatting, full `pnpm lint`, all workspace/Electron-test
     typechecks and static/device/contract checks pass. Independent stop-harness

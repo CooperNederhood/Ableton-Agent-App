@@ -454,6 +454,20 @@ export function scenarioPrompt(
     (target) =>
       `Resolve and load Browser item "${target.itemName}" onto track "${context.artifactPrefix}${target.trackNameSuffix}".`,
   );
+  const orderingInstructions = context.manifest.ordering.map(
+    (constraint) =>
+      `Wait for a completed ${constraint.before}${constraint.beforeAction === undefined ? "" : ` action "${constraint.beforeAction}"`} call before requesting ${constraint.after}${constraint.afterAction === undefined ? "" : ` action "${constraint.afterAction}"`}.`,
+  );
+  const loadingOnlyInstructions =
+    context.manifest.assertions.length > 0 &&
+    context.manifest.assertions.every(
+      (assertion) => assertion.type === "track-device",
+    )
+      ? [
+          "If completed load-item results confirm every requested device on its generated track, finish the task. The runner independently verifies the exact final tracks and devices.",
+          "If inspection is needed after an uncertain outcome, use only the exact inspection actions listed in the reviewed surface. Do not inspect Drum Rack pads or chains unless that exact action is listed in the reviewed surface.",
+        ]
+      : [];
   return [
     prompt,
     "",
@@ -464,8 +478,10 @@ export function scenarioPrompt(
     "Do not create, rename, mutate, or delete any other user artifacts.",
     "Run dependent tools sequentially: wait for each completed tool result before requesting the next dependent operation.",
     `Use only this reviewed tool/action surface: ${JSON.stringify(context.manifest.allowedActions)}. Other exposed tools are not approved for this scenario. The runner independently reads exact final note contents; do not substitute an unlisted MIDI query tool for the permitted inspections.`,
+    ...orderingInstructions,
     ...browserLoadInstructions,
     ...assertionInstructions,
+    ...loadingOnlyInstructions,
     "Inspect after uncertain outcomes; never repeat an unchanged mutation.",
     "This is a non-interactive reviewed scenario: do not call ask_user or request a new plan approval. If the permitted tools cannot complete it, report the limitation and finish without an alternative mutation.",
   ].join("\n");

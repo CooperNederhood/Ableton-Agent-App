@@ -1439,6 +1439,9 @@ describe("Ableton tools", () => {
     expect(devices.description).toContain("inspect-drum-rack-pads");
     expect(sessionClips.description).toContain("create-midi");
     expect(sessionClips.description).toContain("replace-notes");
+    expect(sessionClips.description).toContain(
+      "expectedName is the containing track's name, never the clip's name",
+    );
 
     const branch = (tool: Tool, action: string) => {
       const schema = (
@@ -1460,6 +1463,25 @@ describe("Ableton tools", () => {
     expect(createMidi?.description).toContain("sceneIndex and length");
     const duplicate = branch(sessionClips, "duplicate");
     expect(duplicate?.description).toContain("destinationTrackIndex");
+    for (const action of [
+      "create-midi",
+      "replace-notes",
+      "launch",
+      "duplicate",
+      "delete",
+      "set-properties",
+    ]) {
+      const fields = branch(sessionClips, action)?.properties as Record<
+        string,
+        Record<string, unknown>
+      >;
+      expect(fields.expectedName?.description, action).toContain(
+        "containing track",
+      );
+      expect(fields.expectedName?.description, action).toContain(
+        "not the clip",
+      );
+    }
     const replaceNotes = branch(sessionClips, "replace-notes");
     const properties = replaceNotes?.properties as Record<
       string,
@@ -1882,6 +1904,164 @@ describe("Ableton tools", () => {
       }).success,
     ).toBe(true);
     expect(trackParameters.safeParse({ action: "list" }).success).toBe(false);
+  });
+
+  it("advertises playback, tempo and Arrangement looping in full transport definitions without changing execution", () => {
+    const set = createAbletonTools(services());
+    const original = toolByName(set, "ableton_transport");
+    const [scoped] = scopeAbletonTools(set, {
+      allowedToolNames: ["ableton_transport"],
+    });
+    expect(scoped?.parameters).toBe(original.parameters);
+    expect(scoped?.handler).toBe(original.handler);
+    for (const tool of [original, scoped!]) {
+      expect(tool.description).toContain(
+        'Stop playback with action: "set-playing", isPlaying: false',
+      );
+      expect(tool.description).toContain(
+        'start playback with action: "set-playing", isPlaying: true',
+      );
+      expect(tool.description).toContain("set-tempo");
+      expect(tool.description).toContain("set-arrangement-loop");
+      expect(tool.description).toContain(
+        "Recording controls are intentionally excluded",
+      );
+      const parameters = tool.parameters as {
+        toJSONSchema(): {
+          type: string;
+          properties: { action: { enum: string[] } };
+          oneOf: unknown[];
+        };
+      };
+      const wireSchema = parameters.toJSONSchema();
+      expect(wireSchema.type).toBe("object");
+      expect(wireSchema.properties.action.enum).toHaveLength(17);
+      expect(wireSchema.properties.action.enum).toEqual(
+        expect.arrayContaining([
+          "set-playing",
+          "set-tempo",
+          "set-arrangement-loop",
+        ]),
+      );
+      expect(wireSchema.oneOf).toHaveLength(17);
+    }
+  });
+
+  it.each([
+    {
+      operations: ["transport.set_playing"],
+      actions: ["set-playing"],
+      guidance: [
+        "Stop playback",
+        "start playback",
+        "isPlaying: false",
+        "isPlaying: true",
+      ],
+    },
+    { operations: ["transport.get"], actions: ["get"], guidance: ["Inspect"] },
+    {
+      operations: ["transport.set_tempo", "transport.set_arrangement_loop"],
+      actions: ["set-tempo", "set-arrangement-loop"],
+      guidance: ["tempo", "Arrangement loop"],
+    },
+    {
+      operations: ["transport.delete_cue_point"],
+      actions: ["delete-cue-point"],
+      guidance: ["Delete"],
+    },
+  ])(
+    "keeps transport guidance truthful for $actions by operation and capability scope",
+    async ({ operations, actions, guidance }) => {
+      for (const selection of [
+        { allowedOperationIds: operations },
+        {
+          capabilities: Object.fromEntries(
+            operations.map((operation) => [operation, true]),
+          ),
+        },
+      ]) {
+        const service = services();
+        const [tool] = scopeAbletonTools(createAbletonTools(service), {
+          allowedToolNames: ["ableton_transport"],
+          ...selection,
+        });
+        expect(tool).toBeDefined();
+        for (const text of guidance) expect(tool?.description).toContain(text);
+        for (const action of [
+          "get",
+          "seek",
+          "jump",
+          "set-playing",
+          "set-tempo",
+          "set-arrangement-loop",
+          "inspect-arrangement",
+          "create-cue-point",
+          "delete-cue-point",
+          "set-link",
+          "rename-cue",
+          "jump-to-cue",
+          "back-to-arrangement",
+          "set-time-signature",
+          "set-metronome",
+          "set-launch-quantization",
+          "set-record-quantization",
+        ]) {
+          expect(tool?.description?.includes(`"${action}"`), action).toBe(
+            actions.includes(action),
+          );
+        }
+        if (!actions.includes("set-playing")) {
+          expect(tool?.description).not.toContain("Stop playback");
+          expect(tool?.description).not.toContain("start playback");
+          await expect(
+            tool?.handler?.(
+              { action: "set-playing", isPlaying: false },
+              {
+                sessionId: "session",
+                toolCallId: "forbidden-stop",
+                toolName: "ableton_transport",
+                arguments: { action: "set-playing", isPlaying: false },
+              },
+            ),
+          ).resolves.toMatchObject({ resultType: "failure" });
+          expect(service.setPlaying).not.toHaveBeenCalled();
+        }
+        const parameters = tool?.parameters as {
+          toJSONSchema(): Record<string, unknown>;
+        };
+        const schema = parameters.toJSONSchema();
+        const serialized = JSON.stringify(schema);
+        for (const action of [
+          "set-playing",
+          "set-tempo",
+          "set-arrangement-loop",
+          "delete-cue-point",
+        ]) {
+          expect(serialized.includes(`"${action}"`), action).toBe(
+            actions.includes(action),
+          );
+        }
+      }
+    },
+  );
+
+  it("removes transport when the operation/capability intersection is empty", () => {
+    const set = createAbletonTools(services());
+    for (const selection of [
+      { allowedOperationIds: [] },
+      { capabilities: {} },
+      {
+        allowedOperationIds: ["transport.set_playing"],
+        capabilities: { "transport.get": true },
+      },
+    ]) {
+      expect(
+        scopeAbletonTools(set, {
+          allowedToolNames: ["ableton_transport"],
+          ...selection,
+        }),
+      ).toEqual([]);
+    }
   });
 
   it("advertises listener discovery in the full Default scope without changing its serialized schema", () => {

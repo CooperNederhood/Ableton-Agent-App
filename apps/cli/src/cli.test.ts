@@ -30,6 +30,323 @@ import {
 } from "./cli.js";
 import { EXIT_CODES } from "./exit-codes.js";
 import { createColorizer, type TerminalPresentation } from "./terminal.js";
+import { createScenarioRunContext, loadScenarioManifest } from "./scenario.js";
+import { resolveAbletonToolMetadata } from "@ableton-agent/tools";
+
+describe("reviewed runner-owned transport stop", () => {
+  const owner = { pid: 4321, runId: "11111111-1111-4111-8111-111111111111" };
+
+  async function fixture(mode = "success") {
+    const fake = createFakeApplication();
+    const context = createScenarioRunContext(
+      await loadScenarioManifest("transport-stop"),
+    );
+    const recording = {
+      arrangementRecord: mode === "unsafe",
+      sessionRecord: false,
+      sessionAutomationRecord: false,
+      overdub: false,
+      punchIn: false,
+      punchOut: false,
+    };
+    vi.spyOn(fake.application, "executeRecordingOperation").mockImplementation(
+      async () => ({ action: "inspect", state: recording }),
+    );
+    vi.spyOn(fake.application, "executeTransportOperation").mockImplementation(
+      async () => ({
+        action: "get",
+        transport: {
+          currentSongTime: 100,
+          isPlaying: fake.ableton.state.snapshot.isPlaying,
+          tempo: 122,
+          timeSignature: { numerator: 4, denominator: 4 },
+          metronome: false,
+          launchQuantization: 4,
+          recordQuantization: 0,
+          linkEnabled: false,
+          backToArrangement: false,
+        },
+        cuePoints: [],
+        totalCuePoints: 0,
+        offset: 0,
+        limit: 32,
+      }),
+    );
+    vi.spyOn(fake.application, "inspectArrangementTransport").mockResolvedValue(
+      {
+        loop: { enabled: false, start: 0, length: 4 },
+        cuePoints: [],
+        totalCuePoints: 0,
+        offset: 0,
+        limit: 32,
+      },
+    );
+    vi.spyOn(fake.application, "inspectArrangement").mockResolvedValue({
+      clips: [],
+      total: 0,
+      offset: 0,
+      limit: 256,
+    });
+    const setup = vi.spyOn(fake.application, "setPlaying");
+    const send = vi
+      .spyOn(fake.application, "send")
+      .mockImplementation(async (prompt) => {
+        expect(prompt).toBe("Stop playback. Do not change anything else.");
+        expect(context.transportStop?.playing?.session.isPlaying).toBe(true);
+        expect(fake.ableton.state.snapshot.isPlaying).toBe(true);
+        if (mode === "timeout" || mode === "cancelled") {
+          const error = new Error(
+            mode === "timeout" ? "Turn timed out" : "cancelled",
+          );
+          if (mode === "cancelled") error.name = "AbortError";
+          throw error;
+        }
+        if (mode === "prose") return "Done, successful.";
+        const args = { action: "set-playing", isPlaying: mode === "denied" };
+        const metadata = resolveAbletonToolMetadata("ableton_transport", args)!;
+        const approved = await context.approvals.request({
+          metadata,
+          arguments: args,
+        });
+        if (approved) {
+          fake.events.publish({
+            type: "operation.started",
+            operationId: "stop",
+            label: "Stop",
+            toolName: "ableton_transport",
+            arguments: args,
+          });
+          if (mode !== "still-playing")
+            fake.ableton.state.snapshot = {
+              ...fake.ableton.state.snapshot,
+              isPlaying: false,
+            };
+          fake.events.publish({
+            type: "operation.completed",
+            operationId: "stop",
+            summary: "Stopped",
+            result: {
+              beforeIsPlaying: true,
+              afterIsPlaying: false,
+              verified: true,
+            },
+          });
+        }
+        return "Done, successful.";
+      });
+    const stop = vi.spyOn(fake.application, "stop");
+    return { ...fake, context, send, setup, stop };
+  }
+
+  it.each(["success", "prose", "denied", "still-playing"])(
+    "verifies actor state before shutdown without manufacturing success: %s",
+    async (mode) => {
+      const fake = await fixture(mode);
+      const output: string[] = [];
+      const code = await runCommand(
+        {
+          name: "run",
+          scenarioId: "transport-stop",
+          prompt: "Stop playback. Do not change anything else.",
+          json: true,
+        },
+        fake.application,
+        {
+          write: (line) => output.push(line),
+          writeRaw: () => undefined,
+          writeError: () => undefined,
+        },
+        undefined,
+        { scenario: fake.context, runnerOwnedLive: owner },
+      );
+      expect(code).toBe(
+        mode === "success" ? EXIT_CODES.SUCCESS : EXIT_CODES.OPERATION_ERROR,
+      );
+      const payload = JSON.parse(output.at(-1)!) as Record<string, unknown>;
+      expect(payload.ok).toBe(mode === "success");
+      expect(fake.setup).toHaveBeenCalledExactlyOnceWith(true);
+      expect(fake.stop).toHaveBeenCalledTimes(1);
+      expect(fake.context.transportStop?.final?.session.isPlaying).toBe(
+        mode !== "success",
+      );
+      expect(fake.context.lifecycle.map((event) => event.name)).toEqual([
+        "scenario.setup.started",
+        "scenario.setup.completed",
+        "scenario.actor.started",
+        "scenario.actor.completed",
+        "scenario.verification.started",
+        mode === "success"
+          ? "scenario.verification.completed"
+          : "scenario.verification.failed",
+      ]);
+    },
+  );
+
+  it.each(["unsafe", "no-owner"])(
+    "does not submit an actor turn for setup failure: %s",
+    async (mode) => {
+      const fake = await fixture(mode);
+      await expect(
+        runCommand(
+          {
+            name: "run",
+            scenarioId: "transport-stop",
+            prompt: "Stop playback. Do not change anything else.",
+            json: true,
+          },
+          fake.application,
+          {
+            write: () => undefined,
+            writeRaw: () => undefined,
+            writeError: () => undefined,
+          },
+          undefined,
+          {
+            scenario: fake.context,
+            ...(mode === "no-owner" ? {} : { runnerOwnedLive: owner }),
+          },
+        ),
+      ).rejects.toThrow(
+        mode === "no-owner" ? "runner-owned" : "refuses recording",
+      );
+      expect(fake.send).not.toHaveBeenCalled();
+      expect(fake.setup).not.toHaveBeenCalled();
+      expect(fake.stop).toHaveBeenCalledTimes(1);
+      expect(
+        fake.context.lifecycle.some(
+          (event) => event.name === "scenario.setup.failed",
+        ),
+      ).toBe(true);
+    },
+  );
+
+  it.each(["timeout", "cancelled"])(
+    "retains playing failure evidence and cancels before application cleanup: %s",
+    async (mode) => {
+      const fake = await fixture(mode);
+      const cancel = vi.spyOn(fake.application, "cancel");
+      await expect(
+        runCommand(
+          {
+            name: "run",
+            scenarioId: "transport-stop",
+            prompt: "Stop playback. Do not change anything else.",
+            json: true,
+          },
+          fake.application,
+          {
+            write: () => undefined,
+            writeRaw: () => undefined,
+            writeError: () => undefined,
+          },
+          undefined,
+          { scenario: fake.context, runnerOwnedLive: owner },
+        ),
+      ).rejects.toThrow();
+      expect(cancel).toHaveBeenCalledTimes(1);
+      expect(fake.context.transportStop?.final?.session.isPlaying).toBe(true);
+      expect(fake.setup).toHaveBeenCalledExactlyOnceWith(true);
+      expect(fake.stop).toHaveBeenCalledTimes(1);
+      expect(fake.context.lifecycle.map((event) => event.name)).toContain(
+        "scenario.actor.cancelled",
+      );
+      expect(fake.context.lifecycle.map((event) => event.name)).toContain(
+        "scenario.failure-state.completed",
+      );
+    },
+  );
+
+  it("persists playing failure evidence separately from actor operations before releasing the bridge", async () => {
+    const fake = await fixture("timeout");
+    const directory = await mkdtemp(join(process.cwd(), ".cli-stop-trace-"));
+    const tracePath = join(directory, "trace.json");
+    try {
+      await expect(
+        runCommand(
+          {
+            name: "run",
+            scenarioId: "transport-stop",
+            prompt: "Stop playback. Do not change anything else.",
+            json: true,
+            tracePath,
+          },
+          fake.application,
+          {
+            write: () => undefined,
+            writeRaw: () => undefined,
+            writeError: () => undefined,
+          },
+          undefined,
+          { scenario: fake.context, runnerOwnedLive: owner },
+        ),
+      ).rejects.toThrow("Turn timed out");
+      const trace = z
+        .object({
+          scenarioEvidence: z
+            .object({
+              lifecycle: z.array(z.object({ name: z.string() })),
+            })
+            .passthrough(),
+        })
+        .passthrough()
+        .parse(JSON.parse(await readFile(tracePath, "utf8")));
+      expect(trace).toMatchObject({
+        ok: false,
+        traceState: "failed",
+        operations: [],
+        scenarioEvidence: {
+          transportStop: {
+            owner,
+            setupCall: { arguments: { isPlaying: true } },
+            initial: { session: { isPlaying: false } },
+            playing: { session: { isPlaying: true } },
+            final: { session: { isPlaying: true } },
+          },
+        },
+      });
+      expect(
+        trace.scenarioEvidence.lifecycle.map(
+          (event: { name: string }) => event.name,
+        ),
+      ).toContain("scenario.actor.cancelled");
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("still reads final actor state if cancellation itself fails", async () => {
+    const fake = await fixture("timeout");
+    vi.spyOn(fake.application, "cancel").mockRejectedValue(
+      new Error("abort unavailable"),
+    );
+    await expect(
+      runCommand(
+        {
+          name: "run",
+          scenarioId: "transport-stop",
+          prompt: "Stop playback. Do not change anything else.",
+          json: true,
+        },
+        fake.application,
+        {
+          write: () => undefined,
+          writeRaw: () => undefined,
+          writeError: () => undefined,
+        },
+        undefined,
+        { scenario: fake.context, runnerOwnedLive: owner },
+      ),
+    ).rejects.toThrow("Turn timed out");
+    expect(fake.context.transportStop?.final?.session.isPlaying).toBe(true);
+    expect(fake.context.lifecycle.map((event) => event.name)).toContain(
+      "scenario.cancellation.failed",
+    );
+    expect(fake.context.lifecycle.map((event) => event.name)).toContain(
+      "scenario.failure-state.completed",
+    );
+    expect(fake.stop).toHaveBeenCalledTimes(1);
+  });
+});
 
 const richTerminal: TerminalPresentation = {
   rich: true,

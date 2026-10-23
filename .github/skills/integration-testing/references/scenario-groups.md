@@ -69,6 +69,22 @@
 - transport loop mutation/restoration, denial, and retry safety;
 - startup, manual-refresh, and settled-idle performance profiling.
 
+## Transport discoverability
+
+`transport`
+
+- `transport-stop`: independently establish safe playing transport in the
+  runner-owned Set, then ask the real agent to stop playback without giving it
+  action names. Require the exact ordinarily approved stop invocation, an
+  independent stopped-state read before cleanup, unchanged content/settings
+  apart from playback and naturally advancing position, and explicit owned
+  cleanup. Refusal, denial, missing calls, timeout and prose-only success fail
+  without an automatic actor retry.
+
+Run the scenario alone, then its group and the remaining runnable suite.
+Description/SDK and synthetic harness regressions do not establish real-agent
+acceptance. A pre-existing user Live process blocks execution; never control it.
+
 ## Listening source fixtures
 
 `listening-fixtures`

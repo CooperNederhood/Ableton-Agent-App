@@ -164,8 +164,9 @@ playback running. Actual normal-profile SDK registration contains all 17
 `ableton_transport` actions, including `set-playing` with `isPlaying: false`.
 The agent incorrectly claimed only `delete-cue-point` was available and never
 attempted a stop; it did not receive a stop permission denial. The description
-omits explicit start/stop, tempo and Arrangement-loop guidance; #56 tracks that
-fix and end-to-end agent verification. Manual Stop is the current dogfood
+now explicitly advertises start/stop, tempo and Arrangement-loop guidance;
+#56 tracks the scope-aware description fix and pending real-agent acceptance.
+Manual Stop remains the dogfood
 workaround, not evidence that Live or the application lacks the capability.
 Do not count the agent's refusal as a native capture attempt.
 

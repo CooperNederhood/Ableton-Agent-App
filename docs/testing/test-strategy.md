@@ -154,6 +154,66 @@ Maintain a small manually triggered suite for supported Live versions:
 
 These tests are not expected to run on ordinary hosted CI.
 
+#### Transport stop discoverability
+
+The `transport` group includes `transport-stop`, run alone with
+`pnpm live:agent-smoke --scenario transport-stop`. Its reviewed prompt asks to
+stop playback without supplying an action name or arguments. Runner setup must
+independently establish playing transport with recording off before the actor
+turn. Setup must not count as an actor tool invocation.
+
+The actor uses ordinary approvals with an exact stop-argument guard and one
+mutation budget. The verifier requires the actual stop call and an independent
+`isPlaying === false` read before cleanup, plus unchanged content and relevant
+transport settings. Naturally advancing position is not an unrelated edit.
+Missing calls, refusals, denials, timeout, incomplete evidence or prose-only
+success must fail; cleanup cannot convert a failed actor result into a pass.
+Do not automatically retry the discoverability request.
+
+Validate completed stop payloads against the protocol result schema. Accept
+standalone JSON or its exact SDK transport-success post-tool-hook framing;
+unrecognized trailing prose, other tool framing and unverified payloads remain
+failures. Hook guidance and assistant prose are not state evidence.
+
+Run the scenario, its group and the remaining runnable suite in that order.
+Follow deterministic acceptance with an isolated visible Default-agent check,
+using ordinary approvals and independently verified state. A pre-existing
+user Live process blocks both checks; never reuse or terminate it. Implemented
+description/SDK contracts and synthetic verifier tests are not proof of real
+agent action selection.
+
+#### Session clip lifecycle consistency
+
+The reviewed `session-clip-lifecycle` request and its detailed instructions
+must agree with the existing guarded order: create the source, launch it,
+stop transport, change properties, duplicate, then delete the generated clips
+and track. Do not ask for properties/duplication before launch while enforcing
+the reverse order. Existing identity, zero-based scene indices, risk classes,
+ordering constraints, mutation budgets and unchanged-Set assertions remain
+authoritative.
+
+All Session clip actions use `expectedName` for the containing track, never
+the clip name. Regress that distinction in the tool description, every
+action's serialized parameter metadata, full and restricted SDK registration,
+and approval rejection of a clip name in the track-name field. Retain prior
+failed runs; do not broaden guards or treat corrected guidance as empirical
+acceptance before rerunning the failed scenario and complete owning group.
+
+#### Reviewed scenario planning contract
+
+Render every reviewed tool/action ordering constraint into the actor prompt,
+including tool-wide constraints without invented action names. Sequential
+execution alone does not tell the actor which action must precede another.
+Keep the unhinted `transport-stop` prompt unchanged.
+
+When every assertion verifies only loaded tracks/devices, successful load
+results may finish the actor task; the runner still independently verifies
+the exact final state. Uncertain outcomes may use only reviewed inspections,
+not unlisted Drum Rack pad/chain actions. Do not apply this completion shortcut
+to scenarios with additional note, parameter, lifecycle or tool-call assertions.
+Regress both guidance and unchanged rejection of unreviewed actions; retain
+prior failed runs and require fresh scenario/group/remaining-suite acceptance.
+
 ### Electron end-to-end tests
 
 Critical workflows:

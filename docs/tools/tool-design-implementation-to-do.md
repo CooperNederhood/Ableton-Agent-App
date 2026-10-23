@@ -60,6 +60,45 @@ Companion specification: [Tool Design](tool-design.md)
   - [x] Give grouped device and Session clip tools affirmative, action-specific
     guidance for Drum Rack pads, MIDI creation, explicit note-expression loss,
     and exact inspected parameter identity.
+  - [x] Clarify containing-track `expectedName` in the Session clip tool
+    description and field metadata for every action, including launch and
+    post-rename operations. Preserve the original string constraints and all
+    guards; regress SDK serialization for full and launch-only registration.
+  - [x] Qualify that identity guidance against the previously failing real
+    Session clip lifecycle, then its complete group and remaining runnable
+    suite. Focused and owning-group runs restore the Set with correct launch
+    identity and zero approval denials. Final tracks-group and remaining-suite
+    runs qualify all 19 non-native scenarios; four retain recovered argument
+    probes, not error-free claims. Independent process inspection confirms
+    successful cleanup before explicit slot release. See the testing
+    implementation to-do for retained run IDs and historical failures.
+  - [x] Advertise existing transport playback start/stop with explicit
+    `set-playing` / `isPlaying: false` and `true`, tempo and Arrangement looping.
+    Generate transport descriptions from the permitted operation/capability
+    intersection, without changing schemas, handlers, approvals or listening
+    prerequisites/leave-running cleanup.
+  - [x] Regress full, playback-only, inspection-only, tempo/loop and cue-only
+    descriptions and SDK registration; reject omitted playback actions before
+    service execution. New description assertions fail against the original
+    implementation and pass with scope-aware guidance.
+  - [x] Add the reviewed `transport-stop` scenario with independently verified
+    playing setup, ordinary exact-stop approvals, one actor mutation, independent
+    stopped/content/settings verification before cleanup, retained lifecycle
+    evidence and no automatic actor retry. Synthetic tests cover unsafe setup,
+    denial, false success, changed state, timeout/cancellation and cleanup failure.
+  - [x] Accept #56 against the real agent from independently verified playing
+    transport, with exact ordinarily approved stop arguments, stopped state
+    and unchanged content before cleanup. Focused and transport-group runs
+    pass on 2026-10-23 UTC with successful exact-owned cleanup. Empirical host
+    evidence is Live Suite 11.3.43, not separate 11.3.42 qualification.
+  - [x] Complete the isolated visible Default-agent check with ordinary
+    approvals. The unhinted message appears once, Approve once authorizes the
+    exact stop, the operation and turn complete, and independent reads confirm
+    true-to-false playback with unchanged bounded content/settings. Live is
+    visibly stopped before Desktop closes. Both Desktop processes closed; the
+    user subsequently closed the dedicated validation Live process. Canonical
+    inspection confirms its exit and an empty Live process list at
+    2026-10-23T13:49:36.730Z; the shared test slot was explicitly released.
 
 ## Inspection tools
 

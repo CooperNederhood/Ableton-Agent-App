@@ -65,8 +65,9 @@ Merge-blocking review defects and CI failures still require resolution.
 - [x] Make the existing stopped-transport prerequisite explicit in the updated
   handoff. Actual SDK registration includes `set-playing`; the agent's claim
   that only `delete-cue-point` was available was incorrect, with no stop call
-  or permission denial. Description/discoverability is tracked in
-  [#56](https://github.com/CooperNederhood/Ableton-Agent-App/issues/56).
+  or permission denial. Scope-aware descriptions now advertise existing
+  playback, tempo and loop actions; actual real-agent discoverability remains
+  pending in [#56](https://github.com/CooperNederhood/Ableton-Agent-App/issues/56).
   Manually stop Live between dogfood captures, which leave it running.
   Preserve the refusal turn rather than claiming it captured.
 - [x] Verify four packaged Default-agent captures in the same owned App/Live

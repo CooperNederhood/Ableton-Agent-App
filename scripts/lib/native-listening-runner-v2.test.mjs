@@ -21,9 +21,11 @@ import {
   runNativeScenarioGroup,
 } from "./native-listening-runner.mjs";
 import { createNativeScenarioApproval } from "./native-listening-verification.mjs";
+import { nativeSourceOverrideRefusal } from "./native-listening-runner-source.mjs";
 
 const load = async (id) =>
   JSON.parse(await readFile(`integration/live-scenarios/${id}.json`, "utf8"));
+const trackReference = "00000000-0000-4000-8000-000000000001";
 const startupCaptures = [
   [
     "native-descriptive-startup-0-4",
@@ -523,6 +525,7 @@ async function runnerV2(
     version = 2,
     connectionError,
     bridgeReadinessError,
+    liveVersion = "test-only",
   } = {},
 ) {
   const f = await nativeFixtureInput({ nativeVersion: 2 });
@@ -553,7 +556,7 @@ async function runnerV2(
       signalKind: "audio",
       schemaVersion: `audio-observation/v${version}`,
     },
-    binding: { trackId: "track", deviceId: "device" },
+    binding: { trackId: trackReference, deviceId: "device" },
     registration: {
       version,
       connectionEpoch: "epoch",
@@ -570,12 +573,26 @@ async function runnerV2(
   };
   const target = {
     binding: {
-      track: { expectedReference: "track", expectedName: f.input.trackName },
+      track: {
+        kind: "regular",
+        index: 0,
+        expectedReference: trackReference,
+        expectedName: f.input.trackName,
+      },
       expectedDeviceReference: "device",
       expectedDeviceName: f.input.deviceName,
     },
     enabled: true,
     sessionOverride: false,
+    sourceEvidence: {
+      schemaVersion: 1,
+      state: "arrangement",
+      reason: "track-clear",
+      trackBackToArranger: false,
+      songBackToArranger: false,
+      playingSlotIndex: -1,
+      firedSlotIndex: -1,
+    },
     clipsTruncated: false,
     dependenciesTruncated: false,
     canonicalPath: f.input.canonicalPath,
@@ -617,7 +634,7 @@ async function runnerV2(
                   listenerId: "native",
                   ready: false,
                   limitations: ["native_per_pass_validation_required"],
-                  trackReference: "track",
+                  trackReference,
                   deviceReference: "device",
                 },
               ],
@@ -643,6 +660,18 @@ async function runnerV2(
         },
         waitForListeningPass: async () => {
           wait();
+          if (manifest.sourceTransition === "session-override") {
+            job = {
+              ...job,
+              stage: "failed",
+              error:
+                failure === "wrong-refusal"
+                  ? "arrangement_source_unknown"
+                  : nativeSourceOverrideRefusal,
+            };
+            options.onChange(job);
+            return job;
+          }
           if (["cancelled", "positioning", "capture"].includes(failure)) {
             job = {
               ...job,
@@ -679,12 +708,12 @@ async function runnerV2(
             sessionId: job.owner.sessionId,
             liveSetId: job.owner.liveSetId,
             kind,
-            trackId: "track",
+            trackId: trackReference,
             binding: {
               version: 1,
               semanticLocator: {
                 name: "Fixture",
-                trackId: "track",
+                trackId: trackReference,
                 ...(kind === "arrangement-range"
                   ? {
                       arrangementRange: {
@@ -763,21 +792,94 @@ async function runnerV2(
       host = options.listening({});
       return {
         ableton: {
-          inspectListeningContext: vi.fn(async () => ({
-            listeners: [target],
-            transport: {
-              playing,
-              currentBeat: playing ? manifest.capture.endBeat : 0,
-              tempo: 120,
-              safeToStart: !playing,
-              recording: {
-                recordMode: false,
-                sessionRecord: false,
-                arrangementOverdub: false,
-                sessionAutomationRecord: false,
+          inspectSession: vi.fn(async () => ({
+            clips: [
+              {
+                trackReference,
+                trackIndex: 0,
+                reference: "source",
+                sceneIndex: 0,
+                length: 4,
               },
-            },
+            ],
           })),
+          launchSessionClip: vi.fn(async () => {
+            playing = true;
+            if (failure === "source-epoch")
+              listener.registration.connectionEpoch = "changed-epoch";
+            target.sessionOverride = true;
+            target.sourceEvidence = {
+              ...target.sourceEvidence,
+              state: "session-override",
+              reason: "track-override",
+              trackBackToArranger: true,
+              songBackToArranger: true,
+              playingSlotIndex: 0,
+            };
+            return { verified: true };
+          }),
+          executeTracksOperation: vi.fn(async () => {
+            const before = {
+              kind: target.binding.track.kind,
+              index: target.binding.track.index,
+              reference: target.binding.track.expectedReference,
+              name: target.binding.track.expectedName,
+              trackType: "midi",
+              colorIndex: null,
+              isGroup: false,
+              isFolded: null,
+              monitoringState: null,
+              canBeArmed: true,
+              isArmed: false,
+              isMuted: false,
+              isSoloed: false,
+              backToArrangement: true,
+            };
+            target.sessionOverride = false;
+            target.sourceEvidence = {
+              ...target.sourceEvidence,
+              state: "arrangement",
+              reason: "track-clear",
+              trackBackToArranger: false,
+              songBackToArranger: false,
+              playingSlotIndex: -1,
+            };
+            return protocol.tracksOperationResultSchema.parse({
+              action: "back-to-arrangement",
+              result: {
+                before,
+                after: { ...before, backToArrangement: false },
+                verified: true,
+              },
+            });
+          }),
+          setPlaying: vi.fn(async () => {
+            playing = false;
+            return { verified: true };
+          }),
+          inspectListeningContext: vi.fn(async (params) => {
+            if (
+              failure === "source-epoch-during-read" &&
+              target.sessionOverride
+            )
+              listener.registration.connectionEpoch = "changed-during-read";
+            return {
+              bindingQueryId: params.bindingQueryId,
+              listeners: [globalThis.structuredClone(target)],
+              transport: {
+                playing,
+                currentBeat: playing ? manifest.capture.endBeat : 0,
+                tempo: 120,
+                safeToStart: !playing,
+                recording: {
+                  recordMode: false,
+                  sessionRecord: false,
+                  arrangementOverdub: false,
+                  sessionAutomationRecord: false,
+                },
+              },
+            };
+          }),
         },
         signals: {
           start: async () => {},
@@ -807,7 +909,7 @@ async function runnerV2(
               saved: true,
               liveSetId: "set",
               liveSetName: `${manifest.artifactPrefix}${runId}`,
-              liveVersion: "test-only",
+              liveVersion,
             };
           },
           inspectSession: async () => ({
@@ -896,6 +998,137 @@ async function runnerV2(
     },
   };
 }
+
+describe("source investigation runner composition (synthetic native results only)", () => {
+  it.each(["native-source-baseline", "native-source-explicit-return"])(
+    "%s starts a single new owned pass and retains native proof, typed reopening and cleanup",
+    async (id) => {
+      const f = await runnerV2(id);
+      try {
+        const result = await f.runner.run(async () => {});
+        expect(result.ok, result.error).toBe(true);
+        expect(result.jobs).toHaveLength(1);
+        expect(result.jobs[0].stage).toBe("completed");
+        expect(
+          result.sourceInvestigation.reads.find(
+            ({ label }) => label === "immediately-before-actor-request",
+          ),
+        ).toMatchObject({
+          label: "immediately-before-actor-request",
+          sessionOverride: false,
+          playing: false,
+        });
+        expect(result.evidence.envelopeWindows).toBe(40);
+        expect(result.postconditions.passed).toBe(true);
+        expect(f.p.assertNativeCaptureObservationV2).toHaveBeenCalledOnce();
+        expect(result.lifecycle.at(-1).name).toBe(
+          "integration.native_listening.credential-cleanup.completed",
+        );
+      } finally {
+        await f.runner.close({ processStopped: true });
+      }
+    },
+  );
+  it("requires the exact takeover refusal, no publication and no recapture", async () => {
+    const f = await runnerV2("native-source-session-override");
+    try {
+      const result = await f.runner.run(async () => {});
+      expect(result.ok, result.error).toBe(true);
+      expect(result.evidence).toMatchObject({
+        expectedRefusal: "arrangement_session_override",
+        noPublication: true,
+        listenerReleased: true,
+        unchangedSetAndSource: true,
+      });
+      expect(result.jobs).toHaveLength(1);
+      expect(result.jobs[0]).toMatchObject({ stage: "failed", contextIds: [] });
+      expect(f.wait).toHaveBeenCalledOnce();
+      expect(f.p.assertNativeCaptureObservationV2).not.toHaveBeenCalled();
+      expect(
+        result.sourceInvestigation.mutations.map(({ name }) => name),
+      ).toEqual(["session-launch", "explicit-stop-before-new-pass"]);
+      expect(result.sourceInvestigation.reads.at(-1)).toMatchObject({
+        sessionOverride: true,
+        playing: false,
+      });
+      const sourceStages = result.lifecycle.filter((event) =>
+        event.name.includes("source-immediately-before-actor-request."),
+      );
+      expect(sourceStages.map(({ stage }) => stage)).toEqual([
+        "queued",
+        "started",
+        "progress",
+        "completed",
+      ]);
+      expect(sourceStages.at(-1).attributes.observation).toMatchObject({
+        sessionOverride: true,
+        playing: false,
+        sourceEvidence: { state: "session-override" },
+      });
+      expect(new Set(sourceStages.map(({ trace }) => trace.traceId)).size).toBe(
+        1,
+      );
+      expect(sourceStages.every(({ durationMs }) => durationMs >= 0)).toBe(
+        true,
+      );
+      const launch = result.lifecycle.find(({ name }) =>
+        name.endsWith("source-session-launch.completed"),
+      );
+      expect(launch.attributes.receipt).toMatchObject({ verified: true });
+      expect(f.appStop).toHaveBeenCalledOnce();
+      expect(f.ingressStop).toHaveBeenCalledOnce();
+      expect(f.events.size).toBe(0);
+      expect(f.results.size).toBe(0);
+    } finally {
+      await f.runner.close({ processStopped: true });
+    }
+  });
+  it.each(["wrong-refusal", "source-epoch", "source-epoch-during-read"])(
+    "retains %s as failure and cleans up rather than accepting or retrying it",
+    async (failure) => {
+      const f = await runnerV2("native-source-session-override", { failure });
+      try {
+        const result = await f.runner.run(async () => {});
+        expect(result.ok).toBe(false);
+        expect(result.error).toContain(
+          failure === "wrong-refusal"
+            ? "exact known Session-override"
+            : "epoch",
+        );
+        expect(result.jobs).toHaveLength(failure === "wrong-refusal" ? 1 : 0);
+        expect(result.sourceInvestigation.mutations).toHaveLength(
+          failure === "wrong-refusal" ? 2 : 1,
+        );
+        expect(f.p.assertNativeCaptureObservationV2).not.toHaveBeenCalled();
+        expect(f.appStop).toHaveBeenCalledOnce();
+        expect(f.ingressStop).toHaveBeenCalledOnce();
+      } finally {
+        await f.runner.close({ processStopped: true });
+      }
+    },
+  );
+  it.each([
+    ["11.3.42", "supported-target-unqualified"],
+    ["11.3.43 (2025-10-06_b466d4f56c)", "non-target-unqualified"],
+  ])(
+    "labels %s evidence separately without promoting target qualification",
+    async (liveVersion, label) => {
+      const f = await runnerV2("native-source-baseline", { liveVersion });
+      try {
+        const result = await f.runner.run(async () => {});
+        expect(result.ok, result.error).toBe(true);
+        expect(result.supportedTargetQualified).toBe(false);
+        expect(result.sourceInvestigation).toMatchObject({
+          supportedTargetVersion: "11.3.42",
+          observedLiveVersion: liveVersion,
+          hostEvidenceLabel: label,
+        });
+      } finally {
+        await f.runner.close({ processStopped: true });
+      }
+    },
+  );
+});
 
 describe("v2 runner expectation forwarding and production typed context reopening (synthetic capture only)", () => {
   it("waits for owned bridge readiness before starting the application", async () => {

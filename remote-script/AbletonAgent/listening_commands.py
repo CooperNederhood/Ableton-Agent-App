@@ -203,19 +203,35 @@ def _boolean(obj, name):
     return value if isinstance(value, bool) else None
 
 
-def _session_override(song, track):
-    index = _read(track, "playing_slot_index")
+def _source_evidence(song, track):
+    def slot_index(field):
+        value = _read(track, field)
+        return value if _integer(value, -2) and value <= 2147483647 else None
+
+    index = slot_index("playing_slot_index")
+    fired = slot_index("fired_slot_index")
     back = _boolean(track, "back_to_arranger")
-    if _integer(index, 0) or back is True:
-        return True
-    if index == -2 or back is False:
-        return False
-    # Live 11 can omit the per-track flag; a known clear global flag and
-    # independently idle playing/fired slots still prove no Session override.
-    if (index == -1 and _read(track, "fired_slot_index") == -1
-            and _boolean(song, "back_to_arranger") is False):
-        return False
-    return None
+    global_back = _boolean(song, "back_to_arranger")
+    state, reason = "unknown", "source-properties-unavailable"
+    if index is not None and index >= 0:
+        state, reason = "session-override", "track-session-slot"
+    elif back is True:
+        state, reason = "session-override", "track-override"
+    elif back is False:
+        state, reason = "arrangement", "track-clear"
+    elif index in (-1, -2) and fired == -1 and global_back is False:
+        state, reason = "arrangement", "global-clear-idle-slots"
+    # -2 denotes a Session Clip Stop, not independent Arrangement proof.
+    return {
+        "schemaVersion": 1, "state": state, "reason": reason,
+        "trackBackToArranger": back, "songBackToArranger": global_back,
+        "playingSlotIndex": index, "firedSlotIndex": fired,
+    }
+
+
+def _session_override(song, track):
+    state = _source_evidence(song, track)["state"]
+    return False if state == "arrangement" else True if state == "session-override" else None
 
 
 def _beat(obj, name):
@@ -322,8 +338,12 @@ def _listener(context, target, params, transport):
         remaining -= len(parameters)
     # Downstream devices do not affect a known top-level tap.
     dependencies_truncated = dependencies_truncated or len(upstream) != target["deviceIndex"] + 1
-    index = _read(track, "playing_slot_index")
-    override = _session_override(context.song, track)
+    source_evidence = _source_evidence(context.song, track)
+    index = source_evidence["playingSlotIndex"]
+    override = (
+        False if source_evidence["state"] == "arrangement"
+        else True if source_evidence["state"] == "session-override" else None
+    )
     clips = []
     truncated = False
     max_clips = params.get("maxClips", 32)
@@ -337,6 +357,7 @@ def _listener(context, target, params, transport):
                 slots = [(index, collection[index])] + list(enumerate(slots))
             else:
                 override = None
+                source_evidence.update(state="unknown", reason="invalid-playing-slot")
                 slots = list(enumerate(slots))
         else:
             slots = sorted(enumerate(slots), key=lambda pair: pair[0] != index)
@@ -395,6 +416,7 @@ def _listener(context, target, params, transport):
     else:
         reasons.append("mixed-return-or-master")
         override = None
+        source_evidence.update(state="unknown", reason="mixed-bus")
     track_evidence = _evidence(track, TRACK_FIELDS)
     mixer = _safe_lom_getattr(track, "mixer_device")
     for field in ("volume", "panning", "crossfader_assign"):
@@ -429,6 +451,7 @@ def _listener(context, target, params, transport):
         "canonicalPath": path_attestation["canonicalDevicePath"],
         "pathAttestation": path_attestation,
         "enabled": _boolean(device, "is_active"), "sessionOverride": override,
+        "sourceEvidence": source_evidence,
         "clips": clips, "clipsTruncated": truncated,
         "trackEvidence": track_evidence, "upstreamDevices": upstream,
         "dependenciesTruncated": dependencies_truncated,

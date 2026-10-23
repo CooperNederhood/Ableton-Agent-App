@@ -206,6 +206,38 @@ describe("owned listening lifecycle presentation (synthetic fixtures only)", () 
     await click("Cancel owned capture (not transport)");
     expect(container.textContent).toContain("Selected App session changed");
   });
+  it.each([
+    "arrangement_session_override: A Session source overrides the selected track. Return to Arrangement in Live, then explicitly request a new listening pass.",
+    "arrangement_source_unknown: Arrangement source selection could not be verified. Request a fresh inspection. No Session takeover is confirmed.",
+  ])(
+    "preserves the specific refusal without speculative repairs: %s",
+    async (error) => {
+      const h = source();
+      vi.mocked(h.api.listening.list).mockResolvedValue(
+        page([{ ...job, stage: "failed", error }], 1),
+      );
+      await render(h.api);
+      expect(container.querySelector("[role=alert]")?.textContent).toContain(
+        error,
+      );
+      expect(container.textContent).not.toContain(
+        "Check listener discovery, timing certification and context storage",
+      );
+      expect(container.textContent).toContain(
+        "0 stored observation references",
+      );
+      expect(container.textContent).not.toContain("Lifecycle completed");
+      await click("Refresh listening passes");
+      expect(h.api.listening.list).toHaveBeenCalledTimes(2);
+      expect(h.cancel).not.toHaveBeenCalled();
+      expect(
+        [...container.querySelectorAll("button")].find(
+          (button) =>
+            button.textContent === "Cancel owned capture (not transport)",
+        )?.disabled,
+      ).toBe(true);
+    },
+  );
   it("discards late query/cancel results after selected-agent, session or profile changes", async () => {
     const h = source();
     let finishQuery!: (value: DesktopListeningPage) => void;

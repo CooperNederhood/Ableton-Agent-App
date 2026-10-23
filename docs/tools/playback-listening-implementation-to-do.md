@@ -89,6 +89,44 @@ Merge-blocking review defects and CI failures still require resolution.
   diagnose the separate initial `arrangement_source_unknown` rejection.
   The runtime guard rejects a listener whose Session override is not explicitly
   false; retained failure events do not establish whether it was true or unknown.
+- [x] Separate confirmed Session override from unknown source state without
+  adding Session listening or automatic source repair/retry. Preserve the
+  nullable guard and existing public bounded job-error surface; remove
+  speculative timing/storage repair advice from the listening pass panel.
+- [x] Retain versioned, bounded per-listener source inputs and reason codes in
+  the inspection contract and traced/timed runtime decision journal. Validate
+  query/path/owner/current instance and epoch before attributing a source refusal.
+  Keep old responses readable without inventing missing detailed evidence.
+- [x] Reproduce and close the unsafe negative-slot shortcut: `-2` alone cannot
+  prove Arrangement selection. Preserve the independent clear-global/idle-fired
+  fallback, including running-state readback, and all recording/identity guards.
+  This is a demonstrated guard defect, not the original refusal's proven cause.
+- [x] Add source-state, malformed/contradictory evidence, freshness/replacement,
+  pre-/post-position and post-arm denial, cancellation, no-publication, cleanup,
+  explicit new-pass recovery, bounded redaction and typed History regressions.
+- [x] Add the reviewed `native-listening-source-investigation` group and
+  deterministic verifier for baseline, exact duplicate/delete/restoration,
+  intentional Session refusal and separately explicit return/new-pass recovery.
+  Preserve unchanged actor permissions, native proof, partial setup receipts,
+  exact ownership and cleanup checks. Runner suites: 351 pass; post-protocol-7
+  narrow recheck: 232 pass. Affected application suites: 866 pass; Python: 215.
+- [x] Check explicit track-return verification at its action-specific nested
+  `result.verified` field, schema-validate runner command mocks, and reject
+  malformed, wrong-action or unverified receipts before continuing setup.
+  The production-shaped receipt regression fails before the correction; the
+  helper and runner-composition suites pass all 237 cases afterward.
+- [x] Negotiate protocol 7 with Remote Script/minimum `0.7.0`, regenerate paired
+  fixtures, and fix the compatibility checker's silent large-baseline skip.
+  Retain the historical broad-suite timing failures separately from passing
+  affected suites and isolated Desktop IPC coverage.
+- [ ] Qualify #57's controlled Arrangement edits and Session takeover/return
+  matrix in isolated runner-owned Live, then visually inspect the new refusal
+  guidance in an isolated Desktop workflow. Record exact version/hash provenance
+  and retain blockers/failures; do not adopt or close a pre-existing user process.
+  Currently blocked by missing immutable v2 fixture input, existing Live PID 8054,
+  installed 11.3.43 rather than supported 11.3.42, and unavailable user closure.
+  Both mutation and visual-host preflights refused safely; no real source matrix
+  or visual workflow is marked passed.
 - [ ] Follow-up [#58](https://github.com/CooperNederhood/Ableton-Agent-App/issues/58):
   reproduce and resolve listener binding after device-chain edits. Retained
   inspection shows the same enabled Max listener at device index 1 after a

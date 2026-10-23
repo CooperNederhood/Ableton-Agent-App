@@ -210,8 +210,8 @@ function ListeningInventory({
               </p>
               {job.error !== undefined && (
                 <p role="alert">
-                  {job.error} Check listener discovery, timing certification and
-                  context storage; retry only after resolving the failure.
+                  {job.error} Review the reported failure; retry only after
+                  resolving the failure.
                 </p>
               )}
               {job.stage === "completed" && (

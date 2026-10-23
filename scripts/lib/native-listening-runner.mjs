@@ -7,6 +7,13 @@ import { stageNativeListeningFixture } from "./native-listening-fixture.mjs";
 import { createNativeRunnerLifecycle } from "./native-listening-lifecycle.mjs";
 import { waitForNativeBridge } from "./native-bridge-readiness.mjs";
 import {
+  nativeSourcePrompt,
+  nativeSourceSetupActions,
+  nativeSourceTransitions,
+  prepareNativeSourceTransition,
+  verifyNativeSourceRefusal,
+} from "./native-listening-runner-source.mjs";
+import {
   createNativeScenarioApproval,
   inspectNativeListeningPostconditions,
   verifyNativeListeningEvidence,
@@ -51,7 +58,20 @@ function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
 
+const sourceScenarios = Object.fromEntries(
+  Object.keys(nativeSourceTransitions).map((id) => [
+    id,
+    Object.freeze({
+      startBeat: 4,
+      endBeat: 12,
+      maximumDurationMs: 8000,
+      timeoutMs: 60000,
+      artifactPrefix: `AA_SMOKE_${id.replaceAll("-", "_").toUpperCase()}_`,
+    }),
+  ]),
+);
 const v2Scenarios = Object.freeze({
+  ...sourceScenarios,
   "native-descriptive-fractional": Object.freeze({
     startBeat: 0.25,
     endBeat: 3.75,
@@ -88,6 +108,7 @@ export function nativeDescriptivePrompt(capture) {
 
 export function reviewNativeScenario(manifest) {
   const v2 = v2Scenarios[manifest.id];
+  const sourceTransition = nativeSourceTransitions[manifest.id];
   const version = v2 ? 2 : 1;
   const range = v2 ?? { startBeat: 0, endBeat: 4, maximumDurationMs: 8000 };
   const policy = Object.freeze(
@@ -102,12 +123,29 @@ export function reviewNativeScenario(manifest) {
       manifest.timeoutMs === (v2?.timeoutMs ?? 60000) &&
       isDeepStrictEqual(manifest.setupContract?.timingPolicy, policy) &&
       (v2
-        ? manifest.group === "native-listening-descriptive" &&
+        ? manifest.group ===
+            (sourceTransition
+              ? "native-listening-source-investigation"
+              : "native-listening-descriptive") &&
           manifest.nativeVersion === 2 &&
           manifest.setupContract.nativeVersion === 2 &&
           manifest.setupContract.inputOption === "--native-v2-fixture-input" &&
           manifest.artifactPrefix === v2.artifactPrefix &&
-          manifest.prompt === nativeDescriptivePrompt(v2) &&
+          manifest.prompt ===
+            nativeDescriptivePrompt(v2) +
+              (sourceTransition ? nativeSourcePrompt(sourceTransition) : "") &&
+          (sourceTransition
+            ? manifest.sourceTransition === sourceTransition &&
+              isDeepStrictEqual(
+                manifest.sourceSetupActions,
+                nativeSourceSetupActions[sourceTransition],
+              ) &&
+              manifest.setupContract.sourceInvestigation ===
+                "reviewed-exact-track-transitions-no-automatic-repair" &&
+              manifest.assertions.includes(
+                "independent-source-transition-reads",
+              )
+            : manifest.sourceTransition === undefined) &&
           isDeepStrictEqual(manifest.capture, {
             startBeat: v2.startBeat,
             endBeat: v2.endBeat,
@@ -356,6 +394,10 @@ export async function createNativeListeningRunner({
   let removeSignalSecret;
   let geometry;
   let expected;
+  let sourceEvidence;
+  let readSourceBeforePass;
+  let readSourceAfterPass;
+  let observedLiveVersion;
   const jobs = new Map();
   const received = [];
   const binding = {
@@ -505,6 +547,11 @@ export async function createNativeListeningRunner({
               ...host,
               executeListeningOperation: async (params, context) => {
                 actorContext = context;
+                if (
+                  params.action === "play-arrangement-and-listen" &&
+                  readSourceBeforePass
+                )
+                  await readSourceBeforePass();
                 return host.executeListeningOperation(params, context);
               },
             };
@@ -576,6 +623,7 @@ export async function createNativeListeningRunner({
             );
             if (status.state === "connected" && matches.length === 1) {
               owner.liveSetId = status.liveSetId;
+              observedLiveVersion = status.liveVersion;
               assert(
                 typeof owner.liveSetId === "string" &&
                   status.saved === true &&
@@ -619,9 +667,9 @@ export async function createNativeListeningRunner({
           maxClips: 32,
           maxParameters: 16,
         };
-        const inspected =
+        let inspected =
           await runtime.ableton.inspectListeningContext(inspectionParams);
-        const target = inspected.listeners[0];
+        let target = inspected.listeners[0];
         assert(
           inspected.transport.playing === false &&
             (reviewed.nativeVersion === 2 ||
@@ -642,6 +690,74 @@ export async function createNativeListeningRunner({
             !target.dependenciesTruncated,
           "Unsafe or mismatched stopped native preflight",
         );
+        const sourceTransition = nativeSourceTransitions[manifest.id];
+        const expectedRefusal = sourceTransition === "session-override";
+        if (sourceTransition) {
+          sourceEvidence = {
+            schema: "native-source-investigation/v1",
+            transition: sourceTransition,
+            runId,
+            originalCause: "not-reconstructable",
+            bugSpecificReproduction: "unproven-not-claimed",
+            reads: [],
+            mutations: [],
+          };
+          const prepared = await prepareNativeSourceTransition({
+            transition: sourceTransition,
+            ableton: runtime.ableton,
+            inspect: async (bindingQueryId) => {
+              const validateIdentity = async () => {
+                await validateOwnership();
+                const currentListener = runtime.signals.listeners
+                  .inspectListeners()
+                  .find(
+                    (item) => item.producer.producerId === binding.listenerId,
+                  );
+                assert(
+                  currentListener?.connectionId === listener.connectionId &&
+                    isDeepStrictEqual(
+                      currentListener?.registration,
+                      listener.registration,
+                    ) &&
+                    isDeepStrictEqual(
+                      currentListener?.binding,
+                      listener.binding,
+                    ) &&
+                    (await runtime.application.getStatus()).liveSetId ===
+                      owner.liveSetId,
+                  "Source investigation listener epoch, binding or Set owner changed",
+                );
+              };
+              await validateIdentity();
+              const value = await runtime.ableton.inspectListeningContext({
+                ...inspectionParams,
+                bindingQueryId,
+              });
+              assert(
+                value.bindingQueryId === bindingQueryId,
+                "Stale source investigation binding query",
+              );
+              await validateIdentity();
+              return value;
+            },
+            target,
+            runId,
+            validateOwnership,
+            stage: lifecycle.stage,
+            evidence: sourceEvidence,
+          });
+          inspected = prepared.inspected;
+          target = inspected.listeners[0];
+          sourceEvidence = prepared.evidence;
+          readSourceBeforePass = prepared.beforePass;
+          readSourceAfterPass = prepared.afterPass;
+          assert(
+            expectedRefusal ||
+              (inspected.transport.playing === false &&
+                inspected.transport.safeToStart === true),
+            "Source transition must establish a stopped safe new-pass baseline",
+          );
+        }
         if (reviewed.nativeVersion === 2) {
           geometry = d.protocol.createNativeListeningGeometry({
             sampleRate: listener.registration.sampleRate,
@@ -824,7 +940,8 @@ export async function createNativeListeningRunner({
           host.waitForListeningPass(passId, actorContext),
         );
         assert(
-          terminal.passId === passId && terminal.stage === "completed",
+          terminal.passId === passId &&
+            terminal.stage === (expectedRefusal ? "failed" : "completed"),
           `Listening terminal job did not complete (${terminal.stage})${terminal.error === undefined ? "" : `: ${terminal.error}`}`,
         );
         assert(
@@ -847,110 +964,151 @@ export async function createNativeListeningRunner({
         const links = (
           await repository.listLinks({ includeHistorical: true, limit: 20 })
         ).items;
-        const subjects = await Promise.all(
-          [...new Set(links.map((item) => item.subjectId))].map((id) =>
-            repository.getSubject(id),
-          ),
-        );
-        const typed = await contextHost.executeContextOperation(
-          {
-            action: "get",
-            contextId: job.contextIds[0],
-            includeHistorical: true,
-          },
-          reader(),
-        );
-        await lifecycle.stage("context-close", () => manager.close());
-        manager = makeManager();
-        const resumedHost = d.createSessionContextHost({
-          resolveRepository: (context) => manager.resolveRepository(context),
-        });
-        const resumed = await lifecycle.stage("typed-context-reopen", () =>
-          resumedHost.executeContextOperation(
+        if (expectedRefusal) {
+          await validateOwnership();
+          const finalInspection = await readSourceAfterPass();
+          const finalSnapshot = await runtime.application.inspectSession();
+          const finalListener = runtime.signals.listeners
+            .inspectListeners()
+            .find((item) => item.producer.producerId === binding.listenerId);
+          const evidence = await lifecycle.stage(
+            "source-refusal-verification",
+            async () =>
+              verifyNativeSourceRefusal({
+                job,
+                pass,
+                entries,
+                links,
+                received,
+                before: inspected,
+                after: finalInspection,
+                listener,
+                finalListener,
+                baselineSnapshot,
+                finalSnapshot,
+              }),
+          );
+          assert(!telemetryFailed, "Source investigation journal failed");
+          result = {
+            ok: true,
+            evidence,
+            actorToolCalls,
+            observedLiveVersion: (await runtime.application.getStatus())
+              .liveVersion,
+            supportedTargetQualified: false,
+          };
+        } else {
+          const subjects = await Promise.all(
+            [...new Set(links.map((item) => item.subjectId))].map((id) =>
+              repository.getSubject(id),
+            ),
+          );
+          const typed = await contextHost.executeContextOperation(
             {
               action: "get",
               contextId: job.contextIds[0],
               includeHistorical: true,
             },
             reader(),
-          ),
-        );
-        await validateOwnership();
-        const finalInspection =
-          await runtime.ableton.inspectListeningContext(inspectionParams);
-        const finalSnapshot = await runtime.application.inspectSession();
-        const finalListener = runtime.signals.listeners
-          .inspectListeners()
-          .find((item) => item.producer.producerId === binding.listenerId);
-        postconditions = inspectNativeListeningPostconditions(
-          {
-            baselineSnapshot,
-            finalSnapshot,
-            inspected,
-            finalInspection,
-            listener,
-            finalListener,
-            beforeBinding: normalizeInspection(inspected),
-            afterBinding: normalizeInspection(finalInspection),
-          },
-          d.sanitizePersistedText,
-        );
-        await lifecycle.stage(
-          "leave-running-postconditions",
-          async () =>
-            assert(
-              postconditions.passed,
-              `Leave-running capture cleanup, immutable binding or recording state mismatch: ${postconditions.failedChecks.join(", ")}`,
-            ),
-          { postconditions },
-        );
-        const evidence = await lifecycle.stage(
-          "independent-verification",
-          async () =>
-            verifyNativeListeningEvidence(
+          );
+          await lifecycle.stage("context-close", () => manager.close());
+          manager = makeManager();
+          const resumedHost = d.createSessionContextHost({
+            resolveRepository: (context) => manager.resolveRepository(context),
+          });
+          const resumed = await lifecycle.stage("typed-context-reopen", () =>
+            resumedHost.executeContextOperation(
               {
-                job,
-                pass,
-                entries,
-                links,
-                subjects,
-                received,
-                listener,
-                owner,
-                baseline,
-                final: normalizeSnapshot(finalSnapshot),
-                typed,
-                resumed,
-                target,
-                ...(reviewed.nativeVersion === 2 ? { expected } : {}),
+                action: "get",
+                contextId: job.contextIds[0],
+                includeHistorical: true,
               },
-              d.protocol,
+              reader(),
             ),
-        );
-        assert(
-          !telemetryFailed,
-          "Native scenario observability persistence failed",
-        );
-        result = {
-          ok: true,
-          evidence,
-          fixture: {
-            sourceSetSha256: fixture.sourceSetSha256,
-            deviceSha256: fixture.deviceSha256,
-            discoverySha256: fixture.discoverySha256,
-            resourceCount: fixture.resourceCount,
-            audioResourceCount: fixture.audioResourceCount,
-            audioResources: fixture.audioResources.map(({ sha256, bytes }) => ({
-              sha256,
-              bytes,
-            })),
-            nativeVersion: fixture.nativeVersion,
-          },
-          observedLiveVersion: (await runtime.application.getStatus())
-            .liveVersion,
-          supportedTargetQualified: false,
-          actorToolCalls,
-        };
+          );
+          await validateOwnership();
+          const finalInspection = readSourceAfterPass
+            ? await readSourceAfterPass()
+            : await runtime.ableton.inspectListeningContext({
+                ...inspectionParams,
+                bindingQueryId: randomUUID(),
+              });
+          const finalSnapshot = await runtime.application.inspectSession();
+          const finalListener = runtime.signals.listeners
+            .inspectListeners()
+            .find((item) => item.producer.producerId === binding.listenerId);
+          postconditions = inspectNativeListeningPostconditions(
+            {
+              baselineSnapshot,
+              finalSnapshot,
+              inspected,
+              finalInspection,
+              listener,
+              finalListener,
+              beforeBinding: normalizeInspection(inspected),
+              afterBinding: normalizeInspection(finalInspection),
+            },
+            d.sanitizePersistedText,
+          );
+          await lifecycle.stage(
+            "leave-running-postconditions",
+            async () =>
+              assert(
+                postconditions.passed,
+                `Leave-running capture cleanup, immutable binding or recording state mismatch: ${postconditions.failedChecks.join(", ")}`,
+              ),
+            { postconditions },
+          );
+          const evidence = await lifecycle.stage(
+            "independent-verification",
+            async () =>
+              verifyNativeListeningEvidence(
+                {
+                  job,
+                  pass,
+                  entries,
+                  links,
+                  subjects,
+                  received,
+                  listener,
+                  owner,
+                  baseline,
+                  final: normalizeSnapshot(finalSnapshot),
+                  typed,
+                  resumed,
+                  target,
+                  ...(reviewed.nativeVersion === 2 ? { expected } : {}),
+                },
+                d.protocol,
+              ),
+          );
+          assert(
+            !telemetryFailed,
+            "Native scenario observability persistence failed",
+          );
+          result = {
+            ok: true,
+            evidence,
+            fixture: {
+              sourceSetSha256: fixture.sourceSetSha256,
+              deviceSha256: fixture.deviceSha256,
+              discoverySha256: fixture.discoverySha256,
+              resourceCount: fixture.resourceCount,
+              audioResourceCount: fixture.audioResourceCount,
+              audioResources: fixture.audioResources.map(
+                ({ sha256, bytes }) => ({
+                  sha256,
+                  bytes,
+                }),
+              ),
+              nativeVersion: fixture.nativeVersion,
+            },
+            observedLiveVersion: (await runtime.application.getStatus())
+              .liveVersion,
+            supportedTargetQualified: false,
+            actorToolCalls,
+          };
+        }
       } catch (error) {
         result = {
           ok: false,
@@ -994,6 +1152,20 @@ export async function createNativeListeningRunner({
       }
       return {
         ...result,
+        ...(sourceEvidence === undefined
+          ? {}
+          : {
+              sourceInvestigation: d.sanitizeTelemetryAttributes({
+                ...sourceEvidence,
+                supportedTargetVersion: "11.3.42",
+                observedLiveVersion,
+                hostEvidenceLabel: /^11\.3\.42(?:[ (]|$)/.test(
+                  observedLiveVersion ?? "",
+                )
+                  ? "supported-target-unqualified"
+                  : "non-target-unqualified",
+              }),
+            }),
         ...(postconditions === undefined
           ? {}
           : { postconditions: d.sanitizeTelemetryAttributes(postconditions) }),

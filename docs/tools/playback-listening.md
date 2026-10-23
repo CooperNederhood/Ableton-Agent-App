@@ -169,6 +169,122 @@ fix and end-to-end agent verification. Manual Stop is the current dogfood
 workaround, not evidence that Live or the application lacks the capability.
 Do not count the agent's refusal as a native capture attempt.
 
+### Arrangement-source validation and recovery (#57)
+
+Arrangement-only listening checks the selected playback source, not which Live
+view is open. A Session source can override a track even when the request names
+an Arrangement interval. The guard still requires every listener's independently
+inspected `sessionOverride` to be explicitly false:
+
+| Inspected value | Meaning | Source refusal and recovery |
+| --- | --- | --- |
+| `false` | Arrangement source selection is confirmed by the available fields. | Continue only if all other safety, identity and native guards pass. |
+| `true` | A Session source override is detected for that listener. | `arrangement_session_override`: return that track to Arrangement in Live, then explicitly request a new pass. |
+| `null` | Available evidence cannot establish the source. | `arrangement_source_unknown`: check source/connection state and request a fresh inspection; do not claim a Session takeover. |
+
+An unknown listener keeps a multi-listener request unknown even when another
+listener has a confirmed override; the per-listener diagnostic preserves both.
+Transport/recording and invalid identity/binding refusals retain their own
+priority. No refusal publishes a complete observation or automatically switches
+source, repairs Live, stops playback or retries capture. Session listening
+support is separate work.
+
+`listening.inspect_context` now optionally returns bounded `sourceEvidence` for
+each listener, alongside the existing nullable boolean. Version 1 contains
+`state`, an allowlisted `reason`, nullable Song/Track Back to Arrangement flags,
+and nullable integer playing/fired slot indices. Missing, unreadable, invalid
+or out-of-bounds inputs remain unknown, not default false. The schema rejects
+contradictory state/basis and boolean/evidence pairs. Older responses remain
+readable: the existing tri-state guard still applies, and absent detailed
+evidence is retained as `null`, never fabricated. Protocol 7 and Remote Script
+`0.7.0` are negotiated together to keep old strict clients from consuming the
+extended wire shape; accepting an older fixture is not a mixed-version
+connection guarantee.
+
+The Remote Script captures the source inputs once per listener inspection so
+the diagnostic and its decision share the same reads. An invalid reported
+playing slot or mixed return/master placement explicitly downgrades the result
+to unknown. A negative slot sentinel alone is not Arrangement proof:
+`playing_slot_index == -2` denotes Session Clip Stop. With an unavailable
+per-track flag, a known clear global flag plus a negative playing index
+(`-1`/`-2`) and idle fired slot (`-1`) provides the existing independent
+global fallback. The sentinel without that independent evidence remains
+unknown. This closes an overly permissive fallback; it does not establish the
+cause of the historical rejection.
+
+The runtime rechecks owner and current listener inventory after the asynchronous
+inspection, and validates its fresh binding-query nonce/path/instance/epoch
+before attributing a source decision. Stale queries and replaced owners or
+connections remain identity/freshness failures, not confirmed Session
+takeovers. A fresh query and revision are not a universal native action-origin
+or exclusive transport-ownership guarantee.
+
+Each attributable source decision records `listening.source.validation` inside
+the existing inspection/preparation lifecycle. Its typed inputs are sanitized
+before persistence, bounded to eight listeners, 512 characters per string and
+16 KiB of attributes, with no audio, prompts, clip contents or display names.
+The snapshot retains the actual per-listener tri-state and optional source
+inputs, pass and inspection boundary, Set/session/agent, query identity,
+listener instance/connection epoch, project revision, inspection start/end,
+elapsed time, and trace/correlation/causation IDs. The record is available through
+existing typed, redacted Desktop History queries and canonical local journal
+storage; no renderer filesystem/SQL access or upload channel is added.
+
+The synchronous decision record is not a new asynchronous investigation or
+recovery stage. Existing inspection, positioned-inspection and capture-preparation
+queued/started/completed/failed/cancelled events retain lifecycle and timing.
+Cancellation and stale replies cannot produce an attributed current-source
+decision. Pre-arm refusals dispatch no native capture/start; post-arm refusals
+disarm and release reserved quota without publication or rewinding a positioned
+source.
+
+Deterministic regressions cover classification, bounds, the independent global
+fallback, stale query/owner/epoch, source transitions at each validation boundary,
+redaction/typed journal retrieval, cancellation, cleanup and a new explicitly
+requested successful pass after restoring safe evidence. These tests do not
+reconstruct the original Set state or by themselves qualify real Live transitions.
+
+The reviewed `native-listening-source-investigation` group adds four deterministic
+runner scenarios: a beats 4-12 baseline, an exact Arrangement duplicate/delete
+edit at independently empty beat 128 followed by restoration, a legitimate
+Session-override refusal, and an explicit track-scoped return followed by a new
+pass in a fresh copied fixture/process. The override setup independently proves
+that the override remains true after its explicit fixture-preparation Stop, so
+the stopped-transport prerequisite cannot mask the intended source denial.
+The return action and Stop are reviewed runner setup, not agent repair,
+application recovery controls or capture cleanup. Each actor makes exactly one
+playback request with unchanged tool/risk allowlists.
+
+Setup verification preserves command-specific receipts: track return requires
+the `back-to-arrangement` action and nested `result.verified`, while the other
+setup commands retain their top-level verification. Runner mocks are checked
+against the tracks result schema; malformed, wrong-action and unverified return
+receipts stop setup before further reads or mutations.
+
+The verifier reads fresh state at transitions, immediately before the actor's
+request and after terminal status. It checks query/Set/connection/epoch/binding
+before attribution, retains partial setup receipts on failure, and requires the
+exact known refusal with no context/native completion and an idle released
+listener. Success still requires native proof, the expected 40 windows, typed
+reopen and unchanged recording/source postconditions. Source receipts use the
+existing bounded redacted runner lifecycle; the 256-receipt cap covers shutdown.
+
+Source/runner owning checks pass (866 affected TypeScript tests, 215 Python;
+351 runner tests, with a 232-test post-protocol-7 runner recheck). The synthetic
+Electron lifecycle/preload test also passes, but is not real-Live evidence.
+An earlier broader 1,417-test run retained unrelated Desktop identity/SDK-rotation
+timing failures; those cases passed in isolation and are not relabelled a green
+full-suite run.
+
+Real-Live source qualification remains blocked: source-group preflight requires
+an explicitly pinned immutable v2 fixture (including the bounded Session source),
+ordinary mutation preflight and `live:ux-host` refuse pre-existing Live PID 8054,
+and the installed host reports 11.3.43 rather than supported 11.3.42. The user was
+unavailable to close their apps; no existing Live/Agent process, Set or profile
+was adopted, changed or stopped. The visual workflow was not launched past that
+preflight. No new native/source bug reproduction or supported-host qualification
+is claimed from these blocked attempts.
+
 Native v2 failure snapshots now use the existing generation-owned
 `nativeFailureDiagnostic` route for alignment and FFT sequence rejections.
 Alignment snapshots preserve the exact rejecting check, anchor, previous and

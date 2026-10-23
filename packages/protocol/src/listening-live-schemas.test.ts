@@ -12,6 +12,7 @@ import {
   stopListeningPlaybackParamsSchema,
   stopListeningPlaybackResultSchema,
   listenerNativeStatusSchema,
+  listeningSourceEvidenceSchema,
 } from "./listening-live-schemas.js";
 
 const listener = {
@@ -33,6 +34,44 @@ const params = {
 };
 
 describe("bounded listening Live contracts", () => {
+  it("bounds source evidence and rejects contradictory classifications", () => {
+    const evidence = {
+      schemaVersion: 1,
+      state: "arrangement",
+      reason: "track-clear",
+      trackBackToArranger: false,
+      songBackToArranger: null,
+      playingSlotIndex: -1,
+      firedSlotIndex: -1,
+    };
+    expect(listeningSourceEvidenceSchema.parse(evidence)).toEqual(evidence);
+    for (const change of [
+      { schemaVersion: 2 },
+      { state: "session-override" },
+      { state: "unknown" },
+      { trackBackToArranger: true },
+      { playingSlotIndex: 0 },
+      { playingSlotIndex: true },
+      { playingSlotIndex: -3 },
+      { playingSlotIndex: 2 ** 40 },
+      { firedSlotIndex: 0.5 },
+      { reason: "token=private" },
+      { audio: "not allowed" },
+    ])
+      expect(
+        listeningSourceEvidenceSchema.safeParse({ ...evidence, ...change })
+          .success,
+      ).toBe(false);
+    expect(
+      listeningSourceEvidenceSchema.safeParse({
+        ...evidence,
+        state: "unknown",
+        reason: "source-properties-unavailable",
+        trackBackToArranger: null,
+        playingSlotIndex: -2,
+      }).success,
+    ).toBe(true);
+  });
   it("requires independently matching stopped Arrangement positioning without onset authority", () => {
     const request = {
       schemaVersion: 1,
@@ -345,6 +384,29 @@ describe("bounded listening Live contracts", () => {
     expect(inspectListeningContextResultSchema.safeParse(result).success).toBe(
       true,
     );
+    const sourceEvidence = {
+      schemaVersion: 1,
+      state: "unknown",
+      reason: "source-properties-unavailable",
+      trackBackToArranger: null,
+      songBackToArranger: null,
+      playingSlotIndex: null,
+      firedSlotIndex: null,
+    };
+    expect(
+      inspectListeningContextResultSchema.safeParse({
+        ...result,
+        listeners: [{ ...result.listeners[0], sourceEvidence }],
+      }).success,
+    ).toBe(true);
+    expect(
+      inspectListeningContextResultSchema.safeParse({
+        ...result,
+        listeners: [
+          { ...result.listeners[0], sessionOverride: false, sourceEvidence },
+        ],
+      }).success,
+    ).toBe(false);
     expect(
       inspectListeningContextResultSchema.safeParse({
         ...result,

@@ -1,6 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { currentCorrelationContext } from "@ableton-agent/correlation";
 import {
+  LocalObservabilityJournal,
+  telemetryEventEnvelopeSchema,
+} from "@ableton-agent/observability";
+import {
   inspectListeningContextParamsSchema,
   type createNativeListeningGeometry,
   NATIVE_LISTENER_SCOPE,
@@ -1811,6 +1815,351 @@ describe("same-runtime production listening factory", () => {
     expect(result.error).toContain("stale-inspection");
     expect(f.reservePass).not.toHaveBeenCalled();
     expect(f.adapter.prepare).not.toHaveBeenCalled();
+  });
+
+  it.each([true, null] as const)(
+    "retains the actual rejected source state %s with traced freshness and no publication",
+    async (sessionOverride) => {
+      const f = fixture();
+      f.inspectListeningContext.mockImplementation(async (input) => {
+        const result = inspection(input);
+        result.listeners[0]!.sessionOverride = sessionOverride;
+        return result;
+      });
+      const job = await run(f.host());
+      expect(job.stage).toBe("failed");
+      expect(job.error).toContain(
+        sessionOverride === true
+          ? "arrangement_session_override"
+          : "arrangement_source_unknown",
+      );
+      expect(job.error).toContain(
+        sessionOverride === true ? "Return to Arrangement" : "fresh inspection",
+      );
+      const diagnostic = f.events
+        .map((event) => telemetryEventEnvelopeSchema.parse(event))
+        .find((event) => event.name === "listening.source.validation")!;
+      expect(diagnostic).toMatchObject({
+        name: "listening.source.validation",
+        sessionId: owner.sessionId,
+        activeAgentId: owner.agentId,
+        trace: { traceId: context.trace.traceId },
+        correlationId: context.trace.correlationId,
+        causationId: context.trace.causationId,
+        outcome: "failure",
+        attributes: {
+          passId: job.passId,
+          boundary: "initial-inspection",
+          liveSetId: owner.liveSetId,
+          projectRevision: 1,
+          listeners: [
+            {
+              sessionOverride,
+              state: sessionOverride === true ? "session-override" : "unknown",
+              connectionEpoch: "epoch-0",
+              instanceId: "instance-0",
+            },
+          ],
+        },
+      });
+      expect(diagnostic.durationMs).toBeGreaterThanOrEqual(0);
+      expect(diagnostic.attributes.bindingQueryId).toBeTypeOf("string");
+      expect(diagnostic.attributes.inspectionStartedAt).toBeTypeOf("string");
+      expect(diagnostic.attributes.inspectionCompletedAt).toBeTypeOf("string");
+      expect(f.jobs.at(-1)?.contextIds).toEqual([]);
+      expect(f.reservePass).not.toHaveBeenCalled();
+      expect(f.adapter.prepare).not.toHaveBeenCalled();
+      expect(f.adapter.start).not.toHaveBeenCalled();
+      expect(f.appendPass).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(["query", "owner", "epoch"] as const)(
+    "does not attribute stale %s evidence to a current Session override",
+    async (change) => {
+      const f = fixture();
+      f.inspectListeningContext.mockImplementation(async (input) => {
+        const result = inspection(input);
+        result.listeners[0]!.sessionOverride = true;
+        if (change === "query") result.bindingQueryId = uuid(999);
+        if (change === "epoch")
+          f.inventory[0]!.registration.connectionEpoch = "replacement";
+        if (change === "owner")
+          vi.mocked(f.options.resolveOwner).mockResolvedValue({
+            ...owner,
+            liveSetId: "other",
+          });
+        return result;
+      });
+      const job = await run(f.host());
+      expect(job.stage).toBe("failed");
+      expect(job.error).toContain(
+        change === "query"
+          ? "stale-inspection"
+          : change === "owner"
+            ? "permission_denied"
+            : "listener_instance_changed",
+      );
+      expect(job.error).not.toContain("arrangement_session_override");
+      expect(f.events).not.toContainEqual(
+        expect.objectContaining({ name: "listening.source.validation" }),
+      );
+      expect(f.adapter.prepare).not.toHaveBeenCalled();
+      expect(f.appendPass).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([true, null] as const)(
+    "revalidates source %s before preparation and after arm, releasing only acquired resources",
+    async (sessionOverride) => {
+      for (const boundary of [
+        "preparation-inspection",
+        "post-arm-inspection",
+      ] as const) {
+        const f = fixture();
+        let calls = 0;
+        f.inspectListeningContext.mockImplementation(async (input) => {
+          const result = inspection(input);
+          calls++;
+          if (calls === (boundary === "preparation-inspection" ? 2 : 3))
+            result.listeners[0]!.sessionOverride = sessionOverride;
+          return result;
+        });
+        const job = await run(f.host());
+        expect(job.stage).toBe("failed");
+        expect(job.error).toContain(
+          sessionOverride === true
+            ? "arrangement_session_override"
+            : "arrangement_source_unknown",
+        );
+        expect(f.releaseReservation).toHaveBeenCalledOnce();
+        expect(f.adapter.prepare).toHaveBeenCalledTimes(
+          boundary === "post-arm-inspection" ? 1 : 0,
+        );
+        expect(f.disarm).toHaveBeenCalledTimes(
+          boundary === "post-arm-inspection" ? 1 : 0,
+        );
+        expect(f.adapter.start).not.toHaveBeenCalled();
+        expect(f.appendPass).not.toHaveBeenCalled();
+        expect(
+          f.events
+            .map((event) => telemetryEventEnvelopeSchema.parse(event))
+            .find(
+              (event) =>
+                event.name === "listening.source.validation" &&
+                event.outcome === "failure",
+            ),
+        ).toMatchObject({
+          name: "listening.source.validation",
+          outcome: "failure",
+          attributes: {
+            passId: job.passId,
+            boundary,
+          },
+        });
+      }
+    },
+  );
+
+  it("requires a new fresh pass after refusal and does not reuse prior source selection", async () => {
+    const f = fixture();
+    let selected: boolean | null = null;
+    f.inspectListeningContext.mockImplementation(async (input) => {
+      const result = inspection(input);
+      result.listeners[0]!.sessionOverride = selected;
+      return result;
+    });
+    const host = f.host();
+    const failed = await run(host);
+    expect(failed.stage).toBe("failed");
+    expect(f.adapter.start).not.toHaveBeenCalled();
+    selected = false;
+    const completed = await run(host);
+    expect(completed.passId).not.toBe(failed.passId);
+    expect(completed.stage).toBe("completed");
+    expect(f.publications).toHaveLength(1);
+    expect(
+      f.inspectListeningContext.mock.calls.map(
+        ([input]) => input.bindingQueryId,
+      ),
+    ).toEqual(expect.arrayContaining([expect.any(String)]));
+    const nonces = f.inspectListeningContext.mock.calls.map(
+      ([input]) => input.bindingQueryId,
+    );
+    expect(new Set(nonces).size).toBe(nonces.length);
+  });
+
+  it.each([true, null] as const)(
+    "revalidates source %s after v2 positioning and native arm without undoing position",
+    async (sessionOverride) => {
+      for (const boundary of [
+        "positioned-inspection",
+        "post-arm-inspection",
+      ] as const) {
+        const f = descriptiveProductionFixture();
+        const inspect = f.inspectListeningContext.getMockImplementation()!;
+        let calls = 0;
+        f.inspectListeningContext.mockImplementation(async (input) => {
+          const result = await inspect(input);
+          calls++;
+          if (calls === (boundary === "positioned-inspection" ? 3 : 4))
+            result.listeners[0]!.sessionOverride = sessionOverride;
+          return result;
+        });
+        const job = await run(f.host(), f.request);
+        expect(job.stage).toBe("failed");
+        expect(f.position).toHaveBeenCalledOnce();
+        expect(f.nativeState.currentBeat).toBe(f.request.startBeat);
+        expect(f.startListeningPlayback).not.toHaveBeenCalled();
+        expect(f.publications).toEqual([]);
+        expect(f.subscribers.size).toBe(0);
+        expect(f.releaseReservation).toHaveBeenCalledOnce();
+        expect(
+          f.events
+            .map((event) => telemetryEventEnvelopeSchema.parse(event))
+            .find(
+              (event) =>
+                event.name === "listening.source.validation" &&
+                event.outcome === "failure",
+            ),
+        ).toMatchObject({
+          name: "listening.source.validation",
+          outcome: "failure",
+          attributes: {
+            passId: job.passId,
+            boundary,
+          },
+        });
+      }
+    },
+  );
+
+  it("does not claim every listener has confirmed takeover when one source remains unknown", async () => {
+    const f = fixture(2);
+    f.inspectListeningContext.mockImplementation(async (input) => {
+      const result = inspection(input);
+      result.listeners[0]!.sessionOverride = true;
+      result.listeners[1]!.sessionOverride = null;
+      return result;
+    });
+    const result = await run(f.host(), {
+      ...request,
+      listenerIds: ["listener-0", "listener-1"],
+    });
+    expect(result.error).toContain("arrangement_source_unknown");
+    expect(result.error).not.toContain("Return to Arrangement");
+    expect(f.reservePass).not.toHaveBeenCalled();
+    expect(f.adapter.start).not.toHaveBeenCalled();
+  });
+
+  it("drops a cancelled inspection's late source result without attribution or publication", async () => {
+    const f = fixture();
+    let finish!: (value: InspectListeningContextResult) => void;
+    f.inspectListeningContext.mockImplementationOnce(
+      async () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const host = f.host();
+    const started = await host.executeListeningOperation(request, context);
+    if (!("job" in started)) throw new Error("Expected pass");
+    await vi.waitFor(() =>
+      expect(f.inspectListeningContext).toHaveBeenCalledOnce(),
+    );
+    await host.executeListeningOperation(
+      { action: "cancel", passId: started.job.passId },
+      context,
+    );
+    const result = inspection(f.inspectListeningContext.mock.calls[0]![0]);
+    result.listeners[0]!.sessionOverride = true;
+    finish(result);
+    await vi.waitFor(() =>
+      expect(f.events).toContainEqual(
+        expect.objectContaining({
+          name: "listening.runtime.inspection.cancelled",
+        }),
+      ),
+    );
+    expect(
+      (await host.waitForListeningPass(started.job.passId, context)).stage,
+    ).toBe("cancelled");
+    expect(f.events).not.toContainEqual(
+      expect.objectContaining({ name: "listening.source.validation" }),
+    );
+    expect(f.reservePass).not.toHaveBeenCalled();
+    expect(f.adapter.start).not.toHaveBeenCalled();
+    expect(f.appendPass).not.toHaveBeenCalled();
+  });
+
+  it("retains bounded redacted source diagnostics through the typed History journal read", async () => {
+    const f = fixture();
+    f.inventory[0]!.producer.instanceId = "Bearer private-source-secret";
+    f.inspectListeningContext.mockImplementation(async (input) => {
+      const result = inspection(input);
+      result.listeners[0]!.sessionOverride = null;
+      result.listeners[0]!.sourceEvidence = {
+        schemaVersion: 1,
+        state: "unknown",
+        reason: "source-properties-unavailable",
+        trackBackToArranger: null,
+        songBackToArranger: false,
+        playingSlotIndex: -2,
+        firedSlotIndex: null,
+      };
+      return result;
+    });
+    const job = await run(f.host());
+    const events = f.events.map((event) =>
+      telemetryEventEnvelopeSchema.parse(event),
+    );
+    const diagnostic = events.find(
+      (event) => event.name === "listening.source.validation",
+    )!;
+    expect(diagnostic.durationMs).toBeGreaterThanOrEqual(0);
+    expect(JSON.stringify(diagnostic)).not.toContain("private-source-secret");
+    expect(JSON.stringify(diagnostic)).toContain("[REDACTED]");
+    expect(
+      Buffer.byteLength(JSON.stringify(diagnostic.attributes)),
+    ).toBeLessThan(16_384);
+    expect(
+      events.findIndex(
+        (event) => event.name === "listening.runtime.inspection.started",
+      ),
+    ).toBeLessThan(events.indexOf(diagnostic));
+    expect(events.indexOf(diagnostic)).toBeLessThan(
+      events.findIndex(
+        (event) => event.name === "listening.runtime.inspection.failed",
+      ),
+    );
+    const journal = await LocalObservabilityJournal.open();
+    try {
+      await journal.enqueue(diagnostic);
+      const page = await journal.readEvents({ traceId: context.trace.traceId });
+      expect(page.items).toMatchObject([
+        {
+          liveSetId: owner.liveSetId,
+          sessionId: owner.sessionId,
+          correlationId: context.trace.correlationId,
+          causationId: context.trace.causationId,
+          attributes: {
+            passId: job.passId,
+            listeners: [
+              {
+                instanceId: "Bearer [REDACTED]",
+                sourceEvidence: {
+                  state: "unknown",
+                  playingSlotIndex: -2,
+                  firedSlotIndex: null,
+                },
+              },
+            ],
+          },
+        },
+      ]);
+    } finally {
+      await journal.shutdown();
+    }
   });
 
   it("combined context ports validate the caller and session inventory scope", async () => {

@@ -55,6 +55,15 @@
         "native-descriptive-startup-4-12",
         "native-descriptive-30-seconds"
       ]
+    },
+    {
+      "id": "native-listening-source-investigation",
+      "scenarios": [
+        "native-source-baseline",
+        "native-source-arrangement-edit",
+        "native-source-session-override",
+        "native-source-explicit-return"
+      ]
     }
   ]
 }

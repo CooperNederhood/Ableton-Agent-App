@@ -1,0 +1,57 @@
+{
+  "formatVersion": 1,
+  "id": "native-source-arrangement-edit",
+  "group": "native-listening-source-investigation",
+  "execution": "native-listening-runtime",
+  "nativeVersion": 2,
+  "sourceTransition": "arrangement-duplicate-delete",
+  "sourceSetupActions": ["duplicate", "delete-duplicate"],
+  "prompt": "Make these calls sequentially, never in parallel: inspect-listeners, exactly one play-arrangement-and-listen for Arrangement beats 4 through 12 with maximumDurationMs 8000 and only the bound listener ID, then get-pass once using the returned passId. This is explicit native v2 with the App-owned descriptive timing policy capped at 64 samples, not strict v1 or physical timing qualification. Constant 120 BPM is assumed; tempo automation is unsupported. The candidate remains ready=false with native_per_pass_validation_required: never promote it or use another listener. Existing production guarded positioning owns the nonzero start before arming; do not seek, stop, repair positioning, or retry. If any tool call fails, including argument validation or permission denial, report and end without correcting, retrying, or using a shell wait. If the pass failed or was cancelled, report the reason and end. If still nonterminal, report pending and end without polling; the harness waits for the real terminal job. Only if completed may you get typed context using its contextId and includeHistorical=true. Do not list passes or context. Queued acceptance is not completion. Leave transport running; do not record, launch Session clips, change the Set, install devices, or claim exclusive clip audio. Unknown attribution and freshness are valid historical track/range results. The runner independently verifies source state; do not change or repair the source.",
+  "artifactPrefix": "AA_SMOKE_NATIVE_SOURCE_ARRANGEMENT_EDIT_",
+  "capture": { "startBeat": 4, "endBeat": 12, "maximumDurationMs": 8000 },
+  "allowedTools": ["ableton_listening", "ableton_context"],
+  "allowedActions": {
+    "ableton_listening": [
+      "inspect-listeners",
+      "play-arrangement-and-listen",
+      "get-pass"
+    ],
+    "ableton_context": ["get"]
+  },
+  "allowedRisks": ["read", "reversible"],
+  "maxToolCalls": 8,
+  "maxMutations": 1,
+  "timeoutMs": 60000,
+  "setupContract": {
+    "timingPolicy": {
+      "mode": "descriptive",
+      "maxClockDisagreementSamples": 64
+    },
+    "tempoPolicy": "constant-tempo-assumed",
+    "tempoAutomationSupported": false,
+    "inputOption": "--native-v2-fixture-input",
+    "nativeVersion": 2,
+    "sourceInvestigation": "reviewed-exact-track-transitions-no-automatic-repair",
+    "sourcePolicy": "Fresh exact-PID disposable pinned fixture only. Require exactly one Session source <=16 beats on the regular listener track. Independently inspect <=100 Arrangement clips and an empty destination at beat 128. Runner duplicates the identity-bound Session source at 128 without launching it, reads source state, deletes only that returned Arrangement identity, verifies exact original clip list and reads source again before the one explicit pass. No actor mutation permissions added.",
+    "reviewStatus": "Reviewed Arrangement duplicate/delete source transition, not Session override. Require known Arrangement at every read; fail and preserve receipts on a source transition, never repair it. This is not a reconstructed issue-specific reproduction. Supported target 11.3.42 only; 11.3.43 is separately labeled unqualified evidence."
+  },
+  "ordering": [
+    {
+      "before": "ableton_listening",
+      "beforeAction": "inspect-listeners",
+      "after": "ableton_listening",
+      "afterAction": "play-arrangement-and-listen"
+    }
+  ],
+  "assertions": [
+    "no-failed-actor-tools",
+    "independent-source-transition-reads",
+    "identity-bound-arrangement-duplicate-delete-restored",
+    "app-owned-frozen-expectation-before-capture",
+    "owned-terminal-job",
+    "independent-native-v2-proof-and-40-window-coverage",
+    "one-atomic-track-range-context",
+    "typed-historical-retrieval-and-reopen",
+    "unchanged-set-leave-running-idle-capture"
+  ]
+}

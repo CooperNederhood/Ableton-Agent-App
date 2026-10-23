@@ -98,8 +98,24 @@ describe("AbletonBridgeService", () => {
       });
       const inspection = await service.inspectListeningContext({
         schemaVersion: 1,
+        bindingQueryId: "10000000-0000-4000-8000-000000000057",
         listeners: [{ canonicalPath: "live_set tracks 0 devices 1" }],
         range: { startBeat: 5.25, endBeat: 9.5 },
+      });
+      expect(inspection.bindingQueryId).toBe(
+        "10000000-0000-4000-8000-000000000057",
+      );
+      expect(inspection.listeners[0]).toMatchObject({
+        sessionOverride: false,
+        sourceEvidence: {
+          schemaVersion: 1,
+          state: "arrangement",
+          reason: "track-clear",
+          trackBackToArranger: false,
+          songBackToArranger: false,
+          playingSlotIndex: -1,
+          firedSlotIndex: -1,
+        },
       });
       const params = {
         schemaVersion: 1 as const,

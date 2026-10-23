@@ -582,8 +582,45 @@ remains manual followed by a new explicit request, never automatic repair/retry.
 Regressions fail before this correction at both the tool-description and actual
 new/resumed SDK-agent prompt boundaries; all 67 owning cases pass afterward.
 No tool schema, permission, mutation budget, native acceptance or transport
-behavior changes. Fresh current-guidance native and visible acceptance remain
-separate from the retained earlier attempts.
+behavior changes. Current-guidance baseline alone (`0eb0bd3e`) and the fresh
+four-case source group (`3958b8fc`) pass all exact assertions and cleanup.
+Independent audits verify all 276 retained rows across their four completed
+captures at index63/vector64. The focused run observes clock/beat1/64, at the
+unchanged inclusive descriptive limit; the group observes at most1/2. Neither
+is an absolute accuracy certificate. All 2485 TypeScript tests and all twelve
+sequential, no-retry Electron tests pass with the revised handoff; workspace
+types, changed-source lint and paired documentation checks pass. Fresh visible
+acceptance remains separate from the retained earlier attempts.
+
+Fresh visible acceptance at `2e52827` now passes with the same two requests,
+new isolated profiles and ordinary approvals. Positive pass `ac00ad74` /
+context `dcffa7df` has independently accepted 96k-frame/20-window coverage and
+69 index63/vector64 witnesses, observing clock/beat0/64 under the unchanged
+descriptive64 policy. The assistant now accurately reports App-owned
+positioning/start and leave-running playback; the structured stored context
+retains approximate timing and unknown attribution/freshness. An independent
+post-turn bridge read confirms playing transport, Arrangement selection and
+all recording flags off. Live visibly remains in Session View while playing
+the Arrangement source: the view is not the source-selection guard.
+
+In the separate refusal fixture, independent reads first prove a Session
+launch and then prove stopping transport preserves that override. Refused pass
+`bef49b20` reports `arrangement_session_override`; both conversation and Outputs
+show failure, no publication and manual Back to Arrangement followed by a new
+explicit request. The explanation now expressly says switching views,
+stopping playback or deselecting the clip does not clear the override.
+Independent post-turn reads and typed journal audit verify unchanged stopped
+Session source, no positioning/native capture or published context store, and
+unchanged staged Set/WAVs.
+
+Both final Desktop/Live pairs exit, and their exact UX hosts stop. Positive
+cleanup stops only the owned transport after independently verifying the
+leave-running postcondition; no capture or source-return retry is performed.
+Canonical absence at `2026-10-23T22:14:47.149Z` confirms no Live processes
+remain, and exact Desktop PIDs28156/29752 are absent. The shared Live slot is
+released with no additional Live launch planned. Evidence profiles and failed
+attempts remain private; the original historical source cause and physical
+timing qualification remain unproven.
 
 A capture-only read-pressure diagnostic reproduced a 65-sample rejection:
 the initial host/native offset was -1, and a later host sample/beat pair was

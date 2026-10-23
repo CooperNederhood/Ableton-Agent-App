@@ -86,10 +86,12 @@ Merge-blocking review defects and CI failures still require resolution.
   with the qualified native companions, no diagnostic source overrides and
   default-profile discovery. Leave the normal profile, old example, original
   Set and installed App untouched; no App reinstall is required.
-- [ ] Follow-up [#57](https://github.com/CooperNederhood/Ableton-Agent-App/issues/57):
-  diagnose the separate initial `arrangement_source_unknown` rejection.
+- [x] Follow-up [#57](https://github.com/CooperNederhood/Ableton-Agent-App/issues/57):
+  investigate the separate initial `arrangement_source_unknown` rejection.
   The runtime guard rejects a listener whose Session override is not explicitly
   false; retained failure events do not establish whether it was true or unknown.
+  Preserve that historical uncertainty; the source matrix and specific fixes
+  below do not retrospectively establish its cause.
 - [x] Separate confirmed Session override from unknown source state without
   adding Session listening or automatic source repair/retry. Preserve the
   nullable guard and existing public bounded job-error surface; remove
@@ -180,7 +182,7 @@ Merge-blocking review defects and CI failures still require resolution.
   and Outputs. Independent audit confirms no published context store,
   positioning or capture and unchanged staged Set. Pass all 12 current-head
   Electron owning tests sequentially without retries.
-- [ ] Qualify #57's controlled Arrangement edits and Session takeover/return
+- [x] Qualify #57's controlled Arrangement edits and Session takeover/return
   matrix in isolated runner-owned Live, then visually inspect the new refusal
   guidance in an isolated Desktop workflow. Record exact version/hash provenance
   and retain blockers/failures; do not adopt or close a pre-existing user process.
@@ -189,15 +191,16 @@ Merge-blocking review defects and CI failures still require resolution.
   does not expose `tracks.back_to_arrangement`. That run's reviewed scope
   prohibited global return; no capability fabrication or substitution occurred.
   The failed trace/partial setup remain retained as historical evidence.
-  Native timing and visible refusal now pass independently; explicit
-  return/new-pass recovery and the remaining suite remain open.
+  The later user-approved guarded-global setup and complete combined source
+  acceptance below supersede the original blocked track-only recovery.
   Record installed 11.3.43 without
   requiring an uninstalled 11.3.42 downgrade. Deterministic fixtures were
   cleaned; the isolated UX fixtures/profiles remain private audit evidence.
   Both UX pairs exited (Desktop41955/Live41218, Desktop47007/Live46186) and
   both exact hosts stopped; final canonical absence at18:44:08.384Z preceded
   explicit slot release. The historical source
-  cause remains unproven. Keep the PR in draft.
+  cause remains unproven. The draft decision at that historical handoff is
+  superseded only by the later combined acceptance and final-head gates.
 - [x] Integrate main's merged PR #66 placement fencing and native epoch
   high-water without losing source diagnostics or fixed-index clock acquisition.
   Retain both source and rebinding runner flows and Live 11-only/no-patch-pin
@@ -209,8 +212,10 @@ Merge-blocking review defects and CI failures still require resolution.
 - [x] Record combined build/full quality: 2447 TypeScript tests across 139 files,
   642 Max tests, 217 Python tests and all 12 owning Electron tests sequentially
   without retries.
-- [ ] Record fresh immutable-candidate Live acceptance separately. Do not inherit
+- [x] Record fresh immutable-candidate Live acceptance separately. Do not inherit
   either pre-integration candidate's real-Live or visible qualification.
+  The fresh combined candidate's source, rebinding and descriptive receipts
+  below are independent of both earlier candidates.
 - [x] Apply the user's explicit test-only global-return approval with a known
   globally clear baseline, complete unchanged track inventory, exactly one
   Set-wide Session source and only the identity-bound owned launch before the
@@ -221,7 +226,7 @@ Merge-blocking review defects and CI failures still require resolution.
 - [x] Verify revised helper success, malformed receipt, guard denial, partial
   failure and cancellation: 60 helper cases, 435 broader native-helper cases
   across nine files and 2468 full TypeScript tests across 139 files pass.
-- [ ] Qualify the revised recovery case alone, then its source group and the
+- [x] Qualify the revised recovery case alone, then its source group and the
   remaining suite; do not relabel the original unsupported-track failure.
 - [x] Retain first combined recovery failure `1fccf46b`: scope guard qualifies,
   but the existing global command fails immediate verification before actor
@@ -236,7 +241,7 @@ Merge-blocking review defects and CI failures still require resolution.
   for top-level and source results, without rewriting historical receipts or
   promoting qualification/readiness/failures. Version/failure red-green cases
   and all 2478 TypeScript tests pass.
-- [ ] Repeat current-policy real-Live case/group acceptance after the metadata
+- [x] Repeat current-policy real-Live case/group acceptance after the metadata
   correction; keep physical qualification separate from host eligibility.
 - [x] Record standalone current-policy recovery `731a35c4` at `b031f70`:
   eligible observed 11.3.43, exact 192k-frame/40-window proof and cleanup pass.
@@ -276,8 +281,28 @@ Merge-blocking review defects and CI failures still require resolution.
   preserve manual return/new-request and no automatic repair/retry. Prove
   red/green coverage at tool descriptions and actual new/resumed SDK prompts;
   all 67 owning cases pass, with no permission/schema/Live-behavior change.
-- [ ] Finish fresh current-guidance native/visible acceptance and final-head
-  gates before updating draft PR readiness; do not relabel the earlier prose.
+- [x] Finish fresh current-guidance native/visible acceptance; do not relabel
+  the earlier prose. Final-head hosted gates remain the separate PR-readiness
+  check, not an inherited qualification claim.
+- [x] Pass current-guidance baseline alone (`0eb0bd3e`) and fresh four-case
+  source group (`3958b8fc`), with exact postconditions and cleanup. Audit 276
+  retained index63/vector64 rows across four captures. Keep focused
+  clock/beat1/64 and group maximum1/2 distinct, with the same inclusive
+  descriptive64 cap and unknown absolute accuracy.
+- [x] Pass current-guidance full TypeScript (2485), all twelve sequential
+  no-retry Electron cases, workspace types, changed-source lint and paired docs.
+- [x] Recheck both original requests with fresh processes at `2e52827`.
+  Positive `ac00ad74` / context `dcffa7df` passes independent native/context
+  verification (96k frames/20 windows,69 index63 rows,clock/beat0/64) and now
+  accurately explains positioning/start/leave-running transport. Live visibly
+  stays in Session View while the independently verified source is Arrangement.
+  Refusal `bef49b20` correctly explains manual source restoration, not a view
+  switch; stopping/deselecting is explicitly not a substitute. Prove stopped
+  override before/after, no positioning/capture/publication and unchanged files.
+- [x] Close all final owned Desktop/Live pairs and exact hosts, without saving
+  or discarding unrelated work. Verify canonical Live absence at
+  22:14:47.149Z and absent Desktop PIDs28156/29752; release the shared slot.
+  Preserve private failure/qualification evidence and all immutable inputs.
 - [x] Follow-up [#58](https://github.com/CooperNederhood/Ableton-Agent-App/issues/58):
   reproduce and resolve listener binding after device-chain edits. Retained
   inspection shows the same enabled Max listener at device index 1 after a

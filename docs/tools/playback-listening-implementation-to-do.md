@@ -173,9 +173,12 @@ Merge-blocking review defects and CI failures still require resolution.
   `ebd2a01a` / context `0a7da622` and separate Session refusal `27503b87`.
   Independently verify 96k frames/20 windows, native proof, original context
   and source/Set/WAV hashes; refusal has exact slot0/global override evidence
-  and no positioning, capture or publication. Verify the renderer's IDs,
-  approximate limits and accessibility guidance; do not claim the offscreen
-  recovery text's complete visual acceptance. Pass all 12 current-head
+  and no positioning, capture or publication. Verify the renderer's IDs and
+  approximate limits. Retain the first offscreen-guidance check as inconclusive;
+  separately qualify fresh-profile refusal `347a06f8`, with the single message,
+  ordinary approval, terminal failure and full guidance visible in conversation
+  and Outputs. Independent audit confirms no published context store,
+  positioning or capture and unchanged staged Set. Pass all 12 current-head
   Electron owning tests sequentially without retries.
 - [ ] Qualify #57's controlled Arrangement edits and Session takeover/return
   matrix in isolated runner-owned Live, then visually inspect the new refusal
@@ -186,12 +189,14 @@ Merge-blocking review defects and CI failures still require resolution.
   does not expose `tracks.back_to_arrangement`. Reviewed scope prohibits
   global return; do not fabricate capability support or silently substitute it.
   The failed trace/partial setup remain retained, pending a test-scope decision.
-  Native timing now passes independently; complete visible recovery acceptance
-  and the remaining suite remain open. Record installed 11.3.43 without
+  Native timing and visible refusal now pass independently; explicit
+  return/new-pass recovery and the remaining suite remain open.
+  Record installed 11.3.43 without
   requiring an uninstalled 11.3.42 downgrade. Deterministic fixtures were
-  cleaned; the isolated UX fixture/profile remain private audit evidence.
-  UX Desktop41955/Live41218 exited and the exact host stopped;
-  canonical absence preceded explicit slot release. The historical source
+  cleaned; the isolated UX fixtures/profiles remain private audit evidence.
+  Both UX pairs exited (Desktop41955/Live41218, Desktop47007/Live46186) and
+  both exact hosts stopped; final canonical absence at18:44:08.384Z preceded
+  explicit slot release. The historical source
   cause remains unproven. Keep the PR in draft.
 - [ ] Follow-up [#58](https://github.com/CooperNederhood/Ableton-Agent-App/issues/58):
   reproduce and resolve listener binding after device-chain edits. Retained

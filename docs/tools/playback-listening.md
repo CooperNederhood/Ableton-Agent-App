@@ -399,11 +399,17 @@ range and approximate-timing limits. A separate ordinarily approved request
 after manual Session launch and stop fails `arrangement_session_override`
 (`27503b87`), with slot 0/global override evidence, no positioning, native
 capture or publication, and the original context unchanged. Renderer
-accessibility exposes the new manual-return/new-pass guidance; its offscreen
-scroll presentation was not fully visually qualified, so complete visible
-recovery acceptance remains open. The current-head Electron owning suite
-separately passes all 12 tests sequentially, including synthetic refusal IPC;
-that does not substitute for the remaining visual check.
+accessibility exposes the new manual-return/new-pass guidance. That first
+combined workflow left its offscreen scroll presentation inconclusive rather
+than claiming a visual pass. A separate fresh-profile refusal-only workflow
+(`347a06f8`) now confirms the single submitted message, ordinary approval,
+terminal failure and full manual-return/new-pass guidance visibly in both the
+conversation and Outputs, with usable controls and no success-shaped result.
+Independent typed History verifies slot0/global override, no positioning or
+native capture, no published context store and unchanged staged Set. Live
+visibly remains stopped with the Session selection retained. The current-head
+Electron owning suite separately passes all 12 tests sequentially, including
+synthetic refusal IPC; synthetic coverage is not the visual/native proof.
 
 The installed host lacks the track-scoped Return to Arrangement capability
 required by the reviewed recovery setup, which explicitly prohibits global
@@ -411,10 +417,12 @@ return. No global fallback, capability fabrication, actor-policy widening or
 source auto-repair was used. A test-scope decision is required before that
 case can qualify; its failed trace and partial setup remain retained. The PR
 stays draft, and the remaining suite is not claimed passed. Deterministic-run
-disposable fixtures were cleaned; the isolated UX fixture/profile remain
-private audit evidence. Owned Desktop 41955 and UX Live 41218 exited, the exact
-UX host stopped, and independent canonical inspection confirmed no Live before
-explicit slot release.
+disposable fixtures were cleaned; the isolated UX fixtures/profiles remain
+private audit evidence. Both UX pairs exited (Desktop41955/Live41218 and
+Desktop47007/Live46186), both exact hosts stopped, and final canonical
+inspection at 2026-10-23T18:44:08.384Z confirmed no Live before explicit slot
+release. Visible refusal acceptance does not qualify unsupported return/new-pass
+recovery.
 
 A capture-only read-pressure diagnostic reproduced a 65-sample rejection:
 the initial host/native offset was -1, and a later host sample/beat pair was

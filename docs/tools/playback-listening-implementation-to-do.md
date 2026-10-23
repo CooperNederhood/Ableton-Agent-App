@@ -249,8 +249,35 @@ Merge-blocking review defects and CI failures still require resolution.
   Await exact-owned disposal before cleanup; preserve primary shutdown errors
   and active-fixture protection. All 452 native-helper and 2485 full TypeScript
   tests pass.
-- [ ] Rerun expected refusal alone, then the complete source group after the
-  disposal correction.
+- [x] Rerun expected refusal alone (`f24f8500`), then all four source cases
+  (`c1725ac9`) at `436c5c6`: complete source/proof/context/cleanup acceptance.
+- [x] Qualify merged placement/clock behavior alone (`6dca4ab3`) and in its
+  fresh-process rebinding group (`be634acd`): two exact captures, native epochs
+  1 then 2, same listener index0 to1 and unchanged prior context.
+- [x] Qualify all four combined descriptive cases (`e2c31f71`), including
+  30seconds/1,440k frames/300 windows. Audit all eleven captures across these
+  reports:759 retained rows at index63/vector64, clock/beat at most1/2, unchanged
+  timing guards and no physical qualification promotion.
+- [x] Qualify the remaining nineteen non-native cases at `436c5c6`: fourteen
+  pass/five recovered-pass, all exact assertions and cleanup pass. Preserve
+  failed argument attempts in recovered traces. Do not claim the entire
+  29-case suite: the explicit strict-v1 fixture case was not rerun.
+- [x] Retain fresh ordinary-approval Default-agent attempt outcomes: unsupported
+  `limit` fails before capture; subsequent pass `ed85a632` / context `681e6304`
+  has independently accepted 96k-frame/20-window proof and 69 index63 rows.
+  Independent bridge read confirms playing transport, clear source and no
+  recording; structured Outputs reports the actual leave-running policy.
+- [x] Retain stopped-Session refusal `7b583e99`: slot0/global override,
+  no positioning/native capture/context publication, unchanged stopped source
+  and staged Set/WAVs. Close both owned Desktop/Live pairs and exact hosts.
+- [x] Reject their incorrect generated prose as acceptance evidence: capture
+  is not read-only, and stopping/deselecting a Session clip does not clear its
+  override. Make both facts explicit in shared listening-agent guidance;
+  preserve manual return/new-request and no automatic repair/retry. Prove
+  red/green coverage at tool descriptions and actual new/resumed SDK prompts;
+  all 67 owning cases pass, with no permission/schema/Live-behavior change.
+- [ ] Finish fresh current-guidance native/visible acceptance and final-head
+  gates before updating draft PR readiness; do not relabel the earlier prose.
 - [x] Follow-up [#58](https://github.com/CooperNederhood/Ableton-Agent-App/issues/58):
   reproduce and resolve listener binding after device-chain edits. Retained
   inspection shows the same enabled Max listener at device index 1 after a

@@ -2065,6 +2065,16 @@ describe("CopilotAgentService managed sessions", () => {
         );
         expect(prompt).toContain("Use get-pass with the returned passId");
         expect(prompt).toContain("Never use bash or sleep to wait");
+        expect(prompt).toContain("Arrangement capture is not read-only");
+        expect(prompt).toContain(
+          "Back to Arrangement restores the playback source, not the view",
+        );
+        expect(prompt).toContain(
+          "Switching views, stopping playback or deselecting a clip does not clear this override",
+        );
+        expect(prompt).toContain(
+          "never repair source selection or retry automatically",
+        );
         expect(prompt).toContain("endBeat, not durationBeats");
         expect(prompt).toContain("known contextId goes to get, not list");
         expect(prompt).toContain(

@@ -521,6 +521,70 @@ failure/cancellation coverage passes 452 native-helper tests across nine files;
 the full TypeScript suite passes 2485 tests across 139 files. Fresh refusal and
 group acceptance are still required.
 
+### Combined candidate acceptance
+
+At source head `436c5c6`, with the separately pinned combined candidate and
+exact installed Remote Script, refusal alone (`f24f8500`) now passes complete
+owned-process/fixture cleanup with unchanged stopped transport. The fresh
+owning source matrix (`c1725ac9`) passes all four cases, including guarded
+explicit return followed by a new native pass. This supersedes the acceptance
+blocker without relabeling the prior failed group or its retained staging.
+
+The merged placement/clock behavior also passes two-capture insertion alone
+(`6dca4ab3`) and its fresh-process owning group (`be634acd`): the same exact
+listener moves from index0 to index1 after only the permitted upstream Delay,
+each pass has its own independently accepted 96k-frame/20-window proof,
+native epochs are exactly1 then2, and the first historical context is preserved.
+The complete descriptive group (`e2c31f71`) passes fractional,0-4,4-12 and
+30-second cases; the last has1,440k frames/300 envelope+spectral windows.
+All these cases verify ownership, postconditions and exact terminal cleanup.
+
+An independent journal audit of all eleven completed captures across those
+four reports, including both passes in each rebinding run, verifies759 retained
+clock rows at index63/vector64. Maximum observed clock/beat disagreements are
+1/2 with the original64-sample and strict-zero enforcement unchanged. Host
+eligibility is true on observed11.3.43, not an exact patch pin. Physical timing
+qualification/readiness remains unpromoted; attribution/freshness remains
+unknown.
+
+The remaining nineteen non-native cases also qualify across nine fresh owning
+groups: fourteen `pass` and five `recovered-pass`, with every exact assertion
+and cleanup check passing. Recovered cases retain their failed argument attempts;
+they are not clean first-attempt passes. The explicit strict-v1 fixture case
+was not rerun or replaced with v2 evidence, so this is not a claim that the
+entire 29-case suite passed.
+
+Fresh Default-agent Desktop checks use isolated profiles and ordinary approvals.
+The first positive attempt fails strict argument validation because the model
+adds unsupported `limit`; no capture is queued and no native proof is produced.
+The next attempt completes pass `ed85a632` / context `681e6304`: independent
+typed retrieval and native validation prove 96k stereo frames, 20 windows and
+69 retained clock rows at index63/vector64 with clock/beat disagreement0/1.
+The structured Outputs view correctly exposes approximate timing, unknown
+attribution/freshness and leave-running policy. An independent bridge read
+confirms playing transport, clear Arrangement source and all recording flags
+off; staged Set/WAV hashes remain unchanged.
+
+That attempt's generated prose incorrectly calls playback-starting capture
+read-only. A separate stopped-Session workflow correctly refuses pass
+`7b583e99` with slot0/global-override evidence, zero positioning/native capture
+or context publication and unchanged stopped source, but its prose incorrectly
+suggests stopping/deselecting a clip as an alternative way to clear the override.
+These are failed prose-acceptance checks, not failures of the source guard or
+permission enforcement. Both exact-owned Desktop/Live pairs exit normally,
+and their hosts are stopped; original fixtures and failed receipts are retained.
+
+The shared listening-agent handoff now explicitly says that successful capture
+positions/starts transport and leaves it running, and that Back to Arrangement
+restores the playback source rather than changing the view. Switching views,
+stopping playback or deselecting clips does not clear the override. Recovery
+remains manual followed by a new explicit request, never automatic repair/retry.
+Regressions fail before this correction at both the tool-description and actual
+new/resumed SDK-agent prompt boundaries; all 67 owning cases pass afterward.
+No tool schema, permission, mutation budget, native acceptance or transport
+behavior changes. Fresh current-guidance native and visible acceptance remain
+separate from the retained earlier attempts.
+
 A capture-only read-pressure diagnostic reproduced a 65-sample rejection:
 the initial host/native offset was -1, and a later host sample/beat pair was
 one complete 64-sample vector ahead of the native counter/phase pair. V2 now

@@ -490,11 +490,17 @@ describe("sequential fresh native process orchestration (mock process controller
     stopFailure = false,
     cleanupFailure = false,
     launchFailure = false,
+    discardFailure = false,
+    callbackFailure = false,
+    runFailure,
+    expectedRefusal = false,
+    scenarioIds = expectedRefusal ? ["native-source-session-override"] : ids,
   } = {}) {
     const log = [];
     const stages = [];
+    const published = [];
     let owned;
-    const manifests = await Promise.all(ids.map(load));
+    const manifests = await Promise.all(scenarioIds.map(load));
     const controller = {
       publicRecord: () => owned,
       assertNoPreExistingLive: vi.fn(async () => {
@@ -517,33 +523,194 @@ describe("sequential fresh native process orchestration (mock process controller
       }),
       discardAfterFailure: vi.fn(async () => {
         log.push("discard");
+        expect(owned).toBeDefined();
+        await Promise.resolve();
+        if (discardFailure) throw new Error("owned process discard failed");
         owned = undefined;
       }),
     };
-    const createRunner = vi.fn(async (_m, token) => ({
-      fixture: { setPath: token },
-      stage: async (name, operation) => {
-        stages.push(name);
-        return operation();
-      },
-      run: async (validate) => {
-        await validate();
-        return { ok: !failed };
-      },
-      close: vi.fn(async ({ processStopped }) => {
-        log.push(`cleanup:${processStopped}`);
-        if (cleanupFailure) throw new Error("fixture cleanup failed");
-      }),
-    }));
+    const createRunner = vi.fn(async (_m, token) => {
+      const fixture = {
+        setPath: token,
+        cleanup: vi.fn(async () => {
+          if (owned !== undefined)
+            throw new Error(
+              "Runner process still owns the fixture: retained staging, no deletion",
+            );
+          if (cleanupFailure) throw new Error("fixture cleanup failed");
+        }),
+      };
+      return {
+        fixture,
+        stage: async (name, operation) => {
+          stages.push(name);
+          return operation();
+        },
+        run: async (validate) => {
+          await validate();
+          if (runFailure) throw runFailure;
+          return {
+            ok: !failed,
+            ...(expectedRefusal && _m.id === "native-source-session-override"
+              ? {
+                  evidence: {
+                    expectedRefusal: "arrangement_session_override",
+                    noPublication: true,
+                    listenerReleased: true,
+                    unchangedSetAndSource: true,
+                  },
+                }
+              : {}),
+          };
+        },
+        close: vi.fn(async ({ processStopped }) => {
+          log.push(`cleanup:${processStopped}`);
+          if (!processStopped)
+            throw new Error(
+              "Runner process still owns the fixture: retained staging, no deletion",
+            );
+          await fixture.cleanup();
+        }),
+      };
+    });
     const work = runNativeScenarioGroup({
       manifests,
       controller,
       applicationPath: "test-only",
       createRunner,
-      onResult: async () => log.push("evidence"),
+      onResult: async (_manifest, result) => {
+        log.push("evidence");
+        published.push(result);
+        if (callbackFailure) throw new Error("evidence persistence failed");
+      },
     });
-    return { work, controller, createRunner, log, stages };
+    return { work, controller, createRunner, log, stages, published };
   }
+  it("awaits exact-owned refusal disposal before guarded fixture cleanup and returns truthful stopped cleanup", async () => {
+    const f = await group({ expectedRefusal: true, stopFailure: true });
+    const result = await f.work;
+    expect(result).toHaveLength(1);
+    expect(result[0].result).toMatchObject({
+      ok: true,
+      evidence: {
+        expectedRefusal: "arrangement_session_override",
+        noPublication: true,
+        listenerReleased: true,
+        unchangedSetAndSource: true,
+      },
+      processCleanup: {
+        processStopped: true,
+        fixtureCleaned: true,
+        transportCleanup: "unchanged-stopped",
+      },
+    });
+    expect(f.controller.gracefulStop).not.toHaveBeenCalled();
+    expect(f.controller.discardAfterFailure).toHaveBeenCalledExactlyOnceWith(
+      20000,
+    );
+    expect(f.log).toEqual([
+      "empty",
+      expect.stringMatching(/^launch:/),
+      "evidence",
+      "discard",
+      "cleanup:true",
+    ]);
+    expect(f.stages).toEqual(["process-launch", "process-shutdown"]);
+    expect(f.controller.publicRecord()).toBeUndefined();
+    const runner = await f.createRunner.mock.results[0].value;
+    expect(runner.fixture.cleanup).toHaveBeenCalledOnce();
+  });
+  it("finishes refusal disposal before launching the next source recovery scenario", async () => {
+    const f = await group({
+      expectedRefusal: true,
+      scenarioIds: [
+        "native-source-session-override",
+        "native-source-explicit-return",
+      ],
+    });
+    const results = await f.work;
+    expect(results).toHaveLength(2);
+    expect(results.map(({ result }) => result.processCleanup)).toEqual([
+      {
+        processStopped: true,
+        fixtureCleaned: true,
+        transportCleanup: "unchanged-stopped",
+      },
+      {
+        processStopped: true,
+        fixtureCleaned: true,
+        transportCleanup: "leave-running",
+      },
+    ]);
+    expect(f.controller.discardAfterFailure).toHaveBeenCalledOnce();
+    expect(f.controller.gracefulStop).toHaveBeenCalledOnce();
+    expect(
+      f.log.map((item) => (item.startsWith("launch:") ? "launch" : item)),
+    ).toEqual([
+      "empty",
+      "launch",
+      "evidence",
+      "discard",
+      "cleanup:true",
+      "empty",
+      "launch",
+      "evidence",
+      "quit",
+      "cleanup:true",
+    ]);
+  });
+  it("propagates refusal fixture cleanup failure without a success cleanup receipt", async () => {
+    const f = await group({ expectedRefusal: true, cleanupFailure: true });
+    await expect(f.work).rejects.toThrow("fixture cleanup failed");
+    expect(f.controller.publicRecord()).toBeUndefined();
+    expect(f.log.slice(-2)).toEqual(["discard", "cleanup:true"]);
+    expect(f.published[0].processCleanup).toBeUndefined();
+  });
+  it("preserves refusal shutdown failure rather than masking it with the active-fixture guard", async () => {
+    const f = await group({ expectedRefusal: true, discardFailure: true });
+    const error = await f.work.catch((error) => error);
+    expect(error).toBeInstanceOf(AggregateError);
+    expect(error.message).toBe("owned process discard failed");
+    expect(error.errors.map(({ message }) => message)).toEqual([
+      "owned process discard failed",
+      "Runner process still owns the fixture: retained staging, no deletion",
+    ]);
+    expect(f.controller.publicRecord()).toBeDefined();
+    expect(f.log.slice(-2)).toEqual(["discard", "cleanup:false"]);
+    expect(f.published[0].processCleanup).toBeUndefined();
+    expect(f.createRunner).toHaveBeenCalledOnce();
+  });
+  it.each([
+    [
+      "actor failure",
+      { runFailure: new Error("actor failed") },
+      "actor failed",
+    ],
+    [
+      "cancellation",
+      {
+        runFailure: Object.assign(new Error("cancelled"), {
+          name: "AbortError",
+        }),
+      },
+      "cancelled",
+    ],
+    [
+      "evidence failure",
+      { callbackFailure: true },
+      "evidence persistence failed",
+    ],
+  ])(
+    "disposes the exact owned process before fixture cleanup on %s",
+    async (_name, options, message) => {
+      const f = await group({ expectedRefusal: true, ...options });
+      await expect(f.work).rejects.toThrow(message);
+      expect(f.controller.discardAfterFailure).toHaveBeenCalledOnce();
+      expect(f.controller.publicRecord()).toBeUndefined();
+      expect(f.log.slice(-2)).toEqual(["discard", "cleanup:true"]);
+      expect(f.createRunner).toHaveBeenCalledOnce();
+    },
+  );
   it("finishes orderly exact-PID shutdown and cleanup before creating the next unique fixture root", async () => {
     const f = await group();
     const result = await f.work;

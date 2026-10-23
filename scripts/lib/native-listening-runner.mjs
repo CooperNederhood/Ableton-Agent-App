@@ -293,6 +293,15 @@ export async function runNativeScenarioGroup({
     const scenarioRunId = randomUUID();
     const runner = await createRunner(manifest, scenarioRunId);
     let result;
+    let failure;
+    const retainFailure = (error) => {
+      failure =
+        failure === undefined
+          ? error
+          : new AggregateError([failure, error], failure.message, {
+              cause: failure,
+            });
+    };
     try {
       await runner.stage("process-launch", () =>
         controller.launch(applicationPath, 90000, {
@@ -306,23 +315,43 @@ export async function runNativeScenarioGroup({
         scenarioRunId,
         controller.publicRecord(),
       );
-      await runner.stage("process-shutdown", async () => {
-        if (result.ok) await controller.gracefulStop();
-        else await controller.discardAfterFailure(20000);
-        assert(
-          controller.publicRecord() === undefined,
-          "Native process shutdown did not release ownership",
-        );
-      });
+    } catch (error) {
+      retainFailure(error);
     } finally {
-      await runner.close({
-        processStopped: controller.publicRecord() === undefined,
-      });
+      try {
+        if (controller.publicRecord() !== undefined)
+          await runner.stage("process-shutdown", async () => {
+            if (
+              failure === undefined &&
+              result?.ok &&
+              result.evidence?.expectedRefusal === undefined
+            )
+              await controller.gracefulStop();
+            else await controller.discardAfterFailure(20000);
+            assert(
+              controller.publicRecord() === undefined,
+              "Native process shutdown did not release ownership",
+            );
+          });
+      } catch (error) {
+        retainFailure(error);
+      }
+      try {
+        await runner.close({
+          processStopped: controller.publicRecord() === undefined,
+        });
+      } catch (error) {
+        retainFailure(error);
+      }
     }
+    if (failure !== undefined) throw failure;
     result.processCleanup = {
       processStopped: true,
       fixtureCleaned: true,
-      transportCleanup: "leave-running",
+      transportCleanup:
+        result.evidence?.expectedRefusal === undefined
+          ? "leave-running"
+          : "unchanged-stopped",
     };
     results.push({ manifest, result, scenarioRunId });
     if (!result.ok) break;

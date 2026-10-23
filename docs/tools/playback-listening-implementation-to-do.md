@@ -238,6 +238,19 @@ Merge-blocking review defects and CI failures still require resolution.
   and all 2478 TypeScript tests pass.
 - [ ] Repeat current-policy real-Live case/group acceptance after the metadata
   correction; keep physical qualification separate from host eligibility.
+- [x] Record standalone current-policy recovery `731a35c4` at `b031f70`:
+  eligible observed 11.3.43, exact 192k-frame/40-window proof and cleanup pass.
+- [x] Fix expected-refusal cleanup failure exposed by source group `cc47bcdd`:
+  baseline/edit pass and core refusal assertions pass, but fixture cleanup
+  correctly rejects an active owned Live91785. Outer fallback stops it; staging
+  remains retained and the fourth case is unattempted. Add stop-before-delete
+  and cleanup-failure regression coverage. Inspection finds graceful-quit
+  timeout masked by the active-fixture guard, not a bypassed shutdown branch.
+  Await exact-owned disposal before cleanup; preserve primary shutdown errors
+  and active-fixture protection. All 452 native-helper and 2485 full TypeScript
+  tests pass.
+- [ ] Rerun expected refusal alone, then the complete source group after the
+  disposal correction.
 - [x] Follow-up [#58](https://github.com/CooperNederhood/Ableton-Agent-App/issues/58):
   reproduce and resolve listener binding after device-chain edits. Retained
   inspection shows the same enabled Max listener at device index 1 after a

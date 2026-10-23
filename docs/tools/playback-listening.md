@@ -500,6 +500,27 @@ Live 11.3.43 eligibility, Live 12/minimum/unknown rejection and failure metadata
 have red/green regressions. The full TypeScript suite passes 2478 tests across
 139 files; current-policy real-Live reruns remain separate.
 
+Current-policy standalone recovery (`731a35c4`, head `b031f70`, observed
+11.3.43) passes with `hostEligible:true`, unchanged unqualified physical timing,
+independent 192k-frame/40-window proof and exact cleanup. The owning source
+group (`cc47bcdd`) then passes baseline and exact Arrangement edit/restoration.
+The third case's independent Session-refusal assertions pass, but fixture
+cleanup correctly refuses deletion while its owned Live91785 remains alive.
+Outer fallback subsequently stops that exact process; an independent process
+read confirms none remain. Staging is retained and the fourth case is not
+attempted. This is a failed group, not three fully qualified cases. The refusal
+branch must share stop-before-fixture-cleanup ordering and truthful cleanup
+evidence with positive captures before another case/group run.
+Runner inspection identifies the narrower cause: graceful quit timed out and
+the active-fixture guard masked that primary error, rather than a bypassed
+shutdown branch. Expected refusals now await exact-owned disposal before
+fixture cleanup and report `unchanged-stopped` transport cleanup. Shutdown is
+protected by `finally`; combined shutdown/fixture failures retain the primary
+error and never delete an active fixture. Red/green disposal-order and
+failure/cancellation coverage passes 452 native-helper tests across nine files;
+the full TypeScript suite passes 2485 tests across 139 files. Fresh refusal and
+group acceptance are still required.
+
 A capture-only read-pressure diagnostic reproduced a 65-sample rejection:
 the initial host/native offset was -1, and a later host sample/beat pair was
 one complete 64-sample vector ahead of the native counter/phase pair. V2 now

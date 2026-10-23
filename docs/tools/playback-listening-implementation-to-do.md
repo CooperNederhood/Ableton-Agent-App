@@ -123,14 +123,30 @@ Merge-blocking review defects and CI failures still require resolution.
   owning tests sequentially with unchanged assertions and deadlines; retain
   the initial concurrent run's two startup/deadline failures and traces.
   These are not real-Live or visual qualification.
+- [x] Resolve the initial process/input blockers without adopting user work.
+  Validate all immutable fixture pins offline (25 candidate resources, three
+  WAVs and the four-beat Session source), retaining the separately authored
+  #58 epoch-handoff candidate's provenance. Use fresh runner-owned processes
+  following this branch's token-preserving script deployment.
+- [x] Verify the standalone real-Live Session-override refusal on observed
+  11.3.43: exact stopped Session selection, one actor playback request, exact
+  `arrangement_session_override`, no publication, released listener, unchanged
+  Set/source and recording state, and complete owned process/fixture cleanup.
+  This is one selected case, not full source-group or 11.3.42 qualification.
+- [x] Retain the failed 4-12 baseline (`native_launch_binding_mismatch`) and
+  separate 0-4 control (`listening_alignment_budget_exceeded`). Replay the
+  control's recorded 65-sample beat disagreement against the unchanged
+  64-sample policy; do not assign that cause to the baseline without its
+  rejected operands. No failure is relabelled a pass or guard relaxed.
 - [ ] Qualify #57's controlled Arrangement edits and Session takeover/return
   matrix in isolated runner-owned Live, then visually inspect the new refusal
   guidance in an isolated Desktop workflow. Record exact version/hash provenance
   and retain blockers/failures; do not adopt or close a pre-existing user process.
-  Currently blocked by missing immutable v2 fixture input, existing Live PID 8054,
-  installed 11.3.43 rather than supported 11.3.42, and unavailable user closure.
-  Both mutation and visual-host preflights refused safely; no real source matrix
-  or visual workflow is marked passed.
+  Positive captures and the remaining owning group are blocked by the retained
+  native launch/alignment failures; visible acceptance and supported 11.3.42
+  qualification remain open. All three observed-run processes/fixtures were
+  cleaned, the Live slot was released, and the original historical source state
+  remains unproven. Keep the PR in draft.
 - [ ] Follow-up [#58](https://github.com/CooperNederhood/Ableton-Agent-App/issues/58):
   reproduce and resolve listener binding after device-chain edits. Retained
   inspection shows the same enabled Max listener at device index 1 after a

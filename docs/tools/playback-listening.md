@@ -283,14 +283,37 @@ retries. Earlier Desktop identity/SDK-rotation timing failures also remain
 historical failures, not relabelled passes. None of these synthetic checks
 establish real-Live or visual qualification.
 
-Real-Live source qualification remains blocked: source-group preflight requires
-an explicitly pinned immutable v2 fixture (including the bounded Session source),
-ordinary mutation preflight and `live:ux-host` refuse pre-existing Live PID 8054,
-and the installed host reports 11.3.43 rather than supported 11.3.42. The user was
-unavailable to close their apps; no existing Live/Agent process, Set or profile
-was adopted, changed or stopped. The visual workflow was not launched past that
-preflight. No new native/source bug reproduction or supported-host qualification
-is claimed from these blocked attempts.
+The initial pre-existing-process and missing-input blockers were subsequently
+resolved. Offline canonical staging validated a separately pinned immutable v2
+fixture from the isolated #58 namespace: 25 candidate resources, three WAVs,
+one four-beat Session source on the listener track and no Arrangement clip at
+beat 128. The candidate includes #58's epoch-handoff fix; that provenance is
+retained rather than treating it as a newly authored candidate from this branch.
+Each actual run opened a byte-for-byte runner-owned copy with this branch's
+fresh Remote Script 0.7.0/protocol 7. The installed host remains 11.3.43, not the
+supported 11.3.42 target.
+
+| Observed-host run | Result |
+| --- | --- |
+| Source baseline 4-12 (`9a207291`) | Arrangement source validation passed through four runtime decisions, using global-clear/idle-slot evidence with the track-level Boolean unavailable. The producer then failed `native_launch_binding_mismatch`; no context was published. |
+| Existing native 0-4 control (`5f8b0f32`) | Twenty measurement windows were produced, but the incomplete capture failed `listening_alignment_budget_exceeded`. The retained rejection snapshot records clock disagreement 32 samples and beat disagreement **65**, exceeding the unchanged **64**-sample policy. Replaying those recorded operands through the production validator reproduces the refusal; zero contexts were published. |
+| Standalone Session-override refusal (`692445a0`) | PASS for this selected case: the exact Session slot remained selected after explicit stopped preparation, the one actor playback request produced `arrangement_session_override`, and independent checks proved no publication, released listener resources, recording off and unchanged Set/source state. |
+
+The refusal is one selected scenario, not a passed four-case source group.
+The group was stopped at the baseline failure; the control and standalone
+expected-refusal case were separate diagnostic selections, not retries that
+erase that failure. No timing budget, native proof, source guard or actor
+permission was relaxed. The 4-12 launch failure lacks rejected operands, so it
+is not assigned the control's 65-sample cause or the historical issue's cause.
+
+All three owned Live processes exited, their disposable fixtures were cleaned
+up, and independent process inspection confirmed absence before slot release.
+No pre-existing process or original Set was adopted or changed; existing
+Remote Script authentication was preserved. Raw Set/audio and private profile
+paths were not uploaded. Positive capture, Arrangement-edit/explicit-return
+group completion, visible cross-app acceptance and supported 11.3.42
+qualification remain open. The PR stays draft; native timing failures remain
+merge blockers rather than being repaired or weakened within source diagnosis.
 
 Native v2 failure snapshots now use the existing generation-owned
 `nativeFailureDiagnostic` route for alignment and FFT sequence rejections.

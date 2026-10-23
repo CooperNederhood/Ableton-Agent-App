@@ -290,9 +290,13 @@ test("checkpointed authored development device preserves both presentation comme
     join(SOURCE_DIRECTORY, "Machine-Listening-Development.amxd"),
   );
   const { document } = decodeAmxd(raw);
+  const refreshed = structuredClone(document);
+  refreshed.patcher.boxes.find(
+    ({ box }) => box.varname === "ml_identity",
+  ).box.text = "js producer_identity_common.js watch";
   assert.deepEqual(
     prepareAuthoredDevice(document, { keepMcpBridge: true }),
-    document,
+    refreshed,
   );
   for (const name of ["ml_panel_title", "ml_panel_note"]) {
     const matches = document.patcher.boxes.filter(

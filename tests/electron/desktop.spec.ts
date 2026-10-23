@@ -482,6 +482,31 @@ test("shows synthetic listening lifecycle through real preload events and read-o
         window.locator(`[data-listening-stage=${stage}]`),
       ).toBeVisible();
     }
+    const placementError =
+      "Listener placement no longer matches its attested device. Wait for placement refresh, inspect listeners again, and start a new capture.";
+    page.revision++;
+    page.jobs[0] = { ...page.jobs[0]!, stage: "failed", error: placementError };
+    await inject(page);
+    await expect(
+      window.getByRole("alert").filter({ hasText: placementError }),
+    ).toBeVisible();
+    page.revision++;
+    page.jobs.push({
+      ...page.jobs[0],
+      passId: "synthetic-fresh-pass-after-placement-refresh",
+      stage: "completed",
+      error: undefined,
+    });
+    await inject(page);
+    await expect(
+      window.locator("[data-listening-stage=completed]"),
+    ).toHaveCount(1);
+    await expect(window.locator("[data-listening-stage=failed]")).toHaveCount(
+      1,
+    );
+    await expect(
+      window.getByRole("alert").filter({ hasText: placementError }),
+    ).toBeVisible();
     await expect(
       window.getByText("Cancel capture does not stop transport.", {
         exact: false,

@@ -1,0 +1,64 @@
+{
+  "formatVersion": 1,
+  "id": "native-descriptive-insert-before",
+  "group": "native-listening-rebinding",
+  "execution": "native-listening-runtime",
+  "nativeVersion": 2,
+  "prompt": "Make these calls sequentially, never in parallel: inspect-listeners, exactly one play-arrangement-and-listen for Arrangement beats 0 through 4 with maximumDurationMs 8000 and only the bound listener ID, then get-pass once using the returned passId. This is explicit native v2 with the App-owned descriptive timing policy capped at 64 samples, not strict v1 or physical timing qualification. Constant 120 BPM is assumed; tempo automation is unsupported. The candidate remains ready=false with native_per_pass_validation_required: never promote it or use another listener. Existing production guarded positioning owns the nonzero start before arming; do not seek, stop, repair positioning, or retry. If any tool call fails, including argument validation or permission denial, report and end without correcting, retrying, or using a shell wait. If the pass failed or was cancelled, report the reason and end. If still nonterminal, report pending and end without polling; the harness waits for the real terminal job. Only if completed may you get typed context using its contextId and includeHistorical=true. Do not list passes or context. Queued acceptance is not completion. Leave transport running; do not record, launch Session clips, change the Set, install devices, or claim exclusive clip audio. Unknown attribution and freshness are valid historical track/range results.",
+  "artifactPrefix": "AA_SMOKE_NV2_REBIND_",
+  "capture": { "startBeat": 0, "endBeat": 4, "maximumDurationMs": 8000 },
+  "allowedTools": ["ableton_listening", "ableton_context"],
+  "allowedActions": {
+    "ableton_listening": [
+      "inspect-listeners",
+      "play-arrangement-and-listen",
+      "get-pass"
+    ],
+    "ableton_context": ["get"]
+  },
+  "allowedRisks": ["read", "reversible"],
+  "maxToolCalls": 16,
+  "maxMutations": 2,
+  "timeoutMs": 120000,
+  "setupContract": {
+    "timingPolicy": {
+      "mode": "descriptive",
+      "maxClockDisagreementSamples": 64
+    },
+    "tempoPolicy": "constant-tempo-assumed",
+    "tempoAutomationSupported": false,
+    "inputOption": "--native-v2-fixture-input",
+    "nativeVersion": 2,
+    "placementEdit": {
+      "action": "load-and-move",
+      "placement": "before",
+      "itemName": "Delay",
+      "initialDeviceIndex": 0,
+      "finalDeviceIndex": 1,
+      "registrationTimeoutMs": 8000
+    },
+    "sourcePolicy": "Explicit immutable hash-pinned native-v2 fixture with the listener at top-level device index 0. Stage only an owned copy; no installation, XML rewrite, external process adoption or v1 fallback.",
+    "sequencePolicy": "Run the exact reviewed prompt once and independently qualify capture, native proof and context. Only then the runner stops transport, verifies recording off, resolves one exact built-in Delay, loads it using browser.load_item, independently verifies exactly that added effect with the original listener unchanged, and moves that exact Delay to index 0 using devices.move. Verify original listener identity at index 1 and no other Set mutation, then wait at most 8000ms for authenticated registration renewal. The optional adjacent-insert adapter is not used. Run the same exact prompt once more with the newly discovered listener ID. Do not retry a failed capture or restart either process. Actor Browser/transport edits are not allowed.",
+    "verificationPolicy": "Both passes require separate App-owned queued expectations and independently accepted native proof. Re-read the actual listener reference/index, upstream Delay and listener source chain, unchanged post-edit Set, idle released capture, two distinct contexts and preservation of the original stored entry. The original historical context is never promoted to current.",
+    "cleanupPolicy": "The second capture leaves playback running. The copied fixture retains the single permitted Delay only until exact-PID runner shutdown and owned-fixture cleanup. Preserve failed attempts and account for partial insertion; never undo or modify a pre-existing user Set.",
+    "reviewStatus": "Reviewed deterministic two-capture edit-and-relisten scenario. Focused and owning-group real-Live execution plus ordinary-approval visible recovery passed on installed Live 11.3.43 on 2026-10-23; see playback-listening specification for retained failures and evidence limits. Supported Live 11.3.42 and remaining broader suite qualification are separate; synthetic coverage is not actual native evidence."
+  },
+  "ordering": [
+    {
+      "before": "ableton_listening",
+      "beforeAction": "inspect-listeners",
+      "after": "ableton_listening",
+      "afterAction": "play-arrangement-and-listen"
+    }
+  ],
+  "assertions": [
+    "no-failed-actor-tools",
+    "two-owned-terminal-jobs-and-independent-native-proofs",
+    "stopped-recording-off-before-exact-insert",
+    "same-listener-reference-at-device-index-1",
+    "only-one-upstream-delay-added",
+    "fresh-authenticated-registration-and-lom-attestation",
+    "two-distinct-contexts-prior-entry-preserved",
+    "unchanged-post-edit-set-leave-running-idle-capture"
+  ]
+}

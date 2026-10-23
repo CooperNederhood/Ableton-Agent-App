@@ -95,6 +95,58 @@ Merge-blocking review defects and CI failures still require resolution.
   Delay at index 0, but discovery is unresolved and the next pass fails with
   "Listener must be a Max for Live Audio Effect." Do not relax class/identity
   guards or assume the exact failing path-registration cause is already proven.
+  - [x] Reproduce missing post-initialization placement refresh with the actual
+    shared identity companion and SDK registration; preserve one-shot MIDI.
+  - [x] Opt audio packaging into bounded device-owned placement refresh,
+    invalidate unavailable identity and fence deleted tasks/old native generations.
+  - [x] Revalidate live registration after asynchronous inspection, retain only
+    bounded connection-scoped historical identity guards, and reject same-class
+    replacements without reusing prior proof as current.
+  - [x] Add attributed/redacted binding-validation lifecycle and actionable
+    stale-path diagnostics, with success/failure/cancellation regressions.
+  - [x] Add the reviewed two-capture insert-before scenario, strict edit/approval
+    guards, exact identity/source/Set verifier and prior-context preservation.
+  - [x] Preserve the device-lifetime native epoch high-water through renewed
+    controllers. A real run passed exact placement/source checks and renewed
+    authenticated registration, then exposed reused epoch 1 at the second arm.
+    The regression fails before the fix (1 instead of 2), and now validates
+    distinct fresh capture proof after completed, cancelled and failed passes
+    through both direct movement and unavailable-identity recovery. Invalid
+    initial epochs and exhaustion remain fail-closed; the full Max suite passes
+    639 tests. Post-edit inspection uses the existing bounded 32-parameter
+    limit without allowing truncated chains.
+  - [x] Expand deterministic validation to the full TypeScript suite (2,266),
+    Max suite (637), Python suite (214), all-workspace typecheck and the isolated
+    Electron recovery regression. Repository formatting, changed-file lint,
+    documentation, protocol contracts and ownership checks pass.
+    A rebuilt isolated rerun also passes all 12 Electron cases and full repository
+    lint. Earlier startup/Settings failures remain retained as failed attempts,
+    not deleted evidence or real-Live acceptance.
+  - [x] Pass the focused two-capture scenario and its separate fresh-process
+    owning group on installed Live 11.3.43 (2026-10-23). Each verifies two fresh
+    native proofs, the same actual listener at index 1, exactly one Delay at
+    index 0, renewed authenticated registration, two distinct stored contexts,
+    unchanged prior entry and exact-owned process/fixture cleanup. Both retain
+    the unchanged 64-sample budget. Earlier timing-budget, unavailable-adapter,
+    source-truncation and reused-epoch failures remain retained.
+  - [x] Complete ordinary-approval visible Default-agent before/edit/after
+    acceptance on 11.3.43 in one isolated Desktop/Live process pair. Two distinct
+    stored contexts and completed passes remain visible; typed History proofs
+    independently validate epochs 1 then 2. Approvals cover capture, stopped
+    edit, load and move without YOLO. Live shows Delay then the enabled original
+    listener; the saved validation Set and exact process cleanup are confirmed.
+    Retain the edit turn's unrelated invalid transport `stop` probe before its
+    approved `set-playing:false`; do not claim an error-free general workflow.
+  - [ ] Complete remaining smoke selection.
+    This branch's 18-scenario non-native selection qualified ten scenarios
+    (nine pass, one recovered-pass), then stopped at the existing Session
+    lifecycle guard denial: the actor supplied the clip's name instead of the
+    containing track's `expectedName`. The denial and partial-mutation evidence
+    remain retained; exact-owned cleanup completed. The shared metadata/prompt
+    correction is owned by #56 and is not on this branch's base. Its separate
+    branch results are not counted as this branch's passes.
+    Supported Live 11.3.42 qualification remains separate: only 11.3.43 is
+    installed, and the successful empirical results above do not certify 11.3.42.
 - [ ] Follow-up [#59](https://github.com/CooperNederhood/Ableton-Agent-App/issues/59):
   qualify controlled edits and recovery in one runner-owned Live process,
   plus three clean fresh-process packaged workflows for the changed native

@@ -48,6 +48,10 @@
       "scenarios": ["native-playback-and-listen"]
     },
     {
+      "id": "native-listening-rebinding",
+      "scenarios": ["native-descriptive-insert-before"]
+    },
+    {
       "id": "native-listening-descriptive",
       "scenarios": [
         "native-descriptive-fractional",

@@ -105,6 +105,19 @@ reviewed action contract. Live artifacts never carry across group restarts.
 `native-listening` retains the strict-v1 `native-playback-and-listen` scenario
 unchanged, with `--native-fixture-input`.
 
+`native-listening-rebinding` uses `--native-v2-fixture-input` for
+`native-descriptive-insert-before`: two separately verified beats-0–4 captures
+in the same owned process, with an explicit stopped/recording-off exact Delay
+insertion between them, using existing `browser.load_item` and `devices.move`
+with independent intermediate identity/mutation checks, not the optional
+adjacent-insert adapter. The runner verifies original listener identity at
+index 1, renewed authenticated registration, only the permitted upstream
+effect change, independent proof for each pass, and preservation of the first
+historical entry. The actor receives the same one-capture prompt twice, with
+the current listener ID; the second approval is unavailable until the edit
+qualifies. No actor Browser/transport mutation, restart or capture retry is
+allowed. Synthetic runner coverage is not real-Live or Desktop qualification.
+
 `native-listening-descriptive` requires a separately pinned explicit v2 fixture
 via `--native-v2-fixture-input`:
 

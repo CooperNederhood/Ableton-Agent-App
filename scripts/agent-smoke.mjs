@@ -73,7 +73,11 @@ try {
   const selectedGroups = selectScenarioGroups(suite, evidence.selection);
   const nativeGroups = new Map();
   for (const group of selectedGroups.filter((entry) =>
-    ["native-listening", "native-listening-descriptive"].includes(entry.id),
+    [
+      "native-listening",
+      "native-listening-descriptive",
+      "native-listening-rebinding",
+    ].includes(entry.id),
   )) {
     const manifests = await Promise.all(group.scenarios.map(loadManifest));
     if (manifests.some((manifest) => manifest.group !== group.id))

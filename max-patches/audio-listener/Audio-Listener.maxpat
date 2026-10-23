@@ -125,13 +125,13 @@
         "box": {
           "id": "identity",
           "maxclass": "newobj",
-          "text": "js producer_identity_common.js",
+          "text": "js producer_identity_common.js watch",
           "numinlets": 1,
           "numoutlets": 1,
           "patching_rect": [
             570,
             30,
-            180,
+            210,
             22
           ]
         }

@@ -350,6 +350,7 @@ export function createNativeScenarioApproval(manifest, binding) {
   );
   const decisions = [];
   let mutationCount = 0;
+  let inspectedAtMutation;
   const request = async (approval) => {
     const { toolName, arguments: args, risk } = approval;
     let reason = "reviewed";
@@ -364,15 +365,11 @@ export function createNativeScenarioApproval(manifest, binding) {
       toolName === "ableton_listening" &&
       args.action === "play-arrangement-and-listen"
     ) {
-      if (
-        !decisions.some(
-          (item) =>
-            item.approved && item.arguments.action === "inspect-listeners",
-        )
-      )
+      if (inspectedAtMutation !== mutationCount)
         reason = "inspection-required-before-playback";
       else if (
-        mutationCount !== 0 ||
+        mutationCount >=
+          Math.min(manifest.maxMutations, binding.captureLimit ?? 1) ||
         args.startBeat !== capture.startBeat ||
         args.endBeat !== capture.endBeat ||
         args.maximumDurationMs !== capture.maximumDurationMs ||
@@ -413,6 +410,12 @@ export function createNativeScenarioApproval(manifest, binding) {
       reason,
     };
     decisions.push(decision);
+    if (
+      decision.approved &&
+      toolName === "ableton_listening" &&
+      args.action === "inspect-listeners"
+    )
+      inspectedAtMutation = mutationCount;
     return decision.approved;
   };
   return {

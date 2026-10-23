@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
 import {
   awaitListeningBoundary,
   createListeningHost,
@@ -348,12 +349,20 @@ function assemble(
   const service: ListenerService | undefined =
     dependencies.signals.listeners ?? dependencies.signals.listenerTransport;
   const states = new Map<string, CaptureState>();
+  const attestedBindings = new Map<
+    string,
+    {
+      liveSetId: string;
+      connection: ConnectedListenerBinding;
+      target: InspectListeningContextResult["listeners"][number]["binding"];
+    }
+  >();
   let closed = false;
 
   async function stage<T>(
     name: string,
     context: ListeningExecutionContext,
-    operation: () => Promise<T>,
+    operation: (progress: (detail: string) => void) => Promise<T>,
     compensate?: (result: T) => Promise<void>,
   ): Promise<T> {
     const started = Date.now();
@@ -422,7 +431,9 @@ function assemble(
         () =>
           awaitListeningBoundary(
             (async () => {
-              const result = await operation();
+              const result = await operation((detail) =>
+                event("progress", detail),
+              );
               if (context.signal?.aborted) {
                 await compensateAbort(result);
                 context.signal.throwIfAborted();
@@ -493,145 +504,221 @@ function assemble(
   ): Promise<
     Pick<CaptureState, "owner" | "descriptors" | "connections" | "inspection">
   > {
-    if (!dependencies.ableton.inspectListeningContext)
-      deny("listening_inspection_unavailable");
-    if (!sameOwner(await owner(context), expectedOwner))
-      deny("permission_denied");
-    const identity = await dependencies.ableton.getLiveIdentity();
-    context.signal?.throwIfAborted();
-    if (identity.liveSetId !== expectedOwner.liveSetId)
-      deny("live_set_changed");
-    const inventory = listeners().inspectListeners();
-    const candidates = connected(inventory);
-    const selected = ids.map((id) => {
-      const matches = inventory.filter(
-        (item) => item.producer.producerId === id,
+    return stage("binding-validation", context, async (progress) => {
+      if (!dependencies.ableton.inspectListeningContext)
+        deny("listening_inspection_unavailable");
+      if (!sameOwner(await owner(context), expectedOwner))
+        deny("permission_denied");
+      const identity = await dependencies.ableton.getLiveIdentity();
+      context.signal?.throwIfAborted();
+      if (identity.liveSetId !== expectedOwner.liveSetId)
+        deny("live_set_changed");
+      const inventory = listeners().inspectListeners();
+      if (inventory.length > 128) deny("listener_inventory_quota");
+      for (const [id, attested] of attestedBindings) {
+        if (
+          attested.liveSetId !== expectedOwner.liveSetId ||
+          !inventory.some(
+            (item) =>
+              item.connectionId === id &&
+              item.producer.instanceId === attested.connection.instanceId &&
+              item.registration.connectionEpoch ===
+                attested.connection.connectionEpoch,
+          )
+        )
+          attestedBindings.delete(id);
+      }
+      const selected = ids.map((id) => {
+        const matches = inventory.filter(
+          (item) => item.producer.producerId === id,
+        );
+        if (matches.length !== 1) deny("listener_unavailable_or_ambiguous");
+        const candidate = readConnectedListenerBinding(
+          bindingDescriptor(matches[0]!),
+        );
+        if (!candidate.ok) deny(candidate.reason);
+        return {
+          descriptor: structuredClone(matches[0]!),
+          connection: candidate.connection,
+        };
+      });
+      const queryId = randomUUID();
+      progress(
+        "Checking registered placement against independent Live evidence",
       );
-      if (matches.length !== 1) deny("listener_unavailable_or_ambiguous");
-      const candidate = readConnectedListenerBinding(
-        bindingDescriptor(matches[0]!),
+      const inspection = inspectListeningContextResultSchema.parse(
+        await dependencies.ableton
+          .inspectListeningContext({
+            schemaVersion: 1,
+            bindingQueryId: queryId,
+            listeners: selected.map(({ connection }) => ({
+              canonicalPath: connection.canonicalPath,
+            })),
+            range: { startBeat: range.startBeat, endBeat: range.endBeat },
+            maxClips: 32,
+            maxParameters: 16,
+          })
+          .catch((cause: unknown) => {
+            context.signal?.throwIfAborted();
+            if (
+              selected.some(({ connection }) =>
+                attestedBindings.has(connection.connectionId),
+              ) &&
+              cause instanceof Error &&
+              cause.message.includes(
+                "Listener must be a Max for Live Audio Effect",
+              )
+            )
+              deny(
+                "listener_placement_stale",
+                "The registered path no longer attests the previously inspected Max listener. Wait for placement refresh, inspect listeners again, and start a new capture.",
+              );
+            throw cause;
+          }),
       );
-      if (!candidate.ok) deny(candidate.reason);
+      context.signal?.throwIfAborted();
+      if (
+        (await dependencies.ableton.getLiveIdentity()).liveSetId !==
+        expectedOwner.liveSetId
+      )
+        deny("live_set_changed");
+      context.signal?.throwIfAborted();
+      const currentInventory = listeners().inspectListeners();
+      const candidates = connected(currentInventory);
+      for (const { connection, descriptor } of selected) {
+        const current = candidates.filter(
+          (item) => item.connectionId === connection.connectionId,
+        );
+        const currentDescriptor = currentInventory.find(
+          (item) => item.connectionId === connection.connectionId,
+        );
+        if (
+          current.length !== 1 ||
+          !isDeepStrictEqual(current[0], connection) ||
+          !isDeepStrictEqual(
+            currentDescriptor?.registration,
+            descriptor.registration,
+          )
+        )
+          deny(
+            "listener_placement_changed",
+            "Listener registration changed during inspection. Wait for placement refresh, inspect listeners again, and start a new capture.",
+          );
+        if (
+          !discovery &&
+          previous === undefined &&
+          currentDescriptor?.phase !== "idle"
+        )
+          deny("listener_not_idle");
+      }
+      if (inspection.listeners.length !== selected.length)
+        deny("ambiguous_inspection");
+      if (!discovery && !inspection.transport.safeToStart)
+        deny("transport_not_safe_to_start");
+      if (
+        !discovery &&
+        inspection.listeners.some((item) => item.sessionOverride !== false)
+      )
+        deny("arrangement_source_unknown");
+      for (const { connection, descriptor } of selected) {
+        const old = previous?.connections.find(
+          (item) => item.producerId === connection.producerId,
+        );
+        if (
+          old &&
+          (old.connectionId !== connection.connectionId ||
+            old.instanceId !== connection.instanceId ||
+            old.connectionEpoch !== connection.connectionEpoch ||
+            old.canonicalPath !== connection.canonicalPath)
+        )
+          deny("listener_instance_changed");
+        const oldDescriptor = previous?.descriptors.find(
+          (item) => item.producer.producerId === descriptor.producer.producerId,
+        );
+        if (
+          oldDescriptor &&
+          (oldDescriptor.registration.sampleRate !==
+            descriptor.registration.sampleRate ||
+            oldDescriptor.registration.algorithmVersion !==
+              descriptor.registration.algorithmVersion ||
+            oldDescriptor.registration.version !==
+              descriptor.registration.version ||
+            (oldDescriptor.registration.version === 2 &&
+              descriptor.registration.version === 2 &&
+              oldDescriptor.registration.vectorSize !==
+                descriptor.registration.vectorSize))
+        )
+          deny("listener_algorithm_or_sample_rate_changed");
+        const expectedTarget =
+          previous?.inspection.listeners.find(
+            (item) => item.canonicalPath === connection.canonicalPath,
+          )?.binding ?? attestedBindings.get(connection.connectionId)?.target;
+        const resolution = resolveListenerBinding({
+          selected: {
+            ...connection,
+            ...(expectedTarget ? { expectedTarget } : {}),
+          },
+          connected: candidates,
+          inspection,
+          queryId,
+        });
+        if (!resolution.ok)
+          deny(
+            resolution.reason,
+            resolution.reason === "stale-target"
+              ? "Listener placement no longer matches its attested device. Wait for placement refresh, inspect listeners again, and start a new capture."
+              : undefined,
+          );
+        attestedBindings.set(connection.connectionId, {
+          liveSetId: expectedOwner.liveSetId,
+          connection: structuredClone(connection),
+          target: structuredClone(resolution.target),
+        });
+        if (
+          !discovery &&
+          connection.nativeStatus.scope !== NATIVE_LISTENER_SCOPE &&
+          connection.nativeStatus.scope !== NATIVE_LISTENER_SCOPE_V2 &&
+          (connection.nativeStatus.version !== 1 ||
+            connection.nativeStatus.timing !== "VERIFIED" ||
+            connection.nativeStatus.readiness !== "READY")
+        )
+          deny("real_live_timing_validation_required");
+        if (
+          !discovery &&
+          connection.nativeStatus.scope === NATIVE_LISTENER_SCOPE &&
+          (range.startBeat !== 0 ||
+            range.endBeat <= 0 ||
+            range.endBeat > 20 ||
+            !Number.isInteger(range.endBeat * 5))
+        )
+          deny("unsupported_native_capture_scope");
+        if (!discovery && previous === undefined && descriptor.phase !== "idle")
+          deny("listener_not_idle");
+      }
+      if (
+        previous &&
+        previous.inspection.projectRevision !== inspection.projectRevision &&
+        !allowPositionRevision
+      )
+        deny("project_revision_changed");
+      if (
+        previous &&
+        (previous.inspection.transport.tempo !== inspection.transport.tempo ||
+          previous.inspection.listeners.some(
+            (before) =>
+              inspection.listeners.find(
+                (after) => after.canonicalPath === before.canonicalPath,
+              )?.fingerprint.digest !== before.fingerprint.digest,
+          ))
+      )
+        deny("listening_source_changed");
       return {
-        descriptor: structuredClone(matches[0]!),
-        connection: candidate.connection,
+        owner: expectedOwner,
+        descriptors: selected.map((item) => item.descriptor),
+        connections: selected.map((item) => item.connection),
+        inspection,
       };
     });
-    const queryId = randomUUID();
-    const inspection = inspectListeningContextResultSchema.parse(
-      await dependencies.ableton.inspectListeningContext({
-        schemaVersion: 1,
-        bindingQueryId: queryId,
-        listeners: selected.map(({ connection }) => ({
-          canonicalPath: connection.canonicalPath,
-        })),
-        range: { startBeat: range.startBeat, endBeat: range.endBeat },
-        maxClips: 32,
-        maxParameters: 16,
-      }),
-    );
-    context.signal?.throwIfAborted();
-    if (
-      (await dependencies.ableton.getLiveIdentity()).liveSetId !==
-      expectedOwner.liveSetId
-    )
-      deny("live_set_changed");
-    context.signal?.throwIfAborted();
-    if (inspection.listeners.length !== selected.length)
-      deny("ambiguous_inspection");
-    if (!discovery && !inspection.transport.safeToStart)
-      deny("transport_not_safe_to_start");
-    if (
-      !discovery &&
-      inspection.listeners.some((item) => item.sessionOverride !== false)
-    )
-      deny("arrangement_source_unknown");
-    for (const { connection, descriptor } of selected) {
-      const old = previous?.connections.find(
-        (item) => item.producerId === connection.producerId,
-      );
-      if (
-        old &&
-        (old.connectionId !== connection.connectionId ||
-          old.instanceId !== connection.instanceId ||
-          old.connectionEpoch !== connection.connectionEpoch ||
-          old.canonicalPath !== connection.canonicalPath)
-      )
-        deny("listener_instance_changed");
-      const oldDescriptor = previous?.descriptors.find(
-        (item) => item.producer.producerId === descriptor.producer.producerId,
-      );
-      if (
-        oldDescriptor &&
-        (oldDescriptor.registration.sampleRate !==
-          descriptor.registration.sampleRate ||
-          oldDescriptor.registration.algorithmVersion !==
-            descriptor.registration.algorithmVersion ||
-          oldDescriptor.registration.version !==
-            descriptor.registration.version ||
-          (oldDescriptor.registration.version === 2 &&
-            descriptor.registration.version === 2 &&
-            oldDescriptor.registration.vectorSize !==
-              descriptor.registration.vectorSize))
-      )
-        deny("listener_algorithm_or_sample_rate_changed");
-      const expectedTarget = previous?.inspection.listeners.find(
-        (item) => item.canonicalPath === connection.canonicalPath,
-      )?.binding;
-      const resolution = resolveListenerBinding({
-        selected: {
-          ...connection,
-          ...(expectedTarget ? { expectedTarget } : {}),
-        },
-        connected: candidates,
-        inspection,
-        queryId,
-      });
-      if (!resolution.ok) deny(resolution.reason);
-      if (
-        !discovery &&
-        connection.nativeStatus.scope !== NATIVE_LISTENER_SCOPE &&
-        connection.nativeStatus.scope !== NATIVE_LISTENER_SCOPE_V2 &&
-        (connection.nativeStatus.version !== 1 ||
-          connection.nativeStatus.timing !== "VERIFIED" ||
-          connection.nativeStatus.readiness !== "READY")
-      )
-        deny("real_live_timing_validation_required");
-      if (
-        !discovery &&
-        connection.nativeStatus.scope === NATIVE_LISTENER_SCOPE &&
-        (range.startBeat !== 0 ||
-          range.endBeat <= 0 ||
-          range.endBeat > 20 ||
-          !Number.isInteger(range.endBeat * 5))
-      )
-        deny("unsupported_native_capture_scope");
-      if (!discovery && previous === undefined && descriptor.phase !== "idle")
-        deny("listener_not_idle");
-    }
-    if (
-      previous &&
-      previous.inspection.projectRevision !== inspection.projectRevision &&
-      !allowPositionRevision
-    )
-      deny("project_revision_changed");
-    if (
-      previous &&
-      (previous.inspection.transport.tempo !== inspection.transport.tempo ||
-        previous.inspection.listeners.some(
-          (before) =>
-            inspection.listeners.find(
-              (after) => after.canonicalPath === before.canonicalPath,
-            )?.fingerprint.digest !== before.fingerprint.digest,
-        ))
-    )
-      deny("listening_source_changed");
-    return {
-      owner: expectedOwner,
-      descriptors: selected.map((item) => item.descriptor),
-      connections: selected.map((item) => item.connection),
-      inspection,
-    };
   }
 
   function state(input: ListeningPassContext): CaptureState {
@@ -1093,6 +1180,7 @@ function assemble(
         await host.shutdown();
       } finally {
         states.clear();
+        attestedBindings.clear();
       }
     },
   };

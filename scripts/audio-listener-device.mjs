@@ -175,7 +175,7 @@ export function prepareAuthoredDevice(
     ml_analysis: "poly~ audio_listener_analysis 1 @parallel 0",
     ml_runtime: "node.script audio_listener_max.js @autostart 1 @watch 0",
     ml_guard: "js audio_listener_guard.js",
-    ml_identity: `js ${SHARED_PRODUCER_IDENTITY}`,
+    ml_identity: `js ${SHARED_PRODUCER_IDENTITY} watch`,
   };
   for (const [name, text] of Object.entries(replacements)) {
     const matches = p.boxes.filter(({ box }) => box?.varname === name);

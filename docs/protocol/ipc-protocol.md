@@ -15,6 +15,20 @@ The protocol must provide:
 
 ## Transport
 
+### Listening placement state
+
+Device-chain placement refresh (#58) does not change wire schemas or protocol
+versions. Audio companions renew existing authenticated producer registration
+when device-owned canonical placement changes; they do not mutate a live
+connection's placement in place. Connection/instance/epoch and path-derived
+producer identity are fenced against old controls/results. A fresh
+`listening.inspect_context` query nonce still requires independent current LOM
+attestation; Max numeric IDs never become Remote Script reference UUIDs.
+Runtime admission rechecks registration after asynchronous inspection and
+rejects stale proof, including another Max device at a previously attested
+path. A new capture rediscovers the current producer; an in-flight capture is
+not rebound. No new persisted state, retention rule or storage layout is added.
+
 Use TCP bound to loopback for the first release because it works consistently
 on macOS and Windows and is supported by Ableton's embedded Python.
 

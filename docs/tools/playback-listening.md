@@ -1355,6 +1355,96 @@ return and master devices are supported; nested placements remain unsupported.
 path join proves only the current connection binding, not DSP timing, durable
 identity, exclusive audio, or playback ownership.
 
+### Placement refresh after device-chain edits (#58)
+
+Listener placement is current metadata, not a fixed device index. The audio
+identity companion now opts into `watch`: one generation-fenced Max scheduler
+task re-resolves the actual `this_device` anchor and its owning track every
+500 ms, independently of the audio polling clock. It emits only changed
+identity, or an explicit identity-unavailable transition; an adapter-startup
+bang always republishes current state. Loss of identity invalidates the old
+registration, and deletion cancels the task and fences late callbacks. MIDI
+retains its existing one-shot identity behavior. This bounded refresh does not
+claim an immediate Live notification or a sample-accurate edit boundary.
+
+A changed identity reuses registration replacement: fence old callbacks, fail
+the old pass, request stop for its exact native generation, close the old
+client and create a fresh instance/connection epoch. Path-derived producer IDs
+also change when the canonical path changes. Fresh discovery must supply the
+current listener ID for a new capture; stale IDs and in-flight proof are never
+redirected. This fix does not migrate Output subscriptions or establish a
+durable cross-placement producer identity.
+
+Runtime binding validation re-reads authenticated inventory after independent
+inspection and the final Set-identity check. It rejects changed registration
+before reservation/controls. A bounded connection-scoped attestation cache
+also rejects a different same-class device now occupying a previously attested
+path, including across separate discovery/capture calls. Cache entries are
+not persisted or treated as current proof: every admission still needs a new
+query-scoped LOM attestation. Entries are retired with their connection/epoch
+or Set and cleared at shutdown. A known stale path resolving to a non-Max
+effect reports an actionable stale-placement diagnostic rather than claiming
+the original listener changed class. Genuine class, activity, collision,
+placement and source denials remain intact.
+
+`listening.runtime.binding-validation.{queued,started,progress,completed,failed,cancelled}`
+uses the existing application-owned recorder and typed History boundary, with
+bounded/redacted details, elapsed duration and invoking session/agent,
+trace/correlation/causation attribution. Normal unchanged metadata sampling
+does not create a capture owner or flood History. Registration replacement
+retains existing authenticated ingress lifecycle handling; no new transport
+message or storage layout is introduced.
+
+The reviewed `native-listening-rebinding` scenario
+`native-descriptive-insert-before` qualifies a first beats-0–4 capture, stops
+explicitly with recording off, inserts exactly one independently resolved
+built-in Delay via `browser.load_item`, independently verifies the added device
+and unchanged original listener, then moves that exact Delay before the listener
+via `devices.move`. This uses the existing supported load/move APIs, not the
+optional adjacent-insert adapter (unavailable on the validation host). It then
+verifies the same listener reference at index 1. It waits at most eight
+seconds for renewed authenticated registration, then runs the same bounded
+actor prompt with the new listener ID. Both passes require independent native
+proof and distinct persisted contexts; the original entry must remain
+unchanged, the second capture must leave an idle/released listener and running
+transport, and no other Set changes are allowed. A failed first pass, edit,
+identity check or registration refresh prevents the second capture; there is
+no restart, capture retry, class relaxation or timing-budget increase.
+Post-edit verification requests the existing 32-parameter protocol limit to
+inspect both the added effect and listener; a truncated chain still fails.
+This changes only the runner's independent inspection, not capture admission
+or the 64-sample timing policy.
+The device runtime also preserves its native epoch high-water across
+registration/controller renewal. DSP disarm reports zero but retains its
+internal epoch high-water; a renewed controller must allocate a newer epoch
+instead of reusing a completed, failed or cancelled pass's epoch. This
+memory-only allocation fence is not readiness or capture proof: each pass still
+requires fresh configuration, native reset acknowledgement and independent
+application validation. Exhaustion fails closed without wrapping.
+
+Deterministic source/registration, admission, native cleanup and owned-runner
+regressions cover this mechanism. On 2026-10-23 the focused case and separate
+fresh-process owning group passed on installed Live 11.3.43: both independently
+validated captures before/after insertion, exact identity and Set assertions,
+distinct contexts with the prior entry preserved, and exact-owned cleanup.
+An isolated visible Default-agent run with ordinary approvals also completed
+both captures without restarting Live or Desktop. Typed History independently
+validates the received native proofs at epochs 1 then 2; Outputs displays both
+distinct contexts and their honest unknown attribution/freshness. Live shows
+Delay followed by the same enabled listener. The validation-only Set was saved,
+and the owned Desktop/Live processes closed without discarding changes.
+The visible edit turn retained an invalid `ableton_transport` action `stop`
+probe before the correct approved `set-playing:false`; this is not a claim of
+an error-free general agent workflow. Remaining broader smoke selection and
+supported Live 11.3.42 qualification are outstanding. Installed 11.3.43 results
+do not certify 11.3.42. This branch's remaining non-native selection qualified
+ten scenarios before the existing Session lifecycle wrong-track-name approval
+denial; the shared catalog/prompt correction is owned by #56, not silently
+included or claimed as passing here. Exact-owned cleanup completed.
+The historical issue's exact failing
+registration was not retained, so these regressions do not retroactively prove
+that run's precise cause.
+
 Mixed/master observations belong primarily to track/range context. Contributors
 can be linked without storing a mix as an isolated descriptor of each clip.
 Unknown attribution is a valid historical outcome, not a successful exclusive

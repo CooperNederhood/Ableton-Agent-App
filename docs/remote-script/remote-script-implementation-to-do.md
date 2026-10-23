@@ -34,6 +34,14 @@ Companion specification: [Remote Script](remote-script.md)
     cue points using runtime-stable references where Live exposes no IDs.
   - [x] Add seek/jump, time signature, metronome, launch/record quantization,
     capability-gated Link, cue rename/jump, and Back to Arrangement.
+  - [x] Verify explicit global Back to Arrangement on one scheduled tick, with
+    one property assignment, unchanged typed result shape, request-attributed
+    lifecycle/timing and bounded failure diagnostics. Never fake rollback by
+    writing the aggregate highlight true. Add delayed-success, permanent-denial,
+    exact-response attribution and queued-cancellation regressions.
+  - [ ] Qualify this deferred global verification in the isolated, explicitly
+    approved source-recovery scenario; retain its earlier immediate-verification
+    failure without relabeling it passed.
   - [x] Verify Arrangement duplication and cue-point creation with proxy-safe
     before/after collection deltas, stage-specific failures, and explicit
     rolled-back versus applied-indeterminate outcomes.

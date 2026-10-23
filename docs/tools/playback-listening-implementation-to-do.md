@@ -223,6 +223,11 @@ Merge-blocking review defects and CI failures still require resolution.
   across nine files and 2468 full TypeScript tests across 139 files pass.
 - [ ] Qualify the revised recovery case alone, then its source group and the
   remaining suite; do not relabel the original unsupported-track failure.
+- [x] Retain first combined recovery failure `1fccf46b`: scope guard qualifies,
+  but the existing global command fails immediate verification before actor
+  startup. Add one-tick, one-assignment deferred verification, bounded failure
+  operands and request-attributed lifecycle/queued-cancellation regressions.
+  All 220 Python tests pass; physical scheduling causality is not yet claimed.
 - [x] Follow-up [#58](https://github.com/CooperNederhood/Ableton-Agent-App/issues/58):
   reproduce and resolve listener binding after device-chain edits. Retained
   inspection shows the same enabled Max listener at device index 1 after a

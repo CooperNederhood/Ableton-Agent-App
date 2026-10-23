@@ -471,6 +471,18 @@ helpers pass 435 cases across nine files, including guard lifecycle and
 zero-global-return/no-actor denial. The full TypeScript suite passes 2468 tests
 across 139 files. This test-only revision changes no production app/bridge API.
 
+The first fresh combined recovery attempt (`1fccf46b`, head `f378ffc`) passes
+the source-scope guard but fails the existing global transport command's
+immediate verification before actor startup. No pass or context is produced;
+the owned process and disposable fixture are cleaned. The global command now
+uses the existing deferred executor for one next-tick verification after one
+assignment, not a mutation retry. Bounded before/after failure diagnostics and
+request-attributed lifecycle/queued cancellation are covered by red/green
+Python regressions; the full Python suite passes 220 tests. This manual-command
+correction does not add automatic source recovery or change the result schema.
+Fresh Live verification is required before attributing the observed failure to
+that scheduling boundary.
+
 A capture-only read-pressure diagnostic reproduced a 65-sample rejection:
 the initial host/native offset was -1, and a later host sample/beat pair was
 one complete 64-sample vector ahead of the native counter/phase pair. V2 now

@@ -186,9 +186,9 @@ Merge-blocking review defects and CI failures still require resolution.
   and retain blockers/failures; do not adopt or close a pre-existing user process.
   Source group `7a08c15f` passes baseline, exact duplicate/delete/restoration
   and Session refusal, but fails explicit track-return setup because the host
-  does not expose `tracks.back_to_arrangement`. Reviewed scope prohibits
-  global return; do not fabricate capability support or silently substitute it.
-  The failed trace/partial setup remain retained, pending a test-scope decision.
+  does not expose `tracks.back_to_arrangement`. That run's reviewed scope
+  prohibited global return; no capability fabrication or substitution occurred.
+  The failed trace/partial setup remain retained as historical evidence.
   Native timing and visible refusal now pass independently; explicit
   return/new-pass recovery and the remaining suite remain open.
   Record installed 11.3.43 without
@@ -210,9 +210,19 @@ Merge-blocking review defects and CI failures still require resolution.
   642 Max tests, 217 Python tests and all 12 owning Electron tests sequentially
   without retries.
 - [ ] Record fresh immutable-candidate Live acceptance separately. Do not inherit
-  either pre-integration candidate's
-  real-Live or visible qualification; the existing explicit-return test-scope
-  decision remains unresolved and does not permit a global fallback.
+  either pre-integration candidate's real-Live or visible qualification.
+- [x] Apply the user's explicit test-only global-return approval with a known
+  globally clear baseline, complete unchanged track inventory, exactly one
+  Set-wide Session source and only the identity-bound owned launch before the
+  fresh traced scope guard. Deny unknown/foreign/changed scope; preserve partial
+  evidence and recording/ownership/cancellation fences. Independently verify
+  global and target source clear before stopped new-pass preparation. Keep
+  actor permissions and production no-auto-recovery behavior unchanged.
+- [x] Verify revised helper success, malformed receipt, guard denial, partial
+  failure and cancellation: 60 helper cases, 435 broader native-helper cases
+  across nine files and 2468 full TypeScript tests across 139 files pass.
+- [ ] Qualify the revised recovery case alone, then its source group and the
+  remaining suite; do not relabel the original unsupported-track failure.
 - [x] Follow-up [#58](https://github.com/CooperNederhood/Ableton-Agent-App/issues/58):
   reproduce and resolve listener binding after device-chain edits. Retained
   inspection shows the same enabled Max listener at device index 1 after a

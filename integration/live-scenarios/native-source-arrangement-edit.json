@@ -33,7 +33,7 @@
     "nativeVersion": 2,
     "sourceInvestigation": "reviewed-exact-track-transitions-no-automatic-repair",
     "sourcePolicy": "Fresh exact-PID disposable pinned fixture only. Require exactly one Session source <=16 beats on the regular listener track. Independently inspect <=100 Arrangement clips and an empty destination at beat 128. Runner duplicates the identity-bound Session source at 128 without launching it, reads source state, deletes only that returned Arrangement identity, verifies exact original clip list and reads source again before the one explicit pass. No actor mutation permissions added.",
-    "reviewStatus": "Reviewed Arrangement duplicate/delete source transition, not Session override. Require known Arrangement at every read; fail and preserve receipts on a source transition, never repair it. This is not a reconstructed issue-specific reproduction. Supported target 11.3.42 only; 11.3.43 is separately labeled unqualified evidence."
+    "reviewStatus": "Reviewed Arrangement duplicate/delete source transition, not Session override. Require known Arrangement at every read; fail and preserve receipts on a source transition, never repair it. This is not a reconstructed issue-specific reproduction. Live 11 only; record the observed subversion without a patch pin."
   },
   "ordering": [
     {

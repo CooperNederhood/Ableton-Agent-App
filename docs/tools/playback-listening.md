@@ -249,7 +249,7 @@ reconstruct the original Set state or by themselves qualify real Live transition
 The reviewed `native-listening-source-investigation` group adds four deterministic
 runner scenarios: a beats 4-12 baseline, an exact Arrangement duplicate/delete
 edit at independently empty beat 128 followed by restoration, a legitimate
-Session-override refusal, and an explicit track-scoped return followed by a new
+Session-override refusal, and an explicit test-only guarded global return followed by a new
 pass in a fresh copied fixture/process. The override setup independently proves
 that the override remains true after its explicit fixture-preparation Stop, so
 the stopped-transport prerequisite cannot mask the intended source denial.
@@ -444,6 +444,32 @@ owning suite passes all 12 tests sequentially without retries, including both
 placement-refresh history and source-refusal guidance. The earlier Live receipts
 above qualify their recorded source heads only; fresh immutable-candidate Live
 acceptance remains separate, without inheriting either branch's qualification.
+
+### Approved isolated recovery setup
+
+The user subsequently approved changing only the disposable recovery test to
+use Live's supported global Return to Arrangement. Production capture still
+never returns a source or retries automatically. The original track-only
+failure and pre-integration receipts remain historical, not relabeled passes.
+
+The reviewed setup now requires an independently globally clear baseline,
+complete unchanged regular-track identities (at most 32, with no truncated
+device inventories), and exactly one Session source in the entire Set, on the
+bound listener track. The only intervening mutation is its exact owned launch.
+Immediately before the global command, a traced/timed scope-validation stage
+rechecks ownership, complete track/source identity, the one-mutation lineage,
+recording-off and fresh target/global override evidence. This proves the scope
+from a known clear baseline and the sole permitted transition, not from idle
+slot sentinels alone. Any missing, foreign, unknown or changed scope denies the
+global command and retains partial evidence. Independent reads must then prove
+global and target source clear, followed by the explicit stopped new-pass
+preflight. The actor's tools, risk classes and mutation budget are unchanged.
+These guards and their failure/cancellation tests do not themselves qualify
+real-Live recovery; fresh execution is still required.
+The revised helper passes 60 cases; runner composition and the broader native
+helpers pass 435 cases across nine files, including guard lifecycle and
+zero-global-return/no-actor denial. The full TypeScript suite passes 2468 tests
+across 139 files. This test-only revision changes no production app/bridge API.
 
 A capture-only read-pressure diagnostic reproduced a 65-sample rejection:
 the initial host/native offset was -1, and a later host sample/beat pair was

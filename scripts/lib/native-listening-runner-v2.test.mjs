@@ -62,6 +62,25 @@ describe("reviewed v2 contracts and pre-setup admission", () => {
       [source, { group: rebinding.group }],
       [rebinding, { group: source.group }],
       [source, { maxMutations: rebinding.maxMutations }],
+      [
+        source,
+        {
+          assertions: source.assertions.filter(
+            (name) =>
+              name !== "guarded-global-return-before-new-pass-not-retry",
+          ),
+        },
+      ],
+      [
+        source,
+        {
+          sourceSetupActions: [
+            "session-launch",
+            "explicit-track-return",
+            "explicit-stop-before-new-pass",
+          ],
+        },
+      ],
       [rebinding, { sourceTransition: source.sourceTransition }],
       [rebinding, { sourceSetupActions: source.sourceSetupActions }],
       [
@@ -649,7 +668,7 @@ async function runnerV2(
       state: "arrangement",
       reason: "track-clear",
       trackBackToArranger: false,
-      songBackToArranger: false,
+      songBackToArranger: failure === "global-source-unknown" ? null : false,
       playingSlotIndex: -1,
       firedSlotIndex: -1,
     },
@@ -687,12 +706,27 @@ async function runnerV2(
         sceneIndex: 0,
         length: 4,
       },
+      ...(failure === "global-foreign-source"
+        ? [
+            {
+              trackReference: "foreign-track",
+              trackIndex: 1,
+              reference: "foreign-source",
+              sceneIndex: 0,
+              length: 4,
+            },
+          ]
+        : []),
     ],
     tracks: [
       {
-        reference: trackReference,
+        index: 0,
+        reference:
+          failure === "global-scope-changed" && target.sessionOverride
+            ? "changed-track"
+            : trackReference,
         devices: globalThis.structuredClone(devices),
-        devicesTruncated: false,
+        devicesTruncated: failure === "global-truncated-devices",
       },
     ],
   });
@@ -1011,6 +1045,28 @@ async function runnerV2(
               },
             });
           }),
+          executeTransportOperation: vi.fn(async (params) => {
+            expect(params).toEqual({ action: "back-to-arrangement" });
+            if (failure === "global-return-unavailable")
+              throw new Error("transport.back_to_arrangement unavailable");
+            if (failure !== "global-return-still-overridden") {
+              target.sessionOverride = false;
+              target.sourceEvidence = {
+                ...target.sourceEvidence,
+                state: "arrangement",
+                reason: "track-clear",
+                trackBackToArranger: false,
+                songBackToArranger: false,
+                playingSlotIndex: -1,
+              };
+            }
+            return {
+              action: "back-to-arrangement",
+              before: { backToArrangement: true },
+              after: { backToArrangement: false },
+              verified: true,
+            };
+          }),
           setPlaying: vi.fn(async () => {
             playing = false;
             return { verified: true };
@@ -1030,7 +1086,11 @@ async function runnerV2(
                 tempo: 120,
                 safeToStart: !playing,
                 recording: {
-                  recordMode: false,
+                  recordMode:
+                    failure === "global-recording-unknown" &&
+                    target.sessionOverride
+                      ? null
+                      : false,
                   sessionRecord: false,
                   arrangementOverdub: false,
                   sessionAutomationRecord: false,
@@ -1155,37 +1215,52 @@ async function runnerV2(
 }
 
 describe("source investigation runner composition (synthetic native results only)", () => {
-  it("retains unavailable exact-track return as failure with no global fallback or actor pass", async () => {
+  it("uses only the reviewed guarded global setup even when the legacy exact-track API is unavailable", async () => {
     const f = await runnerV2("native-source-explicit-return", {
       failure: "track-return-unavailable",
       liveVersion: "11.3.43 (2025-10-06_b466d4f56c)",
     });
     try {
       const result = await f.runner.run(async () => {});
-      expect(result.ok).toBe(false);
-      expect(result.error).toContain("tracks.back_to_arrangement unavailable");
-      expect(result.jobs).toEqual([]);
-      expect(result.approvals).toEqual([]);
+      expect(result.ok, result.error).toBe(true);
+      expect(result.jobs).toHaveLength(1);
+      expect(result.jobs[0].stage).toBe("completed");
+      expect(result.supportedTargetQualified).toBe(false);
       expect(result.recovery).toBeUndefined();
-      expect(result.evidence).toBeUndefined();
       expect(result.sourceInvestigation).toMatchObject({
         hostEvidenceLabel: "non-target-unqualified",
-        mutations: [{ name: "session-launch" }],
+        mutations: [
+          { name: "session-launch" },
+          { name: "guarded-global-return" },
+          { name: "explicit-stop-before-new-pass" },
+        ],
       });
       const ableton =
         f.services.createAgentRuntime.mock.results[0].value.ableton;
-      expect(ableton.executeTracksOperation).toHaveBeenCalledExactlyOnceWith({
-        action: "back-to-arrangement",
-        target: {
-          kind: "regular",
-          index: 0,
-          expectedReference: trackReference,
-          expectedName: expect.any(String),
-        },
-      });
-      expect(ableton.setPlaying).not.toHaveBeenCalled();
-      expect(f.wait).not.toHaveBeenCalled();
-      expect(f.configuration).toBeUndefined();
+      expect(ableton.executeTracksOperation).not.toHaveBeenCalled();
+      expect(ableton.executeTransportOperation).toHaveBeenCalledExactlyOnceWith(
+        { action: "back-to-arrangement" },
+      );
+      expect(ableton.setPlaying).toHaveBeenCalledExactlyOnceWith(false);
+      expect(f.wait).toHaveBeenCalledOnce();
+      expect(f.configuration.resolvedOperations).toEqual([
+        "listening.inspect_listeners",
+        "listening.play_arrangement_and_listen",
+        "listening.get_pass",
+        "context.get",
+      ]);
+      // The unsupported legacy adapter remains a separate historical boundary.
+      await expect(
+        ableton.executeTracksOperation({
+          action: "back-to-arrangement",
+          target: {
+            kind: "regular",
+            index: 0,
+            expectedReference: trackReference,
+            expectedName: "Fixture",
+          },
+        }),
+      ).rejects.toThrow("tracks.back_to_arrangement unavailable");
       expect(f.appStop).toHaveBeenCalledOnce();
       expect(f.ingressStop).toHaveBeenCalledOnce();
       expect(f.events.size).toBe(0);
@@ -1194,6 +1269,71 @@ describe("source investigation runner composition (synthetic native results only
       await f.runner.close({ processStopped: true });
     }
   });
+  it.each([
+    ["global-source-unknown", 0, "globally clear baseline"],
+    ["global-foreign-source", 0, "complete unchanged fixture"],
+    ["global-truncated-devices", 0, "complete unchanged fixture"],
+    ["global-scope-changed", 1, "complete unchanged fixture"],
+    ["global-recording-unknown", 1, "independently known off"],
+  ])(
+    "denies %s setup with zero global returns and no actor start",
+    async (failure, launches, expectedError) => {
+      const f = await runnerV2("native-source-explicit-return", { failure });
+      try {
+        const result = await f.runner.run(async () => {});
+        expect(result.ok).toBe(false);
+        expect(result.error).toContain(expectedError);
+        expect(result.jobs).toEqual([]);
+        expect(result.approvals).toEqual([]);
+        expect(result.evidence).toBeUndefined();
+        expect(f.configuration).toBeUndefined();
+        expect(f.wait).not.toHaveBeenCalled();
+        const ableton =
+          f.services.createAgentRuntime.mock.results[0].value.ableton;
+        expect(ableton.executeTransportOperation).not.toHaveBeenCalled();
+        expect(ableton.executeTracksOperation).not.toHaveBeenCalled();
+        expect(ableton.launchSessionClip).toHaveBeenCalledTimes(launches);
+        expect(ableton.setPlaying).not.toHaveBeenCalled();
+        expect(result.sourceInvestigation.mutations).toHaveLength(launches);
+        expect(f.appStop).toHaveBeenCalledOnce();
+        expect(f.ingressStop).toHaveBeenCalledOnce();
+        expect(f.events.size).toBe(0);
+        expect(f.results.size).toBe(0);
+      } finally {
+        await f.runner.close({ processStopped: true });
+      }
+    },
+  );
+  it.each(["global-return-unavailable", "global-return-still-overridden"])(
+    "retains %s as failure without fallback, retry or actor pass",
+    async (failure) => {
+      const f = await runnerV2("native-source-explicit-return", { failure });
+      try {
+        const result = await f.runner.run(async () => {});
+        expect(result.ok).toBe(false);
+        expect(result.error).toContain(
+          failure === "global-return-unavailable"
+            ? "transport.back_to_arrangement unavailable"
+            : "Unexpected source state after guarded-global-return",
+        );
+        expect(result.jobs).toEqual([]);
+        expect(result.approvals).toEqual([]);
+        expect(f.configuration).toBeUndefined();
+        expect(f.wait).not.toHaveBeenCalled();
+        const ableton =
+          f.services.createAgentRuntime.mock.results[0].value.ableton;
+        expect(ableton.executeTransportOperation).toHaveBeenCalledOnce();
+        expect(ableton.executeTracksOperation).not.toHaveBeenCalled();
+        expect(ableton.setPlaying).not.toHaveBeenCalled();
+        expect(f.appStop).toHaveBeenCalledOnce();
+        expect(f.ingressStop).toHaveBeenCalledOnce();
+        expect(f.events.size).toBe(0);
+        expect(f.results.size).toBe(0);
+      } finally {
+        await f.runner.close({ processStopped: true });
+      }
+    },
+  );
   it.each(["native-source-baseline", "native-descriptive-insert-before"])(
     "%s retains the same strict actor scope while keeping its own setup and capture count",
     async (id) => {
@@ -1247,6 +1387,34 @@ describe("source investigation runner composition (synthetic native results only
         });
         expect(result.evidence.envelopeWindows).toBe(40);
         expect(result.postconditions.passed).toBe(true);
+        if (id === "native-source-explicit-return") {
+          expect(result.sourceInvestigation.globalReturnGuard).toEqual({
+            baselineSongBackToArranger: false,
+            soleSessionClipReference: "source",
+            trackReferences: [trackReference],
+          });
+          const guardEvents = result.lifecycle.filter(({ name }) =>
+            name.includes(".source-global-return-scope-validation."),
+          );
+          expect(guardEvents.map(({ stage }) => stage)).toEqual([
+            "queued",
+            "started",
+            "progress",
+            "completed",
+          ]);
+          expect(guardEvents.at(-1).attributes.guard).toEqual(
+            result.sourceInvestigation.globalReturnGuard,
+          );
+          expect(
+            new Set(guardEvents.map(({ trace }) => trace.traceId)).size,
+          ).toBe(1);
+          const names = result.lifecycle.map(({ name }) => name);
+          expect(names.indexOf(guardEvents.at(-1).name)).toBeLessThan(
+            names.indexOf(
+              "integration.native_listening.actor-session-start.started",
+            ),
+          );
+        }
         expect(f.p.assertNativeCaptureObservationV2).toHaveBeenCalledOnce();
         expect(result.lifecycle.at(-1).name).toBe(
           "integration.native_listening.credential-cleanup.completed",

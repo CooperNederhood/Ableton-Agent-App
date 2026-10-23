@@ -158,7 +158,11 @@ export function reviewNativeScenario(manifest) {
                 "reviewed-exact-track-transitions-no-automatic-repair" &&
               manifest.assertions.includes(
                 "independent-source-transition-reads",
-              )
+              ) &&
+              (sourceTransition !== "explicit-return" ||
+                manifest.assertions.includes(
+                  "guarded-global-return-before-new-pass-not-retry",
+                ))
             : manifest.sourceTransition === undefined &&
               manifest.sourceSetupActions === undefined &&
               manifest.setupContract.sourceInvestigation === undefined) &&

@@ -189,9 +189,13 @@ with a clip length no greater than 16 beats.
 - `native-source-session-override`: establish and independently verify a Session
   override during reviewed fixture setup; require the exact source refusal, no
   capture publication, and released idle listener resources.
-- `native-source-explicit-return`: explicitly return the exact affected track to
-  Arrangement during reviewed fixture setup, verify the selection, then request
-  a new capture pass.
+- `native-source-explicit-return`: use the user-approved test-only global Return
+  to Arrangement from a globally clear baseline with exactly one Set-wide
+  Session source on the listener track. Require complete unchanged track/source
+  identities and only that owned launch before a fresh recording-off/source
+  guard. Deny unknown/foreign/changed scope; independently verify global and
+  target source clear, then stop and request a new explicit pass. This is not
+  production auto-recovery or a retry of the separate refusal case.
 
 Each scenario uses a fresh fixture and runner-owned process, with exactly one
 actor playback request. Source reads at transitions, immediately before the

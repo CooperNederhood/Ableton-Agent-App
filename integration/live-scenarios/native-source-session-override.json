@@ -33,7 +33,7 @@
     "nativeVersion": 2,
     "sourceInvestigation": "reviewed-exact-track-transitions-no-automatic-repair",
     "sourcePolicy": "Fresh copied immutable fixture only. Require exactly one Session source <=16 beats on the exact regular listener track; launch it once with identity guards via the existing typed runner service. Independently read true override, explicitly stop transport as reviewed stopped-preflight preparation, then independently require true override still present before the single capture request. No return, retry or other setup mutation. Stop is not capture cleanup or actor repair. Leave source and transport unchanged through refusal; discard only the owned disposable fixture after exact-PID shutdown.",
-    "reviewStatus": "Reviewed legitimate Session takeover denial. Require exact arrangement_session_override, no persisted pass/entries/links/native completion, released idle listener, unchanged binding/connection/registration/source/Set and recording off. Null/unknown is not a passing takeover reproduction. Original cause not reconstructable. 11.3.43 cannot qualify supported 11.3.42."
+    "reviewStatus": "Reviewed legitimate Session takeover denial. Require exact arrangement_session_override, no persisted pass/entries/links/native completion, released idle listener, unchanged binding/connection/registration/source/Set and recording off. Null/unknown is not a passing takeover reproduction. Original cause not reconstructable. Live 11 only; record the observed subversion without a patch pin."
   },
   "ordering": [
     {

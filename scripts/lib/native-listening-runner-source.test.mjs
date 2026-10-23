@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { describe, expect, it, vi } from "vitest";
-import { tracksOperationResultSchema } from "@ableton-agent/protocol";
+import { transportOperationResultSchema } from "@ableton-agent/protocol";
 import {
   nativeSourceTransitions,
   nativeSourceOverrideRefusal,
@@ -55,7 +55,14 @@ function fixture({ transition = "baseline", broken, signal } = {}) {
   };
   let clips = [original];
   const ableton = {
-    inspectSession: vi.fn(async () => ({ clips: [sessionSource] })),
+    inspectSession: vi.fn(async () => ({
+      trackCount: 2,
+      tracks: [
+        { index: 0, reference: "other-track", devicesTruncated: false },
+        { index: 1, reference: trackReference, devicesTruncated: false },
+      ],
+      clips: [clone(sessionSource)],
+    })),
     inspectArrangement: vi.fn(async () => ({
       clips: clone(clips),
       total: clips.length,
@@ -80,31 +87,25 @@ function fixture({ transition = "baseline", broken, signal } = {}) {
       playing = true;
       return { verified: true };
     }),
-    executeTracksOperation: vi.fn(async () => {
+    executeTracksOperation: vi.fn(),
+    executeTransportOperation: vi.fn(async () => {
       const before = {
-        kind: "regular",
-        index: 1,
-        reference: trackReference,
-        name: "Pinned fixture",
-        trackType: "midi",
-        colorIndex: null,
-        isGroup: false,
-        isFolded: null,
-        monitoringState: null,
-        canBeArmed: true,
-        isArmed: false,
-        isMuted: false,
-        isSoloed: false,
+        currentSongTime: 0,
+        isPlaying: playing,
+        tempo: 120,
+        timeSignature: { numerator: 4, denominator: 4 },
+        metronome: false,
+        launchQuantization: 0,
+        recordQuantization: 0,
+        linkEnabled: false,
         backToArrangement: override,
       };
       if (broken !== "return") override = false;
-      return tracksOperationResultSchema.parse({
+      return transportOperationResultSchema.parse({
         action: "back-to-arrangement",
-        result: {
-          before,
-          after: { ...before, backToArrangement: override },
-          verified: true,
-        },
+        before,
+        after: { ...before, backToArrangement: override },
+        verified: true,
       });
     }),
     setPlaying: vi.fn(async () => {
@@ -183,7 +184,7 @@ describe("reviewed independent source matrix", () => {
         "ableton_listening",
         "ableton_context",
       ]);
-      expect(manifest.setupContract.reviewStatus).toContain("11.3.42");
+      expect(manifest.setupContract.reviewStatus).toContain("Live 11");
     }
     expect(
       reviewNativeScenario(await load("native-descriptive-startup-4-12"))
@@ -275,20 +276,22 @@ describe("source transitions use typed setup, never actor repair or receipts as 
     expect(f.ableton.executeTracksOperation).not.toHaveBeenCalled();
     expect(f.ableton.setPlaying).toHaveBeenCalledExactlyOnceWith(false);
   });
-  it("requires explicit exact-track return and stopped preparation before a new pass", async () => {
+  it("requires a guarded global return confined to the sole Session source before a new pass", async () => {
     const f = fixture({ transition: "explicit-return" });
     const result = await f.run();
     expect(
       result.evidence.reads.map(({ sessionOverride }) => sessionOverride),
-    ).toEqual([false, true, false, false, false]);
-    expect(f.ableton.executeTracksOperation).toHaveBeenCalledExactlyOnceWith({
-      action: "back-to-arrangement",
-      target: {
-        kind: "regular",
-        index: 1,
-        expectedReference: trackReference,
-        expectedName: "Pinned fixture",
+    ).toEqual([false, true, true, false, false, false]);
+    expect(f.ableton.executeTransportOperation).toHaveBeenCalledExactlyOnceWith(
+      {
+        action: "back-to-arrangement",
       },
+    );
+    expect(f.ableton.executeTracksOperation).not.toHaveBeenCalled();
+    expect(result.evidence.globalReturnGuard).toMatchObject({
+      baselineSongBackToArranger: false,
+      soleSessionClipReference: "session-clip",
+      trackReferences: ["other-track", trackReference],
     });
     expect(f.ableton.setPlaying).toHaveBeenCalledExactlyOnceWith(false);
     expect(result.inspected.transport.playing).toBe(false);
@@ -298,23 +301,120 @@ describe("source transitions use typed setup, never actor repair or receipts as 
     { verified: true },
     { action: "back-to-arrangement" },
     { action: "back-to-arrangement", result: { verified: false } },
+    { action: "back-to-arrangement", result: { verified: true } },
+    { action: "back-to-arrangement", verified: true },
     { action: "stop-clips", result: { verified: true } },
   ])(
     "rejects an invalid explicit-return receipt %j before continuing",
     async (receipt) => {
       const f = fixture({ transition: "explicit-return" });
-      f.ableton.executeTracksOperation.mockResolvedValue(receipt);
+      f.ableton.executeTransportOperation.mockResolvedValue(receipt);
       await expect(f.run()).rejects.toThrow(
-        "Unverified source explicit-track-return",
+        "Unverified source guarded-global-return",
       );
       expect(f.evidence.mutations.at(-1)).toEqual({
-        name: "explicit-track-return",
+        name: "guarded-global-return",
         receipt,
       });
       expect(f.evidence.reads.map(({ label }) => label)).toEqual([
         "baseline",
         "session-launch",
+        "before-guarded-global-return",
       ]);
+      expect(f.ableton.setPlaying).not.toHaveBeenCalled();
+    },
+  );
+  it.each([
+    ["missing-complete-tracks", (snapshot) => delete snapshot.tracks],
+    ["truncated-tracks", (snapshot) => snapshot.trackCount++],
+    [
+      "foreign-session-source",
+      (snapshot) =>
+        snapshot.clips.push({
+          ...snapshot.clips[0],
+          trackReference: "other-track",
+          trackIndex: 0,
+          reference: "other-session",
+        }),
+    ],
+    [
+      "unknown-device-inventory",
+      (snapshot) => (snapshot.tracks[0].devicesTruncated = true),
+    ],
+  ])("denies %s before launching or globally returning", async (_, change) => {
+    const f = fixture({ transition: "explicit-return" });
+    const snapshot = await f.ableton.inspectSession();
+    change(snapshot);
+    f.ableton.inspectSession.mockResolvedValue(snapshot);
+    await expect(f.run()).rejects.toThrow();
+    expect(f.ableton.launchSessionClip).not.toHaveBeenCalled();
+    expect(f.ableton.executeTransportOperation).not.toHaveBeenCalled();
+  });
+  it.each([true, null, undefined])(
+    "denies baseline global state %s even when the target track is clear",
+    async (globalState) => {
+      const f = fixture({ transition: "explicit-return" });
+      const inspect = f.inspect.getMockImplementation();
+      f.inspect.mockImplementation(async (query) => {
+        const result = await inspect(query);
+        result.listeners[0].sourceEvidence.songBackToArranger = globalState;
+        return result;
+      });
+      await expect(f.run()).rejects.toThrow("globally clear");
+      expect(f.ableton.launchSessionClip).not.toHaveBeenCalled();
+      expect(f.ableton.executeTransportOperation).not.toHaveBeenCalled();
+    },
+  );
+  it("denies unknown global scope after launch without global mutation or implicit stop", async () => {
+    const f = fixture({ transition: "explicit-return" });
+    const inspect = f.inspect.getMockImplementation();
+    let reads = 0;
+    f.inspect.mockImplementation(async (query) => {
+      const result = await inspect(query);
+      if (++reads === 3)
+        result.listeners[0].sourceEvidence.songBackToArranger = null;
+      return result;
+    });
+    await expect(f.run()).rejects.toThrow("verified owned takeover");
+    expect(f.evidence.mutations.map(({ name }) => name)).toEqual([
+      "session-launch",
+    ]);
+    expect(f.ableton.executeTransportOperation).not.toHaveBeenCalled();
+    expect(f.ableton.setPlaying).not.toHaveBeenCalled();
+  });
+  it("does not treat a return receipt as independent global-clear proof", async () => {
+    const f = fixture({ transition: "explicit-return" });
+    const inspect = f.inspect.getMockImplementation();
+    let reads = 0;
+    f.inspect.mockImplementation(async (query) => {
+      const result = await inspect(query);
+      if (++reads === 4)
+        result.listeners[0].sourceEvidence.songBackToArranger = true;
+      return result;
+    });
+    await expect(f.run()).rejects.toThrow("independently clear");
+    expect(f.evidence.mutations.map(({ name }) => name)).toEqual([
+      "session-launch",
+      "guarded-global-return",
+    ]);
+    expect(f.ableton.setPlaying).not.toHaveBeenCalled();
+  });
+  it.each(["track", "clip"])(
+    "retains the launch but denies changed %s identity before global return",
+    async (kind) => {
+      const f = fixture({ transition: "explicit-return" });
+      const baseline = await f.ableton.inspectSession();
+      const changed = clone(baseline);
+      if (kind === "track") changed.tracks[0].reference = "replacement";
+      else changed.clips[0].reference = "replacement";
+      f.ableton.inspectSession
+        .mockResolvedValueOnce(baseline)
+        .mockResolvedValueOnce(changed);
+      await expect(f.run()).rejects.toThrow();
+      expect(f.evidence.mutations.map(({ name }) => name)).toEqual([
+        "session-launch",
+      ]);
+      expect(f.ableton.executeTransportOperation).not.toHaveBeenCalled();
       expect(f.ableton.setPlaying).not.toHaveBeenCalled();
     },
   );
@@ -357,6 +457,26 @@ describe("source transitions use typed setup, never actor repair or receipts as 
     });
     await expect(f.run()).rejects.toThrow();
     expect(f.ableton.launchSessionClip).not.toHaveBeenCalled();
+  });
+  it("preserves the owned launch but cancels before the global scope guard can mutate", async () => {
+    const controller = new globalThis.AbortController();
+    const f = fixture({
+      transition: "explicit-return",
+      signal: controller.signal,
+    });
+    const snapshot = await f.ableton.inspectSession();
+    f.ableton.inspectSession
+      .mockResolvedValueOnce(snapshot)
+      .mockImplementationOnce(async () => {
+        controller.abort();
+        return clone(snapshot);
+      });
+    await expect(f.run()).rejects.toThrow();
+    expect(f.evidence.mutations.map(({ name }) => name)).toEqual([
+      "session-launch",
+    ]);
+    expect(f.ableton.executeTransportOperation).not.toHaveBeenCalled();
+    expect(f.ableton.setPlaying).not.toHaveBeenCalled();
   });
   it("rejects ambiguous fixture Session sources instead of provisioning or choosing one", async () => {
     const f = fixture({ transition: "session-override" });

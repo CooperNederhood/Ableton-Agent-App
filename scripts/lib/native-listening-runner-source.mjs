@@ -24,7 +24,7 @@ export const nativeSourceSetupActions = Object.freeze({
   ]),
   "explicit-return": Object.freeze([
     "session-launch",
-    "explicit-track-return",
+    "guarded-global-return",
     "explicit-stop-before-new-pass",
   ]),
 });
@@ -36,7 +36,7 @@ export function nativeSourcePrompt(transition) {
   return transition === "session-override"
     ? " The runner has explicitly launched the identity-bound Session source. This is an expected refusal investigation, not a request to repair it. Make the one reviewed playback request, then report its terminal refusal. Do not return to Arrangement, stop, retry, or fetch context."
     : transition === "explicit-return"
-      ? " The runner has explicitly launched Session, returned this exact track to Arrangement and stopped transport as reviewed preparation. This request is a new explicit pass in a fresh disposable fixture, never a retry or continuation of a refused pass."
+      ? " The runner has explicitly launched the fixture's sole Session source, used the reviewed guarded global Return to Arrangement after proving a globally clear baseline and unchanged source scope, and stopped transport as preparation. This request is a new explicit pass in a fresh disposable fixture, never a retry or continuation of a refused pass."
       : " The runner independently verifies source state; do not change or repair the source.";
 }
 
@@ -129,9 +129,11 @@ export async function prepareNativeSourceTransition({
         mutations.push({ name, receipt });
         attributes.receipt = receipt;
         check(
-          name === "explicit-track-return"
+          name === "guarded-global-return"
             ? receipt?.action === "back-to-arrangement" &&
-                receipt.result?.verified === true
+                receipt.verified === true &&
+                receipt.before?.backToArrangement === true &&
+                receipt.after?.backToArrangement === false
             : receipt?.verified === true,
           `Unverified source ${name}`,
         );
@@ -140,7 +142,7 @@ export async function prepareNativeSourceTransition({
       attributes,
     );
   };
-  await read("baseline", false);
+  const baseline = await read("baseline", false);
   if (transition !== "baseline") {
     const snapshot = await ableton.inspectSession();
     const candidates = (snapshot.clips ?? []).filter(
@@ -153,6 +155,45 @@ export async function prepareNativeSourceTransition({
       "Pinned source investigation fixture must contain exactly one bounded Session source on the listener track",
     );
     const source = candidates[0];
+    const returnScope = (value) => {
+      check(
+        Number.isInteger(value.trackCount) &&
+          value.trackCount > 0 &&
+          value.trackCount <= 32 &&
+          value.tracks?.length === value.trackCount &&
+          value.tracks.every(
+            (item, index) =>
+              item.index === index &&
+              typeof item.reference === "string" &&
+              item.reference.length > 0 &&
+              item.reference.length <= 128 &&
+              item.devicesTruncated === false,
+          ) &&
+          new Set(value.tracks.map((item) => item.reference)).size ===
+            value.trackCount &&
+          value.tracks[track.index]?.reference === track.expectedReference &&
+          value.clips?.length === 1,
+        "Guarded global return needs a complete unchanged fixture with exactly one Session source",
+      );
+      const soleSource = value.clips[0];
+      check(
+        soleSource.reference === source.reference &&
+          soleSource.trackReference === track.expectedReference &&
+          soleSource.trackIndex === track.index &&
+          soleSource.sceneIndex === source.sceneIndex &&
+          soleSource.length === source.length,
+        "Guarded global return source identity changed",
+      );
+      return value.tracks;
+    };
+    let baselineReturnScope;
+    if (transition === "explicit-return") {
+      check(
+        baseline.listeners[0].sourceEvidence.songBackToArranger === false,
+        "Guarded global return requires an independently globally clear baseline",
+      );
+      baselineReturnScope = returnScope(snapshot);
+    }
     const sourceTarget = {
       ...trackTarget,
       sceneIndex: source.sceneIndex,
@@ -216,13 +257,43 @@ export async function prepareNativeSourceTransition({
         "Session takeover does not identify the launched source slot",
       );
       if (transition === "explicit-return") {
-        await mutate("explicit-track-return", () =>
-          ableton.executeTracksOperation({
+        await mutate("guarded-global-return", async () => {
+          const attributes = { transition };
+          await stage(
+            "source-global-return-scope-validation",
+            async () => {
+              await validateOwnership();
+              const current = await ableton.inspectSession();
+              check(
+                isDeepStrictEqual(returnScope(current), baselineReturnScope) &&
+                  mutations.length === 1 &&
+                  mutations[0].name === "session-launch",
+                "Guarded global return fixture scope or owned mutation lineage changed",
+              );
+              const latest = await read("before-guarded-global-return", true);
+              check(
+                latest.listeners[0].sourceEvidence.songBackToArranger === true,
+                "Guarded global return requires the verified owned takeover",
+              );
+              const guard = {
+                baselineSongBackToArranger: false,
+                soleSessionClipReference: source.reference,
+                trackReferences: current.tracks.map((item) => item.reference),
+              };
+              evidence.globalReturnGuard = guard;
+              attributes.guard = guard;
+            },
+            attributes,
+          );
+          return ableton.executeTransportOperation({
             action: "back-to-arrangement",
-            target: { kind: "regular", ...trackTarget },
-          }),
+          });
+        });
+        const returned = await read("guarded-global-return", false);
+        check(
+          returned.listeners[0].sourceEvidence.songBackToArranger === false,
+          "Guarded global return did not independently clear the global source state",
         );
-        await read("explicit-track-return", false);
       }
       // Reviewed stopped preflight; stopping must not silently return the source.
       await mutate("explicit-stop-before-new-pass", () =>
@@ -270,6 +341,9 @@ export async function prepareNativeSourceTransition({
       bugSpecificReproduction: "unproven-not-claimed",
       reads,
       mutations,
+      ...(evidence.globalReturnGuard
+        ? { globalReturnGuard: evidence.globalReturnGuard }
+        : {}),
     },
   };
 }

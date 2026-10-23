@@ -33,7 +33,7 @@
     "nativeVersion": 2,
     "sourceInvestigation": "reviewed-exact-track-transitions-no-automatic-repair",
     "sourcePolicy": "Immutable hash-pinned v2 fixture copied byte-for-byte into a fresh runner-owned namespace. Require fresh optional sourceEvidence and exact binding; no native proof bypass, original Set/profile access, XML rewriting, device installation, fallback or source repair.",
-    "reviewStatus": "Reviewed independent no-transition Arrangement baseline at beats 4-12. Supported target is 11.3.42; 11.3.43 evidence is separately labeled and never qualifies that target. Real-Live acceptance remains blocked until supported host and explicit fixture pins are available. Original issue cause is not reconstructable; no bug-specific reproduction claimed."
+    "reviewStatus": "Reviewed independent no-transition Arrangement baseline at beats 4-12. Live 11 only; record the observed subversion without a patch pin. Require explicit immutable fixture pins and independent native acceptance. Original issue cause is not reconstructable; no bug-specific reproduction claimed."
   },
   "ordering": [
     {

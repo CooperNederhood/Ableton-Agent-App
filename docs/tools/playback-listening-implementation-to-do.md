@@ -148,31 +148,51 @@ Merge-blocking review defects and CI failures still require resolution.
   Configure v2 clock snapshots from the actual DSP vector's last index before
   the host bracket; preserve raw inputs, anchor, timing cap, v1 and Gen bytes.
   The new graph regression fails without the change; all 634 owning Max-patch
-  tests pass with it. This does not yet qualify the change in Live.
+  tests pass with it; the later pinned real-Live qualification is recorded below.
 - [x] Build a fresh candidate from the canonical clean authored AMXD, not
   #58's native output. Retain new candidate/author/clock-graph hashes and the
-  still-unready Set's provenance; reverify all 29 original immutable pins.
+  Set's provenance; reverify all 29 original immutable pins.
   Pass workspace build and complete quality: 2,394 TypeScript, 634 Max-patch
   and 215 Python tests, including the 75 targeted ingress/contract cases.
-- [ ] Provision the new candidate's own Set through ordinary Live Save As
-  without XML rewriting, then rerun the failed baseline, source group, broader
-  native selection and visible workflow. Coordinated host-owned Live 19842
-  opened an unknown custom `Untitled` startup Set; non-destructive saving did
-  not persist and discard approval was unavailable. Leave that content intact.
-  The Node host is stopped without signaling Live; the Live slot remains held
-  until safe owned cleanup. Do not modify #58's immutable input or reinterpret
-  its historical proofs as qualification of the new acquisition.
+- [x] Resolve the former startup blocker through the user's explicit closure
+  and independent process-absence verification, without automation discarding
+  unknown content. Open the isolated fixture directly in a fresh owned process;
+  ordinary Save As establishes the new Set pin `eb627f86` without XML rewriting.
+  Close the saved provisioning process and preserve #58's original inputs.
+- [x] Rerun the failed 4-12 baseline (`5e6f4a31`): exact 192k frames/40 windows,
+  independent proof/context/postconditions, clock/beat disagreement 0/1 and
+  owned cleanup. On the same source head `deaf182`, pass all four fresh-process
+  descriptive cases (`9c076380`), including the formerly failing 0-4 and
+  30-second 1,440k-frame/300-window capture; each observes 1/2 disagreement.
+  Keep the 64-sample budget, descriptive-only limitations and old failures.
+- [x] Independently audit typed History proofs from the three positive source
+  captures, four descriptive cases and one Desktop capture: all 69 retained
+  clock rows per proof use index63 at vector64. This proves the new acquisition
+  graph ran, not physical timing accuracy or the historical source cause.
+- [x] Exercise ordinarily approved visible Default-agent 0-4 capture
+  `ebd2a01a` / context `0a7da622` and separate Session refusal `27503b87`.
+  Independently verify 96k frames/20 windows, native proof, original context
+  and source/Set/WAV hashes; refusal has exact slot0/global override evidence
+  and no positioning, capture or publication. Verify the renderer's IDs,
+  approximate limits and accessibility guidance; do not claim the offscreen
+  recovery text's complete visual acceptance. Pass all 12 current-head
+  Electron owning tests sequentially without retries.
 - [ ] Qualify #57's controlled Arrangement edits and Session takeover/return
   matrix in isolated runner-owned Live, then visually inspect the new refusal
   guidance in an isolated Desktop workflow. Record exact version/hash provenance
   and retain blockers/failures; do not adopt or close a pre-existing user process.
-  Positive captures and the remaining owning group are blocked by the retained
-  native launch/alignment failures; visible acceptance remains open. Record
-  the installed Live 11 development subversion without requiring a downgrade
-  to an uninstalled 11.3.42. All three observed-run processes/fixtures were
-  cleaned, the Live slot was released, and the original historical source state
-  remains unproven. These runs predate the later main/PR #65 integration and
-  are not integrated-head qualification. Keep the PR in draft.
+  Source group `7a08c15f` passes baseline, exact duplicate/delete/restoration
+  and Session refusal, but fails explicit track-return setup because the host
+  does not expose `tracks.back_to_arrangement`. Reviewed scope prohibits
+  global return; do not fabricate capability support or silently substitute it.
+  The failed trace/partial setup remain retained, pending a test-scope decision.
+  Native timing now passes independently; complete visible recovery acceptance
+  and the remaining suite remain open. Record installed 11.3.43 without
+  requiring an uninstalled 11.3.42 downgrade. Deterministic fixtures were
+  cleaned; the isolated UX fixture/profile remain private audit evidence.
+  UX Desktop41955/Live41218 exited and the exact host stopped;
+  canonical absence preceded explicit slot release. The historical source
+  cause remains unproven. Keep the PR in draft.
 - [ ] Follow-up [#58](https://github.com/CooperNederhood/Ableton-Agent-App/issues/58):
   reproduce and resolve listener binding after device-chain edits. Retained
   inspection shows the same enabled Max listener at device index 1 after a

@@ -316,10 +316,10 @@ All three owned Live processes exited, their disposable fixtures were cleaned
 up, and independent process inspection confirmed absence before slot release.
 No pre-existing process or original Set was adopted or changed; existing
 Remote Script authentication was preserved. Raw Set/audio and private profile
-paths were not uploaded. Positive capture, Arrangement-edit/explicit-return
-group completion and visible cross-app acceptance remain open. The PR stays
-draft. Native timing failures remain merge blockers and active debugging work,
-not a reason to stop after documenting the source distinction.
+paths were not uploaded. At that checkpoint positive capture, Arrangement-edit/
+explicit-return group completion and visible cross-app acceptance remained open.
+The subsequent clock correction and its new evidence follow; those successes
+do not erase the original failed runs or reconstruct the historical source state.
 
 Native v2 failure snapshots now use the existing generation-owned
 `nativeFailureDiagnostic` route for alignment and FFT sequence rejections.
@@ -353,26 +353,68 @@ vector size minus one before each bracket. This reads the latest available
 sample rather than rewriting clock values, selecting a more favorable anchor
 or discarding disagreement witnesses. Default/v1 and descriptor sampling,
 Gen algorithms, bracket duplication, the frozen anchor and strict-zero/default64
-limits remain unchanged. Graph regressions pass; fresh immutable-candidate
-real-Live qualification of this acquisition change is still pending.
+limits remain unchanged. The graph regression fails before this change and
+passes afterward. Fresh immutable-candidate captures now demonstrate the
+correction on the observed host, with the limits below.
 
 The continuation passes a fresh workspace build and the full quality gate:
 2,394 TypeScript tests, 634 Max-patch tests and 215 Python tests, including
 75 targeted typed-ingress/contract cases. A new candidate was authored from the
 canonical clean `Machine-Listening-Development.amxd`, rather than repackaging
-#58's native output. Its copied Set still needs ordinary Save As to establish
-owned references before it can become a qualified fixture; no XML was rewritten.
-All 29 original source/candidate/manifest/audio pins were reverified unchanged.
+#58's native output. Ordinary Live Save As established owned references in
+`Issue57-ClockIndex-Pinned.als`; no XML was rewritten. Its SHA-256 is
+`eb627f86df0840364f8e8c7b1689628e4b53d4adc87072366663dda8ace11196`;
+the candidate manifest is
+`698000070e98ad77aee3ebc5fb7431da893c9059eb09e69b7edae69c808f0d26`.
+All 29 original source/candidate/manifest/audio pins remain unchanged.
 
-The coordinated provisioning host launched exact-owned Live PID 19842, which
-opened a custom, music-filled `Untitled` startup Set. Non-destructive Save As
-attempts did not persist, and explicit discard authorization was unavailable.
-No startup content was discarded, no fixture capture was attempted, and no
-current-head Live success is claimed. The exact-owned Node controller was
-stopped without invoking its Live-quit handler; Live remains open for the user
-to preserve or explicitly authorize discarding that Set. The Live slot is
-**not released** while that process remains. This is a safety/precondition
-blocker, not completed timing repair or permission to merge the draft.
+The former custom `Untitled` startup blocker was resolved by the user's
+explicit closure, followed by independent process-absence verification.
+Automation did not discard that content. A fresh exact-owned process opened
+the isolated fixture directly, completed ordinary Save As and exited cleanly.
+
+The following new runs use source head `deaf182` and the new pinned candidate
+on installed Live 11.3.43, not the older #58 candidate or historical receipts:
+
+| New observed-host run | Result |
+| --- | --- |
+| Failed baseline rerun (`5e6f4a31`) | PASS: beats 4-12, 192,000 stereo frames, 40 complete envelope/spectral windows, native proof and postconditions. Observed clock/beat disagreement is 0/1 samples. |
+| Source group (`7a08c15f`) | Baseline, exact Arrangement duplicate/delete/restoration and intentional Session refusal PASS. Explicit track-return preparation FAILS because `tracks.back_to_arrangement` is unavailable. This is not a passed four-case group. |
+| Entire native descriptive group (`9c076380`) | All four fresh-process cases PASS: fractional, 0-4, 4-12 and 30 seconds. Independent native/context/postcondition checks include 1,440,000 stereo frames and 300 windows for the long capture. Clock/beat disagreement is 1/2 samples in each case. |
+
+Typed History independently retains every completed proof's original clock
+operands. Audits of all three positive source captures, all four descriptive
+captures and the additional Desktop capture find sample index 63 in all 69
+retained clock rows per proof at vector64. This establishes execution of the
+new fixed-index graph rather than a favorable numeric rewrite. The original
+0-4 failure now passes, and the 64-sample budget remains unchanged. These are
+bounded descriptive observations, not physical calibration, exclusive source
+attribution, verified tempo stability or proof of the historical source cause.
+
+An isolated visible Default-agent workflow with ordinary approval completes
+0-4 capture `ebd2a01a` / context `0a7da622`: independent protocol verification
+confirms 96,000 stereo frames, 20 windows, unchanged source/staged Set/WAV
+hashes and clock/beat disagreement 0/1. The renderer displays the same IDs,
+range and approximate-timing limits. A separate ordinarily approved request
+after manual Session launch and stop fails `arrangement_session_override`
+(`27503b87`), with slot 0/global override evidence, no positioning, native
+capture or publication, and the original context unchanged. Renderer
+accessibility exposes the new manual-return/new-pass guidance; its offscreen
+scroll presentation was not fully visually qualified, so complete visible
+recovery acceptance remains open. The current-head Electron owning suite
+separately passes all 12 tests sequentially, including synthetic refusal IPC;
+that does not substitute for the remaining visual check.
+
+The installed host lacks the track-scoped Return to Arrangement capability
+required by the reviewed recovery setup, which explicitly prohibits global
+return. No global fallback, capability fabrication, actor-policy widening or
+source auto-repair was used. A test-scope decision is required before that
+case can qualify; its failed trace and partial setup remain retained. The PR
+stays draft, and the remaining suite is not claimed passed. Deterministic-run
+disposable fixtures were cleaned; the isolated UX fixture/profile remain
+private audit evidence. Owned Desktop 41955 and UX Live 41218 exited, the exact
+UX host stopped, and independent canonical inspection confirmed no Live before
+explicit slot release.
 
 A capture-only read-pressure diagnostic reproduced a 65-sample rejection:
 the initial host/native offset was -1, and a later host sample/beat pair was

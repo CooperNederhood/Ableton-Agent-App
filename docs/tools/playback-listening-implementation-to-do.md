@@ -90,12 +90,73 @@ Merge-blocking review defects and CI failures still require resolution.
   diagnose the separate initial `arrangement_source_unknown` rejection.
   The runtime guard rejects a listener whose Session override is not explicitly
   false; retained failure events do not establish whether it was true or unknown.
-- [ ] Follow-up [#58](https://github.com/CooperNederhood/Ableton-Agent-App/issues/58):
+- [x] Follow-up [#58](https://github.com/CooperNederhood/Ableton-Agent-App/issues/58):
   reproduce and resolve listener binding after device-chain edits. Retained
   inspection shows the same enabled Max listener at device index 1 after a
   Delay at index 0, but discovery is unresolved and the next pass fails with
   "Listener must be a Max for Live Audio Effect." Do not relax class/identity
   guards or assume the exact failing path-registration cause is already proven.
+  - [x] Reproduce missing post-initialization placement refresh with the actual
+    shared identity companion and SDK registration; preserve one-shot MIDI.
+  - [x] Opt audio packaging into bounded device-owned placement refresh,
+    invalidate unavailable identity and fence deleted tasks/old native generations.
+  - [x] Revalidate live registration after asynchronous inspection, retain only
+    bounded connection-scoped historical identity guards, and reject same-class
+    replacements without reusing prior proof as current.
+  - [x] Add attributed/redacted binding-validation lifecycle and actionable
+    stale-path diagnostics, with success/failure/cancellation regressions.
+  - [x] Add the reviewed two-capture insert-before scenario, strict edit/approval
+    guards, exact identity/source/Set verifier and prior-context preservation.
+  - [x] Preserve the device-lifetime native epoch high-water through renewed
+    controllers. A real run passed exact placement/source checks and renewed
+    authenticated registration, then exposed reused epoch 1 at the second arm.
+    The regression fails before the fix (1 instead of 2), and now validates
+    distinct fresh capture proof after completed, cancelled and failed passes
+    through both direct movement and unavailable-identity recovery. Invalid
+    initial epochs and exhaustion remain fail-closed; the full Max suite passes
+    639 tests. Post-edit inspection uses the existing bounded 32-parameter
+    limit without allowing truncated chains.
+  - [x] Expand deterministic validation to the full merged-source TypeScript
+    suite (2,360), Max suite (639), Python suite (214), all-workspace typecheck
+    and the isolated Electron recovery regression. Workspace build and complete
+    `check:quality` pass, including repository formatting, full lint,
+    documentation, authored packages, versions, protocol contracts and test
+    ownership. The rebuilt merged-source isolated Electron suite passes all
+    12 cases. Earlier startup/Settings failures remain retained as failed
+    attempts, not deleted evidence or real-Live acceptance.
+  - [x] Pass the focused two-capture scenario and its separate fresh-process
+    owning group on installed Live 11.3.43 (2026-10-23). Each verifies two fresh
+    native proofs, the same actual listener at index 1, exactly one Delay at
+    index 0, renewed authenticated registration, two distinct stored contexts,
+    unchanged prior entry and exact-owned process/fixture cleanup. Both retain
+    the unchanged 64-sample budget. Earlier timing-budget, unavailable-adapter,
+    source-truncation and reused-epoch failures remain retained.
+  - [x] Complete ordinary-approval visible Default-agent before/edit/after
+    acceptance on 11.3.43 in one isolated Desktop/Live process pair. Two distinct
+    stored contexts and completed passes remain visible; typed History proofs
+    independently validate epochs 1 then 2. Approvals cover capture, stopped
+    edit, load and move without YOLO. Live shows Delay then the enabled original
+    listener; the saved validation Set and exact process cleanup are confirmed.
+    Retain the edit turn's unrelated invalid transport `stop` probe before its
+    approved `set-playing:false`; do not claim an error-free general workflow.
+  - [x] Complete remaining non-native smoke selection after merging #65.
+    Checkpoint `8d5b935` preserves the native fix; merge `aff6742` consumes
+    main's `f23ec65` without conflicts. This branch's fresh Session lifecycle
+    focused run (`cbdc7699`) and Session group (`c274539c`) qualify, followed by
+    all 17 remaining scenarios (`722183c1`). Across the group and remaining
+    selection, all 19 non-native cases qualify (15 pass, four recovered-pass),
+    with every deterministic postcondition passing and zero approval denials
+    or policy violations. Recovered invalid-argument probes remain in traces;
+    they are not error-free passes. No guard, allowlist or budget was relaxed.
+    All exact-owned cleanup receipts pass, including final PID 89074, and the
+    canonical independent process check confirms no Live remains. The earlier
+    18-scenario attempt's wrong-track-name denial and partial mutations remain
+    retained; separate #56 branch results are not counted as this branch's.
+  - [x] Record actual Live version provenance without a patch-version gate.
+    Live 11 is the support boundary; current development and the successful
+    empirical results above use installed Suite 11.3.43 on Apple Silicon.
+    Track automatic patch changes in receipts; no uninstalled 11.3.42
+    qualification or downgrade is required to complete development.
 - [ ] Follow-up [#59](https://github.com/CooperNederhood/Ableton-Agent-App/issues/59):
   qualify controlled edits and recovery in one runner-owned Live process,
   plus three clean fresh-process packaged workflows for the changed native
@@ -248,7 +309,7 @@ behavior.
   and reopen without recapture. This is human-reported desktop acceptance,
   separate from the independently verified isolated runs. Static M4L
   development-panel wording remains a known limitation; release and
-  Live 11.3.42-specific qualification remain separate.
+  broader host/source qualification remain separate.
 
 The user-approved target is a usable developer build plus documented weak spots,
 not exhaustive certification. See the
@@ -1017,7 +1078,7 @@ Arrangement capture/publication, resume and release acceptance remain open.
   before enabling capture; engineering collector events do not complete this.
 
 Actual latest host version is Live 11.3.43, independently read from its bundle;
-the 48 kHz/vector-64 subset does not separately qualify 11.3.42. The export's
+the 48 kHz/vector-64 subset does not qualify every host configuration. The export's
 two reserved FFT fields are uncollected placeholders. Production readiness and
 packaging remain unchanged, with no certificate-file bypass. The original
 first-window discrepancy's host-processing mechanism is still unverified.
@@ -1100,7 +1161,8 @@ coverage do not replace real installed-device/Live validation.
 - [ ] Reconcile provider limits and physical-ID/bridge-reference binding.
 - [ ] Verify idle/error/cancel/disconnect pass-through and watchdog cleanup.
 - [x] Consume shared generated profile discovery configuration in staged artifacts.
-- [ ] Validate Live 11.3.42/Max/Apple Silicon versions and measured resource cost.
+- [ ] Record installed Live 11/Max/Apple Silicon versions and validate measured
+  resource cost without requiring a fixed Live patch.
 - [ ] Promote/install explicitly without a production MCP dependency.
 
 The candidate builder supports `check`, `build --out <directory>`,
@@ -1344,7 +1406,7 @@ checkpoint above. The production timing gate is unchanged.
 - [x] Qualify fresh installed Python source start on owned Live 11.3.43:
   guarded source acknowledgement plus independent measured native launch and
   complete capture succeed. Preserve all guards and the original saved Set.
-  This is not exact supported 11.3.42 qualification.
+  Retain the actual host version rather than claiming all Live 11 patches tested.
 - [x] Contrast actual marker-zero Max `start_playing` with the prior continue
   behavior: observed running beat12.866375 after6.460 seconds, not the old
   stop above13931. Preserve unchanged marker, exact one-helper cleanup and
@@ -1445,8 +1507,8 @@ power bounds; split-word bounds passed without widening validity. In-place
 native reload yielded zero snapshots/lost diagnostic cables and is denied by
 the engineering wrapper, not reported as a successful deployment. Recreate
 the owned probe with fresh staged resources instead. Production readiness and
-resources are unchanged; the running host is 11.3.43, not separately qualified
-11.3.42.
+resources are unchanged; the running host is 11.3.43, retained as the exact
+version for this evidence.
 
 ## Application context
 

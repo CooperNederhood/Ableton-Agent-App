@@ -123,8 +123,8 @@ Companion specification: [Test Strategy](test-strategy.md)
     (14 tracks, 13 Session clips, no Arrangement clips). Concurrent readers
     timed out while Desktop held the bridge, so independent reads bracketed
     Desktop's lifetime.
-    Empirical host evidence is Live Suite 11.3.43, not separate qualification
-    of the specified 11.3.42 build.
+    Empirical host evidence is installed Live Suite 11.3.43. Record exact
+    versions without treating automatic Live 11 patch changes as blockers.
   - [x] Finish explicit owned Live cleanup before calling visible acceptance
     complete or releasing the shared test slot. Desktop PIDs 41322 and 45044
     closed successfully. Live PID 40458 initially remained open after an
@@ -188,7 +188,7 @@ Companion specification: [Test Strategy](test-strategy.md)
     canonical independent process inspection confirms no Live processes remain
     before explicit release to #58/#57. No Desktop or UX host was started in
     this final deterministic round. Empirical evidence is Live 11.3.43; native
-    fixtures and exact Live 11.3.42 qualification are not claimed.
+    fixtures are not claimed qualified by this non-native run.
   - [x] Fix two additional reviewed-harness planning omissions exposed by
     current-snapshot escalation. Run
     `b745a2ad-16bb-43d3-b8e4-a97ab6411477` passed nine scenarios, but `808-track`

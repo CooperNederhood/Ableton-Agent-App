@@ -7,6 +7,10 @@ import { stageNativeListeningFixture } from "./native-listening-fixture.mjs";
 import { createNativeRunnerLifecycle } from "./native-listening-lifecycle.mjs";
 import { waitForNativeBridge } from "./native-bridge-readiness.mjs";
 import {
+  insertBeforeNativeListener,
+  NATIVE_LISTENER_EDIT,
+} from "./native-listener-rebinding.mjs";
+import {
   createNativeScenarioApproval,
   inspectNativeListeningPostconditions,
   verifyNativeListeningEvidence,
@@ -52,6 +56,13 @@ function assert(condition, message) {
 }
 
 const v2Scenarios = Object.freeze({
+  "native-descriptive-insert-before": Object.freeze({
+    startBeat: 0,
+    endBeat: 4,
+    maximumDurationMs: 8000,
+    timeoutMs: 120000,
+    artifactPrefix: "AA_SMOKE_NV2_REBIND_",
+  }),
   "native-descriptive-fractional": Object.freeze({
     startBeat: 0.25,
     endBeat: 3.75,
@@ -88,6 +99,7 @@ export function nativeDescriptivePrompt(capture) {
 
 export function reviewNativeScenario(manifest) {
   const v2 = v2Scenarios[manifest.id];
+  const rebinding = manifest.id === "native-descriptive-insert-before";
   const version = v2 ? 2 : 1;
   const range = v2 ?? { startBeat: 0, endBeat: 4, maximumDurationMs: 8000 };
   const policy = Object.freeze(
@@ -97,12 +109,15 @@ export function reviewNativeScenario(manifest) {
   );
   assert(
     manifest.execution === "native-listening-runtime" &&
-      manifest.maxToolCalls === 8 &&
-      manifest.maxMutations === 1 &&
+      manifest.maxToolCalls === (rebinding ? 16 : 8) &&
+      manifest.maxMutations === (rebinding ? 2 : 1) &&
       manifest.timeoutMs === (v2?.timeoutMs ?? 60000) &&
       isDeepStrictEqual(manifest.setupContract?.timingPolicy, policy) &&
       (v2
-        ? manifest.group === "native-listening-descriptive" &&
+        ? manifest.group ===
+            (rebinding
+              ? "native-listening-rebinding"
+              : "native-listening-descriptive") &&
           manifest.nativeVersion === 2 &&
           manifest.setupContract.nativeVersion === 2 &&
           manifest.setupContract.inputOption === "--native-v2-fixture-input" &&
@@ -143,6 +158,15 @@ export function reviewNativeScenario(manifest) {
           manifest.nativeVersion === undefined),
     "Unreviewed native scenario contract",
   );
+  assert(
+    rebinding
+      ? isDeepStrictEqual(
+          manifest.setupContract.placementEdit,
+          NATIVE_LISTENER_EDIT,
+        )
+      : manifest.setupContract.placementEdit === undefined,
+    "Unreviewed native placement edit",
+  );
   return Object.freeze({
     nativeVersion: version,
     timingPolicy: policy,
@@ -151,6 +175,7 @@ export function reviewNativeScenario(manifest) {
       endBeat: range.endBeat,
       maximumDurationMs: range.maximumDurationMs,
     }),
+    ...(rebinding ? { rebinding: true } : {}),
   });
 }
 
@@ -493,7 +518,8 @@ export async function createNativeListeningRunner({
                   });
                 }
                 assert(
-                  jobs.has(job.passId) || jobs.size < 1,
+                  jobs.has(job.passId) ||
+                    jobs.size < (reviewed.rebinding ? 2 : 1),
                   "Native scenario pass quota exceeded",
                 );
                 jobs.set(job.passId, globalThis.structuredClone(job));
@@ -652,7 +678,6 @@ export async function createNativeListeningRunner({
           });
         }
         const baselineSnapshot = await runtime.application.inspectSession();
-        const baseline = normalizeSnapshot(baselineSnapshot);
         const actorConfiguration = {
           instanceId: owner.agentId,
           productionSessionId: owner.sessionId,
@@ -739,7 +764,7 @@ export async function createNativeListeningRunner({
               event.producer.producerId === binding.listenerId &&
               event.result.status === "completed"
             ) {
-              if (received.length < 2)
+              if (received.length < (reviewed.rebinding ? 4 : 2))
                 received.push(globalThis.structuredClone(event));
             }
           },
@@ -798,142 +823,234 @@ export async function createNativeListeningRunner({
             { trace, activeAgentId: owner.agentId },
           ),
         );
-        await boundedStage("actor-turn", () =>
-          Promise.race([
-            runtime.application.sendToManagedAgent(
-              owner.agentId,
-              `${manifest.prompt}\nExact runner-owned listener ID: ${binding.listenerId}. Use it only in the playback call's listenerIds. The inspect-listeners arguments are exactly {"action":"inspect-listeners"}. The get-pass arguments are only action and the passId returned by playback; never supply listenerIds to it. A returned contextId is a different identity. Historical context queries must set includeHistorical=true.`,
-              "interactive",
+        const captureAndVerify = async ({
+          listener,
+          target,
+          inspected,
+          baselineSnapshot,
+          inspectionParams,
+        }) => {
+          const baseline = normalizeSnapshot(baselineSnapshot);
+          const previousPasses = new Set(jobs.keys());
+          await boundedStage("actor-turn", () =>
+            Promise.race([
+              runtime.application.sendToManagedAgent(
+                owner.agentId,
+                `${manifest.prompt}\nExact runner-owned listener ID: ${binding.listenerId}. Use it only in the playback call's listenerIds. The inspect-listeners arguments are exactly {"action":"inspect-listeners"}. The get-pass arguments are only action and the passId returned by playback; never supply listenerIds to it. A returned contextId is a different identity. Historical context queries must set includeHistorical=true.`,
+                "interactive",
+              ),
+              humanGatePromise,
+            ]),
+          );
+          if (humanGateError !== undefined) throw humanGateError;
+          assert(
+            actorContext?.sessionId === owner.sessionId &&
+              actorContext.agentId === owner.agentId &&
+              actorContext.actorKind !== "application" &&
+              jobs.size === previousPasses.size + 1 &&
+              approvals.mutationCount === previousPasses.size + 1,
+            "A real owned actor call and exactly one pass are required",
+          );
+          const passId = [...jobs.keys()].find((id) => !previousPasses.has(id));
+          // The model may return during arming. Keep the real services alive through
+          // the production coordinator's bounded terminal boundary.
+          const terminal = await boundedStage("terminal-job", () =>
+            host.waitForListeningPass(passId, actorContext),
+          );
+          assert(
+            terminal.passId === passId && terminal.stage === "completed",
+            `Listening terminal job did not complete (${terminal.stage})${terminal.error === undefined ? "" : `: ${terminal.error}`}`,
+          );
+          assert(
+            approvals.decisions.every((item) => item.approved) &&
+              actorToolCalls <= manifest.maxToolCalls,
+            "The actor exceeded the reviewed tool policy or budget",
+          );
+          const jobResult = await host.executeListeningOperation(
+            { action: "get-pass", passId },
+            actorContext,
+          );
+          const job = jobResult.job;
+          const pass = await repository.getPass(passId);
+          const rows = (
+            await repository.listEntries({ includeHistorical: true, limit: 20 })
+          ).items;
+          const entries = (
+            await Promise.all(rows.map((item) => repository.getEntry(item.id)))
+          ).filter((entry) => entry?.passId === passId);
+          const entryIds = new Set(entries.map((entry) => entry.id));
+          const links = (
+            await repository.listLinks({ includeHistorical: true, limit: 20 })
+          ).items.filter((link) => entryIds.has(link.entryId));
+          const subjects = await Promise.all(
+            [...new Set(links.map((item) => item.subjectId))].map((id) =>
+              repository.getSubject(id),
             ),
-            humanGatePromise,
-          ]),
-        );
-        if (humanGateError !== undefined) throw humanGateError;
-        assert(
-          actorContext?.sessionId === owner.sessionId &&
-            actorContext.agentId === owner.agentId &&
-            actorContext.actorKind !== "application" &&
-            jobs.size === 1 &&
-            approvals.mutationCount === 1,
-          "A real owned actor call and exactly one pass are required",
-        );
-        const passId = [...jobs.keys()][0];
-        // The model may return during arming. Keep the real services alive through
-        // the production coordinator's bounded terminal boundary.
-        const terminal = await boundedStage("terminal-job", () =>
-          host.waitForListeningPass(passId, actorContext),
-        );
-        assert(
-          terminal.passId === passId && terminal.stage === "completed",
-          `Listening terminal job did not complete (${terminal.stage})${terminal.error === undefined ? "" : `: ${terminal.error}`}`,
-        );
-        assert(
-          approvals.decisions.every((item) => item.approved) &&
-            actorToolCalls <= manifest.maxToolCalls,
-          "The actor exceeded the reviewed tool policy or budget",
-        );
-        const jobResult = await host.executeListeningOperation(
-          { action: "get-pass", passId },
-          actorContext,
-        );
-        const job = jobResult.job;
-        const pass = await repository.getPass(passId);
-        const rows = (
-          await repository.listEntries({ includeHistorical: true, limit: 20 })
-        ).items;
-        const entries = await Promise.all(
-          rows.map((item) => repository.getEntry(item.id)),
-        );
-        const links = (
-          await repository.listLinks({ includeHistorical: true, limit: 20 })
-        ).items;
-        const subjects = await Promise.all(
-          [...new Set(links.map((item) => item.subjectId))].map((id) =>
-            repository.getSubject(id),
-          ),
-        );
-        const typed = await contextHost.executeContextOperation(
-          {
-            action: "get",
-            contextId: job.contextIds[0],
-            includeHistorical: true,
-          },
-          reader(),
-        );
-        await lifecycle.stage("context-close", () => manager.close());
-        manager = makeManager();
-        const resumedHost = d.createSessionContextHost({
-          resolveRepository: (context) => manager.resolveRepository(context),
-        });
-        const resumed = await lifecycle.stage("typed-context-reopen", () =>
-          resumedHost.executeContextOperation(
+          );
+          const typed = await contextHost.executeContextOperation(
             {
               action: "get",
               contextId: job.contextIds[0],
               includeHistorical: true,
             },
             reader(),
-          ),
-        );
-        await validateOwnership();
-        const finalInspection =
-          await runtime.ableton.inspectListeningContext(inspectionParams);
-        const finalSnapshot = await runtime.application.inspectSession();
-        const finalListener = runtime.signals.listeners
-          .inspectListeners()
-          .find((item) => item.producer.producerId === binding.listenerId);
-        postconditions = inspectNativeListeningPostconditions(
-          {
-            baselineSnapshot,
-            finalSnapshot,
-            inspected,
-            finalInspection,
-            listener,
-            finalListener,
-            beforeBinding: normalizeInspection(inspected),
-            afterBinding: normalizeInspection(finalInspection),
-          },
-          d.sanitizePersistedText,
-        );
-        await lifecycle.stage(
-          "leave-running-postconditions",
-          async () =>
-            assert(
-              postconditions.passed,
-              `Leave-running capture cleanup, immutable binding or recording state mismatch: ${postconditions.failedChecks.join(", ")}`,
-            ),
-          { postconditions },
-        );
-        const evidence = await lifecycle.stage(
-          "independent-verification",
-          async () =>
-            verifyNativeListeningEvidence(
+          );
+          await lifecycle.stage("context-close", () => manager.close());
+          manager = makeManager();
+          repository = await manager.resolveRepository(reader());
+          const resumedHost = d.createSessionContextHost({
+            resolveRepository: (context) => manager.resolveRepository(context),
+          });
+          const resumed = await lifecycle.stage("typed-context-reopen", () =>
+            resumedHost.executeContextOperation(
               {
-                job,
-                pass,
-                entries,
-                links,
-                subjects,
-                received,
-                listener,
-                owner,
-                baseline,
-                final: normalizeSnapshot(finalSnapshot),
-                typed,
-                resumed,
-                target,
-                ...(reviewed.nativeVersion === 2 ? { expected } : {}),
+                action: "get",
+                contextId: job.contextIds[0],
+                includeHistorical: true,
               },
-              d.protocol,
+              reader(),
             ),
-        );
+          );
+          await validateOwnership();
+          const finalInspection =
+            await runtime.ableton.inspectListeningContext(inspectionParams);
+          const finalSnapshot = await runtime.application.inspectSession();
+          const finalListener = runtime.signals.listeners
+            .inspectListeners()
+            .find((item) => item.producer.producerId === binding.listenerId);
+          postconditions = inspectNativeListeningPostconditions(
+            {
+              baselineSnapshot,
+              finalSnapshot,
+              inspected,
+              finalInspection,
+              listener,
+              finalListener,
+              beforeBinding: normalizeInspection(inspected),
+              afterBinding: normalizeInspection(finalInspection),
+            },
+            d.sanitizePersistedText,
+          );
+          await lifecycle.stage(
+            "leave-running-postconditions",
+            async () =>
+              assert(
+                postconditions.passed,
+                `Leave-running capture cleanup, immutable binding or recording state mismatch: ${postconditions.failedChecks.join(", ")}`,
+              ),
+            { postconditions },
+          );
+          const evidence = await lifecycle.stage(
+            "independent-verification",
+            async () =>
+              verifyNativeListeningEvidence(
+                {
+                  job,
+                  pass,
+                  entries,
+                  links,
+                  subjects,
+                  received: received.filter(
+                    (event) => event.result.passId === passId,
+                  ),
+                  listener,
+                  owner,
+                  baseline,
+                  final: normalizeSnapshot(finalSnapshot),
+                  typed,
+                  resumed,
+                  target,
+                  ...(reviewed.nativeVersion === 2 ? { expected } : {}),
+                },
+                d.protocol,
+              ),
+          );
+          return {
+            evidence,
+            job,
+            snapshot: finalSnapshot,
+            inspection: finalInspection,
+          };
+        };
+        const first = await captureAndVerify({
+          listener,
+          target,
+          inspected,
+          baselineSnapshot,
+          inspectionParams,
+        });
+        let recovery;
+        if (reviewed.rebinding) {
+          const priorEntry = await repository.getEntry(
+            first.evidence.contextId,
+          );
+          const edited = await insertBeforeNativeListener({
+            ableton: runtime.ableton,
+            service: runtime.signals.listeners,
+            original: target,
+            listener,
+            baseline: first.snapshot,
+            range: {
+              startBeat: reviewed.capture.startBeat,
+              endBeat: reviewed.capture.endBeat,
+            },
+            stage: (name, operation) =>
+              boundedStage(name, async () => {
+                await validateOwnership();
+                return operation();
+              }),
+          });
+          binding.listenerId = edited.listener.producer.producerId;
+          binding.captureLimit = 2;
+          geometry = d.protocol.createNativeListeningGeometry({
+            sampleRate: edited.listener.registration.sampleRate,
+            vectorSize: edited.listener.registration.vectorSize,
+            tempoBpm: edited.inspection.transport.tempo,
+            startBeat: reviewed.capture.startBeat,
+            endBeat: reviewed.capture.endBeat,
+          });
+          expected = undefined;
+          const second = await captureAndVerify({
+            listener: edited.listener,
+            target: edited.target,
+            inspected: edited.inspection,
+            baselineSnapshot: edited.snapshot,
+            inspectionParams: {
+              ...inspectionParams,
+              maxParameters: 32,
+              bindingQueryId: randomUUID(),
+              listeners: [{ canonicalPath: edited.canonicalPath }],
+            },
+          });
+          await lifecycle.stage("rebind-prior-context-preserved", async () => {
+            assert(
+              isDeepStrictEqual(
+                await repository.getEntry(first.evidence.contextId),
+                priorEntry,
+              ) &&
+                first.evidence.contextId !== second.evidence.contextId &&
+                first.job.passId !== second.job.passId &&
+                jobs.size === 2,
+              "Re-listening rewrote prior context or reused a pass identity",
+            );
+          });
+          recovery = {
+            first: first.evidence,
+            second: second.evidence,
+            listenerDeviceReference: target.binding.expectedDeviceReference,
+            initialDeviceIndex: 0,
+            finalDeviceIndex: 1,
+            priorContextPreserved: true,
+          };
+        }
         assert(
           !telemetryFailed,
           "Native scenario observability persistence failed",
         );
         result = {
           ok: true,
-          evidence,
+          evidence: first.evidence,
+          ...(recovery ? { recovery } : {}),
           fixture: {
             sourceSetSha256: fixture.sourceSetSha256,
             deviceSha256: fixture.deviceSha256,

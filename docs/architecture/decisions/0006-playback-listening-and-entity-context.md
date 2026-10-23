@@ -110,4 +110,6 @@ arrays into each agent prompt.
   arbitrary M4L insertion is available through Live 11's LOM.
 - Native Max/Node for Max, transparent pass-through, sample timing, descriptor
   correctness, installed resources, and Apple Silicon performance require
-  evidence on Live Suite 11.3.42 before production enablement.
+  evidence on installed Live 11 before production enablement, recording the
+  actual full version (current development host: Suite 11.3.43 on Apple Silicon).
+  Support is not pinned to a patch; automatic updates alone are not a blocker.

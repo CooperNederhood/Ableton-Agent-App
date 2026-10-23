@@ -29,8 +29,9 @@ checks; the further qualification below is explicitly follow-up work.
 
 The evidence below is retained with its original scope. Deferred qualification
 is not relabelled passed, and historical receipts do not certify a changed
-candidate. Real-Live validation used installed 11.3.43; the supported target
-remains Live Suite 11.3.42 on Apple Silicon.
+candidate. Real-Live validation used installed Suite 11.3.43 on Apple Silicon,
+the current development host. Support targets Live 11, not one patch version;
+record actual versions after automatic updates without requiring an older patch.
 
 ### Milestone branch review
 
@@ -318,7 +319,7 @@ attacks. Actual native proof independently satisfies the App boundary.
 This establishes the bounded capture-to-context prototype, not production
 readiness or exclusive clip attribution. Exact typed retrieval also survives
 Desktop process restart without another capture. Runner-native acceptance,
-the broader host/source matrix and supported 11.3.42 remain open.
+the broader host/source matrix remain open.
 The actual host is 11.3.43.
 
 The earlier [implementation checkpoint and regression
@@ -475,7 +476,7 @@ the previous stopped position above beat 827. The probe restored marker 128,
 the exact previous stopped position and stopped transport before closing owned
 PID 85822; installed Remote Script source was restored byte-for-byte. This is
 capability evidence, not independently measured source onset or native capture
-acceptance, and does not qualify 11.3.42.
+acceptance.
 
 The first probe guard incorrectly required the display name `Untitled`; Live's
 native name for this unsaved Set was empty. The denied, non-mutating inventory
@@ -779,7 +780,7 @@ qualify subsequent epoch-guard changes. The combined bounded record is
 `fixtures/native-v2-coupled-guard-observation.json`. Forced failure at 900 ms,
 zero measurement admission/native arm/playback/context, removal of the private
 callback, and exact-owned process/fixture/original-pin cleanup all succeeded.
-Idle FFT publication does not qualify an armed passage capture or Live11.3.42.
+Idle FFT publication does not qualify an armed passage capture.
 
 The directly coupled v2 envelope correction now replaces its local-clock cap
 with the same bounded-word saturation, evaluated after any epoch reset.
@@ -1355,6 +1356,110 @@ return and master devices are supported; nested placements remain unsupported.
 `nativeStatus` is producer-reported readiness, not certification. A successful
 path join proves only the current connection binding, not DSP timing, durable
 identity, exclusive audio, or playback ownership.
+
+### Placement refresh after device-chain edits (#58)
+
+Listener placement is current metadata, not a fixed device index. The audio
+identity companion now opts into `watch`: one generation-fenced Max scheduler
+task re-resolves the actual `this_device` anchor and its owning track every
+500 ms, independently of the audio polling clock. It emits only changed
+identity, or an explicit identity-unavailable transition; an adapter-startup
+bang always republishes current state. Loss of identity invalidates the old
+registration, and deletion cancels the task and fences late callbacks. MIDI
+retains its existing one-shot identity behavior. This bounded refresh does not
+claim an immediate Live notification or a sample-accurate edit boundary.
+
+A changed identity reuses registration replacement: fence old callbacks, fail
+the old pass, request stop for its exact native generation, close the old
+client and create a fresh instance/connection epoch. Path-derived producer IDs
+also change when the canonical path changes. Fresh discovery must supply the
+current listener ID for a new capture; stale IDs and in-flight proof are never
+redirected. This fix does not migrate Output subscriptions or establish a
+durable cross-placement producer identity.
+
+Runtime binding validation re-reads authenticated inventory after independent
+inspection and the final Set-identity check. It rejects changed registration
+before reservation/controls. A bounded connection-scoped attestation cache
+also rejects a different same-class device now occupying a previously attested
+path, including across separate discovery/capture calls. Cache entries are
+not persisted or treated as current proof: every admission still needs a new
+query-scoped LOM attestation. Entries are retired with their connection/epoch
+or Set and cleared at shutdown. A known stale path resolving to a non-Max
+effect reports an actionable stale-placement diagnostic rather than claiming
+the original listener changed class. Genuine class, activity, collision,
+placement and source denials remain intact.
+
+`listening.runtime.binding-validation.{queued,started,progress,completed,failed,cancelled}`
+uses the existing application-owned recorder and typed History boundary, with
+bounded/redacted details, elapsed duration and invoking session/agent,
+trace/correlation/causation attribution. Normal unchanged metadata sampling
+does not create a capture owner or flood History. Registration replacement
+retains existing authenticated ingress lifecycle handling; no new transport
+message or storage layout is introduced.
+
+The reviewed `native-listening-rebinding` scenario
+`native-descriptive-insert-before` qualifies a first beats-0–4 capture, stops
+explicitly with recording off, inserts exactly one independently resolved
+built-in Delay via `browser.load_item`, independently verifies the added device
+and unchanged original listener, then moves that exact Delay before the listener
+via `devices.move`. This uses the existing supported load/move APIs, not the
+optional adjacent-insert adapter (unavailable on the validation host). It then
+verifies the same listener reference at index 1. It waits at most eight
+seconds for renewed authenticated registration, then runs the same bounded
+actor prompt with the new listener ID. Both passes require independent native
+proof and distinct persisted contexts; the original entry must remain
+unchanged, the second capture must leave an idle/released listener and running
+transport, and no other Set changes are allowed. A failed first pass, edit,
+identity check or registration refresh prevents the second capture; there is
+no restart, capture retry, class relaxation or timing-budget increase.
+Post-edit verification requests the existing 32-parameter protocol limit to
+inspect both the added effect and listener; a truncated chain still fails.
+This changes only the runner's independent inspection, not capture admission
+or the 64-sample timing policy.
+The device runtime also preserves its native epoch high-water across
+registration/controller renewal. DSP disarm reports zero but retains its
+internal epoch high-water; a renewed controller must allocate a newer epoch
+instead of reusing a completed, failed or cancelled pass's epoch. This
+memory-only allocation fence is not readiness or capture proof: each pass still
+requires fresh configuration, native reset acknowledgement and independent
+application validation. Exhaustion fails closed without wrapping.
+
+Deterministic source/registration, admission, native cleanup and owned-runner
+regressions cover this mechanism. On 2026-10-23 the focused case and separate
+fresh-process owning group passed on installed Live 11.3.43: both independently
+validated captures before/after insertion, exact identity and Set assertions,
+distinct contexts with the prior entry preserved, and exact-owned cleanup.
+An isolated visible Default-agent run with ordinary approvals also completed
+both captures without restarting Live or Desktop. Typed History independently
+validates the received native proofs at epochs 1 then 2; Outputs displays both
+distinct contexts and their honest unknown attribution/freshness. Live shows
+Delay followed by the same enabled listener. The validation-only Set was saved,
+and the owned Desktop/Live processes closed without discarding changes.
+The visible edit turn retained an invalid `ableton_transport` action `stop`
+probe before the correct approved `set-playing:false`; this is not a claim of
+an error-free general agent workflow.
+
+After preserving this implementation in `8d5b935`, merge `aff6742` incorporates
+main's #65 (`f23ec65`) containing-track identity guidance and reviewed smoke
+ordering/completion corrections without conflicts. Fresh evidence on this
+merged branch qualifies the previously denied Session lifecycle standalone
+(`cbdc7699`), its complete Session group (`c274539c`), then the 17 remaining
+non-native scenarios (`722183c1`). All 19 non-native cases qualify across the
+group and remaining selection: 15 pass and four recovered-pass, with all
+deterministic postconditions passing, zero approval denials and no policy
+violations. Recovered invalid-argument probes remain retained; guards,
+allowlists and budgets are unchanged. All exact-owned processes close and a
+canonical independent process check confirms no Live remains. These are this
+branch's results, not borrowed #56 qualification. The earlier ten-case partial
+run and Session wrong-track-name denial remain retained as failed evidence.
+The native focused/group/visible evidence above predates the main merge;
+the subsequent non-native run does not claim new native qualification.
+Live 11 is the support boundary. The installed 11.3.43 results document that
+host; an uninstalled 11.3.42 is not a separate development gate. Track future
+patch changes in receipts without assuming every patch has been tested.
+The historical issue's exact failing
+registration was not retained, so these regressions do not retroactively prove
+that run's precise cause.
 
 Mixed/master observations belong primarily to track/range context. Contributors
 can be linked without storing a mix as an isolated descriptor of each clip.
@@ -2105,7 +2210,7 @@ FFT fields in its seven-field export are zero placeholders, **not collected
 spectral data**. Global host anchoring, FFT/report/reset alignment, full native
 source coverage, actual App capture/publication/resume, pass-through/resource
 cost and portable release remain open. The installed host was independently
-read as 11.3.43; this is not a separate 11.3.42 qualification. Production has no
+read as 11.3.43; retain that exact host provenance. Production has no
 certificate-file loader, remains timing-denied, and does not package this probe.
 
 ### Independent host and tagged FFT experiment
@@ -2543,7 +2648,7 @@ The operator subsequently saved a separate
 `Machine-Listening-Native-SDK-Calibration.als` with both effects, preserving the
 original one-effect Set. Installed guard source hashes match the checkpoint;
 a fresh runner-owned `capability-surface` baseline passes on Live 11.3.43.
-That baseline does not qualify native capture or the exact supported 11.3.42.
+That baseline does not qualify native capture.
 The reopened copy again establishes two authenticated listener instances,
 stopped beat zero, tempo 120 and clear global override.
 
@@ -2891,7 +2996,8 @@ recording/export, save or promotion.
 This validates only the recorded scoped pass, not cached readiness. The
 engineering adapter still recorded its arm reply locally: authenticated wire
 delivery, real tool/context publication and resume retrieval remain open.
-The installed Live 11.3.43 is not separate qualification of supported 11.3.42.
+The observed host version is Live 11.3.43; this receipt does not certify other
+patch versions.
 
 ### Executed native message graph
 

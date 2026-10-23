@@ -22,6 +22,35 @@ const { nativeFailureDiagnosticV2Schema } =
 const TEMPO_LIMITATION =
   "Constant tempo is assumed; stability is not independently verified; tempo automation is unsupported.";
 
+test("controller epoch handoff rejects invalid seeds and fails closed at exhaustion", async () => {
+  const sent = [];
+  const create = (initialNativeEpoch) =>
+    new NativeCaptureController({
+      listenerId: "epoch-handoff",
+      nativeVersion: 2,
+      initialNativeEpoch,
+      send: (value) => {
+        sent.push(value);
+        return true;
+      },
+      onArmed: () => true,
+    });
+  for (const seed of [-1, 1.5, 1000001, NaN, Infinity, "1"])
+    assert.throws(() => create(seed), /invalid_native_initial_epoch/);
+  const controller = create(1000000);
+  const f = v2Fixture({ controller });
+  controller.prepare(f.command);
+  const pending = controller.arm(V2_OWNER);
+  f.preflight();
+  await assert.rejects(pending, /native_epoch_exhausted/);
+  assert.equal(
+    sent.some((value) => value.action === "arm"),
+    false,
+  );
+  assert.equal(controller.allocatedEpoch, 1000000);
+  assert.equal(controller.state, "failed");
+});
+
 test("recorded low-priority spectrum frame loss remains a hard failure inside requested coverage", async () => {
   const recorded = JSON.parse(
     await readFile(

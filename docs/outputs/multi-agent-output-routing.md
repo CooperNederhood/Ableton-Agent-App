@@ -44,6 +44,19 @@ the workspace. Missing or disconnected producers do not delete subscriptions;
 routing resumes when the same stable producer ID reconnects. Disconnected
 connection records are not part of the current output inventory.
 
+Audio listener placement refresh is opt-in to the shared identity companion;
+MIDI producers retain one-shot initialization. After an audio device/track path
+changes, the runtime replaces registration and its instance/connection epoch.
+The existing path-derived producer ID changes as well. The old connection is
+not a current Output, and old captures/callbacks cannot publish through the
+new registration. A new listening request must rediscover the moved device
+and independently attest its current LOM placement. Subscriptions remain
+keyed to their original producer ID; this fix adds no subscription migration
+across changed paths or durable-device guarantee for path-keyed subscriptions.
+Historical observations retain their original identities and unknown freshness.
+The placement guard cache is bounded, memory-only and non-authoritative;
+there is no new storage path, migration or remote diagnostic upload.
+
 ## Producer transport backpressure
 
 The shared Max producer client's audio path treats Node `socket.write(false)` as accepted

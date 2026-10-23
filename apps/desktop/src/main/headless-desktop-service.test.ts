@@ -6514,35 +6514,48 @@ describe("desktop adapter over the shared application", () => {
     await service.stop();
   });
 
-  it("reports unsupported recovery and honest diagnostics", async () => {
-    const { service } = await harness();
-    await service.start();
+  it.each([
+    ["11.3.43", "pass"],
+    ["11.3.44", "pass"],
+    ["12.1", "fail"],
+  ] as const)(
+    "reports honest recovery and compatibility for Live %s",
+    async (liveVersion, compatibilityStatus) => {
+      const ableton = defaultFakeState();
+      if (ableton.status.state !== "connected") {
+        throw new Error("Expected the default fake Live connection");
+      }
+      ableton.status = { ...ableton.status, liveVersion };
+      ableton.capabilities.liveVersion = liveVersion;
+      const { service } = await harness({ ableton });
+      await service.start();
 
-    await expect(service.retryOperation("op")).resolves.toBe(false);
-    await expect(service.undoOperation("op")).resolves.toBe(false);
-    const diagnostics = await service.getDiagnostics();
-    expect(diagnostics).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          label: "Shared composition",
-          status: "pass",
-        }),
-        expect.objectContaining({ label: "Ableton bridge", status: "pass" }),
-        expect.objectContaining({
-          label: "Product compatibility",
-          status: "pass",
-        }),
-        expect.objectContaining({
-          label: "Operation recovery",
-          status: "warn",
-        }),
-      ]),
-    );
-    await expect(service.getCapabilities()).resolves.toEqual([
-      "session.inspect",
-    ]);
-    await service.stop();
-  });
+      await expect(service.retryOperation("op")).resolves.toBe(false);
+      await expect(service.undoOperation("op")).resolves.toBe(false);
+      const diagnostics = await service.getDiagnostics();
+      expect(diagnostics).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            label: "Shared composition",
+            status: "pass",
+          }),
+          expect.objectContaining({ label: "Ableton bridge", status: "pass" }),
+          expect.objectContaining({
+            label: "Product compatibility",
+            status: compatibilityStatus,
+          }),
+          expect.objectContaining({
+            label: "Operation recovery",
+            status: "warn",
+          }),
+        ]),
+      );
+      await expect(service.getCapabilities()).resolves.toEqual([
+        "session.inspect",
+      ]);
+      await service.stop();
+    },
+  );
 
   it("refuses to invent a snapshot while Ableton is disconnected", async () => {
     const { service, ableton } = await harness();

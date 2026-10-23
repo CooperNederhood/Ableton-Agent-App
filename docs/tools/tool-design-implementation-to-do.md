@@ -90,7 +90,7 @@ Companion specification: [Tool Design](tool-design.md)
     transport, with exact ordinarily approved stop arguments, stopped state
     and unchanged content before cleanup. Focused and transport-group runs
     pass on 2026-10-23 UTC with successful exact-owned cleanup. Empirical host
-    evidence is Live Suite 11.3.43, not separate 11.3.42 qualification.
+    evidence is installed Live Suite 11.3.43; Live 11 support is not patch-pinned.
   - [x] Complete the isolated visible Default-agent check with ordinary
     approvals. The unhinted message appears once, Approve once authorizes the
     exact stop, the operation and turn complete, and independent reads confirm

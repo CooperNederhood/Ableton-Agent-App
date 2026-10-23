@@ -45,7 +45,10 @@ no Max for Live device is required.
 ### Requirements
 
 - macOS 13+ or Windows 10/11
-- Ableton Live 11.3+ or 12.x
+- Ableton Live 11 (existing API baseline: 11.3+); Live 12 is not supported.
+  Development currently uses installed Suite 11.3.43 on Apple Silicon.
+  Record the actual full version when testing; automatic Live 11 patch updates
+  are not a reason to downgrade or block development.
 - Node.js 20.19+ (Node.js 22 LTS is recommended)
 - Python 3
 - A GitHub account with access to GitHub Copilot

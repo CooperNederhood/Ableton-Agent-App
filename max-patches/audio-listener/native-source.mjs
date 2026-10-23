@@ -331,7 +331,7 @@ export function deviceDocument() {
       2,
     ),
     box("nodeMessages", "route adapter-started", 460, 340, 1, 2),
-    box("identity", `js ${SHARED_PRODUCER_IDENTITY}`, 570, 30),
+    box("identity", `js ${SHARED_PRODUCER_IDENTITY} watch`, 570, 30),
     box("init", "live.thisdevice", 460, 30, 1, 3),
     box("enabled", "prepend device-enabled", 10, 120),
     box("clock", "qmetro 10 @active 1", 10, 160),

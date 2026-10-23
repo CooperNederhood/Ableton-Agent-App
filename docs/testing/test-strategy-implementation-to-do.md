@@ -110,7 +110,7 @@ Companion specification: [Test Strategy](test-strategy.md)
     unknown prose, other-tool guidance, unverified payload and missing result.
     The new positive regression fails without the fix; all 186 owning
     CLI/runner tests pass with it. No mutation guard or postcondition is relaxed.
-  - [~] Complete the subsequent isolated visible Default-agent check with
+  - [x] Complete the subsequent isolated visible Default-agent check with
     ordinary approvals and independent before/after state. Message
     `8ab0f753-f3fc-444e-8048-639cb8d3b1fa`, trace
     `7c0d20ac-d728-4e67-98e4-05ecacf59fc6`, appears once in the selected Default
@@ -125,16 +125,17 @@ Companion specification: [Test Strategy](test-strategy.md)
     Desktop's lifetime.
     Empirical host evidence is Live Suite 11.3.43, not separate qualification
     of the specified 11.3.42 build.
-  - [ ] Finish explicit owned Live cleanup before calling visible acceptance
+  - [x] Finish explicit owned Live cleanup before calling visible acceptance
     complete or releasing the shared test slot. Desktop PIDs 41322 and 45044
-    closed successfully. Live PID 40458, started 2026-10-23 01:15:01 local time,
-    remains open after an unsaved-Set prompt. A non-destructive Save As attempt
-    did not persist the Set; subsequent background close actions did not exit.
-    The user was unavailable for explicit discard approval, so no discard or
-    forced Live termination was performed. The Node UX controller was stopped
-    without signaling Live; both isolated Desktop profiles and all failure
-    evidence are retained. Save/close that validation Set or obtain explicit
-    discard approval, confirm exact process exit, then release ownership.
+    closed successfully. Live PID 40458 initially remained open after an
+    unsaved-Set prompt and an unsuccessful non-destructive Save As attempt.
+    The Node UX controller was stopped without signaling Live while discard
+    approval was unavailable. The user subsequently approved discard/closure
+    and closed Live themselves. Canonical process inspection at
+    2026-10-23T13:49:36.730Z confirms PID 40458 exited and no Live processes
+    remained. The shared slot was explicitly released to #58 and #57 notified.
+    Both isolated Desktop profiles and failure evidence remain retained for
+    diagnostics; no pre-existing user process was adopted or terminated.
   - [~] Escalate #56 acceptance to the remaining non-native real-Live suite.
     Run `3590fab9-0ee5-4910-aa9e-6986c73e0598` passed 10 scenarios across
     inspection, Live Events, tracks and the first Session-clip scenario, then

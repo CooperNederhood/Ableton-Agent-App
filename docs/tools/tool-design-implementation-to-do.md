@@ -79,13 +79,14 @@ Companion specification: [Tool Design](tool-design.md)
     and unchanged content before cleanup. Focused and transport-group runs
     pass on 2026-10-23 UTC with successful exact-owned cleanup. Empirical host
     evidence is Live Suite 11.3.43, not separate 11.3.42 qualification.
-  - [~] Complete the isolated visible Default-agent check with ordinary
+  - [x] Complete the isolated visible Default-agent check with ordinary
     approvals. The unhinted message appears once, Approve once authorizes the
     exact stop, the operation and turn complete, and independent reads confirm
     true-to-false playback with unchanged bounded content/settings. Live is
-    visibly stopped before Desktop closes. Final owned Live cleanup remains
-    blocked on saving or explicitly approving discard of the validation Set;
-    do not call that cleanup complete or the shared slot released.
+    visibly stopped before Desktop closes. Both Desktop processes closed; the
+    user subsequently closed the dedicated validation Live process. Canonical
+    inspection confirms its exit and an empty Live process list at
+    2026-10-23T13:49:36.730Z; the shared test slot was explicitly released.
 
 ## Inspection tools
 

@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { currentCorrelationContext } from "@ableton-agent/correlation";
+import type { TelemetryEventEnvelope } from "@ableton-agent/observability";
 import {
   LocalObservabilityJournal,
   telemetryEventEnvelopeSchema,
@@ -127,6 +128,7 @@ function inspection(
       if (!("canonicalPath" in selector))
         throw new Error("Expected canonical selector");
       const index = Number(selector.canonicalPath.split(" ")[2]);
+      const deviceIndex = Number(selector.canonicalPath.split(" ").at(-1));
       const trackReference = uuid(10 + index),
         deviceReference = uuid(20 + index);
       return {
@@ -137,7 +139,7 @@ function inspection(
             expectedReference: trackReference,
             expectedName: `Track ${index}`,
           },
-          deviceIndex: 0,
+          deviceIndex,
           expectedDeviceReference: deviceReference,
           expectedDeviceName: "Test listener",
           expectedClassName: "MxDeviceAudioEffect",
@@ -150,7 +152,7 @@ function inspection(
           canonicalTrackPath: `live_set tracks ${index}`,
           trackReference,
           deviceReference,
-          placement: { kind: "track-device", deviceIndex: 0 },
+          placement: { kind: "track-device", deviceIndex },
         },
         verified: true,
         enabled: true,
@@ -296,9 +298,6 @@ function fixture(
   };
   let prepared: PrepareListenerCaptureInput | undefined;
   let resolveObservations!: (observations: AudioObservation[]) => void;
-  const result = new Promise<AudioObservation[]>((resolve) => {
-    resolveObservations = resolve;
-  });
   const disarm = vi.fn(async () => {
     log.push("disarm");
   });
@@ -315,6 +314,9 @@ function fixture(
         expect(_service).toBe(service);
         log.push("prepare");
         prepared = input;
+        const result = new Promise<AudioObservation[]>((resolve) => {
+          resolveObservations = resolve;
+        });
         return {
           jobId: uuid(100),
           passId: input.passId,
@@ -1805,6 +1807,180 @@ describe("same-runtime production listening factory", () => {
     expect(f.releaseReservation).toHaveBeenCalledOnce();
   });
 
+  it.each(["epoch", "path", "disconnect", "sample-rate", "algorithm"])(
+    "rejects %s changes while independent placement inspection is in flight",
+    async (change) => {
+      const f = fixture();
+      f.inspectListeningContext.mockImplementation(async (input) => {
+        const result = inspection(input);
+        if (change === "epoch")
+          f.inventory[0]!.registration.connectionEpoch = "replacement";
+        else if (change === "path")
+          f.inventory[0]!.registration.deviceCanonicalPath =
+            "live_set tracks 0 devices 1";
+        else if (change === "sample-rate")
+          f.inventory[0]!.registration.sampleRate = 44100;
+        else if (change === "algorithm")
+          f.inventory[0]!.registration.algorithmVersion = "replacement";
+        else f.inventory.splice(0);
+        return result;
+      });
+      const result = await run(f.host());
+      expect(result.stage).toBe("failed");
+      expect(result.error).toContain("listener_placement_changed");
+      expect(f.reservePass).not.toHaveBeenCalled();
+      expect(f.adapter.prepare).not.toHaveBeenCalled();
+      expect(f.publications).toEqual([]);
+    },
+  );
+
+  it.each(["registration", "phase"])(
+    "rejects %s changes during the final Set identity read",
+    async (change) => {
+      const f = fixture();
+      f.getLiveIdentity.mockImplementation(async () => {
+        if (f.inspectListeningContext.mock.calls.length > 0) {
+          if (change === "registration")
+            f.inventory[0]!.registration.sampleRate = 44100;
+          else Object.assign(f.inventory[0]!, { phase: "ready" });
+        }
+        return {
+          liveSetId: "set",
+          liveSetName: "Set",
+          saved: true,
+          diagnostics: [],
+        };
+      });
+      const result = await run(f.host());
+      expect(result.stage).toBe("failed");
+      expect(result.error).toContain(
+        change === "registration"
+          ? "listener_placement_changed"
+          : "listener_not_idle",
+      );
+      expect(f.reservePass).not.toHaveBeenCalled();
+      expect(f.adapter.prepare).not.toHaveBeenCalled();
+      expect(f.publications).toEqual([]);
+    },
+  );
+
+  it("does not join a same-class replacement at a previously attested listener path", async () => {
+    const f = fixture();
+    const host = f.host();
+    await host.executeListeningOperation(
+      { action: "inspect-listeners" },
+      context,
+    );
+    f.inspectListeningContext.mockImplementation(async (input) => {
+      const result = inspection(input);
+      const listener = result.listeners[0]!;
+      listener.binding.expectedDeviceReference = uuid(999);
+      listener.pathAttestation!.deviceReference = uuid(999);
+      return result;
+    });
+    const result = await run(host);
+    expect(result.stage).toBe("failed");
+    expect(result.error).toContain("stale-target");
+    expect(f.reservePass).not.toHaveBeenCalled();
+    expect(f.publications).toEqual([]);
+  });
+
+  it("reports the stale registered path rather than misclassifying the known Max listener", async () => {
+    const f = fixture();
+    const host = f.host();
+    await host.executeListeningOperation(
+      { action: "inspect-listeners" },
+      context,
+    );
+    f.inspectListeningContext.mockRejectedValue(
+      new Error("Listener must be a Max for Live Audio Effect"),
+    );
+    const result = await host.executeListeningOperation(
+      { action: "inspect-listeners" },
+      context,
+    );
+    if (result.action !== "inspect-listeners")
+      throw new Error("Unexpected discovery result");
+    expect(result.listeners[0]).toMatchObject({
+      ready: false,
+      trackReference: "unresolved",
+      deviceReference: "unresolved",
+    });
+    expect(result.listeners[0]!.limitations.join(" ")).toContain(
+      "registered path no longer attests",
+    );
+    expect(f.publications).toEqual([]);
+  });
+
+  it.each(["completed", "failed", "cancelled"] as const)(
+    "records attributed binding-validation lifecycle through %s without persisting raw credentials",
+    async (terminal) => {
+      const f = fixture();
+      const abort = new AbortController();
+      if (terminal !== "completed")
+        f.inspectListeningContext.mockImplementation(async () => {
+          if (terminal === "cancelled") abort.abort(new Error("cancelled"));
+          throw new Error("token=private-binding-secret " + "x".repeat(1000));
+        });
+      const operation = f
+        .host()
+        .executeListeningOperation(
+          { action: "inspect-listeners" },
+          { ...context, signal: abort.signal },
+        );
+      if (terminal === "cancelled")
+        await expect(operation).rejects.toThrow("cancelled");
+      else await operation;
+      const records = f.events.filter(
+        (event): event is TelemetryEventEnvelope =>
+          typeof event === "object" &&
+          event !== null &&
+          "name" in event &&
+          typeof event.name === "string" &&
+          event.name.startsWith("listening.runtime.binding-validation."),
+      );
+      expect(records.map((event) => event.name)).toEqual(
+        ["queued", "started", "progress", terminal].map(
+          (stage) => `listening.runtime.binding-validation.${stage}`,
+        ),
+      );
+      for (const record of records) {
+        expect(record).toMatchObject({
+          sessionId: owner.sessionId,
+          activeAgentId: owner.agentId,
+          correlationId: context.trace.correlationId,
+          causationId: context.trace.causationId,
+          trace: { traceId: context.trace.traceId },
+        });
+        expect(typeof record.durationMs).toBe("number");
+        expect(record.durationMs).toBeGreaterThanOrEqual(0);
+      }
+      expect(JSON.stringify(records)).not.toContain("private-binding-secret");
+    },
+  );
+
+  it("relistens at the new index after registration renewal without replacing the device or old context", async () => {
+    const f = fixture();
+    const host = f.host();
+    expect((await run(host)).stage).toBe("completed");
+    const first = structuredClone(f.publications[0]);
+    Object.assign(f.inventory[0]!.registration, {
+      deviceCanonicalPath: "live_set tracks 0 devices 1",
+      connectionEpoch: "renewed",
+    });
+    f.inventory[0] = { ...f.inventory[0]!, connectionId: "renewed-connection" };
+    f.inventory[0].producer.instanceId = "renewed-instance";
+    expect((await run(host)).stage).toBe("completed");
+    expect(f.publications).toHaveLength(2);
+    expect(f.publications[0]).toEqual(first);
+    expect(f.inspectListeningContext.mock.lastCall![0].listeners).toEqual([
+      { canonicalPath: "live_set tracks 0 devices 1" },
+    ]);
+    expect(f.publications[1]!.entries[0]!.producer).toMatchObject({
+      deviceId: uuid(20),
+    });
+  });
+
   it("fresh inspection nonce and path attestation are mandatory", async () => {
     const f = fixture();
     f.inspectListeningContext.mockImplementation(async (input) => ({
@@ -1816,6 +1992,78 @@ describe("same-runtime production listening factory", () => {
     expect(f.reservePass).not.toHaveBeenCalled();
     expect(f.adapter.prepare).not.toHaveBeenCalled();
   });
+
+  it.each([true, null] as const)(
+    "revalidates source %s after placement renewal without changing prior context",
+    async (sessionOverride) => {
+      const f = fixture();
+      const host = f.host();
+      expect((await run(host)).stage).toBe("completed");
+      const first = structuredClone(f.publications[0]);
+      const eventOffset = f.events.length;
+      Object.assign(f.inventory[0]!.registration, {
+        deviceCanonicalPath: "live_set tracks 0 devices 1",
+        connectionEpoch: "renewed",
+      });
+      f.inventory[0] = {
+        ...f.inventory[0]!,
+        connectionId: "renewed-connection",
+      };
+      f.inventory[0].producer.instanceId = "renewed-instance";
+      f.inspectListeningContext.mockImplementation(async (input) => {
+        const result = inspection(input);
+        result.listeners[0]!.sessionOverride = sessionOverride;
+        return result;
+      });
+      const refused = await run(host);
+      const reason =
+        sessionOverride === true
+          ? "arrangement_session_override"
+          : "arrangement_source_unknown";
+      expect(refused.stage).toBe("failed");
+      expect(refused.error).toContain(reason);
+      expect(f.publications).toEqual([first]);
+      expect(f.adapter.prepare).toHaveBeenCalledOnce();
+      expect(f.adapter.start).toHaveBeenCalledOnce();
+      expect(f.reservePass).toHaveBeenCalledOnce();
+      const records = f.events
+        .slice(eventOffset)
+        .map((event) => telemetryEventEnvelopeSchema.parse(event));
+      const sourceRecords = records.filter(
+        (event) => event.name === "listening.source.validation",
+      );
+      expect(sourceRecords).toHaveLength(1);
+      expect(sourceRecords[0]).toMatchObject({
+        name: "listening.source.validation",
+        outcome: "failure",
+        trace: { traceId: context.trace.traceId },
+        attributes: {
+          passId: refused.passId,
+          decision: reason,
+          listeners: [
+            {
+              canonicalPath: "live_set tracks 0 devices 1",
+              connectionId: "renewed-connection",
+              instanceId: "renewed-instance",
+              connectionEpoch: "renewed",
+              sessionOverride,
+            },
+          ],
+        },
+      });
+      expect(
+        records
+          .filter((event) =>
+            event.name.startsWith("listening.runtime.binding-validation."),
+          )
+          .map((event) => event.name),
+      ).toEqual(
+        ["queued", "started", "progress", "failed"].map(
+          (stage) => `listening.runtime.binding-validation.${stage}`,
+        ),
+      );
+    },
+  );
 
   it.each([true, null] as const)(
     "retains the actual rejected source state %s with traced freshness and no publication",
@@ -1898,7 +2146,7 @@ describe("same-runtime production listening factory", () => {
           ? "stale-inspection"
           : change === "owner"
             ? "permission_denied"
-            : "listener_instance_changed",
+            : "listener_placement_changed",
       );
       expect(job.error).not.toContain("arrangement_session_override");
       expect(f.events).not.toContainEqual(

@@ -256,8 +256,16 @@ Initial supported matrix:
 
 | Platform | Architectures | Ableton Live |
 | --- | --- | --- |
-| macOS 13, 14, 15 | Intel, Apple Silicon | 11.3.42 |
-| Windows 10 22H2, Windows 11 | x64 | 11.3.42 |
+| macOS 13, 14, 15 | Intel, Apple Silicon | Live 11 (11.3+ API baseline) |
+| Windows 10 22H2, Windows 11 | x64 | Live 11 (11.3+ API baseline) |
+
+Live 11 is the supported major version; Live 12 is outside scope. Current
+development and real-host testing use installed Live Suite 11.3.43 on Apple
+Silicon. Track the actual full version in every validation receipt, including
+changes after automatic updates, without pinning support to that patch.
+A different Live 11 patch is not itself a development blocker or a reason to
+downgrade. Preserve historical receipts at their observed versions; investigate
+actual capability or compatibility failures rather than requiring 11.3.42.
 
 Installer production is currently exercised on macOS 14 CI only while the
 application is in macOS-first development. Windows packaging and smoke jobs
@@ -274,7 +282,7 @@ Build the repository, open the canonical validation Set in Ableton, and run:
 
 ```bash
 export ABLETON_AGENT_TOKEN="<installed Remote Script token>"
-pnpm live:validate -- --live-version 11.3.42
+pnpm live:validate -- --live-version 11.3.43
 ```
 
 The runner records the commit, platform, architecture, Live version, and exit
@@ -284,6 +292,9 @@ and project content. Complete the pending manual check groups in that JSON
 after testing clips, Arrangement/cue points, devices, racks, Browser loading,
 and native undo. Attach the evidence files to the release candidate; a release
 must not claim a Live/platform combination without a passing evidence file.
+Use the actually installed version for `--live-version`, not a fixed value
+copied from this example. A receipt documents the tested host; it does not
+certify every Live 11 patch or make untested patches unsupported.
 
 ## Installation
 

@@ -164,6 +164,7 @@ class NativeCaptureController {
     observe = () => {},
     nativeVersion = 1,
     onDisarmed = () => {},
+    initialNativeEpoch = 0,
   }) {
     if (![1, 2].includes(nativeVersion))
       throw new Error("invalid_native_version");
@@ -186,7 +187,9 @@ class NativeCaptureController {
     this.pendingDisarm = null;
     this.pass = null;
     this.state = "idle";
-    this.allocatedEpoch = 0;
+    if (!integer(initialNativeEpoch, 0, 1000000))
+      throw new Error("invalid_native_initial_epoch");
+    this.allocatedEpoch = initialNativeEpoch;
     this.engine = new AudioListenerEngine({
       listenerId,
       now: this.now,

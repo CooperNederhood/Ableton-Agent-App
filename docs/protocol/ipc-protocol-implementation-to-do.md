@@ -7,6 +7,14 @@ Companion specification: [IPC Protocol](ipc-protocol.md)
 - [x] Add bounded tri-state listening source inputs with cross-field validation.
   Negotiate protocol 7 / Remote Script and minimum `0.7.0` because old strict
   clients cannot read the extended inspection result.
+- [x] Preserve existing wire schemas for placement refresh: replace authenticated
+  registration, fence old connection/instance/epoch, recheck after asynchronous
+  LOM inspection, and retain query-scoped independent attestation.
+- [x] Cover insert-before preserving the original reference, genuine non-Max
+  class refusal, same-class replacement identity and stale registration races.
+- [ ] Qualify the reviewed edit/relisten scenario against supported owned Live;
+  deterministic cross-language evidence does not establish physical acceptance.
+
 - [x] Replace prospective listening start ownership with strict Arrangement
   `cleanupPolicy:"leave-running"` acknowledgement and unverified source onset.
 - [x] Regenerate paired JSON fixtures and cover strict rejection of ownership

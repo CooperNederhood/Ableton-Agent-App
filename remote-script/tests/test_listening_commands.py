@@ -366,6 +366,41 @@ class ListeningCommandsTest(unittest.TestCase):
             self.assertEqual(result["pathAttestation"]["canonicalTrackPath"], path)
             self.assertEqual(result["binding"]["track"]["kind"], kind)
 
+    def test_insert_before_requires_refreshed_path_and_retains_actual_listener_reference(self):
+        self.params["listeners"] = [{"canonicalPath": "live_set tracks 0 devices 0"}]
+        original = self.inspect()["listeners"][0]
+        delay = types.SimpleNamespace(
+            name="Listener", class_name="Delay", is_active=True, parameters=[],
+        )
+        self.track.devices.insert(0, delay)
+        with self.assertRaises(ProtocolFailure) as raised:
+            self.inspect()
+        self.assertEqual(raised.exception.code, "conflict")
+        self.params["listeners"] = [{"canonicalPath": "live_set tracks 0 devices 1"}]
+        moved = self.inspect()["listeners"][0]
+        self.assertEqual(moved["binding"]["expectedDeviceReference"],
+                         original["binding"]["expectedDeviceReference"])
+        self.assertEqual(moved["binding"]["deviceIndex"], 1)
+        self.assertEqual(moved["pathAttestation"]["canonicalDevicePath"],
+                         "live_set tracks 0 devices 1")
+        self.assertEqual([item["className"] for item in moved["upstreamDevices"]],
+                         ["Delay", "MxDeviceAudioEffect"])
+        self.assertFalse(self.song.is_playing)
+        self.assertFalse(self.song.record_mode)
+
+    def test_same_name_same_class_replacement_is_a_different_attested_device(self):
+        self.params["listeners"] = [{"canonicalPath": "live_set tracks 0 devices 0"}]
+        original = self.inspect()["listeners"][0]["binding"]["expectedDeviceReference"]
+        replacement = types.SimpleNamespace(
+            name="Listener", class_name="MxDeviceAudioEffect", is_active=True,
+            parameters=[],
+        )
+        self.track.devices[0] = replacement
+        self.assertNotEqual(
+            self.inspect()["listeners"][0]["binding"]["expectedDeviceReference"],
+            original,
+        )
+
     def test_arbitrary_paths_bounds_nested_and_non_audio_devices_fail_closed(self):
         for path, code in (
             ("live_set this_device", "invalid_params"),

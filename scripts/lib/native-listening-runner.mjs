@@ -14,6 +14,10 @@ import {
   verifyNativeSourceRefusal,
 } from "./native-listening-runner-source.mjs";
 import {
+  insertBeforeNativeListener,
+  NATIVE_LISTENER_EDIT,
+} from "./native-listener-rebinding.mjs";
+import {
   createNativeScenarioApproval,
   inspectNativeListeningPostconditions,
   verifyNativeListeningEvidence,
@@ -72,6 +76,13 @@ const sourceScenarios = Object.fromEntries(
 );
 const v2Scenarios = Object.freeze({
   ...sourceScenarios,
+  "native-descriptive-insert-before": Object.freeze({
+    startBeat: 0,
+    endBeat: 4,
+    maximumDurationMs: 8000,
+    timeoutMs: 120000,
+    artifactPrefix: "AA_SMOKE_NV2_REBIND_",
+  }),
   "native-descriptive-fractional": Object.freeze({
     startBeat: 0.25,
     endBeat: 3.75,
@@ -109,6 +120,7 @@ export function nativeDescriptivePrompt(capture) {
 export function reviewNativeScenario(manifest) {
   const v2 = v2Scenarios[manifest.id];
   const sourceTransition = nativeSourceTransitions[manifest.id];
+  const rebinding = manifest.id === "native-descriptive-insert-before";
   const version = v2 ? 2 : 1;
   const range = v2 ?? { startBeat: 0, endBeat: 4, maximumDurationMs: 8000 };
   const policy = Object.freeze(
@@ -118,15 +130,17 @@ export function reviewNativeScenario(manifest) {
   );
   assert(
     manifest.execution === "native-listening-runtime" &&
-      manifest.maxToolCalls === 8 &&
-      manifest.maxMutations === 1 &&
+      manifest.maxToolCalls === (rebinding ? 16 : 8) &&
+      manifest.maxMutations === (rebinding ? 2 : 1) &&
       manifest.timeoutMs === (v2?.timeoutMs ?? 60000) &&
       isDeepStrictEqual(manifest.setupContract?.timingPolicy, policy) &&
       (v2
         ? manifest.group ===
             (sourceTransition
               ? "native-listening-source-investigation"
-              : "native-listening-descriptive") &&
+              : rebinding
+                ? "native-listening-rebinding"
+                : "native-listening-descriptive") &&
           manifest.nativeVersion === 2 &&
           manifest.setupContract.nativeVersion === 2 &&
           manifest.setupContract.inputOption === "--native-v2-fixture-input" &&
@@ -145,7 +159,9 @@ export function reviewNativeScenario(manifest) {
               manifest.assertions.includes(
                 "independent-source-transition-reads",
               )
-            : manifest.sourceTransition === undefined) &&
+            : manifest.sourceTransition === undefined &&
+              manifest.sourceSetupActions === undefined &&
+              manifest.setupContract.sourceInvestigation === undefined) &&
           isDeepStrictEqual(manifest.capture, {
             startBeat: v2.startBeat,
             endBeat: v2.endBeat,
@@ -181,6 +197,15 @@ export function reviewNativeScenario(manifest) {
           manifest.nativeVersion === undefined),
     "Unreviewed native scenario contract",
   );
+  assert(
+    rebinding
+      ? isDeepStrictEqual(
+          manifest.setupContract.placementEdit,
+          NATIVE_LISTENER_EDIT,
+        )
+      : manifest.setupContract.placementEdit === undefined,
+    "Unreviewed native placement edit",
+  );
   return Object.freeze({
     nativeVersion: version,
     timingPolicy: policy,
@@ -189,6 +214,7 @@ export function reviewNativeScenario(manifest) {
       endBeat: range.endBeat,
       maximumDurationMs: range.maximumDurationMs,
     }),
+    ...(rebinding ? { rebinding: true } : {}),
   });
 }
 
@@ -535,7 +561,8 @@ export async function createNativeListeningRunner({
                   });
                 }
                 assert(
-                  jobs.has(job.passId) || jobs.size < 1,
+                  jobs.has(job.passId) ||
+                    jobs.size < (reviewed.rebinding ? 2 : 1),
                   "Native scenario pass quota exceeded",
                 );
                 jobs.set(job.passId, globalThis.structuredClone(job));
@@ -768,7 +795,6 @@ export async function createNativeListeningRunner({
           });
         }
         const baselineSnapshot = await runtime.application.inspectSession();
-        const baseline = normalizeSnapshot(baselineSnapshot);
         const actorConfiguration = {
           instanceId: owner.agentId,
           productionSessionId: owner.sessionId,
@@ -855,7 +881,7 @@ export async function createNativeListeningRunner({
               event.producer.producerId === binding.listenerId &&
               event.result.status === "completed"
             ) {
-              if (received.length < 2)
+              if (received.length < (reviewed.rebinding ? 4 : 2))
                 received.push(globalThis.structuredClone(event));
             }
           },
@@ -914,90 +940,96 @@ export async function createNativeListeningRunner({
             { trace, activeAgentId: owner.agentId },
           ),
         );
-        await boundedStage("actor-turn", () =>
-          Promise.race([
-            runtime.application.sendToManagedAgent(
-              owner.agentId,
-              `${manifest.prompt}\nExact runner-owned listener ID: ${binding.listenerId}. Use it only in the playback call's listenerIds. The inspect-listeners arguments are exactly {"action":"inspect-listeners"}. The get-pass arguments are only action and the passId returned by playback; never supply listenerIds to it. A returned contextId is a different identity. Historical context queries must set includeHistorical=true.`,
-              "interactive",
-            ),
-            humanGatePromise,
-          ]),
-        );
-        if (humanGateError !== undefined) throw humanGateError;
-        assert(
-          actorContext?.sessionId === owner.sessionId &&
-            actorContext.agentId === owner.agentId &&
-            actorContext.actorKind !== "application" &&
-            jobs.size === 1 &&
-            approvals.mutationCount === 1,
-          "A real owned actor call and exactly one pass are required",
-        );
-        const passId = [...jobs.keys()][0];
-        // The model may return during arming. Keep the real services alive through
-        // the production coordinator's bounded terminal boundary.
-        const terminal = await boundedStage("terminal-job", () =>
-          host.waitForListeningPass(passId, actorContext),
-        );
-        assert(
-          terminal.passId === passId &&
-            terminal.stage === (expectedRefusal ? "failed" : "completed"),
-          `Listening terminal job did not complete (${terminal.stage})${terminal.error === undefined ? "" : `: ${terminal.error}`}`,
-        );
-        assert(
-          approvals.decisions.every((item) => item.approved) &&
-            actorToolCalls <= manifest.maxToolCalls,
-          "The actor exceeded the reviewed tool policy or budget",
-        );
-        const jobResult = await host.executeListeningOperation(
-          { action: "get-pass", passId },
-          actorContext,
-        );
-        const job = jobResult.job;
-        const pass = await repository.getPass(passId);
-        const rows = (
-          await repository.listEntries({ includeHistorical: true, limit: 20 })
-        ).items;
-        const entries = await Promise.all(
-          rows.map((item) => repository.getEntry(item.id)),
-        );
-        const links = (
-          await repository.listLinks({ includeHistorical: true, limit: 20 })
-        ).items;
-        if (expectedRefusal) {
-          await validateOwnership();
-          const finalInspection = await readSourceAfterPass();
-          const finalSnapshot = await runtime.application.inspectSession();
-          const finalListener = runtime.signals.listeners
-            .inspectListeners()
-            .find((item) => item.producer.producerId === binding.listenerId);
-          const evidence = await lifecycle.stage(
-            "source-refusal-verification",
-            async () =>
-              verifyNativeSourceRefusal({
-                job,
-                pass,
-                entries,
-                links,
-                received,
-                before: inspected,
-                after: finalInspection,
-                listener,
-                finalListener,
-                baselineSnapshot,
-                finalSnapshot,
-              }),
+        const captureAndVerify = async ({
+          listener,
+          target,
+          inspected,
+          baselineSnapshot,
+          inspectionParams,
+        }) => {
+          const baseline = normalizeSnapshot(baselineSnapshot);
+          const previousPasses = new Set(jobs.keys());
+          await boundedStage("actor-turn", () =>
+            Promise.race([
+              runtime.application.sendToManagedAgent(
+                owner.agentId,
+                `${manifest.prompt}\nExact runner-owned listener ID: ${binding.listenerId}. Use it only in the playback call's listenerIds. The inspect-listeners arguments are exactly {"action":"inspect-listeners"}. The get-pass arguments are only action and the passId returned by playback; never supply listenerIds to it. A returned contextId is a different identity. Historical context queries must set includeHistorical=true.`,
+                "interactive",
+              ),
+              humanGatePromise,
+            ]),
           );
-          assert(!telemetryFailed, "Source investigation journal failed");
-          result = {
-            ok: true,
-            evidence,
-            actorToolCalls,
-            observedLiveVersion: (await runtime.application.getStatus())
-              .liveVersion,
-            supportedTargetQualified: false,
-          };
-        } else {
+          if (humanGateError !== undefined) throw humanGateError;
+          assert(
+            actorContext?.sessionId === owner.sessionId &&
+              actorContext.agentId === owner.agentId &&
+              actorContext.actorKind !== "application" &&
+              jobs.size === previousPasses.size + 1 &&
+              approvals.mutationCount === previousPasses.size + 1,
+            "A real owned actor call and exactly one pass are required",
+          );
+          const passId = [...jobs.keys()].find((id) => !previousPasses.has(id));
+          // The model may return during arming. Keep the real services alive through
+          // the production coordinator's bounded terminal boundary.
+          const terminal = await boundedStage("terminal-job", () =>
+            host.waitForListeningPass(passId, actorContext),
+          );
+          assert(
+            terminal.passId === passId &&
+              terminal.stage === (expectedRefusal ? "failed" : "completed"),
+            `Listening terminal job did not complete (${terminal.stage})${terminal.error === undefined ? "" : `: ${terminal.error}`}`,
+          );
+          assert(
+            approvals.decisions.every((item) => item.approved) &&
+              actorToolCalls <= manifest.maxToolCalls,
+            "The actor exceeded the reviewed tool policy or budget",
+          );
+          const jobResult = await host.executeListeningOperation(
+            { action: "get-pass", passId },
+            actorContext,
+          );
+          const job = jobResult.job;
+          const pass = await repository.getPass(passId);
+          const rows = (
+            await repository.listEntries({ includeHistorical: true, limit: 20 })
+          ).items;
+          const allEntries = await Promise.all(
+            rows.map((item) => repository.getEntry(item.id)),
+          );
+          const allLinks = (
+            await repository.listLinks({ includeHistorical: true, limit: 20 })
+          ).items;
+          if (expectedRefusal) {
+            await validateOwnership();
+            const finalInspection = await readSourceAfterPass();
+            const finalSnapshot = await runtime.application.inspectSession();
+            const finalListener = runtime.signals.listeners
+              .inspectListeners()
+              .find((item) => item.producer.producerId === binding.listenerId);
+            const evidence = await lifecycle.stage(
+              "source-refusal-verification",
+              async () =>
+                verifyNativeSourceRefusal({
+                  job,
+                  pass,
+                  entries: allEntries,
+                  links: allLinks,
+                  received,
+                  before: inspected,
+                  after: finalInspection,
+                  listener,
+                  finalListener,
+                  baselineSnapshot,
+                  finalSnapshot,
+                }),
+            );
+            return { evidence, job };
+          }
+          const entries = allEntries.filter(
+            (entry) => entry?.passId === passId,
+          );
+          const entryIds = new Set(entries.map((entry) => entry.id));
+          const links = allLinks.filter((link) => entryIds.has(link.entryId));
           const subjects = await Promise.all(
             [...new Set(links.map((item) => item.subjectId))].map((id) =>
               repository.getSubject(id),
@@ -1013,6 +1045,7 @@ export async function createNativeListeningRunner({
           );
           await lifecycle.stage("context-close", () => manager.close());
           manager = makeManager();
+          repository = await manager.resolveRepository(reader());
           const resumedHost = d.createSessionContextHost({
             resolveRepository: (context) => manager.resolveRepository(context),
           });
@@ -1069,7 +1102,9 @@ export async function createNativeListeningRunner({
                   entries,
                   links,
                   subjects,
-                  received,
+                  received: received.filter(
+                    (event) => event.result.passId === passId,
+                  ),
                   listener,
                   owner,
                   baseline,
@@ -1082,33 +1117,109 @@ export async function createNativeListeningRunner({
                 d.protocol,
               ),
           );
-          assert(
-            !telemetryFailed,
-            "Native scenario observability persistence failed",
-          );
-          result = {
-            ok: true,
+          return {
             evidence,
-            fixture: {
-              sourceSetSha256: fixture.sourceSetSha256,
-              deviceSha256: fixture.deviceSha256,
-              discoverySha256: fixture.discoverySha256,
-              resourceCount: fixture.resourceCount,
-              audioResourceCount: fixture.audioResourceCount,
-              audioResources: fixture.audioResources.map(
-                ({ sha256, bytes }) => ({
-                  sha256,
-                  bytes,
-                }),
-              ),
-              nativeVersion: fixture.nativeVersion,
+            job,
+            snapshot: finalSnapshot,
+            inspection: finalInspection,
+          };
+        };
+        const first = await captureAndVerify({
+          listener,
+          target,
+          inspected,
+          baselineSnapshot,
+          inspectionParams,
+        });
+        let recovery;
+        if (reviewed.rebinding) {
+          const priorEntry = await repository.getEntry(
+            first.evidence.contextId,
+          );
+          const edited = await insertBeforeNativeListener({
+            ableton: runtime.ableton,
+            service: runtime.signals.listeners,
+            original: target,
+            listener,
+            baseline: first.snapshot,
+            range: {
+              startBeat: reviewed.capture.startBeat,
+              endBeat: reviewed.capture.endBeat,
             },
-            observedLiveVersion: (await runtime.application.getStatus())
-              .liveVersion,
-            supportedTargetQualified: false,
-            actorToolCalls,
+            stage: (name, operation) =>
+              boundedStage(name, async () => {
+                await validateOwnership();
+                return operation();
+              }),
+          });
+          binding.listenerId = edited.listener.producer.producerId;
+          binding.captureLimit = 2;
+          geometry = d.protocol.createNativeListeningGeometry({
+            sampleRate: edited.listener.registration.sampleRate,
+            vectorSize: edited.listener.registration.vectorSize,
+            tempoBpm: edited.inspection.transport.tempo,
+            startBeat: reviewed.capture.startBeat,
+            endBeat: reviewed.capture.endBeat,
+          });
+          expected = undefined;
+          const second = await captureAndVerify({
+            listener: edited.listener,
+            target: edited.target,
+            inspected: edited.inspection,
+            baselineSnapshot: edited.snapshot,
+            inspectionParams: {
+              ...inspectionParams,
+              maxParameters: 32,
+              bindingQueryId: randomUUID(),
+              listeners: [{ canonicalPath: edited.canonicalPath }],
+            },
+          });
+          await lifecycle.stage("rebind-prior-context-preserved", async () => {
+            assert(
+              isDeepStrictEqual(
+                await repository.getEntry(first.evidence.contextId),
+                priorEntry,
+              ) &&
+                first.evidence.contextId !== second.evidence.contextId &&
+                first.job.passId !== second.job.passId &&
+                jobs.size === 2,
+              "Re-listening rewrote prior context or reused a pass identity",
+            );
+          });
+          recovery = {
+            first: first.evidence,
+            second: second.evidence,
+            listenerDeviceReference: target.binding.expectedDeviceReference,
+            initialDeviceIndex: 0,
+            finalDeviceIndex: 1,
+            priorContextPreserved: true,
           };
         }
+        assert(
+          !telemetryFailed,
+          "Native scenario observability persistence failed",
+        );
+        result = {
+          ok: true,
+          evidence: first.evidence,
+          ...(recovery ? { recovery } : {}),
+          fixture: {
+            sourceSetSha256: fixture.sourceSetSha256,
+            deviceSha256: fixture.deviceSha256,
+            discoverySha256: fixture.discoverySha256,
+            resourceCount: fixture.resourceCount,
+            audioResourceCount: fixture.audioResourceCount,
+            audioResources: fixture.audioResources.map(({ sha256, bytes }) => ({
+              sha256,
+              bytes,
+            })),
+            nativeVersion: fixture.nativeVersion,
+          },
+          observedLiveVersion: (await runtime.application.getStatus())
+            .liveVersion,
+          supportedTargetQualified: false,
+          actorToolCalls,
+        };
       } catch (error) {
         result = {
           ok: false,

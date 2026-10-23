@@ -43,6 +43,63 @@ const ids = [
 ];
 
 describe("reviewed v2 contracts and pre-setup admission", () => {
+  it("admits both source and rebinding workflows without sharing setup, groups or actor budgets", async () => {
+    const source = await load("native-source-explicit-return");
+    const rebinding = await load("native-descriptive-insert-before");
+    const f = await nativeFixtureInput({ nativeVersion: 2 });
+    const inputV2 = join(f.root, "combined-input.json");
+    await writeFile(inputV2, JSON.stringify(f.input));
+    await expect(
+      admitNativeScenarios({
+        manifests: [source, rebinding],
+        skipInstall: true,
+        inputV2,
+      }),
+    ).resolves.toBeUndefined();
+    expect(reviewNativeScenario(source).rebinding).toBeUndefined();
+    expect(reviewNativeScenario(rebinding).rebinding).toBe(true);
+    for (const [original, changes] of [
+      [source, { group: rebinding.group }],
+      [rebinding, { group: source.group }],
+      [source, { maxMutations: rebinding.maxMutations }],
+      [rebinding, { sourceTransition: source.sourceTransition }],
+      [rebinding, { sourceSetupActions: source.sourceSetupActions }],
+      [
+        rebinding,
+        {
+          setupContract: {
+            ...rebinding.setupContract,
+            sourceInvestigation: source.setupContract.sourceInvestigation,
+          },
+        },
+      ],
+      [
+        source,
+        {
+          setupContract: {
+            ...source.setupContract,
+            placementEdit: rebinding.setupContract.placementEdit,
+          },
+        },
+      ],
+    ])
+      expect(() => reviewNativeScenario({ ...original, ...changes })).toThrow(
+        "Unreviewed",
+      );
+    const controller = {
+      assertNoPreExistingLive: vi.fn(),
+      launch: vi.fn(),
+    };
+    await expect(
+      runNativeScenarioGroup({
+        manifests: [source, rebinding],
+        controller,
+        createRunner: vi.fn(),
+      }),
+    ).rejects.toThrow("Native groups cannot mix");
+    expect(controller.assertNoPreExistingLive).not.toHaveBeenCalled();
+    expect(controller.launch).not.toHaveBeenCalled();
+  });
   it("includes both startup regressions without replacing the existing descriptive scenarios", async () => {
     const suite = JSON.parse(
       await readFile("integration/live-scenarios/suite.json", "utf8"),
@@ -563,6 +620,7 @@ async function runnerV2(
       sampleRate: rate,
       vectorSize: vector,
       deviceCanonicalPath: f.input.canonicalPath,
+      trackCanonicalPath: "live_set tracks 0",
       nativeStatus: {
         scope: protocol.NATIVE_LISTENER_SCOPE_V2,
         timing: "UNVERIFIED",
@@ -579,8 +637,10 @@ async function runnerV2(
         expectedReference: trackReference,
         expectedName: f.input.trackName,
       },
+      deviceIndex: 0,
       expectedDeviceReference: "device",
       expectedDeviceName: f.input.deviceName,
+      expectedClassName: "MxDeviceAudioEffect",
     },
     enabled: true,
     sessionOverride: false,
@@ -596,10 +656,46 @@ async function runnerV2(
     clipsTruncated: false,
     dependenciesTruncated: false,
     canonicalPath: f.input.canonicalPath,
-    pathAttestation: { canonicalDevicePath: f.input.canonicalPath },
+    pathAttestation: {
+      canonicalDevicePath: f.input.canonicalPath,
+      canonicalTrackPath: "live_set tracks 0",
+      deviceReference: "device",
+    },
     clips: [],
     upstreamDevices: [],
   };
+  const devices = [
+    {
+      index: 0,
+      reference: "device",
+      name: f.input.deviceName,
+      className: "MxDeviceAudioEffect",
+      enabled: true,
+    },
+  ];
+  const snapshot = () => ({
+    isPlaying:
+      failure === "postconditions" && job?.stage === "completed"
+        ? false
+        : playing,
+    trackCount: 1,
+    clips: [
+      {
+        trackReference,
+        trackIndex: 0,
+        reference: "source",
+        sceneIndex: 0,
+        length: 4,
+      },
+    ],
+    tracks: [
+      {
+        reference: trackReference,
+        devices: globalThis.structuredClone(devices),
+        devicesTruncated: false,
+      },
+    ],
+  });
   const p = {
     ...protocol,
     createNativeListeningGeometry: vi.fn(
@@ -631,7 +727,7 @@ async function runnerV2(
               action: params.action,
               listeners: [
                 {
-                  listenerId: "native",
+                  listenerId: listener.producer.producerId,
                   ready: false,
                   limitations: ["native_per_pass_validation_required"],
                   trackReference,
@@ -651,8 +747,11 @@ async function runnerV2(
             };
             options.onChange(job);
             expect(
-              p.snapshotNativeListeningExpectationV2,
-            ).toHaveBeenCalledOnce();
+              p.snapshotNativeListeningExpectationV2.mock.lastCall[0],
+            ).toMatchObject({
+              passId: job.passId,
+              listenerId: listener.producer.producerId,
+            });
             job = { ...job, stage: "arming" };
             options.onChange(job);
           }
@@ -694,7 +793,7 @@ async function runnerV2(
           };
           const native = createSyntheticNativeListeningFixtureV2({
             passId: job.passId,
-            listenerId: "native",
+            listenerId: listener.producer.producerId,
             geometry,
             timingPolicy: policy,
           });
@@ -747,9 +846,9 @@ async function runnerV2(
             observations: [native.observation],
             bindings: [
               {
-                listenerId: "native",
+                listenerId: listener.producer.producerId,
                 deviceReference: "device",
-                connectionEpoch: "epoch",
+                connectionEpoch: listener.registration.connectionEpoch,
                 version: "2.0.0",
                 primary: subject("arrangement-range"),
                 contributors: [subject("track")],
@@ -770,7 +869,7 @@ async function runnerV2(
                 listenerVersion: 2,
                 status: "completed",
                 passId: job.passId,
-                connectionEpoch: "epoch",
+                connectionEpoch: listener.registration.connectionEpoch,
                 ...actorContext.trace,
                 observation: native.observation,
                 nativeCapture: native.proof,
@@ -792,17 +891,72 @@ async function runnerV2(
       host = options.listening({});
       return {
         ableton: {
-          inspectSession: vi.fn(async () => ({
-            clips: [
+          inspectSession: vi.fn(async () => snapshot()),
+          searchBrowser: async () => ({
+            items: [
               {
-                trackReference,
-                trackIndex: 0,
-                reference: "source",
-                sceneIndex: 0,
-                length: 4,
+                name: "Delay",
+                root: "audio_effects",
+                reference: "delay-item",
+                path: [],
+                uri: "query:delay",
+                isBuiltInDevice: true,
+                isDevice: true,
+                isLoadable: true,
               },
             ],
-          })),
+          }),
+          loadBrowserItem: async () => {
+            if (failure === "insert") throw new Error("insert denied");
+            const delay = {
+              index: devices.length,
+              reference: "delay",
+              name: "Delay",
+              className: "Delay",
+              enabled: true,
+            };
+            devices.push(delay);
+            return {
+              verified: true,
+              addedDevicesTruncated: false,
+              reconfiguredDevicesTruncated: false,
+              reconfiguredDevices: [],
+              addedDevices: [delay],
+            };
+          },
+          moveDevice: async (params) => {
+            expect(params).toMatchObject({
+              source: { device: { expectedReference: "delay", index: 1 } },
+              destination: { deviceIndex: 0 },
+            });
+            devices.pop();
+            devices[0].index = 1;
+            devices.unshift({
+              index: 0,
+              reference: "delay",
+              name: "Delay",
+              className: "Delay",
+              enabled: true,
+            });
+            target.binding.deviceIndex = 1;
+            if (failure === "replacement")
+              target.binding.expectedDeviceReference = "replacement";
+            target.canonicalPath = "live_set tracks 0 devices 1";
+            target.pathAttestation.canonicalDevicePath = target.canonicalPath;
+            target.upstreamDevices = devices.map(({ reference }) => ({
+              reference,
+            }));
+            listener.connectionId = "renewed-connection";
+            listener.producer.instanceId = "renewed-instance";
+            listener.producer.producerId = "renewed-producer";
+            listener.registration.connectionEpoch = "renewed-epoch";
+            listener.registration.deviceCanonicalPath = target.canonicalPath;
+            return {
+              verified: true,
+              deviceReference: "delay",
+              after: { kind: "track-device", device: { index: 0 } },
+            };
+          },
           launchSessionClip: vi.fn(async () => {
             playing = true;
             if (failure === "source-epoch")
@@ -819,6 +973,10 @@ async function runnerV2(
             return { verified: true };
           }),
           executeTracksOperation: vi.fn(async () => {
+            if (failure === "track-return-unavailable")
+              throw new Error(
+                "unsupported_capability: tracks.back_to_arrangement unavailable",
+              );
             const before = {
               kind: target.binding.track.kind,
               index: target.binding.track.index,
@@ -912,13 +1070,7 @@ async function runnerV2(
               liveVersion,
             };
           },
-          inspectSession: async () => ({
-            isPlaying:
-              failure === "postconditions" && job?.stage === "completed"
-                ? false
-                : playing,
-            trackCount: 1,
-          }),
+          inspectSession: async () => snapshot(),
           subscribe: (fn) => {
             events.add(fn);
             return () => events.delete(fn);
@@ -943,7 +1095,7 @@ async function runnerV2(
               {
                 action: "play-arrangement-and-listen",
                 ...manifest.capture,
-                listenerIds: ["native"],
+                listenerIds: [listener.producer.producerId],
               },
             ]) {
               expect(
@@ -993,6 +1145,9 @@ async function runnerV2(
     bridgeReadiness,
     events,
     results,
+    get configuration() {
+      return configuration;
+    },
     get hostOptions() {
       return hostOptions;
     },
@@ -1000,6 +1155,78 @@ async function runnerV2(
 }
 
 describe("source investigation runner composition (synthetic native results only)", () => {
+  it("retains unavailable exact-track return as failure with no global fallback or actor pass", async () => {
+    const f = await runnerV2("native-source-explicit-return", {
+      failure: "track-return-unavailable",
+      liveVersion: "11.3.43 (2025-10-06_b466d4f56c)",
+    });
+    try {
+      const result = await f.runner.run(async () => {});
+      expect(result.ok).toBe(false);
+      expect(result.error).toContain("tracks.back_to_arrangement unavailable");
+      expect(result.jobs).toEqual([]);
+      expect(result.approvals).toEqual([]);
+      expect(result.recovery).toBeUndefined();
+      expect(result.evidence).toBeUndefined();
+      expect(result.sourceInvestigation).toMatchObject({
+        hostEvidenceLabel: "non-target-unqualified",
+        mutations: [{ name: "session-launch" }],
+      });
+      const ableton =
+        f.services.createAgentRuntime.mock.results[0].value.ableton;
+      expect(ableton.executeTracksOperation).toHaveBeenCalledExactlyOnceWith({
+        action: "back-to-arrangement",
+        target: {
+          kind: "regular",
+          index: 0,
+          expectedReference: trackReference,
+          expectedName: expect.any(String),
+        },
+      });
+      expect(ableton.setPlaying).not.toHaveBeenCalled();
+      expect(f.wait).not.toHaveBeenCalled();
+      expect(f.configuration).toBeUndefined();
+      expect(f.appStop).toHaveBeenCalledOnce();
+      expect(f.ingressStop).toHaveBeenCalledOnce();
+      expect(f.events.size).toBe(0);
+      expect(f.results.size).toBe(0);
+    } finally {
+      await f.runner.close({ processStopped: true });
+    }
+  });
+  it.each(["native-source-baseline", "native-descriptive-insert-before"])(
+    "%s retains the same strict actor scope while keeping its own setup and capture count",
+    async (id) => {
+      const f = await runnerV2(id);
+      try {
+        const result = await f.runner.run(async () => {});
+        expect(result.ok, result.error).toBe(true);
+        expect(f.configuration).toMatchObject({
+          resolvedTools: ["ableton_listening", "ableton_context"],
+          resolvedOperations: [
+            "listening.inspect_listeners",
+            "listening.play_arrangement_and_listen",
+            "listening.get_pass",
+            "context.get",
+          ],
+          editScope: ["session"],
+          boundTracks: [],
+        });
+        const rebinding = id === "native-descriptive-insert-before";
+        expect(result.jobs).toHaveLength(rebinding ? 2 : 1);
+        expect(result.supportedTargetQualified).toBe(false);
+        expect(
+          result.lifecycle.some(({ name }) => name.includes(".rebind-")),
+        ).toBe(rebinding);
+        expect(result.sourceInvestigation !== undefined).toBe(!rebinding);
+        expect(
+          result.lifecycle.some(({ name }) => name.includes(".source-")),
+        ).toBe(!rebinding);
+      } finally {
+        await f.runner.close({ processStopped: true });
+      }
+    },
+  );
   it.each(["native-source-baseline", "native-source-explicit-return"])(
     "%s starts a single new owned pass and retains native proof, typed reopening and cleanup",
     async (id) => {
@@ -1131,6 +1358,61 @@ describe("source investigation runner composition (synthetic native results only
 });
 
 describe("v2 runner expectation forwarding and production typed context reopening (synthetic capture only)", () => {
+  it("qualifies two distinct captures around an exact owned insert-before edit without rewriting the first context", async () => {
+    const f = await runnerV2("native-descriptive-insert-before");
+    try {
+      const result = await f.runner.run(async () => {});
+      expect(result.error).toBeUndefined();
+      expect(result.ok).toBe(true);
+      expect(result.recovery).toMatchObject({
+        initialDeviceIndex: 0,
+        finalDeviceIndex: 1,
+        listenerDeviceReference: "device",
+        priorContextPreserved: true,
+        first: { listenerId: "native", independentlyAcceptedNativeProof: true },
+        second: {
+          listenerId: "renewed-producer",
+          independentlyAcceptedNativeProof: true,
+        },
+      });
+      expect(result.jobs).toHaveLength(2);
+      expect(f.wait).toHaveBeenCalledTimes(2);
+      expect(
+        new Set(
+          f.p.snapshotNativeListeningExpectationV2.mock.calls.map(
+            ([input]) => input.passId,
+          ),
+        ).size,
+      ).toBe(2);
+      expect(result.recovery.first.contextId).not.toBe(
+        result.recovery.second.contextId,
+      );
+      expect(result.recovery.first.passId).not.toBe(
+        result.recovery.second.passId,
+      );
+    } finally {
+      await f.runner.close({ processStopped: true });
+    }
+  });
+
+  it.each(["insert", "replacement"])(
+    "preserves the first pass and refuses re-capture on %s failure",
+    async (failure) => {
+      const f = await runnerV2("native-descriptive-insert-before", { failure });
+      try {
+        const result = await f.runner.run(async () => {});
+        expect(result.ok).toBe(false);
+        expect(result.jobs).toHaveLength(1);
+        expect(f.wait).toHaveBeenCalledOnce();
+        expect(result.recovery).toBeUndefined();
+        expect(f.appStop).toHaveBeenCalledOnce();
+        expect(f.ingressStop).toHaveBeenCalledOnce();
+      } finally {
+        await f.runner.close({ processStopped: true });
+      }
+    },
+  );
+
   it("waits for owned bridge readiness before starting the application", async () => {
     const f = await runnerV2(ids[0]);
     const validateOwnership = vi.fn(async () => {});

@@ -22,6 +22,11 @@ Companion specification: [Packaging and Operations](packaging-and-operations.md)
 ## Version and update management
 
 - [x] Define app, Remote Script, protocol, and database version sources.
+- [x] Restrict the compatibility matrix to Live 11, retaining the existing
+  11.3+ API baseline without a patch pin. Record installed Suite 11.3.43 as the
+  current development host, preserve exact historical versions, and cover
+  older/newer Live 11 patches plus Live 12 rejection in compatibility tests.
+  Automatic patch updates alone do not require downgrade or block development.
 - [~] Implement compatibility checks and upgrade prompts.
   - [x] Surface Live, protocol, and Remote Script compatibility in desktop
     diagnostics.

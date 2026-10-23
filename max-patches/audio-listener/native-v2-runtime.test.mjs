@@ -204,6 +204,117 @@ test("v2 registration reports actual DSP rate and vector without inferring captu
   }
 });
 
+test("placement change or loss disarms only the old v2 generation and fences its late packets", async () => {
+  for (const mode of ["move", "unavailable"]) {
+    const f = fixture();
+    try {
+      await f.start();
+      const oldClient = f.runtime.client;
+      const oldPass = f.runtime.nativeController.pass;
+      if (mode === "move")
+        f.handlers.identity(
+          JSON.stringify({
+            canonicalPath: "live_set tracks 0 devices 1",
+            track: { id: "1", name: "synthetic fixture" },
+            device: { id: "2", name: "Audio-Listener" },
+          }),
+        );
+      else f.handlers["identity-unavailable"]();
+      assert.equal(oldClient.stopping, true);
+      assert(
+        f.outputs.some(
+          (row) =>
+            row[0] === "native_control" &&
+            row[1] === "stop" &&
+            row[2] === oldPass.generation,
+        ),
+      );
+      const wireCount = f.wire.length;
+      f.handlers.native(
+        oldPass.generation,
+        "clock",
+        ...f.clock(f.origin + 1280),
+      );
+      f.stopReceipt(oldPass.generation);
+      assert.equal(f.wire.length, wireCount);
+      if (mode === "move") {
+        assert.notEqual(f.runtime.client.instanceId, oldClient.instanceId);
+        assert.equal(f.runtime.nativeController.pass, null);
+        assert.equal(
+          f.runtime.client.listener.deviceCanonicalPath,
+          "live_set tracks 0 devices 1",
+        );
+      } else assert.equal(f.runtime.client, null);
+    } finally {
+      f.runtime.stop();
+    }
+  }
+});
+
+test("renewed placement registration advances the DSP epoch high-water and completes a distinct fresh capture", async () => {
+  for (const terminal of ["completed", "cancelled", "failed"])
+    for (const unavailable of [false, true]) {
+      const f = fixture();
+      try {
+        await f.start();
+        if (terminal === "completed") {
+          f.capture();
+          f.post();
+        } else if (terminal === "cancelled") await f.dispatch("cancel");
+        else f.packet("abi-clock", [0]);
+        f.stopReceipt();
+        const first = f.wire.find((row) => row.status === terminal);
+        assert(first);
+        const previous = f.runtime.nativeController;
+        const firstEpoch = previous.allocatedEpoch;
+        if (unavailable) f.handlers["identity-unavailable"]();
+        f.handlers.identity(
+          JSON.stringify({
+            canonicalPath: "live_set tracks 0 devices 1",
+            track: { id: "1", name: "synthetic fixture" },
+            device: { id: "2", name: "Audio-Listener" },
+          }),
+        );
+        assert.notEqual(f.runtime.nativeController, previous);
+        const next = v2Fixture({
+          controller: f.runtime.nativeController,
+          setTime: f.time,
+        });
+        const owner = { passId: "renewed-pass", jobId: "renewed-job" };
+        f.dispatch("prepare", owner);
+        const pending = f.dispatch("arm", owner);
+        next.preflight();
+        assert.equal(
+          f.runtime.nativeController.pass.nativeEpoch,
+          firstEpoch + 1,
+        );
+        next.configReceipt();
+        next.ack();
+        await pending;
+        next.packet("clock", next.clock(next.origin + 640));
+        next.packet("envelope", next.envelope());
+        next.capture();
+        next.post();
+        f.stopReceipt();
+        const completed = f.wire.filter((row) => row.status === "completed");
+        assert.equal(completed.length, terminal === "completed" ? 2 : 1);
+        const last = completed.at(-1);
+        assert.equal(last.passId, owner.passId);
+        assert.notEqual(last.passId, first.passId);
+        assertNativeCaptureObservationV2(last.nativeCapture, last.observation, {
+          listenerId: f.runtime.engine.listenerId,
+          passId: owner.passId,
+          geometry: next.geometry,
+          policy: next.timingPolicy,
+        });
+        assert.equal(f.runtime.nativeController.pendingDisarm, null);
+        assert.equal(f.runtime.nativeController.pass, null);
+      } finally {
+        f.runtime.stop();
+      }
+    }
+});
+
 test("v2 startup and envelope-rejection progress reaches the typed wire before the unchanged failure", async () => {
   const f = fixture();
   try {

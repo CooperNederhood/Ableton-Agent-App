@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
 import {
   awaitListeningBoundary,
   createListeningHost,
@@ -348,12 +349,20 @@ function assemble(
   const service: ListenerService | undefined =
     dependencies.signals.listeners ?? dependencies.signals.listenerTransport;
   const states = new Map<string, CaptureState>();
+  const attestedBindings = new Map<
+    string,
+    {
+      liveSetId: string;
+      connection: ConnectedListenerBinding;
+      target: InspectListeningContextResult["listeners"][number]["binding"];
+    }
+  >();
   let closed = false;
 
   async function stage<T>(
     name: string,
     context: ListeningExecutionContext,
-    operation: () => Promise<T>,
+    operation: (progress: (detail: string) => void) => Promise<T>,
     compensate?: (result: T) => Promise<void>,
   ): Promise<T> {
     const started = Date.now();
@@ -422,7 +431,9 @@ function assemble(
         () =>
           awaitListeningBoundary(
             (async () => {
-              const result = await operation();
+              const result = await operation((detail) =>
+                event("progress", detail),
+              );
               if (context.signal?.aborted) {
                 await compensateAbort(result);
                 context.signal.throwIfAborted();
@@ -501,235 +512,309 @@ function assemble(
   ): Promise<
     Pick<CaptureState, "owner" | "descriptors" | "connections" | "inspection">
   > {
-    if (!dependencies.ableton.inspectListeningContext)
-      deny("listening_inspection_unavailable");
-    const inspectionStarted = Date.now();
-    if (!sameOwner(await owner(context), expectedOwner))
-      deny("permission_denied");
-    const identity = await dependencies.ableton.getLiveIdentity();
-    context.signal?.throwIfAborted();
-    if (identity.liveSetId !== expectedOwner.liveSetId)
-      deny("live_set_changed");
-    const inventory = listeners().inspectListeners();
-    const selected = ids.map((id) => {
-      const matches = inventory.filter(
-        (item) => item.producer.producerId === id,
-      );
-      if (matches.length !== 1) deny("listener_unavailable_or_ambiguous");
-      const candidate = readConnectedListenerBinding(
-        bindingDescriptor(matches[0]!),
-      );
-      if (!candidate.ok) deny(candidate.reason);
-      return {
-        descriptor: structuredClone(matches[0]!),
-        connection: candidate.connection,
-      };
-    });
-    const queryId = randomUUID();
-    const inspection = inspectListeningContextResultSchema.parse(
-      await dependencies.ableton.inspectListeningContext({
-        schemaVersion: 1,
-        bindingQueryId: queryId,
-        listeners: selected.map(({ connection }) => ({
-          canonicalPath: connection.canonicalPath,
-        })),
-        range: { startBeat: range.startBeat, endBeat: range.endBeat },
-        maxClips: 32,
-        maxParameters: 16,
-      }),
-    );
-    context.signal?.throwIfAborted();
-    if (
-      (await dependencies.ableton.getLiveIdentity()).liveSetId !==
-      expectedOwner.liveSetId
-    )
-      deny("live_set_changed");
-    context.signal?.throwIfAborted();
-    if (!sameOwner(await owner(context), expectedOwner))
-      deny("permission_denied");
-    context.signal?.throwIfAborted();
-    if (inspection.listeners.length !== selected.length)
-      deny("ambiguous_inspection");
-    const candidates = connected(listeners().inspectListeners());
-    for (const { connection, descriptor } of selected) {
-      const old = previous?.connections.find(
-        (item) => item.producerId === connection.producerId,
-      );
-      if (
-        old &&
-        (old.connectionId !== connection.connectionId ||
-          old.instanceId !== connection.instanceId ||
-          old.connectionEpoch !== connection.connectionEpoch ||
-          old.canonicalPath !== connection.canonicalPath)
-      )
-        deny(
-          "listener_instance_changed",
-          "The listener connection changed. Rediscover the current listener before explicitly requesting a new listening pass.",
+    return stage("binding-validation", context, async (progress) => {
+      if (!dependencies.ableton.inspectListeningContext)
+        deny("listening_inspection_unavailable");
+      const inspectionStarted = Date.now();
+      if (!sameOwner(await owner(context), expectedOwner))
+        deny("permission_denied");
+      const identity = await dependencies.ableton.getLiveIdentity();
+      context.signal?.throwIfAborted();
+      if (identity.liveSetId !== expectedOwner.liveSetId)
+        deny("live_set_changed");
+      const inventory = listeners().inspectListeners();
+      if (inventory.length > 128) deny("listener_inventory_quota");
+      for (const [id, attested] of attestedBindings) {
+        if (
+          attested.liveSetId !== expectedOwner.liveSetId ||
+          !inventory.some(
+            (item) =>
+              item.connectionId === id &&
+              item.producer.instanceId === attested.connection.instanceId &&
+              item.registration.connectionEpoch ===
+                attested.connection.connectionEpoch,
+          )
+        )
+          attestedBindings.delete(id);
+      }
+      const selected = ids.map((id) => {
+        const matches = inventory.filter(
+          (item) => item.producer.producerId === id,
         );
-      const oldDescriptor = previous?.descriptors.find(
-        (item) => item.producer.producerId === descriptor.producer.producerId,
-      );
-      if (
-        oldDescriptor &&
-        (oldDescriptor.registration.sampleRate !==
-          descriptor.registration.sampleRate ||
-          oldDescriptor.registration.algorithmVersion !==
-            descriptor.registration.algorithmVersion ||
-          oldDescriptor.registration.version !==
-            descriptor.registration.version ||
-          (oldDescriptor.registration.version === 2 &&
-            descriptor.registration.version === 2 &&
-            oldDescriptor.registration.vectorSize !==
-              descriptor.registration.vectorSize))
-      )
-        deny("listener_algorithm_or_sample_rate_changed");
-      const expectedTarget = previous?.inspection.listeners.find(
-        (item) => item.canonicalPath === connection.canonicalPath,
-      )?.binding;
-      const resolution = resolveListenerBinding({
-        selected: {
-          ...connection,
-          ...(expectedTarget ? { expectedTarget } : {}),
-        },
-        connected: candidates,
-        inspection,
-        queryId,
+        if (matches.length !== 1) deny("listener_unavailable_or_ambiguous");
+        const candidate = readConnectedListenerBinding(
+          bindingDescriptor(matches[0]!),
+        );
+        if (!candidate.ok) deny(candidate.reason);
+        return {
+          descriptor: structuredClone(matches[0]!),
+          connection: candidate.connection,
+        };
       });
-      if (!resolution.ok) {
-        if (resolution.reason === "stale-inspection")
+      const queryId = randomUUID();
+      progress(
+        "Checking registered placement against independent Live evidence",
+      );
+      const inspection = inspectListeningContextResultSchema.parse(
+        await dependencies.ableton
+          .inspectListeningContext({
+            schemaVersion: 1,
+            bindingQueryId: queryId,
+            listeners: selected.map(({ connection }) => ({
+              canonicalPath: connection.canonicalPath,
+            })),
+            range: { startBeat: range.startBeat, endBeat: range.endBeat },
+            maxClips: 32,
+            maxParameters: 16,
+          })
+          .catch((cause: unknown) => {
+            context.signal?.throwIfAborted();
+            if (
+              selected.some(({ connection }) =>
+                attestedBindings.has(connection.connectionId),
+              ) &&
+              cause instanceof Error &&
+              cause.message.includes(
+                "Listener must be a Max for Live Audio Effect",
+              )
+            )
+              deny(
+                "listener_placement_stale",
+                "The registered path no longer attests the previously inspected Max listener. Wait for placement refresh, inspect listeners again, and start a new capture.",
+              );
+            throw cause;
+          }),
+      );
+      context.signal?.throwIfAborted();
+      if (
+        (await dependencies.ableton.getLiveIdentity()).liveSetId !==
+        expectedOwner.liveSetId
+      )
+        deny("live_set_changed");
+      context.signal?.throwIfAborted();
+      if (!sameOwner(await owner(context), expectedOwner))
+        deny("permission_denied");
+      context.signal?.throwIfAborted();
+      const currentInventory = listeners().inspectListeners();
+      const candidates = connected(currentInventory);
+      for (const { connection, descriptor } of selected) {
+        const current = candidates.filter(
+          (item) => item.connectionId === connection.connectionId,
+        );
+        const currentDescriptor = currentInventory.find(
+          (item) => item.connectionId === connection.connectionId,
+        );
+        if (
+          current.length !== 1 ||
+          !isDeepStrictEqual(current[0], connection) ||
+          !isDeepStrictEqual(
+            currentDescriptor?.registration,
+            descriptor.registration,
+          )
+        )
+          deny(
+            "listener_placement_changed",
+            "Listener registration changed during inspection. Wait for placement refresh, inspect listeners again, and start a new capture.",
+          );
+        if (
+          !discovery &&
+          previous === undefined &&
+          currentDescriptor?.phase !== "idle"
+        )
+          deny("listener_not_idle");
+      }
+      if (inspection.listeners.length !== selected.length)
+        deny("ambiguous_inspection");
+      for (const { connection, descriptor } of selected) {
+        const old = previous?.connections.find(
+          (item) => item.producerId === connection.producerId,
+        );
+        if (
+          old &&
+          (old.connectionId !== connection.connectionId ||
+            old.instanceId !== connection.instanceId ||
+            old.connectionEpoch !== connection.connectionEpoch ||
+            old.canonicalPath !== connection.canonicalPath)
+        )
+          deny("listener_instance_changed");
+        const oldDescriptor = previous?.descriptors.find(
+          (item) => item.producer.producerId === descriptor.producer.producerId,
+        );
+        if (
+          oldDescriptor &&
+          (oldDescriptor.registration.sampleRate !==
+            descriptor.registration.sampleRate ||
+            oldDescriptor.registration.algorithmVersion !==
+              descriptor.registration.algorithmVersion ||
+            oldDescriptor.registration.version !==
+              descriptor.registration.version ||
+            (oldDescriptor.registration.version === 2 &&
+              descriptor.registration.version === 2 &&
+              oldDescriptor.registration.vectorSize !==
+                descriptor.registration.vectorSize))
+        )
+          deny("listener_algorithm_or_sample_rate_changed");
+        const expectedTarget =
+          previous?.inspection.listeners.find(
+            (item) => item.canonicalPath === connection.canonicalPath,
+          )?.binding ?? attestedBindings.get(connection.connectionId)?.target;
+        const resolution = resolveListenerBinding({
+          selected: {
+            ...connection,
+            ...(expectedTarget ? { expectedTarget } : {}),
+          },
+          connected: candidates,
+          inspection,
+          queryId,
+        });
+        if (!resolution.ok) {
+          if (resolution.reason === "stale-inspection")
+            deny(
+              resolution.reason,
+              "The reply does not match the current inspection. Request a fresh inspection before explicitly requesting a new listening pass.",
+            );
+          if (resolution.reason === "stale-connection")
+            deny(
+              "listener_instance_changed",
+              "The listener connection changed during inspection. Rediscover the current listener before explicitly requesting a new listening pass.",
+            );
           deny(
             resolution.reason,
-            "The reply does not match the current inspection. Request a fresh inspection before explicitly requesting a new listening pass.",
+            resolution.reason === "stale-target"
+              ? "Listener placement no longer matches its attested device. Wait for placement refresh, inspect listeners again, and start a new capture."
+              : undefined,
           );
-        if (resolution.reason === "stale-connection")
+        }
+        attestedBindings.set(connection.connectionId, {
+          liveSetId: expectedOwner.liveSetId,
+          connection: structuredClone(connection),
+          target: structuredClone(resolution.target),
+        });
+        if (
+          !discovery &&
+          connection.nativeStatus.scope !== NATIVE_LISTENER_SCOPE &&
+          connection.nativeStatus.scope !== NATIVE_LISTENER_SCOPE_V2 &&
+          (connection.nativeStatus.version !== 1 ||
+            connection.nativeStatus.timing !== "VERIFIED" ||
+            connection.nativeStatus.readiness !== "READY")
+        )
+          deny("real_live_timing_validation_required");
+        if (
+          !discovery &&
+          connection.nativeStatus.scope === NATIVE_LISTENER_SCOPE &&
+          (range.startBeat !== 0 ||
+            range.endBeat <= 0 ||
+            range.endBeat > 20 ||
+            !Number.isInteger(range.endBeat * 5))
+        )
+          deny("unsupported_native_capture_scope");
+        if (!discovery && previous === undefined && descriptor.phase !== "idle")
+          deny("listener_not_idle");
+      }
+      if (!discovery) {
+        const hasOverride = inspection.listeners.some(
+          (item) => item.sessionOverride === true,
+        );
+        const hasUnknown = inspection.listeners.some(
+          (item) => item.sessionOverride === null,
+        );
+        const refusal = !inspection.transport.safeToStart
+          ? "transport_not_safe_to_start"
+          : hasUnknown
+            ? "arrangement_source_unknown"
+            : hasOverride
+              ? "arrangement_session_override"
+              : undefined;
+        const inspectionCompleted = Date.now();
+        recordSignalTelemetry(dependencies.telemetry, {
+          name: "listening.source.validation",
+          source: "listening-runtime-host",
+          sessionId: context.sessionId,
+          activeAgentId: context.agentId,
+          liveSetId: expectedOwner.liveSetId,
+          correlationId: context.trace.correlationId,
+          causationId: context.trace.causationId,
+          trace: { traceId: context.trace.traceId, spanId: randomUUID() },
+          durationMs: Math.max(0, inspectionCompleted - inspectionStarted),
+          outcome: refusal === undefined ? "success" : "failure",
+          attributes: sanitizeTelemetryAttributes(
+            {
+              schemaVersion: 1,
+              ...sourceBoundary,
+              liveSetId: expectedOwner.liveSetId,
+              bindingQueryId: queryId,
+              inspectionStartedAt: new Date(inspectionStarted).toISOString(),
+              inspectionCompletedAt: new Date(
+                inspectionCompleted,
+              ).toISOString(),
+              projectRevision: inspection.projectRevision,
+              decision: refusal ?? "arrangement-source-confirmed",
+              listeners: selected.map(({ connection }) => {
+                const listener = inspection.listeners.find(
+                  (item) => item.canonicalPath === connection.canonicalPath,
+                )!;
+                return {
+                  listenerId: connection.producerId,
+                  instanceId: connection.instanceId,
+                  connectionId: connection.connectionId,
+                  connectionEpoch: connection.connectionEpoch,
+                  canonicalPath: connection.canonicalPath,
+                  sessionOverride: listener.sessionOverride,
+                  state:
+                    listener.sessionOverride === false
+                      ? "arrangement"
+                      : listener.sessionOverride === true
+                        ? "session-override"
+                        : "unknown",
+                  sourceEvidence: listener.sourceEvidence ?? null,
+                };
+              }),
+            },
+            {
+              maxStringCharacters: 512,
+              maxArrayItems: 8,
+              maxObjectFields: 32,
+              maxDepth: 8,
+              maxBytes: 16_384,
+            },
+          ),
+        });
+        if (refusal === "arrangement_session_override")
           deny(
-            "listener_instance_changed",
-            "The listener connection changed during inspection. Rediscover the current listener before explicitly requesting a new listening pass.",
+            refusal,
+            "A Session source override was detected for at least one selected listener. Return to Arrangement in Live for that track, then explicitly request a new listening pass. No capture was published.",
           );
-        deny(resolution.reason);
+        if (refusal === "arrangement_source_unknown")
+          deny(
+            refusal,
+            "Arrangement source selection could not be verified for at least one selected listener. Check the listener connection and source state in Live, then request a fresh inspection before a new listening pass. No capture was published.",
+          );
+        if (refusal !== undefined) deny(refusal);
       }
       if (
-        !discovery &&
-        connection.nativeStatus.scope !== NATIVE_LISTENER_SCOPE &&
-        connection.nativeStatus.scope !== NATIVE_LISTENER_SCOPE_V2 &&
-        (connection.nativeStatus.version !== 1 ||
-          connection.nativeStatus.timing !== "VERIFIED" ||
-          connection.nativeStatus.readiness !== "READY")
+        previous &&
+        previous.inspection.projectRevision !== inspection.projectRevision &&
+        !allowPositionRevision
       )
-        deny("real_live_timing_validation_required");
+        deny("project_revision_changed");
       if (
-        !discovery &&
-        connection.nativeStatus.scope === NATIVE_LISTENER_SCOPE &&
-        (range.startBeat !== 0 ||
-          range.endBeat <= 0 ||
-          range.endBeat > 20 ||
-          !Number.isInteger(range.endBeat * 5))
+        previous &&
+        (previous.inspection.transport.tempo !== inspection.transport.tempo ||
+          previous.inspection.listeners.some(
+            (before) =>
+              inspection.listeners.find(
+                (after) => after.canonicalPath === before.canonicalPath,
+              )?.fingerprint.digest !== before.fingerprint.digest,
+          ))
       )
-        deny("unsupported_native_capture_scope");
-      if (!discovery && previous === undefined && descriptor.phase !== "idle")
-        deny("listener_not_idle");
-    }
-    if (!discovery) {
-      const hasOverride = inspection.listeners.some(
-        (item) => item.sessionOverride === true,
-      );
-      const hasUnknown = inspection.listeners.some(
-        (item) => item.sessionOverride === null,
-      );
-      const refusal = !inspection.transport.safeToStart
-        ? "transport_not_safe_to_start"
-        : hasUnknown
-          ? "arrangement_source_unknown"
-          : hasOverride
-            ? "arrangement_session_override"
-            : undefined;
-      const inspectionCompleted = Date.now();
-      recordSignalTelemetry(dependencies.telemetry, {
-        name: "listening.source.validation",
-        source: "listening-runtime-host",
-        sessionId: context.sessionId,
-        activeAgentId: context.agentId,
-        liveSetId: expectedOwner.liveSetId,
-        correlationId: context.trace.correlationId,
-        causationId: context.trace.causationId,
-        trace: { traceId: context.trace.traceId, spanId: randomUUID() },
-        durationMs: Math.max(0, inspectionCompleted - inspectionStarted),
-        outcome: refusal === undefined ? "success" : "failure",
-        attributes: sanitizeTelemetryAttributes(
-          {
-            schemaVersion: 1,
-            ...sourceBoundary,
-            liveSetId: expectedOwner.liveSetId,
-            bindingQueryId: queryId,
-            inspectionStartedAt: new Date(inspectionStarted).toISOString(),
-            inspectionCompletedAt: new Date(inspectionCompleted).toISOString(),
-            projectRevision: inspection.projectRevision,
-            decision: refusal ?? "arrangement-source-confirmed",
-            listeners: selected.map(({ connection }) => {
-              const listener = inspection.listeners.find(
-                (item) => item.canonicalPath === connection.canonicalPath,
-              )!;
-              return {
-                listenerId: connection.producerId,
-                instanceId: connection.instanceId,
-                connectionId: connection.connectionId,
-                connectionEpoch: connection.connectionEpoch,
-                canonicalPath: connection.canonicalPath,
-                sessionOverride: listener.sessionOverride,
-                state:
-                  listener.sessionOverride === false
-                    ? "arrangement"
-                    : listener.sessionOverride === true
-                      ? "session-override"
-                      : "unknown",
-                sourceEvidence: listener.sourceEvidence ?? null,
-              };
-            }),
-          },
-          {
-            maxStringCharacters: 512,
-            maxArrayItems: 8,
-            maxObjectFields: 32,
-            maxDepth: 8,
-            maxBytes: 16_384,
-          },
-        ),
-      });
-      if (refusal === "arrangement_session_override")
-        deny(
-          refusal,
-          "A Session source override was detected for at least one selected listener. Return to Arrangement in Live for that track, then explicitly request a new listening pass. No capture was published.",
-        );
-      if (refusal === "arrangement_source_unknown")
-        deny(
-          refusal,
-          "Arrangement source selection could not be verified for at least one selected listener. Check the listener connection and source state in Live, then request a fresh inspection before a new listening pass. No capture was published.",
-        );
-      if (refusal !== undefined) deny(refusal);
-    }
-    if (
-      previous &&
-      previous.inspection.projectRevision !== inspection.projectRevision &&
-      !allowPositionRevision
-    )
-      deny("project_revision_changed");
-    if (
-      previous &&
-      (previous.inspection.transport.tempo !== inspection.transport.tempo ||
-        previous.inspection.listeners.some(
-          (before) =>
-            inspection.listeners.find(
-              (after) => after.canonicalPath === before.canonicalPath,
-            )?.fingerprint.digest !== before.fingerprint.digest,
-        ))
-    )
-      deny("listening_source_changed");
-    return {
-      owner: expectedOwner,
-      descriptors: selected.map((item) => item.descriptor),
-      connections: selected.map((item) => item.connection),
-      inspection,
-    };
+        deny("listening_source_changed");
+      return {
+        owner: expectedOwner,
+        descriptors: selected.map((item) => item.descriptor),
+        connections: selected.map((item) => item.connection),
+        inspection,
+      };
+    });
   }
 
   function state(input: ListeningPassContext): CaptureState {
@@ -1201,6 +1286,7 @@ function assemble(
         await host.shutdown();
       } finally {
         states.clear();
+        attestedBindings.clear();
       }
     },
   };

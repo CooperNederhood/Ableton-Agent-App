@@ -126,6 +126,7 @@ function createRuntime({
   let registrationGeneration = 0;
   let stopped = false;
   let nativeController = null;
+  let nativeEpochHighWater = 0;
   let pendingArm = null;
   let nativePublished = false;
   let nativePublishing = 0;
@@ -624,6 +625,11 @@ function createRuntime({
   const restartRegistration = (reason) => {
     // Fence queued callbacks before touching the old client/engine.
     registrationGeneration++;
+    // DSP keeps its epoch high-water when registration/controller ownership changes.
+    nativeEpochHighWater = Math.max(
+      nativeEpochHighWater,
+      nativeController?.allocatedEpoch ?? 0,
+    );
     pendingNativeReply = null;
     lastNativeDisarm = null;
     fail(reason);
@@ -1035,6 +1041,7 @@ function createRuntime({
         listenerId,
         now: clock,
         nativeVersion,
+        initialNativeEpoch: nativeEpochHighWater,
         onDisarmed: (receipt) => {
           if (receipt.reason === "native_disarm_observer_failed")
             output("diagnostic", receipt.reason);
@@ -1264,6 +1271,12 @@ function createRuntime({
     registeredDsp = { sampleRate: dsp.sampleRate, vectorSize: dsp.vectorSize };
     client.start();
   }
+  maxApi.addHandler("identity-unavailable", () => {
+    restartRegistration("listener_placement_unavailable");
+    identity = null;
+    identityPaths = null;
+    output("diagnostic", "listener_placement_unavailable");
+  });
   maxApi.addHandler("identity", (text) => {
     let next, nextPaths;
     try {

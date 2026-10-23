@@ -278,7 +278,7 @@ test("v2 auxiliary configuration metadata snapshots the same capture Gen through
   );
 });
 
-test("root v2 composition is explicit, leaves raw metadata unbroadcast and preserves exact v1 bytes", () => {
+test("root v2 composition is explicit and preserves v1 bytes except the shared placement watcher", () => {
   const authored = sourceDocuments()["Audio-Listener.maxpat"];
   authored.patcher.boxes.find(({ box }) =>
     box.text?.startsWith("node.script "),
@@ -289,8 +289,16 @@ test("root v2 composition is explicit, leaves raw metadata unbroadcast and prese
   const original = JSON.stringify(authored);
   const options = { runtimeEntry: "audio_listener_native_max.js" };
   const legacy = appendNativeRuntimeGraph(authored, options);
+  const baseline = globalThis.structuredClone(legacy);
+  const identity = baseline.patcher.boxes.find(
+    ({ box }) => box.id === "identity",
+  ).box;
+  assert.equal(identity.text, "js producer_identity_common.js watch");
+  assert.equal(identity.patching_rect[2], 210);
+  identity.text = "js producer_identity_common.js";
+  identity.patching_rect[2] = 180;
   assert.equal(
-    createHash("sha256").update(JSON.stringify(legacy)).digest("hex"),
+    createHash("sha256").update(JSON.stringify(baseline)).digest("hex"),
     "a08db5d0ac32702856db0e9026bc9e4bd20baf0cafa24f781609561b9b1debe6",
   );
   assert.deepEqual(

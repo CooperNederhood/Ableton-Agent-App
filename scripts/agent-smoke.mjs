@@ -85,6 +85,7 @@ try {
       "native-listening",
       "native-listening-descriptive",
       "native-listening-source-investigation",
+      "native-listening-rebinding",
     ].includes(entry.id),
   )) {
     const manifests = await Promise.all(group.scenarios.map(loadManifest));

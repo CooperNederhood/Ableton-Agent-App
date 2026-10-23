@@ -11,6 +11,15 @@ Companion specification:
 
 ## Runtime
 
+- [x] Refresh audio listener placement from its own device anchor, renew
+  authenticated registration on change and fence old native proof/callbacks.
+  Preserve path-derived ID semantics and do not migrate subscriptions by name,
+  old index or numeric-ID coincidence.
+- [x] Cover one-shot MIDI compatibility, changed/unavailable placement,
+  same-class replacement, registration races and exact-generation cleanup.
+- [ ] Qualify insert-before/relisten in an owned Live process and ordinary
+  Desktop approvals; existing user Live currently blocks the isolated gate.
+
 - [ ] Replace the single active signal session with registered agent consumers.
 - [ ] Fan out producer frames to every enabled subscription.
 - [ ] Isolate inboxes, latest windows, acknowledgements, and deduplication.

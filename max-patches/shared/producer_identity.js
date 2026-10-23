@@ -1,4 +1,4 @@
-/* global autowatch: writable, inlets: writable, outlets: writable, LiveAPI, post, outlet, Task */
+/* global autowatch: writable, inlets: writable, outlets: writable, LiveAPI, post, outlet, Task, jsarguments */
 /* eslint no-unused-vars: "off" */
 autowatch = 1;
 inlets = 1;
@@ -8,6 +8,11 @@ var MAX_RETRIES = 20;
 var RETRY_DELAY_MS = 250;
 var generation = 0;
 var retryTask = null;
+var refreshTask = null;
+var lastIdentity = null;
+var watchPlacement =
+  typeof jsarguments !== "undefined" && jsarguments[1] === "watch";
+var REFRESH_DELAY_MS = 500;
 
 function cleanValue(value) {
   if (value === null || value === undefined) {
@@ -137,6 +142,33 @@ function cancelRetry() {
   }
 }
 
+function publishIdentity(identity, force) {
+  var encoded = identity ? JSON.stringify(identity) : null;
+  if (encoded === lastIdentity && !force) return;
+  lastIdentity = encoded;
+  if (encoded !== null) outlet(0, "identity", encoded);
+  else outlet(0, "identity-unavailable");
+}
+
+function refresh(requestGeneration) {
+  if (requestGeneration !== generation) return;
+  refreshTask = null;
+  try {
+    publishIdentity(buildIdentity(), false);
+  } catch (error) {
+    publishIdentity(null, false);
+    post("[producer_identity] placement refresh failed\n");
+  }
+  scheduleRefresh(requestGeneration);
+}
+
+function scheduleRefresh(requestGeneration) {
+  if (!watchPlacement || requestGeneration !== generation || refreshTask)
+    return;
+  refreshTask = new Task(refresh, this, requestGeneration);
+  refreshTask.schedule(REFRESH_DELAY_MS);
+}
+
 function attempt(requestGeneration, retryCount) {
   if (requestGeneration !== generation) {
     return;
@@ -145,7 +177,8 @@ function attempt(requestGeneration, retryCount) {
   var identity = buildIdentity();
   if (identity) {
     retryTask = null;
-    outlet(0, "identity", JSON.stringify(identity));
+    publishIdentity(identity, true);
+    scheduleRefresh(requestGeneration);
     return;
   }
 
@@ -167,8 +200,24 @@ function bang() {
   try {
     generation += 1;
     cancelRetry();
-    attempt(generation, 0);
+    if (refreshTask) {
+      refreshTask.cancel();
+      refreshTask = null;
+    }
+    if (watchPlacement) {
+      var identity = buildIdentity();
+      publishIdentity(identity, true);
+      scheduleRefresh(generation);
+    } else {
+      attempt(generation, 0);
+    }
   } catch (error) {
+    if (watchPlacement) {
+      publishIdentity(null, true);
+      scheduleRefresh(generation);
+      post("[producer_identity] placement unavailable\n");
+      return;
+    }
     post(
       "[midi_capture_identity] " +
         String(error && error.message ? error.message : error) +
@@ -180,4 +229,8 @@ function bang() {
 function notifydeleted() {
   generation += 1;
   cancelRetry();
+  if (refreshTask) {
+    refreshTask.cancel();
+    refreshTask = null;
+  }
 }

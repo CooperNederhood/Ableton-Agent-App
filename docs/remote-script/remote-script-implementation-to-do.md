@@ -167,7 +167,8 @@ Companion specification: [Remote Script](remote-script.md)
   explicit leave-running cleanup policy and no ownership/stop token.
 - [x] Cover changed Set/revision/targets, unknown recording/source state,
   partial mutations, ordering and no rollback using Python and bridge simulators.
-- [ ] Validate guarded Arrangement start against runner-owned Live 11.3.42;
+- [ ] Validate guarded Arrangement start against runner-owned installed Live 11,
+  recording its actual full version (current development host: 11.3.43);
   native capture timing and Session sounding onset remain unverified.
 
 - [x] No model, cloud, MCP, or third-party dependency exists in the script.

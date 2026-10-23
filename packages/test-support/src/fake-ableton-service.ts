@@ -35,7 +35,7 @@ export function defaultFakeState(): FakeAbletonState {
   return {
     status: {
       state: "connected",
-      liveVersion: "12.1",
+      liveVersion: "11.3.43",
       remoteScriptVersion: PRODUCT_VERSIONS.remoteScript,
       liveSetId: "set-fake",
       liveSetName: "Fake Set",
@@ -43,7 +43,7 @@ export function defaultFakeState(): FakeAbletonState {
     },
     capabilities: {
       selectedProtocolVersion: PRODUCT_VERSIONS.protocol,
-      liveVersion: "12.1",
+      liveVersion: "11.3.43",
       remoteScriptVersion: PRODUCT_VERSIONS.remoteScript,
       liveSetId: "set-fake",
       liveSetName: "Fake Set",

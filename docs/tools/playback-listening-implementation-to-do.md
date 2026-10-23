@@ -133,19 +133,43 @@ Merge-blocking review defects and CI failures still require resolution.
   11.3.43: exact stopped Session selection, one actor playback request, exact
   `arrangement_session_override`, no publication, released listener, unchanged
   Set/source and recording state, and complete owned process/fixture cleanup.
-  This is one selected case, not full source-group or 11.3.42 qualification.
+  This is one selected case, not full source-group or other-build qualification.
 - [x] Retain the failed 4-12 baseline (`native_launch_binding_mismatch`) and
   separate 0-4 control (`listening_alignment_budget_exceeded`). Replay the
   control's recorded 65-sample beat disagreement against the unchanged
   64-sample policy; do not assign that cause to the baseline without its
   rejected operands. No failure is relabelled a pass or guard relaxed.
+- [x] Retain previously missing launch-binding operands through the existing
+  bounded alignment diagnostic, preserving `native_launch_binding_mismatch`.
+  The projected start is diagnostic-only, not an accepted capture. Reproduce
+  the missing snapshot before the fix and verify controller/real-SDK failure,
+  attribution, immutable evidence, disarm timeout/confirmation and replacement.
+- [x] Trace the clock graph's offset-zero scheduler sub-vector behavior.
+  Configure v2 clock snapshots from the actual DSP vector's last index before
+  the host bracket; preserve raw inputs, anchor, timing cap, v1 and Gen bytes.
+  The new graph regression fails without the change; all 634 owning Max-patch
+  tests pass with it. This does not yet qualify the change in Live.
+- [x] Build a fresh candidate from the canonical clean authored AMXD, not
+  #58's native output. Retain new candidate/author/clock-graph hashes and the
+  still-unready Set's provenance; reverify all 29 original immutable pins.
+  Pass workspace build and complete quality: 2,394 TypeScript, 634 Max-patch
+  and 215 Python tests, including the 75 targeted ingress/contract cases.
+- [ ] Provision the new candidate's own Set through ordinary Live Save As
+  without XML rewriting, then rerun the failed baseline, source group, broader
+  native selection and visible workflow. Coordinated host-owned Live 19842
+  opened an unknown custom `Untitled` startup Set; non-destructive saving did
+  not persist and discard approval was unavailable. Leave that content intact.
+  The Node host is stopped without signaling Live; the Live slot remains held
+  until safe owned cleanup. Do not modify #58's immutable input or reinterpret
+  its historical proofs as qualification of the new acquisition.
 - [ ] Qualify #57's controlled Arrangement edits and Session takeover/return
   matrix in isolated runner-owned Live, then visually inspect the new refusal
   guidance in an isolated Desktop workflow. Record exact version/hash provenance
   and retain blockers/failures; do not adopt or close a pre-existing user process.
   Positive captures and the remaining owning group are blocked by the retained
-  native launch/alignment failures; visible acceptance and supported 11.3.42
-  qualification remain open. All three observed-run processes/fixtures were
+  native launch/alignment failures; visible acceptance remains open. Record
+  the installed Live 11 development subversion without requiring a downgrade
+  to an uninstalled 11.3.42. All three observed-run processes/fixtures were
   cleaned, the Live slot was released, and the original historical source state
   remains unproven. These runs predate the later main/PR #65 integration and
   are not integrated-head qualification. Keep the PR in draft.

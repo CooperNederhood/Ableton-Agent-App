@@ -7,6 +7,8 @@ const require = createRequire(import.meta.url);
 const { v2Fixture, V2_OWNER } = require("./native-v2-fixture.cjs");
 const { assertNativeCaptureObservationV2 } =
   await import("../../packages/protocol/src/native-listening-v2-schemas.ts");
+const { nativeFailureDiagnosticV2Schema } =
+  await import("../../packages/signal-routing/src/listener-v2-contracts.ts");
 
 const recorded = [
   {
@@ -180,6 +182,63 @@ test("a changing but incorrect launch phase is not excused as stopped-phase acqu
         event.reason === "listening_alignment_budget_exceeded",
     ),
   );
+});
+
+test("a refused launch retains its projected origin and exact clock operands without granting capture authority", async () => {
+  const f = await armedFixture();
+  const p = f.controller.pass;
+  const anchor = p.anchorClock;
+  const row = f.clock(f.origin + 640);
+  row[1] += 128 / 24000;
+  row[8] = row[1];
+  row[5] = row[1] % 1;
+  f.packet("clock", row);
+  f.packet("envelope", f.envelope());
+  const failed = f.events.find(
+    (event) => event.type === "terminal" && event.status === "failed",
+  );
+  assert(failed);
+  assert.equal(failed.reason, "native_launch_binding_mismatch");
+  const diagnostic = nativeFailureDiagnosticV2Schema.parse(
+    failed.nativeFailureDiagnostic,
+  );
+  assert.equal(diagnostic.scope, "native-alignment-rejection/v1");
+  assert.equal(diagnostic.check, "launch-alignment");
+  assert.equal(diagnostic.generation, p.generation);
+  assert.equal(diagnostic.startSample, f.origin + p.anchorHostOffset);
+  assert.deepEqual(diagnostic.rejectedClock, row);
+  assert.deepEqual(diagnostic.anchorClock, anchor);
+  assert.deepEqual(diagnostic.policy, f.timingPolicy);
+  assert.deepEqual(diagnostic.measurements, {
+    observedClockDisagreementSamples: 0,
+    observedBeatDisagreementSamples: 128,
+  });
+  assert.equal(failed.nativeCapture, undefined);
+  assert.equal(failed.observation, null);
+  assert.equal(f.controller.engine.pass, null);
+  assert.equal(f.events.filter((event) => event.type === "terminal").length, 1);
+  const lifecycleFailure = f.events.find(
+    (event) =>
+      event.type === "native-capture-stage" && event.stage === "failed",
+  );
+  assert(lifecycleFailure);
+  assert.equal(lifecycleFailure.traceId, f.command.traceId);
+  assert.equal(lifecycleFailure.correlationId, f.command.correlationId);
+  assert.equal(lifecycleFailure.passId, f.command.passId);
+  assert(lifecycleFailure.elapsedMs >= 0);
+  assert(Object.isFrozen(p.nativeFailureDiagnostic));
+  row[2]++;
+  assert.notEqual(p.nativeFailureDiagnostic.rejectedClock[2], row[2]);
+  f.packet("stopped", [0, 0, 2], p.generation);
+  assert.equal(f.controller.pendingDisarm, null);
+  f.controller.prepare({ ...f.command, passId: "after-failed-launch" });
+  const replacement = f.controller.pass;
+  assert.notEqual(replacement.generation, p.generation);
+  assert.equal(replacement.nativeFailureDiagnostic, null);
+  f.packet("clock", row, p.generation);
+  assert.equal(replacement.nativeFailureDiagnostic, null);
+  f.controller.cancel({ ...V2_OWNER, passId: "after-failed-launch" });
+  f.packet("stopped", [0, 0, 2], replacement.generation);
 });
 
 test("strict-zero still rejects host-clock drift during launch acquisition", async () => {

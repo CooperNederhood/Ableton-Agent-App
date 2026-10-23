@@ -292,8 +292,10 @@ one four-beat Session source on the listener track and no Arrangement clip at
 beat 128. The candidate includes #58's epoch-handoff fix; that provenance is
 retained rather than treating it as a newly authored candidate from this branch.
 Each actual run opened a byte-for-byte runner-owned copy with this branch's
-fresh Remote Script 0.7.0/protocol 7. The installed host remains 11.3.43, not the
-supported 11.3.42 target.
+fresh Remote Script 0.7.0/protocol 7. These are development observations on the
+installed Live 11.3.43 host; full subversions are retained, not treated as
+interchangeable evidence. Development does not require downgrading to the
+previously recorded 11.3.42 installation. Live 12 remains unsupported.
 
 | Observed-host run | Result |
 | --- | --- |
@@ -315,9 +317,9 @@ up, and independent process inspection confirmed absence before slot release.
 No pre-existing process or original Set was adopted or changed; existing
 Remote Script authentication was preserved. Raw Set/audio and private profile
 paths were not uploaded. Positive capture, Arrangement-edit/explicit-return
-group completion, visible cross-app acceptance and supported 11.3.42
-qualification remain open. The PR stays draft; native timing failures remain
-merge blockers rather than being repaired or weakened within source diagnosis.
+group completion and visible cross-app acceptance remain open. The PR stays
+draft. Native timing failures remain merge blockers and active debugging work,
+not a reason to stop after documenting the source distinction.
 
 Native v2 failure snapshots now use the existing generation-owned
 `nativeFailureDiagnostic` route for alignment and FFT sequence rejections.
@@ -330,6 +332,47 @@ legacy v1 and the 128 KiB frame ceiling are unchanged. Cleanup preserves the
 first failure snapshot without allowing another generation to inherit it.
 These snapshots enabled the following recorded-data fixes; historical failures
 without rejected operands cannot be retroactively assigned the same cause.
+
+Native launch-binding refusals also retain the existing alignment snapshot,
+with `check: "launch-alignment"` and the unchanged public
+`native_launch_binding_mismatch` reason. Here `startSample` is the rejected
+projection computed from the validated arm/launch marker and frozen offset,
+not an accepted launch or capture. Clock witnesses and disagreement
+measurements use the same calculation as the enforcing validator. No new wire
+fields, successful-capture authority, frame allowance or timing tolerance are
+introduced. Controller and real-SDK regressions cover the missing diagnostic,
+trace attribution, immutable operands, no publication, disarm confirmation or
+timeout, cancellation and replacement-generation isolation.
+
+The #57 timing investigation also identified a clock-acquisition hazard:
+[`snapshot~`](https://docs.cycling74.com/reference/snapshot~/) with offset zero
+can select the scheduler's sub-vector sample when Scheduler in Audio Interrupt
+is enabled, while the bracketed host clock reports a buffer-boundary position.
+The opt-in v2 clock graph now configures its MC snapshot to the actual DSP
+vector size minus one before each bracket. This reads the latest available
+sample rather than rewriting clock values, selecting a more favorable anchor
+or discarding disagreement witnesses. Default/v1 and descriptor sampling,
+Gen algorithms, bracket duplication, the frozen anchor and strict-zero/default64
+limits remain unchanged. Graph regressions pass; fresh immutable-candidate
+real-Live qualification of this acquisition change is still pending.
+
+The continuation passes a fresh workspace build and the full quality gate:
+2,394 TypeScript tests, 634 Max-patch tests and 215 Python tests, including
+75 targeted typed-ingress/contract cases. A new candidate was authored from the
+canonical clean `Machine-Listening-Development.amxd`, rather than repackaging
+#58's native output. Its copied Set still needs ordinary Save As to establish
+owned references before it can become a qualified fixture; no XML was rewritten.
+All 29 original source/candidate/manifest/audio pins were reverified unchanged.
+
+The coordinated provisioning host launched exact-owned Live PID 19842, which
+opened a custom, music-filled `Untitled` startup Set. Non-destructive Save As
+attempts did not persist, and explicit discard authorization was unavailable.
+No startup content was discarded, no fixture capture was attempted, and no
+current-head Live success is claimed. The exact-owned Node controller was
+stopped without invoking its Live-quit handler; Live remains open for the user
+to preserve or explicitly authorize discarding that Set. The Live slot is
+**not released** while that process remains. This is a safety/precondition
+blocker, not completed timing repair or permission to merge the draft.
 
 A capture-only read-pressure diagnostic reproduced a 65-sample rejection:
 the initial host/native offset was -1, and a later host sample/beat pair was

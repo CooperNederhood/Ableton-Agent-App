@@ -90,7 +90,7 @@ Merge-blocking review defects and CI failures still require resolution.
   diagnose the separate initial `arrangement_source_unknown` rejection.
   The runtime guard rejects a listener whose Session override is not explicitly
   false; retained failure events do not establish whether it was true or unknown.
-- [ ] Follow-up [#58](https://github.com/CooperNederhood/Ableton-Agent-App/issues/58):
+- [x] Follow-up [#58](https://github.com/CooperNederhood/Ableton-Agent-App/issues/58):
   reproduce and resolve listener binding after device-chain edits. Retained
   inspection shows the same enabled Max listener at device index 1 after a
   Delay at index 0, but discovery is unresolved and the next pass fails with
@@ -116,13 +116,14 @@ Merge-blocking review defects and CI failures still require resolution.
     initial epochs and exhaustion remain fail-closed; the full Max suite passes
     639 tests. Post-edit inspection uses the existing bounded 32-parameter
     limit without allowing truncated chains.
-  - [x] Expand deterministic validation to the full TypeScript suite (2,266),
-    Max suite (637), Python suite (214), all-workspace typecheck and the isolated
-    Electron recovery regression. Repository formatting, changed-file lint,
-    documentation, protocol contracts and ownership checks pass.
-    A rebuilt isolated rerun also passes all 12 Electron cases and full repository
-    lint. Earlier startup/Settings failures remain retained as failed attempts,
-    not deleted evidence or real-Live acceptance.
+  - [x] Expand deterministic validation to the full merged-source TypeScript
+    suite (2,360), Max suite (639), Python suite (214), all-workspace typecheck
+    and the isolated Electron recovery regression. Workspace build and complete
+    `check:quality` pass, including repository formatting, full lint,
+    documentation, authored packages, versions, protocol contracts and test
+    ownership. The rebuilt merged-source isolated Electron suite passes all
+    12 cases. Earlier startup/Settings failures remain retained as failed
+    attempts, not deleted evidence or real-Live acceptance.
   - [x] Pass the focused two-capture scenario and its separate fresh-process
     owning group on installed Live 11.3.43 (2026-10-23). Each verifies two fresh
     native proofs, the same actual listener at index 1, exactly one Delay at
@@ -138,14 +139,20 @@ Merge-blocking review defects and CI failures still require resolution.
     listener; the saved validation Set and exact process cleanup are confirmed.
     Retain the edit turn's unrelated invalid transport `stop` probe before its
     approved `set-playing:false`; do not claim an error-free general workflow.
-  - [ ] Complete remaining smoke selection.
-    This branch's 18-scenario non-native selection qualified ten scenarios
-    (nine pass, one recovered-pass), then stopped at the existing Session
-    lifecycle guard denial: the actor supplied the clip's name instead of the
-    containing track's `expectedName`. The denial and partial-mutation evidence
-    remain retained; exact-owned cleanup completed. The shared metadata/prompt
-    correction is owned by #56 and is not on this branch's base. Its separate
-    branch results are not counted as this branch's passes.
+  - [x] Complete remaining non-native smoke selection after merging #65.
+    Checkpoint `8d5b935` preserves the native fix; merge `aff6742` consumes
+    main's `f23ec65` without conflicts. This branch's fresh Session lifecycle
+    focused run (`cbdc7699`) and Session group (`c274539c`) qualify, followed by
+    all 17 remaining scenarios (`722183c1`). Across the group and remaining
+    selection, all 19 non-native cases qualify (15 pass, four recovered-pass),
+    with every deterministic postcondition passing and zero approval denials
+    or policy violations. Recovered invalid-argument probes remain in traces;
+    they are not error-free passes. No guard, allowlist or budget was relaxed.
+    All exact-owned cleanup receipts pass, including final PID 89074, and the
+    canonical independent process check confirms no Live remains. The earlier
+    18-scenario attempt's wrong-track-name denial and partial mutations remain
+    retained; separate #56 branch results are not counted as this branch's.
+  - [ ] Qualify the exact supported Live version.
     Supported Live 11.3.42 qualification remains separate: only 11.3.43 is
     installed, and the successful empirical results above do not certify 11.3.42.
 - [ ] Follow-up [#59](https://github.com/CooperNederhood/Ableton-Agent-App/issues/59):

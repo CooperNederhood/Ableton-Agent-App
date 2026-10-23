@@ -1436,12 +1436,25 @@ Delay followed by the same enabled listener. The validation-only Set was saved,
 and the owned Desktop/Live processes closed without discarding changes.
 The visible edit turn retained an invalid `ableton_transport` action `stop`
 probe before the correct approved `set-playing:false`; this is not a claim of
-an error-free general agent workflow. Remaining broader smoke selection and
-supported Live 11.3.42 qualification are outstanding. Installed 11.3.43 results
-do not certify 11.3.42. This branch's remaining non-native selection qualified
-ten scenarios before the existing Session lifecycle wrong-track-name approval
-denial; the shared catalog/prompt correction is owned by #56, not silently
-included or claimed as passing here. Exact-owned cleanup completed.
+an error-free general agent workflow.
+
+After preserving this implementation in `8d5b935`, merge `aff6742` incorporates
+main's #65 (`f23ec65`) containing-track identity guidance and reviewed smoke
+ordering/completion corrections without conflicts. Fresh evidence on this
+merged branch qualifies the previously denied Session lifecycle standalone
+(`cbdc7699`), its complete Session group (`c274539c`), then the 17 remaining
+non-native scenarios (`722183c1`). All 19 non-native cases qualify across the
+group and remaining selection: 15 pass and four recovered-pass, with all
+deterministic postconditions passing, zero approval denials and no policy
+violations. Recovered invalid-argument probes remain retained; guards,
+allowlists and budgets are unchanged. All exact-owned processes close and a
+canonical independent process check confirms no Live remains. These are this
+branch's results, not borrowed #56 qualification. The earlier ten-case partial
+run and Session wrong-track-name denial remain retained as failed evidence.
+The native focused/group/visible evidence above predates the main merge;
+the subsequent non-native run does not claim new native qualification.
+Supported Live 11.3.42 qualification remains outstanding: installed 11.3.43
+results do not certify 11.3.42.
 The historical issue's exact failing
 registration was not retained, so these regressions do not retroactively prove
 that run's precise cause.

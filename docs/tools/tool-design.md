@@ -258,6 +258,13 @@ Session MIDI clips use `create-midi` with the inspected track's direct
 identity. Corrective failures preserve the strict action enum and branch
 shape; descriptions emphasize valid next calls rather than guessed aliases.
 
+For every Session clip action, `index`, `expectedReference`, and `expectedName`
+identify the containing track, not the clip. In particular, `expectedName` is
+the inspected track name even after a clip is renamed; `expectedClipReference`
+identifies an existing clip. The tool description and each action's SDK-visible
+`expectedName` field metadata state that distinction. These annotations do not
+change accepted arguments, action scopes, handlers, or approval guards.
+
 ### Transport discoverability and restricted scopes
 
 `ableton_transport` explicitly advertises playback start/stop, tempo and

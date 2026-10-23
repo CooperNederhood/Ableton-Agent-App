@@ -60,6 +60,13 @@ Companion specification: [Tool Design](tool-design.md)
   - [x] Give grouped device and Session clip tools affirmative, action-specific
     guidance for Drum Rack pads, MIDI creation, explicit note-expression loss,
     and exact inspected parameter identity.
+  - [x] Clarify containing-track `expectedName` in the Session clip tool
+    description and field metadata for every action, including launch and
+    post-rename operations. Preserve the original string constraints and all
+    guards; regress SDK serialization for full and launch-only registration.
+  - [ ] Qualify that identity guidance against the previously failing real
+    Session clip lifecycle, then its complete group and remaining runnable
+    suite. Synthetic guidance assertions alone do not prove model selection.
   - [x] Advertise existing transport playback start/stop with explicit
     `set-playing` / `isPlaying: false` and `true`, tempo and Arrangement looping.
     Generate transport descriptions from the permitted operation/capability

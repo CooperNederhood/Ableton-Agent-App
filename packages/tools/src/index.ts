@@ -1203,7 +1203,7 @@ Select only needed columns; filter narrowly by Live Set, time range, and IDs usi
   });
   const sessionClipsTool = defineTool("ableton_session_clips", {
     description:
-      "Use action 'create-midi' to create a MIDI clip in an empty Session View slot on an inspected track; use 'replace-notes' to replace notes in an exact clip. Use 'launch', 'duplicate', 'delete', or 'set-properties' for existing clips.",
+      "Use action 'create-midi' to create a MIDI clip in an empty Session View slot on an inspected track; use 'replace-notes' to replace notes in an exact clip. Use 'launch', 'duplicate', 'delete', or 'set-properties' for existing clips. For every action, expectedName is the containing track's name, never the clip's name. Copy index and expectedReference from that same inspected track; expectedClipReference identifies the existing clip.",
     parameters: abletonSessionClipsParamsSchema,
     handler: async (params) => {
       switch (params.action) {

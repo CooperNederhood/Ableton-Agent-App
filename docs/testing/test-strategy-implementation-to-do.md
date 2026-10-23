@@ -150,13 +150,27 @@ Companion specification: [Test Strategy](test-strategy.md)
     Seven later non-native scenarios remain unexecuted in this qualification.
     Native listening groups require separate version-pinned fixture inputs and
     are not claimed as executed by #56.
+  - [x] Reproduce missing Session clip containing-track identity guidance and
+    inconsistent lifecycle opening-prompt order before fixing them. Four
+    assertions fail without the fix; the original clip-name launch guard still
+    rejects the observed bad argument. Clarify metadata for all six actions and
+    align the reviewed opening request with the existing enforced order,
+    without changing validation constraints, guards, budgets or handlers.
+    All 497 owning tool/application/CLI/runner tests, build and affected package
+    typechecks pass after the fix. The complete serialized TypeScript suite
+    passes all 2316 tests; changed-source lint, docs and protocol contracts pass.
+  - [ ] Rerun the failing Session lifecycle, its complete group and seven
+    remaining non-native scenarios after the guidance fix. Acquire a fresh
+    explicit Live slot only after #58 releases its current ownership. Prior
+    failures remain evidence; do not claim a complete real-Live suite pass
+    from unit/SDK registration tests.
   - [x] Run the broad repository quality components for #56.
     Build, repository formatting, full `pnpm lint`, all workspace/Electron-test
     typechecks and static/device/contract checks pass. Independent stop-harness
     review found no significant issues; Max patch tests (631), Python tests
     (212), and isolated non-Live Electron tests (12) pass. The final TypeScript
-    suite, including the new framing regressions, passes all 2312 tests in
-    136 files with
+    suite, including framing and Session identity regressions, passes all 2316
+    tests in 136 files with
     `pnpm exec vitest run --maxWorkers=1`, without changing deadlines or retries.
     Earlier concurrent runs timed out in unchanged reasoning-visibility and
     native-v2 cases, and an earlier broad lint run was stopped after prolonged

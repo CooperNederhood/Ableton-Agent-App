@@ -1439,6 +1439,9 @@ describe("Ableton tools", () => {
     expect(devices.description).toContain("inspect-drum-rack-pads");
     expect(sessionClips.description).toContain("create-midi");
     expect(sessionClips.description).toContain("replace-notes");
+    expect(sessionClips.description).toContain(
+      "expectedName is the containing track's name, never the clip's name",
+    );
 
     const branch = (tool: Tool, action: string) => {
       const schema = (
@@ -1460,6 +1463,25 @@ describe("Ableton tools", () => {
     expect(createMidi?.description).toContain("sceneIndex and length");
     const duplicate = branch(sessionClips, "duplicate");
     expect(duplicate?.description).toContain("destinationTrackIndex");
+    for (const action of [
+      "create-midi",
+      "replace-notes",
+      "launch",
+      "duplicate",
+      "delete",
+      "set-properties",
+    ]) {
+      const fields = branch(sessionClips, action)?.properties as Record<
+        string,
+        Record<string, unknown>
+      >;
+      expect(fields.expectedName?.description, action).toContain(
+        "containing track",
+      );
+      expect(fields.expectedName?.description, action).toContain(
+        "not the clip",
+      );
+    }
     const replaceNotes = branch(sessionClips, "replace-notes");
     const properties = replaceNotes?.properties as Record<
       string,

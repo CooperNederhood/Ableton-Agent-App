@@ -879,6 +879,61 @@ describe("integration scenarios", () => {
     );
   });
 
+  it("states the enforced Session lifecycle order in its reviewed opening request", async () => {
+    const manifest = await loadScenarioManifest("session-clip-lifecycle");
+    expect(manifest.prompt).toBe(
+      "Create a temporary Session MIDI clip, launch it, stop playback, update its properties, duplicate it, then delete the generated clips and track so the Set returns to its original state.",
+    );
+  });
+
+  it("rejects a clip name in the launch track guard without consuming the stop step", async () => {
+    const context = createScenarioRunContext(
+      await loadScenarioManifest("session-clip-lifecycle"),
+    );
+    const trackName = context.trackNames[0]!;
+    const clipName = context.clipNames[0]!;
+    expect(
+      await context.approvals.request(
+        request("ableton_tracks", "reversible", {
+          action: "create",
+          kind: "midi",
+          name: trackName,
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      await context.approvals.request(
+        request("ableton_session_clips", "reversible", {
+          action: "create-midi",
+          expectedName: trackName,
+          name: clipName,
+          sceneIndex: 4,
+          length: 4,
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      await context.approvals.request(
+        request("ableton_session_clips", "reversible", {
+          action: "launch",
+          expectedName: clipName,
+          sceneIndex: 4,
+        }),
+      ),
+    ).toBe(false);
+    expect(context.approvals.decisions.at(-1)?.reason).toBe(
+      "argument_guard_rejected",
+    );
+    expect(
+      await context.approvals.request(
+        request("ableton_transport", "reversible", {
+          action: "set-playing",
+          isPlaying: false,
+        }),
+      ),
+    ).toBe(false);
+  });
+
   it("loads Arrangement lifecycle manifests with exact prompts", async () => {
     const arrangement = await loadScenarioManifest(
       "arrangement-clip-lifecycle",

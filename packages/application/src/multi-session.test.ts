@@ -332,6 +332,87 @@ function modelInfo(id: string, overrides: Partial<ModelInfo> = {}): ModelInfo {
 }
 
 describe("CopilotAgentService managed sessions", () => {
+  it.each([
+    { label: "full", operations: undefined, actionCount: 6 },
+    { label: "launch-only", operations: ["clips.launch"], actionCount: 1 },
+  ])(
+    "registers containing-track Session clip guidance with the SDK ($label)",
+    async ({ operations, actionCount }) => {
+      const configs: SessionConfig[] = [];
+      const service = new CopilotAgentService(
+        baseOptions({
+          clientFactory: () => ({
+            createSession: vi.fn(async (config: SessionConfig) => {
+              configs.push(config);
+              return createFakeSession(`session-clips-${configs.length}`);
+            }),
+            resumeSession: vi.fn(async () => {
+              throw new Error("unused");
+            }),
+            stop: vi.fn(async () => undefined),
+          }),
+        }),
+      );
+      try {
+        await service.start();
+        await service.createManagedAgent(
+          configuration("session-clips", {
+            resolvedTools: ["ableton_session_clips"],
+            ...(operations === undefined
+              ? {}
+              : { resolvedOperations: operations }),
+          }),
+        );
+        const tool = configs
+          .at(-1)
+          ?.tools?.find(
+            (candidate) => candidate.name === "ableton_session_clips",
+          );
+        expect(tool).toBeDefined();
+        const parameters = tool?.parameters as {
+          toJSONSchema(): Record<string, unknown>;
+        };
+        const wire = JSON.parse(
+          JSON.stringify({
+            description: tool?.description,
+            parameters: parameters.toJSONSchema(),
+          }),
+        ) as {
+          description: string;
+          parameters: {
+            properties: {
+              expectedName?: { description?: string };
+              action: { enum?: string[]; const?: string };
+            };
+            oneOf?: Array<{
+              properties: { expectedName: { description?: string } };
+            }>;
+          };
+        };
+        expect(wire.description).toContain(
+          "expectedName is the containing track's name, never the clip's name",
+        );
+        const actions = wire.parameters.properties.action.enum ?? [
+          wire.parameters.properties.action.const,
+        ];
+        expect(actions).toHaveLength(actionCount);
+        if (operations !== undefined) expect(actions).toEqual(["launch"]);
+        const declarations = wire.parameters.oneOf ?? [wire.parameters];
+        expect(declarations).toHaveLength(actionCount);
+        for (const branch of declarations) {
+          expect(branch.properties.expectedName?.description).toContain(
+            "containing track",
+          );
+          expect(branch.properties.expectedName?.description).toContain(
+            "not the clip",
+          );
+        }
+      } finally {
+        await service.stop();
+      }
+    },
+  );
+
   it.each(
     [
       { label: "full", operations: undefined, actions: undefined },

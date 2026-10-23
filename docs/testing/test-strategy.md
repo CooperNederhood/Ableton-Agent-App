@@ -182,6 +182,23 @@ user Live process blocks both checks; never reuse or terminate it. Implemented
 description/SDK contracts and synthetic verifier tests are not proof of real
 agent action selection.
 
+#### Session clip lifecycle consistency
+
+The reviewed `session-clip-lifecycle` request and its detailed instructions
+must agree with the existing guarded order: create the source, launch it,
+stop transport, change properties, duplicate, then delete the generated clips
+and track. Do not ask for properties/duplication before launch while enforcing
+the reverse order. Existing identity, zero-based scene indices, risk classes,
+ordering constraints, mutation budgets and unchanged-Set assertions remain
+authoritative.
+
+All Session clip actions use `expectedName` for the containing track, never
+the clip name. Regress that distinction in the tool description, every
+action's serialized parameter metadata, full and restricted SDK registration,
+and approval rejection of a clip name in the track-name field. Retain prior
+failed runs; do not broaden guards or treat corrected guidance as empirical
+acceptance before rerunning the failed scenario and complete owning group.
+
 ### Electron end-to-end tests
 
 Critical workflows:

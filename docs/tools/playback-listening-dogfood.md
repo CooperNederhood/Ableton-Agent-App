@@ -451,7 +451,7 @@ result; do not rely on the assistant's wording alone.
 | Device caption | The development device still displays a prototype "Capture not enabled yet" caption even though the per-pass v2 path can complete. Treat the App's authenticated discovery/pass result as authoritative; the static caption is not a live readiness indicator or a release certification. |
 | Portability | Save, close and reopen a copied project with its device resources. Missing JS/Gen/audio dependencies, reconnect failures and stale device bindings are priority bugs. |
 | Rate/vector settings | Controlled positive evidence is currently 48 kHz/vector 64. Try 44.1 kHz and other practical buffer/vector settings separately and record the actual settings. Intended support and unit coverage are not physical qualification of every combination. |
-| Live patch version | Current physical evidence is Live 11.3.43; the contextual target 11.3.42 is not separately qualified. Live 12 is outside scope. |
+| Live patch version | Support targets Live 11; current development and physical evidence use installed Suite 11.3.43 on Apple Silicon. Record the actual full version after updates, but do not block dogfooding or require a downgrade solely for a patch change. Live 12 is outside scope. |
 | Diagnostic completeness | The newest controlled capture succeeded but its typed History had no source write-backpressure lifecycle rows, only an explicit unknown-coverage disconnect. Whether callbacks/backpressure actually occurred is unproven. This is a documented diagnostic uncertainty, not proof audio capture failed. |
 
 Stop normal dogfooding and prioritize a fix for wrong-target capture, unintended

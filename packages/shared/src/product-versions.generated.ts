@@ -7,6 +7,5 @@ export const PRODUCT_VERSIONS = {
   minimumRemoteScript: "0.6.0",
   supportedLive: {
     "11": "11.3.0",
-    "12": "12.0.0",
   },
 } as const;

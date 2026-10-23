@@ -152,9 +152,11 @@ Merge-blocking review defects and CI failures still require resolution.
     canonical independent process check confirms no Live remains. The earlier
     18-scenario attempt's wrong-track-name denial and partial mutations remain
     retained; separate #56 branch results are not counted as this branch's.
-  - [ ] Qualify the exact supported Live version.
-    Supported Live 11.3.42 qualification remains separate: only 11.3.43 is
-    installed, and the successful empirical results above do not certify 11.3.42.
+  - [x] Record actual Live version provenance without a patch-version gate.
+    Live 11 is the support boundary; current development and the successful
+    empirical results above use installed Suite 11.3.43 on Apple Silicon.
+    Track automatic patch changes in receipts; no uninstalled 11.3.42
+    qualification or downgrade is required to complete development.
 - [ ] Follow-up [#59](https://github.com/CooperNederhood/Ableton-Agent-App/issues/59):
   qualify controlled edits and recovery in one runner-owned Live process,
   plus three clean fresh-process packaged workflows for the changed native
@@ -307,7 +309,7 @@ behavior.
   and reopen without recapture. This is human-reported desktop acceptance,
   separate from the independently verified isolated runs. Static M4L
   development-panel wording remains a known limitation; release and
-  Live 11.3.42-specific qualification remain separate.
+  broader host/source qualification remain separate.
 
 The user-approved target is a usable developer build plus documented weak spots,
 not exhaustive certification. See the
@@ -1076,7 +1078,7 @@ Arrangement capture/publication, resume and release acceptance remain open.
   before enabling capture; engineering collector events do not complete this.
 
 Actual latest host version is Live 11.3.43, independently read from its bundle;
-the 48 kHz/vector-64 subset does not separately qualify 11.3.42. The export's
+the 48 kHz/vector-64 subset does not qualify every host configuration. The export's
 two reserved FFT fields are uncollected placeholders. Production readiness and
 packaging remain unchanged, with no certificate-file bypass. The original
 first-window discrepancy's host-processing mechanism is still unverified.
@@ -1159,7 +1161,8 @@ coverage do not replace real installed-device/Live validation.
 - [ ] Reconcile provider limits and physical-ID/bridge-reference binding.
 - [ ] Verify idle/error/cancel/disconnect pass-through and watchdog cleanup.
 - [x] Consume shared generated profile discovery configuration in staged artifacts.
-- [ ] Validate Live 11.3.42/Max/Apple Silicon versions and measured resource cost.
+- [ ] Record installed Live 11/Max/Apple Silicon versions and validate measured
+  resource cost without requiring a fixed Live patch.
 - [ ] Promote/install explicitly without a production MCP dependency.
 
 The candidate builder supports `check`, `build --out <directory>`,
@@ -1403,7 +1406,7 @@ checkpoint above. The production timing gate is unchanged.
 - [x] Qualify fresh installed Python source start on owned Live 11.3.43:
   guarded source acknowledgement plus independent measured native launch and
   complete capture succeed. Preserve all guards and the original saved Set.
-  This is not exact supported 11.3.42 qualification.
+  Retain the actual host version rather than claiming all Live 11 patches tested.
 - [x] Contrast actual marker-zero Max `start_playing` with the prior continue
   behavior: observed running beat12.866375 after6.460 seconds, not the old
   stop above13931. Preserve unchanged marker, exact one-helper cleanup and
@@ -1504,8 +1507,8 @@ power bounds; split-word bounds passed without widening validity. In-place
 native reload yielded zero snapshots/lost diagnostic cables and is denied by
 the engineering wrapper, not reported as a successful deployment. Recreate
 the owned probe with fresh staged resources instead. Production readiness and
-resources are unchanged; the running host is 11.3.43, not separately qualified
-11.3.42.
+resources are unchanged; the running host is 11.3.43, retained as the exact
+version for this evidence.
 
 ## Application context
 

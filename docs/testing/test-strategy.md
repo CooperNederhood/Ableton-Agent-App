@@ -2,6 +2,14 @@
 
 ## Test classifications and quality gates
 
+Support targets Live 11, not an exact patch version. Current development and
+real-host testing use installed Suite 11.3.43 on Apple Silicon. Record the full
+actual Live version in validation evidence, preserving older receipts unchanged
+and tracking changes after automatic updates. A changed Live 11 patch alone is
+not a blocker and does not require downgrade or qualification of an uninstalled
+older patch. Investigate actual regressions and capability failures; evidence
+for one host does not prove every Live 11 configuration. Live 12 is outside scope.
+
 Tests use filename and command-level classifications:
 
 - `*.test.ts` for deterministic unit and package integration tests.

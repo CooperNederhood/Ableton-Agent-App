@@ -270,7 +270,7 @@ Likely files:
   existing full validation before merge.
 
 The real-Live scenarios above are the manual acceptance suite for a supported
-Live 11.3+ or 12.x installation. They require installing the updated Remote
+Live 11 installation (existing API baseline: 11.3+). They require installing the updated Remote
 Script and restarting Live; automated tests cover the same normalization,
 ordering, reconnect, invalidation, and cleanup contracts without controlling
 the Ableton application lifecycle.

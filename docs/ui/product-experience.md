@@ -305,7 +305,7 @@ Every mutation operation should expose:
 The terminal client should preserve the essential interaction model:
 
 ```text
-Ableton: connected · Live 12.1 · Project "Sketch 04"
+Ableton: connected · Live 11.3.43 · Project "Sketch 04"
 Agent: Arrange
 
 You: turn the selected four-bar loop into a 16-bar intro

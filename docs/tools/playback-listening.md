@@ -29,8 +29,9 @@ checks; the further qualification below is explicitly follow-up work.
 
 The evidence below is retained with its original scope. Deferred qualification
 is not relabelled passed, and historical receipts do not certify a changed
-candidate. Real-Live validation used installed 11.3.43; the supported target
-remains Live Suite 11.3.42 on Apple Silicon.
+candidate. Real-Live validation used installed Suite 11.3.43 on Apple Silicon,
+the current development host. Support targets Live 11, not one patch version;
+record actual versions after automatic updates without requiring an older patch.
 
 ### Milestone branch review
 
@@ -318,7 +319,7 @@ attacks. Actual native proof independently satisfies the App boundary.
 This establishes the bounded capture-to-context prototype, not production
 readiness or exclusive clip attribution. Exact typed retrieval also survives
 Desktop process restart without another capture. Runner-native acceptance,
-the broader host/source matrix and supported 11.3.42 remain open.
+the broader host/source matrix remain open.
 The actual host is 11.3.43.
 
 The earlier [implementation checkpoint and regression
@@ -475,7 +476,7 @@ the previous stopped position above beat 827. The probe restored marker 128,
 the exact previous stopped position and stopped transport before closing owned
 PID 85822; installed Remote Script source was restored byte-for-byte. This is
 capability evidence, not independently measured source onset or native capture
-acceptance, and does not qualify 11.3.42.
+acceptance.
 
 The first probe guard incorrectly required the display name `Untitled`; Live's
 native name for this unsaved Set was empty. The denied, non-mutating inventory
@@ -779,7 +780,7 @@ qualify subsequent epoch-guard changes. The combined bounded record is
 `fixtures/native-v2-coupled-guard-observation.json`. Forced failure at 900 ms,
 zero measurement admission/native arm/playback/context, removal of the private
 callback, and exact-owned process/fixture/original-pin cleanup all succeeded.
-Idle FFT publication does not qualify an armed passage capture or Live11.3.42.
+Idle FFT publication does not qualify an armed passage capture.
 
 The directly coupled v2 envelope correction now replaces its local-clock cap
 with the same bounded-word saturation, evaluated after any epoch reset.
@@ -1453,8 +1454,9 @@ branch's results, not borrowed #56 qualification. The earlier ten-case partial
 run and Session wrong-track-name denial remain retained as failed evidence.
 The native focused/group/visible evidence above predates the main merge;
 the subsequent non-native run does not claim new native qualification.
-Supported Live 11.3.42 qualification remains outstanding: installed 11.3.43
-results do not certify 11.3.42.
+Live 11 is the support boundary. The installed 11.3.43 results document that
+host; an uninstalled 11.3.42 is not a separate development gate. Track future
+patch changes in receipts without assuming every patch has been tested.
 The historical issue's exact failing
 registration was not retained, so these regressions do not retroactively prove
 that run's precise cause.
@@ -2208,7 +2210,7 @@ FFT fields in its seven-field export are zero placeholders, **not collected
 spectral data**. Global host anchoring, FFT/report/reset alignment, full native
 source coverage, actual App capture/publication/resume, pass-through/resource
 cost and portable release remain open. The installed host was independently
-read as 11.3.43; this is not a separate 11.3.42 qualification. Production has no
+read as 11.3.43; retain that exact host provenance. Production has no
 certificate-file loader, remains timing-denied, and does not package this probe.
 
 ### Independent host and tagged FFT experiment
@@ -2646,7 +2648,7 @@ The operator subsequently saved a separate
 `Machine-Listening-Native-SDK-Calibration.als` with both effects, preserving the
 original one-effect Set. Installed guard source hashes match the checkpoint;
 a fresh runner-owned `capability-surface` baseline passes on Live 11.3.43.
-That baseline does not qualify native capture or the exact supported 11.3.42.
+That baseline does not qualify native capture.
 The reopened copy again establishes two authenticated listener instances,
 stopped beat zero, tempo 120 and clear global override.
 
@@ -2994,7 +2996,8 @@ recording/export, save or promotion.
 This validates only the recorded scoped pass, not cached readiness. The
 engineering adapter still recorded its arm reply locally: authenticated wire
 delivery, real tool/context publication and resume retrieval remain open.
-The installed Live 11.3.43 is not separate qualification of supported 11.3.42.
+The observed host version is Live 11.3.43; this receipt does not certify other
+patch versions.
 
 ### Executed native message graph
 

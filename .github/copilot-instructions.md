@@ -72,4 +72,10 @@
 
 # Background About Ableton
 
-- This project supports Ableton 11 **only** and we have no current plan to support 12. Project uses Ableton Suite 11.3.42 on Apple Silicon.
+- This project supports Ableton Live 11 **only**, not Live 12. Current development
+  and real-host testing use installed Ableton Live Suite 11.3.43 on Apple Silicon.
+  Record the actual full Live version in validation evidence and track changes
+  after automatic updates. The installed patch version is not a support pin:
+  do not require an older patch, downgrade, or block work solely because a Live
+  11 patch changed. Preserve historical version provenance and investigate
+  actual compatibility or capability failures.

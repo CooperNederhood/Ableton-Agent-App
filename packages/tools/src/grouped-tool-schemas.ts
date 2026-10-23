@@ -110,9 +110,15 @@ export const abletonTransportParamsSchema = z.discriminatedUnion("action", [
   transportDeleteCuePointParamsSchema,
 ]);
 
+const sessionClipContainingTrackNameSchema =
+  createMidiClipParamsSchema.shape.expectedName.describe(
+    "Current name of the containing track, not the clip. Copy the inspected track name; renaming a clip does not change this value.",
+  );
+
 export const sessionClipsCreateMidiParamsSchema = createMidiClipParamsSchema
   .safeExtend({
     action: z.literal("create-midi"),
+    expectedName: sessionClipContainingTrackNameSchema,
   })
   .describe(
     "Create a MIDI clip in an empty Session View slot. Supply the inspected track's index, expectedReference, expectedName, plus sceneIndex and length.",
@@ -120,6 +126,7 @@ export const sessionClipsCreateMidiParamsSchema = createMidiClipParamsSchema
 export const sessionClipsReplaceNotesParamsSchema =
   replaceMidiNotesParamsSchema.safeExtend({
     action: z.literal("replace-notes"),
+    expectedName: sessionClipContainingTrackNameSchema,
     allowPerNoteExpressionLoss:
       replaceMidiNotesParamsSchema.shape.allowPerNoteExpressionLoss.describe(
         "Supply explicitly: false when per-note expression must be preserved; true only when its loss is acceptable.",
@@ -128,11 +135,13 @@ export const sessionClipsReplaceNotesParamsSchema =
 export const sessionClipsLaunchParamsSchema =
   launchSessionClipParamsSchema.safeExtend({
     action: z.literal("launch"),
+    expectedName: sessionClipContainingTrackNameSchema,
   });
 export const sessionClipsDuplicateParamsSchema =
   duplicateSessionClipParamsSchema
     .safeExtend({
       action: z.literal("duplicate"),
+      expectedName: sessionClipContainingTrackNameSchema,
     })
     .describe(
       "Duplicate an exact Session clip into an empty slot; identify the destination with destinationTrackIndex, expectedDestinationTrackReference, expectedDestinationTrackName, and destinationSceneIndex.",
@@ -140,10 +149,12 @@ export const sessionClipsDuplicateParamsSchema =
 export const sessionClipsDeleteParamsSchema =
   deleteSessionClipParamsSchema.safeExtend({
     action: z.literal("delete"),
+    expectedName: sessionClipContainingTrackNameSchema,
   });
 export const sessionClipsSetPropertiesParamsSchema =
   setSessionClipPropertiesParamsSchema.safeExtend({
     action: z.literal("set-properties"),
+    expectedName: sessionClipContainingTrackNameSchema,
   });
 export const abletonSessionClipsParamsSchema = z.discriminatedUnion("action", [
   sessionClipsCreateMidiParamsSchema,

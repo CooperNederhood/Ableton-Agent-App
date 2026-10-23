@@ -7,8 +7,16 @@ import {
   AUDIO_OMITTED_VALUE,
   BINARY_OMITTED_VALUE,
   sanitizePersistedText,
+  OBSERVABILITY_CONTRACT_VERSION,
+  type TelemetryEventEnvelope,
 } from "@ableton-agent/observability";
-import type { SessionSnapshot } from "@ableton-agent/protocol";
+import {
+  recordingOperationResultSchema,
+  setPlayingResultSchema,
+  transportOperationResultSchema,
+  type SessionSnapshot,
+} from "@ableton-agent/protocol";
+import type { AppEvent } from "@ableton-agent/shared";
 import type { ToolApprovalRequest, ToolRisk } from "@ableton-agent/tools";
 import { z } from "zod";
 
@@ -51,6 +59,11 @@ const connectionCapabilitiesAssertionSchema = z.object({
 const sessionUnchangedAssertionSchema = z.object({
   type: z.literal("session-unchanged"),
 });
+const transportStoppedAssertionSchema = z
+  .object({
+    type: z.literal("transport-stopped"),
+  })
+  .strict();
 const toolCallsAssertionSchema = z.object({
   type: z.literal("tool-calls"),
   required: z
@@ -162,6 +175,7 @@ export const scenarioManifestSchema = z
           arrangementMidiPatternAssertionSchema,
           connectionCapabilitiesAssertionSchema,
           sessionUnchangedAssertionSchema,
+          transportStoppedAssertionSchema,
           toolCallsAssertionSchema,
           trackLifecycleAssertionSchema,
           sessionClipLifecycleAssertionSchema,
@@ -198,6 +212,18 @@ export interface ScenarioRunContext {
   trackNames: readonly string[];
   clipNames: readonly string[];
   approvals: ScenarioApprovalController;
+  transportStop?: {
+    owner: { pid: number; runId: string };
+    initial?: TransportStopState;
+    setupCall?: {
+      arguments: { isPlaying: true };
+      result?: Awaited<ReturnType<HeadlessApplication["setPlaying"]>>;
+    };
+    playing?: TransportStopState;
+    final?: TransportStopState;
+  };
+  lifecycle: TelemetryEventEnvelope[];
+  traceId: string;
 }
 
 export async function loadScenarioManifest(
@@ -223,6 +249,31 @@ export async function loadScenarioManifest(
 }
 
 function validateManifestSafety(manifest: ScenarioManifest): void {
+  if (
+    manifest.id === "transport-stop" ||
+    manifest.assertions.some(
+      (assertion) => assertion.type === "transport-stopped",
+    )
+  ) {
+    if (
+      manifest.id !== "transport-stop" ||
+      manifest.group !== "transport" ||
+      manifest.prompt !== "Stop playback. Do not change anything else." ||
+      JSON.stringify(manifest.allowedTools) !== '["ableton_transport"]' ||
+      JSON.stringify(manifest.allowedRisks) !== '["read","reversible"]' ||
+      JSON.stringify(manifest.allowedActions) !==
+        '{"ableton_transport":["get","inspect-arrangement","set-playing"]}' ||
+      manifest.maxMutations !== 1 ||
+      manifest.maxToolCalls !== 4 ||
+      manifest.expectedOutcome !== "pass" ||
+      manifest.unsupportedCapabilities.length !== 0 ||
+      JSON.stringify(manifest.assertions) !== '[{"type":"transport-stopped"}]'
+    ) {
+      throw new Error(
+        "Transport stop requires the exact reviewed scenario policy",
+      );
+    }
+  }
   const allowedTools = new Set(manifest.allowedTools);
   for (const constraint of manifest.ordering) {
     if (
@@ -283,6 +334,7 @@ function validateManifestSafety(manifest: ScenarioManifest): void {
 export function createScenarioRunContext(
   manifest: ScenarioManifest,
 ): ScenarioRunContext {
+  if (manifest.id === "transport-stop") validateManifestSafety(manifest);
   const runToken = `${Date.now().toString(36)}_${randomUUID().slice(0, 8)}`;
   const artifactPrefix = `${manifest.artifactPrefix}${runToken}_`;
   const trackNames = manifest.trackNameSuffixes.map(
@@ -296,6 +348,8 @@ export function createScenarioRunContext(
     artifactPrefix,
     trackNames,
     clipNames,
+    lifecycle: [],
+    traceId: randomUUID(),
   };
   return {
     ...context,
@@ -307,6 +361,9 @@ export function scenarioPrompt(
   prompt: string,
   context: ScenarioRunContext,
 ): string {
+  if (context.manifest.id === "transport-stop") {
+    return context.manifest.prompt;
+  }
   const naming = [
     ...context.trackNames.map((name) => `track "${name}"`),
     ...context.clipNames.map((name) => `clip "${name}"`),
@@ -397,6 +454,20 @@ export function scenarioPrompt(
     (target) =>
       `Resolve and load Browser item "${target.itemName}" onto track "${context.artifactPrefix}${target.trackNameSuffix}".`,
   );
+  const orderingInstructions = context.manifest.ordering.map(
+    (constraint) =>
+      `Wait for a completed ${constraint.before}${constraint.beforeAction === undefined ? "" : ` action "${constraint.beforeAction}"`} call before requesting ${constraint.after}${constraint.afterAction === undefined ? "" : ` action "${constraint.afterAction}"`}.`,
+  );
+  const loadingOnlyInstructions =
+    context.manifest.assertions.length > 0 &&
+    context.manifest.assertions.every(
+      (assertion) => assertion.type === "track-device",
+    )
+      ? [
+          "If completed load-item results confirm every requested device on its generated track, finish the task. The runner independently verifies the exact final tracks and devices.",
+          "If inspection is needed after an uncertain outcome, use only the exact inspection actions listed in the reviewed surface. Do not inspect Drum Rack pads or chains unless that exact action is listed in the reviewed surface.",
+        ]
+      : [];
   return [
     prompt,
     "",
@@ -407,8 +478,10 @@ export function scenarioPrompt(
     "Do not create, rename, mutate, or delete any other user artifacts.",
     "Run dependent tools sequentially: wait for each completed tool result before requesting the next dependent operation.",
     `Use only this reviewed tool/action surface: ${JSON.stringify(context.manifest.allowedActions)}. Other exposed tools are not approved for this scenario. The runner independently reads exact final note contents; do not substitute an unlisted MIDI query tool for the permitted inspections.`,
+    ...orderingInstructions,
     ...browserLoadInstructions,
     ...assertionInstructions,
+    ...loadingOnlyInstructions,
     "Inspect after uncertain outcomes; never repeat an unchanged mutation.",
     "This is a non-interactive reviewed scenario: do not call ask_user or request a new plan approval. If the permitted tools cannot complete it, report the limitation and finish without an alternative mutation.",
   ].join("\n");
@@ -505,6 +578,23 @@ export class ScenarioApprovalController {
     toolName: string,
     args: Readonly<Record<string, unknown>>,
   ): boolean {
+    if (this.context.manifest.id === "transport-stop") {
+      if (toolName !== "ableton_transport") return false;
+      if (args.action === "set-playing") {
+        return args.isPlaying === false && Object.keys(args).length === 2;
+      }
+      return (
+        (args.action === "get" || args.action === "inspect-arrangement") &&
+        Object.keys(args).every((key) =>
+          ["action", "offset", "limit"].includes(key),
+        ) &&
+        (args.offset === undefined || args.offset === 0) &&
+        (args.limit === undefined ||
+          (Number.isInteger(args.limit) &&
+            Number(args.limit) >= 1 &&
+            Number(args.limit) <= 32))
+      );
+    }
     const allowedActions = this.context.manifest.allowedActions[toolName];
     if (
       allowedActions !== undefined &&
@@ -875,6 +965,270 @@ export async function captureScenarioBaseline(
   return application.inspectSession();
 }
 
+type TransportStopApplication = Pick<
+  HeadlessApplication,
+  | "inspectSession"
+  | "executeTransportOperation"
+  | "executeRecordingOperation"
+  | "inspectArrangementTransport"
+  | "inspectArrangement"
+  | "setPlaying"
+>;
+
+export interface TransportStopState {
+  session: SessionSnapshot;
+  transport: Extract<
+    Awaited<ReturnType<HeadlessApplication["executeTransportOperation"]>>,
+    { action: "get" }
+  >;
+  recording: Extract<
+    Awaited<ReturnType<HeadlessApplication["executeRecordingOperation"]>>,
+    { action: "inspect" }
+  >;
+  arrangementTransport: Awaited<
+    ReturnType<HeadlessApplication["inspectArrangementTransport"]>
+  >;
+  arrangement: Awaited<ReturnType<HeadlessApplication["inspectArrangement"]>>;
+}
+
+export async function scenarioStage<T>(
+  context: ScenarioRunContext,
+  stage: "setup" | "actor" | "verification" | "cancellation" | "failure-state",
+  execute: () => Promise<T>,
+  checkpoint: () => void = () => undefined,
+): Promise<T> {
+  const spanId = randomUUID();
+  const started = performance.now();
+  const causationId = context.transportStop?.owner.runId ?? context.traceId;
+  const emit = (
+    phase: "started" | "completed" | "failed" | "cancelled",
+    attributes: Record<string, unknown> = {},
+  ) => {
+    context.lifecycle.push({
+      version: OBSERVABILITY_CONTRACT_VERSION,
+      id: randomUUID(),
+      occurredAt: new Date().toISOString(),
+      name: `scenario.${stage}.${phase}`,
+      source: "application",
+      category: "context",
+      stage: phase,
+      level: phase === "failed" ? "error" : "info",
+      trace: { traceId: context.traceId, spanId },
+      correlationId: context.traceId,
+      causationId,
+      durationMs: Math.max(0, performance.now() - started),
+      outcome:
+        phase === "completed"
+          ? "success"
+          : phase === "failed"
+            ? "failure"
+            : phase === "cancelled"
+              ? "cancelled"
+              : "unknown",
+      attributes: sanitizeTraceValue({
+        scenarioId: context.manifest.id,
+        operationStage: stage,
+        owner: context.transportStop?.owner,
+        ...attributes,
+      }) as Record<string, unknown>,
+    });
+    checkpoint();
+  };
+  emit("started");
+  try {
+    const result = await execute();
+    if (
+      stage === "verification" &&
+      Array.isArray(result) &&
+      result.some(
+        (value: unknown) =>
+          value !== null &&
+          typeof value === "object" &&
+          "passed" in value &&
+          value.passed !== true,
+      )
+    ) {
+      emit("failed", { message: "Deterministic scenario assertions failed" });
+    } else {
+      emit("completed");
+    }
+    return result;
+  } catch (error) {
+    emit(
+      error instanceof Error &&
+        (error.name === "AbortError" ||
+          /cancel|timed? out/i.test(error.message))
+        ? "cancelled"
+        : "failed",
+      {
+        error: error instanceof Error ? error.message : String(error),
+      },
+    );
+    throw error;
+  }
+}
+
+async function readTransportStopState(
+  application: Omit<TransportStopApplication, "setPlaying">,
+): Promise<TransportStopState> {
+  const recording = recordingOperationResultSchema.parse(
+    await application.executeRecordingOperation({ action: "inspect" }),
+  );
+  if (recording.action !== "inspect")
+    throw new Error("Recording inspection returned a mutation");
+  const transport = transportOperationResultSchema.parse(
+    await application.executeTransportOperation({
+      action: "get",
+      offset: 0,
+      limit: 32,
+    }),
+  );
+  if (transport.action !== "get")
+    throw new Error("Transport inspection returned a mutation");
+  const session = await application.inspectSession();
+  const arrangementTransport = await application.inspectArrangementTransport({
+    offset: 0,
+    limit: 32,
+  });
+  const arrangement = await application.inspectArrangement({
+    offset: 0,
+    limit: 256,
+  });
+  if (
+    session.trackCount > 32 ||
+    session.trackCount !== session.tracks.length ||
+    session.clips === undefined ||
+    session.clips.length > 256 ||
+    session.tracks.some((track) => track.devicesTruncated === true) ||
+    transport.totalCuePoints !== transport.cuePoints.length ||
+    arrangementTransport.totalCuePoints !==
+      arrangementTransport.cuePoints.length ||
+    arrangement.total !== arrangement.clips.length
+  )
+    throw new Error(
+      "Transport stop baseline exceeds reviewed inspection bounds",
+    );
+  return { recording, transport, session, arrangementTransport, arrangement };
+}
+
+function recordingIsOff(state: TransportStopState): boolean {
+  return (
+    state.recording.state.arrangementRecord === false &&
+    state.recording.state.sessionRecord === false &&
+    state.recording.state.sessionAutomationRecord === false
+  );
+}
+
+function successfulStopResult(value: unknown): boolean {
+  try {
+    const payload =
+      typeof value === "string"
+        ? value.split(
+            '\n\nTool "ableton_transport" succeeded. Additional guidance from postToolUse hooks:\n',
+            1,
+          )[0]
+        : value;
+    const result = setPlayingResultSchema.safeParse(
+      typeof payload === "string" ? (JSON.parse(payload) as unknown) : payload,
+    );
+    return (
+      result.success &&
+      result.data.verified &&
+      result.data.beforeIsPlaying === true &&
+      result.data.afterIsPlaying === false
+    );
+  } catch {
+    return false;
+  }
+}
+
+function unchangedTransportStopContent(state: TransportStopState): unknown {
+  return {
+    session: {
+      ...state.session,
+      isPlaying: undefined,
+      clips: state.session.clips?.map((clip) => ({
+        ...clip,
+        isPlaying: undefined,
+        isTriggered: undefined,
+      })),
+    },
+    settings: {
+      ...state.transport.transport,
+      currentSongTime: undefined,
+      isPlaying: undefined,
+    },
+    recording: state.recording,
+    arrangementTransport: state.arrangementTransport,
+    arrangement: state.arrangement,
+  };
+}
+
+export async function prepareTransportStopScenario(
+  application: TransportStopApplication,
+  context: ScenarioRunContext,
+  owner: { pid: number; runId: string } | undefined,
+): Promise<void> {
+  if (
+    owner === undefined ||
+    !Number.isSafeInteger(owner.pid) ||
+    owner.pid <= 0 ||
+    !z.uuid().safeParse(owner.runId).success
+  ) {
+    throw new Error(
+      "Transport stop setup requires a runner-owned Live process",
+    );
+  }
+  context.transportStop = { owner };
+  const initial = await readTransportStopState(application);
+  context.transportStop.initial = initial;
+  if (!recordingIsOff(initial))
+    throw new Error(
+      "Transport stop setup refuses recording or automation recording",
+    );
+  // A second guard immediately before the only setup mutation fails closed.
+  const recording = recordingOperationResultSchema.parse(
+    await application.executeRecordingOperation({ action: "inspect" }),
+  );
+  if (
+    recording.action !== "inspect" ||
+    !recordingIsOff({ ...initial, recording })
+  ) {
+    throw new Error("Recording state changed before playback setup");
+  }
+  context.transportStop.setupCall = { arguments: { isPlaying: true } };
+  const result = await application.setPlaying(true);
+  context.transportStop.setupCall.result = result;
+  if (result.verified !== true || result.afterIsPlaying !== true)
+    throw new Error("Playback setup was not verified");
+  const playing = await readTransportStopState(application);
+  context.transportStop.playing = playing;
+  if (
+    playing.session.isPlaying !== true ||
+    playing.transport.transport.isPlaying !== true ||
+    !recordingIsOff(playing)
+  ) {
+    throw new Error(
+      "Independent setup read did not confirm safe playing transport",
+    );
+  }
+  if (
+    JSON.stringify(unchangedTransportStopContent(initial)) !==
+    JSON.stringify(unchangedTransportStopContent(playing))
+  ) {
+    throw new Error("Playback setup changed content or transport settings");
+  }
+}
+
+export async function captureTransportStopFailure(
+  application: TransportStopApplication,
+  context: ScenarioRunContext,
+): Promise<void> {
+  if (context.transportStop !== undefined) {
+    context.transportStop.final = await readTransportStopState(application);
+  }
+}
+
 type ScenarioInspectionApplication = Pick<
   HeadlessApplication,
   | "inspectSession"
@@ -885,12 +1239,15 @@ type ScenarioInspectionApplication = Pick<
   | "inspectArrangementTransport"
   | "getStatus"
   | "getCapabilities"
+  | "executeTransportOperation"
+  | "executeRecordingOperation"
 >;
 
 export async function verifyScenario(
   application: ScenarioInspectionApplication,
   context: ScenarioRunContext,
   baseline: SessionSnapshot,
+  operations: readonly AppEvent[] = [],
 ): Promise<ScenarioAssertionResult[]> {
   const snapshot = await application.inspectSession();
   const baselineReferences = new Set(
@@ -904,6 +1261,93 @@ export async function verifyScenario(
   const results: ScenarioAssertionResult[] = [];
 
   for (const assertion of context.manifest.assertions) {
+    if (assertion.type === "transport-stopped") {
+      const final = await readTransportStopState(application);
+      if (context.transportStop !== undefined)
+        context.transportStop.final = final;
+      const playing = context.transportStop?.playing;
+      const starts = operations.filter(
+        (event) => event.type === "operation.started",
+      );
+      const stopStarts = starts.filter(
+        (event) =>
+          event.toolName === "ableton_transport" &&
+          event.arguments?.action === "set-playing" &&
+          event.arguments.isPlaying === false &&
+          Object.keys(event.arguments).length === 2,
+      );
+      const completed = operations.filter(
+        (event) =>
+          event.type === "operation.completed" &&
+          stopStarts.some((start) => start.operationId === event.operationId) &&
+          successfulStopResult(event.result),
+      );
+      const completeTrace =
+        starts.length >= 1 &&
+        starts.length <= context.manifest.maxToolCalls &&
+        starts.every(
+          (start) =>
+            start.toolName === "ableton_transport" &&
+            (start.arguments?.action === "get" ||
+              start.arguments?.action === "inspect-arrangement" ||
+              (start.arguments?.action === "set-playing" &&
+                start.arguments.isPlaying === false &&
+                Object.keys(start.arguments).length === 2)),
+        ) &&
+        starts.every(
+          (start) =>
+            operations.filter(
+              (event) =>
+                event.type === "operation.completed" &&
+                event.operationId === start.operationId,
+            ).length === 1 &&
+            operations.findIndex(
+              (event) =>
+                event.type === "operation.completed" &&
+                event.operationId === start.operationId,
+            ) > operations.indexOf(start),
+        ) &&
+        operations.filter((event) => event.type === "operation.completed")
+          .length === starts.length &&
+        !operations.some((event) => event.type === "operation.failed");
+      const approvedStop = context.approvals.decisions.filter(
+        (decision) =>
+          decision.approved &&
+          decision.toolName === "ableton_transport" &&
+          (decision.arguments as Record<string, unknown>).action ===
+            "set-playing" &&
+          (decision.arguments as Record<string, unknown>).isPlaying === false,
+      );
+      const passed =
+        playing !== undefined &&
+        playing.session.isPlaying === true &&
+        playing.transport.transport.isPlaying === true &&
+        final.session.isPlaying === false &&
+        final.transport.transport.isPlaying === false &&
+        recordingIsOff(final) &&
+        stopStarts.length === 1 &&
+        completed.length === 1 &&
+        approvedStop.length === 1 &&
+        context.approvals.decisions.every((decision) => decision.approved) &&
+        completeTrace &&
+        JSON.stringify(unchangedTransportStopContent(playing)) ===
+          JSON.stringify(unchangedTransportStopContent(final));
+      results.push({
+        assertion: assertion.type,
+        passed,
+        message: passed
+          ? "Verified one actor stop from independently playing state with unchanged content/settings"
+          : "Transport stop lacks safe playing baseline, successful actor stop, complete trace, stopped final state, or unchanged content/settings",
+        evidence: sanitizeTraceValue({
+          playing,
+          final,
+          stopStarts,
+          completed,
+          completeTrace,
+        }),
+      });
+      continue;
+    }
     if (assertion.type === "track-lifecycle") {
       const initialName = `${context.artifactPrefix}${assertion.initialNameSuffix}`;
       const finalName = `${context.artifactPrefix}${assertion.finalNameSuffix}`;
@@ -1412,6 +1856,9 @@ export function sanitizeTraceValue(
     if (
       /name/i.test(key) &&
       !text.startsWith("AA_SMOKE_") &&
+      !/^scenario\.(setup|actor|verification|cancellation|failure-state)\.(started|completed|failed|cancelled)$/.test(
+        text,
+      ) &&
       !key.toLowerCase().includes("toolname")
     ) {
       return "[name-redacted]";

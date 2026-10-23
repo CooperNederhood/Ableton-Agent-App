@@ -1,0 +1,16 @@
+{
+  "formatVersion": 1,
+  "id": "transport-stop",
+  "group": "transport",
+  "prompt": "Stop playback. Do not change anything else.",
+  "artifactPrefix": "AA_SMOKE_STOP_",
+  "allowedTools": ["ableton_transport"],
+  "allowedRisks": ["read", "reversible"],
+  "maxToolCalls": 4,
+  "maxMutations": 1,
+  "timeoutMs": 120000,
+  "allowedActions": {
+    "ableton_transport": ["get", "inspect-arrangement", "set-playing"]
+  },
+  "assertions": [{ "type": "transport-stopped" }]
+}

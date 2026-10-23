@@ -2,6 +2,10 @@
   "formatVersion": 1,
   "groups": [
     {
+      "id": "transport",
+      "scenarios": ["transport-stop"]
+    },
+    {
       "id": "inspection",
       "scenarios": [
         "connection-and-session",

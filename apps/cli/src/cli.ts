@@ -24,8 +24,11 @@ import {
 } from "./terminal.js";
 import {
   captureScenarioBaseline,
+  captureTransportStopFailure,
+  prepareTransportStopScenario,
   sanitizeTraceValue,
   scenarioPrompt,
+  scenarioStage,
   type ScenarioRunContext,
   verifyScenario,
 } from "./scenario.js";
@@ -680,6 +683,7 @@ export interface RunOptions {
   terminal?: TerminalPresentation;
   /** Reviewed integration scenario context, present only for run --scenario. */
   scenario?: ScenarioRunContext;
+  runnerOwnedLive?: { pid: number; runId: string };
 }
 
 function humanOutput(
@@ -1325,22 +1329,55 @@ export async function runCommand(
         `Scenario '${command.scenarioId}' was not loaded for this run`,
       );
     }
+    if (scenario?.manifest.id === "transport-stop") {
+      const owner =
+        options.runnerOwnedLive ??
+        (process.env.ABLETON_AGENT_SCENARIO_LIVE_PID !== undefined &&
+        process.env.ABLETON_AGENT_SCENARIO_RUN_ID !== undefined
+          ? {
+              pid: Number(process.env.ABLETON_AGENT_SCENARIO_LIVE_PID),
+              runId: process.env.ABLETON_AGENT_SCENARIO_RUN_ID,
+            }
+          : undefined);
+      await scenarioStage(
+        scenario,
+        "setup",
+        () => prepareTransportStopScenario(application, scenario, owner),
+        () => traceWriter?.checkpoint(partialTrace("running")),
+      );
+    }
     const baseline =
       scenario === undefined
         ? undefined
-        : await captureScenarioBaseline(application);
-    const response = await Promise.race([
-      application.send(
-        scenario === undefined
-          ? command.prompt
-          : scenarioPrompt(command.prompt, scenario),
-      ),
-      humanGate,
-    ]);
+        : scenario.manifest.id === "transport-stop"
+          ? scenario.transportStop?.initial?.session
+          : await captureScenarioBaseline(application);
+    const send = () =>
+      Promise.race([
+        application.send(
+          scenario === undefined
+            ? command.prompt
+            : scenarioPrompt(command.prompt, scenario),
+        ),
+        humanGate,
+      ]);
+    const response =
+      scenario?.manifest.id === "transport-stop"
+        ? await scenarioStage(scenario, "actor", send, () =>
+            traceWriter?.checkpoint(partialTrace("running")),
+          )
+        : await send();
     const assertions =
       scenario === undefined || baseline === undefined
         ? []
-        : await verifyScenario(application, scenario, baseline);
+        : scenario.manifest.id === "transport-stop"
+          ? await scenarioStage(
+              scenario,
+              "verification",
+              () => verifyScenario(application, scenario, baseline, turnEvents),
+              () => traceWriter?.checkpoint(partialTrace("running")),
+            )
+          : await verifyScenario(application, scenario, baseline);
     const approvalDecisions = scenario?.approvals.decisions ?? [];
     const policyViolations: string[] = [];
     if (approvalDecisions.some((decision) => !decision.approved)) {
@@ -1394,6 +1431,14 @@ export async function runCommand(
       approvalsTruncated: approvalDecisions.length > 64,
       approvals: approvalDecisions,
       assertions,
+      scenarioEvidence:
+        scenario === undefined
+          ? undefined
+          : sanitizeTraceValue({
+              traceId: scenario.traceId,
+              lifecycle: scenario.lifecycle,
+              transportStop: scenario.transportStop,
+            }),
       policyViolations,
       budgets:
         scenario === undefined
@@ -1427,8 +1472,37 @@ export async function runCommand(
       ? exitCodeForOperationFailures(operationFailures)
       : EXIT_CODES.OPERATION_ERROR;
   } catch (error) {
-    if (error instanceof NoninteractiveHumanGateError) {
+    if (
+      error instanceof NoninteractiveHumanGateError &&
+      options.scenario?.transportStop === undefined
+    ) {
       await application.cancel();
+    }
+    if (
+      options.scenario?.transportStop !== undefined &&
+      options.scenario.transportStop.final === undefined
+    ) {
+      const scenario = options.scenario;
+      try {
+        await scenarioStage(
+          scenario,
+          "cancellation",
+          () => application.cancel(),
+          () => traceWriter?.checkpoint(partialTrace("running")),
+        );
+      } catch {
+        // A failed cancellation must not prevent the independent final read.
+      }
+      try {
+        await scenarioStage(
+          scenario,
+          "failure-state",
+          () => captureTransportStopFailure(application, scenario),
+          () => traceWriter?.checkpoint(partialTrace("running")),
+        );
+      } catch {
+        // Failed final reads remain explicit lifecycle failures; only the runner may discard its process.
+      }
     }
     if (traceWriter !== undefined) {
       try {
@@ -1465,6 +1539,14 @@ export async function runCommand(
       operationFailures,
       approvals: decisions,
       assertions: [],
+      scenarioEvidence:
+        options.scenario === undefined
+          ? undefined
+          : sanitizeTraceValue({
+              traceId: options.scenario.traceId,
+              lifecycle: options.scenario.lifecycle,
+              transportStop: options.scenario.transportStop,
+            }),
       policyViolations: [],
       operationsTruncated: turnEvents.length > 64,
       approvalsTruncated: decisions.length > 64,

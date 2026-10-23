@@ -136,7 +136,7 @@ Companion specification: [Test Strategy](test-strategy.md)
     remained. The shared slot was explicitly released to #58 and #57 notified.
     Both isolated Desktop profiles and failure evidence remain retained for
     diagnostics; no pre-existing user process was adopted or terminated.
-  - [~] Escalate #56 acceptance to the remaining non-native real-Live suite.
+  - [x] Escalate #56 acceptance to the remaining non-native real-Live suite.
     Run `3590fab9-0ee5-4910-aa9e-6986c73e0598` passed 10 scenarios across
     inspection, Live Events, tracks and the first Session-clip scenario, then
     stopped at `session-clip-lifecycle`: the agent supplied the clip name
@@ -177,10 +177,18 @@ Companion specification: [Test Strategy](test-strategy.md)
     recovered invalid-argument probes without approval denials. The other five
     scenarios pass without tool failures. All four exact-owned Live processes
     (63173, 63496, 63799, 64122) finish successful cleanup.
-  - [ ] Finish current-snapshot remaining-suite qualification for transport,
-    inspection, Live Events and tracks. Prior failures remain evidence; do not
-    equate recovered passes with error-free turns or claim native-fixture or
-    exact Live 11.3.42 qualification.
+  - [x] Finish current-snapshot remaining-suite qualification. Final tracks
+    group `2bbcef23-2951-4679-816f-c29541116079` and remaining-16 run
+    `9da895d6-f322-4b57-9694-fa5dc6bda2c5` collectively cover every one of the
+    suite's 19 non-native scenarios, with 15 passes and four recovered passes.
+    Every deterministic assertion passes, with zero approval denials. Track
+    lifecycle, Session lifecycle, Arrangement lifecycle and region fill retain
+    eight total invalid-argument probes; these are not error-free turns.
+    Exact-owned cleanup succeeds for all nine processes in those final runs;
+    canonical independent process inspection confirms no Live processes remain
+    before explicit release to #58/#57. No Desktop or UX host was started in
+    this final deterministic round. Empirical evidence is Live 11.3.43; native
+    fixtures and exact Live 11.3.42 qualification are not claimed.
   - [x] Fix two additional reviewed-harness planning omissions exposed by
     current-snapshot escalation. Run
     `b745a2ad-16bb-43d3-b8e4-a97ab6411477` passed nine scenarios, but `808-track`
@@ -204,14 +212,18 @@ Companion specification: [Test Strategy](test-strategy.md)
     typechecks and static/device/contract checks pass. Independent stop-harness
     review found no significant issues; Max patch tests (631), Python tests
     (212), and isolated non-Live Electron tests (12) pass. The final TypeScript
-    suite, including framing and Session identity regressions, passes all 2316
+    suite, including framing, Session identity and reviewed-prompt regressions,
+    passes all 2321
     tests in 136 files with
     `pnpm exec vitest run --maxWorkers=1`, without changing deadlines or retries.
     Earlier concurrent runs timed out in unchanged reasoning-visibility and
     native-v2 cases, and an earlier broad lint run was stopped after prolonged
     execution. Those failures remain recorded in session evidence; the final
-    serialized suite and fresh full lint pass do not establish complete
-    real-Live acceptance or successful visible-workflow cleanup.
+    serialized suite and fresh full lint pass alone do not establish real-Live
+    acceptance; the separate empirical and owned-cleanup evidence is recorded
+    above. Full workspace build/typechecks, formatting, docs, protocol contracts,
+    test ownership and generated-version checks also pass after the final
+    reviewed-prompt changes.
   - [x] Add a runner that records versioned, commit-linked smoke evidence
     without storing project content.
   - [x] Make exact-PID cleanup tolerate process-exit races at the final

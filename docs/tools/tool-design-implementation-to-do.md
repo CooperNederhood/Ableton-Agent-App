@@ -64,9 +64,14 @@ Companion specification: [Tool Design](tool-design.md)
     description and field metadata for every action, including launch and
     post-rename operations. Preserve the original string constraints and all
     guards; regress SDK serialization for full and launch-only registration.
-  - [ ] Qualify that identity guidance against the previously failing real
+  - [x] Qualify that identity guidance against the previously failing real
     Session clip lifecycle, then its complete group and remaining runnable
-    suite. Synthetic guidance assertions alone do not prove model selection.
+    suite. Focused and owning-group runs restore the Set with correct launch
+    identity and zero approval denials. Final tracks-group and remaining-suite
+    runs qualify all 19 non-native scenarios; four retain recovered argument
+    probes, not error-free claims. Independent process inspection confirms
+    successful cleanup before explicit slot release. See the testing
+    implementation to-do for retained run IDs and historical failures.
   - [x] Advertise existing transport playback start/stop with explicit
     `set-playing` / `isPlaying: false` and `true`, tempo and Arrangement looping.
     Generate transport descriptions from the permitted operation/capability

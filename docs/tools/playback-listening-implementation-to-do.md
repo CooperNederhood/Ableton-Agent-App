@@ -108,8 +108,7 @@ Merge-blocking review defects and CI failures still require resolution.
   deterministic verifier for baseline, exact duplicate/delete/restoration,
   intentional Session refusal and separately explicit return/new-pass recovery.
   Preserve unchanged actor permissions, native proof, partial setup receipts,
-  exact ownership and cleanup checks. Runner suites: 351 pass; post-protocol-7
-  narrow recheck: 232 pass. Affected application suites: 866 pass; Python: 215.
+  exact ownership and cleanup checks.
 - [x] Check explicit track-return verification at its action-specific nested
   `result.verified` field, schema-validate runner command mocks, and reject
   malformed, wrong-action or unverified receipts before continuing setup.
@@ -118,7 +117,12 @@ Merge-blocking review defects and CI failures still require resolution.
 - [x] Negotiate protocol 7 with Remote Script/minimum `0.7.0`, regenerate paired
   fixtures, and fix the compatibility checker's silent large-baseline skip.
   Retain the historical broad-suite timing failures separately from passing
-  affected suites and isolated Desktop IPC coverage.
+  final checks and isolated Desktop IPC coverage.
+- [x] Pass complete local `pnpm check` with one Vitest worker and no retries:
+  2,308 TypeScript, 631 Max-patch and 215 Python tests. Pass all 12 Electron
+  owning tests sequentially with unchanged assertions and deadlines; retain
+  the initial concurrent run's two startup/deadline failures and traces.
+  These are not real-Live or visual qualification.
 - [ ] Qualify #57's controlled Arrangement edits and Session takeover/return
   matrix in isolated runner-owned Live, then visually inspect the new refusal
   guidance in an isolated Desktop workflow. Record exact version/hash provenance

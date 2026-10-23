@@ -269,12 +269,19 @@ listener. Success still requires native proof, the expected 40 windows, typed
 reopen and unchanged recording/source postconditions. Source receipts use the
 existing bounded redacted runner lifecycle; the 256-receipt cap covers shutdown.
 
-Source/runner owning checks pass (866 affected TypeScript tests, 215 Python;
-351 runner tests, with a 232-test post-protocol-7 runner recheck). The synthetic
-Electron lifecycle/preload test also passes, but is not real-Live evidence.
-An earlier broader 1,417-test run retained unrelated Desktop identity/SDK-rotation
-timing failures; those cases passed in isolation and are not relabelled a green
-full-suite run.
+The final complete local `pnpm check` passes with one Vitest worker and no
+retries: 2,308 TypeScript tests across 137 files, 631 Max-patch tests and 215
+Python tests. This includes 237 source-helper/runner-composition cases after
+correcting the production-shaped track-return receipt regression. All 12
+isolated Electron owning tests also pass in a sequential run, including source
+refusal presentation through the real preload.
+
+An initial Electron run concurrent with the quality gate retained two
+startup/deadline failures; its logs and traces remain distinct from the
+subsequent full sequential pass with unchanged assertions, deadlines and zero
+retries. Earlier Desktop identity/SDK-rotation timing failures also remain
+historical failures, not relabelled passes. None of these synthetic checks
+establish real-Live or visual qualification.
 
 Real-Live source qualification remains blocked: source-group preflight requires
 an explicitly pinned immutable v2 fixture (including the bounded Session source),

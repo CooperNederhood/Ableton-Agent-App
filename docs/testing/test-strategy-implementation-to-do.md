@@ -89,6 +89,141 @@ Companion specification: [Test Strategy](test-strategy.md)
 - [ ] Cover indexed cursor/filter queries, stable concurrent pagination,
   cancellable stale requests, bounded ingestion, saturation, and degraded mode.
 - [~] Create real-Live test project and manual runner.
+  - [x] Add synthetic transport-stop coverage for safe playing setup, exact
+    stop-argument approval guards, actor call/postcondition attribution,
+    unchanged contents/settings, no retry, lifecycle tracing and owned cleanup.
+    Include unsafe recording, refusal/prose-only success, still-playing state,
+    incomplete/reversed evidence, timeout/cancellation, checkpoint and cleanup
+    failures; do not equate synthetic coverage with real-agent acceptance.
+  - [x] Complete real-agent `transport-stop` acceptance from independently
+    confirmed playing transport, with an exact ordinarily approved stop,
+    independently stopped postconditions, unchanged content/settings and
+    successful owned-process cleanup. Focused and transport-group runs pass on
+    2026-10-23 UTC (run IDs `ffb898d8-f6d3-4f52-8d73-dddc9e6fa548` and
+    `5967d360-2f8a-41d2-8686-d1b0a7d21a6e`). Earlier admission correctly refused
+    a pre-existing user process; execution began only after the user closed it
+    and #58 explicitly released its separate runner slot.
+  - [x] Reproduce and fix the first real-run verifier false negative: the agent
+    stopped playback correctly, but the SDK appended post-tool-hook guidance
+    to the JSON result. Validate the protocol payload before only that exact
+    recognized transport-success separator. Regress the recorded result,
+    unknown prose, other-tool guidance, unverified payload and missing result.
+    The new positive regression fails without the fix; all 186 owning
+    CLI/runner tests pass with it. No mutation guard or postcondition is relaxed.
+  - [x] Complete the subsequent isolated visible Default-agent check with
+    ordinary approvals and independent before/after state. Message
+    `8ab0f753-f3fc-444e-8048-639cb8d3b1fa`, trace
+    `7c0d20ac-d728-4e67-98e4-05ecacf59fc6`, appears once in the selected Default
+    conversation. The normal approval UI displays exact `set-playing` /
+    `isPlaying: false`; Approve once leads to a completed operation and turn,
+    an enabled composer, and a visible verified true-to-false result. Live is
+    visibly stopped before Desktop closes. Independent reads before Desktop
+    launch and after Desktop closes, but before Live cleanup, confirm playing
+    then stopped, recording off, and unchanged bounded content/settings
+    (14 tracks, 13 Session clips, no Arrangement clips). Concurrent readers
+    timed out while Desktop held the bridge, so independent reads bracketed
+    Desktop's lifetime.
+    Empirical host evidence is Live Suite 11.3.43, not separate qualification
+    of the specified 11.3.42 build.
+  - [x] Finish explicit owned Live cleanup before calling visible acceptance
+    complete or releasing the shared test slot. Desktop PIDs 41322 and 45044
+    closed successfully. Live PID 40458 initially remained open after an
+    unsaved-Set prompt and an unsuccessful non-destructive Save As attempt.
+    The Node UX controller was stopped without signaling Live while discard
+    approval was unavailable. The user subsequently approved discard/closure
+    and closed Live themselves. Canonical process inspection at
+    2026-10-23T13:49:36.730Z confirms PID 40458 exited and no Live processes
+    remained. The shared slot was explicitly released to #58 and #57 notified.
+    Both isolated Desktop profiles and failure evidence remain retained for
+    diagnostics; no pre-existing user process was adopted or terminated.
+  - [x] Escalate #56 acceptance to the remaining non-native real-Live suite.
+    Run `3590fab9-0ee5-4910-aa9e-6986c73e0598` passed 10 scenarios across
+    inspection, Live Events, tracks and the first Session-clip scenario, then
+    stopped at `session-clip-lifecycle`: the agent supplied the clip name
+    instead of the required track name for launch `expectedName`, and the
+    unchanged approval guard correctly denied it. The partial Set is retained
+    in the failure trace; all four owned processes were cleaned up.
+    A fresh standalone run `83c93030-667f-45c6-9269-533a3b1a4963` passes without
+    changing code, prompts, guards or budgets, but complete-group reproduction
+    `be123273-529f-4db2-aaca-78730b71516d` fails at the same guard. Preserve both
+    outcomes; do not call the broader suite green or hide failures with retries.
+    The seven later scenarios were initially unreached; subsequent qualification
+    after the guidance fix is recorded below.
+    Native listening groups require separate version-pinned fixture inputs and
+    are not claimed as executed by #56.
+  - [x] Reproduce missing Session clip containing-track identity guidance and
+    inconsistent lifecycle opening-prompt order before fixing them. Four
+    assertions fail without the fix; the original clip-name launch guard still
+    rejects the observed bad argument. Clarify metadata for all six actions and
+    align the reviewed opening request with the existing enforced order,
+    without changing validation constraints, guards, budgets or handlers.
+    All 497 owning tool/application/CLI/runner tests, build and affected package
+    typechecks pass after the fix. The complete serialized TypeScript suite
+    passes all 2316 tests; changed-source lint, docs and protocol contracts pass.
+  - [x] Requalify the failing Session lifecycle and its complete group after
+    #58's explicit slot release, independent process-absence verification and
+    fresh branch-script installation. Focused run
+    `02d837d6-d7d8-4f66-a991-df0609236ec7` and owning-group run
+    `607350d0-1a62-4198-aef7-60a0021eea08` pass with correct containing-track
+    launch identity, zero approval denials and independently restored Sets.
+    Both retain recovered invalid-argument probes (track delete and Session
+    duplicate respectively); neither is claimed error-free. Exact-owned
+    cleanup succeeds for Live PIDs 61233 and 62410.
+  - [x] Qualify all seven previously unreached non-native scenarios. Run
+    `5d955dbb-c852-4b50-a33d-f3bd00fd4cd2` passes Arrangement clip lifecycle,
+    Arrangement region fill, cue lifecycle, piano/string-bass instruments,
+    Auto Filter, Echo parameter inspection and the exact Operator MIDI fixture.
+    Arrangement lifecycle scenarios independently restore the Set; both retain
+    recovered invalid-argument probes without approval denials. The other five
+    scenarios pass without tool failures. All four exact-owned Live processes
+    (63173, 63496, 63799, 64122) finish successful cleanup.
+  - [x] Finish current-snapshot remaining-suite qualification. Final tracks
+    group `2bbcef23-2951-4679-816f-c29541116079` and remaining-16 run
+    `9da895d6-f322-4b57-9694-fa5dc6bda2c5` collectively cover every one of the
+    suite's 19 non-native scenarios, with 15 passes and four recovered passes.
+    Every deterministic assertion passes, with zero approval denials. Track
+    lifecycle, Session lifecycle, Arrangement lifecycle and region fill retain
+    eight total invalid-argument probes; these are not error-free turns.
+    Exact-owned cleanup succeeds for all nine processes in those final runs;
+    canonical independent process inspection confirms no Live processes remain
+    before explicit release to #58/#57. No Desktop or UX host was started in
+    this final deterministic round. Empirical evidence is Live 11.3.43; native
+    fixtures and exact Live 11.3.42 qualification are not claimed.
+  - [x] Fix two additional reviewed-harness planning omissions exposed by
+    current-snapshot escalation. Run
+    `b745a2ad-16bb-43d3-b8e4-a97ab6411477` passed nine scenarios, but `808-track`
+    attempted unreviewed pad inspection after loading the correct device.
+    Loading-only completion guidance passed focused run
+    `9b1bcd63-8d36-4eed-987d-c0052ee3edec`, but owning-group run
+    `f1ce2cbe-7510-42a5-9a6a-524d198b43bc` exposed the missing explicit
+    search-before-create instruction: browsing children did not satisfy the
+    unchanged search ordering guard. Render existing ordering constraints
+    into prompts, including tool-wide cases. Three new guidance assertions
+    fail before their fixes; negative tests preserve unreviewed-action denial
+    and exclude scenarios with additional assertions from early completion.
+    All 121 owning CLI tests, CLI types/lint/build pass. Neither manifest,
+    allowlist, approval guard, budget nor production mutation behavior changes.
+    Focused run `4f082703-73ce-4cd9-9dc7-a2784ec4df0c` and complete tracks run
+    `2bbcef23-2951-4679-816f-c29541116079` pass with successful exact-owned
+    cleanup. `808-track` is error-free in both; track lifecycle retains two
+    recovered argument probes. Preserve both earlier failing traces.
+  - [x] Run the broad repository quality components for #56.
+    Build, repository formatting, full `pnpm lint`, all workspace/Electron-test
+    typechecks and static/device/contract checks pass. Independent stop-harness
+    review found no significant issues; Max patch tests (631), Python tests
+    (212), and isolated non-Live Electron tests (12) pass. The final TypeScript
+    suite, including framing, Session identity and reviewed-prompt regressions,
+    passes all 2321
+    tests in 136 files with
+    `pnpm exec vitest run --maxWorkers=1`, without changing deadlines or retries.
+    Earlier concurrent runs timed out in unchanged reasoning-visibility and
+    native-v2 cases, and an earlier broad lint run was stopped after prolonged
+    execution. Those failures remain recorded in session evidence; the final
+    serialized suite and fresh full lint pass alone do not establish real-Live
+    acceptance; the separate empirical and owned-cleanup evidence is recorded
+    above. Full workspace build/typechecks, formatting, docs, protocol contracts,
+    test ownership and generated-version checks also pass after the final
+    reviewed-prompt changes.
   - [x] Add a runner that records versioned, commit-linked smoke evidence
     without storing project content.
   - [x] Make exact-PID cleanup tolerate process-exit races at the final

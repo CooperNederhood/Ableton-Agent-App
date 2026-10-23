@@ -65,8 +65,9 @@ Merge-blocking review defects and CI failures still require resolution.
 - [x] Make the existing stopped-transport prerequisite explicit in the updated
   handoff. Actual SDK registration includes `set-playing`; the agent's claim
   that only `delete-cue-point` was available was incorrect, with no stop call
-  or permission denial. Description/discoverability is tracked in
-  [#56](https://github.com/CooperNederhood/Ableton-Agent-App/issues/56).
+  or permission denial. Scope-aware descriptions now advertise existing
+  playback, tempo and loop actions; actual real-agent discoverability remains
+  pending in [#56](https://github.com/CooperNederhood/Ableton-Agent-App/issues/56).
   Manually stop Live between dogfood captures, which leave it running.
   Preserve the refusal turn rather than claiming it captured.
 - [x] Verify four packaged Default-agent captures in the same owned App/Live
@@ -118,8 +119,8 @@ Merge-blocking review defects and CI failures still require resolution.
   fixtures, and fix the compatibility checker's silent large-baseline skip.
   Retain the historical broad-suite timing failures separately from passing
   final checks and isolated Desktop IPC coverage.
-- [x] Pass complete local `pnpm check` with one Vitest worker and no retries:
-  2,308 TypeScript, 631 Max-patch and 215 Python tests. Pass all 12 Electron
+- [x] Pass complete local `pnpm check` at `6f66f38` with one Vitest worker and
+  no retries: 2,308 TypeScript, 631 Max-patch and 215 Python tests. Pass all 12 Electron
   owning tests sequentially with unchanged assertions and deadlines; retain
   the initial concurrent run's two startup/deadline failures and traces.
   These are not real-Live or visual qualification.
@@ -146,7 +147,8 @@ Merge-blocking review defects and CI failures still require resolution.
   native launch/alignment failures; visible acceptance and supported 11.3.42
   qualification remain open. All three observed-run processes/fixtures were
   cleaned, the Live slot was released, and the original historical source state
-  remains unproven. Keep the PR in draft.
+  remains unproven. These runs predate the later main/PR #65 integration and
+  are not integrated-head qualification. Keep the PR in draft.
 - [ ] Follow-up [#58](https://github.com/CooperNederhood/Ableton-Agent-App/issues/58):
   reproduce and resolve listener binding after device-chain edits. Retained
   inspection shows the same enabled Max listener at device index 1 after a

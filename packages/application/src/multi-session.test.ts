@@ -21,6 +21,7 @@ import type {
   MidiNotesOperationParams,
   TracksOperationParams,
 } from "@ableton-agent/protocol";
+import { PROTOCOL_VERSION } from "@ableton-agent/protocol";
 
 import {
   CopilotAgentService,
@@ -331,6 +332,217 @@ function modelInfo(id: string, overrides: Partial<ModelInfo> = {}): ModelInfo {
 }
 
 describe("CopilotAgentService managed sessions", () => {
+  it.each([
+    { label: "full", operations: undefined, actionCount: 6 },
+    { label: "launch-only", operations: ["clips.launch"], actionCount: 1 },
+  ])(
+    "registers containing-track Session clip guidance with the SDK ($label)",
+    async ({ operations, actionCount }) => {
+      const configs: SessionConfig[] = [];
+      const service = new CopilotAgentService(
+        baseOptions({
+          clientFactory: () => ({
+            createSession: vi.fn(async (config: SessionConfig) => {
+              configs.push(config);
+              return createFakeSession(`session-clips-${configs.length}`);
+            }),
+            resumeSession: vi.fn(async () => {
+              throw new Error("unused");
+            }),
+            stop: vi.fn(async () => undefined),
+          }),
+        }),
+      );
+      try {
+        await service.start();
+        await service.createManagedAgent(
+          configuration("session-clips", {
+            resolvedTools: ["ableton_session_clips"],
+            ...(operations === undefined
+              ? {}
+              : { resolvedOperations: operations }),
+          }),
+        );
+        const tool = configs
+          .at(-1)
+          ?.tools?.find(
+            (candidate) => candidate.name === "ableton_session_clips",
+          );
+        expect(tool).toBeDefined();
+        const parameters = tool?.parameters as {
+          toJSONSchema(): Record<string, unknown>;
+        };
+        const wire = JSON.parse(
+          JSON.stringify({
+            description: tool?.description,
+            parameters: parameters.toJSONSchema(),
+          }),
+        ) as {
+          description: string;
+          parameters: {
+            properties: {
+              expectedName?: { description?: string };
+              action: { enum?: string[]; const?: string };
+            };
+            oneOf?: Array<{
+              properties: { expectedName: { description?: string } };
+            }>;
+          };
+        };
+        expect(wire.description).toContain(
+          "expectedName is the containing track's name, never the clip's name",
+        );
+        const actions = wire.parameters.properties.action.enum ?? [
+          wire.parameters.properties.action.const,
+        ];
+        expect(actions).toHaveLength(actionCount);
+        if (operations !== undefined) expect(actions).toEqual(["launch"]);
+        const declarations = wire.parameters.oneOf ?? [wire.parameters];
+        expect(declarations).toHaveLength(actionCount);
+        for (const branch of declarations) {
+          expect(branch.properties.expectedName?.description).toContain(
+            "containing track",
+          );
+          expect(branch.properties.expectedName?.description).toContain(
+            "not the clip",
+          );
+        }
+      } finally {
+        await service.stop();
+      }
+    },
+  );
+
+  it.each(
+    [
+      { label: "full", operations: undefined, actions: undefined },
+      {
+        label: "playback",
+        operations: ["transport.set_playing"],
+        actions: ["set-playing"],
+      },
+      { label: "inspection", operations: ["transport.get"], actions: ["get"] },
+      {
+        label: "tempo and loop",
+        operations: ["transport.set_tempo", "transport.set_arrangement_loop"],
+        actions: ["set-tempo", "set-arrangement-loop"],
+      },
+      {
+        label: "cue deletion",
+        operations: ["transport.delete_cue_point"],
+        actions: ["delete-cue-point"],
+      },
+    ].flatMap((testCase) =>
+      (testCase.operations === undefined ? [false] : [false, true]).map(
+        (capabilityScope) => ({ ...testCase, capabilityScope }),
+      ),
+    ),
+  )(
+    "registers truthful $label transport guidance and schemas with the SDK (capabilityScope=$capabilityScope)",
+    async ({ operations, actions, capabilityScope }) => {
+      const configs: SessionConfig[] = [];
+      const service = new CopilotAgentService(
+        baseOptions({
+          ...(capabilityScope
+            ? {
+                getAbletonCapabilities: async () => ({
+                  selectedProtocolVersion: PROTOCOL_VERSION,
+                  liveVersion: "11.3.42",
+                  remoteScriptVersion: "0.1.0",
+                  liveSetId: "transport-test",
+                  liveSetName: "Transport test",
+                  saved: false,
+                  diagnostics: [],
+                  capabilities: Object.fromEntries(
+                    (operations ?? []).map((operation) => [operation, true]),
+                  ),
+                  limits: { maxFrameBytes: 1024 * 1024, maxBatchItems: 64 },
+                }),
+              }
+            : {}),
+          clientFactory: () => ({
+            createSession: vi.fn(async (config: SessionConfig) => {
+              configs.push(config);
+              return createFakeSession(`transport-${configs.length}`);
+            }),
+            resumeSession: vi.fn(async () => {
+              throw new Error("unused");
+            }),
+            stop: vi.fn(async () => undefined),
+          }),
+        }),
+      );
+      try {
+        await service.start();
+        await service.createManagedAgent(
+          configuration("transport", {
+            resolvedTools: ["ableton_transport"],
+            ...(operations === undefined || capabilityScope
+              ? {}
+              : { resolvedOperations: operations }),
+          }),
+        );
+        const transport = configs
+          .at(-1)
+          ?.tools?.find((tool) => tool.name === "ableton_transport");
+        expect(transport).toBeDefined();
+        const parameters = transport?.parameters as {
+          toJSONSchema(): Record<string, unknown>;
+        };
+        const wire = JSON.parse(
+          JSON.stringify({
+            name: transport?.name,
+            description: transport?.description,
+            parameters: parameters.toJSONSchema(),
+          }),
+        ) as {
+          description: string;
+          parameters: {
+            type: string;
+            properties: { action: { enum?: string[]; const?: string } };
+            oneOf?: unknown[];
+          };
+        };
+        expect(wire.parameters.type).toBe("object");
+        const registeredActions = wire.parameters.properties.action.enum ?? [
+          wire.parameters.properties.action.const,
+        ];
+        if (actions === undefined) {
+          expect(registeredActions).toHaveLength(17);
+          expect(wire.parameters.oneOf).toHaveLength(17);
+        } else {
+          expect(registeredActions).toEqual(expect.arrayContaining(actions));
+          expect(registeredActions).toHaveLength(actions.length);
+        }
+        if (actions === undefined || actions.includes("set-playing")) {
+          expect(wire.description).toContain(
+            'Stop playback with action: "set-playing", isPlaying: false',
+          );
+          expect(wire.description).toContain(
+            'start playback with action: "set-playing", isPlaying: true',
+          );
+        } else {
+          expect(wire.description).not.toContain("Stop playback");
+          expect(wire.description).not.toContain('"set-playing"');
+        }
+        for (const action of [
+          "set-tempo",
+          "set-arrangement-loop",
+          "delete-cue-point",
+        ]) {
+          expect(wire.description.includes(`"${action}"`)).toBe(
+            actions === undefined || actions.includes(action),
+          );
+        }
+        expect(wire.description).toContain(
+          "Recording controls are intentionally excluded",
+        );
+      } finally {
+        await service.stop();
+      }
+    },
+  );
+
   it("uses plan.md as the approval source and rejects stale approvals", async () => {
     const sessionStateDirectory = await mkdtemp(
       join(tmpdir(), "ableton-plan-session-"),

@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { cp, mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
+import { performance } from "node:perf_hooks";
 
 import {
   LiveProcessController,
@@ -64,6 +65,7 @@ const evidence = {
   },
   groups: [],
   scenarios: [],
+  cleanup: [],
 };
 const coveredTools = new Set();
 
@@ -71,6 +73,12 @@ let failed = false;
 try {
   const suite = await loadScenarioSuite();
   const selectedGroups = selectScenarioGroups(suite, evidence.selection);
+  if (
+    hasFlag("approve-all") &&
+    selectedGroups.some((group) => group.id === "transport")
+  ) {
+    throw new Error("Transport scenarios require ordinary guarded approvals");
+  }
   const nativeGroups = new Map();
   for (const group of selectedGroups.filter((entry) =>
     [
@@ -304,7 +312,15 @@ try {
             "--json",
             "--quiet",
           ],
-          environment,
+          manifest.id === "transport-stop"
+            ? {
+                ...environment,
+                ABLETON_AGENT_SCENARIO_LIVE_PID: String(
+                  controller.publicRecord().pid,
+                ),
+                ABLETON_AGENT_SCENARIO_RUN_ID: controller.publicRecord().runId,
+              }
+            : environment,
           manifest.timeoutMs + 30_000,
         );
         result = await recoverScenarioTrace(
@@ -324,6 +340,7 @@ try {
         });
         if (
           classification !== "fail" ||
+          manifest.id === "transport-stop" ||
           attempt === 2 ||
           !shouldRetryAgentScenario(result)
         ) {
@@ -362,11 +379,11 @@ try {
     }
 
     if (groupPassed) {
-      await controller.gracefulStop();
+      await cleanupOwnedLive(false);
       groupEvidence.passed = true;
       groupEvidence.finishedAt = new Date().toISOString();
     } else {
-      await controller.discardAfterFailure();
+      await cleanupOwnedLive(true);
       groupEvidence.finishedAt = new Date().toISOString();
       break;
     }
@@ -376,7 +393,7 @@ try {
   evidence.error = error instanceof Error ? error.message : String(error);
   if (controller.publicRecord() !== undefined) {
     try {
-      await controller.discardAfterFailure();
+      await cleanupOwnedLive(true);
     } catch (cleanupError) {
       evidence.cleanupError =
         cleanupError instanceof Error
@@ -402,6 +419,56 @@ try {
 }
 
 if (failed) process.exitCode = 1;
+
+async function cleanupOwnedLive(discard) {
+  const owner = controller.publicRecord();
+  if (owner === undefined)
+    throw new Error("Cleanup requires exact runner ownership");
+  const started = performance.now();
+  const spanId = randomUUID();
+  const emit = (phase) => {
+    evidence.cleanup.push({
+      version: 2,
+      id: randomUUID(),
+      occurredAt: new Date().toISOString(),
+      name: `integration.agent_smoke.cleanup.${phase}`,
+      source: "application",
+      stage: phase,
+      level: phase === "failed" ? "error" : "info",
+      outcome:
+        phase === "completed"
+          ? "success"
+          : phase === "failed"
+            ? "failure"
+            : "unknown",
+      durationMs: Math.max(0, performance.now() - started),
+      trace: { traceId: evidence.runId, spanId },
+      correlationId: evidence.runId,
+      causationId: owner.runId,
+      attributes: { pid: owner.pid, discard },
+    });
+  };
+  emit("started");
+  // Retain actor state first, but never strand an owned process on a journal error.
+  let checkpointError;
+  try {
+    await mkdir(dirname(output), { recursive: true });
+    await writeFile(output, `${JSON.stringify(evidence, undefined, 2)}\n`, {
+      mode: 0o600,
+    });
+  } catch (error) {
+    checkpointError = error;
+  }
+  try {
+    if (discard) await controller.discardAfterFailure();
+    else await controller.gracefulStop();
+    emit("completed");
+  } catch (error) {
+    emit("failed");
+    throw error;
+  }
+  if (checkpointError !== undefined) throw checkpointError;
+}
 
 async function installRemoteScript(target) {
   await mkdir(target, { recursive: true });

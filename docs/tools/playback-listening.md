@@ -164,8 +164,9 @@ playback running. Actual normal-profile SDK registration contains all 17
 `ableton_transport` actions, including `set-playing` with `isPlaying: false`.
 The agent incorrectly claimed only `delete-cue-point` was available and never
 attempted a stop; it did not receive a stop permission denial. The description
-omits explicit start/stop, tempo and Arrangement-loop guidance; #56 tracks that
-fix and end-to-end agent verification. Manual Stop is the current dogfood
+now explicitly advertises start/stop, tempo and Arrangement-loop guidance;
+#56 tracks the scope-aware description fix and pending real-agent acceptance.
+Manual Stop remains the dogfood
 workaround, not evidence that Live or the application lacks the capability.
 Do not count the agent's refusal as a native capture attempt.
 
@@ -269,9 +270,10 @@ listener. Success still requires native proof, the expected 40 windows, typed
 reopen and unchanged recording/source postconditions. Source receipts use the
 existing bounded redacted runner lifecycle; the 256-receipt cap covers shutdown.
 
-The final complete local `pnpm check` passes with one Vitest worker and no
-retries: 2,308 TypeScript tests across 137 files, 631 Max-patch tests and 215
-Python tests. This includes 237 source-helper/runner-composition cases after
+The source implementation at `6f66f38` passed complete local `pnpm check`
+with one Vitest worker and no retries: 2,308 TypeScript tests across 137 files,
+631 Max-patch tests and 215 Python tests. This includes 237
+source-helper/runner-composition cases after
 correcting the production-shaped track-return receipt regression. All 12
 isolated Electron owning tests also pass in a sequential run, including source
 refusal presentation through the real preload.
@@ -300,6 +302,8 @@ supported 11.3.42 target.
 | Standalone Session-override refusal (`692445a0`) | PASS for this selected case: the exact Session slot remained selected after explicit stopped preparation, the one actor playback request produced `arrangement_session_override`, and independent checks proved no publication, released listener resources, recording off and unchanged Set/source state. |
 
 The refusal is one selected scenario, not a passed four-case source group.
+These observed-host runs used `6f66f38`, before the later main/PR #65
+integration; they are not qualification of that integrated head.
 The group was stopped at the baseline failure; the control and standalone
 expected-refusal case were separate diagnostic selections, not retries that
 erase that failure. No timing budget, native proof, source guard or actor

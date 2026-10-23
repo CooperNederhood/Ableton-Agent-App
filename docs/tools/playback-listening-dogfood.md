@@ -72,7 +72,7 @@ The normal profile, original Set, old example and installed App were untouched.
    leaves it running. The application already exposes transport stop through
    `set-playing` / `isPlaying: false`; the agent incorrectly failed to recognize
    it. [#56](https://github.com/CooperNederhood/Ableton-Agent-App/issues/56)
-   tracks the incomplete description and real-agent verification, not a missing
+   tracks the scope-aware description fix and pending real-agent verification, not a missing
    Live capability or proven permissions restriction.
    Repeat with beats 0.25-3.75 and 4-12. This example's 4-12 interval is silent
    on the listener track; expect completed silent measurements, not audio

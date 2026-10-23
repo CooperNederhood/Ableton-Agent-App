@@ -49,6 +49,18 @@ describe("optional listening tool contracts", () => {
       "Use get-pass with the returned passId",
     );
     expect(listening.description).toContain("Never use bash or sleep to wait");
+    expect(listening.description).toContain(
+      "Arrangement capture is not read-only",
+    );
+    expect(listening.description).toContain(
+      "Back to Arrangement restores the playback source, not the view",
+    );
+    expect(listening.description).toContain(
+      "Switching views, stopping playback or deselecting a clip does not clear this override",
+    );
+    expect(listening.description).toContain(
+      "never repair source selection or retry automatically",
+    );
     expect(context.description).toContain(
       "When a contextId is already known, use get",
     );

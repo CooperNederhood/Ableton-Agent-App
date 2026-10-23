@@ -46,19 +46,23 @@ if (!baseRef) {
 
 const contractPath = "packages/protocol/contracts/protocol.schema.json";
 const current = JSON.parse(await readFile(contractPath, "utf8"));
-let previous;
-try {
-  previous = JSON.parse(
-    execFileSync("git", ["show", `${baseRef}:${contractPath}`], {
-      encoding: "utf8",
-    }),
-  );
-} catch {
+const baselinePath = execFileSync(
+  "git",
+  ["ls-tree", "--name-only", baseRef, "--", contractPath],
+  { encoding: "utf8" },
+).trim();
+if (baselinePath === "") {
   console.log(
     `No protocol contract exists at ${baseRef}; compatibility check skipped.`,
   );
   process.exit(0);
 }
+const previous = JSON.parse(
+  execFileSync("git", ["show", `${baseRef}:${contractPath}`], {
+    encoding: "utf8",
+    maxBuffer: 8 * 1024 * 1024,
+  }),
+);
 
 if (current.protocolVersion > previous.protocolVersion) {
   console.log(

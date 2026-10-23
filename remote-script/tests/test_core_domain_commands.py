@@ -918,6 +918,114 @@ class CoreDomainCommandTests(unittest.TestCase):
         self.assertEqual(return_track["kind"], "return")
         self.assertEqual(master["kind"], "master")
 
+    def _scheduled_global_return(self, applies=True):
+        song = self.context.song
+        context = self.context
+        writes = []
+        song._actual_back_to_arranger = True
+
+        class ScheduledReturnSong(song.__class__):
+            @property
+            def back_to_arranger(self):
+                return self._actual_back_to_arranger
+
+            @back_to_arranger.setter
+            def back_to_arranger(self, value):
+                writes.append(value)
+                if applies:
+                    context.schedule_message(
+                        1,
+                        lambda: setattr(self, "_actual_back_to_arranger", value),
+                    )
+
+        song.__class__ = ScheduledReturnSong
+        return writes
+
+    def test_global_return_verifies_on_next_tick_without_repeating_mutation(self):
+        writes = self._scheduled_global_return()
+        responses = []
+        scheduled = []
+        logs = []
+        executor = MainThreadExecutor(
+            lambda _delay, callback: scheduled.append(callback),
+            self.registry,
+            self.context,
+            logger=logs.append,
+        )
+        operation = request(
+            "transport.mutate", {"action": "back-to-arrangement"}
+        )
+        executor.submit(operation, responses.append)
+        scheduled.pop(0)()
+        self.assertEqual(responses, [])
+        self.assertEqual(writes, [False])
+        self.assertEqual(len(self.context.scheduled), 2)
+        self.context.scheduled.pop(0)[1]()
+        self.assertEqual(responses, [])
+        self.context.scheduled.pop(0)[1]()
+        self.assertEqual(len(responses), 1)
+        result = responses[0]
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["requestId"], operation["requestId"])
+        self.assertTrue(result["result"]["before"]["backToArrangement"])
+        self.assertFalse(result["result"]["after"]["backToArrangement"])
+        self.assertTrue(result["result"]["verified"])
+        self.assertEqual(writes, [False])
+        command_logs = [
+            entry for entry in logs if "command=transport.mutate" in entry
+        ]
+        self.assertEqual(len(command_logs), 3)
+        for entry, lifecycle in zip(
+            command_logs, ("queued", "started", "completed")
+        ):
+            self.assertIn("executor " + lifecycle, entry)
+            self.assertIn("requestId=" + operation["requestId"], entry)
+        self.assertIn("durationMs=", command_logs[-1])
+
+    def test_queued_global_return_cancellation_never_changes_source(self):
+        writes = self._scheduled_global_return()
+        responses = []
+        logs = []
+        executor = MainThreadExecutor(
+            lambda _delay, _callback: None,
+            self.registry,
+            self.context,
+            logger=logs.append,
+        )
+        operation = request(
+            "transport.mutate", {"action": "back-to-arrangement"}
+        )
+        executor.submit(operation, responses.append)
+        executor.close()
+        self.assertEqual(writes, [])
+        self.assertEqual(self.context.scheduled, [])
+        self.assertEqual(len(responses), 1)
+        self.assertFalse(responses[0]["ok"])
+        self.assertEqual(responses[0]["requestId"], operation["requestId"])
+        self.assertTrue(self.context.song.back_to_arranger)
+        self.assertTrue(
+            any(
+                "executor cancelled" in entry
+                and "requestId=" + operation["requestId"] in entry
+                for entry in logs
+            )
+        )
+
+    def test_global_return_failure_retains_state_without_fake_highlight_rollback(self):
+        writes = self._scheduled_global_return(applies=False)
+        result = self.execute(
+            "transport.execute", {"action": "back-to-arrangement"}
+        )
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["error"]["code"], "conflict")
+        self.assertEqual(
+            result["error"]["details"],
+            {"beforeBackToArrangement": True, "afterBackToArrangement": True},
+        )
+        self.assertEqual(writes, [False])
+        self.assertTrue(self.context.song.back_to_arranger)
+        self.assertEqual(self.context.scheduled, [])
+
     def test_transport_mutations_and_cue_identity(self):
         state = self.execute(
             "transport.execute", {"action": "get"}

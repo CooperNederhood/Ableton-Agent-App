@@ -377,7 +377,7 @@ function nativeV2RetainTiming(timing, row, geometry) {
   }
 }
 
-function nativeV2Alignment(timing, geometry, policy, offset, startSample) {
+function nativeV2AlignmentMeasurements(timing, geometry, offset, startSample) {
   const offsets = [timing.minHostOffset, timing.maxHostOffset].filter(Boolean);
   const origins = [timing.minBeatOrigin, timing.maxBeatOrigin].filter(Boolean);
   const samplesPerBeat = (geometry.sampleRate * 60) / geometry.tempoBpm;
@@ -398,12 +398,26 @@ function nativeV2Alignment(timing, geometry, policy, offset, startSample) {
       ? nativeV2PhaseDisagreement(timing.maxPhaseDisagreement, geometry)
       : 0,
   );
+  return Object.freeze({
+    observedClockDisagreementSamples: clock,
+    observedBeatDisagreementSamples: beat,
+  });
+}
+
+function nativeV2Alignment(timing, geometry, policy, offset, startSample) {
+  const measurements = nativeV2AlignmentMeasurements(
+    timing,
+    geometry,
+    offset,
+    startSample,
+  );
+  const {
+    observedClockDisagreementSamples: clock,
+    observedBeatDisagreementSamples: beat,
+  } = measurements;
   if (Math.max(clock, beat) > policy.maxClockDisagreementSamples) {
     const error = new Error("listening_alignment_budget_exceeded");
-    error.alignmentMeasurements = Object.freeze({
-      observedClockDisagreementSamples: clock,
-      observedBeatDisagreementSamples: beat,
-    });
+    error.alignmentMeasurements = measurements;
     throw error;
   }
   return {
@@ -431,5 +445,6 @@ module.exports = {
   nativeV2HostBinding,
   nativeV2PreflightTiming,
   nativeV2RetainTiming,
+  nativeV2AlignmentMeasurements,
   nativeV2Alignment,
 };

@@ -86,10 +86,223 @@ Merge-blocking review defects and CI failures still require resolution.
   with the qualified native companions, no diagnostic source overrides and
   default-profile discovery. Leave the normal profile, old example, original
   Set and installed App untouched; no App reinstall is required.
-- [ ] Follow-up [#57](https://github.com/CooperNederhood/Ableton-Agent-App/issues/57):
-  diagnose the separate initial `arrangement_source_unknown` rejection.
+- [x] Follow-up [#57](https://github.com/CooperNederhood/Ableton-Agent-App/issues/57):
+  investigate the separate initial `arrangement_source_unknown` rejection.
   The runtime guard rejects a listener whose Session override is not explicitly
   false; retained failure events do not establish whether it was true or unknown.
+  Preserve that historical uncertainty; the source matrix and specific fixes
+  below do not retrospectively establish its cause.
+- [x] Separate confirmed Session override from unknown source state without
+  adding Session listening or automatic source repair/retry. Preserve the
+  nullable guard and existing public bounded job-error surface; remove
+  speculative timing/storage repair advice from the listening pass panel.
+- [x] Retain versioned, bounded per-listener source inputs and reason codes in
+  the inspection contract and traced/timed runtime decision journal. Validate
+  query/path/owner/current instance and epoch before attributing a source refusal.
+  Keep old responses readable without inventing missing detailed evidence.
+- [x] Reproduce and close the unsafe negative-slot shortcut: `-2` alone cannot
+  prove Arrangement selection. Preserve the independent clear-global/idle-fired
+  fallback, including running-state readback, and all recording/identity guards.
+  This is a demonstrated guard defect, not the original refusal's proven cause.
+- [x] Add source-state, malformed/contradictory evidence, freshness/replacement,
+  pre-/post-position and post-arm denial, cancellation, no-publication, cleanup,
+  explicit new-pass recovery, bounded redaction and typed History regressions.
+- [x] Add the reviewed `native-listening-source-investigation` group and
+  deterministic verifier for baseline, exact duplicate/delete/restoration,
+  intentional Session refusal and separately explicit return/new-pass recovery.
+  Preserve unchanged actor permissions, native proof, partial setup receipts,
+  exact ownership and cleanup checks.
+- [x] Check explicit track-return verification at its action-specific nested
+  `result.verified` field, schema-validate runner command mocks, and reject
+  malformed, wrong-action or unverified receipts before continuing setup.
+  The production-shaped receipt regression fails before the correction; the
+  helper and runner-composition suites pass all 237 cases afterward.
+- [x] Negotiate protocol 7 with Remote Script/minimum `0.7.0`, regenerate paired
+  fixtures, and fix the compatibility checker's silent large-baseline skip.
+  Retain the historical broad-suite timing failures separately from passing
+  final checks and isolated Desktop IPC coverage.
+- [x] Pass complete local `pnpm check` at `6f66f38` with one Vitest worker and
+  no retries: 2,308 TypeScript, 631 Max-patch and 215 Python tests. Pass all 12 Electron
+  owning tests sequentially with unchanged assertions and deadlines; retain
+  the initial concurrent run's two startup/deadline failures and traces.
+  These are not real-Live or visual qualification.
+- [x] Resolve the initial process/input blockers without adopting user work.
+  Validate all immutable fixture pins offline (25 candidate resources, three
+  WAVs and the four-beat Session source), retaining the separately authored
+  #58 epoch-handoff candidate's provenance. Use fresh runner-owned processes
+  following this branch's token-preserving script deployment.
+- [x] Verify the standalone real-Live Session-override refusal on observed
+  11.3.43: exact stopped Session selection, one actor playback request, exact
+  `arrangement_session_override`, no publication, released listener, unchanged
+  Set/source and recording state, and complete owned process/fixture cleanup.
+  This is one selected case, not full source-group or other-build qualification.
+- [x] Retain the failed 4-12 baseline (`native_launch_binding_mismatch`) and
+  separate 0-4 control (`listening_alignment_budget_exceeded`). Replay the
+  control's recorded 65-sample beat disagreement against the unchanged
+  64-sample policy; do not assign that cause to the baseline without its
+  rejected operands. No failure is relabelled a pass or guard relaxed.
+- [x] Retain previously missing launch-binding operands through the existing
+  bounded alignment diagnostic, preserving `native_launch_binding_mismatch`.
+  The projected start is diagnostic-only, not an accepted capture. Reproduce
+  the missing snapshot before the fix and verify controller/real-SDK failure,
+  attribution, immutable evidence, disarm timeout/confirmation and replacement.
+- [x] Trace the clock graph's offset-zero scheduler sub-vector behavior.
+  Configure v2 clock snapshots from the actual DSP vector's last index before
+  the host bracket; preserve raw inputs, anchor, timing cap, v1 and Gen bytes.
+  The new graph regression fails without the change; all 634 owning Max-patch
+  tests pass with it; the later pinned real-Live qualification is recorded below.
+- [x] Build a fresh candidate from the canonical clean authored AMXD, not
+  #58's native output. Retain new candidate/author/clock-graph hashes and the
+  Set's provenance; reverify all 29 original immutable pins.
+  Pass workspace build and complete quality: 2,394 TypeScript, 634 Max-patch
+  and 215 Python tests, including the 75 targeted ingress/contract cases.
+- [x] Resolve the former startup blocker through the user's explicit closure
+  and independent process-absence verification, without automation discarding
+  unknown content. Open the isolated fixture directly in a fresh owned process;
+  ordinary Save As establishes the new Set pin `eb627f86` without XML rewriting.
+  Close the saved provisioning process and preserve #58's original inputs.
+- [x] Rerun the failed 4-12 baseline (`5e6f4a31`): exact 192k frames/40 windows,
+  independent proof/context/postconditions, clock/beat disagreement 0/1 and
+  owned cleanup. On the same source head `deaf182`, pass all four fresh-process
+  descriptive cases (`9c076380`), including the formerly failing 0-4 and
+  30-second 1,440k-frame/300-window capture; each observes 1/2 disagreement.
+  Keep the 64-sample budget, descriptive-only limitations and old failures.
+- [x] Independently audit typed History proofs from the three positive source
+  captures, four descriptive cases and one Desktop capture: all 69 retained
+  clock rows per proof use index63 at vector64. This proves the new acquisition
+  graph ran, not physical timing accuracy or the historical source cause.
+- [x] Exercise ordinarily approved visible Default-agent 0-4 capture
+  `ebd2a01a` / context `0a7da622` and separate Session refusal `27503b87`.
+  Independently verify 96k frames/20 windows, native proof, original context
+  and source/Set/WAV hashes; refusal has exact slot0/global override evidence
+  and no positioning, capture or publication. Verify the renderer's IDs and
+  approximate limits. Retain the first offscreen-guidance check as inconclusive;
+  separately qualify fresh-profile refusal `347a06f8`, with the single message,
+  ordinary approval, terminal failure and full guidance visible in conversation
+  and Outputs. Independent audit confirms no published context store,
+  positioning or capture and unchanged staged Set. Pass all 12 current-head
+  Electron owning tests sequentially without retries.
+- [x] Qualify #57's controlled Arrangement edits and Session takeover/return
+  matrix in isolated runner-owned Live, then visually inspect the new refusal
+  guidance in an isolated Desktop workflow. Record exact version/hash provenance
+  and retain blockers/failures; do not adopt or close a pre-existing user process.
+  Source group `7a08c15f` passes baseline, exact duplicate/delete/restoration
+  and Session refusal, but fails explicit track-return setup because the host
+  does not expose `tracks.back_to_arrangement`. That run's reviewed scope
+  prohibited global return; no capability fabrication or substitution occurred.
+  The failed trace/partial setup remain retained as historical evidence.
+  The later user-approved guarded-global setup and complete combined source
+  acceptance below supersede the original blocked track-only recovery.
+  Record installed 11.3.43 without
+  requiring an uninstalled 11.3.42 downgrade. Deterministic fixtures were
+  cleaned; the isolated UX fixtures/profiles remain private audit evidence.
+  Both UX pairs exited (Desktop41955/Live41218, Desktop47007/Live46186) and
+  both exact hosts stopped; final canonical absence at18:44:08.384Z preceded
+  explicit slot release. The historical source
+  cause remains unproven. The draft decision at that historical handoff is
+  superseded only by the later combined acceptance and final-head gates.
+- [x] Integrate main's merged PR #66 placement fencing and native epoch
+  high-water without losing source diagnostics or fixed-index clock acquisition.
+  Retain both source and rebinding runner flows and Live 11-only/no-patch-pin
+  admission. Combined source/placement regressions fail with the older early
+  generic source guard and pass with validation ordered after current binding
+  and owner checks. An in-flight registration change remains a placement
+  refusal before any source attribution. Prior context and capture permissions
+  remain unchanged after renewed-placement source refusal.
+- [x] Record combined build/full quality: 2447 TypeScript tests across 139 files,
+  642 Max tests, 217 Python tests and all 12 owning Electron tests sequentially
+  without retries.
+- [x] Record fresh immutable-candidate Live acceptance separately. Do not inherit
+  either pre-integration candidate's real-Live or visible qualification.
+  The fresh combined candidate's source, rebinding and descriptive receipts
+  below are independent of both earlier candidates.
+- [x] Apply the user's explicit test-only global-return approval with a known
+  globally clear baseline, complete unchanged track inventory, exactly one
+  Set-wide Session source and only the identity-bound owned launch before the
+  fresh traced scope guard. Deny unknown/foreign/changed scope; preserve partial
+  evidence and recording/ownership/cancellation fences. Independently verify
+  global and target source clear before stopped new-pass preparation. Keep
+  actor permissions and production no-auto-recovery behavior unchanged.
+- [x] Verify revised helper success, malformed receipt, guard denial, partial
+  failure and cancellation: 60 helper cases, 435 broader native-helper cases
+  across nine files and 2468 full TypeScript tests across 139 files pass.
+- [x] Qualify the revised recovery case alone, then its source group and the
+  remaining suite; do not relabel the original unsupported-track failure.
+- [x] Retain first combined recovery failure `1fccf46b`: scope guard qualifies,
+  but the existing global command fails immediate verification before actor
+  startup. Add one-tick, one-assignment deferred verification, bounded failure
+  operands and request-attributed lifecycle/queued-cancellation regressions.
+  All 220 Python tests pass; physical scheduling causality is not yet claimed.
+- [x] Verify fresh recovery rerun `5e7f9759` at `0d82504`: one scheduled
+  true-to-false command, independent clear-source reads, 192k frames/40 windows,
+  exact native/context/postconditions and cleanup; independent 69-row index63
+  clock audit passes. Retain the stale exact-patch eligibility label as observed.
+- [x] Correct current runner eligibility/labels to shared Live 11-only policy
+  for top-level and source results, without rewriting historical receipts or
+  promoting qualification/readiness/failures. Version/failure red-green cases
+  and all 2478 TypeScript tests pass.
+- [x] Repeat current-policy real-Live case/group acceptance after the metadata
+  correction; keep physical qualification separate from host eligibility.
+- [x] Record standalone current-policy recovery `731a35c4` at `b031f70`:
+  eligible observed 11.3.43, exact 192k-frame/40-window proof and cleanup pass.
+- [x] Fix expected-refusal cleanup failure exposed by source group `cc47bcdd`:
+  baseline/edit pass and core refusal assertions pass, but fixture cleanup
+  correctly rejects an active owned Live91785. Outer fallback stops it; staging
+  remains retained and the fourth case is unattempted. Add stop-before-delete
+  and cleanup-failure regression coverage. Inspection finds graceful-quit
+  timeout masked by the active-fixture guard, not a bypassed shutdown branch.
+  Await exact-owned disposal before cleanup; preserve primary shutdown errors
+  and active-fixture protection. All 452 native-helper and 2485 full TypeScript
+  tests pass.
+- [x] Rerun expected refusal alone (`f24f8500`), then all four source cases
+  (`c1725ac9`) at `436c5c6`: complete source/proof/context/cleanup acceptance.
+- [x] Qualify merged placement/clock behavior alone (`6dca4ab3`) and in its
+  fresh-process rebinding group (`be634acd`): two exact captures, native epochs
+  1 then 2, same listener index0 to1 and unchanged prior context.
+- [x] Qualify all four combined descriptive cases (`e2c31f71`), including
+  30seconds/1,440k frames/300 windows. Audit all eleven captures across these
+  reports:759 retained rows at index63/vector64, clock/beat at most1/2, unchanged
+  timing guards and no physical qualification promotion.
+- [x] Qualify the remaining nineteen non-native cases at `436c5c6`: fourteen
+  pass/five recovered-pass, all exact assertions and cleanup pass. Preserve
+  failed argument attempts in recovered traces. Do not claim the entire
+  29-case suite: the explicit strict-v1 fixture case was not rerun.
+- [x] Retain fresh ordinary-approval Default-agent attempt outcomes: unsupported
+  `limit` fails before capture; subsequent pass `ed85a632` / context `681e6304`
+  has independently accepted 96k-frame/20-window proof and 69 index63 rows.
+  Independent bridge read confirms playing transport, clear source and no
+  recording; structured Outputs reports the actual leave-running policy.
+- [x] Retain stopped-Session refusal `7b583e99`: slot0/global override,
+  no positioning/native capture/context publication, unchanged stopped source
+  and staged Set/WAVs. Close both owned Desktop/Live pairs and exact hosts.
+- [x] Reject their incorrect generated prose as acceptance evidence: capture
+  is not read-only, and stopping/deselecting a Session clip does not clear its
+  override. Make both facts explicit in shared listening-agent guidance;
+  preserve manual return/new-request and no automatic repair/retry. Prove
+  red/green coverage at tool descriptions and actual new/resumed SDK prompts;
+  all 67 owning cases pass, with no permission/schema/Live-behavior change.
+- [x] Finish fresh current-guidance native/visible acceptance; do not relabel
+  the earlier prose. Final-head hosted gates remain the separate PR-readiness
+  check, not an inherited qualification claim.
+- [x] Pass current-guidance baseline alone (`0eb0bd3e`) and fresh four-case
+  source group (`3958b8fc`), with exact postconditions and cleanup. Audit 276
+  retained index63/vector64 rows across four captures. Keep focused
+  clock/beat1/64 and group maximum1/2 distinct, with the same inclusive
+  descriptive64 cap and unknown absolute accuracy.
+- [x] Pass current-guidance full TypeScript (2485), all twelve sequential
+  no-retry Electron cases, workspace types, changed-source lint and paired docs.
+- [x] Recheck both original requests with fresh processes at `2e52827`.
+  Positive `ac00ad74` / context `dcffa7df` passes independent native/context
+  verification (96k frames/20 windows,69 index63 rows,clock/beat0/64) and now
+  accurately explains positioning/start/leave-running transport. Live visibly
+  stays in Session View while the independently verified source is Arrangement.
+  Refusal `bef49b20` correctly explains manual source restoration, not a view
+  switch; stopping/deselecting is explicitly not a substitute. Prove stopped
+  override before/after, no positioning/capture/publication and unchanged files.
+- [x] Close all final owned Desktop/Live pairs and exact hosts, without saving
+  or discarding unrelated work. Verify canonical Live absence at
+  22:14:47.149Z and absent Desktop PIDs28156/29752; release the shared slot.
+  Preserve private failure/qualification evidence and all immutable inputs.
 - [x] Follow-up [#58](https://github.com/CooperNederhood/Ableton-Agent-App/issues/58):
   reproduce and resolve listener binding after device-chain edits. Retained
   inspection shows the same enabled Max listener at device index 1 after a

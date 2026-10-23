@@ -472,6 +472,18 @@ export function nativeRuntimeDocuments({
     for (const document of [clock, analysis])
       box(document, "poll").text = "metro 10 @active 0";
 
+    // Offset zero follows scheduler sub-vector time in Audio Interrupt mode.
+    // Compare the host bracket with the latest available DSP sample instead.
+    add(clock, "snapshotLastIndex", "- 1");
+    add(clock, "snapshotOffset", "prepend offset");
+    box(clock, "snapshotLastIndex").patching_rect = [600, 285, 60, 22];
+    box(clock, "snapshotOffset").patching_rect = [670, 285, 115, 22];
+    clock.patcher.lines.push(
+      wire("dsp", 2, "snapshotLastIndex"),
+      wire("snapshotLastIndex", 0, "snapshotOffset"),
+      wire("snapshotOffset", 0, "snapshot"),
+    );
+
     // Version selection is part of the opt-in graph, not a change to IO code or
     // shipping/default resources.
     for (const [document, id] of [

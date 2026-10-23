@@ -396,6 +396,9 @@ test("shows synthetic listening lifecycle through real preload events and read-o
     application = launched.application;
     profile = launched.profile;
     const window = await application.firstWindow();
+    await expect(
+      window.getByRole("combobox", { name: "Active Agent", exact: true }),
+    ).toBeEnabled({ timeout: 30_000 });
     await window.getByRole("button", { name: "Outputs", exact: true }).click();
     await expect(
       window.getByText("Listening passes", { exact: true }),
@@ -512,6 +515,26 @@ test("shows synthetic listening lifecycle through real preload events and read-o
         exact: false,
       }),
     ).toBeVisible();
+    for (const error of [
+      "arrangement_session_override: A Session source overrides the selected track. Return to Arrangement in Live, then explicitly request a new listening pass.",
+      "arrangement_source_unknown: Arrangement source selection could not be verified. Request a fresh inspection. No Session takeover is confirmed.",
+    ]) {
+      page.revision++;
+      page.jobs[0] = { ...page.jobs[0], stage: "failed", error };
+      await inject(page);
+      const refusal = window.locator("[data-listening-stage=failed]");
+      await expect(refusal.getByRole("alert")).toContainText(error);
+      await expect(refusal).toContainText("0 stored observation references");
+      await expect(refusal).not.toContainText(
+        "timing certification and context storage",
+      );
+      await expect(
+        window.getByRole("button", {
+          name: "Cancel owned capture (not transport)",
+          exact: true,
+        }),
+      ).toBeDisabled();
+    }
     const inventory = await window.evaluate(
       async ({ sessionId, agentId }) =>
         globalThis.window.desktop.listening.list({ sessionId, agentId }),

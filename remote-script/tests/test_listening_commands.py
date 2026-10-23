@@ -124,6 +124,61 @@ class ListeningCommandsTest(unittest.TestCase):
         self.track.back_to_arranger = True
         self.assertIs(self.inspect()["listeners"][0]["sessionOverride"], True)
 
+    def test_source_evidence_distinguishes_selection_and_preserves_inputs(self):
+        self.song.back_to_arranger = False
+        self.track.fired_slot_index = -1
+        cases = (
+            (-1, False, "arrangement", "track-clear"),
+            (-1, True, "session-override", "track-override"),
+            (0, False, "session-override", "track-session-slot"),
+        )
+        self.track.clip_slots = [types.SimpleNamespace(
+            has_clip=True, clip=audio_clip("Session"),
+        )]
+        for index, back, state, reason in cases:
+            with self.subTest(state=state):
+                self.track.playing_slot_index = index
+                self.track.back_to_arranger = back
+                listener = self.inspect()["listeners"][0]
+                self.assertEqual(listener["sourceEvidence"], {
+                    "schemaVersion": 1, "state": state, "reason": reason,
+                    "trackBackToArranger": back, "songBackToArranger": False,
+                    "playingSlotIndex": index, "firedSlotIndex": -1,
+                })
+
+    def test_clip_stop_sentinel_alone_does_not_prove_arrangement(self):
+        del self.track.back_to_arranger
+        self.track.playing_slot_index = -2
+        listener = self.inspect()["listeners"][0]
+        self.assertIsNone(listener["sessionOverride"])
+        self.assertEqual(listener["sourceEvidence"]["state"], "unknown")
+        self.assertEqual(listener["sourceEvidence"]["reason"], "source-properties-unavailable")
+
+    def test_source_evidence_records_fallback_invalid_slot_and_unavailable_inputs(self):
+        del self.track.back_to_arranger
+        self.track.playing_slot_index = -1
+        self.track.fired_slot_index = -1
+        self.song.back_to_arranger = False
+        evidence = self.inspect()["listeners"][0]["sourceEvidence"]
+        self.assertEqual(evidence["reason"], "global-clear-idle-slots")
+        self.assertIsNone(evidence["trackBackToArranger"])
+        self.track.playing_slot_index = -2
+        self.assertEqual(
+            self.inspect()["listeners"][0]["sourceEvidence"]["reason"],
+            "global-clear-idle-slots",
+        )
+        self.track.playing_slot_index = 10
+        listener = self.inspect()["listeners"][0]
+        self.assertIsNone(listener["sessionOverride"])
+        self.assertEqual(listener["sourceEvidence"]["reason"], "invalid-playing-slot")
+        for value in (None, True, 1.5, float("inf"), 2 ** 40):
+            self.track.playing_slot_index = value
+            self.track.fired_slot_index = value
+            evidence = self.inspect()["listeners"][0]["sourceEvidence"]
+            self.assertEqual(evidence["state"], "unknown")
+            self.assertIsNone(evidence["playingSlotIndex"])
+            self.assertIsNone(evidence["firedSlotIndex"])
+
     def test_recording_or_unknown_flags_and_clip_state_fail_closed(self):
         for field in ("record_mode", "session_record", "overdub", "session_automation_record"):
             setattr(self.song, field, True)

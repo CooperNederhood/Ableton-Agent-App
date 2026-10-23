@@ -75,6 +75,31 @@ test("v2 authoritative clock and descriptor sampling never use a dropping low-pr
   }
 });
 
+test("v2 clock samples the last actual DSP-vector index before each bracket without changing v1 or descriptor sampling", () => {
+  const documents = nativeRuntimeDocuments({ nativeVersion: 2 });
+  const clock = documents["audio_listener_native_clock.maxpat"];
+  assert.equal(boxes(clock).get("snapshotLastIndex")?.text, "- 1");
+  assert.equal(boxes(clock).get("snapshotOffset")?.text, "prepend offset");
+  assert(connected(clock, "dsp", 2, "snapshotLastIndex"));
+  assert(connected(clock, "snapshotLastIndex", 0, "snapshotOffset"));
+  assert(connected(clock, "snapshotOffset", 0, "snapshot"));
+  assert.equal(boxes(clock).get("order").text, "trigger b b b b");
+  assert(connected(clock, "order", 3, "dspOrder"));
+  assert(connected(clock, "dspOrder", 1, "dsp"));
+  assert(connected(clock, "order", 2, "preOrder"));
+  assert(connected(clock, "order", 1, "snapshot"));
+  assert(connected(clock, "order", 0, "postOrder"));
+  assert.equal(
+    boxes(documents["audio_listener_native_analysis.maxpat"]).get("snapshot")
+      .text,
+    "mc.snapshot~ @offset 0",
+  );
+  const legacy = nativeRuntimeDocuments()["audio_listener_native_clock.maxpat"];
+  assert.equal(boxes(legacy).has("snapshotLastIndex"), false);
+  assert.equal(boxes(legacy).has("snapshotOffset"), false);
+  assert.equal(boxes(legacy).get("snapshot").text, "mc.snapshot~ @offset 0");
+});
+
 test("opt-in authored native composition preserves the existing client, presentation and stereo path", () => {
   const authored = sourceDocuments()["Audio-Listener.maxpat"];
   const node = authored.patcher.boxes.find(({ box }) =>

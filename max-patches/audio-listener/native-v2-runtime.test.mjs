@@ -671,6 +671,66 @@ test("v2 spectrum failure numeric diagnostic survives deferred arm reply, timeou
     }
 });
 
+test("v2 refused-launch diagnostic crosses the real SDK once and survives confirmed or timed-out disarm", async () => {
+  for (const confirmed of [true, false]) {
+    const f = fixture();
+    try {
+      f.dispatch("prepare");
+      const pending = f.dispatch("arm");
+      f.preflight();
+      f.configReceipt();
+      f.ack();
+      await pending;
+      const p = f.runtime.nativeController.pass;
+      const row = f.clock(f.origin + 640);
+      row[1] += 128 / ((f.geometry.sampleRate * 60) / f.geometry.tempoBpm);
+      row[8] = row[1];
+      row[5] = row[1] % 1;
+      f.packet("clock", row);
+      f.packet("envelope", f.envelope());
+      if (confirmed) f.stopReceipt(p.generation);
+      else {
+        f.time(1000);
+        f.timers[0]();
+      }
+      const failed = f.wire.filter((frame) => frame.status === "failed");
+      assert.equal(failed.length, 1);
+      assert.equal(failed[0].reason, "native_launch_binding_mismatch");
+      const diagnostic = failed[0].nativeFailureDiagnostic;
+      assert.equal(diagnostic.check, "launch-alignment");
+      assert.equal(diagnostic.generation, p.generation);
+      assert.equal(diagnostic.startSample, f.origin + p.anchorHostOffset);
+      assert.deepEqual(diagnostic.rejectedClock, row);
+      assert.deepEqual(diagnostic.measurements, {
+        observedClockDisagreementSamples: 0,
+        observedBeatDisagreementSamples: 128,
+      });
+      for (const key of [
+        "traceId",
+        "correlationId",
+        "passId",
+        "connectionEpoch",
+      ])
+        assert.equal(failed[0][key], f.command[key]);
+      assert.equal(failed[0].nativeCapture, undefined);
+      assert.equal(failed[0].observation, undefined);
+      assert(
+        f.wire
+          .filter((frame) => frame.status !== "failed")
+          .every((frame) => frame.nativeFailureDiagnostic === undefined),
+      );
+      f.stopReceipt(p.generation);
+      assert.equal(
+        f.wire.filter((frame) => frame.status === "failed").length,
+        1,
+      );
+      assert.equal(f.runtime.nativeController.pendingDisarm, null);
+    } finally {
+      f.runtime.stop();
+    }
+  }
+});
+
 test("v2 alignment diagnostic survives deferred arm failure and post-launch failure through confirmed or timed-out disarm", async () => {
   for (const phase of ["preflight", "capturing"])
     for (const confirmed of [true, false]) {

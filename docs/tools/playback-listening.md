@@ -171,6 +171,157 @@ Manual Stop remains the dogfood
 workaround, not evidence that Live or the application lacks the capability.
 Do not count the agent's refusal as a native capture attempt.
 
+### Arrangement-source validation and recovery (#57)
+
+Arrangement-only listening checks the selected playback source, not which Live
+view is open. A Session source can override a track even when the request names
+an Arrangement interval. The guard still requires every listener's independently
+inspected `sessionOverride` to be explicitly false:
+
+| Inspected value | Meaning | Source refusal and recovery |
+| --- | --- | --- |
+| `false` | Arrangement source selection is confirmed by the available fields. | Continue only if all other safety, identity and native guards pass. |
+| `true` | A Session source override is detected for that listener. | `arrangement_session_override`: return that track to Arrangement in Live, then explicitly request a new pass. |
+| `null` | Available evidence cannot establish the source. | `arrangement_source_unknown`: check source/connection state and request a fresh inspection; do not claim a Session takeover. |
+
+An unknown listener keeps a multi-listener request unknown even when another
+listener has a confirmed override; the per-listener diagnostic preserves both.
+Transport/recording and invalid identity/binding refusals retain their own
+priority. No refusal publishes a complete observation or automatically switches
+source, repairs Live, stops playback or retries capture. Session listening
+support is separate work.
+
+`listening.inspect_context` now optionally returns bounded `sourceEvidence` for
+each listener, alongside the existing nullable boolean. Version 1 contains
+`state`, an allowlisted `reason`, nullable Song/Track Back to Arrangement flags,
+and nullable integer playing/fired slot indices. Missing, unreadable, invalid
+or out-of-bounds inputs remain unknown, not default false. The schema rejects
+contradictory state/basis and boolean/evidence pairs. Older responses remain
+readable: the existing tri-state guard still applies, and absent detailed
+evidence is retained as `null`, never fabricated. Protocol 7 and Remote Script
+`0.7.0` are negotiated together to keep old strict clients from consuming the
+extended wire shape; accepting an older fixture is not a mixed-version
+connection guarantee.
+
+The Remote Script captures the source inputs once per listener inspection so
+the diagnostic and its decision share the same reads. An invalid reported
+playing slot or mixed return/master placement explicitly downgrades the result
+to unknown. A negative slot sentinel alone is not Arrangement proof:
+`playing_slot_index == -2` denotes Session Clip Stop. With an unavailable
+per-track flag, a known clear global flag plus a negative playing index
+(`-1`/`-2`) and idle fired slot (`-1`) provides the existing independent
+global fallback. The sentinel without that independent evidence remains
+unknown. This closes an overly permissive fallback; it does not establish the
+cause of the historical rejection.
+
+The runtime rechecks owner and current listener inventory after the asynchronous
+inspection, and validates its fresh binding-query nonce/path/instance/epoch
+before attributing a source decision. Stale queries and replaced owners or
+connections remain identity/freshness failures, not confirmed Session
+takeovers. A fresh query and revision are not a universal native action-origin
+or exclusive transport-ownership guarantee.
+
+Each attributable source decision records `listening.source.validation` inside
+the existing inspection/preparation lifecycle. Its typed inputs are sanitized
+before persistence, bounded to eight listeners, 512 characters per string and
+16 KiB of attributes, with no audio, prompts, clip contents or display names.
+The snapshot retains the actual per-listener tri-state and optional source
+inputs, pass and inspection boundary, Set/session/agent, query identity,
+listener instance/connection epoch, project revision, inspection start/end,
+elapsed time, and trace/correlation/causation IDs. The record is available through
+existing typed, redacted Desktop History queries and canonical local journal
+storage; no renderer filesystem/SQL access or upload channel is added.
+
+The synchronous decision record is not a new asynchronous investigation or
+recovery stage. Existing inspection, positioned-inspection and capture-preparation
+queued/started/completed/failed/cancelled events retain lifecycle and timing.
+Cancellation and stale replies cannot produce an attributed current-source
+decision. Pre-arm refusals dispatch no native capture/start; post-arm refusals
+disarm and release reserved quota without publication or rewinding a positioned
+source.
+
+Deterministic regressions cover classification, bounds, the independent global
+fallback, stale query/owner/epoch, source transitions at each validation boundary,
+redaction/typed journal retrieval, cancellation, cleanup and a new explicitly
+requested successful pass after restoring safe evidence. These tests do not
+reconstruct the original Set state or by themselves qualify real Live transitions.
+
+The reviewed `native-listening-source-investigation` group adds four deterministic
+runner scenarios: a beats 4-12 baseline, an exact Arrangement duplicate/delete
+edit at independently empty beat 128 followed by restoration, a legitimate
+Session-override refusal, and an explicit test-only guarded global return followed by a new
+pass in a fresh copied fixture/process. The override setup independently proves
+that the override remains true after its explicit fixture-preparation Stop, so
+the stopped-transport prerequisite cannot mask the intended source denial.
+The return action and Stop are reviewed runner setup, not agent repair,
+application recovery controls or capture cleanup. Each actor makes exactly one
+playback request with unchanged tool/risk allowlists.
+
+Setup verification preserves command-specific receipts: track return requires
+the `back-to-arrangement` action and nested `result.verified`, while the other
+setup commands retain their top-level verification. Runner mocks are checked
+against the tracks result schema; malformed, wrong-action and unverified return
+receipts stop setup before further reads or mutations.
+
+The verifier reads fresh state at transitions, immediately before the actor's
+request and after terminal status. It checks query/Set/connection/epoch/binding
+before attribution, retains partial setup receipts on failure, and requires the
+exact known refusal with no context/native completion and an idle released
+listener. Success still requires native proof, the expected 40 windows, typed
+reopen and unchanged recording/source postconditions. Source receipts use the
+existing bounded redacted runner lifecycle; the 256-receipt cap covers shutdown.
+
+The source implementation at `6f66f38` passed complete local `pnpm check`
+with one Vitest worker and no retries: 2,308 TypeScript tests across 137 files,
+631 Max-patch tests and 215 Python tests. This includes 237
+source-helper/runner-composition cases after
+correcting the production-shaped track-return receipt regression. All 12
+isolated Electron owning tests also pass in a sequential run, including source
+refusal presentation through the real preload.
+
+An initial Electron run concurrent with the quality gate retained two
+startup/deadline failures; its logs and traces remain distinct from the
+subsequent full sequential pass with unchanged assertions, deadlines and zero
+retries. Earlier Desktop identity/SDK-rotation timing failures also remain
+historical failures, not relabelled passes. None of these synthetic checks
+establish real-Live or visual qualification.
+
+The initial pre-existing-process and missing-input blockers were subsequently
+resolved. Offline canonical staging validated a separately pinned immutable v2
+fixture from the isolated #58 namespace: 25 candidate resources, three WAVs,
+one four-beat Session source on the listener track and no Arrangement clip at
+beat 128. The candidate includes #58's epoch-handoff fix; that provenance is
+retained rather than treating it as a newly authored candidate from this branch.
+Each actual run opened a byte-for-byte runner-owned copy with this branch's
+fresh Remote Script 0.7.0/protocol 7. These are development observations on the
+installed Live 11.3.43 host; full subversions are retained, not treated as
+interchangeable evidence. Development does not require downgrading to the
+previously recorded 11.3.42 installation. Live 12 remains unsupported.
+
+| Observed-host run | Result |
+| --- | --- |
+| Source baseline 4-12 (`9a207291`) | Arrangement source validation passed through four runtime decisions, using global-clear/idle-slot evidence with the track-level Boolean unavailable. The producer then failed `native_launch_binding_mismatch`; no context was published. |
+| Existing native 0-4 control (`5f8b0f32`) | Twenty measurement windows were produced, but the incomplete capture failed `listening_alignment_budget_exceeded`. The retained rejection snapshot records clock disagreement 32 samples and beat disagreement **65**, exceeding the unchanged **64**-sample policy. Replaying those recorded operands through the production validator reproduces the refusal; zero contexts were published. |
+| Standalone Session-override refusal (`692445a0`) | PASS for this selected case: the exact Session slot remained selected after explicit stopped preparation, the one actor playback request produced `arrangement_session_override`, and independent checks proved no publication, released listener resources, recording off and unchanged Set/source state. |
+
+The refusal is one selected scenario, not a passed four-case source group.
+These observed-host runs used `6f66f38`, before the later main/PR #65
+integration; they are not qualification of that integrated head.
+The group was stopped at the baseline failure; the control and standalone
+expected-refusal case were separate diagnostic selections, not retries that
+erase that failure. No timing budget, native proof, source guard or actor
+permission was relaxed. The 4-12 launch failure lacks rejected operands, so it
+is not assigned the control's 65-sample cause or the historical issue's cause.
+
+All three owned Live processes exited, their disposable fixtures were cleaned
+up, and independent process inspection confirmed absence before slot release.
+No pre-existing process or original Set was adopted or changed; existing
+Remote Script authentication was preserved. Raw Set/audio and private profile
+paths were not uploaded. At that checkpoint positive capture, Arrangement-edit/
+explicit-return group completion and visible cross-app acceptance remained open.
+The subsequent clock correction and its new evidence follow; those successes
+do not erase the original failed runs or reconstruct the historical source state.
+
 Native v2 failure snapshots now use the existing generation-owned
 `nativeFailureDiagnostic` route for alignment and FFT sequence rejections.
 Alignment snapshots preserve the exact rejecting check, anchor, previous and
@@ -182,6 +333,294 @@ legacy v1 and the 128 KiB frame ceiling are unchanged. Cleanup preserves the
 first failure snapshot without allowing another generation to inherit it.
 These snapshots enabled the following recorded-data fixes; historical failures
 without rejected operands cannot be retroactively assigned the same cause.
+
+Native launch-binding refusals also retain the existing alignment snapshot,
+with `check: "launch-alignment"` and the unchanged public
+`native_launch_binding_mismatch` reason. Here `startSample` is the rejected
+projection computed from the validated arm/launch marker and frozen offset,
+not an accepted launch or capture. Clock witnesses and disagreement
+measurements use the same calculation as the enforcing validator. No new wire
+fields, successful-capture authority, frame allowance or timing tolerance are
+introduced. Controller and real-SDK regressions cover the missing diagnostic,
+trace attribution, immutable operands, no publication, disarm confirmation or
+timeout, cancellation and replacement-generation isolation.
+
+The #57 timing investigation also identified a clock-acquisition hazard:
+[`snapshot~`](https://docs.cycling74.com/reference/snapshot~/) with offset zero
+can select the scheduler's sub-vector sample when Scheduler in Audio Interrupt
+is enabled, while the bracketed host clock reports a buffer-boundary position.
+The opt-in v2 clock graph now configures its MC snapshot to the actual DSP
+vector size minus one before each bracket. This reads the latest available
+sample rather than rewriting clock values, selecting a more favorable anchor
+or discarding disagreement witnesses. Default/v1 and descriptor sampling,
+Gen algorithms, bracket duplication, the frozen anchor and strict-zero/default64
+limits remain unchanged. The graph regression fails before this change and
+passes afterward. Fresh immutable-candidate captures now demonstrate the
+correction on the observed host, with the limits below.
+
+The continuation passes a fresh workspace build and the full quality gate:
+2,394 TypeScript tests, 634 Max-patch tests and 215 Python tests, including
+75 targeted typed-ingress/contract cases. A new candidate was authored from the
+canonical clean `Machine-Listening-Development.amxd`, rather than repackaging
+#58's native output. Ordinary Live Save As established owned references in
+`Issue57-ClockIndex-Pinned.als`; no XML was rewritten. Its SHA-256 is
+`eb627f86df0840364f8e8c7b1689628e4b53d4adc87072366663dda8ace11196`;
+the candidate manifest is
+`698000070e98ad77aee3ebc5fb7431da893c9059eb09e69b7edae69c808f0d26`.
+All 29 original source/candidate/manifest/audio pins remain unchanged.
+
+The former custom `Untitled` startup blocker was resolved by the user's
+explicit closure, followed by independent process-absence verification.
+Automation did not discard that content. A fresh exact-owned process opened
+the isolated fixture directly, completed ordinary Save As and exited cleanly.
+
+The following new runs use source head `deaf182` and the new pinned candidate
+on installed Live 11.3.43, not the older #58 candidate or historical receipts:
+
+| New observed-host run | Result |
+| --- | --- |
+| Failed baseline rerun (`5e6f4a31`) | PASS: beats 4-12, 192,000 stereo frames, 40 complete envelope/spectral windows, native proof and postconditions. Observed clock/beat disagreement is 0/1 samples. |
+| Source group (`7a08c15f`) | Baseline, exact Arrangement duplicate/delete/restoration and intentional Session refusal PASS. Explicit track-return preparation FAILS because `tracks.back_to_arrangement` is unavailable. This is not a passed four-case group. |
+| Entire native descriptive group (`9c076380`) | All four fresh-process cases PASS: fractional, 0-4, 4-12 and 30 seconds. Independent native/context/postcondition checks include 1,440,000 stereo frames and 300 windows for the long capture. Clock/beat disagreement is 1/2 samples in each case. |
+
+Typed History independently retains every completed proof's original clock
+operands. Audits of all three positive source captures, all four descriptive
+captures and the additional Desktop capture find sample index 63 in all 69
+retained clock rows per proof at vector64. This establishes execution of the
+new fixed-index graph rather than a favorable numeric rewrite. The original
+0-4 failure now passes, and the 64-sample budget remains unchanged. These are
+bounded descriptive observations, not physical calibration, exclusive source
+attribution, verified tempo stability or proof of the historical source cause.
+
+An isolated visible Default-agent workflow with ordinary approval completes
+0-4 capture `ebd2a01a` / context `0a7da622`: independent protocol verification
+confirms 96,000 stereo frames, 20 windows, unchanged source/staged Set/WAV
+hashes and clock/beat disagreement 0/1. The renderer displays the same IDs,
+range and approximate-timing limits. A separate ordinarily approved request
+after manual Session launch and stop fails `arrangement_session_override`
+(`27503b87`), with slot 0/global override evidence, no positioning, native
+capture or publication, and the original context unchanged. Renderer
+accessibility exposes the new manual-return/new-pass guidance. That first
+combined workflow left its offscreen scroll presentation inconclusive rather
+than claiming a visual pass. A separate fresh-profile refusal-only workflow
+(`347a06f8`) now confirms the single submitted message, ordinary approval,
+terminal failure and full manual-return/new-pass guidance visibly in both the
+conversation and Outputs, with usable controls and no success-shaped result.
+Independent typed History verifies slot0/global override, no positioning or
+native capture, no published context store and unchanged staged Set. Live
+visibly remains stopped with the Session selection retained. The current-head
+Electron owning suite separately passes all 12 tests sequentially, including
+synthetic refusal IPC; synthetic coverage is not the visual/native proof.
+
+The installed host lacks the track-scoped Return to Arrangement capability
+required by the reviewed recovery setup, which explicitly prohibits global
+return. No global fallback, capability fabrication, actor-policy widening or
+source auto-repair was used. A test-scope decision is required before that
+case can qualify; its failed trace and partial setup remain retained. The PR
+stays draft, and the remaining suite is not claimed passed. Deterministic-run
+disposable fixtures were cleaned; the isolated UX fixtures/profiles remain
+private audit evidence. Both UX pairs exited (Desktop41955/Live41218 and
+Desktop47007/Live46186), both exact hosts stopped, and final canonical
+inspection at 2026-10-23T18:44:08.384Z confirmed no Live before explicit slot
+release. Visible refusal acceptance does not qualify unsupported return/new-pass
+recovery.
+
+### Integrating the merged placement fix
+
+PR #66 subsequently merged placement refresh, independent binding-validation
+fences, device-lifetime native epoch high-water and the Live 11-only compatibility
+policy into main. The integration preserves those guards and the fixed-index
+clock, source distinctions and failure diagnostics together. Binding validation
+rechecks owner and current registration after asynchronous reads before
+attributing any source decision; an in-flight epoch change is now rejected as
+`listener_placement_changed`, not mislabeled as a Session source refusal.
+Combined regressions cover both confirmed and unknown source refusal after
+authenticated placement renewal, unchanged prior context, no new reservation
+or controls and the failed binding-validation lifecycle. Keeping the older
+early generic source guard loses the diagnostic and fails both regressions.
+The combined workspace builds and passes full quality: 2447 TypeScript tests
+across 139 files, 642 Max tests and 217 Python tests. The combined Electron
+owning suite passes all 12 tests sequentially without retries, including both
+placement-refresh history and source-refusal guidance. The earlier Live receipts
+above qualify their recorded source heads only; fresh immutable-candidate Live
+acceptance remains separate, without inheriting either branch's qualification.
+
+### Approved isolated recovery setup
+
+The user subsequently approved changing only the disposable recovery test to
+use Live's supported global Return to Arrangement. Production capture still
+never returns a source or retries automatically. The original track-only
+failure and pre-integration receipts remain historical, not relabeled passes.
+
+The reviewed setup now requires an independently globally clear baseline,
+complete unchanged regular-track identities (at most 32, with no truncated
+device inventories), and exactly one Session source in the entire Set, on the
+bound listener track. The only intervening mutation is its exact owned launch.
+Immediately before the global command, a traced/timed scope-validation stage
+rechecks ownership, complete track/source identity, the one-mutation lineage,
+recording-off and fresh target/global override evidence. This proves the scope
+from a known clear baseline and the sole permitted transition, not from idle
+slot sentinels alone. Any missing, foreign, unknown or changed scope denies the
+global command and retains partial evidence. Independent reads must then prove
+global and target source clear, followed by the explicit stopped new-pass
+preflight. The actor's tools, risk classes and mutation budget are unchanged.
+These guards and their failure/cancellation tests do not themselves qualify
+real-Live recovery; fresh execution is still required.
+The revised helper passes 60 cases; runner composition and the broader native
+helpers pass 435 cases across nine files, including guard lifecycle and
+zero-global-return/no-actor denial. The full TypeScript suite passes 2468 tests
+across 139 files. This test-only revision changes no production app/bridge API.
+
+The first fresh combined recovery attempt (`1fccf46b`, head `f378ffc`) passes
+the source-scope guard but fails the existing global transport command's
+immediate verification before actor startup. No pass or context is produced;
+the owned process and disposable fixture are cleaned. The global command now
+uses the existing deferred executor for one next-tick verification after one
+assignment, not a mutation retry. Bounded before/after failure diagnostics and
+request-attributed lifecycle/queued cancellation are covered by red/green
+Python regressions; the full Python suite passes 220 tests. This manual-command
+correction does not add automatic source recovery or change the result schema.
+The fresh-process rerun (`5e7f9759`, head `0d82504`, Live 11.3.43) now verifies
+the single command's true-to-false transition on the scheduled tick, then
+independently reads clear global/target state before the new pass. Pass
+`1532782f` / context `b023fa10` has independently accepted 192,000 stereo
+frames and 40 envelope/spectral windows, clock/beat disagreement 0/1, exact
+postconditions and cleanup. A separate journal audit verifies all 69 clock rows
+at index 63/vector 64. This supports the scheduling correction without widening
+verification or capture bounds. The runner still incorrectly stamps this
+receipt `supportedTargetQualified:false` using a stale 11.3.42 comparison,
+despite the merged Live 11-only policy. Retain the original receipt; correct
+current runner eligibility/labels and rerun the case/group before claiming
+current-policy qualification. The current runner now derives `hostEligible`,
+`supportedLive`, `observedLiveVersion` and `hostEvidenceLabel` from the shared
+product compatibility policy for both source evidence and top-level results.
+It removes the ambiguous exact-patch `supportedTargetQualified` field;
+eligibility never promotes readiness, physical qualification or failed runs.
+Live 11.3.43 eligibility, Live 12/minimum/unknown rejection and failure metadata
+have red/green regressions. The full TypeScript suite passes 2478 tests across
+139 files; current-policy real-Live reruns remain separate.
+
+Current-policy standalone recovery (`731a35c4`, head `b031f70`, observed
+11.3.43) passes with `hostEligible:true`, unchanged unqualified physical timing,
+independent 192k-frame/40-window proof and exact cleanup. The owning source
+group (`cc47bcdd`) then passes baseline and exact Arrangement edit/restoration.
+The third case's independent Session-refusal assertions pass, but fixture
+cleanup correctly refuses deletion while its owned Live91785 remains alive.
+Outer fallback subsequently stops that exact process; an independent process
+read confirms none remain. Staging is retained and the fourth case is not
+attempted. This is a failed group, not three fully qualified cases. The refusal
+branch must share stop-before-fixture-cleanup ordering and truthful cleanup
+evidence with positive captures before another case/group run.
+Runner inspection identifies the narrower cause: graceful quit timed out and
+the active-fixture guard masked that primary error, rather than a bypassed
+shutdown branch. Expected refusals now await exact-owned disposal before
+fixture cleanup and report `unchanged-stopped` transport cleanup. Shutdown is
+protected by `finally`; combined shutdown/fixture failures retain the primary
+error and never delete an active fixture. Red/green disposal-order and
+failure/cancellation coverage passes 452 native-helper tests across nine files;
+the full TypeScript suite passes 2485 tests across 139 files. Fresh refusal and
+group acceptance are still required.
+
+### Combined candidate acceptance
+
+At source head `436c5c6`, with the separately pinned combined candidate and
+exact installed Remote Script, refusal alone (`f24f8500`) now passes complete
+owned-process/fixture cleanup with unchanged stopped transport. The fresh
+owning source matrix (`c1725ac9`) passes all four cases, including guarded
+explicit return followed by a new native pass. This supersedes the acceptance
+blocker without relabeling the prior failed group or its retained staging.
+
+The merged placement/clock behavior also passes two-capture insertion alone
+(`6dca4ab3`) and its fresh-process owning group (`be634acd`): the same exact
+listener moves from index0 to index1 after only the permitted upstream Delay,
+each pass has its own independently accepted 96k-frame/20-window proof,
+native epochs are exactly1 then2, and the first historical context is preserved.
+The complete descriptive group (`e2c31f71`) passes fractional,0-4,4-12 and
+30-second cases; the last has1,440k frames/300 envelope+spectral windows.
+All these cases verify ownership, postconditions and exact terminal cleanup.
+
+An independent journal audit of all eleven completed captures across those
+four reports, including both passes in each rebinding run, verifies759 retained
+clock rows at index63/vector64. Maximum observed clock/beat disagreements are
+1/2 with the original64-sample and strict-zero enforcement unchanged. Host
+eligibility is true on observed11.3.43, not an exact patch pin. Physical timing
+qualification/readiness remains unpromoted; attribution/freshness remains
+unknown.
+
+The remaining nineteen non-native cases also qualify across nine fresh owning
+groups: fourteen `pass` and five `recovered-pass`, with every exact assertion
+and cleanup check passing. Recovered cases retain their failed argument attempts;
+they are not clean first-attempt passes. The explicit strict-v1 fixture case
+was not rerun or replaced with v2 evidence, so this is not a claim that the
+entire 29-case suite passed.
+
+Fresh Default-agent Desktop checks use isolated profiles and ordinary approvals.
+The first positive attempt fails strict argument validation because the model
+adds unsupported `limit`; no capture is queued and no native proof is produced.
+The next attempt completes pass `ed85a632` / context `681e6304`: independent
+typed retrieval and native validation prove 96k stereo frames, 20 windows and
+69 retained clock rows at index63/vector64 with clock/beat disagreement0/1.
+The structured Outputs view correctly exposes approximate timing, unknown
+attribution/freshness and leave-running policy. An independent bridge read
+confirms playing transport, clear Arrangement source and all recording flags
+off; staged Set/WAV hashes remain unchanged.
+
+That attempt's generated prose incorrectly calls playback-starting capture
+read-only. A separate stopped-Session workflow correctly refuses pass
+`7b583e99` with slot0/global-override evidence, zero positioning/native capture
+or context publication and unchanged stopped source, but its prose incorrectly
+suggests stopping/deselecting a clip as an alternative way to clear the override.
+These are failed prose-acceptance checks, not failures of the source guard or
+permission enforcement. Both exact-owned Desktop/Live pairs exit normally,
+and their hosts are stopped; original fixtures and failed receipts are retained.
+
+The shared listening-agent handoff now explicitly says that successful capture
+positions/starts transport and leaves it running, and that Back to Arrangement
+restores the playback source rather than changing the view. Switching views,
+stopping playback or deselecting clips does not clear the override. Recovery
+remains manual followed by a new explicit request, never automatic repair/retry.
+Regressions fail before this correction at both the tool-description and actual
+new/resumed SDK-agent prompt boundaries; all 67 owning cases pass afterward.
+No tool schema, permission, mutation budget, native acceptance or transport
+behavior changes. Current-guidance baseline alone (`0eb0bd3e`) and the fresh
+four-case source group (`3958b8fc`) pass all exact assertions and cleanup.
+Independent audits verify all 276 retained rows across their four completed
+captures at index63/vector64. The focused run observes clock/beat1/64, at the
+unchanged inclusive descriptive limit; the group observes at most1/2. Neither
+is an absolute accuracy certificate. All 2485 TypeScript tests and all twelve
+sequential, no-retry Electron tests pass with the revised handoff; workspace
+types, changed-source lint and paired documentation checks pass. Fresh visible
+acceptance remains separate from the retained earlier attempts.
+
+Fresh visible acceptance at `2e52827` now passes with the same two requests,
+new isolated profiles and ordinary approvals. Positive pass `ac00ad74` /
+context `dcffa7df` has independently accepted 96k-frame/20-window coverage and
+69 index63/vector64 witnesses, observing clock/beat0/64 under the unchanged
+descriptive64 policy. The assistant now accurately reports App-owned
+positioning/start and leave-running playback; the structured stored context
+retains approximate timing and unknown attribution/freshness. An independent
+post-turn bridge read confirms playing transport, Arrangement selection and
+all recording flags off. Live visibly remains in Session View while playing
+the Arrangement source: the view is not the source-selection guard.
+
+In the separate refusal fixture, independent reads first prove a Session
+launch and then prove stopping transport preserves that override. Refused pass
+`bef49b20` reports `arrangement_session_override`; both conversation and Outputs
+show failure, no publication and manual Back to Arrangement followed by a new
+explicit request. The explanation now expressly says switching views,
+stopping playback or deselecting the clip does not clear the override.
+Independent post-turn reads and typed journal audit verify unchanged stopped
+Session source, no positioning/native capture or published context store, and
+unchanged staged Set/WAVs.
+
+Both final Desktop/Live pairs exit, and their exact UX hosts stop. Positive
+cleanup stops only the owned transport after independently verifying the
+leave-running postcondition; no capture or source-return retry is performed.
+Canonical absence at `2026-10-23T22:14:47.149Z` confirms no Live processes
+remain, and exact Desktop PIDs28156/29752 are absent. The shared Live slot is
+released with no additional Live launch planned. Evidence profiles and failed
+attempts remain private; the original historical source cause and physical
+timing qualification remain unproven.
 
 A capture-only read-pressure diagnostic reproduced a 65-sample rejection:
 the initial host/native offset was -1, and a later host sample/beat pair was

@@ -87,6 +87,64 @@ const scalar = z.union([
 const evidence = z
   .object({ field: z.string().max(64), value: scalar })
   .strict();
+export const listeningSourceEvidenceSchema = z
+  .object({
+    schemaVersion: z.literal(1),
+    state: z.enum(["arrangement", "session-override", "unknown"]),
+    reason: z.enum([
+      "track-session-slot",
+      "track-override",
+      "track-clear",
+      "global-clear-idle-slots",
+      "source-properties-unavailable",
+      "invalid-playing-slot",
+      "mixed-bus",
+    ]),
+    trackBackToArranger: z.boolean().nullable(),
+    songBackToArranger: z.boolean().nullable(),
+    playingSlotIndex: z.number().int().min(-2).max(2_147_483_647).nullable(),
+    firedSlotIndex: z.number().int().min(-2).max(2_147_483_647).nullable(),
+  })
+  .strict()
+  .refine(
+    (value) => {
+      const playing = value.playingSlotIndex;
+      switch (value.reason) {
+        case "track-session-slot":
+          return (
+            value.state === "session-override" &&
+            playing !== null &&
+            playing >= 0
+          );
+        case "track-override":
+          return (
+            value.state === "session-override" &&
+            value.trackBackToArranger === true
+          );
+        case "track-clear":
+          return (
+            value.state === "arrangement" &&
+            value.trackBackToArranger === false &&
+            (playing === null || playing < 0)
+          );
+        case "global-clear-idle-slots":
+          return (
+            value.state === "arrangement" &&
+            value.trackBackToArranger === null &&
+            value.songBackToArranger === false &&
+            (playing === -1 || playing === -2) &&
+            value.firedSlotIndex === -1
+          );
+        default:
+          return value.state === "unknown";
+      }
+    },
+    { message: "Source classification must match its observed basis" },
+  );
+export type ListeningSourceEvidence = z.infer<
+  typeof listeningSourceEvidenceSchema
+>;
+
 export const listeningDependencyFingerprintSchema = z
   .object({
     algorithm: z.literal("sha256"),
@@ -190,6 +248,7 @@ export const inspectListeningContextResultSchema = z
             pathAttestation: listeningPathAttestationSchema.optional(),
             enabled: z.boolean().nullable(),
             sessionOverride: z.boolean().nullable(),
+            sourceEvidence: listeningSourceEvidenceSchema.optional(),
             clips: z.array(clip).max(64),
             clipsTruncated: z.boolean(),
             trackEvidence: z.array(evidence).max(24),
@@ -222,6 +281,20 @@ export const inspectListeningContextResultSchema = z
             unknownReasons: z.array(z.string().max(128)).max(16),
           })
           .strict()
+          .refine(
+            (value) =>
+              value.sourceEvidence === undefined ||
+              value.sourceEvidence.state ===
+                (value.sessionOverride === false
+                  ? "arrangement"
+                  : value.sessionOverride === true
+                    ? "session-override"
+                    : "unknown"),
+            {
+              message:
+                "Source evidence must match the Session override tri-state",
+            },
+          )
           .refine(
             (value) => {
               const attestation = value.pathAttestation;

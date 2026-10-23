@@ -91,6 +91,16 @@ Script logs and protocol metadata may record lifecycle and timing, but never
 raw authentication, paths, or musical payloads. Journal persistence remains in
 the application and must not add work to Live's main thread.
 
+An explicitly requested global Back to Arrangement assigns the property once,
+then verifies its aggregate state on one scheduled Live tick through the
+existing deferred-result executor. It returns the same typed before/after
+receipt only after verification. A failed postcondition retains bounded
+before/after Boolean diagnostics; it never retries or writes the highlight
+back to true as a fictitious restoration of per-track source selection.
+Queued cancellation performs no mutation. Existing request-attributed
+queued/started/completed/failed/cancelled logging and deferred timing apply.
+This does not authorize automatic source recovery during listening.
+
 ## LOM compatibility
 
 The script should:

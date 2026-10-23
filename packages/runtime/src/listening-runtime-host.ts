@@ -501,12 +501,21 @@ function assemble(
     previous?: CaptureState,
     discovery = false,
     allowPositionRevision = false,
+    sourceBoundary?: {
+      readonly passId: string;
+      readonly boundary:
+        | "initial-inspection"
+        | "preparation-inspection"
+        | "positioned-inspection"
+        | "post-arm-inspection";
+    },
   ): Promise<
     Pick<CaptureState, "owner" | "descriptors" | "connections" | "inspection">
   > {
     return stage("binding-validation", context, async (progress) => {
       if (!dependencies.ableton.inspectListeningContext)
         deny("listening_inspection_unavailable");
+      const inspectionStarted = Date.now();
       if (!sameOwner(await owner(context), expectedOwner))
         deny("permission_denied");
       const identity = await dependencies.ableton.getLiveIdentity();
@@ -583,6 +592,9 @@ function assemble(
       )
         deny("live_set_changed");
       context.signal?.throwIfAborted();
+      if (!sameOwner(await owner(context), expectedOwner))
+        deny("permission_denied");
+      context.signal?.throwIfAborted();
       const currentInventory = listeners().inspectListeners();
       const candidates = connected(currentInventory);
       for (const { connection, descriptor } of selected) {
@@ -613,13 +625,6 @@ function assemble(
       }
       if (inspection.listeners.length !== selected.length)
         deny("ambiguous_inspection");
-      if (!discovery && !inspection.transport.safeToStart)
-        deny("transport_not_safe_to_start");
-      if (
-        !discovery &&
-        inspection.listeners.some((item) => item.sessionOverride !== false)
-      )
-        deny("arrangement_source_unknown");
       for (const { connection, descriptor } of selected) {
         const old = previous?.connections.find(
           (item) => item.producerId === connection.producerId,
@@ -662,13 +667,24 @@ function assemble(
           inspection,
           queryId,
         });
-        if (!resolution.ok)
+        if (!resolution.ok) {
+          if (resolution.reason === "stale-inspection")
+            deny(
+              resolution.reason,
+              "The reply does not match the current inspection. Request a fresh inspection before explicitly requesting a new listening pass.",
+            );
+          if (resolution.reason === "stale-connection")
+            deny(
+              "listener_instance_changed",
+              "The listener connection changed during inspection. Rediscover the current listener before explicitly requesting a new listening pass.",
+            );
           deny(
             resolution.reason,
             resolution.reason === "stale-target"
               ? "Listener placement no longer matches its attested device. Wait for placement refresh, inspect listeners again, and start a new capture."
               : undefined,
           );
+        }
         attestedBindings.set(connection.connectionId, {
           liveSetId: expectedOwner.liveSetId,
           connection: structuredClone(connection),
@@ -694,6 +710,86 @@ function assemble(
           deny("unsupported_native_capture_scope");
         if (!discovery && previous === undefined && descriptor.phase !== "idle")
           deny("listener_not_idle");
+      }
+      if (!discovery) {
+        const hasOverride = inspection.listeners.some(
+          (item) => item.sessionOverride === true,
+        );
+        const hasUnknown = inspection.listeners.some(
+          (item) => item.sessionOverride === null,
+        );
+        const refusal = !inspection.transport.safeToStart
+          ? "transport_not_safe_to_start"
+          : hasUnknown
+            ? "arrangement_source_unknown"
+            : hasOverride
+              ? "arrangement_session_override"
+              : undefined;
+        const inspectionCompleted = Date.now();
+        recordSignalTelemetry(dependencies.telemetry, {
+          name: "listening.source.validation",
+          source: "listening-runtime-host",
+          sessionId: context.sessionId,
+          activeAgentId: context.agentId,
+          liveSetId: expectedOwner.liveSetId,
+          correlationId: context.trace.correlationId,
+          causationId: context.trace.causationId,
+          trace: { traceId: context.trace.traceId, spanId: randomUUID() },
+          durationMs: Math.max(0, inspectionCompleted - inspectionStarted),
+          outcome: refusal === undefined ? "success" : "failure",
+          attributes: sanitizeTelemetryAttributes(
+            {
+              schemaVersion: 1,
+              ...sourceBoundary,
+              liveSetId: expectedOwner.liveSetId,
+              bindingQueryId: queryId,
+              inspectionStartedAt: new Date(inspectionStarted).toISOString(),
+              inspectionCompletedAt: new Date(
+                inspectionCompleted,
+              ).toISOString(),
+              projectRevision: inspection.projectRevision,
+              decision: refusal ?? "arrangement-source-confirmed",
+              listeners: selected.map(({ connection }) => {
+                const listener = inspection.listeners.find(
+                  (item) => item.canonicalPath === connection.canonicalPath,
+                )!;
+                return {
+                  listenerId: connection.producerId,
+                  instanceId: connection.instanceId,
+                  connectionId: connection.connectionId,
+                  connectionEpoch: connection.connectionEpoch,
+                  canonicalPath: connection.canonicalPath,
+                  sessionOverride: listener.sessionOverride,
+                  state:
+                    listener.sessionOverride === false
+                      ? "arrangement"
+                      : listener.sessionOverride === true
+                        ? "session-override"
+                        : "unknown",
+                  sourceEvidence: listener.sourceEvidence ?? null,
+                };
+              }),
+            },
+            {
+              maxStringCharacters: 512,
+              maxArrayItems: 8,
+              maxObjectFields: 32,
+              maxDepth: 8,
+              maxBytes: 16_384,
+            },
+          ),
+        });
+        if (refusal === "arrangement_session_override")
+          deny(
+            refusal,
+            "A Session source override was detected for at least one selected listener. Return to Arrangement in Live for that track, then explicitly request a new listening pass. No capture was published.",
+          );
+        if (refusal === "arrangement_source_unknown")
+          deny(
+            refusal,
+            "Arrangement source selection could not be verified for at least one selected listener. Check the listener connection and source state in Live, then request a fresh inspection before a new listening pass. No capture was published.",
+          );
+        if (refusal !== undefined) deny(refusal);
       }
       if (
         previous &&
@@ -762,6 +858,12 @@ function assemble(
           execution(pass, signal),
           pass.owner,
           previous,
+          false,
+          false,
+          {
+            passId: pass.passId,
+            boundary: previous ? "post-arm-inspection" : "initial-inspection",
+          },
         );
         captureDuration(request, snapshot.inspection);
         const geometry = nativeGeometry(
@@ -838,6 +940,9 @@ function assemble(
             execution(input, input.signal),
             input.owner,
             cached,
+            false,
+            false,
+            { passId: input.passId, boundary: "preparation-inspection" },
           );
           if (cached.geometry) {
             const params = playbackParameters(cached, input);
@@ -866,6 +971,7 @@ function assemble(
                   cached,
                   false,
                   true,
+                  { passId: input.passId, boundary: "positioned-inspection" },
                 ),
             );
             if (

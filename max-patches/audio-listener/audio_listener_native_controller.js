@@ -15,6 +15,7 @@ const {
   nativeV2ClockRow,
   nativeV2HostBinding,
   nativeV2RetainTiming,
+  nativeV2AlignmentMeasurements,
   nativeV2Alignment,
 } = require("./audio_listener_native_coordinates.js");
 
@@ -674,8 +675,7 @@ class NativeCaptureController {
     return `invalid_native_spectrum_packet_${field}_e${end}_s${start}_f${frame}_b${bad}`;
   }
 
-  alignmentError(p, check, row, measurements) {
-    const reason = "listening_alignment_budget_exceeded";
+  retainAlignmentFailure(p, check, row, measurements, startSample, reason) {
     if (!p.nativeFailureDiagnostic) {
       p.nativeFailureDiagnostic = frozen({
         scope: "native-alignment-rejection/v1",
@@ -684,7 +684,7 @@ class NativeCaptureController {
         geometry: p.command.geometry,
         policy: p.command.timingPolicy,
         anchorHostOffsetSamples: p.anchorHostOffset,
-        startSample: this.engine.pass?.startSample ?? null,
+        startSample,
         anchorClock: p.anchorClock,
         previousClock: p.clock ?? null,
         rejectedClock: row,
@@ -701,6 +701,18 @@ class NativeCaptureController {
       });
       p.nativeFailureReason = reason;
     }
+  }
+
+  alignmentError(p, check, row, measurements) {
+    const reason = "listening_alignment_budget_exceeded";
+    this.retainAlignmentFailure(
+      p,
+      check,
+      row,
+      measurements,
+      this.engine.pass?.startSample ?? null,
+      reason,
+    );
     return new Error(reason);
   }
 
@@ -1082,7 +1094,36 @@ class NativeCaptureController {
       rejected: v[4],
       active: v[5],
     };
-    if (this.engine.launchNative(marker, p.command) !== true) return;
+    if (this.engine.launchNative(marker, p.command) !== true) {
+      if (
+        this.nativeVersion === 2 &&
+        p.events.some(
+          (event) =>
+            event.type === "terminal" &&
+            event.reason === "native_launch_binding_mismatch",
+        )
+      ) {
+        const projectedStartSample =
+          marker.armCounter +
+          marker.launchClock -
+          marker.launchPhaseSamples +
+          p.anchorHostOffset;
+        this.retainAlignmentFailure(
+          p,
+          "launch-alignment",
+          p.clock,
+          nativeV2AlignmentMeasurements(
+            p.timingWitnesses,
+            p.command.geometry,
+            p.anchorHostOffset,
+            projectedStartSample,
+          ),
+          projectedStartSample,
+          "native_launch_binding_mismatch",
+        );
+      }
+      return;
+    }
     if (this.pass !== p) return;
     const row = p.clock;
     p.launched = frozen({

@@ -37,7 +37,7 @@ export function createNativeRunnerLifecycle({
         attributes: sanitize({ ...attributes, ...details }),
       };
       cause = id;
-      if (events.length < 128) events.push(event);
+      if (events.length < 256) events.push(event);
       telemetry.enqueue(event);
     };
     emit("queued");

@@ -215,6 +215,28 @@ Initial stable error codes:
 
 ## Schema ownership
 
+### Listening source evidence (protocol 7)
+
+`listening.inspect_context` includes optional bounded per-listener
+`sourceEvidence` alongside its unchanged nullable `sessionOverride`. Versioned
+source inputs distinguish Arrangement selection, Session override and
+unknown/unavailable evidence; the evidence state must agree with the boolean.
+See [playback listening](../tools/playback-listening.md) for the decision fields,
+freshness/ownership attribution and refusal recovery contract.
+
+This uses protocol 7 and Remote Script/minimum installation `0.7.0`: older
+clients use strict result parsers and must not negotiate an extended inspection
+shape they cannot read. Older response fixtures without the optional detailed
+evidence remain parseable, but this is not mixed-version handshake support.
+The canonical version generator updates TypeScript, Python and handshake
+fixtures together.
+
+Compatibility comparison reads the actual committed schema with an explicit
+8 MiB process-output bound. A missing baseline may be skipped; process/read
+failures or malformed JSON must fail, not masquerade as a missing contract.
+The regression uses the committed schema (already larger than Node's default
+1 MiB output buffer) to prevent another false-green comparison.
+
 ### Listening start cleanup contract
 
 `listening.position_playback` is an additive Arrangement-only serialized

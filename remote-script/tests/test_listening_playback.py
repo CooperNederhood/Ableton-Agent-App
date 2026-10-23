@@ -103,7 +103,7 @@ class ListeningPlaybackTest(unittest.TestCase):
             stop_listening_playback(self.context, STOP)
         self.assertTrue(self.song.is_playing)
 
-    def test_live11_missing_track_override_and_playing_arrangement_sentinel(self):
+    def test_live11_missing_track_override_requires_clear_global_and_idle_fired_slot(self):
         track = self.song.tracks[0]
         del track.back_to_arranger
         def start():

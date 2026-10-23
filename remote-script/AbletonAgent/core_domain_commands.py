@@ -2270,8 +2270,37 @@ def execute_transport(context, params):
             ("back_to_arranger",),
             "Back-to-arrangement is unavailable",
         )
-        changes = (("back_to_arranger", False),)
-        check = lambda state: state["backToArrangement"] is False
+        song.back_to_arranger = False
+
+        def start_verification(on_success, on_failure):
+            def verify():
+                try:
+                    after = _transport_state(song)
+                    if after["backToArrangement"] is not False:
+                        raise ProtocolFailure(
+                            "conflict",
+                            "Back-to-arrangement could not be verified",
+                            details={
+                                "beforeBackToArrangement": before["backToArrangement"],
+                                "afterBackToArrangement": after["backToArrangement"],
+                            },
+                        )
+                    on_success(
+                        {
+                            "action": action,
+                            "before": before,
+                            "after": after,
+                            "verified": True,
+                        }
+                    )
+                except Exception as exc:
+                    on_failure(exc)
+
+            # Verify on the next tick. Setting the aggregate highlight true
+            # cannot restore the prior per-track playback selections.
+            context.schedule_message(1, verify)
+
+        return DeferredResult(start_verification)
     _verified_property_mutation(
         song,
         changes,

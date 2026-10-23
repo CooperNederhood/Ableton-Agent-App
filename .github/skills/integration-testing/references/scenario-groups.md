@@ -174,3 +174,37 @@ input pins, current 44.1/48 kHz registration, exact approval bounds, no-failed-t
 requirement and independent proof/context/cleanup verification as the fractional
 scenario. Their reviewed manifests and synthetic runner tests do not establish
 real-Live acceptance or same-process repeated-pass qualification.
+
+## Arrangement source investigation
+
+`native-listening-source-investigation` requires an explicit immutable v2 fixture
+via `--native-v2-fixture-input`. In addition to the native-v2 pins, the fixture
+must contain exactly one bounded Session source on the listener's regular track,
+with a clip length no greater than 16 beats.
+
+- `native-source-baseline`: capture beats 4-12 without a source-state mutation.
+- `native-source-arrangement-edit`: duplicate the exact Session source into an
+  independently empty Arrangement region at beat 128, inspect and delete the
+  returned exact clip identity, verify restoration, then capture beats 4-12.
+- `native-source-session-override`: establish and independently verify a Session
+  override during reviewed fixture setup; require the exact source refusal, no
+  capture publication, and released idle listener resources.
+- `native-source-explicit-return`: use the user-approved test-only global Return
+  to Arrangement from a globally clear baseline with exactly one Set-wide
+  Session source on the listener track. Require complete unchanged track/source
+  identities and only that owned launch before a fresh recording-off/source
+  guard. Deny unknown/foreign/changed scope; independently verify global and
+  target source clear, then stop and request a new explicit pass. This is not
+  production auto-recovery or a retry of the separate refusal case.
+
+Each scenario uses a fresh fixture and runner-owned process, with exactly one
+actor playback request. Source reads at transitions, immediately before the
+actor request, and after termination must match the current query, Set, process,
+listener connection, epoch, and binding. Success retains the native-v2 proof,
+40-window, atomic-context, typed-reopening, and cleanup requirements. Setup
+actions are not product auto-recovery or capture retries.
+
+Unknown-source handling is covered by deterministic protocol and runtime
+regressions; this real-Live matrix does not fabricate unavailable source
+properties. Its manifests and synthetic tests do not reconstruct the historical
+source state or establish real-Live qualification without fixture execution.

@@ -4,6 +4,9 @@ Companion specification: [IPC Protocol](ipc-protocol.md)
 
 ## Schema design
 
+- [x] Add bounded tri-state listening source inputs with cross-field validation.
+  Negotiate protocol 7 / Remote Script and minimum `0.7.0` because old strict
+  clients cannot read the extended inspection result.
 - [x] Preserve existing wire schemas for placement refresh: replace authenticated
   registration, fence old connection/instance/epoch, recheck after asynchronous
   LOM inspection, and retain query-scoped independent attestation.
@@ -65,6 +68,9 @@ Companion specification: [IPC Protocol](ipc-protocol.md)
 
 ## Contract automation
 
+- [x] Compare large committed protocol baselines without silently treating a
+  subprocess output overflow or invalid JSON as an absent schema. Add a
+  red-before/green-after regression against the actual committed contract.
 - [x] Add action-discriminated contracts for the final Live 11 workflow
   adapters and asynchronous jobs.
 - [x] Add a typed curated-state snapshot and event envelope.

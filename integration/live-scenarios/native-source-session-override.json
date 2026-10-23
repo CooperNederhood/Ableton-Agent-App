@@ -1,0 +1,54 @@
+{
+  "formatVersion": 1,
+  "id": "native-source-session-override",
+  "group": "native-listening-source-investigation",
+  "execution": "native-listening-runtime",
+  "nativeVersion": 2,
+  "sourceTransition": "session-override",
+  "sourceSetupActions": ["session-launch", "explicit-stop-before-new-pass"],
+  "prompt": "Make these calls sequentially, never in parallel: inspect-listeners, exactly one play-arrangement-and-listen for Arrangement beats 4 through 12 with maximumDurationMs 8000 and only the bound listener ID, then get-pass once using the returned passId. This is explicit native v2 with the App-owned descriptive timing policy capped at 64 samples, not strict v1 or physical timing qualification. Constant 120 BPM is assumed; tempo automation is unsupported. The candidate remains ready=false with native_per_pass_validation_required: never promote it or use another listener. Existing production guarded positioning owns the nonzero start before arming; do not seek, stop, repair positioning, or retry. If any tool call fails, including argument validation or permission denial, report and end without correcting, retrying, or using a shell wait. If the pass failed or was cancelled, report the reason and end. If still nonterminal, report pending and end without polling; the harness waits for the real terminal job. Only if completed may you get typed context using its contextId and includeHistorical=true. Do not list passes or context. Queued acceptance is not completion. Leave transport running; do not record, launch Session clips, change the Set, install devices, or claim exclusive clip audio. Unknown attribution and freshness are valid historical track/range results. The runner has explicitly launched the identity-bound Session source. This is an expected refusal investigation, not a request to repair it. Make the one reviewed playback request, then report its terminal refusal. Do not return to Arrangement, stop, retry, or fetch context.",
+  "artifactPrefix": "AA_SMOKE_NATIVE_SOURCE_SESSION_OVERRIDE_",
+  "capture": { "startBeat": 4, "endBeat": 12, "maximumDurationMs": 8000 },
+  "allowedTools": ["ableton_listening", "ableton_context"],
+  "allowedActions": {
+    "ableton_listening": [
+      "inspect-listeners",
+      "play-arrangement-and-listen",
+      "get-pass"
+    ],
+    "ableton_context": ["get"]
+  },
+  "allowedRisks": ["read", "reversible"],
+  "maxToolCalls": 8,
+  "maxMutations": 1,
+  "timeoutMs": 60000,
+  "setupContract": {
+    "timingPolicy": {
+      "mode": "descriptive",
+      "maxClockDisagreementSamples": 64
+    },
+    "tempoPolicy": "constant-tempo-assumed",
+    "tempoAutomationSupported": false,
+    "inputOption": "--native-v2-fixture-input",
+    "nativeVersion": 2,
+    "sourceInvestigation": "reviewed-exact-track-transitions-no-automatic-repair",
+    "sourcePolicy": "Fresh copied immutable fixture only. Require exactly one Session source <=16 beats on the exact regular listener track; launch it once with identity guards via the existing typed runner service. Independently read true override, explicitly stop transport as reviewed stopped-preflight preparation, then independently require true override still present before the single capture request. No return, retry or other setup mutation. Stop is not capture cleanup or actor repair. Leave source and transport unchanged through refusal; discard only the owned disposable fixture after exact-PID shutdown.",
+    "reviewStatus": "Reviewed legitimate Session takeover denial. Require exact arrangement_session_override, no persisted pass/entries/links/native completion, released idle listener, unchanged binding/connection/registration/source/Set and recording off. Null/unknown is not a passing takeover reproduction. Original cause not reconstructable. Live 11 only; record the observed subversion without a patch pin."
+  },
+  "ordering": [
+    {
+      "before": "ableton_listening",
+      "beforeAction": "inspect-listeners",
+      "after": "ableton_listening",
+      "afterAction": "play-arrangement-and-listen"
+    }
+  ],
+  "assertions": [
+    "no-failed-actor-tools",
+    "independent-source-transition-reads",
+    "exact-arrangement-session-override-terminal-refusal",
+    "no-publication-no-native-completion",
+    "unchanged-source-binding-recording-and-set",
+    "idle-released-listener-and-owned-fixture-cleanup"
+  ]
+}

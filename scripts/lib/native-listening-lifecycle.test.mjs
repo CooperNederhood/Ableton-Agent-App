@@ -22,6 +22,20 @@ function fixture(signal) {
   };
 }
 describe("native runner application lifecycle", () => {
+  it("retains source-transition and shutdown stages beyond the former 128-event receipt cap", async () => {
+    const f = fixture();
+    for (let index = 0; index < 34; index++)
+      await f.stage(`source-boundary-${index}`, async () => {});
+    await f.stage("credential-cleanup", async () => {});
+    expect(f.events).toHaveLength(140);
+    expect(f.events.at(-1).name).toBe(
+      "integration.native_listening.credential-cleanup.completed",
+    );
+    for (let index = 0; index < 40; index++)
+      await f.stage("bounded-extra-stage", async () => {});
+    expect(f.events).toHaveLength(256);
+    expect(f.enqueue).toHaveBeenCalledTimes(300);
+  });
   it("records ordered timing and causal IDs for success", async () => {
     const f = fixture();
     expect(await f.stage("fixture-stage", async () => 42)).toBe(42);

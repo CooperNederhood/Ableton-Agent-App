@@ -6,6 +6,7 @@ import * as application from "@ableton-agent/application";
 import * as runtime from "@ableton-agent/runtime";
 import * as observability from "@ableton-agent/observability";
 import * as storage from "@ableton-agent/storage";
+import * as shared from "@ableton-agent/shared";
 import * as protocol from "@ableton-agent/protocol";
 import { createSyntheticNativeListeningFixtureV2 } from "@ableton-agent/protocol/testing";
 import { JsonSessionStore } from "../../apps/desktop/src/main/desktop-service.ts";
@@ -747,6 +748,7 @@ async function runnerV2(
     ...runtime,
     ...observability,
     ...storage,
+    ...shared,
     JsonSessionStore,
     createDesktopSessionContextManager,
     sessionSchema,
@@ -1225,10 +1227,13 @@ describe("source investigation runner composition (synthetic native results only
       expect(result.ok, result.error).toBe(true);
       expect(result.jobs).toHaveLength(1);
       expect(result.jobs[0].stage).toBe("completed");
-      expect(result.supportedTargetQualified).toBe(false);
+      expect(result.qualificationStatus).toBe("unqualified");
+      expect(result.hostEligible).toBe(true);
+      expect(result).not.toHaveProperty("supportedTargetQualified");
       expect(result.recovery).toBeUndefined();
       expect(result.sourceInvestigation).toMatchObject({
-        hostEvidenceLabel: "non-target-unqualified",
+        hostEligible: true,
+        hostEvidenceLabel: "supported-live-unqualified",
         mutations: [
           { name: "session-launch" },
           { name: "guarded-global-return" },
@@ -1354,7 +1359,8 @@ describe("source investigation runner composition (synthetic native results only
         });
         const rebinding = id === "native-descriptive-insert-before";
         expect(result.jobs).toHaveLength(rebinding ? 2 : 1);
-        expect(result.supportedTargetQualified).toBe(false);
+        expect(result.qualificationStatus).toBe("unqualified");
+        expect(result).not.toHaveProperty("supportedTargetQualified");
         expect(
           result.lifecycle.some(({ name }) => name.includes(".rebind-")),
         ).toBe(rebinding);
@@ -1503,21 +1509,78 @@ describe("source investigation runner composition (synthetic native results only
     },
   );
   it.each([
-    ["11.3.42", "supported-target-unqualified"],
-    ["11.3.43 (2025-10-06_b466d4f56c)", "non-target-unqualified"],
+    ["11.3.42", true, "supported-live-unqualified"],
+    ["11.3.43 (2025-10-06_b466d4f56c)", true, "supported-live-unqualified"],
+    ["11.3.0", true, "supported-live-unqualified"],
+    ["11.2.99", false, "unsupported-live-unqualified"],
+    ["12.0.0", false, "unsupported-live-unqualified"],
+    ["unknown", false, "unsupported-live-unqualified"],
   ])(
     "labels %s evidence separately without promoting target qualification",
-    async (liveVersion, label) => {
+    async (liveVersion, eligible, label) => {
       const f = await runnerV2("native-source-baseline", { liveVersion });
       try {
         const result = await f.runner.run(async () => {});
         expect(result.ok, result.error).toBe(true);
-        expect(result.supportedTargetQualified).toBe(false);
-        expect(result.sourceInvestigation).toMatchObject({
-          supportedTargetVersion: "11.3.42",
+        expect(result.qualificationStatus).toBe("unqualified");
+        expect(result).not.toHaveProperty("supportedTargetQualified");
+        expect(result).toMatchObject({
+          supportedLive: shared.PRODUCT_VERSIONS.supportedLive,
           observedLiveVersion: liveVersion,
+          hostEligible: eligible,
           hostEvidenceLabel: label,
         });
+        expect(result.sourceInvestigation).toMatchObject({
+          supportedLive: shared.PRODUCT_VERSIONS.supportedLive,
+          observedLiveVersion: liveVersion,
+          hostEligible: eligible,
+          hostEvidenceLabel: label,
+        });
+        expect(result.sourceInvestigation).not.toHaveProperty(
+          "supportedTargetVersion",
+        );
+      } finally {
+        await f.runner.close({ processStopped: true });
+      }
+    },
+  );
+  it.each([
+    ["11.3.43 (2025-10-06_b466d4f56c)", true, "supported-live-unqualified"],
+    ["12.0.0", false, "unsupported-live-unqualified"],
+  ])(
+    "retains %s host eligibility on failed guarded setup without relabeling the failure",
+    async (liveVersion, hostEligible, hostEvidenceLabel) => {
+      const f = await runnerV2("native-source-explicit-return", {
+        liveVersion,
+        failure: "global-return-unavailable",
+      });
+      try {
+        const result = await f.runner.run(async () => {});
+        expect(result.ok).toBe(false);
+        expect(result.error).toContain(
+          "transport.back_to_arrangement unavailable",
+        );
+        expect(result.jobs).toEqual([]);
+        expect(result.approvals).toEqual([]);
+        expect(result).toMatchObject({
+          observedLiveVersion: liveVersion,
+          supportedLive: shared.PRODUCT_VERSIONS.supportedLive,
+          hostEligible,
+          hostEvidenceLabel,
+          qualificationStatus: "unqualified",
+        });
+        expect(result).not.toHaveProperty("supportedTargetQualified");
+        expect(result.sourceInvestigation).toMatchObject({
+          observedLiveVersion: liveVersion,
+          supportedLive: shared.PRODUCT_VERSIONS.supportedLive,
+          hostEligible,
+          hostEvidenceLabel,
+        });
+        expect(result.sourceInvestigation).not.toHaveProperty(
+          "supportedTargetVersion",
+        );
+        expect(f.configuration).toBeUndefined();
+        expect(f.wait).not.toHaveBeenCalled();
       } finally {
         await f.runner.close({ processStopped: true });
       }
@@ -1526,6 +1589,34 @@ describe("source investigation runner composition (synthetic native results only
 });
 
 describe("v2 runner expectation forwarding and production typed context reopening (synthetic capture only)", () => {
+  it.each([
+    ["native-descriptive-insert-before", "11.3.43", true],
+    ["native-descriptive-insert-before", "12.0.0", false],
+    ["native-descriptive-fractional", "11.3.43", true],
+    ["native-descriptive-fractional", "12.0.0", false],
+  ])(
+    "%s reports top-level canonical host eligibility for %s without promoting qualification",
+    async (id, liveVersion, hostEligible) => {
+      const f = await runnerV2(id, { liveVersion });
+      try {
+        const result = await f.runner.run(async () => {});
+        expect(result.ok, result.error).toBe(true);
+        expect(result).toMatchObject({
+          supportedLive: shared.PRODUCT_VERSIONS.supportedLive,
+          observedLiveVersion: liveVersion,
+          hostEligible,
+          hostEvidenceLabel: hostEligible
+            ? "supported-live-unqualified"
+            : "unsupported-live-unqualified",
+          qualificationStatus: "unqualified",
+        });
+        expect(result).not.toHaveProperty("supportedTargetQualified");
+        expect(result).not.toHaveProperty("sourceInvestigation");
+      } finally {
+        await f.runner.close({ processStopped: true });
+      }
+    },
+  );
   it("qualifies two distinct captures around an exact owned insert-before edit without rewriting the first context", async () => {
     const f = await runnerV2("native-descriptive-insert-before");
     try {

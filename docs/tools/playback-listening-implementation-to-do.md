@@ -228,6 +228,16 @@ Merge-blocking review defects and CI failures still require resolution.
   startup. Add one-tick, one-assignment deferred verification, bounded failure
   operands and request-attributed lifecycle/queued-cancellation regressions.
   All 220 Python tests pass; physical scheduling causality is not yet claimed.
+- [x] Verify fresh recovery rerun `5e7f9759` at `0d82504`: one scheduled
+  true-to-false command, independent clear-source reads, 192k frames/40 windows,
+  exact native/context/postconditions and cleanup; independent 69-row index63
+  clock audit passes. Retain the stale exact-patch eligibility label as observed.
+- [x] Correct current runner eligibility/labels to shared Live 11-only policy
+  for top-level and source results, without rewriting historical receipts or
+  promoting qualification/readiness/failures. Version/failure red-green cases
+  and all 2478 TypeScript tests pass.
+- [ ] Repeat current-policy real-Live case/group acceptance after the metadata
+  correction; keep physical qualification separate from host eligibility.
 - [x] Follow-up [#58](https://github.com/CooperNederhood/Ableton-Agent-App/issues/58):
   reproduce and resolve listener binding after device-chain edits. Retained
   inspection shows the same enabled Max listener at device index 1 after a

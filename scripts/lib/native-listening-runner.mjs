@@ -29,6 +29,7 @@ export async function loadNativeRunnerServices() {
     application,
     observability,
     storage,
+    shared,
     protocol,
     desktop,
     context,
@@ -39,6 +40,7 @@ export async function loadNativeRunnerServices() {
     import("../../packages/application/dist/index.js"),
     import("../../packages/observability/dist/index.js"),
     import("../../packages/storage/dist/index.js"),
+    import("../../packages/shared/dist/index.js"),
     import("../../packages/protocol/dist/index.js"),
     import("../../apps/desktop/dist/main/desktop-service.js"),
     import("../../apps/desktop/dist/main/desktop-session-context.js"),
@@ -50,6 +52,7 @@ export async function loadNativeRunnerServices() {
     ...application,
     ...observability,
     ...storage,
+    ...shared,
     ...desktop,
     ...context,
     ...contracts,
@@ -339,6 +342,10 @@ export async function createNativeListeningRunner({
   waitForBridge = waitForNativeBridge,
 }) {
   const d = services ?? (await loadNativeRunnerServices());
+  const compatibility =
+    d.checkProductCompatibility === undefined
+      ? await import("../../packages/shared/dist/index.js")
+      : d;
   const reviewed = reviewNativeScenario(manifest);
   const input = await readNativeFixtureInput(inputPath, reviewed.nativeVersion);
   assert(
@@ -1219,9 +1226,6 @@ export async function createNativeListeningRunner({
             })),
             nativeVersion: fixture.nativeVersion,
           },
-          observedLiveVersion: (await runtime.application.getStatus())
-            .liveVersion,
-          supportedTargetQualified: false,
           actorToolCalls,
         };
       } catch (error) {
@@ -1265,20 +1269,29 @@ export async function createNativeListeningRunner({
           }
         }
       }
+      const hostEligible = compatibility.checkProductCompatibility({
+        liveVersion: observedLiveVersion ?? "",
+        protocolVersion: compatibility.PRODUCT_VERSIONS.protocol,
+        remoteScriptVersion: compatibility.PRODUCT_VERSIONS.remoteScript,
+      }).compatible;
+      const hostEvidence = d.sanitizeTelemetryAttributes({
+        supportedLive: compatibility.PRODUCT_VERSIONS.supportedLive,
+        observedLiveVersion,
+        hostEligible,
+        hostEvidenceLabel: hostEligible
+          ? "supported-live-unqualified"
+          : "unsupported-live-unqualified",
+        qualificationStatus: "unqualified",
+      });
       return {
         ...result,
+        ...hostEvidence,
         ...(sourceEvidence === undefined
           ? {}
           : {
               sourceInvestigation: d.sanitizeTelemetryAttributes({
                 ...sourceEvidence,
-                supportedTargetVersion: "11.3.42",
-                observedLiveVersion,
-                hostEvidenceLabel: /^11\.3\.42(?:[ (]|$)/.test(
-                  observedLiveVersion ?? "",
-                )
-                  ? "supported-target-unqualified"
-                  : "non-target-unqualified",
+                ...hostEvidence,
               }),
             }),
         ...(postconditions === undefined

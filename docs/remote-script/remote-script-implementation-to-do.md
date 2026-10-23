@@ -39,9 +39,11 @@ Companion specification: [Remote Script](remote-script.md)
     lifecycle/timing and bounded failure diagnostics. Never fake rollback by
     writing the aggregate highlight true. Add delayed-success, permanent-denial,
     exact-response attribution and queued-cancellation regressions.
-  - [ ] Qualify this deferred global verification in the isolated, explicitly
-    approved source-recovery scenario; retain its earlier immediate-verification
-    failure without relabeling it passed.
+  - [x] Verify deferred global command in fresh owned recovery run `5e7f9759`
+    (`0d82504`, observed 11.3.43): one scheduled true-to-false assignment and
+    independent clear-source reads precede the new accepted native capture.
+    Retain earlier immediate-verification failure `1fccf46b`; current-policy
+    runner qualification is separate from stale exact-patch evidence labels.
   - [x] Verify Arrangement duplication and cue-point creation with proxy-safe
     before/after collection deltas, stage-specific failures, and explicit
     rolled-back versus applied-indeterminate outcomes.

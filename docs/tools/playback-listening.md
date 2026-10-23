@@ -480,8 +480,25 @@ assignment, not a mutation retry. Bounded before/after failure diagnostics and
 request-attributed lifecycle/queued cancellation are covered by red/green
 Python regressions; the full Python suite passes 220 tests. This manual-command
 correction does not add automatic source recovery or change the result schema.
-Fresh Live verification is required before attributing the observed failure to
-that scheduling boundary.
+The fresh-process rerun (`5e7f9759`, head `0d82504`, Live 11.3.43) now verifies
+the single command's true-to-false transition on the scheduled tick, then
+independently reads clear global/target state before the new pass. Pass
+`1532782f` / context `b023fa10` has independently accepted 192,000 stereo
+frames and 40 envelope/spectral windows, clock/beat disagreement 0/1, exact
+postconditions and cleanup. A separate journal audit verifies all 69 clock rows
+at index 63/vector 64. This supports the scheduling correction without widening
+verification or capture bounds. The runner still incorrectly stamps this
+receipt `supportedTargetQualified:false` using a stale 11.3.42 comparison,
+despite the merged Live 11-only policy. Retain the original receipt; correct
+current runner eligibility/labels and rerun the case/group before claiming
+current-policy qualification. The current runner now derives `hostEligible`,
+`supportedLive`, `observedLiveVersion` and `hostEvidenceLabel` from the shared
+product compatibility policy for both source evidence and top-level results.
+It removes the ambiguous exact-patch `supportedTargetQualified` field;
+eligibility never promotes readiness, physical qualification or failed runs.
+Live 11.3.43 eligibility, Live 12/minimum/unknown rejection and failure metadata
+have red/green regressions. The full TypeScript suite passes 2478 tests across
+139 files; current-policy real-Live reruns remain separate.
 
 A capture-only read-pressure diagnostic reproduced a 65-sample rejection:
 the initial host/native offset was -1, and a later host sample/beat pair was

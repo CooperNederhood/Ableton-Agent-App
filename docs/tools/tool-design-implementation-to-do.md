@@ -74,12 +74,18 @@ Companion specification: [Tool Design](tool-design.md)
     stopped/content/settings verification before cleanup, retained lifecycle
     evidence and no automatic actor retry. Synthetic tests cover unsafe setup,
     denial, false success, changed state, timeout/cancellation and cleanup failure.
-  - [ ] Accept #56 against the real agent from independently verified playing
-    transport, then verify stopped state and unchanged content before cleanup;
-    complete the isolated visible Default-agent check with ordinary approvals.
-    A pre-existing user Live process blocks owned-process validation in this
-    session; it must not be controlled or closed by the runner. Application
-    regressions alone do not establish model discoverability.
+  - [x] Accept #56 against the real agent from independently verified playing
+    transport, with exact ordinarily approved stop arguments, stopped state
+    and unchanged content before cleanup. Focused and transport-group runs
+    pass on 2026-10-23 UTC with successful exact-owned cleanup. Empirical host
+    evidence is Live Suite 11.3.43, not separate 11.3.42 qualification.
+  - [~] Complete the isolated visible Default-agent check with ordinary
+    approvals. The unhinted message appears once, Approve once authorizes the
+    exact stop, the operation and turn complete, and independent reads confirm
+    true-to-false playback with unchanged bounded content/settings. Live is
+    visibly stopped before Desktop closes. Final owned Live cleanup remains
+    blocked on saving or explicitly approving discard of the validation Set;
+    do not call that cleanup complete or the shared slot released.
 
 ## Inspection tools
 

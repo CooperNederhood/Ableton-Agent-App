@@ -170,6 +170,11 @@ Missing calls, refusals, denials, timeout, incomplete evidence or prose-only
 success must fail; cleanup cannot convert a failed actor result into a pass.
 Do not automatically retry the discoverability request.
 
+Validate completed stop payloads against the protocol result schema. Accept
+standalone JSON or its exact SDK transport-success post-tool-hook framing;
+unrecognized trailing prose, other tool framing and unverified payloads remain
+failures. Hook guidance and assistant prose are not state evidence.
+
 Run the scenario, its group and the remaining runnable suite in that order.
 Follow deterministic acceptance with an isolated visible Default-agent check,
 using ordinary approvals and independently verified state. A pre-existing

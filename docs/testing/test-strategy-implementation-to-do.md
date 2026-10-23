@@ -95,26 +95,73 @@ Companion specification: [Test Strategy](test-strategy.md)
     Include unsafe recording, refusal/prose-only success, still-playing state,
     incomplete/reversed evidence, timeout/cancellation, checkpoint and cleanup
     failures; do not equate synthetic coverage with real-agent acceptance.
-  - [ ] Complete real-agent `transport-stop` acceptance and the subsequent
-    isolated visible Default-agent check. Require identified playing setup,
-    exact authorized stop arguments, independent stopped postconditions and
-    unchanged contents; do not accept prose or cleanup as proof.
-    Admission on 2026-10-22 was blocked before any scenario executed by an
-    existing user Live process (PID 8054). No user process was controlled.
-    A fresh 2026-10-23 UTC admission attempt refused that same process before
-    any scenario or cleanup; other active sessions also report no ownership.
-  - [ ] Finish the broad repository quality gate for #56 before merge.
-    Build, repository formatting, changed-source lint, all workspace/Electron-test
+  - [x] Complete real-agent `transport-stop` acceptance from independently
+    confirmed playing transport, with an exact ordinarily approved stop,
+    independently stopped postconditions, unchanged content/settings and
+    successful owned-process cleanup. Focused and transport-group runs pass on
+    2026-10-23 UTC (run IDs `ffb898d8-f6d3-4f52-8d73-dddc9e6fa548` and
+    `5967d360-2f8a-41d2-8686-d1b0a7d21a6e`). Earlier admission correctly refused
+    a pre-existing user process; execution began only after the user closed it
+    and #58 explicitly released its separate runner slot.
+  - [x] Reproduce and fix the first real-run verifier false negative: the agent
+    stopped playback correctly, but the SDK appended post-tool-hook guidance
+    to the JSON result. Validate the protocol payload before only that exact
+    recognized transport-success separator. Regress the recorded result,
+    unknown prose, other-tool guidance, unverified payload and missing result.
+    The new positive regression fails without the fix; all 186 owning
+    CLI/runner tests pass with it. No mutation guard or postcondition is relaxed.
+  - [~] Complete the subsequent isolated visible Default-agent check with
+    ordinary approvals and independent before/after state. Message
+    `8ab0f753-f3fc-444e-8048-639cb8d3b1fa`, trace
+    `7c0d20ac-d728-4e67-98e4-05ecacf59fc6`, appears once in the selected Default
+    conversation. The normal approval UI displays exact `set-playing` /
+    `isPlaying: false`; Approve once leads to a completed operation and turn,
+    an enabled composer, and a visible verified true-to-false result. Live is
+    visibly stopped before Desktop closes. Independent reads before Desktop
+    launch and after Desktop closes, but before Live cleanup, confirm playing
+    then stopped, recording off, and unchanged bounded content/settings
+    (14 tracks, 13 Session clips, no Arrangement clips). Concurrent readers
+    timed out while Desktop held the bridge, so independent reads bracketed
+    Desktop's lifetime.
+    Empirical host evidence is Live Suite 11.3.43, not separate qualification
+    of the specified 11.3.42 build.
+  - [ ] Finish explicit owned Live cleanup before calling visible acceptance
+    complete or releasing the shared test slot. Desktop PIDs 41322 and 45044
+    closed successfully. Live PID 40458, started 2026-10-23 01:15:01 local time,
+    remains open after an unsaved-Set prompt. A non-destructive Save As attempt
+    did not persist the Set; subsequent background close actions did not exit.
+    The user was unavailable for explicit discard approval, so no discard or
+    forced Live termination was performed. The Node UX controller was stopped
+    without signaling Live; both isolated Desktop profiles and all failure
+    evidence are retained. Save/close that validation Set or obtain explicit
+    discard approval, confirm exact process exit, then release ownership.
+  - [~] Escalate #56 acceptance to the remaining non-native real-Live suite.
+    Run `3590fab9-0ee5-4910-aa9e-6986c73e0598` passed 10 scenarios across
+    inspection, Live Events, tracks and the first Session-clip scenario, then
+    stopped at `session-clip-lifecycle`: the agent supplied the clip name
+    instead of the required track name for launch `expectedName`, and the
+    unchanged approval guard correctly denied it. The partial Set is retained
+    in the failure trace; all four owned processes were cleaned up.
+    A fresh standalone run `83c93030-667f-45c6-9269-533a3b1a4963` passes without
+    changing code, prompts, guards or budgets, but complete-group reproduction
+    `be123273-529f-4db2-aaca-78730b71516d` fails at the same guard. Preserve both
+    outcomes; do not call the broader suite green or hide failures with retries.
+    Seven later non-native scenarios remain unexecuted in this qualification.
+    Native listening groups require separate version-pinned fixture inputs and
+    are not claimed as executed by #56.
+  - [x] Run the broad repository quality components for #56.
+    Build, repository formatting, full `pnpm lint`, all workspace/Electron-test
     typechecks and static/device/contract checks pass. Independent stop-harness
-    review found no significant issues; Max patch tests (631) and Python tests
-    (212) pass. Broad TypeScript runs are not green: the unchanged reasoning-
-    visibility composition case and native-v2 runner cases hit the existing
-    ten-second deadlines, including after reducing worker concurrency. Selected
-    failing cases pass alone, but the full native-v2 file still has timeouts.
-    Do not hide these results, raise deadlines or claim full acceptance.
-    Repository-wide app lint was stopped after prolonged execution; all changed
-    source/test files pass scoped lint. Keep these validation blockers separate
-    from the transport description fix.
+    review found no significant issues; Max patch tests (631), Python tests
+    (212), and isolated non-Live Electron tests (12) pass. The final TypeScript
+    suite, including the new framing regressions, passes all 2312 tests in
+    136 files with
+    `pnpm exec vitest run --maxWorkers=1`, without changing deadlines or retries.
+    Earlier concurrent runs timed out in unchanged reasoning-visibility and
+    native-v2 cases, and an earlier broad lint run was stopped after prolonged
+    execution. Those failures remain recorded in session evidence; the final
+    serialized suite and fresh full lint pass do not establish complete
+    real-Live acceptance or successful visible-workflow cleanup.
   - [x] Add a runner that records versioned, commit-linked smoke evidence
     without storing project content.
   - [x] Make exact-PID cleanup tolerate process-exit races at the final

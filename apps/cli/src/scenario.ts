@@ -12,6 +12,7 @@ import {
 } from "@ableton-agent/observability";
 import {
   recordingOperationResultSchema,
+  setPlayingResultSchema,
   transportOperationResultSchema,
   type SessionSnapshot,
 } from "@ableton-agent/protocol";
@@ -1104,14 +1105,21 @@ function recordingIsOff(state: TransportStopState): boolean {
 
 function successfulStopResult(value: unknown): boolean {
   try {
-    const result =
-      typeof value === "string" ? (JSON.parse(value) as unknown) : value;
+    const payload =
+      typeof value === "string"
+        ? value.split(
+            '\n\nTool "ableton_transport" succeeded. Additional guidance from postToolUse hooks:\n',
+            1,
+          )[0]
+        : value;
+    const result = setPlayingResultSchema.safeParse(
+      typeof payload === "string" ? (JSON.parse(payload) as unknown) : payload,
+    );
     return (
-      result !== null &&
-      typeof result === "object" &&
-      (result as Record<string, unknown>).verified === true &&
-      (result as Record<string, unknown>).beforeIsPlaying === true &&
-      (result as Record<string, unknown>).afterIsPlaying === false
+      result.success &&
+      result.data.verified &&
+      result.data.beforeIsPlaying === true &&
+      result.data.afterIsPlaying === false
     );
   } catch {
     return false;

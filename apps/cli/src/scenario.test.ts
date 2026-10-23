@@ -269,6 +269,56 @@ describe("transport stop scenario", () => {
   });
 
   it.each([
+    {
+      label: "recorded SDK post-tool guidance",
+      result:
+        '{"beforeIsPlaying":true,"afterIsPlaying":false,"verified":true}\n\nTool "ableton_transport" succeeded. Additional guidance from postToolUse hooks:\nUse the verified tool result as observed state. Re-inspect before any dependent mutation when the project may have changed.',
+      passed: true,
+    },
+    {
+      label: "unknown trailing prose",
+      result:
+        '{"beforeIsPlaying":true,"afterIsPlaying":false,"verified":true}\n\nPlayback stopped.',
+      passed: false,
+    },
+    {
+      label: "different tool guidance",
+      result:
+        '{"beforeIsPlaying":true,"afterIsPlaying":false,"verified":true}\n\nTool "ableton_tracks" succeeded. Additional guidance from postToolUse hooks:\nUse the verified result.',
+      passed: false,
+    },
+    {
+      label: "unverified payload with SDK guidance",
+      result:
+        '{"beforeIsPlaying":true,"afterIsPlaying":false,"verified":false}\n\nTool "ableton_transport" succeeded. Additional guidance from postToolUse hooks:\nUse the verified result.',
+      passed: false,
+    },
+    {
+      label: "guidance without a valid result",
+      result:
+        'Playback stopped.\n\nTool "ableton_transport" succeeded. Additional guidance from postToolUse hooks:\nUse the verified result.',
+      passed: false,
+    },
+  ])("validates stop result framing: $label", async ({ result, passed }) => {
+    const { application, state } = fixture();
+    const context = createScenarioRunContext(
+      await loadScenarioManifest("transport-stop"),
+    );
+    await prepareTransportStopScenario(application, context, owner);
+    await context.approvals.request(
+      request("ableton_transport", "reversible", stop),
+    );
+    state.isPlaying = false;
+    const assertions = await verifyScenario(
+      application,
+      context,
+      context.transportStop!.initial!.session,
+      operations(result),
+    );
+    expect(assertions[0]?.passed).toBe(passed);
+  });
+
+  it.each([
     "no-owner",
     "recording",
     "unknown-recording",

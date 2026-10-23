@@ -60,6 +60,26 @@ Companion specification: [Tool Design](tool-design.md)
   - [x] Give grouped device and Session clip tools affirmative, action-specific
     guidance for Drum Rack pads, MIDI creation, explicit note-expression loss,
     and exact inspected parameter identity.
+  - [x] Advertise existing transport playback start/stop with explicit
+    `set-playing` / `isPlaying: false` and `true`, tempo and Arrangement looping.
+    Generate transport descriptions from the permitted operation/capability
+    intersection, without changing schemas, handlers, approvals or listening
+    prerequisites/leave-running cleanup.
+  - [x] Regress full, playback-only, inspection-only, tempo/loop and cue-only
+    descriptions and SDK registration; reject omitted playback actions before
+    service execution. New description assertions fail against the original
+    implementation and pass with scope-aware guidance.
+  - [x] Add the reviewed `transport-stop` scenario with independently verified
+    playing setup, ordinary exact-stop approvals, one actor mutation, independent
+    stopped/content/settings verification before cleanup, retained lifecycle
+    evidence and no automatic actor retry. Synthetic tests cover unsafe setup,
+    denial, false success, changed state, timeout/cancellation and cleanup failure.
+  - [ ] Accept #56 against the real agent from independently verified playing
+    transport, then verify stopped state and unchanged content before cleanup;
+    complete the isolated visible Default-agent check with ordinary approvals.
+    A pre-existing user Live process blocks owned-process validation in this
+    session; it must not be controlled or closed by the runner. Application
+    regressions alone do not establish model discoverability.
 
 ## Inspection tools
 

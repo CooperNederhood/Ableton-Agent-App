@@ -1035,8 +1035,7 @@ Select only needed columns; filter narrowly by Live Set, time range, and IDs usi
     },
   });
   const transportTool = defineTool("ableton_transport", {
-    description:
-      "Inspects and controls Live 11 song position, time signature, metronome, launch and record quantization, Link when exposed, cue names/jumps, and Back to Arrangement. Recording controls are intentionally excluded.",
+    description: transportDescription(),
     parameters: abletonTransportParamsSchema,
     handler: async (params) => {
       switch (params.action) {
@@ -1443,6 +1442,47 @@ export interface ScopeAbletonToolsOptions {
   readonly capabilities?: Readonly<Record<string, boolean>>;
 }
 
+const transportActionGuidance = {
+  "set-playing":
+    'Stop playback with action: "set-playing", isPlaying: false; start playback with action: "set-playing", isPlaying: true.',
+  "set-tempo": 'Set tempo in BPM with action: "set-tempo" and tempo.',
+  "set-arrangement-loop":
+    'Control Arrangement looping with action: "set-arrangement-loop" and the loop fields to change.',
+  get: 'Inspect song position, playback, tempo, timing settings, Link availability and Back to Arrangement state with action: "get".',
+  "inspect-arrangement":
+    'Inspect Arrangement loop state and a bounded cue-point page with action: "inspect-arrangement".',
+  seek: 'Set song position with action: "seek".',
+  jump: 'Jump relative to song position with action: "jump".',
+  "set-time-signature":
+    'Set the time signature with action: "set-time-signature".',
+  "set-metronome": 'Control the metronome with action: "set-metronome".',
+  "set-launch-quantization":
+    'Set launch quantization with action: "set-launch-quantization".',
+  "set-record-quantization":
+    'Set record quantization with action: "set-record-quantization".',
+  "set-link": 'Control Link when exposed with action: "set-link".',
+  "create-cue-point":
+    'Create an Arrangement cue point with action: "create-cue-point".',
+  "delete-cue-point":
+    'Delete an identity-bound Arrangement cue point with action: "delete-cue-point".',
+  "rename-cue": 'Rename a cue point with action: "rename-cue".',
+  "jump-to-cue": 'Jump to a cue point with action: "jump-to-cue".',
+  "back-to-arrangement":
+    'Return to Arrangement playback with action: "back-to-arrangement".',
+} satisfies Record<AbletonTransportParams["action"], string>;
+
+function transportDescription(
+  actions: readonly string[] = Object.keys(transportActionGuidance),
+): string {
+  return [
+    "Available Live 11 transport actions:",
+    ...Object.entries(transportActionGuidance)
+      .filter(([action]) => actions.includes(action))
+      .map(([, guidance]) => guidance),
+    "Each action is an alternative; use the arguments required by the selected action. Recording controls are intentionally excluded.",
+  ].join(" ");
+}
+
 export function scopeAbletonTools(
   toolSet: AbletonToolSet,
   options: ScopeAbletonToolsOptions,
@@ -1472,7 +1512,14 @@ export function scopeAbletonTools(
             ...tool,
             description: `${tool.description ?? ""}\nAllowed action values in this scope: ${selected.map((descriptor) => descriptor.action).join(", ")}. Each schema variant is an alternative selected by action, not a restriction to only the final variant. Use the arguments required by the selected action.${selected.some((descriptor) => descriptor.action === "inspect-listeners") ? " Discover listenerIds with inspect-listeners before the first capture; never guess them from track or device references." : ""}`,
           }
-        : tool;
+        : tool.name === "ableton_transport"
+          ? {
+              ...tool,
+              description: transportDescription(
+                selected.map((descriptor) => descriptor.action),
+              ),
+            }
+          : tool;
     if (selected.length === descriptors.length) return [scopedTool];
     const parameters =
       selected.length === 1

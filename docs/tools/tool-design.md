@@ -257,3 +257,34 @@ For example, Drum Rack pad lookup uses `inspect-drum-rack-pads`, while new
 Session MIDI clips use `create-midi` with the inspected track's direct
 identity. Corrective failures preserve the strict action enum and branch
 shape; descriptions emphasize valid next calls rather than guessed aliases.
+
+### Transport discoverability and restricted scopes
+
+`ableton_transport` explicitly advertises playback start/stop, tempo and
+Arrangement looping alongside its position, timing, synchronization and cue
+operations. Stop playback with `action: "set-playing", isPlaying: false`; start
+playback with `action: "set-playing", isPlaying: true`. Use `set-tempo` for BPM
+and `set-arrangement-loop` for Arrangement loop changes. Recording controls
+remain a separate tool; record quantization is not recording enablement.
+
+Transport descriptions are composed from the actions remaining after operation
+authorization and capability filtering. An inspection-only or cue-only scope
+does not advertise playback mutations; a playback-only scope does not promise
+tempo, looping or cues. An empty intersection removes the tool. Descriptions
+teach permitted calls without widening the schema, authorization, approvals or
+handlers. Full-scope registration preserves all 17 action alternatives and the
+object-root action enum delivered to the SDK.
+
+Issue [#56](https://github.com/CooperNederhood/Ableton-Agent-App/issues/56) addresses
+a refusal that made no stop call and received no permission denial, despite
+`set-playing` being registered. The omission is confirmed; a downstream SDK
+defect is not. Description and serialized-registration regressions establish
+the application contract, not model reliability. Real-agent acceptance requires
+an identified playing baseline, an ordinary-language stop request, retained
+selected arguments, and an independent stopped-state read before cleanup, with
+no unrelated content/settings changes. Neither message acceptance nor assistant
+prose is sufficient.
+
+This change does not alter listening: each capture still requires stopped
+transport, and successful/cancelled capture cleanup still leaves playback
+running. An explicit separately authorized stop is not implicit capture cleanup.

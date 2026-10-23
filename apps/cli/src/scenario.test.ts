@@ -2,15 +2,20 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { HeadlessApplication } from "@ableton-agent/application";
 import type { SessionSnapshot } from "@ableton-agent/protocol";
+import type { AppEvent } from "@ableton-agent/shared";
+import { telemetryEventEnvelopeSchema } from "@ableton-agent/observability";
 import { resolveAbletonToolMetadata } from "@ableton-agent/tools";
 import type { ToolApprovalRequest } from "@ableton-agent/tools";
 
 import {
   createScenarioRunContext,
+  captureTransportStopFailure,
   loadScenarioManifest,
+  prepareTransportStopScenario,
   sanitizeTraceValue,
   scenarioManifestSchema,
   scenarioPrompt,
+  scenarioStage,
   verifyScenario,
 } from "./scenario.js";
 
@@ -31,6 +36,428 @@ function request(
     arguments: arguments_,
   };
 }
+
+describe("transport stop scenario", () => {
+  const owner = { pid: 1234, runId: "11111111-1111-4111-8111-111111111111" };
+  const stop = { action: "set-playing", isPlaying: false };
+  function fixture() {
+    const state = {
+      isPlaying: false,
+      currentSongTime: 0,
+      tempo: 120,
+      recording: false,
+      totalCues: 0,
+    };
+    const calls: string[] = [];
+    const application = {
+      executeRecordingOperation: vi.fn(async () => {
+        calls.push("recording");
+        return {
+          action: "inspect",
+          state: {
+            arrangementRecord: state.recording,
+            sessionRecord: false,
+            sessionAutomationRecord: false,
+            overdub: false,
+            punchIn: false,
+            punchOut: false,
+          },
+        };
+      }),
+      executeTransportOperation: vi.fn(async () => {
+        calls.push("transport");
+        return {
+          action: "get",
+          transport: {
+            currentSongTime: state.currentSongTime,
+            isPlaying: state.isPlaying,
+            tempo: state.tempo,
+            timeSignature: { numerator: 4, denominator: 4 },
+            metronome: false,
+            launchQuantization: 4,
+            recordQuantization: 0,
+            linkEnabled: false,
+            backToArrangement: false,
+          },
+          cuePoints: [],
+          totalCuePoints: state.totalCues,
+          offset: 0,
+          limit: 32,
+        };
+      }),
+      inspectSession: vi.fn(async (): Promise<SessionSnapshot> => {
+        calls.push("session");
+        return {
+          tempo: state.tempo,
+          isPlaying: state.isPlaying,
+          timeSignature: { numerator: 4, denominator: 4 },
+          trackCount: 0,
+          tracks: [],
+          clips: [],
+        };
+      }),
+      inspectArrangementTransport: vi.fn(async () => {
+        calls.push("loop-cues");
+        return {
+          loop: { enabled: false, start: 0, length: 4 },
+          cuePoints: [],
+          totalCuePoints: 0,
+          offset: 0,
+          limit: 32,
+        };
+      }),
+      inspectArrangement: vi.fn(async () => {
+        calls.push("arrangement");
+        return { clips: [], total: 0, offset: 0, limit: 256 };
+      }),
+      setPlaying: vi.fn(async (isPlaying: boolean) => {
+        calls.push("setup-play");
+        const beforeIsPlaying = state.isPlaying;
+        state.isPlaying = isPlaying;
+        return { beforeIsPlaying, afterIsPlaying: isPlaying, verified: true };
+      }),
+    };
+    return {
+      state,
+      calls,
+      application: application as unknown as HeadlessApplication,
+      mocks: application,
+    };
+  }
+  function operations(
+    result: unknown = {
+      beforeIsPlaying: true,
+      afterIsPlaying: false,
+      verified: true,
+    },
+  ): AppEvent[] {
+    return [
+      {
+        type: "operation.started",
+        operationId: "actor-stop",
+        label: "Stop",
+        toolName: "ableton_transport",
+        arguments: stop,
+      },
+      {
+        type: "operation.completed",
+        operationId: "actor-stop",
+        summary: "Stopped",
+        toolName: "ableton_transport",
+        arguments: stop,
+        result,
+      },
+    ];
+  }
+
+  it("admits only the reviewed natural-language policy with no action hint", async () => {
+    const manifest = await loadScenarioManifest("transport-stop");
+    const context = createScenarioRunContext(manifest);
+    expect(scenarioPrompt("untrusted alternative action hint", context)).toBe(
+      "Stop playback. Do not change anything else.",
+    );
+    expect(manifest.maxMutations).toBe(1);
+    expect(manifest.allowedTools).toEqual(["ableton_transport"]);
+  });
+
+  it.each([
+    { maxMutations: 2 },
+    { maxToolCalls: 5 },
+    { allowedTools: ["ableton_transport", "ableton_tracks"] },
+    { prompt: "Use set-playing to stop." },
+    { assertions: [{ type: "session-unchanged" as const }] },
+    { allowedRisks: ["read" as const, "destructive" as const] },
+    { allowedActions: { ableton_transport: ["set-playing", "set-tempo"] } },
+  ])(
+    "rejects broadened or misleading manifest admission %j",
+    async (override) => {
+      const manifest = await loadScenarioManifest("transport-stop");
+      expect(() =>
+        createScenarioRunContext({ ...manifest, ...override }),
+      ).toThrow("exact reviewed scenario policy");
+    },
+  );
+
+  it.each([
+    { action: "set-playing", isPlaying: true },
+    { action: "set-playing", isPlaying: false, unexpected: true },
+    { action: "set-playing" },
+    { action: "set-tempo", tempo: 100 },
+    { action: "get", limit: 33 },
+    { action: "get", offset: 1 },
+    { action: "inspect-arrangement", limit: 0 },
+    { action: "get", unexpected: true },
+  ])("denies unsafe or unexpected actor arguments %j", async (args) => {
+    const context = createScenarioRunContext(
+      await loadScenarioManifest("transport-stop"),
+    );
+    const approval = request(
+      "ableton_transport",
+      args.action === "get" || args.action === "inspect-arrangement"
+        ? "read"
+        : "reversible",
+      args,
+    );
+    expect(await context.approvals.request(approval)).toBe(false);
+  });
+
+  it("allows bounded inspection and only one exact stop", async () => {
+    const context = createScenarioRunContext(
+      await loadScenarioManifest("transport-stop"),
+    );
+    expect(
+      await context.approvals.request(
+        request("ableton_transport", "read", { action: "get", limit: 32 }),
+      ),
+    ).toBe(true);
+    expect(
+      await context.approvals.request(
+        request("ableton_transport", "reversible", stop),
+      ),
+    ).toBe(true);
+    expect(
+      await context.approvals.request(
+        request("ableton_transport", "reversible", stop),
+      ),
+    ).toBe(false);
+    expect(context.approvals.decisions.at(-1)?.reason).toBe(
+      "mutation_budget_exhausted",
+    );
+  });
+
+  it("guards recording, starts through the service, then independently confirms playing before actor verification", async () => {
+    const { application, state, calls } = fixture();
+    const context = createScenarioRunContext(
+      await loadScenarioManifest("transport-stop"),
+    );
+    await prepareTransportStopScenario(application, context, owner);
+    expect(calls).toEqual([
+      "recording",
+      "transport",
+      "session",
+      "loop-cues",
+      "arrangement",
+      "recording",
+      "setup-play",
+      "recording",
+      "transport",
+      "session",
+      "loop-cues",
+      "arrangement",
+    ]);
+    expect(context.approvals.decisions).toEqual([]);
+    expect(context.transportStop?.playing?.session.isPlaying).toBe(true);
+    await context.approvals.request(
+      request("ableton_transport", "reversible", stop),
+    );
+    state.isPlaying = false;
+    state.currentSongTime = 100;
+    const results = await verifyScenario(
+      application,
+      context,
+      context.transportStop!.initial!.session,
+      operations(
+        JSON.stringify({
+          beforeIsPlaying: true,
+          afterIsPlaying: false,
+          verified: true,
+        }),
+      ),
+    );
+    expect(results).toEqual([expect.objectContaining({ passed: true })]);
+    expect(context.transportStop?.final?.session.isPlaying).toBe(false);
+  });
+
+  it.each([
+    "no-owner",
+    "recording",
+    "unknown-recording",
+    "read-failure",
+    "partial-cues",
+    "not-playing",
+    "setup-failure",
+  ] as const)(
+    "refuses setup without safe independent evidence: %s",
+    async (failure) => {
+      const { application, state, mocks } = fixture();
+      const context = createScenarioRunContext(
+        await loadScenarioManifest("transport-stop"),
+      );
+      if (failure === "recording") state.recording = true;
+      if (failure === "unknown-recording")
+        mocks.executeRecordingOperation.mockResolvedValue({
+          action: "inspect",
+          state: {},
+        } as never);
+      if (failure === "read-failure")
+        mocks.executeTransportOperation.mockRejectedValue(
+          new Error("bridge failed"),
+        );
+      if (failure === "partial-cues") state.totalCues = 33;
+      if (failure === "not-playing")
+        mocks.setPlaying.mockResolvedValue({
+          beforeIsPlaying: false,
+          afterIsPlaying: true,
+          verified: true,
+        });
+      if (failure === "setup-failure")
+        mocks.setPlaying.mockRejectedValue(new Error("setup failed"));
+      await expect(
+        prepareTransportStopScenario(
+          application,
+          context,
+          failure === "no-owner" ? undefined : owner,
+        ),
+      ).rejects.toThrow();
+      if (!["not-playing", "setup-failure"].includes(failure))
+        expect(mocks.setPlaying).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    "still-playing",
+    "no-call",
+    "denied",
+    "incomplete",
+    "unverified",
+    "changed-settings",
+    "changed-loop",
+    "changed-content",
+    "reversed-trace",
+    "unexpected-mutation",
+    "recording",
+  ] as const)(
+    "cannot pass from prose or invalid final evidence: %s",
+    async (failure) => {
+      const { application, state, mocks } = fixture();
+      const context = createScenarioRunContext(
+        await loadScenarioManifest("transport-stop"),
+      );
+      await prepareTransportStopScenario(application, context, owner);
+      await context.approvals.request(
+        request(
+          "ableton_transport",
+          "reversible",
+          failure === "denied" ? { ...stop, isPlaying: true } : stop,
+        ),
+      );
+      state.isPlaying = failure === "still-playing";
+      if (failure === "changed-settings") state.tempo = 121;
+      if (failure === "changed-loop")
+        mocks.inspectArrangementTransport.mockResolvedValue({
+          loop: { enabled: true, start: 0, length: 4 },
+          cuePoints: [],
+          totalCuePoints: 0,
+          offset: 0,
+          limit: 32,
+        });
+      if (failure === "changed-content")
+        mocks.inspectSession.mockResolvedValue({
+          ...context.transportStop!.playing!.session,
+          isPlaying: false,
+          clips: [
+            {
+              reference: owner.runId,
+              trackReference: owner.runId,
+              trackIndex: 0,
+              sceneIndex: 0,
+              name: "Unexpected clip",
+              kind: "midi",
+              length: 4,
+              noteCount: 0,
+            },
+          ],
+        });
+      if (failure === "recording") state.recording = true;
+      const trace =
+        failure === "no-call"
+          ? []
+          : failure === "incomplete"
+            ? operations().slice(0, 1)
+            : operations(
+                failure === "unverified" ? { verified: false } : undefined,
+              );
+      if (failure === "reversed-trace") trace.reverse();
+      if (failure === "unexpected-mutation")
+        trace.push(
+          {
+            type: "operation.started",
+            operationId: "unexpected",
+            label: "Start",
+            toolName: "ableton_transport",
+            arguments: { action: "set-playing", isPlaying: true },
+          },
+          {
+            type: "operation.completed",
+            operationId: "unexpected",
+            summary: "Started",
+          },
+        );
+      const results = await verifyScenario(
+        application,
+        context,
+        context.transportStop!.initial!.session,
+        trace,
+      );
+      expect(results[0]?.passed).toBe(false);
+    },
+  );
+
+  it("retains failure state without cleanup mutations", async () => {
+    const { application, mocks } = fixture();
+    const context = createScenarioRunContext(
+      await loadScenarioManifest("transport-stop"),
+    );
+    await prepareTransportStopScenario(application, context, owner);
+    await captureTransportStopFailure(application, context);
+    expect(context.transportStop?.final?.session.isPlaying).toBe(true);
+    expect(mocks.setPlaying).toHaveBeenCalledExactlyOnceWith(true);
+  });
+
+  it.each(["completed", "failed", "cancelled"] as const)(
+    "records ordered attributed bounded redacted %s lifecycle timing",
+    async (outcome) => {
+      const context = createScenarioRunContext(
+        await loadScenarioManifest("transport-stop"),
+      );
+      context.transportStop = { owner };
+      const checkpoint = vi.fn();
+      const action = scenarioStage(
+        context,
+        "setup",
+        async () => {
+          if (outcome !== "completed") {
+            const error = new Error("token=private-secret");
+            if (outcome === "cancelled") error.name = "AbortError";
+            throw error;
+          }
+        },
+        checkpoint,
+      );
+      if (outcome === "completed") await action;
+      else await expect(action).rejects.toThrow();
+      expect(checkpoint).toHaveBeenCalledTimes(2);
+      expect(context.lifecycle.map((event) => event.name)).toEqual([
+        "scenario.setup.started",
+        `scenario.setup.${outcome}`,
+      ]);
+      for (const event of context.lifecycle) {
+        expect(() => telemetryEventEnvelopeSchema.parse(event)).not.toThrow();
+        expect(event.trace?.traceId).toBe(context.traceId);
+        expect(event.causationId).toBe(owner.runId);
+        expect(event.durationMs).toBeGreaterThanOrEqual(0);
+        expect(sanitizeTraceValue(event)).toMatchObject({
+          name: event.name,
+          attributes: { operationStage: "setup" },
+        });
+      }
+      expect(context.lifecycle[0]?.trace?.spanId).toBe(
+        context.lifecycle[1]?.trace?.spanId,
+      );
+      expect(JSON.stringify(context.lifecycle)).not.toContain("private-secret");
+    },
+  );
+});
 
 describe("integration scenarios", () => {
   it("loads reviewed manifests and injects unique artifact names", async () => {
@@ -312,6 +739,8 @@ describe("integration scenarios", () => {
         truncated: false,
       }));
       const application: Parameters<typeof verifyScenario>[0] = {
+        executeTransportOperation: unexpected,
+        executeRecordingOperation: unexpected,
         inspectSession: async () => snapshot,
         inspectDevices: async () => ({
           devices: [

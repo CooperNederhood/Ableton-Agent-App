@@ -89,6 +89,32 @@ Companion specification: [Test Strategy](test-strategy.md)
 - [ ] Cover indexed cursor/filter queries, stable concurrent pagination,
   cancellable stale requests, bounded ingestion, saturation, and degraded mode.
 - [~] Create real-Live test project and manual runner.
+  - [x] Add synthetic transport-stop coverage for safe playing setup, exact
+    stop-argument approval guards, actor call/postcondition attribution,
+    unchanged contents/settings, no retry, lifecycle tracing and owned cleanup.
+    Include unsafe recording, refusal/prose-only success, still-playing state,
+    incomplete/reversed evidence, timeout/cancellation, checkpoint and cleanup
+    failures; do not equate synthetic coverage with real-agent acceptance.
+  - [ ] Complete real-agent `transport-stop` acceptance and the subsequent
+    isolated visible Default-agent check. Require identified playing setup,
+    exact authorized stop arguments, independent stopped postconditions and
+    unchanged contents; do not accept prose or cleanup as proof.
+    Admission on 2026-10-22 was blocked before any scenario executed by an
+    existing user Live process (PID 8054). No user process was controlled.
+    A fresh 2026-10-23 UTC admission attempt refused that same process before
+    any scenario or cleanup; other active sessions also report no ownership.
+  - [ ] Finish the broad repository quality gate for #56 before merge.
+    Build, repository formatting, changed-source lint, all workspace/Electron-test
+    typechecks and static/device/contract checks pass. Independent stop-harness
+    review found no significant issues; Max patch tests (631) and Python tests
+    (212) pass. Broad TypeScript runs are not green: the unchanged reasoning-
+    visibility composition case and native-v2 runner cases hit the existing
+    ten-second deadlines, including after reducing worker concurrency. Selected
+    failing cases pass alone, but the full native-v2 file still has timeouts.
+    Do not hide these results, raise deadlines or claim full acceptance.
+    Repository-wide app lint was stopped after prolonged execution; all changed
+    source/test files pass scoped lint. Keep these validation blockers separate
+    from the transport description fix.
   - [x] Add a runner that records versioned, commit-linked smoke evidence
     without storing project content.
   - [x] Make exact-PID cleanup tolerate process-exit races at the final

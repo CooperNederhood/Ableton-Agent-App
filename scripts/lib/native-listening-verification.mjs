@@ -617,7 +617,8 @@ export function verifyNativeListeningEvidence(input, protocol) {
     requireValue(
       entry.kind ===
         (session ? "session-audio-observation/v1" : "audio-observation/v2") &&
-        listener.registration.version === (session ? 3 : 2) &&
+        (listener.registration.version === (session ? 3 : 2) ||
+          listener.registration.version === 4) &&
         listener.producer.schemaVersion === "audio-observation/v2" &&
         expected.listenerId === listener.producer.producerId &&
         expected.passId === pass.id,
@@ -668,7 +669,9 @@ export function verifyNativeListeningEvidence(input, protocol) {
   const proof = session ? wrapper.transport : wrapper;
   if (expected) {
     requireValue(
-      event.result.listenerVersion === (session ? 3 : 2),
+      event.result.listenerVersion === listener.registration.version &&
+        (listener.registration.version !== 4 ||
+          event.result.mode === (session ? "session" : "arrangement")),
       "Native result version mismatch",
     );
     if (session) {
@@ -821,7 +824,9 @@ export function verifyNativeListeningEvidence(input, protocol) {
 }
 
 export function createNativeScenarioApproval(manifest, binding) {
-  const session = manifest.nativeVersion === 3;
+  const session =
+    manifest.nativeVersion === 3 ||
+    (manifest.nativeVersion === 4 && manifest.mode === "session");
   const capture = Object.freeze(
     manifest.nativeVersion >= 2
       ? { ...manifest.capture }

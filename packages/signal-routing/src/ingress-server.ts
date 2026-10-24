@@ -20,6 +20,10 @@ import {
   listenerControlSessionSchema,
   type ListenerControlSession,
 } from "./listener-session-contracts.js";
+import {
+  listenerControlDualSchema,
+  type ListenerControlDual,
+} from "./listener-dual-contracts.js";
 
 import type {
   OutputConnection,
@@ -406,6 +410,18 @@ export class SignalIngressServer implements ListenerService {
     }
     const rawControl = {
       ...value,
+      ...(state.listener.version === 4
+        ? {
+            mode:
+              value.action === "prepare"
+                ? value.config && "source" in value.config
+                  ? value.config.source.mode
+                  : "arrangement"
+                : state.listenerOwner?.listenerVersion === 4
+                  ? state.listenerOwner.mode
+                  : undefined,
+          }
+        : {}),
       type: "listener.control",
       protocolVersion: 1,
       listenerVersion: state.listener.version,
@@ -413,11 +429,13 @@ export class SignalIngressServer implements ListenerService {
       connectionEpoch: state.listener.connectionEpoch,
     };
     const parsedControl =
-      state.listener.version === 3
-        ? listenerControlSessionSchema.safeParse(rawControl)
-        : state.listener.version === 2
-          ? listenerControlV2Schema.safeParse(rawControl)
-          : listenerControlSchema.safeParse(rawControl);
+      state.listener.version === 4
+        ? listenerControlDualSchema.safeParse(rawControl)
+        : state.listener.version === 3
+          ? listenerControlSessionSchema.safeParse(rawControl)
+          : state.listener.version === 2
+            ? listenerControlV2Schema.safeParse(rawControl)
+            : listenerControlSchema.safeParse(rawControl);
     if (!parsedControl.success)
       throw denied("listener_configuration_version_mismatch");
     const control = parsedControl.data;
@@ -517,7 +535,7 @@ export class SignalIngressServer implements ListenerService {
   }
 
   #nativeExpectation(
-    control: ListenerControlV2 | ListenerControlSession,
+    control: ListenerControlV2 | ListenerControlSession | ListenerControlDual,
     state: ClientState,
   ) {
     if (!control.config || !state.producer)
@@ -530,7 +548,12 @@ export class SignalIngressServer implements ListenerService {
     });
   }
 
-  #sessionExpectation(control: ListenerControlSession, state: ClientState) {
+  #sessionExpectation(
+    control:
+      | ListenerControlSession
+      | Extract<ListenerControlDual, { mode: "session" }>,
+    state: ClientState,
+  ) {
     if (!control.config)
       throw new Error("native_session_configuration_missing");
     return snapshotNativeSessionListeningExpectation({
@@ -586,6 +609,7 @@ export class SignalIngressServer implements ListenerService {
         passId: message.passId,
         requestId: message.requestId,
         listenerVersion: message.listenerVersion,
+        ...("mode" in message ? { mode: message.mode } : {}),
         ...("config" in message && message.config !== undefined
           ? { config: message.config }
           : {}),
@@ -707,11 +731,12 @@ export class SignalIngressServer implements ListenerService {
       ...(this.#options.secretPath === undefined
         ? {}
         : { secretPath: this.#options.secretPath }),
-      listenerVersions: [1, 2, 3],
+      listenerVersions: [1, 2, 3, 4],
       listenerCapabilities: [
         "audio-listener/v1",
         "audio-listener/v2",
         "audio-listener/session-v1",
+        "audio-listener/dual-mode-v1",
       ],
       producerDiagnostics: [WRITE_DIAGNOSTIC_CAPABILITY],
     };
@@ -1032,7 +1057,7 @@ export class SignalIngressServer implements ListenerService {
       (message.listener !== undefined &&
         (message.producer.signalKind !== "audio" ||
           message.producer.schemaVersion !==
-            `audio-observation/v${message.listener.version === 3 ? 2 : message.listener.version}` ||
+            `audio-observation/v${message.listener.version >= 2 ? 2 : message.listener.version}` ||
           message.producer.track?.id === undefined ||
           message.producer.device?.id === undefined)) ||
       (["audio-observation/v1", "audio-observation/v2"].includes(
@@ -1112,6 +1137,8 @@ export class SignalIngressServer implements ListenerService {
       !owner ||
       message.listenerVersion !== state.listener.version ||
       message.listenerVersion !== owner.listenerVersion ||
+      (message.listenerVersion === 4 &&
+        (owner.listenerVersion !== 4 || message.mode !== owner.mode)) ||
       message.connectionEpoch !== state.listener.connectionEpoch ||
       message.jobId !== owner.jobId ||
       message.passId !== owner.passId ||
@@ -1172,8 +1199,10 @@ export class SignalIngressServer implements ListenerService {
         return;
       }
       if (
-        message.listenerVersion === 3 &&
-        owner.listenerVersion === 3 &&
+        (message.listenerVersion === 3 ||
+          (message.listenerVersion === 4 && message.mode === "session")) &&
+        (owner.listenerVersion === 3 ||
+          (owner.listenerVersion === 4 && owner.mode === "session")) &&
         message.status === "armed"
       ) {
         try {
@@ -1204,8 +1233,10 @@ export class SignalIngressServer implements ListenerService {
         }
       }
       if (
-        message.listenerVersion === 2 &&
-        owner.listenerVersion === 2 &&
+        (message.listenerVersion === 2 ||
+          (message.listenerVersion === 4 && message.mode === "arrangement")) &&
+        (owner.listenerVersion === 2 ||
+          (owner.listenerVersion === 4 && owner.mode === "arrangement")) &&
         message.status === "armed"
       ) {
         try {
@@ -1382,7 +1413,12 @@ export class SignalIngressServer implements ListenerService {
         );
       return;
     }
-    if (owner.listenerVersion === 3 && message.listenerVersion === 3) {
+    if (
+      (owner.listenerVersion === 3 ||
+        (owner.listenerVersion === 4 && owner.mode === "session")) &&
+      (message.listenerVersion === 3 ||
+        (message.listenerVersion === 4 && message.mode === "session"))
+    ) {
       const expected = this.#sessionExpectation(owner, state);
       if (message.nativeLaunch) {
         if (!state.nativeSessionArm || state.nativeSessionLaunch)
@@ -1435,7 +1471,16 @@ export class SignalIngressServer implements ListenerService {
       }
       return;
     }
-    if (owner.listenerVersion !== 2 || message.listenerVersion !== 2)
+    if (
+      !(
+        owner.listenerVersion === 2 ||
+        (owner.listenerVersion === 4 && owner.mode === "arrangement")
+      ) ||
+      !(
+        message.listenerVersion === 2 ||
+        (message.listenerVersion === 4 && message.mode === "arrangement")
+      )
+    )
       throw new Error("listener_version_mismatch");
     const expected = this.#nativeExpectation(owner, state);
     const geometry = expected.geometry;
@@ -1520,10 +1565,11 @@ export class SignalIngressServer implements ListenerService {
   #publishListenerFailure(state: ClientState, reason: string): void {
     const owner = state.listenerOwner;
     if (!owner) return;
-    const result: ListenerResult = {
+    const result = producerMessageSchema.parse({
       type: "listener.result",
       protocolVersion: 1,
       listenerVersion: owner.listenerVersion,
+      ...(owner.listenerVersion === 4 ? { mode: owner.mode } : {}),
       requestId: randomUUID(),
       connectionEpoch: owner.connectionEpoch,
       jobId: owner.jobId,
@@ -1534,7 +1580,9 @@ export class SignalIngressServer implements ListenerService {
       sequence: Math.min(Number.MAX_SAFE_INTEGER, state.listenerSequence + 1),
       status: "partial",
       reason,
-    };
+    });
+    if (result.type !== "listener.result")
+      throw new Error("invalid_listener_failure_result");
     this.#listenerTelemetry("failed", state, result);
     this.#emitListenerResult(state, result);
     delete state.listenerOwner;

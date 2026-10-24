@@ -302,6 +302,7 @@ function validSessionConfig(config) {
 }
 
 function validSessionRegistration(listener) {
+  const dual = listener.version === 4;
   const required = [
     "version",
     "capabilities",
@@ -329,15 +330,14 @@ function validSessionRegistration(listener) {
     "maxAudioDurationMs",
     "maxWindows",
     "abiVersion",
-    "sourceEvidence",
-    "synchronization"
+    ...(dual ? ["supportedModes"] : ["sourceEvidence", "synchronization"])
   ];
   const id = (value) =>
     typeof value === "string" && value.length >= 1 && value.length <= 128;
   const trackPath =
     /^live_set (?:tracks (?:0|[1-9][0-9]*)|return_tracks (?:0|[1-9][0-9]*)|master_track)$/;
   return (
-    listener.version === 3 &&
+    (listener.version === 3 || dual) &&
     hasExactKeys(listener, [
       ...required,
       ...optional.filter((key) =>
@@ -346,7 +346,8 @@ function validSessionRegistration(listener) {
     ]) &&
     Array.isArray(listener.capabilities) &&
     listener.capabilities.length === 1 &&
-    listener.capabilities[0] === SESSION_LISTENER_CAPABILITY &&
+    listener.capabilities[0] ===
+      (dual ? "audio-listener/dual-mode-v1" : SESSION_LISTENER_CAPABILITY) &&
     Number.isInteger(listener.sampleRate) &&
     listener.sampleRate >= 8000 &&
     listener.sampleRate <= 384000 &&
@@ -375,8 +376,9 @@ function validSessionRegistration(listener) {
         ? ["reason"]
         : [])
     ]) &&
-    status.version === 3 &&
-    status.scope === SESSION_LISTENER_SCOPE &&
+    status.version === listener.version &&
+    status.scope ===
+      (dual ? "mode-negotiated-transport/v1" : SESSION_LISTENER_SCOPE) &&
     ["READY", "BLOCKED"].includes(status.readiness) &&
     status.alignment === "approximate" &&
     status.verifiedAbsoluteErrorBoundSamples === null &&
@@ -400,8 +402,13 @@ function validSessionRegistration(listener) {
     status.maxAudioDurationMs === 30000 &&
     status.maxWindows === 300 &&
     status.abiVersion === 2 &&
-    status.sourceEvidence === "expected-context-only" &&
-    status.synchronization === "transport-coupled-first-iteration" &&
+    (dual
+      ? Array.isArray(status.supportedModes) &&
+        status.supportedModes.length === 2 &&
+        status.supportedModes[0] === "arrangement" &&
+        status.supportedModes[1] === "session"
+      : status.sourceEvidence === "expected-context-only" &&
+        status.synchronization === "transport-coupled-first-iteration") &&
     (status.reason === undefined ||
       (typeof status.reason === "string" &&
         /^[a-z][a-z0-9_]{0,127}$/.test(status.reason))) &&
@@ -415,6 +422,7 @@ function validSessionRegistration(listener) {
 function sameListenerOwner(control, job) {
   return (
     !!job &&
+    (control.listenerVersion !== 4 || control.mode === job.mode) &&
     ["connectionEpoch", "jobId", "passId", "traceId", "correlationId"].every(
       (key) => control[key] === job[key]
     )
@@ -429,7 +437,8 @@ function snapshotDescriptiveControl(control) {
           config: Object.freeze({
             geometry: Object.freeze({ ...control.config.geometry }),
             timingPolicy: Object.freeze({ ...control.config.timingPolicy }),
-            ...(control.listenerVersion === 3
+            ...(control.listenerVersion === 3 ||
+            (control.listenerVersion === 4 && control.mode === "session")
               ? {
                   source: Object.freeze({
                     mode: control.config.source.mode,
@@ -1149,11 +1158,15 @@ class AgentSignalClient {
     this.listener = options.listener || null;
     this.listenerVersion = this.listener?.version;
     this.descriptiveMode =
-      this.listenerVersion === 2 || this.listenerVersion === 3;
+      this.listenerVersion === 2 ||
+      this.listenerVersion === 3 ||
+      this.listenerVersion === 4;
     this.listenerCapability =
-      this.listenerVersion === 3
-        ? SESSION_LISTENER_CAPABILITY
-        : `audio-listener/v${this.listenerVersion}`;
+      this.listenerVersion === 4
+        ? "audio-listener/dual-mode-v1"
+        : this.listenerVersion === 3
+          ? SESSION_LISTENER_CAPABILITY
+          : `audio-listener/v${this.listenerVersion}`;
     this.onListenerControl = options.onListenerControl || (() => {});
     this.onListenerFailure = options.onListenerFailure || (() => {});
     this.listenerSequence = 0;
@@ -1165,7 +1178,7 @@ class AgentSignalClient {
       (!this.listener && this.schemaVersion === "audio-observation/v2") ||
       (this.listener &&
         (this.signalKind !== "audio" ||
-          ![1, 2, 3].includes(this.listenerVersion) ||
+          ![1, 2, 3, 4].includes(this.listenerVersion) ||
           this.schemaVersion !==
             `audio-observation/v${this.descriptiveMode ? 2 : this.listenerVersion}` ||
           !Array.isArray(this.listener.capabilities) ||
@@ -1178,6 +1191,8 @@ class AgentSignalClient {
     }
     if (this.listenerVersion === 3 && !validSessionRegistration(this.listener))
       throw new Error("invalid native Session listener registration");
+    if (this.listenerVersion === 4 && !validSessionRegistration(this.listener))
+      throw new Error("invalid dual-mode listener registration");
     if (this.descriptiveMode) {
       const listener = this.listener;
       const status = listener.nativeStatus;
@@ -1192,9 +1207,11 @@ class AgentSignalClient {
         !status ||
         status.version !== this.listenerVersion ||
         status.scope !==
-          (this.listenerVersion === 3
-            ? SESSION_LISTENER_SCOPE
-            : "arrangement-descriptive/v2") ||
+          (this.listenerVersion === 4
+            ? "mode-negotiated-transport/v1"
+            : this.listenerVersion === 3
+              ? SESSION_LISTENER_SCOPE
+              : "arrangement-descriptive/v2") ||
         !["READY", "BLOCKED"].includes(status.readiness) ||
         (status?.readiness === "READY" &&
           (!Array.isArray(status.acceptedSampleRates) ||
@@ -2184,17 +2201,25 @@ class AgentSignalClient {
           "protocolVersion",
           "listenerVersion",
           "action",
+          ...(this.listenerVersion === 4 ? ["mode"] : []),
           ...keys,
           ...(control.action === "prepare" ? ["config"] : [])
         ]) ||
           control.type !== "listener.control" ||
           (control.action === "prepare"
-            ? !(this.listenerVersion === 3
-                ? validSessionConfig(control.config)
-                : validDescriptiveConfig(control.config)) ||
+            ? !(this.listenerVersion === 4
+                ? ["arrangement", "session"].includes(control.mode) &&
+                  (control.mode === "session"
+                    ? validSessionConfig(control.config)
+                    : validDescriptiveConfig(control.config))
+                : this.listenerVersion === 3
+                  ? validSessionConfig(control.config)
+                  : validDescriptiveConfig(control.config)) ||
               control.config.geometry.sampleRate !== this.listener.sampleRate ||
               control.config.geometry.vectorSize !== this.listener.vectorSize
-            : control.config !== undefined))) ||
+            : control.config !== undefined ||
+              (this.listenerVersion === 4 &&
+                !["arrangement", "session"].includes(control.mode))))) ||
       (control.action === "prepare" &&
         this.listenerVersion === 1 &&
         (!control.config ||
@@ -2333,7 +2358,7 @@ class AgentSignalClient {
     }
     if (
       this.descriptiveMode &&
-      ((this.listenerVersion === 3 &&
+      (((this.listenerVersion === 3 || this.listenerVersion === 4) &&
         (!["prepare", "arm", "cancel"].includes(control.action) ||
           (type === "listener.reply" &&
             payload?.status !== "failed" &&
@@ -2341,7 +2366,8 @@ class AgentSignalClient {
               { prepare: "ready", arm: "armed", cancel: "cancelled" }[
                 control.action
               ]))) ||
-        !(this.listenerVersion === 3
+        !(this.listenerVersion === 3 ||
+        (this.listenerVersion === 4 && control.mode === "session")
           ? validSessionPayload(type, payload, job, this.producer?.producerId)
           : validDescriptivePayload(
               type,
@@ -2358,6 +2384,7 @@ class AgentSignalClient {
       type,
       protocolVersion: PROTOCOL_VERSION,
       listenerVersion: this.listenerVersion,
+      ...(this.listenerVersion === 4 ? { mode: control.mode } : {}),
       requestId:
         type === "listener.reply"
           ? control.requestId

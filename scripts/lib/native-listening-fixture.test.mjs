@@ -52,14 +52,23 @@ export async function nativeFixtureInput({ nativeVersion = 1 } = {}) {
   const manifest = JSON.stringify({
     nativeMode: true,
     nativeScope:
-      nativeVersion === 3
-        ? "session-transport-coupled/v1"
-        : nativeVersion === 2
-          ? "arrangement-descriptive/v2"
-          : "arrangement-beat0-120bpm-48000hz-vector64/v1",
+      nativeVersion === 4
+        ? "mode-negotiated-transport/v1"
+        : nativeVersion === 3
+          ? "session-transport-coupled/v1"
+          : nativeVersion === 2
+            ? "arrangement-descriptive/v2"
+            : "arrangement-beat0-120bpm-48000hz-vector64/v1",
     ...(nativeVersion >= 2
       ? {
           nativeVersion,
+          ...(nativeVersion === 4
+            ? {
+                nativeAbiVersion: 2,
+                supportedModes: ["arrangement", "session"],
+                modeNegotiation: "explicit-per-pass",
+              }
+            : {}),
           ...(nativeVersion === 3
             ? {
                 nativeAbiVersion: 2,
@@ -231,7 +240,7 @@ describe("native listening fixture staging", () => {
     },
   );
 
-  it.each([1, 2, 3])(
+  it.each([1, 2, 3, 4])(
     "copies project-relative WAV dependencies for v%i before returning a loadable fixture",
     async (nativeVersion) => {
       const f = await nativeFixtureInput({ nativeVersion });
@@ -240,6 +249,7 @@ describe("native listening fixture staging", () => {
       expect(await readFile(join(f.destination, audio.relativePath))).toEqual(
         audio.bytes,
       );
+
       expect(staged.audioResourceCount).toBe(1);
       expect(staged.audioResources).toEqual([
         {
@@ -253,6 +263,32 @@ describe("native listening fixture staging", () => {
       await staged.cleanup();
       await expect(access(f.destination)).rejects.toThrow();
       expect(await readFile(audio.path)).toEqual(audio.bytes);
+    },
+  );
+
+  it.each([
+    { supportedModes: ["session"] },
+    { modeNegotiation: "automatic" },
+    { nativeAbiVersion: 3 },
+    { nativeVersion: 3 },
+  ])(
+    "rejects a downgraded wire4 manifest before staging %j",
+    async (change) => {
+      const f = await nativeFixtureInput({ nativeVersion: 4 });
+      const path = join(
+        f.input.candidateDirectory,
+        "audio-listener-manifest.json",
+      );
+      const bytes = JSON.stringify({
+        ...JSON.parse(await readFile(path, "utf8")),
+        ...change,
+      });
+      await writeFile(path, bytes);
+      f.input.candidateManifestSha256 = hash(bytes);
+      await expect(stageNativeListeningFixture(f)).rejects.toThrow(
+        "native candidate",
+      );
+      await expect(access(f.destination)).rejects.toThrow();
     },
   );
 

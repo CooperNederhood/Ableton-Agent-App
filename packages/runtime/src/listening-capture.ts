@@ -42,6 +42,9 @@ import {
   listenerRegistrationSessionSchema,
   listenerReplySessionSchema,
   listenerResultSessionSchema,
+  listenerRegistrationDualSchema,
+  listenerReplyDualSchema,
+  listenerResultDualSchema,
   versionedListenerControlInputSchema,
   outputProducerSchema,
   recordSignalTelemetry,
@@ -196,7 +199,9 @@ function assertNativeReadiness(
 ): void {
   const status: unknown = Reflect.get(registration, "nativeStatus");
   if (registration.version !== 1) {
-    if (registration.version === 3)
+    if (registration.version === 4)
+      listenerRegistrationDualSchema.parse(registration);
+    else if (registration.version === 3)
       listenerRegistrationSessionSchema.parse(registration);
     else listenerRegistrationV2Schema.parse(registration);
     if (
@@ -298,8 +303,9 @@ class Capture implements PreparedListeningCapture {
         Readonly<NativeSessionListeningExpectation> | undefined;
       if (descriptor.registration.version !== 1) {
         if (
+          descriptor.registration.version !== 4 &&
           ("source" in this.#config && "geometry" in this.#config) !==
-          (descriptor.registration.version === 3)
+            (descriptor.registration.version === 3)
         )
           throw new ListeningCaptureError("listener-version-mismatch");
         if (
@@ -321,7 +327,7 @@ class Capture implements PreparedListeningCapture {
           listenerId: descriptor.producer.producerId,
           passId: this.passId,
         };
-        if (descriptor.registration.version === 3 && "source" in this.#config) {
+        if ("source" in this.#config) {
           expectedSession = snapshotNativeSessionListeningExpectation({
             ...expectation,
             source: this.#config.source,
@@ -361,7 +367,7 @@ class Capture implements PreparedListeningCapture {
         descriptor.passId !== undefined ||
         descriptor.producer.signalKind !== "audio" ||
         descriptor.producer.schemaVersion !==
-          `audio-observation/v${descriptor.registration.version === 3 ? 2 : descriptor.registration.version}` ||
+          `audio-observation/v${descriptor.registration.version >= 2 ? 2 : descriptor.registration.version}` ||
         descriptor.binding.trackId !== descriptor.producer.track?.id ||
         descriptor.binding.deviceId !== descriptor.producer.device?.id ||
         connections.has(descriptor.connectionId) ||
@@ -451,6 +457,10 @@ class Capture implements PreparedListeningCapture {
         jobId: this.jobId,
         passId: this.passId,
         listenerCount: this.#selected.length,
+        mode:
+          "geometry" in this.#config && !("source" in this.#config)
+            ? "arrangement"
+            : this.#config.source.mode,
         action,
         detail,
         ...("geometry" in this.#config
@@ -530,14 +540,21 @@ class Capture implements PreparedListeningCapture {
     status: ListenerReply["status"],
   ): VersionedListenerReply {
     const parsed =
-      item.descriptor.registration.version === 3
-        ? listenerReplySessionSchema.safeParse(raw)
-        : item.descriptor.registration.version === 2
-          ? listenerReplyV2Schema.safeParse(raw)
-          : listenerReplySchema.safeParse(raw);
+      item.descriptor.registration.version === 4
+        ? listenerReplyDualSchema.safeParse(raw)
+        : item.descriptor.registration.version === 3
+          ? listenerReplySessionSchema.safeParse(raw)
+          : item.descriptor.registration.version === 2
+            ? listenerReplyV2Schema.safeParse(raw)
+            : listenerReplySchema.safeParse(raw);
     if (!parsed.success)
       throw new ListeningCaptureError("malformed-control-reply");
     const reply = parsed.data;
+    if (
+      reply.listenerVersion === 4 &&
+      reply.mode !== ("source" in this.#config ? "session" : "arrangement")
+    )
+      throw new ListeningCaptureError("listener-mode-mismatch");
     if (
       reply.connectionEpoch !== item.descriptor.registration.connectionEpoch ||
       reply.jobId !== this.jobId ||
@@ -565,14 +582,20 @@ class Capture implements PreparedListeningCapture {
       throw new ListeningCaptureError("unexpected-control-reply");
     item.sequence = reply.sequence;
     if (status === "armed") {
-      if (reply.listenerVersion === 3) {
+      if (
+        reply.listenerVersion === 3 ||
+        (reply.listenerVersion === 4 && reply.mode === "session")
+      ) {
         if (!reply.nativeArm || !item.expectedSession)
           throw new ListeningCaptureError("native-arm-proof-required");
         assertNativeSessionArmProof(reply.nativeArm, item.expectedSession);
         item.nativeArmSession = reply.nativeArm;
         return reply;
       }
-      if (reply.listenerVersion === 2) {
+      if (
+        reply.listenerVersion === 2 ||
+        (reply.listenerVersion === 4 && reply.mode === "arrangement")
+      ) {
         if (!reply.nativeArm || !item.expectedV2)
           throw new ListeningCaptureError("native-arm-proof-required");
         assertNativeArmProofV2(reply.nativeArm, item.expectedV2);
@@ -680,13 +703,20 @@ class Capture implements PreparedListeningCapture {
       if (bytes > DEFAULT_MAX_INGRESS_FRAME_BYTES || ++item.resultCount > 1024)
         throw new ListeningCaptureError("result-overflow");
       const parsed =
-        item.descriptor.registration.version === 3
-          ? listenerResultSessionSchema.safeParse(event.result)
-          : item.descriptor.registration.version === 2
-            ? listenerResultV2Schema.safeParse(event.result)
-            : listenerResultSchema.safeParse(event.result);
+        item.descriptor.registration.version === 4
+          ? listenerResultDualSchema.safeParse(event.result)
+          : item.descriptor.registration.version === 3
+            ? listenerResultSessionSchema.safeParse(event.result)
+            : item.descriptor.registration.version === 2
+              ? listenerResultV2Schema.safeParse(event.result)
+              : listenerResultSchema.safeParse(event.result);
       if (!parsed.success) throw new ListeningCaptureError("malformed-result");
       const result = parsed.data;
+      if (
+        result.listenerVersion === 4 &&
+        result.mode !== ("source" in this.#config ? "session" : "arrangement")
+      )
+        throw new ListeningCaptureError("listener-mode-mismatch");
       if (
         result.connectionEpoch !==
           item.descriptor.registration.connectionEpoch ||
@@ -732,7 +762,10 @@ class Capture implements PreparedListeningCapture {
         result.nativeLifecycle !== undefined)
     )
       throw new ListeningCaptureError("unexpected-native-evidence");
-    if (result.listenerVersion === 3) {
+    if (
+      result.listenerVersion === 3 ||
+      (result.listenerVersion === 4 && result.mode === "session")
+    ) {
       if (!item.expectedSession || !item.nativeArmSession)
         throw new ListeningCaptureError("native-arm-proof-required");
       if (result.nativeLaunch) {
@@ -766,7 +799,10 @@ class Capture implements PreparedListeningCapture {
           );
         }
       }
-    } else if (result.listenerVersion === 2) {
+    } else if (
+      result.listenerVersion === 2 ||
+      (result.listenerVersion === 4 && result.mode === "arrangement")
+    ) {
       if (!item.expectedV2 || !item.nativeArmV2)
         throw new ListeningCaptureError("native-arm-proof-required");
       if (result.nativeLaunch) {
@@ -857,9 +893,9 @@ class Capture implements PreparedListeningCapture {
       !this.#allArmed ||
       this.#failure ||
       this.#selected.some((item) =>
-        item.descriptor.registration.version === 3
+        item.expectedSession
           ? item.nativeLaunchSession === undefined
-          : item.descriptor.registration.version === 2
+          : item.expectedV2
             ? item.nativeLaunchV2 === undefined
             : item.descriptor.registration.nativeStatus?.scope ===
                 NATIVE_LISTENER_SCOPE && item.nativeLaunch === undefined,

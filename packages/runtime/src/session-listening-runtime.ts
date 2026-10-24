@@ -217,7 +217,8 @@ export function createSessionListeningServices(
         !listener ||
         !descriptor ||
         binding.descriptors.length !== 1 ||
-        descriptor.registration.version !== 3 ||
+        (descriptor.registration.version !== 3 &&
+          descriptor.registration.version !== 4) ||
         listener.binding.track.kind !== "regular" ||
         listener.binding.track.expectedReference !== request.trackReference ||
         listener.binding.track.expectedReference !==
@@ -232,7 +233,11 @@ export function createSessionListeningServices(
       )
         deny("unsupported_native_sample_rate");
       if (
-        registration.nativeStatus.scope !== "session-transport-coupled/v1" ||
+        (registration.nativeStatus.scope !== "session-transport-coupled/v1" &&
+          !(
+            registration.version === 4 &&
+            registration.nativeStatus.supportedModes.includes("session")
+          )) ||
         binding.inspection.transport.playing !== false ||
         !binding.inspection.transport.safeToStart ||
         Object.values(binding.inspection.transport.recording).some(

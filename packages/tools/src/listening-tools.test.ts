@@ -87,7 +87,10 @@ describe("optional listening tool contracts", () => {
     );
     expect(tool.description).toContain("cancel stops capture, not transport");
     expect(tool.description).toContain(
-      "Session requires a matching native v3 listener",
+      "Session requires a matching native listener supporting explicit Session mode (wire3 or wire4)",
+    );
+    expect(tool.description).toContain(
+      "both Arrangement and Session through explicit per-pass mode negotiation, never automatic mode fallback",
     );
     expect(tool.description).toContain("stopped beat zero and global None");
     expect(listeningOperationParamsSchema.options[1].description).toContain(

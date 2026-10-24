@@ -7,6 +7,8 @@ import {
   listenerNativeStatusSchema,
   listenerNativeStatusV2Schema,
   listenerNativeSessionStatusSchema,
+  listenerNativeDualStatusSchema,
+  type ListenerNativeDualStatus,
   type ListenerNativeStatus,
   type ListenerNativeStatusV2,
   type ListenerNativeSessionStatus,
@@ -22,6 +24,7 @@ const nativeStatusSchema = z.union([
   listenerNativeStatusSchema,
   listenerNativeStatusV2Schema,
   listenerNativeSessionStatusSchema,
+  listenerNativeDualStatusSchema,
 ]);
 const rawConnectionSchema = z
   .object({
@@ -80,7 +83,7 @@ export interface ListenerBindingDescriptor {
     readonly capabilities?: Readonly<Record<string, unknown>>;
   };
   readonly registration: {
-    readonly version?: 1 | 2 | 3;
+    readonly version?: 1 | 2 | 3 | 4;
     readonly capabilities?: readonly string[];
     readonly connectionEpoch: string;
     readonly deviceCanonicalPath?: string;
@@ -88,7 +91,8 @@ export interface ListenerBindingDescriptor {
     readonly nativeStatus?:
       | ListenerNativeStatus
       | ListenerNativeStatusV2
-      | ListenerNativeSessionStatus;
+      | ListenerNativeSessionStatus
+      | ListenerNativeDualStatus;
   };
   readonly status?: "connected" | "stale" | "disconnected";
 }
@@ -110,7 +114,9 @@ const descriptorHeaderSchema = z
     registration: z
       .object({
         connectionEpoch: id,
-        version: z.union([z.literal(1), z.literal(2), z.literal(3)]).optional(),
+        version: z
+          .union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)])
+          .optional(),
         capabilities: z.array(z.string().min(1).max(128)).max(16).optional(),
         deviceCanonicalPath: listeningCanonicalDevicePathSchema.optional(),
         trackCanonicalPath: listeningCanonicalTrackPathSchema.optional(),
@@ -143,6 +149,10 @@ export function readConnectedListenerBinding(
   }
   const registration = header.data.registration;
   if (
+    (registration.nativeStatus?.version === 4 &&
+      (registration.version !== 4 ||
+        registration.capabilities?.length !== 1 ||
+        registration.capabilities[0] !== "audio-listener/dual-mode-v1")) ||
     (registration.version !== undefined &&
       registration.version !== registration.nativeStatus?.version) ||
     (registration.nativeStatus?.version === 3 &&

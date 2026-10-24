@@ -16,6 +16,10 @@ import {
 import { createSyntheticNativeSessionListeningFixture } from "@ableton-agent/protocol/testing";
 import {
   listenerRegistrationSessionSchema,
+  listenerRegistrationDualSchema,
+  listenerReplyDualSchema,
+  listenerReplySessionSchema,
+  listenerResultDualSchema,
   type ListenerDescriptor,
   type ListenerResultEvent,
   type ListenerResultSession,
@@ -83,6 +87,7 @@ function fixture(
   kind: "midi" | "warped-audio" = "midi",
   contextRepository?: Repository,
   sourceSettings: Partial<InspectSessionListeningSourceResult["settings"]> = {},
+  wireVersion: 3 | 4 = 3,
 ) {
   let playing = false;
   let durationBeats = request.durationBeats;
@@ -138,6 +143,30 @@ function fixture(
     }),
     phase: "idle",
   };
+  if (wireVersion === 4) {
+    const status = listener.registration.nativeStatus!;
+    if (status.version !== 3) throw new Error("Expected Session fixture");
+    const {
+      sourceEvidence: _source,
+      synchronization: _sync,
+      maxDurationBeats: _limit,
+      ...transportStatus
+    } = status;
+    void _source;
+    void _sync;
+    void _limit;
+    listener.registration = listenerRegistrationDualSchema.parse({
+      ...listener.registration,
+      version: 4,
+      capabilities: ["audio-listener/dual-mode-v1"],
+      nativeStatus: {
+        ...transportStatus,
+        version: 4,
+        scope: "mode-negotiated-transport/v1",
+        supportedModes: ["arrangement", "session"],
+      },
+    });
+  }
   const sourceState = (): InspectSessionListeningSourceResult["after"] => ({
     transportPlaying: playing,
     globalBeat: playing ? 0.2 : 0,
@@ -319,7 +348,14 @@ function fixture(
         connectionId: listener.connectionId,
         binding: listener.binding,
         producer: listener.producer,
-        result,
+        result:
+          wireVersion === 4
+            ? listenerResultDualSchema.parse({
+                ...result,
+                listenerVersion: 4,
+                mode: "session",
+              })
+            : result,
       });
   };
   const launchNative = () => emit({ nativeLaunch: data!.launch });
@@ -389,7 +425,7 @@ function fixture(
           listener.jobId = control.jobId;
           listener.passId = control.passId;
         }
-        return {
+        const reply = {
           ...context.trace,
           jobId: control.jobId,
           passId: control.passId,
@@ -407,6 +443,13 @@ function fixture(
                 : "cancelled",
           ...(control.action === "arm" ? { nativeArm: data!.arm } : {}),
         };
+        return wireVersion === 4
+          ? listenerReplyDualSchema.parse({
+              ...reply,
+              listenerVersion: 4,
+              mode: "session",
+            })
+          : listenerReplySessionSchema.parse(reply);
       },
     ),
   };
@@ -807,10 +850,15 @@ describe("shared runtime Session listening", () => {
     expect(f.jobs.at(-1)?.session?.launch?.state).toBe("verified");
   });
 
-  it.each(["midi", "warped-audio"] as const)(
-    "publishes %s through real wire3 capture with canonical contributing track identity",
-    async (kind) => {
-      const f = fixture(kind);
+  it.each([
+    ["midi", 3],
+    ["warped-audio", 3],
+    ["midi", 4],
+    ["warped-audio", 4],
+  ] as const)(
+    "publishes %s through real wire%s capture with canonical contributing track identity",
+    async (kind, version) => {
+      const f = fixture(kind, undefined, {}, version);
       const job = await f.run();
       expect(
         job.stage,

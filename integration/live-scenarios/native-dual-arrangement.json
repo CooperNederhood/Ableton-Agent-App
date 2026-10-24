@@ -1,0 +1,58 @@
+{
+  "formatVersion": 1,
+  "id": "native-dual-arrangement",
+  "group": "native-listening-dual",
+  "execution": "native-listening-runtime",
+  "nativeVersion": 4,
+  "mode": "arrangement",
+  "modeNegotiation": "explicit-per-pass",
+  "prompt": "Make these calls sequentially, never in parallel: inspect-listeners, exactly one play-arrangement-and-listen for Arrangement beats 0 through 4 with maximumDurationMs 8000 and only the bound listener ID, then get-pass once using the returned passId. This is explicit native v2 with the App-owned descriptive timing policy capped at 64 samples, not strict v1 or physical timing qualification. Constant 120 BPM is assumed; tempo automation is unsupported. The candidate remains ready=false with native_per_pass_validation_required: never promote it or use another listener. Existing production guarded positioning owns the nonzero start before arming; do not seek, stop, repair positioning, or retry. If any tool call fails, including argument validation or permission denial, report and end without correcting, retrying, or using a shell wait. If the pass failed or was cancelled, report the reason and end. If still nonterminal, report pending and end without polling; the harness waits for the real terminal job. Only if completed may you get typed context using its contextId and includeHistorical=true. Do not list passes or context. Queued acceptance is not completion. Leave transport running; do not record, launch Session clips, change the Set, install devices, or claim exclusive clip audio. Unknown attribution and freshness are valid historical track/range results.",
+  "artifactPrefix": "AA_SMOKE_NV2_START_0_4_",
+  "capture": { "startBeat": 0, "endBeat": 4, "maximumDurationMs": 8000 },
+  "allowedTools": ["ableton_listening", "ableton_context"],
+  "allowedActions": {
+    "ableton_listening": [
+      "inspect-listeners",
+      "play-arrangement-and-listen",
+      "get-pass"
+    ],
+    "ableton_context": ["get"]
+  },
+  "allowedRisks": ["read", "reversible"],
+  "maxToolCalls": 8,
+  "maxMutations": 1,
+  "timeoutMs": 60000,
+  "setupContract": {
+    "timingPolicy": {
+      "mode": "descriptive",
+      "maxClockDisagreementSamples": 64
+    },
+    "tempoPolicy": "constant-tempo-assumed",
+    "tempoAutomationSupported": false,
+    "inputOption": "--native-v4-fixture-input",
+    "nativeVersion": 4,
+    "sourcePolicy": "Immutable hash-pinned dual-mode Development artifact and manifest, identical to the Session scenario pins. No legacy version fallback or device installation.",
+    "geometryPolicy": "Independent stopped/recording-off/no-overrides inspection freezes geometry before capture; wire4 must explicitly report Arrangement mode and exact ABI2 Arrangement proof.",
+    "positioningPolicy": "Existing production guarded positioning and source guards only; no runner seek, stop or retry.",
+    "processPolicy": "Fresh exact-PID runner-owned Live 11 process and isolated profile. Never use a pre-existing user process. Owned shutdown and cleanup finish before the next scenario.",
+    "reviewStatus": "Authored dual-mode regression; physical execution remains unverified. Shared artifact support does not assert same-process repeated-pass qualification or absolute timing accuracy."
+  },
+  "ordering": [
+    {
+      "before": "ableton_listening",
+      "beforeAction": "inspect-listeners",
+      "after": "ableton_listening",
+      "afterAction": "play-arrangement-and-listen"
+    }
+  ],
+  "assertions": [
+    "no-failed-actor-tools",
+    "stopped-native-v2-preflight",
+    "app-owned-frozen-expectation-before-capture",
+    "owned-terminal-job",
+    "independent-native-v2-proof-and-20-window-coverage",
+    "one-atomic-track-range-context",
+    "typed-historical-retrieval-and-reopen",
+    "unchanged-set-leave-running-idle-capture"
+  ]
+}

@@ -230,7 +230,7 @@ function nativeGeometry(
   if (
     descriptors.some(
       (item) =>
-        item.registration.version !== 2 ||
+        (item.registration.version !== 2 && item.registration.version !== 4) ||
         item.registration.sampleRate !== rate ||
         item.registration.vectorSize !== first.vectorSize,
     )
@@ -700,6 +700,7 @@ function assemble(
           connection.nativeStatus.scope !== NATIVE_LISTENER_SCOPE &&
           connection.nativeStatus.scope !== NATIVE_LISTENER_SCOPE_V2 &&
           connection.nativeStatus.scope !== "session-transport-coupled/v1" &&
+          connection.nativeStatus.scope !== "mode-negotiated-transport/v1" &&
           (connection.nativeStatus.version !== 1 ||
             connection.nativeStatus.timing !== "VERIFIED" ||
             connection.nativeStatus.readiness !== "READY")
@@ -1098,7 +1099,11 @@ function assemble(
               descriptor.registration.nativeStatus?.scope ===
                 NATIVE_LISTENER_SCOPE ||
               descriptor.registration.nativeStatus?.scope ===
-                NATIVE_LISTENER_SCOPE_V2;
+                NATIVE_LISTENER_SCOPE_V2 ||
+              (descriptor.registration.version === 4 &&
+                descriptor.registration.nativeStatus.supportedModes.includes(
+                  "arrangement",
+                ));
             const nativeLaunch = cached.nativeLaunch;
             if (
               playback.startedAtBeat !== cached.request.startBeat ||
@@ -1163,7 +1168,7 @@ function assemble(
                   ((cached.geometry.sampleRate * 60) / cached.geometry.tempoBpm)
               : request.endBeat) ||
           (item.schema === "audio-observation/v2") !==
-            (descriptor?.registration.version === 2) ||
+            (descriptor?.registration.version !== 1) ||
           item.endSample <= item.startSample ||
           item.samples.length > 512 ||
           item.sampleRate !== descriptor.registration.sampleRate ||
@@ -1257,13 +1262,15 @@ function assemble(
           limitations.push(
             candidate.nativeStatus.scope === NATIVE_LISTENER_SCOPE ||
               candidate.nativeStatus.scope === NATIVE_LISTENER_SCOPE_V2 ||
-              candidate.nativeStatus.scope === "session-transport-coupled/v1"
+              candidate.nativeStatus.scope === "session-transport-coupled/v1" ||
+              candidate.nativeStatus.scope === "mode-negotiated-transport/v1"
               ? "native_per_pass_validation_required"
               : "real_live_timing_validation_required",
             "source_onset_unverified",
           );
           if (
             candidate.nativeStatus.version === 2 ||
+            candidate.nativeStatus.version === 4 ||
             candidate.nativeStatus.scope === "session-transport-coupled/v1"
           )
             limitations.push(
@@ -1272,7 +1279,10 @@ function assemble(
               "constant_tempo_assumed_not_independently_verified",
               "tempo_automation_unsupported",
             );
-          if (candidate.nativeStatus.scope === "session-transport-coupled/v1")
+          if (
+            candidate.nativeStatus.scope === "session-transport-coupled/v1" ||
+            candidate.nativeStatus.version === 4
+          )
             limitations.push(
               "session_first_iteration_midi_or_warped_audio_only",
               "message_rate_source_monitoring_not_sample_accurate_continuity",
@@ -1410,9 +1420,13 @@ export function createListeningRuntimeHost(
         listeners.length > 0 &&
         listeners.every(
           (listener) =>
-            listener.registration.version === 2 &&
-            listener.registration.nativeStatus.scope ===
-              NATIVE_LISTENER_SCOPE_V2 &&
+            ((listener.registration.version === 2 &&
+              listener.registration.nativeStatus.scope ===
+                NATIVE_LISTENER_SCOPE_V2) ||
+              (listener.registration.version === 4 &&
+                listener.registration.nativeStatus.supportedModes.includes(
+                  "arrangement",
+                ))) &&
             (listener.registration.nativeStatus.readiness === "READY" ||
               listener.registration.nativeStatus.reason ===
                 "fresh_per_pass_native_validation_required"),

@@ -6,6 +6,36 @@ import {
   reviewNativeSessionScenario,
   selectSessionFixtureSource,
 } from "./native-session-listening-scenario.mjs";
+import { reviewNativeScenario } from "./native-listening-runner.mjs";
+
+for (const [id, mode] of [
+  ["native-dual-arrangement", "arrangement"],
+  ["native-dual-session-midi", "session"],
+]) {
+  test(`reviews wire4 ${mode} with no mode or version fallback`, async () => {
+    const manifest = JSON.parse(
+      await readFile(`integration/live-scenarios/${id}.json`, "utf8"),
+    );
+    const reviewed = reviewNativeScenario(manifest);
+    assert.equal(reviewed.nativeVersion, 4);
+    assert.equal(reviewed.mode, mode);
+    assert.equal(!!reviewed.session, mode === "session");
+    for (const change of [
+      { nativeVersion: 3 },
+      { mode: mode === "session" ? "arrangement" : "session" },
+      { modeNegotiation: "automatic" },
+      { allowedRisks: ["read", "destructive"] },
+      { prompt: `${manifest.prompt} Retry.` },
+      {
+        setupContract: {
+          ...manifest.setupContract,
+          inputOption: "--native-v3-fixture-input",
+        },
+      },
+    ])
+      assert.throws(() => reviewNativeScenario({ ...manifest, ...change }));
+  });
+}
 
 for (const [id, kind, durationBeats, loopEnd] of [
   ["native-session-midi", "midi", 4, 8],

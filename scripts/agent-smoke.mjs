@@ -104,6 +104,7 @@ try {
     inputV1: option("native-fixture-input"),
     inputV2: option("native-v2-fixture-input"),
     inputV3: option("native-v3-fixture-input"),
+    inputV4: option("native-v4-fixture-input"),
   });
   await controller.assertNoPreExistingLive();
   if (!hasFlag("skip-build")) {
@@ -154,11 +155,13 @@ try {
           createNativeListeningRunner({
             manifest,
             inputPath: option(
-              reviewNativeScenario(manifest).nativeVersion === 3
-                ? "native-v3-fixture-input"
-                : reviewNativeScenario(manifest).nativeVersion === 2
-                  ? "native-v2-fixture-input"
-                  : "native-fixture-input",
+              reviewNativeScenario(manifest).nativeVersion === 4
+                ? "native-v4-fixture-input"
+                : reviewNativeScenario(manifest).nativeVersion === 3
+                  ? "native-v3-fixture-input"
+                  : reviewNativeScenario(manifest).nativeVersion === 2
+                    ? "native-v2-fixture-input"
+                    : "native-fixture-input",
             ),
             directory: resolve(
               ".test-artifacts",

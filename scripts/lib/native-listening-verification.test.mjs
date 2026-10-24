@@ -840,6 +840,26 @@ describe("Session wire3 independent source join (synthetic only, not physical qu
 });
 
 describe("native v2 verification with independent App expectations (synthetic only)", () => {
+  it.each(["arrangement", "session"])(
+    "requires exact wire4 %s terminal mode in independent verification",
+    (mode) => {
+      const e = mode === "session" ? sessionEvidence() : descriptiveEvidence();
+      e.listener.registration.version = 4;
+      e.received[0].result.listenerVersion = 4;
+      e.received[0].result.mode = mode;
+      expect(() => verifyNativeListeningEvidence(e, protocol)).not.toThrow();
+      for (const bad of [
+        undefined,
+        mode === "session" ? "arrangement" : "session",
+      ]) {
+        const changed = globalThis.structuredClone(e);
+        changed.received[0].result.mode = bad;
+        expect(() => verifyNativeListeningEvidence(changed, protocol)).toThrow(
+          "version mismatch",
+        );
+      }
+    },
+  );
   it("verifies fractional 44.1k/127.5BPM coverage and truthful reopened quality", () => {
     const result = verifyNativeListeningEvidence(
       descriptiveEvidence(),

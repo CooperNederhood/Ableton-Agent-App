@@ -181,7 +181,7 @@ const readyModelMetadata = {
 };
 function listenerHello(
   metadata: object = readyModelMetadata,
-  version: 1 | 2 | 3 = 1,
+  version: 1 | 2 | 3 | 4 = 1,
 ) {
   return {
     type: "producer.hello",
@@ -193,7 +193,7 @@ function listenerHello(
       instanceId: "audio-instance",
       displayName: "Listener",
       signalKind: "audio",
-      schemaVersion: `audio-observation/v${version === 3 ? 2 : version}`,
+      schemaVersion: `audio-observation/v${version >= 2 ? 2 : version}`,
       track: { id: "17", name: "Audio" },
       device: { id: "29", name: "Listener" },
     },
@@ -201,9 +201,11 @@ function listenerHello(
       version,
       connectionEpoch: "epoch",
       capabilities: [
-        version === 3
-          ? "audio-listener/session-v1"
-          : `audio-listener/v${version}`,
+        version === 4
+          ? "audio-listener/dual-mode-v1"
+          : version === 3
+            ? "audio-listener/session-v1"
+            : `audio-listener/v${version}`,
       ],
       sampleRate: 48000,
       algorithmVersion: version !== 1 ? "2.0.0" : "native/v1",
@@ -214,7 +216,7 @@ function listenerHello(
 async function listener(
   endpoint: { host: string; port: number },
   metadata: object = readyModelMetadata,
-  version: 1 | 2 | 3 = 1,
+  version: 1 | 2 | 3 | 4 = 1,
 ) {
   const client = await raw(endpoint);
   client.send(listenerHello(metadata, version));
@@ -232,6 +234,7 @@ function reply(
     type: "listener.reply",
     protocolVersion: 1,
     listenerVersion: control.listenerVersion,
+    ...(control.listenerVersion === 4 ? { mode: control.mode } : {}),
     requestId: control.requestId,
     connectionEpoch: control.connectionEpoch,
     jobId: control.jobId,
@@ -405,161 +408,188 @@ function alignmentFailureDiagnostic(): NativeFailureDiagnosticV2 {
   };
 }
 
-describe("explicit native Session wire3 authenticated ingress", () => {
-  const scope = "session-transport-coupled/v1";
-  const source = {
-    mode: "session" as const,
-    synchronization: "transport-coupled-first-iteration" as const,
-    target: {
-      view: "session" as const,
-      sceneIndex: 0,
-      expectedClipName: "clip",
-      expectedClipReference: "11111111-1111-4111-8111-111111111111",
-      track: {
-        kind: "regular" as const,
-        index: 0,
-        expectedName: "track",
-        expectedReference: "22222222-2222-4222-8222-222222222222",
+describe.each([3, 4] as const)(
+  "explicit native Session wire%s authenticated ingress",
+  (version) => {
+    const scope = "session-transport-coupled/v1";
+    const source = {
+      mode: "session" as const,
+      synchronization: "transport-coupled-first-iteration" as const,
+      target: {
+        view: "session" as const,
+        sceneIndex: 0,
+        expectedClipName: "clip",
+        expectedClipReference: "11111111-1111-4111-8111-111111111111",
+        track: {
+          kind: "regular" as const,
+          index: 0,
+          expectedName: "track",
+          expectedReference: "22222222-2222-4222-8222-222222222222",
+        },
       },
-    },
-  };
-  const metadata = {
-    ...nativeV2Metadata,
-    nativeStatus: {
-      ...nativeV2Metadata.nativeStatus,
-      version: 3,
-      scope,
-      sourceEvidence: "expected-context-only",
-      synchronization: "transport-coupled-first-iteration",
-    },
-  };
-  it.each([
-    "complete",
-    "context-mismatch",
-    "scope-mismatch",
-    "replay",
-    "counter-replay",
-    "cancel",
-  ] as const)(
-    "validates exact negotiated transport branch: %s",
-    async (outcome) => {
-      const results: ListenerResultEvent[] = [];
-      const { server, endpoint } = await start();
-      server.onListenerResult((event) => results.push(event));
-      const client = await listener(endpoint, metadata, 3);
-      const f = createSyntheticNativeListeningFixtureV2({
-        listenerId: "audio",
-      });
-      const context = {
-        ...v2Context(),
-        config: {
-          geometry: f.proof.armed.geometry,
-          timingPolicy: f.proof.armed.policy,
-          source: structuredClone(source),
-        },
-      };
-      const prepare = server.requestListenerControl(
-        client.connectionId,
-        context,
-      );
-      const prepared =
-        (await client.next()) as unknown as VersionedListenerControl;
-      context.config.source.target.sceneIndex = 2;
-      expect(
-        prepared.config &&
-          "source" in prepared.config &&
-          prepared.config.source,
-      ).toEqual(source);
-      client.send(reply(prepared, 0, "ready"));
-      await prepare;
-      await client.next();
-      const { config: _config, ...owner } = context;
-      expect(_config.geometry).toEqual(f.proof.armed.geometry);
-      const armPending = server.requestListenerControl(client.connectionId, {
-        ...owner,
-        action: "arm",
-      });
-      void armPending.catch(() => {});
-      const arm = (await client.next()) as unknown as VersionedListenerControl;
-      client.send({
-        ...reply(arm, 1, "armed"),
-        nativeArm: {
-          scope:
-            outcome === "scope-mismatch" ? "arrangement-descriptive/v2" : scope,
-          source:
-            outcome === "context-mismatch" ? context.config.source : source,
-          transport: f.proof.armed,
-        },
-      });
-      if (outcome === "scope-mismatch" || outcome === "context-mismatch") {
-        expect((await client.next()).type).toBe("producer.error");
-        await expect(armPending).rejects.toThrow();
-        return;
-      }
-      await armPending;
-      await client.next();
-      if (outcome === "cancel") {
-        const cancel = server.requestListenerControl(client.connectionId, {
-          ...owner,
-          action: "cancel",
+    };
+    const metadata = {
+      ...nativeV2Metadata,
+      nativeStatus: {
+        ...nativeV2Metadata.nativeStatus,
+        version,
+        scope: version === 4 ? "mode-negotiated-transport/v1" : scope,
+        ...(version === 4
+          ? { supportedModes: ["arrangement", "session"] }
+          : {
+              sourceEvidence: "expected-context-only",
+              synchronization: "transport-coupled-first-iteration",
+            }),
+      },
+    };
+    it.each([
+      "complete",
+      "context-mismatch",
+      "scope-mismatch",
+      "replay",
+      "counter-replay",
+      "cancel",
+      ...(version === 4 ? (["mode-mismatch", "mixed-proof"] as const) : []),
+    ] as const)(
+      "validates exact negotiated transport branch: %s",
+      async (outcome) => {
+        const results: ListenerResultEvent[] = [];
+        const { server, endpoint } = await start();
+        server.onListenerResult((event) => results.push(event));
+        const client = await listener(endpoint, metadata, version);
+        const f = createSyntheticNativeListeningFixtureV2({
+          listenerId: "audio",
         });
-        const cancellation =
-          (await client.next()) as unknown as VersionedListenerControl;
-        client.send(reply(cancellation, 2, "cancelled"));
-        await cancel;
-        await client.next();
-        expect(server.inspectListeners()[0]?.phase).toBe("idle");
-        return;
-      }
-      client.send({
-        ...result(arm, 2, { status: "progress", observation: undefined }),
-        nativeLaunch: { scope, source, transport: f.proof.launched },
-      });
-      expect((await client.next()).type).toBe("producer.ack");
-      client.send({
-        ...result(arm, outcome === "replay" ? 2 : 3, {
-          status: "completed",
-          observation: f.observation,
-          nativeCapture: { scope, source, transport: f.proof },
-        }),
-      });
-      expect((await client.next()).type).toBe(
-        outcome === "replay" ? "producer.error" : "producer.ack",
-      );
-      if (outcome === "complete" || outcome === "counter-replay") {
-        expect(results.at(-1)?.result.status).toBe("completed");
-        expect(server.inspectListeners()[0]?.phase).toBe("idle");
-      }
-      if (outcome === "counter-replay") {
-        const repeatedPrepare = server.requestListenerControl(
-          client.connectionId,
-          {
-            ...context,
-            config: { ...context.config, source },
+        const context = {
+          ...v2Context(),
+          config: {
+            geometry: f.proof.armed.geometry,
+            timingPolicy: f.proof.armed.policy,
+            source: structuredClone(source),
           },
+        };
+        const prepare = server.requestListenerControl(
+          client.connectionId,
+          context,
         );
-        const repeated =
+        const prepared =
           (await client.next()) as unknown as VersionedListenerControl;
-        client.send(reply(repeated, 4, "ready"));
-        await repeatedPrepare;
+        context.config.source.target.sceneIndex = 2;
+        expect(
+          prepared.config &&
+            "source" in prepared.config &&
+            prepared.config.source,
+        ).toEqual(source);
+        client.send(reply(prepared, 0, "ready"));
+        await prepare;
         await client.next();
-        const repeatedArm = server.requestListenerControl(client.connectionId, {
+        const { config: _config, ...owner } = context;
+        expect(_config.geometry).toEqual(f.proof.armed.geometry);
+        const armPending = server.requestListenerControl(client.connectionId, {
           ...owner,
           action: "arm",
         });
-        void repeatedArm.catch(() => {});
-        const repeatedControl =
+        void armPending.catch(() => {});
+        const arm =
           (await client.next()) as unknown as VersionedListenerControl;
         client.send({
-          ...reply(repeatedControl, 5, "armed"),
-          nativeArm: { scope, source, transport: f.proof.armed },
+          ...reply(arm, 1, "armed"),
+          ...(outcome === "mode-mismatch" ? { mode: "arrangement" } : {}),
+          nativeArm:
+            outcome === "mixed-proof"
+              ? f.proof.armed
+              : {
+                  scope:
+                    outcome === "scope-mismatch"
+                      ? "arrangement-descriptive/v2"
+                      : scope,
+                  source:
+                    outcome === "context-mismatch"
+                      ? context.config.source
+                      : source,
+                  transport: f.proof.armed,
+                },
         });
-        expect((await client.next()).type).toBe("producer.error");
-        await expect(repeatedArm).rejects.toThrow();
-      }
-    },
-  );
-});
+        if (
+          [
+            "scope-mismatch",
+            "context-mismatch",
+            "mode-mismatch",
+            "mixed-proof",
+          ].includes(outcome)
+        ) {
+          expect((await client.next()).type).toBe("producer.error");
+          await expect(armPending).rejects.toThrow();
+          return;
+        }
+        await armPending;
+        await client.next();
+        if (outcome === "cancel") {
+          const cancel = server.requestListenerControl(client.connectionId, {
+            ...owner,
+            action: "cancel",
+          });
+          const cancellation =
+            (await client.next()) as unknown as VersionedListenerControl;
+          client.send(reply(cancellation, 2, "cancelled"));
+          await cancel;
+          await client.next();
+          expect(server.inspectListeners()[0]?.phase).toBe("idle");
+          return;
+        }
+        client.send({
+          ...result(arm, 2, { status: "progress", observation: undefined }),
+          nativeLaunch: { scope, source, transport: f.proof.launched },
+        });
+        expect((await client.next()).type).toBe("producer.ack");
+        client.send({
+          ...result(arm, outcome === "replay" ? 2 : 3, {
+            status: "completed",
+            observation: f.observation,
+            nativeCapture: { scope, source, transport: f.proof },
+          }),
+        });
+        expect((await client.next()).type).toBe(
+          outcome === "replay" ? "producer.error" : "producer.ack",
+        );
+        if (outcome === "complete" || outcome === "counter-replay") {
+          expect(results.at(-1)?.result.status).toBe("completed");
+          expect(server.inspectListeners()[0]?.phase).toBe("idle");
+        }
+        if (outcome === "counter-replay") {
+          const repeatedPrepare = server.requestListenerControl(
+            client.connectionId,
+            {
+              ...context,
+              config: { ...context.config, source },
+            },
+          );
+          const repeated =
+            (await client.next()) as unknown as VersionedListenerControl;
+          client.send(reply(repeated, 4, "ready"));
+          await repeatedPrepare;
+          await client.next();
+          const repeatedArm = server.requestListenerControl(
+            client.connectionId,
+            {
+              ...owner,
+              action: "arm",
+            },
+          );
+          void repeatedArm.catch(() => {});
+          const repeatedControl =
+            (await client.next()) as unknown as VersionedListenerControl;
+          client.send({
+            ...reply(repeatedControl, 5, "armed"),
+            nativeArm: { scope, source, transport: f.proof.armed },
+          });
+          expect((await client.next()).type).toBe("producer.error");
+          await expect(repeatedArm).rejects.toThrow();
+        }
+      },
+    );
+  },
+);
 
 describe("explicit native v2 authenticated ingress", () => {
   it("attributes a controlled terminal-ACK exception after valid completion without inventing a native capture failure", async () => {

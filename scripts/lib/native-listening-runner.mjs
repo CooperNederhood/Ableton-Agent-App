@@ -304,6 +304,47 @@ export function nativeDescriptivePrompt(capture) {
 }
 
 export function reviewNativeScenario(manifest) {
+  const dualBase = {
+    "native-dual-arrangement": {
+      id: "native-descriptive-startup-0-4",
+      version: 2,
+      group: "native-listening-descriptive",
+      mode: "arrangement",
+    },
+    "native-dual-session-midi": {
+      id: "native-session-midi",
+      version: 3,
+      group: "native-listening-session",
+      mode: "session",
+    },
+  }[manifest.id];
+  if (dualBase) {
+    assert(
+      manifest.nativeVersion === 4 &&
+        manifest.group === "native-listening-dual" &&
+        manifest.mode === dualBase.mode &&
+        manifest.modeNegotiation === "explicit-per-pass" &&
+        manifest.setupContract?.nativeVersion === 4 &&
+        manifest.setupContract?.inputOption === "--native-v4-fixture-input",
+      "Unreviewed dual-mode scenario contract",
+    );
+    const reviewed = reviewNativeScenario({
+      ...manifest,
+      id: dualBase.id,
+      nativeVersion: dualBase.version,
+      group: dualBase.group,
+      setupContract: {
+        ...manifest.setupContract,
+        nativeVersion: dualBase.version,
+        inputOption: `--native-v${dualBase.version}-fixture-input`,
+      },
+    });
+    return Object.freeze({
+      ...reviewed,
+      nativeVersion: 4,
+      mode: dualBase.mode,
+    });
+  }
   const session = reviewNativeSessionScenario(manifest);
   if (session) return session;
   const v2 = v2Scenarios[manifest.id];
@@ -437,6 +478,7 @@ export async function admitNativeScenarios({
   inputV1,
   inputV2,
   inputV3,
+  inputV4,
 }) {
   if (manifests.length === 0) return;
   assert(
@@ -448,7 +490,13 @@ export async function admitNativeScenarios({
   );
   for (const version of versions)
     await readNativeFixtureInput(
-      version === 3 ? inputV3 : version === 2 ? inputV2 : inputV1,
+      version === 4
+        ? inputV4
+        : version === 3
+          ? inputV3
+          : version === 2
+            ? inputV2
+            : inputV1,
       version,
     );
 }
@@ -1024,11 +1072,13 @@ export async function createNativeListeningRunner({
           .find((item) => item.producer.producerId === binding.listenerId);
         assert(
           listener.registration.nativeStatus?.scope ===
-            (reviewed.session
-              ? d.protocol.NATIVE_SESSION_LISTENER_SCOPE
-              : reviewed.nativeVersion === 2
-                ? d.protocol.NATIVE_LISTENER_SCOPE_V2
-                : d.protocol.NATIVE_LISTENER_SCOPE) &&
+            (reviewed.nativeVersion === 4
+              ? d.protocol.LISTENER_DUAL_SCOPE
+              : reviewed.session
+                ? d.protocol.NATIVE_SESSION_LISTENER_SCOPE
+                : reviewed.nativeVersion === 2
+                  ? d.protocol.NATIVE_LISTENER_SCOPE_V2
+                  : d.protocol.NATIVE_LISTENER_SCOPE) &&
             (reviewed.nativeVersion >= 2
               ? listener.registration.version === reviewed.nativeVersion &&
                 listener.producer.schemaVersion === "audio-observation/v2" &&
@@ -1037,16 +1087,26 @@ export async function createNativeListeningRunner({
             listener.phase === "idle",
           "Native candidate scope/sample rate/idle state mismatch",
         );
+        if (reviewed.nativeVersion === 4)
+          assert(
+            isDeepStrictEqual(
+              listener.registration.nativeStatus.supportedModes,
+              ["arrangement", "session"],
+            ) && listener.registration.nativeStatus.abiVersion === 2,
+            "One explicitly dual-mode ABI2 producer is required",
+          );
         if (reviewed.session)
           assert(
-            listener.registration.nativeStatus.version === 3 &&
+            (listener.registration.nativeStatus.version === 3 ||
+              reviewed.nativeVersion === 4) &&
               listener.registration.trackCanonicalPath ===
                 input.canonicalPath.split(" devices ")[0] &&
-              listener.registration.nativeStatus.sourceEvidence ===
-                "expected-context-only" &&
-              listener.registration.nativeStatus.synchronization ===
-                "transport-coupled-first-iteration" &&
-              listener.registration.nativeStatus.maxDurationBeats === 4 &&
+              (reviewed.nativeVersion === 4 ||
+                (listener.registration.nativeStatus.sourceEvidence ===
+                  "expected-context-only" &&
+                  listener.registration.nativeStatus.synchronization ===
+                    "transport-coupled-first-iteration" &&
+                  listener.registration.nativeStatus.maxDurationBeats === 4)) &&
               runtime.signals.listeners
                 .inspectListeners()
                 .filter(
@@ -1157,7 +1217,7 @@ export async function createNativeListeningRunner({
             "Source transition must establish a stopped safe new-pass baseline",
           );
         }
-        if (reviewed.nativeVersion === 2) {
+        if (reviewed.nativeVersion >= 2 && !reviewed.session) {
           geometry = d.protocol.createNativeListeningGeometry({
             sampleRate: listener.registration.sampleRate,
             vectorSize: listener.registration.vectorSize,

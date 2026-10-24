@@ -25,6 +25,11 @@ import {
   type ListenerResult,
 } from "./listener-contracts.js";
 import { DEFAULT_MAX_INGRESS_FRAME_BYTES } from "./contracts.js";
+import type {
+  ListenerControlDual,
+  ListenerReplyDual,
+  ListenerResultDual,
+} from "./listener-dual-contracts.js";
 
 export const LISTENER_VERSION_V2 = 2 as const;
 export const LISTENER_CAPABILITY_V2 = "audio-listener/v2" as const;
@@ -286,8 +291,12 @@ export type ListenerResultV2 = z.infer<typeof listenerResultV2Schema>;
 export type VersionedListenerControl =
   | z.infer<typeof listenerControlSchema>
   | ListenerControlV2
-  | ListenerControlSession;
+  | ListenerControlSession
+  | ListenerControlDual;
 export type VersionedListenerReply =
-  ListenerReply | ListenerReplyV2 | ListenerReplySession;
+  ListenerReply | ListenerReplyV2 | ListenerReplySession | ListenerReplyDual;
 export type VersionedListenerResult =
-  ListenerResult | ListenerResultV2 | ListenerResultSession;
+  | ListenerResult
+  | ListenerResultV2
+  | ListenerResultSession
+  | ListenerResultDual;

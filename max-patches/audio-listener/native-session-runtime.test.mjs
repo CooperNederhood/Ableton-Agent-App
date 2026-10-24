@@ -18,6 +18,13 @@ const {
   listenerResultSessionSchema,
 } =
   await import("../../packages/signal-routing/src/listener-session-contracts.ts");
+const {
+  listenerRegistrationDualSchema,
+  listenerControlDualSchema,
+  listenerReplyDualSchema,
+  listenerResultDualSchema,
+} =
+  await import("../../packages/signal-routing/src/listener-dual-contracts.ts");
 const { assertNativeSessionCaptureObservation } =
   await import("../../packages/protocol/src/native-session-listening-schemas.ts");
 const source = {
@@ -37,7 +44,7 @@ const source = {
   },
 };
 // Controlled client boundary; authentication is separately exercised by ingress tests.
-function fixture(options = {}) {
+function fixture(options = {}, wireVersion = 3, mode = "session") {
   const handlers = {},
     outputs = [],
     wire = [],
@@ -51,7 +58,10 @@ function fixture(options = {}) {
         ...options.listener,
         connectionEpoch: V2_OWNER.connectionEpoch,
       };
-      listenerRegistrationSessionSchema.parse(this.listener);
+      (wireVersion === 4
+        ? listenerRegistrationDualSchema
+        : listenerRegistrationSessionSchema
+      ).parse(this.listener);
       this.producer = { producerId: "synthetic-session" };
     }
     configureProducer() {}
@@ -70,9 +80,13 @@ function fixture(options = {}) {
       };
       delete frame.action;
       delete frame.config;
-      (kind === "reply"
-        ? listenerReplySessionSchema
-        : listenerResultSessionSchema
+      (wireVersion === 4
+        ? kind === "reply"
+          ? listenerReplyDualSchema
+          : listenerResultDualSchema
+        : kind === "reply"
+          ? listenerReplySessionSchema
+          : listenerResultSessionSchema
       ).parse(frame);
       wire.push(frame);
       if (
@@ -91,7 +105,7 @@ function fixture(options = {}) {
   }
   const runtime = createRuntime({
     nativeMode: true,
-    nativeVersion: 3,
+    nativeVersion: wireVersion,
     Client,
     clock: () => 0,
     maxApi: {
@@ -124,7 +138,8 @@ function fixture(options = {}) {
       ...V2_OWNER,
       type: "listener.control",
       protocolVersion: 1,
-      listenerVersion: 3,
+      listenerVersion: wireVersion,
+      ...(wireVersion === 4 ? { mode } : {}),
       requestId: `session-${++request}`,
       jobId: "session-job",
       traceId: "session-trace",
@@ -136,13 +151,19 @@ function fixture(options = {}) {
             config: {
               geometry: f.geometry,
               timingPolicy: f.timingPolicy,
-              source: structuredClone(source),
+              ...(mode === "session"
+                ? { source: structuredClone(source) }
+                : {}),
             },
           }
         : {}),
       ...patch,
     };
-    if (validate) listenerControlSessionSchema.parse(control);
+    if (validate)
+      (wireVersion === 4
+        ? listenerControlDualSchema
+        : listenerControlSessionSchema
+      ).parse(control);
     if (action === "prepare") runtime.client.listenerJob = control;
     return runtime.client.options.onListenerControl(control);
   };
@@ -159,18 +180,59 @@ function fixture(options = {}) {
   return { ...f, runtime, handlers, outputs, wire, cleared, dispatch, start };
 }
 
-test("wire3 source preparation supports bundled Node without Object.hasOwn", async () => {
-  const original = Object.getOwnPropertyDescriptor(Object, "hasOwn");
-  Object.defineProperty(Object, "hasOwn", { ...original, value: undefined });
-  try {
-    const f = fixture();
-    await f.dispatch("prepare");
-    assert.equal(f.wire.at(-1).status, "ready");
-    f.runtime.stop();
-  } finally {
-    Object.defineProperty(Object, "hasOwn", original);
-  }
-});
+for (const version of [3, 4])
+  test(`wire${version} source preparation supports bundled Node without Object.hasOwn`, async () => {
+    const original = Object.getOwnPropertyDescriptor(Object, "hasOwn");
+    Object.defineProperty(Object, "hasOwn", { ...original, value: undefined });
+    try {
+      const f = fixture({}, version);
+      await f.dispatch("prepare");
+      assert.equal(f.wire.at(-1).status, "ready");
+      f.runtime.stop();
+    } finally {
+      Object.defineProperty(Object, "hasOwn", original);
+    }
+  });
+
+for (const mode of ["arrangement", "session"]) {
+  test(`wire4 ${mode} keeps cancellation and reconnect cleanup generation-owned`, async () => {
+    const f = fixture({}, 4, mode);
+    try {
+      await f.start();
+      const generation = f.runtime.nativeController.pass.generation;
+      f.dispatch("cancel");
+      assert.equal(
+        f.runtime.nativeController.pendingDisarm?.generation,
+        generation,
+      );
+      f.handlers.native(
+        "22222222-2222-4222-8222-222222222222",
+        "stopped",
+        0,
+        0,
+        2,
+      );
+      assert(f.runtime.nativeController.pendingDisarm);
+      f.handlers.native(generation, "stopped", 0, 0, 2);
+      assert(f.wire.some((v) => v.status === "cancelled" && v.mode === mode));
+      await f.start();
+      const next = f.runtime.nativeController.pass.generation;
+      assert.notEqual(next, generation);
+      const before = f.wire.length;
+      f.runtime.client.options.onStatus("live", "disconnected");
+      f.handlers.native(generation, "stopped", 0, 0, 2);
+      f.handlers.native(next, "stopped", 0, 0, 2);
+      assert.equal(f.wire.length, before);
+      assert.equal(
+        f.wire.some((v) => v.nativeCapture),
+        false,
+      );
+      assert.equal(f.runtime.nativeController.pass, null);
+    } finally {
+      f.runtime.stop();
+    }
+  });
+}
 
 test("wire3 reuses the byte-identical ABI2 graph, one recorder and explicit bootstrap/guard", async () => {
   assert.deepEqual(

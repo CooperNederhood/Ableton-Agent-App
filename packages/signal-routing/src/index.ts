@@ -12,3 +12,4 @@ export * from "./router.js";
 export * from "./summaries.js";
 export * from "./telemetry.js";
 export * from "./translation.js";
+export * from "./listener-dual-contracts.js";

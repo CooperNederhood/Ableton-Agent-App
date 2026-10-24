@@ -118,8 +118,9 @@ function createRuntime({
   nativeMode = false,
   nativeVersion: wireVersion = 1,
 } = {}) {
-  const nativeVersion = wireVersion === 3 ? 2 : wireVersion;
-  const sessionMode = wireVersion === 3;
+  const nativeVersion =
+    wireVersion === 3 || wireVersion === 4 ? 2 : wireVersion;
+  let sessionMode = wireVersion === 3;
   const sessionScope = "session-transport-coupled/v1";
   let sessionSource = null;
   if (typeof nativeMode !== "boolean") throw new Error("invalid_native_mode");
@@ -130,7 +131,15 @@ function createRuntime({
     nativeVersion === 2
       ? Object.freeze({
           version: wireVersion,
-          scope: sessionMode ? sessionScope : "arrangement-descriptive/v2",
+          scope:
+            wireVersion === 4
+              ? "mode-negotiated-transport/v1"
+              : sessionMode
+                ? sessionScope
+                : "arrangement-descriptive/v2",
+          ...(wireVersion === 4
+            ? { supportedModes: Object.freeze(["arrangement", "session"]) }
+            : {}),
           ...(sessionMode
             ? {
                 sourceEvidence: "expected-context-only",
@@ -294,6 +303,8 @@ function createRuntime({
       (nativeVersion === 2 &&
         (message.protocolVersion !== 1 ||
           message.listenerVersion !== wireVersion ||
+          (wireVersion === 4 &&
+            !["arrangement", "session"].includes(message.mode)) ||
           (message.action === "prepare") !== (message.config !== undefined))) ||
       !keys.every(
         (key) =>
@@ -310,6 +321,7 @@ function createRuntime({
       ...(nativeVersion === 2
         ? { protocolVersion: 1, listenerVersion: wireVersion }
         : {}),
+      ...(wireVersion === 4 ? { mode: message.mode } : {}),
     });
   }
   function canPublishNative(message) {
@@ -411,7 +423,16 @@ function createRuntime({
     elapsedMs = event.elapsedMs,
   ) {
     return {
-      ...(nativeVersion === 2 ? { scope: nativeStatus.scope } : {}),
+      ...(nativeVersion === 2
+        ? {
+            scope:
+              wireVersion === 4
+                ? sessionMode
+                  ? sessionScope
+                  : "arrangement-descriptive/v2"
+                : nativeStatus.scope,
+          }
+        : {}),
       eventId: event.eventId,
       causationId: event.causationId,
       phase,
@@ -588,7 +609,7 @@ function createRuntime({
     item.cause = eventId;
   }
   function publishNative(kind, message, value, confirm = () => {}) {
-    if (sessionMode) {
+    if (wireVersion === 4 ? message.mode === "session" : sessionMode) {
       value = { ...value };
       for (const key of ["nativeArm", "nativeLaunch", "nativeCapture"])
         if (value[key])
@@ -796,7 +817,10 @@ function createRuntime({
         ].map((key) => [key, event[key]]),
       );
       nativeLifecycle.phase = "capture";
-      if (nativeVersion === 2) nativeLifecycle.scope = nativeStatus.scope;
+      if (nativeVersion === 2)
+        nativeLifecycle.scope = sessionMode
+          ? sessionScope
+          : "arrangement-descriptive/v2";
       nativeLifecycle.generation = nativeDiagnostics?.generation;
       return publishNative("result", selected, {
         status: "progress",
@@ -855,7 +879,9 @@ function createRuntime({
             ? Object.freeze({
                 geometry: Object.freeze({ ...message.config.geometry }),
                 timingPolicy: Object.freeze({ ...message.config.timingPolicy }),
-                ...(sessionMode
+                ...((
+                  wireVersion === 4 ? message.mode === "session" : sessionMode
+                )
                   ? { source: freezeSessionSource(message.config.source) }
                   : {}),
               })
@@ -887,6 +913,7 @@ function createRuntime({
         owner.passId !== selected.passId ||
         owner.jobId !== selected.jobId ||
         owner.connectionEpoch !== selected.connectionEpoch ||
+        (wireVersion === 4 && owner.mode !== selected.mode) ||
         owner.traceId !== selected.traceId ||
         owner.correlationId !== selected.correlationId)
     ) {
@@ -900,6 +927,8 @@ function createRuntime({
       if (message.action === "prepare") {
         if (adapter.pass) throw new Error("listener_busy");
         const config = message.config;
+        const requestedSession =
+          wireVersion === 4 ? selected.mode === "session" : sessionMode;
         if (nativeVersion === 2) {
           const {
             nativeV2Configuration,
@@ -915,16 +944,17 @@ function createRuntime({
             Object.keys(config).some(
               (key) =>
                 !(
-                  sessionMode
+                  requestedSession
                     ? ["geometry", "timingPolicy", "source"]
                     : ["geometry", "timingPolicy"]
                 ).includes(key),
             )
           )
             throw new Error("unsupported_native_capture_scope");
-          if (sessionMode) {
+          if (requestedSession) {
             sessionSource = freezeSessionSource(config.source);
           }
+          sessionMode = requestedSession;
           adapter.prepare({
             ...selected,
             geometry: checked.geometry,
@@ -1263,11 +1293,13 @@ function createRuntime({
         ...identityPaths,
         nativeStatus,
         capabilities: [
-          sessionMode
-            ? "audio-listener/session-v1"
-            : nativeVersion === 2
-              ? "audio-listener/v2"
-              : "audio-listener/v1",
+          wireVersion === 4
+            ? "audio-listener/dual-mode-v1"
+            : sessionMode
+              ? "audio-listener/session-v1"
+              : nativeVersion === 2
+                ? "audio-listener/v2"
+                : "audio-listener/v1",
         ],
         sampleRate: dsp.sampleRate,
         algorithmVersion: nativeVersion === 2 ? "2.0.0" : VERSION,

@@ -66,6 +66,30 @@ Companion specification: [Playback Listening](playback-listening.md).
 
 ## Historical Session MVP launch-evidence gate (#63)
 
+### Canonical Development dual-mode follow-up
+
+- [x] Add explicitly advertised wire4 dual-mode registration and per-pass mode
+  controls/replies/results without changing legacy wire1/2/3 contracts or ABI2
+  measurements, source guards, proof scopes, duration or timing mathematics.
+- [x] Freeze mode/source at prepare across authenticated ingress, shared
+  Node-for-Max-compatible SDK and native generation ownership; reject mixed,
+  forged, missing and unsupported proof/version/mode combinations.
+- [x] Dispatch both Arrangement and Session from application readiness/capture
+  through one advertised producer, preserving independent mode-specific
+  validators, source/onset joins, traced lifecycle and cancellation cleanup.
+- [x] Package one canonical Development filename with explicit v4 entry/guard,
+  complete managed resources, strict manifest checks and unchanged ABI2 graph.
+  Keep the authored source immutable and installation under parent ownership.
+- [x] Add runner-owned dual-mode manifests, version4 fixture selection and
+  independent exact-mode terminal verification; cover them synthetically.
+- [ ] After integrating the separate timing change, add the combined wire4
+  Arrangement/Session regression retaining and reporting large descriptive
+  host/DSP jitter while strict remains exact. Do not weaken audio coverage.
+- [ ] Build/install the final integrated canonical payload and run the reviewed
+  dual-mode scenarios followed by the owning suite only after the user closes
+  their own Live process. Preserve actual Live11 version and isolated exact-PID
+  evidence; no physical or visible acceptance is claimed by lower-layer tests.
+
 - [x] Hand off development-MVP follow-ups without relabelling incomplete
   qualification: #67 runner shutdown; #68 interrupted non-native coverage;
   #69 immutable legacy v1/v2 fixtures/reruns; #70 staged Session expansion,

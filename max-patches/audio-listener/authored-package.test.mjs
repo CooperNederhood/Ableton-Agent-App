@@ -234,7 +234,7 @@ test("native packaging rejects an implicit or unknown version selection before p
     { nativeVersion: 2 },
     { nativeMode: false, nativeVersion: 2 },
     { nativeMode: true, nativeVersion: 0 },
-    { nativeMode: true, nativeVersion: 4 },
+    { nativeMode: true, nativeVersion: 5 },
     { nativeMode: true, nativeVersion: "2" },
   ].entries()) {
     const events = [];
@@ -260,6 +260,78 @@ test("native packaging rejects an implicit or unknown version selection before p
     /cancelled/,
   );
   assert.equal(cancelled.at(-1).stage, "cancelled");
+});
+
+test("canonical Development wire4 packages one dual-mode runtime and unchanged ABI2 graph", async (t) => {
+  const dir = await mkdtemp(
+    join(SOURCE_DIRECTORY, ".native-dual-authored-test-"),
+  );
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const source = join(SOURCE_DIRECTORY, "Machine-Listening-Development.amxd");
+  const before = await readFile(source);
+  const out = join(dir, "candidate");
+  await main([
+    "build-native-authored",
+    "--source",
+    source,
+    "--out",
+    out,
+    "--native-version",
+    "4",
+  ]);
+  const manifest = await checkArtifact(out);
+  assert.equal(manifest.deviceFile, "Machine-Listening-Development.amxd");
+  assert.equal(manifest.nativeVersion, 4);
+  assert.equal(manifest.nativeAbiVersion, 2);
+  assert.equal(manifest.nativeScope, "mode-negotiated-transport/v1");
+  assert.deepEqual(manifest.supportedModes, ["arrangement", "session"]);
+  assert.equal(manifest.modeNegotiation, "explicit-per-pass");
+  assert.equal(manifest.realLiveValidated, false);
+  assert(
+    manifest.resources.some(
+      ({ name }) => name === "audio_listener_native_v4_max.js",
+    ),
+  );
+  assert(!manifest.resources.some(({ name }) => /native_v[23]_max/.test(name)));
+  for (const [name, document] of Object.entries(
+    nativeRuntimeDocuments({ nativeVersion: 2 }),
+  )) {
+    assert.deepEqual(
+      JSON.parse(await readFile(join(out, name), "utf8")),
+      document,
+    );
+  }
+  assert.deepEqual(
+    nativeRuntimeDocuments({ nativeVersion: 4 }),
+    nativeRuntimeDocuments({ nativeVersion: 2 }),
+  );
+  const { document } = decodeAmxd(
+    await readFile(join(out, manifest.deviceFile)),
+  );
+  assert.equal(
+    document.patcher.boxes.filter(({ box }) =>
+      box.text?.startsWith("node.script "),
+    ).length,
+    1,
+  );
+  assert(
+    document.patcher.boxes.some(
+      ({ box }) => box.text === "js audio_listener_guard.js 4",
+    ),
+  );
+  assert.deepEqual(await readFile(source), before);
+  for (const change of [
+    { supportedModes: ["session"] },
+    { modeNegotiation: "automatic" },
+    { nativeAbiVersion: 3 },
+    { nativeVersion: 5 },
+  ]) {
+    await writeFile(
+      join(out, "audio-listener-manifest.json"),
+      JSON.stringify({ ...manifest, ...change }),
+    );
+    await assert.rejects(checkArtifact(out), /manifest/);
+  }
 });
 
 test("the explicit native v2 CLI stages rather than installs or promotes", async (t) => {

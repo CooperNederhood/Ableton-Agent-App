@@ -11,6 +11,7 @@ import {
 } from "@ableton-agent/protocol";
 import type { OutputProducer } from "./contracts.js";
 import type { ListenerRegistrationSession } from "./listener-session-contracts.js";
+import type { listenerRegistrationDualSchema } from "./listener-dual-contracts.js";
 import type {
   ListenerRegistrationV2,
   VersionedListenerControlInput,
@@ -164,7 +165,8 @@ export interface ListenerDescriptor {
   readonly registration:
     | z.infer<typeof listenerRegistrationSchema>
     | ListenerRegistrationV2
-    | ListenerRegistrationSession;
+    | ListenerRegistrationSession
+    | z.infer<typeof listenerRegistrationDualSchema>;
   readonly phase:
     "idle" | "preparing" | "ready" | "arming" | "armed" | "cancelling";
   readonly jobId?: string;

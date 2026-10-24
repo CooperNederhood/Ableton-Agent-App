@@ -74,6 +74,10 @@
       ]
     },
     {
+      "id": "native-listening-dual",
+      "scenarios": ["native-dual-arrangement", "native-dual-session-midi"]
+    },
+    {
       "id": "native-listening-source-investigation",
       "scenarios": [
         "native-source-baseline",

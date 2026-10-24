@@ -170,6 +170,46 @@ causation propagation. It does not persist an audio observation, add a context
 kind, change storage ownership, fire clips, edit launch settings, stop transport
 or broaden existing Arrangement support.
 
+### Canonical Development dual-mode negotiation
+
+The canonical **Machine-Listening-Development.amxd** package can now select
+wire **4** (`build-native-authored --native-version 4`). It advertises exactly
+`audio-listener/dual-mode-v1`, native status scope
+`mode-negotiated-transport/v1`, and ordered `supportedModes:
+["arrangement", "session"]`. ABI **2**, algorithm **2.0.0**, the measurement
+graph, bounded resources and raw `audio-observation/v2` descriptors are shared.
+There is one Development filename and one recorder/runtime, not separate
+Arrangement and Session device variants. The authored source template remains
+immutable; packaging selects `audio_listener_native_v4_max.js` and guard 4.
+Manifest admission requires `nativeVersion: 4`, `nativeAbiVersion: 2`,
+`modeNegotiation: "explicit-per-pass"` and the exact supported-mode list.
+
+Every wire4 control, reply and result carries an explicit `mode`. Prepare
+freezes that mode and the immutable mode-specific configuration for the owned
+connection/job/pass/trace. Arm, cancellation, progress and terminal evidence
+must match it; absent/unknown modes, unsupported versions and mismatched or mixed
+proofs are denied, never downgraded. Arrangement still requires its unwrapped
+`arrangement-descriptive/v2` arm/launch/completion chain, guarded positioning
+and independent Arrangement source checks. Session still requires exact
+`session-transport-coupled/v1` wrappers with frozen expected source context,
+plus the independent source/origin join before publication. A wrapper is not
+clip-identity evidence, and its inner ABI2 transport scope is not an Arrangement
+pass. Wire1/2/3 keep their original contracts and selection behavior.
+
+Mode negotiation uses the existing traced prepare/arm/capture/cancel lifecycle,
+timing and redacted History paths; it adds no storage, buffering or idle-DSP
+architecture. Reconnect invalidates the old generation and cannot silently
+reuse its selected mode or source. Only fresh prepare can choose another mode.
+The runner-owned `native-listening-dual` group exercises Arrangement and Session
+against the same hash-pinned wire4 artifact through
+`--native-v4-fixture-input`; terminal verification independently checks exact
+wire version, explicit mode, coverage and the original mode-specific proof.
+Deterministic SDK/native/ingress/application/package regressions do not qualify
+physical Live behavior. No new Live/UI run or installation was performed while
+the user's Live and Desktop processes were active; physical qualification and
+the combined descriptive-jitter regression after the separate timing change
+remain integration gates.
+
 The implementation now composes the existing owned coordinator with guarded
 Session source leases and explicitly negotiated listener wire version 3.
 Wire 3 uses native ABI/DSP 2 and raw `audio-observation/v2` descriptors, wrapping

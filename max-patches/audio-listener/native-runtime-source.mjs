@@ -192,7 +192,7 @@ export function appendNativeRuntimeGraph(
   document,
   { runtimeEntry, nativeVersion = 1 } = {},
 ) {
-  if (![1, 2, 3].includes(nativeVersion))
+  if (![1, 2, 3, 4].includes(nativeVersion))
     throw new Error("unsupported_native_version");
   if (
     typeof runtimeEntry !== "string" ||
@@ -305,7 +305,7 @@ export function nativeRuntimeDocuments({
   resourceDirectory = null,
   nativeVersion = 1,
 } = {}) {
-  if (![1, 2, 3].includes(nativeVersion))
+  if (![1, 2, 3, 4].includes(nativeVersion))
     throw new Error("unsupported_native_version");
   if (resourceDirectory !== null && !isAbsolute(resourceDirectory))
     throw new Error("native_resource_directory_must_be_absolute");

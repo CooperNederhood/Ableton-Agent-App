@@ -15,3 +15,4 @@ export * from "./native-listening-v2-schemas.js";
 export * from "./native-session-listening-schemas.js";
 export * from "./schemas.js";
 export * from "./workflow-adapter-schemas.js";
+export * from "./listener-native-status-dual.js";

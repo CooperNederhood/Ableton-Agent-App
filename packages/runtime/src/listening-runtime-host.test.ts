@@ -21,6 +21,10 @@ import {
   listenerConfigSchema,
   listenerRegistrationV2Schema,
   listenerConfigV2Schema,
+  listenerRegistrationDualSchema,
+  listenerReplyDualSchema,
+  listenerResultDualSchema,
+  listenerReplyV2Schema,
 } from "@ableton-agent/signal-routing";
 import type {
   AudioObservation,
@@ -494,6 +498,7 @@ function descriptiveProductionFixture(
     startBeat: 5.25,
     endBeat: 9.50001,
   },
+  wireVersion: 2 | 4 = 2,
 ) {
   const f = fixture();
   const old = f.inventory[0]!;
@@ -525,6 +530,21 @@ function descriptiveProductionFixture(
     }),
   };
   f.inventory[0] = listener;
+  if (wireVersion === 4) {
+    Object.assign(listener, {
+      registration: listenerRegistrationDualSchema.parse({
+        ...listener.registration,
+        version: 4,
+        capabilities: ["audio-listener/dual-mode-v1"],
+        nativeStatus: {
+          ...listener.registration.nativeStatus,
+          version: 4,
+          scope: "mode-negotiated-transport/v1",
+          supportedModes: ["arrangement", "session"],
+        },
+      }),
+    });
+  }
   const nativeState: {
     currentBeat: number;
     revision: number;
@@ -623,7 +643,7 @@ function descriptiveProductionFixture(
       jobId: control.jobId,
       passId: control.passId,
     });
-    return {
+    const reply = {
       type: "listener.reply",
       protocolVersion: 1,
       listenerVersion: 2,
@@ -645,6 +665,13 @@ function descriptiveProductionFixture(
         ? { nativeArm: data.proof.armed }
         : {}),
     };
+    return wireVersion === 4
+      ? listenerReplyDualSchema.parse({
+          ...reply,
+          listenerVersion: 4,
+          mode: "arrangement",
+        })
+      : listenerReplyV2Schema.parse(reply);
   });
   f.startListeningPlayback.mockImplementation(async (input) => {
     const control = armed;
@@ -675,7 +702,14 @@ function descriptiveProductionFixture(
           connectionId: listener.connectionId,
           producer: listener.producer,
           binding: listener.binding,
-          result,
+          result:
+            wireVersion === 4
+              ? listenerResultDualSchema.parse({
+                  ...result,
+                  listenerVersion: 4,
+                  mode: "arrangement",
+                })
+              : result,
         });
     };
     publish({ nativeLaunch: captured.proof.launched });
@@ -730,6 +764,16 @@ async function run(
 }
 
 describe("same-runtime production listening factory", () => {
+  it("uses the advertised dual-mode Development producer for Arrangement positioning, exact capture and publication", async () => {
+    const f = descriptiveProductionFixture(undefined, 4);
+    const result = await run(f.host(), f.request);
+    expect(result.stage, result.error).toBe("completed");
+    expect(f.position).toHaveBeenCalledOnce();
+    expect(f.publications).toHaveLength(1);
+    expect(f.inventory[0]!.registration.version).toBe(4);
+    expect(f.publications[0]!.entries[0]?.kind).toBe("audio-observation/v2");
+    expect(f.subscribers.size).toBe(0);
+  });
   it("admits a blocked v2 producer only for fresh per-pass proof without promoting readiness", async () => {
     const f = descriptiveProductionFixture();
     const status = f.inventory[0]!.registration.nativeStatus!;

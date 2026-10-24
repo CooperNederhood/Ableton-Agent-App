@@ -19,6 +19,7 @@ const scopes = {
   1: "arrangement-beat0-120bpm-48000hz-vector64/v1",
   2: "arrangement-descriptive/v2",
   3: "session-transport-coupled/v1",
+  4: "mode-negotiated-transport/v1",
 };
 
 async function boundedFile(path, limit) {
@@ -139,7 +140,7 @@ export function inspectNativeFixtureSet(bytes, input) {
       );
     } else {
       if (
-        input.nativeVersion === 3 &&
+        (input.nativeVersion === 3 || input.nativeVersion === 4) &&
         xmlValue(ref, "RelativePathType") !== "3"
       )
         throw new Error(
@@ -179,7 +180,7 @@ export async function stageNativeListeningFixture({
   return stage("fixture-stage", async () => {
     signal?.throwIfAborted();
     if (
-      ![1, 2, 3].includes(nativeVersion) ||
+      ![1, 2, 3, 4].includes(nativeVersion) ||
       (input.nativeVersion === undefined ? 1 : input.nativeVersion) !==
         nativeVersion
     )
@@ -231,6 +232,11 @@ export async function stageNativeListeningFixture({
           manifest.providerLimits?.maxWindows !== 300 ||
           manifest.tempoPolicy !== "constant-tempo-assumed" ||
           manifest.tempoAutomationSupported !== false) ||
+      (nativeVersion === 4 &&
+        (manifest.nativeAbiVersion !== 2 ||
+          manifest.modeNegotiation !== "explicit-per-pass" ||
+          JSON.stringify(manifest.supportedModes) !==
+            JSON.stringify(["arrangement", "session"]))) ||
       (nativeVersion === 3 &&
         (manifest.nativeAbiVersion !== 2 ||
           manifest.sourceEvidence !== "expected-context-only" ||

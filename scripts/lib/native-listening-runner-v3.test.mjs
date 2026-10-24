@@ -24,16 +24,20 @@ async function fixture({
   followUnknown = false,
   operatorParameters = 0,
   scenarioId,
+  nativeVersion = 3,
 } = {}) {
   const id =
-    scenarioId ?? `native-session-${kind === "midi" ? "midi" : "warped-audio"}`;
+    scenarioId ??
+    (nativeVersion === 4
+      ? "native-dual-session-midi"
+      : `native-session-${kind === "midi" ? "midi" : "warped-audio"}`);
   const manifest = JSON.parse(
     await readFile(`integration/live-scenarios/${id}.json`, "utf8"),
   );
-  const loopEnd = manifest.sourceRegion.loopEnd;
+  const loopEnd = nativeVersion === 4 ? 8 : manifest.sourceRegion.loopEnd;
   const durationBeats = manifest.capture.durationBeats ?? null;
   const resolvedDurationBeats = durationBeats ?? loopEnd;
-  const f = await nativeFixtureInput({ nativeVersion: 3 });
+  const f = await nativeFixtureInput({ nativeVersion });
   const e = sessionEvidence({
     rate,
     kind,
@@ -41,6 +45,11 @@ async function fixture({
     durationBeats,
     loopEnd,
   });
+  if (nativeVersion === 4) {
+    e.listener.registration.version = 4;
+    e.received[0].result.listenerVersion = 4;
+    e.received[0].result.mode = "session";
+  }
   const selectedIndex = kind === "midi" ? 0 : 1;
   e.session.target.track.index = selectedIndex;
   e.session.target.track.expectedName =
@@ -99,18 +108,26 @@ async function fixture({
     },
     binding: { trackId, deviceId: deviceRefs[index] },
     registration: {
-      version: failure === "version" && index === selectedIndex ? 2 : 3,
+      version:
+        failure === "version" && index === selectedIndex ? 2 : nativeVersion,
       connectionEpoch: "epoch",
       sampleRate: rate,
       vectorSize: 128,
       deviceCanonicalPath: `live_set tracks ${index} devices ${operatorParameters && index === 0 ? 1 : 0}`,
       trackCanonicalPath: `live_set tracks ${index}`,
       nativeStatus: {
-        version: 3,
-        scope: protocol.NATIVE_SESSION_LISTENER_SCOPE,
-        sourceEvidence: "expected-context-only",
-        synchronization: "transport-coupled-first-iteration",
-        maxDurationBeats: 4,
+        version: nativeVersion,
+        scope:
+          nativeVersion === 4
+            ? protocol.LISTENER_DUAL_SCOPE
+            : protocol.NATIVE_SESSION_LISTENER_SCOPE,
+        ...(nativeVersion === 4
+          ? { abiVersion: 2, supportedModes: ["arrangement", "session"] }
+          : {
+              sourceEvidence: "expected-context-only",
+              synchronization: "transport-coupled-first-iteration",
+              maxDurationBeats: 4,
+            }),
         timing: "UNVERIFIED",
         readiness: "BLOCKED",
       },
@@ -714,6 +731,16 @@ describe("native Session runner composition (no Live launched, not physical qual
       await expect(access(f.runner.fixture.setPath)).rejects.toThrow();
     },
   );
+  it("executes the reviewed wire4 Session scenario with exact mode proof and typed reopen without launching Live", async () => {
+    const f = await fixture({ nativeVersion: 4 });
+    try {
+      const result = await f.runner.run(async () => {});
+      expect(result, result.error).toMatchObject({ ok: true });
+      expect(f.publications()).toBe(1);
+    } finally {
+      await f.runner.close({ processStopped: true });
+    }
+  });
   it("admits a 195-parameter Operator with unknown nonexclusive dependencies without raising inspection budgets", async () => {
     const f = await fixture({ operatorParameters: 195 });
     try {

@@ -222,13 +222,18 @@ class AudioListenerEngine {
       ) {
         return this.terminate("partial", "invalid_host_flags");
       }
-      if (host.sample < previous.sample || host.beat < previous.beat) {
+      if (
+        ((this.nativeVersion === 1 || this.pass.policy.mode === "strict") &&
+          host.sample < previous.sample) ||
+        host.beat < previous.beat
+      ) {
         return this.terminate("partial", "transport_discontinuity");
       }
       if (
         this.launchAlignment === "signal" &&
         (this.nativeVersion === 2
-          ? Math.abs(
+          ? this.pass.policy.mode === "strict" &&
+            Math.abs(
               host.sample -
                 Math.round(
                   (host.beat - this.pass.startBeat) *
@@ -553,7 +558,8 @@ class AudioListenerEngine {
     if (!host.playing) return false;
     if (
       (this.nativeVersion === 2
-        ? Math.abs(
+        ? p.policy.mode === "strict" &&
+          Math.abs(
             host.sample -
               Math.round(
                 (host.beat - p.startBeat) *
@@ -562,15 +568,16 @@ class AudioListenerEngine {
               sample,
           ) > p.policy.maxClockDisagreementSamples
         : host.sample - Math.round(host.beat * 24000) !== sample) ||
-      host.sample <
-        sample -
-          (this.nativeVersion === 2
-            ? p.policy.maxClockDisagreementSamples
-            : 0) ||
-      host.sample - sample >
-        p.hop +
-          p.certificate.uncertaintySamples +
-          (this.nativeVersion === 2 ? p.certificate.vectorSize : 0)
+      ((this.nativeVersion === 1 || p.policy.mode === "strict") &&
+        (host.sample <
+          sample -
+            (this.nativeVersion === 2
+              ? p.policy.maxClockDisagreementSamples
+              : 0) ||
+          host.sample - sample >
+            p.hop +
+              p.certificate.uncertaintySamples +
+              (this.nativeVersion === 2 ? p.certificate.vectorSize : 0)))
     ) {
       return this.terminate("failed", "native_launch_binding_mismatch");
     }

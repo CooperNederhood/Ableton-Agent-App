@@ -17,6 +17,7 @@
     "dev:debug": "node scripts/run-development.mjs --debug",
     "dist": "electron-builder --config electron-builder.yml --publish never",
     "remote-script": "pnpm --filter @ableton-agent/shared build && pnpm build:electron && node dist/main/remote-script-cli.js",
+    "integrations": "pnpm build:electron && node dist/main/ableton-integrations-cli.js",
     "start": "electron .",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.electron.json --noEmit && tsc -p tsconfig.preload.json --noEmit"
   },

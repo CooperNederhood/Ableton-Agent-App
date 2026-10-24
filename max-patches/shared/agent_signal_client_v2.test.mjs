@@ -262,7 +262,9 @@ test("v2 SDK retains bounded native failure snapshots without treating them as s
 test("v2 SDK validates actual alignment and sequence diagnostics before writing any frame", async () => {
   const { v2Fixture } = require("../audio-listener/native-v2-fixture.cjs");
   for (const kind of ["alignment", "sequence"]) {
-    const native = v2Fixture();
+    const native = v2Fixture({
+      policy: { mode: "strict", maxClockDisagreementSamples: 0 }
+    });
     await native.start();
     const pass = native.controller.pass;
     if (kind === "alignment")

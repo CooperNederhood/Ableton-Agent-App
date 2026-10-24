@@ -274,11 +274,12 @@ function nativeV2HostBinding(value, playing, geometry, policy) {
       row[0] !== Number(playing) ||
       (!playing && row[1] !== geometry.startBeat) ||
       (!playing &&
+        policy.mode === "strict" &&
         Math.abs(row[2] - row[4] - anchor) >
           policy.maxClockDisagreementSamples) ||
       (previous &&
         (row[4] <= previous[4] ||
-          row[2] < previous[2] ||
+          (policy.mode === "strict" && row[2] < previous[2]) ||
           row[1] < previous[1] ||
           (!playing && row[5] !== previous[5])))
     )
@@ -415,7 +416,10 @@ function nativeV2Alignment(timing, geometry, policy, offset, startSample) {
     observedClockDisagreementSamples: clock,
     observedBeatDisagreementSamples: beat,
   } = measurements;
-  if (Math.max(clock, beat) > policy.maxClockDisagreementSamples) {
+  if (
+    policy.mode === "strict" &&
+    Math.max(clock, beat) > policy.maxClockDisagreementSamples
+  ) {
     const error = new Error("listening_alignment_budget_exceeded");
     error.alignmentMeasurements = measurements;
     throw error;

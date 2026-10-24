@@ -1,6 +1,10 @@
 export * from "./compatibility.js";
 export * from "./errors.js";
 export * from "./product-versions.generated.js";
+export type {
+  IntegrationDeviceId,
+  IntegrationDevicePayload,
+} from "./integration-device-payloads.js";
 
 export type LifecycleState =
   "stopped" | "starting" | "ready" | "degraded" | "stopping";

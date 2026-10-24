@@ -31,6 +31,13 @@ Companion specification: [Test Strategy](test-strategy.md)
 
 ## Coverage implementation
 
+- [x] Add canonical Max payload, shared installer/CLI, profile/dry-run,
+  guard/cancellation/partial recovery, lifecycle and corruption regressions.
+- [x] Exercise the actual packaged integration CLI in an isolated no-checkout
+  Library, including repeated-current delivery and pre-publication failure.
+- [ ] Validate fresh owned Live11 loading/registration and MIDI ingress from
+  newly installed bundles, preserving unrelated user processes/data.
+
 - [x] Add unit-test requirements to every package template.
 - [x] Implement cross-language protocol contract test runner.
 - [~] Implement bridge fault-injection tests.

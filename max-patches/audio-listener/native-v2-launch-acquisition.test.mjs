@@ -149,17 +149,19 @@ for (const startBeat of [0, 0.25, 4]) {
   });
 }
 
-test("a never-advancing launch phase fails at the existing bounded rejection limit", async () => {
+test("a never-advancing launch phase expires at the unchanged launch deadline", async () => {
   const f = await armedFixture();
   const p = f.controller.pass;
   for (let index = 0; index < 65; index++)
     f.packet("clock", pendingClock(f, f.origin + 32 + index * 64));
+  assert.equal(f.controller.state, "armed");
+  f.time(10000);
+  f.controller.tick();
   assert.equal(f.controller.state, "failed");
   assert(
     f.events.some(
       (event) =>
-        event.type === "terminal" &&
-        event.reason === "native_preflight_rejection_limit",
+        event.type === "terminal" && event.reason === "native_launch_timeout",
     ),
   );
   assert.equal(f.events.filter((event) => event.type === "terminal").length, 1);
@@ -168,8 +170,10 @@ test("a never-advancing launch phase fails at the existing bounded rejection lim
   assert.equal(f.controller.pendingDisarm, null);
 });
 
-test("a changing but incorrect launch phase is not excused as stopped-phase acquisition", async () => {
-  const f = await armedFixture();
+test("strict timing does not excuse a changing but incorrect launch phase", async () => {
+  const f = await armedFixture({
+    policy: { mode: "strict", maxClockDisagreementSamples: 0 },
+  });
   const row = f.clock(f.origin + 640);
   row[5] = (row[5] + 0.1) % 1;
   f.packet("clock", row);
@@ -184,8 +188,10 @@ test("a changing but incorrect launch phase is not excused as stopped-phase acqu
   );
 });
 
-test("a refused launch retains its projected origin and exact clock operands without granting capture authority", async () => {
-  const f = await armedFixture();
+test("a strict refused launch retains its projected origin and exact clock operands without granting capture authority", async () => {
+  const f = await armedFixture({
+    policy: { mode: "strict", maxClockDisagreementSamples: 0 },
+  });
   const p = f.controller.pass;
   const anchor = p.anchorClock;
   const row = f.clock(f.origin + 640);

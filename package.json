@@ -40,7 +40,7 @@
     "live:ux-host": "node scripts/live-ux-host.mjs",
     "live:copilot-plan-exit": "pnpm --filter @ableton-agent/application smoke:copilot-plan-exit",
     "midi-capture:check": "node scripts/midi-capture-device.mjs check",
-    "midi-capture:install": "node scripts/midi-capture-device.mjs install",
+    "midi-capture:install": "pnpm build && node scripts/build-ableton-integrations.mjs && node scripts/midi-capture-device.mjs install",
     "midi-capture:promote": "node scripts/midi-capture-device.mjs promote",
     "audio-listener:check": "node scripts/audio-listener-device.mjs check",
     "max-patch-knowledge:check": "node scripts/check-max-patch-knowledge.mjs",

@@ -49,18 +49,15 @@ const connected = (document, source, outlet, destination, inlet = 0) =>
       patchline.destination[1] === inlet,
   );
 
-test("v2 authoritative clock and descriptor sampling never use a dropping low-priority qmetro", () => {
-  for (const nativeVersion of [1, 2]) {
+test("native clock and descriptor polling use request-gated low-priority qmetro", () => {
+  for (const nativeVersion of [1, 2, 3]) {
     const documents = nativeRuntimeDocuments({ nativeVersion });
     for (const name of [
       "audio_listener_native_clock.maxpat",
       "audio_listener_native_analysis.maxpat",
     ]) {
       const document = documents[name];
-      assert.equal(
-        boxes(document).get("poll").text,
-        nativeVersion === 2 ? "metro 10 @active 0" : "qmetro 10 @active 0",
-      );
+      assert.equal(boxes(document).get("poll").text, "qmetro 10 @active 0");
       assert(connected(document, "collector", 1, "nativeControl"));
       assert(connected(document, "nativeControl", 0, "poll"));
       assert(

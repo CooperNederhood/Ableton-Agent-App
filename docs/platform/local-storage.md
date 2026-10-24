@@ -328,11 +328,25 @@ Publication failure/cancellation cleans owned values, and cleanup preserves a
 file replaced by another publisher. Lifecycle events contain paths/counts and
 timing, never key bytes.
 
+Integration installation resolves producer configuration from the explicitly
+selected profile/environment, or the normal packaged app's selected registry
+profile. It does not silently substitute `default`, `development` or a previous
+automation endpoint. Profile registry reads used by detect/dry-run are
+side-effect-free: a missing registry yields the normal default in memory without
+creating directories or writing metadata. Invalid existing registries still fail.
+Actual installation lifecycle records use the selected profile's existing event
+journal and typed History; no new journal location or upload path is introduced.
+
 ## Data that intentionally remains outside the root
 
 - The installed Remote Script token remains in the managed Ableton Remote
   Script directory because Live must read it. Desktop may copy it into the
   encrypted credential vault.
+- Host-consumed Machine-Listening-Development and Midi-Capture bundles, their
+  hash/installation manifests and owner-only discovery path configuration reside
+  in their dedicated preset folders in the selected Ableton User Library.
+  These are deployed host assets, not another application-state root. Portable
+  packaged copies contain no profile configuration or credentials.
 - User-selected exports and support bundles are written only to the explicit
   destination selected by the user.
 - Build, test, and release artifacts remain in their repository-defined or

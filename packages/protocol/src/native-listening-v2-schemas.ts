@@ -56,7 +56,6 @@ function clockBinding(playing: boolean) {
           row[0] !== Number(playing) ||
           (previous !== undefined &&
             (row[4] <= previous[4] ||
-              row[2] < previous[2] ||
               row[1] < previous[1] ||
               (!playing && (row[1] !== previous[1] || row[5] !== previous[5]))))
         ) {
@@ -108,6 +107,7 @@ export const nativeArmProofV2Schema = z
       });
     }
     if (
+      value.policy.mode === "strict" &&
       value.before.frames.some(
         (row) =>
           Math.abs(row[2] - row[4] - baseline) >
@@ -254,12 +254,13 @@ export function nativeLaunchCoordinatesV2(
     originCounter + geometry.totalSamples >= COUNTER_LIMIT ||
     !Number.isSafeInteger(startSample) ||
     startSample < 0 ||
-    launched.host.sample <
-      startSample - armed.policy.maxClockDisagreementSamples ||
-    launched.host.sample - startSample >
-      geometry.hopSamples +
-        geometry.vectorSize +
-        armed.policy.maxClockDisagreementSamples
+    (armed.policy.mode === "strict" &&
+      (launched.host.sample <
+        startSample - armed.policy.maxClockDisagreementSamples ||
+        launched.host.sample - startSample >
+          geometry.hopSamples +
+            geometry.vectorSize +
+            armed.policy.maxClockDisagreementSamples))
   )
     throw new Error("native_v2_launch_binding_mismatch");
   evaluateListeningAlignment(armed.policy, {
@@ -387,7 +388,7 @@ export function assertNativeCaptureObservationV2(
     }
     if (
       previousClock &&
-      (row[2] < previousClock[2] ||
+      ((armed.policy.mode === "strict" && row[2] < previousClock[2]) ||
         row[1] < previousClock[1] ||
         (previousClock[0] === 1 && row[0] === 0))
     ) {

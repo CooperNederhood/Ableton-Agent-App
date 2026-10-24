@@ -483,6 +483,16 @@ class NativeCaptureController {
     this.local(p, "progress", reason);
   }
 
+  rejectClockBracket(p, reason) {
+    if (
+      this.nativeVersion === 2 &&
+      p.command.timingPolicy.mode === "descriptive" &&
+      p.rejected >= 64
+    )
+      return;
+    this.rejectBracket(p, reason);
+  }
+
   clock(p, row) {
     if (
       row.some((value) => value < 0) ||
@@ -512,10 +522,21 @@ class NativeCaptureController {
         throw new Error("native_transport_changed_during_bracket");
       if (row[6] < row[4] || row[9] < row[2] || row[8] < row[1])
         throw new Error("native_clock_discontinuity");
-      return this.rejectBracket(p, "torn_native_clock");
+      return this.rejectClockBracket(p, "torn_native_clock");
     }
     const previous = p.clock;
     if (previous && row[4] === previous[4]) {
+      if (
+        this.nativeVersion === 2 &&
+        p.command.timingPolicy.mode === "descriptive" &&
+        row[0] === previous[0] &&
+        row[1] >= previous[1] &&
+        (row[0] === 1 || row[1] === p.command.geometry.startBeat) &&
+        row.some((value, index) => value !== previous[index])
+      ) {
+        this.rejectClockBracket(p, "stale_native_clock_hold");
+        return;
+      }
       if (row.some((value, index) => value !== previous[index]))
         throw new Error("changed_native_clock_hold");
       if (this.state === "preflight" && p.held < 64) {
@@ -527,7 +548,9 @@ class NativeCaptureController {
     if (
       previous &&
       (row[4] < previous[4] ||
-        row[2] < previous[2] ||
+        ((this.nativeVersion === 1 ||
+          p.command.timingPolicy.mode === "strict") &&
+          row[2] < previous[2]) ||
         row[4] - previous[4] > (p.command.geometry?.sampleRate ?? 48000) ||
         (this.nativeVersion === 2 && row[1] < previous[1]))
     )
@@ -548,7 +571,7 @@ class NativeCaptureController {
       (this.nativeVersion === 1 ||
         nativeV2PhaseDisagreement(previous, p.command.geometry) === 0)
     )
-      return this.rejectBracket(p, "phase_torn_native_clock");
+      return this.rejectClockBracket(p, "phase_torn_native_clock");
     if (
       this.nativeVersion === 1 &&
       previous &&
@@ -576,8 +599,9 @@ class NativeCaptureController {
         p.anchorClock = frozen(row);
       }
       if (
+        p.command.timingPolicy.mode === "strict" &&
         Math.abs(row[2] - row[4] - p.anchorHostOffset) >
-        p.command.timingPolicy.maxClockDisagreementSamples
+          p.command.timingPolicy.maxClockDisagreementSamples
       )
         throw this.alignmentError(p, "host-offset", row, {
           observedClockDisagreementSamples: Math.abs(
@@ -593,7 +617,7 @@ class NativeCaptureController {
         row[0] === 1 &&
         row[5] === previous[5]
       )
-        return this.rejectBracket(p, "native_launch_phase_pending");
+        return this.rejectClockBracket(p, "native_launch_phase_pending");
       nativeV2RetainTiming(p.timingWitnesses, row, p.command.geometry);
       if (
         this.engine.pass?.startSample !== null &&
@@ -991,7 +1015,12 @@ class NativeCaptureController {
       this.now() - p.clockAt <= 1000
     ) {
       const packet = p.envelopes[0];
-      if (p.clock[2] < packet.endCounter + p.assembler.hostOffsetSamples)
+      if (
+        this.nativeVersion === 2 &&
+        p.command.timingPolicy.mode === "descriptive"
+          ? p.clock[4] < packet.endCounter
+          : p.clock[2] < packet.endCounter + p.assembler.hostOffsetSamples
+      )
         return;
       const available = p.assembler.spectra.some(
         (spectrum) =>

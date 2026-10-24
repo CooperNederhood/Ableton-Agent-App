@@ -4,6 +4,23 @@ Companion specification: [Packaging and Operations](packaging-and-operations.md)
 
 ## Desktop distribution
 
+- [x] Generate canonical native-v4 Machine-Listening-Development and Midi-Capture
+  bundles through every electron-builder entry point; validate complete portable
+  hashes/resources without source promotion or machine configuration.
+- [ ] Qualify the integrated wire-4 dual-mode bundle after merging the mode and
+  full-loop changes; reject Session-only, implicit-mode or oversized provider
+  claims even after self-rehashing. Verify installed qmetro graph entries and
+  explicit per-pass mode metadata before real-host checks.
+- [x] Install both managed bundles with the Remote Script through a shared typed
+  installer and CLI, preserving tokens/unrelated files and stopped-Live guards
+  even when Python is skipped.
+- [x] Cover profile/custom-Library selection, atomic component replacement,
+  explicit partial outcomes, cancellation, recovery and bounded traced history.
+- [x] Verify packaged no-checkout delivery and reinstall the normal app and devices.
+- [ ] Complete fresh Live11 registration/MIDI-ingress acceptance. Both exact
+  isolated devices were loaded in owned Live 11.3.43; further physical checks
+  were stopped at the user's request and handed off for manual verification.
+
 - [x] Configure reproducible development and production builds.
 - [x] Provide a fail-fast, host-architecture macOS development install command
       that cleans stale artifacts, verifies the package, updates the Remote

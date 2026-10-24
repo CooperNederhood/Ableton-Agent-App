@@ -5,6 +5,7 @@ protocols:
     schemes:
       - ableton-agent
 asar: true
+beforePack: scripts/before-pack.cjs
 asarUnpack:
   - node_modules/@github/copilot-sdk-*/**/*
   - node_modules/@koromix/koffi-*/**/*
@@ -18,6 +19,8 @@ files:
   - "!node_modules/@ableton-agent/*/tsconfig.json"
   - "!node_modules/@ableton-agent/*/dist/**/*.test.*"
 extraResources:
+  - from: build/ableton-integrations
+    to: ableton-integrations
   - from: build/icon.png
     to: icon.png
   - from: ../../remote-script/AbletonAgent

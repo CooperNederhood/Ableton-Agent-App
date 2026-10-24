@@ -673,7 +673,9 @@ test("v2 spectrum failure numeric diagnostic survives deferred arm reply, timeou
 
 test("v2 refused-launch diagnostic crosses the real SDK once and survives confirmed or timed-out disarm", async () => {
   for (const confirmed of [true, false]) {
-    const f = fixture();
+    const f = fixture({
+      policy: { mode: "strict", maxClockDisagreementSamples: 0 },
+    });
     try {
       f.dispatch("prepare");
       const pending = f.dispatch("arm");
@@ -734,7 +736,9 @@ test("v2 refused-launch diagnostic crosses the real SDK once and survives confir
 test("v2 alignment diagnostic survives deferred arm failure and post-launch failure through confirmed or timed-out disarm", async () => {
   for (const phase of ["preflight", "capturing"])
     for (const confirmed of [true, false]) {
-      const f = fixture();
+      const f = fixture({
+        policy: { mode: "strict", maxClockDisagreementSamples: 0 },
+      });
       try {
         if (phase === "capturing") await f.start();
         else f.dispatch("prepare");
@@ -796,7 +800,9 @@ test("v2 diagnostic stays generation-owned through cancel, replacement, shutdown
       "stop",
       "reuse",
     ]) {
-      const f = fixture();
+      const f = fixture({
+        policy: { mode: "strict", maxClockDisagreementSamples: 0 },
+      });
       try {
         f.dispatch("prepare");
         const pending = f.dispatch("arm");
@@ -1185,7 +1191,40 @@ test("v2 cleanup receipt from an old pass cannot settle a reused pass identifier
   }
 });
 
-test("v2 native-handler tempo changes fail through the real SDK despite a 480-sample budget and zero clock residual", async () => {
+test("v2 real SDK carries descriptive timing jitter without changing native duration or source attribution", async () => {
+  const f = fixture({ deviation: 4800 });
+  try {
+    await f.start();
+    f.capture();
+    f.post();
+    const completed = f.wire.find((value) => value.status === "completed");
+    assert(completed, JSON.stringify(f.wire.slice(-2)));
+    assert.equal(
+      completed.observation.alignment.observedClockDisagreementSamples,
+      4800,
+    );
+    assertNativeCaptureObservationV2(
+      completed.nativeCapture,
+      completed.observation,
+      {
+        policy: f.timingPolicy,
+        geometry: f.geometry,
+        listenerId: completed.observation.listenerId,
+        passId: V2_OWNER.passId,
+      },
+    );
+    assert.equal(
+      f.wire.some((value) => value.status === "failed"),
+      false,
+    );
+    f.stopReceipt(f.runtime.nativeController.pendingDisarm.generation);
+    assert.equal(f.runtime.nativeController.pendingDisarm, null);
+  } finally {
+    f.runtime.stop();
+  }
+});
+
+test("v2 native-handler tempo changes fail through the real SDK despite a 480-sample target and zero clock residual", async () => {
   for (const rate of [44100, 48000])
     for (const change of [-1e-6, 1e-6]) {
       const f = fixture({

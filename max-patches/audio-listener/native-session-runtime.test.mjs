@@ -257,7 +257,49 @@ test("wire3 cancellation disarms ABI2 and does not invent clip proof", async () 
   }
 });
 
-for (const kind of ["abi", "clock", "config", "spectrum", "tempo", "strict"])
+test("wire3 descriptive listening completes with scheduling jitter and independently checked DSP coverage", async () => {
+  const f = fixture({ deviation: 4800 });
+  try {
+    await f.start();
+    f.capture();
+    f.post();
+    const completed = f.wire.find((value) => value.status === "completed");
+    assert(completed, JSON.stringify(f.wire.slice(-2)));
+    assert.equal(
+      completed.observation.alignment.observedClockDisagreementSamples,
+      4800,
+    );
+    assert.equal(
+      completed.observation.endSample - completed.observation.startSample,
+      f.geometry.totalSamples,
+    );
+    assertNativeSessionCaptureObservation(
+      completed.nativeCapture,
+      completed.observation,
+      {
+        source,
+        policy: f.timingPolicy,
+        geometry: f.geometry,
+        listenerId: completed.observation.listenerId,
+        passId: V2_OWNER.passId,
+      },
+    );
+    assert.equal(
+      f.wire.some((value) => value.status === "failed"),
+      false,
+    );
+    assert.equal(completed.traceId, "session-trace");
+    assert.equal(completed.correlationId, "session-correlation");
+    assert(completed.causationId);
+    const generation = f.controller.pendingDisarm.generation;
+    f.handlers.native(generation, "stopped", 0, 0, 2);
+    assert.equal(f.controller.pendingDisarm, null);
+  } finally {
+    f.runtime.stop();
+  }
+});
+
+for (const kind of ["abi", "config", "spectrum", "tempo", "strict"])
   test(`wire3 ${kind} failure remains fail-closed with owned ABI2 cleanup`, async () => {
     const f = fixture(
       kind === "strict"
@@ -267,7 +309,7 @@ for (const kind of ["abi", "clock", "config", "spectrum", "tempo", "strict"])
     try {
       await f.start();
       if (kind === "abi") f.packet("abi-envelope", [3]);
-      if (kind === "clock" || kind === "strict")
+      if (kind === "strict")
         f.packet("clock", f.clock(f.origin + 1280, true, 65));
       if (kind === "config")
         f.packet("config", [

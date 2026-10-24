@@ -45,6 +45,9 @@ export default defineConfig({
       "@ableton-agent/signal-routing": source(
         "./packages/signal-routing/src/index.ts",
       ),
+      "@ableton-agent/shared/m4l-devices": source(
+        "./packages/shared/src/m4l-devices.ts",
+      ),
       "@ableton-agent/shared": source("./packages/shared/src/index.ts"),
       "@ableton-agent/storage": source("./packages/storage/src/index.ts"),
       "@ableton-agent/test-support": source(

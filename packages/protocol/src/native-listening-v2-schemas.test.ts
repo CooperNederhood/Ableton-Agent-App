@@ -203,14 +203,8 @@ function fixture(
     alignment: evaluateListeningAlignment(policy, {
       sampleRate: rate,
       vectorSize: 64,
-      observedClockDisagreementSamples: Math.min(
-        shift,
-        policy.maxClockDisagreementSamples,
-      ),
-      observedBeatDisagreementSamples: Math.min(
-        shift,
-        policy.maxClockDisagreementSamples,
-      ),
+      observedClockDisagreementSamples: policy.mode === "strict" ? 0 : shift,
+      observedBeatDisagreementSamples: policy.mode === "strict" ? 0 : shift,
     }),
     summaries: {
       peak: [rawPeak, rawPeak],
@@ -496,11 +490,8 @@ describe("versioned native geometry and independent descriptive validation", () 
     ).not.toThrow();
   });
 
-  it("fails above budget and under strict policy instead of falling back", () => {
-    for (const value of [
-      fixture({ shift: 65 }),
-      fixture({ strict: true, shift: 1 }),
-    ]) {
+  it("retains strict timing rejection without imposing it on descriptive listening", () => {
+    for (const value of [fixture({ strict: true, shift: 1 })]) {
       expect(() =>
         assertNativeCaptureObservationV2(
           value.proof,
@@ -572,24 +563,25 @@ describe("versioned native geometry and independent descriptive validation", () 
     ).not.toThrow();
   });
 
-  it("uses the exact configured480-sample maximum without increasing it to admit481", () => {
-    const accepted = fixture({ limit: 480, shift: 480 });
-    expect(() =>
-      assertNativeCaptureObservationV2(
-        accepted.proof,
-        accepted.observation,
-        accepted.expected,
-      ),
-    ).not.toThrow();
-    const denied = fixture({ limit: 480, shift: 481 });
-    expect(() =>
-      assertNativeCaptureObservationV2(
-        denied.proof,
-        denied.observation,
-        denied.expected,
-      ),
-    ).toThrow("listening_alignment_budget_exceeded");
-  });
+  it.each([480, 481, 4_800])(
+    "retains the actual descriptive discrepancy %i without increasing the configured target",
+    (shift) => {
+      const accepted = fixture({ limit: 480, shift });
+      expect(() =>
+        assertNativeCaptureObservationV2(
+          accepted.proof,
+          accepted.observation,
+          accepted.expected,
+        ),
+      ).not.toThrow();
+      expect(
+        accepted.observation.alignment.observedClockDisagreementSamples,
+      ).toBe(shift);
+      expect(
+        accepted.observation.alignment.policy.maxClockDisagreementSamples,
+      ).toBe(480);
+    },
+  );
 
   it.each([
     "epoch",

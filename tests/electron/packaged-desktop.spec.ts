@@ -1,5 +1,6 @@
 import {
   access,
+  cp,
   mkdir,
   mkdtemp,
   readFile,
@@ -13,6 +14,7 @@ import { promisify } from "node:util";
 
 import { _electron as electron, expect, test } from "@playwright/test";
 import { resolveLiveAgentStorage } from "../../packages/storage/src/index.js";
+import { readIntegrationDevicePayloads } from "../../packages/shared/src/m4l-devices.js";
 import {
   preferencesSchema,
   type DesktopApi,
@@ -25,6 +27,30 @@ import {
 
 const releaseRoot = resolve("release");
 const syntheticBridgeToken = "a".repeat(64);
+
+function integrationReceipt(raw: string) {
+  const value: unknown = JSON.parse(raw);
+  if (
+    value === null ||
+    typeof value !== "object" ||
+    !("profile" in value) ||
+    typeof value.profile !== "string" ||
+    !("components" in value) ||
+    !Array.isArray(value.components)
+  )
+    throw new Error("Invalid integration CLI receipt");
+  const components = value.components.map((component: unknown) => {
+    if (
+      component === null ||
+      typeof component !== "object" ||
+      !("status" in component) ||
+      typeof component.status !== "string"
+    )
+      throw new Error("Invalid integration component receipt");
+    return { status: component.status };
+  });
+  return { profile: value.profile, components };
+}
 
 interface PackagedDesktopWindow {
   desktop: Pick<DesktopApi, "lifecycle" | "agents" | "eventHistory">;
@@ -156,6 +182,134 @@ test("launches the generated production application", async () => {
   } finally {
     await application.close();
     await rm(profile, { recursive: true, force: true });
+  }
+});
+
+test("installs both canonical Max bundles and Remote Script from packaged resources without a checkout", async () => {
+  const root = await mkdtemp(
+    join(process.cwd(), "ableton-agent-packaged-integrations-"),
+  );
+  try {
+    const executable = await packagedExecutable();
+    const resources = resolve(dirname(executable), "../Resources");
+    const payload = join(resources, "ableton-integrations");
+    const devices = await readIntegrationDevicePayloads(payload);
+    expect(devices.map(({ id }) => id).sort()).toEqual([
+      "machine-listening",
+      "midi-capture",
+    ]);
+    const userLibrary = join(root, "Library");
+    await mkdir(userLibrary);
+    const environment = finderLikeEnvironment({
+      ELECTRON_RUN_AS_NODE: "1",
+      LIVE_AGENT_HOME: join(root, "live-agent"),
+      LIVE_AGENT_PROFILE: "automation",
+    });
+    const cli = join(
+      resources,
+      "app.asar",
+      "dist",
+      "main",
+      "ableton-integrations-cli.js",
+    );
+    const args = [
+      cli,
+      "install",
+      "--confirm",
+      "--resources",
+      resources,
+      "--user-library",
+      userLibrary,
+    ];
+    const first = await promisify(execFile)(executable, args, {
+      cwd: root,
+      env: environment,
+      timeout: 60_000,
+    });
+    const receipt = integrationReceipt(first.stdout);
+    expect(receipt.profile).toBe("automation");
+    expect(receipt.components).toHaveLength(3);
+    expect(
+      receipt.components.every((component: { status: string }) =>
+        ["installed", "current"].includes(component.status),
+      ),
+    ).toBe(true);
+    await expect(
+      access(
+        join(userLibrary, "Remote Scripts", "AbletonAgent", "__init__.py"),
+      ),
+    ).resolves.toBeUndefined();
+    for (const device of devices) {
+      const folder =
+        device.id === "machine-listening"
+          ? [
+              "Audio Effects",
+              "Max Audio Effect",
+              "Machine-Listening-Development",
+            ]
+          : ["MIDI Effects", "Max MIDI Effect", "Midi-Capture"];
+      const installed = join(userLibrary, "Presets", ...folder);
+      await expect(
+        access(join(installed, device.deviceFile)),
+      ).resolves.toBeUndefined();
+      const configuration = await readFile(
+        join(installed, "agent_signal_storage.js"),
+        "utf8",
+      );
+      expect(configuration).toContain(
+        join(root, "live-agent").replaceAll("\\", "\\\\"),
+      );
+      expect(configuration).toContain("automation");
+      expect(configuration).not.toContain("Bearer ");
+      for (const file of device.files)
+        await expect(
+          access(join(installed, file.name)),
+        ).resolves.toBeUndefined();
+    }
+    const second = await promisify(execFile)(executable, args, {
+      cwd: root,
+      env: environment,
+      timeout: 60_000,
+    });
+    expect(
+      integrationReceipt(second.stdout).components.every(
+        (component: { status: string }) => component.status === "current",
+      ),
+    ).toBe(true);
+
+    const damaged = join(root, "damaged-payload");
+    await cp(payload, damaged, { recursive: true });
+    const staged = await readIntegrationDevicePayloads(damaged);
+    const midi = staged.find(({ id }) => id === "midi-capture");
+    expect(midi).toBeDefined();
+    if (midi === undefined) throw new Error("Packaged MIDI payload is missing");
+    await rm(join(midi.sourceDirectory, "midi_capture_writer.js"));
+    const otherLibrary = join(root, "Other Library");
+    await mkdir(otherLibrary);
+    await expect(
+      promisify(execFile)(
+        executable,
+        [
+          cli,
+          "install",
+          "--confirm",
+          "--resources",
+          resources,
+          "--payload",
+          damaged,
+          "--user-library",
+          otherLibrary,
+        ],
+        { cwd: root, env: environment, timeout: 60_000 },
+      ),
+    ).rejects.toMatchObject({
+      code: 1,
+    });
+    await expect(
+      access(join(otherLibrary, "Remote Scripts")),
+    ).rejects.toMatchObject({ code: "ENOENT" });
+  } finally {
+    await rm(root, { recursive: true, force: true });
   }
 });
 

@@ -4,6 +4,12 @@ Companion specification: [Local Storage Layout](local-storage.md)
 
 ## Canonical layout
 
+- [x] Keep integration detect/dry-run profile-registry reads side-effect-free;
+  use the packaged selected profile or explicit isolation override for installed
+  producer configuration and CLI journal ownership.
+- [x] Document host-owned managed Max bundles/receipts and owner-only discovery
+  paths without introducing independent application storage or exposing secrets.
+
 - [x] Add the shared `@ableton-agent/storage` path resolver.
 - [x] Default application-owned storage to `~/.live-agent`.
 - [x] Isolate packaged, development, and automation profiles.

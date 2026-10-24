@@ -53,6 +53,7 @@ export const listeningAlignmentQualitySchema = z
   })
   .superRefine((value, ctx) => {
     if (
+      value.policy.mode === "strict" &&
       Math.max(
         value.observedClockDisagreementSamples,
         value.observedBeatDisagreementSamples,
@@ -76,6 +77,7 @@ export function evaluateListeningAlignment(
   const snapshot = Object.freeze(listeningTimingPolicySchema.parse(policy));
   const measured = listeningAlignmentMeasurementsSchema.parse(measurements);
   if (
+    snapshot.mode === "strict" &&
     Math.max(
       measured.observedClockDisagreementSamples,
       measured.observedBeatDisagreementSamples,

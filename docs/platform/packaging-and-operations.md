@@ -7,6 +7,8 @@ Ship a signed desktop application for macOS and Windows. The installer should:
 - Install the desktop app.
 - Detect Ableton installations and likely User Library locations.
 - Install or update the Remote Script with user confirmation.
+- Deliver the complete canonical Machine-Listening-Development and Midi-Capture
+  bundles into the same selected User Library.
 - Generate and store a local bridge authentication token.
 - Explain the one-time Control Surface selection step.
 
@@ -45,7 +47,7 @@ pnpm desktop:install:mac
 This command removes stale release artifacts, restores the pinned dependencies,
 runs the production quality and source-mode Electron gates, packages only the
 host architecture, smoke-tests the packaged app, updates the managed Remote
-Script, applies a complete local ad-hoc signature, atomically replaces
+Script and both Max-device bundles, applies a complete local ad-hoc signature, atomically replaces
 `/Applications/Ableton Agent.app`, verifies Copilot authentication and model
 discovery against that exact installed path with a Finder-like environment, and
 launches it.
@@ -54,7 +56,89 @@ are preserved. The command fails before mutation if Live or any Ableton Agent
 copy is still running. Use `--skip-checks` only after a fully verified build,
 `--skip-auth-smoke` only when offline or deliberately recovering authentication,
 `--skip-remote-script` when Python sources are unchanged, or `--no-launch` when
-the installed app should remain closed.
+the installed app should remain closed. Skipping Python does not skip either Max
+device or permit Live to remain open. `--user-library <directory>` and
+`--profile <name>` select one explicit destination/profile for all integrations.
+
+## Canonical Max-device delivery
+
+The repository owns the authored
+`max-patches/audio-listener/Machine-Listening-Development.amxd`, its current
+native-v4/ABI2 runtime/DSP companions and the canonical
+`max-patches/midi-capture/Midi-Capture.amxd` with shared producer resources.
+These are build inputs, not permission to copy an arbitrary installed device
+back into source. Neither installation nor packaging runs MIDI promotion or
+uses ignored real-host fixture bundles as release inputs.
+
+The electron-builder lifecycle generates and validates a complete integration
+payload under `apps/desktop/build/ableton-integrations`, including when invoked
+directly by CI or the macOS installer. Packaged resources contain
+`ableton-integrations/` with both portable device bundles and hash manifests.
+No machine-specific profile configuration or credential bodies enter that
+payload. Installation uses bundled code/resources, not a repository checkout
+or a package-manager subprocess in the installed application.
+
+The common CLI installs all host integrations:
+
+```bash
+pnpm --filter @ableton-agent/desktop integrations detect
+pnpm --filter @ableton-agent/desktop integrations update --confirm
+pnpm --filter @ableton-agent/desktop integrations install --confirm \
+  --user-library "/path/to/User Library" --profile studio
+pnpm --filter @ableton-agent/desktop integrations install --dry-run
+```
+
+Source-mode commands consume the generated payload; build/package it first.
+`--resources <directory>` selects an app's packaged Resources directory;
+`--payload <directory>` and `--remote-script-source <directory>` support explicit
+diagnostic inputs. `--components machine-listening,midi-capture` intentionally
+updates devices only. Detect and dry-run do not create profile data or publish
+host assets. Explicitly named `remote-script install/update` commands below
+remain Python-only diagnostics, not a complete integration reinstall.
+
+Live indexes the two managed devices at:
+
+```text
+User Library/Presets/Audio Effects/Max Audio Effect/
+  Machine-Listening-Development/Machine-Listening-Development.amxd
+User Library/Presets/MIDI Effects/Max MIDI Effect/
+  Midi-Capture/Midi-Capture.amxd
+```
+
+Each folder contains its own required companion files and installed metadata.
+Unrelated similarly named copies are not removed. Drag the intended device from
+that folder onto a track manually; installation never inserts a device or edits
+a Set. On-disk validation and app authentication are distinct from a loaded
+Max device resolving its resources and registering compatible capabilities.
+The Development listener advertises Arrangement and Session modes and freezes
+the explicitly requested mode per pass; the installer verifies the wire-4
+bootstrap, guard, two-mode manifest and 30-second/300-window provider limits.
+Mode-specific proofs and source restrictions still apply; packaging does not
+establish physical qualification. App/Remote Script protocol upgrades must be
+delivered together rather than assuming a listener-only update upgrades the
+bridge contract.
+
+The installer resolves the Library once, honoring an explicit selection,
+`ABLETON_USER_LIBRARY`, or the selected profile's configured Remote Script
+location before refusing ambiguous automatic selection. It follows
+the normal packaged app's selected profile unless an explicit profile override
+is provided. Installed owner-only producer configuration contains canonical
+descriptor/secret paths, never copied secret values or automation endpoints.
+
+Payloads are validated before publication. Each managed component is staged
+and atomically replaced, preserving its previous valid installation on a failed
+promotion. This is not an atomic transaction across the app and every host
+directory. Later failures report successful earlier components and failed
+cleanup/recovery, with bounded redacted underlying error messages so a generic
+installation error does not hide the required recovery action. The overall
+command fails instead of announcing complete success. Requested installs require confirmation, stopped Live, safe managed
+paths and serialized ownership. User processes are never terminated.
+
+Installation lifecycle/timings and trace/correlation/causation links are retained
+in the selected profile's bounded redacted event journal and existing typed
+Desktop History. Binary device bodies and credentials are omitted. A history
+persistence failure is explicit even if some host components already changed.
+The Settings UI installation action remains deferred.
 
 The packaged app keeps Copilot session/configuration state under the selected
 Ableton Agent profile, but GitHub authentication remains owned by GitHub CLI.

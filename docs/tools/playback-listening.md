@@ -1,10 +1,68 @@
 # Playback Listening and Entity Context
 
+## Installing the development listener
+
+The normal app integration reinstall delivers the canonical
+`Machine-Listening-Development.amxd` as a complete native-v3/ABI2 bundle in
+`User Library/Presets/Audio Effects/Max Audio Effect/Machine-Listening-Development/`.
+Companion JavaScript/DSP/patcher files and hash metadata are required; copying
+only the authored AMXD is not equivalent. Packaging uses repository sources,
+not a saved test fixture or a previously installed device.
+
+The same integration operation installs canonical Midi-Capture into its own
+Max MIDI Effect folder and resolves one selected normal-profile discovery
+configuration for both. See [Packaging and Operations](../platform/packaging-and-operations.md)
+for commands, exact paths, confirmation, partial recovery and diagnostics.
+
+Insertion onto a track is manual. Installed-on-disk is distinct from loaded,
+authenticated native readiness; the app's negotiated capability checks remain
+authoritative. Delivery does not expand Session admission, remove timing
+limitations or certify a host. Existing unrelated Library copies remain untouched. and Entity Context
+
 Companion checklist:
 [Playback Listening Implementation To-Do](playback-listening-implementation-to-do.md).
 
 Architecture decision:
 [ADR 0006](../architecture/decisions/0006-playback-listening-and-entity-context.md).
+
+## Audio-safe capture work in progress
+
+Native clock and analysis collection now use request-gated low-priority
+`qmetro 10` instead of `metro 10`. The initial scheduler-only candidate retained
+all validators. The user reported clean ordinary playback with the updated
+device both bypassed and enabled; a subsequent capture failed during arming
+with `changed_native_clock_hold`. Its trace does not retain the differing clock
+fields, so a physical cause has not been established.
+
+Following explicit user approval, ordinary `descriptive` listening now treats
+host/DSP timing disagreement as measured information, not an admission or
+completion budget. `maxClockDisagreementSamples` remains in the wire contract
+as an advisory target for this mode; neither the target nor the measurements
+are increased, clamped or relabeled as verified accuracy. Observations retain
+the actual clock/beat discrepancies and continue to declare approximate,
+descriptive-only timing with no absolute error estimate or verified bound.
+Explicit `strict` mode retains its zero-disagreement requirement. This
+supersedes historical descriptive-budget rejection descriptions below.
+
+Capture duration and complete descriptor coverage still use DSP counters.
+Wrong source/owner, changed transport or tempo, malformed DSP data, missing
+audio measurements and incomplete coverage remain failures. A duplicate DSP
+snapshot whose message-rate fields changed is discarded, not promoted to
+timing evidence, when transport state is unchanged and its beat has not
+regressed. Mixed or pending clock reads can reacquire until the existing
+preflight, arm, launch or capture deadline; they do not refresh clock freshness.
+Progress is retained for at most 64 rejected reads per pass to bound diagnostic
+volume. Strict/legacy rejection quotas and spectrum/envelope integrity checks
+remain unchanged.
+
+This is not a buffering architecture or a claim of frame-exact collection under
+load. Compare ordinary capture behavior on the actual host before deciding
+whether additional retention changes are necessary.
+Idle DSP muting, parent metadata cadence and signal-sink changes are deliberately
+excluded so this comparison isolates the scheduler substitution. Existing
+capture/disarm/watchdog lifecycle events remain authoritative. Generated-source
+changes do not mean the user's loaded device has changed or audible dropouts
+have been resolved; the selected bundle must be installed and loaded afresh.
 
 ## Session MVP (#63)
 

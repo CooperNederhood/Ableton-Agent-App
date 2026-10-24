@@ -152,9 +152,13 @@ export function createSyntheticNativeListeningFixtureV2(
     endBeat?: number;
     timingPolicy?: ListeningTimingPolicy;
     geometry?: Parameters<typeof createNativeListeningGeometry>[0];
+    hostClockDisagreementSamples?: number;
   } = {},
 ) {
   const old = createSyntheticNativeListeningFixture();
+  const disagreement = options.hostClockDisagreementSamples ?? 0;
+  if (!Number.isSafeInteger(disagreement) || disagreement < 0)
+    throw new Error("Invalid synthetic host-clock disagreement");
   const geometry = createNativeListeningGeometry(
     options.geometry ?? {
       sampleRate: 48_000,
@@ -181,7 +185,7 @@ export function createSyntheticNativeListeningFixtureV2(
           geometry.vectorSize +
           index * 512
         : armCounter - 32768 + index * 512;
-      const sample = counter + hostOffset;
+      const sample = counter + hostOffset + (playing ? disagreement : 0);
       const beat =
         geometry.startBeat +
         (playing ? (counter - originCounter) / samplesPerBeat : 0);
@@ -218,7 +222,7 @@ export function createSyntheticNativeListeningFixtureV2(
       launchClock: 512 + geometry.vectorSize,
       launchPhaseSamples: geometry.vectorSize,
       host: {
-        sample: 1_000_640,
+        sample: 1_000_640 + disagreement,
         beat: geometry.startBeat + 640 / samplesPerBeat,
         flags: 31,
         playing: true,
@@ -227,7 +231,7 @@ export function createSyntheticNativeListeningFixtureV2(
     after,
     timingWitnesses: {
       minHostOffset: before.frames[0],
-      maxHostOffset: before.frames[0],
+      maxHostOffset: disagreement ? after.frames[0] : before.frames[0],
       minBeatOrigin: after.frames[0],
       maxBeatOrigin: after.frames[0],
       maxPhaseDisagreement: after.frames[0],
@@ -280,8 +284,8 @@ export function createSyntheticNativeListeningFixtureV2(
     alignment: evaluateListeningAlignment(policy, {
       sampleRate: geometry.sampleRate,
       vectorSize: geometry.vectorSize,
-      observedClockDisagreementSamples: 0,
-      observedBeatDisagreementSamples: 0,
+      observedClockDisagreementSamples: disagreement,
+      observedBeatDisagreementSamples: disagreement,
     }),
   });
   return { proof, observation };

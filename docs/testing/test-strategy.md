@@ -72,6 +72,27 @@ Tests must catch:
 
 ## Test layers
 
+### Canonical integration delivery
+
+Device delivery requires publisher and installer regressions as well as app
+launch coverage. Check complete canonical native-v3 and MIDI payload inventories,
+portable/installed hashes, path rendering, selected-profile and custom-Library
+resolution, idempotent update, corrupt/missing/wrong-version resources, live-host
+guards, unrelated-file/token preservation, partial failures, cleanup/cancellation,
+and redacted trace/timing coverage. Detect/dry-run must not create profile data.
+
+Packaged Electron coverage executes the bundled integration CLI with an isolated
+Library/profile and a working directory without a checkout. Assert both devices
+and Remote Script are delivered, repeat installation is current, and a missing
+companion refuses all publication. An app launch/authentication test alone does
+not prove device delivery.
+
+Fresh owned Live11 acceptance must load newly installed bundles, resolve adjacent
+resources and verify listener registration/bounded capture plus exact MIDI
+ingress. Record the actual full host version and clean only owned processes and
+fixtures. Do not replace this check with an older independently packaged device,
+or claim static package checks complete the separate legacy physical matrix.
+
 ### Unit tests
 
 TypeScript:

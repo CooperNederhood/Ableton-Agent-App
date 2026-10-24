@@ -2,6 +2,41 @@
 
 Companion specification: [Playback Listening](playback-listening.md).
 
+## Audio-safe capture checkpoints
+
+- [x] Replace native clock/analysis metro directly with request-gated qmetro,
+  retaining existing capture measurements and validation without adding a
+  buffering subsystem.
+- [x] Keep idle DSP, metadata cadence and signal sinks unchanged to isolate
+  the qmetro experiment; preserve native-math and legacy-v1 regression oracles.
+- [x] Selectively install the scheduler-only canonical listener. User reports
+  clean playback both bypassed and enabled; capture subsequently failed while
+  arming with `changed_native_clock_hold`, not verified transport movement.
+- [x] Make descriptive host/DSP alignment advisory across Max and independent
+  protocol validation, retaining actual discrepancies, strict opt-in, DSP-owned
+  duration and complete coverage. Discard stale clock reads without refreshing
+  freshness; retain deadlines and bounded, attributed progress.
+- [x] Reproduce descriptive policy and 100 ms clock-disagreement failures before
+  the fix; cover full DSP duration, honest independent proof, SDK/Session
+  adapters, timeouts, strict denial and generation-owned cleanup.
+- [ ] Rebuild and install the integrated candidate after user app closure;
+  confirm ordinary capture together. Synthetic acceptance is not physical
+  qmetro qualification.
+- [ ] Compare playback and capture on the real host; investigate retention or
+  retention changes only if observed failures justify them. Do not weaken
+  source/data integrity or claim frame-exact behavior from synthetic tests.
+- [ ] Restore one canonical device's Arrangement and Session support.
+- [ ] Default to a full supported active loop, including exact four-beat
+  completion on a four-beat clip, within explicit resource limits.
+
+## Canonical device delivery
+
+- [x] Build/package the canonical native-v3/ABI2 development listener with all
+  companions and install it alongside canonical Midi-Capture and the Remote
+  Script through the same selected Library/profile workflow.
+- [ ] Verify installed resources, producer discovery and fresh owned Live11
+  registration without changing Session capture gates or pinned older fixtures.
+
 ## Session MVP launch-evidence gate (#63)
 
 - [x] Hand off development-MVP follow-ups without relabelling incomplete

@@ -250,7 +250,7 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-function nativeV2Service() {
+function nativeV2Service(hostClockDisagreementSamples = 0) {
   const base = new FakeService(["a"]);
   const listener = base.listeners[0]!;
   listener.producer.schemaVersion = "audio-observation/v2";
@@ -279,6 +279,7 @@ function nativeV2Service() {
   });
   const data = createSyntheticNativeListeningFixtureV2({
     listenerId: listener.producer.producerId,
+    hostClockDisagreementSamples,
   });
   const calls: VersionedListenerControlInput[] = [];
   const service: ListenerService = {
@@ -540,6 +541,61 @@ describe("independent native v2 capture", () => {
       await rejected;
       await capture.disarm();
       expect(f.calls.at(-1)?.action).toBe("cancel");
+      expect(f.base.subscribers.size).toBe(0);
+    },
+  );
+
+  it.each([4_800, 9_600])(
+    "publishes independently verified descriptive data with %i samples of observed scheduler disagreement",
+    async (disagreement) => {
+      const f = nativeV2Service(disagreement);
+      const events: TelemetryEventEnvelope[] = [];
+      const capture = await prepareListenerCapture(f.service, {
+        ...f.input,
+        telemetry: {
+          enqueue(event) {
+            events.push(event);
+            return true;
+          },
+        },
+      });
+      f.launch();
+      await capture.nativeLaunch;
+      f.complete();
+      const observations = await capture.result;
+      expect(observations[0]).toMatchObject({
+        complete: true,
+        alignment: {
+          policy: { mode: "descriptive", maxClockDisagreementSamples: 64 },
+          observedClockDisagreementSamples: disagreement,
+          observedBeatDisagreementSamples: disagreement,
+          estimatedAbsoluteErrorSamples: null,
+          verifiedAbsoluteErrorBoundSamples: null,
+        },
+      });
+      expect(observations[0]!.endSample - observations[0]!.startSample).toBe(
+        f.data.proof.armed.geometry.totalSamples,
+      );
+      expect(events.some((event) => event.name.endsWith(".failed"))).toBe(
+        false,
+      );
+      const alignment = events.filter(
+        (event) => event.attributes.action === "alignment",
+      );
+      expect(alignment.map((event) => event.name)).toEqual([
+        "listening.capture.queued",
+        "listening.capture.started",
+        "listening.capture.completed",
+      ]);
+      expect(
+        alignment.every(
+          (event) =>
+            event.trace?.traceId === trace.traceId &&
+            event.durationMs !== undefined &&
+            event.durationMs >= 0,
+        ),
+      ).toBe(true);
+      await capture.disarm();
       expect(f.base.subscribers.size).toBe(0);
     },
   );

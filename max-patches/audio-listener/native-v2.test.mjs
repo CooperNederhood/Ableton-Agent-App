@@ -22,6 +22,186 @@ const { nativeFailureDiagnosticV2Schema } =
 const TEMPO_LIMITATION =
   "Constant tempo is assumed; stability is not independently verified; tempo automation is unsupported.";
 
+test("stopped qmetro host-time advance on a held DSP snapshot is rejected without advancing evidence", async () => {
+  for (const state of ["preflight", "native-arming"]) {
+    const f = v2Fixture();
+    f.controller.prepare(f.command);
+    const pending = f.controller.arm(V2_OWNER);
+    if (state === "native-arming") f.preflight();
+    else f.packet("clock", f.clock(60000, false));
+    const p = f.controller.pass;
+    assert.equal(f.controller.state, state);
+    const previous = p.clock;
+    const at = p.clockAt;
+    const frames = p.frames.length;
+    f.time(25);
+    const held = [...previous];
+    held[2] += f.command.geometry.vectorSize;
+    held[9] = held[2];
+    f.packet("clock", held);
+    assert.equal(f.controller.pass, p);
+    assert.equal(p.clock, previous);
+    assert.equal(p.clockAt, at);
+    assert.equal(p.frames.length, frames);
+    assert.equal(p.rejected, 1);
+    const event = f.observed.at(-1);
+    assert.equal(event.reason, "stale_native_clock_hold");
+    assert.equal(event.passId, f.command.passId);
+    assert.equal(event.traceId, f.command.traceId);
+    assert.equal(event.stage, "progress");
+    f.packet(
+      "clock",
+      f.clock(previous[4] + f.command.geometry.vectorSize, false),
+    );
+    assert.equal(f.controller.pass, p);
+    assert(p.clock[4] > previous[4]);
+    f.controller.cancel(V2_OWNER);
+    await assert.rejects(pending, /cancel/);
+  }
+});
+
+test("strict held-clock state and timestamp changes still fail closed", async () => {
+  for (const change of [
+    "backwards",
+    "gap",
+    "phase",
+    "beat",
+    "playing",
+    "flags",
+  ]) {
+    const f = v2Fixture({
+      policy: { mode: "strict", maxClockDisagreementSamples: 0 },
+    });
+    f.controller.prepare(f.command);
+    const pending = f.controller.arm(V2_OWNER);
+    const previous = f.clock(60000, false);
+    f.packet("clock", previous);
+    const held = [...previous];
+    if (change === "backwards") held[2] = held[9] = previous[2] - 1;
+    if (change === "gap")
+      held[2] = held[9] = previous[2] + f.command.geometry.vectorSize + 1;
+    if (change === "phase") held[5] += 0.01;
+    if (change === "beat") held[1] = held[8] = previous[1] + 0.01;
+    if (change === "playing") held[0] = held[7] = 1;
+    if (change === "flags") held[3] = held[10] = 19;
+    f.packet("clock", held);
+    await assert.rejects(pending, /changed_native_clock_hold/);
+    assert.equal(f.controller.pass, null);
+    assert.equal(
+      f.events.some((event) => event.status === "complete"),
+      false,
+    );
+  }
+});
+
+test("strict timing does not adopt descriptive held-clock reacquisition", async () => {
+  const f = v2Fixture({
+    policy: { mode: "strict", maxClockDisagreementSamples: 0 },
+  });
+  f.controller.prepare(f.command);
+  const pending = f.controller.arm(V2_OWNER);
+  const previous = f.clock(60000, false);
+  f.packet("clock", previous);
+  const held = [...previous];
+  held[2] = held[9] = previous[2] + f.command.geometry.vectorSize;
+  for (let index = 0; index < 65; index++) f.packet("clock", held);
+  await assert.rejects(pending, /changed_native_clock_hold/);
+  assert.equal(f.controller.pass, null);
+  assert.equal(
+    f.events.some((event) => event.status === "complete"),
+    false,
+  );
+});
+
+for (const deviation of [-4800, 4800])
+  test(`descriptive capture uses DSP duration despite ${deviation}-sample host-clock disagreement, retaining honest independent proof`, async () => {
+    const f = v2Fixture({ deviation });
+    await f.start();
+    assert.equal(f.controller.state, "capturing");
+    f.capture();
+    f.post();
+    const terminal = f.events.find((event) => event.type === "terminal");
+    assert.equal(terminal.status, "complete");
+    assert.equal(
+      terminal.observation.endSample - terminal.observation.startSample,
+      f.geometry.totalSamples,
+    );
+    assert.equal(
+      terminal.observation.alignment.observedClockDisagreementSamples,
+      4800,
+    );
+    assert.equal(
+      terminal.observation.alignment.observedBeatDisagreementSamples,
+      4800,
+    );
+    assert.equal(
+      terminal.observation.alignment.verifiedAbsoluteErrorBoundSamples,
+      null,
+    );
+    assertNativeCaptureObservationV2(
+      terminal.nativeCapture,
+      terminal.observation,
+      {
+        policy: f.timingPolicy,
+        geometry: f.geometry,
+        listenerId: "v2-listener",
+        passId: f.command.passId,
+      },
+    );
+    f.packet("stopped", [0, 0, 2], f.controller.pendingDisarm.generation);
+    assert.equal(f.controller.pendingDisarm, null);
+  });
+
+test("descriptive message-rate sample jitter cannot masquerade as DSP or beat discontinuity", async () => {
+  const f = v2Fixture();
+  await f.start();
+  const previous = f.controller.pass.clock;
+  const row = f.clock(previous[4] + 64, true, -128);
+  assert(row[2] < previous[2]);
+  assert(row[4] > previous[4]);
+  assert(row[1] > previous[1]);
+  f.packet("clock", row);
+  assert.equal(f.controller.state, "capturing");
+  f.capture();
+  f.post();
+  const terminal = validate(f);
+  assert.equal(
+    terminal.observation.alignment.observedClockDisagreementSamples,
+    128,
+  );
+  assert.equal(terminal.observation.complete, true);
+});
+
+test("descriptive held observations reacquire until the original timeout, without extending freshness or emitting unbounded progress", async () => {
+  const f = v2Fixture();
+  f.controller.prepare(f.command);
+  const pending = f.controller.arm(V2_OWNER);
+  const previous = f.clock(60000, false);
+  f.packet("clock", previous);
+  const p = f.controller.pass;
+  const held = [...previous];
+  held[2] = held[9] = previous[2] + 4800;
+  held[5] += 0.01;
+  f.time(25);
+  for (let index = 0; index < 1000; index++) f.packet("clock", held);
+  assert.equal(f.controller.pass, p);
+  assert.deepEqual(p.clock, previous);
+  assert.equal(p.clockAt, 0);
+  assert.equal(p.rejected, 64);
+  assert.equal(
+    f.observed.filter((event) => event.reason === "stale_native_clock_hold")
+      .length,
+    64,
+  );
+  f.time(2000);
+  f.controller.tick();
+  await assert.rejects(pending, /native_preflight_timeout/);
+  const failure = f.observed.find((event) => event.stage === "failed");
+  assert.equal(failure.stage, "failed");
+  assert.equal(failure.traceId, f.command.traceId);
+  assert.equal(f.sent.at(-1).action, "stop");
+});
+
 test("controller epoch handoff rejects invalid seeds and fails closed at exhaustion", async () => {
   const sent = [];
   const create = (initialNativeEpoch) =>
@@ -143,7 +323,7 @@ test("recorded v2 mixed-vector clock is reacquired without publishing a 65-sampl
   f.packet("stopped", [0, 0, 2], p.generation);
 });
 
-test("recorded stopped 65-sample mismatch is never discarded without independent phase evidence", async () => {
+test("recorded stopped 65-sample mismatch is retained as descriptive timing, not mistaken for missing audio", async () => {
   const recorded = JSON.parse(
     await readFile(
       new URL(
@@ -166,15 +346,16 @@ test("recorded stopped 65-sample mismatch is never discarded without independent
     p.anchorHostOffset = stopped.anchorHostOffsetSamples;
     p.anchorClock = stopped.anchorClock;
     p.clock = stopped.previousClock;
-    assert.throws(
-      () => f.controller.clock(p, stopped.rejectedClock),
-      /listening_alignment_budget_exceeded/,
-    );
+    assert.doesNotThrow(() => f.controller.clock(p, stopped.rejectedClock));
     assert.equal(p.rejected, 0);
-    assert.deepEqual(p.clock, stopped.previousClock);
-    assert.equal(p.nativeFailureDiagnostic.startSample, null);
+    assert.deepEqual(p.clock, stopped.rejectedClock);
+    assert.equal(p.nativeFailureDiagnostic, null);
     assert.equal(
-      p.nativeFailureDiagnostic.measurements.observedClockDisagreementSamples,
+      Math.abs(
+        p.timingWitnesses.maxHostOffset[2] -
+          p.timingWitnesses.maxHostOffset[4] -
+          p.anchorHostOffset,
+      ),
       65,
     );
     f.controller.cancel(V2_OWNER);
@@ -233,7 +414,7 @@ for (const rate of [44100, 48000]) {
   }
 }
 
-test("v2 mixed-vector reacquisition remains bounded and cannot accept a persistent clock shift", async () => {
+test("descriptive mixed-vector reacquisition uses the capture deadline rather than a 64-read failure quota", async () => {
   const f = v2Fixture({ offset: -1 });
   await f.start();
   const p = f.controller.pass;
@@ -250,21 +431,25 @@ test("v2 mixed-vector reacquisition remains bounded and cannot accept a persiste
     f.packet("clock", torn);
     if (index <= 64) assert.equal(f.controller.state, "capturing");
   }
-  assert.equal(f.controller.state, "failed");
+  assert.equal(f.controller.state, "capturing");
+  assert.equal(p.rejected, 64);
+  f.time(40000);
+  f.controller.tick();
+  assert.equal(f.controller.state, "partial");
   assert.equal(p.closed, true);
   assert(
     f.events.some(
       (event) =>
         event.type === "terminal" &&
-        event.status === "failed" &&
-        event.reason === "native_preflight_rejection_limit",
+        event.status === "partial" &&
+        event.reason !== "native_preflight_rejection_limit",
     ),
   );
   f.packet("stopped", [0, 0, 2], p.generation);
   assert.equal(f.controller.pendingDisarm, null);
 });
 
-test("v2 mixed-vector handling does not discard other phase directions, shifts or an already mismatched reference", async () => {
+test("descriptive timing retains other phase directions and shifts without misrepresenting them as exact", async () => {
   for (const [offsetStep, phaseStep, previousPhaseStep] of [
     [64, 0, 0],
     [64, 63, 0],
@@ -289,13 +474,14 @@ test("v2 mixed-vector handling does not discard other phase directions, shifts o
     row[1] += phaseStep / samplesPerBeat;
     row[8] = row[1];
     f.packet("clock", row);
-    assert.equal(f.controller.state, "failed");
+    assert.equal(f.controller.state, "capturing");
     assert.equal(p.rejected, 0);
-    assert.equal(p.nativeFailureDiagnostic.check, "host-offset");
+    assert.equal(p.nativeFailureDiagnostic, null);
     assert.equal(
-      p.nativeFailureDiagnostic.measurements.observedClockDisagreementSamples,
+      f.controller.engine.pass.alignment.observedClockDisagreementSamples,
       offsetStep + 1,
     );
+    f.controller.cancel(V2_OWNER);
     f.packet("stopped", [0, 0, 2], p.generation);
     assert.equal(f.controller.pendingDisarm, null);
   }
@@ -557,9 +743,11 @@ test("v2 spectrum rejection freezes exact numeric input, latest non-authority de
   }
 });
 
-test("v2 alignment failures retain the actual rejected row and measurements before clearing capture state", async () => {
+test("v2 strict alignment failures retain the actual rejected row and measurements before clearing capture state", async () => {
   for (const check of ["host-offset", "clock-alignment"]) {
-    const f = v2Fixture();
+    const f = v2Fixture({
+      policy: { mode: "strict", maxClockDisagreementSamples: 0 },
+    });
     await f.start();
     const p = f.controller.pass;
     const previous = [...p.clock];
@@ -1512,13 +1700,6 @@ test("v2 retains an actual interior phase maximum even when host offset and beat
     f.packet("clock", row);
     f.capture();
     f.post();
-    if (delta === 481) {
-      assert.equal(
-        f.events.some((event) => event.status === "complete"),
-        false,
-      );
-      continue;
-    }
     const terminal = validate(f);
     assert.deepEqual(
       terminal.nativeCapture.timingWitnesses.maxPhaseDisagreement,
@@ -1530,7 +1711,7 @@ test("v2 retains an actual interior phase maximum even when host offset and beat
     );
     assert.equal(
       terminal.observation.alignment.observedBeatDisagreementSamples,
-      480,
+      delta,
     );
     const changed = structuredClone(terminal.nativeCapture);
     changed.timingWitnesses.maxPhaseDisagreement = changed.after.frames[0];
@@ -1545,8 +1726,8 @@ test("v2 retains an actual interior phase maximum even when host offset and beat
   }
 });
 
-test("native-v2 strict/descriptive alignment applies only the selected observed disagreement limit", async () => {
-  for (const deviation of [0, 64, 480, 481]) {
+test("native-v2 descriptive alignment reports disagreement while strict timing remains opt-in", async () => {
+  for (const deviation of [0, 64, 480, 481, 4800]) {
     const f = v2Fixture({
       deviation,
       policy: { mode: "descriptive", maxClockDisagreementSamples: 480 },
@@ -1554,23 +1735,15 @@ test("native-v2 strict/descriptive alignment applies only the selected observed 
     await f.start();
     f.capture();
     f.post();
-    if (deviation <= 480) {
-      const terminal = validate(f);
-      assert.equal(
-        terminal.observation.alignment.observedClockDisagreementSamples,
-        deviation,
-      );
-      assert.equal(
-        terminal.observation.alignment.observedBeatDisagreementSamples,
-        deviation,
-      );
-    } else {
-      assert.equal(f.controller.pass, null);
-      assert.equal(
-        f.events.some((event) => event.status === "complete"),
-        false,
-      );
-    }
+    const terminal = validate(f);
+    assert.equal(
+      terminal.observation.alignment.observedClockDisagreementSamples,
+      deviation,
+    );
+    assert.equal(
+      terminal.observation.alignment.observedBeatDisagreementSamples,
+      deviation,
+    );
   }
   const strict = v2Fixture({
     deviation: 64,
@@ -1806,7 +1979,7 @@ test("v2 classic-JS tempo dedup preserves tiny changes and restored values witho
   assert.deepEqual(diagnostics, []);
 });
 
-test("native-v2 malformed metadata, gaps, torn/changed holds and cancellation remain generation-owned and bounded", async () => {
+test("native-v2 malformed metadata, data gaps, strict clock faults and cancellation remain generation-owned and bounded", async () => {
   for (const kind of [
     "dsp",
     "tempo",
@@ -1824,7 +1997,11 @@ test("native-v2 malformed metadata, gaps, torn/changed holds and cancellation re
     "changed-spectrum",
     "envelope-queue",
   ]) {
-    const f = v2Fixture();
+    const f = v2Fixture(
+      ["hold", "torn"].includes(kind)
+        ? { policy: { mode: "strict", maxClockDisagreementSamples: 0 } }
+        : {},
+    );
     await f.start();
     const retained = f.controller.pass;
     if (kind === "dsp") f.packet("dsp", [1, 48000, 128]);

@@ -163,7 +163,8 @@ alone remains Copilot SDK-owned and does not promote the Desktop session.
 
 `resolveNestedSessionStorage` returns `contextDirectory` and `entityContextPath`
 from the required Set/Project/App-session ownership tuple. Store processed,
-credential-redacted `audio-observation/v1` and `audio-observation/v2` payloads
+credential-redacted `audio-observation/v1`, `audio-observation/v2`, and
+`session-audio-observation/v1` payloads
 only, with exact entry-kind/payload-version agreement. V2 retains approximate,
 descriptive-only quality and unknown absolute timing error in both detail and
 bounded summaries; it cannot certify exclusive attribution. Raw audio and
@@ -171,11 +172,67 @@ arbitrary JSON are not accepted. The default limits are 256 KiB per entry, 2 MiB
 and 32 MiB per App-session store. Full-store failure is visible and does not
 silently evict observations.
 
+Session observations add a registered kind without changing the database
+format, canonical path, or the meanings of old v1/v2 records. Existing one- or
+two-kind declarations remain readable; publication reconciles the supported
+three-kind declaration additively through the same registry/manifest API.
+Session descriptor/sample/attack beats cover clip-local first iteration zero,
+starting at zero with nominal requested duration at most four beats. Historical
+descriptor, primary coverage, and actual pass ranges may end at up to 4.001 beats
+to retain nearest-sample-rounded physical coverage (for example,
+4.000024187452759 beats at 44.1 kHz / 128 BPM). Stored sample/attack beats are
+never clamped or interpolated to hide the rounded span. Runtime independently
+checks exact native geometry and rejects rounded coverage crossing the first
+loop end before firing. This historical allowance is not admission authority.
+Native sample indices retain
+their original DSP-clock coordinates and may start above zero. Explicit source
+transport coverage is global, with the same duration and message-rate clip
+start-time origin; message-rate origin and monitored continuity are historical
+approximate evidence, not admission authority or physical source proof.
+Signed global origin diagnostics remain readable; the qualified native MVP
+requires nonnegative global start. Unknown follow actions are never described
+as disabled: capture requires monitored continuity with explicit message-rate
+detection limitations, also exposed in typed summaries.
+
+Session publication requires Session requested/actual modes, an exact inspected
+Session clip subject (connection reference, semantic scene, track association),
+and a contributing track subject; attribution cannot be exclusive. Primary
+coverage is `{coordinate: "clip-local-beats", iteration: 0, startBeat: 0,
+endBeat}`; track coverage uses `{coordinate: "transport-beats", startBeat,
+endBeat}`. Requested/actual pass ranges remain clip-local. Legacy link coverage
+remains the unchanged `{startBeat, endBeat}` shape. The typed summary and detail
+readers preserve the Session kind, coordinate mapping, approximate alignment,
+and timing limitations. Connection-scoped clip references are not durable Live
+identities and do not prove current content/dependency freshness.
+Publication validates target references, semantic scene, and exact track
+association, not raw display-name equality. Session target display strings are
+credential-redacted with the existing sanitizer and then bounded to 128
+characters, including when redaction expands a short credential value. The same
+redacted, bounded names remain safe in typed summaries, detail reads, and restart; caller-owned
+observations and their alignment-quality shape are not mutated.
+
+Session clip subject IDs identify immutable binding snapshots, including the
+canonical contributing-track association and complete stored binding evidence.
+Different requested ranges or upstream processing fingerprints can produce
+different track/binding snapshots even when the clip/source settings are
+unchanged. A later capture then gets a distinct subject rather than attempting
+to overwrite old binding evidence; an identical snapshot can reuse its subject.
+Prior observations/subjects remain unchanged, without a migration or durable
+physical-clip-identity claim.
+
 Context survives diagnostic-journal retention. Context pruning requires exact
 reviewed IDs and removes context records only, never Live clips or source
 files. Current freshness requires privileged revalidation; missing content,
 identity or dependency evidence remains unknown or unresolved. Historical
 passes retain their original attribution when Set ownership changes.
+
+`mapSessionAudioObservation(observation, source)` converts validated native v2
+global descriptor/sample/attack beats by subtracting the frozen
+`source.transport.startBeat`. It retains native DSP sample indices, alignment,
+and limitations without mutating the input or clamping beats. The supplied
+Session source must describe the actual mapped coverage; inconsistent origins
+or spans fail schema validation. Conversion does not grant source admission,
+launch authority, or native geometry proof.
 
 The first observation for an unsaved in-memory App session must also publish
 its registry record and canonical session manifest with the typed context-store

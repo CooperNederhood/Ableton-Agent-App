@@ -94,7 +94,7 @@ async function summarize(
       ? "historical"
       : link.freshness.status;
   const quality =
-    entry.payload.schema === "audio-observation/v2"
+    entry.payload.schema !== "audio-observation/v1"
       ? entry.payload.alignment
       : undefined;
   const observed = (samples: number) =>
@@ -112,7 +112,18 @@ async function summarize(
     freshness,
     summary: [
       `${subject.kind}: ${subject.binding.semanticLocator.name}`,
-      `Observed beats ${link.coverage.startBeat}-${link.coverage.endBeat}`,
+      `Observed ${"coordinate" in link.coverage ? link.coverage.coordinate : "beats"} ${link.coverage.startBeat}-${link.coverage.endBeat}`,
+      ...(entry.payload.schema === "session-audio-observation/v1"
+        ? [
+            `Session first iteration (0), clip-local beats 0-${entry.payload.endBeat}; global transport beats ${entry.payload.source.transport.startBeat}-${entry.payload.source.transport.endBeat}`,
+            `Message-rate origin and monitored continuity are approximate evidence, not physical source proof; clip references are connection-scoped, not durable Live identities`,
+            ...(entry.payload.source.continuity.followActions === "unknown"
+              ? [
+                  "Follow actions unknown, not disabled; continuity is message-rate monitored and detection-limited",
+                ]
+              : []),
+          ]
+        : []),
       ...(quality
         ? [
             `Approximate descriptive-only timing; absolute error unknown`,

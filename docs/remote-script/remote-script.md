@@ -287,6 +287,136 @@ See [Live Events](../events/live-events.md).
 
 ### Guarded listening playback
 
+`listening.inspect_session_source` is a separate read-only diagnostic. It
+resolves an exact bounded regular-track Session clip, reads source/launch
+metadata, and re-resolves the target before returning. Replacement or movement
+fails the exact identity guard. The two source readings are deferred LOM
+observations, not an atomic snapshot. Unknown booleans/numbers/enums and
+nonfinite/out-of-bound coordinates remain `null`; signed Session `start_time`
+values are retained without claiming this target owns them. Selected playing
+clip identity is reported separately from queued and target-playing state.
+MIDI/warped position units are beats; unwarped units are seconds for diagnosis
+only. A fresh owned Live 11.3.43 process returned valid results for both MIDI
+and warped audio, but no usable `follow_action_enabled` boolean. This command
+never fires a clip, changes transport/settings, creates observers, or certifies
+native alignment. It uses existing executor and bridge read lifecycle events.
+
+Clip launch quantization is normalized by semantic members of the installed
+public `Live.Clip.ClipLaunchQuantization` enum, not by casting its raw integer
+to a Max ordinal. The [public generated Live 11.0.0 Python API reference](https://github.com/NSUSpray/Live_API_Doc/blob/master/11.0.0.xml)
+(unofficial, generated API documentation) names `q_global`, `q_none`, `q_bar`
+and the other supported members, but does not establish their numeric values.
+The [Max Clip reference](https://docs.cycling74.com/apiref/lom/clip/)
+defines the protocol's canonical `launchQuantization` ordinals: Global `0`,
+None `1`, 1 Bar `5`, with the remaining durations through `14`. The adapter
+requires all 15 named native members to resolve uniquely before translating a
+read value. Missing enum metadata, duplicate native values, unknown members
+or malformed values yield `null`; Session admission then refuses unknown
+settings. The simulator explicitly supplies a canonical simulated enum.
+
+A raw Python value `5` is not independently Global or 1 Bar: it maps to Global
+only if the installed public enum identifies that value as `q_global`, and to
+1 Bar only if it identifies it as `q_bar`. Newly created/imported clips,
+`fire()` quantization arguments, Song's global quantization enum, and the
+serialized `LaunchQuantisation` value are not substitutes for that semantic
+mapping. A fresh fixture-owner read must record the actual property type/raw
+value and named `q_global`/`q_bar`/`q_none` values on the full installed Live 11
+version; stale Remote Script diagnostics cannot qualify the correction.
+
+The separate guarded Session pass uses four capability-negotiated commands:
+
+| Command | Action | Project mutation |
+| --- | --- | --- |
+| `listening.prepare_session_pass` | `prepare` | No |
+| `listening.launch_session_pass` | `launch` | Yes |
+| `listening.inspect_session_pass` | `inspect` | No |
+| `listening.release_session_pass` | `release` | No |
+
+Every command retains its matching strict `action` discriminator. Prepare and
+release change only application-owned observer/lease state; inspection must not
+publish a project-mutation event or advance project revision. Launch still
+checks the exact frozen Set/revision immediately before its one `Clip.fire`;
+prepare does not waive unrelated project edits.
+
+Prepare freezes owner/pass UUIDs, an exact regular-track Session clip, an
+independently resolved same-track listener binding, duration, and the existing
+stopped global beat. It requires known recording-off, no queued launch, MIDI or
+warped audio, trigger mode `0`, legato false, clip launch quantization `0`,
+global None `0` or 1 Bar `4`, 4/4, and start marker/loop start `0`. Duration is
+positive, at most four beats and thirty seconds, and **strictly less than both
+loop end and end marker**, including for nonlooping clips. Equal natural-end or
+wrap boundaries are explicitly refused; the pass never silently trims a range
+or infers exact transition time from callback receipt. Unlike Arrangement
+positioning, admission does not require Arrangement selection, a cleared
+Session override, or any particular insert marker.
+
+This lower contract represents candidate launch cases, not application
+qualification. The application currently admits only global None at stopped
+beat zero, rejecting one-bar and nonzero stopped anchors before preparing a
+source lease or native listener. It never seeks or edits launch settings to
+make a candidate pass.
+
+Only one pass is active per runtime context. Public source monitors are
+installed before launch; an unavailable required listenable property refuses
+the pass. The [legacy Max 8 LOM](https://docs.cycling74.com/legacy/max8/vignettes/live_object_model#live_obj_anchor_Clip)
+lists Clip `start_time` as **get-only**, while `playing_status` is observable
+and `playing_position` supports get/observe. The
+[current Clip reference](https://docs.cycling74.com/apiref/lom/clip/)
+lists `start_time` as get/observe; that newer documentation does not establish
+Live 11 Python listener availability. The pass therefore deliberately never
+requires or calls `add_start_time_listener`/`remove_start_time_listener`.
+Instead, origin reads are mandatory on every real source callback, scheduled
+tick and explicit inspection (including application polling). This is an
+explicit polling policy, not a silent optional-monitor fallback.
+
+Real `playing_status`, playing-position, track-slot and launch-setting
+subscriptions remain required; missing infrastructure still refuses admission.
+Source identity, `start_time` and launch settings are reread on callbacks and
+scheduled ticks, not inferred from project revision alone. A missing/nonfinite
+origin read also refuses the pass. Results explicitly disclose
+`Clip.start_time` polling and that **changes between observations may be
+missed**, without claiming notification coverage or an exact event timestamp.
+Known enabled follow
+actions are denied. Unknown follow state is admitted only with explicit
+message-rate monitoring limitations: it is not independently known disabled,
+and continuity is neither guaranteed nor sample-accurate. Observed switches,
+retrigger, wrap, replacement, settings edits, and unsafe/unknown state latch
+invalidation through final inspection. The one launch's expected queued and
+playing transitions, including its initial stopped-position reset, are not
+mistaken for a retrigger.
+
+Acceptance and queued state are not playing evidence. The origin ledger is
+filled only from actual `Clip.start_time` with matching active target identity;
+it is never substituted with acceptance time. Results retain the first
+invalidation reason, origin ledger and bounded last-observed source state.
+`nativeAlignment` remains `unverified`: the application must independently join
+the observed origin and identity to frozen native geometry, refusing publication
+on mismatch. A pass expires after forty seconds; launch readback is bounded to
+five seconds. Timeout or partial launch remains explicit, with
+`mutationState:"indeterminate"` unless playing was independently observed.
+
+Release is nonlaunching and idempotent for the latest 32 closed owner/pass
+receipts. Receipts are bounded in-memory snapshots, not live LOM registrations
+or persisted audio. A retained closed UUID cannot prepare again, and replaying
+an old release cannot clear a newer pass. Release fences deferred work that has
+not fired; it does not retract an already dispatched host queue. Monitors remain
+until release/expiry, with failed removals tracked for explicit retry. Client
+disconnect schedules `clear_session_listening_pass` on the Live main thread;
+control-surface shutdown also invokes it before closing the executor. Other
+subscription/shutdown cleanup still runs if pass cleanup fails. Every outcome
+leaves playback, position, routing, solo/mute and settings unchanged except for
+the one admitted fire. Existing request/executor lifecycle and trace logging
+applies; no independent journal or audio-body persistence is introduced.
+
+Public LOM access flags are not physical Python API qualification. The next
+fixture-owner probe must record the full Live 11 version, verify each required
+add/remove listener pair on the actual source/listener, establish finite
+get-only origin reads, exercise queued-to-playing identity and actual-origin
+readback, and verify sampled origin drift refusal plus cleanup. Publication
+still requires matching active identity and actual origin equal to frozen
+native geometry; no seek, callback timestamp inference, or weaker alignment
+gate is permitted. No Live process was launched for this compatibility change.
+
 `listening.position_playback` supports guarded stopped Arrangement positioning
 before native arm. It validates exact Set/revision, bounded listener targets,
 recording-off, disabled loop and no Session override/pending launch. It writes
@@ -309,8 +439,9 @@ freshly inspect source/revision after positioning and before native arm/start.
 The result is `{schemaVersion:1,mode:"arrangement",cleanupPolicy:"leave-running",
 startedAtBeat,sourceOnset:"unverified"}`. Playback deliberately continues after
 capture completion, cancellation, disconnect and errors. There is no ownership
-token, automatic stop, or verified sounding-onset claim. Session start and
-`listening.stop_playback` remain unsupported. Native timing readiness is a
+token, automatic stop, or verified sounding-onset claim. Session mode on this
+legacy start command and `listening.stop_playback` remain unsupported; guarded
+Session launch uses the separate pass above. Native timing readiness is a
 separate application gate.
 
 Pre-mutation denials include `mutated:false`. Once a seek/start has been

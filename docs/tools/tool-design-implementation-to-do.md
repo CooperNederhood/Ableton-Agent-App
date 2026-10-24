@@ -24,6 +24,23 @@ Companion specification: [Tool Design](tool-design.md)
     across the Copilot SDK custom-tool boundary without throwing away the
     model/UI-visible failure.
 - [x] Standardize model-facing summaries and UI metadata.
+- [x] Reinforce opaque Browser identity copying in full/scoped tool metadata,
+  URI field guidance and the post-result hook, including literal ampersands
+  versus HTML entities. Add failing-before guidance regressions and preserve
+  exact-URI success plus pre-mutation rejection of rewritten URIs.
+- [x] Requalify the failed piano/string-bass scenario and its instruments group
+  after the Browser identity guidance correction. Both pass on Live 11.3.43
+  with literal `&`, exact final devices and successful cleanup
+  (`2026-10-24T15-26-46.131Z`, `2026-10-24T15-28-10.747Z`).
+- [x] Rerun the nineteen-case non-native selection without changing manifests
+  (`2026-10-24T15-29-16.545Z`): eleven pass/five recovered-pass, including piano,
+  before the instruments group's graceful exit times out. Exact-owned discard
+  cleanup succeeds and PID 5272 is independently confirmed exited.
+- [ ] Clear that separate graceful-shutdown failure before claiming a green
+  broader sweep; three later cases remain unrun. Preserve the failed cleanup
+  event rather than treating successful discard as a passing group.
+  Repair is tracked in #67 and coverage completion in #68, separately from the
+  bounded #63 feature PR.
 - [x] Add deferred/loading policy for large tool catalogs.
   - The initial bounded catalog remains eagerly registered; expansion beyond
     the current catalog requires grouped/deferred registration.

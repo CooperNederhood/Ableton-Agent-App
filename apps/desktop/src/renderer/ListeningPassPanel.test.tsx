@@ -104,6 +104,71 @@ async function click(text: string) {
 }
 
 describe("owned listening lifecycle presentation (synthetic fixtures only)", () => {
+  it("shows exact Session source, local bounds and launch uncertainty without claiming measured completion", async () => {
+    const h = source();
+    vi.mocked(h.api.listening.list).mockResolvedValueOnce(
+      page([
+        {
+          ...job,
+          stage: "starting-playback",
+          session: {
+            clipName: "Leading rests",
+            trackName: "Instrument",
+            sceneIndex: 2,
+            durationBeats: 4,
+            launch: { state: "queued", mutationState: "indeterminate" },
+          },
+        },
+      ]),
+    );
+    await render(h.api);
+    expect(container.textContent).toContain(
+      "Session clip Leading rests on Instrument, scene 3",
+    );
+    expect(container.textContent).toContain("clip-local range [0, 4)");
+    expect(container.textContent).toContain("Launch: queued");
+    expect(container.textContent).toContain("Host mutation: indeterminate");
+    expect(container.textContent).toContain(
+      "may still execute after cancellation",
+    );
+    expect(container.textContent).not.toContain("Source epoch matched");
+    await act(async () =>
+      h.emit({
+        type: "listening.changed",
+        page: page(
+          [
+            {
+              ...job,
+              stage: "capturing",
+              session: {
+                clipName: "Leading rests",
+                trackName: "Instrument",
+                sceneIndex: 2,
+                durationBeats: 4,
+                launch: {
+                  state: "verified",
+                  mutationState: "observed-playing",
+                },
+              },
+            },
+          ],
+          1,
+        ),
+      }),
+    );
+    expect(container.textContent).toContain(
+      "Source epoch matched the native transport anchor",
+    );
+    expect(container.textContent).toContain(
+      "does not prove exclusive clip audio",
+    );
+    expect(container.textContent).not.toContain("Lifecycle completed");
+    await click("Cancel owned capture (not transport)");
+    expect(container.textContent).toContain(
+      "does not stop Live transport or retract an accepted Session launch",
+    );
+  });
+
   it("shows the production timing gate and never invents inventory without a session/runtime", async () => {
     await render();
     expect(container.textContent).toContain("unavailable");

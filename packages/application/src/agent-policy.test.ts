@@ -390,6 +390,44 @@ describe("agent policy", () => {
     expect(guidance).toContain("every distinct requested sound");
   });
 
+  it("reinforces opaque Browser identities immediately after search without rewriting results", async () => {
+    const hooks = createAgentHooks({
+      getAbletonStatus: async () => connected,
+    });
+    const toolResult = {
+      resultType: "success" as const,
+      textResultForLlm: JSON.stringify({
+        items: [{ uri: "query:Sounds#Piano%20&%20Keys:FileId_24345" }],
+      }),
+    };
+    const input = {
+      sessionId: "sdk",
+      timestamp: new Date(),
+      workingDirectory: "/tmp",
+      toolName: "ableton_browser",
+      toolArgs: { action: "search", query: "piano" },
+      toolResult,
+    };
+    const result = await hooks.onPostToolUse?.(input, { sessionId: "sdk" });
+
+    expect(result?.additionalContext).toContain("opaque strings");
+    expect(result?.additionalContext).toContain("Do not HTML/XML-escape");
+    expect(result?.additionalContext).toContain(
+      "query:Sounds#Piano%20&%20Keys:FileId_24345",
+    );
+    expect(result?.additionalContext).toContain("not &amp;");
+    expect(result?.modifiedResult).toBeUndefined();
+    expect(JSON.parse(toolResult.textResultForLlm)).toEqual({
+      items: [{ uri: "query:Sounds#Piano%20&%20Keys:FileId_24345" }],
+    });
+
+    const unrelated = await hooks.onPostToolUse?.(
+      { ...input, toolName: "ableton_tracks", toolArgs: { action: "list" } },
+      { sessionId: "sdk" },
+    );
+    expect(unrelated?.additionalContext).not.toContain("opaque strings");
+  });
+
   it("blocks an unchanged retry after a stale or denied tool failure", async () => {
     const hooks = createAgentHooks({
       getAbletonStatus: async () => connected,

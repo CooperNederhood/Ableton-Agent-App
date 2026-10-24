@@ -15,6 +15,15 @@ Agent tools should be:
 - Structured in both success and failure.
 - Verifiable.
 
+Browser identity strings are opaque. Agent-facing tool/field metadata and the
+post-Browser-result hook require exact copying of URI, name and path values from
+parsed results, without HTML/XML escaping, URL normalization or guessed repairs.
+For example, a URI containing `%20&%20` must not become `%20&amp;%20`. Only JSON
+string escaping is permitted when representing the same value. The bridge's
+existing identity checks, approvals, mutation budgets and stale-reference retry
+policy remain unchanged; this guidance does not decode or accept rewritten
+identities. Failures retain their existing attributed tool lifecycle events.
+
 ## Audio metadata and playback observations
 
 The existing `ableton_audio_clips` read surface returns identity-bound source

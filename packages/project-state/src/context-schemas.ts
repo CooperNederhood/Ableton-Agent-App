@@ -21,7 +21,7 @@ export const sessionContextStoreReferenceSchema = z
     kinds: z
       .array(audioObservationKindSchema)
       .min(1)
-      .max(2)
+      .max(3)
       .refine((values) => new Set(values).size === values.length)
       .readonly(),
   })
@@ -31,7 +31,11 @@ export const SESSION_CONTEXT_STORE_REFERENCE =
   sessionContextStoreReferenceSchema.parse({
     schemaVersion: 2,
     relativePath: "context/entity-context.sqlite",
-    kinds: ["audio-observation/v1", "audio-observation/v2"],
+    kinds: [
+      "audio-observation/v1",
+      "audio-observation/v2",
+      "session-audio-observation/v1",
+    ],
   });
 
 export type SessionContextStoreReference = z.infer<
@@ -221,7 +225,22 @@ export const contextLinkSchema = z.strictObject({
   entryId: id,
   subjectId: id,
   relationship: z.enum(["primary", "contributor"]),
-  coverage: contextRangeSchema,
+  coverage: z.union([
+    contextRangeSchema,
+    z.strictObject({
+      coordinate: z.literal("clip-local-beats"),
+      iteration: z.literal(0),
+      startBeat: z.literal(0),
+      endBeat: z.number().finite().positive().max(4.001),
+    }),
+    z
+      .strictObject({
+        coordinate: z.literal("transport-beats"),
+        startBeat: beat,
+        endBeat: beat,
+      })
+      .refine((range) => range.endBeat >= range.startBeat),
+  ]),
   attribution: z.enum(["exclusive", "mixed", "unknown"]),
   observedContributorIds: z.array(id).max(64),
   sourceFingerprint: contextBindingEvidenceSchema,

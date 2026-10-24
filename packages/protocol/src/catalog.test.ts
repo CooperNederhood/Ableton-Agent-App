@@ -57,6 +57,8 @@ describe("command catalog", () => {
       "remote-script/AbletonAgent/workflow_adapter_commands.py",
       "remote-script/AbletonAgent/listening_commands.py",
       "remote-script/AbletonAgent/listening_playback.py",
+      "remote-script/AbletonAgent/session_listening_source.py",
+      "remote-script/AbletonAgent/session_listening_pass.py",
     ].map((path) => readFileSync(resolve(process.cwd(), path), "utf8"));
     const registered = quotedCommands(sources.join("\n"));
     const expected = commandNames

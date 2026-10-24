@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { sessionListeningJobDetailSchema } from "@ableton-agent/protocol";
 
 export const desktopListeningTraceSchema = z.strictObject({
   traceId: z.string().uuid(),
@@ -32,6 +33,7 @@ export const desktopListeningJobSchema = z.strictObject({
   error: z.string().min(1).max(2048).optional(),
   cleanupPolicy: z.literal("leave-running"),
   evidence: z.literal("lifecycle-only"),
+  session: sessionListeningJobDetailSchema.optional(),
 });
 export const desktopListeningListRequestSchema = z.strictObject({
   sessionId: z.string().min(1).max(256),

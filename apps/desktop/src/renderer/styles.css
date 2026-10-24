@@ -2221,6 +2221,9 @@ small,
 .inspector-workspace {
   min-width: 0;
 }
+.approval-panel {
+  overflow-wrap: anywhere;
+}
 .inspector-panes {
   height: 100%;
   min-height: 0;

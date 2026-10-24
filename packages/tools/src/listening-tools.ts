@@ -7,6 +7,7 @@ import {
   audioObservationKindSchema,
   storedAudioObservationSchema,
   clipLocationSchema,
+  sessionListeningJobDetailSchema,
 } from "@ableton-agent/protocol";
 import { z } from "zod";
 
@@ -25,8 +26,10 @@ const page = {
   limit: z.number().int().min(1).max(100).default(20),
 };
 
-export const LISTENING_AGENT_GUIDANCE =
-  "Use only actions present in your scoped schema. For Arrangement capture, play-arrangement-and-listen requires listenerIds, startBeat and endBeat: use the absolute endBeat, not durationBeats; durationBeats is Session-only. Arrangement capture is not read-only: on a successful pass the App positions stopped transport and starts playback, leaving it running. Report verified transport changes, not unchanged transport/seek state. For arrangement_session_override, explain that Live's Back to Arrangement restores the playback source, not the view. Switching views, stopping playback or deselecting a clip does not clear this override. Ask the user to restore Arrangement manually, then make a new explicit request; never repair source selection or retry automatically. Queued or arming is not completion or failure. Use get-pass with the returned passId to inspect that same pass until terminal, respecting any explicit per-request polling limit. Never start another playback call to wait for the first. Never use bash or sleep to wait. Only after stage=completed, read its returned contextId with ableton_context: a known contextId goes to get, not list. Report failed, cancelled or interrupted passes honestly; do not describe queued acceptance as measured audio. An explicit user instruction to stop on any failure also covers argument-validation and permission failures: report and stop instead of correcting arguments, repairing or retrying. retryable describes technical recoverability, not permission to retry.";
+const SESSION_LAUNCH_CASE_GUIDANCE =
+  "Requires stopped beat zero and global None; one-bar and nonzero stopped anchors are not qualified. Never seek or change launch settings to make a request pass.";
+
+export const LISTENING_AGENT_GUIDANCE = `Use only actions present in your scoped schema. For Arrangement capture, play-arrangement-and-listen requires listenerIds, startBeat and endBeat: use the absolute endBeat, not durationBeats; durationBeats is Session-only. Arrangement capture is not read-only: on a successful pass the App positions stopped transport and starts playback, leaving it running. Report verified transport changes, not unchanged transport/seek state. For Session capture, play-session-and-listen explicitly fires one exact MIDI or warped-audio clip through one same-track native v3 listener for at most four beats in its first iteration. ${SESSION_LAUNCH_CASE_GUIDANCE} Do not substitute Arrangement capture or edit launch/source settings to make it pass. Session cancellation does not retract an accepted or queued launch; playback stays running and other selected Session material can resume. The Session timeout includes setup and launch. Source continuity is message-rate monitored, not sample-accurate; unknown follow-action settings are not disabled, and listener audio is not exclusively attributable to the clip. For arrangement_session_override, explain that Live's Back to Arrangement restores the playback source, not the view. Switching views, stopping playback or deselecting a clip does not clear this override. Ask the user to restore Arrangement manually, then make a new explicit request; never repair source selection or retry automatically. Queued or arming is not completion or failure. Use get-pass with the returned passId to inspect that same pass until terminal, respecting any explicit per-request polling limit. Never start another playback call to wait for the first. Never use bash or sleep to wait. Only after stage=completed, read its returned contextId with ableton_context: a known contextId goes to get, not list. Report failed, cancelled or interrupted passes honestly; do not describe queued acceptance as measured audio. An explicit user instruction to stop on any failure also covers argument-validation and permission failures: report and stop instead of correcting arguments, repairing or retrying. retryable describes technical recoverability, not permission to retry.`;
 
 export const listeningOperationParamsSchema = z.discriminatedUnion("action", [
   z
@@ -39,11 +42,16 @@ export const listeningOperationParamsSchema = z.discriminatedUnion("action", [
     .object({
       action: z.literal("play-session-and-listen"),
       target: clipLocationSchema.options[0],
-      listenerIds,
-      durationBeats: z.number().finite().positive().max(256).default(16),
+      listenerIds: listenerIds.refine((values) => values.length === 1, {
+        message: "Session listening requires one same-track listener",
+      }),
+      durationBeats: z.number().finite().positive().max(4).default(4),
       maximumDurationMs: z.number().int().min(1).max(300_000).default(300_000),
     })
-    .strict(),
+    .strict()
+    .describe(
+      `Explicitly launch one exact Session MIDI or warped-audio clip and capture at most four first-iteration beats through one same-track native v3 listener. ${SESSION_LAUNCH_CASE_GUIDANCE} Requires recording off, zero offsets, Trigger/legato off and clip Global quantization. Capture must finish before the clip's first wrap and natural end. Queued acceptance is not measured execution; cancellation never retracts an accepted launch or stops transport.`,
+    ),
   z
     .object({
       action: z.literal("play-arrangement-and-listen"),
@@ -100,6 +108,7 @@ export const listeningJobSchema = z
     durationMs: z.number().finite().nonnegative(),
     contextIds: z.array(id).max(8),
     cleanupPolicy: z.enum(["stop-owned", "leave-running"]).optional(),
+    session: sessionListeningJobDetailSchema.optional(),
     error: z.string().max(2048).optional(),
   })
   .strict();
@@ -255,7 +264,7 @@ export function createListeningTools(
 ): [Tool<ListeningOperationParams>, Tool<ContextOperationParams>] {
   return [
     defineTool("ableton_listening", {
-      description: `${LISTENING_AGENT_GUIDANCE} Discover exact audio listeners and explicitly play an Arrangement range while capturing bounded measurements. Requires stopped transport and verified recording off; never solos/mutes tracks or changes effects. A listener with limitation native_per_pass_validation_required may attempt fresh native validation even while ready=false. Descriptive v2 supports nonzero/fractional Arrangement starts, constant tempo, 44.1/48 kHz and one approximately 100 ms reporting hop through 30 seconds, using supported actual DSP metadata. Tempo stability is assumed, not independently verified; tempo automation is unsupported. Do not change tempo during a pass; a completed result is not proof that no change occurred. Existing detected tempo, timing and integrity failures still reject a pass. The App positions and independently reads back the stopped insert marker/position before native arm. Timing policy is frozen from trusted Settings once per pass, not selected by this tool; the configured budget bounds observed disagreement, not absolute accuracy. Approximate results are descriptive-only, with unknown absolute timing error and no exclusive clip attribution. There is no automatic legacy fallback: the old beat-zero/120 BPM/48 kHz prototype requires explicitly configured strict mode and its matching existing marker/0.2-beat grid through beat 20. Scope metadata is not readiness or timing proof: genuine per-pass arm proof is required before playback, measured launch and complete coverage before publication. Other uncommissioned listeners remain denied. Playback continues after completion, cancellation, failure, or timeout: cancel stops capture, not transport. Session listening is unsupported until quantized source onset is verified. Passes are owned by the active App session/agent; cancel only owned passes. Master/return measurements are mixes, not isolated clip facts. Read status and cleanupPolicy before treating a pass as completed; results persist only after verified context publication.`,
+      description: `${LISTENING_AGENT_GUIDANCE} Discover exact audio listeners and explicitly play an Arrangement range or guarded Session clip while capturing bounded measurements. Requires stopped transport and verified recording off; never solos/mutes tracks or changes effects. A listener with limitation native_per_pass_validation_required may attempt fresh native validation even while ready=false. Descriptive v2 supports nonzero/fractional Arrangement starts, constant tempo, 44.1/48 kHz and one approximately 100 ms reporting hop through 30 seconds, using supported actual DSP metadata. Tempo stability is assumed, not independently verified; tempo automation is unsupported. Do not change tempo during a pass; a completed result is not proof that no change occurred. Existing detected tempo, timing and integrity failures still reject a pass. For Arrangement only, the App positions and independently reads back the stopped insert marker/position before native arm. Timing policy is frozen from trusted Settings once per pass, not selected by this tool; the configured budget bounds observed disagreement, not absolute accuracy. Approximate results are descriptive-only, with unknown absolute timing error and no exclusive clip attribution. There is no automatic legacy fallback: the old beat-zero/120 BPM/48 kHz prototype requires explicitly configured strict mode and its matching existing marker/0.2-beat grid through beat 20. Scope metadata is not readiness or timing proof: genuine per-pass arm proof is required before playback, measured launch and complete coverage before publication. Other uncommissioned listeners remain denied. Playback continues after completion, cancellation, failure, or timeout: cancel stops capture, not transport. Session requires a matching native v3 listener, zero clip offsets, Trigger/legato off, clip Global quantization and a qualified stopped-transport launch case. It never seeks or changes launch settings. Known-enabled follow actions and unwarped audio are denied; unknown follow-action settings remain explicit and message-rate monitored. Actual clip identity and start_time must match the independently frozen native transport anchor; otherwise no context is published. Passes are owned by the active App session/agent; cancel only owned passes. Master/return measurements are mixes, not isolated clip facts. Read status and cleanupPolicy before treating a pass as completed; results persist only after verified context publication.`,
       parameters: listeningOperationParamsSchema,
       handler: async (params, invocation) => {
         const result = listeningOperationResultSchema.parse(

@@ -25,7 +25,7 @@ const sessionInput = {
     expectedClipReference: "00000000-0000-4000-8000-000000000002",
     expectedClipName: "Sample",
   },
-  listenerIds: ["tap-before", "tap-after"],
+  listenerIds: ["tap-after"],
 };
 
 describe("optional listening tool contracts", () => {
@@ -70,7 +70,7 @@ describe("optional listening tool contracts", () => {
     );
   });
 
-  it("warns that cancellation leaves playback running and Session onset is unsupported", () => {
+  it("describes guarded Session launch and uncertainty without promising isolation or cancellation rollback", () => {
     const [tool] = createListeningTools({
       executeListeningOperation: async () => ({
         action: "inspect-listeners",
@@ -87,8 +87,19 @@ describe("optional listening tool contracts", () => {
     );
     expect(tool.description).toContain("cancel stops capture, not transport");
     expect(tool.description).toContain(
-      "Session listening is unsupported until quantized source onset is verified",
+      "Session requires a matching native v3 listener",
     );
+    expect(tool.description).toContain("stopped beat zero and global None");
+    expect(listeningOperationParamsSchema.options[1].description).toContain(
+      "stopped beat zero and global None",
+    );
+    expect(tool.description).toContain(
+      "unknown follow-action settings remain explicit",
+    );
+    expect(tool.description).toContain(
+      "does not retract an accepted or queued launch",
+    );
+    expect(tool.description).toContain("otherwise no context is published");
     expect(tool.description).toContain("native_per_pass_validation_required");
     expect(tool.description).toContain("nonzero/fractional Arrangement starts");
     expect(tool.description).toContain("through 30 seconds");
@@ -111,7 +122,7 @@ describe("optional listening tool contracts", () => {
 
   it("requires exact Session identity and defaults bounded capture", () => {
     expect(listeningOperationParamsSchema.parse(sessionInput)).toMatchObject({
-      durationBeats: 16,
+      durationBeats: 4,
       maximumDurationMs: 300_000,
     });
     expect(
@@ -127,6 +138,8 @@ describe("optional listening tool contracts", () => {
     { listenerIds: ["tap", "tap"] },
     { listenerIds: Array.from({ length: 9 }, (_, index) => `tap-${index}`) },
     { maximumDurationMs: 300_001 },
+    { durationBeats: 4.01 },
+    { listenerIds: ["tap-before", "tap-after"] },
     { durationBeats: Infinity },
     { rawAudio: [1, 2] },
   ])("rejects unsafe capture parameters %j", (patch) => {

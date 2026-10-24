@@ -162,6 +162,22 @@ Maintain a small manually triggered suite for supported Live versions:
 
 These tests are not expected to run on ordinary hosted CI.
 
+#### Opaque Browser identities
+
+Regress exact Browser identity handoff in full and load-only serialized tool
+metadata and the post-result hook. The hook adds copying guidance without
+rewriting result bodies or weakening stale-reference retry policy. Preserve
+literal ampersands and existing percent escapes; HTML/XML entity rewriting is
+not URI identity equivalence.
+
+Python fake-LOM coverage must reject entity-rewritten URIs before any Browser
+load or device mutation, and accept the exact original URI. Keep existing
+percent-encoding compatibility coverage. Use the unchanged reviewed
+`piano-and-string-bass` scenario to require actual identity-bound piano and bass
+devices, exactly two loads and ordinary approval/mutation budgets. Run it
+alone, its instruments group and the remaining runnable suite; one passing
+model turn is not a guarantee against all future argument rewriting.
+
 #### Transport stop discoverability
 
 The `transport` group includes `transport-stop`, run alone with

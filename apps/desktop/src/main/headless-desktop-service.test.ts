@@ -1011,6 +1011,13 @@ describe("desktop adapter over the shared application", () => {
         stage,
         error: failureDetail,
         durationMs: 2000,
+        session: {
+          clipName: failureDetail,
+          trackName: "MIDI track",
+          sceneIndex: 0,
+          durationBeats: 4,
+          launch: { state: "queued", mutationState: "indeterminate" },
+        },
       });
     service.reportListeningJob({ ...job, stage: "queued" });
     const queryTrace = {
@@ -1029,6 +1036,11 @@ describe("desktop adapter over the shared application", () => {
       stage: "failed",
       evidence: "lifecycle-only",
       cleanupPolicy: "leave-running",
+      session: {
+        trackName: "MIDI track",
+        durationBeats: 4,
+        launch: { state: "queued", mutationState: "indeterminate" },
+      },
     });
     expect(JSON.stringify(result)).not.toContain("secret-do-not-expose");
     result.jobs.splice(0);

@@ -7,6 +7,10 @@ import { stageNativeListeningFixture } from "./native-listening-fixture.mjs";
 import { createNativeRunnerLifecycle } from "./native-listening-lifecycle.mjs";
 import { waitForNativeBridge } from "./native-bridge-readiness.mjs";
 import {
+  reviewNativeSessionScenario,
+  selectSessionFixtureSource,
+} from "./native-session-listening-scenario.mjs";
+import {
   nativeSourcePrompt,
   nativeSourceSetupActions,
   nativeSourceTransitions,
@@ -20,6 +24,8 @@ import {
 import {
   createNativeScenarioApproval,
   inspectNativeListeningPostconditions,
+  inspectNativeStoppedPreflight,
+  snapshotNativeSessionSource,
   verifyNativeListeningEvidence,
 } from "./native-listening-verification.mjs";
 
@@ -63,6 +69,183 @@ export async function loadNativeRunnerServices() {
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
+}
+
+export function selectNativeSessionTarget(snapshot, input, protocol) {
+  const index = Number(input.canonicalPath.split(" ")[2]);
+  const track = snapshot.tracks.find((item) => item.index === index);
+  const clips = snapshot.clips?.filter(
+    (clip) => clip.trackIndex === index && clip.sceneIndex === input.sceneIndex,
+  );
+  assert(
+    track?.name === input.trackName &&
+      clips?.length === 1 &&
+      clips[0].trackReference === track.reference,
+    "Immutable Session fixture selector did not resolve one exact track and clip",
+  );
+  return protocol.inspectSessionListeningSourceParamsSchema.shape.target.parse({
+    view: "session",
+    track: {
+      kind: "regular",
+      index,
+      expectedReference: track.reference,
+      expectedName: track.name,
+    },
+    sceneIndex: input.sceneIndex,
+    expectedClipReference: clips[0].reference,
+    expectedClipName: clips[0].name,
+  });
+}
+
+/** Read every bounded fixture clip/device, including the unselected Session source. */
+export async function readNativeSessionFixtureContent({
+  ableton,
+  snapshot,
+  protocol,
+}) {
+  assert(
+    snapshot.trackCount === snapshot.tracks.length &&
+      snapshot.tracks.length <= 256 &&
+      Array.isArray(snapshot.clips) &&
+      snapshot.clips.length > 0 &&
+      snapshot.clips.length <= 32 &&
+      snapshot.tracks.every(
+        (track) =>
+          track.devicesTruncated === false && Array.isArray(track.devices),
+      ) &&
+      snapshot.tracks.reduce(
+        (count, track) => count + track.devices.length,
+        0,
+      ) <= 64,
+    "Complete bounded Session fixture clips and devices are required",
+  );
+  const content = { clips: [], devices: [] };
+  for (const track of snapshot.tracks) {
+    for (const device of track.devices) {
+      const params = protocol.inspectDeviceParametersParamsSchema.parse({
+        index: track.index,
+        expectedReference: track.reference,
+        expectedName: track.name,
+        deviceIndex: device.index,
+        expectedDeviceReference: device.reference,
+        expectedDeviceName: device.name,
+        offset: 0,
+        limit: 256,
+      });
+      const value = protocol.inspectDeviceParametersResultSchema.parse(
+        await ableton.inspectDeviceParameters(params),
+      );
+      assert(
+        value.device.reference === device.reference &&
+          value.device.trackReference === track.reference &&
+          value.offset === 0 &&
+          value.total === value.parameters.length &&
+          value.device.parameterCount === value.total &&
+          value.device.canHaveChains === false &&
+          value.device.canHaveDrumPads === false,
+        "Incomplete, nested or mismatched immutable fixture device content",
+      );
+      content.devices.push(value);
+    }
+  }
+  for (const clip of snapshot.clips) {
+    const track = snapshot.tracks.find(
+      (item) => item.index === clip.trackIndex,
+    );
+    assert(
+      track?.reference === clip.trackReference,
+      "Session clip changed track association",
+    );
+    const target =
+      protocol.inspectSessionListeningSourceParamsSchema.shape.target.parse({
+        view: "session",
+        track: {
+          kind: "regular",
+          index: track.index,
+          expectedReference: track.reference,
+          expectedName: track.name,
+        },
+        sceneIndex: clip.sceneIndex,
+        expectedClipReference: clip.reference,
+        expectedClipName: clip.name,
+      });
+    const queryId = randomUUID();
+    const source = protocol.inspectSessionListeningSourceResultSchema.parse(
+      await ableton.inspectSessionListeningSource({
+        schemaVersion: 1,
+        queryId,
+        target,
+      }),
+    );
+    assert(
+      source.queryId === queryId && isDeepStrictEqual(source.target, target),
+      "Stale or mismatched fixture source content read",
+    );
+    assert(
+      source.sourceKind === (clip.kind === "midi" ? "midi" : "warped-audio") &&
+        source.positionUnit === "beats",
+      "Fixture must contain inspected MIDI/warped-audio beat sources",
+    );
+    let body;
+    if (clip.kind === "midi") {
+      body = protocol.inspectMidiNotesResultSchema.parse(
+        await ableton.inspectMidiNotes({
+          index: track.index,
+          expectedReference: track.reference,
+          expectedName: track.name,
+          sceneIndex: clip.sceneIndex,
+          expectedClipReference: clip.reference,
+          offset: 0,
+          limit: 2048,
+        }),
+      );
+      assert(
+        body.clip.reference === clip.reference &&
+          body.offset === 0 &&
+          !body.truncated &&
+          body.totalNotes === body.notes.length &&
+          clip.noteCount === body.totalNotes,
+        "Incomplete or mismatched immutable fixture MIDI content",
+      );
+    } else {
+      assert(clip.kind === "audio", "Unknown immutable fixture clip kind");
+      const audio = protocol.audioClipsOperationResultSchema.parse(
+        await ableton.executeAudioClipsOperation({ action: "inspect", target }),
+      );
+      const markers = protocol.audioClipsOperationResultSchema.parse(
+        await ableton.executeAudioClipsOperation({
+          action: "warp-markers",
+          target,
+          offset: 0,
+          limit: 256,
+        }),
+      );
+      assert(
+        audio.action === "inspect" &&
+          audio.clip.reference === clip.reference &&
+          audio.clip.warping === true &&
+          audio.clip.gain !== null &&
+          audio.clip.pitchCoarse !== null &&
+          audio.clip.pitchFine !== null &&
+          audio.clip.filePath !== null &&
+          audio.clip.sampleLength !== null &&
+          audio.clip.sampleRate !== null &&
+          markers.action === "warp-markers" &&
+          markers.offset === 0 &&
+          markers.total === markers.markers.length,
+        "Incomplete or mismatched immutable fixture audio/warp content",
+      );
+      body = { audio, markers };
+    }
+    content.clips.push({
+      target,
+      sourceKind: source.sourceKind,
+      positionUnit: source.positionUnit,
+      settings: source.settings,
+      body,
+    });
+  }
+  return content;
 }
 
 const sourceScenarios = Object.fromEntries(
@@ -121,6 +304,8 @@ export function nativeDescriptivePrompt(capture) {
 }
 
 export function reviewNativeScenario(manifest) {
+  const session = reviewNativeSessionScenario(manifest);
+  if (session) return session;
   const v2 = v2Scenarios[manifest.id];
   const sourceTransition = nativeSourceTransitions[manifest.id];
   const rebinding = manifest.id === "native-descriptive-insert-before";
@@ -251,6 +436,7 @@ export async function admitNativeScenarios({
   approveAll,
   inputV1,
   inputV2,
+  inputV3,
 }) {
   if (manifests.length === 0) return;
   assert(
@@ -261,7 +447,10 @@ export async function admitNativeScenarios({
     manifests.map((manifest) => reviewNativeScenario(manifest).nativeVersion),
   );
   for (const version of versions)
-    await readNativeFixtureInput(version === 2 ? inputV2 : inputV1, version);
+    await readNativeFixtureInput(
+      version === 3 ? inputV3 : version === 2 ? inputV2 : inputV1,
+      version,
+    );
 }
 
 /** One fresh owned process and namespace per scenario, never concurrent Live. */
@@ -376,12 +565,16 @@ export async function createNativeListeningRunner({
       ? await import("../../packages/shared/dist/index.js")
       : d;
   const reviewed = reviewNativeScenario(manifest);
-  const input = await readNativeFixtureInput(inputPath, reviewed.nativeVersion);
+  const input = selectSessionFixtureSource(
+    await readNativeFixtureInput(inputPath, reviewed.nativeVersion),
+    reviewed,
+  );
   assert(
     input.formatVersion === 1 &&
-      /^live_set tracks (?:0|[1-9][0-9]?) devices (?:0|[1-9][0-9]?)$/.test(
-        input.canonicalPath,
-      ) &&
+      (reviewed.session
+        ? /^live_set tracks (?:0|[1-9][0-9]{0,2}) devices (?:0|[1-9][0-9]?)$/
+        : /^live_set tracks (?:0|[1-9][0-9]?) devices (?:0|[1-9][0-9]?)$/
+      ).test(input.canonicalPath) &&
       typeof input.trackName === "string" &&
       input.trackName.length <= 128 &&
       typeof input.deviceName === "string" &&
@@ -464,12 +657,17 @@ export async function createNativeListeningRunner({
   let readSourceBeforePass;
   let readSourceAfterPass;
   let observedLiveVersion;
+  let sessionSource;
+  let sessionContent;
+  let sessionRegistrations;
+  const sourceReceipts = [];
   const jobs = new Map();
   const received = [];
   const binding = {
     listenerId: undefined,
     passIds: new Set(),
     contextIds: new Set(),
+    completedContextIds: new Set(),
   };
   const approvals = createNativeScenarioApproval(manifest, binding);
   const owner = {
@@ -516,8 +714,27 @@ export async function createNativeListeningRunner({
   const normalizeSnapshot = (input) => {
     const snapshot = { ...input };
     delete snapshot.isPlaying;
+    if (reviewed.session)
+      snapshot.clips = input.clips?.map((clip) => {
+        if (clip.reference !== binding.sessionTarget?.expectedClipReference)
+          return clip;
+        const result = { ...clip };
+        delete result.isPlaying;
+        delete result.isTriggered;
+        return result;
+      });
     return snapshot;
   };
+  const registrations = () =>
+    globalThis.structuredClone(
+      runtime.signals.listeners.inspectListeners().map((listener) => ({
+        connectionId: listener.connectionId,
+        producer: listener.producer,
+        binding: listener.binding,
+        registration: listener.registration,
+        phase: listener.phase,
+      })),
+    );
   const normalizeInspection = (inspection) =>
     inspection.listeners.map((item) => ({
       binding: item.binding,
@@ -537,6 +754,7 @@ export async function createNativeListeningRunner({
     async run(validateOwnership) {
       let result;
       let postconditions;
+      let preflight;
       try {
         manager = makeManager();
         const contextHost = d.createSessionContextHost({
@@ -569,6 +787,83 @@ export async function createNativeListeningRunner({
             }),
           askForReadApproval: true,
           listening: (dependencies) => {
+            if (reviewed.session) {
+              const ableton = dependencies.ableton;
+              assert(
+                typeof ableton?.sessionListeningPass === "function",
+                "Production Session source-driver boundary is required",
+              );
+              const original = ableton.sessionListeningPass.bind(ableton);
+              ableton.sessionListeningPass = (params, options) =>
+                lifecycle.stage(
+                  `session-source-${params.action}`,
+                  async () => {
+                    const parsed =
+                      d.protocol.sessionListeningPassParamsSchema.parse(params);
+                    assert(
+                      binding.passIds.has(parsed.passId) &&
+                        (sourceReceipts.length < 511 ||
+                          parsed.action === "release"),
+                      "Foreign or unbounded Session source-driver request",
+                    );
+                    if (sourceReceipts.length > 0)
+                      assert(
+                        parsed.ownerId === sourceReceipts[0].params.ownerId,
+                        "Foreign Session source-driver owner",
+                      );
+                    if (parsed.action === "prepare")
+                      assert(
+                        sessionSource !== undefined &&
+                          expected !== undefined &&
+                          sourceReceipts.length === 0 &&
+                          parsed.expectedLiveSetId === owner.liveSetId &&
+                          parsed.expectedProjectRevision ===
+                            sessionSource.source.projectRevision &&
+                          parsed.durationBeats === 4 &&
+                          parsed.timingAnchor.globalBeat ===
+                            geometry.startBeat &&
+                          isDeepStrictEqual(
+                            parsed.target,
+                            sessionSource.target,
+                          ) &&
+                          isDeepStrictEqual(
+                            parsed.listener,
+                            sessionSource.listener,
+                          ),
+                        "Session preparation must match frozen source and listener before capture",
+                      );
+                    if (parsed.action === "launch")
+                      assert(
+                        sourceReceipts.length >= 1 &&
+                          sourceReceipts.every((receipt) =>
+                            ["prepare", "inspect"].includes(
+                              receipt.params.action,
+                            ),
+                          ) &&
+                          sourceReceipts[0].params.action === "prepare" &&
+                          sourceReceipts[0].result.status === "prepared" &&
+                          parsed.ownerId === sourceReceipts[0].params.ownerId,
+                        "Session runner permits only one exact prepared source launch",
+                      );
+                    const result = await original(params, options);
+                    sourceReceipts.push({
+                      params: globalThis.structuredClone(parsed),
+                      result:
+                        d.protocol.sessionListeningPassResultSchema.parse(
+                          result,
+                        ),
+                      beforePublication: ![
+                        "persisting",
+                        "completed",
+                        "failed",
+                        "cancelled",
+                      ].includes(jobs.get(parsed.passId)?.stage),
+                    });
+                    return result;
+                  },
+                  { action: params.action, passId: params.passId },
+                );
+            }
             host = d.createListeningRuntimeHost(dependencies, {
               resolveTimingPolicy: () => reviewed.timingPolicy,
               contextPorts: contextHost,
@@ -583,7 +878,7 @@ export async function createNativeListeningRunner({
               resolveRepository: (_owner, context) =>
                 manager.resolveRepository(context),
               onChange: (job) => {
-                if (reviewed.nativeVersion === 2 && expected === undefined) {
+                if (reviewed.nativeVersion >= 2 && expected === undefined) {
                   assert(
                     geometry !== undefined &&
                       binding.listenerId !== undefined &&
@@ -593,11 +888,24 @@ export async function createNativeListeningRunner({
                       job.owner.liveSetId === owner.liveSetId,
                     "App native expectation must be bound to an owned queued pass before capture",
                   );
-                  expected = d.protocol.snapshotNativeListeningExpectationV2({
+                  const snapshot = reviewed.session
+                    ? d.protocol.snapshotNativeSessionListeningExpectation
+                    : d.protocol.snapshotNativeListeningExpectationV2;
+                  expected = snapshot({
                     listenerId: binding.listenerId,
                     passId: job.passId,
                     policy: reviewed.timingPolicy,
                     geometry,
+                    ...(reviewed.session
+                      ? {
+                          source: {
+                            mode: "session",
+                            synchronization:
+                              "transport-coupled-first-iteration",
+                            target: sessionSource.target,
+                          },
+                        }
+                      : {}),
                   });
                 }
                 assert(
@@ -608,6 +916,9 @@ export async function createNativeListeningRunner({
                 jobs.set(job.passId, globalThis.structuredClone(job));
                 binding.passIds.add(job.passId);
                 for (const id of job.contextIds) binding.contextIds.add(id);
+                if (job.stage === "completed")
+                  for (const id of job.contextIds)
+                    binding.completedContextIds.add(id);
               },
             });
             return {
@@ -712,17 +1023,38 @@ export async function createNativeListeningRunner({
           .find((item) => item.producer.producerId === binding.listenerId);
         assert(
           listener.registration.nativeStatus?.scope ===
-            (reviewed.nativeVersion === 2
-              ? d.protocol.NATIVE_LISTENER_SCOPE_V2
-              : d.protocol.NATIVE_LISTENER_SCOPE) &&
-            (reviewed.nativeVersion === 2
-              ? listener.registration.version === 2 &&
+            (reviewed.session
+              ? d.protocol.NATIVE_SESSION_LISTENER_SCOPE
+              : reviewed.nativeVersion === 2
+                ? d.protocol.NATIVE_LISTENER_SCOPE_V2
+                : d.protocol.NATIVE_LISTENER_SCOPE) &&
+            (reviewed.nativeVersion >= 2
+              ? listener.registration.version === reviewed.nativeVersion &&
                 listener.producer.schemaVersion === "audio-observation/v2" &&
                 [44100, 48000].includes(listener.registration.sampleRate)
               : listener.registration.sampleRate === 48000) &&
             listener.phase === "idle",
           "Native candidate scope/sample rate/idle state mismatch",
         );
+        if (reviewed.session)
+          assert(
+            listener.registration.nativeStatus.version === 3 &&
+              listener.registration.trackCanonicalPath ===
+                input.canonicalPath.split(" devices ")[0] &&
+              listener.registration.nativeStatus.sourceEvidence ===
+                "expected-context-only" &&
+              listener.registration.nativeStatus.synchronization ===
+                "transport-coupled-first-iteration" &&
+              listener.registration.nativeStatus.maxDurationBeats === 4 &&
+              runtime.signals.listeners
+                .inspectListeners()
+                .filter(
+                  (item) =>
+                    item.registration.trackCanonicalPath ===
+                    listener.registration.trackCanonicalPath,
+                ).length === 1,
+            "One exact same-track wire3 expected-context-only candidate is required",
+          );
         const inspectionParams = {
           schemaVersion: 1,
           bindingQueryId: randomUUID(),
@@ -737,25 +1069,24 @@ export async function createNativeListeningRunner({
         let inspected =
           await runtime.ableton.inspectListeningContext(inspectionParams);
         let target = inspected.listeners[0];
-        assert(
-          inspected.transport.playing === false &&
-            (reviewed.nativeVersion === 2 ||
-              inspected.transport.currentBeat === 0) &&
-            inspected.transport.tempo === 120 &&
-            inspected.transport.safeToStart === true &&
-            Object.values(inspected.transport.recording).every(
-              (value) => value === false,
-            ) &&
-            inspected.listeners.length === 1 &&
-            target.enabled === true &&
-            target.sessionOverride === false &&
-            target.pathAttestation?.canonicalDevicePath ===
-              input.canonicalPath &&
-            target.binding.track.expectedName === input.trackName &&
-            target.binding.expectedDeviceName === input.deviceName &&
-            !target.clipsTruncated &&
-            !target.dependenciesTruncated,
-          "Unsafe or mismatched stopped native preflight",
+        preflight = inspectNativeStoppedPreflight(
+          {
+            inspected,
+            input,
+            nativeVersion: reviewed.nativeVersion,
+            session: reviewed.session,
+            limits: inspectionParams,
+          },
+          d.sanitizePersistedText,
+        );
+        await lifecycle.stage(
+          "stopped-preflight",
+          async () =>
+            assert(
+              preflight.passed,
+              `Unsafe or mismatched stopped native preflight: ${preflight.failedChecks.join(", ")}`,
+            ),
+          { preflight },
         );
         const sourceTransition = nativeSourceTransitions[manifest.id];
         const expectedRefusal = sourceTransition === "session-override";
@@ -835,18 +1166,90 @@ export async function createNativeListeningRunner({
           });
         }
         const baselineSnapshot = await runtime.application.inspectSession();
+        if (reviewed.session) {
+          const sessionTarget = selectNativeSessionTarget(
+            baselineSnapshot,
+            input,
+            d.protocol,
+          );
+          assert(
+            isDeepStrictEqual(sessionTarget.track, target.binding.track),
+            "Session clip and listener must independently resolve to the exact same track",
+          );
+          const queryId = randomUUID();
+          const source = await boundedStage("session-source-baseline", () =>
+            runtime.ableton.inspectSessionListeningSource({
+              schemaVersion: 1,
+              queryId,
+              target: sessionTarget,
+            }),
+          );
+          assert(source.queryId === queryId, "Stale Session source baseline");
+          geometry = d.protocol.createNativeListeningGeometry({
+            sampleRate: listener.registration.sampleRate,
+            vectorSize: listener.registration.vectorSize,
+            tempoBpm: inspected.transport.tempo,
+            startBeat: source.after.globalBeat,
+            endBeat: source.after.globalBeat + reviewed.capture.durationBeats,
+          });
+          const frozen = snapshotNativeSessionSource(
+            {
+              source,
+              target: sessionTarget,
+              sourceKind: reviewed.sourceKind,
+              geometry,
+            },
+            d.protocol,
+          );
+          sessionSource = {
+            ...frozen,
+            listener: globalThis.structuredClone(target.binding),
+          };
+          binding.sessionTarget = frozen.target;
+          sessionContent = await boundedStage(
+            "session-fixture-content-baseline",
+            () =>
+              readNativeSessionFixtureContent({
+                ableton: runtime.ableton,
+                snapshot: baselineSnapshot,
+                protocol: d.protocol,
+              }),
+          );
+          for (const sourceKind of ["midi", "warped-audio"]) {
+            const selector = selectSessionFixtureSource(input, {
+              ...reviewed,
+              sourceKind,
+            });
+            const selected = selectNativeSessionTarget(
+              baselineSnapshot,
+              selector,
+              d.protocol,
+            );
+            assert(
+              sessionContent.clips.some(
+                (clip) =>
+                  clip.target.expectedClipReference ===
+                    selected.expectedClipReference &&
+                  clip.sourceKind === sourceKind,
+              ),
+              "Both immutable fixture Session source selectors must match inspected content",
+            );
+          }
+          sessionRegistrations = registrations();
+        }
         const actorConfiguration = {
           instanceId: owner.agentId,
           productionSessionId: owner.sessionId,
           definitionName: "native-listening-integration",
           label: "Native listening integration",
-          description:
-            "Reviewed native Arrangement playback-and-listen integration scenario.",
+          description: `Reviewed native ${reviewed.session ? "Session" : "Arrangement"} playback-and-listen integration scenario.`,
           systemPrompt: "Execute only the reviewed listening scenario.",
           resolvedTools: manifest.allowedTools,
           resolvedOperations: [
             "listening.inspect_listeners",
-            "listening.play_arrangement_and_listen",
+            reviewed.session
+              ? "listening.play_session_and_listen"
+              : "listening.play_arrangement_and_listen",
             "listening.get_pass",
             "context.get",
           ],
@@ -936,7 +1339,7 @@ export async function createNativeListeningRunner({
         unsubscribeApplication = runtime.application.subscribe((event) => {
           if (event.type === "operation.started") actorToolCalls++;
           if (
-            reviewed.nativeVersion === 2 &&
+            reviewed.nativeVersion >= 2 &&
             event.type === "operation.failed" &&
             humanGateError === undefined
           ) {
@@ -993,7 +1396,7 @@ export async function createNativeListeningRunner({
             Promise.race([
               runtime.application.sendToManagedAgent(
                 owner.agentId,
-                `${manifest.prompt}\nExact runner-owned listener ID: ${binding.listenerId}. Use it only in the playback call's listenerIds. The inspect-listeners arguments are exactly {"action":"inspect-listeners"}. The get-pass arguments are only action and the passId returned by playback; never supply listenerIds to it. A returned contextId is a different identity. Historical context queries must set includeHistorical=true.`,
+                `${manifest.prompt}\nExact runner-owned listener ID: ${binding.listenerId}. Use it only in the playback call's listenerIds. The inspect-listeners arguments are exactly {"action":"inspect-listeners"}. The get-pass arguments are only action and the passId returned by playback; never supply listenerIds to it. A returned contextId is a different identity. Historical context queries must set includeHistorical=true.${reviewed.session ? `\nExact immutable Session target: ${JSON.stringify(binding.sessionTarget)}` : ""}`,
                 "interactive",
               ),
               humanGatePromise,
@@ -1107,6 +1510,36 @@ export async function createNativeListeningRunner({
                 bindingQueryId: randomUUID(),
               });
           const finalSnapshot = await runtime.application.inspectSession();
+          let sessionAfter;
+          if (reviewed.session) {
+            await fixture.verifyImmutableInputs();
+            const queryId = randomUUID();
+            sessionAfter = await boundedStage("session-source-after", () =>
+              runtime.ableton.inspectSessionListeningSource({
+                schemaVersion: 1,
+                queryId,
+                target: sessionSource.target,
+              }),
+            );
+            assert(
+              sessionAfter.queryId === queryId,
+              "Stale Session source after-state",
+            );
+            const contentAfter = await boundedStage(
+              "session-fixture-content-after",
+              () =>
+                readNativeSessionFixtureContent({
+                  ableton: runtime.ableton,
+                  snapshot: finalSnapshot,
+                  protocol: d.protocol,
+                }),
+            );
+            assert(
+              isDeepStrictEqual(sessionContent, contentAfter) &&
+                isDeepStrictEqual(sessionRegistrations, registrations()),
+              "Session capture changed fixture content, device parameters or unselected listener scope",
+            );
+          }
           const finalListener = runtime.signals.listeners
             .inspectListeners()
             .find((item) => item.producer.producerId === binding.listenerId);
@@ -1152,7 +1585,16 @@ export async function createNativeListeningRunner({
                   typed,
                   resumed,
                   target,
-                  ...(reviewed.nativeVersion === 2 ? { expected } : {}),
+                  ...(reviewed.nativeVersion >= 2 ? { expected } : {}),
+                  ...(reviewed.session
+                    ? {
+                        session: {
+                          ...sessionSource,
+                          receipts: sourceReceipts,
+                          after: sessionAfter,
+                        },
+                      }
+                    : {}),
                 },
                 d.protocol,
               ),
@@ -1315,6 +1757,7 @@ export async function createNativeListeningRunner({
       return {
         ...result,
         ...hostEvidence,
+        ...(preflight === undefined ? {} : { preflight }),
         ...(sourceEvidence === undefined
           ? {}
           : {

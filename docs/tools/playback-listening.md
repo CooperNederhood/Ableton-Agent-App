@@ -6,6 +6,318 @@ Companion checklist:
 Architecture decision:
 [ADR 0006](../architecture/decisions/0006-playback-listening-and-entity-context.md).
 
+## Session MVP (#63)
+
+The MVP sends MIDI rendered through its instrument chain and warped audio
+through the same native audio listener. Both kinds now pass their isolated
+runner-owned scenarios and the owning Session group on Live 11.3.43, without
+relabeling Arrangement transport-start evidence. Demonstrated acceptance is
+limited to stopped beat zero, Global None with clip Global, 120 BPM/4/4,
+48 kHz/vector 64, and clip-local beats 0-4 strictly before the eight-beat end.
+It does not qualify physical clip identity, sample-accurate source continuity,
+absolute timing, other launch cases, or a general native-device rollout.
+
+The development PR closes #63 for this bounded MVP, not for universal Session
+support or completed physical commissioning. Remaining work is explicitly
+handed off: #67 owns runner graceful shutdown, #68 the interrupted non-native
+regression sweep, #69 immutable legacy v1/v2 fixtures and physical reruns, and
+#70 the staged Session expansion roadmap. These follow-ups preserve unrun and
+failed evidence; they do not waive code review, CI, identity/timing guards or
+ordinary approvals for the feature PR.
+
+Pre-PR branch review found and corrected an immutable clip-subject collision on
+subsequent captures with different durations or upstream processing. Real-store
+regressions reproduce the old failure and now preserve earlier history while
+reusing identical snapshots. The reviewed candidate passes full build/quality
+with 3,026 TypeScript/script, 672 Max and 271 Python tests, all twelve Electron
+tests, and both real Session cases again (`2026-10-24T16-16-54.285Z`). Both native
+runs independently verify leave-running idle/released resources, unchanged
+source scope and successful exact-owned process/fixture cleanup; no Live process
+remains. These results do not complete the separately tracked broader/legacy
+coverage or change the descriptive timing limitations.
+
+`listening.inspect_session_source` is an additive, read-only diagnostic, not an
+agent listening tool or a readiness certificate. It resolves an exact regular
+track/slot/clip identity before and after bounded LOM reads. Its versioned result
+echoes the query/target and reports separate `before`/`after` source states,
+signed `startTimeBeats`, playing/queued slot identities, clip kind, position
+units, tempo, launch settings and markers. MIDI and warped audio use beats;
+unwarped audio uses seconds for diagnosis only. Unknown metadata stays `null`,
+including follow-action state. Deferred readings are not an atomic snapshot,
+launch receipt, sample timestamp, continuity seal or proof that this target
+owns a reported `start_time`. Another clip on the track can own that value.
+The bridge rejects a response whose query or exact target does not match.
+
+A fresh, runner-owned Live Suite **11.3.43** / Remote Script **0.7.0** process
+returned valid diagnostics for 13 Session clips, including both MIDI and warped
+audio, without changing the Session snapshot or starting playback. The queried
+`follow_action_enabled` property supplied no usable boolean for any of them.
+This is not evidence that follow actions are disabled. The MVP policy is now
+to reject known-enabled follow actions and retain unknown settings explicitly,
+with a pass-owned message-rate source monitor that invalidates observed source
+changes. Changes between deferred observations may remain undetected: neither
+the result nor the UI may claim guaranteed/sample-accurate source continuity or
+independently verified disabled follow actions. This is an explicit limitation,
+not a `null`-to-`false` safety default. These diagnostic reads alone did not
+establish a safe launch fixture or capture; bounded real-host evidence follows
+below and does not promote physical clip-onset accuracy.
+Private evidence is in
+`.test-artifacts/session-source-probe-6cb5d181-9830-4104-afe9-30a9e1a55d82/evidence.json`;
+the matching bounded, redacted lifecycle/bridge journal uses the storage
+resolver's isolated `automation` profile beneath that diagnostic directory.
+
+The diagnostic reuses existing read-only request serialization, timeout,
+queued/dispatched/completed/failed/cancelled events, and trace/correlation/
+causation propagation. It does not persist an audio observation, add a context
+kind, change storage ownership, fire clips, edit launch settings, stop transport
+or broaden existing Arrangement support.
+
+The implementation now composes the existing owned coordinator with guarded
+Session source leases and explicitly negotiated listener wire version 3.
+Wire 3 uses native ABI/DSP 2 and raw `audio-observation/v2` descriptors, wrapping
+the unchanged v2 transport proofs in `session-transport-coupled/v1`; it does not
+turn native transport onset into a clip-onset assertion. Before publication the
+application independently joins the exact active clip's observed `start_time`
+to its frozen stopped transport anchor. Mismatch, source invalidation,
+incomplete native coverage or cleanup failure prevents successful publication.
+
+Source-pass capability and result disclosures retain the existing 256-character
+per-limitation bound without dropping their polling and uncertainty claims.
+Validate actual emitted capability metadata, not only generated examples:
+an oversized Session disclosure prevents bridge readiness even when no Session
+capture is requested.
+
+Fresh-host capability smoke now passes on Live 11.3.43 after that correction.
+The first pinned Session MIDI attempt then stopped before listener registration,
+approval, launch or capture. Live's Max 8.5.8 bundles Node 16.6.0, which does not
+provide `Object.hasOwn`; the new Session SDK registration and source-freezing
+guards must use `Object.prototype.hasOwnProperty.call`, as existing SDK guards
+already do. Regressions reproduce both failures with the newer API unavailable
+and pass after correction; SDK construction also passes under the actual bundled
+Node executable. This is startup compatibility evidence, not a successful
+Session capture. Preserve the failed immutable package and use a separately
+packaged, normally saved fixture for the next physical attempt.
+
+The separately packaged correction and normally saved fixture pass strict
+device/media-reference admission, preserve the earlier Set, and register the
+wire-3 listeners in fresh Live 11.3.43. Retry `ea824c61` then refuses at the
+aggregate stopped-native preflight, before approval, jobs, launch or capture;
+owned-process cleanup completes. Its Operator has 195 parameters, exceeding
+the deliberately bounded 16-parameter inspection and therefore producing
+incomplete dependency evidence. The distinction between that uncertainty and
+actual source-safety failure was a qualification gate, not permission
+to fabricate complete attribution or relax recording/identity checks.
+
+The runner-only correction separates those conditions: Arrangement retains its
+dependency-completeness requirement, while nonexclusive Session capture may
+retain a truncated, unknown dependency fingerprint. All stopped transport,
+recording, enabled-device, exact identity/path, complete clip inventory and
+independent Session source/native-geometry guards remain required. The request
+still uses `maxParameters: 16`; the existing separate bounded fixture-content
+read checks all 195 Operator parameters before/after capture without increasing
+its established budget. This is a synthetic regression correction, not a new
+physical attempt or a reclassification of `ea824c61`.
+
+Normal runner results now retain bounded, redacted `preflight` evidence:
+named checks/failed checks, inspected transport/recording scalars, exact target
+identity/path summary, query limits and incomplete/unknown/nonexclusive quality.
+The traced/timed `stopped-preflight` lifecycle records the same allowlisted
+evidence. Raw responses, parameter bodies and audio bodies are not dumped.
+Refusals name the precise failed guard; missing recording or target evidence
+fails closed rather than being discarded with an aggregate error.
+
+The current deterministic quality gates pass 2,978 TypeScript, 672 Max and
+270 Python tests. All twelve owning Electron tests also pass, including explicit
+wire-3/Session capability discovery without exposed credentials, synthetic
+lifecycle presentation and typed three-kind context retrieval across restart.
+Those checks do not establish actual Session launch, native capture or visual
+acceptance of the real workflow.
+
+Subsequent real-host MIDI (`2026-10-24T03-53-13.302Z`) and warped-audio
+(`2026-10-24T03-54-17.285Z`) scenarios pass, followed by the complete Session
+group (`2026-10-24T03-57-38.579Z`). Each independently accepts the source/native
+origin join, 96,000 stereo frames, twenty envelope/spectral windows, unchanged
+bounded content and unselected scope, canonical associations, typed store reopen,
+one persisted context and leave-running idle cleanup. Source continuity remains
+message-rate monitored, follow actions remain unknown, and alignment is
+approximate. All nineteen remaining non-native scenarios also qualify across
+nine owned groups: fifteen pass and four recovered-pass
+(`2026-10-24T04-00-31.972Z`). Fresh legacy native-v1/v2 fixture inputs are not
+present in this worktree; those separate groups are not claimed as rerun.
+
+The actual CLI admits the Session native group before build, installation,
+credential access or process inspection. Native unsafe flags and missing
+version-specific inputs cannot bypass that existing admission boundary.
+A CLI regression reproduces the former credential-read precedence and passes
+with Session included; the owning script suite passes 821 tests.
+
+Visible ordinary approval additionally discloses Session launch/transport,
+all-outcome leave-running, possible resumption of other selected sources and
+accepted-launch cancellation limits before execution. Long argument identities
+wrap inside the inspector. A denied visible request does not launch or measure.
+The main regression reproduces the missing disclosure before correction; React
+checks typed preload presentation and exact decisions without main/tool imports.
+All twelve owning Electron tests cover the corrected main/preload-rendered preview,
+exact decisions and unclipped identities without weakening approval policy.
+
+The visible Default-agent MIDI pass `9ff60019` publishes context `465b1e7a`
+through ordinary approval. After fully closing and restarting both applications
+with the same isolated profile, read-only retrieval and Outputs retain that
+context's original pass/entry IDs, local/global bounds, native sample bounds
+and descriptors. Previous Live references remain historical and freshness/
+attribution remain unknown; no recapture or current-source identity is inferred.
+The subsequent visible warped-audio pass `6e3559a9` publishes context `4a107d61`
+with local/global 0-4, 96,000 frames, approximate timing and the same limitations.
+Outputs reports completed in 11.43 seconds and verified launch; Live visibly plays
+only the target audio clip. Both exact-owned apps close, the owned host stops,
+and the immutable staged Set retains its pinned hash.
+
+The portable production producer SDK explicitly negotiates wire 3 through
+`audio-listener/session-v1` and raw `audio-observation/v2`; neither missing
+advertisement nor a v2-only endpoint permits fallback. Its exact v3 registration
+requires the Session scope, ABI 2, bounded capability/readiness metadata and
+`sourceEvidence: "expected-context-only"`. Prepare clones and deeply freezes the
+bounded target/source, geometry and timing policy. V3 controls and replies retain
+exact action/version/owner/request identity; stale or replayed controls cannot
+release a replacement reservation. Results require the explicit Session
+arm/launch/capture wrappers, matching expected source, unchanged v2 transport
+scope, bounded native tuples/windows, raw descriptor shape and Session lifecycle
+scope. Native completeness/alignment mathematics remain independently validated
+by typed ingress; the SDK's shape/stage guards are not physical evidence.
+The existing 128 KiB frame ceiling, no offline-audio replay, write-drain deadlines,
+ACK sequencing, redacted failures and traced backpressure lifecycle also apply
+to v3. V1/V2 behavior and packaging are unchanged. Loopback production-SDK,
+typed-ingress and native-runtime fixtures verify these boundaries synthetically
+at 44.1/48 kHz, including failure and owned cancellation; they do not qualify Live.
+
+Requests select one exact regular-track clip and one independently bound native
+listener on that track, with a default/maximum four-beat first-iteration range.
+MIDI uses the existing instrument chain; warped audio uses the same audio DSP.
+Unwarped audio, nonzero clip start/loop offsets, legato, non-Trigger launch,
+known-enabled follow actions and running/recording transport are denied.
+The nominal and sample-rounded capture must finish **strictly before both the
+first loop boundary and natural end**, including nonlooping clips; no implicit
+shortening or source-setting repair is allowed. Production admission accepts
+only Global None from stopped beat zero. One-bar Global launch and every
+nonzero stopped anchor, including bar boundaries, fail with
+`session_launch_case_unqualified` before quota/source/native acquisition or
+launch. The app never seeks or changes quantization to make them pass. Lower
+contracts retain candidate coordinate shapes for future qualification, not
+authority to advertise or execute those cases through agent tools. Source,
+real shared-host and scoped-tool regressions fail before this restriction and
+pass afterward, including failure trace attribution and zero publication.
+
+After that restriction, the Session group passes again
+(`2026-10-24T13-50-12.141Z`): both cases retain independently accepted native/
+source evidence, exact coverage/context and owned cleanup. The complete
+deterministic quality command passes 3,021 TypeScript/script tests, 672 Max tests
+and 270 Python tests, plus formatting/lint/docs/contracts/compatibility/
+typechecks; all twelve Electron tests pass against the final build.
+
+Fresh visible acceptance on the final source also completes a single ordinary-
+approval warped-audio request: pass `07fce696`, context `e8023531`, completed in
+10.76 seconds. The one submitted message, completed reply, ready composer,
+stored Outputs/detail and separately inspected Live target agree. Native samples
+8,490,561-8,586,561 cover exactly 96,000 frames; observed clock/beat disagreement
+is 0/64 samples under the unchanged descriptive64 budget, not an absolute error
+bound. Unknown attribution/freshness/follow state and message-rate continuity
+remain visible. Both final owned apps close with explicit user approval for
+stopping test playback, the exact host stops, and staged/original saved Sets
+and the recovered listener-free base retain their pins. The runner's overall
+host qualification remains `unqualified`; these bounded passes do not certify
+the broader device, physical timing or release matrix.
+
+The pre-repair broader regression sweep (`2026-10-24T13-52-18.415Z`) is **not green**:
+eleven pass and four recovered-pass before `piano-and-string-bass` fails.
+Its piano load supplied an expected Browser URI containing `&amp;` while Live
+independently returned `&`, causing `stale_reference`; its subsequent retry was
+denied by the unchanged manifest guard. Two validation tracks and the bass load
+had executed in the dedicated disposable Set; exact-owned discard/exit cleanup
+passes. The run stops there, leaving the remaining three scenarios unrun.
+This separate Browser argument/guard failure is retained, not hidden by the
+earlier nineteen-case acceptance or repaired by changing Session scope, Browser
+identity checks, retry rules or approval budgets.
+
+The Browser argument defect is subsequently corrected at the agent-facing
+handoff, not by accepting rewritten identities. Shared full/scoped tool and URI
+field guidance plus the post-result hook require opaque copying from parsed
+results. Three new guidance regressions fail before the correction and pass
+afterward; Python confirms rewritten URIs still refuse before loading and the
+exact URI succeeds. Full quality passes 3,024 TypeScript/script, 672 Max and 271
+Python tests. The unchanged piano scenario and instruments group both pass
+(`2026-10-24T15-26-46.131Z`, `2026-10-24T15-28-10.747Z`), with literal `&`, exact
+final devices and successful owned cleanup.
+
+The latest broader run (`2026-10-24T15-29-16.545Z`) again stops, but **not on the
+Browser operation**: eleven pass/five recovered-pass, including piano and bass,
+then the instruments group's graceful Live shutdown times out. The failed
+cleanup event remains a failure; subsequent exact-owned discard succeeds and
+PID 5272 is independently confirmed exited. Three later cases remain unrun.
+Broader fresh-head acceptance remains blocked by that separate shutdown failure
+and the absent legacy native physical inputs, not the corrected URI handoff.
+
+Session `maximumDurationMs` is a monotonic overall budget from acceptance,
+including preparation, source launch, capture and publication. Queued work
+cancelled before bridge dispatch cannot fire. A dispatched/accepted launch
+cannot be retracted: all terminal outcomes leave transport and source selection
+unchanged by cleanup. Other already selected Session sources may resume when
+transport starts. Local monitors and native capture have bounded independent
+cleanup; unconfirmed cleanup is a visible failure.
+
+Typed lifecycle jobs optionally retain bounded, redacted Session clip/track
+names, scene, requested local duration and separate launch
+`requested`/`queued`/`observed`/`verified`/`indeterminate` detail with host mutation
+state. These are progress, not stored audio or timing certification. The same
+strict shape reaches tools, main/preload IPC, read-only inventory and Outputs.
+Stored `session-audio-observation/v1` uses local first-iteration beats while
+preserving native sample indices and separate global transport coordinates;
+one clip-primary and canonical track-contributor transaction uses the existing
+session-owned context database. Historical retrieval is distinct from binding
+those connection-scoped Live references to a current source.
+Clip subject IDs cover the full immutable binding snapshot and canonical track
+association, not only source settings. Repeated captures with a changed duration
+or upstream processing therefore publish distinct snapshots without overwriting
+the earlier observation; unchanged snapshots remain reusable. Real-store runtime
+regressions reproduce both immutable-binding conflicts before correction.
+
+The existing deterministic runner admits reviewed `native-session-midi` and
+`native-session-warped-audio` cases only with an explicitly pinned wire-3 fixture
+input. It copies the immutable Set/candidate/resources rather than authoring or
+repairing them; the candidate manifest must retain ABI 2, raw v2 descriptors and
+expected-context-only source evidence. Inspected `sessionSources[kind]` selectors
+bind the exact clip and its one same-track listener. Before capture the runner
+freezes source settings, global transport geometry and descriptive timing policy.
+Session WAV references must resolve to the copied, pinned project resources,
+not mutable legacy absolute originals. A post-capture integrity stage rechecks
+original/copy Set, candidate/resource inventories, discovery and WAV hashes.
+The actor may inspect once, launch that clip once for four beats/30,000 ms, get
+its owned pass once, then optionally read completed historical context; denial
+does not permit correction, retry, Arrangement playback or any other mutation.
+
+Independent verification joins unchanged native-v2 transport proof inside the
+wire-3 wrapper with bounded source-driver receipts observed before publication.
+It checks the actual active source epoch against the frozen global origin,
+local descriptor mapping without changing DSP sample indices, distinct local
+clip/global track coverage, unknown attribution/freshness and real typed store
+close/reopen. Session clip/track associations use the canonical contributor
+subject ID; its `previousRuntimeBindings` separately binds the exact inspected
+Live track reference. Canonical IDs must not be compared directly to Live UUIDs.
+The first completed MIDI capture (`232754af`, context `ce7f8e20`) retained correct
+unknown attribution/freshness, but the old verifier made that identity comparison
+and refused qualification. Typed reads on a disposable store copy identified the
+harness assumption; the original failed evidence remains unchanged. The narrow
+association regression corrects verification without a new Live retry or a
+qualification claim. Complete bounded reads compare MIDI notes, audio/warp metadata,
+device parameters, source settings and unselected scope before/after capture;
+truncated or unavailable critical content fails rather than proving equality.
+A later leave-running loop epoch is never substituted for the sealed
+pre-publication origin; this does not admit capture across a first-loop boundary.
+Every new read/source stage uses the existing traced/timed runner lifecycle.
+Synthetic composition tests are not physical qualification: the result retains
+`qualificationStatus: "unqualified"` and explicitly does not claim physically
+proven clip identity. Actual fixture/native launch geometry, delayed delivery,
+first-window retention and supported Live 11 behavior remain separate host gates.
+
 ## Development milestone and follow-ups
 
 On 2026-10-21 the developer approved treating this branch as a development
@@ -1696,8 +2008,10 @@ start must not mint an ownership token or imply that a later automatic stop is
 safe. An application lease serializes application work only; it cannot prevent
 the user's transport actions. The coordinator retains a legacy `stop-owned`
 adapter contract for explicitly ownership-capable backends and tests, but the
-Live 11 Arrangement adapter must not use it. Session capture remains unsupported
-until actual quantized source onset can be independently established.
+Live 11 Arrangement adapter must not use it. The candidate Session adapter also
+uses leave-running cleanup and independently requires the source epoch/native
+transport join; its actual admitted launch subset remains subject to the
+Session qualification gate above.
 
 This policy is the conservative implementation decision while user confirmation
 is unavailable. It preserves the ordinary playback-tool semantics without

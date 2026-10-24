@@ -84,6 +84,7 @@ try {
     [
       "native-listening",
       "native-listening-descriptive",
+      "native-listening-session",
       "native-listening-source-investigation",
       "native-listening-rebinding",
     ].includes(entry.id),
@@ -102,6 +103,7 @@ try {
     approveAll: hasFlag("approve-all"),
     inputV1: option("native-fixture-input"),
     inputV2: option("native-v2-fixture-input"),
+    inputV3: option("native-v3-fixture-input"),
   });
   await controller.assertNoPreExistingLive();
   if (!hasFlag("skip-build")) {
@@ -152,9 +154,11 @@ try {
           createNativeListeningRunner({
             manifest,
             inputPath: option(
-              reviewNativeScenario(manifest).nativeVersion === 2
-                ? "native-v2-fixture-input"
-                : "native-fixture-input",
+              reviewNativeScenario(manifest).nativeVersion === 3
+                ? "native-v3-fixture-input"
+                : reviewNativeScenario(manifest).nativeVersion === 2
+                  ? "native-v2-fixture-input"
+                  : "native-fixture-input",
             ),
             directory: resolve(
               ".test-artifacts",

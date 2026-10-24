@@ -8,7 +8,13 @@ import {
   nativeListeningGeometrySchema,
   listenerNativeStatusV2Schema,
   listeningTimingPolicySchema,
+  nativeSessionListeningConfigSchema,
 } from "@ableton-agent/protocol";
+import type {
+  ListenerControlSession,
+  ListenerReplySession,
+  ListenerResultSession,
+} from "./listener-session-contracts.js";
 import {
   listenerControlSchema,
   listenerControlInputSchema,
@@ -165,7 +171,13 @@ export const listenerConfigV2Schema = z.strictObject({
 export const versionedListenerControlInputSchema = z
   .strictObject({
     ...listenerControlInputSchema.shape,
-    config: z.union([listenerConfigSchema, listenerConfigV2Schema]).optional(),
+    config: z
+      .union([
+        listenerConfigSchema,
+        listenerConfigV2Schema,
+        nativeSessionListeningConfigSchema,
+      ])
+      .optional(),
   })
   .refine(
     (value) => value.action !== "prepare" || value.config !== undefined,
@@ -272,6 +284,10 @@ export type ListenerControlV2 = z.infer<typeof listenerControlV2Schema>;
 export type ListenerReplyV2 = z.infer<typeof listenerReplyV2Schema>;
 export type ListenerResultV2 = z.infer<typeof listenerResultV2Schema>;
 export type VersionedListenerControl =
-  z.infer<typeof listenerControlSchema> | ListenerControlV2;
-export type VersionedListenerReply = ListenerReply | ListenerReplyV2;
-export type VersionedListenerResult = ListenerResult | ListenerResultV2;
+  | z.infer<typeof listenerControlSchema>
+  | ListenerControlV2
+  | ListenerControlSession;
+export type VersionedListenerReply =
+  ListenerReply | ListenerReplyV2 | ListenerReplySession;
+export type VersionedListenerResult =
+  ListenerResult | ListenerResultV2 | ListenerResultSession;

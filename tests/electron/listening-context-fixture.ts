@@ -12,10 +12,12 @@ import {
 } from "../../packages/storage/src/index.js";
 import { createKnownListeningFixture } from "../../packages/test-support/src/listening-fixture.js";
 import { createSyntheticNativeListeningFixtureV2 } from "../../packages/protocol/src/testing.js";
+import { mapSessionAudioObservation } from "../../packages/protocol/src/index.js";
 
 export const listeningFixtureSessionId = "electron-listening-context";
 export const listeningFixturePassId = "electron-listening-pass";
 export const descriptiveFixturePassId = "electron-descriptive-pass";
+export const sessionFixturePassId = "electron-session-pass";
 
 /** Synthetic persistence/IPC fixture; never evidence of measured Max DSP. */
 export async function seedListeningContext(
@@ -202,6 +204,111 @@ export async function seedListeningContext(
                   previousRuntimeBindings: [],
                 },
               },
+            },
+          ],
+        }),
+        { trace, activeAgentId: "fixture-agent" },
+      );
+      const target = {
+        view: "session" as const,
+        track: {
+          kind: "regular" as const,
+          index: 0,
+          expectedReference: "00000000-0000-4000-8000-000000000063",
+          expectedName: "Synthetic instrument",
+        },
+        sceneIndex: 0,
+        expectedClipReference: "00000000-0000-4000-8000-000000000064",
+        expectedClipName: "Synthetic Session leading rests",
+      };
+      const raw = createSyntheticNativeListeningFixtureV2({
+        listenerId: "fixture-session-listener",
+        passId: sessionFixturePassId,
+        geometry: {
+          sampleRate: 48000,
+          vectorSize: 64,
+          tempoBpm: 120,
+          startBeat: 12,
+          endBeat: 16,
+        },
+      }).observation;
+      const sessionObservation = mapSessionAudioObservation(raw, {
+        view: "session",
+        target,
+        kind: "midi",
+        coordinate: { unit: "beats", iteration: 0, startBeat: 0, endBeat: 4 },
+        transport: { startBeat: 12, endBeat: 16 },
+        origin: {
+          evidence: "message-rate-start-time-with-native-transport",
+          clipStartTimeBeats: 12,
+          observedAtGlobalBeat: 12.2,
+        },
+        continuity: {
+          evidence: "message-rate-monitored",
+          followActions: "unknown",
+        },
+      });
+      const trackId = "fixture-session-track";
+      const sharedBinding = {
+        version: 1 as const,
+        sourceIdentity: "synthetic-session-source",
+        playbackSettingsHash: "fixture-settings",
+        upstreamProcessingHash: "fixture-chain",
+        routingHash: "fixture-routing",
+        dependencyScope: "unknown" as const,
+      };
+      await repository.appendPass(
+        buildListeningPublication({
+          passId: sessionFixturePassId,
+          owner: { ...ownership, agentId: "fixture-agent" },
+          trace,
+          requestedMode: "session",
+          actualMode: "session",
+          requestedRange: { startBeat: 0, endBeat: 4 },
+          createdAt: timestamp,
+          startedAt: timestamp,
+          endedAt: "2026-10-12T00:00:02.000Z",
+          observations: [sessionObservation],
+          bindings: [
+            {
+              listenerId: sessionObservation.listenerId,
+              deviceReference: "fixture-session-device",
+              connectionEpoch: "fixture-session-epoch",
+              version: sessionObservation.algorithm.version,
+              attribution: "unknown",
+              primary: {
+                id: "fixture-session-clip",
+                ...ownership,
+                kind: "clip",
+                location: "session",
+                trackId,
+                binding: {
+                  ...sharedBinding,
+                  semanticLocator: {
+                    name: target.expectedClipName,
+                    trackId,
+                    sceneIndex: 0,
+                  },
+                  previousRuntimeBindings: [target.expectedClipReference],
+                },
+              },
+              contributors: [
+                {
+                  id: trackId,
+                  ...ownership,
+                  kind: "track",
+                  location: "track",
+                  trackId,
+                  binding: {
+                    ...sharedBinding,
+                    semanticLocator: {
+                      name: target.track.expectedName,
+                      trackId,
+                    },
+                    previousRuntimeBindings: [target.track.expectedReference],
+                  },
+                },
+              ],
             },
           ],
         }),

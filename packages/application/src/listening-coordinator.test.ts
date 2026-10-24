@@ -11,6 +11,7 @@ import {
   type ListeningCoordinatorOptions,
   type ListeningCoordinatorServices,
   type ListeningRequest,
+  type ListeningJob,
 } from "./listening-coordinator.js";
 
 const owner = {
@@ -117,6 +118,191 @@ function fixture(
 afterEach(() => vi.useRealTimers());
 
 describe("headless listening coordinator", () => {
+  it("retains redacted Session source and ordered launch details through terminal failure", async () => {
+    const seen: ListeningJob[] = [];
+    const f = fixture(
+      {
+        startPlayback: async ({ onSessionLaunch }) => {
+          onSessionLaunch?.({
+            state: "requested",
+            mutationState: "indeterminate",
+          });
+          onSessionLaunch?.({
+            state: "queued",
+            mutationState: "indeterminate",
+          });
+          onSessionLaunch?.({
+            state: "observed",
+            mutationState: "observed-playing",
+          });
+          throw new Error("Source origin did not match native anchor");
+        },
+      },
+      (job) => seen.push(job),
+    );
+    const job = f.coordinator.start(
+      {
+        mode: "session",
+        listenerIds: ["listener"],
+        clipReference: trace.traceId,
+        trackReference: trace.correlationId,
+        durationBeats: 4,
+        maximumDurationMs: 1000,
+        target: {
+          view: "session",
+          sceneIndex: 0,
+          expectedClipReference: trace.traceId,
+          expectedClipName: "Authorization: Bearer private-clip-token",
+          track: {
+            kind: "regular",
+            index: 0,
+            expectedReference: trace.correlationId,
+            expectedName: "MIDI",
+          },
+        },
+      },
+      owner,
+      trace,
+    );
+    const result = await f.coordinator.wait(job.passId, owner);
+    expect(result.stage).toBe("failed");
+    expect(result.session?.launch).toEqual({
+      state: "observed",
+      mutationState: "observed-playing",
+    });
+    expect(JSON.stringify(result)).not.toContain("private-clip-token");
+    expect(
+      seen
+        .filter((value) => value.stage === "starting-playback")
+        .map((value) => value.session?.launch?.state),
+    ).toEqual([undefined, "requested", "queued", "observed"]);
+    expect(f.stop).not.toHaveBeenCalled();
+    const launchEvents = f.enqueue.mock.calls
+      .map(([event]) => telemetryEventEnvelopeSchema.parse(event))
+      .filter((event) => event.attributes.stage === "starting-playback");
+    expect(launchEvents).toHaveLength(4);
+    expect(
+      launchEvents.every(
+        (event) =>
+          event.trace?.traceId === trace.traceId &&
+          event.causationId === trace.causationId,
+      ),
+    ).toBe(true);
+  });
+
+  it.each([
+    "initial-inspection",
+    "context-reservation",
+    "listener-preparation",
+    "post-arm-inspection",
+    "playback-launch",
+    "capture",
+  ])(
+    "bounds the entire Session pass from acceptance during %s",
+    async (boundary) => {
+      vi.useFakeTimers();
+      const pending = () => new Promise<never>(() => {});
+      let inspections = 0;
+      const release = vi.fn(async () => {});
+      const f = fixture();
+      const inspect = f.services.inspect;
+      f.services.inspect = async (...args) => {
+        inspections++;
+        if (
+          (boundary === "initial-inspection" && inspections === 1) ||
+          (boundary === "post-arm-inspection" && inspections === 2)
+        )
+          return pending();
+        return inspect(...args);
+      };
+      if (boundary === "context-reservation")
+        f.services.reservePublication = pending;
+      if (boundary === "listener-preparation") f.services.prepare = pending;
+      f.services.startPlayback =
+        boundary === "playback-launch"
+          ? pending
+          : async () => ({ cleanupPolicy: "leave-running", release });
+      const job = f.coordinator.start(
+        {
+          mode: "session",
+          listenerIds: ["listener"],
+          clipReference: "clip",
+          trackReference: "track",
+          durationBeats: 4,
+          maximumDurationMs: 500,
+        },
+        owner,
+        trace,
+      );
+      await vi.advanceTimersByTimeAsync(499);
+      expect(f.coordinator.get(job.passId, owner).stage).not.toBe("failed");
+      await vi.advanceTimersByTimeAsync(1);
+      expect(f.coordinator.get(job.passId, owner).stage).toBe("failed");
+      const result = await f.coordinator.wait(job.passId, owner);
+      expect(result).toMatchObject({
+        stage: "failed",
+        durationMs: 500,
+      });
+      expect(result.error).toContain("including setup and launch");
+      expect(f.services.persist).not.toHaveBeenCalled();
+      expect(f.stop).not.toHaveBeenCalled();
+      expect(release).toHaveBeenCalledTimes(boundary === "capture" ? 1 : 0);
+      await f.coordinator.shutdown();
+    },
+  );
+
+  it("does not extend a Session budget when the wall clock moves backwards", async () => {
+    vi.useFakeTimers();
+    const f = fixture({ inspect: () => new Promise(() => {}) });
+    const job = f.coordinator.start(
+      {
+        mode: "session",
+        listenerIds: ["listener"],
+        clipReference: "clip",
+        trackReference: "track",
+        durationBeats: 4,
+        maximumDurationMs: 500,
+      },
+      owner,
+      trace,
+    );
+    await vi.advanceTimersByTimeAsync(250);
+    vi.setSystemTime(Date.now() - 86_400_000);
+    await vi.advanceTimersByTimeAsync(250);
+    expect(f.coordinator.get(job.passId, owner).stage).toBe("failed");
+    const result = await f.coordinator.wait(job.passId, owner);
+    expect(result).toMatchObject({
+      stage: "failed",
+      durationMs: 500,
+    });
+    expect(result.error).toContain("including setup and launch");
+    await f.coordinator.shutdown();
+  });
+
+  it.each([
+    { durationBeats: 4.01 },
+    { durationBeats: 0 },
+    { listenerIds: ["listener", "second-listener"] },
+  ])("rejects Session MVP bounds before inspection: %j", (change) => {
+    const f = fixture();
+    expect(() =>
+      f.coordinator.start(
+        {
+          mode: "session",
+          listenerIds: ["listener"],
+          clipReference: "clip",
+          trackReference: "track",
+          durationBeats: 4,
+          maximumDurationMs: 500,
+          ...change,
+        },
+        owner,
+        trace,
+      ),
+    ).toThrow("at most four first-iteration beats");
+    expect(f.services.inspect).not.toHaveBeenCalled();
+  });
+
   it.each(["completed", "cancelled"] as const)(
     "releases monitors but leaves transport running when capture is %s",
     async (stage) => {

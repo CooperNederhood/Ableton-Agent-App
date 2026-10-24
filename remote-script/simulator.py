@@ -14,7 +14,12 @@ from collections import deque
 
 from AbletonAgent.protocol import FrameDecoder, encode_frame
 from AbletonAgent.errors import ProtocolFailure
-from AbletonAgent.listening_simulator import inspect_simulated_listening_context, build_listening_simulator_context
+from AbletonAgent.listening_simulator import (
+    SimulatedClipLaunchQuantization, inspect_simulated_listening_context,
+    build_listening_simulator_context,
+)
+from AbletonAgent.session_listening_source import inspect_session_listening_source
+from AbletonAgent.session_listening_pass import SESSION_PASS_COMMANDS, validate_session_pass_action
 from AbletonAgent.listening_playback import (
     OWNERSHIP_LIMITATION, PLAYBACK_CAPABILITIES, POSITION_LIMITATION, START_LIMITATION,
     position_listening_playback, start_listening_playback, stop_listening_playback,
@@ -2605,6 +2610,23 @@ def handle(request, token, state):
             return response(request, stop_listening_playback(state, params))
         except ProtocolFailure as error:
             return failure(request, error.code, error.message, error.details)
+    if command in SESSION_PASS_COMMANDS:
+        error = validate_session_pass_action(params, SESSION_PASS_COMMANDS[command])
+        if error:
+            return failure(request, "invalid_params", error)
+        return failure(
+            request, "unsupported_capability",
+            "Simulator does not provide pass-owned public Session source monitors",
+            {"mutationState": "not-attempted", "cleanupPolicy": "leave-running"},
+        )
+    if command == "listening.inspect_session_source":
+        try:
+            return response(request, inspect_session_listening_source(
+                build_listening_simulator_context(state), params,
+                launch_quantization_enum=SimulatedClipLaunchQuantization,
+            ))
+        except ProtocolFailure as error:
+            return failure(request, error.code, error.message)
     if command == "listening.inspect_context":
         try:
             return response(request, inspect_simulated_listening_context(state, params))
@@ -2634,6 +2656,11 @@ def handle(request, token, state):
                     "live_set.get_identity": True,
                     "session.inspect": True,
                     "listening.inspect_context": True,
+                    "listening.inspect_session_source": True,
+                    "listening.prepare_session_pass": False,
+                    "listening.launch_session_pass": False,
+                    "listening.inspect_session_pass": False,
+                    "listening.release_session_pass": False,
                     "listening.position_playback": True,
                     "listening.start_playback": True,
                     "listening.stop_playback": False,

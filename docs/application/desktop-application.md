@@ -158,13 +158,36 @@ the coordinator remains the authority for capture lifecycle and original traces.
 
 The panel shows queued, validation, reservation, arming, playback-start, capture,
 publication and terminal stages, elapsed duration and actionable failure detail.
-It explicitly states that bounded Arrangement playback is **left running** on
-completion, cancellation, failure and timeout; Session capture is unsupported
-and production timing certification is still unavailable. The cancel control
+It explicitly states that bounded playback is **left running** on completion,
+cancellation, failure and timeout; production timing certification is still
+unavailable. Session jobs additionally show bounded redacted clip/track
+names, scene, requested clip-local first-iteration duration, launch progress and
+host mutation state. An observed/verified source epoch is not exclusive audio
+attribution or absolute timing accuracy. Unknown follow-action settings remain
+unknown, with message-rate continuity limitations in the stored context. An
+accepted or queued Session launch may still execute after cancellation, and
+other selected Session material may resume. The cancel control
 uses the existing `agents:cancel` service path for that agent's active turn and
 all its owned captures, including after SDK idle. Its expected App-session ID is
 revalidated before cancellation; no arbitrary renderer actor, direct bridge stop
 or transport-ownership token is introduced.
+
+Before ordinary approval, Session listening explicitly discloses the clip launch,
+transport start, leave-running behavior on all outcomes, possible resumption of
+other selected Session sources, and that cancellation cannot retract an accepted
+launch. It does not describe those effects merely as a reversible operation.
+The metadata-derived approval risk and scoped approval policy are unchanged.
+Long target identities and argument previews wrap inside the inspector instead
+of clipping horizontally. Main mapping, React approve/deny interactions and the
+Electron preload/rendered preview preserve those disclosures and exact decisions.
+
+Visible ordinary-approval MIDI and warped-audio captures qualify this bounded
+Session presentation on Live 11.3.43. After both apps fully restart, Outputs and
+read-only agent retrieval preserve the original MIDI pass/context IDs, sample
+bounds and descriptors without recapture; old Live references remain historical
+and freshness/attribution unknown. Application admission and tool guidance remain
+limited to Global None from stopped beat zero, not general quantized launch.
+Synthetic v1/v2/Session Electron restart tests remain separate evidence.
 
 Inventory and user-cancellation boundaries record ordered queued, started,
 progress, completed, failed or supported cancelled events with sanitized payloads,

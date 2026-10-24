@@ -1,8 +1,20 @@
 import { createHash, randomUUID } from "node:crypto";
 import { createConnection, type Socket } from "node:net";
+import { isDeepStrictEqual } from "node:util";
 
-import type { AbletonService } from "@ableton-agent/ableton-contracts";
+import type {
+  AbletonRequestOptions,
+  AbletonService,
+} from "@ableton-agent/ableton-contracts";
 import {
+  inspectSessionListeningSourceParamsSchema,
+  inspectSessionListeningSourceResultSchema,
+  type InspectSessionListeningSourceParams,
+  type InspectSessionListeningSourceResult,
+  sessionListeningPassParamsSchema,
+  sessionListeningPassResultSchema,
+  type SessionListeningPassParams,
+  type SessionListeningPassResult,
   inspectListeningContextParamsSchema,
   inspectListeningContextResultSchema,
   type InspectListeningContextParams,
@@ -967,6 +979,68 @@ export class AbletonBridgeService implements AbletonService {
     );
   }
 
+  public async inspectSessionListeningSource(
+    params: InspectSessionListeningSourceParams,
+    options?: AbletonRequestOptions,
+  ): Promise<InspectSessionListeningSourceResult> {
+    const validated = inspectSessionListeningSourceParamsSchema.parse(params);
+    this.#requireCapability("listening.inspect_session_source");
+    const result = inspectSessionListeningSourceResultSchema.parse(
+      await this.#request(
+        "listening.inspect_session_source",
+        validated,
+        true,
+        options?.signal,
+      ),
+    );
+    if (
+      result.queryId !== validated.queryId ||
+      !isDeepStrictEqual(result.target, validated.target)
+    ) {
+      throw new AbletonBridgeError(
+        "invalid_response",
+        "Session source inspection does not match its exact query and target",
+        false,
+      );
+    }
+    return result;
+  }
+
+  public async sessionListeningPass(
+    params: SessionListeningPassParams,
+    options?: AbletonRequestOptions,
+  ): Promise<SessionListeningPassResult> {
+    const validated = sessionListeningPassParamsSchema.parse(params);
+    const commands = {
+      prepare: "listening.prepare_session_pass",
+      launch: "listening.launch_session_pass",
+      inspect: "listening.inspect_session_pass",
+      release: "listening.release_session_pass",
+    } as const;
+    const command = commands[validated.action];
+    this.#requireCapability(command);
+    const result = sessionListeningPassResultSchema.parse(
+      await this.#request(
+        command,
+        validated,
+        validated.action !== "launch",
+        options?.signal,
+      ),
+    );
+    if (
+      result.ownerId !== validated.ownerId ||
+      result.passId !== validated.passId ||
+      (validated.action === "prepare" &&
+        result.durationBeats !== validated.durationBeats)
+    )
+      throw new AbletonBridgeError(
+        "invalid_response",
+        "Session source receipt does not match its owner, pass and duration",
+        false,
+      );
+    return result;
+  }
+
   public async positionListeningPlayback(
     params: PositionListeningPlaybackParams,
   ): Promise<PositionListeningPlaybackResult> {
@@ -1864,6 +1938,7 @@ export class AbletonBridgeService implements AbletonService {
     command: string,
     params: Readonly<Record<string, unknown>>,
     timeoutRetryable = true,
+    dispatchSignal?: AbortSignal,
   ): Promise<unknown> {
     if (!this.#socket || this.#socket.destroyed) {
       throw new Error("Ableton bridge is not connected");
@@ -1992,6 +2067,41 @@ export class AbletonBridgeService implements AbletonService {
         0,
         dispatchedAt.getTime() - queuedAt.getTime(),
       );
+      const assertDispatchAllowed = () => {
+        if (!dispatchSignal?.aborted) return;
+        const cancelledAt = this.#now();
+        this.#record({
+          name: "bridge.request.cancelled",
+          source: "ableton-bridge",
+          ...linkage,
+          level: "info",
+          outcome: "cancelled",
+          durationMs: Math.max(0, cancelledAt.getTime() - queuedAt.getTime()),
+          trace,
+          occurredAt: cancelledAt.toISOString(),
+          attributes: {
+            requestId,
+            command,
+            queueWaitMs,
+            timeoutClass,
+            timeoutMs,
+            reason: "caller-aborted-before-dispatch",
+            mutated: false,
+            ...operationAttributes,
+          },
+        });
+        throw new AbletonBridgeError(
+          "conflict",
+          "Ableton request was cancelled before dispatch; no host action was requested",
+          false,
+          {
+            command,
+            mutated: false,
+            dispatchState: "cancelled-before-dispatch",
+          },
+        );
+      };
+      assertDispatchAllowed();
       const socket = this.#socket;
       if (
         generation !== this.#connectionGeneration ||
@@ -2043,6 +2153,7 @@ export class AbletonBridgeService implements AbletonService {
         requestedAt: dispatchedAt.toISOString(),
         ...(correlationId === undefined ? {} : { correlationId }),
       });
+      assertDispatchAllowed();
       this.#record({
         name: "bridge.request.dispatched",
         source: "ableton-bridge",

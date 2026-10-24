@@ -113,6 +113,12 @@ function sampleCommandParams(name, schema) {
     sample.range.endBeat = 1;
     sample.listeners[0].expectedClassName = "MxDeviceAudioEffect";
   }
+  if (name === "listening.prepare_session_pass") {
+    sample.listener.expectedClassName = "MxDeviceAudioEffect";
+  }
+  if (name === "listening.release_session_pass") {
+    sample.reason = "cancelled";
+  }
   return sample;
 }
 
@@ -124,6 +130,47 @@ function sampleCommandResult(name, schema) {
       listener.canonicalPath = "live_set tracks 0 devices 0";
       listener.binding.expectedClassName = "MxDeviceAudioEffect";
     }
+  }
+  if (
+    [
+      "listening.prepare_session_pass",
+      "listening.launch_session_pass",
+      "listening.inspect_session_pass",
+      "listening.release_session_pass",
+    ].includes(name)
+  ) {
+    const playing =
+      name === "listening.launch_session_pass" ||
+      name === "listening.inspect_session_pass";
+    const clipReference = "00000000-0000-4000-8000-000000000099";
+    sample.status = playing
+      ? "playing"
+      : name === "listening.release_session_pass"
+        ? "cancelled"
+        : "prepared";
+    sample.mutationState = playing ? "observed-playing" : "not-attempted";
+    sample.reason = null;
+    sample.sourceEpoch = playing
+      ? { startTimeBeats: 0, clipReference, observedGlobalBeat: 0 }
+      : null;
+    sample.lastObservedSource = {
+      transportPlaying: playing,
+      globalBeat: 0,
+      startTimeBeats: 0,
+      playingPosition: 0,
+      targetPlaying: playing,
+      targetTriggered: false,
+      targetRecording: false,
+      playingSlotIndex: playing ? 0 : -1,
+      firedSlotIndex: -1,
+      selectedClipReference: playing ? clipReference : null,
+    };
+    sample.followActionState = "unknown";
+    sample.limitations = [
+      "Source monitoring is message-rate only; Clip.start_time is polled, not subscribed; changes between observations may be missed.",
+      "Follow-action state is unknown, not independently known disabled.",
+    ];
+    sample.expiresInMs = 40_000;
   }
   return sample;
 }

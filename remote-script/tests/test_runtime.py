@@ -13,6 +13,7 @@ REMOTE_SCRIPT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REMOTE_SCRIPT_ROOT))
 
 from AbletonAgent.capabilities import build_capability_document  # noqa: E402
+from AbletonAgent.errors import ProtocolFailure  # noqa: E402
 from AbletonAgent.identity import build_live_identity  # noqa: E402
 from AbletonAgent.executor import MainThreadExecutor  # noqa: E402
 from AbletonAgent.messages import PROTOCOL_VERSION, success  # noqa: E402
@@ -4040,6 +4041,52 @@ class BrowserCommandTests(unittest.TestCase):
 
         self.assertTrue(result["verified"])
         self.assertEqual(result["addedDevices"][0]["name"], "Auto Filter")
+
+    def test_rejects_html_rewritten_uri_before_loading_exact_browser_item(self):
+        track = self.context.song.tracks[0]
+        reference = "00000000-0000-4000-8000-000000000001"
+        self.context._track_references = [(track, reference)]
+        uri = "query:Sounds#Piano%20&%20Keys:FileId_24345"
+        self.context.application.browser.sounds.children.append(
+            FakeBrowserItem(
+                "Childhood Home Piano.adg",
+                uri,
+                loadable=True,
+                source="Core Library",
+            )
+        )
+        item = self.execute(
+            "browser.search",
+            {"query": "childhood home piano", "roots": ["sounds"]},
+        )["items"][0]
+        params = {
+            "index": 0,
+            "expectedReference": reference,
+            "expectedName": track.name,
+            "expectedItemReference": item["reference"],
+            "expectedItemRoot": item["root"],
+            "expectedItemPath": item["path"],
+            "expectedItemName": item["name"],
+            "expectedItemUri": uri,
+        }
+        devices_before = list(track.devices)
+        with mock.patch.object(
+            self.context.application.browser, "load_item"
+        ) as load:
+            for rewritten in ("&amp;", "&#38;", "&amp;amp;"):
+                with self.subTest(rewritten=rewritten):
+                    with self.assertRaises(ProtocolFailure) as raised:
+                        self.execute(
+                            "browser.load_item",
+                            dict(params, expectedItemUri=uri.replace("&", rewritten)),
+                        )
+                    self.assertEqual(raised.exception.code, "stale_reference")
+                    self.assertEqual(raised.exception.details["actualUri"], uri)
+            load.assert_not_called()
+        self.assertEqual(list(track.devices), devices_before)
+        result = self.execute("browser.load_item", params)
+        self.assertTrue(result["verified"])
+        self.assertEqual(result["item"]["uri"], uri)
 
     def test_rejects_materially_different_browser_uri(self):
         track = self.context.song.tracks[0]

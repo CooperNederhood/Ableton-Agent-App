@@ -39,11 +39,13 @@ export function ListeningPassPanel({
     >
       <h3 id="listening-pass-heading">Listening passes</h3>
       <p>
-        Bounded Arrangement capture leaves Live playback running on completion,
+        Bounded listening leaves Live playback running on completion,
         cancellation, failure and timeout. Cancel capture does not stop
-        transport. Session capture is unsupported. Production timing
-        certification is not available; lifecycle status is not proof of
-        measured audio or accurate timing.
+        transport or retract an accepted Session launch. Session capture
+        requires an exact MIDI or warped-audio clip and a matching native v3
+        listener; unsupported source or launch conditions are refused without
+        changing settings. Production timing certification is not available;
+        lifecycle status is not proof of measured audio or accurate timing.
       </p>
       {sessionId === undefined || agentId === undefined ? (
         <p>Select an App session and agent to see owned listening passes.</p>
@@ -153,7 +155,7 @@ function ListeningInventory({
         setCancelNotice({
           outcome: result.cancelled ? "requested" : "empty",
           message: result.cancelled
-            ? "Cancellation requested for this agent's turn and owned captures. Await terminal status; cancellation does not stop Live transport."
+            ? "Cancellation requested for this agent's turn and owned captures. Await terminal status; cancellation does not stop Live transport or retract an accepted Session launch."
             : "No cancellable work remains for this agent. Refresh listening passes.",
         });
       }
@@ -204,6 +206,31 @@ function ListeningInventory({
               <p>
                 Pass {job.passId} | Agent {job.agentId}
               </p>
+              {job.session !== undefined && (
+                <div aria-label="Session source and launch">
+                  <p>
+                    Session clip {job.session.clipName} on{" "}
+                    {job.session.trackName}, scene {job.session.sceneIndex + 1}.
+                    Requested clip-local range [0, {job.session.durationBeats})
+                    beats, first iteration.
+                  </p>
+                  <p>
+                    Launch: {job.session.launch?.state ?? "not requested"}. Host
+                    mutation:{" "}
+                    {job.session.launch?.mutationState ?? "not-attempted"}. An
+                    accepted or indeterminate launch may still execute after
+                    cancellation; other selected Session material can resume.
+                  </p>
+                  {job.session.launch?.state === "verified" && (
+                    <p>
+                      Source epoch matched the native transport anchor. This
+                      does not prove exclusive clip audio or absolute timing
+                      accuracy; inspect context for message-rate continuity and
+                      follow-action limitations.
+                    </p>
+                  )}
+                </div>
+              )}
               <p>
                 Playback policy: leave running. {job.contextIds.length} stored
                 observation references.

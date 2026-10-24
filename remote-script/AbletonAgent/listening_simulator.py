@@ -3,6 +3,13 @@
 from types import SimpleNamespace
 
 from .listening_commands import inspect_listening_context
+from .session_listening_source import CLIP_LAUNCH_QUANTIZATION_MEMBERS
+
+
+SimulatedClipLaunchQuantization = type(
+    "SimulatedClipLaunchQuantization", (),
+    {name: value for value, name in enumerate(CLIP_LAUNCH_QUANTIZATION_MEMBERS)},
+)
 
 
 def inspect_simulated_listening_context(state, params):
@@ -26,6 +33,8 @@ def build_listening_simulator_context(state):
         fields = {
             "name": data["name"],
             "is_audio_clip": data.get("kind") == "audio",
+            "is_midi_clip": data.get("kind") == "midi",
+            "is_triggered": False,
             "is_recording": data.get("isRecording", False),
             "is_playing": state.is_playing and (
                 track.get("playingSceneIndex") == scene_index
@@ -41,6 +50,8 @@ def build_listening_simulator_context(state):
             "loop_start": "loopStart", "loop_end": "loopEnd",
             "start_marker": "startMarker", "end_marker": "endMarker",
             "looping": "looping", "muted": "muted", "length": "length",
+            "playing_position": "playingPosition", "launch_mode": "launchMode",
+            "launch_quantization": "launchQuantization", "legato": "legato",
         }
         fields.update({private: data[public] for private, public in mapping.items() if public in data})
         return remember("_clip_references", SimpleNamespace(**fields), data)

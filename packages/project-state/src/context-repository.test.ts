@@ -11,6 +11,7 @@ import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   telemetryEventEnvelopeSchema,
+  sanitizePersistedText,
   type TelemetryEventEnvelope,
 } from "@ableton-agent/observability";
 import { type Database } from "sql.js";
@@ -205,7 +206,136 @@ function descriptivePublication(id = "descriptive") {
   };
 }
 
+function sessionPublication(endBeat = 2): AppendContextPass {
+  const value = descriptivePublication("session");
+  const clipReference = "00000000-0000-4000-8000-000000000001";
+  const trackReference = "00000000-0000-4000-8000-000000000002";
+  const clip = value.subjects[0]!;
+  clip.id = "subject:session";
+  clip.binding.previousRuntimeBindings = [clipReference];
+  clip.binding.dependencyScope = "unknown";
+  const track = {
+    ...clip,
+    id: "track:1",
+    kind: "track" as const,
+    location: "track" as const,
+    binding: { ...clip.binding, previousRuntimeBindings: [trackReference] },
+  };
+  return {
+    ...value,
+    pass: {
+      ...value.pass,
+      requestedMode: "session",
+      actualMode: "session",
+      requestedRange: { startBeat: 0, endBeat: Math.min(endBeat, 4) },
+      actualRange: { startBeat: 0, endBeat },
+    },
+    subjects: [clip, track],
+    entries: value.entries.map((entry) => ({
+      ...entry,
+      kind: "session-audio-observation/v1",
+      payload: {
+        ...entry.payload,
+        schema: "session-audio-observation/v1",
+        endBeat,
+        source: {
+          view: "session",
+          target: {
+            view: "session",
+            track: {
+              kind: "regular",
+              index: 0,
+              expectedReference: trackReference,
+              expectedName: "Track",
+            },
+            sceneIndex: 0,
+            expectedClipReference: clipReference,
+            expectedClipName: "Clip",
+          },
+          kind: "warped-audio",
+          coordinate: { unit: "beats", iteration: 0, startBeat: 0, endBeat },
+          transport: { startBeat: 100, endBeat: 100 + endBeat },
+          origin: {
+            evidence: "message-rate-start-time-with-native-transport",
+            clipStartTimeBeats: 100,
+            observedAtGlobalBeat: 100.1,
+          },
+          continuity: {
+            evidence: "message-rate-monitored",
+            followActions: "unknown",
+          },
+        },
+      },
+    })),
+    links: [
+      {
+        ...value.links[0]!,
+        subjectId: clip.id,
+        coverage: {
+          coordinate: "clip-local-beats",
+          iteration: 0,
+          startBeat: 0,
+          endBeat,
+        },
+        observedContributorIds: [track.id],
+        freshness: {
+          status: "unknown",
+          assessedAt: timestamp,
+          reason: "Historical evidence",
+        },
+      },
+      {
+        ...value.links[0]!,
+        id: "link:track",
+        subjectId: track.id,
+        relationship: "contributor",
+        coverage: {
+          coordinate: "transport-beats",
+          startBeat: 100,
+          endBeat: 100 + endBeat,
+        },
+        sourceFingerprint: track.binding,
+        observedContributorIds: [track.id],
+        freshness: {
+          status: "unknown",
+          assessedAt: timestamp,
+          reason: "Historical evidence",
+        },
+      },
+    ],
+  };
+}
+
 describe("typed descriptive context history", () => {
+  it("reopens exact rounded Session coverage while rejecting oversized nominal requests", async () => {
+    const path = await diskPath();
+    const store = await openSessionContextStore({ ...ownership, path });
+    stores.push(store);
+    const value = sessionPublication(4.001);
+    const invalid = structuredClone(value);
+    invalid.pass.requestedRange.endBeat = 4.001;
+    await expect(store.appendPass(invalid)).rejects.toThrow("local coverage");
+    expect(await store.getPass(value.pass.id)).toBeUndefined();
+    await store.appendPass(value);
+    await store.close();
+    const reopened = await openSessionContextStore({ ...ownership, path });
+    stores.push(reopened);
+    expect(
+      (await reopened.getPass(value.pass.id))?.requestedRange.endBeat,
+    ).toBe(4);
+    expect((await reopened.getPass(value.pass.id))?.actualRange?.endBeat).toBe(
+      4.001,
+    );
+    expect(
+      (await reopened.getEntry(value.entries[0]!.id))?.payload.endBeat,
+    ).toBe(4.001);
+    expect(
+      (await reopened.listLinks({ includeHistorical: true })).items.map(
+        (link) => link.coverage.endBeat,
+      ),
+    ).toEqual([4.001, 104.001]);
+  });
+
   it("retains old store references and registers both bounded observation kinds", () => {
     expect(
       sessionContextStoreReferenceSchema.parse({
@@ -216,6 +346,7 @@ describe("typed descriptive context history", () => {
     expect(SESSION_CONTEXT_STORE_REFERENCE.kinds).toEqual([
       "audio-observation/v1",
       "audio-observation/v2",
+      "session-audio-observation/v1",
     ]);
     expect(
       sessionContextStoreReferenceSchema.safeParse({
@@ -224,6 +355,119 @@ describe("typed descriptive context history", () => {
       }).success,
     ).toBe(false);
   });
+
+  it("reopens additive Session history alongside unchanged legacy shapes with bounded sanitized summaries", async () => {
+    const path = await diskPath();
+    const store = await openSessionContextStore({ ...ownership, path });
+    stores.push(store);
+    await store.appendPass(publication("legacy"));
+    await store.appendPass(descriptivePublication());
+    const value = sessionPublication();
+    const payload = value.entries[0]!.payload;
+    if (payload.schema !== "session-audio-observation/v1")
+      throw new Error("Expected Session payload");
+    const rawClipName = `password=p ${"x".repeat(117)}`;
+    const rawTrackName = `token=t ${"y".repeat(120)}`;
+    payload.source.target.expectedClipName = rawClipName;
+    payload.source.target.track.expectedName = rawTrackName;
+    value.subjects[0]!.binding.semanticLocator.name = sanitizePersistedText(
+      rawClipName,
+    ).slice(0, 128);
+    const quality = structuredClone(payload.alignment);
+    value.entries[0]!.payload.limitations = [
+      "Authorization: Bearer secret-session-token",
+    ];
+    await store.appendPass(value);
+    const page = await store.listEntries({
+      kind: "session-audio-observation/v1",
+      includeHistorical: true,
+    });
+    expect(page.items[0]?.payload).toMatchObject({
+      schema: "session-audio-observation/v1",
+      alignment: { verifiedAbsoluteErrorBoundSamples: null },
+      source: {
+        coordinate: { unit: "beats", iteration: 0 },
+        transport: { startBeat: 100, endBeat: 102 },
+      },
+    });
+    expect(JSON.stringify(page)).not.toContain("secret-session-token");
+    expect(page.items[0]?.payload).not.toHaveProperty("samples");
+    expect(page.items[0]?.payload).toMatchObject({
+      alignment: quality,
+    });
+    expect(JSON.stringify(page)).not.toContain("password=p ");
+    expect(JSON.stringify(page)).not.toContain("token=t ");
+    await store.close();
+    const reopened = await openSessionContextStore({ ...ownership, path });
+    stores.push(reopened);
+    expect(
+      (await reopened.listEntries({ includeHistorical: true })).items,
+    ).toHaveLength(3);
+    expect(
+      (await reopened.getEntry(value.entries[0]!.id))?.payload.schema,
+    ).toBe("session-audio-observation/v1");
+    for (const retained of [
+      page.items[0]?.payload,
+      (await reopened.getEntry(value.entries[0]!.id))?.payload,
+    ]) {
+      if (retained?.schema !== "session-audio-observation/v1")
+        throw new Error("Expected retained Session payload");
+      expect(retained.alignment).toEqual(quality);
+      for (const name of [
+        retained.source.target.expectedClipName,
+        retained.source.target.track.expectedName,
+      ]) {
+        expect(name).toContain("[REDACTED]");
+        expect(name.length).toBeLessThanOrEqual(128);
+        expect(name).not.toContain("password=p ");
+        expect(name).not.toContain("token=t ");
+      }
+    }
+    expect(
+      (
+        await reopened.listLinks({
+          subjectId: "track:1",
+          includeHistorical: true,
+        })
+      ).items[0]?.coverage,
+    ).toEqual({ coordinate: "transport-beats", startBeat: 100, endBeat: 102 });
+  });
+
+  it.each([
+    "coverage",
+    "exclusive",
+    "mode",
+    "fresh",
+    "binding",
+    "cancelled",
+    "quota",
+  ] as const)(
+    "rolls back Session %s violations without affecting legacy history",
+    async (failure) => {
+      const store = await memory();
+      await store.appendPass(publication("legacy"));
+      const value = sessionPublication();
+      if (failure === "coverage")
+        value.links[1]!.coverage = { startBeat: 0, endBeat: 2 };
+      if (failure === "exclusive") value.links[0]!.attribution = "exclusive";
+      if (failure === "mode") value.pass.actualMode = "arrangement";
+      if (failure === "fresh") value.links[0]!.freshness.status = "fresh";
+      if (failure === "binding")
+        value.subjects[0]!.binding.previousRuntimeBindings = ["unrelated"];
+      if (failure === "quota")
+        value.entries[0]!.payload.limitations = [
+          "x".repeat(CONTEXT_LIMITS.entryBytes),
+        ];
+      const controller = new AbortController();
+      if (failure === "cancelled") controller.abort(new Error("cancelled"));
+      await expect(
+        store.appendPass(value, { signal: controller.signal }),
+      ).rejects.toThrow();
+      expect(
+        (await store.listEntries({ includeHistorical: true })).items,
+      ).toHaveLength(1);
+    },
+  );
 
   it("persists v1/v2 together and preserves approximate quality in typed summaries and reopened detail", async () => {
     const path = await diskPath();
@@ -997,67 +1241,72 @@ describe("context persistence lifecycle and recovery", () => {
     expect(await context.getPass("pass:1")).toBeDefined();
   });
 
-  it("records ordered attributed timing, failures and cancellation independently of journal state", async () => {
-    const events: TelemetryEventEnvelope[] = [];
-    const context = await memory({
-      ...ownership,
-      recorder: {
-        enqueue: (event) => {
-          events.push(telemetryEventEnvelopeSchema.parse(event));
+  it.each([publication, sessionPublication])(
+    "records ordered attributed timing, failures and cancellation independently of journal state (%#)",
+    async (makePublication) => {
+      const events: TelemetryEventEnvelope[] = [];
+      const context = await memory({
+        ...ownership,
+        recorder: {
+          enqueue: (event) => {
+            events.push(telemetryEventEnvelopeSchema.parse(event));
+          },
         },
-      },
-    });
-    await context.appendPass(publication());
-    await new Promise<void>((resolve) => queueMicrotask(resolve));
-    const lifecycle = events.filter((event) =>
-      event.name.startsWith("context.publish."),
-    );
-    expect(lifecycle.map((event) => event.stage)).toEqual([
-      "queued",
-      "started",
-      "progress",
-      "completed",
-    ]);
-    expect(
-      lifecycle.every(
-        (event) =>
-          event.sessionId === ownership.sessionId &&
-          event.activeAgentId === "agent:1" &&
-          event.liveSetId === ownership.liveSetId &&
-          event.trace?.traceId === trace.traceId &&
-          event.correlationId === trace.correlationId,
-      ),
-    ).toBe(true);
-    expect(lifecycle[0]?.causationId).toBe(trace.causationId);
-    expect(lifecycle[1]?.causationId).toBe(lifecycle[0]?.id);
-    expect(lifecycle.at(-1)?.durationMs).toBeGreaterThanOrEqual(0);
-    const abort = new AbortController();
-    abort.abort();
-    await expect(
-      context.appendPass(publication("2"), { signal: abort.signal }),
-    ).rejects.toThrow();
-    await expect(context.appendPass(publication())).rejects.toThrow(
-      "immutable",
-    );
-    await new Promise<void>((resolve) => queueMicrotask(resolve));
-    expect(
-      events.some((event) => event.name === "context.publish.cancelled"),
-    ).toBe(true);
-    expect(
-      events.some((event) => event.name === "context.publish.failed"),
-    ).toBe(true);
-    expect(await context.getPass("pass:2")).toBeUndefined();
-    const disabledJournal = await memory({
-      ...ownership,
-      recorder: {
-        enqueue: () => {
-          throw new Error("journal disabled");
+      });
+      await context.appendPass(makePublication());
+      await new Promise<void>((resolve) => queueMicrotask(resolve));
+      const lifecycle = events.filter((event) =>
+        event.name.startsWith("context.publish."),
+      );
+      expect(lifecycle.map((event) => event.stage)).toEqual([
+        "queued",
+        "started",
+        "progress",
+        "completed",
+      ]);
+      expect(
+        lifecycle.every(
+          (event) =>
+            event.sessionId === ownership.sessionId &&
+            event.activeAgentId === "agent:1" &&
+            event.liveSetId === ownership.liveSetId &&
+            event.trace?.traceId === trace.traceId &&
+            event.correlationId === trace.correlationId,
+        ),
+      ).toBe(true);
+      expect(lifecycle[0]?.causationId).toBe(trace.causationId);
+      expect(lifecycle[1]?.causationId).toBe(lifecycle[0]?.id);
+      expect(lifecycle.at(-1)?.durationMs).toBeGreaterThanOrEqual(0);
+      const abort = new AbortController();
+      abort.abort();
+      await expect(
+        context.appendPass(makePublication(), { signal: abort.signal }),
+      ).rejects.toThrow();
+      await expect(context.appendPass(makePublication())).rejects.toThrow(
+        "immutable",
+      );
+      await new Promise<void>((resolve) => queueMicrotask(resolve));
+      expect(
+        events.some((event) => event.name === "context.publish.cancelled"),
+      ).toBe(true);
+      expect(
+        events.some((event) => event.name === "context.publish.failed"),
+      ).toBe(true);
+      expect(await context.getPass("pass:2")).toBeUndefined();
+      const disabledJournal = await memory({
+        ...ownership,
+        recorder: {
+          enqueue: () => {
+            throw new Error("journal disabled");
+          },
         },
-      },
-    });
-    await disabledJournal.appendPass(publication());
-    expect(await disabledJournal.getPass("pass:1")).toBeDefined();
-  });
+      });
+      await disabledJournal.appendPass(makePublication());
+      expect(
+        await disabledJournal.getPass(makePublication().pass.id),
+      ).toBeDefined();
+    },
+  );
 
   it("revalidates current links and supports independent historical invalidation", async () => {
     const revalidate = vi.fn(async (): Promise<ContextFreshnessAssessment> => ({

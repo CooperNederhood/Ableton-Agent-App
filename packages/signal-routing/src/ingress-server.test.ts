@@ -350,8 +350,12 @@ describe("SignalIngressServer", () => {
       protocol: "newline-delimited-json",
       protocolVersion: PRODUCER_PROTOCOL_VERSION,
       maxFrameBytes: 128 * 1024,
-      listenerVersions: [1, 2],
-      listenerCapabilities: ["audio-listener/v1", "audio-listener/v2"],
+      listenerVersions: [1, 2, 3],
+      listenerCapabilities: [
+        "audio-listener/v1",
+        "audio-listener/v2",
+        "audio-listener/session-v1",
+      ],
       producerDiagnostics: ["write-backpressure/v1"],
     });
     expect(descriptorText).not.toContain(SECRET);

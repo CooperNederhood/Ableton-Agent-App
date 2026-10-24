@@ -1,5 +1,16 @@
 import { z, type ZodType } from "zod";
 import {
+  prepareSessionListeningPassParamsSchema,
+  launchSessionListeningPassParamsSchema,
+  inspectSessionListeningPassParamsSchema,
+  releaseSessionListeningPassParamsSchema,
+  sessionListeningPassResultSchema,
+} from "./session-listening-pass-schemas.js";
+import {
+  inspectSessionListeningSourceParamsSchema,
+  inspectSessionListeningSourceResultSchema,
+} from "./session-listening-source-schemas.js";
+import {
   inspectListeningContextParamsSchema,
   inspectListeningContextResultSchema,
   positionListeningPlaybackParamsSchema,
@@ -728,6 +739,27 @@ export const commandCatalog = {
   "listening.inspect_context": command(
     inspectListeningContextParamsSchema,
     inspectListeningContextResultSchema,
+  ),
+  "listening.inspect_session_source": command(
+    inspectSessionListeningSourceParamsSchema,
+    inspectSessionListeningSourceResultSchema,
+  ),
+  "listening.prepare_session_pass": command(
+    prepareSessionListeningPassParamsSchema,
+    sessionListeningPassResultSchema,
+  ),
+  "listening.launch_session_pass": command(
+    launchSessionListeningPassParamsSchema,
+    sessionListeningPassResultSchema,
+    { mutates: true },
+  ),
+  "listening.inspect_session_pass": command(
+    inspectSessionListeningPassParamsSchema,
+    sessionListeningPassResultSchema,
+  ),
+  "listening.release_session_pass": command(
+    releaseSessionListeningPassParamsSchema,
+    sessionListeningPassResultSchema,
   ),
   "listening.position_playback": command(
     positionListeningPlaybackParamsSchema,

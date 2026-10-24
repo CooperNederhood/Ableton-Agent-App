@@ -27,6 +27,7 @@
     "@ableton-agent/tools": "workspace:*"
   },
   "devDependencies": {
+    "@ableton-agent/project-state": "workspace:*",
     "@ableton-agent/test-support": "workspace:*"
   }
 }

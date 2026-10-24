@@ -1,0 +1,60 @@
+{
+  "formatVersion": 1,
+  "id": "native-session-midi",
+  "group": "native-listening-session",
+  "execution": "native-listening-runtime",
+  "nativeVersion": 3,
+  "sourceKind": "midi",
+  "prompt": "Make these calls sequentially, never in parallel: inspect-listeners, exactly one play-session-and-listen for the exact runner-supplied midi Session clip target with durationBeats 4, maximumDurationMs 30000 and only the bound listener ID, then get-pass once using the returned passId. This is an explicit transport-coupled first-iteration Session pass with a matching native Session listener and the App-owned descriptive timing policy capped at 64 samples. Constant 120 BPM is assumed; tempo automation is unsupported. Readiness metadata and queued acceptance are not measured audio. Do not use an Arrangement action, another target or another listener. Do not seek, stop, change launch settings, edit the Set, install devices, repair or retry. If any call fails, including argument validation or permission denial, report and end without correction or shell waits. If still nonterminal after get-pass, report pending and end; the harness waits for the actual terminal job. Only after completed may you get its typed contextId with includeHistorical=true. Do not list passes or context. Leave playback running. Cancellation stops capture, not transport, and a launch already dispatched may still happen. MIDI and warped audio share the same audio-analysis path. Clip-local first-iteration beats are distinct from global transport beats. Follow-action state can be unknown: observed source changes invalidate capture, but message-rate monitoring is not a sample-accurate continuity guarantee. Never claim exclusive clip audio, verified disabled follow actions or absolute physical timing accuracy.",
+  "artifactPrefix": "AA_SMOKE_SESSION_MIDI_",
+  "capture": {
+    "durationBeats": 4,
+    "maximumDurationMs": 30000,
+    "sceneIndex": 0
+  },
+  "allowedTools": ["ableton_listening", "ableton_context"],
+  "allowedActions": {
+    "ableton_listening": [
+      "inspect-listeners",
+      "play-session-and-listen",
+      "get-pass"
+    ],
+    "ableton_context": ["get"]
+  },
+  "allowedRisks": ["read", "reversible"],
+  "maxToolCalls": 8,
+  "maxMutations": 1,
+  "timeoutMs": 90000,
+  "setupContract": {
+    "nativeVersion": 3,
+    "inputOption": "--native-v3-fixture-input",
+    "timingPolicy": {
+      "mode": "descriptive",
+      "maxClockDisagreementSamples": 64
+    },
+    "tempoPolicy": "constant-tempo-assumed",
+    "tempoAutomationSupported": false,
+    "sourcePolicy": "immutable-session-midi-and-warped-audio",
+    "processPolicy": "Fresh exact-PID runner-owned Live 11 process and isolated automation profile; no pre-existing user process, automatic stop, source edit or retry.",
+    "reviewStatus": "Authored deterministic contract; physical execution and native launch-to-source alignment remain unqualified until recorded runner evidence passes."
+  },
+  "ordering": [
+    {
+      "before": "ableton_listening",
+      "beforeAction": "inspect-listeners",
+      "after": "ableton_listening",
+      "afterAction": "play-session-and-listen"
+    }
+  ],
+  "assertions": [
+    "no-failed-actor-tools",
+    "stopped-recording-off-exact-session-source",
+    "frozen-source-and-native-expectations-before-launch",
+    "same-audio-analysis-path",
+    "complete-native-coverage-and-independent-source-origin-join",
+    "one-atomic-session-clip-and-track-context",
+    "explicit-local-global-coordinate-semantics",
+    "typed-historical-retrieval-and-reopen",
+    "unchanged-content-leave-running-idle-capture"
+  ]
+}

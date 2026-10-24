@@ -1435,8 +1435,16 @@ describe("same-runtime production listening factory", () => {
     expect(f.adapter.start).not.toHaveBeenCalled();
   });
 
-  it("Session mode remains unsupported until measured quantized onset", async () => {
+  it("rejects an unresolvable Session target before reservation or launch", async () => {
     const f = fixture();
+    f.dependencies.ableton.inspectSession = vi.fn(async () => ({
+      tempo: 120,
+      timeSignature: { numerator: 4, denominator: 4 },
+      isPlaying: false,
+      trackCount: 0,
+      tracks: [],
+      clips: [],
+    }));
     const host = f.host(true);
     await expect(
       host.executeListeningOperation(
@@ -1460,7 +1468,7 @@ describe("same-runtime production listening factory", () => {
         },
         context,
       ),
-    ).rejects.toThrow("session_quantized_onset_unverified");
+    ).rejects.toThrow("stale_session_target");
     expect(f.reservePass).not.toHaveBeenCalled();
     expect(f.adapter.start).not.toHaveBeenCalled();
   });

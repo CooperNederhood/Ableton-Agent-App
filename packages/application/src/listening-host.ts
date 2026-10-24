@@ -17,6 +17,7 @@ import {
   type ListeningCoordinatorOptions,
   type ListeningJob,
   type ListeningOwner,
+  type ListeningRequest,
 } from "./listening-coordinator.js";
 
 type ListenerViews = Extract<
@@ -41,7 +42,13 @@ export interface ListeningHostOptions extends Pick<
   readonly resolveSessionTarget: (
     target: SessionTarget,
     context: ListeningExecutionContext,
-  ) => Promise<{ clipReference: string; trackReference: string }>;
+  ) => Promise<{
+    clipReference: string;
+    trackReference: string;
+    target?: NonNullable<
+      Extract<ListeningRequest, { mode: "session" }>["target"]
+    >;
+  }>;
 }
 
 const cursorSchema = z.strictObject({
@@ -58,6 +65,7 @@ function publicJob(job: ListeningJob) {
     updatedAt: job.updatedAt,
     durationMs: job.durationMs,
     contextIds: [...job.contextIds],
+    ...(job.session === undefined ? {} : { session: job.session }),
     ...(job.cleanupPolicy === undefined
       ? {}
       : { cleanupPolicy: job.cleanupPolicy }),

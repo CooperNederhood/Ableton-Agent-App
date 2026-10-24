@@ -6439,11 +6439,407 @@
         }
       }
     },
-    "listening.position_playback": {
+    "listening.inspect_session_source": {
       "request": {
         "protocolVersion": 7,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001122",
+        "command": "listening.inspect_session_source",
+        "params": {
+          "schemaVersion": 1,
+          "queryId": "00000000-0000-4000-8000-000000000099",
+          "target": {
+            "view": "session",
+            "track": {
+              "kind": "regular",
+              "index": 0,
+              "expectedReference": "00000000-0000-4000-8000-000000000099",
+              "expectedName": "x"
+            },
+            "sceneIndex": 0,
+            "expectedClipReference": "00000000-0000-4000-8000-000000000099",
+            "expectedClipName": "x"
+          }
+        }
+      },
+      "success": {
+        "protocolVersion": 7,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001122",
+        "ok": true,
+        "result": {
+          "schemaVersion": 1,
+          "queryId": "00000000-0000-4000-8000-000000000099",
+          "target": {
+            "view": "session",
+            "track": {
+              "kind": "regular",
+              "index": 0,
+              "expectedReference": "00000000-0000-4000-8000-000000000099",
+              "expectedName": "x"
+            },
+            "sceneIndex": 0,
+            "expectedClipReference": "00000000-0000-4000-8000-000000000099",
+            "expectedClipName": "x"
+          },
+          "projectRevision": 0,
+          "evidence": "message-rate-only",
+          "nativeAlignment": "unverified",
+          "sourceKind": "midi",
+          "positionUnit": "beats",
+          "before": {
+            "transportPlaying": false,
+            "globalBeat": -1576800,
+            "startTimeBeats": -1576800,
+            "playingPosition": -1576800,
+            "targetPlaying": false,
+            "targetTriggered": false,
+            "targetRecording": false,
+            "playingSlotIndex": -2,
+            "firedSlotIndex": -2,
+            "selectedClipReference": "00000000-0000-4000-8000-000000000099"
+          },
+          "after": {
+            "transportPlaying": false,
+            "globalBeat": -1576800,
+            "startTimeBeats": -1576800,
+            "playingPosition": -1576800,
+            "targetPlaying": false,
+            "targetTriggered": false,
+            "targetRecording": false,
+            "playingSlotIndex": -2,
+            "firedSlotIndex": -2,
+            "selectedClipReference": "00000000-0000-4000-8000-000000000099"
+          },
+          "settings": {
+            "tempoBpm": 1,
+            "signatureNumerator": 1,
+            "signatureDenominator": 1,
+            "globalQuantization": 0,
+            "launchQuantization": 0,
+            "launchMode": 0,
+            "legato": false,
+            "followActionEnabled": false,
+            "startMarker": -1576800,
+            "endMarker": -1576800,
+            "loopStart": -1576800,
+            "loopEnd": -1576800,
+            "looping": false
+          }
+        },
+        "warnings": []
+      },
+      "failure": {
+        "protocolVersion": 7,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001122",
+        "ok": false,
+        "error": {
+          "code": "lom_error",
+          "message": "Golden listening.inspect_session_source failure",
+          "retryable": true,
+          "details": {}
+        }
+      }
+    },
+    "listening.prepare_session_pass": {
+      "request": {
+        "protocolVersion": 7,
+        "kind": "request",
+        "requestId": "00000000-0000-4000-8000-000000001123",
+        "command": "listening.prepare_session_pass",
+        "params": {
+          "schemaVersion": 1,
+          "ownerId": "00000000-0000-4000-8000-000000000099",
+          "passId": "00000000-0000-4000-8000-000000000099",
+          "action": "prepare",
+          "expectedLiveSetId": "x",
+          "expectedProjectRevision": 0,
+          "target": {
+            "view": "session",
+            "track": {
+              "kind": "regular",
+              "index": 0,
+              "expectedReference": "00000000-0000-4000-8000-000000000099",
+              "expectedName": "x"
+            },
+            "sceneIndex": 0,
+            "expectedClipReference": "00000000-0000-4000-8000-000000000099",
+            "expectedClipName": "x"
+          },
+          "listener": {
+            "track": {
+              "kind": "regular",
+              "index": 0,
+              "expectedReference": "00000000-0000-4000-8000-000000000099",
+              "expectedName": "x"
+            },
+            "deviceIndex": 0,
+            "expectedDeviceReference": "00000000-0000-4000-8000-000000000099",
+            "expectedDeviceName": "x",
+            "expectedClassName": "MxDeviceAudioEffect"
+          },
+          "durationBeats": 1,
+          "timingAnchor": { "globalBeat": 0 }
+        }
+      },
+      "success": {
+        "protocolVersion": 7,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001123",
+        "ok": true,
+        "result": {
+          "schemaVersion": 1,
+          "ownerId": "00000000-0000-4000-8000-000000000099",
+          "passId": "00000000-0000-4000-8000-000000000099",
+          "status": "prepared",
+          "mutationState": "not-attempted",
+          "reason": null,
+          "cleanupPolicy": "leave-running",
+          "evidence": "message-rate-only",
+          "nativeAlignment": "unverified",
+          "lastObservedSource": {
+            "transportPlaying": false,
+            "globalBeat": 0,
+            "startTimeBeats": 0,
+            "playingPosition": 0,
+            "targetPlaying": false,
+            "targetTriggered": false,
+            "targetRecording": false,
+            "playingSlotIndex": -1,
+            "firedSlotIndex": -1,
+            "selectedClipReference": null
+          },
+          "sourceEpoch": null,
+          "followActionState": "unknown",
+          "limitations": [
+            "Source monitoring is message-rate only; Clip.start_time is polled, not subscribed; changes between observations may be missed.",
+            "Follow-action state is unknown, not independently known disabled."
+          ],
+          "durationBeats": 1,
+          "expiresInMs": 40000
+        },
+        "warnings": []
+      },
+      "failure": {
+        "protocolVersion": 7,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001123",
+        "ok": false,
+        "error": {
+          "code": "lom_error",
+          "message": "Golden listening.prepare_session_pass failure",
+          "retryable": true,
+          "details": {}
+        }
+      }
+    },
+    "listening.launch_session_pass": {
+      "request": {
+        "protocolVersion": 7,
+        "kind": "request",
+        "requestId": "00000000-0000-4000-8000-000000001124",
+        "command": "listening.launch_session_pass",
+        "params": {
+          "schemaVersion": 1,
+          "ownerId": "00000000-0000-4000-8000-000000000099",
+          "passId": "00000000-0000-4000-8000-000000000099",
+          "action": "launch"
+        }
+      },
+      "success": {
+        "protocolVersion": 7,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001124",
+        "ok": true,
+        "result": {
+          "schemaVersion": 1,
+          "ownerId": "00000000-0000-4000-8000-000000000099",
+          "passId": "00000000-0000-4000-8000-000000000099",
+          "status": "playing",
+          "mutationState": "observed-playing",
+          "reason": null,
+          "cleanupPolicy": "leave-running",
+          "evidence": "message-rate-only",
+          "nativeAlignment": "unverified",
+          "lastObservedSource": {
+            "transportPlaying": true,
+            "globalBeat": 0,
+            "startTimeBeats": 0,
+            "playingPosition": 0,
+            "targetPlaying": true,
+            "targetTriggered": false,
+            "targetRecording": false,
+            "playingSlotIndex": 0,
+            "firedSlotIndex": -1,
+            "selectedClipReference": "00000000-0000-4000-8000-000000000099"
+          },
+          "sourceEpoch": {
+            "startTimeBeats": 0,
+            "clipReference": "00000000-0000-4000-8000-000000000099",
+            "observedGlobalBeat": 0
+          },
+          "followActionState": "unknown",
+          "limitations": [
+            "Source monitoring is message-rate only; Clip.start_time is polled, not subscribed; changes between observations may be missed.",
+            "Follow-action state is unknown, not independently known disabled."
+          ],
+          "durationBeats": 1,
+          "expiresInMs": 40000
+        },
+        "warnings": []
+      },
+      "failure": {
+        "protocolVersion": 7,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001124",
+        "ok": false,
+        "error": {
+          "code": "lom_error",
+          "message": "Golden listening.launch_session_pass failure",
+          "retryable": true,
+          "details": {}
+        }
+      }
+    },
+    "listening.inspect_session_pass": {
+      "request": {
+        "protocolVersion": 7,
+        "kind": "request",
+        "requestId": "00000000-0000-4000-8000-000000001125",
+        "command": "listening.inspect_session_pass",
+        "params": {
+          "schemaVersion": 1,
+          "ownerId": "00000000-0000-4000-8000-000000000099",
+          "passId": "00000000-0000-4000-8000-000000000099",
+          "action": "inspect"
+        }
+      },
+      "success": {
+        "protocolVersion": 7,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001125",
+        "ok": true,
+        "result": {
+          "schemaVersion": 1,
+          "ownerId": "00000000-0000-4000-8000-000000000099",
+          "passId": "00000000-0000-4000-8000-000000000099",
+          "status": "playing",
+          "mutationState": "observed-playing",
+          "reason": null,
+          "cleanupPolicy": "leave-running",
+          "evidence": "message-rate-only",
+          "nativeAlignment": "unverified",
+          "lastObservedSource": {
+            "transportPlaying": true,
+            "globalBeat": 0,
+            "startTimeBeats": 0,
+            "playingPosition": 0,
+            "targetPlaying": true,
+            "targetTriggered": false,
+            "targetRecording": false,
+            "playingSlotIndex": 0,
+            "firedSlotIndex": -1,
+            "selectedClipReference": "00000000-0000-4000-8000-000000000099"
+          },
+          "sourceEpoch": {
+            "startTimeBeats": 0,
+            "clipReference": "00000000-0000-4000-8000-000000000099",
+            "observedGlobalBeat": 0
+          },
+          "followActionState": "unknown",
+          "limitations": [
+            "Source monitoring is message-rate only; Clip.start_time is polled, not subscribed; changes between observations may be missed.",
+            "Follow-action state is unknown, not independently known disabled."
+          ],
+          "durationBeats": 1,
+          "expiresInMs": 40000
+        },
+        "warnings": []
+      },
+      "failure": {
+        "protocolVersion": 7,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001125",
+        "ok": false,
+        "error": {
+          "code": "lom_error",
+          "message": "Golden listening.inspect_session_pass failure",
+          "retryable": true,
+          "details": {}
+        }
+      }
+    },
+    "listening.release_session_pass": {
+      "request": {
+        "protocolVersion": 7,
+        "kind": "request",
+        "requestId": "00000000-0000-4000-8000-000000001126",
+        "command": "listening.release_session_pass",
+        "params": {
+          "schemaVersion": 1,
+          "ownerId": "00000000-0000-4000-8000-000000000099",
+          "passId": "00000000-0000-4000-8000-000000000099",
+          "action": "release",
+          "reason": "cancelled"
+        }
+      },
+      "success": {
+        "protocolVersion": 7,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001126",
+        "ok": true,
+        "result": {
+          "schemaVersion": 1,
+          "ownerId": "00000000-0000-4000-8000-000000000099",
+          "passId": "00000000-0000-4000-8000-000000000099",
+          "status": "cancelled",
+          "mutationState": "not-attempted",
+          "reason": null,
+          "cleanupPolicy": "leave-running",
+          "evidence": "message-rate-only",
+          "nativeAlignment": "unverified",
+          "lastObservedSource": {
+            "transportPlaying": false,
+            "globalBeat": 0,
+            "startTimeBeats": 0,
+            "playingPosition": 0,
+            "targetPlaying": false,
+            "targetTriggered": false,
+            "targetRecording": false,
+            "playingSlotIndex": -1,
+            "firedSlotIndex": -1,
+            "selectedClipReference": null
+          },
+          "sourceEpoch": null,
+          "followActionState": "unknown",
+          "limitations": [
+            "Source monitoring is message-rate only; Clip.start_time is polled, not subscribed; changes between observations may be missed.",
+            "Follow-action state is unknown, not independently known disabled."
+          ],
+          "durationBeats": 1,
+          "expiresInMs": 40000
+        },
+        "warnings": []
+      },
+      "failure": {
+        "protocolVersion": 7,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001126",
+        "ok": false,
+        "error": {
+          "code": "lom_error",
+          "message": "Golden listening.release_session_pass failure",
+          "retryable": true,
+          "details": {}
+        }
+      }
+    },
+    "listening.position_playback": {
+      "request": {
+        "protocolVersion": 7,
+        "kind": "request",
+        "requestId": "00000000-0000-4000-8000-000000001127",
         "command": "listening.position_playback",
         "params": {
           "schemaVersion": 1,
@@ -6472,7 +6868,7 @@
       "success": {
         "protocolVersion": 7,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001122",
+        "requestId": "00000000-0000-4000-8000-000000001127",
         "ok": true,
         "result": {
           "schemaVersion": 1,
@@ -6490,7 +6886,7 @@
       "failure": {
         "protocolVersion": 7,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001122",
+        "requestId": "00000000-0000-4000-8000-000000001127",
         "ok": false,
         "error": {
           "code": "lom_error",
@@ -6504,7 +6900,7 @@
       "request": {
         "protocolVersion": 7,
         "kind": "request",
-        "requestId": "00000000-0000-4000-8000-000000001123",
+        "requestId": "00000000-0000-4000-8000-000000001128",
         "command": "listening.start_playback",
         "params": {
           "schemaVersion": 1,
@@ -6533,7 +6929,7 @@
       "success": {
         "protocolVersion": 7,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001123",
+        "requestId": "00000000-0000-4000-8000-000000001128",
         "ok": true,
         "result": {
           "schemaVersion": 1,
@@ -6547,7 +6943,7 @@
       "failure": {
         "protocolVersion": 7,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001123",
+        "requestId": "00000000-0000-4000-8000-000000001128",
         "ok": false,
         "error": {
           "code": "lom_error",
@@ -6561,7 +6957,7 @@
       "request": {
         "protocolVersion": 7,
         "kind": "request",
-        "requestId": "00000000-0000-4000-8000-000000001124",
+        "requestId": "00000000-0000-4000-8000-000000001129",
         "command": "listening.stop_playback",
         "params": {
           "schemaVersion": 1,
@@ -6576,7 +6972,7 @@
       "success": {
         "protocolVersion": 7,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001124",
+        "requestId": "00000000-0000-4000-8000-000000001129",
         "ok": true,
         "result": { "schemaVersion": 1, "ownership": "owned", "stopped": true },
         "warnings": []
@@ -6584,7 +6980,7 @@
       "failure": {
         "protocolVersion": 7,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001124",
+        "requestId": "00000000-0000-4000-8000-000000001129",
         "ok": false,
         "error": {
           "code": "lom_error",

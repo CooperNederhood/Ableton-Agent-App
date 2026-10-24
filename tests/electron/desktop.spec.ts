@@ -7,6 +7,8 @@ import { createInterface } from "node:readline";
 import { _electron as electron, expect, test } from "@playwright/test";
 import { sendAutomationMessage } from "../../packages/debug-control/src/client.js";
 import { resolveLiveAgentStorage } from "../../packages/storage/src/index.js";
+import { resolveAbletonToolMetadata } from "../../packages/tools/src/index.js";
+import { toDesktopApproval } from "../../apps/desktop/src/main/approvals.js";
 import type { DesktopEntityContextApi } from "../../apps/desktop/src/context-contracts.js";
 import type { DesktopListeningPage } from "../../apps/desktop/src/listening-contracts.js";
 import { preferencesSchema } from "../../apps/desktop/src/contracts.js";
@@ -17,6 +19,7 @@ import {
   seedListeningContext,
   seedMixedListeningContext,
   descriptiveFixturePassId,
+  sessionFixturePassId,
 } from "./listening-context-fixture.js";
 import {
   createDesktopTestEnvironment,
@@ -421,6 +424,62 @@ test("shows synthetic listening lifecycle through real preload events and read-o
         agentId: session.selectedAgentInstanceId,
       };
     });
+    const args = {
+      action: "play-session-and-listen",
+      listenerIds: ["ableton-audio-listener:path:" + "a".repeat(32)],
+      durationBeats: 4,
+      maximumDurationMs: 30000,
+      target: {
+        view: "session",
+        track: {
+          kind: "regular",
+          index: 0,
+          expectedReference: "00000000-0000-4000-8000-000000000002",
+          expectedName: "Synthetic instrument",
+        },
+        sceneIndex: 0,
+        expectedClipReference: "00000000-0000-4000-8000-000000000003",
+        expectedClipName: "Synthetic-Session-" + "x".repeat(100),
+      },
+    };
+    const approval = toDesktopApproval("synthetic-session-approval", {
+      metadata: resolveAbletonToolMetadata("ableton_listening", args)!,
+      arguments: args,
+    });
+    await window
+      .getByRole("button", { name: "Workspace", exact: true })
+      .click();
+    await application.evaluate(
+      ({ BrowserWindow }, payload) => {
+        const target = BrowserWindow.getAllWindows()[0];
+        if (target === undefined) throw new Error("Missing isolated window");
+        target.webContents.send("app:event", {
+          type: "approval.requested",
+          agentInstanceId: payload.agentId,
+          approval: payload.approval,
+        });
+      },
+      { agentId: owner.agentId, approval },
+    );
+    const preview = window.getByRole("region", {
+      name: "Approval and change preview",
+    });
+    await expect(preview).toContainText(
+      "Playback stays running after completion, failure or cancellation",
+    );
+    await expect(preview).toContainText(
+      "Cancel stops capture only and cannot retract an accepted launch",
+    );
+    expect(
+      await preview
+        .locator("li")
+        .evaluateAll((items) =>
+          items.every((item) => item.scrollWidth <= item.clientWidth + 1),
+        ),
+    ).toBe(true);
+    await preview.getByRole("button", { name: "Deny", exact: true }).click();
+    await expect(preview).not.toBeVisible();
+    await window.getByRole("button", { name: "Outputs", exact: true }).click();
     const page: DesktopListeningPage = {
       sessionId: owner.sessionId,
       revision: 100,
@@ -440,6 +499,13 @@ test("shows synthetic listening lifecycle through real preload events and read-o
           contextIds: [],
           cleanupPolicy: "leave-running",
           evidence: "lifecycle-only",
+          session: {
+            clipName: "Synthetic Session clip",
+            trackName: "Synthetic instrument",
+            sceneIndex: 0,
+            durationBeats: 4,
+            launch: { state: "queued", mutationState: "indeterminate" },
+          },
           error: "Synthetic lifecycle fixture—not measured audio.",
         },
       ],
@@ -456,6 +522,12 @@ test("shows synthetic listening lifecycle through real preload events and read-o
     };
     await inject(page);
     await expect(window.locator("[data-listening-stage=queued]")).toBeVisible();
+    await expect(window.getByLabel("Session source and launch")).toContainText(
+      "Session clip Synthetic Session clip on Synthetic instrument",
+    );
+    await expect(window.getByLabel("Session source and launch")).toContainText(
+      "Launch: queued. Host mutation: indeterminate.",
+    );
     await expect(
       window.getByText("Synthetic lifecycle fixture—not measured audio.", {
         exact: false,
@@ -511,9 +583,12 @@ test("shows synthetic listening lifecycle through real preload events and read-o
       window.getByRole("alert").filter({ hasText: placementError }),
     ).toBeVisible();
     await expect(
-      window.getByText("Cancel capture does not stop transport.", {
-        exact: false,
-      }),
+      window.getByText(
+        "Cancel capture does not stop transport or retract an accepted Session launch.",
+        {
+          exact: false,
+        },
+      ),
     ).toBeVisible();
     for (const error of [
       "arrangement_session_override: A Session source overrides the selected track. Return to Arrangement in Live, then explicitly request a new listening pass.",
@@ -582,7 +657,7 @@ test("shows synthetic listening lifecycle through real preload events and read-o
   }
 });
 
-test("restores typed v1/v2 listening context and approximate quality across Electron restarts without renderer filesystem access", async () => {
+test("restores typed v1/v2/Session context and approximate quality across Electron restarts without renderer filesystem access", async () => {
   const bridge = createServer((socket) => socket.destroy());
   const reservation = createServer();
   let application: Awaited<ReturnType<typeof electron.launch>> | undefined;
@@ -616,6 +691,8 @@ test("restores typed v1/v2 listening context and approximate quality across Elec
     profile = launched.profile;
     let firstContextId: string | undefined;
     let firstDescriptiveId: string | undefined;
+    let firstSessionId: string | undefined;
+    let firstSessionPayload: string | undefined;
     for (let cycle = 0; cycle < 2; cycle += 1) {
       if (application === undefined) {
         application = await electron.launch({
@@ -639,7 +716,7 @@ test("restores typed v1/v2 listening context and approximate quality across Elec
           limit: 20,
         });
       }, listeningFixtureSessionId);
-      expect(page.entries).toHaveLength(2);
+      expect(page.entries).toHaveLength(3);
       const legacy = page.entries.find(
         (entry) => entry.kind === "audio-observation/v1",
       );
@@ -705,6 +782,48 @@ test("restores typed v1/v2 listening context and approximate quality across Elec
       });
       expect(descriptive?.summary).toContain("1.451");
       expect(descriptive?.summary).toContain("absolute");
+      const sessionEntry = page.entries.find(
+        (entry) => entry.kind === "session-audio-observation/v1",
+      );
+      if (!sessionEntry) throw new Error("Missing Session context");
+      expect(sessionEntry.passId).toBe(sessionFixturePassId);
+      expect(sessionEntry.summary).toContain("unknown");
+      const sessionDetail = await pageWindow.evaluate(
+        async ({ sessionId, contextId }) =>
+          globalThis.window.desktop.entityContext.get({
+            sessionId,
+            contextId,
+            includeHistorical: true,
+          }),
+        {
+          sessionId: listeningFixtureSessionId,
+          contextId: sessionEntry.contextId,
+        },
+      );
+      expect(sessionDetail.observation).toMatchObject({
+        schema: "session-audio-observation/v1",
+        startBeat: 0,
+        endBeat: 4,
+        source: {
+          view: "session",
+          kind: "midi",
+          coordinate: { unit: "beats", iteration: 0, startBeat: 0, endBeat: 4 },
+          transport: { startBeat: 12, endBeat: 16 },
+          continuity: {
+            evidence: "message-rate-monitored",
+            followActions: "unknown",
+          },
+        },
+      });
+      if (cycle === 0) {
+        firstSessionId = sessionEntry.contextId;
+        firstSessionPayload = JSON.stringify(sessionDetail.observation);
+      } else {
+        expect(sessionEntry.contextId).toBe(firstSessionId);
+        expect(JSON.stringify(sessionDetail.observation)).toBe(
+          firstSessionPayload,
+        );
+      }
       await expect(
         pageWindow.evaluate(async () => {
           const desktop = globalThis.window.desktop;
@@ -808,7 +927,12 @@ test("publishes producer discovery and credential references only inside the iso
     expect(descriptor).toMatchObject({
       secretPath: storage.signalIngressSecretPath,
       port: signalAddress.port,
-      listenerVersions: [1, 2],
+      listenerVersions: [1, 2, 3],
+      listenerCapabilities: [
+        "audio-listener/v1",
+        "audio-listener/v2",
+        "audio-listener/session-v1",
+      ],
     });
     expect(JSON.stringify(descriptor)).not.toContain(token);
     await expect(window.locator("body")).not.toContainText(token);

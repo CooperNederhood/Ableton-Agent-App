@@ -98,6 +98,20 @@ export function buildListeningPublication(
   const entries: AppendContextPass["entries"] = [];
   const links: AppendContextPass["links"] = [];
   for (const observation of input.observations) {
+    const isSession = observation.schema === "session-audio-observation/v1";
+    if (
+      input.requestedMode !== (isSession ? "session" : "arrangement") ||
+      input.actualMode !== (isSession ? "session" : "arrangement") ||
+      (isSession &&
+        (input.requestedRange.startBeat !== 0 ||
+          input.requestedRange.endBeat > 4 ||
+          input.requestedRange.endBeat <= 0))
+    ) {
+      throw new ListeningFailure(
+        "invalid_publication",
+        "Observation kind must match requested and actual playback coordinates",
+      );
+    }
     const binding = input.bindings.find(
       ({ listenerId }) => listenerId === observation.listenerId,
     );
@@ -117,13 +131,43 @@ export function buildListeningPublication(
       (subject) => contextSubjectSchema.parse(subject),
     );
     if (
-      observation.schema === "audio-observation/v2" &&
+      observation.schema !== "audio-observation/v1" &&
       binding.attribution === "exclusive"
     ) {
       throw new ListeningFailure(
         "invalid_publication",
         "Approximate descriptive observations cannot certify exclusive attribution",
       );
+    }
+    if (observation.schema === "session-audio-observation/v1") {
+      const { target } = observation.source;
+      const primary = associated[0]!;
+      const track = associated
+        .slice(1)
+        .find(
+          (subject) =>
+            subject.kind === "track" &&
+            subject.id === primary.trackId &&
+            subject.trackId === primary.trackId &&
+            subject.binding.previousRuntimeBindings.includes(
+              target.track.expectedReference,
+            ),
+        );
+      if (
+        primary.kind !== "clip" ||
+        primary.location !== "session" ||
+        primary.binding.semanticLocator.sceneIndex !== target.sceneIndex ||
+        !primary.binding.previousRuntimeBindings.includes(
+          target.expectedClipReference,
+        ) ||
+        track === undefined ||
+        associated.slice(1).some((subject) => subject.kind !== "track")
+      ) {
+        throw new ListeningFailure(
+          "invalid_publication",
+          "Session publication requires an exact inspected clip and contributing track binding",
+        );
+      }
     }
     if (new Set(associated.map(({ id }) => id)).size !== associated.length) {
       throw new ListeningFailure(
@@ -178,10 +222,23 @@ export function buildListeningPublication(
         entryId,
         subjectId: subject.id,
         relationship: index === 0 ? "primary" : "contributor",
-        coverage: {
-          startBeat: observation.startBeat,
-          endBeat: observation.endBeat,
-        },
+        coverage:
+          observation.schema === "session-audio-observation/v1"
+            ? index === 0
+              ? {
+                  coordinate: "clip-local-beats",
+                  iteration: 0,
+                  startBeat: 0,
+                  endBeat: observation.endBeat,
+                }
+              : {
+                  coordinate: "transport-beats",
+                  ...observation.source.transport,
+                }
+            : {
+                startBeat: observation.startBeat,
+                endBeat: observation.endBeat,
+              },
         attribution: binding.attribution,
         observedContributorIds: binding.contributors.map(({ id }) => id),
         sourceFingerprint: subject.binding,

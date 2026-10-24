@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CurrentAgentDefinition } from "@ableton-agent/agent-config/schemas";
 
 import type {
+  ApprovalRequest,
   DesktopActiveAgent,
   DesktopAgentModel,
   DesktopApi,
@@ -14,6 +15,7 @@ import type {
 import {
   App,
   AgentsView,
+  ApprovalPanel,
   ConnectionHeader,
   DesktopComposer,
   EventsView,
@@ -325,6 +327,53 @@ describe("desktop component interactions", () => {
     document.body.append(container);
     root = createRoot(container);
   });
+
+  it.each([
+    ["Approve", "approve"],
+    ["Deny", "deny"],
+  ] as const)(
+    "discloses Session side effects before %s and resolves the exact approval",
+    async (label, decision) => {
+      const approval: ApprovalRequest = {
+        id: "session-approval",
+        title: "Play and listen to audio",
+        risk: "medium",
+        summary:
+          "Launches the selected Session clip and starts transport. Playback stays running after completion, failure or cancellation; other selected Session sources may resume. Cancel stops capture only and cannot retract an accepted launch.",
+        changes: [
+          'action: "play-session-and-listen"',
+          'listenerIds: ["listener-1"]',
+          "durationBeats: 4",
+        ],
+        destructive: false,
+      };
+      const resolve = vi.fn<DesktopApi["approvals"]["resolve"]>();
+      const previous = window.desktop;
+      window.desktop = { ...desktopApi(), approvals: { resolve } };
+      const dispatch = vi.fn();
+      try {
+        await act(async () =>
+          root.render(
+            <ApprovalPanel
+              state={{ ...initialState, approval }}
+              dispatch={dispatch}
+            />,
+          ),
+        );
+        expect(container.textContent).toContain(
+          "Playback stays running after completion, failure or cancellation",
+        );
+        expect(container.textContent).toContain(
+          "Cancel stops capture only and cannot retract an accepted launch",
+        );
+        await click(container, label);
+        expect(resolve).toHaveBeenCalledExactlyOnceWith(approval.id, decision);
+        expect(dispatch).toHaveBeenCalledWith({ type: "dismiss-approval" });
+      } finally {
+        window.desktop = previous;
+      }
+    },
+  );
 
   it("keeps Working open while running and allows reopening after completion", async () => {
     const running = {

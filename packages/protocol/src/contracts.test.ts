@@ -6,6 +6,10 @@ import { commandCatalog } from "./catalog.js";
 import { PROTOCOL_VERSION } from "./constants.js";
 import { inspectListeningContextParamsSchema } from "./listening-live-schemas.js";
 import {
+  sessionListeningPassParamsSchema,
+  sessionListeningPassResultSchema,
+} from "./session-listening-pass-schemas.js";
+import {
   failureResponseEnvelopeSchema,
   messageEnvelopeSchema,
   protocolErrorCodeSchema,
@@ -14,6 +18,53 @@ import {
 } from "./schemas.js";
 
 describe("generated protocol contracts", () => {
+  it("keeps granular Session fixtures truthful about source and mutation authority", async () => {
+    const fixture = JSON.parse(
+      await readFile(
+        new URL("../contracts/command-fixtures.json", import.meta.url),
+        "utf8",
+      ),
+    ) as {
+      commands: Record<string, { request: unknown; success: unknown }>;
+    };
+    for (const action of ["prepare", "launch", "inspect", "release"] as const) {
+      const name = `listening.${action}_session_pass`;
+      const messages = fixture.commands[name];
+      if (messages === undefined) {
+        throw new Error(`Missing command fixture for ${name}`);
+      }
+      const request = requestEnvelopeSchema.parse(messages.request);
+      const params = sessionListeningPassParamsSchema.parse(request.params);
+      const success = successResponseEnvelopeSchema.parse(messages.success);
+      const result = sessionListeningPassResultSchema.parse(success.result);
+      expect(params.action).toBe(action);
+      expect(result.nativeAlignment).toBe("unverified");
+      expect(result.evidence).toBe("message-rate-only");
+      expect(result.cleanupPolicy).toBe("leave-running");
+      expect(result.followActionState).toBe("unknown");
+      expect(result.limitations).toHaveLength(2);
+      expect(result.limitations[0]).toContain("Clip.start_time is polled");
+      expect(result.limitations[0]).toContain(
+        "changes between observations may be missed",
+      );
+      expect(result.ownerId).toBe(params.ownerId);
+      expect(result.passId).toBe(params.passId);
+      if (action === "launch" || action === "inspect") {
+        expect(result.status).toBe("playing");
+        expect(result.mutationState).toBe("observed-playing");
+        expect(result.sourceEpoch?.clipReference).toBe(
+          result.lastObservedSource.selectedClipReference,
+        );
+        expect(result.sourceEpoch?.startTimeBeats).toBe(
+          result.lastObservedSource.startTimeBeats,
+        );
+      } else {
+        expect(result.sourceEpoch).toBeNull();
+        expect(result.mutationState).toBe("not-attempted");
+      }
+    }
+  });
+
   it("round-trips the canonical listening path discovery fixture", async () => {
     const fixture = JSON.parse(
       await readFile(

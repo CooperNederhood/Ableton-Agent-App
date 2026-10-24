@@ -2,10 +2,15 @@ import { randomUUID } from "node:crypto";
 
 import {
   sanitizeTelemetryAttributes,
+  sanitizePersistedText,
   type NonBlockingObservabilityRecorder,
 } from "@ableton-agent/observability";
 import {
   storedAudioObservationSchema,
+  sessionListeningLaunchDetailSchema,
+  type SessionListeningLaunchDetail,
+  type SessionListeningJobDetail,
+  type InspectSessionListeningSourceParams,
   type StoredAudioObservation,
 } from "@ableton-agent/protocol";
 
@@ -35,6 +40,7 @@ export type ListeningRequest =
       readonly listenerIds: readonly string[];
       readonly clipReference: string;
       readonly trackReference: string;
+      readonly target?: InspectSessionListeningSourceParams["target"];
       readonly durationBeats: number;
       readonly maximumDurationMs: number;
     }
@@ -116,6 +122,7 @@ export interface ListeningCoordinatorServices {
       readonly owner: ListeningOwner;
       readonly trace: ListeningTrace;
       readonly signal: AbortSignal;
+      readonly onSessionLaunch?: (detail: SessionListeningLaunchDetail) => void;
     },
   ): Promise<OwnedListeningPlayback>;
   /** Must atomically commit all observations, honoring abort before commit. */
@@ -166,11 +173,13 @@ export interface ListeningJob {
   readonly contextIds: readonly string[];
   readonly error?: string;
   readonly cleanupPolicy?: "stop-owned" | "leave-running";
+  readonly session?: SessionListeningJobDetail;
 }
 
 interface RunningJob {
   readonly controller: AbortController;
   readonly startedAt: number;
+  readonly elapsed?: () => number;
   readinessBoundary?:
     | "initial-inspection"
     | "context-reservation"
@@ -281,13 +290,14 @@ function validateRequest(request: ListeningRequest): void {
     request.mode === "session" &&
     (!Number.isFinite(request.durationBeats) ||
       request.durationBeats <= 0 ||
-      request.durationBeats > 256 ||
+      request.durationBeats > 4 ||
+      request.listenerIds.length !== 1 ||
       !request.clipReference ||
       !request.trackReference)
   ) {
     throw new ListeningFailure(
       "invalid_params",
-      "Session listening requires an exact clip and a bounded beat duration",
+      "Session listening requires one exact clip, one same-track listener and at most four first-iteration beats",
     );
   }
   if (
@@ -397,10 +407,35 @@ export class ListeningCoordinator {
       updatedAt: new Date(now).toISOString(),
       durationMs: 0,
       contextIds: [],
+      ...(request.mode === "session"
+        ? {
+            cleanupPolicy: "leave-running" as const,
+            ...(request.target
+              ? {
+                  session: {
+                    clipName: sanitizePersistedText(
+                      request.target.expectedClipName,
+                    ).slice(0, 128),
+                    trackName: sanitizePersistedText(
+                      request.target.track.expectedName,
+                    ).slice(0, 128),
+                    sceneIndex: request.target.sceneIndex,
+                    durationBeats: request.durationBeats,
+                  },
+                }
+              : {}),
+          }
+        : {}),
     };
+    const acceptedMonotonic = performance.now();
     const job: RunningJob = {
       controller: new AbortController(),
       startedAt: now,
+      ...(request.mode === "session"
+        ? {
+            elapsed: () => Math.max(0, performance.now() - acceptedMonotonic),
+          }
+        : {}),
       snapshot,
       completion: Promise.resolve(snapshot),
     };
@@ -414,9 +449,31 @@ export class ListeningCoordinator {
       );
     signal?.addEventListener("abort", cancel, { once: true });
     if (signal?.aborted) cancel();
+    const overallTimer =
+      request.mode === "session"
+        ? setTimeout(
+            () => {
+              job.controller.abort(
+                new ListeningFailure(
+                  "timeout",
+                  "Session listening exceeded its total budget, including setup and launch",
+                ),
+              );
+            },
+            Math.max(
+              0,
+              request.maximumDurationMs -
+                (performance.now() - acceptedMonotonic),
+            ),
+          )
+        : undefined;
+    overallTimer?.unref?.();
     job.completion = Promise.resolve()
       .then(() => this.#run(job, structuredClone(request)))
-      .finally(() => signal?.removeEventListener("abort", cancel));
+      .finally(() => {
+        clearTimeout(overallTimer);
+        signal?.removeEventListener("abort", cancel);
+      });
     this.#transition(job, "queued");
     return structuredClone(job.snapshot);
   }
@@ -548,15 +605,17 @@ export class ListeningCoordinator {
       delete job.readinessBoundary;
       this.#transition(job, "starting-playback");
       clearTimeout(timer);
-      timer = setTimeout(() => {
-        job.controller.abort(
-          new ListeningFailure(
-            "timeout",
-            "Listening capture exceeded its budget",
-          ),
-        );
-      }, request.maximumDurationMs);
-      timer.unref?.();
+      if (request.mode === "arrangement") {
+        timer = setTimeout(() => {
+          job.controller.abort(
+            new ListeningFailure(
+              "timeout",
+              "Listening capture exceeded its budget",
+            ),
+          );
+        }, request.maximumDurationMs);
+        timer.unref?.();
+      }
       playback = await bounded(
         this.options.services.startPlayback({
           request,
@@ -564,6 +623,19 @@ export class ListeningCoordinator {
           owner: job.snapshot.owner,
           trace: job.snapshot.trace,
           signal,
+          ...(request.mode === "session" && job.snapshot.session
+            ? {
+                onSessionLaunch: (raw: SessionListeningLaunchDetail) => {
+                  if (terminal(job.snapshot.stage) || signal.aborted) return;
+                  const detail = sessionListeningLaunchDetailSchema.parse(raw);
+                  job.snapshot = {
+                    ...job.snapshot,
+                    session: { ...job.snapshot.session!, launch: detail },
+                  };
+                  this.#transition(job, job.snapshot.stage);
+                },
+              }
+            : {}),
         }),
         signal,
       );
@@ -738,6 +810,9 @@ export class ListeningCoordinator {
       ...(job.snapshot.cleanupPolicy === undefined
         ? {}
         : { cleanupPolicy: job.snapshot.cleanupPolicy }),
+      ...(job.snapshot.session === undefined
+        ? {}
+        : { session: job.snapshot.session }),
       ...(error === undefined ? {} : { error }),
     });
     const sanitizedError =
@@ -748,7 +823,7 @@ export class ListeningCoordinator {
       ...job.snapshot,
       stage,
       updatedAt: new Date(now).toISOString(),
-      durationMs: Math.max(0, now - job.startedAt),
+      durationMs: job.elapsed?.() ?? Math.max(0, now - job.startedAt),
       contextIds: [...contextIds],
       ...(sanitizedError === undefined ? {} : { error: sanitizedError }),
     };

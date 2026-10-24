@@ -59,6 +59,29 @@ Companion specification: [Local Storage Layout](local-storage.md)
   exclusive descriptive attribution. Retain old kind declarations and reconcile
   additive supported kinds through atomic registry/manifest publication without
   changing the owned path or database format.
+- [x] Add `session-audio-observation/v1` to the same three-kind declaration,
+  retaining old declarations and unchanged v1/v2 reads; preserve clip-local
+  first-iteration descriptors, explicit global transport mapping, typed
+  coordinate-specific clip/track coverage, unknown freshness, and approximate
+  timing in sanitized summaries/detail/reopen. Require exact inspected Session
+  clip and contributing-track evidence without exclusive attribution.
+- [x] Retain nearest-sample-rounded Session descriptor/coverage/actual ranges
+  through 4.001 beats without clamping points; keep nominal requests at most
+  four beats and exact-geometry/first-loop admission runtime-owned. Preserve
+  signed origin diagnostics and expose unknown follow actions as monitored,
+  detection-limited evidence, never disabled.
+- [x] Provide typed native-v2 global-to-Session local descriptor conversion
+  from the frozen global origin, preserving DSP sample indices and approximate
+  quality without input mutation or clamping; reject inconsistent source spans.
+- [x] Keep Session publication reference/scene/track-authoritative rather than
+  raw-name-authoritative; redact and truncate target display names after
+  sanitizer expansion across publication, typed reads, and restart without
+  mutating caller observations or their alignment-quality shape.
+- [x] Hash the complete immutable Session clip binding snapshot and canonical
+  contributor association into its subject ID. Reproduce changed-duration and
+  changed-processing repeated-pass conflicts against the real in-memory store;
+  preserve earlier subjects/payloads and reuse identical snapshots without
+  weakening immutable append validation.
 - [x] Expose canonical profile signal-discovery and local authentication-key
   paths for portable producer companions.
 - [x] Implement invoking-session first-publication registry/manifest API and

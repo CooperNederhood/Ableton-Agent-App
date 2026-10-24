@@ -16,6 +16,15 @@ import {
   nativeCaptureProofSchema,
   NATIVE_LISTENER_SCOPE,
 } from "./native-listening-schemas.js";
+import {
+  NATIVE_SESSION_LISTENER_SCOPE,
+  nativeSessionArmProofSchema,
+  nativeSessionLaunchProofSchema,
+  nativeSessionCaptureProofSchema,
+  assertNativeSessionCaptureObservation,
+  snapshotNativeSessionListeningExpectation,
+  type SessionNativeSource,
+} from "./native-session-listening-schemas.js";
 
 /** Synthetic timely callbacks, not recorded native execution or readiness evidence. */
 export function createSyntheticNativeListeningFixture(
@@ -276,4 +285,38 @@ export function createSyntheticNativeListeningFixtureV2(
     }),
   });
   return { proof, observation };
+}
+
+/** Synthetic transport model only; never native execution, clip-onset proof or host qualification. */
+export function createSyntheticNativeSessionListeningFixture(
+  options: NonNullable<
+    Parameters<typeof createSyntheticNativeListeningFixtureV2>[0]
+  > & { readonly source: SessionNativeSource },
+) {
+  const fixture = createSyntheticNativeListeningFixtureV2(options);
+  const expected = snapshotNativeSessionListeningExpectation({
+    source: options.source,
+    geometry: fixture.proof.armed.geometry,
+    policy: fixture.proof.armed.policy,
+    listenerId: fixture.observation.listenerId,
+    passId: fixture.observation.passId,
+  });
+  const wrapper = {
+    scope: NATIVE_SESSION_LISTENER_SCOPE,
+    source: expected.source,
+  };
+  const arm = nativeSessionArmProofSchema.parse({
+    ...wrapper,
+    transport: fixture.proof.armed,
+  });
+  const launch = nativeSessionLaunchProofSchema.parse({
+    ...wrapper,
+    transport: fixture.proof.launched,
+  });
+  const proof = nativeSessionCaptureProofSchema.parse({
+    ...wrapper,
+    transport: fixture.proof,
+  });
+  assertNativeSessionCaptureObservation(proof, fixture.observation, expected);
+  return { arm, launch, proof, observation: fixture.observation, expected };
 }

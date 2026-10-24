@@ -67,6 +67,35 @@ This is not a generic JSON dump or an agent
 note-writing API. Context is associated with clips, tracks, and Arrangement
 ranges but does not modify the `.als` or live in an Ableton Project sidecar.
 
+The Session MVP reuses the same native audio DSP for MIDI rendered
+through instruments and warped audio. An explicitly negotiated wire-3 channel
+wraps unchanged native-v2 transport proofs; independent application-side source
+identity/epoch evidence must match the frozen transport origin before mapping
+to first-iteration clip-local beats. Message-rate source monitoring cannot
+certify undetected transient edits, disabled unknown follow actions, exclusive
+audio causation or absolute physical timing. Do not reinterpret historical
+Arrangement proof scopes or enable unqualified launch cases.
+
+Real Live 11.3.43 MIDI and warped-audio scenarios independently pass, followed
+by their Session group. Current application admission is limited to clip Global
+with Global None and stopped beat zero; one-bar and every nonzero stopped
+anchor fail before native/source acquisition or launch. Real evidence uses
+120 BPM/4/4, 48 kHz/vector 64 and local 0-4 strictly before the eight-beat end.
+Visible Default-agent captures use ordinary approvals with explicit playback
+side effects; original MIDI context is retrievable after both applications
+restart, without recapture or pretending old runtime IDs identify current
+sources. This is bounded descriptive acceptance, not physical timing,
+exclusive attribution, a broader launch matrix or a fresh legacy-native rerun.
+
+Register `session-audio-observation/v1` additively as the third stored kind,
+with separate local/transport coordinates and a canonical clip-primary plus
+track-contributor transaction. Preserve raw sample indices and explicitly
+rounded actual coverage. All modes retain the existing context store/quotas.
+Session jobs use a monotonic overall deadline and separately typed launch
+progress; cancellation fences queued bridge dispatch but never retracts a
+dispatched launch or stops playback. Both nominal and rounded capture must
+finish strictly before the first wrap and natural end.
+
 Resolve storage through `@ableton-agent/storage` with exact App-session/Live Set
 ownership. Context survives journal retention and App-session closure. Resume
 prepares a bounded inventory; tools retrieve detail. Never inject all recorded
@@ -91,9 +120,9 @@ arrays into each agent prompt.
   notifications cannot prove exclusive transport ownership, so the application
   lease must not be interpreted as an ownership token. This conservative
   implementation policy was selected while user confirmation was unavailable.
-- Session listening remains unsupported until actual quantized source onset
-  can be independently established; an unverified Arrangement start timestamp
-  is likewise not proof of measured audio timing.
+- Session admission remains gated to the empirically accepted launch subset;
+  an unverified requested start or delayed acknowledgement is not proof of
+  measured audio timing. Other contract-representable cases remain refused.
 - A track's active clip is attribution context, not proof of isolated clip
   audio. Effects tails, routing, monitoring, sidechains, and master mixes must
   remain explicit limitations.

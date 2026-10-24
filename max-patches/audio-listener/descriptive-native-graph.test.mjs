@@ -344,7 +344,7 @@ test("root v2 composition is explicit and preserves v1 bytes except the shared p
         !["scoped-native-control"].includes(patchline.source[0]),
     ),
   );
-  for (const nativeVersion of [0, 3, "2"])
+  for (const nativeVersion of [0, 4, "2"])
     assert.throws(
       () => appendNativeRuntimeGraph(authored, { ...options, nativeVersion }),
       /unsupported_native_version/,
@@ -594,7 +594,7 @@ test("descriptive v2 is explicitly selected; default and explicit v1 retain the 
     JSON.stringify(nativeRuntimeDocuments({ nativeVersion: 1 })),
     original,
   );
-  for (const nativeVersion of [0, 3, "2", null])
+  for (const nativeVersion of [0, 4, "2", null])
     assert.throws(
       () => nativeRuntimeDocuments({ nativeVersion }),
       /unsupported_native_version/,

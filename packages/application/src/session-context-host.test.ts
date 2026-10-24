@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   createInMemorySessionContextStore,
+  type AppendContextPass,
   type EntityContextRepository,
 } from "@ableton-agent/project-state";
 import {
@@ -10,6 +11,7 @@ import {
 import { createSyntheticNativeListeningFixtureV2 } from "@ableton-agent/protocol/testing";
 import { contextOperationResultSchema } from "@ableton-agent/tools";
 import { createSessionContextHost } from "./session-context-host.js";
+import { buildListeningPublication } from "./listening-publication.js";
 
 const trace = {
   traceId: "00000000-0000-4000-8000-000000000001",
@@ -77,7 +79,7 @@ async function fixture(name = "Known sine", supplied?: StoredAudioObservation) {
       attacks: [],
       reduction: { originalSamples: 0, originalAttacks: 0, truncated: false },
     });
-  await store.appendPass({
+  const legacy: AppendContextPass = {
     pass: {
       id: "pass",
       sessionId: context.sessionId,
@@ -146,7 +148,72 @@ async function fixture(name = "Known sine", supplied?: StoredAudioObservation) {
         },
       },
     ],
-  });
+  };
+  if (payload.schema === "session-audio-observation/v1") {
+    const track = {
+      ...legacy.subjects[0]!,
+      id: "track",
+      kind: "track" as const,
+      location: "track" as const,
+      binding: {
+        ...binding,
+        previousRuntimeBindings: [
+          payload.source.target.track.expectedReference,
+        ],
+      },
+    };
+    let sequence = 0;
+    await store.appendPass(
+      buildListeningPublication(
+        {
+          passId: "pass",
+          owner: {
+            sessionId: context.sessionId,
+            liveSetId: "set-a",
+            agentId: "writer",
+          },
+          trace,
+          requestedMode: "session",
+          actualMode: "session",
+          requestedRange: { startBeat: 0, endBeat: 4 },
+          createdAt: timestamp,
+          startedAt: timestamp,
+          endedAt: timestamp,
+          observations: [payload],
+          bindings: [
+            {
+              listenerId: "listener",
+              deviceReference: "device",
+              connectionEpoch: "epoch",
+              version: "fixture-v1",
+              primary: {
+                ...track,
+                id: "subject",
+                kind: "clip",
+                location: "session",
+                binding: {
+                  ...binding,
+                  semanticLocator: {
+                    name,
+                    trackId: "track",
+                    sceneIndex: payload.source.target.sceneIndex,
+                  },
+                  previousRuntimeBindings: [
+                    payload.source.target.expectedClipReference,
+                  ],
+                },
+              },
+              contributors: [track],
+              attribution: "unknown",
+            },
+          ],
+        },
+        () => (sequence++ === 0 ? "entry" : `link-${sequence}`),
+      ),
+    );
+  } else {
+    await store.appendPass(legacy);
+  }
   const host = createSessionContextHost({
     resolveRepository: async () => store,
   });
@@ -154,6 +221,69 @@ async function fixture(name = "Known sine", supplied?: StoredAudioObservation) {
 }
 
 describe("typed App-session context host", () => {
+  it("exposes Session local and transport coordinates plus historical timing limitations in existing typed APIs", async () => {
+    const observation: StoredAudioObservation = {
+      ...createSyntheticNativeListeningFixtureV2({ listenerId: "listener" })
+        .observation,
+      schema: "session-audio-observation/v1",
+      source: {
+        view: "session",
+        target: {
+          view: "session",
+          track: {
+            kind: "regular",
+            index: 0,
+            expectedReference: "00000000-0000-4000-8000-000000000001",
+            expectedName: "Track",
+          },
+          sceneIndex: 0,
+          expectedClipReference: "00000000-0000-4000-8000-000000000002",
+          expectedClipName: "Clip",
+        },
+        kind: "midi",
+        coordinate: { unit: "beats", iteration: 0, startBeat: 0, endBeat: 4 },
+        transport: { startBeat: 40, endBeat: 44 },
+        origin: {
+          evidence: "message-rate-start-time-with-native-transport",
+          clipStartTimeBeats: 40,
+          observedAtGlobalBeat: 40,
+        },
+        continuity: {
+          evidence: "message-rate-monitored",
+          followActions: "unknown",
+        },
+      },
+    };
+    const { host } = await fixture("Session clip", observation);
+    const detail = contextOperationResultSchema.parse(
+      await host.executeContextOperation(
+        {
+          action: "get",
+          contextId: "entry",
+          includeHistorical: true,
+        },
+        context,
+      ),
+    );
+    expect(detail).toMatchObject({
+      action: "get",
+      observation,
+      entry: { kind: "session-audio-observation/v1", freshness: "unknown" },
+    });
+    if (detail.action !== "get") throw new Error("Expected detail");
+    expect(detail.entry.summary).toContain("clip-local-beats 0-4");
+    expect(detail.entry.summary).toContain("global transport beats 40-44");
+    expect(detail.entry.summary).toContain("not physical source proof");
+    expect(detail.entry.summary).toContain("absolute error unknown");
+    expect(detail.entry.summary).toContain(
+      "Follow actions unknown, not disabled",
+    );
+    expect(detail.entry.summary).toContain("detection-limited");
+    expect(
+      await host.getSessionContextInventory(context.sessionId, context),
+    ).toContain("connection-scoped");
+  });
+
   it("returns v2 inventory and detail with approximate quality and actual-rate milliseconds", async () => {
     const { observation } = createSyntheticNativeListeningFixtureV2({
       listenerId: "listener",

@@ -313,7 +313,7 @@ describe("typed descriptive context history", () => {
     stores.push(store);
     const value = sessionPublication(4.001);
     const invalid = structuredClone(value);
-    invalid.pass.requestedRange.endBeat = 4.001;
+    invalid.pass.requestedRange.endBeat = 499.502;
     await expect(store.appendPass(invalid)).rejects.toThrow("local coverage");
     expect(await store.getPass(value.pass.id)).toBeUndefined();
     await store.appendPass(value);

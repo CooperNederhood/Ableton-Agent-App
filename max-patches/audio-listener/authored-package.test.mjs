@@ -191,7 +191,9 @@ test("explicit wire3 Session candidate retains ABI2 resources and never promotes
   assert.equal(manifest.algorithmVersion, "2.0.0");
   assert.equal(manifest.observationSchema, "audio-observation/v2");
   assert.equal(manifest.sourceEvidence, "expected-context-only");
-  assert.equal(manifest.maxDurationBeats, 4);
+  assert.equal(manifest.maxAudioDurationMs, 30000);
+  assert.equal(manifest.maxWindows, 300);
+  assert.equal(manifest.maxDurationBeats, undefined);
   assert.equal(manifest.realLiveValidated, false);
   assert(
     manifest.resources.some(
@@ -208,6 +210,8 @@ test("explicit wire3 Session candidate retains ABI2 resources and never promotes
   for (const change of [
     { nativeAbiVersion: 3 },
     { maxDurationBeats: 5 },
+    { maxAudioDurationMs: 30001 },
+    { maxWindows: 301 },
     { sourceEvidence: "native-clip-proof" },
     { synchronization: "delayed-source" },
   ]) {

@@ -102,7 +102,7 @@ export function createSessionSourceDriver(
       };
       const assertCurrent = (result: SessionListeningPassResult): void => {
         if (
-          !["prepared", "accepted", "queued", "playing"].includes(
+          !["prepared", "accepted", "queued", "playing", "covered"].includes(
             result.status,
           ) ||
           result.expiresInMs === 0

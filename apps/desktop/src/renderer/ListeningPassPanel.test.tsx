@@ -104,6 +104,26 @@ async function click(text: string) {
 }
 
 describe("owned listening lifecycle presentation (synthetic fixtures only)", () => {
+  it("shows full-active-region intent without inventing a queued duration", async () => {
+    const h = source();
+    vi.mocked(h.api.listening.list).mockResolvedValueOnce(
+      page([
+        {
+          ...job,
+          session: { clipName: "Loop", trackName: "Track", sceneIndex: 0 },
+        },
+      ]),
+    );
+    await render(h.api);
+    expect(container.textContent).toContain(
+      "Requested full active loop or nonlooping start/end region",
+    );
+    expect(container.textContent).not.toContain("range [0, )");
+    expect(container.textContent).not.toContain("Source epoch matched");
+    await click("Cancel owned capture (not transport)");
+    expect(h.cancel).toHaveBeenCalled();
+  });
+
   it("shows exact Session source, local bounds and launch uncertainty without claiming measured completion", async () => {
     const h = source();
     vi.mocked(h.api.listening.list).mockResolvedValueOnce(

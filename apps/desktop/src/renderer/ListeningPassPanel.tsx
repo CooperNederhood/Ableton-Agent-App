@@ -211,8 +211,9 @@ function ListeningInventory({
                   <p>
                     Session clip {job.session.clipName} on{" "}
                     {job.session.trackName}, scene {job.session.sceneIndex + 1}.
-                    Requested clip-local range [0, {job.session.durationBeats})
-                    beats, first iteration.
+                    {job.session.durationBeats === undefined
+                      ? " Requested full active loop or nonlooping start/end region."
+                      : ` Requested clip-local range [0, ${job.session.durationBeats}) beats, first iteration.`}
                   </p>
                   <p>
                     Launch: {job.session.launch?.state ?? "not requested"}. Host

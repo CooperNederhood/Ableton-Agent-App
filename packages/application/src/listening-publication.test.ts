@@ -300,7 +300,7 @@ describe("atomic listening context publication", () => {
     expect(() =>
       buildListeningPublication({
         ...input,
-        requestedRange: { startBeat: 0, endBeat },
+        requestedRange: { startBeat: 0, endBeat: 500 },
       }),
     ).toThrow("playback coordinates");
   });

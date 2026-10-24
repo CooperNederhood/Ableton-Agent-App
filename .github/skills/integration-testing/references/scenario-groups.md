@@ -175,6 +175,39 @@ requirement and independent proof/context/cleanup verification as the fractional
 scenario. Their reviewed manifests and synthetic runner tests do not establish
 real-Live acceptance or same-process repeated-pass qualification.
 
+## Session full-active-loop capture
+
+`native-listening-session` requires `--native-v3-fixture-input`, with immutable
+Session MIDI and warped-audio sources on their matching listener tracks. The
+reviewed fixture has zero start markers and loop starts, MIDI loop/end markers
+at 8 beats, and warped-audio loop/end markers at 4 beats. No fixture edits or
+launch-setting repair are permitted.
+
+- `native-session-midi`: explicit 4 beats inside the 8-beat active region
+  (20 windows at 120 BPM).
+- `native-session-warped-audio`: explicit 4 beats on an exactly 4-beat clip;
+  endpoint equality must succeed (20 windows).
+- `native-session-midi-full-loop`: omit the `durationBeats` argument entirely;
+  independently freeze the exact active loop end at 8 beats, not the previous
+  four-beat default (40 windows).
+- `native-session-midi-eight-beats`: explicit 8 beats on the same 8-beat active
+  region; durations above four and endpoint equality must succeed (40 windows).
+
+Each scenario retains the same eight-tool-call/one-mutation budget, read and
+reversible risks, listening/context allowlist, 30000 ms capture budget and
+90000 ms scenario timeout. The native ceiling remains 30 seconds/300 windows;
+no truncation, implicit duration substitution, actor retry, transport cleanup
+or source edits are allowed. Source geometry is inspected and frozen before
+launch, joined to native receipts/proof, and verified through one atomic
+Session clip/track context, typed historical reopening and unchanged content
+with playback left running and capture resources idle.
+
+Run the new scenario alone, then this group and the remaining suite only when
+the normal user Live is closed and explicit immutable v3 pins are supplied.
+Synthetic composition tests do not qualify actual Live launch/source alignment
+or physical timing. A pre-existing user Live/desktop process blocks physical
+execution; never control it or install integrations to bypass ownership.
+
 ## Arrangement source investigation
 
 `native-listening-source-investigation` requires an explicit immutable v2 fixture

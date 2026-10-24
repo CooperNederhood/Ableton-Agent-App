@@ -69,7 +69,42 @@ capture/disarm/watchdog lifecycle events remain authoritative. Generated-source
 changes do not mean the user's loaded device has changed or audible dropouts
 have been resolved; the selected bundle must be installed and loaded afresh.
 
-## Session MVP (#63)
+## Full-active-region Session listening
+
+`play-session-and-listen` now defaults to one active loop for looping MIDI or
+warped-audio clips, not the complete underlying file. For nonlooping clips it
+uses the active start/end region. `durationBeats` is optional; an explicit
+positive duration may be shorter than or equal to that region, including four
+beats on an exactly four-beat clip. Admission still requires zero start/loop
+offsets, stopped transport at beat zero, Global None with clip Global, Trigger
+mode, legato off, 4/4, known recording-off and one exact same-track listener.
+Quantized launches and nonzero offsets remain deferred.
+
+There is no four-beat ceiling. Frozen metadata resolves the requested duration
+before arming; native geometry must fit thirty seconds and 300 windows.
+Oversized full loops fail without launching or silently truncating. Native
+endpoints retain nearest-sample rounding, including fractional final windows;
+only the unavoidable half-sample tail may cross the nominal active boundary.
+
+An independently observed original source epoch remains immutable. Early wrap,
+stop, retrigger, source replacement and settings edits invalidate capture.
+A normal wrap or supported natural end at/after the requested interval can
+produce a message-rate `covered` source receipt, but that is not completion:
+publication also requires the exact completed native DSP interval/proof and a
+fresh fingerprint/identity seal. Transport stop is never waived. Monitoring
+and native cleanup remain generation-owned, traced, bounded, cancellable and
+leave-running; no seek, transport ownership or timing-policy change is added.
+
+These expanded boundaries have deterministic regression coverage, not fresh
+physical qualification. Real-Live smoke and visible UX reruns are blocked while
+the user's Live/Desktop processes remain open; no integration is reinstalled
+and no user process is adopted or closed. The historical MVP evidence below
+only qualifies its original four-beat-before-eight-beat-end cases.
+The new `covered` output status requires bridge protocol 8. A protocol-7 Remote
+Script must fail the handshake explicitly, not silently downgrade this behavior;
+app and Remote Script must be rebuilt together before a fresh owned-host run.
+
+## Historical Session MVP (#63)
 
 The MVP sends MIDI rendered through its instrument chain and warped audio
 through the same native audio listener. Both kinds now pass their isolated

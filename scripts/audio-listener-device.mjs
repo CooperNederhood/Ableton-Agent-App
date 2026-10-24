@@ -502,7 +502,8 @@ async function buildPackage(
                       nativeAbiVersion: 2,
                       sourceEvidence: "expected-context-only",
                       synchronization: "transport-coupled-first-iteration",
-                      maxDurationBeats: 4,
+                      maxAudioDurationMs: 30000,
+                      maxWindows: 300,
                     }
                   : {}),
                 tempoPolicy: "constant-tempo-assumed",
@@ -594,7 +595,9 @@ export async function checkArtifact(directory) {
     (manifest.nativeAbiVersion !== 2 ||
       manifest.sourceEvidence !== "expected-context-only" ||
       manifest.synchronization !== "transport-coupled-first-iteration" ||
-      manifest.maxDurationBeats !== 4)
+      manifest.maxAudioDurationMs !== 30000 ||
+      manifest.maxWindows !== 300 ||
+      manifest.maxDurationBeats !== undefined)
   )
     throw new Error("invalid Session transport native manifest");
   if (!manifest.discoveryConfigured) {

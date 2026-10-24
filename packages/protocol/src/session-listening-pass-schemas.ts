@@ -10,7 +10,7 @@ const identity = {
   ownerId: z.string().uuid(),
   passId: z.string().uuid(),
 };
-const durationBeats = z.number().finite().positive().max(4);
+const durationBeats = z.number().finite().positive();
 const globalBeat = z.number().finite().min(0).max(1_576_800);
 const target = inspectSessionListeningSourceParamsSchema.shape.target;
 
@@ -70,6 +70,7 @@ export const sessionListeningPassResultSchema = z
       "accepted",
       "queued",
       "playing",
+      "covered",
       "unverified",
       "invalidated",
       "released",
@@ -102,7 +103,8 @@ export const sessionListeningPassResultSchema = z
     (value) =>
       (value.sourceEpoch !== null) ===
         (value.mutationState === "observed-playing") &&
-      (value.status !== "playing" || value.sourceEpoch !== null) &&
+      (!["playing", "covered"].includes(value.status) ||
+        value.sourceEpoch !== null) &&
       (value.status !== "prepared" ||
         value.mutationState === "not-attempted") &&
       (value.sourceEpoch === null ||

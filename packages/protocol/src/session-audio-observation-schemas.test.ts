@@ -160,9 +160,9 @@ describe("historical Session observations", () => {
     },
   );
 
-  it("rejects historical coverage beyond the rounding allowance", () => {
+  it("rejects historical coverage beyond the resource envelope", () => {
     const value = fixture();
-    value.endBeat = value.source.coordinate.endBeat = 4.001001;
+    value.endBeat = value.source.coordinate.endBeat = 499.502;
     value.source.transport.endBeat = 100 + value.endBeat;
     expect(sessionAudioObservationSchema.safeParse(value).success).toBe(false);
   });

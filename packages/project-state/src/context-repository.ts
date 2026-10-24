@@ -1113,10 +1113,11 @@ export class SessionContextStore implements EntityContextRepository {
           pass.requestedMode !== "session" ||
           pass.actualMode !== "session" ||
           pass.requestedRange.startBeat !== 0 ||
-          pass.requestedRange.endBeat > 4 ||
+          pass.requestedRange.endBeat > 499.5 ||
           pass.actualRange?.startBeat !== 0 ||
           pass.actualRange.endBeat < observation.endBeat ||
-          pass.actualRange.endBeat > 4.001 ||
+          Math.abs(pass.actualRange.endBeat - pass.requestedRange.endBeat) >
+            0.001 + 1e-8 ||
           primary?.kind !== "clip" ||
           primary.location !== "session" ||
           primary.binding.semanticLocator.sceneIndex !==

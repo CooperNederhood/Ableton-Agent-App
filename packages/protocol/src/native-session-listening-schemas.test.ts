@@ -100,7 +100,7 @@ describe("negotiated Session wrapper over unchanged transport ABI2", () => {
           source,
           endBeat: 5,
         }),
-      ).toThrow(/four beats/);
+      ).not.toThrow();
     },
   );
   it("validates arm, first transport movement, windows and global-coordinate descriptors", () => {
@@ -152,7 +152,7 @@ describe("negotiated Session wrapper over unchanged transport ABI2", () => {
       }),
     ).toThrow();
   });
-  it("retains exact bounded target, four beat and existing DSP quotas", () => {
+  it("retains exact bounded target and existing DSP quotas beyond four beats", () => {
     const f = fixture(),
       config = {
         geometry: f.expected.geometry,

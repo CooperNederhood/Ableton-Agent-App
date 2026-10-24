@@ -192,13 +192,16 @@ export function sessionEvidence({
   kind = "midi",
   followUnknown = false,
   startBeat = 8,
+  durationBeats = 4,
+  loopEnd = 8,
 } = {}) {
+  const resolvedDurationBeats = durationBeats ?? loopEnd;
   const e = descriptiveEvidence({
     sampleRate: rate,
     vectorSize: 128,
     tempoBpm: 120,
     startBeat,
-    endBeat: startBeat + 4,
+    endBeat: startBeat + resolvedDurationBeats,
   });
   const target = {
     view: "session",
@@ -229,7 +232,7 @@ export function sessionEvidence({
       vectorSize: 128,
       tempoBpm: 120,
       startBeat,
-      endBeat: startBeat + 4,
+      endBeat: startBeat + resolvedDurationBeats,
     },
     timingPolicy: e.expected.policy,
     passId: e.pass.id,
@@ -275,9 +278,9 @@ export function sessionEvidence({
       legato: false,
       followActionEnabled: followUnknown ? null : false,
       startMarker: 0,
-      endMarker: 8,
+      endMarker: loopEnd,
       loopStart: 0,
-      loopEnd: 8,
+      loopEnd,
       looping: true,
     },
   };
@@ -319,7 +322,7 @@ export function sessionEvidence({
               expectedProjectRevision: source.projectRevision,
               target,
               listener: e.target.binding,
-              durationBeats: 4,
+              durationBeats: resolvedDurationBeats,
               timingAnchor: { globalBeat: startBeat },
             }
           : action === "release"
@@ -346,7 +349,7 @@ export function sessionEvidence({
         sourceEpoch: action === "prepare" ? null : epoch,
         followActionState: followUnknown ? "unknown" : "known-disabled",
         limitations,
-        durationBeats: 4,
+        durationBeats: resolvedDurationBeats,
         expiresInMs: 30000,
       },
     }),
@@ -356,6 +359,7 @@ export function sessionEvidence({
     source,
     sourceKind: kind,
     geometry: e.expected.geometry,
+    durationBeats,
     receipts,
     after: { ...source, before: running, after: running },
   };
@@ -386,7 +390,7 @@ export function sessionEvidence({
   e.typed.observation = observation;
   e.resumed.observation = globalThis.structuredClone(observation);
   e.pass.requestedMode = e.pass.actualMode = "session";
-  e.pass.requestedRange = { startBeat: 0, endBeat: 4 };
+  e.pass.requestedRange = { startBeat: 0, endBeat: resolvedDurationBeats };
   e.pass.actualRange = { startBeat: 0, endBeat: observation.endBeat };
   e.received[0].result = {
     ...e.received[0].result,
@@ -432,6 +436,78 @@ export function sessionEvidence({
 }
 
 describe("Session wire3 independent source join (synthetic only, not physical qualification)", () => {
+  it.each([
+    [null, 8, "midi", 40],
+    [8, 8, "midi", 40],
+    [4, 4, "warped-audio", 20],
+    [4, 8, "midi", 20],
+    [null, 60, "midi", 300],
+  ])(
+    "verifies duration %s against exact active loop %s for %s",
+    (durationBeats, loopEnd, kind, windows) => {
+      const e = sessionEvidence({ durationBeats, loopEnd, kind });
+      const result = verifyNativeListeningEvidence(e, protocol);
+      expect(result.requestedRange).toEqual({
+        startBeat: 0,
+        endBeat: durationBeats ?? loopEnd,
+      });
+      expect(result.transportRange).toEqual({
+        startBeat: 8,
+        endBeat: 8 + (durationBeats ?? loopEnd),
+      });
+      expect(result.envelopeWindows).toBe(windows);
+      expect(result.spectralWindows).toBe(windows);
+    },
+  );
+  it("retains the native thirty-second/300-window ceiling", () => {
+    expect(() => {
+      const e = sessionEvidence({ durationBeats: null, loopEnd: 60.001 });
+      verifyNativeListeningEvidence(e, protocol);
+    }).toThrow();
+  });
+  it.each([
+    [
+      "nonzero loop start",
+      (e) => {
+        e.session.source.settings.loopStart = 1;
+      },
+    ],
+    [
+      "nonzero start marker",
+      (e) => {
+        e.session.source.settings.startMarker = 1;
+      },
+    ],
+    [
+      "end marker truncates full loop",
+      (e) => {
+        e.session.source.settings.endMarker = 7;
+      },
+    ],
+    [
+      "default replaced by old four-beat geometry",
+      (e) => {
+        e.session.durationBeats = null;
+      },
+    ],
+    [
+      "wrong resolved receipt duration",
+      (e) => {
+        e.session.receipts[0].result.durationBeats = 3;
+      },
+    ],
+  ])(
+    "rejects %s rather than truncating/substituting a full-loop pass",
+    (_label, change) => {
+      const e = sessionEvidence({
+        durationBeats:
+          _label === "default replaced by old four-beat geometry" ? 4 : null,
+        loopEnd: 8,
+      });
+      change(e);
+      expect(() => verifyNativeListeningEvidence(e, protocol)).toThrow();
+    },
+  );
   it("accepts the canonical association shape read through the typed store from capture 232754af, not Live UUID identity", () => {
     const e = sessionEvidence({ startBeat: 0, followUnknown: true });
     const clipId =
@@ -708,9 +784,9 @@ describe("Session wire3 independent source join (synthetic only, not physical qu
       },
     ],
     [
-      "loop endpoint equality",
+      "loop endpoint exceeded",
       (e) => {
-        e.session.source.settings.loopEnd = 4;
+        e.session.source.settings.loopEnd = 3.999;
       },
     ],
     [
@@ -1016,12 +1092,9 @@ describe("native scenario exact actor approval guards", () => {
     expectedClipReference: "00000000-0000-4000-8000-000000000002",
     expectedClipName: "Clip",
   };
-  async function sessionApproval(overrides = {}) {
+  async function sessionApproval(overrides = {}, id = "native-session-midi") {
     const manifest = JSON.parse(
-      await readFile(
-        "integration/live-scenarios/native-session-midi.json",
-        "utf8",
-      ),
+      await readFile(`integration/live-scenarios/${id}.json`, "utf8"),
     );
     return createNativeScenarioApproval(manifest, {
       listenerId: "owned",
@@ -1044,6 +1117,33 @@ describe("native scenario exact actor approval guards", () => {
       ...change,
     },
   });
+  it.each([
+    ["native-session-midi-full-loop", null],
+    ["native-session-midi-eight-beats", 8],
+  ])(
+    "approves only the exact reviewed duration key contract for %s",
+    async (id, durationBeats) => {
+      const request = sessionPlay();
+      if (durationBeats === null) delete request.arguments.durationBeats;
+      else request.arguments.durationBeats = durationBeats;
+      const inspect = {
+        toolName: "ableton_listening",
+        risk: "read",
+        arguments: { action: "inspect-listeners" },
+      };
+      const a = await sessionApproval({}, id);
+      await a.request(inspect);
+      expect(await a.request(request)).toBe(true);
+      expect(await a.request(request)).toBe(false);
+      const b = await sessionApproval({}, id);
+      await b.request(inspect);
+      const changed = globalThis.structuredClone(request);
+      if (durationBeats === null) changed.arguments.durationBeats = 8;
+      else delete changed.arguments.durationBeats;
+      expect(await b.request(changed)).toBe(false);
+      expect(await b.request(request)).toBe(false);
+    },
+  );
   it("admits exactly one inspected Session launch, one owned get-pass and one completed historical context get", async () => {
     const a = await sessionApproval();
     expect(

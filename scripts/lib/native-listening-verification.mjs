@@ -130,7 +130,7 @@ function freeze(value) {
 
 /** Frozen deferred-source expectations, never physical identity or native admission evidence. */
 export function snapshotNativeSessionSource(
-  { source, target, sourceKind, geometry },
+  { source, target, sourceKind, geometry, durationBeats = null, sourceRegion },
   protocol,
 ) {
   const parsed =
@@ -142,6 +142,7 @@ export function snapshotNativeSessionSource(
     settings.loopEnd ?? 0,
     settings.endMarker ?? 0,
   );
+  const resolvedDurationBeats = durationBeats ?? settings.loopEnd;
   requireValue(
     isDeepStrictEqual(parsed.target, target) &&
       ["midi", "warped-audio"].includes(sourceKind) &&
@@ -158,7 +159,11 @@ export function snapshotNativeSessionSource(
           state.globalBeat === g.startBeat,
       ) &&
       g.startBeat >= 0 &&
-      Math.abs(g.endBeat - g.startBeat - 4) <= 1e-8 &&
+      Number.isFinite(resolvedDurationBeats) &&
+      resolvedDurationBeats > 0 &&
+      Math.abs(g.endBeat - g.startBeat - resolvedDurationBeats) <= 1e-8 &&
+      g.totalSamples <= g.sampleRate * 30 &&
+      Math.ceil(g.totalSamples / g.hopSamples) <= 300 &&
       g.tempoBpm === 120 &&
       settings.tempoBpm === g.tempoBpm &&
       settings.signatureNumerator === 4 &&
@@ -173,8 +178,12 @@ export function snapshotNativeSessionSource(
       (settings.globalQuantization !== 4 ||
         Math.abs(g.startBeat / 4 - Math.round(g.startBeat / 4)) <= 1e-10) &&
       settings.followActionEnabled !== true &&
-      span < firstIterationEndBeat &&
-      4 < firstIterationEndBeat,
+      (sourceRegion === undefined ||
+        Object.entries(sourceRegion).every(
+          ([key, value]) => settings[key] === value,
+        )) &&
+      span <= firstIterationEndBeat &&
+      resolvedDurationBeats <= firstIterationEndBeat,
     "Unsafe or mismatched immutable Session source/first-iteration geometry",
   );
   return freeze({
@@ -182,6 +191,7 @@ export function snapshotNativeSessionSource(
     sourceKind,
     source: parsed,
     geometry: g,
+    durationBeats: resolvedDurationBeats,
     firstIterationEndBeat,
     followActions:
       settings.followActionEnabled === false ? "disabled" : "unknown",
@@ -225,7 +235,7 @@ function verifySessionSourceJoin(input, observation, raw, expected, protocol) {
         result.ownerId === ownerId &&
         params.passId === pass.id &&
         result.passId === pass.id &&
-        result.durationBeats === 4 &&
+        result.durationBeats === frozen.durationBeats &&
         result.followActionState ===
           (frozen.followActions === "unknown" ? "unknown" : "known-disabled"),
       "Session source receipt changed ownership, duration or follow-action evidence",
@@ -237,7 +247,7 @@ function verifySessionSourceJoin(input, observation, raw, expected, protocol) {
           result.status === "prepared" &&
           params.expectedLiveSetId === owner.liveSetId &&
           params.expectedProjectRevision === frozen.source.projectRevision &&
-          params.durationBeats === 4 &&
+          params.durationBeats === frozen.durationBeats &&
           params.timingAnchor.globalBeat === expected.geometry.startBeat &&
           isDeepStrictEqual(params.target, frozen.target) &&
           isDeepStrictEqual(params.listener, target.binding),
@@ -542,7 +552,8 @@ export function verifyNativeListeningEvidence(input, protocol) {
   const requestedRange = session
     ? {
         startBeat: 0,
-        endBeat: 4,
+        endBeat: snapshotNativeSessionSource(input.session, protocol)
+          .durationBeats,
       }
     : expected
       ? {
@@ -861,11 +872,10 @@ export function createNativeScenarioApproval(manifest, binding) {
           "action",
           "target",
           "listenerIds",
-          "durationBeats",
+          ...(Object.hasOwn(capture, "durationBeats") ? ["durationBeats"] : []),
           "maximumDurationMs",
         ]) ||
         mutationCount !== 0 ||
-        capture.durationBeats !== 4 ||
         capture.maximumDurationMs !== 30000 ||
         args.durationBeats !== capture.durationBeats ||
         args.maximumDurationMs !== capture.maximumDurationMs ||

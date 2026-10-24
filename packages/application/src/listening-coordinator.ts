@@ -41,7 +41,7 @@ export type ListeningRequest =
       readonly clipReference: string;
       readonly trackReference: string;
       readonly target?: InspectSessionListeningSourceParams["target"];
-      readonly durationBeats: number;
+      readonly durationBeats?: number;
       readonly maximumDurationMs: number;
     }
   | {
@@ -288,16 +288,16 @@ function validateRequest(request: ListeningRequest): void {
   }
   if (
     request.mode === "session" &&
-    (!Number.isFinite(request.durationBeats) ||
-      request.durationBeats <= 0 ||
-      request.durationBeats > 4 ||
+    ((request.durationBeats !== undefined &&
+      (!Number.isFinite(request.durationBeats) ||
+        request.durationBeats <= 0)) ||
       request.listenerIds.length !== 1 ||
       !request.clipReference ||
       !request.trackReference)
   ) {
     throw new ListeningFailure(
       "invalid_params",
-      "Session listening requires one exact clip, one same-track listener and at most four first-iteration beats",
+      "Session listening requires one exact clip, one same-track listener and a positive first-iteration duration or the full active region",
     );
   }
   if (

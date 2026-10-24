@@ -182,7 +182,7 @@ export const sessionAudioObservationSchema = z
         iteration: z.literal(0),
         startBeat: z.literal(0),
         // Historical rounded coverage only; runtime independently checks exact geometry.
-        endBeat: z.number().finite().positive().max(4.001),
+        endBeat: z.number().finite().positive().max(499.501),
       }),
       transport: z.strictObject({ startBeat: beat, endBeat: beat }),
       origin: z.strictObject({

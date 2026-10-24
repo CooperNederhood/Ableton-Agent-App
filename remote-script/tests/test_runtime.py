@@ -5151,12 +5151,18 @@ class ServerTests(unittest.TestCase):
         self.assertEqual(response["error"]["code"], "authentication_failed")
 
     def test_rejects_incompatible_protocol_versions(self):
+        self.assert_unsupported_version(1)
+
+    def test_rejects_protocol_seven_before_session_covered_semantics(self):
+        self.assert_unsupported_version(7)
+
+    def assert_unsupported_version(self, version):
         response = self.exchange(
             request(
                 "system.hello",
                 {
                     "authenticationToken": self.token,
-                    "supportedProtocolVersions": [1],
+                    "supportedProtocolVersions": [version],
                     "appVersion": "test",
                     "eventSubscriptions": [],
                 },

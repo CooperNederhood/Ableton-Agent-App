@@ -113,7 +113,6 @@ describe("Session source admission and independent transport join", () => {
     { settings: { ...source().settings, loopStart: 1 } },
     { settings: { ...source().settings, startMarker: 1 } },
     { settings: { ...source().settings, loopEnd: 3 } },
-    { settings: { ...source().settings, loopEnd: 4 } },
     { settings: { ...source().settings, tempoBpm: null } },
     { settings: { ...source().settings, signatureNumerator: 3 } },
     {
@@ -157,18 +156,49 @@ describe("Session source admission and independent transport join", () => {
   });
 
   it.each([true, false])(
-    "rejects capture at either first-iteration boundary with looping=%s",
+    "captures the exact active boundary with looping=%s",
     (looping) => {
-      for (const field of ["loopEnd", "endMarker"] as const) {
-        const snapshot = source();
-        snapshot.settings.looping = looping;
-        snapshot.settings[field] = 4;
-        expect(() =>
-          freezeSessionSourceExpectation(snapshot, target, 4),
-        ).toThrow("session_first_iteration_exceeded");
-      }
+      const snapshot = source();
+      snapshot.settings.looping = looping;
+      snapshot.settings[looping ? "loopEnd" : "endMarker"] = 4;
+      expect(
+        freezeSessionSourceExpectation(snapshot, target, 4).durationBeats,
+      ).toBe(4);
     },
   );
+
+  it("defaults to the active loop, not underlying file end, and permits an explicit shorter region", () => {
+    const snapshot = source();
+    snapshot.sourceKind = "warped-audio";
+    snapshot.settings.endMarker = 200;
+    snapshot.settings.loopEnd = 8.125;
+    expect(freezeSessionSourceExpectation(snapshot, target).durationBeats).toBe(
+      8.125,
+    );
+    expect(
+      freezeSessionSourceExpectation(snapshot, target, 2.25).durationBeats,
+    ).toBe(2.25);
+    snapshot.settings.looping = false;
+    expect(() => freezeSessionSourceExpectation(snapshot, target)).toThrow(
+      "native_capture_quota",
+    );
+    snapshot.settings.endMarker = 6.25;
+    snapshot.settings.loopEnd = 1;
+    expect(freezeSessionSourceExpectation(snapshot, target).durationBeats).toBe(
+      6.25,
+    );
+  });
+
+  it("rejects oversized full loops rather than silently truncating", () => {
+    const snapshot = source();
+    snapshot.settings.loopEnd = 60.01;
+    expect(() => freezeSessionSourceExpectation(snapshot, target)).toThrow(
+      "native_capture_quota",
+    );
+    expect(
+      freezeSessionSourceExpectation(snapshot, target, 4).durationBeats,
+    ).toBe(4);
+  });
 
   it.each([
     { clipReference: "other" },
@@ -201,7 +231,7 @@ describe("Session source admission and independent transport join", () => {
     );
   });
 
-  it("rejects a rounded native span crossing the first loop instead of trimming it", () => {
+  it("permits only the half-sample rounding tail at an exact loop boundary", () => {
     const snapshot = source();
     snapshot.settings.tempoBpm = 128;
     snapshot.settings.loopEnd = 4.00001;
@@ -215,6 +245,12 @@ describe("Session source admission and independent transport join", () => {
     });
     expect(() =>
       assertSessionFirstIterationCoverage(expected, geometry),
+    ).not.toThrow();
+    expect(() =>
+      assertSessionFirstIterationCoverage(
+        { ...expected, firstIterationEndBeat: 3.9999 },
+        geometry,
+      ),
     ).toThrow("session_first_iteration_exceeded");
     snapshot.settings.loopEnd = 8;
     expect(() =>

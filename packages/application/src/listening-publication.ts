@@ -104,7 +104,7 @@ export function buildListeningPublication(
       input.actualMode !== (isSession ? "session" : "arrangement") ||
       (isSession &&
         (input.requestedRange.startBeat !== 0 ||
-          input.requestedRange.endBeat > 4 ||
+          input.requestedRange.endBeat > 499.5 ||
           input.requestedRange.endBeat <= 0))
     ) {
       throw new ListeningFailure(

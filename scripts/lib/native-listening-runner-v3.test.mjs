@@ -23,9 +23,24 @@ async function fixture({
   failure,
   followUnknown = false,
   operatorParameters = 0,
+  scenarioId,
 } = {}) {
+  const id =
+    scenarioId ?? `native-session-${kind === "midi" ? "midi" : "warped-audio"}`;
+  const manifest = JSON.parse(
+    await readFile(`integration/live-scenarios/${id}.json`, "utf8"),
+  );
+  const loopEnd = manifest.sourceRegion.loopEnd;
+  const durationBeats = manifest.capture.durationBeats ?? null;
+  const resolvedDurationBeats = durationBeats ?? loopEnd;
   const f = await nativeFixtureInput({ nativeVersion: 3 });
-  const e = sessionEvidence({ rate, kind, followUnknown });
+  const e = sessionEvidence({
+    rate,
+    kind,
+    followUnknown,
+    durationBeats,
+    loopEnd,
+  });
   const selectedIndex = kind === "midi" ? 0 : 1;
   e.session.target.track.index = selectedIndex;
   e.session.target.track.expectedName =
@@ -47,12 +62,6 @@ async function fixture({
   e.target.binding.expectedDeviceName = "Candidate";
   if (operatorParameters && selectedIndex === 0)
     e.target.binding.deviceIndex = 1;
-  const manifest = JSON.parse(
-    await readFile(
-      `integration/live-scenarios/native-session-${kind === "midi" ? "midi" : "warped-audio"}.json`,
-      "utf8",
-    ),
-  );
   const inputPath = join(f.root, "session-input.json");
   await writeFile(inputPath, JSON.stringify(f.input));
   const runId = randomUUID();
@@ -161,7 +170,7 @@ async function fixture({
           ? e.session.target.expectedClipName
           : `Unselected ${index}`,
       kind: index === 0 ? "midi" : "audio",
-      length: 8,
+      length: loopEnd,
       noteCount: index === 0 ? 1 : null,
       isPlaying:
         playing && (index === selectedIndex || failure === "unselected-launch"),
@@ -230,7 +239,7 @@ async function fixture({
       after: state(playing && selected),
       settings: {
         ...e.session.source.settings,
-        ...(failure === "loop-end" ? { endMarker: 4 } : {}),
+        ...(failure === "loop-end" ? { endMarker: 3.999 } : {}),
         ...(failure === "follow-enabled" ? { followActionEnabled: true } : {}),
       },
     };
@@ -335,8 +344,9 @@ async function fixture({
               { index: 0, beatTime: 0, sampleTime: 0 },
               {
                 index: 1,
-                beatTime: 8,
-                sampleTime: playing && failure === "warp-edit" ? 3 : 4,
+                beatTime: loopEnd,
+                sampleTime:
+                  playing && failure === "warp-edit" ? 3 : loopEnd / 2,
               },
             ],
           }
@@ -345,7 +355,7 @@ async function fixture({
             clip: {
               reference: params.target.expectedClipReference,
               name: params.target.expectedClipName,
-              length: 8,
+              length: loopEnd,
               gain: playing && failure === "audio-edit" ? 0.5 : 1,
               pitchCoarse: 0,
               pitchFine: 0,
@@ -353,13 +363,13 @@ async function fixture({
               warpMode: 0,
               availableWarpModes: [0],
               startMarker: 0,
-              endMarker: 8,
+              endMarker: loopEnd,
               loopStart: 0,
-              loopEnd: 8,
+              loopEnd,
               looping: true,
               ramMode: false,
               filePath: "/synthetic-only/tone.wav",
-              sampleLength: rate * 4,
+              sampleLength: (rate * loopEnd) / 2,
               sampleRate: rate,
             },
           },
@@ -524,7 +534,7 @@ async function fixture({
             trace: actorContext.trace,
             requestedMode: "session",
             actualMode: "session",
-            requestedRange: { startBeat: 0, endBeat: 4 },
+            requestedRange: { startBeat: 0, endBeat: resolvedDurationBeats },
             createdAt: at,
             startedAt: at,
             endedAt: at,
@@ -626,7 +636,11 @@ async function fixture({
                 action: "play-session-and-listen",
                 target: e.session.target,
                 listenerIds: [listener.producer.producerId],
-                durationBeats: failure === "denial" ? 4.001 : 4,
+                ...(failure === "denial"
+                  ? { durationBeats: 4.001 }
+                  : durationBeats === null
+                    ? {}
+                    : { durationBeats }),
                 maximumDurationMs: 30000,
               },
               "reversible",
@@ -665,6 +679,41 @@ async function fixture({
 }
 
 describe("native Session runner composition (no Live launched, not physical qualification)", () => {
+  it.each([
+    ["native-session-midi-full-loop", 44100],
+    ["native-session-midi-full-loop", 48000],
+    ["native-session-midi-eight-beats", 44100],
+    ["native-session-midi-eight-beats", 48000],
+  ])(
+    "independently freezes and reopens full eight-beat %s at %sHz",
+    async (scenarioId, rate) => {
+      const f = await fixture({ scenarioId, rate });
+      try {
+        const result = await f.runner.run(async () => {});
+        expect(result, result.error).toMatchObject({
+          ok: true,
+          evidence: {
+            requestedRange: { startBeat: 0, endBeat: 8 },
+            transportRange: { startBeat: 8, endBeat: 16 },
+            envelopeWindows: 40,
+            spectralWindows: 40,
+          },
+        });
+        const decision = result.approvals.find(
+          (entry) => entry.arguments?.action === "play-session-and-listen",
+        );
+        expect(Object.hasOwn(decision.arguments, "durationBeats")).toBe(
+          scenarioId !== "native-session-midi-full-loop",
+        );
+        expect(f.originalSourcePass.mock.calls[0][0].durationBeats).toBe(8);
+        expect(f.publications()).toBe(1);
+        expect(f.mutations).toEqual(["launch"]);
+      } finally {
+        await f.runner.close({ processStopped: true });
+      }
+      await expect(access(f.runner.fixture.setPath)).rejects.toThrow();
+    },
+  );
   it("admits a 195-parameter Operator with unknown nonexclusive dependencies without raising inspection budgets", async () => {
     const f = await fixture({ operatorParameters: 195 });
     try {

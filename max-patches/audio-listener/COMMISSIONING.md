@@ -13,8 +13,14 @@ Negotiation requires listener version `3`, capability
 `audio-listener/session-v1`, and scope `session-transport-coupled/v1`.
 Prepare freezes `{geometry, timingPolicy, source}`; `source` is
 `{mode: "session", synchronization: "transport-coupled-first-iteration",
-target: <exact bounded Session clip target>}`. Duration is at most four beats;
-all v2 rate/vector/hop/window/duration bounds remain in force.
+target: <exact bounded Session clip target>}`. Session duration is no longer
+capped at four beats; all v2 rate/vector/hop/window/duration bounds remain in
+force, including thirty seconds and 300 windows. Registration and candidate
+manifests expose `maxAudioDurationMs:30000` and `maxWindows:300`, not a fixed
+beat ceiling. Full active-loop/nonlooping-region resolution and normal-boundary
+source monitoring remain application/Remote-Script responsibilities, not DSP
+clip-identity authority. Expanded exact-end/long-loop physical commissioning
+is pending a fresh owned host; historical four-beat results do not qualify it.
 Native arm/launch/capture evidence uses explicit `{scope, source, transport}`
 wrappers. `transport` is independently validated, unchanged v2 evidence, **not
 a relabelled Session proof**.

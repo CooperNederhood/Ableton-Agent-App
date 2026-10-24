@@ -72,8 +72,10 @@ Companion specification: [Local Storage Layout](local-storage.md)
   timing in sanitized summaries/detail/reopen. Require exact inspected Session
   clip and contributing-track evidence without exclusive attribution.
 - [x] Retain nearest-sample-rounded Session descriptor/coverage/actual ranges
-  through 4.001 beats without clamping points; keep nominal requests at most
-  four beats and exact-geometry/first-loop admission runtime-owned. Preserve
+  through the thirty-second/300-window envelope without clamping points; use
+  the tempo-derived historical bound 499.501 beats and retain the 0.001
+  actual/requested compatibility allowance. Keep exact-geometry/active-region
+  admission runtime-owned, allowing only half-sample native rounding. Preserve
   signed origin diagnostics and expose unknown follow actions as monitored,
   detection-limited evidence, never disabled.
 - [x] Provide typed native-v2 global-to-Session local descriptor conversion

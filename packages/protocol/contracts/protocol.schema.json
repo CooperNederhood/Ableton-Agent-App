@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "protocolVersion": 7,
+  "protocolVersion": 8,
   "envelopes": {
     "message": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -8,7 +8,7 @@
         {
           "type": "object",
           "properties": {
-            "protocolVersion": { "type": "number", "const": 7 },
+            "protocolVersion": { "type": "number", "const": 8 },
             "kind": { "type": "string", "const": "request" },
             "requestId": {
               "type": "string",
@@ -39,7 +39,7 @@
         {
           "type": "object",
           "properties": {
-            "protocolVersion": { "type": "number", "const": 7 },
+            "protocolVersion": { "type": "number", "const": 8 },
             "kind": { "type": "string", "const": "response" },
             "requestId": {
               "type": "string",
@@ -72,7 +72,7 @@
         {
           "type": "object",
           "properties": {
-            "protocolVersion": { "type": "number", "const": 7 },
+            "protocolVersion": { "type": "number", "const": 8 },
             "kind": { "type": "string", "const": "response" },
             "requestId": {
               "type": "string",
@@ -122,7 +122,7 @@
         {
           "type": "object",
           "properties": {
-            "protocolVersion": { "type": "number", "const": 7 },
+            "protocolVersion": { "type": "number", "const": 8 },
             "kind": { "type": "string", "const": "event" },
             "event": { "type": "string", "minLength": 1 },
             "sequence": {
@@ -152,7 +152,7 @@
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "type": "object",
       "properties": {
-        "protocolVersion": { "type": "number", "const": 7 },
+        "protocolVersion": { "type": "number", "const": 8 },
         "kind": { "type": "string", "const": "request" },
         "requestId": {
           "type": "string",
@@ -178,7 +178,7 @@
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "type": "object",
       "properties": {
-        "protocolVersion": { "type": "number", "const": 7 },
+        "protocolVersion": { "type": "number", "const": 8 },
         "kind": { "type": "string", "const": "response" },
         "requestId": {
           "type": "string",
@@ -212,7 +212,7 @@
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "type": "object",
       "properties": {
-        "protocolVersion": { "type": "number", "const": 7 },
+        "protocolVersion": { "type": "number", "const": 8 },
         "kind": { "type": "string", "const": "response" },
         "requestId": {
           "type": "string",
@@ -263,7 +263,7 @@
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "type": "object",
       "properties": {
-        "protocolVersion": { "type": "number", "const": 7 },
+        "protocolVersion": { "type": "number", "const": 8 },
         "kind": { "type": "string", "const": "event" },
         "event": { "type": "string", "minLength": 1 },
         "sequence": {
@@ -285,7 +285,7 @@
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "type": "object",
       "properties": {
-        "protocolVersion": { "type": "number", "const": 7 },
+        "protocolVersion": { "type": "number", "const": 8 },
         "kind": { "type": "string", "const": "event" },
         "event": { "type": "string", "const": "live_set.save_observed" },
         "sequence": {
@@ -402,7 +402,7 @@
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
         "properties": {
-          "selectedProtocolVersion": { "type": "number", "const": 7 },
+          "selectedProtocolVersion": { "type": "number", "const": 8 },
           "liveVersion": { "type": "string", "minLength": 1 },
           "remoteScriptVersion": { "type": "string", "minLength": 1 },
           "liveSetId": { "type": "string", "minLength": 1 },
@@ -34997,11 +34997,7 @@
             ],
             "additionalProperties": false
           },
-          "durationBeats": {
-            "type": "number",
-            "exclusiveMinimum": 0,
-            "maximum": 4
-          },
+          "durationBeats": { "type": "number", "exclusiveMinimum": 0 },
           "timingAnchor": {
             "type": "object",
             "properties": {
@@ -35051,6 +35047,7 @@
               "accepted",
               "queued",
               "playing",
+              "covered",
               "unverified",
               "invalidated",
               "released",
@@ -35182,11 +35179,7 @@
             "type": "array",
             "items": { "type": "string", "minLength": 1, "maxLength": 512 }
           },
-          "durationBeats": {
-            "type": "number",
-            "exclusiveMinimum": 0,
-            "maximum": 4
-          },
+          "durationBeats": { "type": "number", "exclusiveMinimum": 0 },
           "expiresInMs": { "type": "integer", "minimum": 0, "maximum": 40000 }
         },
         "required": [
@@ -35254,6 +35247,7 @@
               "accepted",
               "queued",
               "playing",
+              "covered",
               "unverified",
               "invalidated",
               "released",
@@ -35385,11 +35379,7 @@
             "type": "array",
             "items": { "type": "string", "minLength": 1, "maxLength": 512 }
           },
-          "durationBeats": {
-            "type": "number",
-            "exclusiveMinimum": 0,
-            "maximum": 4
-          },
+          "durationBeats": { "type": "number", "exclusiveMinimum": 0 },
           "expiresInMs": { "type": "integer", "minimum": 0, "maximum": 40000 }
         },
         "required": [
@@ -35457,6 +35447,7 @@
               "accepted",
               "queued",
               "playing",
+              "covered",
               "unverified",
               "invalidated",
               "released",
@@ -35588,11 +35579,7 @@
             "type": "array",
             "items": { "type": "string", "minLength": 1, "maxLength": 512 }
           },
-          "durationBeats": {
-            "type": "number",
-            "exclusiveMinimum": 0,
-            "maximum": 4
-          },
+          "durationBeats": { "type": "number", "exclusiveMinimum": 0 },
           "expiresInMs": { "type": "integer", "minimum": 0, "maximum": 40000 }
         },
         "required": [
@@ -35661,6 +35648,7 @@
               "accepted",
               "queued",
               "playing",
+              "covered",
               "unverified",
               "invalidated",
               "released",
@@ -35792,11 +35780,7 @@
             "type": "array",
             "items": { "type": "string", "minLength": 1, "maxLength": 512 }
           },
-          "durationBeats": {
-            "type": "number",
-            "exclusiveMinimum": 0,
-            "maximum": 4
-          },
+          "durationBeats": { "type": "number", "exclusiveMinimum": 0 },
           "expiresInMs": { "type": "integer", "minimum": 0, "maximum": 40000 }
         },
         "required": [

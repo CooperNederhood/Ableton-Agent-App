@@ -50,20 +50,20 @@ function fingerprint(source: Source): string {
 export function freezeSessionSourceExpectation(
   raw: Source,
   target: Target,
-  durationBeats: number,
+  requestedDurationBeats?: number,
 ): Readonly<SessionSourceExpectation> {
   const source = inspectSessionListeningSourceResultSchema.parse(raw);
   if (!isDeepStrictEqual(source.target, target)) deny("stale_session_target");
   if (
-    !Number.isFinite(durationBeats) ||
-    durationBeats <= 0 ||
-    durationBeats > 4 ||
+    (requestedDurationBeats !== undefined &&
+      (!Number.isFinite(requestedDurationBeats) ||
+        requestedDurationBeats <= 0)) ||
     !["midi", "warped-audio"].includes(source.sourceKind) ||
     source.positionUnit !== "beats"
   )
     deny(
       "unsupported_session_source",
-      "Session listening supports MIDI and warped audio in beat coordinates, with a requested duration up to four beats.",
+      "Session listening supports positive beat ranges for MIDI and warped audio.",
     );
   const { before, after, settings } = source;
   if (
@@ -113,11 +113,19 @@ export function freezeSessionSourceExpectation(
       "session_launch_case_unqualified",
       "Only global None from stopped beat zero has real-host Session qualification. One-bar and nonzero stopped anchors are refused; the App does not seek or change launch settings.",
     );
-  const firstIterationEndBeat = Math.min(settings.loopEnd, settings.endMarker);
-  if (firstIterationEndBeat <= durationBeats)
+  const firstIterationEndBeat = settings.looping
+    ? settings.loopEnd
+    : settings.endMarker;
+  const durationBeats = requestedDurationBeats ?? firstIterationEndBeat;
+  if (firstIterationEndBeat < durationBeats)
     deny(
       "session_first_iteration_exceeded",
-      "Capture must finish strictly before the first loop wrap and natural end; it was not silently shortened.",
+      "Capture exceeds the active loop or nonlooping start/end region; it was not silently shortened.",
+    );
+  if ((durationBeats * 60) / settings.tempoBpm > 30)
+    deny(
+      "native_capture_quota",
+      "The full requested range exceeds thirty seconds; it was not truncated.",
     );
   Object.freeze(source.target.track);
   Object.freeze(source.target);
@@ -168,7 +176,8 @@ export function assertSessionFirstIterationCoverage(
     geometry.startBeat !== expected.startBeat ||
     geometry.endBeat !== expected.endBeat ||
     geometry.tempoBpm !== expected.source.settings.tempoBpm ||
-    actualBeats >= expected.firstIterationEndBeat
+    actualBeats - expected.firstIterationEndBeat >
+      geometry.tempoBpm / (120 * geometry.sampleRate) + 1e-10
   )
     deny(
       "session_first_iteration_exceeded",

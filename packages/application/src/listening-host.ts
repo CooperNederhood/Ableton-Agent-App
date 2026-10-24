@@ -249,7 +249,9 @@ export function createListeningHost(
                     options.resolveSessionTarget(params.target, context),
                     context.signal,
                   )),
-                  durationBeats: params.durationBeats,
+                  ...(params.durationBeats === undefined
+                    ? {}
+                    : { durationBeats: params.durationBeats }),
                   maximumDurationMs: params.maximumDurationMs,
                 },
                 owner,

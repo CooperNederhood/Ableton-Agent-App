@@ -156,7 +156,6 @@ describe("independent canonical listener binding", () => {
       abiVersion: 2,
       sourceEvidence: "expected-context-only",
       synchronization: "transport-coupled-first-iteration",
-      maxDurationBeats: 4,
     });
     const report: ListenerBindingDescriptor = {
       ...descriptor(),

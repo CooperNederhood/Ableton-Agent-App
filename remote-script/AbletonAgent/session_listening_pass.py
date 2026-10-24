@@ -1,6 +1,7 @@
 """One bounded, message-rate guarded Session launch; never owns transport or DSP."""
 
 import copy
+import math
 import time
 
 from .core_domain_commands import _integer, _name, _number, _resolve_clip, _resolve_track, _strict, _uuid
@@ -96,7 +97,6 @@ def validate_session_listening_pass(params):
         and params["listener"]["deviceIndex"] < 32
         and params["listener"]["track"] == params["target"]["track"]
         and _number(params["durationBeats"], positive=True)
-        and params["durationBeats"] <= 4
         and _strict(params["timingAnchor"], ("globalBeat",))
         and _number(params["timingAnchor"]["globalBeat"], 0, 1576800)
     ):
@@ -211,10 +211,10 @@ class _Pass(object):
             _fail("Only known MIDI or warped audio Session sources are admitted")
         if any(settings[field] is None for field in settings if field != "followActionEnabled"):
             _fail("Session source required setting is unknown")
-        if self.params["durationBeats"] >= min(settings["endMarker"], settings["loopEnd"]):
+        active_end = settings["loopEnd"] if settings["looping"] else settings["endMarker"]
+        if self.params["durationBeats"] > active_end:
             _fail(
-                "Session capture must finish strictly before loop end and end marker; "
-                "message-rate monitoring cannot qualify exact wrap/natural-end boundary equality"
+                "Session capture exceeds the active loop or nonlooping end marker; it was not shortened"
             )
         if not (
             settings["signatureNumerator"] == settings["signatureDenominator"] == 4
@@ -281,6 +281,46 @@ class _Pass(object):
             self.invalidation_reason = reason
         self.status, self.reason = "invalidated", self.invalidation_reason
 
+    def covered_boundary(self, state):
+        """A normal source boundary is only eligible after the requested interval.
+
+        This message-rate witness never substitutes for the independent native
+        completed capture: the host joins both before publishing context.
+        """
+        if self.epoch is None:
+            return False
+        origin = self.epoch["startTimeBeats"]
+        elapsed = state["globalBeat"] - origin
+        settings = self.baseline["settings"]
+        end = settings["loopEnd"] if settings["looping"] else settings["endMarker"]
+        if (elapsed < self.params["durationBeats"] or elapsed < end
+                or state["transportPlaying"] is not True
+                or state["targetTriggered"] is not False or state["firedSlotIndex"] != -1):
+            return False
+        scene = self.params["target"]["sceneIndex"]
+        if settings["looping"]:
+            iteration = math.floor(elapsed / end)
+            expected_origin = origin + iteration * end
+            phase = elapsed % end
+            return (
+                state["targetPlaying"] is True and state["playingSlotIndex"] == scene
+                and state["selectedClipReference"] == self.params["target"]["expectedClipReference"]
+                and state["startTimeBeats"] in (origin, expected_origin)
+                and 0 <= state["playingPosition"] <= end
+                and (abs(state["playingPosition"] - phase) <= 0.25
+                     or phase <= 0.25 and end - 0.25 <= state["playingPosition"] <= end)
+            )
+        return (
+            state["playingSlotIndex"] in (-1, scene)
+            and state["selectedClipReference"] == (
+                None if state["playingSlotIndex"] == -1
+                else self.params["target"]["expectedClipReference"])
+            and state["startTimeBeats"] == origin
+            and state["playingPosition"] in (0, end)
+            and (state["targetPlaying"] is False
+                 or state["playingSlotIndex"] == -1 or state["playingPosition"] == end)
+        )
+
     def observe(self):
         if self.closed or self.status in ("invalidated", "expired", "released", "cancelled"):
             return
@@ -299,9 +339,16 @@ class _Pass(object):
                         "targetPlaying", "targetTriggered", "playingSlotIndex", "firedSlotIndex")
             if any(state[field] is None for field in required):
                 _fail("Required Session state became unknown")
+            if self.last_dynamic is not None and state["globalBeat"] < self.last_dynamic["globalBeat"]:
+                _fail("Session transport moved backwards during pass")
             if self.mutation == "not-attempted":
                 if state != self.baseline["after"]:
                     _fail("Session source changed before the one owned launch")
+                return
+            if self.covered_boundary(state):
+                self.status = "covered"
+                self.last_dynamic = state
+                self.last_position = state["playingPosition"]
                 return
             previous = self.last_dynamic
             scene = self.params["target"]["sceneIndex"]
@@ -331,8 +378,10 @@ class _Pass(object):
                     _fail("Session active source identity or epoch changed")
             position = state["playingPosition"]
             if self.epoch is not None:
+                active_end = (self.baseline["settings"]["loopEnd"] if self.baseline["settings"]["looping"]
+                              else self.baseline["settings"]["endMarker"])
                 if (self.last_position is not None and position < self.last_position
-                        or position < 0 or position >= self.baseline["settings"]["loopEnd"]):
+                        or position < 0 or position >= active_end):
                     _fail("Session source wrap or invalid first-iteration position observed")
                 self.last_position = position
             self.last_dynamic = state
@@ -348,7 +397,8 @@ class _Pass(object):
                 # wait boundedly for the actual independently readable origin.
                 if anchor <= origin <= anchor + (4 if quantized else 0) and origin <= state["globalBeat"]:
                     elapsed = state["globalBeat"] - origin
-                    end = min(self.baseline["settings"]["loopEnd"], self.baseline["settings"]["endMarker"])
+                    end = (self.baseline["settings"]["loopEnd"] if self.baseline["settings"]["looping"]
+                           else self.baseline["settings"]["endMarker"])
                     if elapsed >= end:
                         _fail("Session first iteration elapsed before source readback")
                     # The stopped clip can retain its previous position until

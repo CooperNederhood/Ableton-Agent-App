@@ -343,10 +343,17 @@ independently resolved same-track listener binding, duration, and the existing
 stopped global beat. It requires known recording-off, no queued launch, MIDI or
 warped audio, trigger mode `0`, legato false, clip launch quantization `0`,
 global None `0` or 1 Bar `4`, 4/4, and start marker/loop start `0`. Duration is
-positive, at most four beats and thirty seconds, and **strictly less than both
-loop end and end marker**, including for nonlooping clips. Equal natural-end or
-wrap boundaries are explicitly refused; the pass never silently trims a range
-or infers exact transition time from callback receipt. Unlike Arrangement
+positive, at most thirty seconds and no longer than the active loop end (when
+looping) or end marker (when nonlooping). The application resolves an omitted
+tool duration before preparation. Equality is supported: a normal wrap/natural
+end is accepted only with the original observed epoch, elapsed global interval,
+unchanged exact source/settings and consistent boundary position. This yields
+`covered` message-rate evidence, not native completion; the application must
+also verify the completed native interval before publication. Earlier boundary
+transitions, edits, replacements and transport stops still invalidate. The pass
+never silently trims a range or infers exact transition time from callback
+receipt. Application launch admission remains stopped beat-zero/Global None;
+the broader primitive's old quantized cases are not newly qualified. Unlike Arrangement
 positioning, admission does not require Arrangement selection, a cleared
 Session override, or any particular insert marker.
 

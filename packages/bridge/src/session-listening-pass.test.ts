@@ -162,6 +162,20 @@ async function fixture(
 }
 
 describe("typed Session source pass bridge", () => {
+  it("preserves a longer fractional duration across the framed preparation boundary", async () => {
+    const f = await fixture({
+      transform: (result) => ({ ...result, durationBeats: 8.125 }),
+    });
+    const input = params("prepare");
+    if (input.action !== "prepare") throw new Error("Expected prepare");
+    const result = await f.service.sessionListeningPass({
+      ...input,
+      durationBeats: 8.125,
+    });
+    expect(result.durationBeats).toBe(8.125);
+    expect(f.requests.at(-1)?.params).toMatchObject({ durationBeats: 8.125 });
+  });
+
   it("dispatches granular commands with owner/trace attribution and only one mutation", async () => {
     const f = await fixture();
     await withCorrelation(

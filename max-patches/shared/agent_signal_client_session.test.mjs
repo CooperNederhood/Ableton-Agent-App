@@ -46,8 +46,7 @@ const status = {
   maxWindows: 300,
   abiVersion: 2,
   sourceEvidence: "expected-context-only",
-  synchronization: "transport-coupled-first-iteration",
-  maxDurationBeats: 4
+  synchronization: "transport-coupled-first-iteration"
 };
 function fixture(options = {}) {
   const wire = [],
@@ -151,6 +150,23 @@ test("wire3 registration and source admission support bundled Node without Objec
   }
 });
 
+test("wire3 accepts longer fractional ranges within unchanged native quotas", () => {
+  const f = fixture();
+  const control = f.control();
+  control.config.geometry.endBeat = control.config.geometry.startBeat + 8.125;
+  control.config.geometry.totalSamples = Math.round(
+    (8.125 * control.config.geometry.sampleRate * 60) /
+      control.config.geometry.tempoBpm
+  );
+  f.client.handleListenerControl(control);
+  assert.equal(f.admitted.length, 1);
+  assert.equal(f.failures.length, 0);
+  assert.equal(
+    f.client.listenerJob.config.geometry.totalSamples,
+    control.config.geometry.totalSamples
+  );
+});
+
 test("wire3 requires exact negotiated registration/status, raw v2 schema and immutable ABI2 metadata", () => {
   const f = fixture();
   listenerRegistrationSessionSchema.parse(f.client.listener);
@@ -232,8 +248,8 @@ test("wire3 freezes bounded source/config and rejects mixed, unsupported, replay
       c.config.source.authority = "native";
     },
     (c) => {
-      c.config.geometry.endBeat = 5;
-      c.config.geometry.totalSamples = 120000;
+      c.config.geometry.endBeat = 61;
+      c.config.geometry.totalSamples = 1464000;
     },
     (c) => {
       c.config.timingPolicy = {

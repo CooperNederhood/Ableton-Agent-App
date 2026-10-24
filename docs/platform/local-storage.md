@@ -177,13 +177,18 @@ format, canonical path, or the meanings of old v1/v2 records. Existing one- or
 two-kind declarations remain readable; publication reconciles the supported
 three-kind declaration additively through the same registry/manifest API.
 Session descriptor/sample/attack beats cover clip-local first iteration zero,
-starting at zero with nominal requested duration at most four beats. Historical
-descriptor, primary coverage, and actual pass ranges may end at up to 4.001 beats
-to retain nearest-sample-rounded physical coverage (for example,
+starting at zero with a resolved full-active-region or explicit shorter/equal
+duration. The native envelope remains thirty seconds/300 windows; the
+tempo-derived historical beat bound is 499.501 (999 BPM for thirty seconds,
+plus the retained 0.001 historical rounding allowance). Historical
+descriptor, primary coverage, and actual pass ranges retain nearest-sample-rounded
+physical coverage (for example,
 4.000024187452759 beats at 44.1 kHz / 128 BPM). Stored sample/attack beats are
 never clamped or interpolated to hide the rounded span. Runtime independently
-checks exact native geometry and rejects rounded coverage crossing the first
-loop end before firing. This historical allowance is not admission authority.
+checks exact native geometry before firing and permits only a half-sample
+rounding tail at the active boundary. Storage retains the existing 0.001
+historical actual/requested allowance for compatibility; this is not admission
+authority. No storage path, ownership, retention or database format changes.
 Native sample indices retain
 their original DSP-clock coordinates and may start above zero. Explicit source
 transport coverage is global, with the same duration and message-rate clip

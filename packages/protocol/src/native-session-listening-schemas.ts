@@ -27,10 +27,7 @@ export const sessionNativeSourceSchema = z.strictObject({
   target: inspectSessionListeningSourceParamsSchema.shape.target,
 });
 export const nativeSessionListeningConfigSchema = z.strictObject({
-  geometry: nativeListeningGeometrySchema.refine(
-    (g) => g.endBeat - g.startBeat <= 4,
-    "Session transport capture is limited to the first four beats",
-  ),
+  geometry: nativeListeningGeometrySchema,
   timingPolicy: listeningTimingPolicySchema,
   source: sessionNativeSourceSchema,
 });
@@ -58,7 +55,6 @@ export const listenerNativeSessionStatusSchema = z
     scope: z.literal(NATIVE_SESSION_LISTENER_SCOPE),
     sourceEvidence: z.literal("expected-context-only"),
     synchronization: z.literal("transport-coupled-first-iteration"),
-    maxDurationBeats: z.literal(4),
   })
   .refine(
     (v) => v.readiness !== "BLOCKED" || v.reason !== undefined,

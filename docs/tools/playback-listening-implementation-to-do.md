@@ -40,7 +40,31 @@ Companion specification: [Playback Listening](playback-listening.md).
 - [ ] Verify installed resources, producer discovery and fresh owned Live11
   registration without changing Session capture gates or pinned older fixtures.
 
-## Session MVP launch-evidence gate (#63)
+## Full-active-region Session expansion
+
+- [x] Resolve omitted duration from the frozen active loop or nonlooping end;
+  permit explicit shorter/equal ranges and reject oversized ranges without
+  truncation. Remove four-beat limits across tools, coordinator, protocol,
+  runtime, Remote Script, SDK, Max configuration and historical storage.
+- [x] Retain thirty-second/300-window native quotas, nearest-sample geometry,
+  fractional tails, exact source identity/fingerprints, original epoch and
+  pass/trace attribution. Keep stopped beat-zero/None/zero-offset restrictions.
+- [x] Join guarded message-rate `covered` boundary evidence with independently
+  completed native DSP capture; keep early wrap/stop/edit/replacement failures,
+  cancellation and generation-owned cleanup without transport ownership.
+- [x] Bump canonical bridge protocol to 8 for the changed result enum; regenerate
+  TypeScript/Python version constants and contract snapshots. Refuse stale
+  protocol-7 peers explicitly instead of negotiating a success-shaped fallback.
+- [x] Cover exact four-beat equality, longer/default loops, explicit shorter
+  regions, nonlooping natural end, fractional final windows, quota denial,
+  historical reopen and full-region queued presentation deterministically.
+- [ ] Run new reviewed Session scenarios alone, then the Session group and
+  remaining suite, with fresh runner-owned Live after the user closes normal
+  Live/Desktop. Reinstall Remote Script only in that owned workflow.
+- [ ] Complete fresh isolated visible Desktop/Live UX validation. Current
+  physical testing is blocked; historical MVP results are not expansion proof.
+
+## Historical Session MVP launch-evidence gate (#63)
 
 - [x] Hand off development-MVP follow-ups without relabelling incomplete
   qualification: #67 runner shutdown; #68 interrupted non-native coverage;

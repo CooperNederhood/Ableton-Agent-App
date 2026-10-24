@@ -431,7 +431,6 @@ describe("explicit native Session wire3 authenticated ingress", () => {
       scope,
       sourceEvidence: "expected-context-only",
       synchronization: "transport-coupled-first-iteration",
-      maxDurationBeats: 4,
     },
   };
   it.each([

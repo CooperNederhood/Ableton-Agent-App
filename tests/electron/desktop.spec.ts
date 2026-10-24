@@ -531,6 +531,15 @@ test("shows synthetic listening lifecycle through real preload events and read-o
     await expect(window.getByLabel("Session source and launch")).toContainText(
       "Launch: queued. Host mutation: indeterminate.",
     );
+    delete page.jobs[0]!.session!.durationBeats;
+    page.revision++;
+    await inject(page);
+    await expect(window.getByLabel("Session source and launch")).toContainText(
+      "Requested full active loop or nonlooping start/end region.",
+    );
+    await expect(
+      window.getByLabel("Session source and launch"),
+    ).not.toContainText("range [0, )");
     await expect(
       window.getByText("Synthetic lifecycle fixture—not measured audio.", {
         exact: false,

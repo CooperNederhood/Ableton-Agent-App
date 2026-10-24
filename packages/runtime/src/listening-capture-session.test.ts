@@ -66,7 +66,6 @@ function fixture() {
         scope: "session-transport-coupled/v1",
         sourceEvidence: "expected-context-only",
         synchronization: "transport-coupled-first-iteration",
-        maxDurationBeats: 4,
         readiness: "READY",
         alignment: "approximate",
         verifiedAbsoluteErrorBoundSamples: null,

@@ -299,6 +299,39 @@ test("wire3 descriptive listening completes with scheduling jitter and independe
   }
 });
 
+for (const total of [195000, 1440000])
+  test(`wire3 completes ${total} samples beyond four beats with exact fractional-tail/window bounds`, async () => {
+    const f = fixture({ total });
+    try {
+      await f.start();
+      f.capture();
+      f.post();
+      const completed = f.wire.find((v) => v.status === "completed");
+      assert(completed, JSON.stringify(f.wire.slice(-2)));
+      assert.equal(
+        completed.observation.endSample - completed.observation.startSample,
+        total,
+      );
+      assert.equal(
+        completed.nativeCapture.transport.envelopeWindows.length,
+        Math.ceil(total / 4800),
+      );
+      assertNativeSessionCaptureObservation(
+        completed.nativeCapture,
+        completed.observation,
+        {
+          source,
+          policy: f.timingPolicy,
+          geometry: f.geometry,
+          listenerId: completed.observation.listenerId,
+          passId: V2_OWNER.passId,
+        },
+      );
+    } finally {
+      f.runtime.stop();
+    }
+  });
+
 for (const kind of ["abi", "config", "spectrum", "tempo", "strict"])
   test(`wire3 ${kind} failure remains fail-closed with owned ABI2 cleanup`, async () => {
     const f = fixture(
@@ -358,8 +391,8 @@ test("wire3 rejects unbounded source contexts, duration and configuration keys b
       ...config,
       geometry: {
         ...config.geometry,
-        endBeat: config.geometry.startBeat + 5,
-        totalSamples: Math.round((5 * 48000 * 60) / 93),
+        endBeat: config.geometry.startBeat + 48,
+        totalSamples: Math.round((48 * 48000 * 60) / 93),
       },
     }),
     (config) => ({ ...config, extra: true }),

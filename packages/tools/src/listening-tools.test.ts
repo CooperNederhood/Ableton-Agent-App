@@ -122,9 +122,17 @@ describe("optional listening tool contracts", () => {
 
   it("requires exact Session identity and defaults bounded capture", () => {
     expect(listeningOperationParamsSchema.parse(sessionInput)).toMatchObject({
-      durationBeats: 4,
       maximumDurationMs: 300_000,
     });
+    expect(
+      listeningOperationParamsSchema.parse(sessionInput),
+    ).not.toHaveProperty("durationBeats");
+    expect(
+      listeningOperationParamsSchema.parse({
+        ...sessionInput,
+        durationBeats: 8.125,
+      }),
+    ).toMatchObject({ durationBeats: 8.125 });
     expect(
       listeningOperationParamsSchema.safeParse({
         ...sessionInput,
@@ -138,7 +146,7 @@ describe("optional listening tool contracts", () => {
     { listenerIds: ["tap", "tap"] },
     { listenerIds: Array.from({ length: 9 }, (_, index) => `tap-${index}`) },
     { maximumDurationMs: 300_001 },
-    { durationBeats: 4.01 },
+    { durationBeats: -1 },
     { listenerIds: ["tap-before", "tap-after"] },
     { durationBeats: Infinity },
     { rawAudio: [1, 2] },

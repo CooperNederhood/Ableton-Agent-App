@@ -12,6 +12,12 @@
     "maximumDurationMs": 30000,
     "sceneIndex": 0
   },
+  "sourceRegion": {
+    "startMarker": 0,
+    "loopStart": 0,
+    "loopEnd": 8,
+    "endMarker": 8
+  },
   "allowedTools": ["ableton_listening", "ableton_context"],
   "allowedActions": {
     "ableton_listening": [

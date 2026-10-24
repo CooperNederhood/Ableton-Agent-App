@@ -297,8 +297,7 @@ function validSessionConfig(config) {
     validDescriptiveConfig({
       geometry: config.geometry,
       timingPolicy: config.timingPolicy
-    }) &&
-    config.geometry.endBeat - config.geometry.startBeat <= 4
+    })
   );
 }
 
@@ -331,8 +330,7 @@ function validSessionRegistration(listener) {
     "maxWindows",
     "abiVersion",
     "sourceEvidence",
-    "synchronization",
-    "maxDurationBeats"
+    "synchronization"
   ];
   const id = (value) =>
     typeof value === "string" && value.length >= 1 && value.length <= 128;
@@ -404,7 +402,6 @@ function validSessionRegistration(listener) {
     status.abiVersion === 2 &&
     status.sourceEvidence === "expected-context-only" &&
     status.synchronization === "transport-coupled-first-iteration" &&
-    status.maxDurationBeats === 4 &&
     (status.reason === undefined ||
       (typeof status.reason === "string" &&
         /^[a-z][a-z0-9_]{0,127}$/.test(status.reason))) &&

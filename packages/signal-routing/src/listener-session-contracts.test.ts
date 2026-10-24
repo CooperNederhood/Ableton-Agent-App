@@ -56,7 +56,6 @@ const status = {
   reason: "fresh_per_pass_native_validation_required",
   sourceEvidence: "expected-context-only",
   synchronization: "transport-coupled-first-iteration",
-  maxDurationBeats: 4,
 };
 describe("listener wire3 Session negotiation", () => {
   it("requires exact capability, scope, ABI2 and readiness policy", () => {

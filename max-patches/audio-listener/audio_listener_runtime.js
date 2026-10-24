@@ -135,7 +135,6 @@ function createRuntime({
             ? {
                 sourceEvidence: "expected-context-only",
                 synchronization: "transport-coupled-first-iteration",
-                maxDurationBeats: 4,
               }
             : {}),
           readiness: "BLOCKED",
@@ -924,8 +923,6 @@ function createRuntime({
           )
             throw new Error("unsupported_native_capture_scope");
           if (sessionMode) {
-            if (checked.geometry.endBeat - checked.geometry.startBeat > 4)
-              throw new Error("unsupported_native_session_duration");
             sessionSource = freezeSessionSource(config.source);
           }
           adapter.prepare({

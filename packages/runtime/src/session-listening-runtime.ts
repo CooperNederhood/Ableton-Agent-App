@@ -314,7 +314,7 @@ export function createSessionListeningServices(
           sourceDriver.prepare({
             pass: input,
             target: cached.request.target!,
-            durationBeats: cached.request.durationBeats,
+            durationBeats: cached.expected.durationBeats,
             expectedProjectRevision: fresh.projectRevision,
             binding: {
               ...cached.inspection.listeners[0]!.binding,
@@ -635,7 +635,7 @@ export function createSessionListeningServices(
           actualMode: "session",
           requestedRange: {
             startBeat: 0,
-            endBeat: cached.request.durationBeats,
+            endBeat: cached.expected.durationBeats,
           },
           createdAt: cached.createdAt,
           startedAt: cached.startedAt,

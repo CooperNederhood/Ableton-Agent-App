@@ -82,6 +82,7 @@ afterEach(async () => {
 function fixture(
   kind: "midi" | "warped-audio" = "midi",
   contextRepository?: Repository,
+  sourceSettings: Partial<InspectSessionListeningSourceResult["settings"]> = {},
 ) {
   let playing = false;
   let durationBeats = request.durationBeats;
@@ -123,7 +124,6 @@ function fixture(
         scope: "session-transport-coupled/v1",
         sourceEvidence: "expected-context-only",
         synchronization: "transport-coupled-first-iteration",
-        maxDurationBeats: 4,
         readiness: "READY",
         alignment: "approximate",
         verifiedAbsoluteErrorBoundSamples: null,
@@ -175,6 +175,7 @@ function fixture(
       loopStart: 0,
       loopEnd: 8,
       looping: true,
+      ...sourceSettings,
     },
   });
   const inspectListeningContext = vi.fn(
@@ -489,10 +490,13 @@ function fixture(
   hosts.push(host);
   const begin = async (
     signal?: AbortSignal,
-    requestedDurationBeats = request.durationBeats,
+    requestedDurationBeats: number | null = request.durationBeats,
   ) => {
     const result = await host.executeListeningOperation(
-      { ...request, durationBeats: requestedDurationBeats },
+      {
+        ...request,
+        durationBeats: requestedDurationBeats ?? undefined,
+      },
       {
         ...context,
         ...(signal ? { signal } : {}),
@@ -501,7 +505,9 @@ function fixture(
     if (!("job" in result)) throw new Error("Expected job");
     return result.job.passId;
   };
-  const run = async (requestedDurationBeats = request.durationBeats) =>
+  const run = async (
+    requestedDurationBeats: number | null = request.durationBeats,
+  ) =>
     host.waitForListeningPass(
       await begin(undefined, requestedDurationBeats),
       context,
@@ -539,6 +545,113 @@ function fixture(
 }
 
 describe("shared runtime Session listening", () => {
+  it.each([
+    { looping: true, loopEnd: 4, endMarker: 100, requested: 4, expected: 4 },
+    {
+      looping: true,
+      loopEnd: 8.125,
+      endMarker: 100,
+      requested: null,
+      expected: 8.125,
+    },
+    {
+      looping: true,
+      loopEnd: 8.125,
+      endMarker: 100,
+      requested: 2.25,
+      expected: 2.25,
+    },
+    {
+      looping: false,
+      loopEnd: 1,
+      endMarker: 6.125,
+      requested: null,
+      expected: 6.125,
+    },
+  ])(
+    "persists the resolved active range without truncation: %j",
+    async ({ requested, expected, ...settings }) => {
+      const repository = await createInMemorySessionContextStore(owner);
+      stores.push(repository);
+      const f = fixture("warped-audio", repository, settings);
+      const job = await f.run(requested);
+      expect(job.stage, job.error).toBe("completed");
+      const pass = await repository.getPass(job.passId);
+      expect(pass?.requestedRange).toEqual({ startBeat: 0, endBeat: expected });
+      expect(pass?.actualRange?.endBeat).toBe(expected);
+      expect(
+        f.data().observation.endSample - f.data().observation.startSample,
+      ).toBe(expected * 24000);
+      expect(
+        f.sessionListeningPass.mock.calls.find(
+          ([p]) => p.action === "prepare",
+        )?.[0],
+      ).toMatchObject({ durationBeats: expected });
+      expect(f.log).toContain("session:release");
+      expect(f.subscribers.size).toBe(0);
+    },
+  );
+
+  it("seals a covered normal boundary only after independently completed native capture", async () => {
+    const f = fixture("midi", undefined, { loopEnd: 4, endMarker: 4 });
+    f.sessionListeningPass.mockImplementation(async (params) => {
+      if (params.action === "launch") {
+        f.setPlaying(true);
+        f.launchNative();
+        f.completeNative();
+      }
+      const result = f.receipt(params);
+      if (params.action === "inspect" && result.sourceEpoch) {
+        result.status = "covered";
+        result.lastObservedSource.globalBeat = 4;
+        result.lastObservedSource.playingPosition = 0;
+      }
+      return result;
+    });
+    const job = await f.run(4);
+    expect(job.stage, job.error).toBe("completed");
+    expect(f.publications).toHaveLength(1);
+    expect(f.publications[0]?.pass.requestedRange.endBeat).toBe(4);
+  });
+
+  it("rejects an oversized default loop before monitor preparation, launch or publication", async () => {
+    const f = fixture("midi", undefined, { loopEnd: 64, endMarker: 100 });
+    const job = await f.run(null);
+    expect(job.stage).toBe("failed");
+    expect(job.error).toContain("thirty seconds");
+    expect(f.sessionListeningPass).not.toHaveBeenCalled();
+    expect(f.appendPass).not.toHaveBeenCalled();
+    expect(f.subscribers.size).toBe(0);
+  });
+
+  it("does not publish a covered source receipt without native completion and cleans cancellation", async () => {
+    const f = fixture("midi", undefined, { loopEnd: 4, endMarker: 4 });
+    f.sessionListeningPass.mockImplementation(async (params) => {
+      if (params.action === "launch") {
+        f.setPlaying(true);
+        f.launchNative();
+      }
+      const result = f.receipt(params);
+      if (params.action === "inspect" && result.sourceEpoch)
+        result.status = "covered";
+      return result;
+    });
+    const controller = new AbortController();
+    const passId = await f.begin(controller.signal, 4);
+    await vi.waitFor(() => expect(f.jobs.at(-1)?.stage).toBe("capturing"));
+    expect(f.appendPass).not.toHaveBeenCalled();
+    controller.abort();
+    const job = await f.host.waitForListeningPass(passId, context);
+    expect(job.stage).toBe("cancelled");
+    expect(f.appendPass).not.toHaveBeenCalled();
+    expect(
+      f.sessionListeningPass.mock.calls.some(
+        ([params]) => params.action === "release",
+      ),
+    ).toBe(true);
+    expect(f.subscribers.size).toBe(0);
+  });
+
   it.each(["duration", "processing"] as const)(
     "persists repeated captures with changed %s without overwriting immutable clip history",
     async (change) => {

@@ -7,24 +7,36 @@ import {
   selectSessionFixtureSource,
 } from "./native-session-listening-scenario.mjs";
 
-for (const [id, kind] of [
-  ["native-session-midi", "midi"],
-  ["native-session-warped-audio", "warped-audio"],
+for (const [id, kind, durationBeats, loopEnd] of [
+  ["native-session-midi", "midi", 4, 8],
+  ["native-session-warped-audio", "warped-audio", 4, 4],
+  ["native-session-midi-full-loop", "midi", null, 8],
+  ["native-session-midi-eight-beats", "midi", 8, 8],
 ]) {
   test(`reviews exactly the immutable ${kind} scenario`, async () => {
     const manifest = JSON.parse(
       await readFile(`integration/live-scenarios/${id}.json`, "utf8"),
     );
-    assert.equal(manifest.prompt, nativeSessionListeningPrompt(kind));
+    assert.equal(
+      manifest.prompt,
+      nativeSessionListeningPrompt(kind, durationBeats),
+    );
     const reviewed = reviewNativeSessionScenario(manifest);
     assert.equal(reviewed.nativeVersion, 3);
     assert.equal(reviewed.sourceKind, kind);
+    assert.equal(reviewed.capture.endBeat, durationBeats ?? loopEnd);
+    assert.equal(reviewed.sourceRegion.loopEnd, loopEnd);
+    assert.equal(
+      Object.hasOwn(manifest.capture, "durationBeats"),
+      durationBeats !== null,
+    );
     for (const change of [
       { sourceKind: "unwarped-audio" },
       { maxToolCalls: 9 },
       { maxMutations: 2 },
       { nativeVersion: 2 },
-      { capture: { ...manifest.capture, durationBeats: 8 } },
+      { capture: { ...manifest.capture, durationBeats: 6 } },
+      { sourceRegion: { ...manifest.sourceRegion, loopEnd: loopEnd + 1 } },
       { prompt: `${manifest.prompt} Retry until successful.` },
       { allowedTools: ["ableton_listening", "ableton_context", "bash"] },
       { assertions: manifest.assertions.slice(1) },

@@ -280,7 +280,7 @@ describe("headless listening coordinator", () => {
   });
 
   it.each([
-    { durationBeats: 4.01 },
+    { durationBeats: -1 },
     { durationBeats: 0 },
     { listenerIds: ["listener", "second-listener"] },
   ])("rejects Session MVP bounds before inspection: %j", (change) => {
@@ -299,7 +299,7 @@ describe("headless listening coordinator", () => {
         owner,
         trace,
       ),
-    ).toThrow("at most four first-iteration beats");
+    ).toThrow("positive first-iteration duration");
     expect(f.services.inspect).not.toHaveBeenCalled();
   });
 

@@ -819,7 +819,8 @@ export async function createNativeListeningRunner({
                           parsed.expectedLiveSetId === owner.liveSetId &&
                           parsed.expectedProjectRevision ===
                             sessionSource.source.projectRevision &&
-                          parsed.durationBeats === 4 &&
+                          parsed.durationBeats ===
+                            sessionSource.durationBeats &&
                           parsed.timingAnchor.globalBeat ===
                             geometry.startBeat &&
                           isDeepStrictEqual(
@@ -1185,12 +1186,14 @@ export async function createNativeListeningRunner({
             }),
           );
           assert(source.queryId === queryId, "Stale Session source baseline");
+          const durationBeats =
+            reviewed.capture.durationBeats ?? source.settings.loopEnd;
           geometry = d.protocol.createNativeListeningGeometry({
             sampleRate: listener.registration.sampleRate,
             vectorSize: listener.registration.vectorSize,
             tempoBpm: inspected.transport.tempo,
             startBeat: source.after.globalBeat,
-            endBeat: source.after.globalBeat + reviewed.capture.durationBeats,
+            endBeat: source.after.globalBeat + durationBeats,
           });
           const frozen = snapshotNativeSessionSource(
             {
@@ -1198,6 +1201,8 @@ export async function createNativeListeningRunner({
               target: sessionTarget,
               sourceKind: reviewed.sourceKind,
               geometry,
+              durationBeats: reviewed.capture.durationBeats ?? null,
+              sourceRegion: reviewed.sourceRegion,
             },
             d.protocol,
           );

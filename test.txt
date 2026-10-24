@@ -1,0 +1,23 @@
+# inst-0coast-midi
+
+## Instrument context
+- 0-coast is MONOPHONIC (mono synth + external hardware via ProxyInstrumentDevice/glide). Only one note should sound at a time — never write stacked/simultaneous chords.
+- It has portamento/glide: overlapping note timing (not just touching) is what triggers audible glide between pitches.
+
+## Legato / glide rules
+- TRUE legato = next note's startTime occurs BEFORE previous note's end (real overlap), e.g. ~0.05–0.25 beat overlap. Touching (end == next start) is NOT legato and will NOT glide.
+- NEVER overlap two notes of the SAME pitch — Live can't sustain two overlapping note-ons at identical pitch; the write gets silently collapsed/rejected (verification failure, auto-rollback). If a phrase repeats the same pitch back-to-back, make that one transition touch (no overlap needed — no pitch change means no glide benefit anyway).
+- Use overlap only where you want a pitch bend/portamento effect; use a clean gap (rest) where you want a hard reset/retrigger.
+
+## Rhythm/timing
+- Use binary-safe fractional beat values (multiples of 0.125, e.g. .125/.25/.375...) for startTime/duration. Values like 0.3, 2.1, 2.3 don't round-trip exactly in floating point and can trigger note-verification mismatches, causing a full rollback.
+- Vary rhythm placement, not just pitch: stagger phrase starts off the downbeat per bar/section for real syncopation, don't just repeat the same grid offset with different pitches.
+
+## Melodic writing for mono synth
+- Since it's monophonic, express harmony via arpeggiation/full triad coverage across a bar, not simultaneous stacking.
+- Use octave leaps and non-monotonic contours (not just straight up/down) for interest — this reads as "accents/register variety," not chords.
+- A held pedal/drone note is fine (single voice), but don't combine it with another voice sounding at the same time — sequence it in time instead.
+
+## Workflow / tool practice
+- Before large-scale writes, test the exact note pattern at small scale (1 note, then a small overlapping group) to catch same-pitch-overlap or timing-precision issues before writing many clips.
+- If `replace-notes` fails, re-inspect actual clip state before retrying — don't assume; original notes are auto-restored on verification failure, so nothing is corrupted, but nothing new is written either.

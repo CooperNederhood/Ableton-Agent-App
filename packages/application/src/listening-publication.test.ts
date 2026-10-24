@@ -7,6 +7,7 @@ import {
 } from "@ableton-agent/project-state";
 import type { AudioObservation } from "@ableton-agent/protocol";
 import { createSyntheticNativeListeningFixtureV2 } from "@ableton-agent/protocol/testing";
+import { sanitizePersistedText } from "@ableton-agent/observability";
 import {
   buildListeningPublication,
   persistListeningObservations,
@@ -109,6 +110,76 @@ function fixture(): ListeningPublicationInput {
   };
 }
 
+function sessionFixture(): ListeningPublicationInput {
+  const base = fixture();
+  const trackReference = "00000000-0000-4000-8000-000000000002";
+  const clipReference = "00000000-0000-4000-8000-000000000003";
+  const track = {
+    ...base.bindings[0]!.primary,
+    id: "track",
+    binding: {
+      ...base.bindings[0]!.primary.binding,
+      previousRuntimeBindings: [trackReference],
+    },
+  };
+  return {
+    ...base,
+    requestedMode: "session",
+    actualMode: "session",
+    observations: [
+      {
+        ...createSyntheticNativeListeningFixtureV2({ listenerId: "listener" })
+          .observation,
+        schema: "session-audio-observation/v1",
+        source: {
+          view: "session",
+          target: {
+            view: "session",
+            track: {
+              kind: "regular",
+              index: 0,
+              expectedReference: trackReference,
+              expectedName: "Track",
+            },
+            sceneIndex: 2,
+            expectedClipReference: clipReference,
+            expectedClipName: "Clip",
+          },
+          kind: "midi",
+          coordinate: { unit: "beats", iteration: 0, startBeat: 0, endBeat: 4 },
+          transport: { startBeat: 100, endBeat: 104 },
+          origin: {
+            evidence: "message-rate-start-time-with-native-transport",
+            clipStartTimeBeats: 100,
+            observedAtGlobalBeat: 100.1,
+          },
+          continuity: {
+            evidence: "message-rate-monitored",
+            followActions: "disabled",
+          },
+        },
+      },
+    ],
+    bindings: [
+      {
+        ...base.bindings[0]!,
+        primary: {
+          ...track,
+          id: "clip",
+          kind: "clip",
+          location: "session",
+          binding: {
+            ...track.binding,
+            semanticLocator: { name: "Clip", trackId: "track", sceneIndex: 2 },
+            previousRuntimeBindings: [clipReference],
+          },
+        },
+        contributors: [track],
+      },
+    ],
+  };
+}
+
 async function repository(sessionId = owner.sessionId) {
   const store = await createInMemorySessionContextStore({
     sessionId,
@@ -119,6 +190,206 @@ async function repository(sessionId = owner.sessionId) {
 }
 
 describe("atomic listening context publication", () => {
+  it("uses exact Session references rather than raw names and redacts bounded source targets without changing caller quality", async () => {
+    const base = sessionFixture();
+    const observation = structuredClone(base.observations[0]!);
+    if (observation.schema !== "session-audio-observation/v1")
+      throw new Error("Expected Session observation");
+    const rawClipName = `password=p ${"x".repeat(117)}`;
+    const rawTrackName = `token=t ${"y".repeat(120)}`;
+    observation.source.target.expectedClipName = rawClipName;
+    observation.source.target.track.expectedName = rawTrackName;
+    const binding = base.bindings[0]!;
+    const input = {
+      ...base,
+      observations: [observation],
+      bindings: [
+        {
+          ...binding,
+          primary: {
+            ...binding.primary,
+            binding: {
+              ...binding.primary.binding,
+              semanticLocator: {
+                ...binding.primary.binding.semanticLocator,
+                name: sanitizePersistedText(rawClipName).slice(0, 128),
+              },
+            },
+          },
+        },
+      ],
+    };
+    const before = structuredClone(input);
+    expect(buildListeningPublication(input).entries[0]?.payload).toEqual(
+      observation,
+    );
+    const store = await repository();
+    const [entryId] = await persistListeningObservations(
+      store,
+      input,
+      new AbortController().signal,
+    );
+    const entry = await store.getEntry(entryId!);
+    if (entry?.payload.schema !== "session-audio-observation/v1")
+      throw new Error("Expected Session entry");
+    for (const name of [
+      entry.payload.source.target.expectedClipName,
+      entry.payload.source.target.track.expectedName,
+    ]) {
+      expect(name).toContain("[REDACTED]");
+      expect(name.length).toBeLessThanOrEqual(128);
+    }
+    expect(entry.payload.alignment).toEqual(observation.alignment);
+    const listed = await store.listEntries({
+      kind: "session-audio-observation/v1",
+      includeHistorical: true,
+    });
+    expect(listed.items[0]?.payload).toEqual(
+      expect.objectContaining({
+        source: entry.payload.source,
+        alignment: observation.alignment,
+      }),
+    );
+    expect(JSON.stringify({ entry, listed })).not.toContain("password=p ");
+    expect(JSON.stringify({ entry, listed })).not.toContain("token=t ");
+    expect(input).toEqual(before);
+  });
+
+  it("preserves nominal requested duration and rounded actual coverage in storage and both coordinate links", async () => {
+    const base = sessionFixture();
+    const observation = structuredClone(base.observations[0]!);
+    if (observation.schema !== "session-audio-observation/v1")
+      throw new Error("Expected Session observation");
+    const endBeat = (Math.round((4 * 60 * 44_100) / 128) * 128) / (60 * 44_100);
+    observation.sampleRate = observation.alignment.sampleRate = 44_100;
+    observation.endSample =
+      observation.startSample + Math.round((4 * 60 * 44_100) / 128);
+    observation.endBeat = observation.source.coordinate.endBeat = endBeat;
+    observation.source.transport.endBeat = 100 + endBeat;
+    observation.samples = [
+      {
+        ...observation.samples.at(-1)!,
+        sample: observation.endSample,
+        beat: endBeat,
+      },
+    ];
+    observation.attacks = [];
+    observation.reduction.originalSamples = 1;
+    observation.reduction.originalAttacks = 0;
+    const input = { ...base, observations: [observation] };
+    const value = buildListeningPublication(input);
+    expect(value.pass.requestedRange).toEqual({ startBeat: 0, endBeat: 4 });
+    expect(value.pass.actualRange).toEqual({ startBeat: 0, endBeat });
+    expect(value.links.map((link) => link.coverage.endBeat)).toEqual([
+      endBeat,
+      100 + endBeat,
+    ]);
+    const store = await repository();
+    await persistListeningObservations(
+      store,
+      input,
+      new AbortController().signal,
+    );
+    const persisted = (
+      await store.listEntries({ kind: "session-audio-observation/v1" })
+    ).items[0]!;
+    expect((await store.getEntry(persisted.id))?.payload).toEqual(observation);
+    expect((await store.getPass(base.passId))?.actualRange?.endBeat).toBe(
+      endBeat,
+    );
+    expect(() =>
+      buildListeningPublication({
+        ...input,
+        requestedRange: { startBeat: 0, endBeat },
+      }),
+    ).toThrow("playback coordinates");
+  });
+
+  it("publishes Session clip-local primary and global track coverage without claiming freshness", async () => {
+    const input = sessionFixture();
+    const value = buildListeningPublication(input);
+    expect(value.pass.actualRange).toEqual({ startBeat: 0, endBeat: 4 });
+    expect(value.links.map((link) => link.coverage)).toEqual([
+      {
+        coordinate: "clip-local-beats",
+        iteration: 0,
+        startBeat: 0,
+        endBeat: 4,
+      },
+      { coordinate: "transport-beats", startBeat: 100, endBeat: 104 },
+    ]);
+    expect(
+      value.links.every((link) => link.freshness.status === "unknown"),
+    ).toBe(true);
+    const store = await repository();
+    await persistListeningObservations(
+      store,
+      input,
+      new AbortController().signal,
+    );
+    expect(
+      (await store.listEntries({ kind: "session-audio-observation/v1" }))
+        .items[0]?.payload,
+    ).toMatchObject({
+      schema: "session-audio-observation/v1",
+      source: { transport: { startBeat: 100, endBeat: 104 } },
+      alignment: { verifiedAbsoluteErrorBoundSamples: null },
+    });
+  });
+
+  it.each([
+    "mode",
+    "actual",
+    "exclusive",
+    "scene",
+    "clip",
+    "track",
+    "missing",
+    "owner",
+  ] as const)(
+    "rejects Session %s evidence before persisting anything",
+    async (failure) => {
+      const base = sessionFixture();
+      const binding = structuredClone(base.bindings[0]!);
+      if (failure === "scene")
+        binding.primary.binding.semanticLocator.sceneIndex = 3;
+      if (failure === "clip")
+        binding.primary.binding.previousRuntimeBindings = ["unrelated"];
+      if (failure === "track")
+        binding.contributors[0]!.binding.previousRuntimeBindings = [
+          "unrelated",
+        ];
+      if (failure === "owner") binding.primary.sessionId = "foreign";
+      const input = {
+        ...base,
+        ...(failure === "mode"
+          ? { requestedMode: "arrangement" as const }
+          : {}),
+        ...(failure === "actual" ? { actualMode: "arrangement" as const } : {}),
+        bindings: [
+          {
+            ...binding,
+            ...(failure === "exclusive"
+              ? { attribution: "exclusive" as const }
+              : {}),
+            ...(failure === "missing" ? { contributors: [] } : {}),
+          },
+        ],
+      };
+      const store = await repository();
+      await expect(
+        persistListeningObservations(
+          store,
+          input,
+          new AbortController().signal,
+        ),
+      ).rejects.toThrow();
+      expect(
+        (await store.listEntries({ includeHistorical: true })).items,
+      ).toEqual([]);
+    },
+  );
+
   it("publishes v2 without relabelling its kind, range or unknown accuracy", async () => {
     const base = fixture();
     const { observation } = createSyntheticNativeListeningFixtureV2({

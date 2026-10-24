@@ -34512,6 +34512,1313 @@
         "additionalProperties": false
       }
     },
+    "listening.inspect_session_source": {
+      "mutates": false,
+      "timeoutClass": "normal",
+      "params": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "schemaVersion": { "type": "number", "const": 1 },
+          "queryId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "target": {
+            "type": "object",
+            "properties": {
+              "view": { "type": "string", "const": "session" },
+              "track": {
+                "type": "object",
+                "properties": {
+                  "kind": { "type": "string", "const": "regular" },
+                  "index": { "type": "integer", "minimum": 0, "maximum": 255 },
+                  "expectedReference": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "expectedName": { "type": "string", "maxLength": 128 }
+                },
+                "required": [
+                  "kind",
+                  "index",
+                  "expectedReference",
+                  "expectedName"
+                ],
+                "additionalProperties": false
+              },
+              "sceneIndex": { "type": "integer", "minimum": 0, "maximum": 255 },
+              "expectedClipReference": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "expectedClipName": { "type": "string", "maxLength": 128 }
+            },
+            "required": [
+              "view",
+              "track",
+              "sceneIndex",
+              "expectedClipReference",
+              "expectedClipName"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": ["schemaVersion", "queryId", "target"],
+        "additionalProperties": false
+      },
+      "result": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "schemaVersion": { "type": "number", "const": 1 },
+          "queryId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "target": {
+            "type": "object",
+            "properties": {
+              "view": { "type": "string", "const": "session" },
+              "track": {
+                "type": "object",
+                "properties": {
+                  "kind": { "type": "string", "const": "regular" },
+                  "index": { "type": "integer", "minimum": 0, "maximum": 255 },
+                  "expectedReference": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "expectedName": { "type": "string", "maxLength": 128 }
+                },
+                "required": [
+                  "kind",
+                  "index",
+                  "expectedReference",
+                  "expectedName"
+                ],
+                "additionalProperties": false
+              },
+              "sceneIndex": { "type": "integer", "minimum": 0, "maximum": 255 },
+              "expectedClipReference": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "expectedClipName": { "type": "string", "maxLength": 128 }
+            },
+            "required": [
+              "view",
+              "track",
+              "sceneIndex",
+              "expectedClipReference",
+              "expectedClipName"
+            ],
+            "additionalProperties": false
+          },
+          "projectRevision": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "evidence": { "type": "string", "const": "message-rate-only" },
+          "nativeAlignment": { "type": "string", "const": "unverified" },
+          "sourceKind": {
+            "type": "string",
+            "enum": ["midi", "warped-audio", "unwarped-audio", "unknown"]
+          },
+          "positionUnit": {
+            "anyOf": [
+              { "type": "string", "enum": ["beats", "seconds"] },
+              { "type": "null" }
+            ]
+          },
+          "before": {
+            "type": "object",
+            "properties": {
+              "transportPlaying": {
+                "anyOf": [{ "type": "boolean" }, { "type": "null" }]
+              },
+              "globalBeat": {
+                "anyOf": [
+                  { "type": "number", "minimum": -1576800, "maximum": 1576800 },
+                  { "type": "null" }
+                ]
+              },
+              "startTimeBeats": {
+                "anyOf": [
+                  { "type": "number", "minimum": -1576800, "maximum": 1576800 },
+                  { "type": "null" }
+                ]
+              },
+              "playingPosition": {
+                "anyOf": [
+                  { "type": "number", "minimum": -1576800, "maximum": 1576800 },
+                  { "type": "null" }
+                ]
+              },
+              "targetPlaying": {
+                "anyOf": [{ "type": "boolean" }, { "type": "null" }]
+              },
+              "targetTriggered": {
+                "anyOf": [{ "type": "boolean" }, { "type": "null" }]
+              },
+              "targetRecording": {
+                "anyOf": [{ "type": "boolean" }, { "type": "null" }]
+              },
+              "playingSlotIndex": {
+                "anyOf": [
+                  { "type": "integer", "minimum": -2, "maximum": 255 },
+                  { "type": "null" }
+                ]
+              },
+              "firedSlotIndex": {
+                "anyOf": [
+                  { "type": "integer", "minimum": -2, "maximum": 255 },
+                  { "type": "null" }
+                ]
+              },
+              "selectedClipReference": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  { "type": "null" }
+                ]
+              }
+            },
+            "required": [
+              "transportPlaying",
+              "globalBeat",
+              "startTimeBeats",
+              "playingPosition",
+              "targetPlaying",
+              "targetTriggered",
+              "targetRecording",
+              "playingSlotIndex",
+              "firedSlotIndex",
+              "selectedClipReference"
+            ],
+            "additionalProperties": false
+          },
+          "after": {
+            "type": "object",
+            "properties": {
+              "transportPlaying": {
+                "anyOf": [{ "type": "boolean" }, { "type": "null" }]
+              },
+              "globalBeat": {
+                "anyOf": [
+                  { "type": "number", "minimum": -1576800, "maximum": 1576800 },
+                  { "type": "null" }
+                ]
+              },
+              "startTimeBeats": {
+                "anyOf": [
+                  { "type": "number", "minimum": -1576800, "maximum": 1576800 },
+                  { "type": "null" }
+                ]
+              },
+              "playingPosition": {
+                "anyOf": [
+                  { "type": "number", "minimum": -1576800, "maximum": 1576800 },
+                  { "type": "null" }
+                ]
+              },
+              "targetPlaying": {
+                "anyOf": [{ "type": "boolean" }, { "type": "null" }]
+              },
+              "targetTriggered": {
+                "anyOf": [{ "type": "boolean" }, { "type": "null" }]
+              },
+              "targetRecording": {
+                "anyOf": [{ "type": "boolean" }, { "type": "null" }]
+              },
+              "playingSlotIndex": {
+                "anyOf": [
+                  { "type": "integer", "minimum": -2, "maximum": 255 },
+                  { "type": "null" }
+                ]
+              },
+              "firedSlotIndex": {
+                "anyOf": [
+                  { "type": "integer", "minimum": -2, "maximum": 255 },
+                  { "type": "null" }
+                ]
+              },
+              "selectedClipReference": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  { "type": "null" }
+                ]
+              }
+            },
+            "required": [
+              "transportPlaying",
+              "globalBeat",
+              "startTimeBeats",
+              "playingPosition",
+              "targetPlaying",
+              "targetTriggered",
+              "targetRecording",
+              "playingSlotIndex",
+              "firedSlotIndex",
+              "selectedClipReference"
+            ],
+            "additionalProperties": false
+          },
+          "settings": {
+            "type": "object",
+            "properties": {
+              "tempoBpm": {
+                "anyOf": [
+                  { "type": "number", "exclusiveMinimum": 0 },
+                  { "type": "null" }
+                ]
+              },
+              "signatureNumerator": {
+                "anyOf": [
+                  { "type": "integer", "minimum": 1, "maximum": 128 },
+                  { "type": "null" }
+                ]
+              },
+              "signatureDenominator": {
+                "anyOf": [
+                  { "type": "integer", "minimum": 1, "maximum": 128 },
+                  { "type": "null" }
+                ]
+              },
+              "globalQuantization": {
+                "anyOf": [
+                  { "type": "integer", "minimum": 0, "maximum": 14 },
+                  { "type": "null" }
+                ]
+              },
+              "launchQuantization": {
+                "anyOf": [
+                  { "type": "integer", "minimum": 0, "maximum": 14 },
+                  { "type": "null" }
+                ],
+                "description": "Canonical Max ordinal normalized from public Live.Clip.ClipLaunchQuantization members: 0=Global, 1=None, 5=1 Bar; null when native mapping is unavailable or ambiguous."
+              },
+              "launchMode": {
+                "anyOf": [
+                  { "type": "integer", "minimum": 0, "maximum": 3 },
+                  { "type": "null" }
+                ]
+              },
+              "legato": {
+                "anyOf": [{ "type": "boolean" }, { "type": "null" }]
+              },
+              "followActionEnabled": {
+                "anyOf": [{ "type": "boolean" }, { "type": "null" }]
+              },
+              "startMarker": {
+                "anyOf": [
+                  { "type": "number", "minimum": -1576800, "maximum": 1576800 },
+                  { "type": "null" }
+                ]
+              },
+              "endMarker": {
+                "anyOf": [
+                  { "type": "number", "minimum": -1576800, "maximum": 1576800 },
+                  { "type": "null" }
+                ]
+              },
+              "loopStart": {
+                "anyOf": [
+                  { "type": "number", "minimum": -1576800, "maximum": 1576800 },
+                  { "type": "null" }
+                ]
+              },
+              "loopEnd": {
+                "anyOf": [
+                  { "type": "number", "minimum": -1576800, "maximum": 1576800 },
+                  { "type": "null" }
+                ]
+              },
+              "looping": {
+                "anyOf": [{ "type": "boolean" }, { "type": "null" }]
+              }
+            },
+            "required": [
+              "tempoBpm",
+              "signatureNumerator",
+              "signatureDenominator",
+              "globalQuantization",
+              "launchQuantization",
+              "launchMode",
+              "legato",
+              "followActionEnabled",
+              "startMarker",
+              "endMarker",
+              "loopStart",
+              "loopEnd",
+              "looping"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "schemaVersion",
+          "queryId",
+          "target",
+          "projectRevision",
+          "evidence",
+          "nativeAlignment",
+          "sourceKind",
+          "positionUnit",
+          "before",
+          "after",
+          "settings"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "listening.prepare_session_pass": {
+      "mutates": false,
+      "timeoutClass": "normal",
+      "params": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "schemaVersion": { "type": "number", "const": 1 },
+          "ownerId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "passId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "action": { "type": "string", "const": "prepare" },
+          "expectedLiveSetId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "expectedProjectRevision": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "target": {
+            "type": "object",
+            "properties": {
+              "view": { "type": "string", "const": "session" },
+              "track": {
+                "type": "object",
+                "properties": {
+                  "kind": { "type": "string", "const": "regular" },
+                  "index": { "type": "integer", "minimum": 0, "maximum": 255 },
+                  "expectedReference": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "expectedName": { "type": "string", "maxLength": 128 }
+                },
+                "required": [
+                  "kind",
+                  "index",
+                  "expectedReference",
+                  "expectedName"
+                ],
+                "additionalProperties": false
+              },
+              "sceneIndex": { "type": "integer", "minimum": 0, "maximum": 255 },
+              "expectedClipReference": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "expectedClipName": { "type": "string", "maxLength": 128 }
+            },
+            "required": [
+              "view",
+              "track",
+              "sceneIndex",
+              "expectedClipReference",
+              "expectedClipName"
+            ],
+            "additionalProperties": false
+          },
+          "listener": {
+            "type": "object",
+            "properties": {
+              "track": {
+                "type": "object",
+                "properties": {
+                  "kind": { "type": "string", "const": "regular" },
+                  "index": { "type": "integer", "minimum": 0, "maximum": 255 },
+                  "expectedReference": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "expectedName": { "type": "string", "maxLength": 128 }
+                },
+                "required": [
+                  "kind",
+                  "index",
+                  "expectedReference",
+                  "expectedName"
+                ],
+                "additionalProperties": false
+              },
+              "deviceIndex": { "type": "integer", "minimum": 0, "maximum": 31 },
+              "expectedDeviceReference": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "expectedDeviceName": { "type": "string", "maxLength": 128 },
+              "expectedClassName": { "type": "string", "maxLength": 128 }
+            },
+            "required": [
+              "track",
+              "deviceIndex",
+              "expectedDeviceReference",
+              "expectedDeviceName",
+              "expectedClassName"
+            ],
+            "additionalProperties": false
+          },
+          "durationBeats": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "maximum": 4
+          },
+          "timingAnchor": {
+            "type": "object",
+            "properties": {
+              "globalBeat": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1576800
+              }
+            },
+            "required": ["globalBeat"],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "schemaVersion",
+          "ownerId",
+          "passId",
+          "action",
+          "expectedLiveSetId",
+          "expectedProjectRevision",
+          "target",
+          "listener",
+          "durationBeats",
+          "timingAnchor"
+        ],
+        "additionalProperties": false
+      },
+      "result": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "schemaVersion": { "type": "number", "const": 1 },
+          "ownerId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "passId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "prepared",
+              "accepted",
+              "queued",
+              "playing",
+              "unverified",
+              "invalidated",
+              "released",
+              "cancelled",
+              "expired"
+            ]
+          },
+          "mutationState": {
+            "type": "string",
+            "enum": ["not-attempted", "indeterminate", "observed-playing"]
+          },
+          "reason": {
+            "anyOf": [
+              { "type": "string", "minLength": 1, "maxLength": 512 },
+              { "type": "null" }
+            ]
+          },
+          "cleanupPolicy": { "type": "string", "const": "leave-running" },
+          "evidence": { "type": "string", "const": "message-rate-only" },
+          "nativeAlignment": { "type": "string", "const": "unverified" },
+          "lastObservedSource": {
+            "type": "object",
+            "properties": {
+              "transportPlaying": {
+                "anyOf": [{ "type": "boolean" }, { "type": "null" }]
+              },
+              "globalBeat": {
+                "anyOf": [
+                  { "type": "number", "minimum": -1576800, "maximum": 1576800 },
+                  { "type": "null" }
+                ]
+              },
+              "startTimeBeats": {
+                "anyOf": [
+                  { "type": "number", "minimum": -1576800, "maximum": 1576800 },
+                  { "type": "null" }
+                ]
+              },
+              "playingPosition": {
+                "anyOf": [
+                  { "type": "number", "minimum": -1576800, "maximum": 1576800 },
+                  { "type": "null" }
+                ]
+              },
+              "targetPlaying": {
+                "anyOf": [{ "type": "boolean" }, { "type": "null" }]
+              },
+              "targetTriggered": {
+                "anyOf": [{ "type": "boolean" }, { "type": "null" }]
+              },
+              "targetRecording": {
+                "anyOf": [{ "type": "boolean" }, { "type": "null" }]
+              },
+              "playingSlotIndex": {
+                "anyOf": [
+                  { "type": "integer", "minimum": -2, "maximum": 255 },
+                  { "type": "null" }
+                ]
+              },
+              "firedSlotIndex": {
+                "anyOf": [
+                  { "type": "integer", "minimum": -2, "maximum": 255 },
+                  { "type": "null" }
+                ]
+              },
+              "selectedClipReference": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  { "type": "null" }
+                ]
+              }
+            },
+            "required": [
+              "transportPlaying",
+              "globalBeat",
+              "startTimeBeats",
+              "playingPosition",
+              "targetPlaying",
+              "targetTriggered",
+              "targetRecording",
+              "playingSlotIndex",
+              "firedSlotIndex",
+              "selectedClipReference"
+            ],
+            "additionalProperties": false
+          },
+          "sourceEpoch": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "startTimeBeats": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1576800
+                  },
+                  "clipReference": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "observedGlobalBeat": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1576800
+                  }
+                },
+                "required": [
+                  "startTimeBeats",
+                  "clipReference",
+                  "observedGlobalBeat"
+                ],
+                "additionalProperties": false
+              },
+              { "type": "null" }
+            ]
+          },
+          "followActionState": {
+            "type": "string",
+            "enum": ["known-disabled", "unknown"]
+          },
+          "limitations": {
+            "minItems": 1,
+            "maxItems": 4,
+            "type": "array",
+            "items": { "type": "string", "minLength": 1, "maxLength": 512 }
+          },
+          "durationBeats": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "maximum": 4
+          },
+          "expiresInMs": { "type": "integer", "minimum": 0, "maximum": 40000 }
+        },
+        "required": [
+          "schemaVersion",
+          "ownerId",
+          "passId",
+          "status",
+          "mutationState",
+          "reason",
+          "cleanupPolicy",
+          "evidence",
+          "nativeAlignment",
+          "lastObservedSource",
+          "sourceEpoch",
+          "followActionState",
+          "limitations",
+          "durationBeats",
+          "expiresInMs"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "listening.launch_session_pass": {
+      "mutates": true,
+      "timeoutClass": "normal",
+      "params": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "schemaVersion": { "type": "number", "const": 1 },
+          "ownerId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "passId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "action": { "type": "string", "const": "launch" }
+        },
+        "required": ["schemaVersion", "ownerId", "passId", "action"],
+        "additionalProperties": false
+      },
+      "result": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "schemaVersion": { "type": "number", "const": 1 },
+          "ownerId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "passId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "prepared",
+              "accepted",
+              "queued",
+              "playing",
+              "unverified",
+              "invalidated",
+              "released",
+              "cancelled",
+              "expired"
+            ]
+          },
+          "mutationState": {
+            "type": "string",
+            "enum": ["not-attempted", "indeterminate", "observed-playing"]
+          },
+          "reason": {
+            "anyOf": [
+              { "type": "string", "minLength": 1, "maxLength": 512 },
+              { "type": "null" }
+            ]
+          },
+          "cleanupPolicy": { "type": "string", "const": "leave-running" },
+          "evidence": { "type": "string", "const": "message-rate-only" },
+          "nativeAlignment": { "type": "string", "const": "unverified" },
+          "lastObservedSource": {
+            "type": "object",
+            "properties": {
+              "transportPlaying": {
+                "anyOf": [{ "type": "boolean" }, { "type": "null" }]
+              },
+              "globalBeat": {
+                "anyOf": [
+                  { "type": "number", "minimum": -1576800, "maximum": 1576800 },
+                  { "type": "null" }
+                ]
+              },
+              "startTimeBeats": {
+                "anyOf": [
+                  { "type": "number", "minimum": -1576800, "maximum": 1576800 },
+                  { "type": "null" }
+                ]
+              },
+              "playingPosition": {
+                "anyOf": [
+                  { "type": "number", "minimum": -1576800, "maximum": 1576800 },
+                  { "type": "null" }
+                ]
+              },
+              "targetPlaying": {
+                "anyOf": [{ "type": "boolean" }, { "type": "null" }]
+              },
+              "targetTriggered": {
+                "anyOf": [{ "type": "boolean" }, { "type": "null" }]
+              },
+              "targetRecording": {
+                "anyOf": [{ "type": "boolean" }, { "type": "null" }]
+              },
+              "playingSlotIndex": {
+                "anyOf": [
+                  { "type": "integer", "minimum": -2, "maximum": 255 },
+                  { "type": "null" }
+                ]
+              },
+              "firedSlotIndex": {
+                "anyOf": [
+                  { "type": "integer", "minimum": -2, "maximum": 255 },
+                  { "type": "null" }
+                ]
+              },
+              "selectedClipReference": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  { "type": "null" }
+                ]
+              }
+            },
+            "required": [
+              "transportPlaying",
+              "globalBeat",
+              "startTimeBeats",
+              "playingPosition",
+              "targetPlaying",
+              "targetTriggered",
+              "targetRecording",
+              "playingSlotIndex",
+              "firedSlotIndex",
+              "selectedClipReference"
+            ],
+            "additionalProperties": false
+          },
+          "sourceEpoch": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "startTimeBeats": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1576800
+                  },
+                  "clipReference": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "observedGlobalBeat": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1576800
+                  }
+                },
+                "required": [
+                  "startTimeBeats",
+                  "clipReference",
+                  "observedGlobalBeat"
+                ],
+                "additionalProperties": false
+              },
+              { "type": "null" }
+            ]
+          },
+          "followActionState": {
+            "type": "string",
+            "enum": ["known-disabled", "unknown"]
+          },
+          "limitations": {
+            "minItems": 1,
+            "maxItems": 4,
+            "type": "array",
+            "items": { "type": "string", "minLength": 1, "maxLength": 512 }
+          },
+          "durationBeats": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "maximum": 4
+          },
+          "expiresInMs": { "type": "integer", "minimum": 0, "maximum": 40000 }
+        },
+        "required": [
+          "schemaVersion",
+          "ownerId",
+          "passId",
+          "status",
+          "mutationState",
+          "reason",
+          "cleanupPolicy",
+          "evidence",
+          "nativeAlignment",
+          "lastObservedSource",
+          "sourceEpoch",
+          "followActionState",
+          "limitations",
+          "durationBeats",
+          "expiresInMs"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "listening.inspect_session_pass": {
+      "mutates": false,
+      "timeoutClass": "normal",
+      "params": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "schemaVersion": { "type": "number", "const": 1 },
+          "ownerId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "passId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "action": { "type": "string", "const": "inspect" }
+        },
+        "required": ["schemaVersion", "ownerId", "passId", "action"],
+        "additionalProperties": false
+      },
+      "result": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "schemaVersion": { "type": "number", "const": 1 },
+          "ownerId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "passId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "prepared",
+              "accepted",
+              "queued",
+              "playing",
+              "unverified",
+              "invalidated",
+              "released",
+              "cancelled",
+              "expired"
+            ]
+          },
+          "mutationState": {
+            "type": "string",
+            "enum": ["not-attempted", "indeterminate", "observed-playing"]
+          },
+          "reason": {
+            "anyOf": [
+              { "type": "string", "minLength": 1, "maxLength": 512 },
+              { "type": "null" }
+            ]
+          },
+          "cleanupPolicy": { "type": "string", "const": "leave-running" },
+          "evidence": { "type": "string", "const": "message-rate-only" },
+          "nativeAlignment": { "type": "string", "const": "unverified" },
+          "lastObservedSource": {
+            "type": "object",
+            "properties": {
+              "transportPlaying": {
+                "anyOf": [{ "type": "boolean" }, { "type": "null" }]
+              },
+              "globalBeat": {
+                "anyOf": [
+                  { "type": "number", "minimum": -1576800, "maximum": 1576800 },
+                  { "type": "null" }
+                ]
+              },
+              "startTimeBeats": {
+                "anyOf": [
+                  { "type": "number", "minimum": -1576800, "maximum": 1576800 },
+                  { "type": "null" }
+                ]
+              },
+              "playingPosition": {
+                "anyOf": [
+                  { "type": "number", "minimum": -1576800, "maximum": 1576800 },
+                  { "type": "null" }
+                ]
+              },
+              "targetPlaying": {
+                "anyOf": [{ "type": "boolean" }, { "type": "null" }]
+              },
+              "targetTriggered": {
+                "anyOf": [{ "type": "boolean" }, { "type": "null" }]
+              },
+              "targetRecording": {
+                "anyOf": [{ "type": "boolean" }, { "type": "null" }]
+              },
+              "playingSlotIndex": {
+                "anyOf": [
+                  { "type": "integer", "minimum": -2, "maximum": 255 },
+                  { "type": "null" }
+                ]
+              },
+              "firedSlotIndex": {
+                "anyOf": [
+                  { "type": "integer", "minimum": -2, "maximum": 255 },
+                  { "type": "null" }
+                ]
+              },
+              "selectedClipReference": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  { "type": "null" }
+                ]
+              }
+            },
+            "required": [
+              "transportPlaying",
+              "globalBeat",
+              "startTimeBeats",
+              "playingPosition",
+              "targetPlaying",
+              "targetTriggered",
+              "targetRecording",
+              "playingSlotIndex",
+              "firedSlotIndex",
+              "selectedClipReference"
+            ],
+            "additionalProperties": false
+          },
+          "sourceEpoch": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "startTimeBeats": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1576800
+                  },
+                  "clipReference": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "observedGlobalBeat": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1576800
+                  }
+                },
+                "required": [
+                  "startTimeBeats",
+                  "clipReference",
+                  "observedGlobalBeat"
+                ],
+                "additionalProperties": false
+              },
+              { "type": "null" }
+            ]
+          },
+          "followActionState": {
+            "type": "string",
+            "enum": ["known-disabled", "unknown"]
+          },
+          "limitations": {
+            "minItems": 1,
+            "maxItems": 4,
+            "type": "array",
+            "items": { "type": "string", "minLength": 1, "maxLength": 512 }
+          },
+          "durationBeats": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "maximum": 4
+          },
+          "expiresInMs": { "type": "integer", "minimum": 0, "maximum": 40000 }
+        },
+        "required": [
+          "schemaVersion",
+          "ownerId",
+          "passId",
+          "status",
+          "mutationState",
+          "reason",
+          "cleanupPolicy",
+          "evidence",
+          "nativeAlignment",
+          "lastObservedSource",
+          "sourceEpoch",
+          "followActionState",
+          "limitations",
+          "durationBeats",
+          "expiresInMs"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "listening.release_session_pass": {
+      "mutates": false,
+      "timeoutClass": "normal",
+      "params": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "schemaVersion": { "type": "number", "const": 1 },
+          "ownerId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "passId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "action": { "type": "string", "const": "release" },
+          "reason": { "type": "string", "enum": ["completed", "cancelled"] }
+        },
+        "required": ["schemaVersion", "ownerId", "passId", "action", "reason"],
+        "additionalProperties": false
+      },
+      "result": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "schemaVersion": { "type": "number", "const": 1 },
+          "ownerId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "passId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "prepared",
+              "accepted",
+              "queued",
+              "playing",
+              "unverified",
+              "invalidated",
+              "released",
+              "cancelled",
+              "expired"
+            ]
+          },
+          "mutationState": {
+            "type": "string",
+            "enum": ["not-attempted", "indeterminate", "observed-playing"]
+          },
+          "reason": {
+            "anyOf": [
+              { "type": "string", "minLength": 1, "maxLength": 512 },
+              { "type": "null" }
+            ]
+          },
+          "cleanupPolicy": { "type": "string", "const": "leave-running" },
+          "evidence": { "type": "string", "const": "message-rate-only" },
+          "nativeAlignment": { "type": "string", "const": "unverified" },
+          "lastObservedSource": {
+            "type": "object",
+            "properties": {
+              "transportPlaying": {
+                "anyOf": [{ "type": "boolean" }, { "type": "null" }]
+              },
+              "globalBeat": {
+                "anyOf": [
+                  { "type": "number", "minimum": -1576800, "maximum": 1576800 },
+                  { "type": "null" }
+                ]
+              },
+              "startTimeBeats": {
+                "anyOf": [
+                  { "type": "number", "minimum": -1576800, "maximum": 1576800 },
+                  { "type": "null" }
+                ]
+              },
+              "playingPosition": {
+                "anyOf": [
+                  { "type": "number", "minimum": -1576800, "maximum": 1576800 },
+                  { "type": "null" }
+                ]
+              },
+              "targetPlaying": {
+                "anyOf": [{ "type": "boolean" }, { "type": "null" }]
+              },
+              "targetTriggered": {
+                "anyOf": [{ "type": "boolean" }, { "type": "null" }]
+              },
+              "targetRecording": {
+                "anyOf": [{ "type": "boolean" }, { "type": "null" }]
+              },
+              "playingSlotIndex": {
+                "anyOf": [
+                  { "type": "integer", "minimum": -2, "maximum": 255 },
+                  { "type": "null" }
+                ]
+              },
+              "firedSlotIndex": {
+                "anyOf": [
+                  { "type": "integer", "minimum": -2, "maximum": 255 },
+                  { "type": "null" }
+                ]
+              },
+              "selectedClipReference": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  { "type": "null" }
+                ]
+              }
+            },
+            "required": [
+              "transportPlaying",
+              "globalBeat",
+              "startTimeBeats",
+              "playingPosition",
+              "targetPlaying",
+              "targetTriggered",
+              "targetRecording",
+              "playingSlotIndex",
+              "firedSlotIndex",
+              "selectedClipReference"
+            ],
+            "additionalProperties": false
+          },
+          "sourceEpoch": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "startTimeBeats": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1576800
+                  },
+                  "clipReference": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "observedGlobalBeat": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1576800
+                  }
+                },
+                "required": [
+                  "startTimeBeats",
+                  "clipReference",
+                  "observedGlobalBeat"
+                ],
+                "additionalProperties": false
+              },
+              { "type": "null" }
+            ]
+          },
+          "followActionState": {
+            "type": "string",
+            "enum": ["known-disabled", "unknown"]
+          },
+          "limitations": {
+            "minItems": 1,
+            "maxItems": 4,
+            "type": "array",
+            "items": { "type": "string", "minLength": 1, "maxLength": 512 }
+          },
+          "durationBeats": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "maximum": 4
+          },
+          "expiresInMs": { "type": "integer", "minimum": 0, "maximum": 40000 }
+        },
+        "required": [
+          "schemaVersion",
+          "ownerId",
+          "passId",
+          "status",
+          "mutationState",
+          "reason",
+          "cleanupPolicy",
+          "evidence",
+          "nativeAlignment",
+          "lastObservedSource",
+          "sourceEpoch",
+          "followActionState",
+          "limitations",
+          "durationBeats",
+          "expiresInMs"
+        ],
+        "additionalProperties": false
+      }
+    },
     "listening.position_playback": {
       "mutates": true,
       "timeoutClass": "normal",

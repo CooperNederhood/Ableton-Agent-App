@@ -16,6 +16,7 @@ from .listeners import LomListenerManager
 from .registry import CommandRegistry
 from .save_observer import LiveSetSaveObserver
 from .server import RemoteScriptServer
+from .session_listening_pass import clear_session_listening_pass
 from .system_commands import register_system_commands
 from .token_store import load_or_create_token
 
@@ -61,7 +62,7 @@ class AbletonAgentControlSurface(ControlSurface):
             capabilities,
             logger=self.log_message,
             on_client_disconnect=lambda: self.schedule_message(
-                0, self._subscription_manager.clear
+                0, self._clear_client_resources
             ),
         )
         context.publish_event = self._server.publish_event
@@ -75,13 +76,24 @@ class AbletonAgentControlSurface(ControlSurface):
         )
         self._save_observer.start()
 
+    def _clear_client_resources(self):
+        try:
+            clear_session_listening_pass(self._runtime_context)
+        finally:
+            self._subscription_manager.clear()
+
     def disconnect(self):
         manager = getattr(self._runtime_context, "_workflow_job_manager", None)
-        if manager is not None:
-            manager.mark_running_indeterminate()
-        self._save_observer.stop()
-        self._subscription_manager.stop()
-        self._listeners.stop()
-        self._server.stop()
-        self._executor.close()
-        ControlSurface.disconnect(self)
+        try:
+            if manager is not None:
+                manager.mark_running_indeterminate()
+        finally:
+            try:
+                clear_session_listening_pass(self._runtime_context)
+            finally:
+                self._save_observer.stop()
+                self._subscription_manager.stop()
+                self._listeners.stop()
+                self._server.stop()
+                self._executor.close()
+                ControlSurface.disconnect(self)

@@ -6,8 +6,10 @@ import {
   listeningPathSelectorSchema,
   listenerNativeStatusSchema,
   listenerNativeStatusV2Schema,
+  listenerNativeSessionStatusSchema,
   type ListenerNativeStatus,
   type ListenerNativeStatusV2,
+  type ListenerNativeSessionStatus,
   type InspectListeningContextResult,
   type ListeningPathAttestation,
 } from "@ableton-agent/protocol";
@@ -19,6 +21,7 @@ const id = z.string().min(1).max(128);
 const nativeStatusSchema = z.union([
   listenerNativeStatusSchema,
   listenerNativeStatusV2Schema,
+  listenerNativeSessionStatusSchema,
 ]);
 const rawConnectionSchema = z
   .object({
@@ -36,7 +39,7 @@ const rawConnectionSchema = z
   .strict();
 const connectionSchema = rawConnectionSchema.refine(
   (value) =>
-    (value.nativeStatus.version === 2) ===
+    (value.nativeStatus.version !== 1) ===
     (value.schemaVersion === "audio-observation/v2"),
 );
 
@@ -77,10 +80,15 @@ export interface ListenerBindingDescriptor {
     readonly capabilities?: Readonly<Record<string, unknown>>;
   };
   readonly registration: {
+    readonly version?: 1 | 2 | 3;
+    readonly capabilities?: readonly string[];
     readonly connectionEpoch: string;
     readonly deviceCanonicalPath?: string;
     readonly trackCanonicalPath?: string;
-    readonly nativeStatus?: ListenerNativeStatus | ListenerNativeStatusV2;
+    readonly nativeStatus?:
+      | ListenerNativeStatus
+      | ListenerNativeStatusV2
+      | ListenerNativeSessionStatus;
   };
   readonly status?: "connected" | "stale" | "disconnected";
 }
@@ -102,6 +110,8 @@ const descriptorHeaderSchema = z
     registration: z
       .object({
         connectionEpoch: id,
+        version: z.union([z.literal(1), z.literal(2), z.literal(3)]).optional(),
+        capabilities: z.array(z.string().min(1).max(128)).max(16).optional(),
         deviceCanonicalPath: listeningCanonicalDevicePathSchema.optional(),
         trackCanonicalPath: listeningCanonicalTrackPathSchema.optional(),
         nativeStatus: nativeStatusSchema.optional(),
@@ -131,6 +141,18 @@ export function readConnectedListenerBinding(
   ) {
     return { ok: false, reason: "missing-native-status" };
   }
+  const registration = header.data.registration;
+  if (
+    (registration.version !== undefined &&
+      registration.version !== registration.nativeStatus?.version) ||
+    (registration.nativeStatus?.version === 3 &&
+      (!Object.hasOwn(descriptor.registration, "version") ||
+        !Object.hasOwn(descriptor.registration, "capabilities") ||
+        registration.version !== 3 ||
+        registration.capabilities?.length !== 1 ||
+        registration.capabilities[0] !== "audio-listener/session-v1"))
+  )
+    return { ok: false, reason: "invalid-input" };
   const connection = connectionSchema.safeParse({
     connectionId: header.data.connectionId,
     producerId: header.data.producer.producerId,

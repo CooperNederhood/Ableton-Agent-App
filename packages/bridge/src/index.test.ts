@@ -80,6 +80,311 @@ afterEach(() => {
 });
 
 describe("AbletonBridgeService", () => {
+  const cancellableSourceParams = {
+    schemaVersion: 1 as const,
+    queryId: "10000000-0000-4000-8000-000000000063",
+    target: {
+      view: "session" as const,
+      track: {
+        kind: "regular" as const,
+        index: 0,
+        expectedReference: "10000000-0000-4000-8000-000000000064",
+        expectedName: "Track",
+      },
+      sceneIndex: 0,
+      expectedClipReference: "10000000-0000-4000-8000-000000000065",
+      expectedClipName: "Clip",
+    },
+  };
+
+  it("never dispatches a caller-cancelled queued Session request", async () => {
+    const port = await startSimulator(token, {
+      delayCommand: "system.ping",
+      delayMs: 100,
+    });
+    const telemetry: TelemetryEventEnvelope[] = [];
+    const requests: string[] = [];
+    const service = new AbletonBridgeService({
+      authenticationToken: token,
+      events: new InMemoryEventPublisher(),
+      port,
+      telemetry: { enqueue: (event) => telemetry.push(event) },
+      onRequest: (request) => requests.push(request.command),
+    });
+    await service.start();
+    try {
+      const blocker = service.ping();
+      const controller = new AbortController();
+      const pending = service.inspectSessionListeningSource(
+        cancellableSourceParams,
+        { signal: controller.signal },
+      );
+      const rejected = expect(pending).rejects.toMatchObject({
+        code: "conflict",
+        retryable: false,
+        details: { mutated: false, dispatchState: "cancelled-before-dispatch" },
+      });
+      controller.abort();
+      await blocker;
+      await rejected;
+      expect(requests).not.toContain("listening.inspect_session_source");
+      expect(
+        telemetry
+          .filter(
+            (event) =>
+              event.attributes.command === "listening.inspect_session_source",
+          )
+          .map((event) => event.name),
+      ).toEqual(["bridge.request.queued", "bridge.request.cancelled"]);
+    } finally {
+      await service.stop();
+    }
+  });
+
+  it("rechecks Session cancellation immediately before committing dispatch", async () => {
+    const port = await startSimulator();
+    const controller = new AbortController();
+    const telemetry: TelemetryEventEnvelope[] = [];
+    const service = new AbletonBridgeService({
+      authenticationToken: token,
+      events: new InMemoryEventPublisher(),
+      port,
+      telemetry: { enqueue: (event) => telemetry.push(event) },
+      onRequest: (request) => {
+        if (request.command === "listening.inspect_session_source")
+          controller.abort();
+      },
+    });
+    await service.start();
+    try {
+      await expect(
+        service.inspectSessionListeningSource(cancellableSourceParams, {
+          signal: controller.signal,
+        }),
+      ).rejects.toMatchObject({
+        code: "conflict",
+        details: { mutated: false },
+      });
+      expect(
+        telemetry.some(
+          (event) =>
+            event.attributes.command === "listening.inspect_session_source" &&
+            event.name === "bridge.request.dispatched",
+        ),
+      ).toBe(false);
+    } finally {
+      await service.stop();
+    }
+  });
+
+  it("does not claim a Session request was prevented after dispatch", async () => {
+    const port = await startSimulator(token, {
+      delayCommand: "listening.inspect_session_source",
+      delayMs: 100,
+    });
+    const controller = new AbortController();
+    const telemetry: TelemetryEventEnvelope[] = [];
+    const service = new AbletonBridgeService({
+      authenticationToken: token,
+      events: new InMemoryEventPublisher(),
+      port,
+      telemetry: { enqueue: (event) => telemetry.push(event) },
+    });
+    await service.start();
+    try {
+      const pending = service.inspectSessionListeningSource(
+        cancellableSourceParams,
+        { signal: controller.signal },
+      );
+      const rejected = expect(pending).rejects.toMatchObject({
+        code: "stale_reference",
+      });
+      await waitFor(() =>
+        telemetry.some(
+          (event) =>
+            event.attributes.command === "listening.inspect_session_source" &&
+            event.name === "bridge.request.dispatched",
+        ),
+      );
+      controller.abort();
+      await rejected;
+      expect(
+        telemetry
+          .filter(
+            (event) =>
+              event.attributes.command === "listening.inspect_session_source",
+          )
+          .map((event) => event.name),
+      ).toEqual([
+        "bridge.request.queued",
+        "bridge.request.dispatched",
+        "bridge.request.failed",
+      ]);
+    } finally {
+      await service.stop();
+    }
+  });
+
+  it("reads exact Session source metadata with traces but no launch authority or mutation", async () => {
+    const port = await startSimulator();
+    const telemetry: TelemetryEventEnvelope[] = [];
+    const requests: string[] = [];
+    const service = new AbletonBridgeService({
+      authenticationToken: token,
+      events: new InMemoryEventPublisher(),
+      port,
+      telemetry: { enqueue: (event) => telemetry.push(event) },
+      onRequest: (request) => requests.push(request.command),
+    });
+    await service.start();
+    try {
+      const snapshot = await service.inspectSession();
+      const track = snapshot.tracks[0]!;
+      const { clip } = await service.createMidiClip({
+        index: track.index,
+        expectedReference: track.reference,
+        expectedName: track.name,
+        sceneIndex: 0,
+        length: 4,
+        name: "Source",
+      });
+      const baseline = await service.inspectSession();
+      const params = {
+        schemaVersion: 1 as const,
+        queryId: "10000000-0000-4000-8000-000000000063",
+        target: {
+          view: "session" as const,
+          track: {
+            kind: "regular" as const,
+            index: track.index,
+            expectedReference: track.reference,
+            expectedName: track.name,
+          },
+          sceneIndex: 0,
+          expectedClipReference: clip.reference,
+          expectedClipName: clip.name,
+        },
+      };
+      const requestCount = requests.length;
+      const result = await withCorrelation(
+        {
+          traceId: "10000000-0000-4000-8000-000000000064",
+          correlationId: "session-source-query",
+          causationId: "read-only-probe",
+        },
+        () => service.inspectSessionListeningSource(params),
+      );
+      expect(result).toMatchObject({
+        ...params,
+        evidence: "message-rate-only",
+        nativeAlignment: "unverified",
+        sourceKind: "midi",
+        positionUnit: "beats",
+        before: { transportPlaying: false, targetPlaying: false },
+        settings: { followActionEnabled: null },
+      });
+      expect(requests.slice(requestCount)).toEqual([
+        "listening.inspect_session_source",
+      ]);
+      const stages = telemetry.filter(
+        (event) =>
+          event.attributes.command === "listening.inspect_session_source",
+      );
+      expect(stages.map((event) => event.name)).toEqual([
+        "bridge.request.queued",
+        "bridge.request.dispatched",
+        "bridge.request.completed",
+      ]);
+      expect(
+        stages.every(
+          (event) =>
+            event.trace?.traceId === "10000000-0000-4000-8000-000000000064" &&
+            event.causationId === "read-only-probe" &&
+            event.correlationId === "session-source-query",
+        ),
+      ).toBe(true);
+      expect(stages.at(-1)?.durationMs).toBeGreaterThanOrEqual(0);
+      expect(await service.inspectSession()).toEqual(baseline);
+      await expect(
+        service.inspectSessionListeningSource({
+          ...params,
+          target: { ...params.target, expectedClipName: "Replaced" },
+        }),
+      ).rejects.toMatchObject({ code: "stale_reference" });
+      expect(
+        telemetry.some(
+          (event) =>
+            event.name === "bridge.request.failed" &&
+            event.attributes.command === "listening.inspect_session_source",
+        ),
+      ).toBe(true);
+      const count = requests.length;
+      await expect(
+        service.inspectSessionListeningSource({
+          ...params,
+          target: { ...params.target, sceneIndex: 256 },
+        }),
+      ).rejects.toThrow();
+      expect(requests).toHaveLength(count);
+    } finally {
+      await service.stop();
+    }
+  });
+
+  it("cancels Session source inspection on shutdown without dispatching playback", async () => {
+    const port = await startSimulator(token, {
+      delayCommand: "listening.inspect_session_source",
+      delayMs: 100,
+    });
+    const telemetry: TelemetryEventEnvelope[] = [];
+    const service = new AbletonBridgeService({
+      authenticationToken: token,
+      events: new InMemoryEventPublisher(),
+      port,
+      telemetry: { enqueue: (event) => telemetry.push(event) },
+    });
+    await service.start();
+    try {
+      const snapshot = await service.inspectSession();
+      const track = snapshot.tracks[0]!;
+      const result = service.inspectSessionListeningSource({
+        schemaVersion: 1,
+        queryId: "10000000-0000-4000-8000-000000000063",
+        target: {
+          view: "session",
+          track: {
+            kind: "regular",
+            index: track.index,
+            expectedReference: track.reference,
+            expectedName: track.name,
+          },
+          sceneIndex: 0,
+          expectedClipReference: "10000000-0000-4000-8000-000000000065",
+          expectedClipName: "Source",
+        },
+      });
+      const settled = Promise.allSettled([result]);
+      await waitFor(() =>
+        telemetry.some(
+          (event) =>
+            event.name === "bridge.request.dispatched" &&
+            event.attributes.command === "listening.inspect_session_source",
+        ),
+      );
+      await service.stop();
+      expect((await settled)[0]?.status).toBe("rejected");
+      expect(
+        telemetry.some(
+          (event) =>
+            event.name === "bridge.request.cancelled" &&
+            event.attributes.command === "listening.inspect_session_source",
+        ),
+      ).toBe(true);
+    } finally {
+      await service.stop();
+    }
+  });
+
   it("positions fractional Arrangement playback before arm with fresh readback and correlated mutation lifecycle", async () => {
     const port = await startSimulator(token, { listeningFixture: true });
     const telemetry: TelemetryEventEnvelope[] = [];

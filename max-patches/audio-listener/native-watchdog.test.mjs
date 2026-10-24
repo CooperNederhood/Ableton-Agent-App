@@ -101,7 +101,7 @@ test("invalid constructor versions and caller-supplied deadlines fail closed, ne
   for (const args of [
     [],
     ["audio_listener_guard.js", 0],
-    ["audio_listener_guard.js", 3],
+    ["audio_listener_guard.js", 4],
     ["audio_listener_guard.js", "2"],
     ["audio_listener_guard.js", 2, 120000],
   ]) {
@@ -130,6 +130,27 @@ test("explicit v1 constructor retains its 30-second bound", () => {
   assert.deepEqual(controls, [[2, "stop", a]]);
   assert.equal(events.at(-1).reason, "native_total_timeout");
   assert.equal(events.at(-1).elapsedMs, 30000);
+});
+
+test("explicit Session wire3 watchdog has the same fixed native bounds and generation ownership", () => {
+  const { context, controls, events, prepare } = fixture([
+    "audio_listener_guard.js",
+    3,
+  ]);
+  prepare(a);
+  context.arm(a, 1);
+  for (let i = 0; i < 239; i++) {
+    context.heartbeat();
+    context.check();
+  }
+  assert.equal(context.nativeGeneration, a);
+  context.heartbeat();
+  context.check();
+  assert.deepEqual(controls, [[2, "stop", a]]);
+  assert.equal(events.at(-1).reason, "native_total_timeout");
+  assert.equal(events.at(-1).nativeVersion, 3);
+  assert.equal(events.at(-1).totalTimeoutMs, 60000);
+  assert.equal(events.at(-1).generation, a);
 });
 
 test("forwarded v2 configuration cannot renew the independent watchdog budget", () => {

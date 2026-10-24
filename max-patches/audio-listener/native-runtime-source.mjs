@@ -192,7 +192,7 @@ export function appendNativeRuntimeGraph(
   document,
   { runtimeEntry, nativeVersion = 1 } = {},
 ) {
-  if (nativeVersion !== 1 && nativeVersion !== 2)
+  if (![1, 2, 3].includes(nativeVersion))
     throw new Error("unsupported_native_version");
   if (
     typeof runtimeEntry !== "string" ||
@@ -222,7 +222,8 @@ export function appendNativeRuntimeGraph(
     throw new Error("authored_native_watchdog_outlet_missing");
   // Select the parent's independently bounded v2 watchdog explicitly; its v1
   // default otherwise truncates a full 30-second capture plus lifecycle time.
-  if (nativeVersion === 2) guard.text = "js audio_listener_guard.js 2";
+  if (nativeVersion >= 2)
+    guard.text = `js audio_listener_guard.js ${nativeVersion}`;
   const routes = patcher.lines.filter(
     ({ patchline }) =>
       patchline.source[0] === runtime.id && patchline.source[1] === 0,
@@ -242,7 +243,7 @@ export function appendNativeRuntimeGraph(
       "analysis",
       "poly~ audio_listener_native_analysis.maxpat 1 @parallel 0",
       4,
-      nativeVersion === 2 ? 3 : 2,
+      nativeVersion >= 2 ? 3 : 2,
     ],
     ["clock_sink", "snapshot~ 100", 1, 1],
     ["analysis_sink", "snapshot~ 100", 1, 1],
@@ -304,7 +305,7 @@ export function nativeRuntimeDocuments({
   resourceDirectory = null,
   nativeVersion = 1,
 } = {}) {
-  if (nativeVersion !== 1 && nativeVersion !== 2)
+  if (![1, 2, 3].includes(nativeVersion))
     throw new Error("unsupported_native_version");
   if (resourceDirectory !== null && !isAbsolute(resourceDirectory))
     throw new Error("native_resource_directory_must_be_absolute");
@@ -467,7 +468,7 @@ export function nativeRuntimeDocuments({
     );
   }
 
-  if (nativeVersion === 2) {
+  if (nativeVersion >= 2) {
     // Authoritative samples cannot use qmetro's queue-overload drops.
     for (const document of [clock, analysis])
       box(document, "poll").text = "metro 10 @active 0";
@@ -621,7 +622,7 @@ export function nativeRuntimeDocuments({
     "audio_listener_native_fft.maxpat": fft,
     "audio_listener_native_analysis.maxpat": analysis,
   };
-  if (nativeVersion === 2) {
+  if (nativeVersion >= 2) {
     documents["audio_listener_native_clock.gendsp"] = genDocument(
       DESCRIPTIVE_CLOCK_CODE,
       0,

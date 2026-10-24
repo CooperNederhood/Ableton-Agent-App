@@ -10,6 +10,7 @@ import {
   nativeListenerLifecycleSchema,
 } from "@ableton-agent/protocol";
 import type { OutputProducer } from "./contracts.js";
+import type { ListenerRegistrationSession } from "./listener-session-contracts.js";
 import type {
   ListenerRegistrationV2,
   VersionedListenerControlInput,
@@ -161,7 +162,9 @@ export interface ListenerDescriptor {
   readonly binding: ReportedMaxLiveApiBinding;
   readonly producer: OutputProducer;
   readonly registration:
-    z.infer<typeof listenerRegistrationSchema> | ListenerRegistrationV2;
+    | z.infer<typeof listenerRegistrationSchema>
+    | ListenerRegistrationV2
+    | ListenerRegistrationSession;
   readonly phase:
     "idle" | "preparing" | "ready" | "arming" | "armed" | "cancelling";
   readonly jobId?: string;

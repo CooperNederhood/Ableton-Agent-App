@@ -17,9 +17,9 @@ var nativeSequence = 0;
 var nativeVersion = 1;
 if (typeof jsarguments !== "undefined" && jsarguments.length !== 1) {
   nativeVersion = jsarguments.length === 2 &&
-    (jsarguments[1] === 1 || jsarguments[1] === 2) ? jsarguments[1] : 0;
+    (jsarguments[1] === 1 || jsarguments[1] === 2 || jsarguments[1] === 3) ? jsarguments[1] : 0;
 }
-var nativeTotalTimeoutMs = nativeVersion === 2 ? 60000 : 30000;
+var nativeTotalTimeoutMs = nativeVersion >= 2 ? 60000 : 30000;
 var timer = new Task(check, this);
 timer.interval = 250;
 timer.repeat();
@@ -45,8 +45,8 @@ function nativeEvent(stage, reason, context, duration) {
     type: "native-watchdog-stage", stage: stage, reason: reason,
     elapsedMs: duration, captureOutcome: "unknown"
   };
-  if (nativeVersion === 2) {
-    event.nativeVersion = 2;
+  if (nativeVersion >= 2) {
+    event.nativeVersion = nativeVersion;
     event.totalTimeoutMs = nativeTotalTimeoutMs;
   }
   if (context) {

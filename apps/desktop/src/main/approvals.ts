@@ -35,11 +35,16 @@ export function toDesktopApproval(
       : request.metadata.risk === "read"
         ? "low"
         : "high";
+  const sessionLaunch =
+    request.metadata.name === "ableton_listening" &&
+    request.arguments.action === "play-session-and-listen";
   return {
     id,
     title: request.metadata.title,
     risk,
-    summary: `The agent requested ${request.metadata.title} (${request.metadata.risk}, ${request.metadata.duration} operation).`,
+    summary: sessionLaunch
+      ? "Launches the selected Session clip and starts transport. Playback stays running after completion, failure or cancellation; other selected Session sources may resume. Cancel stops capture only and cannot retract an accepted launch."
+      : `The agent requested ${request.metadata.title} (${request.metadata.risk}, ${request.metadata.duration} operation).`,
     changes: Object.entries(request.arguments).map(
       ([name, value]) => `${name}: ${JSON.stringify(value) ?? "undefined"}`,
     ),

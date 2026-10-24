@@ -2,6 +2,168 @@
 
 Companion specification: [Playback Listening](playback-listening.md).
 
+## Session MVP launch-evidence gate (#63)
+
+- [x] Hand off development-MVP follow-ups without relabelling incomplete
+  qualification: #67 runner shutdown; #68 interrupted non-native coverage;
+  #69 immutable legacy v1/v2 fixtures/reruns; #70 staged Session expansion,
+  including current behavior, exclusions, code map and independent evidence
+  gates. The feature PR closes #63 for its agreed bounded scope; review findings
+  and required CI remain merge gates.
+
+- [x] Define an exact-target, bounded read-only source diagnostic with signed
+  origins, explicit MIDI/warped beats versus unwarped seconds, unknown metadata,
+  and no launch/native-readiness authority.
+- [x] Cover Python target replacement/revalidation, queued-versus-playing state,
+  invalid/unknown metadata, strict TypeScript contracts, simulator read-only
+  behavior, traced timing, stale/invalid requests and shutdown cancellation.
+- [x] Refresh the installed Remote Script and inspect both MIDI and warped audio
+  in a fresh owned Live 11.3.43 process without transport or Set mutation.
+  Preserve the unchanged-snapshot evidence and isolated canonical event journal.
+- [x] Resolve the follow-action admission policy explicitly: deny known-enabled
+  settings, retain unknown for all 13 inspected clips, invalidate observed source
+  changes through pass-owned message-rate monitoring, and disclose changes
+  between observations may be undetected. Never interpret `null` as disabled.
+- [x] Bound actual emitted source-pass capability disclosures to 256 characters
+  while preserving polling/uncertainty claims. A fresh Live startup exposed
+  four 275-character disclosures; the production-metadata regression fails
+  before the correction and passes afterward. Fresh-host capability smoke
+  `f11130b5` now passes on Live 11.3.43 / Remote Script 0.7.0 / protocol 7.
+- [x] Reproduce and fix Session registration/source-freezing compatibility with
+  Max 8.5.8's bundled Node 16.6.0, which lacks `Object.hasOwn`. Both regressions
+  fail before correction and pass afterward; all 672 Max tests and direct SDK
+  construction under the actual bundled Node pass. Preserve MIDI attempt
+  `21b22399`, which failed before registration/approval/launch/capture, and use
+  a separate immutable corrected package rather than overwriting its resources.
+- [x] Normally save and pin the separate corrected fixture; retain unchanged
+  earlier Set/package evidence. Fresh Live retry `ea824c61` registers wire 3
+  and cleans up its owned process, but refuses stopped-native preflight before
+  approval/jobs/launch/capture. Operator's 195 parameters exceed the intentional
+  16-parameter evidence budget; resolve uncertainty versus safety policy
+  explicitly before retrying, without claiming complete dependencies.
+- [x] Reproduce the Operator195 runner refusal synthetically before correction.
+  Separate Session's unknown/nonexclusive dependency quality from Arrangement's
+  unchanged completeness requirement without increasing inspection/read budgets
+  or relaxing transport, recording, exact identity, clip/source/native guards.
+  Verify the existing full fixture read checks all 195 parameters before/after.
+  Reject a changed Operator parameter beyond the 16-field dependency slice.
+- [x] Retain bounded redacted normal-result preflight checks, precise failures,
+  inspected transport/target summary and unknown/incomplete quality, with
+  traced/timed lifecycle evidence and no raw response/audio bodies. Cover missing
+  recording/target evidence, unchanged Arrangement refusal and no approval/jobs/
+  launch on denial. Preserve `ea824c61`; no new Live retry is claimed here.
+- [x] Pass the current full deterministic quality gates and all twelve owning
+  Electron tests, including exact v1/v2/v3 capability advertisement and no
+  credential exposure. Preserve synthetic lifecycle/restart qualification as
+  separate from the later real Session evidence below.
+- [x] Include the Session group in actual CLI pre-setup native admission.
+  Reproduce unsafe selection reaching credential access before correction;
+  verify native refusal before setup/credentials/process inspection afterward
+  and pass all 821 owning script tests.
+- [x] Pass real MIDI and warped-audio scenarios separately, then the complete
+  Session group on Live 11.3.43 at stopped beat 0/Global None, 120 BPM/4/4,
+  48 kHz/vector 64 and clip-local 0-4. Verify native/source origin join, 96,000
+  frames, 20 envelope/spectral windows, exact scope/content, canonical links,
+  typed reopen, atomic context and leave-running cleanup. Preserve descriptive/
+  message-rate/unknown limitations; no physical clip identity claim.
+- [x] Accept all nineteen remaining non-native cases across nine owned groups
+  (fifteen pass, four recovered-pass), retaining classifications and cleanup.
+  Legacy native-v1/v2 inputs are absent here; do not claim their fresh rerun.
+- [x] Fix and cover pre-approval Session side-effect disclosure and wrapped
+  argument previews after the first visible denial safely prevents launch.
+  Pass main/React and owning Electron regressions without approval-policy changes.
+- [x] Bound Session requests to one same-track listener and at most four beats;
+  start the monotonic overall timeout at job acceptance, including setup/launch.
+  Cover every asynchronous stage and backwards wall-clock changes; retain
+  Arrangement's existing timing behavior.
+- [x] Provision a normally saved, hash-pinned MIDI/warped-audio fixture with
+  project-contained media and the separate Node16-compatible native package.
+  Verify actual source/native joining and first-window coverage; keep delayed
+  delivery regression evidence distinct from real acoustic onset accuracy.
+- [x] Implement additive wire-3/native-ABI-2 Session contracts and independent
+  wrapped-proof verification without relabeling the Arrangement v2 proof scope.
+- [x] Extend the portable production shared SDK with explicit v3 negotiation,
+  exact capability/status and stage guards, immutable bounded Session source,
+  ABI2 transport wrappers, raw v2 descriptors and unchanged bounded ownership/
+  backpressure cleanup. Cover red-before/green-after registration, actual typed
+  ingress, authenticated runtime completion/failure/cancellation at 44.1/48 kHz,
+  malformed/replayed input, size limits and redaction without claiming host qualification.
+- [x] Integrate guarded source leases into the existing coordinator, exact-target
+  resolution, cancellation-before-dispatch fencing, one-shot launch receipt,
+  source sealing and independent local-monitor release.
+- [x] Require nominal and sample-rounded ranges strictly before both first wrap
+  and natural end, including nonlooping equality; retain failure/no trimming.
+- [x] Add typed clip-local observations, explicit global/native coordinates and
+  canonical clip-primary/track-contributor context through the existing store.
+- [x] Address branch review's repeated-capture subject collision: include the
+  complete immutable clip binding and canonical contributor in the ID. Two
+  real-store runtime regressions fail before correction on changed duration or
+  upstream fingerprint; afterward both publish, preserve earlier history and
+  reuse an unchanged snapshot. Pass the 96 owning runtime/publication/store tests.
+- [x] Rebuild the reviewed correction, pass full quality with 3,026
+  TypeScript/script, 672 Max and 271 Python tests and all 12 Electron tests,
+  then pass both real Session cases again (`2026-10-24T16-16-54.285Z`).
+  Independently retain idle/released leave-running postconditions, unchanged
+  scope and successful exact-owned process/fixture cleanup; verify no Live
+  process remains. Keep the #68/#69 coverage gaps explicit.
+- [x] Propagate bounded redacted Session source and launch progress through tools
+  and typed Desktop main/preload/renderer; retain leave-running and accepted
+  launch uncertainty on cancellation.
+- [x] Complete the bounded MIDI/warped Session scenarios/group, full
+  deterministic owning suites, ordinary-approval visible capture for both
+  kinds, and read-only typed retrieval after full App/Live restart. Retain
+  source uncertainty and leave-running, with exact-owned shutdown and unchanged
+  pinned Set. Session pass/context IDs: MIDI `9ff60019`/`465b1e7a`, audio
+  `6e3559a9`/`4a107d61`.
+- [ ] Rerun the separate legacy native-v1/v2 physical regression groups when
+  their immutable inputs are available. Existing historical acceptance and
+  passing deterministic compatibility tests are not a fresh-head host rerun.
+  Reproducible fixture provisioning and execution are tracked in #69.
+- [x] Extend the existing runner/stager/verifier for explicit immutable wire-3
+  fixtures, pre-capture source/native expectations, exact one-shot Session
+  approval, independent driver-epoch/native-proof join, local/global context
+  coverage, full bounded content/unselected-scope checks and typed store reopen.
+  Retain the sealed pre-publication origin across later leave-running loops,
+  synthetic-only/unqualified evidence and traced lifecycle/cleanup.
+- [x] Verify Session canonical track-subject associations separately from the
+  exact Live reference in `previousRuntimeBindings`; retain Arrangement's prior
+  semantics and all quality/ownership/coverage checks. Reproduce `232754af`'s
+  harness identity refusal from actual typed association shape, correct it, and
+  preserve the original failed capture evidence without claiming qualification
+  or requiring an unchanged Live retry.
+- [x] Limit production admission and scoped tool guidance to Global None from
+  stopped beat zero. Reproduce accepted one-bar/nonzero candidates before the
+  restriction; afterward reject both kinds before quota, native/source
+  acquisition, positioning, launch or publication, with attributed failure
+  events. Keep lower coordinate/proof shapes extensible but unadvertised.
+- [x] Rebuild after the restriction and pass the real Session group again
+  (`2026-10-24T13-50-12.141Z`), all 3,021 TypeScript/script, 672 Max, 270 Python
+  tests, full quality gates and all 12 Electron tests. Keep renderer regressions
+  on typed preload DTOs; real main/tool mapping is covered in main/Electron.
+- [x] Repeat the final built Default-agent warped workflow in a fresh isolated
+  visible App/Live pair: one message, ordinary approval, completed/ready state,
+  pass `07fce696`/context `e8023531`, sample bounds 8,490,561-8,586,561 and
+  visible target-only playback. Retain measured clock/beat disagreement 0/64
+  under the unchanged descriptive64 limit, unknown source quality and timing
+  limits. Close both owned apps/host with explicit stop-audio approval; verify
+  original/staged Set and recovered-base hashes unchanged.
+- [x] Resolve the separate Browser argument/guard failure from
+  `2026-10-24T13-52-18.415Z` without weakening identity, approval or retry guards.
+  Require opaque identity copying in full/scoped metadata and post-result
+  context; keep the original expected `&amp;` versus actual `&` failure and
+  partial test-track/bass mutations as historical evidence. Three new guidance
+  regressions fail before and pass after; rewritten URIs still fail before
+  loading. Full quality passes 3,024 TypeScript/script, 672 Max and 271 Python
+  tests. Focused piano and instruments-group runs pass with literal `&` and
+  successful owned cleanup (`2026-10-24T15-26-46.131Z`,
+  `2026-10-24T15-28-10.747Z`).
+- [ ] Resolve the separate graceful-shutdown failure in the latest broader
+  rerun (`2026-10-24T15-29-16.545Z`): eleven pass/five recovered-pass, including
+  piano/bass, before instruments-group cleanup fails. Retain that failure even
+  though exact-owned discard succeeds and PID 5272 is confirmed exited. Three
+  later scenarios remain unrun; do not relabel this as a green broader sweep.
+  Shutdown repair is #67; remaining scenario/group/sweep execution is #68.
+
 ## Current priority: developer dogfood
 
 The developer approved this as a development milestone on 2026-10-21, with

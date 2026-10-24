@@ -15,6 +15,11 @@ import {
   listenerReplyV2Schema,
   listenerResultV2Schema,
 } from "./listener-v2-contracts.js";
+import {
+  listenerRegistrationSessionSchema,
+  listenerReplySessionSchema,
+  listenerResultSessionSchema,
+} from "./listener-session-contracts.js";
 
 export const PRODUCER_PROTOCOL_VERSION = 1 as const;
 export const DEFAULT_SIGNAL_INGRESS_HOST = "127.0.0.1";
@@ -31,7 +36,11 @@ export const producerHelloSchema = z
     secret: z.string().min(32).max(4096),
     producer: outputProducerSchema,
     listener: z
-      .union([listenerRegistrationSchema, listenerRegistrationV2Schema])
+      .union([
+        listenerRegistrationSchema,
+        listenerRegistrationV2Schema,
+        listenerRegistrationSessionSchema,
+      ])
       .optional(),
   })
   .strict();
@@ -72,10 +81,12 @@ export const producerMessageSchema = z.discriminatedUnion("type", [
   z.discriminatedUnion("listenerVersion", [
     listenerReplySchema,
     listenerReplyV2Schema,
+    listenerReplySessionSchema,
   ]),
   z.discriminatedUnion("listenerVersion", [
     listenerResultSchema,
     listenerResultV2Schema,
+    listenerResultSessionSchema,
   ]),
 ]);
 export type ProducerMessage = z.infer<typeof producerMessageSchema>;
@@ -126,8 +137,14 @@ export interface SignalIngressDiscoveryDescriptor {
   readonly maxFrameBytes: number;
   readonly secretPath?: string;
   readonly producerDiagnostics?: readonly [typeof WRITE_DIAGNOSTIC_CAPABILITY];
-  readonly listenerVersions?: readonly [1] | readonly [1, 2];
+  readonly listenerVersions?:
+    readonly [1] | readonly [1, 2] | readonly [1, 2, 3];
   readonly listenerCapabilities?:
     | readonly ["audio-listener/v1"]
-    | readonly ["audio-listener/v1", "audio-listener/v2"];
+    | readonly ["audio-listener/v1", "audio-listener/v2"]
+    | readonly [
+        "audio-listener/v1",
+        "audio-listener/v2",
+        "audio-listener/session-v1",
+      ];
 }

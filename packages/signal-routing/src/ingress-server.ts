@@ -9,7 +9,17 @@ import {
   snapshotNativeListeningExpectationV2,
   type NativeArmProofV2,
   type NativeLaunchProofV2,
+  assertNativeSessionArmProof,
+  assertNativeSessionCaptureObservation,
+  nativeSessionLaunchCoordinates,
+  snapshotNativeSessionListeningExpectation,
+  type NativeSessionArmProof,
+  type NativeSessionLaunchProof,
 } from "@ableton-agent/protocol";
+import {
+  listenerControlSessionSchema,
+  type ListenerControlSession,
+} from "./listener-session-contracts.js";
 
 import type {
   OutputConnection,
@@ -131,6 +141,8 @@ interface ClientState {
   listenerStartedAt?: number;
   nativeArmV2?: NativeArmProofV2;
   nativeLaunchV2?: NativeLaunchProofV2;
+  nativeSessionArm?: NativeSessionArmProof;
+  nativeSessionLaunch?: NativeSessionLaunchProof;
   lastNativeCounterV2?: number;
   processing?: {
     readonly requestId: string;
@@ -371,7 +383,7 @@ export class SignalIngressServer implements ListenerService {
             "real_live_timing_validation_required",
         );
       if (
-        state.listener.version === 2 &&
+        state.listener.version !== 1 &&
         state.listener.nativeStatus.readiness !== "READY" &&
         state.listener.nativeStatus.reason !==
           "fresh_per_pass_native_validation_required"
@@ -401,16 +413,18 @@ export class SignalIngressServer implements ListenerService {
       connectionEpoch: state.listener.connectionEpoch,
     };
     const parsedControl =
-      state.listener.version === 2
-        ? listenerControlV2Schema.safeParse(rawControl)
-        : listenerControlSchema.safeParse(rawControl);
+      state.listener.version === 3
+        ? listenerControlSessionSchema.safeParse(rawControl)
+        : state.listener.version === 2
+          ? listenerControlV2Schema.safeParse(rawControl)
+          : listenerControlSchema.safeParse(rawControl);
     if (!parsedControl.success)
       throw denied("listener_configuration_version_mismatch");
     const control = parsedControl.data;
     if (
-      control.listenerVersion === 2 &&
+      control.listenerVersion !== 1 &&
       control.config &&
-      state.listener.version === 2 &&
+      state.listener.version !== 1 &&
       (control.config.geometry.sampleRate !== state.listener.sampleRate ||
         control.config.geometry.vectorSize !== state.listener.vectorSize ||
         !state.listener.nativeStatus.acceptedSampleRates.includes(
@@ -424,6 +438,10 @@ export class SignalIngressServer implements ListenerService {
     if (value.action === "prepare") {
       delete state.nativeArmV2;
       delete state.nativeLaunchV2;
+      delete state.nativeSessionArm;
+      delete state.nativeSessionLaunch;
+      delete state.nativeSessionArm;
+      delete state.nativeSessionLaunch;
       state.listenerOwner = control;
       state.listenerDeadline =
         this.#now() + this.#captureDuration(control) + 20000;
@@ -490,7 +508,7 @@ export class SignalIngressServer implements ListenerService {
 
   #captureDuration(control: ListenerControl): number {
     if (!control.config) return 0;
-    return control.listenerVersion === 2
+    return control.listenerVersion !== 1
       ? Math.ceil(
           (control.config.geometry.totalSamples * 1000) /
             control.config.geometry.sampleRate,
@@ -498,7 +516,10 @@ export class SignalIngressServer implements ListenerService {
       : control.config.durationMs;
   }
 
-  #nativeExpectation(control: ListenerControlV2, state: ClientState) {
+  #nativeExpectation(
+    control: ListenerControlV2 | ListenerControlSession,
+    state: ClientState,
+  ) {
     if (!control.config || !state.producer)
       throw new Error("native_v2_prepare_configuration_missing");
     return snapshotNativeListeningExpectationV2({
@@ -506,6 +527,15 @@ export class SignalIngressServer implements ListenerService {
       geometry: control.config.geometry,
       listenerId: state.producer.producerId,
       passId: control.passId,
+    });
+  }
+
+  #sessionExpectation(control: ListenerControlSession, state: ClientState) {
+    if (!control.config)
+      throw new Error("native_session_configuration_missing");
+    return snapshotNativeSessionListeningExpectation({
+      ...this.#nativeExpectation(control, state),
+      source: control.config.source,
     });
   }
 
@@ -677,8 +707,12 @@ export class SignalIngressServer implements ListenerService {
       ...(this.#options.secretPath === undefined
         ? {}
         : { secretPath: this.#options.secretPath }),
-      listenerVersions: [1, 2],
-      listenerCapabilities: ["audio-listener/v1", "audio-listener/v2"],
+      listenerVersions: [1, 2, 3],
+      listenerCapabilities: [
+        "audio-listener/v1",
+        "audio-listener/v2",
+        "audio-listener/session-v1",
+      ],
       producerDiagnostics: [WRITE_DIAGNOSTIC_CAPABILITY],
     };
     const descriptorStartedAt = this.#now();
@@ -998,7 +1032,7 @@ export class SignalIngressServer implements ListenerService {
       (message.listener !== undefined &&
         (message.producer.signalKind !== "audio" ||
           message.producer.schemaVersion !==
-            `audio-observation/v${message.listener.version}` ||
+            `audio-observation/v${message.listener.version === 3 ? 2 : message.listener.version}` ||
           message.producer.track?.id === undefined ||
           message.producer.device?.id === undefined)) ||
       (["audio-observation/v1", "audio-observation/v2"].includes(
@@ -1138,6 +1172,38 @@ export class SignalIngressServer implements ListenerService {
         return;
       }
       if (
+        message.listenerVersion === 3 &&
+        owner.listenerVersion === 3 &&
+        message.status === "armed"
+      ) {
+        try {
+          if (!message.nativeArm)
+            throw new Error("native_session_arm_proof_missing");
+          assertNativeSessionArmProof(
+            message.nativeArm,
+            this.#sessionExpectation(owner, state),
+          );
+          if (
+            state.lastNativeCounterV2 !== undefined &&
+            message.nativeArm.transport.armCounter <= state.lastNativeCounterV2
+          )
+            throw new Error("native_session_arm_counter_replay");
+          state.nativeSessionArm = structuredClone(message.nativeArm);
+          state.lastNativeCounterV2 = message.nativeArm.transport.armCounter;
+        } catch (cause) {
+          await this.#fail(
+            state,
+            "route-rejected",
+            cause instanceof Error
+              ? cause.message
+              : "Invalid native Session arm",
+            true,
+            message.requestId,
+          );
+          return;
+        }
+      }
+      if (
         message.listenerVersion === 2 &&
         owner.listenerVersion === 2 &&
         message.status === "armed"
@@ -1186,7 +1252,7 @@ export class SignalIngressServer implements ListenerService {
           state.listenerDeadline =
             this.#now() +
             this.#captureDuration(owner) +
-            (owner.listenerVersion === 2 ? 15_000 : 5_000);
+            (owner.listenerVersion !== 1 ? 15_000 : 5_000);
         }
       }
       this.#rememberDiagnosticReceipt(state, message);
@@ -1265,6 +1331,8 @@ export class SignalIngressServer implements ListenerService {
         delete state.listenerDeadline;
         delete state.nativeArmV2;
         delete state.nativeLaunchV2;
+        delete state.nativeSessionArm;
+        delete state.nativeSessionLaunch;
         state.listenerPhase = "idle";
       }
     }
@@ -1312,6 +1380,59 @@ export class SignalIngressServer implements ListenerService {
         throw new Error(
           "Listener observation attribution or capture bounds mismatch",
         );
+      return;
+    }
+    if (owner.listenerVersion === 3 && message.listenerVersion === 3) {
+      const expected = this.#sessionExpectation(owner, state);
+      if (message.nativeLaunch) {
+        if (!state.nativeSessionArm || state.nativeSessionLaunch)
+          throw new Error("native_session_unexpected_launch");
+        nativeSessionLaunchCoordinates(
+          state.nativeSessionArm,
+          message.nativeLaunch,
+          expected,
+        );
+        state.nativeSessionLaunch = structuredClone(message.nativeLaunch);
+      }
+      if (message.observation) {
+        const current = message.observation,
+          geometry = expected.geometry;
+        if (
+          current.samples.length >
+            Math.ceil(geometry.totalSamples / geometry.hopSamples) ||
+          current.startBeat !== geometry.startBeat ||
+          current.endBeat >
+            geometry.startBeat +
+              geometry.totalSamples /
+                ((geometry.sampleRate * 60) / geometry.tempoBpm) ||
+          current.endSample - current.startSample > geometry.totalSamples ||
+          current.alignment.sampleRate !== geometry.sampleRate ||
+          current.alignment.vectorSize !== geometry.vectorSize ||
+          JSON.stringify(current.alignment.policy) !==
+            JSON.stringify(expected.policy)
+        )
+          throw new Error("native_session_observation_bounds_mismatch");
+      }
+      if (message.status === "completed") {
+        const proof = message.nativeCapture;
+        if (
+          !proof ||
+          !message.observation ||
+          !state.nativeSessionArm ||
+          !state.nativeSessionLaunch ||
+          JSON.stringify(proof.transport.armed) !==
+            JSON.stringify(state.nativeSessionArm.transport) ||
+          JSON.stringify(proof.transport.launched) !==
+            JSON.stringify(state.nativeSessionLaunch.transport)
+        )
+          throw new Error("native_session_capture_proof_binding_mismatch");
+        assertNativeSessionCaptureObservation(
+          proof,
+          message.observation,
+          expected,
+        );
+        state.lastNativeCounterV2 = proof.transport.after.frames.at(-1)![4];
+      }
       return;
     }
     if (owner.listenerVersion !== 2 || message.listenerVersion !== 2)
@@ -1420,6 +1541,8 @@ export class SignalIngressServer implements ListenerService {
     delete state.listenerDeadline;
     delete state.nativeArmV2;
     delete state.nativeLaunchV2;
+    delete state.nativeSessionArm;
+    delete state.nativeSessionLaunch;
     state.listenerPhase = "idle";
   }
 

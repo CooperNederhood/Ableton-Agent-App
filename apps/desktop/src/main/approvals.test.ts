@@ -147,6 +147,49 @@ describe("ApprovalPolicyController", () => {
 });
 
 describe("ApprovalCoordinator", () => {
+  it("discloses Session launch and cancellation side effects before approval", () => {
+    const args = {
+      action: "play-session-and-listen",
+      listenerIds: ["listener-1"],
+      durationBeats: 4,
+    };
+    const approval = toDesktopApproval("session-approval", {
+      metadata: resolveAbletonToolMetadata("ableton_listening", args)!,
+      arguments: args,
+    });
+    expect(approval.risk).toBe("medium");
+    expect(approval.summary).toContain("Launches the selected Session clip");
+    expect(approval.summary).toContain(
+      "Playback stays running after completion, failure or cancellation",
+    );
+    expect(approval.summary).toContain(
+      "other selected Session sources may resume",
+    );
+    expect(approval.summary).toContain(
+      "Cancel stops capture only and cannot retract an accepted launch",
+    );
+    expect(approval.summary).not.toContain("reversible");
+    expect(approval.changes).toContain("durationBeats: 4");
+    expect(toDesktopApproval("other-approval", baseRequest).summary).toContain(
+      "reversible, instant operation",
+    );
+    const arrangementArgs = {
+      action: "play-arrangement-and-listen",
+      listenerIds: args.listenerIds,
+      startBeat: 0,
+      endBeat: 4,
+    };
+    expect(
+      toDesktopApproval("arrangement-approval", {
+        metadata: resolveAbletonToolMetadata(
+          "ableton_listening",
+          arrangementArgs,
+        )!,
+        arguments: arrangementArgs,
+      }).summary,
+    ).toContain("reversible, long operation");
+  });
+
   it("presents grouped tools with operation-specific titles and actions", () => {
     expect(toDesktopApproval("approval-1", baseRequest)).toMatchObject({
       id: "approval-1",

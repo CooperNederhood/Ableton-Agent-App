@@ -7,6 +7,8 @@ const os = require("node:os");
 const path = require("node:path");
 
 const PROTOCOL_VERSION = 1;
+const SESSION_LISTENER_SCOPE = "session-transport-coupled/v1";
+const SESSION_LISTENER_CAPABILITY = "audio-listener/session-v1";
 const DEFAULT_MAX_FRAME_BYTES = 128 * 1024;
 const OUTBOUND_DRAIN_TIMEOUT_MS = 1000;
 const WRITE_DIAGNOSTIC_SCHEMA = "write-backpressure/v1";
@@ -246,6 +248,173 @@ function validDescriptiveConfig(config) {
   );
 }
 
+function nativeUUID(value) {
+  return (
+    typeof value === "string" &&
+    /^(?:[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$/i.test(
+      value
+    )
+  );
+}
+function validSessionSource(source) {
+  const index = (value) =>
+    Number.isInteger(value) && value >= 0 && value <= 255;
+  const name = (value) => typeof value === "string" && value.length <= 128;
+  const target = source?.target,
+    track = target?.track;
+  return (
+    hasExactKeys(source, ["mode", "synchronization", "target"]) &&
+    source.mode === "session" &&
+    source.synchronization === "transport-coupled-first-iteration" &&
+    hasExactKeys(target, [
+      "view",
+      "track",
+      "sceneIndex",
+      "expectedClipReference",
+      "expectedClipName"
+    ]) &&
+    target.view === "session" &&
+    index(target.sceneIndex) &&
+    nativeUUID(target.expectedClipReference) &&
+    name(target.expectedClipName) &&
+    hasExactKeys(track, [
+      "kind",
+      "index",
+      "expectedReference",
+      "expectedName"
+    ]) &&
+    track.kind === "regular" &&
+    index(track.index) &&
+    nativeUUID(track.expectedReference) &&
+    name(track.expectedName)
+  );
+}
+
+function validSessionConfig(config) {
+  return (
+    hasExactKeys(config, ["geometry", "timingPolicy", "source"]) &&
+    validSessionSource(config.source) &&
+    validDescriptiveConfig({
+      geometry: config.geometry,
+      timingPolicy: config.timingPolicy
+    }) &&
+    config.geometry.endBeat - config.geometry.startBeat <= 4
+  );
+}
+
+function validSessionRegistration(listener) {
+  const required = [
+    "version",
+    "capabilities",
+    "sampleRate",
+    "vectorSize",
+    "algorithmVersion",
+    "nativeStatus"
+  ];
+  const optional = [
+    "connectionEpoch",
+    "deviceCanonicalPath",
+    "trackCanonicalPath"
+  ];
+  const status = listener.nativeStatus;
+  const statusKeys = [
+    "version",
+    "scope",
+    "readiness",
+    "alignment",
+    "verifiedAbsoluteErrorBoundSamples",
+    "acceptedSampleRates",
+    "acceptedVectorSizes",
+    "timingModes",
+    "maxClockDisagreementSamples",
+    "maxAudioDurationMs",
+    "maxWindows",
+    "abiVersion",
+    "sourceEvidence",
+    "synchronization",
+    "maxDurationBeats"
+  ];
+  const id = (value) =>
+    typeof value === "string" && value.length >= 1 && value.length <= 128;
+  const trackPath =
+    /^live_set (?:tracks (?:0|[1-9][0-9]*)|return_tracks (?:0|[1-9][0-9]*)|master_track)$/;
+  return (
+    listener.version === 3 &&
+    hasExactKeys(listener, [
+      ...required,
+      ...optional.filter((key) =>
+        Object.prototype.hasOwnProperty.call(listener, key)
+      )
+    ]) &&
+    Array.isArray(listener.capabilities) &&
+    listener.capabilities.length === 1 &&
+    listener.capabilities[0] === SESSION_LISTENER_CAPABILITY &&
+    Number.isInteger(listener.sampleRate) &&
+    listener.sampleRate >= 8000 &&
+    listener.sampleRate <= 384000 &&
+    Number.isInteger(listener.vectorSize) &&
+    listener.vectorSize >= 1 &&
+    listener.vectorSize <= 65536 &&
+    listener.algorithmVersion === "2.0.0" &&
+    (listener.connectionEpoch === undefined || id(listener.connectionEpoch)) &&
+    (listener.deviceCanonicalPath === undefined ||
+      (typeof listener.deviceCanonicalPath === "string" &&
+        listener.deviceCanonicalPath.length <= 256 &&
+        /^live_set (?:tracks (?:0|[1-9][0-9]*)|return_tracks (?:0|[1-9][0-9]*)|master_track) devices (?:0|[1-9][0-9]*)$/.test(
+          listener.deviceCanonicalPath
+        ))) &&
+    (listener.trackCanonicalPath === undefined ||
+      (typeof listener.trackCanonicalPath === "string" &&
+        listener.trackCanonicalPath.length <= 256 &&
+        trackPath.test(listener.trackCanonicalPath))) &&
+    (!listener.deviceCanonicalPath ||
+      !listener.trackCanonicalPath ||
+      listener.deviceCanonicalPath.split(" devices ")[0] ===
+        listener.trackCanonicalPath) &&
+    hasExactKeys(status, [
+      ...statusKeys,
+      ...(Object.prototype.hasOwnProperty.call(status ?? {}, "reason")
+        ? ["reason"]
+        : [])
+    ]) &&
+    status.version === 3 &&
+    status.scope === SESSION_LISTENER_SCOPE &&
+    ["READY", "BLOCKED"].includes(status.readiness) &&
+    status.alignment === "approximate" &&
+    status.verifiedAbsoluteErrorBoundSamples === null &&
+    Array.isArray(status.acceptedSampleRates) &&
+    status.acceptedSampleRates.length === 2 &&
+    status.acceptedSampleRates[0] === 44100 &&
+    status.acceptedSampleRates[1] === 48000 &&
+    Array.isArray(status.acceptedVectorSizes) &&
+    status.acceptedVectorSizes.length >= 1 &&
+    status.acceptedVectorSizes.length <= 11 &&
+    new Set(status.acceptedVectorSizes).size ===
+      status.acceptedVectorSizes.length &&
+    Array.from(status.acceptedVectorSizes).every(
+      (v) => Number.isInteger(v) && v >= 1 && v <= 1024 && (v & (v - 1)) === 0
+    ) &&
+    Array.isArray(status.timingModes) &&
+    status.timingModes.length === 2 &&
+    status.timingModes[0] === "descriptive" &&
+    status.timingModes[1] === "strict" &&
+    status.maxClockDisagreementSamples === 480 &&
+    status.maxAudioDurationMs === 30000 &&
+    status.maxWindows === 300 &&
+    status.abiVersion === 2 &&
+    status.sourceEvidence === "expected-context-only" &&
+    status.synchronization === "transport-coupled-first-iteration" &&
+    status.maxDurationBeats === 4 &&
+    (status.reason === undefined ||
+      (typeof status.reason === "string" &&
+        /^[a-z][a-z0-9_]{0,127}$/.test(status.reason))) &&
+    (status.readiness !== "BLOCKED" || status.reason !== undefined) &&
+    (status.readiness !== "READY" ||
+      (status.acceptedSampleRates.includes(listener.sampleRate) &&
+        status.acceptedVectorSizes.includes(listener.vectorSize)))
+  );
+}
+
 function sameListenerOwner(control, job) {
   return (
     !!job &&
@@ -262,7 +431,21 @@ function snapshotDescriptiveControl(control) {
       ? {
           config: Object.freeze({
             geometry: Object.freeze({ ...control.config.geometry }),
-            timingPolicy: Object.freeze({ ...control.config.timingPolicy })
+            timingPolicy: Object.freeze({ ...control.config.timingPolicy }),
+            ...(control.listenerVersion === 3
+              ? {
+                  source: Object.freeze({
+                    mode: control.config.source.mode,
+                    synchronization: control.config.source.synchronization,
+                    target: Object.freeze({
+                      ...control.config.source.target,
+                      track: Object.freeze({
+                        ...control.config.source.target.track
+                      })
+                    })
+                  })
+                }
+              : {})
           })
         }
       : {})
@@ -527,6 +710,391 @@ function validDescriptivePayload(type, payload, job, producerId) {
   );
 }
 
+function matchingSessionSource(source, expected) {
+  return (
+    validSessionSource(source) &&
+    validSessionSource(expected) &&
+    ["view", "sceneIndex", "expectedClipReference", "expectedClipName"].every(
+      (key) => source.target[key] === expected.target[key]
+    ) &&
+    ["kind", "index", "expectedReference", "expectedName"].every(
+      (key) => source.target.track[key] === expected.target.track[key]
+    )
+  );
+}
+
+function nativeTuple(values, length) {
+  return (
+    Array.isArray(values) &&
+    values.length === length &&
+    Array.from(values).every(Number.isFinite)
+  );
+}
+
+function nativeClockBinding(binding, geometry, playing) {
+  return (
+    hasExactKeys(binding, ["dsp", "frames"]) &&
+    nativeTuple(binding.dsp, 3) &&
+    binding.dsp[0] === 1 &&
+    binding.dsp[1] === geometry.sampleRate &&
+    binding.dsp[2] === geometry.vectorSize &&
+    Array.isArray(binding.frames) &&
+    binding.frames.length === 32 &&
+    Array.from(binding.frames).every(
+      (row, index, rows) =>
+        nativeTuple(row, 11) &&
+        row[0] === Number(playing) &&
+        row[7] === row[0] &&
+        row[8] === row[1] &&
+        row[9] === row[2] &&
+        row[10] === row[3] &&
+        row[1] >= 0 &&
+        row[1] <= 1576800 &&
+        Number.isSafeInteger(row[2]) &&
+        row[2] >= 0 &&
+        Number.isInteger(row[3]) &&
+        row[3] >= 0 &&
+        row[3] <= 0x7fffffff &&
+        (row[3] & 19) === 19 &&
+        Number.isSafeInteger(row[4]) &&
+        row[4] >= 0 &&
+        row[4] < 2 ** 44 &&
+        row[4] === row[6] &&
+        row[5] >= 0 &&
+        row[5] <= 1 &&
+        (playing || row[1] === geometry.startBeat) &&
+        (index === 0 ||
+          (row[4] > rows[index - 1][4] &&
+            row[2] >= rows[index - 1][2] &&
+            row[1] >= rows[index - 1][1] &&
+            (playing || row[5] === rows[index - 1][5])))
+    ) &&
+    binding.frames[31][4] - binding.frames[0][4] <= geometry.sampleRate
+  );
+}
+
+function validSessionArm(arm, job) {
+  const reset = {
+    launchClock: -1,
+    sourceClock: -1,
+    onsetCount: 0,
+    rejected: 0,
+    active: 0,
+    launchPhaseSamples: -1,
+    firstSourceClock: -1,
+    completedSamples: 0
+  };
+  return (
+    hasExactKeys(arm, [
+      "scope",
+      "policy",
+      "geometry",
+      "nativeEpoch",
+      "armCounter",
+      "before",
+      "reset"
+    ]) &&
+    matchingDescriptiveArm(arm, job) &&
+    Number.isInteger(arm.nativeEpoch) &&
+    arm.nativeEpoch >= 1 &&
+    arm.nativeEpoch <= 1000000 &&
+    Number.isSafeInteger(arm.armCounter) &&
+    arm.armCounter >= 0 &&
+    arm.armCounter + arm.geometry.totalSamples < 2 ** 44 &&
+    nativeClockBinding(arm.before, arm.geometry, false) &&
+    arm.armCounter >= arm.before.frames[31][4] &&
+    arm.armCounter - arm.before.frames[31][4] <= arm.geometry.sampleRate &&
+    hasExactKeys(arm.reset, Object.keys(reset)) &&
+    Object.keys(reset).every((key) => arm.reset[key] === reset[key])
+  );
+}
+
+function validSessionTransport(proof, kind, job) {
+  if (kind === "nativeArm") return validSessionArm(proof, job);
+  if (kind === "nativeLaunch") return matchingDescriptiveLaunch(proof, job);
+  if (
+    !hasExactKeys(proof, [
+      "armed",
+      "launched",
+      "after",
+      "timingWitnesses",
+      "envelopeWindows",
+      "spectralWindows"
+    ]) ||
+    !validSessionArm(proof.armed, job) ||
+    !matchingDescriptiveLaunch(proof.launched, job) ||
+    !nativeClockBinding(proof.after, job.config.geometry, true) ||
+    !hasExactKeys(proof.timingWitnesses, [
+      "minHostOffset",
+      "maxHostOffset",
+      "minBeatOrigin",
+      "maxBeatOrigin",
+      "maxPhaseDisagreement"
+    ]) ||
+    !Object.values(proof.timingWitnesses).every((row) => nativeTuple(row, 11))
+  )
+    return false;
+  const windows = Math.ceil(
+    job.config.geometry.totalSamples / job.config.geometry.hopSamples
+  );
+  return (
+    Array.isArray(proof.envelopeWindows) &&
+    proof.envelopeWindows.length === windows &&
+    Array.from(proof.envelopeWindows).every(
+      (row) =>
+        nativeTuple(row, 3) &&
+        Number.isSafeInteger(row[0]) &&
+        row[0] >= 0 &&
+        row[0] < 2 ** 44 &&
+        row.slice(1).every((v) => v >= 0 && v <= 64)
+    ) &&
+    Array.isArray(proof.spectralWindows) &&
+    proof.spectralWindows.length === windows &&
+    Array.from(proof.spectralWindows).every(
+      (row) =>
+        nativeTuple(row, 4) &&
+        Number.isSafeInteger(row[0]) &&
+        row[0] >= 0 &&
+        Number.isSafeInteger(row[1]) &&
+        row[1] - row[0] === 2048 &&
+        row[2] >= 0 &&
+        row[2] <= job.config.geometry.sampleRate / 2 &&
+        row[3] >= 0 &&
+        row[3] <= Number.MAX_SAFE_INTEGER
+    )
+  );
+}
+
+function validSessionObservation(value, job) {
+  if (
+    !hasExactKeys(value, [
+      "schema",
+      "listenerId",
+      "passId",
+      "sampleRate",
+      "startSample",
+      "endSample",
+      "startBeat",
+      "endBeat",
+      "complete",
+      "limitations",
+      "algorithm",
+      "summaries",
+      "samples",
+      "attacks",
+      "reduction",
+      "alignment"
+    ])
+  )
+    return false;
+  const geometry = job?.config?.geometry,
+    policy = job?.config?.timingPolicy;
+  if (!geometry || !policy) return false;
+  const integer = (v) => Number.isSafeInteger(v) && v >= 0;
+  const beat = (v) => Number.isFinite(v) && v >= 0;
+  const stereo = (v, rms = false) =>
+    Array.isArray(v) &&
+    v.length === 2 &&
+    Array.from(v).every((n) =>
+      rms
+        ? n === null || Number.isFinite(n)
+        : Number.isFinite(n) && n >= 0 && n <= 64
+    );
+  const centroid = (v) =>
+    v === null ||
+    (Number.isFinite(v) && v >= 0 && v <= geometry.sampleRate / 2);
+  const descriptor = (v) =>
+    stereo(v.peak) && stereo(v.rmsDbfs, true) && centroid(v.centroidHz);
+  const algorithm = value.algorithm,
+    alignment = value.alignment,
+    reduction = value.reduction;
+  return (
+    value.schema === "audio-observation/v2" &&
+    typeof value.listenerId === "string" &&
+    value.listenerId.length >= 1 &&
+    value.listenerId.length <= 200 &&
+    typeof value.passId === "string" &&
+    value.passId.length >= 1 &&
+    value.passId.length <= 200 &&
+    value.sampleRate === geometry.sampleRate &&
+    integer(value.startSample) &&
+    integer(value.endSample) &&
+    value.endSample >= value.startSample &&
+    value.endSample - value.startSample <= geometry.totalSamples &&
+    value.startBeat === geometry.startBeat &&
+    beat(value.endBeat) &&
+    value.endBeat >= value.startBeat &&
+    value.endBeat <=
+      geometry.startBeat +
+        geometry.totalSamples /
+          ((geometry.sampleRate * 60) / geometry.tempoBpm) &&
+    typeof value.complete === "boolean" &&
+    Array.isArray(value.limitations) &&
+    value.limitations.length <= 32 &&
+    Array.from(value.limitations).every(
+      (v) => typeof v === "string" && v.length >= 1 && v.length <= 500
+    ) &&
+    hasExactKeys(algorithm, [
+      "name",
+      "version",
+      "windowSamples",
+      "hopSamples",
+      "settings",
+      "units"
+    ]) &&
+    algorithm.name === "native-max-stereo-energy-envelope-rise" &&
+    algorithm.version === "2.0.0" &&
+    algorithm.windowSamples === 2048 &&
+    algorithm.hopSamples === geometry.hopSamples &&
+    hasExactKeys(algorithm.settings, [
+      "attackThresholdDb",
+      "minAttackSpacingSamples"
+    ]) &&
+    algorithm.settings.attackThresholdDb === 6 &&
+    algorithm.settings.minAttackSpacingSamples === geometry.hopSamples &&
+    hasExactKeys(algorithm.units, ["amplitude", "rms", "centroid"]) &&
+    algorithm.units.amplitude === "linear" &&
+    algorithm.units.rms === "dBFS" &&
+    algorithm.units.centroid === "Hz" &&
+    hasExactKeys(value.summaries, ["peak", "rmsDbfs", "centroidHz"]) &&
+    descriptor(value.summaries) &&
+    Array.isArray(value.samples) &&
+    value.samples.length <=
+      Math.ceil(geometry.totalSamples / geometry.hopSamples) &&
+    Array.from(value.samples).every(
+      (v, i, points) =>
+        hasExactKeys(v, ["sample", "beat", "peak", "rmsDbfs", "centroidHz"]) &&
+        integer(v.sample) &&
+        v.sample >= (i === 0 ? value.startSample : points[i - 1].sample) &&
+        v.sample <= value.endSample &&
+        beat(v.beat) &&
+        v.beat >= (i === 0 ? value.startBeat : points[i - 1].beat) &&
+        v.beat <= value.endBeat &&
+        descriptor(v)
+    ) &&
+    Array.isArray(value.attacks) &&
+    value.attacks.length <= 512 &&
+    Array.from(value.attacks).every(
+      (v, i, points) =>
+        hasExactKeys(v, ["sample", "beat", "strength"]) &&
+        integer(v.sample) &&
+        v.sample >= (i === 0 ? value.startSample : points[i - 1].sample) &&
+        v.sample <= value.endSample &&
+        beat(v.beat) &&
+        v.beat >= (i === 0 ? value.startBeat : points[i - 1].beat) &&
+        v.beat <= value.endBeat &&
+        beat(v.strength)
+    ) &&
+    hasExactKeys(reduction, [
+      "originalSamples",
+      "originalAttacks",
+      "truncated"
+    ]) &&
+    integer(reduction.originalSamples) &&
+    reduction.originalSamples >= value.samples.length &&
+    integer(reduction.originalAttacks) &&
+    reduction.originalAttacks >= value.attacks.length &&
+    typeof reduction.truncated === "boolean" &&
+    (!value.complete || !reduction.truncated) &&
+    (reduction.truncated ||
+      (reduction.originalSamples === value.samples.length &&
+        reduction.originalAttacks === value.attacks.length)) &&
+    hasExactKeys(alignment, [
+      "schema",
+      "policy",
+      "sampleRate",
+      "vectorSize",
+      "observedClockDisagreementSamples",
+      "observedBeatDisagreementSamples",
+      "alignment",
+      "intendedUse",
+      "estimatedAbsoluteErrorSamples",
+      "verifiedAbsoluteErrorBoundSamples"
+    ]) &&
+    alignment.schema === "listening-alignment/v2" &&
+    alignment.alignment === "approximate" &&
+    alignment.intendedUse === "descriptive-only" &&
+    alignment.estimatedAbsoluteErrorSamples === null &&
+    alignment.verifiedAbsoluteErrorBoundSamples === null &&
+    alignment.sampleRate === geometry.sampleRate &&
+    alignment.vectorSize === geometry.vectorSize &&
+    hasExactKeys(alignment.policy, ["mode", "maxClockDisagreementSamples"]) &&
+    alignment.policy.mode === policy.mode &&
+    alignment.policy.maxClockDisagreementSamples ===
+      policy.maxClockDisagreementSamples &&
+    integer(alignment.observedClockDisagreementSamples) &&
+    alignment.observedClockDisagreementSamples <=
+      policy.maxClockDisagreementSamples &&
+    integer(alignment.observedBeatDisagreementSamples) &&
+    alignment.observedBeatDisagreementSamples <=
+      policy.maxClockDisagreementSamples
+  );
+}
+
+// Validate the negotiated wrapper, then reuse v2 transport/stage checks unchanged.
+// Completeness/alignment mathematics remain independently validated by typed ingress.
+function validSessionPayload(type, payload, job, producerId) {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload))
+    return false;
+  if (
+    payload.observation !== undefined &&
+    !validSessionObservation(payload.observation, job)
+  )
+    return false;
+  const transportPayload = { ...payload };
+  for (const kind of ["nativeArm", "nativeLaunch", "nativeCapture"]) {
+    const wrapper = payload[kind];
+    if (wrapper === undefined) continue;
+    if (
+      !hasExactKeys(wrapper, ["scope", "source", "transport"]) ||
+      wrapper.scope !== SESSION_LISTENER_SCOPE ||
+      !matchingSessionSource(wrapper.source, job?.config?.source) ||
+      !validSessionTransport(wrapper.transport, kind, job)
+    )
+      return false;
+    transportPayload[kind] = wrapper.transport;
+  }
+  const event = payload.nativeLifecycle;
+  if (event !== undefined) {
+    const optional = ["generation", "phase", "reason"].filter((key) =>
+      Object.prototype.hasOwnProperty.call(event ?? {}, key)
+    );
+    if (
+      !hasExactKeys(event, [
+        "scope",
+        "eventId",
+        "causationId",
+        "stage",
+        "nativeEpoch",
+        "elapsedMs",
+        "frames",
+        ...optional
+      ]) ||
+      event.scope !== SESSION_LISTENER_SCOPE ||
+      !nativeUUID(event.eventId) ||
+      typeof event.causationId !== "string" ||
+      !event.causationId.length ||
+      event.causationId.length > 128 ||
+      !Number.isInteger(event.nativeEpoch) ||
+      event.nativeEpoch < 0 ||
+      event.nativeEpoch > 1000000 ||
+      !Number.isFinite(event.elapsedMs) ||
+      event.elapsedMs < 0 ||
+      event.elapsedMs > 120000 ||
+      (event.generation !== undefined && !nativeUUID(event.generation)) ||
+      (event.reason !== undefined &&
+        (typeof event.reason !== "string" ||
+          !/^[a-z][a-z0-9_]{0,127}$/.test(event.reason)))
+    )
+      return false;
+    transportPayload.nativeLifecycle = {
+      ...event,
+      scope: "arrangement-descriptive/v2"
+    };
+  }
+  return validDescriptivePayload(type, transportPayload, job, producerId);
+}
+
 class AgentSignalClient {
   constructor(options = {}) {
     const discovery = installedDiscoveryPaths();
@@ -583,6 +1151,12 @@ class AgentSignalClient {
         : "ableton-midi-capture");
     this.listener = options.listener || null;
     this.listenerVersion = this.listener?.version;
+    this.descriptiveMode =
+      this.listenerVersion === 2 || this.listenerVersion === 3;
+    this.listenerCapability =
+      this.listenerVersion === 3
+        ? SESSION_LISTENER_CAPABILITY
+        : `audio-listener/v${this.listenerVersion}`;
     this.onListenerControl = options.onListenerControl || (() => {});
     this.onListenerFailure = options.onListenerFailure || (() => {});
     this.listenerSequence = 0;
@@ -594,18 +1168,20 @@ class AgentSignalClient {
       (!this.listener && this.schemaVersion === "audio-observation/v2") ||
       (this.listener &&
         (this.signalKind !== "audio" ||
-          ![1, 2].includes(this.listenerVersion) ||
-          this.schemaVersion !== `audio-observation/v${this.listenerVersion}` ||
+          ![1, 2, 3].includes(this.listenerVersion) ||
+          this.schemaVersion !==
+            `audio-observation/v${this.descriptiveMode ? 2 : this.listenerVersion}` ||
           !Array.isArray(this.listener.capabilities) ||
           this.listener.capabilities.length !== 1 ||
-          this.listener.capabilities[0] !==
-            `audio-listener/v${this.listenerVersion}`))
+          this.listener.capabilities[0] !== this.listenerCapability))
     ) {
       throw new Error(
         "listener capability requires matching audio-observation version"
       );
     }
-    if (this.listenerVersion === 2) {
+    if (this.listenerVersion === 3 && !validSessionRegistration(this.listener))
+      throw new Error("invalid native Session listener registration");
+    if (this.descriptiveMode) {
       const listener = this.listener;
       const status = listener.nativeStatus;
       if (
@@ -617,8 +1193,11 @@ class AgentSignalClient {
         listener.vectorSize > 65536 ||
         listener.algorithmVersion !== "2.0.0" ||
         !status ||
-        status.version !== 2 ||
-        status.scope !== "arrangement-descriptive/v2" ||
+        status.version !== this.listenerVersion ||
+        status.scope !==
+          (this.listenerVersion === 3
+            ? SESSION_LISTENER_SCOPE
+            : "arrangement-descriptive/v2") ||
         !["READY", "BLOCKED"].includes(status.readiness) ||
         (status?.readiness === "READY" &&
           (!Array.isArray(status.acceptedSampleRates) ||
@@ -722,7 +1301,7 @@ class AgentSignalClient {
     if (this.stopping) {
       return false;
     }
-    if (this.listenerVersion === 2 && this.authenticated) {
+    if (this.descriptiveMode && this.authenticated) {
       this.listenerFailure("listener_result_required");
       return false;
     }
@@ -783,8 +1362,7 @@ class AgentSignalClient {
     this.failedWriteSocket = null;
     if (this.listener) {
       this.listener = { ...this.listener, connectionEpoch: this.randomUUID() };
-      if (this.listenerVersion === 2)
-        this.listener = Object.freeze(this.listener);
+      if (this.descriptiveMode) this.listener = Object.freeze(this.listener);
       this.listenerSequence = 0;
       this.listenerJob = null;
       this.listenerControlIds.clear();
@@ -827,13 +1405,11 @@ class AgentSignalClient {
     const descriptor = validateDescriptor(JSON.parse(text));
     if (
       this.listener &&
-      ((this.listenerVersion === 2 &&
+      ((this.descriptiveMode &&
         (!Array.isArray(descriptor.listenerVersions) ||
           !Array.isArray(descriptor.listenerCapabilities))) ||
         !descriptor.listenerVersions?.includes(this.listenerVersion) ||
-        !descriptor.listenerCapabilities?.includes(
-          `audio-listener/v${this.listenerVersion}`
-        ))
+        !descriptor.listenerCapabilities?.includes(this.listenerCapability))
     ) {
       throw new Error("listener capability is not advertised by ingress");
     }
@@ -1469,7 +2045,7 @@ class AgentSignalClient {
 
   maxFrameBytes() {
     return Math.min(
-      this.listenerVersion === 2 ? DEFAULT_MAX_FRAME_BYTES : Infinity,
+      this.descriptiveMode ? DEFAULT_MAX_FRAME_BYTES : Infinity,
       this.descriptor?.maxFrameBytes || DEFAULT_MAX_FRAME_BYTES,
       this.configuredMaxFrameBytes
     );
@@ -1568,7 +2144,7 @@ class AgentSignalClient {
 
   handleListenerControl(control) {
     if (
-      this.listenerVersion === 2 &&
+      this.descriptiveMode &&
       (!control || typeof control !== "object" || Array.isArray(control))
     ) {
       this.listenerFailure("invalid_control");
@@ -1587,7 +2163,7 @@ class AgentSignalClient {
     if (
       !this.authenticated ||
       !this.listener ||
-      (this.listenerVersion === 2 && this.stopping) ||
+      (this.descriptiveMode && this.stopping) ||
       control.protocolVersion !== PROTOCOL_VERSION ||
       control.listenerVersion !== this.listenerVersion ||
       control.connectionEpoch !== this.listener.connectionEpoch ||
@@ -1605,7 +2181,7 @@ class AgentSignalClient {
     }
     if (
       this.listenerControlIds.has(control.requestId) ||
-      (this.listenerVersion === 2 &&
+      (this.descriptiveMode &&
         (!hasExactKeys(control, [
           "type",
           "protocolVersion",
@@ -1616,7 +2192,9 @@ class AgentSignalClient {
         ]) ||
           control.type !== "listener.control" ||
           (control.action === "prepare"
-            ? !validDescriptiveConfig(control.config) ||
+            ? !(this.listenerVersion === 3
+                ? validSessionConfig(control.config)
+                : validDescriptiveConfig(control.config)) ||
               control.config.geometry.sampleRate !== this.listener.sampleRate ||
               control.config.geometry.vectorSize !== this.listener.vectorSize
             : control.config !== undefined))) ||
@@ -1654,11 +2232,11 @@ class AgentSignalClient {
             status: "failed",
             reason: "listener_busy"
           },
-          this.listenerVersion !== 2
+          !this.descriptiveMode
         );
         return;
       }
-      if (this.listenerVersion === 2) {
+      if (this.descriptiveMode) {
         control = snapshotDescriptiveControl(control);
         this.listenerJobControlIds.clear();
       }
@@ -1667,8 +2245,7 @@ class AgentSignalClient {
       !this.listenerJob ||
       control.jobId !== this.listenerJob.jobId ||
       control.passId !== this.listenerJob.passId ||
-      (this.listenerVersion === 2 &&
-        !sameListenerOwner(control, this.listenerJob))
+      (this.descriptiveMode && !sameListenerOwner(control, this.listenerJob))
     ) {
       this.sendListenerMessage(
         "listener.reply",
@@ -1677,11 +2254,11 @@ class AgentSignalClient {
           status: "failed",
           reason: "ownership_mismatch"
         },
-        this.listenerVersion !== 2
+        !this.descriptiveMode
       );
       return;
     }
-    if (this.listenerVersion === 2) {
+    if (this.descriptiveMode) {
       if (this.listenerJobControlIds.size >= 64) {
         this.listenerFailure("listener_control_quota_exceeded");
         this.socket?.destroy();
@@ -1723,7 +2300,7 @@ class AgentSignalClient {
     const text = String(error?.message ?? "listener_callback_failed");
     return (
       boundedMessage(
-        this.listenerVersion === 2 && secret
+        this.descriptiveMode && secret
           ? text.split(secret).join("[REDACTED]")
           : text
       ) || "listener_callback_failed"
@@ -1743,9 +2320,9 @@ class AgentSignalClient {
     }
     const job = this.listenerJob;
     if (
-      this.listenerVersion === 2 &&
+      this.descriptiveMode &&
       (control.protocolVersion !== PROTOCOL_VERSION ||
-        control.listenerVersion !== 2 ||
+        control.listenerVersion !== this.listenerVersion ||
         (releaseJob &&
           (!sameListenerOwner(control, job) ||
             !this.listenerJobControlIds.has(control.requestId))))
@@ -1758,8 +2335,23 @@ class AgentSignalClient {
       return false;
     }
     if (
-      this.listenerVersion === 2 &&
-      !validDescriptivePayload(type, payload, job, this.producer?.producerId)
+      this.descriptiveMode &&
+      ((this.listenerVersion === 3 &&
+        (!["prepare", "arm", "cancel"].includes(control.action) ||
+          (type === "listener.reply" &&
+            payload?.status !== "failed" &&
+            payload?.status !==
+              { prepare: "ready", arm: "armed", cancel: "cancelled" }[
+                control.action
+              ]))) ||
+        !(this.listenerVersion === 3
+          ? validSessionPayload(type, payload, job, this.producer?.producerId)
+          : validDescriptivePayload(
+              type,
+              payload,
+              job,
+              this.producer?.producerId
+            )))
     ) {
       this.listenerFailure("invalid_listener_payload");
       return false;
@@ -1781,7 +2373,7 @@ class AgentSignalClient {
       causationId: control.causationId,
       sequence: this.listenerSequence
     };
-    if (this.listenerVersion === 2) {
+    if (this.descriptiveMode) {
       let encoded;
       try {
         encoded = JSON.stringify(message);
@@ -1798,7 +2390,7 @@ class AgentSignalClient {
     if (sent) this.listenerSequence += 1;
     else this.listenerFailure("listener_delivery_failed");
     if (
-      (this.listenerVersion !== 2 ||
+      (!this.descriptiveMode ||
         (releaseJob &&
           this.listenerJob === job &&
           sameListenerOwner(control, job))) &&
@@ -1807,7 +2399,7 @@ class AgentSignalClient {
         (type === "listener.result" && payload.status !== "progress"))
     ) {
       this.listenerJob = null;
-      if (this.listenerVersion === 2) this.listenerJobControlIds.clear();
+      if (this.descriptiveMode) this.listenerJobControlIds.clear();
     }
     return sent;
   }

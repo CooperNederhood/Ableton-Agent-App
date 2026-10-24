@@ -335,6 +335,9 @@ export const abletonDevicesParamsSchema = z.discriminatedUnion("action", [
   devicesSetParameterParamsSchema,
 ]);
 
+export const BROWSER_IDENTITY_GUIDANCE =
+  "Browser identities are opaque strings: copy URI, name, and path values exactly from the parsed tool result. Do not HTML/XML-escape, URL-encode/decode, normalize, or repair them. For example, query:Sounds#Piano%20&%20Keys:FileId_24345 must retain the literal &, not &amp;, and retain %20. Escape only as required to represent the identical string in JSON. A stale-reference refusal requires fresh inspection, not a guessed rewrite or automatic retry.";
+
 export const browserRootsParamsSchema =
   inspectBrowserRootsParamsSchema.safeExtend({
     action: z.literal("roots"),
@@ -375,7 +378,7 @@ export const browserLoadItemParamsSchema = loadBrowserItemParamsSchema
       "Copy item.name verbatim from the selected Browser result.",
     ),
     expectedItemUri: browserLoadItemShape.expectedItemUri.describe(
-      "Copy item.uri verbatim from the selected Browser result; use an empty string only when that result returned an empty URI.",
+      `Copy item.uri verbatim from the selected Browser result; use an empty string only when that result returned an empty URI. ${BROWSER_IDENTITY_GUIDANCE}`,
     ),
     action: z
       .literal("load-item")

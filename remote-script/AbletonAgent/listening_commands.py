@@ -501,8 +501,12 @@ def inspect_listening_context(context, params):
 
 def register_listening_commands(registry):
     from .listening_playback import register_playback_commands
+    from .session_listening_source import register_session_listening_source
+    from .session_listening_pass import register_session_listening_pass
 
     register_playback_commands(registry)
+    register_session_listening_source(registry)
+    register_session_listening_pass(registry)
     registry.register(
         "listening.inspect_context", inspect_listening_context,
         capability="listening.inspect_context", validator=validate_listening_context,

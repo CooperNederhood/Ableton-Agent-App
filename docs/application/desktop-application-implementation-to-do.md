@@ -4,6 +4,24 @@ Companion specification: [Desktop Application](desktop-application.md)
 
 ## Electron shell
 
+- [x] Carry the shared bounded Session source/launch lifecycle through typed
+  tools, main/preload inventory/events and the existing Listening passes panel.
+  Show local first-iteration bounds, accepted-launch uncertainty, leave-running
+  cleanup and descriptive/nonexclusive timing limitations; redact source names.
+- [x] Disclose Session launch/transport, all-outcome leave-running, other-source
+  resumption and cancellation limits before ordinary approval, without changing
+  risk or approval policy. Cover main mapping and exact React approve/deny
+  decisions; keep long argument identities within the Electron inspector.
+  Preserve the first visible denied request, which did not launch or measure.
+- [x] Qualify Session source detail through visible ordinary-approval MIDI and
+  warped-audio captures. After restarting both owned App/Live processes with the
+  same isolated profile, retrieve the original MIDI context without recapture:
+  unchanged pass/entry IDs, source/ranges, native sample bounds and descriptors,
+  explicit historical references, unknown freshness/attribution. Close only
+  owned processes and retain the pinned Set hash. Typed v1/v2/Session synthetic
+  Electron restart coverage remains distinct from these real Session captures
+  and is not a fresh physical legacy-native regression claim.
+
 - [x] Add a real packaged OS-vault regression without an environment-token or
   mock-Keychain bypass: require installed-token provisioning, encrypted
   persistence, same-profile restart/decrypt and typed credential lifecycle.

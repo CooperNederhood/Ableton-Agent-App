@@ -767,7 +767,14 @@ def build_capability_document(
         OWNERSHIP_LIMITATION, PLAYBACK_CAPABILITIES, POSITION_LIMITATION,
         START_LIMITATION, guarded_arrangement_start_supported,
     )
+    from .session_listening_pass import LIMITATIONS, SESSION_PASS_COMMANDS, session_listening_pass_supported
 
+    for name, action in SESSION_PASS_COMMANDS.items():
+        if name in capabilities:
+            capabilities[name] = (
+                live_version.startswith("11.")
+                and (action in ("inspect", "release") or session_listening_pass_supported(song))
+            )
     for name in PLAYBACK_CAPABILITIES:
         if name in capabilities:
             capabilities[name] = (
@@ -781,6 +788,18 @@ def build_capability_document(
         supported = bool(detected)
         evidence = "public" if supported else "unavailable"
         limitations = []
+        if name in SESSION_PASS_COMMANDS:
+            limitations.extend(LIMITATIONS)
+            limitations.append(
+                "Requires exact same-track listener binding, real source event subscriptions "
+                "and readable polled origin; unavailable required monitors/reads refuse admission. "
+                "Always leaves playback running."
+            )
+        if name == "listening.inspect_session_source":
+            limitations.append(
+                "Read-only deferred Session metadata, not a launch receipt, native alignment "
+                "proof or Session listening capability. Unknown properties remain null."
+            )
         if name in PLAYBACK_CAPABILITIES:
             limitations.append({
                 "listening.position_playback": POSITION_LIMITATION,

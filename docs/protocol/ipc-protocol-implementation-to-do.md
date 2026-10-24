@@ -4,6 +4,29 @@ Companion specification: [IPC Protocol](ipc-protocol.md)
 
 ## Schema design
 
+- [x] Add capability-negotiated read-only `listening.inspect_session_source`
+  contracts and generated cross-language fixtures, with bounded exact selectors,
+  signed origins, nullable unknowns and explicit unverified/message-rate labels.
+- [x] Cover strict bounds/authority rejection, clip-kind units, registry parity,
+  simulator reads, stale/invalid guards, traced timing and shutdown cancellation.
+- [x] Add strict granular Session pass prepare/launch/inspect/release schemas
+  and capabilities; only launch is marked mutating, so observational polling
+  does not emit project mutations or waive unrelated revision guards.
+- [x] Regenerate canonical schemas/command fixtures with truthful playing
+  origins, unknown-follow limitations, and nonlaunching cancellation receipts;
+  include pass registration in the Remote Script catalog scan.
+- [x] Cover TypeScript/Python granular request validation and framing, bounded
+  32-receipt release idempotence, deferred-fire fences, disconnect/shutdown
+  cleanup, and strict-before-wrap/natural-end admission with no trimming.
+- [x] Disclose event-assisted origin polling and missed-between-observation
+  limits in Session results/fixtures, without changing wire shapes, claiming
+  get-only property notification coverage, or relaxing native alignment gates.
+- [x] Specify canonical clip launch quantization ordinals separately from raw
+  Python/serialized values, normalize only through guarded public enum members,
+  preserve unknown refusal and add shifted/default-Global regression coverage.
+- [ ] Qualify a separate native Session launch/capture contract; source inspection
+  does not authorize Session playback or establish native alignment.
+
 - [x] Add bounded tri-state listening source inputs with cross-field validation.
   Negotiate protocol 7 / Remote Script and minimum `0.7.0` because old strict
   clients cannot read the extended inspection result.

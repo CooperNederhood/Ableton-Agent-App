@@ -45,6 +45,49 @@ function canonicalPaths(value) {
   });
 }
 
+function freezeSessionSource(value) {
+  const exact = (v, keys) =>
+    v &&
+    typeof v === "object" &&
+    !Array.isArray(v) &&
+    Object.keys(v).length === keys.length &&
+    keys.every((k) => Object.prototype.hasOwnProperty.call(v, k));
+  const reference = (v) =>
+    typeof v === "string" &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
+  const name = (v) => typeof v === "string" && v.length <= 128;
+  const index = (v) => Number.isInteger(v) && v >= 0 && v <= 255;
+  const target = value?.target,
+    track = target?.track;
+  if (
+    !exact(value, ["mode", "synchronization", "target"]) ||
+    value.mode !== "session" ||
+    value.synchronization !== "transport-coupled-first-iteration" ||
+    !exact(target, [
+      "view",
+      "track",
+      "sceneIndex",
+      "expectedClipReference",
+      "expectedClipName",
+    ]) ||
+    target.view !== "session" ||
+    !index(target.sceneIndex) ||
+    !reference(target.expectedClipReference) ||
+    !name(target.expectedClipName) ||
+    !exact(track, ["kind", "index", "expectedReference", "expectedName"]) ||
+    track.kind !== "regular" ||
+    !index(track.index) ||
+    !reference(track.expectedReference) ||
+    !name(track.expectedName)
+  )
+    throw new Error("invalid_native_session_source_context");
+  return Object.freeze({
+    mode: "session",
+    synchronization: "transport-coupled-first-iteration",
+    target: Object.freeze({ ...target, track: Object.freeze({ ...track }) }),
+  });
+}
+
 function sharedClient() {
   try {
     return require("./agent_signal_client_common.js");
@@ -73,8 +116,12 @@ function createRuntime({
   clear = clearInterval,
   certificate = null,
   nativeMode = false,
-  nativeVersion = 1,
+  nativeVersion: wireVersion = 1,
 } = {}) {
+  const nativeVersion = wireVersion === 3 ? 2 : wireVersion;
+  const sessionMode = wireVersion === 3;
+  const sessionScope = "session-transport-coupled/v1";
+  let sessionSource = null;
   if (typeof nativeMode !== "boolean") throw new Error("invalid_native_mode");
   if (![1, 2].includes(nativeVersion) || (nativeVersion === 2 && !nativeMode))
     throw new Error("invalid_native_version");
@@ -82,8 +129,15 @@ function createRuntime({
   const nativeStatus =
     nativeVersion === 2
       ? Object.freeze({
-          version: 2,
-          scope: "arrangement-descriptive/v2",
+          version: wireVersion,
+          scope: sessionMode ? sessionScope : "arrangement-descriptive/v2",
+          ...(sessionMode
+            ? {
+                sourceEvidence: "expected-context-only",
+                synchronization: "transport-coupled-first-iteration",
+                maxDurationBeats: 4,
+              }
+            : {}),
           readiness: "BLOCKED",
           alignment: "approximate",
           verifiedAbsoluteErrorBoundSamples: null,
@@ -240,7 +294,7 @@ function createRuntime({
     if (
       (nativeVersion === 2 &&
         (message.protocolVersion !== 1 ||
-          message.listenerVersion !== 2 ||
+          message.listenerVersion !== wireVersion ||
           (message.action === "prepare") !== (message.config !== undefined))) ||
       !keys.every(
         (key) =>
@@ -255,7 +309,7 @@ function createRuntime({
         [...keys, "action"].map((key) => [key, message[key]]),
       ),
       ...(nativeVersion === 2
-        ? { protocolVersion: 1, listenerVersion: 2 }
+        ? { protocolVersion: 1, listenerVersion: wireVersion }
         : {}),
     });
   }
@@ -535,6 +589,21 @@ function createRuntime({
     item.cause = eventId;
   }
   function publishNative(kind, message, value, confirm = () => {}) {
+    if (sessionMode) {
+      value = { ...value };
+      for (const key of ["nativeArm", "nativeLaunch", "nativeCapture"])
+        if (value[key])
+          value[key] = {
+            scope: sessionScope,
+            source: sessionSource,
+            transport: value[key],
+          };
+      if (value.nativeLifecycle)
+        value.nativeLifecycle = {
+          ...value.nativeLifecycle,
+          scope: sessionScope,
+        };
+    }
     nativePublishing++;
     try {
       if (nativeVersion === 2) {
@@ -542,7 +611,7 @@ function createRuntime({
           ...value,
           type: kind === "reply" ? "listener.reply" : "listener.result",
           protocolVersion: 1,
-          listenerVersion: 2,
+          listenerVersion: wireVersion,
           requestId: "x".repeat(128),
           sequence: Number.MAX_SAFE_INTEGER,
           ...Object.fromEntries(
@@ -787,6 +856,9 @@ function createRuntime({
             ? Object.freeze({
                 geometry: Object.freeze({ ...message.config.geometry }),
                 timingPolicy: Object.freeze({ ...message.config.timingPolicy }),
+                ...(sessionMode
+                  ? { source: freezeSessionSource(message.config.source) }
+                  : {}),
               })
             : Object.freeze({
                 durationMs: message.config.durationMs,
@@ -842,10 +914,20 @@ function createRuntime({
             dsp.sampleRate !== checked.geometry.sampleRate ||
             dsp.vectorSize !== checked.geometry.vectorSize ||
             Object.keys(config).some(
-              (key) => !["geometry", "timingPolicy"].includes(key),
+              (key) =>
+                !(
+                  sessionMode
+                    ? ["geometry", "timingPolicy", "source"]
+                    : ["geometry", "timingPolicy"]
+                ).includes(key),
             )
           )
             throw new Error("unsupported_native_capture_scope");
+          if (sessionMode) {
+            if (checked.geometry.endBeat - checked.geometry.startBeat > 4)
+              throw new Error("unsupported_native_session_duration");
+            sessionSource = freezeSessionSource(config.source);
+          }
           adapter.prepare({
             ...selected,
             geometry: checked.geometry,
@@ -1180,11 +1262,15 @@ function createRuntime({
       displayName: "Audio-Listener",
       producerIdPrefix: "ableton-audio-listener",
       listener: {
-        version: nativeVersion,
+        version: wireVersion,
         ...identityPaths,
         nativeStatus,
         capabilities: [
-          nativeVersion === 2 ? "audio-listener/v2" : "audio-listener/v1",
+          sessionMode
+            ? "audio-listener/session-v1"
+            : nativeVersion === 2
+              ? "audio-listener/v2"
+              : "audio-listener/v1",
         ],
         sampleRate: dsp.sampleRate,
         algorithmVersion: nativeVersion === 2 ? "2.0.0" : VERSION,

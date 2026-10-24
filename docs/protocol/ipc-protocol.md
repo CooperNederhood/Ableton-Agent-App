@@ -215,6 +215,124 @@ Initial stable error codes:
 
 ## Schema ownership
 
+### Session source inspection diagnostic
+
+`listening.inspect_session_source` is a read-only additive command with normal
+timeouts. Version 1 requires a UUID `queryId` and exact Session clip target:
+regular track index and scene index `0..255`, expected track/clip UUIDs and
+names bounded to 128 characters. No launch or ownership parameters are accepted.
+The bridge capability-checks before dispatch and matches the echoed query and
+target after parsing the strict result.
+
+The result carries `projectRevision`, `evidence:"message-rate-only"` and
+`nativeAlignment:"unverified"`, a clip kind and matching position unit, separate
+`before`/`after` source readings and nullable launch/marker settings. Global beat,
+`startTimeBeats`, position and markers permit finite signed coordinates within
+`-1576800..1576800`; this does not make them interchangeable coordinates.
+Playing/fired slot indices retain `-2` and `-1` sentinels. Unknown or unavailable
+metadata is `null`, not a default safety value. Reads do not certify atomicity,
+target onset, continuous source identity or native capture coverage. Existing
+Arrangement results and wire versions are unchanged; clients must negotiate the
+new capability rather than infer support from the Remote Script version.
+
+`settings.launchQuantization` is a **canonical Max ordinal**, not an
+uninterpreted Python enum integer: Global `0`, None `1`, and 1 Bar `5`.
+Production normalizes the installed public
+`Live.Clip.ClipLaunchQuantization.q_*` members to all 15 canonical values.
+The [public Live 11.0.0 generated Python API dump](https://github.com/NSUSpray/Live_API_Doc/blob/master/11.0.0.xml)
+declares the semantic enum (unofficial reference, without numeric values);
+the [Max reference](https://docs.cycling74.com/apiref/lom/clip/) declares the
+canonical ordinal order. Missing/incomplete/ambiguous native enum metadata or
+an unknown read becomes `null`, never a guessed Global default. In particular,
+raw `5`, clip-creation defaults, and serialized `LaunchQuantisation` alone
+cannot establish Global. This does not alter Song's separate
+`globalQuantization` semantics (None `0`, 1 Bar `4`) or relax admission's
+requirement for canonical clip Global `0`.
+
+### Guarded Session source pass
+
+`SessionListeningPassParams` and `SessionListeningPassResult` are canonical
+strict schemas for a bounded source lease, not native alignment authority.
+There is no unified `listening.session_pass` wire command:
+
+| Command | Required `action` | `mutates` |
+| --- | --- | --- |
+| `listening.prepare_session_pass` | `prepare` | `false` |
+| `listening.launch_session_pass` | `launch` | `true` |
+| `listening.inspect_session_pass` | `inspect` | `false` |
+| `listening.release_session_pass` | `release` | `false` |
+
+Each command rejects another action even if that action is otherwise valid.
+All use normal timeout metadata. The application may expose a local
+`sessionListeningPass(params)` dispatcher, but only launch participates in
+project-mutation serialization and emits `ableton.project_mutated`.
+Prepare/inspect/release do not increment project revision or turn polling into
+a user-visible mutation; launch still checks the expected revision without
+waiving unrelated edits.
+
+All requests contain `schemaVersion:1`, UUID `ownerId`/`passId`, and `action`.
+Prepare additionally requires `expectedLiveSetId`, `expectedProjectRevision`,
+the diagnostic's exact bounded Session `target`, one full same-track `listener`
+binding (device index `0..31`), `durationBeats` in `(0,4]`, and
+`timingAnchor:{globalBeat}`. The anchor must equal the existing stopped global
+position; no seek occurs. Physical admission also requires at most thirty
+seconds, known recording-off, no pending launch, MIDI/warped source, supported
+launch settings and tempo, global None/1 Bar in 4/4, and
+`durationBeats < min(loopEnd,endMarker)`. Exact natural-end/wrap equality is
+refused even for nonlooping clips; no silent range trimming is allowed.
+Release additionally requires `reason:"completed"|"cancelled"`.
+
+The shared result echoes owner/pass and carries `status` (`prepared`,
+`accepted`, `queued`, `playing`, `unverified`, `invalidated`, `released`,
+`cancelled`, or `expired`), `mutationState` (`not-attempted`, `indeterminate`,
+or `observed-playing`), nullable `reason`, `durationBeats`, `expiresInMs`
+(`0..40000`), and the diagnostic's bounded `lastObservedSource` state.
+`sourceEpoch` is null until actual `Clip.start_time` and exact active clip
+identity agree, then contains `startTimeBeats`, `clipReference`, and
+`observedGlobalBeat`. First origin and invalidation reason remain latched.
+Acceptance/queueing is not source onset. Constants remain
+`cleanupPolicy:"leave-running"`, `evidence:"message-rate-only"`, and
+`nativeAlignment:"unverified"`.
+
+`followActionState` distinguishes `known-disabled` from `unknown`; enabled
+follow actions are refused. Unknown is never converted to disabled: admission
+requires pass-owned public source monitoring and a second explicit limitation
+in `limitations`. Message-rate callbacks/readbacks cannot guarantee continuous
+identity or sample-accurate transition times. Runtime separately requires the
+actual origin and target identity to match frozen native geometry before
+publication; these source schemas cannot certify that alignment.
+
+Origin monitoring is explicitly event-assisted polling: the
+[legacy Max 8 Clip LOM](https://docs.cycling74.com/legacy/max8/vignettes/live_object_model#live_obj_anchor_Clip)
+marks `start_time` get-only, unlike the
+[current reference](https://docs.cycling74.com/apiref/lom/clip/) that marks it
+get/observe. The source pass does not infer Live 11 Python notification support
+from the newer page and never requires an origin listener. It requires real
+playing-status/position, track-slot and launch-setting subscriptions, plus
+readable finite `start_time` on every source callback, scheduled tick and
+explicit inspect. Result limitations disclose that `Clip.start_time` is polled,
+not subscribed, and changes between observations may be missed. An unavailable
+required event source or origin read still refuses admission. No new wire
+fields or relaxed identity/origin/native-publication checks are introduced.
+The fixture owner must physically qualify Python listener/readback behavior on
+the actual full Live 11 version before treating a case as supported.
+
+At most one pass is active per context, with a forty-second lifetime and
+five-second launch readback. Required monitor unavailability refuses admission.
+Release, expiry, scheduled client-disconnect cleanup and script shutdown remove
+registrations without stopping playback. The latest 32 closed owner/pass
+receipts remain bounded in memory for idempotent release, retaining origin and
+invalidation details but no audio bodies or LOM listeners. Old release retries
+cannot clear a newer lease; closed identities require fresh pass UUIDs while
+retained. Release fences deferred fire that has not been dispatched, never
+claims to retract an accepted host queue, and leaves partial mutation explicit.
+Existing request trace/lifecycle telemetry applies to all four commands.
+
+The registry/catalog scan and generated JSON Schema plus command fixtures
+include all four commands. Fixtures cover nonmutating phases, an actually
+observed playing epoch, and cancellation before fire, retaining unknown-follow
+limitations and unverified native authority across TypeScript/Python framing.
+
 ### Listening source evidence (protocol 7)
 
 `listening.inspect_context` includes optional bounded per-listener
@@ -250,8 +368,9 @@ onset/ownership certificate. The App must re-inspect afterward.
 `listening.start_playback` returns only `schemaVersion:1`, `mode:"arrangement"`,
 `cleanupPolicy:"leave-running"`, `startedAtBeat` (requested beat after verified
 seek), and `sourceOnset:"unverified"`. No ownership field is accepted. This
-acknowledges guarded marker start with later readback, not exact audible onset. Session start and
-stop remain unsupported; bounded listener capture cleanup must not stop Live.
+acknowledges guarded marker start with later readback, not exact audible onset.
+Session mode on this legacy command and automatic stop remain unsupported;
+the separate granular Session source pass does not authorize stopping Live.
 Partial mutation errors retain explicit indeterminate stage/observation details
 without claiming rollback. Command correlation/trace uses the existing request
 envelope, not arbitrary fields in the strict parameters.

@@ -18,6 +18,7 @@ const hashPattern = /^[a-f0-9]{64}$/;
 const scopes = {
   1: "arrangement-beat0-120bpm-48000hz-vector64/v1",
   2: "arrangement-descriptive/v2",
+  3: "session-transport-coupled/v1",
 };
 
 async function boundedFile(path, limit) {
@@ -138,6 +139,13 @@ export function inspectNativeFixtureSet(bytes, input) {
       );
     } else {
       if (
+        input.nativeVersion === 3 &&
+        xmlValue(ref, "RelativePathType") !== "3"
+      )
+        throw new Error(
+          "Session fixture audio requires immutable project-relative resources",
+        );
+      if (
         !input.audioFiles.some((file) => resolve(file.path) === resolve(path))
       )
         throw new Error(
@@ -171,7 +179,7 @@ export async function stageNativeListeningFixture({
   return stage("fixture-stage", async () => {
     signal?.throwIfAborted();
     if (
-      ![1, 2].includes(nativeVersion) ||
+      ![1, 2, 3].includes(nativeVersion) ||
       (input.nativeVersion === undefined ? 1 : input.nativeVersion) !==
         nativeVersion
     )
@@ -216,13 +224,18 @@ export async function stageNativeListeningFixture({
       manifest.externalAuthoringBridge !== false ||
       (nativeVersion === 1
         ? manifest.nativeVersion !== undefined
-        : manifest.nativeVersion !== 2 ||
+        : manifest.nativeVersion !== nativeVersion ||
           manifest.algorithmVersion !== "2.0.0" ||
           manifest.observationSchema !== "audio-observation/v2" ||
           manifest.providerLimits?.durationMs !== 30000 ||
           manifest.providerLimits?.maxWindows !== 300 ||
           manifest.tempoPolicy !== "constant-tempo-assumed" ||
-          manifest.tempoAutomationSupported !== false)
+          manifest.tempoAutomationSupported !== false) ||
+      (nativeVersion === 3 &&
+        (manifest.nativeAbiVersion !== 2 ||
+          manifest.sourceEvidence !== "expected-context-only" ||
+          manifest.synchronization !== "transport-coupled-first-iteration" ||
+          manifest.maxDurationBeats !== 4))
     )
       throw new Error("Unsupported or promoted native candidate");
     const resources = new Map(
@@ -321,14 +334,15 @@ export async function stageNativeListeningFixture({
       signal?.throwIfAborted();
       const setPath = join(root, `${input.artifactPrefix}.als`);
       await writeFile(setPath, source, { flag: "wx", mode: 0o600 });
+      const discovery = await readFile(
+        join(candidate, "agent_signal_storage.js"),
+      );
       return {
         nativeVersion,
         setPath,
         sourceSetSha256: sha256(source),
         deviceSha256: input.deviceSha256,
-        discoverySha256: sha256(
-          await readFile(join(candidate, "agent_signal_storage.js")),
-        ),
+        discoverySha256: sha256(discovery),
         resourceCount: snapshots.size,
         audioResourceCount: audioSnapshots.length,
         audioResources: Object.freeze(
@@ -340,6 +354,80 @@ export async function stageNativeListeningFixture({
             }),
           ),
         ),
+        async verifyImmutableInputs() {
+          return stage("fixture-integrity", async () => {
+            signal?.throwIfAborted();
+            if (
+              !(await boundedFile(input.sourceSet, 8 * 1024 * 1024)).equals(
+                source,
+              ) ||
+              !(await boundedFile(setPath, 8 * 1024 * 1024)).equals(source)
+            )
+              throw new Error("Immutable fixture Set changed after staging");
+            const stagedNames = [
+              ...new Set([...names, "agent_signal_storage.js"]),
+            ].sort();
+            if (
+              JSON.stringify((await readdir(directory)).sort()) !==
+                JSON.stringify(names) ||
+              JSON.stringify((await readdir(candidate)).sort()) !==
+                JSON.stringify(stagedNames)
+            )
+              throw new Error(
+                "Immutable fixture resource inventory changed after staging",
+              );
+            for (const [name, bytes] of snapshots) {
+              signal?.throwIfAborted();
+              if (
+                !(
+                  await boundedFile(join(directory, name), 2 * 1024 * 1024)
+                ).equals(bytes) ||
+                !(
+                  await boundedFile(join(candidate, name), 2 * 1024 * 1024)
+                ).equals(name === "agent_signal_storage.js" ? discovery : bytes)
+              )
+                throw new Error(
+                  "Immutable fixture candidate resource changed after staging",
+                );
+            }
+            if (
+              !(
+                await boundedFile(
+                  join(candidate, "agent_signal_storage.js"),
+                  2 * 1024 * 1024,
+                )
+              ).equals(discovery)
+            )
+              throw new Error(
+                "Immutable fixture discovery changed after staging",
+              );
+            for (const file of input.audioFiles)
+              if (
+                sha256(await boundedFile(file.path, 4 * 1024 * 1024)) !==
+                file.sha256
+              )
+                throw new Error(
+                  "Immutable fixture original audio changed after staging",
+                );
+            for (const audio of audioSnapshots)
+              if (
+                sha256(
+                  await boundedFile(
+                    join(root, audio.relativePath),
+                    4 * 1024 * 1024,
+                  ),
+                ) !== audio.sha256
+              )
+                throw new Error(
+                  "Immutable fixture staged audio changed after staging",
+                );
+            return {
+              verified: true,
+              resourceCount: snapshots.size,
+              audioResourceCount: audioSnapshots.length,
+            };
+          });
+        },
         async cleanup() {
           await stage("fixture-cleanup", () =>
             rm(root, { recursive: true, force: true }),

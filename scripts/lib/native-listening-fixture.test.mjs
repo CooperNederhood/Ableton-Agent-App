@@ -52,12 +52,22 @@ export async function nativeFixtureInput({ nativeVersion = 1 } = {}) {
   const manifest = JSON.stringify({
     nativeMode: true,
     nativeScope:
-      nativeVersion === 2
-        ? "arrangement-descriptive/v2"
-        : "arrangement-beat0-120bpm-48000hz-vector64/v1",
-    ...(nativeVersion === 2
+      nativeVersion === 3
+        ? "session-transport-coupled/v1"
+        : nativeVersion === 2
+          ? "arrangement-descriptive/v2"
+          : "arrangement-beat0-120bpm-48000hz-vector64/v1",
+    ...(nativeVersion >= 2
       ? {
-          nativeVersion: 2,
+          nativeVersion,
+          ...(nativeVersion === 3
+            ? {
+                nativeAbiVersion: 2,
+                sourceEvidence: "expected-context-only",
+                synchronization: "transport-coupled-first-iteration",
+                maxDurationBeats: 4,
+              }
+            : {}),
           algorithmVersion: "2.0.0",
           observationSchema: "audio-observation/v2",
           providerLimits: { durationMs: 30000, maxWindows: 300 },
@@ -87,7 +97,7 @@ export async function nativeFixtureInput({ nativeVersion = 1 } = {}) {
   await writeFile(sourceSet, source);
   const input = {
     formatVersion: 1,
-    ...(nativeVersion === 2 ? { nativeVersion: 2 } : {}),
+    ...(nativeVersion >= 2 ? { nativeVersion } : {}),
     sourceSet,
     sourceSetSha256: hash(source),
     candidateDirectory: directory,
@@ -141,7 +151,87 @@ async function addFixtureAudio(
 }
 
 describe("native listening fixture staging", () => {
-  it.each([1, 2])(
+  it("stages explicit wire3 ABI2 raw-v2 resources without relabeling the immutable Set", async () => {
+    const f = await nativeFixtureInput({ nativeVersion: 3 });
+    const staged = await stageNativeListeningFixture(f);
+    expect(staged.nativeVersion).toBe(3);
+    expect(await readFile(staged.setPath)).toEqual(f.source);
+    expect(await readFile(f.input.sourceSet)).toEqual(f.source);
+    await expect(staged.verifyImmutableInputs()).resolves.toMatchObject({
+      verified: true,
+    });
+    await staged.cleanup();
+    await expect(access(f.destination)).rejects.toThrow();
+  });
+  it.each([
+    "set",
+    "original-code",
+    "copied-code",
+    "original-audio",
+    "copied-audio",
+    "discovery",
+    "inventory",
+  ])(
+    "independently rejects changed immutable Session fixture %s after staging",
+    async (change) => {
+      const f = await nativeFixtureInput({ nativeVersion: 3 });
+      await addFixtureAudio(f);
+      const staged = await stageNativeListeningFixture(f);
+      const candidate = join(f.destination, "Native-Listener-Candidate");
+      const path = {
+        set: staged.setPath,
+        "original-code": join(f.input.candidateDirectory, "engine.js"),
+        "copied-code": join(candidate, "engine.js"),
+        "original-audio": f.input.audioFiles[0].path,
+        "copied-audio": join(f.destination, "Audio", "tone.wav"),
+        discovery: join(candidate, "agent_signal_storage.js"),
+        inventory: join(candidate, "extra.js"),
+      }[change];
+      await writeFile(path, "test-only changed fixture content");
+      await expect(staged.verifyImmutableInputs()).rejects.toThrow(
+        "Immutable fixture",
+      );
+      await staged.cleanup();
+    },
+  );
+  it("requires Session audio to resolve to copied immutable project resources, not legacy absolute originals", async () => {
+    const f = await nativeFixtureInput({ nativeVersion: 3 });
+    await addFixtureAudio(f, { referenceType: "1" });
+    await expect(stageNativeListeningFixture(f)).rejects.toThrow(
+      "immutable project-relative",
+    );
+    await expect(access(f.destination)).rejects.toThrow();
+  });
+  it.each([
+    ["nativeVersion", 2],
+    ["nativeAbiVersion", 3],
+    ["nativeScope", "arrangement-descriptive/v2"],
+    ["sourceEvidence", "verified-source"],
+    ["synchronization", "clip-clock"],
+    ["maxDurationBeats", 8],
+    ["observationSchema", "session-audio-observation/v1"],
+    ["algorithmVersion", "3.0.0"],
+  ])(
+    "rejects mixed Session candidate %s before staging",
+    async (key, value) => {
+      const f = await nativeFixtureInput({ nativeVersion: 3 });
+      const path = join(
+        f.input.candidateDirectory,
+        "audio-listener-manifest.json",
+      );
+      const manifest = JSON.parse(await readFile(path, "utf8"));
+      manifest[key] = value;
+      const bytes = JSON.stringify(manifest);
+      await writeFile(path, bytes);
+      f.input.candidateManifestSha256 = hash(bytes);
+      await expect(stageNativeListeningFixture(f)).rejects.toThrow(
+        "native candidate",
+      );
+      await expect(access(f.destination)).rejects.toThrow();
+    },
+  );
+
+  it.each([1, 2, 3])(
     "copies project-relative WAV dependencies for v%i before returning a loadable fixture",
     async (nativeVersion) => {
       const f = await nativeFixtureInput({ nativeVersion });
@@ -1096,7 +1186,7 @@ describe("native listening fixture staging", () => {
     expect(await readdir(f.destination)).toEqual(["owned-by-someone-else"]);
   });
 
-  it.each([1, 2])(
+  it.each([1, 2, 3])(
     "cleans a partially written v%i owned copy on cancellation",
     async (nativeVersion) => {
       const f = await nativeFixtureInput({ nativeVersion });

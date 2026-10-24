@@ -1807,6 +1807,7 @@ export class HeadlessDesktopService implements DesktopService {
             }),
         cleanupPolicy: "leave-running",
         evidence: "lifecycle-only",
+        ...(source.session === undefined ? {} : { session: source.session }),
       }),
     );
     const previous = this.#listeningJobs.get(job.passId);

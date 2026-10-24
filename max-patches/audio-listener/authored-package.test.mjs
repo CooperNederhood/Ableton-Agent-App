@@ -167,7 +167,62 @@ test("explicit v2 candidate packages the matching bootstrap, generated ABI and h
   }
 });
 
-test("native packaging rejects an implicit or unknown v2 selection before publication", async (t) => {
+test("explicit wire3 Session candidate retains ABI2 resources and never promotes its authored source", async (t) => {
+  const dir = await mkdtemp(
+    join(SOURCE_DIRECTORY, ".native-session-authored-test-"),
+  );
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const source = join(SOURCE_DIRECTORY, "Machine-Listening-Development.amxd");
+  const before = await readFile(source),
+    out = join(dir, "candidate");
+  await main([
+    "build-native-authored",
+    "--source",
+    source,
+    "--out",
+    out,
+    "--native-version",
+    "3",
+  ]);
+  const manifest = await checkArtifact(out);
+  assert.equal(manifest.nativeVersion, 3);
+  assert.equal(manifest.nativeScope, "session-transport-coupled/v1");
+  assert.equal(manifest.nativeAbiVersion, 2);
+  assert.equal(manifest.algorithmVersion, "2.0.0");
+  assert.equal(manifest.observationSchema, "audio-observation/v2");
+  assert.equal(manifest.sourceEvidence, "expected-context-only");
+  assert.equal(manifest.maxDurationBeats, 4);
+  assert.equal(manifest.realLiveValidated, false);
+  assert(
+    manifest.resources.some(
+      ({ name }) => name === "audio_listener_native_v3_max.js",
+    ),
+  );
+  const generated = nativeRuntimeDocuments({ nativeVersion: 2 });
+  for (const [name, document] of Object.entries(generated))
+    assert.deepEqual(
+      JSON.parse(await readFile(join(out, name), "utf8")),
+      document,
+    );
+  assert.deepEqual(await readFile(source), before);
+  for (const change of [
+    { nativeAbiVersion: 3 },
+    { maxDurationBeats: 5 },
+    { sourceEvidence: "native-clip-proof" },
+    { synchronization: "delayed-source" },
+  ]) {
+    await writeFile(
+      join(out, "audio-listener-manifest.json"),
+      JSON.stringify({ ...manifest, ...change }),
+    );
+    await assert.rejects(
+      checkArtifact(out),
+      /Session transport native manifest/,
+    );
+  }
+});
+
+test("native packaging rejects an implicit or unknown version selection before publication", async (t) => {
   const dir = await mkdtemp(join(SOURCE_DIRECTORY, ".native-selection-test-"));
   t.after(() => rm(dir, { recursive: true, force: true }));
   const source = join(SOURCE_DIRECTORY, "Machine-Listening-Development.amxd");
@@ -175,7 +230,7 @@ test("native packaging rejects an implicit or unknown v2 selection before public
     { nativeVersion: 2 },
     { nativeMode: false, nativeVersion: 2 },
     { nativeMode: true, nativeVersion: 0 },
-    { nativeMode: true, nativeVersion: 3 },
+    { nativeMode: true, nativeVersion: 4 },
     { nativeMode: true, nativeVersion: "2" },
   ].entries()) {
     const events = [];

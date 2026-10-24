@@ -45,6 +45,7 @@ import {
   type ListenerService,
 } from "@ableton-agent/signal-routing";
 import { prepareListenerCapture } from "./listening-capture.js";
+import { createSessionListeningServices } from "./session-listening-runtime.js";
 import type {
   ListeningRuntimeDependencies,
   ListeningRuntimeHost,
@@ -190,6 +191,8 @@ function bindingDescriptor(
       schemaVersion: descriptor.producer.schemaVersion,
     },
     registration: {
+      version: registration.version,
+      capabilities: registration.capabilities,
       connectionEpoch: registration.connectionEpoch,
       ...(registration.deviceCanonicalPath === undefined
         ? {}
@@ -364,8 +367,9 @@ function assemble(
     context: ListeningExecutionContext,
     operation: (progress: (detail: string) => void) => Promise<T>,
     compensate?: (result: T) => Promise<void>,
+    attributes?: Readonly<Record<string, unknown>>,
   ): Promise<T> {
-    const started = Date.now();
+    const started = performance.now();
     const event = (lifecycle: string, detail?: string) =>
       recordSignalTelemetry(dependencies.telemetry, {
         name: `listening.runtime.${name}.${lifecycle}`,
@@ -375,14 +379,14 @@ function assemble(
         correlationId: context.trace.correlationId,
         causationId: context.trace.causationId,
         trace: { traceId: context.trace.traceId, spanId: randomUUID() },
-        durationMs: Date.now() - started,
+        durationMs: Math.max(0, performance.now() - started),
         outcome:
           lifecycle === "failed"
             ? "failure"
             : lifecycle === "cancelled"
               ? "cancelled"
               : "success",
-        attributes: sanitizeTelemetryAttributes({ detail }),
+        attributes: sanitizeTelemetryAttributes({ ...attributes, detail }),
       });
     const compensateAbort = async (result: T) => {
       if (!compensate) return;
@@ -498,7 +502,7 @@ function assemble(
     range: { startBeat: number; endBeat: number },
     context: ListeningExecutionContext,
     expectedOwner: ListeningOwner,
-    previous?: CaptureState,
+    previous?: Pick<CaptureState, "descriptors" | "connections" | "inspection">,
     discovery = false,
     allowPositionRevision = false,
     sourceBoundary?: {
@@ -509,6 +513,7 @@ function assemble(
         | "positioned-inspection"
         | "post-arm-inspection";
     },
+    sourceMode: "arrangement" | "session" = "arrangement",
   ): Promise<
     Pick<CaptureState, "owner" | "descriptors" | "connections" | "inspection">
   > {
@@ -648,8 +653,8 @@ function assemble(
               descriptor.registration.algorithmVersion ||
             oldDescriptor.registration.version !==
               descriptor.registration.version ||
-            (oldDescriptor.registration.version === 2 &&
-              descriptor.registration.version === 2 &&
+            (oldDescriptor.registration.version !== 1 &&
+              descriptor.registration.version !== 1 &&
               oldDescriptor.registration.vectorSize !==
                 descriptor.registration.vectorSize))
         )
@@ -694,6 +699,7 @@ function assemble(
           !discovery &&
           connection.nativeStatus.scope !== NATIVE_LISTENER_SCOPE &&
           connection.nativeStatus.scope !== NATIVE_LISTENER_SCOPE_V2 &&
+          connection.nativeStatus.scope !== "session-transport-coupled/v1" &&
           (connection.nativeStatus.version !== 1 ||
             connection.nativeStatus.timing !== "VERIFIED" ||
             connection.nativeStatus.readiness !== "READY")
@@ -711,7 +717,7 @@ function assemble(
         if (!discovery && previous === undefined && descriptor.phase !== "idle")
           deny("listener_not_idle");
       }
-      if (!discovery) {
+      if (!discovery && sourceMode === "arrangement") {
         const hasOverride = inspection.listeners.some(
           (item) => item.sessionOverride === true,
         );
@@ -838,11 +844,35 @@ function assemble(
     return resolved;
   }
 
+  const session = createSessionListeningServices({
+    dependencies,
+    resolveTimingPolicy: () =>
+      options.resolveTimingPolicy?.() ?? DEFAULT_LISTENING_TIMING_POLICY,
+    resolveRepository: repository,
+    listeners,
+    prepareCapture: adapter.prepare,
+    stage,
+    inspectBindings: (input) =>
+      inspect(
+        input.request.listenerIds,
+        input.range,
+        execution(input.context, input.signal),
+        input.context.owner,
+        input.previous,
+        false,
+        false,
+        undefined,
+        "session",
+      ),
+    trackSubject: (owner, listener, range) =>
+      subject(owner, listener, range, "track"),
+  });
+
   const services: ListeningCoordinatorServices = {
     inspect: (request, signal, pass) =>
       stage("inspection", execution(pass, signal), async () => {
-        if (request.mode !== "arrangement")
-          deny("session_quantized_onset_unverified");
+        if (request.mode === "session")
+          return session.services.inspect(request, signal, pass);
         const previous = states.get(pass.passId);
         const timingPolicy =
           previous?.timingPolicy ??
@@ -909,6 +939,8 @@ function assemble(
         "reservation",
         execution(input, input.signal),
         async () => {
+          if (input.request.mode === "session")
+            return session.services.reservePublication(input);
           const cached = state(input);
           const resolved = await repository(input);
           const receipt = await reserveListeningPublication(resolved, input);
@@ -931,6 +963,8 @@ function assemble(
         "capture-preparation",
         execution(input, input.signal),
         async () => {
+          if (input.request.mode === "session")
+            return session.services.prepare(input);
           const cached = state(input);
           if (!cached.reserved) deny("context_reservation_required");
           await repository(input);
@@ -1047,6 +1081,8 @@ function assemble(
         "playback-start",
         execution(input, input.signal),
         async () => {
+          if (input.request.mode === "session")
+            return session.services.startPlayback(input);
           const cached = state(input);
           if (!cached.reserved) deny("context_reservation_required");
           await repository(input);
@@ -1101,6 +1137,12 @@ function assemble(
         (playback) => playback.release(),
       ),
     validateObservations: (observations, request, passId) => {
+      if (request.mode === "session")
+        return session.services.validateObservations(
+          observations,
+          request,
+          passId,
+        );
       const cached = states.get(passId);
       if (!cached || request.mode !== "arrangement" || !cached.startedAt)
         deny("stale_listening_pass");
@@ -1142,6 +1184,8 @@ function assemble(
     },
     persist: (input) =>
       stage("publication", execution(input, input.signal), async () => {
+        if (input.request.mode === "session")
+          return session.services.persist(input);
         const cached = state(input);
         const resolved = await repository(input);
         if (
@@ -1212,17 +1256,27 @@ function assemble(
           // Producer self-report is never independent commissioning evidence.
           limitations.push(
             candidate.nativeStatus.scope === NATIVE_LISTENER_SCOPE ||
-              candidate.nativeStatus.scope === NATIVE_LISTENER_SCOPE_V2
+              candidate.nativeStatus.scope === NATIVE_LISTENER_SCOPE_V2 ||
+              candidate.nativeStatus.scope === "session-transport-coupled/v1"
               ? "native_per_pass_validation_required"
               : "real_live_timing_validation_required",
             "source_onset_unverified",
           );
-          if (candidate.nativeStatus.version === 2)
+          if (
+            candidate.nativeStatus.version === 2 ||
+            candidate.nativeStatus.scope === "session-transport-coupled/v1"
+          )
             limitations.push(
               "approximate_descriptive_only",
               "absolute_timing_accuracy_unknown",
               "constant_tempo_assumed_not_independently_verified",
               "tempo_automation_unsupported",
+            );
+          if (candidate.nativeStatus.scope === "session-transport-coupled/v1")
+            limitations.push(
+              "session_first_iteration_midi_or_warped_audio_only",
+              "message_rate_source_monitoring_not_sample_accurate_continuity",
+              "unknown_follow_actions_not_verified_disabled",
             );
           views.push({
             listenerId: candidate.producerId,
@@ -1244,13 +1298,43 @@ function assemble(
           truncated: inventory.length > views.length,
         };
       }),
-    resolveSessionTarget: async () =>
-      deny("session_quantized_onset_unverified"),
+    resolveSessionTarget: (target, context) =>
+      stage("session-target-resolution", context, async () => {
+        const resolved = await owner(context);
+        const snapshot = await dependencies.ableton.inspectSession();
+        context.signal?.throwIfAborted();
+        if (
+          (await dependencies.ableton.getLiveIdentity()).liveSetId !==
+          resolved.liveSetId
+        )
+          deny("live_set_changed");
+        const track = snapshot.tracks.find(
+          (item) =>
+            item.index === target.track.index &&
+            item.reference === target.track.expectedReference &&
+            item.name === target.track.expectedName,
+        );
+        const clip = snapshot.clips?.find(
+          (item) =>
+            item.trackReference === track?.reference &&
+            item.sceneIndex === target.sceneIndex &&
+            item.reference === target.expectedClipReference &&
+            item.name === target.expectedClipName,
+        );
+        if (!track || !clip) deny("stale_session_target");
+        return {
+          clipReference: clip.reference,
+          trackReference: track.reference,
+          target: structuredClone(target),
+        };
+      }),
     onChange: (job) => {
       if (
         ["completed", "failed", "cancelled", "interrupted"].includes(job.stage)
-      )
+      ) {
         states.delete(job.passId);
+        session.forget(job.passId);
+      }
       try {
         options.onChange?.(structuredClone(job));
       } catch (cause) {
@@ -1286,6 +1370,7 @@ function assemble(
         await host.shutdown();
       } finally {
         states.clear();
+        await session.shutdown();
         attestedBindings.clear();
       }
     },

@@ -13,6 +13,48 @@ Companion specification: [Remote Script](remote-script.md)
 
 ## Protocol and execution
 
+- [x] Register and validate exact bounded read-only Session source inspection;
+  retain unknown values and signed origins, report selected/queued identities,
+  revalidate targets after reads, and expose no launch/readiness authority.
+- [x] Cover strict inputs, missing/nonfinite metadata, clip replacement, source
+  kind/units, queued-state distinction and a different selected clip in Python;
+  exercise the production handler in simulator bridge tests and fresh Live 11.
+- [x] Implement four exact guarded Session pass commands; classify only launch
+  as a project mutation and retain unrelated revision guards after prepare.
+- [x] Admit unknown follow state only with pass-owned public monitors and an
+  explicit message-rate limitation; deny known enabled follow actions.
+- [x] Require capture strictly before both loop end and natural end, without
+  trimming or treating callback receipt as an exact transition timestamp.
+- [x] Retain actual-origin/first-invalidation ledgers, bounded forty-second
+  expiry, five-second launch readback, and 32 idempotent closed-pass receipts.
+- [x] Clear pass monitors in scheduled client-disconnect and script-shutdown
+  paths; cover deferred-fire fencing, dispatched leave-running behavior,
+  repeated cleanup and removal failures without skipping other cleanup.
+- [x] Include granular pass registration in cross-language catalog/fixture
+  validation and keep source/native alignment authority separate.
+- [x] Use explicit event-assisted `Clip.start_time` polling for the legacy
+  get-only property, never require an origin listener, and disclose missed
+  between-observation changes while retaining mandatory real subscriptions.
+- [x] Cover get-only source success, tick/inspect origin-drift invalidation,
+  unreadable origin and missing-listener refusal, and cleanup without origin
+  subscription/removal calls.
+- [x] Normalize Clip launch quantization through the installed public
+  `ClipLaunchQuantization` named members; reject missing/ambiguous metadata
+  and cover shifted native Global/1 Bar encodings without guessing raw `5`.
+- [x] Qualify the guarded source/native join for MIDI and warped audio through
+  reviewed real-Live scenarios and the Session group. Keep contract-representable
+  candidates separate from application admission: only Global None at stopped
+  beat zero is currently enabled; all one-bar/nonzero anchors are refused before
+  source preparation. Message-rate monitors do not certify undetected edits,
+  disabled unknown follow actions or physical/sample-accurate source onset.
+  Record the full installed Live 11 version and probe actual Python event
+  add/remove pairs, get-only origin reads, sampled onset/drift and cleanup;
+  current LOM documentation does not prove Live 11 Python notification support.
+- [ ] Record native clip launch quantization type/raw value plus
+  `q_global`/`q_bar`/`q_none` on a fresh owned Live 11 process. Confirm
+  normalization against the actual enum and clip setting, not serialized
+  `LaunchQuantisation` or new-clip defaults.
+
 - [x] Implement framed decoder/encoder compatible with protocol fixtures.
 - [x] Implement handshake, authentication, version negotiation, and limits.
 - [x] Implement declarative command registry and metadata.

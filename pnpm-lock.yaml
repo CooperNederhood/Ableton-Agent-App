@@ -348,6 +348,9 @@ importers:
         specifier: workspace:*
         version: link:../tools
     devDependencies:
+      '@ableton-agent/project-state':
+        specifier: workspace:*
+        version: link:../project-state
       '@ableton-agent/test-support':
         specifier: workspace:*
         version: link:../test-support

@@ -3,6 +3,7 @@ import type { SessionSnapshot } from "@ableton-agent/protocol";
 import type { ConnectionStatus } from "@ableton-agent/shared";
 import type { SessionHooks } from "@github/copilot-sdk";
 import {
+  BROWSER_IDENTITY_GUIDANCE,
   abletonToolMetadata,
   parseAbletonToolFailure,
   resolveAbletonOperation,
@@ -357,8 +358,12 @@ export function createAgentPolicy(services: AgentPolicyServices): AgentPolicy {
       }
       blockedAttempts.delete(attemptKey(input.toolName, input.toolArgs));
       return {
-        additionalContext:
+        additionalContext: [
           "Use the verified tool result as observed state. Re-inspect before any dependent mutation when the project may have changed.",
+          ...(input.toolName === "ableton_browser"
+            ? [BROWSER_IDENTITY_GUIDANCE]
+            : []),
+        ].join("\n"),
       };
     },
     onPostToolUseFailure: (input) => {

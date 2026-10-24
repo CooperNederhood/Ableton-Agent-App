@@ -1647,6 +1647,46 @@ describe("Ableton tools", () => {
     expect(properties?.expectedItemUri?.description).toContain("item.uri");
   });
 
+  it.each([false, true])(
+    "preserves opaque Browser identity guidance in serialized metadata (load-only: %s)",
+    (loadOnly) => {
+      const toolSet = createAbletonTools(services());
+      const tools = loadOnly
+        ? scopeAbletonTools(toolSet, {
+            allowedToolNames: ["ableton_browser"],
+            allowedOperationIds: ["browser.load_item"],
+          })
+        : toolSet.tools;
+      const tool = tools.find(({ name }) => name === "ableton_browser");
+      const parameters = tool?.parameters as {
+        toJSONSchema(): Record<string, unknown>;
+      };
+      const schema = JSON.parse(JSON.stringify(parameters.toJSONSchema())) as {
+        oneOf?: Record<string, unknown>[];
+        properties?: Record<string, { description?: string }>;
+      };
+      const load = loadOnly
+        ? schema
+        : schema.oneOf?.find(
+            (branch) =>
+              (branch.properties as Record<string, { const?: string }>).action
+                ?.const === "load-item",
+          );
+      const properties = load?.properties as
+        Record<string, { description?: string }> | undefined;
+
+      for (const guidance of [
+        "opaque strings",
+        "Do not HTML/XML-escape",
+        "query:Sounds#Piano%20&%20Keys:FileId_24345",
+        "not &amp;",
+      ]) {
+        expect(tool?.description).toContain(guidance);
+        expect(properties?.expectedItemUri?.description).toContain(guidance);
+      }
+    },
+  );
+
   it("adds structural JSON Schema for hidden runtime constraints", () => {
     const tool = (
       createAbletonTools(services()).tools as unknown as readonly Tool[]

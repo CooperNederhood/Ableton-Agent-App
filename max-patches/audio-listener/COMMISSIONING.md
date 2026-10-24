@@ -1,5 +1,38 @@
 # Isolated native commissioning harness
 
+## Inactive Session transport candidate (wire 3, native ABI 2)
+
+`build-native-authored --source <authored.amxd> --out <empty-staging-directory>
+--native-version 3` explicitly stages the Session candidate only; it does not
+install, promote, or qualify a device. V1/V2 packaging remains unchanged.
+The candidate selects `audio_listener_native_v3_max.js`, the v3 watchdog, and
+the **same generated ABI2 DSP/IO graph** as v2. The descriptor algorithm remains
+`2.0.0`, and observations remain raw global-coordinate `audio-observation/v2`.
+
+Negotiation requires listener version `3`, capability
+`audio-listener/session-v1`, and scope `session-transport-coupled/v1`.
+Prepare freezes `{geometry, timingPolicy, source}`; `source` is
+`{mode: "session", synchronization: "transport-coupled-first-iteration",
+target: <exact bounded Session clip target>}`. Duration is at most four beats;
+all v2 rate/vector/hop/window/duration bounds remain in force.
+Native arm/launch/capture evidence uses explicit `{scope, source, transport}`
+wrappers. `transport` is independently validated, unchanged v2 evidence, **not
+a relabelled Session proof**.
+
+This branch measures only the first transport movement from stopped at the
+frozen `geometry.startBeat`. Source metadata is expected context, never native
+clip identity/onset evidence. The application must independently join actual
+`Clip.start_time`, exact active clip and source epoch to the same origin, and
+fail any mismatch before storing a Session observation. No delayed-source
+buffer, second recorder, physical timing qualification, or Session agent-tool
+availability is implied. The production shared SDK now negotiates this exact
+candidate and retains bounded ownership, immutable source context and ABI2
+wrapper guards. Authenticated synthetic runtime/typed-ingress tests cover the
+wire path, not actual host execution. The application source join and physical
+qualification remain independent requirements.
+
+## Commissioning harness status
+
 **Implemented portable source; not executed in Max or Live. Production timing
 remains UNVERIFIED and readiness BLOCKED.** Node fixtures, simulated packets,
 GenExpr models, source parity and artifact checks do not establish actual DSP

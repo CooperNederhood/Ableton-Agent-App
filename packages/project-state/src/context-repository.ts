@@ -173,14 +173,20 @@ export interface SessionContextPublicationRequest {
   readonly signal?: AbortSignal;
 }
 
-function sanitizeStrings(value: unknown): unknown {
-  if (typeof value === "string") return sanitizePersistedText(value);
-  if (Array.isArray(value)) return value.map(sanitizeStrings);
+function sanitizeStrings(value: unknown, field?: string): unknown {
+  if (typeof value === "string") {
+    const sanitized = sanitizePersistedText(value);
+    // Redaction can expand Session target names beyond their 128-character contract.
+    return field === "expectedName" || field === "expectedClipName"
+      ? sanitized.slice(0, 128)
+      : sanitized;
+  }
+  if (Array.isArray(value)) return value.map((child) => sanitizeStrings(child));
   if (value !== null && typeof value === "object") {
     return Object.fromEntries(
       Object.entries(value).map(([key, child]) => [
         sanitizePersistedText(key),
-        sanitizeStrings(child),
+        sanitizeStrings(child, key),
       ]),
     );
   }
@@ -758,18 +764,26 @@ export class SessionContextStore implements EntityContextRepository {
           reduction: observation.reduction,
         };
         const payload =
-          observation.schema === "audio-observation/v2"
+          observation.schema === "session-audio-observation/v1"
             ? {
                 ...common,
                 schema: observation.schema,
                 algorithm: observation.algorithm,
                 alignment: observation.alignment,
+                source: observation.source,
               }
-            : {
-                ...common,
-                schema: observation.schema,
-                algorithm: observation.algorithm,
-              };
+            : observation.schema === "audio-observation/v2"
+              ? {
+                  ...common,
+                  schema: observation.schema,
+                  algorithm: observation.algorithm,
+                  alignment: observation.alignment,
+                }
+              : {
+                  ...common,
+                  schema: observation.schema,
+                  algorithm: observation.algorithm,
+                };
         items.push({
           ...entry,
           payload,
@@ -1068,6 +1082,59 @@ export class SessionContextStore implements EntityContextRepository {
       }
     }
     for (const entry of entries) {
+      if (entry.payload.schema === "session-audio-observation/v1") {
+        const observation = entry.payload;
+        const entryLinks = links.filter((link) => link.entryId === entry.id);
+        const primaryLinks = entryLinks.filter(
+          (link) => link.relationship === "primary",
+        );
+        const resolve = (subjectId: string) =>
+          subjects.find((subject) => subject.id === subjectId) ??
+          this.#get("subjects", subjectId, parseSubject);
+        const primary =
+          primaryLinks.length === 1
+            ? resolve(primaryLinks[0]!.subjectId)
+            : undefined;
+        const contributors = entryLinks.filter(
+          (link) => link.relationship === "contributor",
+        );
+        const track = contributors.some((link) => {
+          const subject = resolve(link.subjectId);
+          return (
+            subject?.kind === "track" &&
+            subject.id === primary?.trackId &&
+            subject.trackId === primary?.trackId &&
+            subject.binding.previousRuntimeBindings.includes(
+              observation.source.target.track.expectedReference,
+            )
+          );
+        });
+        if (
+          pass.requestedMode !== "session" ||
+          pass.actualMode !== "session" ||
+          pass.requestedRange.startBeat !== 0 ||
+          pass.requestedRange.endBeat > 4 ||
+          pass.actualRange?.startBeat !== 0 ||
+          pass.actualRange.endBeat < observation.endBeat ||
+          pass.actualRange.endBeat > 4.001 ||
+          primary?.kind !== "clip" ||
+          primary.location !== "session" ||
+          primary.binding.semanticLocator.sceneIndex !==
+            observation.source.target.sceneIndex ||
+          !primary.binding.previousRuntimeBindings.includes(
+            observation.source.target.expectedClipReference,
+          ) ||
+          !track ||
+          contributors.some(
+            (link) => resolve(link.subjectId)?.kind !== "track",
+          ) ||
+          entryLinks.some((link) => link.freshness.status === "fresh")
+        ) {
+          throw new TypeError(
+            "Session observations require local coverage and exact historical clip/track associations",
+          );
+        }
+      }
       if (
         entry.passId !== pass.id ||
         entry.payload.passId !== pass.id ||
@@ -1104,16 +1171,32 @@ export class SessionContextStore implements EntityContextRepository {
         );
       }
       if (
-        entry.payload.schema === "audio-observation/v2" &&
+        entry.payload.schema !== "audio-observation/v1" &&
         link.attribution === "exclusive"
       ) {
         throw new TypeError(
           "Approximate descriptive observations cannot certify exclusive attribution",
         );
       }
+      const session = entry.payload.schema === "session-audio-observation/v1";
+      const measured =
+        entry.payload.schema === "session-audio-observation/v1" &&
+        link.relationship === "contributor"
+          ? entry.payload.source.transport
+          : entry.payload;
       if (
-        link.coverage.startBeat < entry.payload.startBeat ||
-        link.coverage.endBeat > entry.payload.endBeat
+        link.coverage.startBeat < measured.startBeat ||
+        link.coverage.endBeat > measured.endBeat ||
+        (session &&
+          (link.coverage.startBeat !== measured.startBeat ||
+            link.coverage.endBeat !== measured.endBeat)) ||
+        (session &&
+          (!("coordinate" in link.coverage) ||
+            link.coverage.coordinate !==
+              (link.relationship === "primary"
+                ? "clip-local-beats"
+                : "transport-beats"))) ||
+        (!session && "coordinate" in link.coverage)
       ) {
         throw new TypeError(
           "Link coverage exceeds measured observation coordinates",

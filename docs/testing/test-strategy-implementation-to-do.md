@@ -61,6 +61,21 @@ Companion specification: [Test Strategy](test-strategy.md)
   - [x] Cover equivalent Browser URI encodings, loadable/navigable native
     devices, structured SDK failures, and the runner-owned Auto Filter audio
     scenario.
+  - [x] Regress opaque Browser copying guidance in full/load-only serialized
+    metadata and post-result context without rewriting the result. Preserve
+    pre-mutation rejection of HTML-entity-rewritten URIs and exact-URI success;
+    leave percent-encoding compatibility and approval/retry guards unchanged.
+  - [x] Qualify that correction in the unchanged piano scenario and instruments
+    group on Live 11.3.43, retaining exact final-device assertions and owned
+    cleanup (`2026-10-24T15-26-46.131Z`, `2026-10-24T15-28-10.747Z`).
+  - [ ] Clear the distinct instruments-group shutdown failure in the broader
+    rerun `2026-10-24T15-29-16.545Z`. All sixteen executed scenarios qualify
+    (eleven pass/five recovered-pass), including corrected piano/bass; graceful
+    cleanup fails, subsequent owned discard succeeds, PID 5272 exits, and three
+    later scenarios remain unrun. The overall run is not green.
+    Exact-owned shutdown repair is #67; reproducible remaining-suite coverage is
+    #68. Missing legacy v1/v2 immutable physical inputs/reruns are #69. These
+    explicit development follow-ups do not convert unrun cases into passes.
 - [x] Cover strict Live 11 core-domain unions, per-action risk/scope/capability
   resolution, read-versus-mutation protocol separation, Python handler
   identity/rollback paths, simulator parity, and runner-owned scene, track, and

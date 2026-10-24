@@ -1,6 +1,11 @@
 import type * as Protocol from "@ableton-agent/protocol";
 import type { ConnectionStatus } from "@ableton-agent/shared";
 
+export interface AbletonRequestOptions {
+  /** Cancels queued work only. Accepted host actions are never retracted. */
+  readonly signal?: AbortSignal;
+}
+
 export interface AbletonService {
   start(): Promise<void>;
   stop(): Promise<void>;
@@ -12,6 +17,14 @@ export interface AbletonService {
   inspectListeningContext?(
     params: Protocol.InspectListeningContextParams,
   ): Promise<Protocol.InspectListeningContextResult>;
+  inspectSessionListeningSource?(
+    params: Protocol.InspectSessionListeningSourceParams,
+    options?: AbletonRequestOptions,
+  ): Promise<Protocol.InspectSessionListeningSourceResult>;
+  sessionListeningPass?(
+    params: Protocol.SessionListeningPassParams,
+    options?: AbletonRequestOptions,
+  ): Promise<Protocol.SessionListeningPassResult>;
   positionListeningPlayback?(
     params: Protocol.PositionListeningPlaybackParams,
   ): Promise<Protocol.PositionListeningPlaybackResult>;

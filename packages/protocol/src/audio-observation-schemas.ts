@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { listeningAlignmentQualitySchema } from "./listening-timing-schemas.js";
+import { inspectSessionListeningSourceParamsSchema } from "./session-listening-source-schemas.js";
 
 export const MAX_AUDIO_OBSERVATION_SAMPLES = 1_024;
 export const MAX_AUDIO_OBSERVATION_ATTACKS = 512;
@@ -140,6 +141,22 @@ export const audioObservationSchema = z
 
 export type AudioObservation = z.infer<typeof audioObservationSchema>;
 
+function validateDescriptiveObservation(
+  value: Omit<z.infer<typeof audioObservationBodySchema>, "algorithm"> & {
+    alignment: z.infer<typeof listeningAlignmentQualitySchema>;
+  },
+  ctx: z.RefinementCtx,
+): void {
+  validateAudioObservation(value, ctx);
+  if (value.sampleRate !== value.alignment.sampleRate) {
+    ctx.addIssue({
+      code: "custom",
+      message:
+        "Alignment quality must use the observation's actual sample rate",
+    });
+  }
+}
+
 export const audioObservationV2Schema = audioObservationBodySchema
   .extend({
     schema: z.literal("audio-observation/v2"),
@@ -148,26 +165,91 @@ export const audioObservationV2Schema = audioObservationBodySchema
     }),
     alignment: listeningAlignmentQualitySchema,
   })
+  .superRefine(validateDescriptiveObservation);
+export type AudioObservationV2 = z.infer<typeof audioObservationV2Schema>;
+
+/** Historical message-rate evidence, not admission or physical source proof. */
+export const sessionAudioObservationSchema = z
+  .strictObject({
+    ...audioObservationV2Schema.shape,
+    schema: z.literal("session-audio-observation/v1"),
+    source: z.strictObject({
+      view: z.literal("session"),
+      target: inspectSessionListeningSourceParamsSchema.shape.target,
+      kind: z.enum(["midi", "warped-audio"]),
+      coordinate: z.strictObject({
+        unit: z.literal("beats"),
+        iteration: z.literal(0),
+        startBeat: z.literal(0),
+        // Historical rounded coverage only; runtime independently checks exact geometry.
+        endBeat: z.number().finite().positive().max(4.001),
+      }),
+      transport: z.strictObject({ startBeat: beat, endBeat: beat }),
+      origin: z.strictObject({
+        evidence: z.literal("message-rate-start-time-with-native-transport"),
+        clipStartTimeBeats: z.number().finite(),
+        observedAtGlobalBeat: z.number().finite(),
+      }),
+      continuity: z.strictObject({
+        evidence: z.literal("message-rate-monitored"),
+        followActions: z.enum(["disabled", "unknown"]),
+      }),
+    }),
+  })
   .superRefine((value, ctx) => {
-    validateAudioObservation(value, ctx);
-    if (value.sampleRate !== value.alignment.sampleRate) {
+    validateDescriptiveObservation(value, ctx);
+    const { coordinate, transport, origin } = value.source;
+    if (
+      value.startBeat !== 0 ||
+      value.endBeat !== coordinate.endBeat ||
+      Math.abs(transport.endBeat - transport.startBeat - value.endBeat) >
+        1e-8 ||
+      origin.clipStartTimeBeats !== transport.startBeat
+    ) {
       ctx.addIssue({
         code: "custom",
-        message:
-          "Alignment quality must use the observation's actual sample rate",
+        message: "Session clip-local coverage and transport origin must agree",
       });
     }
   });
-export type AudioObservationV2 = z.infer<typeof audioObservationV2Schema>;
+export type SessionAudioObservation = z.infer<
+  typeof sessionAudioObservationSchema
+>;
 
-/** Typed historical reading; neither version grants capture/publication authority. */
+/** Coordinate conversion only; runtime owns source admission and native geometry proof. */
+export function mapSessionAudioObservation(
+  observation: AudioObservationV2,
+  source: SessionAudioObservation["source"],
+): SessionAudioObservation {
+  const global = audioObservationV2Schema.parse(observation);
+  const origin = source.transport.startBeat;
+  return sessionAudioObservationSchema.parse({
+    ...global,
+    schema: "session-audio-observation/v1",
+    startBeat: global.startBeat - origin,
+    endBeat: global.endBeat - origin,
+    samples: global.samples.map((point) => ({
+      ...point,
+      beat: point.beat - origin,
+    })),
+    attacks: global.attacks.map((point) => ({
+      ...point,
+      beat: point.beat - origin,
+    })),
+    source,
+  });
+}
+
+/** Typed historical readings; no kind grants capture/publication authority. */
 export const audioObservationKindSchema = z.enum([
   "audio-observation/v1",
   "audio-observation/v2",
+  "session-audio-observation/v1",
 ]);
 export const storedAudioObservationSchema = z.union([
   audioObservationSchema,
   audioObservationV2Schema,
+  sessionAudioObservationSchema,
 ]);
 export type StoredAudioObservation = z.infer<
   typeof storedAudioObservationSchema

@@ -39,9 +39,13 @@ describe("versioned typed Desktop context details", () => {
         expect(parsed.observation.algorithm).not.toHaveProperty(
           "timingUncertaintySamples",
         );
-      } else {
+      } else if (parsed.observation.schema === "audio-observation/v1") {
         expect(parsed.observation.algorithm.timingUncertaintySamples).toBe(64);
         expect(parsed.observation).not.toHaveProperty("alignment");
+      } else {
+        throw new Error(
+          "Historical fixture unexpectedly became Session context",
+        );
       }
       const mismatched = {
         ...detail,

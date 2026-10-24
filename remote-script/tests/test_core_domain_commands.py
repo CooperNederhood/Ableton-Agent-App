@@ -1489,6 +1489,20 @@ class CoreDomainCommandTests(unittest.TestCase):
         )
         self.assertFalse(document["capabilities"]["transport.set_link"])
 
+    def test_capability_metadata_fits_protocol_string_bounds(self):
+        document = build_capability_document(
+            FakeApplication(self.context.song),
+            self.context.song,
+            self.registry,
+            note_editing_supported=True,
+        )
+        for command, detail in document["capabilityDetails"].items():
+            with self.subTest(command=command):
+                self.assertLessEqual(len(detail["limitations"]), 16)
+                for limitation in detail["limitations"]:
+                    self.assertGreater(len(limitation), 0)
+                    self.assertLessEqual(len(limitation), 256)
+
     def test_capabilities_use_live_api_types_when_project_has_no_instances(self):
         self.context.song.cue_points = []
         for track in self.context.song.tracks:

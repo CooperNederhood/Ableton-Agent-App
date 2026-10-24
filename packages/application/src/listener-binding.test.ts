@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   listenerNativeStatusV2Schema,
+  listenerNativeSessionStatusSchema,
+  NATIVE_SESSION_LISTENER_SCOPE,
   type InspectListeningContextResult,
 } from "@ableton-agent/protocol";
 import {
@@ -137,6 +139,94 @@ function descriptor(
 }
 
 describe("independent canonical listener binding", () => {
+  it("joins explicitly negotiated wire3 Session status to raw v2 measurements without certifying readiness", () => {
+    const nativeStatus = listenerNativeSessionStatusSchema.parse({
+      version: 3,
+      scope: NATIVE_SESSION_LISTENER_SCOPE,
+      readiness: "BLOCKED",
+      reason: "fresh_per_pass_native_validation_required",
+      alignment: "approximate",
+      verifiedAbsoluteErrorBoundSamples: null,
+      acceptedSampleRates: [44100, 48000],
+      acceptedVectorSizes: [64],
+      timingModes: ["descriptive", "strict"],
+      maxClockDisagreementSamples: 480,
+      maxAudioDurationMs: 30000,
+      maxWindows: 300,
+      abiVersion: 2,
+      sourceEvidence: "expected-context-only",
+      synchronization: "transport-coupled-first-iteration",
+      maxDurationBeats: 4,
+    });
+    const report: ListenerBindingDescriptor = {
+      ...descriptor(),
+      producer: {
+        ...descriptor().producer,
+        schemaVersion: "audio-observation/v2",
+      },
+      registration: {
+        version: 3,
+        capabilities: ["audio-listener/session-v1"],
+        connectionEpoch: connected.connectionEpoch,
+        deviceCanonicalPath: connected.canonicalPath,
+        trackCanonicalPath: connected.canonicalTrackPath,
+        nativeStatus,
+      },
+    };
+    const candidate = readConnectedListenerBinding(report);
+    expect(candidate).toEqual({
+      ok: true,
+      connection: {
+        ...connected,
+        schemaVersion: "audio-observation/v2",
+        nativeStatus,
+      },
+    });
+    const joined = resolve({ connected: [report] });
+    expect(joined.ok).toBe(true);
+    if (!joined.ok) throw new Error(joined.reason);
+    expect(joined.connection.nativeStatus).toEqual(nativeStatus);
+    expect(joined.target.expectedDeviceReference).toBe(deviceReference);
+    expect(joined.attestation.deviceReference).not.toBe("456");
+    for (const change of [
+      { version: undefined },
+      { version: 2 },
+      { capabilities: undefined },
+      { capabilities: ["audio-listener/v2"] },
+      { capabilities: ["audio-listener/session-v1", "audio-listener/v2"] },
+      {
+        nativeStatus: { ...nativeStatus, scope: "arrangement-descriptive/v2" },
+      },
+      { nativeStatus: { ...nativeStatus, abiVersion: 3 } },
+    ]) {
+      const invalid = { ...report, registration: { ...report.registration } };
+      Object.assign(invalid.registration, change);
+      expect(readConnectedListenerBinding(invalid)).toEqual({
+        ok: false,
+        reason: "invalid-input",
+      });
+    }
+    for (const schemaVersion of [
+      "audio-observation/v1",
+      "audio-observation/v3",
+      "session-audio-observation/v1",
+    ])
+      expect(
+        readConnectedListenerBinding({
+          ...report,
+          producer: { ...report.producer, schemaVersion },
+        }),
+      ).toEqual({ ok: false, reason: "invalid-input" });
+    const inherited = { ...report.registration };
+    delete inherited.version;
+    Object.setPrototypeOf(inherited, { version: 3 });
+    expect(
+      readConnectedListenerBinding({ ...report, registration: inherited }),
+    ).toEqual({
+      ok: false,
+      reason: "invalid-input",
+    });
+  });
   it("joins explicit v2 capabilities without upgrading approximate timing or accepting mixed versions", () => {
     const nativeStatus = listenerNativeStatusV2Schema.parse({
       version: 2,

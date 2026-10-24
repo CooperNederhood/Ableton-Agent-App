@@ -64,15 +64,23 @@ export const PROFILE_CONFIGURATION = "agent_signal_storage.js";
 const hash = (raw) => createHash("sha256").update(raw).digest("hex");
 
 function nativePackageProfile(version) {
-  const descriptive = version === 2;
+  const descriptive = version === 2 || version === 3;
   const documents = nativeRuntimeDocuments({ nativeVersion: version });
-  const runtimeEntry = descriptive
-    ? "audio_listener_native_v2_max.js"
-    : "audio_listener_native_max.js";
+  const runtimeEntry =
+    version === 3
+      ? "audio_listener_native_v3_max.js"
+      : descriptive
+        ? "audio_listener_native_v2_max.js"
+        : "audio_listener_native_max.js";
   return {
     documents,
     runtimeEntry,
-    scope: descriptive ? "arrangement-descriptive/v2" : NATIVE_CAPTURE_SCOPE,
+    scope:
+      version === 3
+        ? "session-transport-coupled/v1"
+        : descriptive
+          ? "arrangement-descriptive/v2"
+          : NATIVE_CAPTURE_SCOPE,
     algorithmVersion: descriptive ? "2.0.0" : VERSION,
     observationSchema: descriptive
       ? "audio-observation/v2"
@@ -352,9 +360,9 @@ async function buildPackage(
 ) {
   if (!outDirectory || typeof outDirectory !== "string")
     throw new Error("explicit staging directory required");
-  if (![1, 2].includes(nativeVersion) || (nativeVersion === 2 && !nativeMode))
+  if (![1, 2, 3].includes(nativeVersion) || (nativeVersion >= 2 && !nativeMode))
     throw new Error(
-      "native version must be 1 or explicit native-mode version 2",
+      "native version must be 1 or explicit native-mode version 2/3",
     );
   if (
     typeof nativeMode !== "boolean" ||
@@ -486,9 +494,17 @@ async function buildPackage(
       ? {
           nativeMode: true,
           nativeScope: native.scope,
-          ...(nativeVersion === 2
+          ...(nativeVersion >= 2
             ? {
-                nativeVersion: 2,
+                nativeVersion,
+                ...(nativeVersion === 3
+                  ? {
+                      nativeAbiVersion: 2,
+                      sourceEvidence: "expected-context-only",
+                      synchronization: "transport-coupled-first-iteration",
+                      maxDurationBeats: 4,
+                    }
+                  : {}),
                 tempoPolicy: "constant-tempo-assumed",
                 tempoAutomationSupported: false,
               }
@@ -522,7 +538,7 @@ export async function checkArtifact(directory) {
   );
   if (
     manifest.nativeVersion !== undefined &&
-    (manifest.nativeVersion !== 2 || manifest.nativeMode !== true)
+    (![2, 3].includes(manifest.nativeVersion) || manifest.nativeMode !== true)
   )
     throw new Error("invalid native version manifest");
   const native =
@@ -566,13 +582,21 @@ export async function checkArtifact(directory) {
     throw new Error("invalid resource manifest");
   }
   if (
-    manifest.nativeVersion === 2 &&
+    manifest.nativeVersion >= 2 &&
     (manifest.algorithmVersion !== native.algorithmVersion ||
       manifest.observationSchema !== native.observationSchema ||
       manifest.tempoPolicy !== "constant-tempo-assumed" ||
       manifest.tempoAutomationSupported !== false)
   )
     throw new Error("invalid descriptive native manifest");
+  if (
+    manifest.nativeVersion === 3 &&
+    (manifest.nativeAbiVersion !== 2 ||
+      manifest.sourceEvidence !== "expected-context-only" ||
+      manifest.synchronization !== "transport-coupled-first-iteration" ||
+      manifest.maxDurationBeats !== 4)
+  )
+    throw new Error("invalid Session transport native manifest");
   if (!manifest.discoveryConfigured) {
     try {
       await readFile(join(directory, PROFILE_CONFIGURATION));
@@ -816,13 +840,18 @@ export async function main(argv = process.argv.slice(2)) {
     argv[3] === "--out" &&
     argv[4] &&
     (argv.length === 5 ||
+      (argv.length === 7 &&
+        argv[0] === "build-native-authored" &&
+        argv[5] === "--native-version" &&
+        argv[6] === "3") ||
       (argv.length === 6 && argv[5] === "--keep-authoring-bridge"))
   ) {
     const manifest = await build(argv[4], {
       authoredDevicePath: argv[2],
       keepMcpBridge: argv[5] === "--keep-authoring-bridge",
       nativeMode: argv[0] !== "build-authored",
-      nativeVersion: argv[0] === "build-native-v2-authored" ? 2 : 1,
+      nativeVersion:
+        argv[6] === "3" ? 3 : argv[0] === "build-native-v2-authored" ? 2 : 1,
     });
     console.log(
       `Staged ${manifest.deviceFile}; listener resources are adjacent. ` +
@@ -895,7 +924,7 @@ export async function main(argv = process.argv.slice(2)) {
     return;
   }
   throw new Error(
-    "Usage: audio-listener-device.mjs check | build --out <staging-directory> | build-authored --source <device.amxd> --out <staging-directory> [--keep-authoring-bridge] | build-native-authored --source <device.amxd> --out <staging-directory> [--keep-authoring-bridge] | build-native-v2-authored --source <device.amxd> --out <staging-directory> [--keep-authoring-bridge] | check-artifact <directory> | check-calibration | build-calibration --out <directory> | check-calibration-artifact <directory> | verify-calibration-report <report.json> [--artifact <directory>]. No installation/promotion.",
+    "Usage: audio-listener-device.mjs check | build --out <staging-directory> | build-authored --source <device.amxd> --out <staging-directory> [--keep-authoring-bridge] | build-native-authored --source <device.amxd> --out <staging-directory> [--keep-authoring-bridge | --native-version 3] | build-native-v2-authored --source <device.amxd> --out <staging-directory> [--keep-authoring-bridge] | check-artifact <directory> | check-calibration | build-calibration --out <directory> | check-calibration-artifact <directory> | verify-calibration-report <report.json> [--artifact <directory>]. No installation/promotion.",
   );
 }
 if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href)

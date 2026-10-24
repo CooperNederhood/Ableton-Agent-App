@@ -23,6 +23,14 @@ describe("Desktop session context reference", () => {
     { kinds: ["audio-observation/v2"] },
     { kinds: ["audio-observation/v1", "audio-observation/v2"] },
     { kinds: ["audio-observation/v2", "audio-observation/v1"] },
+    { kinds: ["session-audio-observation/v1"] },
+    {
+      kinds: [
+        "audio-observation/v1",
+        "audio-observation/v2",
+        "session-audio-observation/v1",
+      ],
+    },
   ])(
     "preserves registered kinds $kinds without migrating the layout",
     ({ kinds }) => {

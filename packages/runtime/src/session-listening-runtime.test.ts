@@ -88,6 +88,7 @@ function fixture(
   contextRepository?: Repository,
   sourceSettings: Partial<InspectSessionListeningSourceResult["settings"]> = {},
   wireVersion: 3 | 4 = 3,
+  hostClockDisagreementSamples = 0,
 ) {
   let playing = false;
   let durationBeats = request.durationBeats;
@@ -149,12 +150,10 @@ function fixture(
     const {
       sourceEvidence: _source,
       synchronization: _sync,
-      maxDurationBeats: _limit,
       ...transportStatus
     } = status;
     void _source;
     void _sync;
-    void _limit;
     listener.registration = listenerRegistrationDualSchema.parse({
       ...listener.registration,
       version: 4,
@@ -398,6 +397,7 @@ function fixture(
           if (!config || !("geometry" in config) || !("source" in config))
             throw new Error("Expected Session config");
           data = createSyntheticNativeSessionListeningFixture({
+            hostClockDisagreementSamples,
             listenerId: listener.producer.producerId,
             passId: control.passId,
             source: config.source,
@@ -588,35 +588,57 @@ function fixture(
 }
 
 describe("shared runtime Session listening", () => {
-  it.each([
-    { looping: true, loopEnd: 4, endMarker: 100, requested: 4, expected: 4 },
-    {
-      looping: true,
-      loopEnd: 8.125,
-      endMarker: 100,
-      requested: null,
-      expected: 8.125,
-    },
-    {
-      looping: true,
-      loopEnd: 8.125,
-      endMarker: 100,
-      requested: 2.25,
-      expected: 2.25,
-    },
-    {
-      looping: false,
-      loopEnd: 1,
-      endMarker: 6.125,
-      requested: null,
-      expected: 6.125,
-    },
-  ])(
+  it.each(
+    [
+      { looping: true, loopEnd: 4, endMarker: 100, requested: 4, expected: 4 },
+      {
+        looping: true,
+        loopEnd: 8.125,
+        endMarker: 100,
+        requested: null,
+        expected: 8.125,
+      },
+      {
+        looping: true,
+        loopEnd: 8.125,
+        endMarker: 100,
+        requested: 2.25,
+        expected: 2.25,
+      },
+      {
+        looping: false,
+        loopEnd: 1,
+        endMarker: 6.125,
+        requested: null,
+        expected: 6.125,
+      },
+    ].flatMap((settings) =>
+      ([3, 4] as const).flatMap((wireVersion) =>
+        [0, 4800].map((hostClockDisagreementSamples) => ({
+          ...settings,
+          wireVersion,
+          hostClockDisagreementSamples,
+        })),
+      ),
+    ),
+  )(
     "persists the resolved active range without truncation: %j",
-    async ({ requested, expected, ...settings }) => {
+    async ({
+      requested,
+      expected,
+      wireVersion,
+      hostClockDisagreementSamples,
+      ...settings
+    }) => {
       const repository = await createInMemorySessionContextStore(owner);
       stores.push(repository);
-      const f = fixture("warped-audio", repository, settings);
+      const f = fixture(
+        "warped-audio",
+        repository,
+        settings,
+        wireVersion,
+        hostClockDisagreementSamples,
+      );
       const job = await f.run(requested);
       expect(job.stage, job.error).toBe("completed");
       const pass = await repository.getPass(job.passId);
@@ -632,30 +654,42 @@ describe("shared runtime Session listening", () => {
       ).toMatchObject({ durationBeats: expected });
       expect(f.log).toContain("session:release");
       expect(f.subscribers.size).toBe(0);
+      expect(
+        f.data().observation.alignment.observedClockDisagreementSamples,
+      ).toBe(hostClockDisagreementSamples);
     },
   );
 
-  it("seals a covered normal boundary only after independently completed native capture", async () => {
-    const f = fixture("midi", undefined, { loopEnd: 4, endMarker: 4 });
-    f.sessionListeningPass.mockImplementation(async (params) => {
-      if (params.action === "launch") {
-        f.setPlaying(true);
-        f.launchNative();
-        f.completeNative();
-      }
-      const result = f.receipt(params);
-      if (params.action === "inspect" && result.sourceEpoch) {
-        result.status = "covered";
-        result.lastObservedSource.globalBeat = 4;
-        result.lastObservedSource.playingPosition = 0;
-      }
-      return result;
-    });
-    const job = await f.run(4);
-    expect(job.stage, job.error).toBe("completed");
-    expect(f.publications).toHaveLength(1);
-    expect(f.publications[0]?.pass.requestedRange.endBeat).toBe(4);
-  });
+  it.each([3, 4] as const)(
+    "wire%s seals a covered normal boundary only after independently completed native capture",
+    async (wireVersion) => {
+      const f = fixture(
+        "midi",
+        undefined,
+        { loopEnd: 4, endMarker: 4 },
+        wireVersion,
+        4800,
+      );
+      f.sessionListeningPass.mockImplementation(async (params) => {
+        if (params.action === "launch") {
+          f.setPlaying(true);
+          f.launchNative();
+          f.completeNative();
+        }
+        const result = f.receipt(params);
+        if (params.action === "inspect" && result.sourceEpoch) {
+          result.status = "covered";
+          result.lastObservedSource.globalBeat = 4;
+          result.lastObservedSource.playingPosition = 0;
+        }
+        return result;
+      });
+      const job = await f.run(4);
+      expect(job.stage, job.error).toBe("completed");
+      expect(f.publications).toHaveLength(1);
+      expect(f.publications[0]?.pass.requestedRange.endBeat).toBe(4);
+    },
+  );
 
   it("rejects an oversized default loop before monitor preparation, launch or publication", async () => {
     const f = fixture("midi", undefined, { loopEnd: 64, endMarker: 100 });

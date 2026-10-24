@@ -222,6 +222,36 @@ describe("canonical integration payloads", () => {
       /pass-through/,
     );
   });
+  it.each([
+    { supportedModes: ["session"] },
+    { supportedModes: ["arrangement"] },
+    { modeNegotiation: "implicit" },
+    { nativeScope: "session-transport-coupled/v1" },
+    { realLiveValidated: true },
+    {
+      providerLimits: {
+        durationMs: 60_000,
+        maxWindows: 300,
+        envelopeUpdatesPerSecond: 10,
+      },
+    },
+  ])("rejects self-rehashed mode or resource claims %#", async (patch) => {
+    const path = await fixture();
+    const name = "audio-listener-manifest.json";
+    const document = JSON.parse(
+      await readFile(join(path, "machine-listening", name), "utf8"),
+    ) as Record<string, unknown>;
+    Object.assign(document, patch);
+    await rehash(
+      path,
+      "machine-listening",
+      name,
+      Buffer.from(JSON.stringify(document)),
+    );
+    await expect(readIntegrationDevicePayloads(path)).rejects.toThrow(
+      /native runtime metadata|native provider limits/,
+    );
+  });
   it.each(["mcp_bridge", "agent_signal_storage.js", "/Users/private/profile"])(
     "rejects self-rehashed nonportable device data %s",
     async (marker) => {
@@ -230,36 +260,6 @@ describe("canonical integration payloads", () => {
       const container = decodeAmxd(
         await readFile(join(path, "machine-listening", name)),
       );
-      it.each([
-        { supportedModes: ["session"] },
-        { supportedModes: ["arrangement"] },
-        { modeNegotiation: "implicit" },
-        { nativeScope: "session-transport-coupled/v1" },
-        { realLiveValidated: true },
-        {
-          providerLimits: {
-            durationMs: 60_000,
-            maxWindows: 300,
-            envelopeUpdatesPerSecond: 10,
-          },
-        },
-      ])("rejects self-rehashed mode or resource claims %#", async (patch) => {
-        const path = await fixture();
-        const name = "audio-listener-manifest.json";
-        const document = JSON.parse(
-          await readFile(join(path, "machine-listening", name), "utf8"),
-        ) as Record<string, unknown>;
-        Object.assign(document, patch);
-        await rehash(
-          path,
-          "machine-listening",
-          name,
-          Buffer.from(JSON.stringify(document)),
-        );
-        await expect(readIntegrationDevicePayloads(path)).rejects.toThrow(
-          /native runtime metadata|native provider limits/,
-        );
-      });
       const document = JSON.parse(
         JSON.stringify(container.document).replace("ml_status_note", marker),
       ) as MaxValue;

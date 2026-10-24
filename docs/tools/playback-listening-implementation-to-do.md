@@ -22,21 +22,28 @@ Companion specification: [Playback Listening](playback-listening.md).
 - [x] Label descriptive targets as advisory in Settings and Context, preserving
   actual beyond-target measurements and strict no-fallback wording. Cover
   100/200 ms Context presentation and isolated Settings IPC/restart persistence.
-- [ ] Rebuild and install the integrated candidate after user app closure;
+- [x] Rebuild the integrated wire4/ABI2, protocol8 candidate and verify its
+  complete inventory, explicit modes and qmetro graph without installing it.
+- [ ] Install the integrated candidate after user app closure;
   confirm ordinary capture together. Synthetic acceptance is not physical
   qmetro qualification.
 - [ ] Compare playback and capture on the real host; investigate additional
   retention changes only if observed failures justify them. Do not weaken
   source/data integrity or claim frame-exact behavior from synthetic tests.
-- [ ] Restore one canonical device's Arrangement and Session support.
-- [ ] Default to a full supported active loop, including exact four-beat
-  completion on a four-beat clip, within explicit resource limits.
+- [x] Implement one canonical device's Arrangement and Session support, with
+  explicit per-pass modes and independently validated mode-specific evidence.
+- [x] Default to a full supported active loop, including exact four-beat
+  completion on a four-beat clip, within explicit resource limits; preserve
+  actual source guards and distinguish deterministic from physical acceptance.
 
 ## Canonical device delivery
 
-- [x] Build/package the canonical native-v3/ABI2 development listener with all
+- [x] Historically build/package the canonical native-v3/ABI2 listener with all
   companions and install it alongside canonical Midi-Capture and the Remote
   Script through the same selected Library/profile workflow.
+- [x] Build and verify the integrated native-v4/ABI2 replacement, including
+  self-rehashed forged-mode/resource denial and synthetic installed qmetro
+  entries. This does not replace the previously loaded physical device.
 - [ ] Verify installed resources, producer discovery and fresh owned Live11
   registration without changing Session capture gates or pinned older fixtures.
 
@@ -64,9 +71,7 @@ Companion specification: [Playback Listening](playback-listening.md).
 - [ ] Complete fresh isolated visible Desktop/Live UX validation. Current
   physical testing is blocked; historical MVP results are not expansion proof.
 
-## Historical Session MVP launch-evidence gate (#63)
-
-### Canonical Development dual-mode follow-up
+## Canonical Development dual-mode follow-up
 
 - [x] Add explicitly advertised wire4 dual-mode registration and per-pass mode
   controls/replies/results without changing legacy wire1/2/3 contracts or ABI2
@@ -82,13 +87,21 @@ Companion specification: [Playback Listening](playback-listening.md).
   Keep the authored source immutable and installation under parent ownership.
 - [x] Add runner-owned dual-mode manifests, version4 fixture selection and
   independent exact-mode terminal verification; cover them synthetically.
-- [ ] After integrating the separate timing change, add the combined wire4
-  Arrangement/Session regression retaining and reporting large descriptive
-  host/DSP jitter while strict remains exact. Do not weaken audio coverage.
-- [ ] Build/install the final integrated canonical payload and run the reviewed
+- [x] Integrate timing/full-loop/wire4 commits and cover real SDK captures at
+  44.1/48 kHz with positive/negative 100 ms host discrepancy, eight-beat duration,
+  success/failure/cancel and exact mode-specific proof. Reproduce the remaining
+  SDK Session result/partial-failure target gate before correcting it.
+- [x] Cover wire3/wire4 application full-region defaults, explicit durations and
+  exact four-beat covered-source sealing with honestly retained 100 ms
+  discrepancy. Keep source/coverage, strict and cleanup guards intact.
+- [x] Pass combined serial validation: 3,223 TypeScript tests, 736 Max tests,
+  276 Python tests and three isolated Electron Settings/lifecycle/context tests.
+- [ ] Install the final integrated canonical payload and run the reviewed
   dual-mode scenarios followed by the owning suite only after the user closes
   their own Live process. Preserve actual Live11 version and isolated exact-PID
   evidence; no physical or visible acceptance is claimed by lower-layer tests.
+
+## Historical Session MVP launch-evidence gate (#63)
 
 - [x] Hand off development-MVP follow-ups without relabelling incomplete
   qualification: #67 runner shutdown; #68 interrupted non-native coverage;

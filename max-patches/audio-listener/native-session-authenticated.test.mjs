@@ -43,8 +43,14 @@ const source = {
 for (const version of [3, 4])
   for (const mode of version === 4 ? ["arrangement", "session"] : ["session"])
     for (const rate of [44100, 48000])
-      for (const outcome of ["completed", "cancelled", "failed"])
-        test(`native wire${version} ${mode} ${rate}Hz real SDK authentication/framing ${outcome}, native ABI remains2`, async () => {
+      for (const { outcome, deviation } of [0, rate / 10, -rate / 10].flatMap(
+        (deviation) =>
+          ["completed", "cancelled", "failed"].map((outcome) => ({
+            outcome,
+            deviation,
+          })),
+      ))
+        test(`native wire${version} ${mode} ${rate}Hz ${deviation} sample clock disagreement real SDK authentication/framing ${outcome}, native ABI remains2`, async () => {
           const secret = "synthetic-session-runtime-authentication-secret";
           const sockets = new Set(),
             messages = [],
@@ -200,6 +206,13 @@ for (const version of [3, 4])
             const f = v2Fixture({
               rate,
               vector,
+              deviation,
+              ...(deviation === 0
+                ? {}
+                : {
+                    total: Math.round((rate * 60 * 8) / 93),
+                    geometry: { endBeat: 13.25 },
+                  }),
               controller: runtime.nativeController,
             });
             let request = 0;
@@ -260,6 +273,20 @@ for (const version of [3, 4])
             assert.equal(terminal.traceId, "session-runtime-trace");
             assert.equal(terminal.correlationId, "session-runtime-correlation");
             if (outcome === "completed") {
+              assert.equal(
+                terminal.observation.alignment.observedClockDisagreementSamples,
+                Math.abs(deviation),
+              );
+              assert.equal(
+                terminal.observation.endSample -
+                  terminal.observation.startSample,
+                f.geometry.totalSamples,
+              );
+              assert.equal(
+                terminal.observation.alignment
+                  .verifiedAbsoluteErrorBoundSamples,
+                null,
+              );
               (mode === "session"
                 ? assertNativeSessionCaptureObservation
                 : assertNativeCaptureObservationV2)(

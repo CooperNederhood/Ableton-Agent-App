@@ -118,6 +118,12 @@ establish physical qualification. App/Remote Script protocol upgrades must be
 delivered together rather than assuming a listener-only update upgrades the
 bridge contract.
 
+The integrated wire4/protocol8 candidate is built and covered by strict
+payload and synthetic installed-artifact checks, including the actual qmetro
+clock/analysis entries. It has not replaced the user's previously loaded
+device. Fresh physical registration, capture and visible cross-app acceptance
+remain separate checks after coordinated app closure and installation.
+
 The installer resolves the Library once, honoring an explicit selection,
 `ABLETON_USER_LIBRARY`, or the selected profile's configured Remote Script
 location before refusing ambiguous automatic selection. It follows

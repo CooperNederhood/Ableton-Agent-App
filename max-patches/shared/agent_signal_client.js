@@ -1029,11 +1029,12 @@ function validSessionObservation(value, job) {
     alignment.policy.maxClockDisagreementSamples ===
       policy.maxClockDisagreementSamples &&
     integer(alignment.observedClockDisagreementSamples) &&
-    alignment.observedClockDisagreementSamples <=
-      policy.maxClockDisagreementSamples &&
     integer(alignment.observedBeatDisagreementSamples) &&
-    alignment.observedBeatDisagreementSamples <=
-      policy.maxClockDisagreementSamples
+    (policy.mode === "descriptive" ||
+      (alignment.observedClockDisagreementSamples <=
+        policy.maxClockDisagreementSamples &&
+        alignment.observedBeatDisagreementSamples <=
+          policy.maxClockDisagreementSamples))
   );
 }
 

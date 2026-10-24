@@ -7,10 +7,12 @@ Companion specification: [Packaging and Operations](packaging-and-operations.md)
 - [x] Generate canonical native-v4 Machine-Listening-Development and Midi-Capture
   bundles through every electron-builder entry point; validate complete portable
   hashes/resources without source promotion or machine configuration.
-- [ ] Qualify the integrated wire-4 dual-mode bundle after merging the mode and
-  full-loop changes; reject Session-only, implicit-mode or oversized provider
-  claims even after self-rehashing. Verify installed qmetro graph entries and
-  explicit per-pass mode metadata before real-host checks.
+- [x] Verify the integrated wire-4 dual-mode bundle after merging mode, full-loop
+  and advisory timing changes; reject Session-only, implicit-mode or oversized
+  provider claims even after self-rehashing. Synthetic installed-artifact tests
+  verify qmetro graph entries and explicit per-pass mode metadata.
+- [ ] Install and physically qualify that integrated wire4/protocol8 candidate
+  after user app closure; historical v3 installs are not wire4 acceptance.
 - [x] Install both managed bundles with the Remote Script through a shared typed
   installer and CLI, preserving tokens/unrelated files and stopped-Live guards
   even when Python is skipped.

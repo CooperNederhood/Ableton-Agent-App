@@ -3,7 +3,7 @@
 ## Installing the development listener
 
 The normal app integration reinstall delivers the canonical
-`Machine-Listening-Development.amxd` as a complete native-v3/ABI2 bundle in
+`Machine-Listening-Development.amxd` as a complete native-v4/ABI2 bundle in
 `User Library/Presets/Audio Effects/Max Audio Effect/Machine-Listening-Development/`.
 Companion JavaScript/DSP/patcher files and hash metadata are required; copying
 only the authored AMXD is not equivalent. Packaging uses repository sources,
@@ -16,8 +16,8 @@ for commands, exact paths, confirmation, partial recovery and diagnostics.
 
 Insertion onto a track is manual. Installed-on-disk is distinct from loaded,
 authenticated native readiness; the app's negotiated capability checks remain
-authoritative. Delivery does not expand Session admission, remove timing
-limitations or certify a host. Existing unrelated Library copies remain untouched. and Entity Context
+authoritative. Installation does not itself establish capture readiness or
+real-host qualification. Existing unrelated Library copies remain untouched.
 
 Companion checklist:
 [Playback Listening Implementation To-Do](playback-listening-implementation-to-do.md).
@@ -68,6 +68,15 @@ excluded so this comparison isolates the scheduler substitution. Existing
 capture/disarm/watchdog lifecycle events remain authoritative. Generated-source
 changes do not mean the user's loaded device has changed or audible dropouts
 have been resolved; the selected bundle must be installed and loaded afresh.
+
+The integrated candidate combines advisory descriptive timing, explicit wire4
+mode negotiation and full-active-region Session capture under bridge protocol8.
+The shared producer SDK also accepts honest beyond-target descriptive results,
+including partial failure observations; strict results retain their exact
+acceptance rule. Both timing directions, eight-beat native duration, exact-end
+source sealing and cancellation/cleanup are covered at their owning boundaries.
+The canonical bundle is rebuilt and verified synthetically, not installed or
+newly qualified against a physical host.
 
 ## Full-active-region Session listening
 

@@ -54,7 +54,7 @@ afterEach(async () => {
   for (const close of dispose.splice(0).reverse()) await close();
 });
 
-async function setup() {
+async function setup(hostClockDisagreementSamples = 0) {
   const registry = new InMemoryConnectionRegistry({ staleAfterMs: 15000 });
   const events: TelemetryEventEnvelope[] = [];
   const server = new SignalIngressServer({
@@ -140,6 +140,7 @@ async function setup() {
   client.start();
   await expect.poll(() => server.inspectListeners().length).toBe(1);
   const data = createSyntheticNativeSessionListeningFixture({
+    hostClockDisagreementSamples,
     source,
     listenerId: client.producer.producerId,
     passId: "dual-pass",
@@ -157,10 +158,17 @@ async function setup() {
 }
 
 describe("one advertised wire4 producer through authenticated SDK, ingress and capture", () => {
-  it.each(["arrangement", "session"] as const)(
-    "completes %s without converting the other mode's proof",
-    async (mode) => {
-      const f = await setup();
+  it.each(
+    (["arrangement", "session"] as const).flatMap((mode) =>
+      [0, 4800].map((hostClockDisagreementSamples) => ({
+        mode,
+        hostClockDisagreementSamples,
+      })),
+    ),
+  )(
+    "completes $mode with $hostClockDisagreementSamples samples disagreement without converting the other mode's proof",
+    async ({ mode, hostClockDisagreementSamples }) => {
+      const f = await setup(hostClockDisagreementSamples);
       f.setArm(mode === "session" ? f.data.arm : f.data.arm.transport);
       const capture = await prepareListenerCapture(f.server, {
         listeners: f.server.inspectListeners(),
@@ -200,6 +208,9 @@ describe("one advertised wire4 producer through authenticated SDK, ingress and c
         }),
       ).toBe(true);
       await expect(capture.result).resolves.toEqual([f.data.observation]);
+      expect(
+        f.data.observation.alignment.observedClockDisagreementSamples,
+      ).toBe(hostClockDisagreementSamples);
       await capture.disarm();
       expect(f.server.inspectListeners()[0]?.phase).toBe("idle");
       expect(

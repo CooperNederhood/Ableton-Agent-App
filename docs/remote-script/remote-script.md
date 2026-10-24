@@ -143,6 +143,11 @@ The core-domain commands are split into `*.inspect` and `*.mutate` protocol
 entries while each agent-facing tool uses a strict action discriminator. This
 preserves mutation invalidation and queue semantics without multiplying
 read-only tools.
+Arrangement inspection validates `limit` as 1-16 (default 16) before the
+main-thread executor. Results preserve `clips`, `total`, `offset`, and `limit`;
+page through dense Sets rather than serializing hundreds of clip summaries
+in one callback. The bounded region-fill executor remains limited to 128
+complete tiles in batches of four per Live tick.
 
 The final workflow-adapter domains keep their model-facing action unions but
 register one internal command per action (for example,

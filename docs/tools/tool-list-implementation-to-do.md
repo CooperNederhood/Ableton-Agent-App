@@ -13,3 +13,5 @@ Companion reference: [Ableton Tool List](tool-list.md)
 - [x] Document the agent-facing Drum Rack pad and Session MIDI creation
   actions, direct versus destination track identities, explicit note-expression
   loss choice, and exact parameter-name handoff.
+- [x] Document the 16-clip Arrangement page bound, busy-queue guidance, and
+  indeterminate mutation timeout recovery.

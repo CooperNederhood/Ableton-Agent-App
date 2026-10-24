@@ -16,6 +16,8 @@ Companion specification: [IPC Protocol](ipc-protocol.md)
     conservative property request/result schemas.
   - [x] Define bounded Arrangement transport inspection, verified loop update,
     and identity-bound cue-point mutation schemas.
+  - [x] Cap Arrangement clip inspection at 16 per page with a matching Python
+    validator and regenerated contract fixtures.
   - [x] Define bounded regular-track device/parameter inspection, verified
     device enable, and normalized parameter mutation schemas.
   - [x] Include bounded top-level device summaries and truncation metadata in

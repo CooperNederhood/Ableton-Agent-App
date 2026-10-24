@@ -3008,24 +3008,33 @@ describe("desktop adapter over the shared application", () => {
         "transport.inspect_arrangement": true,
       },
     };
-    vi.spyOn(ableton, "inspectArrangement").mockResolvedValue({
-      clips: [
-        {
-          reference: "00000000-0000-4000-8000-000000000090",
-          trackReference: ableton.state.snapshot.tracks[0]!.reference,
-          trackIndex: 0,
-          name: "Verse",
-          kind: "midi",
-          startTime: 8,
-          endTime: 24,
-          length: 16,
-          noteCount: 8,
-        },
-      ],
-      total: 513,
-      offset: 0,
-      limit: 512,
-    });
+    const inspectArrangement = vi
+      .spyOn(ableton, "inspectArrangement")
+      .mockImplementation(async () => {
+        const offset = (inspectArrangement.mock.calls.length - 1) * 16;
+        const limit = 16;
+        return {
+          clips: Array.from(
+            { length: Math.min(limit, 513 - offset) },
+            (_, index) => ({
+              reference: `00000000-0000-4000-8000-${(offset + index + 1)
+                .toString(16)
+                .padStart(12, "0")}`,
+              trackReference: ableton.state.snapshot.tracks[0]!.reference,
+              trackIndex: 0,
+              name: offset + index === 0 ? "Verse" : "Tile",
+              kind: "midi" as const,
+              startTime: 8 + (offset + index) * 16,
+              endTime: 24 + (offset + index) * 16,
+              length: 16,
+              noteCount: 8,
+            }),
+          ),
+          total: 513,
+          offset,
+          limit,
+        };
+      });
     vi.spyOn(ableton, "inspectArrangementTransport").mockResolvedValue({
       loop: { enabled: true, start: 8, length: 16 },
       cuePoints: [
@@ -3051,6 +3060,53 @@ describe("desktop adapter over the shared application", () => {
       length: 16,
     });
     expect(snapshot.completeness?.truncatedDomains).toContain(
+      "arrangement_clips",
+    );
+    expect(inspectArrangement).toHaveBeenCalledTimes(32);
+    expect(inspectArrangement).toHaveBeenCalledWith({
+      offset: 496,
+      limit: 16,
+    });
+    await service.stop();
+  });
+
+  it("does not publish partial Arrangement clips if a page changes", async () => {
+    const { service, ableton } = await harness();
+    ableton.state.capabilities = {
+      ...ableton.state.capabilities,
+      capabilities: {
+        ...ableton.state.capabilities.capabilities,
+        "arrangement.inspect": true,
+      },
+    };
+    const inspectArrangement = vi
+      .spyOn(ableton, "inspectArrangement")
+      .mockImplementation(async () => {
+        const offset = (inspectArrangement.mock.calls.length - 1) * 16;
+        return {
+          clips: Array.from({ length: offset === 0 ? 16 : 1 }, (_, index) => ({
+            reference: `00000000-0000-4000-8000-${(offset + index + 1).toString(16).padStart(12, "0")}`,
+            trackReference: ableton.state.snapshot.tracks[0]!.reference,
+            trackIndex: 0,
+            name: "Tile",
+            kind: "midi" as const,
+            startTime: offset + index,
+            endTime: offset + index + 1,
+            length: 1,
+            noteCount: 0,
+          })),
+          total: offset === 0 ? 17 : 18,
+          offset,
+          limit: 16,
+        };
+      });
+
+    await service.start();
+    const snapshot = await service.getSnapshot();
+
+    expect(inspectArrangement).toHaveBeenCalledTimes(2);
+    expect(snapshot.arrangementClips).toEqual([]);
+    expect(snapshot.completeness?.unsupportedDomains).toContain(
       "arrangement_clips",
     );
     await service.stop();

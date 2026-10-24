@@ -31,8 +31,11 @@ describe("agent safety evaluations", () => {
   });
 
   it("loads separate canonical base and plan reminder prompts", () => {
-    expect(BASE_SYSTEM_MESSAGE_VERSION).toBe(7);
+    expect(BASE_SYSTEM_MESSAGE_VERSION).toBe(8);
     expect(BASE_SYSTEM_MESSAGE).toContain("<ableton-workflow>");
+    expect(BASE_SYSTEM_MESSAGE).toContain("pages of at most 16");
+    expect(BASE_SYSTEM_MESSAGE).toContain("queue_full");
+    expect(BASE_SYSTEM_MESSAGE).toContain("Independent lightweight reads");
     expect(BASE_SYSTEM_MESSAGE).not.toContain("Active plan-mode reminder");
     expect(PLAN_REMINDER_VERSION).toBe(2);
     expect(PLAN_REMINDER).toContain("# Active plan-mode reminder");

@@ -17,6 +17,7 @@ from .identity import build_live_identity
 ARRANGEMENT_MAX_BEATS = 1576800
 ARRANGEMENT_FILL_MAX_CLIPS = 128
 ARRANGEMENT_FILL_TILES_PER_TICK = 4
+ARRANGEMENT_INSPECT_PAGE_LIMIT = 16
 LOM_TIME_TOLERANCE = 0.0001
 SESSION_TRACK_DEVICE_LIMIT = 32
 DEVICE_ON_NAMES = ("Device On", "Device Activator")
@@ -2561,16 +2562,16 @@ def _inspect_arrangement_params(params):
     if set(params.keys()) - set(["offset", "limit"]):
         return "Only offset and limit are accepted"
     offset = params.get("offset", 0)
-    limit = params.get("limit", 100)
+    limit = params.get("limit", ARRANGEMENT_INSPECT_PAGE_LIMIT)
     if isinstance(offset, bool) or not isinstance(offset, int) or offset < 0:
         return "offset must be a non-negative integer"
     if (
         isinstance(limit, bool)
         or not isinstance(limit, int)
         or limit < 1
-        or limit > 512
+        or limit > ARRANGEMENT_INSPECT_PAGE_LIMIT
     ):
-        return "limit must be an integer from 1 to 512"
+        return "limit must be an integer from 1 to 16; page with offset"
     return None
 
 
@@ -2583,7 +2584,7 @@ def inspect_arrangement(context, params):
             )
     clip_records.sort(key=lambda item: (item[0], item[1]))
     offset = params.get("offset", 0)
-    limit = params.get("limit", 100)
+    limit = params.get("limit", ARRANGEMENT_INSPECT_PAGE_LIMIT)
     clips = [
         _arrangement_clip_summary(context, track, track_index, clip)
         for _, track_index, track, clip in clip_records[

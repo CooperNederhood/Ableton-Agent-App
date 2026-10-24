@@ -1762,7 +1762,7 @@ export const createArrangementMidiClipResultSchema = z.object({
 
 export const inspectArrangementParamsSchema = z.object({
   offset: z.number().int().nonnegative().default(0),
-  limit: z.number().int().min(1).max(512).default(100),
+  limit: z.number().int().min(1).max(16).default(16),
 });
 
 export const inspectArrangementResultSchema = z.object({

@@ -119,8 +119,21 @@ describe("integration scenarios", () => {
     expect(arrangement.group).toBe("arrangement-and-cues");
     expect(arrangementPrompt).toContain("Arrangement at beat 32");
     expect(arrangementPrompt).toContain(
+      'ableton_arrangement action "duplicate-clip" (not ableton_session_clips action "duplicate")',
+    );
+    expect(arrangementPrompt).toContain("destinationTime 32");
+    expect(arrangementPrompt).toContain(
       `clip "${arrangementContext.clipNames[0]}"`,
     );
+    const fill = await loadScenarioManifest(
+      "arrangement-region-fill-lifecycle",
+    );
+    const fillPrompt = scenarioPrompt(
+      fill.prompt,
+      createScenarioRunContext(fill),
+    );
+    expect(fillPrompt).toContain('action "fill-region" exactly once');
+    expect(fillPrompt).toContain('target {kind:"regular"');
   });
 
   it("enforces ordering, names, item identity, and budgets", async () => {
@@ -389,26 +402,51 @@ describe("integration scenarios", () => {
         },
       ],
     };
+    const inspectedPages: number[] = [];
+    let changedTotal = false;
+    let exceedsBound = false;
     const application = {
       inspectSession: async () => snapshot,
-      inspectArrangement: async () => ({
-        clips: [
-          {
-            reference: clipReference,
-            trackReference,
-            trackIndex: 0,
-            name: clipName,
-            kind: "midi" as const,
-            startTime: 8,
-            endTime: 12,
-            length: 4,
-            noteCount: 4,
-          },
-        ],
-        total: 1,
-        offset: 0,
-        limit: 512,
-      }),
+      inspectArrangement: async ({
+        offset,
+        limit,
+      }: {
+        offset: number;
+        limit: number;
+      }) => {
+        inspectedPages.push(offset);
+        return {
+          clips:
+            offset === 0
+              ? Array.from({ length: 16 }, (_, index) => ({
+                  reference: `00000000-0000-4000-8000-${(index + 10).toString(16).padStart(12, "0")}`,
+                  trackReference,
+                  trackIndex: 0,
+                  name: "Unrelated",
+                  kind: "midi" as const,
+                  startTime: index * 4,
+                  endTime: index * 4 + 4,
+                  length: 4,
+                  noteCount: 0,
+                }))
+              : [
+                  {
+                    reference: clipReference,
+                    trackReference,
+                    trackIndex: 0,
+                    name: clipName,
+                    kind: "midi" as const,
+                    startTime: 8,
+                    endTime: 12,
+                    length: 4,
+                    noteCount: 4,
+                  },
+                ],
+          total: exceedsBound ? 513 : changedTotal && offset > 0 ? 18 : 17,
+          offset,
+          limit,
+        };
+      },
       inspectArrangementMidiNotes: async () => ({
         clip: {
           reference: clipReference,
@@ -437,6 +475,16 @@ describe("integration scenarios", () => {
         passed: true,
       }),
     ]);
+    expect(inspectedPages).toEqual([0, 16]);
+    changedTotal = true;
+    await expect(
+      verifyScenario(application, context, baseline),
+    ).rejects.toThrow("Arrangement changed during paged verification");
+    changedTotal = false;
+    exceedsBound = true;
+    await expect(
+      verifyScenario(application, context, baseline),
+    ).rejects.toThrow("Arrangement exceeds the 512-clip verification bound");
   });
 
   it("verifies grouped track lifecycle calls by exact action", async () => {

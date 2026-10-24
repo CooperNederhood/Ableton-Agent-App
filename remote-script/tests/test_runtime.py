@@ -3868,6 +3868,50 @@ class ExecutorTests(unittest.TestCase):
         self.assertEqual(first.get_notes_calls, 1)
         self.assertEqual(second.get_notes_calls, 0)
 
+    def test_arrangement_inspection_rejects_oversized_page_before_lom_access(self):
+        context = FakeContext()
+        clip = FakeClip(4.0, 0.0)
+        context.song.tracks[0].arrangement_clips = [clip]
+        registry = CommandRegistry()
+        register_system_commands(registry)
+        with self.assertRaises(Exception) as failure:
+            registry.get("arrangement.inspect").execute(
+                context, {"offset": 0, "limit": 512}
+            )
+        self.assertIn("limit", str(failure.exception))
+        self.assertEqual(clip.get_notes_calls, 0)
+
+    def test_arrangement_inspection_pages_dense_set_without_blocking_ping(self):
+        scheduled = []
+        responses = []
+        context = FakeContext()
+        clips = [FakeClip(4.0, float(index * 4)) for index in range(96)]
+        context.song.tracks[0].arrangement_clips = clips
+        registry = CommandRegistry()
+        register_system_commands(registry)
+        executor = MainThreadExecutor(
+            lambda _delay, callback: scheduled.append(callback),
+            registry,
+            context,
+        )
+        for offset in range(0, 96, 16):
+            executor.submit(
+                request(
+                    "arrangement.inspect", {"offset": offset, "limit": 16}
+                ),
+                responses.append,
+            )
+            executor.submit(request("system.ping"), responses.append)
+            drain_scheduled(scheduled, context)
+        pages = responses[::2]
+        self.assertTrue(all(result["ok"] for result in responses))
+        self.assertEqual([result["result"]["total"] for result in pages], [96] * 6)
+        self.assertEqual(
+            [result["result"]["clips"][0]["startTime"] for result in pages],
+            [float(offset * 4) for offset in range(0, 96, 16)],
+        )
+        self.assertTrue(all(clip.get_notes_calls == 1 for clip in clips))
+
 
 class BrowserCommandTests(unittest.TestCase):
     def setUp(self):

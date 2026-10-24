@@ -158,6 +158,11 @@ These operations are branches of `ableton_arrangement`:
 | `fill-region` | Fill a half-open region with up to 128 complete copies in one transactional invocation. | `reversible` | `track` | `long` |
 | `set-clip-properties` | Update an exact clip's name, mute state, and/or loop state. | `reversible` | `track` | `short` |
 
+`inspect` defaults to at most 16 clips per request; larger limits are rejected.
+Continue at the returned offset plus the number of clips until it reaches
+`total`. When the shared bridge reports `queue_full`, wait for outstanding
+calls and resume small pages; do not blindly retry a timed-out mutation.
+
 Region filling preflights every destination before mutation and applies at most
 four tiles per scheduled Live tick. Any placement failure removes all clips
 created by that call and verifies the original collection. An unverified

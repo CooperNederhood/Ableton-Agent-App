@@ -98,6 +98,9 @@ Companion specification: [Agent Runtime](agent-runtime.md)
   and explicit skill turns without duplicating the general project snapshot.
 - [x] Implement session-start, prompt, pre-tool, post-tool, and failure hooks.
 - [x] Add retry guidance based on structured error codes.
+- [x] Guide the agent to inspect Arrangement in 16-clip pages, pace calls
+  when shared admission returns `queue_full`, and reinspect indeterminate
+  mutation outcomes rather than retrying blindly.
 - [x] Prevent retry loops for denial, unsupported capability, and stale targets.
 - [x] Use YAML-defined active agents for workflow specialization and remove the
   obsolete turn classifier from prompts and transport fields.

@@ -48,12 +48,23 @@ Responsibilities:
 - Per-command normal and long timeout policy.
 - Bounded FIFO serialization for every Live request, with response timeouts
   starting only when a queued request is dispatched.
+- Shared admission for all callers: initially four outstanding requests, at
+  most eight admitted and eight waiting, with a five-second admission wait by
+  default. Execution or queue wait above one second halves the active limit;
+  three consecutive sub-250 ms responses restore one slot. Admission expiry
+  returns retryable `queue_full` before dispatch with depth/limit details.
+  Waiters resume FIFO and are cancelled when the connection closes. Dispatched
+  timeouts close the connection rather than dispatching followers behind
+  potentially still-running Live work. Read timeouts remain retryable; mutation
+  timeouts require reinspection, never an automatic retry.
+- A separate 60-second default response deadline for bounded
+  `arrangement.fill_region`, rather than the generic 15-second long deadline.
 - Event subscription.
 - Clean rejection of pending requests after disconnect.
 - Trace/correlation propagation and sanitized timing/lifecycle publication for
-  queue, dispatch, completion, failure, timeout, cancellation, reconnect, and
-  event ingestion. Request records distinguish queue wait, execution, and total
-  duration.
+  backpressure, resume, queue, dispatch, completion, failure, timeout,
+  cancellation, reconnect, and event ingestion. Request records distinguish
+  admission wait, queue wait, execution, and total duration.
 
 Bridge events feed the application-owned local journal through typed
 observability events. The bridge does not persist history itself, and

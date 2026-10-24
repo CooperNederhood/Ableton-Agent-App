@@ -865,7 +865,7 @@ export interface AgentRuntimeObserver {
 }
 
 export const DEFAULT_AGENT_TURN_TIMEOUT_MS = 600_000;
-export const BASE_SYSTEM_MESSAGE_VERSION = 7;
+export const BASE_SYSTEM_MESSAGE_VERSION = 8;
 export const PLAN_REMINDER_VERSION = 2;
 const baseSystemMessageCandidates = [
   new URL("../prompts/base-system-message.md", import.meta.url),

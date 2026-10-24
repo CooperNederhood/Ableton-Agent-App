@@ -5094,6 +5094,20 @@ def handle(request, token, state):
             },
         )
     if command == "arrangement.inspect":
+        offset = params.get("offset", 0)
+        limit = params.get("limit", 16)
+        if (
+            isinstance(offset, bool)
+            or not isinstance(offset, int)
+            or offset < 0
+            or isinstance(limit, bool)
+            or not isinstance(limit, int)
+            or limit < 1
+            or limit > 16
+        ):
+            return failure(
+                request, "invalid_params", "limit must be 1 to 16; page with offset"
+            )
         clips = sorted(
             [
                 clip
@@ -5102,8 +5116,6 @@ def handle(request, token, state):
             ],
             key=lambda clip: (clip["startTime"], clip["trackIndex"]),
         )
-        offset = params.get("offset", 0)
-        limit = params.get("limit", 100)
         return response(
             request,
             {

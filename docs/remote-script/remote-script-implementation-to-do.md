@@ -74,6 +74,8 @@ Companion specification: [Remote Script](remote-script.md)
 - [~] Implement arrangement handlers.
   - [x] Create non-overlapping MIDI clips with verified placement and rollback.
   - [x] Inspect Arrangement clips with bounded pagination.
+  - [x] Reject pages above 16 before execution and regress dense-Set paging
+    followed by a responsive ping.
   - [x] Delete identity-bound Arrangement clips with postcondition checks.
   - [x] Replace bounded Arrangement MIDI notes with verification and recovery.
   - [x] Duplicate identity-bound Session clips to non-overlapping Arrangement

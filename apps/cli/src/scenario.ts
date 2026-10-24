@@ -7,6 +7,34 @@ import type { SessionSnapshot } from "@ableton-agent/protocol";
 import type { ToolApprovalRequest, ToolRisk } from "@ableton-agent/tools";
 import { z } from "zod";
 
+async function inspectArrangementForVerification(
+  application: HeadlessApplication,
+): ReturnType<HeadlessApplication["inspectArrangement"]> {
+  const firstPage = await application.inspectArrangement({
+    offset: 0,
+    limit: 16,
+  });
+  if (firstPage.total > 512) {
+    throw new Error("Arrangement exceeds the 512-clip verification bound");
+  }
+  const clips = [...firstPage.clips];
+  while (clips.length < firstPage.total) {
+    const page = await application.inspectArrangement({
+      offset: clips.length,
+      limit: 16,
+    });
+    if (
+      page.offset !== clips.length ||
+      page.total !== firstPage.total ||
+      page.clips.length === 0
+    ) {
+      throw new Error("Arrangement changed during paged verification");
+    }
+    clips.push(...page.clips);
+  }
+  return { ...firstPage, clips };
+}
+
 const riskSchema = z.enum(["read", "reversible", "destructive", "broad"]);
 const orderingSchema = z.object({
   before: z.string().min(1),
@@ -343,9 +371,9 @@ export function scenarioPrompt(
         const clipName = `${context.artifactPrefix}${assertion.clipNameSuffix}`;
         return [
           `Create exactly one MIDI track "${trackName}" and one ${assertion.length}-beat Session MIDI clip "${clipName}" at zero-based sceneIndex ${assertion.sourceSceneIndex} (Session scene ${assertion.sourceSceneIndex + 1}).`,
-          `Duplicate that exact Session clip into Arrangement at beat ${assertion.destinationTime}, inspect the Arrangement to verify the created clip, then delete the exact Arrangement clip, Session clip, and generated track.`,
+          `Use ableton_arrangement action "duplicate-clip" (not ableton_session_clips action "duplicate") to copy that exact Session clip into Arrangement at beat ${assertion.destinationTime}. Supply the track index, expectedReference and expectedName from the generated track, sceneIndex ${assertion.sourceSceneIndex} and expectedClipReference from the Session source, and destinationTime ${assertion.destinationTime}. Inspect the Arrangement to verify the created clip, then delete the exact Arrangement clip, Session clip, and generated track.`,
           `For Arrangement deletion, expectedName is the track name "${trackName}", while expectedClipReference identifies Arrangement clip "${clipName}".`,
-          "Use returned references for every dependent mutation and leave all pre-existing tracks, clips, and cue points unchanged.",
+          "Use only the requested actions and returned references for every dependent mutation; do not change clip properties or touch pre-existing tracks, clips, and cue points.",
         ];
       }
       if (assertion.type === "arrangement-region-fill-lifecycle") {
@@ -354,8 +382,8 @@ export function scenarioPrompt(
         return [
           `Create exactly one MIDI track "${trackName}" and one ${assertion.sourceLength}-beat Session MIDI clip "${clipName}" at zero-based sceneIndex ${assertion.sourceSceneIndex} (Session scene ${assertion.sourceSceneIndex + 1}).`,
           `Use ableton_arrangement with action "fill-region" exactly once to fill the half-open Arrangement region [${assertion.regionStart}, ${assertion.regionEnd}). Verify that it created exactly ${assertion.expectedTileCount} full tiles and reported ${assertion.expectedUnusedRemainder} uncovered beats.`,
-          `Inspect the Arrangement, delete every Arrangement clip created by the fill using its returned identity and start time, then delete the Session source clip and generated track.`,
-          'Do not substitute repeated ableton_arrangement action "duplicate-clip" calls and do not touch pre-existing clips or tracks.',
+          `Inspect the Arrangement with limit at most 16, paging with offset if necessary. Delete every Arrangement clip created by the fill using its returned identity and start time, then delete the Session source clip and generated track.`,
+          'Do not substitute repeated ableton_arrangement action "duplicate-clip" calls or change clip properties. Delete the generated track with ableton_tracks action "delete" using target {kind:"regular", index, expectedReference, expectedName} from its inspected identity; do not touch pre-existing clips or tracks.',
         ];
       }
       if (assertion.type === "cue-point-lifecycle") {
@@ -985,10 +1013,7 @@ export async function verifyScenario(
     if (assertion.type === "arrangement-clip-lifecycle") {
       const trackName = `${context.artifactPrefix}${assertion.trackNameSuffix}`;
       const clipName = `${context.artifactPrefix}${assertion.clipNameSuffix}`;
-      const arrangement = await application.inspectArrangement({
-        offset: 0,
-        limit: 512,
-      });
+      const arrangement = await inspectArrangementForVerification(application);
       const expectedCalls = [
         ["ableton_tracks", "create", 1],
         ["ableton_session_clips", "create-midi", 1],
@@ -1034,10 +1059,7 @@ export async function verifyScenario(
     if (assertion.type === "arrangement-region-fill-lifecycle") {
       const trackName = `${context.artifactPrefix}${assertion.trackNameSuffix}`;
       const clipName = `${context.artifactPrefix}${assertion.clipNameSuffix}`;
-      const arrangement = await application.inspectArrangement({
-        offset: 0,
-        limit: 512,
-      });
+      const arrangement = await inspectArrangementForVerification(application);
       const expectedCalls = [
         ["ableton_tracks", "create", 1],
         ["ableton_session_clips", "create-midi", 1],
@@ -1058,6 +1080,23 @@ export async function verifyScenario(
             (decision.arguments as Record<string, unknown>).action === action,
         ).length,
       }));
+      const boundedInspection = context.approvals.decisions
+        .filter(
+          (decision) =>
+            decision.approved &&
+            decision.toolName === "ableton_arrangement" &&
+            (decision.arguments as Record<string, unknown>).action ===
+              "inspect",
+        )
+        .every((decision) => {
+          const args = decision.arguments as Record<string, unknown>;
+          return (
+            args.limit === undefined ||
+            (typeof args.limit === "number" &&
+              args.limit >= 1 &&
+              args.limit <= 16)
+          );
+        });
       const restored =
         JSON.stringify(snapshot) === JSON.stringify(baseline) &&
         !snapshot.tracks.some((track) => track.name === trackName) &&
@@ -1070,6 +1109,7 @@ export async function verifyScenario(
         );
       const passed =
         restored &&
+        boundedInspection &&
         callEvidence.every((entry) => entry.actual === entry.expected);
       results.push({
         assertion: assertion.type,
@@ -1077,7 +1117,11 @@ export async function verifyScenario(
         message: passed
           ? "Verified Arrangement region fill and baseline restoration"
           : "Arrangement region fill calls or final baseline restoration did not match",
-        evidence: sanitizeTraceValue({ restored, callEvidence }),
+        evidence: sanitizeTraceValue({
+          restored,
+          boundedInspection,
+          callEvidence,
+        }),
       });
       continue;
     }
@@ -1241,10 +1285,7 @@ export async function verifyScenario(
 
     const clipName = `${context.artifactPrefix}${assertion.clipNameSuffix}`;
     if (assertion.type === "arrangement-midi-pattern") {
-      const arrangement = await application.inspectArrangement({
-        offset: 0,
-        limit: 512,
-      });
+      const arrangement = await inspectArrangementForVerification(application);
       const clips = arrangement.clips.filter(
         (clip) =>
           clip.trackReference === track.reference &&

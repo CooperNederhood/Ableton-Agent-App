@@ -431,6 +431,8 @@ export interface AbletonBridgeOptions {
   appVersion?: string;
   requestTimeoutMs?: number;
   longRequestTimeoutMs?: number;
+  fillRequestTimeoutMs?: number;
+  queueWaitTimeoutMs?: number;
   requestQueueLimit?: number;
   eventSubscriptions?: readonly string[];
   reconnect?: Partial<ReconnectPolicy>;
@@ -567,7 +569,13 @@ interface PendingRequest {
   timeout: ReturnType<typeof setTimeout>;
 }
 
-const DEFAULT_REQUEST_QUEUE_LIMIT = 128;
+interface AdmissionWaiter {
+  resolve(): void;
+  reject(error: AbletonBridgeError): void;
+  timeout: ReturnType<typeof setTimeout>;
+}
+
+const DEFAULT_REQUEST_QUEUE_LIMIT = 8;
 
 export class AbletonBridgeError extends Error {
   public constructor(
@@ -587,6 +595,8 @@ export class AbletonBridgeService implements AbletonService {
   readonly #appVersion: string;
   readonly #requestTimeoutMs: number;
   readonly #longRequestTimeoutMs: number;
+  readonly #fillRequestTimeoutMs: number;
+  readonly #queueWaitTimeoutMs: number;
   readonly #requestQueueLimit: number;
   readonly #eventSubscriptions: readonly string[];
   readonly #reconnect: ReconnectPolicy;
@@ -611,6 +621,9 @@ export class AbletonBridgeService implements AbletonService {
   >();
   #requestTail: Promise<void> = Promise.resolve();
   #requestQueueDepth = 0;
+  #admissionLimit: number;
+  #healthyRequestStreak = 0;
+  readonly #admissionWaiters: AdmissionWaiter[] = [];
   #socket: Socket | undefined;
   #reconnectTimer: ReturnType<typeof setTimeout> | undefined;
   #connectPromise: Promise<void> | undefined;
@@ -635,10 +648,13 @@ export class AbletonBridgeService implements AbletonService {
     this.#appVersion = options.appVersion ?? "0.1.0";
     this.#requestTimeoutMs = options.requestTimeoutMs ?? 5_000;
     this.#longRequestTimeoutMs = options.longRequestTimeoutMs ?? 15_000;
+    this.#fillRequestTimeoutMs = options.fillRequestTimeoutMs ?? 60_000;
+    this.#queueWaitTimeoutMs = options.queueWaitTimeoutMs ?? 5_000;
     this.#requestQueueLimit = Math.max(
       1,
       options.requestQueueLimit ?? DEFAULT_REQUEST_QUEUE_LIMIT,
     );
+    this.#admissionLimit = Math.min(4, this.#requestQueueLimit);
     this.#eventSubscriptions = [...(options.eventSubscriptions ?? [])];
     this.#reconnect = {
       maxAttempts: options.reconnect?.maxAttempts ?? 5,
@@ -1865,53 +1881,96 @@ export class AbletonBridgeService implements AbletonService {
     };
     const timeoutClass = this.#timeoutClass(command);
     const timeoutMs =
-      timeoutClass === "long"
-        ? this.#longRequestTimeoutMs
-        : this.#requestTimeoutMs;
-    if (this.#requestQueueDepth >= this.#requestQueueLimit) {
+      command === "arrangement.fill_region"
+        ? this.#fillRequestTimeoutMs
+        : timeoutClass === "long"
+          ? this.#longRequestTimeoutMs
+          : this.#requestTimeoutMs;
+    const admissionStarted = Date.now();
+    const waiting =
+      this.#requestQueueDepth >= this.#admissionLimit ||
+      this.#admissionWaiters.length > 0;
+    if (waiting) {
       this.#record({
-        name: "bridge.request.failed",
+        name: "bridge.request.backpressured",
         source: "ableton-bridge",
         ...linkage,
-        level: "warn",
-        outcome: "failure",
-        durationMs: 0,
         trace,
-        occurredAt: queuedAt.toISOString(),
         attributes: {
           requestId,
           command,
-          errorCode: "queue_full",
           queueDepth: this.#requestQueueDepth,
-          queueLimit: this.#requestQueueLimit,
+          queueLimit: this.#admissionLimit,
+          waitingCount: this.#admissionWaiters.length,
+          ...operationAttributes,
+        },
+      });
+    }
+    try {
+      await this.#admitRequest(command);
+    } catch (error) {
+      const cancelled =
+        error instanceof AbletonBridgeError &&
+        error.code === "connection_closed";
+      const waitedMs = Math.max(0, Date.now() - admissionStarted);
+      this.#record({
+        name: cancelled ? "bridge.request.cancelled" : "bridge.request.failed",
+        source: "ableton-bridge",
+        ...linkage,
+        level: "warn",
+        outcome: cancelled ? "cancelled" : "failure",
+        durationMs: waitedMs,
+        trace,
+        attributes: {
+          requestId,
+          command,
+          errorCode: cancelled ? "connection_closed" : "queue_full",
+          queueDepth: this.#requestQueueDepth,
+          queueLimit: this.#admissionLimit,
+          waitingCount: this.#admissionWaiters.length,
+          admissionWaitMs: waitedMs,
           timeoutClass,
           timeoutMs,
           ...operationAttributes,
         },
       });
-      throw new AbletonBridgeError(
-        "queue_full",
-        "Ableton bridge request queue is full",
-        true,
-        { command, queueLimit: this.#requestQueueLimit },
-      );
+      throw error;
+    }
+    const admissionWaitMs = Math.max(0, Date.now() - admissionStarted);
+    const admittedAt = this.#now();
+    if (waiting) {
+      this.#record({
+        name: "bridge.request.resumed",
+        source: "ableton-bridge",
+        ...linkage,
+        outcome: "success",
+        durationMs: admissionWaitMs,
+        trace,
+        attributes: {
+          requestId,
+          command,
+          queueDepth: this.#requestQueueDepth,
+          admissionWaitMs,
+          ...operationAttributes,
+        },
+      });
     }
     const previous = this.#requestTail;
     let release: () => void = () => undefined;
     this.#requestTail = new Promise<void>((resolve) => {
       release = resolve;
     });
-    this.#requestQueueDepth += 1;
     this.#record({
       name: "bridge.request.queued",
       source: "ableton-bridge",
       ...linkage,
       trace,
-      occurredAt: queuedAt.toISOString(),
+      occurredAt: admittedAt.toISOString(),
       attributes: {
         requestId,
         command,
         queueDepth: this.#requestQueueDepth,
+        admissionWaitMs,
         timeoutClass,
         timeoutMs,
         ...operationAttributes,
@@ -1924,7 +1983,7 @@ export class AbletonBridgeService implements AbletonService {
       const dispatchedAt = this.#now();
       const queueWaitMs = Math.max(
         0,
-        dispatchedAt.getTime() - queuedAt.getTime(),
+        dispatchedAt.getTime() - admittedAt.getTime(),
       );
       const socket = this.#socket;
       if (
@@ -2023,16 +2082,17 @@ export class AbletonBridgeService implements AbletonService {
         );
         const errorCode =
           error instanceof AbletonBridgeError ? error.code : "request_failed";
-        const cancelled =
-          errorCode === "connection_closed" && !this.#desiredRunning;
-        if (errorCode === "operation_timeout" && !timeoutRetryable) {
+        if (errorCode === "operation_timeout") {
           this.#destroySocket();
+          this.#admissionLimit = 1;
           this.#setStatus({
             state: "error",
             code: errorCode,
             message: error instanceof Error ? error.message : String(error),
           });
         }
+        const cancelled =
+          errorCode === "connection_closed" && !this.#desiredRunning;
         this.options.onResponse?.({
           requestId,
           command,
@@ -2084,6 +2144,7 @@ export class AbletonBridgeService implements AbletonService {
         0,
         receivedAt.getTime() - queuedAt.getTime(),
       );
+      this.#adjustAdmission(executionDurationMs, queueWaitMs);
       if (!envelope.ok) {
         this.options.onResponse?.({
           requestId,
@@ -2170,6 +2231,78 @@ export class AbletonBridgeService implements AbletonService {
     } finally {
       this.#requestQueueDepth -= 1;
       release();
+      this.#resumeAdmissionWaiters();
+    }
+  }
+
+  async #admitRequest(command: string): Promise<void> {
+    if (
+      this.#requestQueueDepth < this.#admissionLimit &&
+      this.#admissionWaiters.length === 0
+    ) {
+      this.#requestQueueDepth += 1;
+      return;
+    }
+    if (this.#admissionWaiters.length >= this.#requestQueueLimit) {
+      throw this.#queueFullError(command);
+    }
+    await new Promise<void>((resolve, reject) => {
+      const waiter: AdmissionWaiter = {
+        resolve,
+        reject,
+        timeout: setTimeout(() => {
+          const index = this.#admissionWaiters.indexOf(waiter);
+          if (index < 0) return;
+          this.#admissionWaiters.splice(index, 1);
+          reject(this.#queueFullError(command));
+          this.#resumeAdmissionWaiters();
+        }, this.#queueWaitTimeoutMs),
+      };
+      this.#admissionWaiters.push(waiter);
+    });
+  }
+
+  #queueFullError(command: string): AbletonBridgeError {
+    return new AbletonBridgeError(
+      "queue_full",
+      "Ableton is busy; wait for queued calls to finish, then retry reads in small pages",
+      true,
+      {
+        command,
+        queueDepth: this.#requestQueueDepth,
+        queueLimit: this.#admissionLimit,
+        waitingCount: this.#admissionWaiters.length,
+      },
+    );
+  }
+
+  #resumeAdmissionWaiters(): void {
+    while (
+      this.#requestQueueDepth < this.#admissionLimit &&
+      this.#admissionWaiters.length > 0
+    ) {
+      const waiter = this.#admissionWaiters.shift()!;
+      clearTimeout(waiter.timeout);
+      this.#requestQueueDepth += 1;
+      waiter.resolve();
+    }
+  }
+
+  #adjustAdmission(executionDurationMs: number, queueWaitMs: number): void {
+    if (executionDurationMs > 1_000 || queueWaitMs > 1_000) {
+      this.#admissionLimit = Math.max(1, Math.floor(this.#admissionLimit / 2));
+      this.#healthyRequestStreak = 0;
+    } else if (executionDurationMs < 250 && queueWaitMs < 250) {
+      this.#healthyRequestStreak += 1;
+      if (this.#healthyRequestStreak >= 3) {
+        this.#admissionLimit = Math.min(
+          this.#requestQueueLimit,
+          this.#admissionLimit + 1,
+        );
+        this.#healthyRequestStreak = 0;
+      }
+    } else {
+      this.#healthyRequestStreak = 0;
     }
   }
 
@@ -2627,6 +2760,18 @@ export class AbletonBridgeService implements AbletonService {
 
   #invalidateConnection(error: Error): void {
     this.#connectionGeneration += 1;
+    for (const waiter of this.#admissionWaiters.splice(0)) {
+      clearTimeout(waiter.timeout);
+      waiter.reject(
+        new AbletonBridgeError(
+          "connection_closed",
+          "Ableton bridge connection closed before dispatch",
+          true,
+        ),
+      );
+    }
+    this.#admissionLimit = Math.min(4, this.#requestQueueLimit);
+    this.#healthyRequestStreak = 0;
     this.#handshakeComplete = false;
     this.#capabilities = undefined;
     this.#lastEventSequence = undefined;

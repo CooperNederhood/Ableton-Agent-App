@@ -5947,7 +5947,7 @@
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001114",
         "command": "arrangement.inspect",
-        "params": { "offset": 0, "limit": 100 }
+        "params": { "offset": 0, "limit": 16 }
       },
       "success": {
         "protocolVersion": 6,

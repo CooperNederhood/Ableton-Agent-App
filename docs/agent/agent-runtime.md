@@ -140,7 +140,11 @@ Attributed `agent.turn.timeout.paused` and `agent.turn.timeout.resumed` records
 capture the gate reason, request ID, remaining budget, pending-gate count, and
 human-wait duration. `agent.turn.timeout.cancelled` records interrupted waits
 without briefly restarting the timer during cancellation or disconnect.
-Tool- and bridge-level operation timeouts remain independent and unchanged.
+Tool- and bridge-level operation timeouts remain independent of this budget.
+Arrangement inspection uses pages of at most 16 clips. A busy bridge briefly
+waits for capacity and then returns `queue_full` before dispatch; wait for
+active calls to finish and resume with small sequential pages. A dispatched
+mutation timeout is not proof of failure: reinspect before any retry.
 
 Immediately before a plan-mode turn is sent to the SDK, the application appends
 `packages/application/prompts/plan-reminder.md` after all prepared context,

@@ -1933,6 +1933,7 @@ describe("AbletonBridgeService", () => {
       port,
       requestTimeoutMs: 80,
       requestQueueLimit: 1,
+      queueWaitTimeoutMs: 10,
       telemetry: {
         enqueue: (event) => {
           telemetry.push(telemetryEventEnvelopeSchema.parse(event));
@@ -1942,10 +1943,22 @@ describe("AbletonBridgeService", () => {
 
     await service.start();
     const first = service.ping();
-    await expect(service.ping()).rejects.toMatchObject({
-      code: "queue_full",
-      retryable: true,
+    registerCorrelationContext({
+      correlationId: "saturated-read",
+      traceId: "00000000-0000-4000-8000-000000000003",
+      causationId: "turn-with-saturated-read",
+      toolName: "ableton_session",
     });
+    try {
+      await expect(
+        withCorrelation("saturated-read", () => service.ping()),
+      ).rejects.toMatchObject({
+        code: "queue_full",
+        retryable: true,
+      });
+    } finally {
+      unregisterCorrelationContext("saturated-read");
+    }
     await expect(first).resolves.toEqual({ pong: true });
     expect(
       telemetry.find(
@@ -1958,6 +1971,218 @@ describe("AbletonBridgeService", () => {
       queueDepth: 1,
       queueLimit: 1,
     });
+    const saturation = telemetry.find(
+      ({ name, attributes }) =>
+        name === "bridge.request.failed" &&
+        attributes.errorCode === "queue_full",
+    );
+    expect(saturation).toMatchObject({
+      correlationId: "saturated-read",
+      causationId: "turn-with-saturated-read",
+      trace: { traceId: "00000000-0000-4000-8000-000000000003" },
+    });
+    expect(JSON.stringify(saturation)).not.toContain(token);
+    await service.stop();
+  });
+
+  it("waits briefly for capacity, then resumes queued calls in order", async () => {
+    const port = await startSimulator(token, {
+      delayCommand: "system.ping",
+      delayMs: 35,
+    });
+    const telemetry: TelemetryEventEnvelope[] = [];
+    const service = new AbletonBridgeService({
+      authenticationToken: token,
+      events: new InMemoryEventPublisher(),
+      port,
+      requestQueueLimit: 2,
+      queueWaitTimeoutMs: 200,
+      telemetry: { enqueue: (event) => telemetry.push(event) },
+    });
+    await service.start();
+    await expect(
+      Promise.all([
+        service.ping(),
+        service.ping(),
+        service.ping(),
+        service.ping(),
+      ]),
+    ).resolves.toEqual([
+      { pong: true },
+      { pong: true },
+      { pong: true },
+      { pong: true },
+    ]);
+    expect(
+      telemetry
+        .filter(({ name }) =>
+          ["bridge.request.backpressured", "bridge.request.resumed"].includes(
+            name,
+          ),
+        )
+        .map(({ name }) => name),
+    ).toEqual([
+      "bridge.request.backpressured",
+      "bridge.request.backpressured",
+      "bridge.request.resumed",
+      "bridge.request.resumed",
+    ]);
+    expect(
+      telemetry
+        .filter(({ name }) => name === "bridge.request.backpressured")
+        .map(({ attributes }) => attributes.requestId),
+    ).toEqual(
+      telemetry
+        .filter(({ name }) => name === "bridge.request.resumed")
+        .map(({ attributes }) => attributes.requestId),
+    );
+    expect(
+      telemetry.find(({ name }) => name === "bridge.request.resumed")
+        ?.durationMs,
+    ).toBeGreaterThan(0);
+    await service.stop();
+  });
+
+  it("cancels admission waiters when the connection closes", async () => {
+    const port = await startSimulator(token, {
+      delayCommand: "system.ping",
+      delayMs: 100,
+    });
+    const telemetry: TelemetryEventEnvelope[] = [];
+    const service = new AbletonBridgeService({
+      authenticationToken: token,
+      events: new InMemoryEventPublisher(),
+      port,
+      requestQueueLimit: 1,
+      queueWaitTimeoutMs: 1_000,
+      telemetry: { enqueue: (event) => telemetry.push(event) },
+    });
+    await service.start();
+    const calls = Promise.allSettled([service.ping(), service.ping()]);
+    await waitFor(() =>
+      telemetry.some(({ name }) => name === "bridge.request.backpressured"),
+    );
+    await service.stop();
+    expect((await calls).map(({ status }) => status)).toEqual([
+      "rejected",
+      "rejected",
+    ]);
+    expect(
+      telemetry.some(
+        ({ name, attributes }) =>
+          name === "bridge.request.cancelled" &&
+          attributes.errorCode === "connection_closed",
+      ),
+    ).toBe(true);
+  });
+
+  it("reduces admission after slow calls and restores it as Live recovers", async () => {
+    const port = await startSimulator(token, {
+      delayCommand: "system.ping",
+      delayMs: 1_100,
+    });
+    const telemetry: TelemetryEventEnvelope[] = [];
+    const service = new AbletonBridgeService({
+      authenticationToken: token,
+      events: new InMemoryEventPublisher(),
+      port,
+      requestTimeoutMs: 1_500,
+      requestQueueLimit: 4,
+      queueWaitTimeoutMs: 20,
+      telemetry: { enqueue: (event) => telemetry.push(event) },
+    });
+    await service.start();
+    await expect(service.ping()).resolves.toEqual({ pong: true });
+    const first = service.ping();
+    const second = service.ping();
+    await expect(service.ping()).rejects.toMatchObject({
+      code: "queue_full",
+    });
+    await expect(Promise.all([first, second])).resolves.toEqual([
+      { pong: true },
+      { pong: true },
+    ]);
+    expect(
+      telemetry.find(
+        ({ name, attributes }) =>
+          name === "bridge.request.failed" &&
+          attributes.errorCode === "queue_full",
+      )?.attributes.queueLimit,
+    ).toBe(2);
+    for (let index = 0; index < 6; index += 1) {
+      await service.inspectSession();
+    }
+    const pressureEvents = telemetry.filter(
+      ({ name }) => name === "bridge.request.backpressured",
+    ).length;
+    await expect(
+      Promise.all([service.ping(), service.ping()]),
+    ).resolves.toEqual([{ pong: true }, { pong: true }]);
+    expect(
+      telemetry.filter(({ name }) => name === "bridge.request.backpressured"),
+    ).toHaveLength(pressureEvents);
+    await service.stop();
+  });
+
+  it("cancels queued requests when a dispatched read times out", async () => {
+    const port = await startSimulator(token, {
+      delayCommand: "system.ping",
+      delayMs: 100,
+    });
+    const service = new AbletonBridgeService({
+      authenticationToken: token,
+      events: new InMemoryEventPublisher(),
+      port,
+      requestTimeoutMs: 20,
+      requestQueueLimit: 2,
+    });
+    await service.start();
+    const results = await Promise.allSettled([service.ping(), service.ping()]);
+    expect(results[0]).toMatchObject({
+      status: "rejected",
+      reason: { code: "operation_timeout", retryable: true },
+    });
+    expect(results[1]).toMatchObject({
+      status: "rejected",
+      reason: { code: "connection_closed" },
+    });
+    await service.stop();
+  });
+
+  it("allows a bounded fill to finish after the generic long timeout", async () => {
+    const port = await startSimulator(token, {
+      delayCommand: "arrangement.fill_region",
+      delayMs: 70,
+    });
+    const service = new AbletonBridgeService({
+      authenticationToken: token,
+      events: new InMemoryEventPublisher(),
+      port,
+      longRequestTimeoutMs: 20,
+      fillRequestTimeoutMs: 200,
+    });
+    await service.start();
+    const track = (await service.createTrack({ kind: "midi", name: "Tiles" }))
+      .track;
+    const source = await service.createMidiClip({
+      index: track.index,
+      expectedReference: track.reference,
+      expectedName: track.name,
+      sceneIndex: 0,
+      length: 4,
+      name: "Source",
+    });
+    await expect(
+      service.fillArrangementRegion({
+        index: track.index,
+        expectedReference: track.reference,
+        expectedName: track.name,
+        sceneIndex: 0,
+        expectedClipReference: source.clip.reference,
+        regionStart: 0,
+        regionEnd: 8,
+      }),
+    ).resolves.toMatchObject({ fullTileCount: 2, verified: true });
     await service.stop();
   });
 

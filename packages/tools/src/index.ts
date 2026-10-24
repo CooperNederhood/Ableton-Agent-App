@@ -1193,7 +1193,7 @@ Select only needed columns; filter narrowly by Live Set, time range, and IDs usi
   });
   const arrangementTool = defineTool("ableton_arrangement", {
     description:
-      "Inspects and mutates exact identity-bound Arrangement clips, including one efficient long-running region-fill action that never decomposes into repeated agent calls.",
+      "Inspects Arrangement clips in pages of at most 16 using offset/limit; mutates exact identity-bound clips, including one bounded long-running region-fill action that never decomposes into repeated agent calls.",
     parameters: abletonArrangementParamsSchema,
     handler: async (params) => {
       switch (params.action) {

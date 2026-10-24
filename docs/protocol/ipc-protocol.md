@@ -157,6 +157,9 @@ large or comparatively expensive parameter surfaces.
 `arrangement.fill_region` is also long-running: one bridge request executes a
 bounded deferred state machine that places at most four clips per Live tick and
 at most 128 clips total.
+`arrangement.inspect` defaults to 16 clips and rejects limits above 16 in both
+TypeScript and Python before Live execution. Iterate `offset` and `limit` to
+read more; results retain `clips`, `total`, `offset`, and `limit`.
 
 `arrangement.fill_region` uses a half-open `[regionStart, regionEnd)` interval.
 It places every complete source-length copy that fits and reports the uncovered
@@ -170,6 +173,10 @@ Three timeout layers are intentionally distinct:
 
 - normal bridge request: 5 seconds by default;
 - long bridge request: 15 seconds by default;
+- bounded `arrangement.fill_region` request: 60 seconds by default;
+- pre-dispatch admission wait: 5 seconds by default, separately bounded from
+  the execution deadline; expiry returns retryable `queue_full` without
+  dispatch, while queued callers are cancelled on disconnect;
 - Copilot agent turn: an application-owned cumulative active-work budget,
   defaulting to 600 seconds and configured from Desktop Settings. The
   application waits on SDK events directly and pauses this budget during human
@@ -178,6 +185,8 @@ Three timeout layers are intentionally distinct:
 An SDK turn abort does not prove that a dispatched mutation was cancelled.
 Read-only operations still report `operation_timeout`; an in-flight mutation
 reports `applied_indeterminate` and requires state reinspection.
+Any dispatched timeout closes the bridge connection so queued followers are
+not sent behind a possibly still-running command.
 
 ## Error taxonomy
 

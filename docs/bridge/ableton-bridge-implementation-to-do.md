@@ -20,6 +20,11 @@ Companion specification: [Ableton Bridge](ableton-bridge.md)
 - [~] Serialize Live requests and support workflow mutation leases.
   - [x] Serialize all primitive reads and mutations through a bounded FIFO
     bridge queue, starting response timeouts at dispatch.
+  - [x] Bound shared admission with FIFO waiters, adaptive latency-sensitive
+    limits, typed pre-dispatch saturation, and disconnect cancellation.
+  - [x] Close the connection on dispatched timeouts rather than draining
+    followers behind work that may still be running in Live.
+  - [x] Give bounded Arrangement region fills a distinct finite deadline.
   - [ ] Add multi-step workflow mutation leases.
 - [x] Implement bounded reconnect with jitter and explicit connection states.
 - [x] Reject all pending requests predictably after disconnect.
@@ -64,6 +69,8 @@ Companion specification: [Ableton Bridge](ableton-bridge.md)
 - [x] Test reconnect, event sequence gaps, queue saturation, and cancellation.
   - [x] Test bounded reconnect, event sequence-gap reporting, serialized reads,
     dispatch-scoped timeout budgets, queue saturation, and stop cancellation.
+  - [x] Regress adaptive slowdown/recovery, bounded waiter expiry, resumed
+    calls, read-timeout follower cancellation, and long fill completion.
 - [x] Run contract tests for every bridge method.
 - [~] Test lifecycle coverage, timing, trace continuity, and non-blocking
   observability during saturation, gaps, cancellation, and reconnect.

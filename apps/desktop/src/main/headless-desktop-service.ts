@@ -2614,10 +2614,29 @@ export class HeadlessDesktopService implements DesktopService {
       | undefined;
     if (capabilityDocument.capabilities["arrangement.inspect"] === true) {
       try {
-        arrangement = await this.#application.inspectArrangement({
+        const firstPage = await this.#application.inspectArrangement({
           offset: 0,
-          limit: 512,
+          limit: 16,
         });
+        const clips = [...firstPage.clips];
+        while (
+          clips.length < Math.min(firstPage.total, 512) &&
+          enrichmentGeneration === this.#snapshotEnrichmentGeneration
+        ) {
+          const nextPage = await this.#application.inspectArrangement({
+            offset: clips.length,
+            limit: 16,
+          });
+          if (
+            nextPage.offset !== clips.length ||
+            nextPage.total !== firstPage.total ||
+            nextPage.clips.length === 0
+          ) {
+            throw new Error("Arrangement changed during paged inspection");
+          }
+          clips.push(...nextPage.clips);
+        }
+        arrangement = { ...firstPage, clips };
       } catch (error) {
         unsupportedDomains.push("arrangement_clips");
         this.#warnOptionalEnrichment(

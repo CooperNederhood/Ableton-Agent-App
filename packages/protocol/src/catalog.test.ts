@@ -39,6 +39,13 @@ describe("command catalog", () => {
     expect(commandCatalog["session.inspect"].timeoutClass).toBe("long");
   });
 
+  it("bounds Arrangement inspection pages without changing pagination", () => {
+    const params = commandCatalog["arrangement.inspect"].params;
+    expect(params.parse({})).toEqual({ offset: 0, limit: 16 });
+    expect(params.safeParse({ offset: 32, limit: 16 }).success).toBe(true);
+    expect(params.safeParse({ offset: 32, limit: 512 }).success).toBe(false);
+  });
+
   it("covers every command issued by the TypeScript bridge", () => {
     const bridgeSource = readFileSync(
       resolve(process.cwd(), "packages/bridge/src/index.ts"),

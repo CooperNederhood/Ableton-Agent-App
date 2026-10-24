@@ -19,10 +19,13 @@ Companion specification: [Playback Listening](playback-listening.md).
 - [x] Reproduce descriptive policy and 100 ms clock-disagreement failures before
   the fix; cover full DSP duration, honest independent proof, SDK/Session
   adapters, timeouts, strict denial and generation-owned cleanup.
+- [x] Label descriptive targets as advisory in Settings and Context, preserving
+  actual beyond-target measurements and strict no-fallback wording. Cover
+  100/200 ms Context presentation and isolated Settings IPC/restart persistence.
 - [ ] Rebuild and install the integrated candidate after user app closure;
   confirm ordinary capture together. Synthetic acceptance is not physical
   qmetro qualification.
-- [ ] Compare playback and capture on the real host; investigate retention or
+- [ ] Compare playback and capture on the real host; investigate additional
   retention changes only if observed failures justify them. Do not weaken
   source/data integrity or claim frame-exact behavior from synthetic tests.
 - [ ] Restore one canonical device's Arrangement and Session support.

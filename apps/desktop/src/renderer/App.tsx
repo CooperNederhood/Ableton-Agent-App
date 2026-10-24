@@ -7538,7 +7538,7 @@ export function SettingsView({
           </small>
         </fieldset>
         <fieldset className="listening-settings">
-          <legend>Listening alignment acceptance</legend>
+          <legend>Listening timing</legend>
           <label>
             Listening timing mode
             <select
@@ -7560,7 +7560,7 @@ export function SettingsView({
             </select>
           </label>
           <label>
-            Configured acceptance limit (samples)
+            Timing target (samples)
             <input
               type="number"
               min="0"
@@ -7586,10 +7586,11 @@ export function SettingsView({
             />
           </label>
           <small>
-            Advanced: 0–480 whole samples; descriptive default 64. This limits
-            observed clock/beat disagreement, not physical timing uncertainty or
-            a verified absolute error bound. Strict requires zero observed
-            disagreement with no fallback. All new observations remain
+            Advanced: 0–480 whole samples; descriptive default 64. The
+            descriptive target is advisory, not a capture limit. Actual
+            clock/beat disagreement is retained without claiming physical timing
+            accuracy or a verified absolute error bound. Strict requires zero
+            observed disagreement with no fallback. All new observations remain
             approximate and descriptive-only, including at zero disagreement.
             Milliseconds are shown with measurements at the actual observation
             sample rate. Saved changes apply only to new passes; an active pass

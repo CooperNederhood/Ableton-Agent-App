@@ -44,6 +44,11 @@ descriptive-only timing with no absolute error estimate or verified bound.
 Explicit `strict` mode retains its zero-disagreement requirement. This
 supersedes historical descriptive-budget rejection descriptions below.
 
+Settings labels the retained preference as a timing target, and Context
+details distinguish the descriptive advisory target from a strict acceptance
+limit. Actual disagreements remain visible even when larger than the target;
+changing the target never claims or enforces an absolute error bound.
+
 Capture duration and complete descriptor coverage still use DSP counters.
 Wrong source/owner, changed transport or tempo, malformed DSP data, missing
 audio measurements and incomplete coverage remain failures. A duplicate DSP

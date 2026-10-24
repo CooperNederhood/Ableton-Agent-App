@@ -113,6 +113,8 @@ describe("stored listening context presentation", () => {
     [48_000, 64, "1.333", 128, "2.667", "0.667"],
     [44_100, 0, "0.000", 0, "0.000", "0.000"],
     [48_000, 0, "0.000", 0, "0.000", "0.000"],
+    [48_000, 4_800, "100.000", 64, "1.333", "50.000"],
+    [48_000, 9_600, "200.000", 64, "1.333", "100.000"],
   ])(
     "shows v2 approximate descriptive quality at actual %i Hz and %i observed samples",
     async (
@@ -174,7 +176,13 @@ describe("stored listening context presentation", () => {
         [...container.querySelectorAll("dt")].find(
           (item) => item.textContent === label,
         )?.nextElementSibling?.textContent;
-      expect(row("Configured acceptance limit")).toContain(
+      expect(
+        row(
+          samples === 0
+            ? "Configured acceptance limit"
+            : "Advisory timing target",
+        ),
+      ).toContain(
         `${configured} samples (${configuredMs} ms at ${sampleRate} Hz)`,
       );
       expect(row("Observed clock disagreement")).toBe(
@@ -193,6 +201,7 @@ describe("stored listening context presentation", () => {
         "Timing uncertainty (legacy v1)",
       );
       if (samples === 0) expect(container.textContent).toContain("no fallback");
+      else expect(container.textContent).toContain("not a capture limit");
     },
   );
 

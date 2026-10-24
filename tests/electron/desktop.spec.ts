@@ -282,9 +282,12 @@ test("round-trips listening Settings through typed preload and the isolated prof
       name: "Listening timing mode",
     });
     const limit = window.getByRole("spinbutton", {
-      name: "Configured acceptance limit (samples)",
+      name: "Timing target (samples)",
     });
     await expect(mode).toHaveValue("descriptive");
+    await expect(
+      window.getByText(/descriptive target is advisory, not a capture limit/),
+    ).toBeVisible();
     await expect(limit).toHaveValue("64");
     await limit.fill("128");
     await expect(limit).toHaveValue("128");
@@ -350,7 +353,7 @@ test("round-trips listening Settings through typed preload and the isolated prof
     ).toHaveValue("strict");
     await expect(
       window.getByRole("spinbutton", {
-        name: "Configured acceptance limit (samples)",
+        name: "Timing target (samples)",
       }),
     ).toBeDisabled();
     await expect(

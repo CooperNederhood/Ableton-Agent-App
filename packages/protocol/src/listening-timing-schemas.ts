@@ -16,6 +16,7 @@ const sampleRate = z.number().int().min(8_000).max(384_000);
 export const listeningTimingPolicySchema = z.discriminatedUnion("mode", [
   z.strictObject({
     mode: z.literal("descriptive"),
+    // Preserve the wire/preference field; the descriptive target is advisory.
     maxClockDisagreementSamples: configuredLimit,
   }),
   z.strictObject({

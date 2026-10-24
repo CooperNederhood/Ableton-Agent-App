@@ -301,11 +301,17 @@ function ObservationAlignment({ value }: { value: StoredAudioObservation }) {
     <>
       <dt>Alignment / intended use</dt>
       <dd>Approximate; descriptive-only</dd>
-      <dt>Configured acceptance limit</dt>
+      <dt>
+        {quality.policy.mode === "strict"
+          ? "Configured acceptance limit"
+          : "Advisory timing target"}
+      </dt>
       <dd>
         {quality.policy.mode};{" "}
         {measurement(quality.policy.maxClockDisagreementSamples)}
-        {quality.policy.mode === "strict" ? "; no fallback" : ""}
+        {quality.policy.mode === "strict"
+          ? "; no fallback"
+          : "; not a capture limit"}
       </dd>
       <dt>Observed clock disagreement</dt>
       <dd>{measurement(quality.observedClockDisagreementSamples)}</dd>

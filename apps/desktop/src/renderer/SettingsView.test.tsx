@@ -76,7 +76,7 @@ async function submit() {
 }
 
 describe("listening Settings interactions", () => {
-  it("shows default sample acceptance independently of measured/unknown absolute accuracy", async () => {
+  it("shows the default advisory target without claiming absolute accuracy", async () => {
     await render();
     expect(mode().value).toBe("descriptive");
     expect(limit().value).toBe("64");
@@ -84,7 +84,13 @@ describe("listening Settings interactions", () => {
     expect(limit().min).toBe("0");
     expect(limit().max).toBe("480");
     expect(limit().step).toBe("1");
-    expect(container.textContent).toContain("not physical timing uncertainty");
+    expect(limit().labels?.item(0)?.textContent).toContain("Timing target");
+    expect(container.textContent).toContain(
+      "descriptive target is advisory, not a capture limit",
+    );
+    expect(container.textContent).toContain(
+      "without claiming physical timing accuracy",
+    );
     expect(container.textContent).toContain("actual observation sample rate");
     expect(container.textContent).toContain(
       "an active pass keeps its starting policy",
@@ -92,7 +98,7 @@ describe("listening Settings interactions", () => {
     expect(set).not.toHaveBeenCalled();
   });
 
-  it("saves advanced descriptive limits and enforces strict zero with no fallback", async () => {
+  it("saves advanced descriptive targets and enforces strict zero with no fallback", async () => {
     await render();
     await changeLimit("480");
     await submit();

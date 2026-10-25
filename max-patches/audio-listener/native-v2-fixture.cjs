@@ -58,10 +58,10 @@ function v2Fixture(options = {}) {
       onDisarmed: options.onDisarmed,
     });
   const launchPhase = Math.min(64, geometry.vectorSize);
-  const armCounter = 65536,
+  const armCounter = options.armCounter ?? 65536,
     origin = armCounter + 512;
   const offset = options.offset ?? 1000000;
-  const fftBaseline = 64000;
+  const fftBaseline = options.fftBaseline ?? 64000;
   const packet = (type, values, generation = controller.pass?.generation) =>
     controller.ingest({ generation, type, values });
   const clock = (
@@ -94,7 +94,7 @@ function v2Fixture(options = {}) {
     energy,
     end - 2048,
     end,
-    11,
+    options.invalidFrames ?? 11,
   ];
   const envelope = (count = 0) => [
     controller.pass?.nativeEpoch ?? 0,
@@ -177,16 +177,17 @@ function v2Fixture(options = {}) {
       const end = origin + count;
       packet("clock", clock(end + 64));
       while (nextFFT <= end) {
-        packet(
-          "spectrum",
-          spectrum(
-            nextFFT,
-            options.silent
-              ? 0
-              : rate / (16 + (Math.floor(nextFFT / 2048) % 3) * 8),
-            options.silent ? 0 : 1 + (Math.floor(nextFFT / 2048) % 3),
-          ),
-        );
+        if (options.spectrumFilter?.(nextFFT, end) !== false)
+          packet(
+            "spectrum",
+            spectrum(
+              nextFFT,
+              options.silent
+                ? 0
+                : rate / (16 + (Math.floor(nextFFT / 2048) % 3) * 8),
+              options.silent ? 0 : 1 + (Math.floor(nextFFT / 2048) % 3),
+            ),
+          );
         nextFFT += 2048;
       }
       packet("envelope", envelope(count));

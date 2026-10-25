@@ -828,6 +828,8 @@ class NativeCaptureController {
         v[0] < previous[0] ||
         (v[0] - previous[0]) % 2048 !== 0 ||
         (this.state === "capturing" &&
+          (this.nativeVersion !== 2 ||
+            p.command.timingPolicy.mode === "strict") &&
           v[0] !== previous[0] &&
           v[0] - previous[0] !== 2048) ||
         (v[0] === previous[0] &&

@@ -231,6 +231,75 @@ test("controller epoch handoff rejects invalid seeds and fails closed at exhaust
   assert.equal(controller.state, "failed");
 });
 
+test("recorded unused spectral snapshot does not reject complete descriptive measurements", async () => {
+  const recorded = JSON.parse(
+    await readFile(
+      new URL(
+        "./fixtures/native-v2-descriptive-unused-spectrum-gap.json",
+        import.meta.url,
+      ),
+      "utf8",
+    ),
+  );
+  assert.equal(recorded.packet[0] - recorded.previousPacket[0], 4096);
+  assert.equal(
+    recorded.nextEnvelopeCounter,
+    recorded.nativeOriginCounter + 16 * 4800,
+  );
+  assert(recorded.missingSnapshotCounter < recorded.nextEnvelopeCounter - 2048);
+  const f = v2Fixture({
+    armCounter: recorded.nativeOriginCounter - 512,
+    fftBaseline: Math.floor((recorded.nativeOriginCounter - 576) / 2048) * 2048,
+    total: recorded.totalSamples,
+    geometry: { tempoBpm: recorded.tempoBpm, endBeat: 13.25 },
+    spectrumFilter: (end) => end !== recorded.missingSnapshotCounter,
+  });
+  await f.start();
+  f.capture();
+  f.post();
+  const terminal = validate(f);
+  assert.equal(terminal.nativeCapture.envelopeWindows.length, 38);
+  assert.equal(terminal.nativeCapture.spectralWindows.length, 38);
+  assert.equal(
+    terminal.observation.endSample - terminal.observation.startSample,
+    recorded.totalSamples,
+  );
+  const generation = f.controller.pendingDisarm.generation;
+  f.packet("stopped", [0, 0, 2], generation);
+  assert.equal(f.controller.pendingDisarm, null);
+});
+
+for (const rate of [44100, 48000])
+  test(`descriptive ${rate}Hz capture needs required FFT windows, not every optional spectral snapshot`, async () => {
+    const f = v2Fixture({
+      rate,
+      total: rate * 4 + 1,
+      spectrumFilter: (end, envelopeEnd) => envelopeEnd - end < 2048,
+    });
+    await f.start();
+    f.capture();
+    f.post();
+    const terminal = validate(f);
+    assert.equal(
+      terminal.nativeCapture.spectralWindows.length,
+      Math.ceil(f.geometry.totalSamples / f.geometry.hopSamples),
+    );
+    assert.equal(terminal.observation.complete, true);
+  });
+
+test("strict mode still requires continuous optional spectral snapshots", async () => {
+  const f = v2Fixture({
+    policy: { mode: "strict", maxClockDisagreementSamples: 0 },
+    spectrumFilter: (end, envelopeEnd) => envelopeEnd - end < 2048,
+  });
+  await f.start();
+  f.capture();
+  const failure = f.events.find((event) => event.type === "terminal");
+  assert.equal(failure.status, "failed");
+  assert.equal(failure.reason, "changed_native_spectrum_sequence");
+  assert.equal(failure.nativeCapture, undefined);
+});
+
 test("recorded low-priority spectrum frame loss remains a hard failure inside requested coverage", async () => {
   const recorded = JSON.parse(
     await readFile(
@@ -248,24 +317,35 @@ test("recorded low-priority spectrum frame loss remains a hard failure inside re
   );
   assert(recorded.packet[0] < recorded.requestedEndCounter);
   assert.equal(recorded.packet[5], 0);
-  const f = v2Fixture();
+  const f = v2Fixture({
+    armCounter: recorded.nativeOriginCounter - 512,
+    fftBaseline: Math.floor((recorded.nativeOriginCounter - 576) / 2048) * 2048,
+    total: recorded.requestedEndCounter - recorded.nativeOriginCounter,
+    silent: true,
+    invalidFrames: 0,
+    spectrumFilter: (end) =>
+      end <= recorded.previousPacket[0] || end >= recorded.packet[0],
+  });
   await f.start();
   const p = f.controller.pass;
-  p.spectrum = [...recorded.previousPacket];
-  f.packet("spectrum", recorded.packet);
+  f.capture();
   assert.equal(f.controller.state, "failed");
-  assert.equal(p.nativeFailureDiagnostic.check, "sequence");
-  assert.deepEqual(
-    p.nativeFailureDiagnostic.previousPacket,
-    recorded.previousPacket,
+  assert.equal(
+    f.events.find((event) => event.type === "terminal")?.reason,
+    "native_fft_window_missing",
   );
-  assert.deepEqual(p.nativeFailureDiagnostic.packet, recorded.packet);
+  assert.equal(
+    f.events.find((event) => event.type === "terminal")?.observation.samples
+      .length,
+    recorded.completedEnvelopeWindows,
+  );
   assert(
     f.events.some(
       (event) =>
         event.type === "terminal" &&
         event.status === "failed" &&
-        event.reason === recorded.failureReason,
+        event.reason === "native_fft_window_missing" &&
+        event.nativeCapture === undefined,
     ),
   );
   f.packet("stopped", [0, 0, 2], p.generation);
@@ -2047,7 +2127,11 @@ test("native-v2 malformed metadata, data gaps, strict clock faults and cancellat
       f.time(1001);
       f.controller.tick();
     }
-    if (kind === "skipped-fft") f.packet("spectrum", f.spectrum(64000 + 4096));
+    if (kind === "skipped-fft") {
+      f.packet("clock", f.clock(f.origin + f.geometry.hopSamples + 64));
+      f.packet("envelope", f.envelope(f.geometry.hopSamples));
+      f.packet("spectrum", f.spectrum(64000 + 8192));
+    }
     if (kind === "changed-spectrum")
       f.packet("spectrum", f.spectrum(64000, 100, 1));
     if (kind === "envelope-queue")

@@ -48,6 +48,7 @@ for (const version of [3, 4])
           ["completed", "cancelled", "failed"].map((outcome) => ({
             outcome,
             deviation,
+            spectrumFilter: (end, envelopeEnd) => envelopeEnd - end < 2048,
           })),
       ))
         test(`native wire${version} ${mode} ${rate}Hz ${deviation} sample clock disagreement real SDK authentication/framing ${outcome}, native ABI remains2`, async () => {

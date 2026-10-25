@@ -81,6 +81,27 @@ graphs were checked; Desktop was replaced, authenticated and launched. Fresh
 Live capture and audible acceptance remain unverified. Saved Sets must load a
 fresh device instance before they can qualify the newly installed resources.
 
+### Descriptive spectral snapshot coverage
+
+Descriptive ABI2 capture requires the latest complete FFT window for each
+published envelope measurement, not every intermediate message-rate snapshot.
+Low-priority collection may skip an intermediate FFT snapshot that no published
+measurement needs. The existing assembler and independent proof verifier still
+require a complete, correctly aligned 2048-sample spectral window ending before
+each measurement and less than 2048 samples away. A missing required window,
+changed duplicate, backward/off-grid packet or invalid-frame counter change
+still fails; no stale substitute, interpolation or fabricated data is accepted.
+Strict and legacy capture retain their every-frame sequence requirement.
+
+The first integrated normal-profile attempt failed after 15 measurements:
+its FFT counter jumped by 4096 samples, skipping one intermediate snapshot.
+The requested range was eight beats at 128 BPM, not four, and no context was
+published. Replaying those coordinates reproduces the overly strict rejection;
+the corrected descriptive path completes independent coverage checks. The
+older recorded five-frame loss still fails because it omits required
+measurement coverage. These are synthetic regressions, not a successful retry
+of the failed physical pass. The user reported no ordinary-playback crackles.
+
 ## Full-active-region Session listening
 
 `play-session-and-listen` now defaults to one active loop for looping MIDI or

@@ -4,6 +4,17 @@ Companion specification: [Playback Listening](playback-listening.md).
 
 ## Audio-safe capture checkpoints
 
+- [x] Record clean enabled-device ordinary playback after the integrated
+  installation, followed by failed pass `b47c8393-1f30-40c5-9166-db78ee84c8d2`
+  (`changed_native_spectrum_sequence`, 15 measurements, no context). Preserve
+  exact rejected/previous packet coordinates and distinguish unused FFT
+  snapshots from missing required measurement coverage.
+- [x] Reproduce unused-snapshot rejection before the fix. Descriptive ABI2
+  delegates required-window coverage to the existing assembler and independent
+  verifier; retain strict/legacy sequence, changed/invalid/reordered packet
+  guards and required-window failure. No buffering or fabricated frames.
+- [ ] Install the follow-up spectral-snapshot correction after coordinated app
+  closure, then repeat the human-assisted bounded capture checkpoint.
 - [x] Replace native clock/analysis metro directly with request-gated qmetro,
   retaining existing capture measurements and validation without adding a
   buffering subsystem.

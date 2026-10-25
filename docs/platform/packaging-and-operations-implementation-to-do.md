@@ -11,8 +11,12 @@ Companion specification: [Packaging and Operations](packaging-and-operations.md)
   and advisory timing changes; reject Session-only, implicit-mode or oversized
   provider claims even after self-rehashing. Synthetic installed-artifact tests
   verify qmetro graph entries and explicit per-pass mode metadata.
-- [ ] Install and physically qualify that integrated wire4/protocol8 candidate
-  after user app closure; historical v3 installs are not wire4 acceptance.
+- [x] Install that integrated wire4/protocol8 candidate after user app closure.
+  Verify all three installed components are current, actual qmetro/mode metadata
+  is correct and the signed installed Desktop authenticates and launches.
+  Deployment trace: `bbcb1938-a23d-4e60-a32d-7170bad682d6`.
+- [ ] Physically qualify the new candidate in fresh Live/device instances;
+  historical v3 installs and packaged smoke tests are not capture acceptance.
 - [x] Install both managed bundles with the Remote Script through a shared typed
   installer and CLI, preserving tokens/unrelated files and stopped-Live guards
   even when Python is skipped.

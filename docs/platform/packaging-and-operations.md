@@ -120,9 +120,12 @@ bridge contract.
 
 The integrated wire4/protocol8 candidate is built and covered by strict
 payload and synthetic installed-artifact checks, including the actual qmetro
-clock/analysis entries. It has not replaced the user's previously loaded
-device. Fresh physical registration, capture and visible cross-app acceptance
-remain separate checks after coordinated app closure and installation.
+clock/analysis entries. After user-confirmed app closure, the compatible Desktop,
+Remote Script and both canonical device bundles were installed in the selected
+default profile. Installed mode/qmetro resources and production Desktop
+signing/authentication/startup were verified. This does not reload a saved Set's
+device instance; fresh physical registration, capture and visible cross-app
+acceptance remain separate checks.
 
 The installer resolves the Library once, honoring an explicit selection,
 `ABLETON_USER_LIBRARY`, or the selected profile's configured Remote Script

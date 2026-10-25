@@ -75,8 +75,11 @@ The shared producer SDK also accepts honest beyond-target descriptive results,
 including partial failure observations; strict results retain their exact
 acceptance rule. Both timing directions, eight-beat native duration, exact-end
 source sealing and cancellation/cleanup are covered at their owning boundaries.
-The canonical bundle is rebuilt and verified synthetically, not installed or
-newly qualified against a physical host.
+The canonical bundle was rebuilt, verified synthetically and installed after
+the user confirmed app closure. Installed wire4 mode metadata and both qmetro
+graphs were checked; Desktop was replaced, authenticated and launched. Fresh
+Live capture and audible acceptance remain unverified. Saved Sets must load a
+fresh device instance before they can qualify the newly installed resources.
 
 ## Full-active-region Session listening
 

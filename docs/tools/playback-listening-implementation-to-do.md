@@ -24,9 +24,13 @@ Companion specification: [Playback Listening](playback-listening.md).
   100/200 ms Context presentation and isolated Settings IPC/restart persistence.
 - [x] Rebuild the integrated wire4/ABI2, protocol8 candidate and verify its
   complete inventory, explicit modes and qmetro graph without installing it.
-- [ ] Install the integrated candidate after user app closure;
-  confirm ordinary capture together. Synthetic acceptance is not physical
-  qmetro qualification.
+- [x] Install the compatible app, Remote Script and both canonical devices
+  after confirmed user app closure. Verify installed mode/qmetro resources,
+  production signing/authentication and Desktop startup; deployment trace
+  `bbcb1938-a23d-4e60-a32d-7170bad682d6`.
+- [ ] Confirm ordinary playback/capture together with a freshly inserted
+  instance. Installation and synthetic acceptance are not physical qmetro
+  qualification.
 - [ ] Compare playback and capture on the real host; investigate additional
   retention changes only if observed failures justify them. Do not weaken
   source/data integrity or claim frame-exact behavior from synthetic tests.
@@ -96,8 +100,10 @@ Companion specification: [Playback Listening](playback-listening.md).
   discrepancy. Keep source/coverage, strict and cleanup guards intact.
 - [x] Pass combined serial validation: 3,223 TypeScript tests, 736 Max tests,
   276 Python tests and three isolated Electron Settings/lifecycle/context tests.
-- [ ] Install the final integrated canonical payload and run the reviewed
-  dual-mode scenarios followed by the owning suite only after the user closes
+- [x] Install the final integrated canonical payload in the selected default
+  profile and verify all three components report current against the installed
+  app's resources. No user Set was modified.
+- [ ] Run the reviewed dual-mode scenarios and owning suite only after the user closes
   their own Live process. Preserve actual Live11 version and isolated exact-PID
   evidence; no physical or visible acceptance is claimed by lower-layer tests.
 

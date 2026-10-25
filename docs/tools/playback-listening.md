@@ -101,6 +101,10 @@ the corrected descriptive path completes independent coverage checks. The
 older recorded five-frame loss still fails because it omits required
 measurement coverage. These are synthetic regressions, not a successful retry
 of the failed physical pass. The user reported no ordinary-playback crackles.
+The corrected `a436fed` candidate was subsequently installed after user-confirmed
+app closure (trace `39ba658f-2a7e-4190-8dc6-7956aed6b7e9`). Installed controller
+bytes match the source and all integrations report current against the signed
+app. A fresh-device physical capture retry remains pending.
 
 ## Full-active-region Session listening
 
@@ -129,9 +133,9 @@ and native cleanup remain generation-owned, traced, bounded, cancellable and
 leave-running; no seek, transport ownership or timing-policy change is added.
 
 These expanded boundaries have deterministic regression coverage, not fresh
-physical qualification. Real-Live smoke and visible UX reruns are blocked while
-the user's Live/Desktop processes remain open; no integration is reinstalled
-and no user process is adopted or closed. The historical MVP evidence below
+physical qualification. Fresh runner-owned Real-Live smoke and visible UX reruns
+remain pending; no user process is adopted or closed by automation. Installation
+and synthetic acceptance do not qualify physical capture. The historical MVP evidence below
 only qualifies its original four-beat-before-eight-beat-end cases.
 The new `covered` output status requires bridge protocol 8. A protocol-7 Remote
 Script must fail the handshake explicitly, not silently downgrade this behavior;

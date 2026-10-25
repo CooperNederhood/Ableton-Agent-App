@@ -13,8 +13,11 @@ Companion specification: [Playback Listening](playback-listening.md).
   delegates required-window coverage to the existing assembler and independent
   verifier; retain strict/legacy sequence, changed/invalid/reordered packet
   guards and required-window failure. No buffering or fabricated frames.
-- [ ] Install the follow-up spectral-snapshot correction after coordinated app
-  closure, then repeat the human-assisted bounded capture checkpoint.
+- [x] Install follow-up `a436fed` after coordinated app closure, trace
+  `39ba658f-2a7e-4190-8dc6-7956aed6b7e9`. Verify signed app, production
+  authentication, exact controller bytes and all integrations current.
+- [ ] Repeat the human-assisted bounded capture with a freshly inserted device.
+  Do not treat installation or synthetic success as physical capture evidence.
 - [x] Replace native clock/analysis metro directly with request-gated qmetro,
   retaining existing capture measurements and validation without adding a
   buffering subsystem.

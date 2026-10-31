@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import type { AudioObservation } from "@ableton-agent/protocol";
+import { createSyntheticPartialMetricListeningObservation } from "@ableton-agent/protocol/testing";
+import type { TelemetryEventEnvelope } from "@ableton-agent/observability";
+import { createListeningTools } from "@ableton-agent/tools";
 import {
   createListeningHost,
   type ListeningHostOptions,
@@ -88,6 +91,7 @@ function fixture(overrides: Partial<ListeningHostOptions> = {}) {
     validateObservations: vi.fn(),
   };
   const resolveOwner = vi.fn(async () => owner);
+  const enqueue = vi.fn<(event: TelemetryEventEnvelope) => void>();
   const host = createListeningHost({
     services,
     resolveOwner,
@@ -100,9 +104,10 @@ function fixture(overrides: Partial<ListeningHostOptions> = {}) {
       throw new Error("Session target not configured for this fixture");
     },
     createId: () => `pass-${++id}`,
+    telemetry: { enqueue },
     ...overrides,
   });
-  return { host, services, resolveOwner, stop, disarm };
+  return { host, services, resolveOwner, stop, disarm, enqueue };
 }
 
 async function complete(f: ReturnType<typeof fixture>) {
@@ -117,6 +122,321 @@ async function complete(f: ReturnType<typeof fixture>) {
 }
 
 describe("owned listening tool host", () => {
+  it("preserves published partial metrics through public get, list and terminal cancellation", async () => {
+    const f = fixture();
+    vi.mocked(f.services.prepare).mockImplementation(
+      async ({ passId, trace }) => {
+        const observation = createSyntheticPartialMetricListeningObservation({
+          endBeat: request.endBeat,
+        });
+        observation.ownership = { ...observation.ownership, ...trace, passId };
+        return {
+          observationContract: "independent-metric-timelines/v1",
+          observations: Promise.resolve([observation]),
+          disarm: f.disarm,
+        };
+      },
+    );
+    const accepted = await f.host.executeListeningOperation(request, context);
+    if (accepted.action !== request.action)
+      throw new Error("Unexpected action");
+    const terminal = await f.host.waitForListeningPass(
+      accepted.job.passId,
+      context,
+    );
+    expect(terminal.stage).toBe("partial");
+    for (const action of ["get-pass", "cancel"] as const) {
+      const result = await f.host.executeListeningOperation(
+        {
+          action,
+          passId: terminal.passId,
+        },
+        context,
+      );
+      if (result.action !== action) throw new Error("Unexpected action");
+      expect(result.job).toMatchObject({
+        stage: "partial",
+        contextIds: [`entry-${terminal.passId}`],
+        metricResults: terminal.metricResults,
+      });
+      expect(result.job.error).toBeUndefined();
+    }
+    const listed = await f.host.executeListeningOperation(
+      { action: "list-passes", limit: 20 },
+      context,
+    );
+    if (listed.action !== "list-passes") throw new Error("Unexpected action");
+    expect(listed.jobs[0]!.stage).toBe("partial");
+    expect(listed.jobs[0]!.metricResults).toEqual(terminal.metricResults);
+    expect(f.disarm).toHaveBeenCalledTimes(1);
+    await f.host.shutdown();
+  });
+
+  it("redacts inspection strings without turning uncommissioned readiness into a mismatch or starting a pass", async () => {
+    const f = fixture({
+      inspectListeners: async () => ({
+        action: "inspect-listeners",
+        truncated: false,
+        listeners: [
+          {
+            listenerId: "listener",
+            instanceId: "instance",
+            trackReference: "track",
+            deviceReference: "device",
+            displayName: "password=inspection-private-secret",
+            ready: false,
+            limitations: [
+              "native_per_pass_validation_required",
+              "Bearer limitation-private-secret",
+            ],
+          },
+        ],
+      }),
+    });
+    const result = await f.host.executeListeningOperation(
+      { action: "inspect-listeners" },
+      context,
+    );
+    expect(result).toMatchObject({
+      listeners: [
+        {
+          ready: false,
+          limitations: [
+            "native_per_pass_validation_required",
+            "Bearer [REDACTED]",
+          ],
+        },
+      ],
+    });
+    expect(JSON.stringify(result)).not.toContain("private-secret");
+    expect(f.services.prepare).not.toHaveBeenCalled();
+    await f.host.shutdown();
+  });
+
+  it("records the exact input-schema value and bound before pass admission", async () => {
+    const f = fixture();
+    await expect(
+      f.host.executeListeningOperation(
+        {
+          ...request,
+          maximumDurationMs: 300_001,
+        },
+        context,
+      ),
+    ).rejects.toThrow();
+    expect(f.enqueue.mock.lastCall?.[0].attributes.facts).toContainEqual({
+      field: "issue.0.value",
+      actual: { state: "observed", value: 300_001 },
+      expected: { state: "observed", value: 300_000 },
+      comparison: "at-most",
+    });
+    expect(f.enqueue.mock.lastCall?.[0].attributes).not.toHaveProperty(
+      "passId",
+    );
+    expect(f.resolveOwner).not.toHaveBeenCalled();
+    await f.host.shutdown();
+  });
+
+  it.each([
+    "input-schema",
+    "initiating-agent",
+    "resolve-owner",
+    "session-target",
+    "inspect-listeners",
+    "result-schema",
+    "result-action",
+  ] as const)(
+    "attributes pre-pass %s rejection without logging rejected bodies",
+    async (boundary) => {
+      const overrides: {
+        -readonly [
+          Key in keyof ListeningHostOptions
+        ]?: ListeningHostOptions[Key];
+      } = {};
+      if (boundary === "resolve-owner")
+        overrides.resolveOwner = async () => {
+          throw new Error("Owner unavailable");
+        };
+      if (boundary === "inspect-listeners")
+        overrides.inspectListeners = async () => {
+          throw new Error("Inspection unavailable");
+        };
+      if (boundary === "result-schema")
+        overrides.inspectListeners = async () =>
+          ({
+            action: "inspect-listeners",
+            rawAudio: "rejected-private-body",
+          }) as never;
+      if (boundary === "result-action")
+        overrides.inspectListeners = async () =>
+          ({ action: "list-passes", jobs: [] }) as never;
+      const f = fixture(overrides);
+      const input =
+        boundary === "input-schema"
+          ? { ...request, rawAudio: "rejected-private-body" }
+          : boundary === "session-target"
+            ? {
+                action: "play-session-and-listen" as const,
+                target: {
+                  view: "session" as const,
+                  track: {
+                    kind: "regular" as const,
+                    index: 0,
+                    expectedName: "Track",
+                    expectedReference: context.trace.traceId,
+                  },
+                  sceneIndex: 0,
+                  expectedClipName: "Clip",
+                  expectedClipReference: context.trace.correlationId,
+                },
+                listenerIds: ["listener"],
+                maximumDurationMs: 1000,
+              }
+            : ["inspect-listeners", "result-schema", "result-action"].includes(
+                  boundary,
+                )
+              ? { action: "inspect-listeners" as const }
+              : request;
+      await expect(
+        f.host.executeListeningOperation(input, {
+          ...context,
+          ...(boundary === "initiating-agent"
+            ? { actorKind: "application" as const }
+            : {}),
+        }),
+      ).rejects.toThrow();
+      expect(f.enqueue.mock.lastCall?.[0]).toMatchObject({
+        name: "listening.attempt.failed",
+        trace: { traceId: context.trace.traceId },
+        attributes: {
+          checkId: `application.host.${boundary}`,
+          passIdState: "not-accepted",
+        },
+      });
+      expect(JSON.stringify(f.enqueue.mock.calls)).not.toContain(
+        "rejected-private-body",
+      );
+      expect(f.services.prepare).not.toHaveBeenCalled();
+      await f.host.shutdown();
+    },
+  );
+
+  it("carries bounded primary evidence through wait, get/list and the tool contract without owner leakage", async () => {
+    const f = fixture();
+    f.services.prepare = async ({ passId, trace }) => {
+      throw Object.assign(new Error("Native preflight rejected"), {
+        code: "stale_native_preflight",
+        failureEvidence: {
+          schema: "listening-failure/v1",
+          code: "stale_native_preflight",
+          phase: "preflight",
+          component: "native-controller",
+          checkId: "native.preflight.clock-coverage",
+          summary: "password=host-private-secret",
+          coverage: "complete",
+          coverageReasons: [],
+          facts: [
+            {
+              field: "acceptedClocks",
+              actual: { state: "observed", value: 0 },
+              expected: { state: "observed", value: 1 },
+              comparison: "at-least",
+              unit: "count",
+            },
+          ],
+          reference: { passId, traceId: trace.traceId },
+        },
+      });
+    };
+    const accepted = await f.host.executeListeningOperation(request, context);
+    if (accepted.action !== request.action)
+      throw new Error("Unexpected action");
+    const terminal = await f.host.waitForListeningPass(
+      accepted.job.passId,
+      context,
+    );
+    const get = await f.host.executeListeningOperation(
+      { action: "get-pass", passId: accepted.job.passId },
+      context,
+    );
+    const list = await f.host.executeListeningOperation(
+      { action: "list-passes", limit: 20 },
+      context,
+    );
+    expect(terminal).toMatchObject({
+      stage: "failed",
+      failureEvidence: {
+        checkId: "native.preflight.clock-coverage",
+        component: "native-controller",
+        coverage: "complete",
+      },
+    });
+    const expectedEvidence = {
+      checkId: terminal.failureEvidence?.checkId,
+      component: "native-controller",
+      facts: terminal.failureEvidence?.facts,
+      reference: terminal.failureEvidence?.reference,
+      coverage: terminal.failureEvidence?.coverage,
+    };
+    expect(get).toMatchObject({ job: { failureEvidence: expectedEvidence } });
+    expect(list).toMatchObject({
+      jobs: [{ failureEvidence: expectedEvidence }],
+    });
+    const [tool] = createListeningTools({
+      executeListeningOperation: (params) =>
+        f.host.executeListeningOperation(params, context),
+      executeContextOperation: async () => ({ action: "list", entries: [] }),
+    });
+    const toolParams = {
+      action: "get-pass" as const,
+      passId: accepted.job.passId,
+    };
+    const toolResult = await tool.handler?.(toolParams, {
+      sessionId: "sdk-session",
+      toolCallId: "sdk-call",
+      toolName: "ableton_listening",
+      arguments: toolParams,
+    });
+    expect(toolResult).toMatchObject({
+      job: { failureEvidence: expectedEvidence },
+    });
+    expect(JSON.stringify(toolResult)).not.toContain("host-private-secret");
+    expect(JSON.stringify([terminal, get, list])).not.toContain(
+      "host-private-secret",
+    );
+    expect(JSON.stringify([get, list])).not.toContain("live-set");
+    expect(get).not.toHaveProperty("job.session");
+    await f.host.shutdown();
+  });
+
+  it("records pre-pass host guards with original trace and no invented pass or raw parameters", async () => {
+    const enqueue = vi.fn<(event: TelemetryEventEnvelope) => void>();
+    const f = fixture({
+      telemetry: { enqueue },
+      resolveOwner: async () => ({ ...owner, agentId: "other-agent" }),
+    });
+    await expect(
+      f.host.executeListeningOperation(request, context),
+    ).rejects.toMatchObject({ code: "permission_denied" });
+    expect(enqueue.mock.lastCall?.[0]).toMatchObject({
+      name: "listening.attempt.failed",
+      trace: { traceId: context.trace.traceId },
+      attributes: {
+        checkId: "application.host.resolved-owner",
+        passIdState: "not-accepted",
+      },
+    });
+    expect(enqueue.mock.lastCall?.[0].attributes.facts).toContainEqual({
+      field: "agentId",
+      actual: { state: "observed", value: "other-agent" },
+      expected: { state: "observed", value: context.agentId },
+      comparison: "equal",
+    });
+    expect(enqueue.mock.lastCall?.[0].attributes).not.toHaveProperty("passId");
+    expect(f.services.prepare).not.toHaveBeenCalled();
+    await f.host.shutdown();
+  });
+
   it("rejects cancelled ownership resolution before starting any native job", async () => {
     const resolveOwner = vi.fn(() => new Promise<typeof owner>(() => {}));
     const f = fixture({ resolveOwner });

@@ -21,6 +21,9 @@ export default defineConfig({
       "@ableton-agent/protocol/testing": source(
         "./packages/protocol/src/testing.ts",
       ),
+      "@ableton-agent/signal-routing/testing": source(
+        "./packages/signal-routing/src/listener-metric-test-support.ts",
+      ),
       "@ableton-agent/ableton-contracts": source(
         "./packages/ableton-contracts/src/index.ts",
       ),

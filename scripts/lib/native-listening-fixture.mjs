@@ -20,6 +20,7 @@ const scopes = {
   2: "arrangement-descriptive/v2",
   3: "session-transport-coupled/v1",
   4: "mode-negotiated-transport/v1",
+  5: "independent-metric-timelines/v1",
 };
 
 async function boundedFile(path, limit) {
@@ -140,7 +141,9 @@ export function inspectNativeFixtureSet(bytes, input) {
       );
     } else {
       if (
-        (input.nativeVersion === 3 || input.nativeVersion === 4) &&
+        (input.nativeVersion === 3 ||
+          input.nativeVersion === 4 ||
+          input.nativeVersion === 5) &&
         xmlValue(ref, "RelativePathType") !== "3"
       )
         throw new Error(
@@ -180,7 +183,7 @@ export async function stageNativeListeningFixture({
   return stage("fixture-stage", async () => {
     signal?.throwIfAborted();
     if (
-      ![1, 2, 3, 4].includes(nativeVersion) ||
+      ![1, 2, 3, 4, 5].includes(nativeVersion) ||
       (input.nativeVersion === undefined ? 1 : input.nativeVersion) !==
         nativeVersion
     )
@@ -226,14 +229,19 @@ export async function stageNativeListeningFixture({
       (nativeVersion === 1
         ? manifest.nativeVersion !== undefined
         : manifest.nativeVersion !== nativeVersion ||
-          manifest.algorithmVersion !== "2.0.0" ||
-          manifest.observationSchema !== "audio-observation/v2" ||
+          manifest.algorithmVersion !==
+            (nativeVersion === 5 ? "3.0.0" : "2.0.0") ||
+          manifest.observationSchema !==
+            (nativeVersion === 5
+              ? "metric-audio-observation/v1"
+              : "audio-observation/v2") ||
           manifest.providerLimits?.durationMs !== 30000 ||
-          manifest.providerLimits?.maxWindows !== 300 ||
+          manifest.providerLimits?.maxWindows !==
+            (nativeVersion === 5 ? 2000 : 300) ||
           manifest.tempoPolicy !== "constant-tempo-assumed" ||
           manifest.tempoAutomationSupported !== false) ||
-      (nativeVersion === 4 &&
-        (manifest.nativeAbiVersion !== 2 ||
+      ((nativeVersion === 4 || nativeVersion === 5) &&
+        (manifest.nativeAbiVersion !== (nativeVersion === 5 ? 3 : 2) ||
           manifest.modeNegotiation !== "explicit-per-pass" ||
           JSON.stringify(manifest.supportedModes) !==
             JSON.stringify(["arrangement", "session"]))) ||

@@ -19,8 +19,8 @@ const {
 
 // Real loopback authentication/framing; synthetic native measurements only.
 for (const rate of [44100, 48000])
-  for (const outcome of ["complete", "tempo-change"])
-    test(`explicit native-v2 ${rate}Hz authenticated shared SDK ${outcome === "complete" ? "completes an App-valid300-window capture" : "rejects a genuine tiny tempo change and confirms owned disarm"}`, async () => {
+  for (const outcome of ["complete", "tempo-change", "fft-gap"])
+    test(`explicit native-v2 ${rate}Hz authenticated shared SDK ${outcome}`, async () => {
       const secret = "synthetic-native-v2-local-authentication-secret";
       const sockets = new Set(),
         messages = [],
@@ -270,6 +270,65 @@ for (const rate of [44100, 48000])
             messages.find((message) => message.status === "completed"),
           );
           assert.equal(complete.observation.samples.length, 300);
+        } else if (outcome === "fft-gap") {
+          const pass = runtime.nativeController.pass;
+          const end = driver.origin + driver.geometry.hopSamples;
+          driver.packet("clock", driver.clock(end + 64));
+          driver.packet(
+            "envelope",
+            driver.envelope(driver.geometry.hopSamples),
+          );
+          const futureEnd = 64000 + Math.ceil((end - 64000) / 2048) * 2048;
+          driver.packet("spectrum", driver.spectrum(futureEnd));
+          const failed = await until(() =>
+            messages.find(
+              (message) =>
+                message.type === "listener.result" &&
+                message.status === "failed",
+            ),
+          );
+          assert.equal(failed.reason, "native_fft_window_missing");
+          assert.deepEqual(
+            failed.nativeFailureDiagnostic,
+            pass.nativeFailureDiagnostic,
+          );
+          assert.equal(
+            failed.nativeFailureDiagnostic.scope,
+            "native-coverage-rejection/v1",
+          );
+          assert.equal(
+            failed.nativeFailureDiagnostic.generation,
+            pass.generation,
+          );
+          assert.equal(failed.nativeFailureDiagnostic.completedMeasurements, 0);
+          assert.equal(
+            failed.nativeFailureDiagnostic.nativeEpoch,
+            pass.nativeEpoch,
+          );
+          assert.deepEqual(failed.nativeFailureDiagnostic.expectedEnvelope, [
+            driver.origin,
+            end,
+          ]);
+          assert.equal(failed.nativeCapture, undefined);
+          assert.equal(failed.observation.complete, false);
+          assert.equal(
+            messages.filter(
+              (message) =>
+                message.type === "listener.result" &&
+                message.status === "failed",
+            ).length,
+            1,
+          );
+          assert.equal(
+            messages.some((message) => message.status === "completed"),
+            false,
+          );
+          assert.equal(runtime.nativeController.pass, null);
+          assert(JSON.stringify(failed.nativeFailureDiagnostic).length < 16384);
+          assert.equal(
+            failed.nativeFailureDiagnostic.checkEvidence.check,
+            "spectrum-validity",
+          );
         } else {
           const generation = runtime.nativeController.pass.generation;
           handlers.native(generation, "tempo", 93 + 1e-6);

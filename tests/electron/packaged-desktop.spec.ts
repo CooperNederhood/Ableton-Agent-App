@@ -57,6 +57,9 @@ interface PackagedDesktopWindow {
 }
 
 function packagedResources(directory: string): string {
+  const explicit = process.env.ABLETON_AGENT_PACKAGED_EXECUTABLE?.trim();
+  if (explicit)
+    return join(dirname(dirname(explicit)), "Resources");
   return join(
     releaseRoot,
     directory,

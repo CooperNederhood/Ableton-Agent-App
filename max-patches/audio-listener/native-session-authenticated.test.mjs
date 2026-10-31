@@ -42,277 +42,344 @@ const source = {
 };
 for (const version of [3, 4])
   for (const mode of version === 4 ? ["arrangement", "session"] : ["session"])
-    for (const rate of [44100, 48000])
-      for (const { outcome, deviation } of [0, rate / 10, -rate / 10].flatMap(
-        (deviation) =>
-          ["completed", "cancelled", "failed"].map((outcome) => ({
-            outcome,
-            deviation,
-            spectrumFilter: (end, envelopeEnd) => envelopeEnd - end < 2048,
-          })),
-      ))
-        test(`native wire${version} ${mode} ${rate}Hz ${deviation} sample clock disagreement real SDK authentication/framing ${outcome}, native ABI remains2`, async () => {
-          const secret = "synthetic-session-runtime-authentication-secret";
-          const sockets = new Set(),
-            messages = [],
-            handlers = {},
-            cleared = [];
-          let socket, hello, runtime, failure;
-          const server = net.createServer((connected) => {
-            sockets.add(connected);
-            connected.setEncoding("utf8");
-            let buffer = "";
-            connected.on("data", (chunk) => {
-              buffer += chunk;
-              let newline;
-              while ((newline = buffer.indexOf("\n")) >= 0) {
-                const encoded = buffer.slice(0, newline);
-                buffer = buffer.slice(newline + 1);
-                try {
-                  assert(Buffer.byteLength(encoded, "utf8") <= 128 * 1024);
-                  const message = JSON.parse(encoded);
-                  messages.push(message);
-                  if (message.type === "producer.hello") {
-                    assert.equal(message.secret, secret);
-                    assert.equal(
-                      message.producer.schemaVersion,
-                      "audio-observation/v2",
-                    );
-                    (version === 4
-                      ? listenerRegistrationDualSchema
-                      : listenerRegistrationSessionSchema
-                    ).parse(message.listener);
-                    assert.equal(message.listener.nativeStatus.abiVersion, 2);
-                    hello = message;
-                    socket = connected;
-                  } else if (message.type === "listener.reply")
-                    (version === 4
-                      ? listenerReplyDualSchema
-                      : listenerReplySessionSchema
-                    ).parse(message);
-                  else if (message.type === "listener.result")
-                    (version === 4
-                      ? listenerResultDualSchema
-                      : listenerResultSessionSchema
-                    ).parse(message);
-                  if (message.type !== "producer.disconnect")
-                    connected.write(
-                      JSON.stringify({
-                        type: "producer.ack",
-                        protocolVersion: 1,
-                        requestId: message.requestId,
-                        action:
-                          message.type === "producer.hello"
-                            ? "hello"
-                            : "listener",
-                        ...(message.type === "producer.hello"
-                          ? { connectionId: "synthetic-session-connection" }
-                          : {}),
-                      }) + "\n",
-                    );
-                } catch (cause) {
-                  failure = cause;
-                  connected.destroy();
+    for (const retainedMeasurements of version === 4 ? [false, true] : [false])
+      for (const rate of [44100, 48000])
+        for (const { outcome, deviation } of [0, rate / 10, -rate / 10].flatMap(
+          (deviation) =>
+            [
+              "completed",
+              "cancelled",
+              "failed",
+              ...(deviation === 0 ? ["fft-gap"] : []),
+            ].map((outcome) => ({
+              outcome,
+              deviation,
+              spectrumFilter: (end, envelopeEnd) => envelopeEnd - end < 2048,
+            })),
+        ))
+          test(`native wire${version} ${retainedMeasurements ? "retained" : "snapshot"} ${mode} ${rate}Hz ${deviation} sample clock disagreement real SDK authentication/framing ${outcome}, native ABI remains2`, async () => {
+            const secret = "synthetic-session-runtime-authentication-secret";
+            const sockets = new Set(),
+              messages = [],
+              handlers = {},
+              cleared = [];
+            let socket, hello, runtime, failure;
+            const server = net.createServer((connected) => {
+              sockets.add(connected);
+              connected.setEncoding("utf8");
+              let buffer = "";
+              connected.on("data", (chunk) => {
+                buffer += chunk;
+                let newline;
+                while ((newline = buffer.indexOf("\n")) >= 0) {
+                  const encoded = buffer.slice(0, newline);
+                  buffer = buffer.slice(newline + 1);
+                  try {
+                    assert(Buffer.byteLength(encoded, "utf8") <= 128 * 1024);
+                    const message = JSON.parse(encoded);
+                    messages.push(message);
+                    if (message.type === "producer.hello") {
+                      assert.equal(message.secret, secret);
+                      assert.equal(
+                        message.producer.schemaVersion,
+                        "audio-observation/v2",
+                      );
+                      (version === 4
+                        ? listenerRegistrationDualSchema
+                        : listenerRegistrationSessionSchema
+                      ).parse(message.listener);
+                      assert.equal(message.listener.nativeStatus.abiVersion, 2);
+                      hello = message;
+                      socket = connected;
+                    } else if (message.type === "listener.reply")
+                      (version === 4
+                        ? listenerReplyDualSchema
+                        : listenerReplySessionSchema
+                      ).parse(message);
+                    else if (message.type === "listener.result")
+                      (version === 4
+                        ? listenerResultDualSchema
+                        : listenerResultSessionSchema
+                      ).parse(message);
+                    if (message.type !== "producer.disconnect")
+                      connected.write(
+                        JSON.stringify({
+                          type: "producer.ack",
+                          protocolVersion: 1,
+                          requestId: message.requestId,
+                          action:
+                            message.type === "producer.hello"
+                              ? "hello"
+                              : "listener",
+                          ...(message.type === "producer.hello"
+                            ? {
+                                connectionId: "synthetic-session-connection",
+                                listenerVersions: [1, 2, 3, 4],
+                                listenerCapabilities: [
+                                  "audio-listener/v1",
+                                  "audio-listener/v2",
+                                  "audio-listener/session-v1",
+                                  "audio-listener/dual-mode-v1",
+                                  "audio-listener/retention-v1",
+                                ],
+                              }
+                            : {}),
+                        }) + "\n",
+                      );
+                  } catch (cause) {
+                    failure = cause;
+                    connected.destroy();
+                  }
+                }
+              });
+              connected.on("close", () => sockets.delete(connected));
+            });
+            const until = async (predicate) => {
+              const deadline = Date.now() + 3000;
+              while (Date.now() < deadline) {
+                if (failure) throw failure;
+                const result = predicate();
+                if (result) return result;
+                await new Promise((resolve) => setTimeout(resolve, 5));
+              }
+              throw new Error("synthetic_session_runtime_timeout");
+            };
+            try {
+              await new Promise((resolve, reject) => {
+                server.once("error", reject);
+                server.listen(0, "127.0.0.1", resolve);
+              });
+              const descriptor = {
+                host: "127.0.0.1",
+                port: server.address().port,
+                protocol: "newline-delimited-json",
+                protocolVersion: 1,
+                maxFrameBytes: 128 * 1024,
+                listenerVersions: [1, 2, 3, 4],
+                listenerCapabilities: [
+                  "audio-listener/v1",
+                  "audio-listener/v2",
+                  "audio-listener/session-v1",
+                  "audio-listener/dual-mode-v1",
+                  "audio-listener/retention-v1",
+                ],
+              };
+              class Client extends AgentSignalClient {
+                constructor(options) {
+                  super({
+                    ...options,
+                    heartbeatMs: 100000,
+                    readText: async (file) => {
+                      if (file === "/synthetic/session/descriptor.json")
+                        return JSON.stringify(descriptor);
+                      if (file === "/synthetic/session/secret.json")
+                        return JSON.stringify({ version: 1, secret });
+                      throw new Error("unexpected_synthetic_session_file");
+                    },
+                  });
                 }
               }
-            });
-            connected.on("close", () => sockets.delete(connected));
-          });
-          const until = async (predicate) => {
-            const deadline = Date.now() + 3000;
-            while (Date.now() < deadline) {
-              if (failure) throw failure;
-              const result = predicate();
-              if (result) return result;
-              await new Promise((resolve) => setTimeout(resolve, 5));
-            }
-            throw new Error("synthetic_session_runtime_timeout");
-          };
-          try {
-            await new Promise((resolve, reject) => {
-              server.once("error", reject);
-              server.listen(0, "127.0.0.1", resolve);
-            });
-            const descriptor = {
-              host: "127.0.0.1",
-              port: server.address().port,
-              protocol: "newline-delimited-json",
-              protocolVersion: 1,
-              maxFrameBytes: 128 * 1024,
-              listenerVersions: [1, 2, 3, 4],
-              listenerCapabilities: [
-                "audio-listener/v1",
-                "audio-listener/v2",
-                "audio-listener/session-v1",
-                "audio-listener/dual-mode-v1",
-              ],
-            };
-            class Client extends AgentSignalClient {
-              constructor(options) {
-                super({
-                  ...options,
-                  heartbeatMs: 100000,
-                  readText: async (file) => {
-                    if (file === "/synthetic/session/descriptor.json")
-                      return JSON.stringify(descriptor);
-                    if (file === "/synthetic/session/secret.json")
-                      return JSON.stringify({ version: 1, secret });
-                    throw new Error("unexpected_synthetic_session_file");
+              runtime = createRuntime({
+                nativeMode: true,
+                nativeVersion: version,
+                retainedMeasurements,
+                Client,
+                maxApi: {
+                  addHandler: (name, fn) => {
+                    handlers[name] = fn;
                   },
-                });
-              }
-            }
-            runtime = createRuntime({
-              nativeMode: true,
-              nativeVersion: version,
-              Client,
-              maxApi: {
-                addHandler: (name, fn) => {
-                  handlers[name] = fn;
+                  outlet: () => true,
                 },
-                outlet: () => true,
-              },
-              env: {
-                ABLETON_AGENT_SIGNAL_INGRESS_DESCRIPTOR:
-                  "/synthetic/session/descriptor.json",
-                ABLETON_AGENT_SIGNAL_INGRESS_SECRET_PATH:
-                  "/synthetic/session/secret.json",
-              },
-              clock: () => 0,
-              interval: (fn) => fn,
-              clear: (fn) => cleared.push(fn),
-            });
-            handlers.identity(
-              JSON.stringify({
-                canonicalPath: "live_set tracks 0 devices 0",
-                track: { id: "1", name: "synthetic" },
-                device: { id: "2", name: "listener" },
-              }),
-            );
-            const vector = rate === 44100 ? 128 : 64;
-            handlers.dsp(1, rate, vector);
-            handlers.host(0, 5.25, 1000000, 31);
-            await until(() => runtime.client?.authenticated);
-            for (const method of [
-              "start",
-              "writeMessage",
-              "handleListenerControl",
-              "sendListenerReply",
-              "sendListenerResult",
-            ])
-              assert.equal(
-                runtime.client[method],
-                AgentSignalClient.prototype[method],
-              );
-            const f = v2Fixture({
-              rate,
-              vector,
-              deviation,
-              ...(deviation === 0
-                ? {}
-                : {
-                    total: Math.round((rate * 60 * 8) / 93),
-                    geometry: { endBeat: 13.25 },
-                  }),
-              controller: runtime.nativeController,
-            });
-            let request = 0;
-            const control = (action) =>
-              socket.write(
+                env: {
+                  ABLETON_AGENT_SIGNAL_INGRESS_DESCRIPTOR:
+                    "/synthetic/session/descriptor.json",
+                  ABLETON_AGENT_SIGNAL_INGRESS_SECRET_PATH:
+                    "/synthetic/session/secret.json",
+                },
+                clock: () => 0,
+                interval: (fn) => fn,
+                clear: (fn) => cleared.push(fn),
+              });
+              handlers.identity(
                 JSON.stringify({
-                  ...V2_OWNER,
-                  connectionEpoch: hello.listener.connectionEpoch,
-                  type: "listener.control",
-                  protocolVersion: 1,
-                  listenerVersion: version,
-                  ...(version === 4 ? { mode } : {}),
-                  traceId: "session-runtime-trace",
-                  correlationId: "session-runtime-correlation",
-                  causationId: "session-runtime-cause",
-                  jobId: "session-runtime-job",
-                  requestId: `session-runtime-${request++}`,
-                  action,
-                  ...(action === "prepare"
-                    ? {
-                        config: {
-                          geometry: f.geometry,
-                          timingPolicy: f.timingPolicy,
-                          ...(mode === "session" ? { source } : {}),
-                        },
-                      }
-                    : {}),
-                }) + "\n",
+                  canonicalPath: "live_set tracks 0 devices 0",
+                  track: { id: "1", name: "synthetic" },
+                  device: { id: "2", name: "listener" },
+                }),
               );
-            control("prepare");
-            await until(() => messages.some((m) => m.status === "ready"));
-            control("arm");
-            await until(() => runtime.nativeController.state === "preflight");
-            f.preflight();
-            f.configReceipt();
-            f.ack();
-            await until(() => messages.some((m) => m.status === "armed"));
-            f.packet("clock", f.clock(f.origin + 640));
-            f.packet("envelope", f.envelope());
-            if (outcome === "completed") {
-              f.capture();
-              f.post();
-            } else {
-              if (outcome === "cancelled") {
-                control("cancel");
-                await until(() => runtime.nativeController.pendingDisarm);
-              } else f.packet("abi-envelope", [3]);
-              const generation =
-                runtime.nativeController.pendingDisarm?.generation;
-              assert(generation);
-              handlers.native(generation, "stopped", 0, 0, 2);
+              const vector = rate === 44100 ? 128 : 64;
+              handlers.dsp(1, rate, vector);
+              handlers.host(0, 5.25, 1000000, 31);
+              await until(() => runtime.client?.authenticated);
+              for (const method of [
+                "start",
+                "writeMessage",
+                "handleListenerControl",
+                "sendListenerReply",
+                "sendListenerResult",
+              ])
+                assert.equal(
+                  runtime.client[method],
+                  AgentSignalClient.prototype[method],
+                );
+              const f = v2Fixture({
+                retainedMeasurements,
+                rate,
+                vector,
+                deviation,
+                ...(deviation === 0
+                  ? {}
+                  : {
+                      total: Math.round((rate * 60 * 8) / 93),
+                      geometry: { endBeat: 13.25 },
+                    }),
+                controller: runtime.nativeController,
+              });
+              let request = 0;
+              const control = (action) =>
+                socket.write(
+                  JSON.stringify({
+                    ...V2_OWNER,
+                    connectionEpoch: hello.listener.connectionEpoch,
+                    type: "listener.control",
+                    protocolVersion: 1,
+                    listenerVersion: version,
+                    ...(version === 4 ? { mode } : {}),
+                    traceId: "session-runtime-trace",
+                    correlationId: "session-runtime-correlation",
+                    causationId: "session-runtime-cause",
+                    jobId: "session-runtime-job",
+                    requestId: `session-runtime-${request++}`,
+                    action,
+                    ...(action === "prepare"
+                      ? {
+                          config: {
+                            geometry: f.geometry,
+                            timingPolicy: f.timingPolicy,
+                            ...(mode === "session" ? { source } : {}),
+                          },
+                        }
+                      : {}),
+                  }) + "\n",
+                );
+              control("prepare");
+              await until(() => messages.some((m) => m.status === "ready"));
+              control("arm");
+              await until(() => runtime.nativeController.state === "preflight");
+              f.preflight();
+              f.configReceipt();
+              f.ack();
+              await until(() => messages.some((m) => m.status === "armed"));
+              f.packet("clock", f.clock(f.origin + 640));
+              f.packet(
+                retainedMeasurements ? "envelope-state" : "envelope",
+                f.envelope(),
+              );
+              const capturePass = runtime.nativeController.pass;
+              if (outcome === "completed") {
+                f.capture();
+                f.post();
+              } else {
+                if (outcome === "cancelled") {
+                  control("cancel");
+                  await until(() => runtime.nativeController.pendingDisarm);
+                } else if (outcome === "fft-gap") {
+                  const end = f.origin + f.geometry.hopSamples;
+                  f.packet("clock", f.clock(end + 64));
+                  f.packet("envelope", f.envelope(f.geometry.hopSamples));
+                  f.packet(
+                    "spectrum",
+                    f.spectrum(64000 + Math.ceil((end - 64000) / 2048) * 2048),
+                  );
+                } else f.packet("abi-envelope", [3]);
+                const generation =
+                  runtime.nativeController.pendingDisarm?.generation;
+                assert(generation);
+                handlers.native(generation, "stopped", 0, 0, 2);
+              }
+              const terminal = await until(() =>
+                messages.find(
+                  (m) =>
+                    m.status === (outcome === "fft-gap" ? "failed" : outcome),
+                ),
+              );
+              assert.equal(terminal.listenerVersion, version);
+              if (version === 4) assert.equal(terminal.mode, mode);
+              assert.equal(terminal.traceId, "session-runtime-trace");
+              assert.equal(
+                terminal.correlationId,
+                "session-runtime-correlation",
+              );
+              if (outcome === "fft-gap") {
+                assert.equal(terminal.reason, "native_fft_window_missing");
+                assert.deepEqual(
+                  terminal.nativeFailureDiagnostic,
+                  capturePass.nativeFailureDiagnostic,
+                );
+                assert.equal(
+                  terminal.nativeFailureDiagnostic.scope,
+                  "native-coverage-rejection/v1",
+                );
+                assert.equal(
+                  terminal.nativeFailureDiagnostic.generation,
+                  capturePass.generation,
+                );
+                assert.equal(
+                  terminal.nativeFailureDiagnostic.nativeEpoch,
+                  capturePass.nativeEpoch,
+                );
+                assert.equal(terminal.causationId, "session-runtime-cause");
+                assert.equal(runtime.nativeController.pendingDisarm, null);
+                assert.equal(runtime.nativeController.pass, null);
+              }
+              if (outcome === "completed") {
+                if (retainedMeasurements)
+                  assert.equal(
+                    messages.filter(
+                      (m) => m.nativeLifecycle?.phase === "measurement",
+                    ).length,
+                    6,
+                  );
+                assert.equal(
+                  terminal.observation.alignment
+                    .observedClockDisagreementSamples,
+                  Math.abs(deviation),
+                );
+                assert.equal(
+                  terminal.observation.endSample -
+                    terminal.observation.startSample,
+                  f.geometry.totalSamples,
+                );
+                assert.equal(
+                  terminal.observation.alignment
+                    .verifiedAbsoluteErrorBoundSamples,
+                  null,
+                );
+                (mode === "session"
+                  ? assertNativeSessionCaptureObservation
+                  : assertNativeCaptureObservationV2)(
+                  terminal.nativeCapture,
+                  terminal.observation,
+                  {
+                    source,
+                    geometry: f.geometry,
+                    policy: f.timingPolicy,
+                    listenerId: hello.producer.producerId,
+                    passId: V2_OWNER.passId,
+                  },
+                );
+                assert(messages.some((m) => m.nativeLaunch));
+              } else
+                assert.equal(
+                  messages.some((m) => m.nativeCapture),
+                  false,
+                );
+              await until(() => runtime.client.pending.size === 0);
+              assert.equal(runtime.client.listenerJob, null);
+            } finally {
+              runtime?.stop();
+              for (const connected of sockets) connected.destroy();
+              await new Promise((resolve) => server.close(resolve));
             }
-            const terminal = await until(() =>
-              messages.find((m) => m.status === outcome),
-            );
-            assert.equal(terminal.listenerVersion, version);
-            if (version === 4) assert.equal(terminal.mode, mode);
-            assert.equal(terminal.traceId, "session-runtime-trace");
-            assert.equal(terminal.correlationId, "session-runtime-correlation");
-            if (outcome === "completed") {
-              assert.equal(
-                terminal.observation.alignment.observedClockDisagreementSamples,
-                Math.abs(deviation),
-              );
-              assert.equal(
-                terminal.observation.endSample -
-                  terminal.observation.startSample,
-                f.geometry.totalSamples,
-              );
-              assert.equal(
-                terminal.observation.alignment
-                  .verifiedAbsoluteErrorBoundSamples,
-                null,
-              );
-              (mode === "session"
-                ? assertNativeSessionCaptureObservation
-                : assertNativeCaptureObservationV2)(
-                terminal.nativeCapture,
-                terminal.observation,
-                {
-                  source,
-                  geometry: f.geometry,
-                  policy: f.timingPolicy,
-                  listenerId: hello.producer.producerId,
-                  passId: V2_OWNER.passId,
-                },
-              );
-              assert(messages.some((m) => m.nativeLaunch));
-            } else
-              assert.equal(
-                messages.some((m) => m.nativeCapture),
-                false,
-              );
-            await until(() => runtime.client.pending.size === 0);
-            assert.equal(runtime.client.listenerJob, null);
-          } finally {
-            runtime?.stop();
-            for (const connected of sockets) connected.destroy();
-            await new Promise((resolve) => server.close(resolve));
-          }
-          assert.equal(cleared.length, 1);
-        });
+            assert.equal(cleared.length, 1);
+          });

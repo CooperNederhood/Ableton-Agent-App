@@ -7,9 +7,33 @@ import {
   REDACTED_VALUE,
   sanitizeTelemetryAttributes,
   sanitizedAttributesSchema,
+  sanitizePersistedText,
 } from "./index.js";
 
 describe("telemetry sanitizer", () => {
+  it.each([
+    "failed: token=embedded-diagnostic-secret",
+    "failed: reason=token=embedded-diagnostic-secret",
+    'failed: "OPENAI_API_KEY": "embedded-diagnostic-secret"',
+    "failure detail: client_secret='embedded-diagnostic-secret'",
+    "token=[REDACTED]",
+    "client_secret='[REDACTED]'",
+    "Authorization: Bearer embedded-diagnostic-secret",
+  ])(
+    "redacts nested assignments and remains stable across diagnostic boundaries: %s",
+    (text) => {
+      const first = sanitizePersistedText(text);
+      expect(first).not.toContain("embedded-diagnostic-secret");
+      let repeated = first;
+      for (let index = 0; index < 8; index++)
+        repeated = sanitizePersistedText(repeated);
+      expect(repeated).toBe(first);
+      expect(
+        sanitizePersistedText("failed: readiness=false requested=64 actual=65"),
+      ).toBe("failed: readiness=false requested=64 actual=65");
+    },
+  );
+
   it("redacts credentials and bearer tokens while preserving detailed content", () => {
     const input: Record<string, unknown> = {
       prompt: "Create a MIDI clip at /Users/cooper/Sets/demo.als",

@@ -117,6 +117,7 @@ function createRuntime({
   certificate = null,
   nativeMode = false,
   nativeVersion: wireVersion = 1,
+  retainedMeasurements = false,
 } = {}) {
   const nativeVersion =
     wireVersion === 3 || wireVersion === 4 ? 2 : wireVersion;
@@ -336,7 +337,7 @@ function createRuntime({
   function nativeFailureFields(message, value, pass) {
     const diagnostic = pass?.nativeFailureDiagnostic;
     return nativeVersion === 2 &&
-      value.status === "failed" &&
+      ["failed", "partial", "cancelled"].includes(value.status) &&
       diagnostic &&
       diagnostic.generation === pass.generation &&
       value.reason === pass.nativeFailureReason &&
@@ -392,16 +393,43 @@ function createRuntime({
     }
     if (nativeDiagnostics?.generation === pending.pass.generation)
       discardNativeDiagnostics();
+    const fields = nativeFailureFields(
+      pending.message,
+      pending.value,
+      pending.pass,
+    );
+    const diagnostic =
+      fields.nativeFailureDiagnostic ?? pending.value.nativeFailureDiagnostic;
+    const value = {
+      ...pending.value,
+      ...fields,
+      ...(diagnostic && receipt
+        ? {
+            nativeFailureDiagnostic: {
+              ...diagnostic,
+              cleanup: {
+                eventId: receipt.eventId,
+                generation: receipt.generation,
+                confirmed: receipt.confirmed,
+                reason: receipt.reason,
+                elapsedMs: receipt.elapsedMs,
+                deadlineMs: 1000,
+                ...(receipt.io ? { io: receipt.io } : {}),
+              },
+            },
+          }
+        : {}),
+    };
     publishNative(
       "reply",
       pending.message,
       receipt && !receipt.confirmed
         ? {
-            ...pending.value,
+            ...value,
             status: "failed",
             reason: `${pending.value.reason}_native_stop_ack_timeout_unconfirmed`,
           }
-        : pending.value,
+        : value,
     );
   }
   function discardNativeDiagnostics() {
@@ -440,7 +468,7 @@ function createRuntime({
       stage: event.stage,
       nativeEpoch: event.nativeEpoch,
       elapsedMs: Math.min(120000, Math.max(0, elapsedMs)),
-      frames: 0,
+      frames: phase === "measurement" ? event.frames : 0,
       ...(event.reason ? { reason: event.reason } : {}),
     };
   }
@@ -477,6 +505,19 @@ function createRuntime({
     }
     if (!current()) return;
     if (
+      [
+        "native_diagnostic_snapshot_invalid",
+        "native_diagnostic_io_rejection_invalid",
+      ].includes(event.reason)
+    ) {
+      const scope = nativeDiagnostics;
+      if (!scope) return;
+      if (!nativePublished) {
+        (scope.pendingTelemetryGaps ??= []).push(event);
+      } else publishNativeTelemetryGap(scope, event);
+      return;
+    }
+    if (
       nativeVersion === 2 &&
       event.type === "native-preflight-stage" &&
       event.stage === "failed" &&
@@ -485,6 +526,27 @@ function createRuntime({
     )
       pendingArm.failureReason ??= nativeReason(event.reason);
     const scope = nativeDiagnostics;
+    if (event.type === "native-measurement-stage") {
+      output(
+        "native_diagnostic",
+        JSON.stringify({ ...event, phase: "measurement" }),
+      );
+      if (!scope) return;
+      const lifecycle = diagnosticLifecycle(scope, event, "measurement");
+      if (nativePublished) {
+        if (
+          !canPublishNative(control) ||
+          !publishNative("result", control, {
+            status: "progress",
+            nativeLifecycle: lifecycle,
+          })
+        ) {
+          fail("native_measurement_publication_failed");
+          throw new Error("native_measurement_publication_failed");
+        }
+      } else queueNativeDiagnostic(scope, lifecycle);
+      return;
+    }
     let phase = "capture";
     if (scope && !nativePublished) {
       if (!scope.preflightCompletedId) phase = "preflight";
@@ -562,6 +624,18 @@ function createRuntime({
       discardNativeDiagnostics();
     }
   }
+  function publishNativeTelemetryGap(scope, event) {
+    const lifecycle = diagnosticLifecycle(scope, event, "measurement");
+    lifecycle.frames = 0;
+    const sent =
+      typeof client?.sendListenerDiagnostic === "function" &&
+      canPublishNative(control) &&
+      client.sendListenerDiagnostic(control, lifecycle);
+    if (!sent) {
+      scope.telemetryDrops = (scope.telemetryDrops ?? 0) + 1;
+      output("diagnostic", "native_diagnostic_transport_gap");
+    }
+  }
   function flushNativeDiagnostics(scope, selected, current) {
     while (
       nativeDiagnostics === scope &&
@@ -579,6 +653,9 @@ function createRuntime({
       )
         return false;
     }
+    if (nativeDiagnostics === scope && nativePublished && current())
+      for (const event of scope.pendingTelemetryGaps?.splice(0) ?? [])
+        publishNativeTelemetryGap(scope, event);
     return nativeDiagnostics === scope && scope.events.length === 0;
   }
   function controlDiagnostic(item, stage) {
@@ -626,7 +703,10 @@ function createRuntime({
     }
     nativePublishing++;
     try {
-      if (nativeVersion === 2) {
+      const failureDelivery =
+        value.status === "failed" &&
+        typeof client.sendListenerFailureMessage === "function";
+      if (nativeVersion === 2 && !failureDelivery) {
         const projected = {
           ...value,
           type: kind === "reply" ? "listener.reply" : "listener.result",
@@ -661,9 +741,15 @@ function createRuntime({
         }
       }
       const sent =
-        (kind === "reply"
-          ? client.sendListenerReply(message, value)
-          : client.sendListenerResult(message, value)) === true;
+        (failureDelivery
+          ? client.sendListenerFailureMessage(
+              kind === "reply" ? "listener.reply" : "listener.result",
+              message,
+              value,
+            )
+          : kind === "reply"
+            ? client.sendListenerReply(message, value)
+            : client.sendListenerResult(message, value)) === true;
       confirm(sent);
       return sent;
     } catch {
@@ -1028,6 +1114,9 @@ function createRuntime({
                   operation.failureReason ??
                   nativeDiagnostics?.failureReason ??
                   nativeReason(error.message),
+                ...(error.nativeFailureDiagnostic
+                  ? { nativeFailureDiagnostic: error.nativeFailureDiagnostic }
+                  : {}),
               };
               if (nativeVersion === 2) {
                 queueNativeReply(
@@ -1087,6 +1176,9 @@ function createRuntime({
       publishNative("reply", selected, {
         status: "failed",
         reason: nativeReason(error.message),
+        ...(error.nativeFailureDiagnostic
+          ? { nativeFailureDiagnostic: error.nativeFailureDiagnostic }
+          : {}),
       });
     }
   }
@@ -1150,6 +1242,7 @@ function createRuntime({
         listenerId,
         now: clock,
         nativeVersion,
+        retainedMeasurements,
         initialNativeEpoch: nativeEpochHighWater,
         onDisarmed: (receipt) => {
           if (receipt.reason === "native_disarm_observer_failed")
@@ -1221,7 +1314,11 @@ function createRuntime({
                 ? [value.nativeEpoch]
                 : value.action === "configure_v2"
                   ? value.parameters
-                  : []),
+                  : value.action === "begin" && retainedMeasurements
+                    ? [value.nativeEpoch, value.sampleRate]
+                    : value.action === "stop" && retainedMeasurements
+                      ? [value.outcome ?? "cancelled"]
+                      : []),
             ) !== false
           );
         },
@@ -1300,13 +1397,25 @@ function createRuntime({
               : nativeVersion === 2
                 ? "audio-listener/v2"
                 : "audio-listener/v1",
+          ...(wireVersion === 4 && retainedMeasurements
+            ? ["audio-listener/retention-v1"]
+            : []),
         ],
         sampleRate: dsp.sampleRate,
         algorithmVersion: nativeVersion === 2 ? "2.0.0" : VERSION,
         ...(nativeVersion === 2 ? { vectorSize: dsp.vectorSize } : {}),
       },
-      onListenerFailure: (reason) => {
+      onListenerFailure: (reason, _job, sdkRejection) => {
         if (!current()) return;
+        if (sdkRejection && nativeController?.pass) {
+          nativeController.pass.sdkRejection = sdkRejection;
+          nativeController.retainCheckFailure(
+            nativeController.pass,
+            nativeReason(reason),
+            "sdk",
+            "publication",
+          );
+        }
         if (nativeVersion === 2 && nativePublishing > 0) {
           deferredNativeFailure = deferredNativeFailure ?? {
             reason: nativeReason(reason),
@@ -1323,6 +1432,8 @@ function createRuntime({
         if (!current()) return;
         if (state === "write_diagnostics")
           output("diagnostic", "write_diagnostics", ...details);
+        if (state === "native_diagnostic_gap")
+          output("diagnostic", "native_diagnostic_gap", ...details);
         if (state === "disconnected") fail("disconnected");
         if (state === "authenticating" || state === "connected")
           refreshRegistration();
@@ -1500,7 +1611,12 @@ function createRuntime({
   maxApi.addHandler("reset", () => fail("reset"));
   maxApi.addHandler("native", (packetGeneration, type, ...values) => {
     if (!nativeMode || stopped || !nativeController) return;
-    if (nativeVersion === 2 && type === "stopped") {
+    if (
+      nativeVersion === 2 &&
+      (type === "stopped" ||
+        (type === "io-rejection" &&
+          nativeController.pendingDisarm?.generation === packetGeneration))
+    ) {
       nativeController.ingest({ generation: packetGeneration, type, values });
       return;
     }

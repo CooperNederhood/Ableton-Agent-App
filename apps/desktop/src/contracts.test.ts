@@ -24,6 +24,23 @@ describe("Desktop session context reference", () => {
     { kinds: ["audio-observation/v1", "audio-observation/v2"] },
     { kinds: ["audio-observation/v2", "audio-observation/v1"] },
     { kinds: ["session-audio-observation/v1"] },
+    { kinds: ["metric-audio-observation/v1"] },
+    {
+      kinds: [
+        "audio-observation/v1",
+        "audio-observation/v2",
+        "session-audio-observation/v1",
+        "metric-audio-observation/v1",
+      ],
+    },
+    {
+      kinds: [
+        "metric-audio-observation/v1",
+        "session-audio-observation/v1",
+        "audio-observation/v2",
+        "audio-observation/v1",
+      ],
+    },
     {
       kinds: [
         "audio-observation/v1",
@@ -67,6 +84,7 @@ describe("Desktop session context reference", () => {
       ],
     },
     { kinds: ["audio-observation/v3"] },
+    { kinds: ["metric-audio-observation/v1", "metric-audio-observation/v1"] },
   ])("denies invalid registered kinds $kinds", ({ kinds }) => {
     expect(
       desktopSessionContextStoreReferenceSchema.safeParse({

@@ -6,6 +6,7 @@ import type {
 } from "@ableton-agent/project-state";
 import {
   contextOperationParamsSchema,
+  contextOperationResultSchema,
   type ContextOperationResult,
 } from "@ableton-agent/tools";
 import type {
@@ -16,7 +17,57 @@ import {
   ListeningFailure,
   awaitListeningBoundary,
 } from "./listening-coordinator.js";
-import { listeningDisagreementMilliseconds } from "@ableton-agent/protocol";
+import {
+  listeningDisagreementMilliseconds,
+  storedObservationCoordinates,
+  storedObservationIdentity,
+  type MetricAudioObservation,
+  projectMetricListeningReport,
+} from "@ableton-agent/protocol";
+
+function metricSummary(value: MetricAudioObservation): string[] {
+  const result = [
+    `Metric observation outcome ${value.outcome}; trustworthy retained data only`,
+  ];
+  for (const name of ["level", "spectral-centroid", "attacks"] as const) {
+    const metric = value.metrics[name];
+    result.push(
+      `${name} ${metric.status}: ${metric.records.length}/${metric.expectedRecords} validated records; ${metric.gaps.reduce((sum, gap) => sum + gap.count, 0)} missing records${metric.gaps.length ? ` (${[...new Set(metric.gaps.map((gap) => gap.reason))].join(", ")})` : ""}`,
+    );
+  }
+  const levels = value.metrics.level.records;
+  if (levels.length) {
+    const ranges = ([0, 1] as const).map((channel) => {
+      const rms = levels.map((record) => record.rms[channel]);
+      const format = (linear: number) =>
+        linear === 0
+          ? "silence (measured zero)"
+          : `${(20 * Math.log10(linear)).toFixed(2)} dBFS`;
+      return `${format(Math.min(...rms))} to ${format(Math.max(...rms))}`;
+    });
+    result.push(
+      `Retained level records: RMS ranges ${ranges.join(", ")}; not LUFS (not a whole-pass aggregate)`,
+    );
+  }
+  const frames = value.metrics["spectral-centroid"].records;
+  if (frames.length) {
+    const centroids = frames.flatMap((record) =>
+      record.centroidHz === null ? [] : [record.centroidHz],
+    );
+    result.push(
+      `Retained FFT frames: ${centroids.length ? `centroid range ${Math.min(...centroids).toFixed(1)}-${Math.max(...centroids).toFixed(1)} Hz` : "no defined centroid"}; ${frames.filter((record) => record.spectralEnergy === 0).length} measured zero-energy frames`,
+    );
+  }
+  if (value.metrics.attacks.records.length) {
+    result.push(
+      `${value.metrics.attacks.records.reduce((sum, window) => sum + window.events.length, 0)} estimated attacks across retained independent windows`,
+    );
+  }
+  result.push(
+    "Missing data and no-frame intervals are not silence; FFT actual support and attack windows differ from report rows",
+  );
+  return result;
+}
 
 export interface SessionContextHostOptions {
   /** The host resolves the invoking session, never the globally selected one. */
@@ -83,12 +134,34 @@ async function summarize(
       "Context subject is missing",
     );
   }
-  const measured = entry.payload.summaries;
-  const rms = measured.rmsDbfs
-    .map((value) =>
-      value === null ? "silence/below floor" : `${value.toFixed(2)} dBFS`,
-    )
-    .join(", ");
+  const payload =
+    entry.payload.schema === "metric-audio-observation/v1"
+      ? "rows" in entry.payload
+        ? entry.payload
+        : (await repository.getEntry(entry.id, options))?.payload
+      : entry.payload;
+  if (payload === undefined) {
+    throw new ListeningFailure(
+      "not_found",
+      "Context observation no longer exists",
+    );
+  }
+  const coords =
+    payload.schema === "metric-audio-observation/v1"
+      ? storedObservationCoordinates(payload)
+      : payload;
+  const identity =
+    payload.schema === "metric-audio-observation/v1"
+      ? storedObservationIdentity(payload)
+      : payload;
+  const measurements =
+    payload.schema === "metric-audio-observation/v1"
+      ? metricSummary(payload)
+      : [
+          `Peak ${payload.summaries.peak.map((value) => value.toFixed(4)).join(", ")} linear`,
+          `RMS ${payload.summaries.rmsDbfs.map((value) => (value === null ? "silence/below floor" : `${value.toFixed(2)} dBFS`)).join(", ")}; not LUFS`,
+          `Centroid ${payload.summaries.centroidHz === null ? "not observed" : `${payload.summaries.centroidHz.toFixed(1)} Hz`}`,
+        ];
   const freshness =
     includeHistorical && link.freshness.status === "fresh"
       ? "historical"
@@ -100,19 +173,32 @@ async function summarize(
   const observed = (samples: number) =>
     `${samples} samples (${listeningDisagreementMilliseconds(
       samples,
-      entry.payload.sampleRate,
+      coords.sampleRate,
     ).toFixed(3)} ms)`;
   return {
     contextId: entry.id,
-    passId: entry.passId,
-    listenerId: entry.producer.listenerId,
+    passId: identity.passId,
+    listenerId: identity.listenerId,
     subjectId: subject.id,
     kind: entry.kind,
     createdAt: entry.createdAt,
     freshness,
     summary: [
       `${subject.kind}: ${subject.binding.semanticLocator.name}`,
+      ...(payload.schema === "metric-audio-observation/v1" ? measurements : []),
       `Observed ${"coordinate" in link.coverage ? link.coverage.coordinate : "beats"} ${link.coverage.startBeat}-${link.coverage.endBeat}`,
+      ...(payload.schema === "metric-audio-observation/v1"
+        ? [
+            `Measured beats ${coords.startBeat}-${coords.endBeat}; samples ${coords.startSample}-${coords.endSample} at ${coords.sampleRate} Hz`,
+            ...(payload.source.view === "session"
+              ? [
+                  `Session first iteration (0), clip-local beats 0-${coords.endBeat}; global transport beats ${payload.source.transport.startBeat}-${payload.source.transport.endBeat}; ${payload.source.kind}; connection-scoped references, not physical source proof`,
+                ]
+              : [
+                  "Arrangement source; connection-scoped references, not physical source proof",
+                ]),
+          ]
+        : []),
       ...(entry.payload.schema === "session-audio-observation/v1"
         ? [
             `Session first iteration (0), clip-local beats 0-${entry.payload.endBeat}; global transport beats ${entry.payload.source.transport.startBeat}-${entry.payload.source.transport.endBeat}`,
@@ -132,9 +218,7 @@ async function summarize(
           ]
         : []),
       `Attribution ${link.attribution}; ${link.relationship} association`,
-      `Peak ${measured.peak.map((value) => value.toFixed(4)).join(", ")} linear`,
-      `RMS ${rms}; not LUFS`,
-      `Centroid ${measured.centroidHz === null ? "not observed" : `${measured.centroidHz.toFixed(1)} Hz`}`,
+      ...(payload.schema === "metric-audio-observation/v1" ? [] : measurements),
       `Freshness ${freshness}; historical bindings are not current bridge references`,
     ]
       .join(". ")
@@ -217,7 +301,7 @@ export function createSessionContextHost(
       const repository = await repositoryFor(context);
       const operation = operationOptions(context, options.signal);
       if (query.action === "list") return list(repository, query, context);
-      if (query.action === "get") {
+      if (query.action === "get" || query.action === "report") {
         const available = await repository.listEntries(
           {
             entryId: query.contextId,
@@ -238,6 +322,29 @@ export function createSessionContextHost(
             "not_found",
             "Context observation no longer exists",
           );
+        if (query.action === "report") {
+          if (entry.payload.schema !== "metric-audio-observation/v1") {
+            throw new ListeningFailure(
+              "unsupported_context_kind",
+              "Stacked metric reports require metric-audio-observation/v1; use get for legacy observations",
+            );
+          }
+          operation.signal?.throwIfAborted();
+          const report = projectMetricListeningReport(entry.payload, {
+            offset: query.offset,
+            limit: query.limit,
+          });
+          return contextOperationResultSchema.parse({
+            action: "report",
+            entry: await summarize(
+              repository,
+              entry,
+              query.includeHistorical,
+              operation,
+            ),
+            report,
+          });
+        }
         return {
           action: "get",
           entry: await summarize(

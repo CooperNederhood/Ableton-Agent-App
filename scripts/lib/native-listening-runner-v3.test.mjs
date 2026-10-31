@@ -14,7 +14,10 @@ import { sessionSchema } from "../../apps/desktop/src/contracts.ts";
 import { publishSignalSecrets } from "../../apps/desktop/src/main/signal-credentials.ts";
 import { nativeFixtureInput } from "./native-listening-fixture.test.mjs";
 import { sessionEvidence } from "./native-listening-verification.test.mjs";
-import { createNativeListeningRunner } from "./native-listening-runner.mjs";
+import {
+  createNativeListeningRunner,
+  inspectNativeCandidateAdmission,
+} from "./native-listening-runner.mjs";
 
 // Synthetic actor/capture/source receipts; production publication, storage and reopen.
 async function fixture({
@@ -25,23 +28,26 @@ async function fixture({
   operatorParameters = 0,
   scenarioId,
   nativeVersion = 3,
+  candidateViewTransform = (candidate) => candidate,
 } = {}) {
   const id =
     scenarioId ??
     (nativeVersion === 4
-      ? "native-dual-session-midi"
+      ? `native-dual-session-${kind === "midi" ? "midi" : "warped-audio"}`
       : `native-session-${kind === "midi" ? "midi" : "warped-audio"}`);
   const manifest = JSON.parse(
     await readFile(`integration/live-scenarios/${id}.json`, "utf8"),
   );
-  const loopEnd = nativeVersion === 4 ? 8 : manifest.sourceRegion.loopEnd;
+  const repeated = manifest.sequence !== undefined;
+  const loopEnd = manifest.sourceRegion.loopEnd;
   const durationBeats = manifest.capture.durationBeats ?? null;
   const resolvedDurationBeats = durationBeats ?? loopEnd;
   const f = await nativeFixtureInput({ nativeVersion });
-  const e = sessionEvidence({
+  let e = sessionEvidence({
     rate,
     kind,
     followUnknown,
+    ...(repeated ? { startBeat: 0 } : {}),
     durationBeats,
     loopEnd,
   });
@@ -49,6 +55,38 @@ async function fixture({
     e.listener.registration.version = 4;
     e.received[0].result.listenerVersion = 4;
     e.received[0].result.mode = "session";
+  }
+  if (repeated && failure !== "repeat-silent") {
+    // Synthetic consistency fixture only: no DSP execution or acoustic claim.
+    const level = 20 * Math.log10(0.125);
+    const raw = e.received[0].result.observation;
+    for (const observation of [raw, e.entries[0].payload]) {
+      const peak = failure === "repeat-clipped" ? 1 : 0.25;
+      observation.summaries = {
+        peak: [peak, peak],
+        rmsDbfs: [level, level],
+        centroidHz: 440,
+      };
+      observation.samples.forEach((point) => {
+        point.peak = [peak, peak];
+        point.rmsDbfs = [level, level];
+        point.centroidHz = 440;
+      });
+      const first = observation.samples[0];
+      observation.attacks = [
+        { sample: first.sample, beat: first.beat, strength: level + 120 },
+      ];
+      observation.reduction.originalAttacks = 1;
+    }
+    const proof = e.received[0].result.nativeCapture.transport;
+    proof.envelopeWindows.forEach((row) => {
+      row[1] = 0.125;
+      row[2] = 0.125;
+    });
+    proof.spectralWindows.forEach((row) => {
+      row[2] = 440;
+      row[3] = 1;
+    });
   }
   const selectedIndex = kind === "midi" ? 0 : 1;
   e.session.target.track.index = selectedIndex;
@@ -88,6 +126,15 @@ async function fixture({
   trackRefs[selectedIndex] = e.session.target.track.expectedReference;
   const clipRefs = [randomUUID(), randomUUID()];
   clipRefs[selectedIndex] = e.session.target.expectedClipReference;
+  const secondClipReference = randomUUID();
+  const firstClipName = e.session.target.expectedClipName;
+  let subpass = 0;
+  let repeatBeat = 0;
+  let clipStopped = false;
+  let diagnosticActive = false;
+  let openedJournal;
+  let journalFlushes = 0;
+  const diagnosticReads = [];
   const deviceRefs = [randomUUID(), randomUUID()];
   deviceRefs[selectedIndex] = e.target.binding.expectedDeviceReference;
   const parameterRefs = [randomUUID(), randomUUID()];
@@ -177,24 +224,43 @@ async function fixture({
         },
       ],
     })),
-    clips: clipRefs.map((reference, index) => ({
-      reference,
-      trackReference: trackRefs[index],
-      trackIndex: index,
-      sceneIndex: 0,
-      name:
-        index === selectedIndex
-          ? e.session.target.expectedClipName
-          : `Unselected ${index}`,
-      kind: index === 0 ? "midi" : "audio",
-      length: loopEnd,
-      noteCount: index === 0 ? 1 : null,
-      isPlaying:
-        playing && (index === selectedIndex || failure === "unselected-launch"),
-      isTriggered: false,
-      muted: false,
-      looping: true,
-    })),
+    clips: [
+      ...clipRefs.map((reference, index) => ({
+        reference,
+        trackReference: trackRefs[index],
+        trackIndex: index,
+        sceneIndex: 0,
+        name: index === selectedIndex ? firstClipName : `Unselected ${index}`,
+        kind: index === 0 ? "midi" : "audio",
+        length: loopEnd,
+        noteCount: index === 0 ? 1 : null,
+        isPlaying:
+          playing &&
+          ((index === selectedIndex && (!repeated || subpass !== 1)) ||
+            failure === "unselected-launch"),
+        isTriggered: false,
+        muted: false,
+        looping: true,
+      })),
+      ...(repeated
+        ? [
+            {
+              reference: secondClipReference,
+              trackReference: trackRefs[0],
+              trackIndex: 0,
+              sceneIndex: 1,
+              name: "Fixture MIDI second",
+              kind: "midi",
+              length: loopEnd,
+              noteCount: 1,
+              isPlaying: playing && subpass === 1,
+              isTriggered: false,
+              muted: false,
+              looping: true,
+            },
+          ]
+        : []),
+    ],
   });
   const target = {
     binding: e.target.binding,
@@ -235,12 +301,63 @@ async function fixture({
           ]
         : [],
   };
+  const setPlaying = vi.fn(async (value) => {
+    expect(repeated).toBe(true);
+    expect(value).toBe(false);
+    log.push("harness-stop");
+    mutations.push("harness-stop");
+    playing = false;
+    repeatBeat = 20.330666666666666;
+    if (failure === "repeat-stop-throws")
+      throw new Error("Synthetic partially applied harness stop");
+    subpass++;
+    const oldPass = e.pass.id;
+    const oldClip = e.session.target.expectedClipReference;
+    const oldName = e.session.target.expectedClipName;
+    const newClip = subpass === 1 ? secondClipReference : clipRefs[0];
+    const newName = subpass === 1 ? "Fixture MIDI second" : firstClipName;
+    const newPass = failure === "repeat-reused-pass" ? oldPass : randomUUID();
+    e = globalThis.structuredClone(e);
+    const change = (value) => {
+      if (!value || typeof value !== "object") return;
+      for (const [key, v] of Object.entries(value)) {
+        if (v === oldPass) value[key] = newPass;
+        else if (v === oldClip) value[key] = newClip;
+        else if (v === oldName) value[key] = newName;
+        else if (
+          key === "nativeEpoch" &&
+          failure !== "repeat-reused-native-epoch"
+        )
+          value[key] = v + 1;
+        else if (key === "sceneIndex") value[key] = subpass === 1 ? 1 : 0;
+        else if (["playingSlotIndex", "firedSlotIndex"].includes(key) && v >= 0)
+          value[key] = subpass === 1 ? 1 : 0;
+        else change(v);
+      }
+    };
+    change(e);
+    if (failure === "repeat-reconnect" && subpass === 1)
+      listener.connectionId = "reconnected";
+  });
   if (failure === "preflight-secret")
     target.binding.expectedDeviceName = "token=runner-private-value";
   const state = (running) => ({
     ...e.session.source.after,
+    ...(repeated && !running ? { globalBeat: repeatBeat } : {}),
     ...(running
       ? { ...e.session.after.after, globalBeat: 12.25, playingPosition: 4.25 }
+      : {}),
+    ...(clipStopped
+      ? {
+          transportPlaying: playing,
+          globalBeat: 12.25,
+          targetPlaying: false,
+          targetTriggered: false,
+          targetRecording: false,
+          playingSlotIndex: -2,
+          firedSlotIndex: -1,
+          selectedClipReference: null,
+        }
       : {}),
   });
   const source = (params) => {
@@ -263,20 +380,171 @@ async function fixture({
   };
   const mutations = [];
   const ableton = {
+    setPlaying,
+    getLiveIdentity: vi.fn(async () => ({
+      liveSetId:
+        failure === "repeat-foreign-set" && publications > 0
+          ? "foreign-set"
+          : "set",
+      liveSetName: "Fixture",
+      saved: true,
+    })),
+    executeTracksOperation: vi.fn(async (params) => {
+      protocol.tracksOperationParamsSchema.parse(params);
+      if (params.action === "get") {
+        diagnosticActive = true;
+        diagnosticReads.push("track");
+        if (failure === "repeat-stop-delayed-diag-unavailable")
+          throw new Error(
+            "Track diagnostic unavailable token=private-diagnostic",
+          );
+        return protocol.tracksOperationResultSchema.parse({
+          action: "get",
+          track: {
+            kind: "regular",
+            index: 0,
+            reference: trackRefs[0],
+            name: "Fixture MIDI",
+            trackType: "midi",
+            colorIndex: null,
+            isGroup: false,
+            isFolded: null,
+            monitoringState: null,
+            canBeArmed: true,
+            isArmed: false,
+            isMuted: false,
+            isSoloed: false,
+            backToArrangement: true,
+          },
+        });
+      }
+      expect(params).toEqual({
+        action: "stop-clips",
+        target: e.session.target.track,
+        quantized: false,
+      });
+      mutations.push("harness-stop-clips");
+      if (failure?.startsWith("repeat-stop-delayed")) {
+        expect(journalFlushes).toBeGreaterThan(0);
+        const stored = await openedJournal.read({
+          names: [
+            "integration.native_listening.repeat-1-harness-stop-clips-request.progress",
+          ],
+        });
+        expect(stored.items[0].attributes.request.params).toEqual(params);
+        clipStopped = true;
+        throw Object.assign(
+          new Error("Track clips did not stop as requested"),
+          { code: "conflict" },
+        );
+      }
+      if (failure === "repeat-clip-stop-denied")
+        throw new Error("Fixture clip stop denied");
+      return {
+        action: "stop-clips",
+        result: { verified: failure !== "repeat-clip-stop-unconfirmed" },
+      };
+    }),
+    executeTransportOperation: vi.fn(async (params) => {
+      protocol.transportOperationParamsSchema.parse(params);
+      if (params.action === "get") {
+        diagnosticReads.push("transport");
+        return protocol.transportOperationResultSchema.parse({
+          action: "get",
+          offset: 0,
+          limit: 1,
+          cuePoints: [],
+          totalCuePoints: 0,
+          transport: {
+            currentSongTime: 12.25,
+            isPlaying: playing,
+            tempo: 120,
+            timeSignature: { numerator: 4, denominator: 4 },
+            metronome: false,
+            launchQuantization: 0,
+            recordQuantization: 0,
+            linkEnabled: false,
+            backToArrangement: true,
+          },
+        });
+      }
+      expect(params).toEqual({ action: "seek", time: 0 });
+      expect(playing).toBe(false);
+      mutations.push("harness-position-zero");
+      const before = {
+        currentSongTime: repeatBeat,
+        isPlaying: false,
+        tempo: 120,
+        timeSignature: { numerator: 4, denominator: 4 },
+        metronome: false,
+        launchQuantization: 0,
+        recordQuantization: 0,
+        linkEnabled: false,
+        backToArrangement: true,
+      };
+      if (failure === "repeat-position-denied")
+        throw new Error("Fixture position denied before applying");
+      if (failure !== "repeat-position-unapplied") repeatBeat = 0;
+      if (failure === "repeat-position-throws")
+        throw new Error("Partially applied fixture position");
+      return protocol.transportOperationResultSchema.parse({
+        action: "seek",
+        verified: true,
+        before,
+        after: {
+          ...before,
+          currentSongTime: repeatBeat,
+          metronome: failure === "repeat-position-settings",
+        },
+      });
+    }),
     inspectListeningContext: async (params) => {
+      if (diagnosticActive) diagnosticReads.push("recording");
       inspectionQueries.push(globalThis.structuredClone(params));
+      const inspectedTarget = globalThis.structuredClone(target);
+      if (failure?.startsWith("repeat-inventory-active-first")) {
+        inspectedTarget.clips = [
+          [0, clipRefs[selectedIndex], firstClipName],
+          [1, secondClipReference, "Fixture MIDI second"],
+        ].map(([sceneIndex, reference, name]) => ({
+          target: {
+            view: "session",
+            track: e.target.binding.track,
+            sceneIndex,
+            expectedClipReference: reference,
+            expectedClipName: name,
+          },
+          interval: null,
+          settings: { looping: true },
+        }));
+        if (playing && subpass === 1) {
+          inspectedTarget.clips.reverse();
+          if (failure === "repeat-inventory-active-first-mutation")
+            inspectedTarget.clips[0].settings.looping = false;
+        }
+      }
       return {
         bindingQueryId: params.bindingQueryId,
-        listeners: [globalThis.structuredClone(target)],
+        listeners: [inspectedTarget],
         transport: {
           playing,
-          currentBeat: playing ? 12.25 : 8,
+          currentBeat: playing
+            ? 12.25
+            : failure === "repeat-initial-nonzero"
+              ? 8
+              : repeated
+                ? repeatBeat
+                : 8,
           tempo: 120,
           safeToStart:
             !playing &&
             !["preflight-recording", "preflight-clips"].includes(failure),
           recording: {
-            recordMode: failure === "preflight-recording",
+            recordMode:
+              failure === "preflight-recording" ||
+              (failure === "repeat-recording-before-reset" &&
+                publications > 0) ||
+              (failure === "repeat-stop-recording" && subpass === 1),
             sessionRecord: false,
             arrangementOverdub: false,
             sessionAutomationRecord: false,
@@ -284,7 +552,35 @@ async function fixture({
         },
       };
     },
-    inspectSessionListeningSource: vi.fn(async (params) => source(params)),
+    inspectSessionListeningSource: vi.fn(async (params) => {
+      if (diagnosticActive)
+        diagnosticReads.push(`source-${params.target.sceneIndex}`);
+      const read = source(params);
+      if (failure === "repeat-foreign-source" && publications > 0)
+        read.target = { ...read.target, expectedClipReference: randomUUID() };
+      if (
+        failure === "repeat-source-recording-before-reset" &&
+        publications > 0
+      ) {
+        read.before = { ...read.before, targetRecording: true };
+        read.after = { ...read.after, targetRecording: true };
+      }
+      if (failure === "repeat-reset-queued" && subpass === 1) {
+        read.before = {
+          ...read.before,
+          targetTriggered: true,
+          firedSlotIndex: 1,
+        };
+        read.after = {
+          ...read.after,
+          targetTriggered: true,
+          firedSlotIndex: 1,
+        };
+      }
+      if (failure === "repeat-reset-settings" && subpass === 1)
+        read.settings = { ...read.settings, launchQuantization: 4 };
+      return read;
+    }),
     inspectDeviceParameters: async (params) => {
       const track = snapshot().tracks[params.index],
         device = track.devices.find(
@@ -342,7 +638,12 @@ async function fixture({
       truncated: failure === "truncated-midi",
       notes: [
         {
-          pitch: playing && failure === "midi-edit" ? 61 : 60,
+          pitch:
+            params.sceneIndex === 1 && failure !== "repeat-identical-clips"
+              ? 67
+              : playing && failure === "midi-edit"
+                ? 61
+                : 60,
           startTime: 0,
           duration: 1,
           velocity: 100,
@@ -392,6 +693,17 @@ async function fixture({
           },
     sessionListeningPass: vi.fn(async (params) => {
       log.push(`source:${params.action}`);
+      // Read-only inspection accepts nonzero anchors; launch preparation must
+      // not occur there. This models qualification, not a restriction on reads.
+      if (
+        params.action === "prepare" &&
+        failure === "repeat-requires-zero" &&
+        subpass > 0 &&
+        repeatBeat !== 0
+      )
+        throw new Error(
+          "session_launch_case_unqualified: stopped beat zero required",
+        );
       if (params.action === "prepare" && failure === "prepare-failure")
         throw new Error("Session prepare denied token=unit-private-value");
       if (params.action === "prepare" && failure === "prepare-cancelled")
@@ -433,10 +745,44 @@ async function fixture({
     ...application,
     ...runtime,
     ...observability,
+    LocalObservabilityJournal: {
+      open: async (options) => {
+        openedJournal =
+          await observability.LocalObservabilityJournal.open(options);
+        const flush = openedJournal.flush.bind(openedJournal);
+        openedJournal.flush = async () => {
+          journalFlushes++;
+          return flush();
+        };
+        return openedJournal;
+      },
+    },
     ...storage,
     ...shared,
     JsonSessionStore,
-    createDesktopSessionContextManager,
+    createDesktopSessionContextManager: (options) => {
+      const manager = createDesktopSessionContextManager(options);
+      if (failure === "repeat-prior-context-rewrite") {
+        const resolve = manager.resolveRepository.bind(manager);
+        manager.resolveRepository = async (context) => {
+          const repository = await resolve(context);
+          return new Proxy(repository, {
+            get(target, key) {
+              if (key === "getEntry")
+                return async (id) => {
+                  const entry = await target.getEntry(id);
+                  return publications >= 2 && entry?.passId !== job?.passId
+                    ? { ...entry, tampered: true }
+                    : entry;
+                };
+              const value = Reflect.get(target, key);
+              return typeof value === "function" ? value.bind(target) : value;
+            },
+          });
+        };
+      }
+      return manager;
+    },
     sessionSchema,
     publishSignalSecrets,
     protocol: p,
@@ -448,14 +794,14 @@ async function fixture({
             return {
               action: params.action,
               listeners: [
-                {
+                candidateViewTransform({
                   listenerId: listener.producer.producerId,
                   ready: false,
                   limitations: ["native_per_pass_validation_required"],
                   trackReference: trackRefs[selectedIndex],
                   deviceReference: deviceRefs[selectedIndex],
-                },
-              ],
+                }),
+              ].filter((candidate) => candidate !== undefined),
             };
           if (params.action === "play-session-and-listen") {
             actorContext = context;
@@ -483,7 +829,11 @@ async function fixture({
         },
         waitForListeningPass: async () => {
           const cancelled = failure === "cancelled";
-          if (cancelled || failure === "capture") {
+          if (
+            cancelled ||
+            failure === "capture" ||
+            (failure === "repeat-second-capture" && subpass === 1)
+          ) {
             await ableton.sessionListeningPass({
               ...e.session.receipts[3].params,
               reason: "cancelled",
@@ -496,6 +846,8 @@ async function fixture({
             hostOptions.onChange(job);
             return job;
           }
+          if (failure === "repeat-second-partial-proof" && subpass === 1)
+            e.received[0].result.nativeCapture.transport.spectralWindows.pop();
           for (const result of results)
             result({
               ...e.received[0],
@@ -514,13 +866,19 @@ async function fixture({
             actorContext,
           );
           const at = new Date().toISOString();
-          const canonicalTrackId = "canonical-track-subject";
+          const canonicalTrackId = repeated
+            ? `canonical-track-${job.passId}`
+            : "canonical-track-subject";
           const associatedTrackId =
             failure === "inconsistent-track-subject-id"
               ? trackRefs[selectedIndex]
               : canonicalTrackId;
           const subject = (primary) => ({
-            id: primary ? "session-clip-subject" : canonicalTrackId,
+            id: primary
+              ? repeated
+                ? `session-clip-${job.passId}`
+                : "session-clip-subject"
+              : canonicalTrackId,
             sessionId: job.owner.sessionId,
             liveSetId: job.owner.liveSetId,
             kind: primary ? "clip" : "track",
@@ -533,7 +891,7 @@ async function fixture({
                   ? e.session.target.expectedClipName
                   : e.session.target.track.expectedName,
                 trackId: associatedTrackId,
-                ...(primary ? { sceneIndex: 0 } : {}),
+                ...(primary ? { sceneIndex: e.session.target.sceneIndex } : {}),
               },
               sourceIdentity: "synthetic-message-rate-only",
               playbackSettingsHash: "a".repeat(64),
@@ -541,7 +899,9 @@ async function fixture({
               routingHash: "c".repeat(64),
               dependencyScope: "unknown",
               previousRuntimeBindings: [
-                primary ? clipRefs[selectedIndex] : trackRefs[selectedIndex],
+                primary
+                  ? e.session.target.expectedClipReference
+                  : trackRefs[selectedIndex],
               ],
             },
           });
@@ -653,7 +1013,8 @@ async function fixture({
                 action: "play-session-and-listen",
                 target: e.session.target,
                 listenerIds: [listener.producer.producerId],
-                ...(failure === "denial"
+                ...(failure === "denial" ||
+                (failure === "repeat-second-denial" && subpass === 1)
                   ? { durationBeats: 4.001 }
                   : durationBeats === null
                     ? {}
@@ -692,10 +1053,479 @@ async function fixture({
     publications: () => publications,
     inspectionQueries,
     parameterReadCounts,
+    diagnosticReads,
+    readJournal: (query) => openedJournal.read(query),
   };
 }
 
 describe("native Session runner composition (no Live launched, not physical qualification)", () => {
+  it.each([
+    ["readyFalse", (candidate) => ({ ...candidate, ready: true })],
+    [
+      "nativePerPassValidationRequired",
+      (candidate) => ({ ...candidate, limitations: [] }),
+    ],
+    [
+      "trackReferenceMatches",
+      (candidate) => ({
+        ...candidate,
+        trackReference: "token=runner-private-admission",
+      }),
+    ],
+    [
+      "deviceReferenceMatches",
+      (candidate) => ({ ...candidate, deviceReference: "foreign-device" }),
+    ],
+  ])(
+    "attributes previously opaque candidate admission failure exactly to %s",
+    async (predicate, candidateViewTransform) => {
+      const f = await fixture({
+        nativeVersion: 4,
+        scenarioId: "native-dual-session-repeat-1-2-1",
+        candidateViewTransform,
+      });
+      try {
+        const result = await f.runner.run(async () => {});
+        expect(result).toMatchObject({
+          ok: false,
+          approvals: [],
+          jobs: [],
+          candidateAdmission: {
+            schema: "native-candidate-admission/v1",
+            passed: false,
+            failedChecks: [predicate],
+            checks: { [predicate]: false, candidatePresent: true },
+            expected: {
+              listenerId: f.e.listener.producer.producerId,
+              trackReference: f.e.session.target.track.expectedReference,
+              deviceReference: f.e.target.binding.expectedDeviceReference,
+            },
+          },
+        });
+        expect(result.error).toBe(
+          `Candidate readiness or independently resolved identity mismatch: ${predicate}`,
+        );
+        const events = result.lifecycle.filter((event) =>
+          event.name.startsWith(
+            "integration.native_listening.candidate-admission.",
+          ),
+        );
+        expect(events.map((event) => event.stage)).toEqual([
+          "queued",
+          "started",
+          "progress",
+          "failed",
+        ]);
+        expect(events.at(-1).attributes.candidateAdmission).toEqual(
+          result.candidateAdmission,
+        );
+        expect(JSON.stringify(result)).not.toContain(
+          "runner-private-admission",
+        );
+        expect(f.mutations).toEqual([]);
+        expect(f.publications()).toBe(0);
+        expect(f.originalSourcePass).not.toHaveBeenCalled();
+        expect(f.appStop).toHaveBeenCalledOnce();
+        expect(f.signalStop).toHaveBeenCalledOnce();
+      } finally {
+        await f.runner.close({ processStopped: true });
+      }
+    },
+  );
+  it("retains explicit absence diagnostics instead of guessing a readiness or identity cause", async () => {
+    const f = await fixture({
+      nativeVersion: 4,
+      candidateViewTransform: () => undefined,
+    });
+    try {
+      const result = await f.runner.run(async () => {});
+      expect(result).toMatchObject({
+        ok: false,
+        candidateAdmission: {
+          passed: false,
+          candidateView: null,
+          checks: { candidatePresent: false },
+          failedChecks: [
+            "candidatePresent",
+            "readyFalse",
+            "nativePerPassValidationRequired",
+            "trackReferenceMatches",
+            "deviceReferenceMatches",
+          ],
+        },
+        approvals: [],
+        jobs: [],
+      });
+      expect(f.mutations).toEqual([]);
+      expect(f.publications()).toBe(0);
+    } finally {
+      await f.runner.close({ processStopped: true });
+    }
+  });
+  it("bounds/redacts allowlisted diagnostics but compares untruncated raw references and limitations", () => {
+    const prefix = "a".repeat(256);
+    const input = {
+      listenerId: "listener",
+      trackReference: `${prefix}expected`,
+      deviceReference: "device",
+      candidateView: {
+        listenerId: "listener",
+        instanceId: "token=synthetic-private-instance",
+        ready: false,
+        trackReference: `${prefix}different`,
+        deviceReference: "device",
+        limitations: [
+          ...Array(12).fill(`token=synthetic-private-limitation ${prefix}`),
+          "native_per_pass_validation_required",
+        ],
+        authorization: "synthetic-private-field",
+        payload: "never-copy-arbitrary-fields",
+      },
+    };
+    const evidence = inspectNativeCandidateAdmission(
+      input,
+      observability.sanitizePersistedText,
+    );
+    expect(evidence.failedChecks).toEqual(["trackReferenceMatches"]);
+    expect(evidence.checks.nativePerPassValidationRequired).toBe(true);
+    // Same diagnostic prefix must never turn unequal raw references into a pass.
+    expect(evidence.candidateView.trackReference).toBe(
+      evidence.expected.trackReference,
+    );
+    expect(evidence.candidateView).toMatchObject({
+      limitationsCount: 13,
+      limitationsTruncated: true,
+    });
+    expect(evidence.candidateView.limitations).toHaveLength(8);
+    for (const text of evidence.candidateView.limitations)
+      expect(text.length).toBeLessThanOrEqual(128);
+    expect(JSON.stringify(evidence)).not.toContain("synthetic-private");
+    expect(evidence.candidateView).not.toHaveProperty("authorization");
+    expect(evidence.candidateView).not.toHaveProperty("payload");
+    expect(JSON.stringify(evidence).length).toBeLessThan(3000);
+    input.candidateView.trackReference = input.trackReference;
+    expect(
+      inspectNativeCandidateAdmission(
+        input,
+        observability.sanitizePersistedText,
+      ).passed,
+    ).toBe(true);
+  });
+  it("restores the qualified stopped-zero Session baseline after a nonzero completed pass", async () => {
+    const f = await fixture({
+      scenarioId: "native-dual-session-repeat-1-2-1",
+      nativeVersion: 4,
+      failure: "repeat-requires-zero",
+    });
+    try {
+      const result = await f.runner.run(async () => {});
+      expect(result.ok, result.error).toBe(true);
+      expect(result.repeated.passes).toHaveLength(3);
+      expect(
+        f.mutations.filter((m) => m === "harness-position-zero"),
+      ).toHaveLength(2);
+    } finally {
+      await f.runner.close({ processStopped: true });
+    }
+  });
+  it.each(["repeat-stop-delayed", "repeat-stop-delayed-diag-unavailable"])(
+    "persists request before dispatch and retains one read-only failure round at %s without accepting an applied stop",
+    async (failure) => {
+      const f = await fixture({
+        scenarioId: "native-dual-session-repeat-1-2-1",
+        nativeVersion: 4,
+        failure,
+      });
+      try {
+        const result = await f.runner.run(async () => {});
+        expect(result.ok).toBe(false);
+        expect(result.error).toBe("Track clips did not stop as requested");
+        expect(result.jobs).toHaveLength(1);
+        expect(result.repeatedProgress.value).toHaveLength(1);
+        const baseline = result.harnessStoppedBaselines.value[0];
+        expect(baseline.verified).toBe(false);
+        expect(baseline.requests).toHaveLength(1);
+        expect(baseline.requests[0]).toMatchObject({
+          persistedBeforeDispatch: true,
+          status: "failed",
+          request: {
+            command: "tracks.mutate",
+            params: {
+              action: "stop-clips",
+              target: f.e.session.target.track,
+              quantized: false,
+            },
+          },
+          error: {
+            code: "conflict",
+            message: "Track clips did not stop as requested",
+          },
+        });
+        const diagnostic = baseline.failureDiagnostics;
+        expect(diagnostic.ownedIdentityVerified).toBe(true);
+        expect(diagnostic.reads).toHaveLength(5);
+        expect(f.diagnosticReads).toEqual([
+          "track",
+          "source-0",
+          "source-1",
+          "transport",
+          "recording",
+        ]);
+        expect(diagnostic.status).toBe(
+          failure.endsWith("unavailable") ? "failed" : "completed",
+        );
+        const persisted = await f.readJournal({
+          names: [
+            "integration.native_listening.repeat-1-failure-read-source-0.completed",
+          ],
+        });
+        expect(persisted.items).toHaveLength(1);
+        expect(persisted.items[0].attributes.result.after).toMatchObject({
+          transportPlaying: true,
+          targetPlaying: false,
+          playingSlotIndex: -2,
+          firedSlotIndex: -1,
+        });
+        for (const read of diagnostic.reads.filter((read) =>
+          read.name.startsWith("source-"),
+        ))
+          expect(read.result.after).toMatchObject({
+            transportPlaying: true,
+            targetPlaying: false,
+            targetTriggered: false,
+            targetRecording: false,
+            playingSlotIndex: -2,
+            firedSlotIndex: -1,
+          });
+        if (failure.endsWith("unavailable"))
+          expect(diagnostic.reads[0]).toMatchObject({
+            status: "failed",
+            error: { name: "Error" },
+          });
+        expect(JSON.stringify(result)).not.toContain("private-diagnostic");
+        expect(f.mutations).toEqual(["launch", "harness-stop-clips"]);
+        expect(f.publications()).toBe(1);
+        expect(f.appStop).toHaveBeenCalledOnce();
+        expect(f.signalStop).toHaveBeenCalledOnce();
+      } finally {
+        const writes = [...f.mutations];
+        await f.runner.close({ processStopped: true });
+        expect(f.mutations).toEqual(writes);
+      }
+    },
+  );
+  it("denies lost exact-PID ownership before fixture resets and never positions during cleanup", async () => {
+    const f = await fixture({
+      scenarioId: "native-dual-session-repeat-1-2-1",
+      nativeVersion: 4,
+    });
+    try {
+      const result = await f.runner.run(async () => {
+        if (f.publications() > 0)
+          throw new Error("Exact owned PID no longer matches");
+      });
+      expect(result.ok).toBe(false);
+      expect(f.mutations).toEqual(["launch"]);
+      expect(f.appStop).toHaveBeenCalledOnce();
+      expect(f.signalStop).toHaveBeenCalledOnce();
+    } finally {
+      const before = [...f.mutations];
+      await f.runner.close({ processStopped: true });
+      expect(f.mutations).toEqual(before);
+    }
+  });
+  it("retains partially positioned fixture until owned process closure is confirmed, without repair", async () => {
+    const f = await fixture({
+      scenarioId: "native-dual-session-repeat-1-2-1",
+      nativeVersion: 4,
+      failure: "repeat-position-throws",
+    });
+    const result = await f.runner.run(async () => {});
+    expect(result.ok).toBe(false);
+    expect(result.repeatedProgress.value).toHaveLength(1);
+    expect(result.harnessStoppedBaselines.value[0]).toMatchObject({
+      positionDispatched: true,
+      verified: false,
+    });
+    const before = [...f.mutations];
+    await expect(f.runner.close({ processStopped: false })).rejects.toThrow(
+      /retained staging/,
+    );
+    await access(f.runner.fixture.setPath);
+    expect(f.mutations).toEqual(before);
+    // Unit fixture only: no process was launched. Journal is now closed; clean
+    // this exact staged fixture after simulated process closure, without a seek.
+    await f.runner.fixture.cleanup();
+    await expect(access(f.runner.fixture.setPath)).rejects.toThrow();
+    expect(f.mutations).toEqual(before);
+  });
+  it.each([
+    ["repeat-inventory-active-first", true],
+    ["repeat-inventory-active-first-mutation", false],
+  ])(
+    "compares exact clip inventory by identity despite active-first ordering (%s)",
+    async (failure, passed) => {
+      const f = await fixture({
+        scenarioId: "native-dual-session-repeat-1-2-1",
+        nativeVersion: 4,
+        failure,
+      });
+      try {
+        const result = await f.runner.run(async () => {});
+        expect(result.ok, result.error).toBe(passed);
+        if (passed) expect(result.repeated.passes).toHaveLength(3);
+        else {
+          expect(result.postconditions.failedChecks).toEqual([
+            "bindingUnchanged",
+          ]);
+          expect(
+            result.postconditions.differences.some((difference) =>
+              difference.path.endsWith(".settings.looping"),
+            ),
+          ).toBe(true);
+        }
+      } finally {
+        await f.runner.close({ processStopped: true });
+      }
+    },
+  );
+
+  it.each([44100, 48000])(
+    "qualifies same-loaded native4 clip1 → clip2 → clip1 at %sHz with three immutable contexts",
+    async (rate) => {
+      const f = await fixture({
+        scenarioId: "native-dual-session-repeat-1-2-1",
+        nativeVersion: 4,
+        rate,
+      });
+      const runtimeFactory = vi.spyOn(f.services, "createAgentRuntime");
+      try {
+        const result = await f.runner.run(async () => {});
+        expect(result, result.error).toMatchObject({
+          ok: true,
+          candidateAdmission: { passed: true, failedChecks: [] },
+          repeated: {
+            sameLoadedInstance: true,
+            priorContextsPreserved: true,
+            harnessStoppedBaselines: 2,
+          },
+        });
+        expect(result.repeated.passes.map((p) => p.target.sceneIndex)).toEqual([
+          0, 1, 0,
+        ]);
+        expect(new Set(result.repeated.passes.map((p) => p.passId)).size).toBe(
+          3,
+        );
+        expect(
+          new Set(result.repeated.passes.map((p) => p.contextId)).size,
+        ).toBe(3);
+        const epochs = result.repeated.passes.map((p) => p.nativeEpoch);
+        expect(epochs[1]).toBeGreaterThan(epochs[0]);
+        expect(epochs[2]).toBeGreaterThan(epochs[1]);
+        expect(result.jobs).toHaveLength(3);
+        expect(f.publications()).toBe(3);
+        const resets = result.harnessStoppedBaselines.value;
+        expect(resets).toHaveLength(2);
+        for (const reset of resets) {
+          expect(reset).toMatchObject({
+            reviewRevision: "fixture-beat-zero-reset-v1",
+            verified: true,
+            settingsUnchanged: true,
+            preflight: { transport: { playing: false, currentBeat: 0 } },
+          });
+          expect(reset.sourceStates).toHaveLength(2);
+          for (const read of reset.sourceStates)
+            for (const state of [read.before, read.after])
+              expect(state).toMatchObject({
+                globalBeat: 0,
+                transportPlaying: false,
+                targetPlaying: false,
+                targetTriggered: false,
+                targetRecording: false,
+                firedSlotIndex: -1,
+              });
+        }
+        expect(runtimeFactory).toHaveBeenCalledOnce();
+        expect(f.mutations).toEqual([
+          "launch",
+          "harness-stop-clips",
+          "harness-stop",
+          "harness-position-zero",
+          "launch",
+          "harness-stop-clips",
+          "harness-stop",
+          "harness-position-zero",
+          "launch",
+        ]);
+        expect(
+          f.originalSourcePass.mock.calls.filter(
+            ([p]) => p.action === "prepare",
+          ),
+        ).toHaveLength(3);
+        expect(
+          result.approvals.filter(
+            (d) => d.arguments?.action === "play-session-and-listen",
+          ),
+        ).toHaveLength(3);
+        expect(f.appStop).toHaveBeenCalledOnce();
+        expect(f.signalStop).toHaveBeenCalledOnce();
+      } finally {
+        await f.runner.close({ processStopped: true });
+      }
+    },
+  );
+  it.each([
+    ["repeat-identical-clips", 0, 0],
+    ["repeat-initial-nonzero", 0, 0],
+    ["repeat-foreign-set", 0, 1],
+    ["repeat-foreign-source", 0, 1],
+    ["repeat-recording-before-reset", 0, 1],
+    ["repeat-source-recording-before-reset", 0, 1],
+    ["repeat-clip-stop-denied", 0, 1],
+    ["repeat-clip-stop-unconfirmed", 0, 1],
+    ["repeat-position-unapplied", 1, 1],
+    ["repeat-position-throws", 1, 1],
+    ["repeat-position-denied", 1, 1],
+    ["repeat-position-settings", 1, 1],
+    ["repeat-reset-queued", 1, 1],
+    ["repeat-reset-settings", 1, 1],
+    ["capture", 0, 1],
+    ["cancelled", 0, 1],
+    ["repeat-stop-throws", 1, 1],
+    ["repeat-silent", 0, 1],
+    ["repeat-clipped", 0, 1],
+    ["repeat-stop-recording", 1, 1],
+    ["repeat-reconnect", 1, 1],
+    ["repeat-reused-pass", 1, 1],
+    ["repeat-second-capture", 1, 2],
+    ["repeat-second-denial", 1, 1],
+    ["repeat-second-partial-proof", 1, 2],
+    ["repeat-prior-context-rewrite", 1, 2],
+    ["repeat-reused-native-epoch", 1, 2],
+  ])(
+    "fails closed at %s without capture retries or later unauthorized stops",
+    async (failure, stops, launches) => {
+      const f = await fixture({
+        scenarioId: "native-dual-session-repeat-1-2-1",
+        nativeVersion: 4,
+        failure,
+      });
+      try {
+        const result = await f.runner.run(async () => {});
+        expect(result.ok, JSON.stringify(result)).toBe(false);
+        expect(f.mutations.filter((m) => m === "harness-stop")).toHaveLength(
+          stops,
+        );
+        expect(f.mutations.filter((m) => m === "launch")).toHaveLength(
+          launches,
+        );
+        expect(f.appStop).toHaveBeenCalledOnce();
+        expect(f.signalStop).toHaveBeenCalledOnce();
+      } finally {
+        await f.runner.close({ processStopped: true });
+      }
+    },
+  );
   it.each([
     ["native-session-midi-full-loop", 44100],
     ["native-session-midi-full-loop", 48000],
@@ -731,16 +1561,29 @@ describe("native Session runner composition (no Live launched, not physical qual
       await expect(access(f.runner.fixture.setPath)).rejects.toThrow();
     },
   );
-  it("executes the reviewed wire4 Session scenario with exact mode proof and typed reopen without launching Live", async () => {
-    const f = await fixture({ nativeVersion: 4 });
-    try {
-      const result = await f.runner.run(async () => {});
-      expect(result, result.error).toMatchObject({ ok: true });
-      expect(f.publications()).toBe(1);
-    } finally {
-      await f.runner.close({ processStopped: true });
-    }
-  });
+  it.each(["midi", "warped-audio"])(
+    "executes the reviewed wire4 %s Session scenario with exact mode proof and typed reopen without launching Live",
+    async (kind) => {
+      const f = await fixture({ nativeVersion: 4, kind });
+      try {
+        const result = await f.runner.run(async () => {});
+        expect(result, result.error).toMatchObject({ ok: true });
+        expect(f.publications()).toBe(1);
+        const prepared = result.lifecycle.find(
+          (event) =>
+            event.name ===
+            "integration.native_listening.session-source-prepare.completed",
+        );
+        expect(prepared.attributes.sourceReceipt).toMatchObject({
+          params: { action: "prepare", passId: result.jobs[0].passId },
+          result: { status: "prepared", mutationState: "not-attempted" },
+          beforePublication: true,
+        });
+      } finally {
+        await f.runner.close({ processStopped: true });
+      }
+    },
+  );
   it("admits a 195-parameter Operator with unknown nonexclusive dependencies without raising inspection budgets", async () => {
     const f = await fixture({ operatorParameters: 195 });
     try {

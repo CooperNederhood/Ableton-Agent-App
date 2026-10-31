@@ -3,6 +3,26 @@ import { describe, expect, it } from "vitest";
 import { parseDesktopLaunchOptions } from "./launch-options.js";
 
 describe("desktop launch options", () => {
+  it("enables metric listeners only through explicit isolated automation", () => {
+    expect(() =>
+      parseDesktopLaunchOptions(["--automation-metric-listeners"]),
+    ).toThrow("require --automation");
+    expect(
+      parseDesktopLaunchOptions([
+        "--automation",
+        "--automation-profile",
+        "/tmp/ableton-agent-metric-profile",
+        "--automation-metric-listeners",
+      ]).automation?.independentMetricListeners,
+    ).toBe(true);
+    expect(
+      parseDesktopLaunchOptions([
+        "--automation",
+        "--automation-profile",
+        "/tmp/ableton-agent-metric-profile",
+      ]).automation?.independentMetricListeners,
+    ).toBeUndefined();
+  });
   it("parses an isolated automation launch", () => {
     expect(
       parseDesktopLaunchOptions([

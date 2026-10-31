@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { listenerNativeDualStatusSchema } from "./listener-native-status-dual.js";
+import {
+  listenerNativeDualStatusSchema,
+  listenerDualCapabilitiesSchema,
+} from "./listener-native-status-dual.js";
 
 export const dualStatus = {
   version: 4,
@@ -18,6 +21,52 @@ export const dualStatus = {
   abiVersion: 2,
 };
 describe("wire4 explicit dual-mode status", () => {
+  it.each([
+    { capabilities: ["audio-listener/dual-mode-v1"], accepted: true },
+    {
+      capabilities: [
+        "audio-listener/dual-mode-v1",
+        "audio-listener/retention-v1",
+      ],
+      accepted: true,
+    },
+    { capabilities: undefined, accepted: false },
+    { capabilities: [], accepted: false },
+    { capabilities: ["audio-listener/retention-v1"], accepted: false },
+    {
+      capabilities: [
+        "audio-listener/retention-v1",
+        "audio-listener/dual-mode-v1",
+      ],
+      accepted: false,
+    },
+    {
+      capabilities: [
+        "audio-listener/dual-mode-v1",
+        "audio-listener/dual-mode-v1",
+      ],
+      accepted: false,
+    },
+    {
+      capabilities: ["audio-listener/dual-mode-v1", "unknown"],
+      accepted: false,
+    },
+    {
+      capabilities: [
+        "audio-listener/dual-mode-v1",
+        "audio-listener/retention-v1",
+        "unknown",
+      ],
+      accepted: false,
+    },
+  ])(
+    "validates the shared capability tuple $capabilities",
+    ({ capabilities, accepted }) => {
+      expect(
+        listenerDualCapabilitiesSchema.safeParse(capabilities).success,
+      ).toBe(accepted);
+    },
+  );
   it("advertises exactly both modes without claiming readiness", () => {
     expect(listenerNativeDualStatusSchema.parse(dualStatus)).toEqual(
       dualStatus,

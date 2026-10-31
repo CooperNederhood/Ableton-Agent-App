@@ -2,6 +2,7 @@ import { chmod, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { connect, type Socket } from "node:net";
 import { resolve } from "node:path";
 import { randomUUID } from "node:crypto";
+import type { TelemetryEventEnvelope } from "@ableton-agent/observability";
 
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -171,6 +172,55 @@ class TestClient {
 }
 
 describe("SignalIngressServer", () => {
+  it("accounts for callback rate-limit suppression without suppressing durable rejection events", async () => {
+    const events: TelemetryEventEnvelope[] = [];
+    const diagnostics: unknown[] = [];
+    const { server, endpoint } = await startServer({
+      onDiagnostic: (value) => {
+        diagnostics.push(value);
+      },
+      telemetry: {
+        enqueue: (event) => {
+          events.push(event);
+        },
+      },
+      now: () => 1000,
+    });
+    const client = await openClient(endpoint);
+    client.send(hello());
+    await client.next();
+    client.send(frame(1));
+    await client.next();
+    for (let index = 0; index < 25; index++) {
+      client.send(frame(1, `replay-${index}`));
+      expect(await client.next()).toMatchObject({
+        type: "producer.error",
+        code: "sequence-replay",
+      });
+    }
+    await server.stop();
+    expect(diagnostics).toHaveLength(20);
+    const suppressed = events.filter(
+      (event) => event.name === "output.ingress.diagnostics.suppressed",
+    );
+    expect(suppressed.map((event) => event.attributes)).toMatchObject([
+      { sink: "diagnostic-callback", suppressedCount: 1, final: false },
+      {
+        sink: "diagnostic-callback",
+        suppressedCount: 5,
+        final: true,
+        journalRejectionsSuppressed: false,
+      },
+    ]);
+    expect(
+      events.filter(
+        (event) =>
+          event.name === "output.ingress.failed" &&
+          event.attributes.code === "sequence-replay",
+      ),
+    ).toHaveLength(25);
+  });
+
   it("requires an authenticated hello and rejects bad credentials", async () => {
     const { endpoint, registry } = await startServer();
     const unauthenticated = await openClient(endpoint);
@@ -339,34 +389,43 @@ describe("SignalIngressServer", () => {
     });
   });
 
-  it("writes a secret-free 0600 descriptor and removes only its own content", async () => {
-    await mkdir(artifactRoot, { recursive: true });
-    const descriptorPath = resolve(artifactRoot, "ingress.json");
-    const { server, endpoint } = await startServer({ descriptorPath });
-    const descriptorText = await readFile(descriptorPath, "utf8");
-    expect(JSON.parse(descriptorText)).toEqual({
-      host: "127.0.0.1",
-      port: endpoint.port,
-      protocol: "newline-delimited-json",
-      protocolVersion: PRODUCER_PROTOCOL_VERSION,
-      maxFrameBytes: 128 * 1024,
-      listenerVersions: [1, 2, 3, 4],
-      listenerCapabilities: [
-        "audio-listener/v1",
-        "audio-listener/v2",
-        "audio-listener/session-v1",
-        "audio-listener/dual-mode-v1",
-      ],
-      producerDiagnostics: ["write-backpressure/v1"],
-    });
-    expect(descriptorText).not.toContain(SECRET);
-    expect((await stat(descriptorPath)).mode & 0o777).toBe(0o600);
+  it.each([undefined, false, true])(
+    "writes a secret-free 0600 descriptor with metric opt-in %s and removes only its own content",
+    async (independentMetricListeners) => {
+      await mkdir(artifactRoot, { recursive: true });
+      const descriptorPath = resolve(artifactRoot, "ingress.json");
+      const { server, endpoint } = await startServer({
+        descriptorPath,
+        ...(independentMetricListeners === undefined
+          ? {}
+          : { independentMetricListeners }),
+      });
+      const descriptorText = await readFile(descriptorPath, "utf8");
+      expect(JSON.parse(descriptorText)).toEqual({
+        host: "127.0.0.1",
+        port: endpoint.port,
+        protocol: "newline-delimited-json",
+        protocolVersion: PRODUCER_PROTOCOL_VERSION,
+        maxFrameBytes: 128 * 1024,
+        ...(independentMetricListeners
+          ? {
+              listenerVersions: [5],
+              listenerCapabilities: [
+                "audio-listener/independent-metric-timelines-v1",
+              ],
+            }
+          : {}),
+        producerDiagnostics: ["write-backpressure/v1"],
+      });
+      expect(descriptorText).not.toContain(SECRET);
+      expect((await stat(descriptorPath)).mode & 0o777).toBe(0o600);
 
-    await writeFile(descriptorPath, "replacement\n", { mode: 0o644 });
-    await chmod(descriptorPath, 0o644);
-    await server.stop();
-    expect(await readFile(descriptorPath, "utf8")).toBe("replacement\n");
-  });
+      await writeFile(descriptorPath, "replacement\n", { mode: 0o644 });
+      await chmod(descriptorPath, 0o644);
+      await server.stop();
+      expect(await readFile(descriptorPath, "utf8")).toBe("replacement\n");
+    },
+  );
 
   it("shuts down idempotently, closes clients, and removes its descriptor", async () => {
     await mkdir(artifactRoot, { recursive: true });
@@ -399,6 +458,11 @@ describe("SignalIngressServer", () => {
     expect(await readFile(legacyDescriptorPath, "utf8")).toBe(
       await readFile(descriptorPath, "utf8"),
     );
+    const descriptor: unknown = JSON.parse(
+      await readFile(descriptorPath, "utf8"),
+    );
+    expect(descriptor).not.toHaveProperty("listenerVersions");
+    expect(descriptor).not.toHaveProperty("listenerCapabilities");
     expect((await stat(legacyDescriptorPath)).mode & 0o777).toBe(0o600);
     await server.stop();
     await expect(stat(descriptorPath)).rejects.toThrow();

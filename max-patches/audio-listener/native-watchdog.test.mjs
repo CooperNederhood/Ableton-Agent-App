@@ -101,7 +101,7 @@ test("invalid constructor versions and caller-supplied deadlines fail closed, ne
   for (const args of [
     [],
     ["audio_listener_guard.js", 0],
-    ["audio_listener_guard.js", 5],
+    ["audio_listener_guard.js", 6],
     ["audio_listener_guard.js", "2"],
     ["audio_listener_guard.js", 2, 120000],
   ]) {
@@ -132,7 +132,7 @@ test("explicit v1 constructor retains its 30-second bound", () => {
   assert.equal(events.at(-1).elapsedMs, 30000);
 });
 
-for (const version of [3, 4])
+for (const version of [3, 4, 5])
   test(`explicit wire${version} watchdog has the same fixed native bounds and generation ownership`, () => {
     const { context, controls, events, prepare } = fixture([
       "audio_listener_guard.js",

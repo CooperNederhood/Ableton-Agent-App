@@ -8,9 +8,12 @@ import { _electron as electron, expect, test } from "@playwright/test";
 import { sendAutomationMessage } from "../../packages/debug-control/src/client.js";
 import { resolveLiveAgentStorage } from "../../packages/storage/src/index.js";
 import { resolveAbletonToolMetadata } from "../../packages/tools/src/index.js";
+import { summarizeMetricListeningResult } from "../../packages/protocol/src/index.js";
+import { createSyntheticPartialMetricListeningObservation } from "../../packages/protocol/src/testing.js";
 import { toDesktopApproval } from "../../apps/desktop/src/main/approvals.js";
 import type { DesktopEntityContextApi } from "../../apps/desktop/src/context-contracts.js";
 import type { DesktopListeningPage } from "../../apps/desktop/src/listening-contracts.js";
+import { listeningFailureFixture } from "../../apps/desktop/src/renderer/test-fixtures/listening-failure.js";
 import { preferencesSchema } from "../../apps/desktop/src/contracts.js";
 import type { DesktopApi } from "../../apps/desktop/src/contracts.js";
 import {
@@ -131,6 +134,7 @@ async function launchAutomationDesktop() {
       "--automation-agent",
       "default",
       "--automation-yolo",
+      "--automation-metric-listeners",
     ],
     cwd: process.cwd(),
     env: await isolatedTestEnvironment(profile, {}, undefined, true),
@@ -223,6 +227,12 @@ test("binds first-connected Live ownership through production main/preload and r
       .poll(async () => (await sessions())[0]?.liveSetId)
       .toBe("simulated-live-set");
     expect((await sessions())[0]?.id).toBe(orphan.id);
+    await window
+      .getByRole("button", { name: "Refresh Live Set snapshot", exact: true })
+      .click();
+    await expect(
+      window.getByText("Live Set snapshot updated.", { exact: true }),
+    ).toBeVisible();
     await window.getByRole("button", { name: "Profiles", exact: true }).click();
     await window
       .getByRole("button", { name: "Expand unassigned Live Sets" })
@@ -569,10 +579,44 @@ test("shows synthetic listening lifecycle through real preload events and read-o
         window.locator(`[data-listening-stage=${stage}]`),
       ).toBeVisible();
     }
+    page.revision++;
+    page.jobs[0] = {
+      ...page.jobs[0]!,
+      stage: "partial",
+      error: undefined,
+      contextIds: ["synthetic-partial-context-not-measured"],
+      metricResults: [
+        summarizeMetricListeningResult(
+          createSyntheticPartialMetricListeningObservation(),
+        ),
+      ],
+    };
+    await inject(page);
+    const partial = window.locator("[data-listening-stage=partial]");
+    await expect(partial).toContainText("Partial listening result saved");
+    await expect(partial).toContainText("Missing measurements are not silence");
+    await expect(
+      partial.getByLabel("Metric acquisition summary"),
+    ).toContainText(
+      "spectral-centroid: partial. 10 of 11 expected records retained",
+    );
+    await expect(partial.getByRole("alert")).toHaveCount(0);
+    await expect(
+      window.getByRole("button", {
+        name: "Cancel owned capture (not transport)",
+        exact: true,
+      }),
+    ).toBeDisabled();
     const placementError =
       "Listener placement no longer matches its attested device. Wait for placement refresh, inspect listeners again, and start a new capture.";
     page.revision++;
-    page.jobs[0] = { ...page.jobs[0]!, stage: "failed", error: placementError };
+    page.jobs[0] = {
+      ...page.jobs[0],
+      stage: "failed",
+      error: placementError,
+      metricResults: undefined,
+      contextIds: [],
+    };
     await inject(page);
     await expect(
       window.getByRole("alert").filter({ hasText: placementError }),
@@ -582,6 +626,7 @@ test("shows synthetic listening lifecycle through real preload events and read-o
       ...page.jobs[0],
       passId: "synthetic-fresh-pass-after-placement-refresh",
       stage: "completed",
+      contextIds: ["synthetic-prior-context-reference-not-measured"],
       error: undefined,
     });
     await inject(page);
@@ -603,6 +648,8 @@ test("shows synthetic listening lifecycle through real preload events and read-o
       ),
     ).toBeVisible();
     for (const error of [
+      "native_measurement_queue_overflow",
+      "native_measurement_delivery_failed",
       "arrangement_session_override: A Session source overrides the selected track. Return to Arrangement in Live, then explicitly request a new listening pass.",
       "arrangement_source_unknown: Arrangement source selection could not be verified. Request a fresh inspection. No Session takeover is confirmed.",
     ]) {
@@ -615,6 +662,10 @@ test("shows synthetic listening lifecycle through real preload events and read-o
       await expect(refusal).not.toContainText(
         "timing certification and context storage",
       );
+      await expect(refusal).toContainText("Playback policy: leave running");
+      await expect(
+        window.locator("[data-listening-stage=completed]"),
+      ).toContainText("1 stored observation references");
       await expect(
         window.getByRole("button", {
           name: "Cancel owned capture (not transport)",
@@ -622,6 +673,45 @@ test("shows synthetic listening lifecycle through real preload events and read-o
         }),
       ).toBeDisabled();
     }
+    const failedJob = page.jobs[0];
+    failedJob.failureEvidence = listeningFailureFixture(
+      failedJob.trace.traceId,
+      failedJob.passId,
+    );
+    failedJob.error = "stale_native_preflight";
+    page.revision++;
+    await inject(page);
+    const diagnostic = window.getByRole("region", {
+      name: "Listening failure evidence",
+    });
+    await expect(diagnostic).toContainText("native-controller / preflight");
+    await expect(diagnostic).toContainText("preflight.accepted-clock-age");
+    await expect(diagnostic).toContainText("Actual: 1034 ms");
+    await expect(diagnostic).toContainText("Expected (at-most): 1000 ms");
+    await expect(diagnostic).toContainText("Coverage: partial");
+    await expect(diagnostic).toContainText("missing-operands");
+    await expect(diagnostic).toContainText("unavailable (not-reported)");
+    await expect(diagnostic).toContainText(
+      `Diagnostic trace: ${failedJob.trace.traceId}`,
+    );
+    await window
+      .getByRole("button", { name: "View failure in History" })
+      .click();
+    await expect(
+      window.getByRole("tab", { name: "History", exact: true }),
+    ).toHaveAttribute("aria-selected", "true");
+    await expect(
+      window.getByRole("heading", { name: "Trace detail", exact: true }),
+    ).toBeVisible();
+    await expect(window.locator(".trace-inspector")).toContainText(
+      `Diagnostic trace: ${failedJob.trace.traceId}`,
+    );
+    await window.getByRole("button", { name: "Outputs", exact: true }).click();
+    await expect(
+      window.getByText(
+        "No listening passes for this agent in this App session.",
+      ),
+    ).toBeVisible();
     const inventory = await window.evaluate(
       async ({ sessionId, agentId }) =>
         globalThis.window.desktop.listening.list({ sessionId, agentId }),
@@ -757,6 +847,8 @@ test("restores typed v1/v2/Session context and approximate quality across Electr
         },
         { sessionId: listeningFixtureSessionId, contextId },
       );
+      if (detail.observation.schema !== "audio-observation/v1")
+        throw new Error("Expected the restored legacy observation fixture");
       expect(detail.observation.summaries.peak).toEqual([0.5, 0.5]);
       expect(detail.observation.summaries.centroidHz).toBe(440);
       expect(detail.observation.limitations).toContain(
@@ -939,13 +1031,9 @@ test("publishes producer discovery and credential references only inside the iso
     expect(descriptor).toMatchObject({
       secretPath: storage.signalIngressSecretPath,
       port: signalAddress.port,
-      listenerVersions: [1, 2, 3],
-      listenerCapabilities: [
-        "audio-listener/v1",
-        "audio-listener/v2",
-        "audio-listener/session-v1",
-      ],
     });
+    expect(descriptor).not.toHaveProperty("listenerVersions");
+    expect(descriptor).not.toHaveProperty("listenerCapabilities");
     expect(JSON.stringify(descriptor)).not.toContain(token);
     await expect(window.locator("body")).not.toContainText(token);
   } finally {
@@ -1389,6 +1477,7 @@ test("accepts an MCP-style user message in the visible desktop session", async (
       "--automation-agent",
       "default",
       "--automation-yolo",
+      "--automation-metric-listeners",
     ],
     cwd: process.cwd(),
     env: await isolatedTestEnvironment(profilePath, {}, undefined, true),
@@ -1396,6 +1485,35 @@ test("accepts an MCP-style user message in the visible desktop session", async (
   try {
     const window = await application.firstWindow();
     await window.waitForLoadState("domcontentloaded");
+    const storage = resolveLiveAgentStorage({
+      environment: {
+        LIVE_AGENT_HOME: join(profilePath, "live-agent"),
+        LIVE_AGENT_PROFILE: "automation",
+      },
+    });
+    await expect
+      .poll(async () => {
+        try {
+          const descriptor: unknown = JSON.parse(
+            await readFile(storage.signalIngressDescriptorPath, "utf8"),
+          );
+          return descriptor;
+        } catch (error) {
+          if (!(
+            error instanceof Error &&
+            "code" in error &&
+            error.code === "ENOENT"
+          ))
+            throw error;
+          return null;
+        }
+      })
+      .toMatchObject({
+        listenerVersions: [5],
+        listenerCapabilities: [
+          "audio-listener/independent-metric-timelines-v1",
+        ],
+      });
     await expect
       .poll(
         async () =>

@@ -38,6 +38,7 @@ function v2Fixture(options = {}) {
     new NativeCaptureController({
       listenerId: "v2-listener",
       nativeVersion: 2,
+      retainedMeasurements: options.retainedMeasurements ?? false,
       now: () => now,
       send: (value) => {
         sent.push(value);
@@ -123,13 +124,44 @@ function v2Fixture(options = {}) {
       ["abi-spectrum", [2]],
     ])
       packet(type, values);
-    packet("envelope", [0, -1, -1, 0, 0, 0, -1, -1, 0, 0, 0, 0, 0, -1, -1, 2]);
+    if (options.retainedMeasurements && options.retentionReady !== false)
+      for (const family of [1, 2]) {
+        packet("retention-state", [
+          family,
+          0,
+          controller.pass.nativeEpoch,
+          1,
+          0,
+          0,
+          family === 1 ? 16 : 32,
+          0,
+          0,
+          0,
+        ]);
+        packet("retention-state", [
+          family,
+          1,
+          controller.pass.nativeEpoch,
+          1,
+          0,
+          0,
+          family === 1 ? 16 : 32,
+          0,
+          0,
+          0,
+        ]);
+        packet("retention-ready", [family, 1, controller.pass.nativeEpoch]);
+      }
+    packet(
+      options.retainedMeasurements ? "envelope-state" : "envelope",
+      [0, -1, -1, 0, 0, 0, -1, -1, 0, 0, 0, 0, 0, -1, -1, 2],
+    );
     packet("spectrum", spectrum(fftBaseline, 0, 0));
     for (let i = 0; i < 32; i++)
       packet("clock", clock(armCounter - (32 - i) * 64, false));
   };
   const ack = () =>
-    packet("envelope", [
+    packet(options.retainedMeasurements ? "envelope-state" : "envelope", [
       controller.pass?.nativeEpoch,
       -1,
       -1,
@@ -159,13 +191,16 @@ function v2Fixture(options = {}) {
     ]);
   const start = async () => {
     controller.prepare(command);
-    const pending = controller.arm(OWNER);
+    const pending = controller.arm(command);
     preflight();
     configReceipt();
     ack();
     await pending;
     packet("clock", clock(origin + 640));
-    packet("envelope", envelope());
+    packet(
+      options.retainedMeasurements ? "envelope-state" : "envelope",
+      envelope(),
+    );
   };
   const capture = () => {
     let nextFFT = fftBaseline + 2048;

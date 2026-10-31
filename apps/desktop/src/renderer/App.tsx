@@ -78,6 +78,7 @@ import { parseYoloCommand, yoloCommandUsage } from "./yolo-command";
 import { ProfileManagerView } from "./ProfileManagerView";
 import { EntityContextPanel } from "./EntityContextPanel";
 import { ListeningPassPanel } from "./ListeningPassPanel";
+import type { DesktopListeningJob } from "../listening-contracts";
 
 type CatalogSkill = DesktopState["agentCatalog"]["skills"][number];
 
@@ -1498,6 +1499,58 @@ function eventHistoryQuery(
   };
 }
 
+export async function openListeningFailureHistory(
+  state: DesktopState,
+  dispatch: DesktopDispatch,
+  job: DesktopListeningJob,
+  api: Pick<DesktopApi, "eventHistory" | "preferences"> = window.desktop,
+): Promise<void> {
+  const session = activeSession(state);
+  if (
+    session?.id !== job.sessionId ||
+    session.liveSetId !== job.liveSetId ||
+    selectedAgentInstance(state)?.id !== job.agentId
+  ) {
+    eventError(
+      dispatch,
+      new Error("Listening owner changed. Refresh listening passes."),
+      "Listening History unavailable",
+    );
+    return;
+  }
+  const traceId = job.trace.traceId;
+  const preferences = {
+    ...state.preferences,
+    eventsViewMode: "history" as const,
+  };
+  dispatch({
+    type: "event",
+    event: { type: "preferences.changed", preferences },
+  });
+  dispatch({ type: "view", view: "events" });
+  dispatch({ type: "event-history-select-trace", traceId });
+  await Promise.all([
+    api.eventHistory
+      .trace(traceId, { limit: 100, order: "asc" })
+      .then((page) =>
+        dispatch({
+          type: "event-history-trace-loaded",
+          traceId,
+          page,
+          append: false,
+        }),
+      )
+      .catch((error: unknown) =>
+        eventError(dispatch, error, "Trace detail could not be loaded"),
+      ),
+    api.preferences
+      .set(preferences)
+      .catch((error: unknown) =>
+        eventError(dispatch, error, "History view mode not saved"),
+      ),
+  ]);
+}
+
 export function EventHistoryView({
   state,
   dispatch,
@@ -1524,6 +1577,7 @@ export function EventHistoryView({
       });
       return;
     }
+
     void loadEventHistory(
       dispatch,
       (value) => window.desktop.eventHistory.search(value),
@@ -1655,17 +1709,20 @@ export function EventHistoryView({
           {formatBytes(state.eventHistory.health.databaseBytes)}
         </p>
       )}
-      {state.eventHistory.status === "failed" ? (
+      {state.eventHistory.status === "failed" && (
         <div role="alert" className="event-load-error">
           {state.eventHistory.message}
         </div>
-      ) : state.eventHistory.status === "loading" &&
-        state.eventHistory.items.length === 0 ? (
+      )}
+      {state.eventHistory.status === "loading" &&
+      state.eventHistory.items.length === 0 &&
+      state.eventHistory.selectedTraceId === undefined ? (
         <PresentationState
           title="Loading event history…"
           detail="Querying the local journal."
         />
-      ) : state.eventHistory.items.length === 0 ? (
+      ) : state.eventHistory.items.length === 0 &&
+        state.eventHistory.selectedTraceId === undefined ? (
         <EmptyState
           title="No detailed history"
           detail="Local detailed history is enabled by default. New instrumented events will appear here."
@@ -1778,7 +1835,7 @@ function EventTraceInspector({
   onLoadMore: (traceId: string, cursor: string) => void;
   onDelete: (traceId: string) => void;
 }): React.JSX.Element {
-  if (events.length === 0) {
+  if (events.length === 0 && traceId === undefined) {
     return (
       <aside className="trace-inspector">
         <EmptyState
@@ -1819,13 +1876,15 @@ function EventTraceInspector({
       .filter((value): value is string => value !== undefined),
   );
   const relevantConfigurations =
-    activeAgentIds.size === 0
-      ? configurations
-      : configurations.filter(
-          (snapshot) =>
-            snapshot.activeAgentId !== undefined &&
-            activeAgentIds.has(snapshot.activeAgentId),
-        );
+    events.length === 0
+      ? []
+      : activeAgentIds.size === 0
+        ? configurations
+        : configurations.filter(
+            (snapshot) =>
+              snapshot.activeAgentId !== undefined &&
+              activeAgentIds.has(snapshot.activeAgentId),
+          );
   const currentAgent = state.sessions
     .flatMap((session) => session.activeAgents)
     .find((agent) => activeAgentIds.has(agent.id));
@@ -1847,6 +1906,13 @@ function EventTraceInspector({
           </button>
         )}
       </div>
+      {traceId !== undefined && (
+        <p>
+          Diagnostic trace: {traceId}.
+          {events.length === 0 &&
+            " No persisted events loaded yet for this trace; evidence may be unavailable or pending."}
+        </p>
+      )}
       {traceTotalEvents !== undefined && (
         <p className="muted">
           Showing {events.length} of {traceTotalEvents} events
@@ -2510,6 +2576,9 @@ export function OutputsView({
         agentId={selectedAgentInstance(state)?.id}
         api={typeof window === "undefined" ? undefined : window.desktop}
         contextEpoch={contextEpoch}
+        onOpenFailureHistory={(job) =>
+          void openListeningFailureHistory(state, dispatch, job)
+        }
       />
       {unavailable && (
         <div className="notice" role="status">

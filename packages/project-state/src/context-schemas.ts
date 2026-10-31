@@ -21,7 +21,7 @@ export const sessionContextStoreReferenceSchema = z
     kinds: z
       .array(audioObservationKindSchema)
       .min(1)
-      .max(3)
+      .max(4)
       .refine((values) => new Set(values).size === values.length)
       .readonly(),
   })
@@ -35,6 +35,7 @@ export const SESSION_CONTEXT_STORE_REFERENCE =
       "audio-observation/v1",
       "audio-observation/v2",
       "session-audio-observation/v1",
+      "metric-audio-observation/v1",
     ],
   });
 

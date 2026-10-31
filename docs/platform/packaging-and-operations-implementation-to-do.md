@@ -4,6 +4,19 @@ Companion specification: [Packaging and Operations](packaging-and-operations.md)
 
 ## Desktop distribution
 
+- [x] Add an opt-in canonical metric-protocol CommonJS compiler with immutable
+  input/compiler/lock/license provenance and caller-owned lifecycle stages.
+  Verify ordinary dependency-free loading, canonical validation, deterministic
+  bytes, redacted failure, cancellation and denial of unpinned/external output.
+- [ ] Wire the compiled metric protocol into the complete native-v5 producer,
+  shared client, matched resource inventory and qualified integration bundle.
+  Keep default v4 packaging and installed capabilities unchanged until then.
+- [x] Package the wire4 retained reader with matching Gen/IO resources and
+  explicit `retention-v1` metadata in both manifests. Reject mismatched/missing
+  delivery claims and preserve wire1/2/3 graphs and historical fixtures.
+- [ ] Validate and install the retained-delivery candidate after coordinated
+  saved app closure; packaging and native primitive qualification alone are
+  not repeated-listening acceptance.
 - [x] Generate canonical native-v4 Machine-Listening-Development and Midi-Capture
   bundles through every electron-builder entry point; validate complete portable
   hashes/resources without source promotion or machine configuration.

@@ -804,6 +804,8 @@ describe("local observability journal", () => {
       ...event(1),
       attributes: {
         ...detailedContent,
+        diagnosticText: "failed: token=journal-nested-diagnostic-secret",
+        priorDiagnosticText: "failed: token=[REDACTED]",
         authorizationText: `Authorization: Bearer ${secrets[0]}`,
         assignmentText: `password="${secrets[1]}"`,
         serviceUrl: `https://agent:${secrets[2]}@localhost:4711/session`,
@@ -827,8 +829,13 @@ describe("local observability journal", () => {
     expect(persistedPayload).toBeTypeOf("string");
     const serialized = String(persistedPayload);
     for (const secret of secrets) expect(serialized).not.toContain(secret);
+    expect(serialized).not.toContain("journal-nested-diagnostic-secret");
     const persisted = JSON.parse(serialized) as { attributes?: unknown };
     expect(persisted.attributes).toMatchObject(detailedContent);
+    expect(persisted.attributes).toMatchObject({
+      diagnosticText: "failed: token=[REDACTED]",
+      priorDiagnosticText: "failed: token=[REDACTED]",
+    });
     expect(serialized).toContain("[REDACTED]");
   });
 

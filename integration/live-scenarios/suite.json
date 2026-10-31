@@ -52,6 +52,15 @@
       "scenarios": ["native-playback-and-listen"]
     },
     {
+      "id": "native-listening-metric",
+      "scenarios": [
+        "native-metric-session-midi",
+        "native-metric-session-midi-spectrum",
+        "native-metric-session-audio-spectrum",
+        "native-metric-session-midi-partial-spectrum"
+      ]
+    },
+    {
       "id": "native-listening-rebinding",
       "scenarios": ["native-descriptive-insert-before"]
     },
@@ -75,7 +84,15 @@
     },
     {
       "id": "native-listening-dual",
-      "scenarios": ["native-dual-arrangement", "native-dual-session-midi"]
+      "scenarios": [
+        "native-dual-arrangement",
+        "native-dual-session-midi",
+        "native-dual-session-warped-audio"
+      ]
+    },
+    {
+      "id": "native-listening-repeated",
+      "scenarios": ["native-dual-session-repeat-1-2-1"]
     },
     {
       "id": "native-listening-source-investigation",

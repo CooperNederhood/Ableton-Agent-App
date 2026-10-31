@@ -141,7 +141,12 @@ export async function buildAbletonIntegrations(
         deviceFile: inventory.deviceFile,
         files,
         ...(id === "machine-listening"
-          ? { nativeVersion: 4, nativeAbiVersion: 2, algorithmVersion: "2.0.0" }
+          ? {
+              nativeVersion: 4,
+              nativeAbiVersion: 2,
+              algorithmVersion: "2.0.0",
+              measurementDelivery: "retention-v1",
+            }
           : { pathPlaceholder: MIDI_CAPTURE_PATH_PLACEHOLDER }),
       });
     }

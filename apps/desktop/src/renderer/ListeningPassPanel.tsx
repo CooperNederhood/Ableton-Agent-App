@@ -26,11 +26,13 @@ export function ListeningPassPanel({
   agentId,
   api,
   contextEpoch = 0,
+  onOpenFailureHistory,
 }: {
   sessionId?: string | undefined;
   agentId?: string | undefined;
   api?: ListeningUiApi | undefined;
   contextEpoch?: number | undefined;
+  onOpenFailureHistory?: ((job: DesktopListeningJob) => void) | undefined;
 }) {
   return (
     <section
@@ -57,6 +59,7 @@ export function ListeningPassPanel({
           sessionId={sessionId}
           agentId={agentId}
           api={api}
+          onOpenFailureHistory={onOpenFailureHistory}
         />
       )}
     </section>
@@ -67,10 +70,12 @@ function ListeningInventory({
   sessionId,
   agentId,
   api,
+  onOpenFailureHistory,
 }: {
   sessionId: string;
   agentId: string;
   api: ListeningUiApi;
+  onOpenFailureHistory?: ((job: DesktopListeningJob) => void) | undefined;
 }) {
   const [inventory, setInventory] = useState<Inventory>({ status: "loading" });
   const [refresh, setRefresh] = useState(0);
@@ -238,9 +243,15 @@ function ListeningInventory({
               </p>
               {job.error !== undefined && (
                 <p role="alert">
-                  {job.error} Review the reported failure; retry only after
-                  resolving the failure.
+                  {job.error} Review the observed failure and diagnostic
+                  coverage; missing evidence is not a diagnosis.
                 </p>
+              )}
+              {(job.stage === "failed" || job.stage === "interrupted") && (
+                <FailureEvidence
+                  job={job}
+                  onOpenHistory={onOpenFailureHistory}
+                />
               )}
               {job.stage === "completed" && (
                 <p>
@@ -248,10 +259,139 @@ function ListeningInventory({
                   limitations. This is not a DSP certificate.
                 </p>
               )}
+              {job.stage === "partial" && (
+                <p role="status">
+                  Partial listening result saved. Use the available metrics and
+                  inspect stored context for missing intervals and actual
+                  support. Missing measurements are not silence. This is not a
+                  complete measurement or DSP certificate.
+                </p>
+              )}
+              {job.metricResults !== undefined && (
+                <section aria-label="Metric acquisition summary">
+                  {job.metricResults.map((result) => (
+                    <div key={result.listenerId}>
+                      <p>Listener {result.listenerId}</p>
+                      <ul>
+                        {result.metrics.map((metric) => (
+                          <li key={metric.metric}>
+                            {metric.metric}: {metric.status}.{" "}
+                            {metric.retainedRecords} of {metric.expectedRecords}{" "}
+                            expected records retained; {metric.missingRecords}{" "}
+                            unavailable.
+                            {metric.gapReasons.length > 0
+                              ? ` Reasons: ${metric.gapReasons.join(", ")}.`
+                              : ""}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ))}
+                </section>
+              )}
             </li>
           ))}
         </ul>
       )}
     </div>
+  );
+}
+
+function FailureEvidence({
+  job,
+  onOpenHistory,
+}: {
+  job: DesktopListeningJob;
+  onOpenHistory?: ((job: DesktopListeningJob) => void) | undefined;
+}) {
+  const evidence = job.failureEvidence;
+  const comparisonText = (comparison: string) =>
+    comparison === "less-than" ? "<" : comparison;
+  const valueText = (
+    value: NonNullable<
+      DesktopListeningJob["failureEvidence"]
+    >["facts"][number]["actual"],
+    unit?: string,
+  ) => {
+    const text =
+      value.state === "unavailable"
+        ? `unavailable (${value.reason})`
+        : String(value.value);
+    const truncation =
+      value.state === "observed" && value.truncated === true
+        ? ` [truncated${value.originalLength === undefined ? "" : ` from ${value.originalLength} characters`}]`
+        : "";
+    return `${text}${unit === undefined ? "" : ` ${unit}`}${truncation}`;
+  };
+  return (
+    <section aria-label="Listening failure evidence">
+      {evidence === undefined ? (
+        <p>
+          Diagnostic evidence unavailable: source-evidence-not-reported. The
+          failed check and operands were not reported.
+        </p>
+      ) : (
+        <>
+          <p>
+            Source: {evidence.component} / {evidence.phase}. Check:{" "}
+            {evidence.checkId}. Code: {evidence.code}.
+          </p>
+          <p>{evidence.summary}</p>
+          <p>
+            Coverage: {evidence.coverage}.
+            {evidence.coverageReasons.length > 0
+              ? ` Missing evidence: ${evidence.coverageReasons.join(", ")}.`
+              : evidence.coverage === "complete"
+                ? " Reported check evidence is complete; this is not capture or timing certification."
+                : " Missing evidence reasons were not reported."}
+          </p>
+          <ul aria-label="Failure operands">
+            {evidence.facts.map((fact, index) => (
+              <li key={`${fact.field}:${index}`}>
+                {fact.field} — Actual: {valueText(fact.actual, fact.unit)}.
+                {fact.expected !== undefined && (
+                  <>
+                    {" "}
+                    Expected
+                    {fact.comparison === undefined
+                      ? ""
+                      : ` (${comparisonText(fact.comparison)})`}
+                    : {valueText(fact.expected, fact.unit)}.
+                  </>
+                )}
+                {fact.expected === undefined &&
+                  fact.comparison !== undefined && (
+                    <>
+                      {" "}
+                      Required comparison: {comparisonText(fact.comparison)}.
+                    </>
+                  )}
+              </li>
+            ))}
+          </ul>
+          {evidence.facts.length === 0 && (
+            <p>No decisive operands were reported.</p>
+          )}
+        </>
+      )}
+      <p>
+        Diagnostic trace: {job.trace.traceId}. Pass: {job.passId}.
+        {evidence?.reference.jobId !== undefined && (
+          <> Job: {evidence.reference.jobId}.</>
+        )}
+        {evidence?.reference.requestId !== undefined && (
+          <> Request: {evidence.reference.requestId}.</>
+        )}
+        {evidence?.reference.diagnosticScope !== undefined && (
+          <> Scope: {evidence.reference.diagnosticScope}.</>
+        )}{" "}
+        History may contain bounded, redacted details; raw audio is omitted.
+      </p>
+      {onOpenHistory !== undefined && (
+        <button onClick={() => onOpenHistory(job)}>
+          View failure in History
+        </button>
+      )}
+    </section>
   );
 }

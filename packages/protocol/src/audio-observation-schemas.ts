@@ -1,10 +1,17 @@
 import { z } from "zod";
 import { listeningAlignmentQualitySchema } from "./listening-timing-schemas.js";
 import { inspectSessionListeningSourceParamsSchema } from "./session-listening-source-schemas.js";
-
-export const MAX_AUDIO_OBSERVATION_SAMPLES = 1_024;
-export const MAX_AUDIO_OBSERVATION_ATTACKS = 512;
-export const MAX_AUDIO_OBSERVATION_BYTES = 256 * 1_024;
+import { metricAudioObservationSchema } from "./metric-observation-schemas.js";
+import {
+  MAX_AUDIO_OBSERVATION_SAMPLES,
+  MAX_AUDIO_OBSERVATION_ATTACKS,
+  MAX_AUDIO_OBSERVATION_BYTES,
+} from "./audio-observation-limits.js";
+export {
+  MAX_AUDIO_OBSERVATION_SAMPLES,
+  MAX_AUDIO_OBSERVATION_ATTACKS,
+  MAX_AUDIO_OBSERVATION_BYTES,
+} from "./audio-observation-limits.js";
 
 const identifier = z.string().min(1).max(200);
 const sample = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
@@ -245,12 +252,45 @@ export const audioObservationKindSchema = z.enum([
   "audio-observation/v1",
   "audio-observation/v2",
   "session-audio-observation/v1",
+  "metric-audio-observation/v1",
 ]);
-export const storedAudioObservationSchema = z.union([
+export const legacyStoredAudioObservationSchema = z.union([
   audioObservationSchema,
   audioObservationV2Schema,
   sessionAudioObservationSchema,
 ]);
+export const storedAudioObservationSchema = z.union([
+  ...legacyStoredAudioObservationSchema.options,
+  metricAudioObservationSchema,
+]);
+export type LegacyStoredAudioObservation = z.infer<
+  typeof legacyStoredAudioObservationSchema
+>;
 export type StoredAudioObservation = z.infer<
   typeof storedAudioObservationSchema
 >;
+
+export function storedObservationIdentity(
+  observation: StoredAudioObservation,
+): {
+  readonly listenerId: string;
+  readonly passId: string;
+} {
+  return observation.schema === "metric-audio-observation/v1"
+    ? observation.ownership
+    : observation;
+}
+
+export function storedObservationCoordinates(
+  observation: StoredAudioObservation,
+): {
+  readonly sampleRate: number;
+  readonly startSample: number;
+  readonly endSample: number;
+  readonly startBeat: number;
+  readonly endBeat: number;
+} {
+  return observation.schema === "metric-audio-observation/v1"
+    ? observation.geometry
+    : observation;
+}

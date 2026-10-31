@@ -50,7 +50,7 @@ const connected = (document, source, outlet, destination, inlet = 0) =>
   );
 
 test("native clock and descriptor polling use request-gated low-priority qmetro", () => {
-  for (const nativeVersion of [1, 2, 3]) {
+  for (const nativeVersion of [1, 2, 3, 4]) {
     const documents = nativeRuntimeDocuments({ nativeVersion });
     for (const name of [
       "audio_listener_native_clock.maxpat",
@@ -68,6 +68,73 @@ test("native clock and descriptor polling use request-gated low-priority qmetro"
           name.includes("clock") ? "order" : "pollOrder",
         ),
       );
+    }
+  }
+});
+
+test("only wire4 pairs retained producers with declared readback widths, priority and control routing", () => {
+  const documents = nativeRuntimeDocuments({ nativeVersion: 4 });
+  const analysis = documents["audio_listener_native_analysis.maxpat"];
+  const fft = documents["audio_listener_native_fft.maxpat"];
+  for (const [document, producer, offset, width, collector] of [
+    [analysis, "gen", 23, 30, "collector"],
+    [fft, "energy", 11, 20, "nativeIO"],
+  ]) {
+    const b = boxes(document);
+    assert.equal(b.get(collector).text.endsWith(" 2 retention-v1"), true);
+    assert.equal(b.get(producer).numoutlets, offset + width);
+    const readback = { patcher: b.get("measurementReadback").patcher };
+    assert.equal(boxes(readback).get("channels").text, `mc.pack~ ${width}`);
+    assert.equal(boxes(readback).get("gate").numoutlets, width);
+    assert.equal(boxes(readback).get("pack").text.split(" ").length, width + 2);
+    assert.equal(
+      boxes(readback).get("snapshot").text,
+      `mc.snapshot~ @offset ${document === fft ? 2047 : 0}`,
+    );
+    assert(connected(document, "measurementReadback", 0, collector));
+    for (let i = 0; i < width; i++) {
+      assert(
+        connected(document, producer, offset + i, "measurementReadback", i),
+      );
+      assert(connected(readback, "input" + i, 0, "channels", i));
+    }
+    assert(connected(readback, "snapshot", 1, "voice"));
+    assert(connected(readback, "snapshot", 0, "gate", 1));
+    assert(connected(readback, "gate", width - 1, "hot"));
+    assert(connected(readback, "hot", 1, "pack", width));
+    assert(connected(readback, "hot", 0, "pack"));
+  }
+  assert.equal(boxes(analysis).get("pollOrder").text, "trigger b b b b");
+  assert(connected(analysis, "pollOrder", 3, "fft", 4));
+  assert(connected(analysis, "pollOrder", 2, "configurationReadback", 7));
+  assert(connected(analysis, "pollOrder", 0, "measurementReadback", 30));
+  assert(connected(analysis, "nativeControl", 1, "gen"));
+  assert(connected(fft, "nativeIO", 1, "nativeControl"));
+  assert(connected(fft, "nativeControl", 1, "energy"));
+  assert.equal(boxes(fft).get("nativeControl").text, "route poll");
+  assert.equal(
+    fft.patcher.lines.some(
+      ({ patchline }) =>
+        patchline.source[0] === "nativeControl" && patchline.source[1] === 0,
+    ),
+    false,
+  );
+  assert(connected(fft, "infoOrder", 0, "measurementReadback", 20));
+  assert.equal(boxes(fft).has("pack"), false);
+  assert.equal(
+    boxes(documents["audio_listener_native_clock.maxpat"])
+      .get("collector")
+      .text.endsWith("retention-v1"),
+    false,
+  );
+  for (const nativeVersion of [1, 2, 3]) {
+    const legacy = nativeRuntimeDocuments({ nativeVersion });
+    for (const document of Object.values(legacy)) {
+      assert.equal(
+        JSON.stringify(document).includes("measurementReadback"),
+        false,
+      );
+      assert.equal(JSON.stringify(document).includes("retention-v1"), false);
     }
   }
 });
@@ -469,10 +536,8 @@ test("the actual Max script has global ES5-compatible message handlers and clean
     new URL("./audio_listener_native_io.js", import.meta.url),
     "utf8",
   );
-  assert.doesNotMatch(
-    source,
-    /,\s*\)|=>|\b(?:const|let|async|await|require)\b/,
-  );
+  assert.doesNotMatch(source, /,\s*\)|=>|\b(?:const|let|async|await)\b/);
+  assert.match(source, /if \(typeof require === "function"\)/);
   for (const mode of ["clock", "envelope", "spectrum"]) {
     const packets = [],
       diagnostics = [];

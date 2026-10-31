@@ -156,6 +156,65 @@ test("owner, connection and epoch denials never mutate or cancel the selected ca
   assert.equal(f.frames.length, 20);
 });
 
+test("missing FFT coverage snapshots actual coordinates before abort and reentrant cancellation clear state", () => {
+  for (const [completed, stale] of [
+    [0, false],
+    [1, false],
+    [0, true],
+  ]) {
+    let snapshot;
+    let assembler;
+    const f = fixture({
+      onFailure: (reason, actualOwner, diagnostic) => {
+        assert.equal(reason, "native_fft_window_missing");
+        assert.deepEqual(actualOwner, owner);
+        snapshot = diagnostic;
+        assembler.cancel(owner);
+      },
+    });
+    assembler = f.assembler;
+    const end = envelope(completed + 1).endCounter;
+    if (completed) {
+      for (const row of evidence.spectrum.frames.filter(
+        (row) => row[0] <= envelope(1).endCounter,
+      ))
+        assembler.pushSpectrum(row, owner);
+      assembler.pushEnvelope(envelope(1), owner);
+    }
+    const future = evidence.spectrum.frames.find((row) => row[0] > end);
+    const requiredEnd = future[0] - Math.ceil((future[0] - end) / 2048) * 2048;
+    const available = [requiredEnd - 4096, requiredEnd - 2048];
+    if (stale)
+      assembler.pushSpectrum(
+        [available[1], 1000, 1, available[0], available[1], 353],
+        owner,
+      );
+    assembler.pushEnvelope(envelope(completed + 1), owner);
+    assert.throws(
+      () => assembler.pushSpectrum(future, owner),
+      /native_fft_window_missing/,
+    );
+    assert.deepEqual(snapshot, {
+      scope: "native-coverage-rejection/v1",
+      nativeEpoch: owner.nativeEpoch,
+      armCounter: evidence.nativeOrigin[1],
+      originCounter: origin,
+      completedMeasurements: completed,
+      expectedEnvelope: [end - 4800, end],
+      requiredSpectrum: [requiredEnd - 2048, requiredEnd],
+      availableSpectrum: stale ? available : null,
+      latestSpectrum: [future[3], future[0]],
+    });
+    assert(Object.isFrozen(snapshot));
+    assert(Object.isFrozen(snapshot.requiredSpectrum));
+    assert.equal(assembler.pending.length, 0);
+    assert.equal(assembler.spectra.length, 0);
+    assert.equal(assembler.lastSpectrum, null);
+    assert.equal(assembler.state, "failed");
+    assert(JSON.stringify(snapshot).length < 600);
+  }
+});
+
 test("exact held packets are idempotent but changed holds, source tags and gaps fail with bounded cleanup", () => {
   for (const kind of [
     "hold",

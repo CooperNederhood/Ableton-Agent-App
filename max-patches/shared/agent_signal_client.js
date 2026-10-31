@@ -7,8 +7,80 @@ const os = require("node:os");
 const path = require("node:path");
 
 const PROTOCOL_VERSION = 1;
-const SESSION_LISTENER_SCOPE = "session-transport-coupled/v1";
-const SESSION_LISTENER_CAPABILITY = "audio-listener/session-v1";
+
+function loadMetricProtocol() {
+  let codec;
+  try {
+    codec = require("./audio_listener_metric_protocol.js");
+  } catch {
+    throw new Error("metric_listener_protocol_companion_unavailable");
+  }
+  if (
+    codec.LISTENER_VERSION_METRIC !== 5 ||
+    codec.LISTENER_CAPABILITY_METRIC !==
+      "audio-listener/independent-metric-timelines-v1" ||
+    codec.LISTENER_METRIC_ALGORITHM_VERSION !== "3.0.0" ||
+    codec.LISTENER_METRIC_PRODUCER_SCHEMA_VERSION !==
+      "metric-audio-observation/v1" ||
+    ![
+      "listenerControlMetricSchema",
+      "listenerMetricProducerSchema",
+      "listenerMetricWireIdentitySchema",
+      "listenerRegistrationMetricSchema",
+      "listenerReplyMetricSchema",
+      "listenerResultMetricSchema"
+    ].every((name) => typeof codec[name]?.parse === "function") ||
+    ![
+      "assertNativeMetricReadyProof",
+      "assertNativeMetricArmProof",
+      "assertNativeMetricObservationSource",
+      "nativeMetricLaunchCoordinates",
+      "snapshotNativeMetricListeningExpectation"
+    ].every((name) => typeof codec[name] === "function")
+  )
+    throw new Error("metric_listener_protocol_companion_invalid");
+  return codec;
+}
+
+function freezeMetricData(value) {
+  if (value && typeof value === "object") {
+    for (const child of Object.values(value)) freezeMetricData(child);
+    Object.freeze(value);
+  }
+  return value;
+}
+
+function assertMetricData(value) {
+  const seen = new Set();
+  let count = 0;
+  const inspect = (item) => {
+    if (item === null || typeof item !== "object") return;
+    if (
+      seen.has(item) ||
+      ++count > 50_000 ||
+      ![Object.prototype, Array.prototype, null].includes(
+        Object.getPrototypeOf(item)
+      )
+    )
+      throw new Error("metric_listener_non_data_payload");
+    seen.add(item);
+    for (const descriptor of Object.values(
+      Object.getOwnPropertyDescriptors(item)
+    )) {
+      if (!Object.prototype.hasOwnProperty.call(descriptor, "value"))
+        throw new Error("metric_listener_accessor_payload");
+      inspect(descriptor.value);
+    }
+    seen.delete(item);
+  };
+  inspect(value);
+}
+
+function parseMetricData(schema, value) {
+  assertMetricData(value);
+  return freezeMetricData(schema.parse(value));
+}
+
 const DEFAULT_MAX_FRAME_BYTES = 128 * 1024;
 const OUTBOUND_DRAIN_TIMEOUT_MS = 1000;
 const WRITE_DIAGNOSTIC_SCHEMA = "write-backpressure/v1";
@@ -190,916 +262,22 @@ function validateDescriptor(value) {
   return value;
 }
 
-function hasExactKeys(value, keys) {
-  return (
-    value !== null &&
-    typeof value === "object" &&
-    !Array.isArray(value) &&
-    Object.keys(value).length === keys.length &&
-    keys.every((key) => Object.prototype.hasOwnProperty.call(value, key))
-  );
-}
-
-function validDescriptiveConfig(config) {
-  if (!hasExactKeys(config, ["geometry", "timingPolicy"])) return false;
-  const geometry = config.geometry;
-  const policy = config.timingPolicy;
-  if (
-    !hasExactKeys(geometry, [
-      "sampleRate",
-      "vectorSize",
-      "tempoBpm",
-      "startBeat",
-      "endBeat",
-      "hopSamples",
-      "totalSamples"
-    ]) ||
-    !hasExactKeys(policy, ["mode", "maxClockDisagreementSamples"])
-  )
-    return false;
-  return (
-    [44100, 48000].includes(geometry.sampleRate) &&
-    Number.isInteger(geometry.vectorSize) &&
-    geometry.vectorSize >= 1 &&
-    geometry.vectorSize <= 1024 &&
-    (geometry.vectorSize & (geometry.vectorSize - 1)) === 0 &&
-    Number.isFinite(geometry.tempoBpm) &&
-    geometry.tempoBpm >= 20 &&
-    geometry.tempoBpm <= 999 &&
-    Number.isFinite(geometry.startBeat) &&
-    geometry.startBeat >= 0 &&
-    Number.isFinite(geometry.endBeat) &&
-    geometry.endBeat > geometry.startBeat &&
-    geometry.endBeat <= 1576800 &&
-    geometry.hopSamples === Math.round(geometry.sampleRate / 10) &&
-    Number.isSafeInteger(geometry.totalSamples) &&
-    geometry.totalSamples >= geometry.hopSamples &&
-    geometry.totalSamples <= geometry.sampleRate * 30 &&
-    geometry.totalSamples ===
-      Math.round(
-        ((geometry.endBeat - geometry.startBeat) * geometry.sampleRate * 60) /
-          geometry.tempoBpm
-      ) &&
-    Number.isInteger(policy.maxClockDisagreementSamples) &&
-    policy.maxClockDisagreementSamples >= 0 &&
-    policy.maxClockDisagreementSamples <= 480 &&
-    (policy.mode === "descriptive" ||
-      (policy.mode === "strict" && policy.maxClockDisagreementSamples === 0))
-  );
-}
-
-function nativeUUID(value) {
-  return (
-    typeof value === "string" &&
-    /^(?:[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$/i.test(
-      value
-    )
-  );
-}
-function validSessionSource(source) {
-  const index = (value) =>
-    Number.isInteger(value) && value >= 0 && value <= 255;
-  const name = (value) => typeof value === "string" && value.length <= 128;
-  const target = source?.target,
-    track = target?.track;
-  return (
-    hasExactKeys(source, ["mode", "synchronization", "target"]) &&
-    source.mode === "session" &&
-    source.synchronization === "transport-coupled-first-iteration" &&
-    hasExactKeys(target, [
-      "view",
-      "track",
-      "sceneIndex",
-      "expectedClipReference",
-      "expectedClipName"
-    ]) &&
-    target.view === "session" &&
-    index(target.sceneIndex) &&
-    nativeUUID(target.expectedClipReference) &&
-    name(target.expectedClipName) &&
-    hasExactKeys(track, [
-      "kind",
-      "index",
-      "expectedReference",
-      "expectedName"
-    ]) &&
-    track.kind === "regular" &&
-    index(track.index) &&
-    nativeUUID(track.expectedReference) &&
-    name(track.expectedName)
-  );
-}
-
-function validSessionConfig(config) {
-  return (
-    hasExactKeys(config, ["geometry", "timingPolicy", "source"]) &&
-    validSessionSource(config.source) &&
-    validDescriptiveConfig({
-      geometry: config.geometry,
-      timingPolicy: config.timingPolicy
-    })
-  );
-}
-
-function validSessionRegistration(listener) {
-  const dual = listener.version === 4;
-  const required = [
-    "version",
-    "capabilities",
-    "sampleRate",
-    "vectorSize",
-    "algorithmVersion",
-    "nativeStatus"
-  ];
-  const optional = [
-    "connectionEpoch",
-    "deviceCanonicalPath",
-    "trackCanonicalPath"
-  ];
-  const status = listener.nativeStatus;
-  const statusKeys = [
-    "version",
-    "scope",
-    "readiness",
-    "alignment",
-    "verifiedAbsoluteErrorBoundSamples",
-    "acceptedSampleRates",
-    "acceptedVectorSizes",
-    "timingModes",
-    "maxClockDisagreementSamples",
-    "maxAudioDurationMs",
-    "maxWindows",
-    "abiVersion",
-    ...(dual ? ["supportedModes"] : ["sourceEvidence", "synchronization"])
-  ];
-  const id = (value) =>
-    typeof value === "string" && value.length >= 1 && value.length <= 128;
-  const trackPath =
-    /^live_set (?:tracks (?:0|[1-9][0-9]*)|return_tracks (?:0|[1-9][0-9]*)|master_track)$/;
-  return (
-    (listener.version === 3 || dual) &&
-    hasExactKeys(listener, [
-      ...required,
-      ...optional.filter((key) =>
-        Object.prototype.hasOwnProperty.call(listener, key)
-      )
-    ]) &&
-    Array.isArray(listener.capabilities) &&
-    listener.capabilities.length === 1 &&
-    listener.capabilities[0] ===
-      (dual ? "audio-listener/dual-mode-v1" : SESSION_LISTENER_CAPABILITY) &&
-    Number.isInteger(listener.sampleRate) &&
-    listener.sampleRate >= 8000 &&
-    listener.sampleRate <= 384000 &&
-    Number.isInteger(listener.vectorSize) &&
-    listener.vectorSize >= 1 &&
-    listener.vectorSize <= 65536 &&
-    listener.algorithmVersion === "2.0.0" &&
-    (listener.connectionEpoch === undefined || id(listener.connectionEpoch)) &&
-    (listener.deviceCanonicalPath === undefined ||
-      (typeof listener.deviceCanonicalPath === "string" &&
-        listener.deviceCanonicalPath.length <= 256 &&
-        /^live_set (?:tracks (?:0|[1-9][0-9]*)|return_tracks (?:0|[1-9][0-9]*)|master_track) devices (?:0|[1-9][0-9]*)$/.test(
-          listener.deviceCanonicalPath
-        ))) &&
-    (listener.trackCanonicalPath === undefined ||
-      (typeof listener.trackCanonicalPath === "string" &&
-        listener.trackCanonicalPath.length <= 256 &&
-        trackPath.test(listener.trackCanonicalPath))) &&
-    (!listener.deviceCanonicalPath ||
-      !listener.trackCanonicalPath ||
-      listener.deviceCanonicalPath.split(" devices ")[0] ===
-        listener.trackCanonicalPath) &&
-    hasExactKeys(status, [
-      ...statusKeys,
-      ...(Object.prototype.hasOwnProperty.call(status ?? {}, "reason")
-        ? ["reason"]
-        : [])
-    ]) &&
-    status.version === listener.version &&
-    status.scope ===
-      (dual ? "mode-negotiated-transport/v1" : SESSION_LISTENER_SCOPE) &&
-    ["READY", "BLOCKED"].includes(status.readiness) &&
-    status.alignment === "approximate" &&
-    status.verifiedAbsoluteErrorBoundSamples === null &&
-    Array.isArray(status.acceptedSampleRates) &&
-    status.acceptedSampleRates.length === 2 &&
-    status.acceptedSampleRates[0] === 44100 &&
-    status.acceptedSampleRates[1] === 48000 &&
-    Array.isArray(status.acceptedVectorSizes) &&
-    status.acceptedVectorSizes.length >= 1 &&
-    status.acceptedVectorSizes.length <= 11 &&
-    new Set(status.acceptedVectorSizes).size ===
-      status.acceptedVectorSizes.length &&
-    Array.from(status.acceptedVectorSizes).every(
-      (v) => Number.isInteger(v) && v >= 1 && v <= 1024 && (v & (v - 1)) === 0
-    ) &&
-    Array.isArray(status.timingModes) &&
-    status.timingModes.length === 2 &&
-    status.timingModes[0] === "descriptive" &&
-    status.timingModes[1] === "strict" &&
-    status.maxClockDisagreementSamples === 480 &&
-    status.maxAudioDurationMs === 30000 &&
-    status.maxWindows === 300 &&
-    status.abiVersion === 2 &&
-    (dual
-      ? Array.isArray(status.supportedModes) &&
-        status.supportedModes.length === 2 &&
-        status.supportedModes[0] === "arrangement" &&
-        status.supportedModes[1] === "session"
-      : status.sourceEvidence === "expected-context-only" &&
-        status.synchronization === "transport-coupled-first-iteration") &&
-    (status.reason === undefined ||
-      (typeof status.reason === "string" &&
-        /^[a-z][a-z0-9_]{0,127}$/.test(status.reason))) &&
-    (status.readiness !== "BLOCKED" || status.reason !== undefined) &&
-    (status.readiness !== "READY" ||
-      (status.acceptedSampleRates.includes(listener.sampleRate) &&
-        status.acceptedVectorSizes.includes(listener.vectorSize)))
-  );
-}
-
 function sameListenerOwner(control, job) {
   return (
     !!job &&
-    (control.listenerVersion !== 4 || control.mode === job.mode) &&
-    ["connectionEpoch", "jobId", "passId", "traceId", "correlationId"].every(
-      (key) => control[key] === job[key]
-    )
-  );
-}
-
-function snapshotDescriptiveControl(control) {
-  return Object.freeze({
-    ...control,
-    ...(control.config
-      ? {
-          config: Object.freeze({
-            geometry: Object.freeze({ ...control.config.geometry }),
-            timingPolicy: Object.freeze({ ...control.config.timingPolicy }),
-            ...(control.listenerVersion === 3 ||
-            (control.listenerVersion === 4 && control.mode === "session")
-              ? {
-                  source: Object.freeze({
-                    mode: control.config.source.mode,
-                    synchronization: control.config.source.synchronization,
-                    target: Object.freeze({
-                      ...control.config.source.target,
-                      track: Object.freeze({
-                        ...control.config.source.target.track
-                      })
-                    })
-                  })
-                }
-              : {})
-          })
-        }
-      : {})
-  });
-}
-
-function matchingDescriptiveArm(arm, job) {
-  const config = { geometry: arm?.geometry, timingPolicy: arm?.policy };
-  return (
-    arm?.scope === "arrangement-descriptive/v2" &&
-    !!job?.config &&
-    validDescriptiveConfig(config) &&
-    ["geometry", "timingPolicy"].every((part) =>
-      Object.keys(config[part]).every(
-        (key) => config[part][key] === job.config[part][key]
-      )
-    )
-  );
-}
-
-function matchingDescriptiveLaunch(launch, job) {
-  const geometry = job?.config?.geometry;
-  return (
-    !!geometry &&
-    hasExactKeys(launch, [
-      "nativeEpoch",
-      "armCounter",
-      "launchClock",
-      "launchPhaseSamples",
-      "rejected",
-      "active",
-      "host"
-    ]) &&
-    Number.isInteger(launch.nativeEpoch) &&
-    launch.nativeEpoch >= 1 &&
-    launch.nativeEpoch <= 1000000 &&
-    Number.isSafeInteger(launch.armCounter) &&
-    launch.armCounter >= 0 &&
-    launch.armCounter + geometry.totalSamples < 2 ** 44 &&
-    Number.isInteger(launch.launchPhaseSamples) &&
-    launch.launchPhaseSamples >= 0 &&
-    launch.launchPhaseSamples <= geometry.vectorSize &&
-    Number.isInteger(launch.launchClock) &&
-    launch.launchClock >= launch.launchPhaseSamples &&
-    launch.launchClock <= geometry.sampleRate * 10 &&
-    launch.rejected === 0 &&
-    launch.active === 1 &&
-    hasExactKeys(launch.host, ["sample", "beat", "flags", "playing"]) &&
-    Number.isSafeInteger(launch.host.sample) &&
-    launch.host.sample >= 0 &&
-    Number.isFinite(launch.host.beat) &&
-    launch.host.beat >= 0 &&
-    launch.host.beat <= 1576800 &&
-    Number.isInteger(launch.host.flags) &&
-    launch.host.flags >= 0 &&
-    launch.host.flags <= 0x7fffffff &&
-    (launch.host.flags & 19) === 19 &&
-    launch.host.playing === true
-  );
-}
-
-function validNativeFailureDiagnostic(value) {
-  const tuple = (values, length) =>
-    Array.isArray(values) &&
-    values.length === length &&
-    Array.from(values).every(Number.isFinite);
-  if (
-    typeof value?.generation !== "string" ||
-    !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
-      value.generation
-    )
-  )
-    return false;
-  if (value.scope === "native-alignment-rejection/v1") {
-    const nonnegative = (number) => Number.isSafeInteger(number) && number >= 0;
-    const witnessKeys = [
-      "minHostOffset",
-      "maxHostOffset",
-      "minBeatOrigin",
-      "maxBeatOrigin",
-      "maxPhaseDisagreement"
-    ];
-    return (
-      hasExactKeys(value, [
-        "scope",
-        "generation",
-        "check",
-        "geometry",
-        "policy",
-        "anchorHostOffsetSamples",
-        "startSample",
-        "anchorClock",
-        "previousClock",
-        "rejectedClock",
-        "timingWitnesses",
-        "measurements"
-      ]) &&
-      ["host-offset", "clock-alignment", "launch-alignment"].includes(
-        value.check
-      ) &&
-      validDescriptiveConfig({
-        geometry: value.geometry,
-        timingPolicy: value.policy
-      }) &&
-      Number.isSafeInteger(value.anchorHostOffsetSamples) &&
-      (value.startSample === null || nonnegative(value.startSample)) &&
-      tuple(value.anchorClock, 11) &&
-      tuple(value.rejectedClock, 11) &&
-      (value.previousClock === null || tuple(value.previousClock, 11)) &&
-      hasExactKeys(value.timingWitnesses, witnessKeys) &&
-      witnessKeys.every(
-        (key) =>
-          value.timingWitnesses[key] === null ||
-          tuple(value.timingWitnesses[key], 11)
-      ) &&
-      hasExactKeys(value.measurements, [
-        "observedClockDisagreementSamples",
-        "observedBeatDisagreementSamples"
-      ]) &&
-      nonnegative(value.measurements.observedClockDisagreementSamples) &&
-      (value.measurements.observedBeatDisagreementSamples === null ||
-        nonnegative(value.measurements.observedBeatDisagreementSamples))
-    );
-  }
-  return (
-    hasExactKeys(value, [
-      "scope",
-      "generation",
-      "check",
-      "packet",
-      "fftDiagnostics",
-      "metadata",
-      ...(value.check === "sequence" ? ["previousPacket"] : [])
-    ]) &&
-    value.scope === "native-spectrum-rejection/v1" &&
-    typeof value.generation === "string" &&
-    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
-      value.generation
-    ) &&
     [
-      "end",
-      "start",
-      "frame",
-      "centroid",
-      "energy",
-      "silence_centroid",
-      "invalid_frames",
-      "bracket",
-      "sequence"
-    ].includes(value.check) &&
-    tuple(value.packet, 6) &&
-    (value.check !== "sequence" || tuple(value.previousPacket, 6)) &&
-    (value.fftDiagnostics === null || tuple(value.fftDiagnostics, 5)) &&
-    hasExactKeys(value.metadata, [
-      "dsp",
-      "fftInfo",
-      "clockAbi",
-      "envelopeAbi",
-      "spectrumAbi"
-    ]) &&
-    (value.metadata.dsp === null || tuple(value.metadata.dsp, 3)) &&
-    (value.metadata.fftInfo === null || tuple(value.metadata.fftInfo, 4)) &&
-    ["clockAbi", "envelopeAbi", "spectrumAbi"].every(
-      (key) =>
-        value.metadata[key] === null || Number.isFinite(value.metadata[key])
-    )
-  );
-}
-
-// Wire pairing/stage guards; ingress independently validates complete native proof.
-function validDescriptivePayload(type, payload, job, producerId) {
-  if (
-    !["listener.reply", "listener.result"].includes(type) ||
-    !payload ||
-    typeof payload !== "object" ||
-    Array.isArray(payload)
-  )
-    return false;
-  const reply = type === "listener.reply";
-  const keys = reply
-    ? ["status", "reason", "nativeArm", "nativeFailureDiagnostic"]
-    : [
-        "status",
-        "reason",
-        "observation",
-        "nativeLaunch",
-        "nativeCapture",
-        "nativeLifecycle",
-        "nativeFailureDiagnostic"
-      ];
-  if (
-    Object.keys(payload).some((key) => !keys.includes(key)) ||
-    (payload.reason !== undefined &&
-      (typeof payload.reason !== "string" ||
-        !payload.reason.length ||
-        payload.reason.length > 512)) ||
-    (payload.nativeFailureDiagnostic !== undefined &&
-      (payload.status !== "failed" ||
-        !validNativeFailureDiagnostic(payload.nativeFailureDiagnostic)))
-  )
-    return false;
-  if (reply)
-    return (
-      ["ready", "armed", "cancelled", "failed"].includes(payload.status) &&
-      (payload.status === "armed") === (payload.nativeArm !== undefined) &&
-      (!payload.nativeArm || matchingDescriptiveArm(payload.nativeArm, job)) &&
-      (payload.status !== "failed" || payload.reason !== undefined)
-    );
-  if (
-    !["progress", "completed", "partial", "failed"].includes(payload.status) ||
-    (["partial", "failed"].includes(payload.status) &&
-      payload.reason === undefined) ||
-    (payload.status === "completed"
-      ? !payload.observation ||
-        !matchingDescriptiveArm(payload.nativeCapture?.armed, job) ||
-        !matchingDescriptiveLaunch(payload.nativeCapture?.launched, job) ||
-        payload.nativeCapture.launched.nativeEpoch !==
-          payload.nativeCapture.armed.nativeEpoch ||
-        payload.nativeCapture.launched.armCounter !==
-          payload.nativeCapture.armed.armCounter
-      : payload.nativeCapture !== undefined) ||
-    (payload.status !== "progress" &&
-      (payload.nativeLaunch || payload.nativeLifecycle))
-  )
-    return false;
-  const observation = payload.observation;
-  if (
-    observation &&
-    (observation.schema !== "audio-observation/v2" ||
-      observation.algorithm?.version !== "2.0.0" ||
-      observation.listenerId !== producerId ||
-      observation.passId !== job?.passId ||
-      observation.complete !== (payload.status === "completed"))
-  )
-    return false;
-  if (
-    payload.nativeLaunch &&
-    !matchingDescriptiveLaunch(payload.nativeLaunch, job)
-  )
-    return false;
-  const event = payload.nativeLifecycle;
-  return (
-    !event ||
-    (event.scope === "arrangement-descriptive/v2" &&
-      Number.isInteger(event.frames) &&
-      event.frames >= 0 &&
-      event.frames <= 300 &&
-      [
-        "queued",
-        "started",
-        "progress",
-        "completed",
-        "failed",
-        "cancelled"
-      ].includes(event.stage) &&
-      (!event.phase ||
-        ["preflight", "reset", "capture", "alignment"].includes(event.phase)) &&
-      (!["failed", "cancelled"].includes(event.stage) ||
-        (typeof event.reason === "string" &&
-          event.reason.length > 0 &&
-          event.reason.length <= 512)))
-  );
-}
-
-function matchingSessionSource(source, expected) {
-  return (
-    validSessionSource(source) &&
-    validSessionSource(expected) &&
-    ["view", "sceneIndex", "expectedClipReference", "expectedClipName"].every(
-      (key) => source.target[key] === expected.target[key]
-    ) &&
-    ["kind", "index", "expectedReference", "expectedName"].every(
-      (key) => source.target.track[key] === expected.target.track[key]
-    )
-  );
-}
-
-function nativeTuple(values, length) {
-  return (
-    Array.isArray(values) &&
-    values.length === length &&
-    Array.from(values).every(Number.isFinite)
-  );
-}
-
-function nativeClockBinding(binding, geometry, playing) {
-  return (
-    hasExactKeys(binding, ["dsp", "frames"]) &&
-    nativeTuple(binding.dsp, 3) &&
-    binding.dsp[0] === 1 &&
-    binding.dsp[1] === geometry.sampleRate &&
-    binding.dsp[2] === geometry.vectorSize &&
-    Array.isArray(binding.frames) &&
-    binding.frames.length === 32 &&
-    Array.from(binding.frames).every(
-      (row, index, rows) =>
-        nativeTuple(row, 11) &&
-        row[0] === Number(playing) &&
-        row[7] === row[0] &&
-        row[8] === row[1] &&
-        row[9] === row[2] &&
-        row[10] === row[3] &&
-        row[1] >= 0 &&
-        row[1] <= 1576800 &&
-        Number.isSafeInteger(row[2]) &&
-        row[2] >= 0 &&
-        Number.isInteger(row[3]) &&
-        row[3] >= 0 &&
-        row[3] <= 0x7fffffff &&
-        (row[3] & 19) === 19 &&
-        Number.isSafeInteger(row[4]) &&
-        row[4] >= 0 &&
-        row[4] < 2 ** 44 &&
-        row[4] === row[6] &&
-        row[5] >= 0 &&
-        row[5] <= 1 &&
-        (playing || row[1] === geometry.startBeat) &&
-        (index === 0 ||
-          (row[4] > rows[index - 1][4] &&
-            row[2] >= rows[index - 1][2] &&
-            row[1] >= rows[index - 1][1] &&
-            (playing || row[5] === rows[index - 1][5])))
-    ) &&
-    binding.frames[31][4] - binding.frames[0][4] <= geometry.sampleRate
-  );
-}
-
-function validSessionArm(arm, job) {
-  const reset = {
-    launchClock: -1,
-    sourceClock: -1,
-    onsetCount: 0,
-    rejected: 0,
-    active: 0,
-    launchPhaseSamples: -1,
-    firstSourceClock: -1,
-    completedSamples: 0
-  };
-  return (
-    hasExactKeys(arm, [
-      "scope",
-      "policy",
-      "geometry",
-      "nativeEpoch",
-      "armCounter",
-      "before",
-      "reset"
-    ]) &&
-    matchingDescriptiveArm(arm, job) &&
-    Number.isInteger(arm.nativeEpoch) &&
-    arm.nativeEpoch >= 1 &&
-    arm.nativeEpoch <= 1000000 &&
-    Number.isSafeInteger(arm.armCounter) &&
-    arm.armCounter >= 0 &&
-    arm.armCounter + arm.geometry.totalSamples < 2 ** 44 &&
-    nativeClockBinding(arm.before, arm.geometry, false) &&
-    arm.armCounter >= arm.before.frames[31][4] &&
-    arm.armCounter - arm.before.frames[31][4] <= arm.geometry.sampleRate &&
-    hasExactKeys(arm.reset, Object.keys(reset)) &&
-    Object.keys(reset).every((key) => arm.reset[key] === reset[key])
-  );
-}
-
-function validSessionTransport(proof, kind, job) {
-  if (kind === "nativeArm") return validSessionArm(proof, job);
-  if (kind === "nativeLaunch") return matchingDescriptiveLaunch(proof, job);
-  if (
-    !hasExactKeys(proof, [
-      "armed",
-      "launched",
-      "after",
-      "timingWitnesses",
-      "envelopeWindows",
-      "spectralWindows"
-    ]) ||
-    !validSessionArm(proof.armed, job) ||
-    !matchingDescriptiveLaunch(proof.launched, job) ||
-    !nativeClockBinding(proof.after, job.config.geometry, true) ||
-    !hasExactKeys(proof.timingWitnesses, [
-      "minHostOffset",
-      "maxHostOffset",
-      "minBeatOrigin",
-      "maxBeatOrigin",
-      "maxPhaseDisagreement"
-    ]) ||
-    !Object.values(proof.timingWitnesses).every((row) => nativeTuple(row, 11))
-  )
-    return false;
-  const windows = Math.ceil(
-    job.config.geometry.totalSamples / job.config.geometry.hopSamples
-  );
-  return (
-    Array.isArray(proof.envelopeWindows) &&
-    proof.envelopeWindows.length === windows &&
-    Array.from(proof.envelopeWindows).every(
-      (row) =>
-        nativeTuple(row, 3) &&
-        Number.isSafeInteger(row[0]) &&
-        row[0] >= 0 &&
-        row[0] < 2 ** 44 &&
-        row.slice(1).every((v) => v >= 0 && v <= 64)
-    ) &&
-    Array.isArray(proof.spectralWindows) &&
-    proof.spectralWindows.length === windows &&
-    Array.from(proof.spectralWindows).every(
-      (row) =>
-        nativeTuple(row, 4) &&
-        Number.isSafeInteger(row[0]) &&
-        row[0] >= 0 &&
-        Number.isSafeInteger(row[1]) &&
-        row[1] - row[0] === 2048 &&
-        row[2] >= 0 &&
-        row[2] <= job.config.geometry.sampleRate / 2 &&
-        row[3] >= 0 &&
-        row[3] <= Number.MAX_SAFE_INTEGER
-    )
-  );
-}
-
-function validSessionObservation(value, job) {
-  if (
-    !hasExactKeys(value, [
-      "schema",
       "listenerId",
+      "connectionId",
+      "connectionEpoch",
+      "generation",
+      "mode",
+      "jobId",
       "passId",
-      "sampleRate",
-      "startSample",
-      "endSample",
-      "startBeat",
-      "endBeat",
-      "complete",
-      "limitations",
-      "algorithm",
-      "summaries",
-      "samples",
-      "attacks",
-      "reduction",
-      "alignment"
-    ])
-  )
-    return false;
-  const geometry = job?.config?.geometry,
-    policy = job?.config?.timingPolicy;
-  if (!geometry || !policy) return false;
-  const integer = (v) => Number.isSafeInteger(v) && v >= 0;
-  const beat = (v) => Number.isFinite(v) && v >= 0;
-  const stereo = (v, rms = false) =>
-    Array.isArray(v) &&
-    v.length === 2 &&
-    Array.from(v).every((n) =>
-      rms
-        ? n === null || Number.isFinite(n)
-        : Number.isFinite(n) && n >= 0 && n <= 64
-    );
-  const centroid = (v) =>
-    v === null ||
-    (Number.isFinite(v) && v >= 0 && v <= geometry.sampleRate / 2);
-  const descriptor = (v) =>
-    stereo(v.peak) && stereo(v.rmsDbfs, true) && centroid(v.centroidHz);
-  const algorithm = value.algorithm,
-    alignment = value.alignment,
-    reduction = value.reduction;
-  return (
-    value.schema === "audio-observation/v2" &&
-    typeof value.listenerId === "string" &&
-    value.listenerId.length >= 1 &&
-    value.listenerId.length <= 200 &&
-    typeof value.passId === "string" &&
-    value.passId.length >= 1 &&
-    value.passId.length <= 200 &&
-    value.sampleRate === geometry.sampleRate &&
-    integer(value.startSample) &&
-    integer(value.endSample) &&
-    value.endSample >= value.startSample &&
-    value.endSample - value.startSample <= geometry.totalSamples &&
-    value.startBeat === geometry.startBeat &&
-    beat(value.endBeat) &&
-    value.endBeat >= value.startBeat &&
-    value.endBeat <=
-      geometry.startBeat +
-        geometry.totalSamples /
-          ((geometry.sampleRate * 60) / geometry.tempoBpm) &&
-    typeof value.complete === "boolean" &&
-    Array.isArray(value.limitations) &&
-    value.limitations.length <= 32 &&
-    Array.from(value.limitations).every(
-      (v) => typeof v === "string" && v.length >= 1 && v.length <= 500
-    ) &&
-    hasExactKeys(algorithm, [
-      "name",
-      "version",
-      "windowSamples",
-      "hopSamples",
-      "settings",
-      "units"
-    ]) &&
-    algorithm.name === "native-max-stereo-energy-envelope-rise" &&
-    algorithm.version === "2.0.0" &&
-    algorithm.windowSamples === 2048 &&
-    algorithm.hopSamples === geometry.hopSamples &&
-    hasExactKeys(algorithm.settings, [
-      "attackThresholdDb",
-      "minAttackSpacingSamples"
-    ]) &&
-    algorithm.settings.attackThresholdDb === 6 &&
-    algorithm.settings.minAttackSpacingSamples === geometry.hopSamples &&
-    hasExactKeys(algorithm.units, ["amplitude", "rms", "centroid"]) &&
-    algorithm.units.amplitude === "linear" &&
-    algorithm.units.rms === "dBFS" &&
-    algorithm.units.centroid === "Hz" &&
-    hasExactKeys(value.summaries, ["peak", "rmsDbfs", "centroidHz"]) &&
-    descriptor(value.summaries) &&
-    Array.isArray(value.samples) &&
-    value.samples.length <=
-      Math.ceil(geometry.totalSamples / geometry.hopSamples) &&
-    Array.from(value.samples).every(
-      (v, i, points) =>
-        hasExactKeys(v, ["sample", "beat", "peak", "rmsDbfs", "centroidHz"]) &&
-        integer(v.sample) &&
-        v.sample >= (i === 0 ? value.startSample : points[i - 1].sample) &&
-        v.sample <= value.endSample &&
-        beat(v.beat) &&
-        v.beat >= (i === 0 ? value.startBeat : points[i - 1].beat) &&
-        v.beat <= value.endBeat &&
-        descriptor(v)
-    ) &&
-    Array.isArray(value.attacks) &&
-    value.attacks.length <= 512 &&
-    Array.from(value.attacks).every(
-      (v, i, points) =>
-        hasExactKeys(v, ["sample", "beat", "strength"]) &&
-        integer(v.sample) &&
-        v.sample >= (i === 0 ? value.startSample : points[i - 1].sample) &&
-        v.sample <= value.endSample &&
-        beat(v.beat) &&
-        v.beat >= (i === 0 ? value.startBeat : points[i - 1].beat) &&
-        v.beat <= value.endBeat &&
-        beat(v.strength)
-    ) &&
-    hasExactKeys(reduction, [
-      "originalSamples",
-      "originalAttacks",
-      "truncated"
-    ]) &&
-    integer(reduction.originalSamples) &&
-    reduction.originalSamples >= value.samples.length &&
-    integer(reduction.originalAttacks) &&
-    reduction.originalAttacks >= value.attacks.length &&
-    typeof reduction.truncated === "boolean" &&
-    (!value.complete || !reduction.truncated) &&
-    (reduction.truncated ||
-      (reduction.originalSamples === value.samples.length &&
-        reduction.originalAttacks === value.attacks.length)) &&
-    hasExactKeys(alignment, [
-      "schema",
-      "policy",
-      "sampleRate",
-      "vectorSize",
-      "observedClockDisagreementSamples",
-      "observedBeatDisagreementSamples",
-      "alignment",
-      "intendedUse",
-      "estimatedAbsoluteErrorSamples",
-      "verifiedAbsoluteErrorBoundSamples"
-    ]) &&
-    alignment.schema === "listening-alignment/v2" &&
-    alignment.alignment === "approximate" &&
-    alignment.intendedUse === "descriptive-only" &&
-    alignment.estimatedAbsoluteErrorSamples === null &&
-    alignment.verifiedAbsoluteErrorBoundSamples === null &&
-    alignment.sampleRate === geometry.sampleRate &&
-    alignment.vectorSize === geometry.vectorSize &&
-    hasExactKeys(alignment.policy, ["mode", "maxClockDisagreementSamples"]) &&
-    alignment.policy.mode === policy.mode &&
-    alignment.policy.maxClockDisagreementSamples ===
-      policy.maxClockDisagreementSamples &&
-    integer(alignment.observedClockDisagreementSamples) &&
-    integer(alignment.observedBeatDisagreementSamples) &&
-    (policy.mode === "descriptive" ||
-      (alignment.observedClockDisagreementSamples <=
-        policy.maxClockDisagreementSamples &&
-        alignment.observedBeatDisagreementSamples <=
-          policy.maxClockDisagreementSamples))
+      "traceId",
+      "correlationId",
+      "causationId"
+    ].every((key) => control[key] === job[key])
   );
-}
-
-// Validate the negotiated wrapper, then reuse v2 transport/stage checks unchanged.
-// Completeness/alignment mathematics remain independently validated by typed ingress.
-function validSessionPayload(type, payload, job, producerId) {
-  if (!payload || typeof payload !== "object" || Array.isArray(payload))
-    return false;
-  if (
-    payload.observation !== undefined &&
-    !validSessionObservation(payload.observation, job)
-  )
-    return false;
-  const transportPayload = { ...payload };
-  for (const kind of ["nativeArm", "nativeLaunch", "nativeCapture"]) {
-    const wrapper = payload[kind];
-    if (wrapper === undefined) continue;
-    if (
-      !hasExactKeys(wrapper, ["scope", "source", "transport"]) ||
-      wrapper.scope !== SESSION_LISTENER_SCOPE ||
-      !matchingSessionSource(wrapper.source, job?.config?.source) ||
-      !validSessionTransport(wrapper.transport, kind, job)
-    )
-      return false;
-    transportPayload[kind] = wrapper.transport;
-  }
-  const event = payload.nativeLifecycle;
-  if (event !== undefined) {
-    const optional = ["generation", "phase", "reason"].filter((key) =>
-      Object.prototype.hasOwnProperty.call(event ?? {}, key)
-    );
-    if (
-      !hasExactKeys(event, [
-        "scope",
-        "eventId",
-        "causationId",
-        "stage",
-        "nativeEpoch",
-        "elapsedMs",
-        "frames",
-        ...optional
-      ]) ||
-      event.scope !== SESSION_LISTENER_SCOPE ||
-      !nativeUUID(event.eventId) ||
-      typeof event.causationId !== "string" ||
-      !event.causationId.length ||
-      event.causationId.length > 128 ||
-      !Number.isInteger(event.nativeEpoch) ||
-      event.nativeEpoch < 0 ||
-      event.nativeEpoch > 1000000 ||
-      !Number.isFinite(event.elapsedMs) ||
-      event.elapsedMs < 0 ||
-      event.elapsedMs > 120000 ||
-      (event.generation !== undefined && !nativeUUID(event.generation)) ||
-      (event.reason !== undefined &&
-        (typeof event.reason !== "string" ||
-          !/^[a-z][a-z0-9_]{0,127}$/.test(event.reason)))
-    )
-      return false;
-    transportPayload.nativeLifecycle = {
-      ...event,
-      scope: "arrangement-descriptive/v2"
-    };
-  }
-  return validDescriptivePayload(type, transportPayload, job, producerId);
 }
 
 class AgentSignalClient {
@@ -1144,30 +322,31 @@ class AgentSignalClient {
     this.displayName =
       options.displayName ||
       (this.signalKind === "audio" ? "Audio Listener" : "Midi-Capture");
+    this.listener = options.listener || null;
+    if (
+      this.listener &&
+      (this.signalKind !== "audio" || this.listener.version !== 5)
+    )
+      throw new Error("Only canonical metric5 audio listening is supported");
+    this.metricProtocol = this.listener ? loadMetricProtocol() : null;
+    this.listenerVersion = this.listener?.version;
     this.schemaVersion =
       options.schemaVersion ||
-      (this.signalKind === "audio"
-        ? options.listener
-          ? "audio-observation/v1"
-          : "audio-reference/v1"
-        : "midi-sample/v1");
+      this.metricProtocol?.LISTENER_METRIC_PRODUCER_SCHEMA_VERSION ||
+      (audio ? "audio-reference/v1" : "midi-sample/v1");
+    if (
+      !this.listener &&
+      /^(?:metric-)?audio-observation\//u.test(this.schemaVersion)
+    )
+      throw new Error(
+        "Audio observation delivery requires a canonical metric5 listener"
+      );
     this.producerIdPrefix =
       options.producerIdPrefix ||
-      (this.signalKind === "audio"
-        ? "ableton-audio-listener"
-        : "ableton-midi-capture");
-    this.listener = options.listener || null;
-    this.listenerVersion = this.listener?.version;
-    this.descriptiveMode =
-      this.listenerVersion === 2 ||
-      this.listenerVersion === 3 ||
-      this.listenerVersion === 4;
-    this.listenerCapability =
-      this.listenerVersion === 4
-        ? "audio-listener/dual-mode-v1"
-        : this.listenerVersion === 3
-          ? SESSION_LISTENER_CAPABILITY
-          : `audio-listener/v${this.listenerVersion}`;
+      (audio ? "ableton-audio-listener" : "ableton-midi-capture");
+    this.metricPhase = null;
+    this.metricControls = new Map();
+    this.listenerControlSequence = -1;
     this.onListenerControl = options.onListenerControl || (() => {});
     this.onListenerFailure = options.onListenerFailure || (() => {});
     this.listenerSequence = 0;
@@ -1175,68 +354,29 @@ class AgentSignalClient {
     this.listenerControlIds = new Set();
     this.listenerJobControlIds = new Set();
     this.notifyingListenerFailure = false;
-    if (
-      (!this.listener && this.schemaVersion === "audio-observation/v2") ||
-      (this.listener &&
-        (this.signalKind !== "audio" ||
-          ![1, 2, 3, 4].includes(this.listenerVersion) ||
-          this.schemaVersion !==
-            `audio-observation/v${this.descriptiveMode ? 2 : this.listenerVersion}` ||
-          !Array.isArray(this.listener.capabilities) ||
-          this.listener.capabilities.length !== 1 ||
-          this.listener.capabilities[0] !== this.listenerCapability))
-    ) {
-      throw new Error(
-        "listener capability requires matching audio-observation version"
+    if (this.metricProtocol) {
+      for (const field of [
+        "instanceId",
+        "displayName",
+        "signalKind",
+        "schemaVersion"
+      ])
+        this[field] = this.metricProtocol.listenerMetricProducerSchema.shape[
+          field
+        ].parse(this[field]);
+      this.listener = parseMetricData(
+        this.metricProtocol.listenerRegistrationMetricSchema,
+        this.listener
       );
-    }
-    if (this.listenerVersion === 3 && !validSessionRegistration(this.listener))
-      throw new Error("invalid native Session listener registration");
-    if (this.listenerVersion === 4 && !validSessionRegistration(this.listener))
-      throw new Error("invalid dual-mode listener registration");
-    if (this.descriptiveMode) {
-      const listener = this.listener;
-      const status = listener.nativeStatus;
       if (
-        !Number.isInteger(listener.sampleRate) ||
-        listener.sampleRate < 8000 ||
-        listener.sampleRate > 384000 ||
-        !Number.isInteger(listener.vectorSize) ||
-        listener.vectorSize < 1 ||
-        listener.vectorSize > 65536 ||
-        listener.algorithmVersion !== "2.0.0" ||
-        !status ||
-        status.version !== this.listenerVersion ||
-        status.scope !==
-          (this.listenerVersion === 4
-            ? "mode-negotiated-transport/v1"
-            : this.listenerVersion === 3
-              ? SESSION_LISTENER_SCOPE
-              : "arrangement-descriptive/v2") ||
-        !["READY", "BLOCKED"].includes(status.readiness) ||
-        (status?.readiness === "READY" &&
-          (!Array.isArray(status.acceptedSampleRates) ||
-            !status.acceptedSampleRates.includes(listener.sampleRate) ||
-            !Array.isArray(status.acceptedVectorSizes) ||
-            !status.acceptedVectorSizes.includes(listener.vectorSize)))
+        !this.listener.nativeStatus.acceptedSampleRates.includes(
+          this.listener.sampleRate
+        ) ||
+        !this.listener.nativeStatus.acceptedVectorSizes.includes(
+          this.listener.vectorSize
+        )
       )
-        throw new Error("invalid native v2 listener registration");
-      this.listener = Object.freeze({
-        ...listener,
-        capabilities: Object.freeze([...listener.capabilities]),
-        ...(status
-          ? {
-              nativeStatus: Object.freeze(
-                Object.fromEntries(
-                  Object.entries(status).map(([key, value]) => [
-                    key,
-                    Array.isArray(value) ? Object.freeze([...value]) : value
-                  ])
-                )
-              )
-            }
-          : {})
-      });
+        throw new Error("invalid native metric DSP registration");
     }
     this.producer = null;
     this.maxOfflineSamples = options.maxOfflineSamples || 32;
@@ -1279,7 +419,7 @@ class AgentSignalClient {
       throw new Error("producer identity cannot change after startup");
     }
     const normalized = validateProducerIdentity(identity);
-    this.producer = {
+    const producer = {
       producerId: producerIdForCanonicalPath(
         normalized.canonicalPath,
         this.producerIdPrefix
@@ -1291,6 +431,12 @@ class AgentSignalClient {
       track: normalized.track,
       device: normalized.device
     };
+    this.producer = this.metricProtocol
+      ? parseMetricData(
+          this.metricProtocol.listenerMetricProducerSchema,
+          producer
+        )
+      : producer;
     return this.producer;
   }
 
@@ -1316,7 +462,7 @@ class AgentSignalClient {
     if (this.stopping) {
       return false;
     }
-    if (this.descriptiveMode && this.authenticated) {
+    if (this.listener && this.authenticated) {
       this.listenerFailure("listener_result_required");
       return false;
     }
@@ -1376,8 +522,22 @@ class AgentSignalClient {
     this.writeDiagnosticsSupported = null;
     this.failedWriteSocket = null;
     if (this.listener) {
-      this.listener = { ...this.listener, connectionEpoch: this.randomUUID() };
-      if (this.descriptiveMode) this.listener = Object.freeze(this.listener);
+      this.listener = parseMetricData(
+        this.metricProtocol.listenerRegistrationMetricSchema,
+        {
+          ...this.listener,
+          connectionEpoch: this.randomUUID(),
+          nativeStatus: {
+            ...this.listener.nativeStatus,
+            readiness: "BLOCKED",
+            reason: "fresh_per_pass_native_validation_required",
+            executedGen: null
+          }
+        }
+      );
+      this.metricPhase = null;
+      this.metricControls.clear();
+      this.listenerControlSequence = -1;
       this.listenerSequence = 0;
       this.listenerJob = null;
       this.listenerControlIds.clear();
@@ -1420,11 +580,12 @@ class AgentSignalClient {
     const descriptor = validateDescriptor(JSON.parse(text));
     if (
       this.listener &&
-      ((this.descriptiveMode &&
-        (!Array.isArray(descriptor.listenerVersions) ||
-          !Array.isArray(descriptor.listenerCapabilities))) ||
+      (!Array.isArray(descriptor.listenerVersions) ||
+        !Array.isArray(descriptor.listenerCapabilities) ||
         !descriptor.listenerVersions?.includes(this.listenerVersion) ||
-        !descriptor.listenerCapabilities?.includes(this.listenerCapability))
+        !this.listener.capabilities.every((capability) =>
+          descriptor.listenerCapabilities?.includes(capability)
+        ))
     ) {
       throw new Error("listener capability is not advertised by ingress");
     }
@@ -1554,9 +715,28 @@ class AgentSignalClient {
       if (
         pendingAction !== "hello" ||
         typeof response.connectionId !== "string" ||
-        response.connectionId.length === 0
+        response.connectionId.length === 0 ||
+        (this.metricProtocol &&
+          !this.metricProtocol.listenerMetricWireIdentitySchema.shape.connectionId.safeParse(
+            response.connectionId
+          ).success)
       ) {
         this.emitStatus("live", "invalid_response", "invalid_hello_ack");
+        this.socket?.destroy();
+        return;
+      }
+      if (
+        this.listener &&
+        (!Array.isArray(response.listenerCapabilities) ||
+          !this.listener.capabilities.every((capability) =>
+            response.listenerCapabilities.includes(capability)
+          ))
+      ) {
+        this.emitStatus(
+          "live",
+          "invalid_response",
+          "unsupported_listener_capability"
+        );
         this.socket?.destroy();
         return;
       }
@@ -2060,7 +1240,7 @@ class AgentSignalClient {
 
   maxFrameBytes() {
     return Math.min(
-      this.descriptiveMode ? DEFAULT_MAX_FRAME_BYTES : Infinity,
+      this.listener ? DEFAULT_MAX_FRAME_BYTES : Infinity,
       this.descriptor?.maxFrameBytes || DEFAULT_MAX_FRAME_BYTES,
       this.configuredMaxFrameBytes
     );
@@ -2090,6 +1270,8 @@ class AgentSignalClient {
     this.stopHeartbeat();
     if (this.listenerJob) this.listenerFailure("disconnected");
     this.listenerJob = null;
+    this.metricPhase = null;
+    this.metricControls.clear();
     this.listenerJobControlIds.clear();
     if (!this.stopping) {
       this.emitStatus("live", "disconnected");
@@ -2141,14 +1323,15 @@ class AgentSignalClient {
     } else this.onStatus(...bounded);
   }
 
-  listenerFailure(reason) {
+  listenerFailure(reason, diagnostic) {
     this.emitStatus("live", "listener_partial", reason);
     if (this.notifyingListenerFailure) return;
     this.notifyingListenerFailure = true;
     try {
       this.onListenerFailure(
         this.listenerErrorReason({ message: reason }),
-        this.listenerJob
+        this.listenerJob,
+        diagnostic
       );
     } catch {
       this.emitStatus("live", "listener_failure_handler_error");
@@ -2158,85 +1341,34 @@ class AgentSignalClient {
   }
 
   handleListenerControl(control) {
-    if (
-      this.descriptiveMode &&
-      (!control || typeof control !== "object" || Array.isArray(control))
-    ) {
-      this.listenerFailure("invalid_control");
+    if (!this.metricProtocol || !this.authenticated || this.stopping) {
+      this.listenerFailure("invalid_metric_control");
       this.socket?.destroy();
       return;
     }
-    const keys = [
-      "requestId",
-      "connectionEpoch",
-      "jobId",
-      "passId",
-      "traceId",
-      "correlationId",
-      "causationId"
-    ];
-    if (
-      !this.authenticated ||
-      !this.listener ||
-      (this.descriptiveMode && this.stopping) ||
-      control.protocolVersion !== PROTOCOL_VERSION ||
-      control.listenerVersion !== this.listenerVersion ||
-      control.connectionEpoch !== this.listener.connectionEpoch ||
-      !keys.every(
-        (key) =>
-          typeof control[key] === "string" &&
-          control[key].length > 0 &&
-          control[key].length <= 128
-      ) ||
-      !["prepare", "arm", "cancel"].includes(control.action)
-    ) {
-      this.listenerFailure("invalid_control");
+    try {
+      control = parseMetricData(
+        this.metricProtocol.listenerControlMetricSchema,
+        control
+      );
+      if (
+        control.listenerId !== this.producer?.producerId ||
+        control.connectionId !== this.connectionId ||
+        control.connectionEpoch !== this.listener.connectionEpoch ||
+        control.sequence <= this.listenerControlSequence ||
+        Buffer.byteLength(JSON.stringify(control), "utf8") >
+          this.maxFrameBytes() ||
+        (control.config &&
+          (control.config.geometry.sampleRate !== this.listener.sampleRate ||
+            control.config.geometry.vectorSize !== this.listener.vectorSize))
+      )
+        throw new Error("metric_listener_control_binding");
+    } catch {
+      this.listenerFailure("invalid_metric_control");
       this.socket?.destroy();
       return;
     }
-    if (
-      this.listenerControlIds.has(control.requestId) ||
-      (this.descriptiveMode &&
-        (!hasExactKeys(control, [
-          "type",
-          "protocolVersion",
-          "listenerVersion",
-          "action",
-          ...(this.listenerVersion === 4 ? ["mode"] : []),
-          ...keys,
-          ...(control.action === "prepare" ? ["config"] : [])
-        ]) ||
-          control.type !== "listener.control" ||
-          (control.action === "prepare"
-            ? !(this.listenerVersion === 4
-                ? ["arrangement", "session"].includes(control.mode) &&
-                  (control.mode === "session"
-                    ? validSessionConfig(control.config)
-                    : validDescriptiveConfig(control.config))
-                : this.listenerVersion === 3
-                  ? validSessionConfig(control.config)
-                  : validDescriptiveConfig(control.config)) ||
-              control.config.geometry.sampleRate !== this.listener.sampleRate ||
-              control.config.geometry.vectorSize !== this.listener.vectorSize
-            : control.config !== undefined ||
-              (this.listenerVersion === 4 &&
-                !["arrangement", "session"].includes(control.mode))))) ||
-      (control.action === "prepare" &&
-        this.listenerVersion === 1 &&
-        (!control.config ||
-          !Number.isInteger(control.config.durationMs) ||
-          control.config.durationMs < 1 ||
-          control.config.durationMs > 120000 ||
-          !Number.isInteger(control.config.maxWindows) ||
-          control.config.maxWindows < 1 ||
-          control.config.maxWindows > 512 ||
-          !control.config.source ||
-          !["session", "arrangement"].includes(control.config.source.mode) ||
-          !Number.isFinite(control.config.source.startBeat) ||
-          control.config.source.startBeat < 0 ||
-          !Number.isFinite(control.config.source.endBeat) ||
-          control.config.source.endBeat <= control.config.source.startBeat))
-    ) {
+    if (this.listenerControlIds.has(control.requestId)) {
       this.listenerFailure("invalid_control_bounds");
       this.socket?.destroy();
       return;
@@ -2246,51 +1378,67 @@ class AgentSignalClient {
         this.listenerControlIds.values().next().value
       );
     this.listenerControlIds.add(control.requestId);
+    this.listenerControlSequence = control.sequence;
     if (control.action === "prepare") {
       if (this.listenerJob) {
         this.sendListenerMessage(
           "listener.reply",
           control,
-          {
-            status: "failed",
-            reason: "listener_busy"
-          },
-          !this.descriptiveMode
+          { status: "failed", reason: "listener_busy" },
+          false
         );
         return;
       }
-      if (this.descriptiveMode) {
-        control = snapshotDescriptiveControl(control);
-        this.listenerJobControlIds.clear();
-      }
       this.listenerJob = control;
-    } else if (
-      !this.listenerJob ||
-      control.jobId !== this.listenerJob.jobId ||
-      control.passId !== this.listenerJob.passId ||
-      (this.descriptiveMode && !sameListenerOwner(control, this.listenerJob))
-    ) {
+      this.listenerJobControlIds.clear();
+      this.metricControls.clear();
+      this.metricPhase = {
+        ready: null,
+        armed: null,
+        launched: null,
+        armRequestId: null,
+        cancelling: false,
+        cancelRequestId: null,
+        cancelledResultDelivered: false,
+        emittedEpoch: null
+      };
+    } else if (!sameListenerOwner(control, this.listenerJob)) {
       this.sendListenerMessage(
         "listener.reply",
         control,
-        {
-          status: "failed",
-          reason: "ownership_mismatch"
-        },
-        !this.descriptiveMode
+        { status: "failed", reason: "ownership_mismatch" },
+        false
       );
       return;
     }
-    if (this.descriptiveMode) {
-      if (this.listenerJobControlIds.size >= 64) {
-        this.listenerFailure("listener_control_quota_exceeded");
-        this.socket?.destroy();
+    if (this.listenerJobControlIds.size >= 64) {
+      this.listenerFailure("listener_control_quota_exceeded");
+      this.socket?.destroy();
+      return;
+    }
+    if (control.action !== "prepare") {
+      if (
+        this.metricPhase.cancelling ||
+        (control.action === "arm" &&
+          (!this.metricPhase.ready || this.metricPhase.armRequestId !== null))
+      ) {
+        this.sendListenerMessage(
+          "listener.reply",
+          control,
+          { status: "failed", reason: "invalid_metric_phase" },
+          false
+        );
         return;
       }
-      this.listenerJobControlIds.add(control.requestId);
-      if (control.action !== "prepare")
-        control = snapshotDescriptiveControl(control);
+      if (control.action === "arm")
+        this.metricPhase.armRequestId = control.requestId;
+      if (control.action === "cancel") {
+        this.metricPhase.cancelling = true;
+        this.metricPhase.cancelRequestId = control.requestId;
+      }
     }
+    this.listenerJobControlIds.add(control.requestId);
+    this.metricControls.set(control.requestId, control);
     try {
       const result = this.onListenerControl(control);
       if (result && typeof result.then === "function") {
@@ -2316,6 +1464,24 @@ class AgentSignalClient {
   sendListenerResult(control, result) {
     return this.sendListenerMessage("listener.result", control, result);
   }
+  sendListenerDiagnostic(control, nativeLifecycle) {
+    try {
+      return this.sendListenerMessage(
+        "listener.result",
+        control,
+        { status: "progress", nativeLifecycle },
+        true,
+        true
+      );
+    } catch {
+      this.emitStatus(
+        "live",
+        "native_diagnostic_gap",
+        "listener_diagnostic_exception"
+      );
+      return false;
+    }
+  }
 
   listenerErrorReason(error) {
     const secret =
@@ -2323,32 +1489,248 @@ class AgentSignalClient {
     const text = String(error?.message ?? "listener_callback_failed");
     return (
       boundedMessage(
-        this.descriptiveMode && secret
-          ? text.split(secret).join("[REDACTED]")
-          : text
+        this.listener && secret ? text.split(secret).join("[REDACTED]") : text
       ) || "listener_callback_failed"
     );
   }
 
-  sendListenerMessage(type, control, payload, releaseJob = true) {
-    if (
-      !this.authenticated ||
-      !this.listener ||
-      !this.socket ||
-      control?.connectionEpoch !== this.listener.connectionEpoch ||
-      this.listenerSequence >= Number.MAX_SAFE_INTEGER
-    ) {
-      this.listenerFailure("listener_not_connected");
+  sendMetricListenerMessage(
+    type,
+    control,
+    payload,
+    releaseJob,
+    deliveryFailure
+  ) {
+    const codec = this.metricProtocol;
+    const job = this.listenerJob;
+    const phase = this.metricPhase;
+    let message, ready, armed, launched;
+    try {
+      control = parseMetricData(codec.listenerControlMetricSchema, control);
+      const admitted = this.metricControls.get(control.requestId);
+      const owned =
+        sameListenerOwner(control, job) &&
+        admitted !== undefined &&
+        JSON.stringify(admitted) === JSON.stringify(control);
+      const detachedFailure =
+        !releaseJob &&
+        type === "listener.reply" &&
+        payload?.status === "failed";
+      if (
+        this.stopping ||
+        control.listenerId !== this.producer?.producerId ||
+        control.connectionId !== this.connectionId ||
+        (!owned && !detachedFailure)
+      ) {
+        this.emitStatus(
+          "live",
+          "listener_message_rejected",
+          "invalid_listener_context"
+        );
+        return false;
+      }
+      if (
+        owned &&
+        phase?.cancelling &&
+        ((type === "listener.reply" &&
+          control.requestId !== phase.cancelRequestId) ||
+          !["failed", "cancelled"].includes(payload?.status) ||
+          (type === "listener.result" &&
+            payload?.status === "cancelled" &&
+            phase.cancelledResultDelivered))
+      ) {
+        this.emitStatus(
+          "live",
+          "listener_message_rejected",
+          "cancel_in_progress"
+        );
+        return false;
+      }
+      const identity = parseMetricData(codec.listenerMetricWireIdentitySchema, {
+        protocolVersion: PROTOCOL_VERSION,
+        listenerVersion: codec.LISTENER_VERSION_METRIC,
+        mode: control.mode,
+        listenerId: control.listenerId,
+        connectionId: control.connectionId,
+        connectionEpoch: control.connectionEpoch,
+        generation: control.generation,
+        jobId: control.jobId,
+        passId: control.passId,
+        traceId: control.traceId,
+        correlationId: control.correlationId,
+        causationId: control.causationId,
+        requestId:
+          type === "listener.reply"
+            ? control.requestId
+            : this.nextRequestId("listener"),
+        sequence: this.listenerSequence
+      });
+      message = parseMetricData(
+        type === "listener.reply"
+          ? codec.listenerReplyMetricSchema
+          : codec.listenerResultMetricSchema,
+        { ...payload, ...identity, type }
+      );
+      if (
+        !["listener.reply", "listener.result"].includes(type) ||
+        (type === "listener.reply" &&
+          message.status !== "failed" &&
+          message.status !==
+            { prepare: "ready", arm: "armed", cancel: "cancelled" }[
+              control.action
+            ])
+      )
+        throw new Error("invalid_metric_phase");
+      const expected = (nativeEpoch) =>
+        codec.snapshotNativeMetricListeningExpectation({
+          listenerId: job.listenerId,
+          passId: job.passId,
+          connectionId: job.connectionId,
+          connectionEpoch: job.connectionEpoch,
+          generation: job.generation,
+          traceId: job.traceId,
+          correlationId: job.correlationId,
+          causationId: job.causationId,
+          config: job.config,
+          nativeEpoch
+        });
+      if (message.nativeReady) {
+        if (phase.ready || phase.armRequestId !== null)
+          throw new Error("metric_ready_already_delivered");
+        ready = codec.assertNativeMetricReadyProof(
+          message.nativeReady,
+          expected(message.nativeReady.ownership.nativeEpoch)
+        );
+        if (
+          phase.emittedEpoch !== null &&
+          phase.emittedEpoch !== ready.ownership.nativeEpoch
+        )
+          throw new Error("metric_ready_reservation_mismatch");
+      }
+      if (message.nativeArm) {
+        if (
+          !phase.ready ||
+          phase.armed ||
+          phase.armRequestId !== control.requestId
+        )
+          throw new Error("metric_arm_without_ready");
+        armed = codec.assertNativeMetricArmProof(
+          message.nativeArm,
+          expected(phase.ready.ownership.nativeEpoch)
+        );
+      }
+      if (message.nativeLaunch) {
+        if (!phase.armed || phase.launched)
+          throw new Error("metric_launch_without_arm");
+        codec.nativeMetricLaunchCoordinates(
+          phase.armed,
+          message.nativeLaunch,
+          expected(phase.ready.ownership.nativeEpoch)
+        );
+        launched = message.nativeLaunch;
+      }
+      if (message.nativeLifecycle) {
+        const nativeEpoch =
+          phase.ready?.ownership.nativeEpoch ?? phase.emittedEpoch;
+        if (
+          nativeEpoch !== null &&
+          message.nativeLifecycle.nativeEpoch !== nativeEpoch
+        )
+          throw new Error("metric_lifecycle_reservation_mismatch");
+      }
+      if (message.nativeSourceCoverage) {
+        if (
+          !phase.armed ||
+          !phase.launched ||
+          JSON.stringify(message.nativeSourceCoverage.armed) !==
+            JSON.stringify(phase.armed) ||
+          JSON.stringify(message.nativeSourceCoverage.launched) !==
+            JSON.stringify(phase.launched)
+        )
+          throw new Error("metric_source_without_pinned_arm_launch");
+        codec.assertNativeMetricObservationSource(
+          message.nativeSourceCoverage,
+          message.observation,
+          expected(phase.ready.ownership.nativeEpoch)
+        );
+      }
+    } catch {
+      deliveryFailure("invalid_metric_listener_payload");
       return false;
     }
-    const job = this.listenerJob;
+    const socket = this.socket;
+    const encoded = `${JSON.stringify(message)}\n`;
+    if (encodedFrameBytes(encoded) > this.maxFrameBytes()) {
+      deliveryFailure("listener_frame_too_large", encodedFrameBytes(encoded));
+      return false;
+    }
+    const sent = this.writeEncoded(message, encoded);
     if (
-      this.descriptiveMode &&
-      (control.protocolVersion !== PROTOCOL_VERSION ||
-        control.listenerVersion !== this.listenerVersion ||
-        (releaseJob &&
-          (!sameListenerOwner(control, job) ||
-            !this.listenerJobControlIds.has(control.requestId))))
+      !sent ||
+      socket !== this.socket ||
+      socket.destroyed ||
+      this.failedWriteSocket === socket
+    ) {
+      deliveryFailure("listener_delivery_failed", encodedFrameBytes(encoded));
+      return false;
+    }
+    this.listenerSequence += 1;
+    if (
+      job === this.listenerJob &&
+      phase === this.metricPhase &&
+      phase &&
+      socket === this.socket &&
+      !socket.destroyed
+    ) {
+      if (ready) phase.ready = ready;
+      if (armed) phase.armed = armed;
+      if (launched) phase.launched = launched;
+      if (message.nativeLifecycle)
+        phase.emittedEpoch = message.nativeLifecycle.nativeEpoch;
+      const awaitingCancelReply =
+        phase.cancelling &&
+        type === "listener.result" &&
+        message.status === "cancelled";
+      if (awaitingCancelReply) phase.cancelledResultDelivered = true;
+      if (
+        releaseJob &&
+        !awaitingCancelReply &&
+        ((type === "listener.reply" &&
+          ["cancelled", "failed"].includes(message.status)) ||
+          (type === "listener.result" && message.status !== "progress"))
+      ) {
+        this.listenerJob = null;
+        this.metricPhase = null;
+        this.metricControls.clear();
+        this.listenerJobControlIds.clear();
+      }
+    }
+    return true;
+  }
+
+  sendListenerMessage(
+    type,
+    control,
+    payload,
+    releaseJob = true,
+    diagnosticOnly = false
+  ) {
+    if (!this.metricProtocol) {
+      this.listenerFailure("metric_listener_required");
+      return false;
+    }
+    try {
+      assertMetricData(control);
+      assertMetricData(payload);
+    } catch {
+      this.listenerFailure("invalid_metric_listener_payload");
+      return false;
+    }
+    if (
+      control?.listenerVersion !== this.listenerVersion ||
+      control?.listenerId !== this.producer?.producerId ||
+      control?.connectionId !== this.connectionId ||
+      control?.connectionEpoch !== this.listener.connectionEpoch
     ) {
       this.emitStatus(
         "live",
@@ -2357,76 +1739,62 @@ class AgentSignalClient {
       );
       return false;
     }
+    const deliveryFailure = (reason, encodedBytes = null) => {
+      if (diagnosticOnly)
+        return this.emitStatus("live", "native_diagnostic_gap", reason);
+      let armGeometry;
+      if (payload?.status === "armed") {
+        const actual = payload.nativeArm?.config?.geometry?.totalSamples;
+        const expected = this.listenerJob?.config?.geometry?.totalSamples;
+        armGeometry = {
+          field: "totalSamples",
+          actual: Number.isFinite(actual) ? actual : null,
+          expected: Number.isFinite(expected) ? expected : null
+        };
+      }
+      this.listenerFailure(reason, {
+        check: reason,
+        messageType: ["listener.reply", "listener.result"].includes(type)
+          ? type
+          : "unknown",
+        payloadStatus: [
+          "ready",
+          "armed",
+          "cancelled",
+          "failed",
+          "progress",
+          "completed",
+          "partial"
+        ].includes(payload?.status)
+          ? payload.status
+          : "unknown",
+        connected: this.authenticated === true && !!this.socket,
+        ownerMatches: !!control && sameListenerOwner(control, this.listenerJob),
+        authenticated: this.authenticated === true,
+        listenerPresent: !!this.listener,
+        socketPresent: !!this.socket,
+        epochMatches: control.connectionEpoch === this.listener.connectionEpoch,
+        sequence: this.listenerSequence,
+        encodedBytes,
+        frameLimit: this.maxFrameBytes(),
+        ...(armGeometry ? { armGeometry } : {})
+      });
+    };
     if (
-      this.descriptiveMode &&
-      (((this.listenerVersion === 3 || this.listenerVersion === 4) &&
-        (!["prepare", "arm", "cancel"].includes(control.action) ||
-          (type === "listener.reply" &&
-            payload?.status !== "failed" &&
-            payload?.status !==
-              { prepare: "ready", arm: "armed", cancel: "cancelled" }[
-                control.action
-              ]))) ||
-        !(this.listenerVersion === 3 ||
-        (this.listenerVersion === 4 && control.mode === "session")
-          ? validSessionPayload(type, payload, job, this.producer?.producerId)
-          : validDescriptivePayload(
-              type,
-              payload,
-              job,
-              this.producer?.producerId
-            )))
+      !this.authenticated ||
+      !this.socket ||
+      this.listenerSequence >= Number.MAX_SAFE_INTEGER
     ) {
-      this.listenerFailure("invalid_listener_payload");
+      deliveryFailure("listener_not_connected");
       return false;
     }
-    const message = {
-      ...payload,
+    return this.sendMetricListenerMessage(
       type,
-      protocolVersion: PROTOCOL_VERSION,
-      listenerVersion: this.listenerVersion,
-      ...(this.listenerVersion === 4 ? { mode: control.mode } : {}),
-      requestId:
-        type === "listener.reply"
-          ? control.requestId
-          : this.nextRequestId("listener"),
-      connectionEpoch: control.connectionEpoch,
-      jobId: control.jobId,
-      passId: control.passId,
-      traceId: control.traceId,
-      correlationId: control.correlationId,
-      causationId: control.causationId,
-      sequence: this.listenerSequence
-    };
-    if (this.descriptiveMode) {
-      let encoded;
-      try {
-        encoded = JSON.stringify(message);
-      } catch {
-        this.listenerFailure("listener_encoding_failed");
-        return false;
-      }
-      if (Buffer.byteLength(encoded, "utf8") > this.maxFrameBytes()) {
-        this.listenerFailure("listener_frame_too_large");
-        return false;
-      }
-    }
-    const sent = this.writeMessage(message);
-    if (sent) this.listenerSequence += 1;
-    else this.listenerFailure("listener_delivery_failed");
-    if (
-      (!this.descriptiveMode ||
-        (releaseJob &&
-          this.listenerJob === job &&
-          sameListenerOwner(control, job))) &&
-      ((type === "listener.reply" &&
-        ["cancelled", "failed"].includes(payload.status)) ||
-        (type === "listener.result" && payload.status !== "progress"))
-    ) {
-      this.listenerJob = null;
-      if (this.descriptiveMode) this.listenerJobControlIds.clear();
-    }
-    return sent;
+      control,
+      payload,
+      releaseJob,
+      deliveryFailure
+    );
   }
 
   stop() {
@@ -2443,6 +1811,8 @@ class AgentSignalClient {
     this.clearWriteDrain("cancelled", "stopped");
     if (this.listenerJob) this.listenerFailure("stopped");
     this.listenerJob = null;
+    this.metricPhase = null;
+    this.metricControls.clear();
     this.listenerJobControlIds.clear();
     const socket = this.socket;
     if (socket && this.authenticated && !socket.destroyed) {

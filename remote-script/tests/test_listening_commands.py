@@ -65,6 +65,47 @@ class ListeningCommandsTest(unittest.TestCase):
     def inspect(self):
         return inspect_listening_context(self.context, self.params)
 
+    def test_native_version_and_readiness_claims_are_not_lom_attestation(self):
+        baseline = self.inspect()
+        for version in (1, 2, 3, 4, 5, 6):
+            for readiness in ("BLOCKED", "READY"):
+                with self.subTest(version=version, readiness=readiness):
+                    self.listener.listenerVersion = version
+                    self.listener.nativeStatus = {
+                        "version": version, "readiness": readiness,
+                        "reason": "fresh_per_pass_native_validation_required",
+                        "executedGen": {"forged": True},
+                    }
+                    self.listener.capabilities = [
+                        "audio-listener/independent-metric-timelines-v1",
+                    ]
+                    self.assertEqual(self.inspect(), baseline)
+                    self.assertNotIn(
+                        "nativeStatus", self.inspect()["listeners"][0],
+                    )
+
+    def test_authenticated_native_metadata_is_not_a_path_selector_or_source_proof(self):
+        selector = {"canonicalPath": "live_set tracks 0 devices 0"}
+        self.params["listeners"] = [selector]
+        self.assertIsNone(validate_listening_context(self.params))
+        for key, value in (
+            ("listenerVersion", 5),
+            ("schemaVersion", "metric-audio-observation/v1"),
+            ("capabilities", ["audio-listener/independent-metric-timelines-v1"]),
+            ("nativeStatus", {
+                "version": 5, "readiness": "BLOCKED",
+                "reason": "fresh_per_pass_native_validation_required",
+            }),
+        ):
+            with self.subTest(key=key):
+                self.params["listeners"] = [{**selector, key: value}]
+                self.assertIsNotNone(validate_listening_context(self.params))
+        self.params["listeners"] = [selector]
+        self.assertEqual(
+            self.inspect()["listeners"][0]["canonicalPath"],
+            selector["canonicalPath"],
+        )
+
     def test_exact_bindings_transport_and_content_evidence(self):
         result = self.inspect()
         self.assertEqual(result["projectRevision"], 7)

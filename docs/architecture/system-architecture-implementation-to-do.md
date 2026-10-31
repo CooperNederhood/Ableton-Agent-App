@@ -20,6 +20,12 @@ Companion specification: [System Architecture](system-architecture.md)
 
 ## Runtime composition
 
+- [x] Preserve honest partial listening publication across application lifecycle,
+  public tools, embedded-agent transport leases and Desktop typed presentation,
+  with bounded metric-count metadata and attributed terminal timing events.
+- [ ] Complete independent native producer/collector/source/drain event coverage
+  and real-host trace propagation before advertising the new capture capability.
+
 - [x] Implement dependency injection/composition for application services.
 - [x] Define startup, ready, degraded, and shutdown lifecycle states.
 - [x] Implement graceful shutdown ordering and cancellation propagation.

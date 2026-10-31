@@ -1,13 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { createRequire } from "node:module";
 import { connect, type Socket } from "node:net";
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
-import { resolve, join } from "node:path";
-import { afterEach, expect, it, vi } from "vitest";
-import {
-  LocalObservabilityJournal,
-  createNonBlockingObservabilityRecorder,
-} from "@ableton-agent/observability";
+import { copyFile, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { join, resolve } from "node:path";
+import { afterAll, afterEach, beforeAll, expect, it, vi } from "vitest";
+import { createNonBlockingObservabilityRecorder } from "@ableton-agent/observability";
 import {
   ProducerDiagnosticReceipts,
   producerDiagnosticsSchema,
@@ -16,7 +13,12 @@ import {
 import { SignalIngressServer } from "./ingress-server.js";
 import { InMemoryConnectionRegistry } from "./registry.js";
 import { SignalRouter } from "./router.js";
-import { NATIVE_LISTENER_SCOPE } from "@ableton-agent/protocol";
+import { createIngressJournalFixture } from "./test-fixtures.js";
+import {
+  createSyntheticMetricWireFixture,
+  bindMetricFixtureToControl,
+} from "./listener-metric-test-support.js";
+import { listenerControlMetricSchema } from "./listener-metric-contracts.js";
 
 const require = createRequire(import.meta.url);
 interface DiagnosticClient {
@@ -27,29 +29,48 @@ interface DiagnosticClient {
   pending: ReadonlyMap<string, string>;
   writeDrain: unknown;
   clearWriteDrain(stage: string, reason: string): void;
+  start(): void;
+  configureProducer(identity: object): void;
   stop(): void;
 }
-// These are the ordinary production CommonJS modules, not diagnostic adapters.
-const { AgentSignalClient } =
-  require("../../../max-patches/shared/agent_signal_client.js") as {
-    AgentSignalClient: new (
-      options: Record<string, unknown>,
-    ) => DiagnosticClient;
-  };
-const { createRuntime } =
-  require("../../../max-patches/audio-listener/audio_listener_runtime.js") as {
-    createRuntime(
-      this: void,
-      options: Record<string, unknown>,
-    ): {
-      client: DiagnosticClient | null;
-      stop(): void;
+let AgentSignalClient: new (
+  options: Record<string, unknown>,
+) => DiagnosticClient;
+let sdkDirectory: string;
+beforeAll(async () => {
+  const { compileNativeMetricProtocol } =
+    require("../../../scripts/lib/native-metric-protocol-bundle.mjs") as {
+      compileNativeMetricProtocol(
+        this: void,
+        options: {
+          stage: (
+            name: string,
+            action: () => Promise<unknown>,
+          ) => Promise<unknown>;
+        },
+      ): Promise<{ fileName: string; source: string }>;
     };
-  };
-const { VERSION } =
-  require("../../../max-patches/audio-listener/audio_listener_engine.js") as {
-    VERSION: string;
-  };
+  const parent = resolve("packages/signal-routing/.test-artifacts");
+  await mkdir(parent, { recursive: true });
+  sdkDirectory = await mkdtemp(join(parent, "producer-diagnostics-"));
+  const compiled = await compileNativeMetricProtocol({
+    stage: (_name, action) => action(),
+  });
+  await writeFile(join(sdkDirectory, "package.json"), '{"type":"commonjs"}');
+  await writeFile(join(sdkDirectory, compiled.fileName), compiled.source);
+  const sdkPath = join(sdkDirectory, "agent_signal_client.js");
+  await copyFile(resolve("max-patches/shared/agent_signal_client.js"), sdkPath);
+  ({ AgentSignalClient } = require(sdkPath) as {
+    AgentSignalClient: typeof AgentSignalClient;
+  });
+});
+afterAll(async () => {
+  if (sdkDirectory) {
+    for (const path of Object.keys(require.cache))
+      if (path.startsWith(`${sdkDirectory}/`)) delete require.cache[path];
+    await rm(sdkDirectory, { recursive: true, force: false });
+  }
+});
 const cleanup: Array<() => void | Promise<void>> = [];
 afterEach(async () => {
   for (const dispose of cleanup.splice(0).reverse()) await dispose();
@@ -98,19 +119,7 @@ function event(
   };
 }
 async function journalFixture() {
-  const parent = resolve(".test-artifacts");
-  await mkdir(parent, { recursive: true });
-  const root = await mkdtemp(join(parent, "producer-diagnostic-journal-"));
-  cleanup.push(() => rm(root, { recursive: true, force: false }));
-  const journal = await LocalObservabilityJournal.open({
-    path: join(root, "journal.sqlite"),
-  });
-  cleanup.push(() => journal.shutdown());
-  const failures: unknown[] = [];
-  const recorder = createNonBlockingObservabilityRecorder(journal, {
-    onFailure: (e) => failures.push(e),
-  });
-  return { journal, recorder, failures };
+  return createIngressJournalFixture(cleanup);
 }
 
 async function peer(endpoint: { host: string; port: number }) {
@@ -170,23 +179,19 @@ async function register(
       instanceId: o.instanceId,
       displayName: "test",
       signalKind: "audio",
-      schemaVersion: "audio-observation/v1",
+      schemaVersion: "metric-audio-observation/v1",
       track: { id: "1" },
       device: { id: "2" },
     },
     listener: {
-      version: 1,
+      ...createSyntheticMetricWireFixture().registration,
       connectionEpoch: o.connectionEpoch,
-      capabilities: ["audio-listener/v1"],
-      sampleRate: 48000,
-      algorithmVersion: "test/v1",
       deviceCanonicalPath: "live_set tracks 0 devices 0",
       trackCanonicalPath: "live_set tracks 0",
       nativeStatus: {
-        version: 1,
-        scope: NATIVE_LISTENER_SCOPE,
-        timing: "UNVERIFIED",
+        ...createSyntheticMetricWireFixture().registration.nativeStatus,
         readiness: "BLOCKED",
+        executedGen: null,
         reason: "fresh_per_pass_native_validation_required",
       },
     },
@@ -209,6 +214,7 @@ it("real typed journal preserves all source stages, redacts credentials and dedu
     router,
     telemetry: recorder,
     port: 0,
+    independentMetricListeners: true,
   });
   const endpoint = await server.start();
   cleanup.push(() => server.stop());
@@ -223,11 +229,7 @@ it("real typed journal preserves all source stages, redacts credentials and dedu
     causationId: `token=${secret}`,
     jobId: o.jobId,
     passId: o.passId,
-    config: {
-      durationMs: 1000,
-      maxWindows: 10,
-      source: { mode: "arrangement" as const, startBeat: 0, endBeat: 2 },
-    },
+    config: createSyntheticMetricWireFixture().config,
   };
   const pending = server.requestListenerControl(o.connectionId, owner);
   const control = await first.next("listener.control");
@@ -298,6 +300,10 @@ it("real typed journal preserves all source stages, redacts credentials and dedu
     type: "listener.reply",
     sequence: 0,
     status: "ready",
+    nativeReady: bindMetricFixtureToControl(
+      createSyntheticMetricWireFixture(),
+      listenerControlMetricSchema.parse(fresh),
+    ).ready,
   });
   await preparing;
   await second.next("producer.ack");
@@ -358,6 +364,7 @@ it("malformed, forged, expired and source-loss diagnostics are explicit nonfatal
     router: new SignalRouter({ registry }),
     telemetry: recorder,
     port: 0,
+    independentMetricListeners: true,
     onDiagnostic: (d) => {
       diagnostics.push(d);
       if (d.message.startsWith("Producer observability gap:"))
@@ -439,6 +446,7 @@ it.each(["throw", "reject"])(
       router: new SignalRouter({ registry }),
       telemetry: recorder,
       port: 0,
+      independentMetricListeners: true,
     });
     const endpoint = await server.start();
     cleanup.push(() => server.stop());
@@ -582,7 +590,7 @@ it("binds delayed released-owner events to original receipts, never a new owner,
   receipts.clear();
 });
 
-it("ordinary runtime actual socket write(false) callbacks reach authenticated heartbeat and real typed journal without fabricating a capture owner", async () => {
+it("shipping metric SDK actual socket write(false) callbacks reach authenticated heartbeat and real typed journal without fabricating a capture owner", async () => {
   const { journal, recorder, failures } = await journalFixture();
   const registry = new InMemoryConnectionRegistry({ staleAfterMs: 15000 });
   const router = new SignalRouter({ registry });
@@ -594,13 +602,12 @@ it("ordinary runtime actual socket write(false) callbacks reach authenticated he
     router,
     telemetry: recorder,
     port: 0,
+    independentMetricListeners: true,
     onDiagnostic: (d) => diagnostics.push(d),
   });
   const endpoint = await server.start();
   cleanup.push(() => server.stop());
-  const handlers: Record<string, (...args: unknown[]) => void> = {},
-    polls: Array<() => void> = [],
-    beats: Array<() => void> = [];
+  const beats: Array<() => void> = [];
   class Client extends AgentSignalClient {
     constructor(options: Record<string, unknown>) {
       super({
@@ -614,8 +621,10 @@ it("ordinary runtime actual socket write(false) callbacks reach authenticated he
             protocol: "newline-delimited-json",
             protocolVersion: 1,
             maxFrameBytes: 131072,
-            listenerVersions: [1, 2],
-            listenerCapabilities: ["audio-listener/v1", "audio-listener/v2"],
+            listenerVersions: [5],
+            listenerCapabilities: [
+              "audio-listener/independent-metric-timelines-v1",
+            ],
           }),
         createConnection: (address: { host: string; port: number }) => {
           const options = { ...address, highWaterMark: 1 };
@@ -629,49 +638,27 @@ it("ordinary runtime actual socket write(false) callbacks reach authenticated he
       });
     }
   }
-  const runtime = createRuntime({
-    Client,
-    maxApi: {
-      addHandler: (name: string, fn: (...args: unknown[]) => void) => {
-        handlers[name] = fn;
+  const fixture = createSyntheticMetricWireFixture();
+  const client = new Client({
+    signalKind: "audio",
+    schemaVersion: "metric-audio-observation/v1",
+    listener: {
+      ...fixture.registration,
+      nativeStatus: {
+        ...fixture.registration.nativeStatus,
+        readiness: "BLOCKED",
+        executedGen: null,
+        reason: "fresh_per_pass_native_validation_required",
       },
-      outlet() {},
-    },
-    env: {
-      ABLETON_AGENT_SIGNAL_INGRESS_DESCRIPTOR: "/test/descriptor",
-      ABLETON_AGENT_SIGNAL_INGRESS_SECRET_PATH: "/test/credential",
-    },
-    interval: (fn: () => void) => {
-      polls.push(fn);
-      return fn;
-    },
-    clear() {},
-    certificate: {
-      validated: true,
-      algorithmVersion: VERSION,
-      hostVersion: "test-double",
-      maxVersion: "test-double",
-      launchAligned: true,
-      requiredHostFlags: 19,
-      uncertaintySamples: 64,
-      descriptorOffsetSamples: 0,
-      sampleRate: 48000,
-      vectorSize: 64,
     },
   });
-  cleanup.push(() => runtime.stop());
-  handlers.identity!(
-    JSON.stringify({
-      canonicalPath: "live_set tracks 0 devices 0",
-      track: { id: "1", name: "test" },
-      device: { id: "2", name: "Audio-Listener" },
-    }),
-  );
-  handlers.dsp!(1, 48000, 64);
-  handlers.host!(0, 4, 10000, 19);
-  polls[0]!();
-  const client = runtime.client;
-  if (!client) throw new Error("Ordinary runtime did not configure a client");
+  cleanup.push(() => client.stop());
+  client.configureProducer({
+    canonicalPath: "live_set tracks 0 devices 0",
+    track: { id: "1", name: "test" },
+    device: { id: "2", name: "Audio-Listener" },
+  });
+  client.start();
   await vi.waitFor(() => expect(server.inspectListeners()).toHaveLength(1));
   await vi.waitFor(() => expect(client.writeDiagnosticsSupported).toBe(true));
   const connection = server.inspectListeners()[0]!.connectionId;

@@ -262,7 +262,7 @@ test("native packaging rejects an implicit or unknown version selection before p
   assert.equal(cancelled.at(-1).stage, "cancelled");
 });
 
-test("canonical Development wire4 packages one dual-mode runtime and unchanged ABI2 graph", async (t) => {
+test("canonical Development wire4 packages a matching retained delivery graph with unchanged measurement ABI2", async (t) => {
   const dir = await mkdtemp(
     join(SOURCE_DIRECTORY, ".native-dual-authored-test-"),
   );
@@ -283,6 +283,7 @@ test("canonical Development wire4 packages one dual-mode runtime and unchanged A
   assert.equal(manifest.deviceFile, "Machine-Listening-Development.amxd");
   assert.equal(manifest.nativeVersion, 4);
   assert.equal(manifest.nativeAbiVersion, 2);
+  assert.equal(manifest.measurementDelivery, "retention-v1");
   assert.equal(manifest.nativeScope, "mode-negotiated-transport/v1");
   assert.deepEqual(manifest.supportedModes, ["arrangement", "session"]);
   assert.equal(manifest.modeNegotiation, "explicit-per-pass");
@@ -293,15 +294,20 @@ test("canonical Development wire4 packages one dual-mode runtime and unchanged A
     ),
   );
   assert(!manifest.resources.some(({ name }) => /native_v[23]_max/.test(name)));
+  assert(
+    manifest.resources.some(
+      ({ name }) => name === "audio_listener_measurements.js",
+    ),
+  );
   for (const [name, document] of Object.entries(
-    nativeRuntimeDocuments({ nativeVersion: 2 }),
+    nativeRuntimeDocuments({ nativeVersion: 4 }),
   )) {
     assert.deepEqual(
       JSON.parse(await readFile(join(out, name), "utf8")),
       document,
     );
   }
-  assert.deepEqual(
+  assert.notDeepEqual(
     nativeRuntimeDocuments({ nativeVersion: 4 }),
     nativeRuntimeDocuments({ nativeVersion: 2 }),
   );
@@ -324,6 +330,8 @@ test("canonical Development wire4 packages one dual-mode runtime and unchanged A
     { supportedModes: ["session"] },
     { modeNegotiation: "automatic" },
     { nativeAbiVersion: 3 },
+    { measurementDelivery: "latest-only" },
+    { measurementDelivery: undefined },
     { nativeVersion: 5 },
   ]) {
     await writeFile(

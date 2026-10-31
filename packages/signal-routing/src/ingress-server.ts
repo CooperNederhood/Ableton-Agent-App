@@ -2,28 +2,25 @@ import { randomUUID, timingSafeEqual } from "node:crypto";
 import { createServer, type Server, type Socket } from "node:net";
 import { isAbsolute } from "node:path";
 import {
-  NATIVE_LISTENER_SCOPE,
-  assertNativeArmProofV2,
-  assertNativeCaptureObservationV2,
-  nativeLaunchCoordinatesV2,
-  snapshotNativeListeningExpectationV2,
-  type NativeArmProofV2,
-  type NativeLaunchProofV2,
-  assertNativeSessionArmProof,
-  assertNativeSessionCaptureObservation,
-  nativeSessionLaunchCoordinates,
-  snapshotNativeSessionListeningExpectation,
-  type NativeSessionArmProof,
-  type NativeSessionLaunchProof,
+  listeningFailureEvidenceSchema,
+  type ListeningFailureEvidence,
+  type ListeningFailureFact,
+  assertNativeMetricReadyProof,
+  assertNativeMetricArmProof,
+  assertNativeMetricObservationSource,
+  snapshotNativeMetricListeningExpectation,
+  nativeMetricLaunchCoordinates,
+  type NativeMetricReadyProof,
+  type NativeMetricArmProof,
+  type NativeMetricLaunchProof,
 } from "@ableton-agent/protocol";
 import {
-  listenerControlSessionSchema,
-  type ListenerControlSession,
-} from "./listener-session-contracts.js";
-import {
-  listenerControlDualSchema,
-  type ListenerControlDual,
-} from "./listener-dual-contracts.js";
+  LISTENER_METRIC_PRODUCER_SCHEMA_VERSION,
+  listenerControlMetricSchema,
+  type ListenerControlMetric,
+  type ListenerReplyMetric,
+  type ListenerResultMetric,
+} from "./listener-metric-contracts.js";
 
 import type {
   OutputConnection,
@@ -37,6 +34,7 @@ import {
   DEFAULT_SIGNAL_INGRESS_PORT,
   type IngressErrorCode,
   PRODUCER_PROTOCOL_VERSION,
+  SUPPORTED_LISTENER_CAPABILITIES,
   type ProducerAcknowledgement,
   type ProducerErrorResponse,
   producerMessageSchema,
@@ -56,21 +54,18 @@ import {
   sanitizeTelemetryAttributes,
 } from "@ableton-agent/observability";
 import {
-  listenerControlSchema,
+  listenerControlInputSchema,
+  type ListenerControlInput,
   type ListenerControlOptions,
   type ListenerDescriptor,
   type ListenerResultEvent,
   type ListenerService,
 } from "./listener-contracts.js";
-import {
-  listenerControlV2Schema,
-  versionedListenerControlInputSchema as listenerControlInputSchema,
-  type VersionedListenerControl as ListenerControl,
-  type VersionedListenerControlInput as ListenerControlInput,
-  type VersionedListenerReply as ListenerReply,
-  type VersionedListenerResult as ListenerResult,
-  type ListenerControlV2,
-} from "./listener-v2-contracts.js";
+import type {
+  ListenerControlMetric as ListenerControl,
+  ListenerReplyMetric as ListenerReply,
+  ListenerResultMetric as ListenerResult,
+} from "./listener-metric-contracts.js";
 
 export interface SignalIngressRegistry {
   register(connectionId: string, producer: OutputProducer): OutputConnection;
@@ -102,6 +97,33 @@ export interface SignalIngressDiagnostic {
   readonly connectionId?: string;
 }
 
+interface ListenerRejectionDetail {
+  readonly checkId: string;
+  readonly facts: readonly ListeningFailureFact[];
+  readonly coverage?: "complete" | "partial";
+  readonly schemaIssues?: readonly {
+    readonly code: string;
+    readonly path: string;
+  }[];
+}
+
+function ingressFact(
+  field: string,
+  actual: string | number | boolean | undefined,
+  expected: string | number | boolean,
+  comparison: ListeningFailureFact["comparison"] = "equal",
+): ListeningFailureFact {
+  return {
+    field,
+    actual:
+      actual === undefined
+        ? { state: "unavailable", reason: "not-reported" }
+        : { state: "observed", value: actual },
+    expected: { state: "observed", value: expected },
+    comparison,
+  };
+}
+
 export interface SignalIngressServerOptions {
   readonly secret: string;
   readonly secretPath?: string;
@@ -119,6 +141,7 @@ export interface SignalIngressServerOptions {
   readonly onDiagnostic?: (diagnostic: SignalIngressDiagnostic) => void;
   readonly now?: () => number;
   readonly telemetry?: Pick<NonBlockingObservabilityRecorder, "enqueue">;
+  readonly independentMetricListeners?: boolean;
 }
 
 export interface SignalIngressEndpoint {
@@ -143,11 +166,14 @@ interface ClientState {
   listenerDeadline?: number;
   listenerResults: number;
   listenerStartedAt?: number;
-  nativeArmV2?: NativeArmProofV2;
-  nativeLaunchV2?: NativeLaunchProofV2;
-  nativeSessionArm?: NativeSessionArmProof;
-  nativeSessionLaunch?: NativeSessionLaunchProof;
-  lastNativeCounterV2?: number;
+  nativeMetricReady?: NativeMetricReadyProof;
+  nativeMetricArm?: NativeMetricArmProof;
+  nativeMetricLaunch?: NativeMetricLaunchProof;
+  metricControlSequence?: number;
+  metricEpochHighwater?: number;
+  lastMetricCounter?: number;
+  metricLifecycleReceipts?: Map<string, string>;
+  metricLifecycleEpoch?: number;
   processing?: {
     readonly requestId: string;
     readonly messageType: string;
@@ -208,9 +234,15 @@ export class SignalIngressServer implements ListenerService {
   #stopPromise: Promise<void> | undefined;
   #diagnosticWindowStartedAt = 0;
   #diagnosticsInWindow = 0;
+  #suppressedDiagnostics = 0;
   #started = false;
 
   constructor(options: SignalIngressServerOptions) {
+    if (
+      options.independentMetricListeners !== undefined &&
+      typeof options.independentMetricListeners !== "boolean"
+    )
+      throw new TypeError("independentMetricListeners must be a boolean");
     if (options.secret.length < 32) {
       throw new RangeError(
         "Signal ingress secret must be at least 32 characters",
@@ -377,17 +409,6 @@ export class SignalIngressServer implements ListenerService {
       )
         throw denied("listener_metadata_missing");
       if (
-        state.listener.version === 1 &&
-        state.listener.nativeStatus.scope !== NATIVE_LISTENER_SCOPE &&
-        (state.listener.nativeStatus.timing !== "VERIFIED" ||
-          state.listener.nativeStatus.readiness !== "READY")
-      )
-        throw denied(
-          state.listener.nativeStatus.reason ??
-            "real_live_timing_validation_required",
-        );
-      if (
-        state.listener.version !== 1 &&
         state.listener.nativeStatus.readiness !== "READY" &&
         state.listener.nativeStatus.reason !==
           "fresh_per_pass_native_validation_required"
@@ -407,42 +428,38 @@ export class SignalIngressServer implements ListenerService {
         throw denied("Listener is not ready");
       if (value.action === "cancel" && state.listenerPhase === "cancelling")
         throw denied("Listener cancellation already pending");
+      if (
+        value.correlationId !== state.listenerOwner.correlationId ||
+        value.causationId !== state.listenerOwner.causationId
+      )
+        throw denied("Listener ownership mismatch");
     }
+    const metricOwner = state.listenerOwner;
     const rawControl = {
       ...value,
-      ...(state.listener.version === 4
-        ? {
-            mode:
-              value.action === "prepare"
-                ? value.config && "source" in value.config
-                  ? value.config.source.mode
-                  : "arrangement"
-                : state.listenerOwner?.listenerVersion === 4
-                  ? state.listenerOwner.mode
-                  : undefined,
-          }
-        : {}),
+      mode:
+        value.action === "prepare"
+          ? value.config && "mode" in value.config
+            ? value.config.mode
+            : undefined
+          : metricOwner?.mode,
+      listenerId: state.producer.producerId,
+      connectionId: state.connectionId,
+      generation:
+        value.action === "prepare" ? randomUUID() : metricOwner?.generation,
+      sequence: state.metricControlSequence ?? 0,
       type: "listener.control",
       protocolVersion: 1,
       listenerVersion: state.listener.version,
       requestId: randomUUID(),
       connectionEpoch: state.listener.connectionEpoch,
     };
-    const parsedControl =
-      state.listener.version === 4
-        ? listenerControlDualSchema.safeParse(rawControl)
-        : state.listener.version === 3
-          ? listenerControlSessionSchema.safeParse(rawControl)
-          : state.listener.version === 2
-            ? listenerControlV2Schema.safeParse(rawControl)
-            : listenerControlSchema.safeParse(rawControl);
+    const parsedControl = listenerControlMetricSchema.safeParse(rawControl);
     if (!parsedControl.success)
       throw denied("listener_configuration_version_mismatch");
     const control = parsedControl.data;
     if (
-      control.listenerVersion !== 1 &&
       control.config &&
-      state.listener.version !== 1 &&
       (control.config.geometry.sampleRate !== state.listener.sampleRate ||
         control.config.geometry.vectorSize !== state.listener.vectorSize ||
         !state.listener.nativeStatus.acceptedSampleRates.includes(
@@ -453,13 +470,13 @@ export class SignalIngressServer implements ListenerService {
         ))
     )
       throw denied("listener_dsp_geometry_mismatch");
+    state.metricControlSequence = control.sequence + 1;
     if (value.action === "prepare") {
-      delete state.nativeArmV2;
-      delete state.nativeLaunchV2;
-      delete state.nativeSessionArm;
-      delete state.nativeSessionLaunch;
-      delete state.nativeSessionArm;
-      delete state.nativeSessionLaunch;
+      delete state.nativeMetricReady;
+      delete state.nativeMetricArm;
+      delete state.nativeMetricLaunch;
+      delete state.metricLifecycleReceipts;
+      delete state.metricLifecycleEpoch;
       state.listenerOwner = control;
       state.listenerDeadline =
         this.#now() + this.#captureDuration(control) + 20000;
@@ -526,39 +543,30 @@ export class SignalIngressServer implements ListenerService {
 
   #captureDuration(control: ListenerControl): number {
     if (!control.config) return 0;
-    return control.listenerVersion !== 1
-      ? Math.ceil(
-          (control.config.geometry.totalSamples * 1000) /
-            control.config.geometry.sampleRate,
-        )
-      : control.config.durationMs;
+    return Math.ceil(
+      (control.config.geometry.totalSamples * 1000) /
+        control.config.geometry.sampleRate,
+    );
   }
 
-  #nativeExpectation(
-    control: ListenerControlV2 | ListenerControlSession | ListenerControlDual,
+  #metricExpectation(
+    control: ListenerControlMetric,
     state: ClientState,
+    nativeEpoch = state.nativeMetricReady?.ownership.nativeEpoch,
   ) {
-    if (!control.config || !state.producer)
-      throw new Error("native_v2_prepare_configuration_missing");
-    return snapshotNativeListeningExpectationV2({
-      policy: control.config.timingPolicy,
-      geometry: control.config.geometry,
-      listenerId: state.producer.producerId,
+    if (!control.config || nativeEpoch === undefined)
+      throw new Error("native_metric_prepare_configuration_missing");
+    return snapshotNativeMetricListeningExpectation({
+      listenerId: control.listenerId,
+      connectionId: control.connectionId,
+      connectionEpoch: control.connectionEpoch,
+      generation: control.generation,
+      nativeEpoch,
       passId: control.passId,
-    });
-  }
-
-  #sessionExpectation(
-    control:
-      | ListenerControlSession
-      | Extract<ListenerControlDual, { mode: "session" }>,
-    state: ClientState,
-  ) {
-    if (!control.config)
-      throw new Error("native_session_configuration_missing");
-    return snapshotNativeSessionListeningExpectation({
-      ...this.#nativeExpectation(control, state),
-      source: control.config.source,
+      traceId: control.traceId,
+      correlationId: control.correlationId,
+      causationId: control.causationId,
+      config: control.config,
     });
   }
 
@@ -567,6 +575,7 @@ export class SignalIngressServer implements ListenerService {
     state: ClientState,
     message: ListenerControl | ListenerReply | ListenerResult,
     durationMs?: number,
+    failureEvidence?: ListeningFailureEvidence,
   ): void {
     recordSignalTelemetry(this.#options.telemetry, {
       name: `output.listener.${stage}`,
@@ -589,7 +598,9 @@ export class SignalIngressServer implements ListenerService {
           ? "failure"
           : stage === "cancelled"
             ? "cancelled"
-            : "success",
+            : ["queued", "started", "progress"].includes(stage)
+              ? "unknown"
+              : "success",
       attributes: sanitizeTelemetryAttributes({
         connectionId: state.connectionId ?? "",
         ...(state.producer === undefined
@@ -625,55 +636,68 @@ export class SignalIngressServer implements ListenerService {
         ...("nativeArm" in message && message.nativeArm !== undefined
           ? { nativeArm: message.nativeArm }
           : {}),
+        ...("nativeReady" in message && message.nativeReady !== undefined
+          ? { nativeReady: message.nativeReady }
+          : {}),
         ...("nativeLaunch" in message && message.nativeLaunch !== undefined
           ? { nativeLaunch: message.nativeLaunch }
           : {}),
-        ...("nativeCapture" in message && message.nativeCapture !== undefined
-          ? { nativeCapture: message.nativeCapture }
+        ...("nativeSourceCoverage" in message &&
+        message.nativeSourceCoverage !== undefined
+          ? { nativeSourceCoverage: message.nativeSourceCoverage }
           : {}),
-        ...("nativeFailureDiagnostic" in message &&
-        message.nativeFailureDiagnostic !== undefined
-          ? { nativeFailureDiagnostic: message.nativeFailureDiagnostic }
+        ...("nativeLifecycle" in message &&
+        message.nativeLifecycle !== undefined
+          ? { nativeLifecycle: message.nativeLifecycle }
           : {}),
+        ...(failureEvidence === undefined ? {} : { failureEvidence }),
       }),
     });
-    if ("nativeLifecycle" in message && message.nativeLifecycle !== undefined) {
-      const native = message.nativeLifecycle;
-      const key = (id: string): string =>
-        stableTelemetryId(
-          `native-listener:${state.connectionId}:${state.producer?.instanceId}:${message.connectionEpoch}:${message.jobId}:${message.passId}:${id}`,
-        );
-      recordSignalTelemetry(this.#options.telemetry, {
-        id: key(native.eventId),
-        name: `output.listener.native.${
-          native.phase !== undefined && native.phase !== "capture"
-            ? `${native.phase}.`
-            : ""
-        }${native.stage}`,
-        source: "output-ingress",
+    if (stage === "failed" && "status" in message) {
+      const attribution = {
         correlationId: message.correlationId,
-        causationId:
-          native.causationId === message.causationId
-            ? message.causationId
-            : key(native.causationId),
-        trace: { traceId: message.traceId, spanId: key(native.eventId) },
-        durationMs: native.elapsedMs,
-        outcome:
-          native.stage === "failed"
-            ? "failure"
-            : native.stage === "cancelled"
-              ? "cancelled"
-              : "success",
-        attributes: sanitizeTelemetryAttributes({
-          connectionId: state.connectionId,
-          producerId: state.producer?.producerId,
-          instanceId: state.producer?.instanceId,
-          connectionEpoch: message.connectionEpoch,
-          jobId: message.jobId,
-          passId: message.passId,
-          ...native,
-        }),
+        causationId: message.causationId,
+        trace: {
+          traceId: message.traceId,
+          spanId: stableTelemetryId(
+            `${message.traceId}:${message.requestId}:rejection`,
+          ),
+        },
+      };
+      const attributes = sanitizeTelemetryAttributes({
+        connectionId: state.connectionId,
+        producerId: state.producer?.producerId,
+        instanceId: state.producer?.instanceId,
+        connectionEpoch: message.connectionEpoch,
+        jobId: message.jobId,
+        passId: message.passId,
+        requestId: message.requestId,
+        status: message.status,
+        reason: message.reason,
+        sourceEvidence:
+          failureEvidence !== undefined
+            ? "application-rejection"
+            : "not-reported",
       });
+      recordSignalTelemetry(this.#options.telemetry, {
+        ...attribution,
+        name: "output.listener.rejection.observed",
+        source: "output-ingress",
+        outcome: "failure",
+        attributes,
+      });
+      if (failureEvidence === undefined)
+        recordSignalTelemetry(this.#options.telemetry, {
+          ...attribution,
+          name: "output.listener.diagnostics.coverage-gap",
+          source: "output-ingress",
+          level: "warn",
+          outcome: "unknown",
+          attributes: {
+            ...attributes,
+            coverageReason: "source-evidence-not-reported",
+          },
+        });
     }
   }
 
@@ -731,13 +755,12 @@ export class SignalIngressServer implements ListenerService {
       ...(this.#options.secretPath === undefined
         ? {}
         : { secretPath: this.#options.secretPath }),
-      listenerVersions: [1, 2, 3, 4],
-      listenerCapabilities: [
-        "audio-listener/v1",
-        "audio-listener/v2",
-        "audio-listener/session-v1",
-        "audio-listener/dual-mode-v1",
-      ],
+      ...(this.#options.independentMetricListeners
+        ? {
+            listenerVersions: [5] as const,
+            listenerCapabilities: SUPPORTED_LISTENER_CAPABILITIES,
+          }
+        : {}),
       producerDiagnostics: [WRITE_DIAGNOSTIC_CAPABILITY],
     };
     const descriptorStartedAt = this.#now();
@@ -942,6 +965,15 @@ export class SignalIngressServer implements ListenerService {
         true,
         requestId,
         receivedAt,
+        {
+          checkId: "ingress.message-schema",
+          coverage: "partial",
+          facts: [ingressFact("message.schemaValid", false, true)],
+          schemaIssues: parsed.error.issues.slice(0, 16).map((issue) => ({
+            code: issue.code,
+            path: boundedMessage(issue.path.map(String).join(".")),
+          })),
+        },
       );
       return;
     }
@@ -1054,15 +1086,30 @@ export class SignalIngressServer implements ListenerService {
       return;
     }
     if (
+      message.listener !== undefined &&
+      !this.#options.independentMetricListeners
+    ) {
+      await this.#fail(
+        state,
+        "unsupported-version",
+        "Independent metric listener integration is not enabled",
+        true,
+        message.requestId,
+      );
+      return;
+    }
+    if (
       (message.listener !== undefined &&
         (message.producer.signalKind !== "audio" ||
           message.producer.schemaVersion !==
-            `audio-observation/v${message.listener.version >= 2 ? 2 : message.listener.version}` ||
+            LISTENER_METRIC_PRODUCER_SCHEMA_VERSION ||
           message.producer.track?.id === undefined ||
           message.producer.device?.id === undefined)) ||
-      (["audio-observation/v1", "audio-observation/v2"].includes(
-        message.producer.schemaVersion,
-      ) &&
+      ([
+        "audio-observation/v1",
+        "audio-observation/v2",
+        LISTENER_METRIC_PRODUCER_SCHEMA_VERSION,
+      ].includes(message.producer.schemaVersion) &&
         message.listener === undefined)
     ) {
       await this.#fail(
@@ -1137,8 +1184,12 @@ export class SignalIngressServer implements ListenerService {
       !owner ||
       message.listenerVersion !== state.listener.version ||
       message.listenerVersion !== owner.listenerVersion ||
-      (message.listenerVersion === 4 &&
-        (owner.listenerVersion !== 4 || message.mode !== owner.mode)) ||
+      message.mode !== owner.mode ||
+      message.listenerId !== state.producer?.producerId ||
+      message.connectionId !== state.connectionId ||
+      message.generation !== owner.generation ||
+      message.correlationId !== owner.correlationId ||
+      message.causationId !== owner.causationId ||
       message.connectionEpoch !== state.listener.connectionEpoch ||
       message.jobId !== owner.jobId ||
       message.passId !== owner.passId ||
@@ -1150,6 +1201,46 @@ export class SignalIngressServer implements ListenerService {
         "Listener epoch or ownership mismatch",
         true,
         message.requestId,
+        this.#now(),
+        {
+          checkId: "ingress.listener-ownership",
+          facts: [
+            ingressFact(
+              "listener.registered",
+              state.listener !== undefined,
+              true,
+            ),
+            ingressFact("listener.ownerPresent", owner !== undefined, true),
+            ingressFact(
+              "listener.version",
+              message.listenerVersion,
+              owner?.listenerVersion ?? "unavailable",
+            ),
+            ingressFact(
+              "listener.connectionEpoch",
+              message.connectionEpoch,
+              state.listener?.connectionEpoch ?? "unavailable",
+            ),
+            ingressFact(
+              "listener.jobId",
+              message.jobId,
+              owner?.jobId ?? "unavailable",
+            ),
+            ingressFact(
+              "listener.passId",
+              message.passId,
+              owner?.passId ?? "unavailable",
+            ),
+            ingressFact(
+              "listener.traceId",
+              message.traceId,
+              owner?.traceId ?? "unavailable",
+            ),
+            ...("mode" in message && owner && "mode" in owner
+              ? [ingressFact("listener.mode", message.mode, owner.mode)]
+              : []),
+          ],
+        },
       );
       return;
     }
@@ -1162,13 +1253,30 @@ export class SignalIngressServer implements ListenerService {
         passId: owner.passId,
       };
     if (message.sequence !== state.listenerSequence + 1) {
-      this.#publishListenerFailure(state, "sequence_gap");
+      const detail: ListenerRejectionDetail = {
+        checkId: "ingress.listener-sequence",
+        facts: [
+          ingressFact(
+            "message.sequence",
+            message.sequence,
+            state.listenerSequence + 1,
+          ),
+        ],
+      };
+      this.#publishListenerFailure(
+        state,
+        "sequence_gap",
+        detail,
+        message.requestId,
+      );
       await this.#fail(
         state,
         "sequence-replay",
         "Listener sequences must be contiguous",
         true,
         message.requestId,
+        this.#now(),
+        detail,
       );
       return;
     }
@@ -1195,71 +1303,54 @@ export class SignalIngressServer implements ListenerService {
           "Unexpected listener control reply",
           true,
           message.requestId,
+          this.#now(),
+          {
+            checkId: "ingress.control-reply",
+            facts: [
+              ingressFact("control.pending", pending !== undefined, true),
+              ingressFact(
+                "control.connectionMatches",
+                pending?.state === state,
+                true,
+              ),
+              ingressFact(
+                "control.correlationId",
+                message.correlationId,
+                pending?.control.correlationId ?? "unavailable",
+              ),
+              ingressFact(
+                "control.causationId",
+                message.causationId,
+                pending?.control.causationId ?? "unavailable",
+              ),
+              ingressFact(
+                "control.status",
+                message.status,
+                pending?.control.action === "prepare"
+                  ? "ready"
+                  : pending?.control.action === "arm"
+                    ? "armed"
+                    : "cancelled",
+              ),
+            ],
+          },
         );
         return;
       }
-      if (
-        (message.listenerVersion === 3 ||
-          (message.listenerVersion === 4 && message.mode === "session")) &&
-        (owner.listenerVersion === 3 ||
-          (owner.listenerVersion === 4 && owner.mode === "session")) &&
-        message.status === "armed"
-      ) {
+      {
         try {
-          if (!message.nativeArm)
-            throw new Error("native_session_arm_proof_missing");
-          assertNativeSessionArmProof(
-            message.nativeArm,
-            this.#sessionExpectation(owner, state),
-          );
-          if (
-            state.lastNativeCounterV2 !== undefined &&
-            message.nativeArm.transport.armCounter <= state.lastNativeCounterV2
-          )
-            throw new Error("native_session_arm_counter_replay");
-          state.nativeSessionArm = structuredClone(message.nativeArm);
-          state.lastNativeCounterV2 = message.nativeArm.transport.armCounter;
+          this.#assertMetricReply(state, owner, message);
         } catch (cause) {
           await this.#fail(
             state,
             "route-rejected",
             cause instanceof Error
               ? cause.message
-              : "Invalid native Session arm",
+              : "Invalid native metric reply",
             true,
             message.requestId,
-          );
-          return;
-        }
-      }
-      if (
-        (message.listenerVersion === 2 ||
-          (message.listenerVersion === 4 && message.mode === "arrangement")) &&
-        (owner.listenerVersion === 2 ||
-          (owner.listenerVersion === 4 && owner.mode === "arrangement")) &&
-        message.status === "armed"
-      ) {
-        try {
-          if (!message.nativeArm)
-            throw new Error("native_v2_arm_proof_missing");
-          assertNativeArmProofV2(
-            message.nativeArm,
-            this.#nativeExpectation(owner, state),
-          );
-          if (
-            state.lastNativeCounterV2 !== undefined &&
-            message.nativeArm.armCounter <= state.lastNativeCounterV2
-          )
-            throw new Error("native_v2_arm_counter_replay");
-          state.nativeArmV2 = structuredClone(message.nativeArm);
-          state.lastNativeCounterV2 = message.nativeArm.armCounter;
-        } catch (cause) {
-          await this.#fail(
-            state,
-            "route-rejected",
-            cause instanceof Error ? cause.message : "Invalid native v2 arm",
-            true,
-            message.requestId,
+            this.#now(),
+            this.#proofRejection(state, owner, message, cause),
           );
           return;
         }
@@ -1277,13 +1368,11 @@ export class SignalIngressServer implements ListenerService {
         if (state.listenerPhase === "idle") {
           delete state.listenerOwner;
           delete state.listenerDeadline;
-          delete state.nativeArmV2;
-          delete state.nativeLaunchV2;
-        } else if (message.status === "armed") {
-          state.listenerDeadline =
-            this.#now() +
-            this.#captureDuration(owner) +
-            (owner.listenerVersion !== 1 ? 15_000 : 5_000);
+          delete state.nativeMetricReady;
+          delete state.nativeMetricArm;
+          delete state.nativeMetricLaunch;
+          delete state.metricLifecycleReceipts;
+          delete state.metricLifecycleEpoch;
         }
       }
       this.#rememberDiagnosticReceipt(state, message);
@@ -1302,7 +1391,14 @@ export class SignalIngressServer implements ListenerService {
     } else {
       if (
         state.listenerPhase !== "armed" &&
-        state.listenerPhase !== "cancelling"
+        state.listenerPhase !== "cancelling" &&
+        !(
+          message.status === "failed" ||
+          message.status === "cancelled" ||
+          (message.status === "progress" &&
+            message.nativeLaunch === undefined &&
+            message.nativeLifecycle !== undefined)
+        )
       ) {
         await this.#fail(
           state,
@@ -1328,7 +1424,7 @@ export class SignalIngressServer implements ListenerService {
       }
       state.listenerResults += 1;
       try {
-        this.#assertListenerResult(state, owner, message);
+        this.#assertMetricResult(state, owner, message);
       } catch (cause) {
         await this.#fail(
           state,
@@ -1338,202 +1434,358 @@ export class SignalIngressServer implements ListenerService {
             : "Listener observation attribution or capture bounds mismatch",
           true,
           message.requestId,
+          this.#now(),
+          this.#proofRejection(state, owner, message, cause),
         );
         return;
       }
+      this.#metricLifecycleTelemetry(state, message);
       this.#rememberDiagnosticReceipt(state, message);
       this.#listenerTelemetry(
         message.status === "progress"
           ? "progress"
-          : message.status === "completed"
+          : message.status === "completed" || message.status === "partial"
             ? "completed"
-            : "failed",
+            : message.status === "cancelled"
+              ? "cancelled"
+              : "failed",
         state,
         message,
       );
       if (state.processing) state.processing.phase = "result-delivery";
       this.#emitListenerResult(state, message);
+      const awaitingMetricCancellationReply =
+        state.listenerPhase === "cancelling" && message.status === "cancelled";
       if (
         message.status !== "progress" &&
-        state.listenerPhase !== "cancelling"
+        (state.listenerPhase !== "cancelling" ||
+          !awaitingMetricCancellationReply)
       ) {
         if (state.processing) state.processing.phase = "terminal-release";
         delete state.listenerOwner;
         delete state.listenerDeadline;
-        delete state.nativeArmV2;
-        delete state.nativeLaunchV2;
-        delete state.nativeSessionArm;
-        delete state.nativeSessionLaunch;
+        delete state.nativeMetricReady;
+        delete state.nativeMetricArm;
+        delete state.nativeMetricLaunch;
+        delete state.metricLifecycleReceipts;
+        delete state.metricLifecycleEpoch;
         state.listenerPhase = "idle";
+      }
+      if (message.status !== "progress") {
+        for (const [requestId, pending] of this.#listenerControls) {
+          if (
+            pending.state === state &&
+            !(
+              awaitingMetricCancellationReply &&
+              pending.control.action === "cancel"
+            )
+          )
+            this.#finishListenerControl(
+              requestId,
+              undefined,
+              new Error(message.reason ?? "Metric listener operation ended"),
+              message.status === "cancelled" ? "cancelled" : "failed",
+            );
+        }
       }
     }
     await this.#ack(state, message.requestId, "listener");
   }
 
-  #assertListenerResult(
+  #assertMetricReply(
     state: ClientState,
-    owner: ListenerControl,
-    message: ListenerResult,
+    owner: ListenerControlMetric,
+    message: ListenerReplyMetric,
   ): void {
-    const observation = message.observation;
-    if (
-      state.listenerResults > 1024 ||
-      !state.listener ||
-      (observation &&
-        (observation.listenerId !== state.producer?.producerId ||
-          observation.passId !== owner.passId ||
-          observation.sampleRate !== state.listener.sampleRate ||
-          observation.algorithm.version !== state.listener.algorithmVersion))
-    )
-      throw new Error(
-        "Listener observation attribution or capture bounds mismatch",
+    if (message.status === "ready") {
+      if (!message.nativeReady || state.nativeMetricReady)
+        throw new Error("native_metric_unexpected_ready");
+      const proof = assertNativeMetricReadyProof(
+        message.nativeReady,
+        this.#metricExpectation(
+          owner,
+          state,
+          message.nativeReady.ownership.nativeEpoch,
+        ),
       );
-    if (owner.listenerVersion === 1 && message.listenerVersion === 1) {
-      const config = owner.config;
       if (
-        observation &&
-        message.observation &&
-        (message.observation.samples.length > (config?.maxWindows ?? 0) ||
-          message.observation.startBeat < (config?.source.startBeat ?? 0) ||
-          message.observation.endBeat > (config?.source.endBeat ?? 0) ||
-          (message.status === "completed" &&
-            (!message.observation.complete ||
-              message.observation.endSample <=
-                message.observation.startSample ||
-              message.observation.startBeat !== config?.source.startBeat ||
-              message.observation.endBeat !== config?.source.endBeat)) ||
-          (message.status !== "completed" && message.observation.complete) ||
-          message.observation.endSample - message.observation.startSample >
-            ((config?.durationMs ?? 0) * message.observation.sampleRate) /
-              1000 +
-              message.observation.algorithm.timingUncertaintySamples)
+        state.metricLifecycleEpoch !== undefined &&
+        proof.ownership.nativeEpoch !== state.metricLifecycleEpoch
       )
-        throw new Error(
-          "Listener observation attribution or capture bounds mismatch",
-        );
-      return;
-    }
-    if (
-      (owner.listenerVersion === 3 ||
-        (owner.listenerVersion === 4 && owner.mode === "session")) &&
-      (message.listenerVersion === 3 ||
-        (message.listenerVersion === 4 && message.mode === "session"))
-    ) {
-      const expected = this.#sessionExpectation(owner, state);
-      if (message.nativeLaunch) {
-        if (!state.nativeSessionArm || state.nativeSessionLaunch)
-          throw new Error("native_session_unexpected_launch");
-        nativeSessionLaunchCoordinates(
-          state.nativeSessionArm,
-          message.nativeLaunch,
-          expected,
-        );
-        state.nativeSessionLaunch = structuredClone(message.nativeLaunch);
-      }
-      if (message.observation) {
-        const current = message.observation,
-          geometry = expected.geometry;
-        if (
-          current.samples.length >
-            Math.ceil(geometry.totalSamples / geometry.hopSamples) ||
-          current.startBeat !== geometry.startBeat ||
-          current.endBeat >
-            geometry.startBeat +
-              geometry.totalSamples /
-                ((geometry.sampleRate * 60) / geometry.tempoBpm) ||
-          current.endSample - current.startSample > geometry.totalSamples ||
-          current.alignment.sampleRate !== geometry.sampleRate ||
-          current.alignment.vectorSize !== geometry.vectorSize ||
-          JSON.stringify(current.alignment.policy) !==
-            JSON.stringify(expected.policy)
-        )
-          throw new Error("native_session_observation_bounds_mismatch");
-      }
-      if (message.status === "completed") {
-        const proof = message.nativeCapture;
-        if (
-          !proof ||
-          !message.observation ||
-          !state.nativeSessionArm ||
-          !state.nativeSessionLaunch ||
-          JSON.stringify(proof.transport.armed) !==
-            JSON.stringify(state.nativeSessionArm.transport) ||
-          JSON.stringify(proof.transport.launched) !==
-            JSON.stringify(state.nativeSessionLaunch.transport)
-        )
-          throw new Error("native_session_capture_proof_binding_mismatch");
-        assertNativeSessionCaptureObservation(
-          proof,
-          message.observation,
-          expected,
-        );
-        state.lastNativeCounterV2 = proof.transport.after.frames.at(-1)![4];
-      }
-      return;
-    }
-    if (
-      !(
-        owner.listenerVersion === 2 ||
-        (owner.listenerVersion === 4 && owner.mode === "arrangement")
-      ) ||
-      !(
-        message.listenerVersion === 2 ||
-        (message.listenerVersion === 4 && message.mode === "arrangement")
-      )
-    )
-      throw new Error("listener_version_mismatch");
-    const expected = this.#nativeExpectation(owner, state);
-    const geometry = expected.geometry;
-    const measuredEndBeat =
-      geometry.startBeat +
-      geometry.totalSamples / ((geometry.sampleRate * 60) / geometry.tempoBpm);
-    const current = message.observation;
-    if (
-      current &&
-      (current.samples.length >
-        Math.ceil(geometry.totalSamples / geometry.hopSamples) ||
-        current.startBeat !== geometry.startBeat ||
-        current.endBeat > measuredEndBeat ||
-        current.endSample - current.startSample > geometry.totalSamples ||
-        current.alignment.sampleRate !== geometry.sampleRate ||
-        current.alignment.vectorSize !== geometry.vectorSize ||
-        current.alignment.policy.mode !== expected.policy.mode ||
-        current.alignment.policy.maxClockDisagreementSamples !==
-          expected.policy.maxClockDisagreementSamples)
-    )
-      throw new Error("native_v2_observation_bounds_mismatch");
-    if (message.nativeLaunch) {
-      if (!state.nativeArmV2 || state.nativeLaunchV2)
-        throw new Error("native_v2_unexpected_launch");
-      nativeLaunchCoordinatesV2(
-        state.nativeArmV2,
-        message.nativeLaunch,
-        expected,
-      );
-      state.nativeLaunchV2 = structuredClone(message.nativeLaunch);
-    }
-    if (message.status === "completed") {
+        throw new Error("native_metric_lifecycle_epoch_mismatch");
       if (
-        !current ||
-        !message.nativeCapture ||
-        !state.nativeArmV2 ||
-        !state.nativeLaunchV2 ||
-        JSON.stringify(message.nativeCapture.armed) !==
-          JSON.stringify(state.nativeArmV2) ||
-        JSON.stringify(message.nativeCapture.launched) !==
-          JSON.stringify(state.nativeLaunchV2)
+        proof.ownership.nativeEpoch <= (state.metricEpochHighwater ?? 0) ||
+        (state.lastMetricCounter !== undefined &&
+          proof.before.frames[0]![4] <= state.lastMetricCounter)
       )
-        throw new Error("native_v2_capture_proof_binding_mismatch");
-      assertNativeCaptureObservationV2(
-        message.nativeCapture,
-        current,
-        expected,
+        throw new Error("native_metric_ready_replay");
+      state.nativeMetricReady = proof;
+      state.metricEpochHighwater = proof.ownership.nativeEpoch;
+      state.lastMetricCounter = proof.before.frames.at(-1)![4];
+    } else if (message.status === "armed") {
+      if (
+        !state.nativeMetricReady ||
+        !message.nativeArm ||
+        state.nativeMetricArm
+      )
+        throw new Error("native_metric_unexpected_arm");
+      const proof = assertNativeMetricArmProof(
+        message.nativeArm,
+        this.#metricExpectation(owner, state),
       );
-      state.lastNativeCounterV2 = message.nativeCapture.after.frames.at(-1)![4];
+      if (
+        state.lastMetricCounter !== undefined &&
+        (proof.before.frames.at(-1)![4] < state.lastMetricCounter ||
+          proof.receipt.timing[5] < state.lastMetricCounter)
+      )
+        throw new Error("native_metric_arm_counter_replay");
+      state.nativeMetricArm = proof;
+      state.lastMetricCounter = proof.receipt.timing[5];
     }
   }
 
-  #emitListenerResult(state: ClientState, result: ListenerResult): void {
+  #assertMetricResult(
+    state: ClientState,
+    owner: ListenerControlMetric,
+    message: ListenerResultMetric,
+  ): void {
+    if (state.listenerResults > 1024)
+      throw new Error("native_metric_result_quota_exceeded");
+    const epoch =
+      state.nativeMetricReady?.ownership.nativeEpoch ??
+      state.metricLifecycleEpoch;
+    if (
+      message.nativeLifecycle &&
+      epoch !== undefined &&
+      message.nativeLifecycle.nativeEpoch !== epoch
+    )
+      throw new Error("native_metric_lifecycle_epoch_mismatch");
+    const lifecycle = message.nativeLifecycle;
+    if (lifecycle) {
+      const signature = stableTelemetryId(JSON.stringify(lifecycle));
+      const previous = state.metricLifecycleReceipts?.get(lifecycle.eventId);
+      if (previous !== undefined && previous !== signature)
+        throw new Error("native_metric_lifecycle_mutated");
+      if (
+        previous === undefined &&
+        (state.metricLifecycleReceipts?.size ?? 0) >= 1024
+      )
+        throw new Error("native_metric_lifecycle_quota_exceeded");
+    }
+    if (message.nativeLaunch) {
+      if (!state.nativeMetricArm || state.nativeMetricLaunch)
+        throw new Error("native_metric_unexpected_launch");
+      nativeMetricLaunchCoordinates(
+        state.nativeMetricArm,
+        message.nativeLaunch,
+        this.#metricExpectation(owner, state),
+      );
+      if (
+        state.lastMetricCounter !== undefined &&
+        message.nativeLaunch.clock[4] < state.lastMetricCounter
+      )
+        throw new Error("native_metric_launch_counter_replay");
+      state.nativeMetricLaunch = structuredClone(message.nativeLaunch);
+      state.lastMetricCounter = message.nativeLaunch.clock[4];
+    }
+    if (message.status === "completed" || message.status === "partial") {
+      const proof = message.nativeSourceCoverage;
+      if (
+        state.listenerPhase === "cancelling" ||
+        !message.observation ||
+        !proof ||
+        !state.nativeMetricArm ||
+        !state.nativeMetricLaunch ||
+        JSON.stringify(proof.armed) !== JSON.stringify(state.nativeMetricArm) ||
+        JSON.stringify(proof.launched) !==
+          JSON.stringify(state.nativeMetricLaunch)
+      )
+        throw new Error("native_metric_capture_proof_binding_mismatch");
+      assertNativeMetricObservationSource(
+        proof,
+        message.observation,
+        this.#metricExpectation(owner, state),
+      );
+      state.lastMetricCounter = proof.after.frames.at(-1)![4];
+    }
+  }
+
+  #metricLifecycleTelemetry(
+    state: ClientState,
+    message: ListenerResultMetric,
+  ): void {
+    const lifecycle = message.nativeLifecycle;
+    if (!lifecycle || state.metricLifecycleReceipts?.has(lifecycle.eventId))
+      return;
+    state.metricLifecycleReceipts ??= new Map();
+    state.metricLifecycleEpoch ??= lifecycle.nativeEpoch;
+    state.metricLifecycleReceipts.set(
+      lifecycle.eventId,
+      stableTelemetryId(JSON.stringify(lifecycle)),
+    );
+    recordSignalTelemetry(this.#options.telemetry, {
+      id: lifecycle.eventId,
+      name:
+        lifecycle.metric === undefined
+          ? `output.listener.native.${lifecycle.stage}`
+          : `output.listener.native.metric.${lifecycle.metric}.${lifecycle.stage}`,
+      source: "output-ingress",
+      trace: { traceId: message.traceId, spanId: lifecycle.eventId },
+      correlationId: message.correlationId,
+      causationId: lifecycle.causationId,
+      ...(lifecycle.durationMs === undefined
+        ? {}
+        : { durationMs: lifecycle.durationMs }),
+      outcome:
+        lifecycle.stage === "failed"
+          ? "failure"
+          : lifecycle.stage === "cancelled"
+            ? "cancelled"
+            : lifecycle.stage === "completed"
+              ? "success"
+              : "unknown",
+      level: lifecycle.stage === "failed" ? "error" : "info",
+      attributes: sanitizeTelemetryAttributes({
+        listenerId: message.listenerId,
+        producerId: state.producer?.producerId,
+        instanceId: state.producer?.instanceId,
+        trackId: state.producer?.track?.id,
+        deviceId: state.producer?.device?.id,
+        connectionId: message.connectionId,
+        connectionEpoch: message.connectionEpoch,
+        generation: message.generation,
+        nativeEpoch: lifecycle.nativeEpoch,
+        jobId: message.jobId,
+        passId: message.passId,
+        mode: message.mode,
+        ownerPhase: state.listenerPhase,
+        lifecycle,
+      }),
+    });
+  }
+
+  #proofRejection(
+    state: ClientState,
+    owner: ListenerControl,
+    message: ListenerReply | ListenerResult,
+    cause: unknown,
+  ): ListenerRejectionDetail {
+    const code =
+      cause instanceof Error && /^[a-z][a-z0-9_]{0,100}$/u.test(cause.message)
+        ? cause.message
+        : "native-proof-validation";
+    const metric = message;
+    const ready =
+      metric?.type === "listener.reply" ? metric.nativeReady : undefined;
+    const arm =
+      metric?.type === "listener.reply"
+        ? metric.nativeArm
+        : metric?.nativeSourceCoverage?.armed;
+    const actualConfig = ready?.config ?? arm?.config;
+    const expectedConfig = owner.config;
+    const actualEpoch =
+      ready?.ownership.nativeEpoch ??
+      arm?.ownership.nativeEpoch ??
+      (metric?.type === "listener.result"
+        ? (metric.nativeLaunch?.ownership.nativeEpoch ??
+          metric.nativeLifecycle?.nativeEpoch)
+        : undefined);
+    const expectedEpoch = state.nativeMetricReady?.ownership.nativeEpoch;
+    return {
+      checkId: `ingress.${code}`,
+      coverage: "partial",
+      facts: [
+        ingressFact("proof.accepted", false, true),
+        ingressFact(
+          "metric.readyAccepted",
+          state.nativeMetricReady !== undefined,
+          true,
+        ),
+        ingressFact(
+          "metric.armAccepted",
+          state.nativeMetricArm !== undefined,
+          true,
+        ),
+        ingressFact(
+          "metric.launchAccepted",
+          state.nativeMetricLaunch !== undefined,
+          true,
+        ),
+        ingressFact(
+          "metric.nativeEpoch",
+          actualEpoch,
+          expectedEpoch ?? (state.metricEpochHighwater ?? 0) + 1,
+          expectedEpoch === undefined ? "at-least" : "equal",
+        ),
+        ...(ready
+          ? [
+              ingressFact(
+                "metric.readyFirstCounter",
+                ready.before.frames[0]![4],
+                Math.max(ready.disarmCounter, state.lastMetricCounter ?? -1) +
+                  1,
+                "at-least",
+              ),
+            ]
+          : []),
+        ...(arm && state.lastMetricCounter !== undefined
+          ? [
+              ingressFact(
+                "metric.armCounter",
+                arm.receipt.timing[5],
+                state.lastMetricCounter,
+                "at-least",
+              ),
+            ]
+          : []),
+        ...(expectedConfig
+          ? [
+              ...(
+                [
+                  "sampleRate",
+                  "vectorSize",
+                  "tempoBpm",
+                  "startBeat",
+                  "endBeat",
+                  "totalSamples",
+                ] as const
+              ).map((field) =>
+                ingressFact(
+                  `metric.config.${field}`,
+                  actualConfig?.geometry[field],
+                  expectedConfig.geometry[field],
+                ),
+              ),
+              ingressFact(
+                "metric.config.requestedMetrics",
+                actualConfig?.requestedMetrics.join(","),
+                expectedConfig.requestedMetrics.join(","),
+              ),
+              ...(expectedConfig.attacks
+                ? [
+                    ingressFact(
+                      "metric.config.attackThresholdDb",
+                      actualConfig?.attacks?.thresholdDb,
+                      expectedConfig.attacks.thresholdDb,
+                    ),
+                    ingressFact(
+                      "metric.config.attackMinSpacingSamples",
+                      actualConfig?.attacks?.minSpacingSamples,
+                      expectedConfig.attacks.minSpacingSamples,
+                    ),
+                  ]
+                : []),
+            ]
+          : []),
+      ],
+    };
+  }
+
+  #emitListenerResult(
+    state: ClientState,
+    result: ListenerResult,
+    failureEvidence?: ListeningFailureEvidence,
+  ): void {
     if (
       !state.connectionId ||
       !state.producer ||
@@ -1551,6 +1803,9 @@ export class SignalIngressServer implements ListenerService {
           },
           producer: structuredClone(state.producer),
           result: structuredClone(result),
+          ...(failureEvidence === undefined
+            ? {}
+            : { failureEvidence: structuredClone(failureEvidence) }),
         });
       } catch {
         this.#diagnostic(
@@ -1562,14 +1817,24 @@ export class SignalIngressServer implements ListenerService {
     }
   }
 
-  #publishListenerFailure(state: ClientState, reason: string): void {
+  #publishListenerFailure(
+    state: ClientState,
+    reason: string,
+    detail?: ListenerRejectionDetail,
+    requestId?: string,
+  ): void {
     const owner = state.listenerOwner;
     if (!owner) return;
     const result = producerMessageSchema.parse({
       type: "listener.result",
       protocolVersion: 1,
       listenerVersion: owner.listenerVersion,
-      ...(owner.listenerVersion === 4 ? { mode: owner.mode } : {}),
+      ...{
+        mode: owner.mode,
+        listenerId: owner.listenerId,
+        connectionId: owner.connectionId,
+        generation: owner.generation,
+      },
       requestId: randomUUID(),
       connectionEpoch: owner.connectionEpoch,
       jobId: owner.jobId,
@@ -1578,19 +1843,106 @@ export class SignalIngressServer implements ListenerService {
       correlationId: owner.correlationId,
       causationId: owner.causationId,
       sequence: Math.min(Number.MAX_SAFE_INTEGER, state.listenerSequence + 1),
-      status: "partial",
+      status: "failed",
       reason,
     });
     if (result.type !== "listener.result")
       throw new Error("invalid_listener_failure_result");
-    this.#listenerTelemetry("failed", state, result);
-    this.#emitListenerResult(state, result);
+    const evidence = listeningFailureEvidenceSchema.safeParse(
+      sanitizeTelemetryAttributes(
+        {
+          schema: "listening-failure/v1",
+          code: reason,
+          phase:
+            state.listenerPhase === "preparing"
+              ? "preparation"
+              : state.listenerPhase === "cancelling"
+                ? "cleanup"
+                : state.nativeMetricLaunch
+                  ? "capture"
+                  : state.nativeMetricArm
+                    ? "launch"
+                    : "arming",
+          component: "ingress",
+          checkId: detail?.checkId ?? `ingress.${reason}`,
+          summary: reason,
+          coverage: detail?.facts.length
+            ? detail.facts.length > 24
+              ? "partial"
+              : (detail.coverage ?? "complete")
+            : "unavailable",
+          coverageReasons: detail?.facts.length
+            ? detail.facts.length > 24
+              ? ["diagnostic-truncated"]
+              : detail.coverage === "partial"
+                ? ["missing-operands"]
+                : []
+            : [
+                reason === "disconnected"
+                  ? "source-disconnected"
+                  : "missing-operands",
+              ],
+          facts: detail?.facts.slice(0, 24) ?? [],
+          reference: {
+            traceId: owner.traceId,
+            correlationId: owner.correlationId,
+            causationId: owner.causationId,
+            passId: owner.passId,
+            jobId: owner.jobId,
+            requestId: requestId ?? result.requestId,
+          },
+        },
+        {
+          maxDepth: 10,
+          maxObjectFields: 64,
+          maxArrayItems: 32,
+          maxBytes: 16384,
+        },
+      ),
+    );
+    if (!evidence.success)
+      recordSignalTelemetry(this.#options.telemetry, {
+        name: "output.listener.diagnostics.coverage-gap",
+        source: "output-ingress",
+        outcome: "unknown",
+        level: "warn",
+        correlationId: owner.correlationId,
+        trace: {
+          traceId: stableTelemetryId(
+            `unrepresentable-listener-rejection:${owner.traceId}`,
+          ),
+          spanId: randomUUID(),
+        },
+        attributes: {
+          passId: owner.passId,
+          jobId: owner.jobId,
+          connectionId: state.connectionId,
+          coverageReason: "diagnostic-projection-invalid",
+          issues: evidence.error.issues.slice(0, 8).map((issue) => ({
+            code: issue.code,
+            path: issue.path.map(String).join(".").slice(0, 128),
+          })),
+        },
+      });
+    this.#listenerTelemetry(
+      "failed",
+      state,
+      result,
+      undefined,
+      evidence.success ? evidence.data : undefined,
+    );
+    this.#emitListenerResult(
+      state,
+      result,
+      evidence.success ? evidence.data : undefined,
+    );
     delete state.listenerOwner;
     delete state.listenerDeadline;
-    delete state.nativeArmV2;
-    delete state.nativeLaunchV2;
-    delete state.nativeSessionArm;
-    delete state.nativeSessionLaunch;
+    delete state.nativeMetricReady;
+    delete state.nativeMetricArm;
+    delete state.nativeMetricLaunch;
+    delete state.metricLifecycleReceipts;
+    delete state.metricLifecycleEpoch;
     state.listenerPhase = "idle";
   }
 
@@ -1666,7 +2018,10 @@ export class SignalIngressServer implements ListenerService {
       action,
       ...(connectionId === undefined ? {} : { connectionId }),
       ...(action === "hello" && state.listener !== undefined
-        ? { producerDiagnostics: [WRITE_DIAGNOSTIC_CAPABILITY] as const }
+        ? {
+            producerDiagnostics: [WRITE_DIAGNOSTIC_CAPABILITY] as const,
+            listenerCapabilities: SUPPORTED_LISTENER_CAPABILITIES,
+          }
         : {}),
     };
     if (state.processing) state.processing.phase = "ack-write";
@@ -1707,6 +2062,7 @@ export class SignalIngressServer implements ListenerService {
     fatal: boolean,
     requestId?: string,
     startedAt = this.#now(),
+    detail?: ListenerRejectionDetail,
   ): Promise<void> {
     const owner = state.processing?.owner ?? state.listenerOwner;
     const context = sanitizeTelemetryAttributes({
@@ -1739,10 +2095,19 @@ export class SignalIngressServer implements ListenerService {
       ...(owner === undefined
         ? {}
         : { jobId: owner.jobId, passId: owner.passId }),
+      ...(detail === undefined
+        ? {}
+        : {
+            rejectionCheckId: detail.checkId,
+            rejectionFacts: detail.facts,
+            ...(detail.schemaIssues === undefined
+              ? {}
+              : { schemaIssues: detail.schemaIssues }),
+          }),
     });
     if (fatal) {
       state.closing = true;
-      this.#publishListenerFailure(state, code);
+      this.#publishListenerFailure(state, code, detail, requestId);
     }
     this.#diagnostic(code, message, state.connectionId);
     this.#recordFailure(
@@ -2075,12 +2440,17 @@ export class SignalIngressServer implements ListenerService {
     message: string,
     connectionId?: string,
   ): void {
+    if (this.#options.onDiagnostic === undefined) return;
     const now = this.#now();
     if (now - this.#diagnosticWindowStartedAt >= DIAGNOSTIC_WINDOW_MS) {
+      this.#recordDiagnosticSuppression(now);
       this.#diagnosticWindowStartedAt = now;
       this.#diagnosticsInWindow = 0;
     }
     if (this.#diagnosticsInWindow >= MAX_DIAGNOSTICS_PER_WINDOW) {
+      this.#suppressedDiagnostics += 1;
+      if (this.#suppressedDiagnostics === 1)
+        this.#recordDiagnosticSuppression(now, false);
       return;
     }
     this.#diagnosticsInWindow += 1;
@@ -2091,7 +2461,29 @@ export class SignalIngressServer implements ListenerService {
     });
   }
 
+  #recordDiagnosticSuppression(now: number, final = true): void {
+    if (this.#suppressedDiagnostics === 0) return;
+    recordSignalTelemetry(this.#options.telemetry, {
+      name: "output.ingress.diagnostics.suppressed",
+      source: "output-ingress",
+      level: "warn",
+      outcome: "unknown",
+      durationMs: Math.max(0, now - this.#diagnosticWindowStartedAt),
+      attributes: {
+        sink: "diagnostic-callback",
+        reason: "callback-rate-limit",
+        suppressedCount: this.#suppressedDiagnostics,
+        final,
+        windowMs: DIAGNOSTIC_WINDOW_MS,
+        windowLimit: MAX_DIAGNOSTICS_PER_WINDOW,
+        journalRejectionsSuppressed: false,
+      },
+    });
+    if (final) this.#suppressedDiagnostics = 0;
+  }
+
   async #stop(): Promise<void> {
+    this.#recordDiagnosticSuppression(this.#now());
     this.#producerDiagnosticReceipts.clear();
     if (this.#idleTimer !== undefined) {
       clearInterval(this.#idleTimer);
@@ -2190,7 +2582,7 @@ function extractProtocolVersion(value: unknown): unknown {
 }
 
 function boundedMessage(message: string): string {
-  return message.slice(0, MAX_DIAGNOSTIC_MESSAGE_LENGTH);
+  return sanitizePersistedText(message).slice(0, MAX_DIAGNOSTIC_MESSAGE_LENGTH);
 }
 
 function describeValue(value: unknown): string {

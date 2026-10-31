@@ -1044,7 +1044,7 @@ export const desktopSessionContextStoreReferenceSchema = z
     kinds: z
       .array(audioObservationKindSchema)
       .min(1)
-      .max(3)
+      .max(audioObservationKindSchema.options.length)
       .refine((values) => new Set(values).size === values.length)
       .readonly(),
   })

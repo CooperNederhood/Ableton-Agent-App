@@ -78,6 +78,29 @@ No machine-specific profile configuration or credential bodies enter that
 payload. Installation uses bundled code/resources, not a repository checkout
 or a package-manager subprocess in the installed application.
 
+The wire4 listener bundle now declares `measurementDelivery: "retention-v1"`
+and includes `audio_listener_measurements.js` alongside its matching IO and
+retained Gen graphs. Both canonical manifests and the exact managed inventory
+must agree; missing/foreign delivery claims are rejected even if file hashes
+are recomputed. Native ABI2 measurement/proof semantics remain unchanged.
+Runtime arming additionally requires actual coherent native readback from both
+retained producers, not only installed manifest metadata. This new bundle is
+under integration validation and has not replaced the previously installed
+candidate.
+
+Independent-metric integration has an opt-in protocol compiler,
+`compileNativeMetricProtocol` in `scripts/lib/native-metric-protocol-bundle.mjs`.
+It compiles the canonical TypeScript/Zod schemas and source-proof checks into a
+self-contained CommonJS resource for Node for Max, rather than maintaining a
+second handwritten validator. The compiler returns code and immutable
+compiler/input/lockfile/license hashes to the existing resource publisher; it
+does not write or install a bundle. Caller-owned lifecycle stages cover failure
+and cancellation. External runtime imports, unpinned or changing inputs and
+oversized output are rejected, and the bundled Zod MIT notice is retained.
+Standalone Node loading is a format/contract check, not Max execution evidence.
+Production packaging remains native-v4 until the complete v5 controller, SDK,
+runtime, resource inventory and real-host qualification are ready together.
+
 The common CLI installs all host integrations:
 
 ```bash

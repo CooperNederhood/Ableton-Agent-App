@@ -46,6 +46,7 @@ async function manifestMutation(
       id: string;
       nativeVersion?: number;
       nativeAbiVersion?: number;
+      measurementDelivery?: string;
       files: { name: string; sha256: string; bytes: number }[];
     }[];
   }) => void,
@@ -83,6 +84,7 @@ describe("canonical integration payloads", () => {
     expect(payloads[0]).toMatchObject({
       nativeVersion: 4,
       nativeAbiVersion: 2,
+      measurementDelivery: "retention-v1",
       deviceFile: "Machine-Listening-Development.amxd",
     });
     expect(payloads[1]).toMatchObject({
@@ -226,6 +228,8 @@ describe("canonical integration payloads", () => {
     { supportedModes: ["session"] },
     { supportedModes: ["arrangement"] },
     { modeNegotiation: "implicit" },
+    { measurementDelivery: "latest-only" },
+    { measurementDelivery: undefined },
     { nativeScope: "session-transport-coupled/v1" },
     { realLiveValidated: true },
     {
@@ -249,7 +253,7 @@ describe("canonical integration payloads", () => {
       Buffer.from(JSON.stringify(document)),
     );
     await expect(readIntegrationDevicePayloads(path)).rejects.toThrow(
-      /native runtime metadata|native provider limits/,
+      /native runtime metadata|native provider limits|canonical native manifest/,
     );
   });
   it.each(["mcp_bridge", "agent_signal_storage.js", "/Users/private/profile"])(

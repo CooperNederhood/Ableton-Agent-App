@@ -163,8 +163,8 @@ alone remains Copilot SDK-owned and does not promote the Desktop session.
 
 `resolveNestedSessionStorage` returns `contextDirectory` and `entityContextPath`
 from the required Set/Project/App-session ownership tuple. Store processed,
-credential-redacted `audio-observation/v1`, `audio-observation/v2`, and
-`session-audio-observation/v1` payloads
+credential-redacted `audio-observation/v1`, `audio-observation/v2`,
+`session-audio-observation/v1` and `metric-audio-observation/v1` payloads
 only, with exact entry-kind/payload-version agreement. V2 retains approximate,
 descriptive-only quality and unknown absolute timing error in both detail and
 bounded summaries; it cannot certify exclusive attribution. Raw audio and
@@ -172,13 +172,36 @@ arbitrary JSON are not accepted. The default limits are 256 KiB per entry, 2 MiB
 and 32 MiB per App-session store. Full-store failure is visible and does not
 silently evict observations.
 
-Session observations add a registered kind without changing the database
-format, canonical path, or the meanings of old v1/v2 records. Existing one- or
-two-kind declarations remain readable; publication reconciles the supported
-three-kind declaration additively through the same registry/manifest API.
+Session and independent-metric observations add registered kinds without changing
+the database format, schema version two, canonical path or historical semantics.
+Existing one-, two- and three-kind declarations remain readable; publication
+reconciles the four-kind declaration additively through the same registry/manifest
+API. Independent metric entries retain indexed native records, explicit gaps,
+actual support and reference-only musical rows; their typed compact summaries
+do not duplicate full measurement timelines. Partial entries require an honest
+partial pass and useful trustworthy requested data, never failed/cancelled
+publication or fabricated legacy coverage. Attack records also retain the
+bounded stereo peak/RMS input for their independent physical 100 ms detector
+windows. These processed features are not raw audio or reconstructed musical
+level rows. Retained attack inputs form a validated prefix; missing input ends
+that detector's trustworthy coverage rather than inventing later event absence.
+Missing musical-level delivery does not invalidate independently retained
+detector inputs. Existing quotas, pruning, retention,
+profile/session ownership and redaction remain unchanged. Geometry count limits
+do not override byte admission. This stored-kind extension is not authorization
+for unnegotiated native capture.
+
+Opt-in wire5 native and metric lifecycle records use the same profile-owned
+observability journal and typed redacted History reads. They retain bounded
+generation/epoch, stage-parent causation, optional actual stage duration and
+explicit metric scope; a metric failure is not stored as a second global
+native failure. Exact event-ID deduplication has one wire5 writer, separate
+from the legacy lifecycle projection. This adds no database, directory,
+retention exception, raw-audio body or upload path.
+
 Session descriptor/sample/attack beats cover clip-local first iteration zero,
 starting at zero with a resolved full-active-region or explicit shorter/equal
-duration. The native envelope remains thirty seconds/300 windows; the
+duration. The legacy native envelope remains thirty seconds/300 windows; the
 tempo-derived historical beat bound is 499.501 (999 BPM for thirty seconds,
 plus the retained 0.001 historical rounding allowance). Historical
 descriptor, primary coverage, and actual pass ranges retain nearest-sample-rounded
@@ -368,6 +391,12 @@ journal and typed History; no new journal location or upload path is introduced.
 - Do not follow or migrate symbolic links into the canonical store.
 - Sanitize and bound persisted payloads. Redact credentials embedded in every
   string and replace binary/audio bodies with visible omission markers.
+- Credential assignment scanning must continue inside ordinary diagnostic
+  prefixes such as `failed: token=...`; an unrecognized outer assignment cannot
+  hide a nested credential. Repeated sanitation across runtime, publication,
+  IPC and History boundaries must preserve existing redaction markers without
+  growing them or exposing the original value. This uses the canonical
+  sanitizer, not a listening-specific copy, and requires no history migration.
 - Persist only the reasoning-summary preference, never model reasoning text, in
   `config/preferences.json`. Bounded, redacted Working summaries belong in the
   profile-wide observability journal and typed renderer history.

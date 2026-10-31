@@ -87,6 +87,17 @@ Refresh persists the completed snapshot through an injected history repository.
 Startup and internal refreshes update current UI state only and never create
 history records.
 
+Checkpoint history omits optional Live Project and App-session identity fields
+when no association exists. In particular, a new or unassigned Set remains
+refreshable: an absent identity must not be persisted as a sanitizer placeholder
+and then treated as an identifier. Present identifiers remain strictly validated,
+snapshot content remains bounded and redacted, and genuine persistence failures
+reject the Refresh request rather than reporting a successful checkpoint.
+Every explicit Refresh has its own save observation and snapshot identifier,
+linked through the observation's `snapshotId`; unchanged normalized content
+reuses the revision hash, not a history-record identifier. Repeated Refresh must
+not fail because an earlier checkpoint contains the same content.
+
 Persisted snapshots are bounded checkpoints rather than one full capture after
 every tool call. Each terminal mutating agent tool call is persisted separately
 as a Set trajectory record with the exact tool-call, turn, agent, operation,

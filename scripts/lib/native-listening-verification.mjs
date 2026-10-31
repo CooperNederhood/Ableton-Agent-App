@@ -266,26 +266,50 @@ function verifySessionSourceJoin(input, observation, raw, expected, protocol) {
       );
     else
       requireValue(
-        (launched ? ["accepted", "queued", "playing"] : ["prepared"]).includes(
-          result.status,
-        ),
-        "Session source continuity was invalidated",
+        (launched
+          ? ["accepted", "queued", "playing", "covered"]
+          : ["prepared"]
+        ).includes(result.status),
+        `Session source continuity was invalidated (${params.action}: ${result.status})`,
       );
     if (firstPlaying && params.action !== "release")
       requireValue(
-        result.status === "playing" &&
+        ["playing", "covered"].includes(result.status) &&
           isDeepStrictEqual(result.sourceEpoch, firstPlaying.sourceEpoch),
         "Session source epoch continuity was lost after the first observed playing witness",
       );
     if (result.sourceEpoch && params.action !== "release") {
       const epoch = result.sourceEpoch;
       const state = result.lastObservedSource;
+      const covered = result.status === "covered";
+      const loopEnd = frozen.source.settings.loopEnd;
+      const elapsed = state.globalBeat - epoch.startTimeBeats;
+      const phase = elapsed % loopEnd;
+      if (covered)
+        requireValue(
+          firstPlaying !== undefined &&
+            frozen.source.settings.looping === true &&
+            Number.isFinite(state.globalBeat) &&
+            Number.isFinite(state.playingPosition) &&
+            elapsed >= Math.max(frozen.durationBeats, loopEnd) &&
+            state.targetTriggered === false &&
+            state.firedSlotIndex === -1 &&
+            state.playingPosition >= 0 &&
+            state.playingPosition <= loopEnd &&
+            (Math.abs(state.playingPosition - phase) <= 0.25 ||
+              (phase <= 0.25 && state.playingPosition >= loopEnd - 0.25)),
+          "Session covered boundary lacks an independently witnessed completed loop",
+        );
       requireValue(
         launched &&
           epoch.clipReference === frozen.target.expectedClipReference &&
           Math.abs(epoch.startTimeBeats - expected.geometry.startBeat) <=
             1e-8 &&
-          state.startTimeBeats === epoch.startTimeBeats &&
+          (state.startTimeBeats === epoch.startTimeBeats ||
+            (covered &&
+              state.startTimeBeats ===
+                epoch.startTimeBeats +
+                  Math.floor(elapsed / loopEnd) * loopEnd)) &&
           state.selectedClipReference === epoch.clipReference &&
           state.playingSlotIndex === frozen.target.sceneIndex &&
           state.targetPlaying === true &&
@@ -826,7 +850,8 @@ export function verifyNativeListeningEvidence(input, protocol) {
 export function createNativeScenarioApproval(manifest, binding) {
   const session =
     manifest.nativeVersion === 3 ||
-    (manifest.nativeVersion === 4 && manifest.mode === "session");
+    ((manifest.nativeVersion === 4 || manifest.nativeVersion === 5) &&
+      manifest.mode === "session");
   const capture = Object.freeze(
     manifest.nativeVersion >= 2
       ? { ...manifest.capture }

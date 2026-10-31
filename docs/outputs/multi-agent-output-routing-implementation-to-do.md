@@ -5,12 +5,28 @@ Companion specification:
 
 ## Contracts
 
+- [x] Define bounded typed listening failure summaries and source
+  check/predicate/operand coverage without adding audio payloads or capture
+  authority. Preserve strict comparisons, clock domains and unknown values.
+- [x] Finish native failed/partial/cancelled serializer, source lifecycle and
+  private non-authoritative reader-snapshot qualification with unchanged
+  capture/readiness/ACK/cleanup guards.
+- [x] Negotiate optional wire4 retained measurement delivery with exact legacy
+  and feature-bearing capability tuples, preserving existing observation
+  formats and wire1/2/3 primary-capability compatibility.
+- [x] Reuse that exact protocol validator at independent application binding,
+  admitting retained listeners without filtering them from discovery. Reproduce
+  the old one-capability rejection at both binding and production-runtime
+  boundaries; preserve unknown/duplicate/reordered capability denial.
 - [ ] Add active-agent identity to Desktop output subscriptions.
 - [ ] Replace implicit active-session IPC with explicit agent-instance IDs.
 - [ ] Version and migrate existing output assignments.
 
 ## Runtime
 
+- [x] Publish one supported-capability list, including `audio-listener/retention-v1`,
+  in canonical/legacy ingress discovery and listener hello ACKs. Reject missing
+  producer feature support before arm/results without silently downgrading.
 - [x] Refresh audio listener placement from its own device anchor, renew
   authenticated registration on change and fence old native proof/callbacks.
   Preserve path-derived ID semantics and do not migrate subscriptions by name,
@@ -55,6 +71,23 @@ Companion specification:
 
 ## Verification
 
+- [x] Drive an actual controlled native-controller preflight rejection through
+  shipping SDK/authenticated ingress, capture/coordinator/public agent result
+  and real journal close/reopen with typed trace reads. Retain exact operands,
+  timing, explicit coverage and no playback/publication.
+- [x] Drive the shipping FAILED-only SDK helper with an unsupported optional
+  diagnostic through authenticated TCP, coordinator/public result and reopened
+  typed History. Preserve the original failure exactly once, explicit coverage
+  gap, no private body, no playback/publication and one reservation release.
+- [x] Verify callback suppression accounting without dropping journal
+  rejection events; reproduce/fix canonical nested diagnostic credential
+  redaction and repeated sanitation.
+- [x] Verify isolated Electron failure/preload/read-only-IPC presentation and
+  owned History trace navigation without excluding native/system rows lacking
+  App-session/agent IDs.
+- [x] Validate actual persisted canonical/legacy descriptors with the real shared
+  SDK and authenticated typed ingress for retained and primary-only wire4
+  producers; preserve old-peer rejection and lifecycle/diagnostic guards.
 - [ ] Test one producer feeding multiple agents.
 - [ ] Test independent next-prompt acknowledgement.
 - [ ] Test automatic fan-out and per-agent errors.

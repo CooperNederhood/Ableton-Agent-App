@@ -7,9 +7,15 @@ export function hostTimingCode({
   beforeOutputs = "",
   captureDelay = 0,
   nativeVersion = 1,
+  musicalLevels = false,
 } = {}) {
   if (nativeVersion === 2)
-    return descriptiveHostTimingCode({ extraState, beforeOutputs });
+    return descriptiveHostTimingCode({
+      extraState,
+      beforeOutputs,
+      musicalLevels,
+    });
+  if (musicalLevels) throw new Error("unsupported_musical_level_timing");
   if (nativeVersion !== 1) throw new Error("unsupported_native_version");
   if (captureDelay !== 0 && captureDelay !== 64)
     throw new Error("unsupported engineering capture delay");
@@ -88,6 +94,29 @@ export const DESCRIPTIVE_CONFIG_VALID = `configValid =
   captureVector == 64 || captureVector == 128 || captureVector == 256 ||
   captureVector == 512 || captureVector == 1024);`;
 
+export const MUSICAL_LEVEL_PARAMETERS = `Param levelConfigurationVersion(0);
+Param reportStartBeat(0); Param reportEndBeat(0); Param reportRowCount(0);`;
+
+// Separate opt-in configuration: the fixed hop remains the attack cadence.
+// Reject rounded-empty edge rows rather than inventing sample ownership.
+export const MUSICAL_LEVEL_CONFIG_VALID = DESCRIPTIVE_CONFIG_VALID.replace(
+  "totalSamples >= round(samplerate / 10)",
+  "totalSamples >= 1",
+).replace(
+  ");",
+  `) &&
+ (levelConfigurationVersion == 1) &&
+ (reportStartBeat >= 0 && reportStartBeat <= 1576800 &&
+  reportEndBeat > reportStartBeat && reportEndBeat <= 1576800) &&
+ (startBeatFraction == reportStartBeat - floor(reportStartBeat)) &&
+ (reportRowCount >= 1 && reportRowCount <= 2000 &&
+  reportRowCount == -floor(-reportEndBeat * 4) - floor(reportStartBeat * 4)) &&
+ (totalSamples == round((reportEndBeat - reportStartBeat) * samplerate * 60 / tempoBpm)) &&
+ (round((min((floor(reportStartBeat * 4) + 1) / 4, reportEndBeat) - reportStartBeat) * samplerate * 60 / tempoBpm) > 0) &&
+ (reportRowCount == 1 ||
+  round(((-floor(-reportEndBeat * 4) - 1) / 4 - reportStartBeat) * samplerate * 60 / tempoBpm) < totalSamples);`,
+);
+
 // Inclusive 1e12 is 953674 whole 2^20 words plus 331776. Subtract normalized
 // words before scaling; no wide ceiling or large remainder product in Gen.
 export function descriptiveFiniteWords(value, suffix) {
@@ -127,9 +156,10 @@ else { clock = clock - clockLow - (clockHigh - 16777216) * 1048576; }`;
 export function descriptiveHostTimingCode({
   extraState = "",
   beforeOutputs = "",
+  musicalLevels = false,
 } = {}) {
   return `${DESCRIPTIVE_PARAMETERS}
-History seenEpoch(0); History clock(0); History armed(0); History active(0);
+${musicalLevels ? `${MUSICAL_LEVEL_PARAMETERS}\n` : ""}History seenEpoch(0); History clock(0); History armed(0); History active(0);
 History launchClock(-1); History sourceClock(-1); History onsetCount(0);
 History launchPhaseSamples(-1); History firstSourceClock(-1);
 History rejected(0); History previousPhase(0); History stablePhaseSamples(0);
@@ -137,9 +167,9 @@ History armCounter(-1); History retainedSamples(0);
 History sealedEpoch(0);
 History passTotal(0); History passHop(0); History passTempo(0);
 History passFraction(0); History passVector(0); History passRate(0);
-${extraState}
+${musicalLevels ? "History passLevelVersion(0); History passReportStartBeat(0);\nHistory passReportEndBeat(0); History passReportRows(0);\n" : ""}${extraState}
 periodicPhase = in1 >= 1 && in1 - 1 <= 0.000000001 ? 0 : in1;
-${DESCRIPTIVE_CONFIG_VALID}
+${musicalLevels ? MUSICAL_LEVEL_CONFIG_VALID : DESCRIPTIVE_CONFIG_VALID}
 reportSamples = configValid ? floor((totalSamples + hopSamples - 1) / hopSamples) * hopSamples : 0;
 newRequest = epoch != seenEpoch && epoch != 0;
 counterValid = in4 >= 0 && ${descriptiveCounterBound("in4")} && floor(in4) == in4;
@@ -149,7 +179,7 @@ configurationSealed = epoch > 0 && epoch == seenEpoch && sealedEpoch == seenEpoc
 if ((wasRunning || configurationSealed) &&
  (!(configValid) || totalSamples != passTotal || hopSamples != passHop ||
   tempoBpm != passTempo || startBeatFraction != passFraction ||
-  captureVector != passVector || samplerate != passRate)) {
+  captureVector != passVector || samplerate != passRate${musicalLevels ? " ||\n  levelConfigurationVersion != passLevelVersion || reportStartBeat != passReportStartBeat ||\n  reportEndBeat != passReportEndBeat || reportRowCount != passReportRows" : ""})) {
  armed = 0; active = 0; rejected = 13; sealedEpoch = 0;
 }
 if (newRequest) {
@@ -163,7 +193,7 @@ if (newRequest) {
    launchClock = -1; sourceClock = -1; onsetCount = 0;
    launchPhaseSamples = -1; firstSourceClock = -1; armCounter = in4;
    passTotal = totalSamples; passHop = hopSamples; passTempo = tempoBpm;
-   passFraction = startBeatFraction; passVector = captureVector; passRate = samplerate;
+   passFraction = startBeatFraction; passVector = captureVector; passRate = samplerate;${musicalLevels ? "\n   passLevelVersion = levelConfigurationVersion; passReportStartBeat = reportStartBeat;\n   passReportEndBeat = reportEndBeat; passReportRows = reportRowCount;" : ""}
    if (!(configValid)) { rejected = 13; }
    else if (!(counterValid) || ${descriptiveCounterBound("in4 + 10 * samplerate + reportSamples + captureVector", true)}) { rejected = 12; }
    else if (!(phaseValid) || periodicPhase != previousPhase || stablePhaseSamples < captureVector) { rejected = 1; }

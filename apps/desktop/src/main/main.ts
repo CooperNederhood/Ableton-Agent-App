@@ -316,6 +316,9 @@ async function composeProfile(
     agentsDirectory: bundledAgentsDirectory,
     skillsDirectory: bundledSkillsDirectory,
     storage: layout,
+    ...(launchOptions.automation?.independentMetricListeners === true
+      ? { independentMetricListeners: true }
+      : {}),
     agentBaseDirectory: layout.copilotDirectory,
     ...(githubCliDiscovery === undefined
       ? {}

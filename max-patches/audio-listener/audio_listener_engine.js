@@ -123,6 +123,7 @@ class AudioListenerEngine {
     certificate = null,
     launchAlignment = "host",
     nativeVersion = 1,
+    onNativeRejection = () => {},
   } = {}) {
     if (
       ![1, 2].includes(nativeVersion) ||
@@ -130,6 +131,7 @@ class AudioListenerEngine {
     )
       throw new Error("invalid_native_version");
     this.nativeVersion = nativeVersion;
+    this.onNativeRejection = onNativeRejection;
     if (!["host", "signal"].includes(launchAlignment))
       throw new Error("invalid launch alignment");
     this.listenerId = identifier(listenerId, "listenerId");
@@ -647,7 +649,7 @@ class AudioListenerEngine {
     }
   }
 
-  ingest(frame, { passId, connectionEpoch }) {
+  ingest(frame, { passId, connectionEpoch }, retainedTiming) {
     this.checkOwner(passId, connectionEpoch);
     if (this.state !== "capturing") return false;
     const p = this.pass;
@@ -659,11 +661,59 @@ class AudioListenerEngine {
       return false;
     }
     const f = descriptor(frame, p.sampleRate);
+    let clockSample = this.host.sample;
+    let deliveryLimit = p.certificate.uncertaintySamples + p.hop;
+    if (retainedTiming !== undefined) {
+      if (
+        this.nativeVersion !== 2 ||
+        this.launchAlignment !== "signal" ||
+        !retainedTiming ||
+        Object.keys(retainedTiming).length !== 2 ||
+        Object.keys(retainedTiming).some(
+          (key) => !["counter", "capacity"].includes(key),
+        )
+      )
+        throw new Error("invalid_retained_descriptor_timing");
+      integer(
+        retainedTiming.counter,
+        "retained native counter",
+        0,
+        2 ** 44 - 1,
+      );
+      integer(retainedTiming.capacity, "retained envelope capacity", 1, 1024);
+      // FIFO records keep source time; current host arrival time is not their timestamp.
+      clockSample = retainedTiming.counter + p.nativeHostOffset;
+      deliveryLimit = retainedTiming.capacity * p.hop;
+    }
+    const distance = clockSample - f.sample;
     if (
-      Math.abs(this.host.sample - f.sample) >
-      p.certificate.uncertaintySamples + p.hop
+      !Number.isSafeInteger(clockSample) ||
+      (retainedTiming !== undefined && distance < 0) ||
+      Math.abs(distance) > deliveryLimit
     ) {
-      this.terminate("partial", "host_sample_discontinuity");
+      if (retainedTiming !== undefined)
+        this.nativeEvent(
+          "progress",
+          `native_descriptor_clock_h${this.host.sample}_n${retainedTiming.counter}_d${f.sample}_c${retainedTiming.capacity}`,
+        );
+      this.terminate("partial", "host_sample_discontinuity", [
+        {
+          field: "descriptor-distance",
+          actual: distance,
+          expected: deliveryLimit,
+          relation: "at-most",
+          unit: "samples",
+          domain: "native-source",
+        },
+        {
+          field: "descriptor-delivery-limit",
+          actual: deliveryLimit,
+          expected: deliveryLimit,
+          relation: "equal",
+          unit: "samples",
+          domain: "native-source",
+        },
+      ]);
       return false;
     }
     const prev = p.previousFrame;
@@ -856,9 +906,32 @@ class AudioListenerEngine {
     return null;
   }
 
-  terminate(status, reason) {
+  terminate(status, reason, rejectionOperands = []) {
     const p = this.pass;
     if (!p) return null;
+    if (this.nativeVersion === 2 && status !== "complete") {
+      this.onNativeRejection(reason, {
+        operands: [
+          ...rejectionOperands,
+          {
+            field: "completed-samples",
+            actual: p.totalSamples,
+            expected: p.geometry.totalSamples,
+            relation: "equal",
+            unit: "samples",
+            domain: "native-source",
+          },
+          {
+            field: "host-flags",
+            actual: this.host?.flags ?? null,
+            expected: p.certificate.requiredHostFlags,
+            relation: "contains-all-bits",
+            unit: "flags",
+            domain: "host-position",
+          },
+        ],
+      });
+    }
     if (this.launchAlignment === "signal")
       this.nativeEvent(
         status === "complete"

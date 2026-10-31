@@ -8,10 +8,16 @@ import {
   storedAudioObservationSchema,
   clipLocationSchema,
   sessionListeningJobDetailSchema,
+  listeningFailureEvidenceSchema,
+  metricListeningResultSummariesSchema,
+  validateMetricListeningJobOutcome,
+  metricListeningReportSchema,
+  MAX_METRIC_REPORT_PAGE_ROWS,
 } from "@ableton-agent/protocol";
 import { z } from "zod";
 
 const id = z.string().min(1).max(256);
+export const MAX_METRIC_CONTEXT_RESPONSE_BYTES = 64 * 1024;
 const listenerIds = z
   .array(id)
   .min(1)
@@ -29,14 +35,19 @@ const page = {
 const SESSION_LAUNCH_CASE_GUIDANCE =
   "Requires stopped beat zero and global None; one-bar and nonzero stopped anchors are not qualified. Never seek or change launch settings to make a request pass.";
 
-export const LISTENING_AGENT_GUIDANCE = `Use only actions present in your scoped schema. For Arrangement capture, play-arrangement-and-listen requires listenerIds, startBeat and endBeat: use the absolute endBeat, not durationBeats; durationBeats is Session-only. Arrangement capture is not read-only: on a successful pass the App positions stopped transport and starts playback, leaving it running. Report verified transport changes, not unchanged transport/seek state. For Session capture, play-session-and-listen explicitly fires one exact MIDI or warped-audio clip through one same-track native listener supporting explicit Session mode (wire3 or wire4). The canonical wire4 Development listener supports both Arrangement and Session through explicit per-pass mode negotiation, never automatic mode fallback. Omit durationBeats to capture exactly one active loop (not the underlying audio file), or the active start/end region for a nonlooping clip. Specify durationBeats only for an explicitly requested shorter range; equality with the active end is supported. Requests exceeding thirty seconds or 300 native windows are rejected, never truncated. ${SESSION_LAUNCH_CASE_GUIDANCE} Do not substitute Arrangement capture or edit launch/source settings to make it pass. Session cancellation does not retract an accepted or queued launch; playback stays running and other selected Session material can resume. The Session timeout includes setup and launch. Source continuity is message-rate monitored, not sample-accurate; unknown follow-action settings are not disabled, and listener audio is not exclusively attributable to the clip. For arrangement_session_override, explain that Live's Back to Arrangement restores the playback source, not the view. Switching views, stopping playback or deselecting a clip does not clear this override. Ask the user to restore Arrangement manually, then make a new explicit request; never repair source selection or retry automatically. Queued or arming is not completion or failure. Use get-pass with the returned passId to inspect that same pass until terminal, respecting any explicit per-request polling limit. Never start another playback call to wait for the first. Never use bash or sleep to wait. Only after stage=completed, read its returned contextId with ableton_context: a known contextId goes to get, not list. Report failed, cancelled or interrupted passes honestly; do not describe queued acceptance as measured audio. An explicit user instruction to stop on any failure also covers argument-validation and permission failures: report and stop instead of correcting arguments, repairing or retrying. retryable describes technical recoverability, not permission to retry.`;
+const FAILURE_EVIDENCE_GUIDANCE =
+  "inspect-listeners ready:false with native_per_pass_validation_required is deliberately uncommissioned pending fresh per-pass native validation, not evidence of an identity mismatch or broken listener. An error code alone is not a precise cause: report failureEvidence's observed phase/check, actual versus expected values, coverage and diagnostic reference. Partial or unavailable evidence is an observability gap, not proof of a native predicate. Never invent an identity mismatch, automatically retry, edit settings or fall back to another mode to diagnose a rejection.";
+
+const LISTENING_WORKFLOW_GUIDANCE = `Use only actions present in your scoped schema. For Arrangement capture, play-arrangement-and-listen requires listenerIds, startBeat and endBeat: use the absolute endBeat, not durationBeats; durationBeats is Session-only. Arrangement capture is not read-only: on a successful pass the App positions stopped transport and starts playback, leaving it running. Report verified transport changes, not unchanged transport/seek state. For Session capture, play-session-and-listen explicitly fires one exact MIDI or warped-audio clip through one same-track native listener supporting explicit Session mode (wire5). The canonical wire5 Development listener collects independent level, spectral-centroid and attack timelines during one playback in explicit Arrangement or Session mode, then assembles a tempo-aligned report. A locally unavailable analyzer does not block healthy metrics; shared source, clock and ownership failures or unconfirmed cleanup still prevent publication. Omit durationBeats to capture exactly one active loop (not the underlying audio file), or the active start/end region for a nonlooping clip. Specify durationBeats only for an explicitly requested shorter range; equality with the active end is supported. Requests exceeding thirty seconds are rejected, never truncated. Independently negotiated metric results use their declared musical reporting and native acquisition budgets, not a universal 300-row assumption. ${SESSION_LAUNCH_CASE_GUIDANCE} Do not substitute Arrangement capture or edit launch/source settings to make it pass. Session cancellation does not retract an accepted or queued launch; playback stays running and other selected Session material can resume. The Session timeout includes setup and launch. Source continuity is message-rate monitored, not sample-accurate; unknown follow-action settings are not disabled, and listener audio is not exclusively attributable to the clip. For arrangement_session_override, explain that Live's Back to Arrangement restores the playback source, not the view. Switching views, stopping playback or deselecting a clip does not clear this override. Ask the user to restore Arrangement manually, then make a new explicit request; never repair source selection or retry automatically. Queued or arming is not completion or failure. Use get-pass with the returned passId to inspect that same pass until terminal, respecting any explicit per-request polling limit. Never start another playback call to wait for the first. Never use bash or sleep to wait. Only after stage=completed or stage=partial, read its returned contextId with ableton_context: a known contextId goes to get, not list. A partial pass is a published result with usable metrics and explicit missing coverage, not full success or a failed tool. Read metricResults and the stored context; disclose missing metrics and intervals. Valid measured silence and empty attack lists are evidence, not missing data. Do not invent frequency or rhythm conclusions from absent measurements, infer exact whole-row FFT support, or retry automatically to fill gaps. Report failed, cancelled or interrupted passes honestly; do not describe queued acceptance as measured audio. An explicit user instruction to stop on any failure also covers argument-validation and permission failures: report and stop instead of correcting arguments, repairing or retrying. retryable describes technical recoverability, not permission to retry.`;
+
+export const LISTENING_AGENT_GUIDANCE = `${LISTENING_WORKFLOW_GUIDANCE} For a known metric-audio-observation/v1 context, use ableton_context report for stacked musical-row values, availability, gaps and actual native support without joining raw indices. Start offset=0 and limit=8 (maximum 32); follow report.nextOffset until null. Consult metricMetadata.algorithm.units: metric peak/RMS values are linear amplitudes, not dBFS; attack strength is dB-rise and its timestamp is the detector-window end, not a precise onset. Partial attack coverage cannot establish absence of attacks over the whole clip. Reports do not authorize new capture or convert legacy data. ${FAILURE_EVIDENCE_GUIDANCE}`;
 
 export const listeningOperationParamsSchema = z.discriminatedUnion("action", [
   z
     .object({ action: z.literal("inspect-listeners") })
     .strict()
     .describe(
-      "Discover listeners. Supply only action; no listenerIds or passId.",
+      `Discover listeners. Supply only action; no listenerIds or passId. ${FAILURE_EVIDENCE_GUIDANCE}`,
     ),
   z
     .object({
@@ -57,7 +68,7 @@ export const listeningOperationParamsSchema = z.discriminatedUnion("action", [
     })
     .strict()
     .describe(
-      `Explicitly launch one exact Session MIDI or warped-audio clip through one same-track native listener supporting explicit Session mode (wire3 or wire4). Omitted duration captures one active loop or the nonlooping active start/end region; explicit shorter ranges and equality at the active end are supported. The native thirty-second/300-window envelope is mandatory; oversized ranges fail without truncation. ${SESSION_LAUNCH_CASE_GUIDANCE} Requires recording off, zero offsets, Trigger/legato off and clip Global quantization. Normal wrap or natural end after coverage requires both monitored source-boundary and completed native DSP evidence, never queued acceptance. Cancellation never retracts an accepted launch or stops transport.`,
+      `Explicitly launch one exact Session MIDI or warped-audio clip through one same-track native listener supporting explicit Session mode (wire5). Omitted duration captures one active loop or the nonlooping active start/end region; explicit shorter ranges and equality at the active end are supported. The declared thirty-second ceiling and musical, acquisition and encoded-byte budgets are mandatory; oversized ranges fail without truncation. ${SESSION_LAUNCH_CASE_GUIDANCE} Requires recording off, zero offsets, Trigger/legato off and clip Global quantization. Normal wrap or natural end after coverage requires both monitored source-boundary and completed native DSP evidence, never queued acceptance. Cancellation never retracts an accepted launch or stops transport.`,
     ),
   z
     .object({
@@ -106,6 +117,7 @@ export const listeningJobSchema = z
       "capturing",
       "persisting",
       "completed",
+      "partial",
       "failed",
       "cancelled",
       "interrupted",
@@ -114,11 +126,20 @@ export const listeningJobSchema = z
     updatedAt: z.string().datetime(),
     durationMs: z.number().finite().nonnegative(),
     contextIds: z.array(id).max(8),
+    metricResults: metricListeningResultSummariesSchema.optional(),
     cleanupPolicy: z.enum(["stop-owned", "leave-running"]).optional(),
     session: sessionListeningJobDetailSchema.optional(),
     error: z.string().max(2048).optional(),
+    failureEvidence: listeningFailureEvidenceSchema.optional(),
   })
-  .strict();
+  .strict()
+  .superRefine(validateMetricListeningJobOutcome)
+  .refine(
+    (job) =>
+      job.failureEvidence === undefined ||
+      job.failureEvidence.reference.passId === job.passId,
+    "Failure evidence must belong to this listening pass",
+  );
 
 export const listenerViewSchema = z
   .object({
@@ -185,6 +206,23 @@ export const contextOperationParamsSchema = z.discriminatedUnion("action", [
     ),
   z
     .object({
+      action: z.literal("report"),
+      contextId: id,
+      includeHistorical: z.boolean().default(false),
+      offset: z.number().int().min(0).max(2000).default(0),
+      limit: z
+        .number()
+        .int()
+        .min(1)
+        .max(MAX_METRIC_REPORT_PAGE_ROWS)
+        .default(8),
+    })
+    .strict()
+    .describe(
+      "Read a bounded stacked musical timeline for a known metric-audio-observation/v1 contextId, without joining record indices. Start at offset=0; follow report.nextOffset until null. limit defaults to 8, maximum 32. No capture, retry, or legacy conversion.",
+    ),
+  z
+    .object({
       action: z.literal("prune"),
       contextIds: z
         .array(id)
@@ -215,6 +253,8 @@ const contextSummarySchema = z
   })
   .strict();
 
+export const metricListeningContextReportSchema = metricListeningReportSchema;
+
 export const contextOperationResultSchema = z.discriminatedUnion("action", [
   z
     .object({
@@ -234,6 +274,27 @@ export const contextOperationResultSchema = z.discriminatedUnion("action", [
       (value) => value.entry.kind === value.observation.schema,
       "Context detail kind must match its observation schema",
     ),
+  z
+    .object({
+      action: z.literal("report"),
+      entry: contextSummarySchema.refine(
+        (entry) => entry.kind === "metric-audio-observation/v1",
+        "Reports require metric observations",
+      ),
+      report: metricListeningContextReportSchema,
+    })
+    .strict()
+    .superRefine((value, ctx) => {
+      if (
+        new TextEncoder().encode(JSON.stringify(value)).byteLength >
+        MAX_METRIC_CONTEXT_RESPONSE_BYTES
+      ) {
+        ctx.addIssue({
+          code: "custom",
+          message: "Metric context response exceeds 64 KiB UTF-8 budget",
+        });
+      }
+    }),
   z
     .object({
       action: z.literal("prune"),
@@ -271,7 +332,7 @@ export function createListeningTools(
 ): [Tool<ListeningOperationParams>, Tool<ContextOperationParams>] {
   return [
     defineTool("ableton_listening", {
-      description: `${LISTENING_AGENT_GUIDANCE} Discover exact audio listeners and explicitly play an Arrangement range or guarded Session clip while capturing bounded measurements. Requires stopped transport and verified recording off; never solos/mutes tracks or changes effects. A listener with limitation native_per_pass_validation_required may attempt fresh native validation even while ready=false. Descriptive v2 supports nonzero/fractional Arrangement starts, constant tempo, 44.1/48 kHz and one approximately 100 ms reporting hop through 30 seconds, using supported actual DSP metadata. Tempo stability is assumed, not independently verified; tempo automation is unsupported. Do not change tempo during a pass; a completed result is not proof that no change occurred. Existing detected tempo, timing and integrity failures still reject a pass. For Arrangement only, the App positions and independently reads back the stopped insert marker/position before native arm. Timing policy is frozen from trusted Settings once per pass, not selected by this tool; the configured budget bounds observed disagreement, not absolute accuracy. Approximate results are descriptive-only, with unknown absolute timing error and no exclusive clip attribution. There is no automatic legacy fallback: the old beat-zero/120 BPM/48 kHz prototype requires explicitly configured strict mode and its matching existing marker/0.2-beat grid through beat 20. Scope metadata is not readiness or timing proof: genuine per-pass arm proof is required before playback, measured launch and complete coverage before publication. Other uncommissioned listeners remain denied. Playback continues after completion, cancellation, failure, or timeout: cancel stops capture, not transport. Session requires a matching native listener supporting explicit Session mode (wire3 or wire4), zero clip offsets, Trigger/legato off, clip Global quantization and a qualified stopped-transport launch case. It never seeks or changes launch settings. Known-enabled follow actions and unwarped audio are denied; unknown follow-action settings remain explicit and message-rate monitored. Actual clip identity and start_time must match the independently frozen native transport anchor; otherwise no context is published. Passes are owned by the active App session/agent; cancel only owned passes. Master/return measurements are mixes, not isolated clip facts. Read status and cleanupPolicy before treating a pass as completed; results persist only after verified context publication.`,
+      description: `${LISTENING_AGENT_GUIDANCE} Discover exact audio listeners and explicitly play an Arrangement range or guarded Session clip while capturing bounded measurements. Requires stopped transport and verified recording off; never solos/mutes tracks or changes effects. A listener with limitation native_per_pass_validation_required may attempt fresh native validation even while ready=false. Descriptive v2 supports nonzero/fractional Arrangement starts, constant tempo, 44.1/48 kHz and one approximately 100 ms reporting hop through 30 seconds, using supported actual DSP metadata. Tempo stability is assumed, not independently verified; tempo automation is unsupported. Do not change tempo during a pass; a completed result is not proof that no change occurred. Existing detected tempo, timing and integrity failures still reject a pass. For Arrangement only, the App positions and independently reads back the stopped insert marker/position before native arm. Timing policy is frozen from trusted Settings once per pass, not selected by this tool; the configured budget bounds observed disagreement, not absolute accuracy. Approximate results are descriptive-only, with unknown absolute timing error and no exclusive clip attribution. There is no automatic legacy fallback: the old beat-zero/120 BPM/48 kHz prototype requires explicitly configured strict mode and its matching existing marker/0.2-beat grid through beat 20. Scope metadata is not readiness or timing proof: genuine per-pass arm proof is required before playback, measured launch and complete coverage before publication. Other uncommissioned listeners remain denied. Playback continues after completion, cancellation, failure, or timeout: cancel stops capture, not transport. Session requires a matching native listener supporting explicit Session mode (wire5), zero clip offsets, Trigger/legato off, clip Global quantization and a qualified stopped-transport launch case. It never seeks or changes launch settings. Known-enabled follow actions and unwarped audio are denied; unknown follow-action settings remain explicit and message-rate monitored. Actual clip identity and start_time must match the independently frozen native transport anchor; otherwise no context is published. Passes are owned by the active App session/agent; cancel only owned passes. Master/return measurements are mixes, not isolated clip facts. Read status and cleanupPolicy before treating a pass as completed; results persist only after verified context publication.`,
       parameters: listeningOperationParamsSchema,
       handler: async (params, invocation) => {
         const result = listeningOperationResultSchema.parse(
@@ -284,14 +345,25 @@ export function createListeningTools(
     }),
     defineTool("ableton_context", {
       description:
-        "Query typed listening context owned by the active App session. When a contextId is already known, use get with that exact contextId; no preceding list is needed. Use list only to discover unknown IDs by optional subjectId, listenerId or passId; list does not accept contextId. Current-only reads revalidate identity/freshness; explicitly include historical entries to inspect stale or unresolved evidence. RMS dBFS is not LUFS; attacks and attribution can be uncertain. Pruning deletes only explicitly named App-session context, requires approval and confirm='prune-session-context', and never deletes Live clips or source audio. No arbitrary SQL, filesystem paths, raw audio, or generic context writes.",
+        "Query typed listening context owned by the active App session. When a contextId is already known, use get with that exact contextId; no preceding list is needed. For metric-audio-observation/v1 musical analysis use report with that contextId: it returns measured values, per-metric availability, gaps and actual native supports stacked by musical row, rather than raw index joins. Start offset=0, limit=8 (maximum 32); follow report.nextOffset, stopping at null. A report is a bounded projection, not new evidence or whole-row FFT support; missing/no-frame is not silence. Legacy observations retain get unchanged and cannot be converted into metric reports. Use list only to discover unknown IDs by optional subjectId, listenerId or passId; list does not accept contextId. Current-only reads revalidate identity/freshness; explicitly include historical entries to inspect stale or unresolved evidence. RMS dBFS is not LUFS; attacks and attribution can be uncertain. Pruning deletes only explicitly named App-session context, requires approval and confirm='prune-session-context', and never deletes Live clips or source audio. No arbitrary SQL, filesystem paths, raw audio, or generic context writes.",
       parameters: contextOperationParamsSchema,
       handler: async (params, invocation) => {
+        const request = contextOperationParamsSchema.parse(params);
         const result = contextOperationResultSchema.parse(
-          await services.executeContextOperation(params, invocation),
+          await services.executeContextOperation(request, invocation),
         );
-        if (result.action !== params.action)
+        if (result.action !== request.action)
           throw new Error("Context result action mismatch");
+        if (
+          result.action === "report" &&
+          request.action === "report" &&
+          (result.entry.contextId !== request.contextId ||
+            result.report.offset !== request.offset ||
+            result.report.rows.length > request.limit ||
+            result.report.pageBudget.requestedRowLimit !== request.limit)
+        ) {
+          throw new Error("Context report page mismatch");
+        }
         return result;
       },
     }),

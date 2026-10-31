@@ -594,7 +594,7 @@ test("descriptive v2 is explicitly selected; default and explicit v1 retain the 
     JSON.stringify(nativeRuntimeDocuments({ nativeVersion: 1 })),
     original,
   );
-  for (const nativeVersion of [0, 5, "2", null])
+  for (const nativeVersion of [0, 6, "2", null])
     assert.throws(
       () => nativeRuntimeDocuments({ nativeVersion }),
       /unsupported_native_version/,

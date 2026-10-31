@@ -57,6 +57,95 @@ Historical observations retain their original identities and unknown freshness.
 The placement guard cache is bounded, memory-only and non-authoritative;
 there is no new storage path, migration or remote diagnostic upload.
 
+## Native listener feature negotiation
+
+The canonical profile-owned signal ingress descriptor and its enabled legacy
+compatibility alias publish the same supported listener capabilities. Listener
+hello acknowledgements advertise that same application-owned list, including
+`audio-listener/retention-v1`. `SignalIngressServer.start()` returns a TCP endpoint,
+not the complete discovery descriptor: consumers must read the published
+descriptor rather than reconstructing feature support from the endpoint.
+
+Production wire4 registrations use one shared protocol validator in ingress
+and independent application binding. Accepted tuples are the exact legacy tuple
+`[audio-listener/dual-mode-v1]` or the exact retained-measurement tuple
+`[audio-listener/dual-mode-v1, audio-listener/retention-v1]`. The retained feature
+is advertised only when wire4 retained measurements are enabled. Public wire2
+and wire3 producers retain their existing single primary capability.
+
+The shared producer client requires every configured capability in discovery
+and, for feature-bearing registrations, in the authenticated hello ACK. Missing,
+malformed, or unsupported feature support rejects admission before arm or result
+delivery; it does not downgrade the retained producer to an older algorithm.
+Legacy single-primary producers remain usable with old and new peers, including
+old hello ACKs that omit the optional supported-capability list.
+
+The feature covers the explicit `measurement` native lifecycle phase without
+changing wire versions or public observation formats. A measurement-stage
+`completed` event remains a progress result, not completed capture authority.
+Queue counters belong only in the strict
+`native-measurement-delivery-rejection/v1` failure diagnostic; they are not
+additional untyped lifecycle fields. See
+[Playback Listening](../tools/playback-listening.md) for retained producer
+behavior and native qualification requirements.
+
+## Listening rejection evidence
+
+Native failure diagnostics remain non-authoritative, optional metadata on the
+existing listener transport. The closed `native-check-rejection/v1` scope and
+optional `checkEvidence` on the existing scopes identify the source owner,
+phase/check/predicate, original reason, launch disposition and exact typed
+operands with units/clock domains. Receipt timing may be unavailable before
+admission; null is not an observed zero. Bounded accepted/rejected inputs use
+numeric cells or fixed invalid-value markers, never arbitrary private payloads
+or audio. Separate cleanup evidence must not replace the initiating failure.
+
+Diagnostics may accompany failed replies/results, partial results and cancelled
+replies without changing those statuses or granting proof/completion authority.
+Successful readiness or capture still requires its ordinary independently
+validated native proof. A matched App/listener is required for new optional
+diagnostic shapes; malformed/unsupported evidence cannot silently erase the
+primary failure or become an automatic retry.
+
+The Max runtime opts into the shipping SDK's FAILED-only
+`sendListenerFailureMessage(type, control, payload)` path. If optional
+`nativeFailureDiagnostic` alone is invalid, unencodable or over the frame
+quota, the SDK can omit that field only after independently validating and
+framing the original bare failure. It retains status, reason and ownership,
+emits a diagnostic-gap status, and performs at most one transport write.
+Ordinary reply/result APIs remain strict; mandatory payload/context/framing
+failures remain rejected. There is no retry after a write. Authenticated
+ingress then records the original failure and explicit absent-source coverage,
+not a fabricated source explanation or a generic replacement timeout.
+
+The private `retention-snapshot` path retains at most the latest bounded reader
+state per family, throttled to one receipt per 250 ms/family. Optional terminal
+reader snapshots preserve actual nonterminal epoch/request/readback state and
+receipt age; they do not advance readiness, freshness, ACKs, descriptor
+consumption or capture. This is diagnostic-only collection through the existing
+private numeric codec, not a new native audio ABI or datastore.
+
+Ingress retains the full validated diagnostic in the existing redacted journal
+and records `output.listener.rejection.observed`. Missing/partial/dropped or
+truncated source evidence produces `output.listener.diagnostics.coverage-gap`.
+Application-owned schema, ownership and proof rejections retain bounded issue
+paths or validated proof/configuration operands, never rejected raw bodies.
+An internal typed service side-channel carries these App rejections through
+fatal connection release; producers cannot add it to wire messages.
+The common `listening-failure/v1` summary propagates through capture/runtime,
+coordinator and public agent result to Desktop. Owned trace navigation uses
+the typed `readTrace` route and retains system/native rows even when those rows
+have no App-session/agent attribution; ownership filters from the root list do
+not hide rows inside the validated job's linked trace.
+
+The diagnostic callback's existing rate limit is separate from journal
+rejections. Bounded `output.ingress.diagnostics.suppressed` first/final counts
+identify that callback sink; they do not claim rejection journal loss.
+Recorder health and durable persistence remain the shared journal's
+responsibility, without blocking DSP or capture on journal writes.
+See [Playback Listening](../tools/playback-listening.md) for controlled-source
+evidence and the remaining actual-host/delivery gates.
+
 ## Producer transport backpressure
 
 The shared Max producer client's audio path treats Node `socket.write(false)` as accepted

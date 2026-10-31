@@ -324,3 +324,7 @@ export function createSyntheticNativeSessionListeningFixture(
   assertNativeSessionCaptureObservation(proof, fixture.observation, expected);
   return { arm, launch, proof, observation: fixture.observation, expected };
 }
+export {
+  createSyntheticMetricListeningObservation,
+  createSyntheticPartialMetricListeningObservation,
+} from "./metric-testing.js";

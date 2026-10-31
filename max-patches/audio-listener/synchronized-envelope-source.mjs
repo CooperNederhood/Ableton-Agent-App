@@ -87,7 +87,9 @@ export function clockAnchoredEnvelopeDocument() {
 
 export function descriptiveEnvelopeCode({
   configurationReadback = false,
+  musicalLevels = false,
 } = {}) {
+  if (musicalLevels) return musicalEnvelopeCode();
   return hostTimingCode({
     nativeVersion: 2,
     extraState: `${ENVELOPE_STATE}
@@ -154,4 +156,151 @@ out21 = passFraction; out22 = passVector; out23 = sealedEpoch;`
         : ""
     }`,
   });
+}
+
+export const MUSICAL_CONFIGURATION_FIELDS = Object.freeze([
+  "seenEpoch",
+  "passTotal",
+  "passHop",
+  "passTempo",
+  "passFraction",
+  "passVector",
+  "passLevelVersion",
+  "passReportStartBeat",
+  "passReportEndBeat",
+  "passReportRows",
+  "sealedEpoch",
+  "seenEpoch",
+]);
+
+export const MUSICAL_RECORD_FIELDS = Object.freeze([
+  "sequence",
+  "startSample",
+  "endSample",
+  "count",
+  "peakL",
+  "peakR",
+  "sumSquaresL",
+  "sumSquaresR",
+]);
+
+/**
+ * Opt-in envelope ABI 3 / level configuration 1, not a shipping capability.
+ * Level and physical 100ms detector records have independent accumulators.
+ * Outputs 29..36 and 37..44 contain capture-local sufficient statistics;
+ * outputs 17..28 are actual sealed DSP histories, never setter echoes.
+ */
+export function musicalEnvelopeCode({ compactReadback = false } = {}) {
+  const families = ["level", "attack"];
+  const histories = [
+    "Completed",
+    "Count",
+    "SumL",
+    "SumR",
+    "PeakL",
+    "PeakR",
+    "PublishedSequence",
+    "PublishedStart",
+    "PublishedEnd",
+    "PublishedCount",
+    "PublishedPeakL",
+    "PublishedPeakR",
+    "PublishedSumL",
+    "PublishedSumR",
+  ];
+  const reset = families
+    .flatMap((family) => histories.map((name) => `${family}${name} = 0;`))
+    .join(" ");
+  const nextLevelBoundary = `round((min(
+ (floor(passReportStartBeat * 4) + levelPublishedSequence + 1) / 4,
+ passReportEndBeat) - passReportStartBeat) * passRate * 60 / passTempo)`;
+  const accumulate = (family, condition, after = "") => `
+ ${family}SumL = ${family}SumL + delayedL * delayedL;
+ ${family}SumR = ${family}SumR + delayedR * delayedR;
+ ${family}PeakL = max(${family}PeakL, abs(delayedL));
+ ${family}PeakR = max(${family}PeakR, abs(delayedR));
+ ${family}Count = ${family}Count + 1;
+ if (${condition}) {
+  ${family}PublishedSequence = ${family}PublishedSequence + 1;
+  ${family}PublishedStart = ${family}Completed;
+  ${family}PublishedEnd = ${family}Completed + ${family}Count;
+  ${family}PublishedCount = ${family}Count;
+  ${family}PublishedPeakL = ${family}PeakL; ${family}PublishedPeakR = ${family}PeakR;
+  ${family}PublishedSumL = ${family}SumL; ${family}PublishedSumR = ${family}SumR;
+  ${family}Completed = ${family}PublishedEnd;
+  ${family}Count = 0; ${family}SumL = 0; ${family}SumR = 0;
+  ${family}PeakL = 0; ${family}PeakR = 0;
+  ${after}
+ }`;
+  const code = hostTimingCode({
+    nativeVersion: 2,
+    musicalLevels: true,
+    extraState: `History musicalEnvelopeEpoch(0); History levelNextBoundary(0);
+${families
+  .flatMap((family) => histories.map((name) => `History ${family}${name}(0);`))
+  .join("\n")}
+Delay preL(1024); Delay preR(1024);
+retention = 1;
+if (captureVector == 1 || captureVector == 2 || captureVector == 4 ||
+    captureVector == 8 || captureVector == 16 || captureVector == 32 ||
+    captureVector == 64 || captureVector == 128 || captureVector == 256 ||
+    captureVector == 512 || captureVector == 1024) { retention = captureVector; }
+delayedL = preL.read(retention); delayedR = preR.read(retention);
+preL.write(in2); preR.write(in3);`,
+    beforeOutputs: `if (musicalEnvelopeEpoch != seenEpoch) {
+ musicalEnvelopeEpoch = seenEpoch; ${reset}
+ levelNextBoundary = 0;
+ if (sealedEpoch == seenEpoch && seenEpoch > 0) {
+  levelNextBoundary = ${nextLevelBoundary};
+ }
+}
+origin = launchClock - launchPhaseSamples;
+renderIndex = clock - origin - passVector;
+if (active > 0 && renderIndex >= 0 && renderIndex < passTotal) {
+${["L", "R"].map((side) => descriptiveFiniteWords(`delayed${side}`, side)).join("\n")}
+ if (renderIndex != levelCompleted + levelCount ||
+     renderIndex != attackCompleted + attackCount) {
+  active = 0; rejected = 11;
+ } else if (!(${["L", "R"].map((side) => descriptiveFinitePredicate(side)).join(" &&\n    ")} &&
+    abs(delayedL) <= 64 && abs(delayedR) <= 64)) {
+  active = 0; rejected = 15;
+ } else {
+${accumulate(
+  "level",
+  "renderIndex + 1 == levelNextBoundary",
+  `if (levelPublishedSequence < passReportRows) { levelNextBoundary = ${nextLevelBoundary}; }`,
+)}
+${accumulate("attack", "attackCount == passHop || renderIndex + 1 == passTotal")}
+  if (levelCompleted == passTotal) { active = 0; }
+ }
+}
+out9 = levelPublishedPeakL; out10 = levelPublishedPeakR;
+out11 = levelPublishedCount > 0 ? sqrt(levelPublishedSumL / levelPublishedCount) : 0;
+out12 = levelPublishedCount > 0 ? sqrt(levelPublishedSumR / levelPublishedCount) : 0;
+out13 = levelPublishedEnd;
+out14 = armCounter; out15 = launchClock >= 0 ? armCounter + origin : -1;
+out16 = 3;
+${MUSICAL_CONFIGURATION_FIELDS.map((name, index) => `out${17 + index} = ${name};`).join("\n")}
+${families
+  .flatMap((family, familyIndex) =>
+    ["Sequence", "Start", "End", "Count", "PeakL", "PeakR", "SumL", "SumR"].map(
+      (name, index) =>
+        `out${29 + familyIndex * 8 + index} = ${family}Published${name};`,
+    ),
+  )
+  .join("\n")}`,
+  });
+  if (!compactReadback) return code;
+  const timing = { 1: 1, 2: 2, 5: 3, 6: 4, 7: 5, 14: 6, 15: 7, 16: 8 };
+  // Retained records carry their statistics already. Compact only the output
+  // projection (not the algorithm), keeping the two readbacks within64 outlets.
+  return code.replace(/\bout(\d+) = ([^;]+);/g, (statement, number, value) => {
+    const index = Number(number);
+    const output = index >= 17 && index <= 28 ? index - 8 : timing[index];
+    return output ? `out${output} = ${value};` : "";
+  });
+}
+
+export function musicalEnvelopeDocument() {
+  return genDocument(musicalEnvelopeCode(), 4, 44, { outputSpacing: 18 });
 }

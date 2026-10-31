@@ -4,6 +4,34 @@ Companion specification: [Desktop Application](desktop-application.md)
 
 ## Electron shell
 
+- [x] Carry published metric `partial` outcomes and bounded acquisition summaries
+  through strict tool/main/preload contracts and Listening passes; keep typed
+  four-kind store references additive at schema version two. Cover main
+  redaction, immutable terminal inventory, absent-context/false-complete denial,
+  renderer partial versus failure, usable refresh and terminal cancellation.
+- [ ] Qualify the independent capture end to end through runner-owned Live and
+  ordinary-policy visible Desktop. Synthetic lifecycle coverage is not native
+  source/metric proof or installation readiness.
+
+- [x] Carry shared optional `failureEvidence` through Desktop contracts,
+  headless projections, existing typed IPC/events and Listening passes.
+  Validate owning trace/pass identity, redact/bound text with explicit truncation,
+  preserve immutable first failure, and retain existing launch/leave-running
+  semantics. Show source/check, actual/expected operands/units, coverage/gaps and
+  diagnostic reference; legacy errors explicitly lack diagnostic evidence.
+  Preserve strict `<` comparisons, `flags`/`epoch` labels and domain-qualified
+  fact fields with focused renderer interaction coverage.
+- [x] Navigate an owned failure to the existing typed History trace view without
+  SQL/filesystem access. Keep a selected trace visible outside the root-list
+  page and explicitly label unavailable/pending persisted evidence. Cover
+  contracts, headless sanitation/attribution/identity/first failure, IPC, React
+  interactions and typed History read/ownership failures.
+- [ ] Execute the expanded synthetic Electron failure-evidence/History
+  regression and owned-process desktop UX validation after the user closes
+  their existing App/Live processes. Tests are added, but process launches were
+  explicitly forbidden during this Desktop-only implementation. This is not
+  real-host preflight acceptance or a claim that the installed failure is fixed.
+
 - [x] Carry the shared bounded Session source/launch lifecycle through typed
   tools, main/preload inventory/events and the existing Listening passes panel.
   Show local first-iteration bounds, accepted-launch uncertainty, leave-running

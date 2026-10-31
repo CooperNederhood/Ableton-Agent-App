@@ -148,17 +148,25 @@ class NativeDescriptorAssembler {
     this.spectra.length = 0;
   }
 
-  abort(reason) {
+  abort(reason, diagnostic) {
+    this.failureSnapshot ??= Object.freeze({
+      reason,
+      pendingCount: this.pending.length,
+      spectrumCount: this.spectra.length,
+      firstEnvelopeEndCounter: this.pending[0]?.end ?? null,
+      lastEnvelopeEndCounter: this.lastEnvelope?.end ?? null,
+      lastSpectrumEndCounter: this.lastSpectrum?.end ?? null,
+    });
     this.state = "failed";
     this.clear();
     this.intervals.length = 0;
     this.lastEnvelope = null;
     this.lastSpectrum = null;
-    this.onFailure(reason, this.owner);
+    this.onFailure(reason, this.owner, diagnostic, this.failureSnapshot);
   }
 
-  reject(reason) {
-    this.abort(reason);
+  reject(reason, diagnostic) {
+    this.abort(reason, diagnostic);
     throw new Error(reason);
   }
 
@@ -219,8 +227,18 @@ class NativeDescriptorAssembler {
       )
     )
       return this.reject("native_envelope_sequence_gap");
-    if (this.pending.length >= 8)
-      return this.reject("native_envelope_buffer_overflow");
+    if (this.pending.length >= 8) {
+      const first = this.pending[0].end;
+      const available = this.spectra.filter((s) => s.end <= first).at(-1);
+      return this.reject(
+        "native_envelope_buffer_overflow",
+        Object.freeze({
+          pendingCount: this.pending.length,
+          firstEnvelopeEndCounter: first,
+          availableSpectrum: available ? Object.freeze({ ...available }) : null,
+        }),
+      );
+    }
     this.lastEnvelope = { end: packet.endCounter, fingerprint };
     this.pending.push({
       end: packet.endCounter,
@@ -286,8 +304,32 @@ class NativeDescriptorAssembler {
         spectrum = candidate;
       }
       if (!spectrum || envelope.end - spectrum.end >= FFT) {
-        if (this.lastSpectrum && this.lastSpectrum.end > envelope.end)
-          return this.reject("native_fft_window_missing");
+        if (this.lastSpectrum && this.lastSpectrum.end > envelope.end) {
+          // The accepted latest packet fixes the FFT grid, even if its required
+          // predecessor was never delivered. Snapshot before abort clears it.
+          const latestEnd = this.lastSpectrum.end;
+          const requiredEnd =
+            latestEnd - Math.ceil((latestEnd - envelope.end) / FFT) * FFT;
+          return this.reject(
+            "native_fft_window_missing",
+            Object.freeze({
+              scope: "native-coverage-rejection/v1",
+              nativeEpoch: this.owner.nativeEpoch,
+              armCounter: this.armCounter,
+              originCounter: this.originCounter,
+              completedMeasurements: this.frames,
+              expectedEnvelope: Object.freeze([
+                envelope.end - envelope.windowSamples,
+                envelope.end,
+              ]),
+              requiredSpectrum: Object.freeze([requiredEnd - FFT, requiredEnd]),
+              availableSpectrum: spectrum
+                ? Object.freeze([spectrum.start, spectrum.end])
+                : null,
+              latestSpectrum: Object.freeze([latestEnd - FFT, latestEnd]),
+            }),
+          );
+        }
         return;
       }
       if (spectrum.start < this.originCounter)

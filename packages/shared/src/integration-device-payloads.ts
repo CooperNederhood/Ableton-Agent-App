@@ -17,6 +17,7 @@ export interface IntegrationDevicePayload {
   readonly pathPlaceholder?: string;
   readonly nativeVersion?: number;
   readonly nativeAbiVersion?: number;
+  readonly measurementDelivery?: "retention-v1";
 }
 export const INTEGRATION_PAYLOAD_MANIFEST = "integration-devices.json";
 export const MIDI_CAPTURE_PATH_PLACEHOLDER =
@@ -43,6 +44,7 @@ export const INTEGRATION_DEVICE_INVENTORY = {
       "producer_identity_common.js",
       "audio_listener_native_v4_max.js",
       "audio_listener_native_io.js",
+      "audio_listener_measurements.js",
       "audio_listener_native_clock.gendsp",
       "audio_listener_native_envelope.gendsp",
       "audio_listener_native_spectrum.gendsp",
@@ -310,6 +312,7 @@ export async function readIntegrationDevicePayloads(
       id === "machine-listening" &&
       (entry.nativeVersion !== 4 ||
         entry.nativeAbiVersion !== 2 ||
+        entry.measurementDelivery !== "retention-v1" ||
         entry.algorithmVersion !== "2.0.0")
     )
       throw new Error("Integration native version mismatch");
@@ -355,6 +358,7 @@ export async function readIntegrationDevicePayloads(
       if (
         native.nativeVersion !== 4 ||
         native.nativeAbiVersion !== 2 ||
+        native.measurementDelivery !== "retention-v1" ||
         native.algorithmVersion !== "2.0.0" ||
         native.nativeMode !== true ||
         native.authored !== true ||
@@ -436,7 +440,11 @@ export async function readIntegrationDevicePayloads(
       deviceFile: expected.deviceFile,
       files,
       ...(id === "machine-listening"
-        ? { nativeVersion: 4, nativeAbiVersion: 2 }
+        ? {
+            nativeVersion: 4,
+            nativeAbiVersion: 2,
+            measurementDelivery: "retention-v1",
+          }
         : { pathPlaceholder: MIDI_CAPTURE_PATH_PLACEHOLDER }),
     });
   }

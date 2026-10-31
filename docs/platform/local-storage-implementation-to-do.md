@@ -4,6 +4,27 @@ Companion specification: [Local Storage Layout](local-storage.md)
 
 ## Canonical layout
 
+- [x] Retain opt-in wire5 native/metric lifecycle data in the existing journal
+  with causal IDs, real optional stage duration, bounded redaction and a single
+  exact-ID writer. Regress authenticated ingress through durable typed reads,
+  including repeated native events and no duplicate global-failure projection.
+  Keep all profile paths, quotas, retention and runtime delivery gates unchanged.
+
+- [x] Register additive independent metric observations in the existing typed
+  context store and four-kind Desktop reference at schema version two; retain
+  canonical resolver-owned paths, historical declarations and all byte quotas.
+  Document indexed native evidence, compact summaries and honest partial passes
+  separately from legacy capture admission and whole-pipeline qualification.
+  Keep independent detector-window peak/RMS provenance and prefix-state limits
+  inside the same bounded processed observation, with no raw-audio persistence,
+  new path, quota increase or historical payload rewriting.
+
+- [x] Redact nested credential assignments inside ordinary diagnostic prefixes
+  and preserve stable redaction markers across repeated boundary sanitation.
+  Keep the shared sanitizer and existing storage layout; retain regression
+  coverage for plain text, structured fields, journal persistence and ordinary
+  non-secret diagnostic operands.
+
 - [x] Keep integration detect/dry-run profile-registry reads side-effect-free;
   use the packaged selected profile or explicit isolation override for installed
   producer configuration and CLI journal ownership.

@@ -2,6 +2,9 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
+import { listeningFailureFixture } from "./test-fixtures/listening-failure.js";
+import { summarizeMetricListeningResult } from "@ableton-agent/protocol";
+import { createSyntheticPartialMetricListeningObservation } from "@ableton-agent/protocol/testing";
 import type { DesktopAppEvent } from "../contracts.js";
 import type {
   DesktopListeningJob,
@@ -104,6 +107,328 @@ async function click(text: string) {
 }
 
 describe("owned listening lifecycle presentation (synthetic fixtures only)", () => {
+  it("shows a saved partial as terminal, with usable metrics and explicit gaps rather than a failure", async () => {
+    const h = source();
+    const partial: DesktopListeningJob = {
+      ...job,
+      stage: "partial",
+      contextIds: ["context"],
+      metricResults: [
+        summarizeMetricListeningResult(
+          createSyntheticPartialMetricListeningObservation(),
+        ),
+      ],
+    };
+    vi.mocked(h.api.listening.list).mockResolvedValueOnce(page([partial]));
+    await render(h.api);
+    const row = container.querySelector('[data-listening-stage="partial"]');
+    expect(row?.textContent).toContain("Partial listening result saved");
+    expect(row?.textContent).toContain("Missing measurements are not silence");
+    expect(row?.textContent).toContain("level: complete");
+    expect(row?.textContent).toContain("spectral-centroid: partial");
+    expect(row?.textContent).toContain("10 of 11");
+    expect(row?.textContent).toContain("drain-timeout");
+    expect(row?.textContent).not.toContain("Lifecycle completed");
+    expect(row?.querySelector('[role="alert"]')).toBeNull();
+    const cancel = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent === "Cancel owned capture (not transport)",
+    );
+    expect(cancel?.disabled).toBe(true);
+    await click("Refresh listening passes");
+    expect(h.api.listening.list).toHaveBeenCalledTimes(2);
+  });
+
+  it("preserves strict native comparisons, clock-domain fields and flags/epoch units", async () => {
+    const h = source();
+    const failureEvidence = listeningFailureFixture(
+      job.trace.traceId,
+      job.passId,
+    );
+    failureEvidence.facts = [
+      {
+        field: "native.native-source.source-span",
+        actual: { state: "observed", value: 48000 },
+        expected: { state: "observed", value: 48000 },
+        comparison: "less-than",
+        unit: "samples",
+      },
+      {
+        field: "native.clock.flags",
+        actual: { state: "observed", value: 3 },
+        expected: { state: "observed", value: 1 },
+        comparison: "contains-all-bits",
+        unit: "flags",
+      },
+      {
+        field: "native.clock.epoch",
+        actual: { state: "observed", value: 12 },
+        expected: { state: "observed", value: 12 },
+        comparison: "equal",
+        unit: "epoch",
+      },
+      {
+        field: "native.native-source.pending-span",
+        actual: { state: "unavailable", reason: "not-reached" },
+        comparison: "less-than",
+        unit: "samples",
+      },
+      {
+        field: "native.control.tempo",
+        actual: { state: "observed", value: 128 },
+        expected: { state: "observed", value: 120 },
+        comparison: "equal",
+        unit: "bpm",
+      },
+      {
+        field: "native.geometry.overlap",
+        actual: { state: "observed", value: 0.5 },
+        expected: { state: "observed", value: 0.25 },
+        comparison: "equal",
+        unit: "fraction",
+      },
+    ];
+    vi.mocked(h.api.listening.list).mockResolvedValueOnce(
+      page([
+        {
+          ...job,
+          stage: "failed",
+          failureEvidence,
+        },
+      ]),
+    );
+    await render(h.api);
+    const operands = container.querySelector('[aria-label="Failure operands"]');
+    expect(operands?.textContent).toContain("native.native-source.source-span");
+    expect(operands?.textContent).toContain(
+      "Actual: 48000 samples. Expected (<): 48000 samples",
+    );
+    expect(operands?.textContent).toContain(
+      "Actual: 3 flags. Expected (contains-all-bits): 1 flags",
+    );
+    expect(operands?.textContent).toContain(
+      "Actual: 12 epoch. Expected (equal): 12 epoch",
+    );
+    expect(operands?.textContent).toContain("Required comparison: <");
+    expect(operands?.textContent).toContain(
+      "Actual: 128 bpm. Expected (equal): 120 bpm",
+    );
+    expect(operands?.textContent).toContain(
+      "Actual: 0.5 fraction. Expected (equal): 0.25 fraction",
+    );
+    expect(operands?.textContent).not.toContain("at-most");
+    expect(operands?.textContent).not.toContain("<=");
+    expect(h.cancel).not.toHaveBeenCalled();
+  });
+  it("keeps source truncation and unavailable expected operands explicit", async () => {
+    const h = source();
+    const failureEvidence = listeningFailureFixture(
+      job.trace.traceId,
+      job.passId,
+    );
+    failureEvidence.coverageReasons = ["diagnostic-truncated"];
+    failureEvidence.facts = [
+      {
+        field: "sourceIdentity",
+        actual: {
+          state: "observed",
+          value: "x".repeat(256),
+          truncated: true,
+          originalLength: 500,
+        },
+        expected: { state: "unavailable", reason: "unsupported" },
+        comparison: "matches",
+        unit: "identity",
+      },
+    ];
+    vi.mocked(h.api.listening.list).mockResolvedValueOnce(
+      page([
+        {
+          ...job,
+          stage: "failed",
+          failureEvidence,
+        },
+      ]),
+    );
+    await render(h.api);
+    expect(container.textContent).toContain("[truncated from 500 characters]");
+    expect(container.textContent).toContain(
+      "Expected (matches): unavailable (unsupported) identity",
+    );
+    expect(container.textContent).toContain("Coverage: partial");
+    expect(container.textContent).toContain("diagnostic-truncated");
+  });
+  it.each(["complete", "partial", "unavailable"] as const)(
+    "labels %s evidence without treating unavailable operands as zero or successful capture",
+    async (coverage) => {
+      const h = source();
+      const failureEvidence = listeningFailureFixture(
+        job.trace.traceId,
+        job.passId,
+      );
+      failureEvidence.coverage = coverage;
+      failureEvidence.coverageReasons =
+        coverage === "complete" ? [] : ["source-evidence-not-reported"];
+      failureEvidence.facts =
+        coverage === "complete"
+          ? [
+              {
+                field: "controlReaderReady",
+                actual: { state: "observed", value: false },
+                expected: { state: "observed", value: true },
+                comparison: "equal",
+                unit: "boolean",
+              },
+            ]
+          : [];
+      vi.mocked(h.api.listening.list).mockResolvedValueOnce(
+        page([
+          {
+            ...job,
+            stage: "failed",
+            error: "stale_native_preflight",
+            failureEvidence,
+          },
+        ]),
+      );
+      await render(h.api);
+      const failure = container.querySelector(
+        '[data-listening-stage="failed"]',
+      );
+      expect(failure?.textContent).toContain(`Coverage: ${coverage}`);
+      if (coverage === "complete") {
+        expect(failure?.textContent).toContain("Actual: false boolean");
+        expect(failure?.textContent).toContain(
+          "Expected (equal): true boolean",
+        );
+        expect(failure?.textContent).toContain(
+          "not capture or timing certification",
+        );
+      } else {
+        expect(failure?.textContent).toContain("source-evidence-not-reported");
+        expect(failure?.textContent).toContain(
+          "No decisive operands were reported",
+        );
+        expect(failure?.textContent).not.toContain("Actual: 0");
+      }
+      expect(failure?.textContent).not.toContain("Lifecycle completed");
+      expect(h.cancel).not.toHaveBeenCalled();
+    },
+  );
+  it("shows decisive operands, missing evidence and the owned History reference", async () => {
+    const h = source();
+    const openHistory = vi.fn();
+    vi.mocked(h.api.listening.list).mockResolvedValueOnce(
+      page([
+        {
+          ...job,
+          stage: "failed",
+          error: "stale_native_preflight",
+          failureEvidence: listeningFailureFixture(
+            job.trace.traceId,
+            job.passId,
+          ),
+        },
+      ]),
+    );
+    await act(async () =>
+      root.render(
+        <ListeningPassPanel
+          api={h.api}
+          sessionId="session"
+          agentId={agentId}
+          onOpenFailureHistory={openHistory}
+        />,
+      ),
+    );
+    expect(container.textContent).toContain("native-controller / preflight");
+    expect(container.textContent).toContain("preflight.accepted-clock-age");
+    expect(container.textContent).toContain("Actual: 1034 ms");
+    expect(container.textContent).toContain("Expected (at-most): 1000 ms");
+    expect(container.textContent).toContain("Coverage: partial");
+    expect(container.textContent).toContain("missing-operands");
+    expect(container.textContent).toContain("unavailable (not-reported)");
+    expect(container.textContent).toContain(
+      `Diagnostic trace: ${job.trace.traceId}`,
+    );
+    await click("View failure in History");
+    expect(openHistory).toHaveBeenCalledWith(
+      expect.objectContaining({
+        passId: job.passId,
+        sessionId: job.sessionId,
+        agentId: job.agentId,
+        failureEvidence: listeningFailureFixture(job.trace.traceId, job.passId),
+      }),
+    );
+    expect(h.cancel).not.toHaveBeenCalled();
+  });
+
+  it("explicitly marks legacy failures as unavailable without changing success or cancellation", async () => {
+    const h = source();
+    vi.mocked(h.api.listening.list).mockResolvedValueOnce(
+      page([
+        { ...job, stage: "failed", error: "stale_native_preflight" },
+        { ...job, passId: "success", stage: "completed" },
+        { ...job, passId: "cancel", stage: "cancelled" },
+      ]),
+    );
+    await render(h.api);
+    expect(
+      container.querySelector('[data-listening-stage="failed"]')?.textContent,
+    ).toContain(
+      "Diagnostic evidence unavailable: source-evidence-not-reported",
+    );
+    for (const stage of ["completed", "cancelled"])
+      expect(
+        container.querySelector(`[data-listening-stage="${stage}"]`)
+          ?.textContent,
+      ).not.toContain("Diagnostic evidence unavailable");
+  });
+  it.each([
+    "native_measurement_queue_overflow",
+    "native_measurement_delivery_failed",
+  ])(
+    "keeps the earlier context distinct when the next pass fails with %s",
+    async (error) => {
+      const h = source();
+      const previous: DesktopListeningJob = {
+        ...job,
+        passId: "completed-clip1",
+        stage: "completed",
+        contextIds: ["context-clip1"],
+      };
+      vi.mocked(h.api.listening.list).mockResolvedValueOnce(
+        page([previous, { ...job, stage: "capturing" }]),
+      );
+      await render(h.api);
+      await act(async () =>
+        h.emit({
+          type: "listening.changed",
+          page: page([previous, { ...job, stage: "failed", error }], 1),
+        }),
+      );
+      const completed = container.querySelector(
+        '[data-listening-stage="completed"]',
+      );
+      const failed = container.querySelector('[data-listening-stage="failed"]');
+      expect(completed?.textContent).toContain("context");
+      expect(completed?.textContent).toContain(
+        "1 stored observation references",
+      );
+      expect(failed?.textContent).toContain(error);
+      expect(failed?.textContent).toContain("0 stored observation references");
+      expect(failed?.textContent).not.toContain("Lifecycle completed");
+      expect(failed?.textContent).toContain("Playback policy: leave running");
+      expect(
+        [...container.querySelectorAll("button")].find(
+          (button) =>
+            button.textContent === "Cancel owned capture (not transport)",
+        )?.disabled,
+      ).toBe(true);
+      expect(h.cancel).not.toHaveBeenCalled();
+      expect(h.api.listening.list).toHaveBeenCalledTimes(1);
+    },
+  );
+
   it("shows full-active-region intent without inventing a queued duration", async () => {
     const h = source();
     vi.mocked(h.api.listening.list).mockResolvedValueOnce(
@@ -262,7 +587,7 @@ describe("owned listening lifecycle presentation (synthetic fixtures only)", () 
     );
     expect(container.textContent).toContain("Synthetic timing gate closed");
     expect(container.textContent).toContain(
-      "retry only after resolving the failure",
+      "missing evidence is not a diagnosis",
     );
   });
   it("cancels only the selected owner's existing service path and waits for terminal status", async () => {

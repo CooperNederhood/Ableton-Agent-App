@@ -8,7 +8,13 @@ import {
   type ContextSubject,
   type EntityContextRepository,
 } from "@ableton-agent/project-state";
-import type { StoredAudioObservation } from "@ableton-agent/protocol";
+import {
+  storedAudioObservationSchema,
+  storedObservationCoordinates,
+  storedObservationIdentity,
+  type MetricAudioObservation,
+  type StoredAudioObservation,
+} from "@ableton-agent/protocol";
 import {
   ListeningFailure,
   type ListeningOwner,
@@ -80,14 +86,47 @@ export function buildListeningPublication(
   input: ListeningPublicationInput,
   createId: () => string = randomUUID,
 ): AppendContextPass {
+  return buildPublication(input, false, createId);
+}
+
+export interface MetricListeningPublicationInput extends Omit<
+  ListeningPublicationInput,
+  "observations"
+> {
+  readonly observations: readonly MetricAudioObservation[];
+}
+
+/** Call only after independent runtime source/ownership verification. */
+export function buildMetricListeningPublication(
+  input: MetricListeningPublicationInput,
+  createId: () => string = randomUUID,
+): AppendContextPass {
+  return buildPublication(input, true, createId);
+}
+
+function buildPublication(
+  input: ListeningPublicationInput,
+  independentMetrics: boolean,
+  createId: () => string,
+): AppendContextPass {
+  const observations = input.observations.map((raw) => {
+    if ((raw.schema === "metric-audio-observation/v1") !== independentMetrics) {
+      throw new ListeningFailure(
+        "invalid_publication",
+        "Observation requires its explicitly negotiated publication path",
+      );
+    }
+    return storedAudioObservationSchema.parse(raw);
+  });
   if (
-    input.observations.length === 0 ||
-    input.observations.length > CONTEXT_LIMITS.listenersPerPass ||
-    input.bindings.length !== input.observations.length ||
+    observations.length === 0 ||
+    observations.length > CONTEXT_LIMITS.listenersPerPass ||
+    input.bindings.length !== observations.length ||
     new Set(input.bindings.map(({ listenerId }) => listenerId)).size !==
       input.bindings.length ||
-    new Set(input.observations.map(({ listenerId }) => listenerId)).size !==
-      input.observations.length
+    new Set(
+      observations.map((item) => storedObservationIdentity(item).listenerId),
+    ).size !== observations.length
   ) {
     throw new ListeningFailure(
       "invalid_publication",
@@ -97,8 +136,17 @@ export function buildListeningPublication(
   const subjects = new Map<string, ContextSubject>();
   const entries: AppendContextPass["entries"] = [];
   const links: AppendContextPass["links"] = [];
-  for (const observation of input.observations) {
-    const isSession = observation.schema === "session-audio-observation/v1";
+  for (const observation of observations) {
+    const identity = storedObservationIdentity(observation);
+    const coordinates = storedObservationCoordinates(observation);
+    const sessionSource =
+      observation.schema === "session-audio-observation/v1"
+        ? observation.source
+        : observation.schema === "metric-audio-observation/v1" &&
+            observation.source.view === "session"
+          ? observation.source
+          : undefined;
+    const isSession = sessionSource !== undefined;
     if (
       input.requestedMode !== (isSession ? "session" : "arrangement") ||
       input.actualMode !== (isSession ? "session" : "arrangement") ||
@@ -113,14 +161,15 @@ export function buildListeningPublication(
       );
     }
     const binding = input.bindings.find(
-      ({ listenerId }) => listenerId === observation.listenerId,
+      ({ listenerId }) => listenerId === identity.listenerId,
     );
     if (
       binding === undefined ||
-      observation.passId !== input.passId ||
-      !observation.complete ||
-      observation.endSample <= observation.startSample ||
-      observation.endBeat <= observation.startBeat
+      identity.passId !== input.passId ||
+      (observation.schema !== "metric-audio-observation/v1" &&
+        !observation.complete) ||
+      coordinates.endSample <= coordinates.startSample ||
+      coordinates.endBeat <= coordinates.startBeat
     ) {
       throw new ListeningFailure(
         "invalid_publication",
@@ -131,6 +180,24 @@ export function buildListeningPublication(
       (subject) => contextSubjectSchema.parse(subject),
     );
     if (
+      observation.schema === "metric-audio-observation/v1" &&
+      (observation.ownership.connectionEpoch !== binding.connectionEpoch ||
+        observation.ownership.traceId !== input.trace.traceId ||
+        observation.ownership.correlationId !== input.trace.correlationId ||
+        observation.ownership.causationId !== input.trace.causationId ||
+        coordinates.startBeat !== input.requestedRange.startBeat ||
+        coordinates.endBeat !== input.requestedRange.endBeat ||
+        (observation.source.view === "arrangement" &&
+          !associated[0]!.binding.previousRuntimeBindings.includes(
+            observation.source.target.expectedReference,
+          )))
+    ) {
+      throw new ListeningFailure(
+        "invalid_publication",
+        "Metric source, trace, connection epoch and requested range must match inspected ownership",
+      );
+    }
+    if (
       observation.schema !== "audio-observation/v1" &&
       binding.attribution === "exclusive"
     ) {
@@ -139,8 +206,8 @@ export function buildListeningPublication(
         "Approximate descriptive observations cannot certify exclusive attribution",
       );
     }
-    if (observation.schema === "session-audio-observation/v1") {
-      const { target } = observation.source;
+    if (sessionSource !== undefined) {
+      const { target } = sessionSource;
       const primary = associated[0]!;
       const track = associated
         .slice(1)
@@ -183,7 +250,7 @@ export function buildListeningPublication(
       passId: input.passId,
       kind: observation.schema,
       producer: {
-        listenerId: observation.listenerId,
+        listenerId: identity.listenerId,
         deviceId: binding.deviceReference,
         agentId: input.owner.agentId,
         connectionEpoch: binding.connectionEpoch,
@@ -223,21 +290,21 @@ export function buildListeningPublication(
         subjectId: subject.id,
         relationship: index === 0 ? "primary" : "contributor",
         coverage:
-          observation.schema === "session-audio-observation/v1"
+          sessionSource !== undefined
             ? index === 0
               ? {
                   coordinate: "clip-local-beats",
                   iteration: 0,
                   startBeat: 0,
-                  endBeat: observation.endBeat,
+                  endBeat: coordinates.endBeat,
                 }
               : {
                   coordinate: "transport-beats",
-                  ...observation.source.transport,
+                  ...sessionSource.transport,
                 }
             : {
-                startBeat: observation.startBeat,
-                endBeat: observation.endBeat,
+                startBeat: coordinates.startBeat,
+                endBeat: coordinates.endBeat,
               },
         attribution: binding.attribution,
         observedContributorIds: binding.contributors.map(({ id }) => id),
@@ -251,28 +318,43 @@ export function buildListeningPublication(
       });
     });
   }
+  const complete = observations.every((observation) =>
+    observation.schema === "metric-audio-observation/v1"
+      ? observation.outcome === "complete"
+      : observation.complete,
+  );
   const publication = appendContextPassSchema.parse({
     pass: {
       id: input.passId,
       sessionId: input.owner.sessionId,
       liveSetId: input.owner.liveSetId,
       initiatorAgentId: input.owner.agentId,
-      listenerIds: input.observations.map(({ listenerId }) => listenerId),
+      listenerIds: observations.map(
+        (item) => storedObservationIdentity(item).listenerId,
+      ),
       requestedMode: input.requestedMode,
       actualMode: input.actualMode,
       requestedRange: input.requestedRange,
       actualRange: {
         startBeat: Math.min(
-          ...input.observations.map(({ startBeat }) => startBeat),
+          ...observations.map(
+            (item) => storedObservationCoordinates(item).startBeat,
+          ),
         ),
-        endBeat: Math.max(...input.observations.map(({ endBeat }) => endBeat)),
+        endBeat: Math.max(
+          ...observations.map(
+            (item) => storedObservationCoordinates(item).endBeat,
+          ),
+        ),
       },
-      status: "completed",
-      complete: true,
+      status: complete ? "completed" : "partial",
+      complete,
       createdAt: input.createdAt,
       startedAt: input.startedAt,
       endedAt: input.endedAt,
-      interruptionReason: null,
+      interruptionReason: complete
+        ? null
+        : "Some requested metric evidence is unavailable; see metric coverage",
       trace: input.trace,
     },
     subjects: [...subjects.values()],
@@ -296,6 +378,27 @@ export async function persistListeningObservations(
   input: ListeningPublicationInput,
   signal: AbortSignal,
 ): Promise<readonly string[]> {
+  return persistPublication(repository, input, signal, () =>
+    buildListeningPublication(input),
+  );
+}
+
+export async function persistMetricListeningObservations(
+  repository: EntityContextRepository,
+  input: MetricListeningPublicationInput,
+  signal: AbortSignal,
+): Promise<readonly string[]> {
+  return persistPublication(repository, input, signal, () =>
+    buildMetricListeningPublication(input),
+  );
+}
+
+async function persistPublication(
+  repository: EntityContextRepository,
+  input: Pick<ListeningPublicationInput, "owner" | "trace">,
+  signal: AbortSignal,
+  build: () => AppendContextPass,
+): Promise<readonly string[]> {
   signal.throwIfAborted();
   if (
     repository.sessionId !== input.owner.sessionId ||
@@ -306,7 +409,7 @@ export async function persistListeningObservations(
       "Listening publication repository belongs to another session or Set",
     );
   }
-  const publication = buildListeningPublication(input);
+  const publication = build();
   await repository.appendPass(publication, {
     signal,
     trace: input.trace,

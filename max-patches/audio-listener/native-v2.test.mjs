@@ -22,6 +22,57 @@ const { nativeFailureDiagnosticV2Schema } =
 const TEMPO_LIMITATION =
   "Constant tempo is assumed; stability is not independently verified; tempo automation is unsupported.";
 
+test("required FFT gaps retain owned bounded coverage diagnostics through terminal failure and cleanup", async () => {
+  for (const mode of ["strict", "descriptive"]) {
+    const f = v2Fixture({
+      policy: { mode, maxClockDisagreementSamples: mode === "strict" ? 0 : 64 },
+    });
+    await f.start();
+    const p = f.controller.pass;
+    const assembler = p.assembler;
+    const end = f.origin + f.geometry.hopSamples;
+    f.packet("clock", f.clock(end + 64));
+    f.packet("envelope", f.envelope(f.geometry.hopSamples));
+    const futureEnd = 64000 + Math.ceil((end - 64000) / 2048) * 2048;
+    f.packet("spectrum", f.spectrum(futureEnd));
+    const terminal = f.events.find((event) => event.type === "terminal");
+    assert.equal(terminal.status, "failed");
+    assert.equal(
+      terminal.reason,
+      mode === "strict"
+        ? "changed_native_spectrum_sequence"
+        : "native_fft_window_missing",
+    );
+    assert.equal(terminal.passId, f.command.passId);
+    const failure = f.observed.find((event) => event.stage === "failed");
+    assert.equal(failure.traceId, f.command.traceId);
+    assert.equal(failure.correlationId, f.command.correlationId);
+    assert.equal(terminal.nativeFailureDiagnostic.generation, p.generation);
+    assert.equal(
+      terminal.nativeFailureDiagnostic.scope,
+      mode === "strict"
+        ? "native-spectrum-rejection/v1"
+        : "native-coverage-rejection/v1",
+    );
+    if (mode !== "strict")
+      assert.equal(terminal.nativeFailureDiagnostic.completedMeasurements, 0);
+    nativeFailureDiagnosticV2Schema.parse(terminal.nativeFailureDiagnostic);
+    assert.equal(f.controller.pass, null);
+    assert.equal(assembler.lastSpectrum, null);
+    assert.equal(assembler.pending.length, 0);
+    assert.equal(
+      f.events.filter((event) => event.type === "terminal").length,
+      1,
+    );
+    assert.equal(
+      f.events.some((event) => event.status === "complete"),
+      false,
+    );
+    f.packet("stopped", [0, 0, 2], p.generation);
+    assert.equal(f.controller.pendingDisarm, null);
+  }
+});
+
 test("stopped qmetro host-time advance on a held DSP snapshot is rejected without advancing evidence", async () => {
   for (const state of ["preflight", "native-arming"]) {
     const f = v2Fixture();
@@ -747,6 +798,7 @@ test("actual diagnostic load retains the unpublished spectrum sentinel and denie
   assert.deepEqual(p.nativeFailureDiagnostic, {
     ...recorded,
     generation: p.generation,
+    checkEvidence: p.nativeFailureDiagnostic.checkEvidence,
   });
   assert.equal(
     f.sent.some((packet) => packet.action === "arm"),
@@ -798,6 +850,7 @@ test("v2 spectrum rejection freezes exact numeric input, latest non-authority de
       scope: "native-spectrum-rejection/v1",
       generation: p.generation,
       check,
+      checkEvidence: diagnostic.checkEvidence,
       packet: expected,
       fftDiagnostics: debug,
       metadata: {
@@ -958,7 +1011,10 @@ test("v2 malformed debug fails boundedly and stale debug cannot replace a new ow
     const pending = f.controller.arm(V2_OWNER).catch((error) => error);
     f.packet("spectrum-diagnostics", values);
     assert.equal((await pending).message, "invalid_native_io_packet");
-    assert.equal(p.nativeFailureDiagnostic, null);
+    assert.equal(
+      p.nativeFailureDiagnostic.checkEvidence.reason,
+      "invalid_native_io_packet",
+    );
     f.packet("stopped", [0, 0, 2], p.generation);
   }
   const f = v2Fixture();
@@ -968,7 +1024,7 @@ test("v2 malformed debug fails boundedly and stale debug cannot replace a new ow
   f.packet("spectrum-diagnostics", [1, 2, 3, 4, 5]);
   f.controller.cancel(V2_OWNER);
   await cancelled;
-  assert.equal(first.nativeFailureDiagnostic, null);
+  assert.equal(first.nativeFailureDiagnostic.checkEvidence.reason, "cancelled");
   f.packet("stopped", [0, 0, 2], first.generation);
   f.controller.prepare(f.command);
   const next = f.controller.pass;
@@ -1003,7 +1059,8 @@ test("spectrum debug IO rejects malformed values once per generation and never l
     [1, 2, 3, 4, "5"],
   ])
     assert.equal(io.spectrumDiagnostics(values), false);
-  assert.deepEqual(wire, [["native", generation, "ioError", 1]]);
+  assert.deepEqual(wire.filter(p=>p[2]==="ioError"), [["native", generation, "ioError", 1]]);
+  assert.equal(wire.filter(p=>p[2]==="io-rejection").length,1);
   assert.equal(io.spectrumDiagnostics([1, 2, 3, 4, Number.MAX_VALUE]), true);
   assert.equal(
     io.packet("spectrum", [64000, 0, Number.MAX_VALUE, 61952, 64000, 0], 6),

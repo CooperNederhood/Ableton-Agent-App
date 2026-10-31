@@ -6,29 +6,20 @@ import {
 
 import { outputProducerSchema, signalPayloadSchema } from "./contracts.js";
 import {
-  listenerRegistrationSchema,
-  listenerReplySchema,
-  listenerResultSchema,
-} from "./listener-contracts.js";
-import {
-  listenerRegistrationV2Schema,
-  listenerReplyV2Schema,
-  listenerResultV2Schema,
-} from "./listener-v2-contracts.js";
-import {
-  listenerRegistrationSessionSchema,
-  listenerReplySessionSchema,
-  listenerResultSessionSchema,
-} from "./listener-session-contracts.js";
-import {
-  listenerRegistrationDualSchema,
-  listenerReplyDualSchema,
-  listenerResultDualSchema,
-} from "./listener-dual-contracts.js";
+  LISTENER_CAPABILITY_METRIC,
+  LISTENER_METRIC_PRODUCER_SCHEMA_VERSION,
+  listenerMetricProducerSchema,
+  listenerRegistrationMetricSchema,
+  listenerReplyMetricSchema,
+  listenerResultMetricSchema,
+} from "./listener-metric-contracts.js";
 
 export const PRODUCER_PROTOCOL_VERSION = 1 as const;
 export const DEFAULT_SIGNAL_INGRESS_HOST = "127.0.0.1";
 export const DEFAULT_SIGNAL_INGRESS_PORT = 45_832;
+export const SUPPORTED_LISTENER_CAPABILITIES = [
+  LISTENER_CAPABILITY_METRIC,
+] as const;
 export { DEFAULT_MAX_INGRESS_FRAME_BYTES } from "./contracts.js";
 
 const requestIdSchema = z.string().min(1).max(128);
@@ -40,16 +31,24 @@ export const producerHelloSchema = z
     requestId: requestIdSchema,
     secret: z.string().min(32).max(4096),
     producer: outputProducerSchema,
-    listener: z
-      .union([
-        listenerRegistrationSchema,
-        listenerRegistrationV2Schema,
-        listenerRegistrationSessionSchema,
-        listenerRegistrationDualSchema,
-      ])
-      .optional(),
+    listener: listenerRegistrationMetricSchema.optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((value, ctx) => {
+    const metric = value.listener?.version === 5;
+    if (
+      metric !==
+        (value.producer.schemaVersion ===
+          LISTENER_METRIC_PRODUCER_SCHEMA_VERSION) ||
+      (metric &&
+        !listenerMetricProducerSchema.safeParse(value.producer).success)
+    )
+      ctx.addIssue({
+        code: "custom",
+        message:
+          "Independent metric listeners require their matching producer contract",
+      });
+  });
 
 export const producerSignalFrameSchema = z
   .object({
@@ -79,25 +78,27 @@ export const producerDisconnectSchema = z
   })
   .strict();
 
-export const producerMessageSchema = z.discriminatedUnion("type", [
+type ProducerMessageVariantSchema =
+  | typeof producerHelloSchema
+  | typeof producerSignalFrameSchema
+  | typeof producerHeartbeatSchema
+  | typeof producerDisconnectSchema
+  | typeof listenerReplyMetricSchema
+  | typeof listenerResultMetricSchema;
+export type ProducerMessage = z.infer<ProducerMessageVariantSchema>;
+type ProducerMessageInput = z.input<ProducerMessageVariantSchema>;
+
+export const producerMessageSchema: z.ZodType<
+  ProducerMessage,
+  ProducerMessageInput
+> = z.discriminatedUnion("type", [
   producerHelloSchema,
   producerSignalFrameSchema,
   producerHeartbeatSchema,
   producerDisconnectSchema,
-  z.discriminatedUnion("listenerVersion", [
-    listenerReplySchema,
-    listenerReplyV2Schema,
-    listenerReplySessionSchema,
-    listenerReplyDualSchema,
-  ]),
-  z.discriminatedUnion("listenerVersion", [
-    listenerResultSchema,
-    listenerResultV2Schema,
-    listenerResultSessionSchema,
-    listenerResultDualSchema,
-  ]),
+  listenerReplyMetricSchema,
+  listenerResultMetricSchema,
 ]);
-export type ProducerMessage = z.infer<typeof producerMessageSchema>;
 
 export const ingressErrorCodeSchema = z.enum([
   "malformed-json",
@@ -124,6 +125,7 @@ export interface ProducerAcknowledgement {
   readonly action: "hello" | "signal" | "heartbeat" | "disconnect" | "listener";
   readonly connectionId?: string;
   readonly producerDiagnostics?: readonly [typeof WRITE_DIAGNOSTIC_CAPABILITY];
+  readonly listenerCapabilities?: SignalIngressDiscoveryDescriptor["listenerCapabilities"];
 }
 
 export interface ProducerErrorResponse {
@@ -145,20 +147,6 @@ export interface SignalIngressDiscoveryDescriptor {
   readonly maxFrameBytes: number;
   readonly secretPath?: string;
   readonly producerDiagnostics?: readonly [typeof WRITE_DIAGNOSTIC_CAPABILITY];
-  readonly listenerVersions?:
-    readonly [1] | readonly [1, 2] | readonly [1, 2, 3] | readonly [1, 2, 3, 4];
-  readonly listenerCapabilities?:
-    | readonly ["audio-listener/v1"]
-    | readonly ["audio-listener/v1", "audio-listener/v2"]
-    | readonly [
-        "audio-listener/v1",
-        "audio-listener/v2",
-        "audio-listener/session-v1",
-      ]
-    | readonly [
-        "audio-listener/v1",
-        "audio-listener/v2",
-        "audio-listener/session-v1",
-        "audio-listener/dual-mode-v1",
-      ];
+  readonly listenerVersions?: readonly [5];
+  readonly listenerCapabilities?: typeof SUPPORTED_LISTENER_CAPABILITIES;
 }

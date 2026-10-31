@@ -1,9 +1,21 @@
 import { describe, expect, it, vi } from "vitest";
+import {
+  summarizeMetricListeningResult,
+  projectMetricListeningReport,
+} from "@ableton-agent/protocol";
+import {
+  createSyntheticPartialMetricListeningObservation,
+  createSyntheticMetricListeningObservation,
+} from "@ableton-agent/protocol/testing";
 
 import {
   contextOperationParamsSchema,
+  contextOperationResultSchema,
+  MAX_METRIC_CONTEXT_RESPONSE_BYTES,
   createListeningTools,
   listeningOperationParamsSchema,
+  listeningOperationResultSchema,
+  LISTENING_AGENT_GUIDANCE,
 } from "./listening-tools.js";
 import {
   createAbletonMutationAuthorizer,
@@ -29,6 +41,391 @@ const sessionInput = {
 };
 
 describe("optional listening tool contracts", () => {
+  const reportEntry = {
+    contextId: "context",
+    passId: "pass",
+    listenerId: "listener",
+    subjectId: "subject",
+    kind: "metric-audio-observation/v1" as const,
+    createdAt: "2026-10-25T23:00:00.000Z",
+    freshness: "unknown" as const,
+    summary: "Stored metric report; not current source proof",
+  };
+  it("enforces the complete 64 KiB UTF-8 budget when a valid 48 KiB report fits but its entry does not", () => {
+    expect(MAX_METRIC_CONTEXT_RESPONSE_BYTES).toBe(64 * 1024);
+    const observation = createSyntheticMetricListeningObservation({
+      tempoBpm: 20,
+      endBeat: 10,
+    });
+    observation.limitations = Array.from({ length: 16 }, () =>
+      "界".repeat(240),
+    );
+    for (const metric of Object.values(observation.metrics)) {
+      metric.limitations = Array.from({ length: 8 }, () => "界".repeat(240));
+    }
+    const report = projectMetricListeningReport(observation, { limit: 32 });
+    const valid = { action: "report", entry: reportEntry, report };
+    expect(contextOperationResultSchema.parse(valid)).toEqual(valid);
+    expect(
+      new TextEncoder().encode(JSON.stringify(report)).byteLength,
+    ).toBeLessThanOrEqual(48 * 1024);
+    const oversized = {
+      ...valid,
+      entry: {
+        ...reportEntry,
+        createdAt: `2026-10-25T23:00:00.${"0".repeat(30_000)}Z`,
+      },
+    };
+    expect(JSON.stringify(oversized).length).toBeLessThan(
+      MAX_METRIC_CONTEXT_RESPONSE_BYTES,
+    );
+    expect(
+      new TextEncoder().encode(JSON.stringify(oversized)).byteLength,
+    ).toBeGreaterThan(MAX_METRIC_CONTEXT_RESPONSE_BYTES);
+    const parsed = contextOperationResultSchema.safeParse(oversized);
+    expect(parsed.success).toBe(false);
+    if (parsed.success) throw new Error("Oversized response was accepted");
+    expect(parsed.error.issues).toHaveLength(1);
+    expect(parsed.error.issues[0]?.message).toContain("64 KiB UTF-8");
+  });
+  it("defines strict deterministic report paging and a read-only attributed lifecycle", () => {
+    expect(
+      contextOperationParamsSchema.parse({
+        action: "report",
+        contextId: "context",
+      }),
+    ).toEqual({
+      action: "report",
+      contextId: "context",
+      includeHistorical: false,
+      offset: 0,
+      limit: 8,
+    });
+    for (const extra of [
+      { offset: -1 },
+      { offset: 0.1 },
+      { limit: 33 },
+      { limit: 0 },
+      { path: "audio.wav" },
+      { sql: "select 1" },
+    ]) {
+      expect(
+        contextOperationParamsSchema.safeParse({
+          action: "report",
+          contextId: "context",
+          ...extra,
+        }).success,
+      ).toBe(false);
+    }
+    const operation = resolveAbletonOperation("ableton_context", {
+      action: "report",
+      contextId: "context",
+    });
+    expect(operation?.descriptor).toMatchObject({
+      operationId: "context.report",
+      risk: "read",
+      mutationTarget: "read",
+      editScope: "none",
+      lifecycleEvents: {
+        queued: "agent.operation.queued",
+        started: "agent.operation.started",
+        progress: "workflow_job.progress",
+        completed: "agent.operation.completed",
+        failed: "agent.operation.failed",
+        cancelled: "agent.operation.cancelled",
+      },
+    });
+    expect(
+      operation?.descriptor.lifecycleIdentity({
+        action: "report",
+        contextId: "context",
+      }),
+    ).toMatchObject({ domain: "context", action: "report" });
+  });
+
+  it("accepts retained-position paging without renumbering selected metric rows", async () => {
+    const observation = createSyntheticMetricListeningObservation();
+    observation.rows = [observation.rows[0]!, observation.rows[2]!];
+    observation.reduction = {
+      mode: "selected-report-rows",
+      originalReportRows: 4,
+      retainedReportRows: 2,
+      authoritativeTimelines: "retained",
+    };
+    const report = projectMetricListeningReport(observation, {
+      offset: 1,
+      limit: 1,
+    });
+    const [, tool] = createListeningTools({
+      executeListeningOperation: async () => ({
+        action: "inspect-listeners",
+        listeners: [],
+        truncated: false,
+      }),
+      executeContextOperation: async () => ({
+        action: "report",
+        entry: reportEntry,
+        report,
+      }),
+    });
+    const params = contextOperationParamsSchema.parse({
+      action: "report",
+      contextId: "context",
+      offset: 1,
+      limit: 1,
+    });
+    expect(
+      await tool.handler?.(params, {
+        sessionId: "sdk",
+        toolCallId: "selected-row-call",
+        toolName: "ableton_context",
+        arguments: params,
+      }),
+    ).toMatchObject({
+      action: "report",
+      report: {
+        offset: 1,
+        nextOffset: null,
+        totalRows: 2,
+        reduction: observation.reduction,
+        rows: [{ index: 2 }],
+      },
+    });
+  });
+
+  it("returns bounded stacked rows through the actual context handler and forwards explicit paging", async () => {
+    const report = projectMetricListeningReport(
+      createSyntheticMetricListeningObservation({ endBeat: 4 }),
+      { offset: 8, limit: 2 },
+    );
+    const executeContextOperation = vi.fn(async () => ({
+      action: "report" as const,
+      entry: reportEntry,
+      report,
+    }));
+    const [, tool] = createListeningTools({
+      executeListeningOperation: async () => ({
+        action: "inspect-listeners",
+        listeners: [],
+        truncated: false,
+      }),
+      executeContextOperation,
+    });
+    const params = contextOperationParamsSchema.parse({
+      action: "report",
+      contextId: "context",
+      offset: 8,
+      limit: 2,
+      includeHistorical: true,
+    });
+    const invocation = {
+      sessionId: "sdk",
+      toolCallId: "call",
+      toolName: "ableton_context",
+      arguments: params,
+    };
+    expect(await tool.handler?.(params, invocation)).toMatchObject({
+      action: "report",
+      report: { offset: 8, nextOffset: 10 },
+    });
+    expect(executeContextOperation).toHaveBeenCalledWith(params, invocation);
+    expect(tool.description).toContain("follow report.nextOffset");
+    expect(tool.description).toContain("missing/no-frame is not silence");
+    expect(
+      JSON.stringify(await tool.handler?.(params, invocation)),
+    ).not.toContain('"observation":');
+    for (const invalid of [
+      projectMetricListeningReport(
+        createSyntheticMetricListeningObservation({ endBeat: 4 }),
+        { offset: 7, limit: 2 },
+      ),
+      projectMetricListeningReport(
+        createSyntheticMetricListeningObservation({ endBeat: 4 }),
+        { offset: 8, limit: 3 },
+      ),
+      projectMetricListeningReport(
+        createSyntheticMetricListeningObservation({ endBeat: 4 }),
+        { offset: 8, limit: 1 },
+      ),
+    ]) {
+      executeContextOperation.mockResolvedValueOnce({
+        action: "report",
+        entry: reportEntry,
+        report: invalid,
+      });
+      await expect(tool.handler?.(params, invocation)).rejects.toThrow(
+        "page mismatch",
+      );
+    }
+  });
+
+  it("rejects fake spectral silence, excessive rows, unknown payloads and nonprogressing report responses", () => {
+    const report = projectMetricListeningReport(
+      createSyntheticMetricListeningObservation({ endBeat: 0.01 }),
+    );
+    const valid = { action: "report", entry: reportEntry, report };
+    expect(contextOperationResultSchema.parse(valid)).toEqual(valid);
+    const row = report.rows[0]!;
+    for (const invalid of [
+      {
+        ...report,
+        rows: [
+          {
+            ...row,
+            "spectral-centroid": {
+              ...row["spectral-centroid"],
+              spectralEnergy: 0,
+            },
+          },
+        ],
+      },
+      { ...report, rows: Array.from({ length: 33 }, () => row) },
+      { ...report, nextOffset: 0 },
+      { ...report, rows: [], totalRows: 2, nextOffset: 0 },
+      { ...report, rawAudio: "forbidden" },
+    ]) {
+      expect(
+        contextOperationResultSchema.safeParse({ ...valid, report: invalid })
+          .success,
+      ).toBe(false);
+    }
+    expect(
+      contextOperationResultSchema.safeParse({
+        ...valid,
+        entry: { ...reportEntry, kind: "audio-observation/v1" },
+      }).success,
+    ).toBe(false);
+  });
+
+  it("guides the agent to read usable partial context without inventing evidence or retrying", () => {
+    expect(LISTENING_AGENT_GUIDANCE).toContain(
+      "stage=completed or stage=partial",
+    );
+    expect(LISTENING_AGENT_GUIDANCE).toContain(
+      "not full success or a failed tool",
+    );
+    expect(LISTENING_AGENT_GUIDANCE).toContain(
+      "disclose missing metrics and intervals",
+    );
+    expect(LISTENING_AGENT_GUIDANCE).toContain(
+      "silence and empty attack lists are evidence",
+    );
+    expect(LISTENING_AGENT_GUIDANCE).toContain(
+      "not a universal 300-row assumption",
+    );
+    expect(LISTENING_AGENT_GUIDANCE).toContain(
+      "retry automatically to fill gaps",
+    );
+    expect(LISTENING_AGENT_GUIDANCE).toContain("linear amplitudes, not dBFS");
+    expect(LISTENING_AGENT_GUIDANCE).toContain(
+      "detector-window end, not a precise onset",
+    );
+    expect(LISTENING_AGENT_GUIDANCE).toContain(
+      "Partial attack coverage cannot establish absence",
+    );
+  });
+  it("returns partial as a published outcome rather than a failure or full success", () => {
+    const job = {
+      passId: "pass",
+      stage: "partial",
+      createdAt: "2026-10-25T23:00:00.000Z",
+      updatedAt: "2026-10-25T23:00:01.000Z",
+      durationMs: 1_000,
+      contextIds: ["context"],
+      metricResults: [
+        summarizeMetricListeningResult(
+          createSyntheticPartialMetricListeningObservation(),
+        ),
+      ],
+    };
+    expect(
+      listeningOperationResultSchema.parse({ action: "get-pass", job }),
+    ).toEqual({
+      action: "get-pass",
+      job,
+    });
+    for (const invalid of [
+      { ...job, metricResults: undefined },
+      { ...job, contextIds: [] },
+      { ...job, error: "cleanup_failed" },
+      { ...job, stage: "completed" },
+    ])
+      expect(
+        listeningOperationResultSchema.safeParse({
+          action: "get-pass",
+          job: invalid,
+        }).success,
+      ).toBe(false);
+  });
+  it("preserves strict structured rejection evidence and optional absence in public jobs", () => {
+    const job = {
+      passId: "pass",
+      stage: "failed",
+      createdAt: "2026-10-25T23:00:00.000Z",
+      updatedAt: "2026-10-25T23:00:01.000Z",
+      durationMs: 1000,
+      contextIds: [],
+      error: "stale_native_preflight",
+      failureEvidence: {
+        schema: "listening-failure/v1",
+        code: "stale_native_preflight",
+        phase: "preflight",
+        component: "native-controller",
+        checkId: "native.preflight.accepted-clock",
+        summary: "No accepted clocks",
+        coverage: "complete",
+        coverageReasons: [],
+        facts: [
+          {
+            field: "acceptedClocks",
+            actual: { state: "observed", value: 0 },
+            expected: { state: "observed", value: 1 },
+            comparison: "at-least",
+          },
+        ],
+        reference: { passId: "pass", traceId: reference },
+      },
+    };
+    expect(
+      listeningOperationResultSchema.parse({ action: "get-pass", job }),
+    ).toEqual({ action: "get-pass", job });
+    expect(
+      listeningOperationResultSchema.safeParse({
+        action: "get-pass",
+        job: {
+          ...job,
+          failureEvidence: { ...job.failureEvidence, rawAudio: [1] },
+        },
+      }).success,
+    ).toBe(false);
+    expect(
+      listeningOperationResultSchema.safeParse({
+        action: "get-pass",
+        job: {
+          ...job,
+          failureEvidence: {
+            ...job.failureEvidence,
+            reference: { passId: "foreign", traceId: reference },
+          },
+        },
+      }).success,
+    ).toBe(false);
+    const { failureEvidence: _evidence, ...legacy } = job;
+    expect(_evidence).toBeDefined();
+    expect(
+      listeningOperationResultSchema.parse({ action: "get-pass", job: legacy }),
+    ).not.toHaveProperty("job.failureEvidence");
+    expect(LISTENING_AGENT_GUIDANCE).toContain(
+      "deliberately uncommissioned pending fresh per-pass native validation",
+    );
+    expect(LISTENING_AGENT_GUIDANCE).toContain(
+      "An error code alone is not a precise cause",
+    );
+    expect(listeningOperationParamsSchema.options[0].description).toContain(
+      "not evidence of an identity mismatch",
+    );
+  });
+
   it("explains exact action arguments, queued status and known-context retrieval before a call", () => {
     const [listening, context] = createListeningTools({
       executeListeningOperation: async () => ({
@@ -87,11 +484,15 @@ describe("optional listening tool contracts", () => {
     );
     expect(tool.description).toContain("cancel stops capture, not transport");
     expect(tool.description).toContain(
-      "Session requires a matching native listener supporting explicit Session mode (wire3 or wire4)",
+      "Session requires a matching native listener supporting explicit Session mode (wire5)",
     );
     expect(tool.description).toContain(
-      "both Arrangement and Session through explicit per-pass mode negotiation, never automatic mode fallback",
+      "independent level, spectral-centroid and attack timelines during one playback",
     );
+    expect(tool.description).toContain(
+      "A locally unavailable analyzer does not block healthy metrics",
+    );
+    expect(tool.description).not.toContain("wire3 or wire4");
     expect(tool.description).toContain("stopped beat zero and global None");
     expect(listeningOperationParamsSchema.options[1].description).toContain(
       "stopped beat zero and global None",

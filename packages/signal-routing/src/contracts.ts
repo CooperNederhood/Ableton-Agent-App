@@ -55,6 +55,7 @@ export const outputProducerSchema = z
             "audio-reference/v1",
             "audio-observation/v1",
             "audio-observation/v2",
+            "metric-audio-observation/v1",
           ].includes(producer.schemaVersion),
     {
       path: ["schemaVersion"],

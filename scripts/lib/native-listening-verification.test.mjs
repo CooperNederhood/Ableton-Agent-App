@@ -436,6 +436,77 @@ export function sessionEvidence({
 }
 
 describe("Session wire3 independent source join (synthetic only, not physical qualification)", () => {
+  const withCoveredReceipt = () => {
+    const e = sessionEvidence({
+      durationBeats: 4,
+      loopEnd: 4,
+      kind: "warped-audio",
+    });
+    const receipt = globalThis.structuredClone(e.session.receipts[2]);
+    receipt.result.status = "covered";
+    receipt.result.lastObservedSource.globalBeat =
+      e.expected.geometry.startBeat + 4.25;
+    receipt.result.lastObservedSource.playingPosition = 0.25;
+    e.session.receipts.splice(3, 0, receipt);
+    return e;
+  };
+  it.each([false, true])(
+    "verifies an independently witnessed covered loop boundary with advanced origin %s",
+    (advancedOrigin) => {
+      const e = withCoveredReceipt();
+      if (advancedOrigin)
+        e.session.receipts[3].result.lastObservedSource.startTimeBeats += 4;
+      expect(() => verifyNativeListeningEvidence(e, protocol)).not.toThrow();
+    },
+  );
+  it.each([
+    [
+      "early boundary",
+      (r) => {
+        r.lastObservedSource.globalBeat -= 1;
+      },
+    ],
+    [
+      "wrong phase",
+      (r) => {
+        r.lastObservedSource.playingPosition = 2;
+      },
+    ],
+    [
+      "changed epoch",
+      (r) => {
+        r.sourceEpoch.startTimeBeats += 4;
+      },
+    ],
+    [
+      "changed clip",
+      (r) => {
+        r.lastObservedSource.selectedClipReference = randomUUID();
+      },
+    ],
+    [
+      "unowned launch",
+      (r) => {
+        r.lastObservedSource.firedSlotIndex = 0;
+      },
+    ],
+    [
+      "invalid origin",
+      (r) => {
+        r.lastObservedSource.startTimeBeats += 2;
+      },
+    ],
+    [
+      "recording",
+      (r) => {
+        r.lastObservedSource.targetRecording = true;
+      },
+    ],
+  ])("rejects a covered receipt with %s", (_name, mutate) => {
+    const e = withCoveredReceipt();
+    mutate(e.session.receipts[3].result);
+    expect(() => verifyNativeListeningEvidence(e, protocol)).toThrow();
+  });
   it.each([
     [null, 8, "midi", 40],
     [8, 8, "midi", 40],

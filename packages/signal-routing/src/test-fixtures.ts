@@ -1,3 +1,28 @@
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { resolve, join } from "node:path";
+import {
+  LocalObservabilityJournal,
+  createNonBlockingObservabilityRecorder,
+} from "@ableton-agent/observability";
+
+export async function createIngressJournalFixture(
+  cleanup: Array<() => void | Promise<void>>,
+) {
+  const parent = resolve(".test-artifacts");
+  await mkdir(parent, { recursive: true });
+  const root = await mkdtemp(join(parent, "ingress-journal-"));
+  cleanup.push(() => rm(root, { recursive: true, force: false }));
+  const journal = await LocalObservabilityJournal.open({
+    path: join(root, "journal.sqlite"),
+  });
+  cleanup.push(() => journal.shutdown());
+  const failures: unknown[] = [];
+  const recorder = createNonBlockingObservabilityRecorder(journal, {
+    onFailure: (failure) => failures.push(failure),
+  });
+  return { journal, recorder, failures };
+}
+
 export const midiSample = {
   schema: "midi-sample/v1" as const,
   sample_index: 0,

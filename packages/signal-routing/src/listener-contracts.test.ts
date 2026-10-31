@@ -1,173 +1,105 @@
 import { describe, expect, it } from "vitest";
+import { listenerControlInputSchema } from "./listener-contracts.js";
 import {
-  DEFAULT_LISTENING_TIMING_POLICY,
-  evaluateListeningAlignment,
-} from "@ableton-agent/protocol";
-import { outputProducerSchema } from "./contracts.js";
-import { producerHelloSchema } from "./ingress-contracts.js";
+  producerHelloSchema,
+  producerMessageSchema,
+} from "./ingress-contracts.js";
 import {
-  listenerRegistrationSchema,
-  listenerReplySchema,
-  listenerResultSchema,
-} from "./listener-contracts.js";
-import { createSyntheticNativeListeningFixture } from "@ableton-agent/protocol/testing";
+  listenerControlMetricSchema,
+  listenerRegistrationMetricSchema,
+} from "./listener-metric-contracts.js";
+import { createSyntheticMetricWireFixture } from "./listener-metric-test-support.js";
 
-const legacy = {
-  version: 1,
-  connectionEpoch: "epoch",
-  capabilities: ["audio-listener/v1"],
-  sampleRate: 48000,
-  algorithmVersion: "native/v1",
-};
-const native = {
-  ...legacy,
-  deviceCanonicalPath: "live_set tracks 0 devices 0",
-  trackCanonicalPath: "live_set tracks 0",
-  nativeStatus: {
-    version: 1,
-    timing: "UNVERIFIED",
-    readiness: "BLOCKED",
-    reason: "real_live_timing_validation_required",
-  },
-};
-describe("native listener registration carrier", () => {
-  it("keeps v2 out of legacy registration and proof despite versioned producer support", () => {
-    expect(
-      outputProducerSchema.safeParse({
-        producerId: "listener",
-        instanceId: "instance",
-        displayName: "Listener",
-        signalKind: "audio",
-        schemaVersion: "audio-observation/v2",
-      }).success,
-    ).toBe(true);
-    expect(
-      listenerRegistrationSchema.safeParse({
-        ...native,
-        version: 2,
-        capabilities: ["audio-listener/v2"],
-      }).success,
-    ).toBe(false);
-    const { proof, observation } = createSyntheticNativeListeningFixture();
-    const { timingUncertaintySamples, ...algorithm } = observation.algorithm;
-    expect(timingUncertaintySamples).toBe(64);
-    expect(
-      listenerResultSchema.safeParse({
-        protocolVersion: 1,
-        listenerVersion: 1,
-        requestId: "request",
-        connectionEpoch: "connection",
-        jobId: "job",
-        passId: "pass",
-        traceId: "trace",
-        correlationId: "correlation",
-        causationId: "cause",
-        sequence: 0,
-        type: "listener.result",
-        status: "completed",
-        nativeCapture: proof,
-        observation: {
-          ...observation,
-          schema: "audio-observation/v2",
-          algorithm,
-          alignment: evaluateListeningAlignment(
-            DEFAULT_LISTENING_TIMING_POLICY,
-            {
-              sampleRate: 48_000,
-              vectorSize: 64,
-              observedClockDisagreementSamples: 1,
-              observedBeatDisagreementSamples: 0,
-            },
-          ),
+describe("clean-break listener contracts", () => {
+  it("accepts only new host input and leaves generation, sequence and wire identity to ingress", () => {
+    const f = createSyntheticMetricWireFixture();
+    const input = {
+      jobId: f.wire.jobId,
+      passId: f.wire.passId,
+      traceId: f.wire.traceId,
+      correlationId: f.wire.correlationId,
+      causationId: f.wire.causationId,
+      action: "prepare",
+      config: f.config,
+    };
+    expect(listenerControlInputSchema.parse(input)).toEqual(input);
+    for (const extra of [
+      { generation: f.wire.generation },
+      { sequence: 0 },
+      { listenerVersion: 4 },
+      { connectionId: f.wire.connectionId },
+      {
+        config: {
+          durationMs: 1000,
+          maxWindows: 8,
+          source: { mode: "arrangement", startBeat: 0, endBeat: 2 },
         },
-      }).success,
-    ).toBe(false);
-  });
-
-  it("carries bounded per-pass evidence only on the matching reply/result stage", () => {
-    const { proof, observation } = createSyntheticNativeListeningFixture();
-    const wire = {
-      protocolVersion: 1,
-      listenerVersion: 1,
-      requestId: "request",
-      connectionEpoch: "connection",
-      jobId: "job",
-      passId: "pass",
-      traceId: "trace",
-      correlationId: "correlation",
-      causationId: "cause",
-      sequence: 0,
-    };
-    const armed = {
-      ...wire,
-      type: "listener.reply",
-      status: "armed",
-      nativeArm: proof.armed,
-    };
-    expect(listenerReplySchema.parse(armed).nativeArm).toEqual(proof.armed);
-    expect(
-      listenerReplySchema.safeParse({ ...armed, status: "ready" }).success,
-    ).toBe(false);
-    const launched = {
-      ...wire,
-      type: "listener.result",
-      status: "progress",
-      nativeLaunch: proof.launched,
-    };
-    expect(listenerResultSchema.parse(launched).nativeLaunch).toEqual(
-      proof.launched,
-    );
-    expect(
-      listenerResultSchema.safeParse({
-        ...launched,
-        status: "completed",
-        observation,
-      }).success,
-    ).toBe(false);
-    const completed = {
-      ...wire,
-      type: "listener.result",
-      status: "completed",
-      observation,
-      nativeCapture: proof,
-    };
-    expect(listenerResultSchema.parse(completed).nativeCapture).toEqual(proof);
-    expect(
-      listenerResultSchema.safeParse({ ...completed, status: "progress" })
-        .success,
-    ).toBe(false);
-    expect(
-      listenerResultSchema.safeParse({ ...completed, rawAudio: [1] }).success,
-    ).toBe(false);
-  });
-  it("accepts actual producer.hello.listener fields and preserves legacy absence without invented readiness", () => {
-    expect(listenerRegistrationSchema.parse(native).nativeStatus).toEqual(
-      native.nativeStatus,
-    );
-    expect(
-      listenerRegistrationSchema.parse(legacy).nativeStatus,
-    ).toBeUndefined();
-    const hello = producerHelloSchema.parse({
-      type: "producer.hello",
-      protocolVersion: 1,
-      requestId: "hello",
-      secret: "x".repeat(32),
-      producer: {
-        producerId: "path-hash",
-        instanceId: "instance",
-        displayName: "Listener",
-        signalKind: "audio",
-        schemaVersion: "audio-observation/v1",
-        track: { id: "17" },
-        device: { id: "29" },
       },
-      listener: native,
-    });
-    expect(hello.listener?.capabilities).toEqual(["audio-listener/v1"]);
-    expect(hello.listener?.deviceCanonicalPath).toBe(
-      native.deviceCanonicalPath,
-    );
+      { action: "arm" },
+      { config: undefined },
+    ]) {
+      expect(
+        listenerControlInputSchema.safeParse({ ...input, ...extra }).success,
+      ).toBe(false);
+    }
   });
+  it.each([1, 2, 3, 4])(
+    "rejects superseded wire%s metadata, controls, replies and results",
+    (version) => {
+      const f = createSyntheticMetricWireFixture();
+      const capabilities = [
+        "audio-listener/v1",
+        "audio-listener/v2",
+        "audio-listener/session-v1",
+        "audio-listener/dual-mode-v1",
+      ];
+      const listener = {
+        ...f.registration,
+        version,
+        capabilities: [capabilities[version - 1]],
+      };
+      expect(listenerRegistrationMetricSchema.safeParse(listener).success).toBe(
+        false,
+      );
+      expect(
+        producerHelloSchema.safeParse({
+          type: "producer.hello",
+          protocolVersion: 1,
+          requestId: "hello",
+          secret: "x".repeat(32),
+          producer: {
+            producerId: f.wire.listenerId,
+            instanceId: "instance",
+            displayName: "Listener",
+            signalKind: "audio",
+            schemaVersion: `audio-observation/v${version === 1 ? 1 : 2}`,
+          },
+          listener,
+        }).success,
+      ).toBe(false);
+      expect(
+        listenerControlMetricSchema.safeParse({
+          ...f.wire,
+          listenerVersion: version,
+          type: "listener.control",
+          action: "prepare",
+          config: f.config,
+        }).success,
+      ).toBe(false);
+      for (const type of ["listener.reply", "listener.result"]) {
+        expect(
+          producerMessageSchema.safeParse({
+            ...f.wire,
+            listenerVersion: version,
+            type,
+            status: "failed",
+            reason: "old-listener",
+          }).success,
+        ).toBe(false);
+      }
+    },
+  );
+
   it.each([
     { deviceCanonicalPath: "live_set this_device" },
     { deviceCanonicalPath: "live_set tracks 0 devices 0 chains 0 devices 0" },
@@ -175,21 +107,15 @@ describe("native listener registration carrier", () => {
     { trackCanonicalPath: "live_set return_tracks 0" },
     { trackCanonicalPath: "live_set tracks 256" },
     { deviceCanonicalPath: 29 },
-    {
-      nativeStatus: { version: 2, timing: "UNVERIFIED", readiness: "BLOCKED" },
-    },
-    {
-      nativeStatus: { version: 1, timing: "UNVERIFIED", readiness: "BLOCKED" },
-    },
-    {
-      nativeStatus: {
-        ...native.nativeStatus,
-        certificateFile: "/caller-supplied",
-      },
-    },
-  ])("rejects unsafe paths, versions, and status evidence %j", (change) => {
+    { nativeStatus: undefined },
+    { nativeStatus: { version: 1, timing: "VERIFIED", readiness: "READY" } },
+  ])("preserves path, owning-track and metadata guards: %j", (change) => {
+    const f = createSyntheticMetricWireFixture();
     expect(
-      listenerRegistrationSchema.safeParse({ ...native, ...change }).success,
+      listenerRegistrationMetricSchema.safeParse({
+        ...f.registration,
+        ...change,
+      }).success,
     ).toBe(false);
   });
 });

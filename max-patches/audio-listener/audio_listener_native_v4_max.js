@@ -2,7 +2,12 @@
 "use strict";
 const maxApi = require("max-api");
 const { createRuntime } = require("./audio_listener_runtime.js");
-const runtime = createRuntime({ maxApi, nativeMode: true, nativeVersion: 4 });
+const runtime = createRuntime({
+  maxApi,
+  nativeMode: true,
+  nativeVersion: 4,
+  retainedMeasurements: true,
+});
 maxApi.outlet("adapter-started");
 process.once("SIGTERM", () => {
   runtime.stop();

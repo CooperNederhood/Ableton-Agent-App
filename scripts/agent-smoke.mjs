@@ -83,10 +83,13 @@ try {
   for (const group of selectedGroups.filter((entry) =>
     [
       "native-listening",
+      "native-listening-metric",
       "native-listening-descriptive",
       "native-listening-session",
+      "native-listening-dual",
       "native-listening-source-investigation",
       "native-listening-rebinding",
+      "native-listening-repeated",
     ].includes(entry.id),
   )) {
     const manifests = await Promise.all(group.scenarios.map(loadManifest));
@@ -105,6 +108,7 @@ try {
     inputV2: option("native-v2-fixture-input"),
     inputV3: option("native-v3-fixture-input"),
     inputV4: option("native-v4-fixture-input"),
+    inputV5: option("native-v5-fixture-input"),
   });
   await controller.assertNoPreExistingLive();
   if (!hasFlag("skip-build")) {
@@ -155,13 +159,15 @@ try {
           createNativeListeningRunner({
             manifest,
             inputPath: option(
-              reviewNativeScenario(manifest).nativeVersion === 4
-                ? "native-v4-fixture-input"
-                : reviewNativeScenario(manifest).nativeVersion === 3
-                  ? "native-v3-fixture-input"
-                  : reviewNativeScenario(manifest).nativeVersion === 2
-                    ? "native-v2-fixture-input"
-                    : "native-fixture-input",
+              reviewNativeScenario(manifest).nativeVersion === 5
+                ? "native-v5-fixture-input"
+                : reviewNativeScenario(manifest).nativeVersion === 4
+                  ? "native-v4-fixture-input"
+                  : reviewNativeScenario(manifest).nativeVersion === 3
+                    ? "native-v3-fixture-input"
+                    : reviewNativeScenario(manifest).nativeVersion === 2
+                      ? "native-v2-fixture-input"
+                      : "native-fixture-input",
             ),
             directory: resolve(
               ".test-artifacts",

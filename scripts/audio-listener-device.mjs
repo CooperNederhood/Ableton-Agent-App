@@ -26,6 +26,10 @@ import {
   nativeRuntimeDocuments,
 } from "../max-patches/audio-listener/native-runtime-source.mjs";
 import { NATIVE_CAPTURE_SCOPE } from "../max-patches/audio-listener/audio_listener_native_controller.js";
+import {
+  compileNativeMetricProtocol,
+  NATIVE_METRIC_PROTOCOL_FILE,
+} from "./lib/native-metric-protocol-bundle.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 export const SOURCE_DIRECTORY = join(root, "max-patches", "audio-listener");
@@ -64,6 +68,32 @@ export const PROFILE_CONFIGURATION = "agent_signal_storage.js";
 const hash = (raw) => createHash("sha256").update(raw).digest("hex");
 
 function nativePackageProfile(version) {
+  if (version === 5) {
+    const documents = nativeRuntimeDocuments({ nativeVersion: 5 });
+    const runtimeEntry = "audio_listener_native_v5_max.js";
+    return {
+      documents,
+      runtimeEntry,
+      scope: "independent-metric-timelines/v1",
+      algorithmVersion: "3.0.0",
+      observationSchema: "metric-audio-observation/v1",
+      durationMs: 30000,
+      maxWindows: 2000,
+      watchdogMs: 60000,
+      resources: [
+        runtimeEntry,
+        "audio_listener_metric_runtime.js",
+        "audio_listener_metric_controller.js",
+        "audio_listener_metric_spectrum.js",
+        "audio_listener_metric_io.js",
+        "audio_listener_metric_timelines.js",
+        "audio_listener_measurements.js",
+        "audio_listener_native_io.js",
+        NATIVE_METRIC_PROTOCOL_FILE,
+        ...Object.keys(documents),
+      ],
+    };
+  }
   const descriptive = version === 2 || version === 3 || version === 4;
   const documents = nativeRuntimeDocuments({ nativeVersion: version });
   const runtimeEntry =
@@ -95,6 +125,7 @@ function nativePackageProfile(version) {
     resources: [
       runtimeEntry,
       "audio_listener_native_io.js",
+      ...(version === 4 ? ["audio_listener_measurements.js"] : []),
       ...Object.keys(documents),
     ],
   };
@@ -365,11 +396,11 @@ async function buildPackage(
   if (!outDirectory || typeof outDirectory !== "string")
     throw new Error("explicit staging directory required");
   if (
-    ![1, 2, 3, 4].includes(nativeVersion) ||
+    ![1, 2, 3, 4, 5].includes(nativeVersion) ||
     (nativeVersion >= 2 && !nativeMode)
   )
     throw new Error(
-      "native version must be 1 or explicit native-mode version 2/3/4",
+      "native version must be 1 or explicit native-mode version 2/3/4/5",
     );
   if (
     typeof nativeMode !== "boolean" ||
@@ -377,6 +408,13 @@ async function buildPackage(
   )
     throw new Error("native candidate requires explicit authored source");
   const native = nativeMode ? nativePackageProfile(nativeVersion) : undefined;
+  const metricCodec =
+    nativeMode && nativeVersion === 5
+      ? await compileNativeMetricProtocol({
+          stage: publicationOptions.stage,
+          signal: publicationOptions.signal,
+        })
+      : undefined;
   const destination = resolve(outDirectory);
   if (destination === SOURCE_DIRECTORY)
     throw new Error("build must not overwrite canonical sources");
@@ -435,7 +473,10 @@ async function buildPackage(
     for (const name of native.resources) {
       checkPackageCancellation(publicationOptions.signal);
       let source;
-      if (Object.hasOwn(generated, name)) {
+      if (name === metricCodec?.fileName) {
+        source = join(destination, name);
+        await writeFile(source, metricCodec.source, { flag: "wx" });
+      } else if (Object.hasOwn(generated, name)) {
         source = join(destination, name);
         await writeFile(source, JSON.stringify(generated[name], null, 2), {
           flag: "wx",
@@ -504,9 +545,19 @@ async function buildPackage(
           ...(nativeVersion >= 2
             ? {
                 nativeVersion,
+                ...(nativeVersion === 5
+                  ? {
+                      nativeAbiVersion: 3,
+                      measurementDelivery: "independent-metric-timelines/v1",
+                      supportedModes: ["arrangement", "session"],
+                      modeNegotiation: "explicit-per-pass",
+                      metricProtocol: metricCodec.provenance,
+                    }
+                  : {}),
                 ...(nativeVersion === 4
                   ? {
                       nativeAbiVersion: 2,
+                      measurementDelivery: "retention-v1",
                       supportedModes: ["arrangement", "session"],
                       modeNegotiation: "explicit-per-pass",
                     }
@@ -553,7 +604,7 @@ export async function checkArtifact(directory) {
   );
   if (
     manifest.nativeVersion !== undefined &&
-    (![2, 3, 4].includes(manifest.nativeVersion) ||
+    (![2, 3, 4, 5].includes(manifest.nativeVersion) ||
       manifest.nativeMode !== true)
   )
     throw new Error("invalid native version manifest");
@@ -578,6 +629,19 @@ export async function checkArtifact(directory) {
       manifest.portable === true &&
       (manifest.listenerResourcesPortable === undefined ||
         manifest.listenerResourcesPortable === true);
+  if (
+    manifest.nativeVersion === 5 &&
+    (manifest.nativeAbiVersion !== 3 ||
+      manifest.measurementDelivery !== "independent-metric-timelines/v1" ||
+      manifest.modeNegotiation !== "explicit-per-pass" ||
+      JSON.stringify(manifest.supportedModes) !==
+        JSON.stringify(["arrangement", "session"]) ||
+      manifest.metricProtocol?.schema !== "native-metric-protocol-bundle/v1" ||
+      manifest.metricProtocol.sha256 !==
+        manifest.resources.find((r) => r.name === NATIVE_METRIC_PROTOCOL_FILE)
+          ?.sha256)
+  )
+    throw new Error("invalid independent-metric native manifest");
   if (
     ![1, 2].includes(manifest.formatVersion) ||
     manifest.realLiveValidated !== false ||
@@ -608,6 +672,7 @@ export async function checkArtifact(directory) {
   if (
     manifest.nativeVersion === 4 &&
     (manifest.nativeAbiVersion !== 2 ||
+      manifest.measurementDelivery !== "retention-v1" ||
       manifest.modeNegotiation !== "explicit-per-pass" ||
       JSON.stringify(manifest.supportedModes) !==
         JSON.stringify(["arrangement", "session"]))

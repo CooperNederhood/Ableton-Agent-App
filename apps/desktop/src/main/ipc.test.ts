@@ -5,6 +5,8 @@ import type { DiagnosticsActions, ProfileManagerActions } from "./ipc.js";
 import { createIpcHandlers, registerIpc } from "./ipc.js";
 import type { DesktopEntityContextApi } from "../context-contracts.js";
 import { preferencesSchema } from "../contracts.js";
+import { listeningFailureFixture } from "../renderer/test-fixtures/listening-failure.js";
+import type { DesktopListeningPage } from "../listening-contracts.js";
 
 describe("desktop IPC", () => {
   it("guards listening preferences and round-trips policy through existing typed handlers", async () => {
@@ -63,11 +65,13 @@ describe("desktop IPC", () => {
       string,
       (event: never, payload: unknown) => Promise<unknown>
     >();
-    const listListeningJobs = vi.fn(async () => ({
-      sessionId: "session",
-      revision: 0,
-      jobs: [],
-    }));
+    const listListeningJobs = vi.fn(
+      async (): Promise<DesktopListeningPage> => ({
+        sessionId: "session",
+        revision: 0,
+        jobs: [],
+      }),
+    );
     const cancelActiveAgent = vi.fn(async () => ({ cancelled: true }));
     const ipcMain = {
       handle: (
@@ -105,6 +109,35 @@ describe("desktop IPC", () => {
       jobs: [],
     });
     expect(listListeningJobs).toHaveBeenCalledWith({ ...request, limit: 100 });
+    const failureEvidence = listeningFailureFixture(agentId, "ipc-pass");
+    const failedPage: DesktopListeningPage = {
+      sessionId: "session",
+      revision: 1,
+      jobs: [
+        {
+          passId: "ipc-pass",
+          sessionId: "session",
+          liveSetId: "set",
+          agentId,
+          trace: {
+            traceId: agentId,
+            correlationId: "ipc-fixture",
+            causationId: "fixture",
+          },
+          stage: "failed",
+          createdAt: "2026-10-12T00:00:00.000Z",
+          updatedAt: "2026-10-12T00:00:00.000Z",
+          durationMs: 1034,
+          contextIds: [],
+          cleanupPolicy: "leave-running",
+          evidence: "lifecycle-only",
+          error: "stale_native_preflight",
+          failureEvidence,
+        },
+      ],
+    };
+    listListeningJobs.mockResolvedValueOnce(failedPage);
+    await expect(list({} as never, request)).resolves.toEqual(failedPage);
     await registered.get("agents:cancel")!({} as never, {
       instanceId: agentId,
       sessionId: "session",

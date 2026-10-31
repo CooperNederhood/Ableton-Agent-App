@@ -50,7 +50,7 @@ function clockBinding(playing: boolean) {
     })
     .superRefine((value, ctx) => {
       let previous: ClockRow | undefined;
-      for (const row of value.frames) {
+      for (const [index, row] of value.frames.entries()) {
         if (
           !coherent(row) ||
           row[0] !== Number(playing) ||
@@ -62,6 +62,7 @@ function clockBinding(playing: boolean) {
           ctx.addIssue({
             code: "custom",
             message: "Incoherent native v2 clock bracket",
+            path: ["frames", index],
           });
           return;
         }
@@ -77,6 +78,16 @@ function clockBinding(playing: boolean) {
       }
     });
 }
+
+export const nativeCheckedTransportClockBindingSchema = clockBinding;
+export const isCoherentNativeTransportClock = coherent;
+export const nativeTransportTimingWitnessesSchema = z.strictObject({
+  minHostOffset: nativeHostClockRowSchema,
+  maxHostOffset: nativeHostClockRowSchema,
+  minBeatOrigin: nativeHostClockRowSchema,
+  maxBeatOrigin: nativeHostClockRowSchema,
+  maxPhaseDisagreement: nativeHostClockRowSchema,
+});
 
 export const nativeArmProofV2Schema = z
   .strictObject({
@@ -138,39 +149,41 @@ export const nativeLaunchProofV2Schema = z.strictObject({
 });
 export type NativeLaunchProofV2 = z.infer<typeof nativeLaunchProofV2Schema>;
 
-export const nativeCaptureProofV2Schema = z.strictObject({
+export const nativeSourceCoverageProofV2Schema = z.strictObject({
   armed: nativeArmProofV2Schema,
   launched: nativeLaunchProofV2Schema,
   after: clockBinding(true),
-  timingWitnesses: z.strictObject({
-    minHostOffset: nativeHostClockRowSchema,
-    maxHostOffset: nativeHostClockRowSchema,
-    minBeatOrigin: nativeHostClockRowSchema,
-    maxBeatOrigin: nativeHostClockRowSchema,
-    maxPhaseDisagreement: nativeHostClockRowSchema,
-  }),
-  envelopeWindows: z
-    .array(z.tuple([counter, amplitude, amplitude]))
-    .min(1)
-    .max(300),
-  spectralWindows: z
-    .array(
-      z.tuple([
-        integer,
-        integer,
-        z.number().finite().min(0).max(24_000),
-        z.number().finite().min(0).max(Number.MAX_SAFE_INTEGER),
-      ]),
-    )
-    .min(1)
-    .max(300),
+  timingWitnesses: nativeTransportTimingWitnessesSchema,
 });
+export type NativeSourceCoverageProofV2 = z.infer<
+  typeof nativeSourceCoverageProofV2Schema
+>;
+export const nativeCaptureProofV2Schema =
+  nativeSourceCoverageProofV2Schema.extend({
+    envelopeWindows: z
+      .array(z.tuple([counter, amplitude, amplitude]))
+      .min(1)
+      .max(300),
+    spectralWindows: z
+      .array(
+        z.tuple([
+          integer,
+          integer,
+          z.number().finite().min(0).max(24_000),
+          z.number().finite().min(0).max(Number.MAX_SAFE_INTEGER),
+        ]),
+      )
+      .min(1)
+      .max(300),
+  });
 export type NativeCaptureProofV2 = z.infer<typeof nativeCaptureProofV2Schema>;
 export const nativeListenerLifecycleV2Schema = nativeListenerLifecycleSchema
   .extend({
     scope: z.literal(NATIVE_LISTENER_SCOPE_V2),
     frames: integer.max(300),
-    phase: z.enum(["preflight", "reset", "capture", "alignment"]).optional(),
+    phase: z
+      .enum(["preflight", "reset", "capture", "alignment", "measurement"])
+      .optional(),
   })
   .refine(
     (value) =>
@@ -298,14 +311,12 @@ function phaseDisagreement(row: ClockRow, samplesPerBeat: number): number {
   );
 }
 
-/** Independent native completeness and observed alignment checks; no absolute accuracy claim. */
-export function assertNativeCaptureObservationV2(
-  rawProof: NativeCaptureProofV2,
-  rawObservation: AudioObservationV2,
+/** Transport interval and observed alignment only; not metric or clip identity proof. */
+export function assertNativeSourceCoverageV2(
+  rawProof: NativeSourceCoverageProofV2,
   expected: NativeListeningExpectationV2,
-): void {
-  const proof = nativeCaptureProofV2Schema.parse(rawProof);
-  const observation = audioObservationV2Schema.parse(rawObservation);
+) {
+  const proof = nativeSourceCoverageProofV2Schema.parse(rawProof);
   const armed = proof.armed;
   const geometry = armed.geometry;
   const coordinates = nativeLaunchCoordinatesV2(
@@ -313,61 +324,84 @@ export function assertNativeCaptureObservationV2(
     proof.launched,
     expected,
   );
+  return assertNativeCheckedTransportSourceCoverage({
+    policy: armed.policy,
+    geometry,
+    before: armed.before,
+    after: proof.after,
+    timingWitnesses: proof.timingWitnesses,
+    launchedHost: proof.launched.host,
+    coordinates,
+    errorPrefix: "native_v2",
+  });
+}
+
+/**
+ * Checked transport clocks only. Callers must validate their own actual arm,
+ * launch, receipt, geometry and owner evidence; no reset certificate is inferred.
+ */
+export function assertNativeCheckedTransportSourceCoverage(input: {
+  policy: ListeningTimingPolicy;
+  geometry: Pick<
+    NativeListeningGeometry,
+    "sampleRate" | "vectorSize" | "tempoBpm" | "startBeat" | "totalSamples"
+  >;
+  before: z.infer<ReturnType<typeof clockBinding>>;
+  after: z.infer<ReturnType<typeof clockBinding>>;
+  timingWitnesses: z.infer<typeof nativeTransportTimingWitnessesSchema>;
+  launchedHost: NativeLaunchProofV2["host"];
+  coordinates: {
+    startSample: number;
+    originCounter: number;
+    hostOffsetSamples: number;
+  };
+  additionalClocks?: ClockRow[];
+  errorPrefix: "native_v2" | "native_metric";
+}) {
+  const { geometry, coordinates, launchedHost, policy, errorPrefix } = input;
+  const before = clockBinding(false).parse(input.before);
+  const after = clockBinding(true).parse(input.after);
+  const timingWitnesses = nativeTransportTimingWitnessesSchema.parse(
+    input.timingWitnesses,
+  );
+  const additionalClocks = z
+    .array(nativeHostClockRowSchema)
+    .max(1)
+    .parse(input.additionalClocks ?? []);
   const { startSample, originCounter, hostOffsetSamples } = coordinates;
   const samplesPerBeat = (geometry.sampleRate * 60) / geometry.tempoBpm;
-  const windows = Math.ceil(geometry.totalSamples / geometry.hopSamples);
   const endCounter = originCounter + geometry.totalSamples;
-  const last = proof.after.frames.at(-1);
+  const last = after.frames.at(-1);
   if (
-    observation.listenerId !== expected.listenerId ||
-    observation.passId !== expected.passId ||
-    observation.sampleRate !== geometry.sampleRate ||
-    observation.startBeat !== geometry.startBeat ||
-    observation.endBeat !==
-      geometry.startBeat + geometry.totalSamples / samplesPerBeat ||
-    observation.startSample !== startSample ||
-    observation.endSample !== startSample + geometry.totalSamples ||
-    !observation.complete ||
-    observation.reduction.truncated ||
-    observation.algorithm.name !== "native-max-stereo-energy-envelope-rise" ||
-    observation.algorithm.version !== "2.0.0" ||
-    observation.algorithm.windowSamples !== FFT ||
-    observation.algorithm.hopSamples !== geometry.hopSamples ||
-    proof.after.dsp[1] !== geometry.sampleRate ||
-    proof.after.dsp[2] !== geometry.vectorSize ||
-    observation.samples.length !== windows ||
-    proof.spectralWindows.length !== windows ||
-    proof.envelopeWindows.length !== windows ||
+    after.dsp[1] !== geometry.sampleRate ||
+    after.dsp[2] !== geometry.vectorSize ||
     !last ||
     last[4] < endCounter ||
     last[4] - endCounter > geometry.sampleRate
   )
-    throw new Error("native_v2_capture_coverage_mismatch");
+    throw new Error(`${errorPrefix}_capture_coverage_mismatch`);
 
   let clockDisagreement = 0;
   let beatDisagreement = Math.abs(
-    proof.launched.host.sample -
-      Math.round(
-        (proof.launched.host.beat - geometry.startBeat) * samplesPerBeat,
-      ) -
+    launchedHost.sample -
+      Math.round((launchedHost.beat - geometry.startBeat) * samplesPerBeat) -
       startSample,
   );
-  const firstBefore = armed.before.frames[0];
-  if (!firstBefore) throw new Error("invalid_native_v2_host_binding");
+  const firstBefore = before.frames[0];
+  if (!firstBefore) throw new Error(`invalid_${errorPrefix}_host_binding`);
   const firstCounter = firstBefore[4];
-  const witnessRows = Object.values(proof.timingWitnesses);
+  const witnessRows = Object.values(timingWitnesses);
   const offsets: number[] = [];
   const phases: number[] = [];
   const beatOrigins: number[] = [
-    proof.launched.host.sample -
-      Math.round(
-        (proof.launched.host.beat - geometry.startBeat) * samplesPerBeat,
-      ),
+    launchedHost.sample -
+      Math.round((launchedHost.beat - geometry.startBeat) * samplesPerBeat),
   ];
   const retainedClocks = [
-    ...armed.before.frames,
-    ...proof.after.frames,
+    ...before.frames,
+    ...after.frames,
     ...witnessRows,
+    ...additionalClocks,
   ].sort((left, right) => left[4] - right[4]);
   let previousClock: ClockRow | undefined;
   for (const row of retainedClocks) {
@@ -377,22 +411,22 @@ export function assertNativeCaptureObservationV2(
       row[4] > last[4] ||
       (row[0] === 0 && row[1] !== geometry.startBeat)
     ) {
-      throw new Error("native_v2_timing_witness_mismatch");
+      throw new Error(`${errorPrefix}_timing_witness_mismatch`);
     }
     if (
       previousClock &&
       row[4] === previousClock[4] &&
       row.some((value, index) => value !== previousClock?.[index])
     ) {
-      throw new Error("native_v2_changed_clock_hold");
+      throw new Error(`${errorPrefix}_changed_clock_hold`);
     }
     if (
       previousClock &&
-      ((armed.policy.mode === "strict" && row[2] < previousClock[2]) ||
+      ((policy.mode === "strict" && row[2] < previousClock[2]) ||
         row[1] < previousClock[1] ||
         (previousClock[0] === 1 && row[0] === 0))
     ) {
-      throw new Error("native_v2_transport_regression");
+      throw new Error(`${errorPrefix}_transport_regression`);
     }
     previousClock = row;
     const offset = row[2] - row[4];
@@ -415,7 +449,7 @@ export function assertNativeCaptureObservationV2(
       );
     }
   }
-  const witnesses = proof.timingWitnesses;
+  const witnesses = timingWitnesses;
   const beatOriginOf = (row: ClockRow): number =>
     row[2] - Math.round((row[1] - geometry.startBeat) * samplesPerBeat);
   if (
@@ -431,18 +465,66 @@ export function assertNativeCaptureObservationV2(
     phaseDisagreement(witnesses.maxPhaseDisagreement, samplesPerBeat) !==
       Math.max(...phases)
   )
-    throw new Error("native_v2_timing_extrema_mismatch");
-  for (const row of proof.after.frames) {
+    throw new Error(`${errorPrefix}_timing_extrema_mismatch`);
+  for (const row of after.frames) {
     if (row[4] < endCounter)
-      throw new Error("native_v2_post_binding_before_coverage");
+      throw new Error(`${errorPrefix}_post_binding_before_coverage`);
   }
-  const quality = evaluateListeningAlignment(armed.policy, {
+  const quality = evaluateListeningAlignment(policy, {
     sampleRate: geometry.sampleRate,
     vectorSize: geometry.vectorSize,
     observedClockDisagreementSamples: clockDisagreement,
     observedBeatDisagreementSamples: beatDisagreement,
   });
-  if (JSON.stringify(quality) !== JSON.stringify(observation.alignment)) {
+  return Object.freeze({
+    ...coordinates,
+    endSample: startSample + geometry.totalSamples,
+    alignment: Object.freeze(quality),
+  });
+}
+
+/** Independent native completeness and observed alignment checks; no absolute accuracy claim. */
+export function assertNativeCaptureObservationV2(
+  rawProof: NativeCaptureProofV2,
+  rawObservation: AudioObservationV2,
+  expected: NativeListeningExpectationV2,
+): void {
+  const proof = nativeCaptureProofV2Schema.parse(rawProof);
+  const observation = audioObservationV2Schema.parse(rawObservation);
+  const { armed, launched, after, timingWitnesses } = proof;
+  const geometry = armed.geometry;
+  const coordinates = assertNativeSourceCoverageV2(
+    { armed, launched, after, timingWitnesses },
+    expected,
+  );
+  const { startSample, originCounter, hostOffsetSamples } = coordinates;
+  const samplesPerBeat = (geometry.sampleRate * 60) / geometry.tempoBpm;
+  const windows = Math.ceil(geometry.totalSamples / geometry.hopSamples);
+  const endCounter = originCounter + geometry.totalSamples;
+  if (
+    observation.listenerId !== expected.listenerId ||
+    observation.passId !== expected.passId ||
+    observation.sampleRate !== geometry.sampleRate ||
+    observation.startBeat !== geometry.startBeat ||
+    observation.endBeat !==
+      geometry.startBeat + geometry.totalSamples / samplesPerBeat ||
+    observation.startSample !== startSample ||
+    observation.endSample !== coordinates.endSample ||
+    !observation.complete ||
+    observation.reduction.truncated ||
+    observation.algorithm.name !== "native-max-stereo-energy-envelope-rise" ||
+    observation.algorithm.version !== "2.0.0" ||
+    observation.algorithm.windowSamples !== FFT ||
+    observation.algorithm.hopSamples !== geometry.hopSamples ||
+    observation.samples.length !== windows ||
+    proof.spectralWindows.length !== windows ||
+    proof.envelopeWindows.length !== windows
+  )
+    throw new Error("native_v2_capture_coverage_mismatch");
+  if (
+    JSON.stringify(coordinates.alignment) !==
+    JSON.stringify(observation.alignment)
+  ) {
     throw new Error("native_v2_alignment_quality_mismatch");
   }
 

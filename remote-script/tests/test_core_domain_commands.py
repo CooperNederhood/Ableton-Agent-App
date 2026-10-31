@@ -701,6 +701,146 @@ class CoreDomainCommandTests(unittest.TestCase):
         )["result"]
         self.assertEqual(deleted["afterSceneCount"], 3)
 
+    def test_track_stop_waits_for_next_tick_without_repeating_mutation(self):
+        regular = self.tracks()[0]
+        track = self.context.song.tracks[0]
+        track.playing_slot_index = 0
+        writes = []
+
+        def stop(current, quantized):
+            writes.append(quantized)
+            self.context.schedule_message(
+                1, lambda: setattr(current, "playing_slot_index", -2)
+            )
+
+        track.stop_all_clips = types.MethodType(stop, track)
+        responses, scheduled, logs = [], [], []
+        executor = MainThreadExecutor(
+            lambda _delay, callback: scheduled.append(callback),
+            self.registry,
+            self.context,
+            logger=logs.append,
+        )
+        operation = request(
+            "tracks.mutate",
+            {
+                "action": "stop-clips",
+                "target": target(regular),
+                "quantized": False,
+            },
+        )
+        executor.submit(operation, responses.append)
+        scheduled.pop(0)()
+        self.assertEqual(responses, [])
+        self.assertEqual(writes, [False])
+        self.assertEqual(len(self.context.scheduled), 2)
+        self.context.scheduled.pop(0)[1]()
+        self.assertEqual(responses, [])
+        self.context.scheduled.pop(0)[1]()
+        self.assertEqual(len(responses), 1)
+        self.assertTrue(responses[0]["ok"])
+        self.assertEqual(responses[0]["requestId"], operation["requestId"])
+        self.assertTrue(responses[0]["result"]["result"]["verified"])
+        self.assertEqual(track.playing_slot_index, -2)
+        self.assertEqual(writes, [False])
+        command_logs = [entry for entry in logs if "command=tracks.mutate" in entry]
+        for entry, lifecycle in zip(
+            command_logs, ("queued", "started", "progress", "completed")
+        ):
+            self.assertIn("executor " + lifecycle, entry)
+            self.assertIn("requestId=" + operation["requestId"], entry)
+        self.assertEqual(len(command_logs), 4)
+        self.assertIn("durationMs=", command_logs[-1])
+
+    def test_track_stop_unconfirmed_or_unavailable_state_is_not_success(self):
+        for state in (0, None):
+            with self.subTest(state=state):
+                track = self.context.song.tracks[0]
+                regular = self.tracks()[0]
+                track.playing_slot_index = 0
+                writes = []
+
+                def stop(current, quantized):
+                    writes.append(quantized)
+                    self.context.schedule_message(
+                        1, lambda: setattr(current, "playing_slot_index", state)
+                    )
+
+                track.stop_all_clips = types.MethodType(stop, track)
+                response = self.execute(
+                    "tracks.mutate",
+                    {
+                        "action": "stop-clips",
+                        "target": target(regular),
+                        "quantized": False,
+                    },
+                )
+                self.assertFalse(response["ok"])
+                self.assertEqual(response["error"]["code"], "conflict")
+                self.assertEqual(writes, [False])
+                self.assertEqual(self.context.scheduled, [])
+
+    def test_track_stop_revalidates_identity_before_deferred_success(self):
+        regular = self.tracks()[0]
+        original = self.context.song.tracks[0]
+        original.playing_slot_index = 0
+        replacement = FakeTrack(original.name)
+        self._prepare_track(replacement)
+        writes = []
+
+        def stop(current, quantized):
+            writes.append(quantized)
+            current.playing_slot_index = -2
+            self.context.schedule_message(
+                1, lambda: self.context.song.tracks.__setitem__(0, replacement)
+            )
+
+        original.stop_all_clips = types.MethodType(stop, original)
+        response = self.execute(
+            "tracks.mutate",
+            {
+                "action": "stop-clips",
+                "target": target(regular),
+                "quantized": False,
+            },
+        )
+        self.assertFalse(response["ok"])
+        self.assertEqual(response["error"]["code"], "stale_reference")
+        self.assertEqual(writes, [False])
+        self.assertEqual(self.context.scheduled, [])
+
+    def test_track_stop_queued_cancellation_does_not_dispatch(self):
+        regular = self.tracks()[0]
+        track = self.context.song.tracks[0]
+        track.playing_slot_index = 0
+        writes = []
+        track.stop_all_clips = types.MethodType(
+            lambda _current, quantized: writes.append(quantized), track
+        )
+        responses, scheduled = [], []
+        executor = MainThreadExecutor(
+            lambda _delay, callback: scheduled.append(callback),
+            self.registry,
+            self.context,
+        )
+        executor.submit(
+            request(
+                "tracks.mutate",
+                {
+                    "action": "stop-clips",
+                    "target": target(regular),
+                    "quantized": False,
+                },
+            ),
+            responses.append,
+        )
+        executor.close()
+        scheduled.pop(0)()
+        self.assertEqual(writes, [])
+        self.assertEqual(track.playing_slot_index, 0)
+        self.assertFalse(responses[0]["ok"])
+        self.assertEqual(self.context.scheduled, [])
+
     def test_tracks_mixer_routing_and_warnings(self):
         tracks = self.tracks()
         regular = tracks[0]
@@ -1024,6 +1164,113 @@ class CoreDomainCommandTests(unittest.TestCase):
         )
         self.assertEqual(writes, [False])
         self.assertTrue(self.context.song.back_to_arranger)
+        self.assertEqual(self.context.scheduled, [])
+
+    def _install_delayed_seek(self, after_time=None, resume=False):
+        song = self.context.song
+        song.current_song_time = 9.0
+        song.is_playing = False
+        state, writes = {"time": 9.0}, []
+
+        def assign(_song, value):
+            writes.append(value)
+
+            def apply():
+                state["time"] = value if after_time is None else after_time
+                song.is_playing = resume
+
+            self.context.schedule_message(1, apply)
+
+        song.__class__ = type(
+            "DelayedSeekSong",
+            (type(song),),
+            {"current_song_time": property(lambda _song: state["time"], assign)},
+        )
+        return writes
+
+    def test_stopped_seek_waits_for_next_tick_and_dispatches_once(self):
+        writes = self._install_delayed_seek()
+        responses, scheduled, logs = [], [], []
+        executor = MainThreadExecutor(
+            lambda _delay, callback: scheduled.append(callback),
+            self.registry,
+            self.context,
+            logger=logs.append,
+        )
+        operation = request("transport.mutate", {"action": "seek", "time": 0.0})
+        executor.submit(operation, responses.append)
+        scheduled.pop(0)()
+        self.assertEqual(responses, [])
+        self.assertEqual(writes, [0.0])
+        self.assertEqual(len(self.context.scheduled), 2)
+        self.context.scheduled.pop(0)[1]()
+        self.assertEqual(responses, [])
+        self.context.scheduled.pop(0)[1]()
+        self.assertTrue(responses[0]["ok"])
+        self.assertEqual(responses[0]["requestId"], operation["requestId"])
+        result = responses[0]["result"]
+        self.assertEqual(result["before"]["currentSongTime"], 9.0)
+        self.assertEqual(result["after"]["currentSongTime"], 0.0)
+        self.assertTrue(result["verified"])
+        self.assertEqual(writes, [0.0])
+        command_logs = [entry for entry in logs if "command=transport.mutate" in entry]
+        self.assertEqual(len(command_logs), 4)
+        for entry, lifecycle in zip(
+            command_logs, ("queued", "started", "progress", "completed")
+        ):
+            self.assertIn("executor " + lifecycle, entry)
+            self.assertIn("requestId=" + operation["requestId"], entry)
+        self.assertIn("durationMs=", command_logs[-1])
+
+    def test_stopped_seek_unconfirmed_or_resumed_transport_fails_without_rewrite(self):
+        for after_time, resume in ((7.0, False), (0.0, True)):
+            with self.subTest(after_time=after_time, resume=resume):
+                self.setUp()
+                writes = self._install_delayed_seek(after_time, resume)
+                response = self.execute(
+                    "transport.mutate", {"action": "seek", "time": 0.0}
+                )
+                self.assertFalse(response["ok"])
+                self.assertEqual(response["error"]["code"], "conflict")
+                self.assertEqual(writes, [0.0])
+                self.assertEqual(self.context.scheduled, [])
+
+    def test_stopped_seek_rejects_replaced_song(self):
+        writes = self._install_delayed_seek()
+        original = self.context.song
+        original_schedule = self.context.schedule_message
+
+        def schedule(delay, callback):
+            original_schedule(delay, callback)
+            if len(self.context.scheduled) == 1:
+                original_schedule(
+                    delay, lambda: setattr(self.context, "song", FakeContext().song)
+                )
+
+        self.context.schedule_message = schedule
+        response = self.execute(
+            "transport.mutate", {"action": "seek", "time": 0.0}
+        )
+        self.assertFalse(response["ok"])
+        self.assertEqual(response["error"]["code"], "conflict")
+        self.assertEqual(writes, [0.0])
+        self.assertEqual(original.current_song_time, 0.0)
+        self.assertEqual(self.context.scheduled, [])
+
+    def test_stopped_seek_queued_cancellation_does_not_dispatch(self):
+        writes = self._install_delayed_seek()
+        responses, scheduled = [], []
+        executor = MainThreadExecutor(
+            lambda _delay, callback: scheduled.append(callback),
+            self.registry,
+            self.context,
+        )
+        operation = request("transport.mutate", {"action": "seek", "time": 0.0})
+        executor.submit(operation, responses.append)
+        executor.close()
+        scheduled.pop(0)()
+        self.assertEqual(writes, [])
+        self.assertFalse(responses[0]["ok"])
         self.assertEqual(self.context.scheduled, [])
 
     def test_transport_mutations_and_cue_identity(self):

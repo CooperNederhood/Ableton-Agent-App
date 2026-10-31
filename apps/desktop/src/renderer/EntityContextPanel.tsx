@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import {
   listeningDisagreementMilliseconds,
+  storedObservationCoordinates,
+  storedObservationIdentity,
+  type MetricAudioObservation,
   type StoredAudioObservation,
 } from "@ableton-agent/protocol";
 import {
@@ -232,6 +235,15 @@ function ContextPage({
 
 function ObservationDetail({ detail }: { detail: DesktopContextDetail }) {
   const value = detail.observation;
+  if (value.schema === "metric-audio-observation/v1") {
+    return (
+      <MetricObservationDetail
+        key={detail.entry.contextId}
+        detail={detail}
+        value={value}
+      />
+    );
+  }
   return (
     <dl>
       <dt>Freshness</dt>
@@ -282,6 +294,185 @@ function ObservationDetail({ detail }: { detail: DesktopContextDetail }) {
   );
 }
 
+function PagedDetail({
+  label,
+  items,
+}: {
+  label: string;
+  items: Array<{ key: number; text: string }>;
+}) {
+  const [offset, setOffset] = useState(0);
+  return (
+    <section
+      aria-label={label}
+      style={{ overflowWrap: "anywhere", minWidth: 0 }}
+    >
+      <h5>{label}</h5>
+      <p>
+        {items.length === 0
+          ? "No retained data"
+          : `Showing ${offset + 1}-${Math.min(offset + 10, items.length)} of ${items.length}`}
+      </p>
+      <ul>
+        {items.slice(offset, offset + 10).map((item) => (
+          <li key={item.key}>{item.text}</li>
+        ))}
+      </ul>
+      {items.length > 10 && (
+        <div>
+          <button
+            aria-label={`Previous ${label}`}
+            disabled={offset === 0}
+            onClick={() => setOffset(Math.max(0, offset - 10))}
+          >
+            Previous
+          </button>
+          <button
+            aria-label={`Next ${label}`}
+            disabled={offset + 10 >= items.length}
+            onClick={() => setOffset(offset + 10)}
+          >
+            Next
+          </button>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function linearDb(value: number): string {
+  return value === 0
+    ? "silence (measured zero)"
+    : `${(20 * Math.log10(value)).toFixed(2)} dBFS`;
+}
+
+function sampleSupport(support: {
+  startSample: number;
+  endSample: number;
+}): string {
+  return `samples [${support.startSample}, ${support.endSample})`;
+}
+
+function MetricObservationDetail({
+  detail,
+  value,
+}: {
+  detail: DesktopContextDetail;
+  value: MetricAudioObservation;
+}) {
+  const coords = storedObservationCoordinates(value);
+  const identity = storedObservationIdentity(value);
+  return (
+    <div style={{ overflowWrap: "anywhere", minWidth: 0 }}>
+      <dl>
+        <dt>Freshness</dt>
+        <dd>{detail.entry.freshness}</dd>
+        <dt>Completeness</dt>
+        <dd>
+          {value.outcome === "complete" ? "Complete" : "Partial"}; requested
+          metrics only
+        </dd>
+        <dt>Identity</dt>
+        <dd>
+          Listener {identity.listenerId}; pass {identity.passId}
+        </dd>
+        <dt>Coverage</dt>
+        <dd>
+          Beats {coords.startBeat}-{coords.endBeat}; {sampleSupport(coords)} at{" "}
+          {coords.sampleRate} Hz
+        </dd>
+        <dt>Source</dt>
+        <dd>
+          {value.source.view === "session"
+            ? `Session first iteration (0), clip-local beats 0-${coords.endBeat}; global transport beats ${value.source.transport.startBeat}-${value.source.transport.endBeat}; ${value.source.kind}`
+            : `Arrangement ${value.source.target.kind}; transport beats ${value.source.transport.startBeat}-${value.source.transport.endBeat}`}
+          . Connection-scoped references are not durable source proof.
+        </dd>
+        <ObservationAlignment value={value} />
+        <dt>Limitations</dt>
+        <dd>
+          {value.limitations.join("; ") ||
+            "No declared limitations; not a source-identity certificate"}
+        </dd>
+        <dt>Report projection</dt>
+        <dd>
+          {value.rows.length} retained of {value.reduction.originalReportRows}{" "}
+          report rows; {value.reduction.mode}. Rows reference authoritative
+          timelines, not averaged or duplicated measurements. FFT support can
+          extend before its assigned report row; no-frame is not silence. Attack
+          windows are independent of report intervals.
+        </dd>
+      </dl>
+      {(["level", "spectral-centroid", "attacks"] as const).map((name) => {
+        const metric = value.metrics[name];
+        const records = metric.records.map((record) => {
+          let measurement: string;
+          if ("rms" in record) {
+            measurement = `Peak (linear) ${record.peak.join(", ")}; RMS (dBFS, not LUFS) ${record.rms.map(linearDb).join(", ")}`;
+          } else if ("centroidHz" in record) {
+            measurement =
+              record.spectralEnergy === 0
+                ? "Silence (measured zero spectral energy); centroid undefined"
+                : `Centroid ${record.centroidHz?.toFixed(1)} Hz; spectral energy ${record.spectralEnergy}`;
+          } else {
+            measurement = `${record.events.length} estimated attacks in validated window`;
+          }
+          return {
+            key: record.index,
+            text: `Record ${record.index}: ${sampleSupport(record.support)}; ${measurement}`,
+          };
+        });
+        return (
+          <section key={name} aria-label={`${name} metric`}>
+            <h4>
+              {name}: {metric.status}
+            </h4>
+            <p>
+              {metric.records.length}/{metric.expectedRecords} validated
+              records.{" "}
+              {metric.status === "failed"
+                ? "No trustworthy data available; not silence."
+                : metric.status === "not-requested"
+                  ? "Not requested; no measurement."
+                  : metric.status === "partial"
+                    ? "Available data only; missing support is not silence."
+                    : "Complete at declared analysis cadence, not continuous support for every metric."}
+            </p>
+            <p>
+              Algorithm:{" "}
+              {metric.algorithm
+                ? `${metric.algorithm.name} v${metric.algorithm.version}`
+                : "Not requested"}
+              .{" "}
+              {name === "spectral-centroid"
+                ? "2048-sample FFT frames retain their actual support; no frame does not mean zero energy."
+                : name === "attacks"
+                  ? "Independent 100 ms windows; estimated attacks, not isolated physical onsets."
+                  : "Linear-amplitude peak and RMS; only measured zero denotes silence."}
+            </p>
+            <p>{metric.limitations.join("; ")}</p>
+            <PagedDetail label={`${name} records`} items={records} />
+            <PagedDetail
+              label={`${name} gaps`}
+              items={metric.gaps.map((gap) => ({
+                key: gap.firstIndex,
+                text: `Records ${gap.firstIndex}-${gap.firstIndex + gap.count - 1}; ${sampleSupport(gap)}; ${gap.reason}: ${gap.detail}`,
+              }))}
+            />
+          </section>
+        );
+      })}
+      <PagedDetail
+        label="Report rows"
+        items={value.rows.map((row) => ({
+          key: row.index,
+          text: `Row ${row.index}: beats [${value.geometry.rows[row.index]!.startBeat}, ${value.geometry.rows[row.index]!.endBeat}); ${sampleSupport(value.geometry.rows[row.index]!)}; ${(["level", "spectral-centroid", "attacks"] as const).map((name) => `${name}: ${row[name].availability}; record indices ${row[name].recordIndices.join(", ") || "none"}`).join("; ")}`,
+        }))}
+      />
+    </div>
+  );
+}
+
 function ObservationAlignment({ value }: { value: StoredAudioObservation }) {
   if (value.schema === "audio-observation/v1") {
     return (
@@ -295,8 +486,9 @@ function ObservationAlignment({ value }: { value: StoredAudioObservation }) {
     );
   }
   const quality = value.alignment;
+  const { sampleRate } = storedObservationCoordinates(value);
   const measurement = (samples: number) =>
-    `${samples} samples (${listeningDisagreementMilliseconds(samples, value.sampleRate).toFixed(3)} ms at ${value.sampleRate} Hz)`;
+    `${samples} samples (${listeningDisagreementMilliseconds(samples, sampleRate).toFixed(3)} ms at ${sampleRate} Hz)`;
   return (
     <>
       <dt>Alignment / intended use</dt>

@@ -208,6 +208,29 @@ Synthetic composition tests do not qualify actual Live launch/source alignment
 or physical timing. A pre-existing user Live/desktop process blocks physical
 execution; never control it or install integrations to bypass ownership.
 
+## Same-instance retained Session listening
+
+`native-listening-repeated` requires explicit immutable wire4 pins through
+`--native-v4-fixture-input`, with two distinct eight-beat MIDI sources in
+scenes 0 and 1 on the same instrument/listener track.
+
+- `native-dual-session-repeat-1-2-1`: listen to scenes 0, 1, then 0 through
+  the same loaded producer, instance, connection and independently resolved
+  binding. Verify increasing native epochs, three distinct completed contexts,
+  unchanged prior observations/associations and exact source/native proofs.
+
+Exactly two reviewed fixture-owned stopped baselines are allowed, each only
+after the preceding pass verifies. The user-approved baseline revision stops
+fixture clips/transport, positions the stopped disposable Set to beat zero,
+and independently verifies stopped-zero/no-queued-launch state and unchanged
+musical/launch/device settings. This replaces the original stop-only/no-seek
+contract, which left a nonzero position incompatible with Session qualification.
+Actor seek/stop/retry permissions and production guards remain unchanged.
+These fixture operations are not product cleanup or retries.
+First failure stops the sequence. Use `--skip-install`; preserve pinned inputs,
+source/content guards and owned-process cleanup. Message-loader and Gen
+primitive qualifications do not substitute for this integrated scenario.
+
 ## Arrangement source investigation
 
 `native-listening-source-investigation` requires an explicit immutable v2 fixture

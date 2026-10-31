@@ -106,6 +106,7 @@ function fixture(options = {}, wireVersion = 3, mode = "session") {
   const runtime = createRuntime({
     nativeMode: true,
     nativeVersion: wireVersion,
+    retainedMeasurements: options.retainedMeasurements ?? false,
     Client,
     clock: () => 0,
     maxApi: {
@@ -175,10 +176,38 @@ function fixture(options = {}, wireVersion = 3, mode = "session") {
     f.ack();
     await pending;
     f.packet("clock", f.clock(f.origin + 640));
-    f.packet("envelope", f.envelope());
+    f.packet(
+      options.retainedMeasurements ? "envelope-state" : "envelope",
+      f.envelope(),
+    );
   };
   return { ...f, runtime, handlers, outputs, wire, cleared, dispatch, start };
 }
+
+for (const mode of ["arrangement", "session"])
+  test(`retained wire4 ${mode} explicitly advertises delivery support and preserves typed collection and proof`, async () => {
+    const f = fixture({ retainedMeasurements: true }, 4, mode);
+    try {
+      assert.deepEqual(f.runtime.client.listener.capabilities, [
+        "audio-listener/dual-mode-v1",
+        "audio-listener/retention-v1",
+      ]);
+      await f.start();
+      f.capture();
+      f.post();
+      assert.equal(f.wire.at(-1).status, "completed");
+      assert.equal(f.wire.at(-1).mode, mode);
+      assert(f.wire.at(-1).nativeCapture);
+      assert.equal(
+        f.wire.filter((frame) => frame.nativeLifecycle?.phase === "measurement")
+          .length,
+        6,
+      );
+      assert.equal(f.runtime.nativeController.pass, null);
+    } finally {
+      f.runtime.stop();
+    }
+  });
 
 for (const version of [3, 4])
   test(`wire${version} source preparation supports bundled Node without Object.hasOwn`, async () => {

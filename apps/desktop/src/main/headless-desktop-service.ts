@@ -1775,12 +1775,29 @@ export class HeadlessDesktopService implements DesktopService {
         "Listening lifecycle owner is unavailable or changed; refresh the App session.",
       );
     }
-    const sanitize = (value: unknown): unknown => {
-      if (typeof value === "string") return sanitizePersistedText(value);
-      if (Array.isArray(value)) return value.map(sanitize);
+    let evidenceTruncated = false;
+    const sanitize = (value: unknown, key?: string): unknown => {
+      if (typeof value === "string") {
+        const redacted = sanitizePersistedText(value);
+        const limit =
+          key === "summary"
+            ? 1024
+            : key === "value"
+              ? 256
+              : key === "error"
+                ? 2048
+                : undefined;
+        if (limit !== undefined && key !== "error" && redacted.length > limit)
+          evidenceTruncated = true;
+        return limit === undefined ? redacted : redacted.slice(0, limit);
+      }
+      if (Array.isArray(value)) return value.map((child) => sanitize(child));
       if (value !== null && typeof value === "object")
         return Object.fromEntries(
-          Object.entries(value).map(([key, child]) => [key, sanitize(child)]),
+          Object.entries(value).map(([key, child]) => [
+            key,
+            sanitize(child, key),
+          ]),
         );
       return value;
     };
@@ -1788,7 +1805,7 @@ export class HeadlessDesktopService implements DesktopService {
       throw new Error(
         "Desktop bounded listening has no playback ownership token; stop-owned policy is unsupported.",
       );
-    const job = desktopListeningJobSchema.parse(
+    let job = desktopListeningJobSchema.parse(
       sanitize({
         passId: source.passId,
         sessionId: source.owner.sessionId,
@@ -1800,16 +1817,36 @@ export class HeadlessDesktopService implements DesktopService {
         updatedAt: source.updatedAt,
         durationMs: source.durationMs,
         contextIds: source.contextIds.slice(0, 100),
+        ...(source.metricResults === undefined
+          ? {}
+          : { metricResults: source.metricResults }),
         ...(source.error === undefined
           ? {}
           : {
-              error: sanitizePersistedText(source.error).slice(0, 2048),
+              error: source.error,
             }),
+        ...(source.failureEvidence === undefined
+          ? {}
+          : { failureEvidence: source.failureEvidence }),
         cleanupPolicy: "leave-running",
         evidence: "lifecycle-only",
         ...(source.session === undefined ? {} : { session: source.session }),
       }),
     );
+    if (evidenceTruncated && job.failureEvidence !== undefined)
+      job.failureEvidence = {
+        ...job.failureEvidence,
+        coverage:
+          job.failureEvidence.coverage === "unavailable"
+            ? "unavailable"
+            : "partial",
+        coverageReasons: [
+          ...new Set([
+            "diagnostic-truncated" as const,
+            ...job.failureEvidence.coverageReasons,
+          ]),
+        ],
+      };
     const previous = this.#listeningJobs.get(job.passId);
     if (
       previous !== undefined &&
@@ -1842,6 +1879,12 @@ export class HeadlessDesktopService implements DesktopService {
       );
       return;
     }
+    if (previous?.stage === "failed" || previous?.stage === "interrupted")
+      job = {
+        ...job,
+        error: previous.error,
+        failureEvidence: previous.failureEvidence,
+      };
     if (previous === undefined && this.#listeningJobs.size >= 100) {
       const expired = [...this.#listeningJobs].find(([, value]) =>
         listeningTerminal(value.stage),
@@ -1865,7 +1908,15 @@ export class HeadlessDesktopService implements DesktopService {
         listeningStage: job.stage,
         cleanupPolicy: job.cleanupPolicy,
         listeningDurationMs: job.durationMs,
+        ...(job.metricResults === undefined
+          ? {}
+          : { metricResults: job.metricResults }),
         ...(job.error === undefined ? {} : { error: job.error }),
+        ...(job.failureEvidence === undefined
+          ? {}
+          : {
+              failureEvidence: job.failureEvidence,
+            }),
       },
     );
     this.emit({

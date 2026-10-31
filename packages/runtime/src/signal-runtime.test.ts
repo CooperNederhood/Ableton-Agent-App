@@ -102,6 +102,36 @@ function frame(sequence: number) {
 }
 
 describe("default signal runtime", () => {
+  it.each([undefined, false, true])(
+    "forwards only explicit metric opt-in %s to the owned ingress",
+    async (independentMetricListeners) => {
+      await mkdir(artifacts, { recursive: true });
+      const descriptorPath = join(artifacts, `${randomUUID()}.json`);
+      const runtime = new DefaultSignalRuntime({
+        secret: "s".repeat(32),
+        descriptorPath,
+        port: 0,
+        ...(independentMetricListeners === undefined
+          ? {}
+          : { independentMetricListeners }),
+      });
+      runtimes.push(runtime);
+      await runtime.start();
+      const descriptor: unknown = JSON.parse(
+        await readFile(descriptorPath, "utf8"),
+      );
+      if (independentMetricListeners) {
+        expect(descriptor).toMatchObject({ listenerVersions: [5] });
+      } else {
+        expect(descriptor).not.toHaveProperty("listenerVersions");
+      }
+      await runtime.stop();
+      await expect(readFile(descriptorPath)).rejects.toMatchObject({
+        code: "ENOENT",
+      });
+    },
+  );
+
   it("is explicitly disabled without a token", async () => {
     const runtime = new DefaultSignalRuntime({});
     runtimes.push(runtime);

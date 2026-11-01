@@ -79,3 +79,6 @@
   do not require an older patch, downgrade, or block work solely because a Live
   11 patch changed. Preserve historical version provenance and investigate
   actual compatibility or capability failures.
+
+# Reminders
+- We are **developing** this App. So there is absolutely no concern about supporting legacy paths or functionality or backwards compatibility. When we make changes to the codebase we should always just fix forward and assume a clean break. **DO NOT** maintain code for backwards compatibility alone. 

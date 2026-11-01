@@ -595,7 +595,10 @@ NativeMessageIO.prototype.beginRetention = function (epoch, sampleRate) {
             self.stopping
           )
             return false;
-          return self.packet("spectrum", record.values);
+          var values = record.values.slice();
+          // Use the final retained energy, not an upstream DSP value.
+          if (values[2] === 0) values[1] = 0;
+          return self.packet("spectrum", values);
         } finally {
           self.retentionForwarding = false;
         }
@@ -1527,6 +1530,13 @@ if (typeof outlet === "function") {
   nativeIO = new NativeMessageIO(
     jsarguments[1],
     function (values) {
+      if (values[2] === "spectrum")
+        return outlet(0, [
+          values[0],
+          values[1],
+          "spectrum-json",
+          JSON.stringify(values.slice(3)),
+        ]);
       return outlet(0, values);
     },
     function (values) {

@@ -4,13 +4,24 @@ Companion specification: [Packaging and Operations](packaging-and-operations.md)
 
 ## Current branch checkpoint
 
+- [x] Close the original publication-fix scope with one generated functional
+  source, hash-bound packaging/install reuse, installed byte equality and
+  two-listener/four-clip normal-startup evidence. Broader listening/release
+  findings remain explicitly separate.
 - [x] Check in current implementation and regression work on the existing branch;
   this is a working checkpoint, not a finished release.
-- [ ] Resolve the managed silent-tail scenario's capture-cleanup failure and
-  qualify the current v5-only zero-energy readback bundle.
-- [ ] Package/reinstall that final qualified inventory without regeneration,
-  compare installed immutable files, and finish installed capture/restart/UX review.
-  The prior installed app/device do not yet include the additional silence fix.
+- [x] Resolve the managed silent-tail scenario's diagnostic-disconnect and
+  spectral transport failures without changing its audio, safety guards or
+  budgets. Standalone scenario and owning group pass on Live 11.3.43.
+- [x] Package/reinstall the final qualified inventory without regeneration and
+  compare every installed immutable resource. Installed authentication and four
+  independent normal-startup full-clip captures pass with exact owned shutdown.
+  The final installed app/device include the additional silence corrections.
+- [x] Perform the separate automation-MCP capture and visual inspection after
+  actual endpoint publication and explicit metric-listener opt-in, without
+  changing normal preferences. Preserve the private helper's CLI-import exit
+  error rather than claiming a clean harness pass. An extra cancelled run
+  confirmed both owned PIDs absent but reported a cleanup identity mismatch.
 
 ## Normal-startup listening candidate delivery
 
@@ -26,8 +37,9 @@ did not qualify that functional parent.
 - [x] Reuse identified integration payloads before packing without rewriting;
   reject stale graph/resources/codec or tampered payloads. Preserve existing
   portable source identity and installed immutable hashes across profile changes.
-- [ ] Attribute the current Max invalid-object errors and prove corrected
-  production-bundle discovery/capture in owned Live.
+- [x] Prove corrected generated production-bundle discovery/capture in owned
+  Live; exact historical invalid-object-message attribution remains unproven
+  and is not conflated with the established publishing root cause.
 - [x] Qualify the identical production payload in owned Live 11.3.43 for MIDI,
   audio, repeats, switching and four-beat phrases. Packaging preserves the
   qualified inventory SHA; packaged startup and isolated integration CLI
@@ -37,7 +49,9 @@ did not qualify that functional parent.
   passes. Prepare the protected
   `installed-human-review-1793490074155/project/debug-two-clips-midi-audio-v1.als`
   copy with four installed references and unchanged original/source Set hashes.
-- [ ] Human-verify normal installed discovery, MIDI/audio reports and restart.
+- [x] Verify normal installed discovery and MIDI/audio reports across four
+  independent fresh owned Live/Desktop launches. Manual user review and
+  unrestricted restart/repeated-capture reliability remain separate.
 
 - [x] Enable the shared native-v5 ingress/runtime admission on normal Desktop
   startup, without changing saved approvals or enabling automation/YOLO.

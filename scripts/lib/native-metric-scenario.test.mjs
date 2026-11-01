@@ -77,8 +77,8 @@ it("requires actual retained silent FFT records, not a complete steady-tone prox
     status: "complete",
     expectedRecords: 2,
     records: [
-      { energy: 2, centroidHz: 1000 },
-      { energy: 0, centroidHz: null },
+      { spectralEnergy: 2, centroidHz: 1000 },
+      { spectralEnergy: 0, centroidHz: null },
     ],
     gaps: [],
   };
@@ -90,15 +90,15 @@ it("requires actual retained silent FFT records, not a complete steady-tone prox
     {
       ...timeline,
       records: [
-        { energy: 2, centroidHz: 1000 },
-        { energy: 2, centroidHz: 1000 },
+        { spectralEnergy: 2, centroidHz: 1000 },
+        { spectralEnergy: 2, centroidHz: 1000 },
       ],
     },
     {
       ...timeline,
       records: [
-        { energy: 2, centroidHz: 1000 },
-        { energy: 0, centroidHz: 1000 },
+        { spectralEnergy: 2, centroidHz: 1000 },
+        { spectralEnergy: 0, centroidHz: 1000 },
       ],
     },
   ])

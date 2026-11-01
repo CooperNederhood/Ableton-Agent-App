@@ -1,16 +1,40 @@
 # Packaging and Operations
 
-## Working checkpoint: pending final payload promotion
+## Current local payload promotion
+
+The original Max publication/install correction is complete. Production uses
+the tested JavaScript-generated parent rather than a separate saved AMXD;
+qualification, packaging and installation retain the same identified bundle
+and reject stale or tampered resources. Normal installed startup discovers
+both listeners and captures all four MIDI/audio clips with complete records.
 
 The single generated production parent and immutable payload reuse are
-implemented, and the prior qualified bundle is installed. A subsequent
-silent-tail regression required a v5-only DSP readback correction plus bounded
-failure-value observability. That newer source bundle is **not yet qualified
-or installed**. Preserve the prior installation receipt's provenance rather
+implemented, and the final corrected Session bundle is installed. A subsequent
+silent-tail regression required retained publication and Max/Node scalar
+transport corrections plus bounded failure-value observability.
+Preserve the prior installation receipt's provenance rather
 than treating its successful authentication/hash checks as qualification of
-the newly changed bundle. Resolve the managed silent-tail capture-cleanup
-failure, qualify the final payload, then carry its inventory and immutable
-file hashes through packaging and installation again.
+the newly changed bundle. The unchanged managed silent-tail fixture now passes
+its standalone scenario and owning group. The final Session qualification,
+local macOS `dir` packaging, installed authentication and four independent
+normal-startup full-clip captures pass. Production and installed application
+inventories match
+`787fe8b6cbb8a66ea6a69d45d81a09ec09c4e8d5888e277ea1e7aad438ac54a9`;
+all 21 immutable installed listening files match the qualified bundle.
+The unchanged AMXD hash alone does not identify updated external DSP,
+classic Max IO or Node runtime bytes.
+
+The separate traced automation-MCP capture and Agent/Live inspection completed;
+its private helper exited with a CLI-import error, so it is not a clean harness
+pass. An extra run was cancelled during scope freeze; both owned PIDs are gone,
+but its cleanup receipt reported an identity mismatch. Neither receipt changes
+the independently verified production/installed byte continuity.
+Intermittent repeated-capture failure and musical interpretation remain
+separate listening follow-ups, not unfinished patch publishing work.
+General DMG/ZIP
+generation encountered electron-builder's null-provider update-info error;
+it is not qualified as a public distribution by the successful local host
+installation. The installer deliberately uses the validated host `dir` path.
 
 ## Distribution
 

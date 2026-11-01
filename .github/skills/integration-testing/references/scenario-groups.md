@@ -191,6 +191,21 @@ fixture helper. Compare the qualified payload inventory with
 packaging, and use before-pack `--reuse` to preserve it. A failed source-identity
 comparison requires a new candidate, not a qualification claim based on v5.
 
+The separate `native-listening-metric-silent-tail` group contains
+`native-metric-session-audio-silent-tail`: one four-beat scene-zero capture with
+the same eight-tool/one-mutation bounds. Its managed audio fixture includes
+actual silence and low-energy decay. The deterministic verifier requires a
+complete, gap-free retained FFT timeline and at least one record with
+`spectralEnergy: 0` and `centroidHz: null`; a steady-tone fixture is not a proxy.
+Use an admitted minimal production fixture, not a human-review Set with
+unmanifested dependencies or excess file references. Run the scenario, then
+the owning group with the same pinned fixture:
+
+```bash
+pnpm live:agent-smoke --skip-install --scenario native-metric-session-audio-silent-tail --native-v5-fixture-input "$NATIVE_V5_SILENT_TAIL_INPUT" --output .test-artifacts/independent-metric-listening/silent-tail-evidence.json
+pnpm live:agent-smoke --skip-install --group native-listening-metric-silent-tail --native-v5-fixture-input "$NATIVE_V5_SILENT_TAIL_INPUT" --output .test-artifacts/independent-metric-listening/silent-tail-group-evidence.json
+```
+
 `native-metric-session-midi-repeat-3` belongs to `native-listening-metric`.
 It reuses the positive wire5 MIDI spectrum verifier for **three one-beat
 captures of the same scene-zero MIDI clip**, not the retired wire4 metric

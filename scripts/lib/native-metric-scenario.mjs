@@ -898,7 +898,9 @@ export function verifyNativeMetricZeroEnergySpectrum(timeline) {
     timeline.gaps.length !== 0
   )
     throw new Error("Zero-energy FFT regression requires a complete timeline");
-  const silent = timeline.records.filter((record) => record.energy === 0);
+  const silent = timeline.records.filter(
+    (record) => record.spectralEnergy === 0,
+  );
   if (
     silent.length === 0 ||
     silent.some((record) => record.centroidHz !== null)

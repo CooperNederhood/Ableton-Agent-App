@@ -2,24 +2,60 @@
 
 Companion specification: [Playback Listening](playback-listening.md).
 
-## Current branch checkpoint: remaining delivery work
+## Original publication-fix scope: complete
+
+JavaScript is authoritative, AMXD is generated build output, and the same
+hash-identified listening payload is qualified, packaged and installed.
+Normal installed discovery and all four full-clip captures complete with both
+listeners registered. Remaining repeat reliability, musical interpretation,
+console attribution and general release work below are separate follow-ups,
+not open publication-fix acceptance items.
 
 - [x] Commit the implemented JS-authoritative deployment pipeline, native-v5
   cleanup, regression ports and bounded metric-budget work as a working checkpoint.
 - [x] Reproduce a silent-tail spectral rejection with observed energy zero and
   nonzero centroid; add bounded traced failure facts and a red/green v5 retained
   readback regression. Preserve historical DSP hashes; full Max suite: 814 passed.
-- [ ] Diagnose the new managed silent-tail scenario's terminal cleanup failure.
-  Its failed evidence is `single-source-managed-silent-tail.json`; process and
-  fixture cleanup completed, but capture cleanup did not qualify.
-- [ ] Qualify the final changed production bundle with the owning deterministic
-  scenarios; package and reinstall those exact bytes.
-- [ ] Complete final installed normal-startup full-phrase, restart and visible
-  cross-app review. The currently installed bundle predates the silence fix.
+- [x] Diagnose the managed silent-tail failure: oversized spectral failure
+  diagnostics could disconnect the producer; bounded fact batches preserve
+  the underlying rejection. Preserve spectral numbers with bounded JSON through
+  classic Max/Node, normalize only actual retained zero energy at publication,
+  and correct the verifier to use the retained `spectralEnergy` field.
+  The unchanged audio passes the standalone scenario and owning group on
+  Live 11.3.43; earlier failed evidence remains preserved.
+- [x] Qualify the final Session production bundle, package/reinstall it without
+  regeneration, and verify inventory
+  `787fe8b6cbb8a66ea6a69d45d81a09ec09c4e8d5888e277ea1e7aad438ac54a9`
+  plus all 21 immutable installed files. Packaged startup/installation and
+  installed authentication pass; Max owning suite: 819 passed.
+- [x] Complete four full-phrase installed-executable normal-startup captures,
+  with fresh owned Live/Desktop processes per clip and unchanged normal approval
+  preferences. Both listeners register in every case; all three metric families
+  are complete and every owned process closes. Preserve the original Set and
+  prepare `installed-human-review-1793497475064` with four installed references.
+- [x] Perform the separate traced automation-MCP capture and visual inspection.
+  Accepted/submitted IDs agree, the user message renders once, all three
+  metric families complete, and owned Live shows audio-2 playback with the
+  enabled generated listener. The private helper's CLI-import exit error is
+  not an application capture failure or a successful harness exit. Automation
+  requires explicit metric-listener opt-in and actual endpoint publication;
+  service readiness alone is not endpoint readiness.
+
+### Separate follow-up findings
+
+- Repeat reliability remains unresolved: the later owning run failed before
+  playback on repetition three with `metric_spectrum_shared_failure`, while
+  an isolated repeat-three rerun passed. Preserve both receipts.
+- Corrected rhythm interpretation guidance passes unit/real-capture coverage;
+  corrected assistant prose is not visually qualified. Do not infer musical
+  interpretation correctness from complete numeric coverage.
+- The extra cancelled visual run has an ownership-mismatch cleanup receipt;
+  both owned PIDs were independently confirmed absent. It is not a pass.
+- Exact historical Max console-message attribution remains unproven.
 
 ## Independent metric timelines replacement
 
-Current blocker supersedes the earlier review-ready installation wording below:
+Resolved publication diagnosis supersedes the earlier installation wording below:
 the normal installed parent was not the generated parent qualified in Live,
 and the user observed no registered listeners plus repeated invalid-object
 console errors.
@@ -28,7 +64,9 @@ console errors.
   prevent alternate fixture graphs from entering positive builds.
 - [x] Add independent production startup/feed assertions and byte continuity
   checks through packaging reuse and profile-configured installation.
-- [ ] Diagnose the actual console/readiness failure in isolated owned Live.
+- [x] Diagnose the production-parent readiness divergence and prove corrected
+  generated-bundle discovery/capture in isolated owned Live. Exact attribution
+  of historical console messages remains a separate unproven finding.
 - [x] Qualify production-payload listeners, four-beat MIDI/audio captures,
   retained reports, fresh-process registration, repeat and switching behavior
   on owned Live 11.3.43. Source inventory and packaged payload are identical;
@@ -37,14 +75,16 @@ console errors.
   AMXD/runtime/DSP files match qualification; installed authentication passes.
   The new `installed-human-review-1793490074155` copy preserves original/source
   Set bytes and binds all four devices to the installed generated AMXD.
-- [ ] Human-verify normal installed discovery and reports without automation
-  flags, then restart discovery; attribute any remaining console errors.
+- [x] Verify normal installed discovery and reports without automation flags
+  in four fresh owned Live/Desktop launches. Manual user review and unrestricted
+  restart/repetition are not claimed by those bounded cases.
 
 Normal-install handoff: normal Desktop launch now enables v5 discovery/capture
 with existing approval preferences. Automation remains explicitly opt-in.
 The user's four full-loop MIDI/audio captures successfully identified the
 on-beat kick and off-beat hat patterns with complete metric coverage.
-Installed-app review and restart verification are next; sample-accurate
+The final installed-app four-case review is complete; unrestricted restart,
+repeat reliability, musical interpretation and sample-accurate
 calibration and streaming are separate follow-up work, not blockers for that
 musical-use review.
 

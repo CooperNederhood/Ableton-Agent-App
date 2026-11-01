@@ -40,7 +40,7 @@ export function metricRuntimeHarness(options = {}) {
     }
     sendListenerDiagnostic(control, payload) {
       diagnostics.push({ control, payload });
-      return true;
+      return options.sendListenerDiagnostic?.(control, payload) ?? true;
     }
   }
   const maxApi = {

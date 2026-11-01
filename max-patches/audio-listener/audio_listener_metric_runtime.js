@@ -242,18 +242,22 @@ function createMetricRuntime({
           add("readbackCounter", snapshot.spectrum.lastReadbackCounter);
           if (snapshot.spectrum.startError)
             add("startError", snapshot.spectrum.startError);
-          if (
-            client.sendListenerDiagnostic(event.control, {
-              ...event.nativeLifecycle,
-              eventId: require("node:crypto").randomUUID(),
-              causationId: event.nativeLifecycle.eventId,
-              stage: "progress",
-              metric: "spectral-centroid",
-              reason: "native_spectrum_failure_evidence",
-              facts: spectralFacts,
-            }) !== true
-          )
-            invalidate("native_failure_diagnostic_delivery_failed");
+          for (let offset = 0; offset < spectralFacts.length; offset += 24) {
+            if (
+              client.sendListenerDiagnostic(event.control, {
+                ...event.nativeLifecycle,
+                eventId: require("node:crypto").randomUUID(),
+                causationId: event.nativeLifecycle.eventId,
+                stage: "progress",
+                metric: "spectral-centroid",
+                reason: "native_spectrum_failure_evidence",
+                facts: spectralFacts.slice(offset, offset + 24),
+              }) !== true
+            ) {
+              invalidate("native_failure_diagnostic_delivery_failed");
+              break;
+            }
+          }
         }
       },
     });
@@ -384,9 +388,40 @@ function createMetricRuntime({
   maxApi.addHandler("native", (generation, type, ...values) =>
     controller?.receiveNative("clock", ["native", generation, type, ...values]),
   );
-  maxApi.addHandler("native_spectrum", (...packet) =>
-    controller?.receiveNative("metric_spectrum", packet),
-  );
+  maxApi.addHandler("native_spectrum", (...packet) => {
+    if (packet[2] === "spectrum") {
+      invalidate("invalid_metric_packet");
+      return;
+    }
+    if (packet[2] === "spectrum-json") {
+      let values;
+      try {
+        if (
+          packet.length !== 4 ||
+          typeof packet[3] !== "string" ||
+          packet[3].length > 4096
+        )
+          throw new Error("invalid_metric_packet");
+        values = JSON.parse(packet[3]);
+        if (
+          !Array.isArray(values) ||
+          values.length !== 6 ||
+          values.some(
+            (value) =>
+              typeof value !== "number" ||
+              !Number.isFinite(value) ||
+              Math.abs(value) > Number.MAX_SAFE_INTEGER,
+          )
+        )
+          throw new Error("invalid_metric_packet");
+      } catch {
+        invalidate("invalid_metric_packet");
+        return;
+      }
+      packet = [packet[0], packet[1], "spectrum", ...values];
+    }
+    controller?.receiveNative("metric_spectrum", packet);
+  });
   for (const selector of [
     "native_metric",
     "native_metric_status",

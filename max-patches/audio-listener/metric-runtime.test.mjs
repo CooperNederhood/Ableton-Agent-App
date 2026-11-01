@@ -4,11 +4,178 @@ import { readFile } from "node:fs/promises";
 import { runInNewContext } from "node:vm";
 import { URL } from "node:url";
 import { metricRuntimeHarness } from "./metric-runtime-test-helpers.mjs";
+import { nativeMetricLifecycleSchema } from "../../packages/signal-routing/src/listener-metric-contracts.ts";
+
+test("complete spectral failure snapshots preserve every fact within the lifecycle quota", async () => {
+  let cleanup = "pending";
+  const h = metricRuntimeHarness({
+    controller: {
+      snapshot: () => ({
+        state: "failed",
+        cleanup,
+        spectrum: {
+          enabled: true,
+          started: true,
+          phase: "failed",
+          failure: "native-clock-failed",
+          cleanup: "pending",
+          released: false,
+          receivedRecords: 13,
+          acceptedRecords: 13,
+          fftInformation: [2048, 1024, 48000, 64],
+          acquisitions: [
+            [1, 2, 3, 4],
+            [5, 6, 7, 8],
+          ],
+          lastHeader: [1, 2, 3, 4],
+          lastReadbackCounter: 13,
+          startError: "controlled-failure",
+        },
+      }),
+    },
+  });
+  const control = { generation: "11111111-1111-4111-8111-111111111111" };
+  const lifecycle = {
+    eventId: "22222222-2222-4222-8222-222222222222",
+    generation: control.generation,
+    nativeEpoch: 1,
+    stage: "failed",
+    metric: "spectral-centroid",
+    scope: "independent-metric-timelines/v1",
+    elapsedMs: 100,
+    frames: 13,
+  };
+  h.controllerOptions.onEvent({ control, nativeLifecycle: lifecycle });
+  for (const { payload } of h.diagnostics)
+    assert.equal(
+      nativeMetricLifecycleSchema.safeParse(payload).success,
+      true,
+      JSON.stringify(payload),
+    );
+  const spectral = h.diagnostics.filter(
+    ({ payload }) => payload.reason === "native_spectrum_failure_evidence",
+  );
+  assert.deepEqual(
+    spectral.map(({ payload }) => payload.facts.length),
+    [24, 2],
+  );
+  const facts = spectral.flatMap(({ payload }) => payload.facts);
+  assert.equal(new Set(facts.map(({ field }) => field)).size, 26);
+  assert.equal(facts.at(-1).field, "capture.spectrum.startError");
+  assert.equal(
+    new Set(h.diagnostics.map(({ payload }) => payload.eventId)).size,
+    3,
+  );
+  for (const diagnostic of h.diagnostics) {
+    assert.equal(diagnostic.control, control);
+    assert.equal(diagnostic.payload.causationId, lifecycle.eventId);
+    assert.equal(diagnostic.payload.elapsedMs, lifecycle.elapsedMs);
+  }
+  assert.deepEqual(h.stops, []);
+  cleanup = "completed";
+  const stopping = h.runtime.stop();
+  h.tick();
+  await stopping;
+});
 
 const fixture = {
   engineeringOnly: true,
   engineeringFixture: "native5-unavailable-spectrum/v1",
 };
+
+test("a rejected spectral diagnostic batch stays an explicit terminal delivery failure", async () => {
+  const h = metricRuntimeHarness({
+    sendListenerDiagnostic: (_control, payload) =>
+      payload.reason !== "native_spectrum_failure_evidence" ||
+      payload.facts.length === 24,
+    controller: {
+      snapshot: () => ({
+        state: "failed",
+        cleanup: "completed",
+        spectrum: {
+          fftInformation: [1, 2, 3, 4],
+          acquisitions: [
+            [1, 2, 3, 4],
+            [5, 6, 7, 8],
+          ],
+          lastHeader: [1, 2, 3, 4],
+          lastReadbackCounter: 1,
+        },
+      }),
+    },
+  });
+  h.controllerOptions.onEvent({
+    control: {},
+    nativeLifecycle: {
+      eventId: "22222222-2222-4222-8222-222222222222",
+      stage: "failed",
+      metric: "spectral-centroid",
+    },
+  });
+  assert.deepEqual(
+    h.diagnostics
+      .filter(
+        ({ payload }) => payload.reason === "native_spectrum_failure_evidence",
+      )
+      .map(({ payload }) => payload.facts.length),
+    [24, 1],
+  );
+  assert.deepEqual(h.stops, ["client"]);
+  assert.ok(
+    h.output.some(
+      (row) =>
+        row[0] === "diagnostic" &&
+        row[1] === "native_failure_diagnostic_delivery_failed",
+    ),
+  );
+  assert.equal(
+    h.diagnostics.some(({ payload }) => payload.stage === "completed"),
+    false,
+  );
+  await h.runtime.stop();
+});
+
+test("runtime decodes exact spectral JSON and rejects malformed or raw spectral transport", async () => {
+  const received = [];
+  const h = metricRuntimeHarness({
+    controller: {
+      receiveNative: (...args) => received.push(args),
+    },
+  });
+  const generation = "11111111-1111-4111-8111-111111111111";
+  const values = [2048, 8000, 1e-35, 0, 2048, 0];
+  h.handlers.native_spectrum(
+    "native",
+    generation,
+    "spectrum-json",
+    JSON.stringify(values),
+  );
+  assert.deepEqual(received, [
+    ["metric_spectrum", ["native", generation, "spectrum", ...values]],
+  ]);
+  await h.runtime.stop();
+  for (const packet of [
+    ["native", generation, "spectrum", ...values],
+    ["native", generation, "spectrum-json", "invalid"],
+    ["native", generation, "spectrum-json", "[1,2,3,4,5,null]"],
+    ["native", generation, "spectrum-json", JSON.stringify(values.slice(1))],
+    ["native", generation, "spectrum-json", " ".repeat(4097)],
+  ]) {
+    const denied = metricRuntimeHarness({
+      controller: {
+        receiveNative: assert.fail,
+      },
+    });
+    denied.handlers.native_spectrum(...packet);
+    assert.deepEqual(denied.stops, ["client"]);
+    assert.ok(
+      denied.output.some(
+        (row) => row[0] === "diagnostic" && row[1] === "invalid_metric_packet",
+      ),
+    );
+    await denied.runtime.stop();
+  }
+});
 
 test("literal default and fixture entries select only their pinned source contracts and share shutdown handling", async () => {
   for (const [entry, engineeringEntry] of [

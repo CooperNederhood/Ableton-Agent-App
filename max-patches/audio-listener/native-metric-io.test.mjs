@@ -88,6 +88,39 @@ function deliverOne(f) {
   assert.equal(f.io.retentionReader.stats().accepted, 1);
 }
 
+test("the producer pairs a zero retained energy with zero centroid after buffer readback", () => {
+  for (const energy of [0, 0.5, Number.MIN_VALUE]) {
+    const f = spectrumFixture();
+    f.begin();
+    const frame = [...f.advance()];
+    frame[12] = 8000;
+    frame[13] = energy;
+    assert.equal(f.poll(frame), false);
+    assert.equal(f.poll(frame), true);
+    const packet = f.packets.find((value) => value[2] === "spectrum");
+    assert.ok(packet);
+    assert.equal(packet[4], energy === 0 ? 0 : 8000);
+    assert.equal(packet[5], energy);
+    assert.equal(frame[12], 8000);
+    assert.equal(f.io.retentionReader.stats().accepted, 1);
+  }
+});
+
+test("classic Max sends spectral scalars as bounded JSON without atom-level precision loss", () => {
+  const { f, context, packets } = classicFixture();
+  context.begin(GENERATION, EPOCH, 48000);
+  const frame = [...f.advance()];
+  frame[12] = 8000;
+  frame[13] = 1e-35;
+  assert.equal(context.spectrum_measurement_frame(...frame), false);
+  assert.equal(context.spectrum_measurement_frame(...frame), true);
+  const packet = packets.find((value) => value[2] === "spectrum-json");
+  assert.ok(packet);
+  assert.equal(packet.length, 4);
+  assert.ok(packet[3].length < 4096);
+  assert.deepEqual(JSON.parse(packet[3]).slice(1, 3), [8000, 1e-35]);
+});
+
 test("FFT startup waits for genuinely executed epoch instead of rejecting the previous idle bank", () => {
   const f = spectrumFixture();
   const idle = [...f.advance()];
@@ -294,7 +327,7 @@ test("actual Max FFT selector discards torn readout and recovers with the execut
   assert.equal(controls.length, controlCount);
   assert.equal(c.spectrum_measurement_frame(...row), false);
   assert.equal(c.spectrum_measurement_frame(...row), true);
-  assert.equal(packets.filter((p) => p[2] === "spectrum").length, 1);
+  assert.equal(packets.filter((p) => p[2] === "spectrum-json").length, 1);
   assert.equal(c.nativeIO.retentionReader.stats().accepted, 1);
 });
 

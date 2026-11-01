@@ -331,6 +331,18 @@ describe("optional listening tool contracts", () => {
       "Completion is not proof that observed disagreement is within the configured target",
     );
   });
+  it("preserves zero-based beat phase and tempo-dependent interpretation", () => {
+    expect(LISTENING_AGENT_GUIDANCE).toContain(
+      "integer zero-based beat positions are on-beats; n+0.5 positions are offbeats",
+    );
+    expect(LISTENING_AGENT_GUIDANCE).toContain(
+      "Do not round fractional detector-window endpoints onto integer beats",
+    );
+    expect(LISTENING_AGENT_GUIDANCE).toContain("sampleRate * 60 / tempoBpm");
+    expect(LISTENING_AGENT_GUIDANCE).toContain(
+      "corroborate placement with native support and level-row intervals",
+    );
+  });
   it("returns partial as a published outcome rather than a failure or full success", () => {
     const job = {
       passId: "pass",

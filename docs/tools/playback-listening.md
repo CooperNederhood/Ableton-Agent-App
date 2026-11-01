@@ -1,6 +1,14 @@
 # Playback Listening and Entity Context
 
-## Working checkpoint: final deployment is not qualified
+## Current qualified installation
+
+The original Max patch publishing/deployment scope is complete: JavaScript is
+the single functional source, AMXD is generated output, and packaging/install
+reuse the identified payload with explicit stale/tampered-artifact rejection.
+The installed bundle matches production and qualification. Normal installed
+startup discovers both listeners and completes all four MIDI/audio clip
+captures with full retained metric coverage. This closes the publication bug,
+not every outstanding listening accuracy or reliability concern.
 
 The JS-authoritative patch/deployment cleanup is implemented. Normal installed
 startup in isolated profiles discovers both listeners and has completed MIDI
@@ -11,15 +19,75 @@ that measured silent record with `centroidHz: null`. Positive-energy records,
 missing-record failures and frozen historical DSP sources remain unchanged.
 Bounded observed centroid/energy failure facts now reach typed local History.
 
-The corrected readback passed a focused owned MIDI reproduction, and the full
-Max suite passes 814 tests. **The final changed production bundle has not yet
-been qualified or reinstalled.** The new managed
-`native-metric-session-audio-silent-tail` scenario currently fails with
-`Metric capture cleanup could not be confirmed`; its runner reports exact-owned
-process shutdown and fixture cleanup. Do not reinterpret that run as a pass.
-Local failure evidence is
-`.test-artifacts/independent-metric-listening/single-source-managed-silent-tail.json`
-in the working session, not a committed or portable fixture. and Entity Context
+Final-boundary correction: the spectral producer also pairs the centroid with
+the final retained energy before publication. Its six spectral scalars cross
+classic Max to Node as a bounded JSON symbol (`spectrum-json`, at most 4096
+characters), avoiding numeric-atom conversion of very small positive energies.
+Node validates the exact six-number shape and forwards the original numeric
+packet to the unchanged strict spectral decoder. Raw spectral atom packets,
+malformed JSON and nonfinite values are explicitly rejected. Metadata and
+ownership framing remain unchanged; matching producer/runtime bundle bytes
+are required.
+
+Failure snapshots can contain more than the lifecycle contract's 24 facts.
+The runtime now sends separate, uniquely identified, attributed progress
+events of at most 24 facts, preserving every fact and the original failure's
+causation/timing. Previously an oversized diagnostic could trigger device
+disconnect and obscure the original capture failure.
+
+The unchanged managed silent-tail audio now passes its standalone scenario
+and owning group on Live 11.3.43, including complete metric timelines, actual
+zero-energy FFT records with null centroids, saved-report reopening and
+cleanup. The earlier disconnect and malformed-record runs remain negative
+evidence. Current local evidence:
+`.test-artifacts/independent-metric-listening/single-source-silent-tail-final-group.json`.
+
+The final Session production bundle is qualified and reinstalled. Seven
+bounded Session scenarios pass, covering MIDI/audio, four-beat phrases,
+same-source repeats and MIDI/audio/MIDI switching. Production, packaged and
+installed application inventories match SHA-256
+`787fe8b6cbb8a66ea6a69d45d81a09ec09c4e8d5888e277ea1e7aad438ac54a9`;
+all 21 immutable installed listening files match qualification.
+Installed authentication and packaged normal-startup/installation gates pass.
+The startup test waits for actual readiness using the owning Electron suite's
+30-second budget, not the default five-second assertion budget.
+
+The installed executable, without automation flags or changed normal approval
+preferences, also completes four independent full-phrase captures: both MIDI
+clips and both audio clips. Every pass retains all expected level, spectral
+and detector-input records, saves a report and leaves no missing records.
+Each case uses a fresh owned Live process at stopped beat zero with global
+quantization None; this does not qualify arbitrary nonzero stopped positions.
+Normal review evidence is
+`single-source-normal-installed-matrix-1793497253431.json`; every owned Desktop
+and Live process in that matrix closed successfully. A separate automation-MCP
+capture in `human-review-1793499606319/normal-installed-ux.json` also completed:
+the accepted message/trace/correlation IDs match the exactly-once rendered
+submission, and all three metric families are complete. Computer-use inspected
+the owned Agent and Live windows and confirmed the connected app, completed
+operations, audio-2 playback and enabled app-controlled listener. That private
+helper exited unsuccessfully because importing the MCP executable also invoked
+its CLI without `--descriptor`; it is not a clean harness pass.
+The additional fractional
+Arrangement attempts were denied at dependency-completeness preflight before
+playback and are not qualified by these Session results.
+
+Separate findings retained outside the publication-fix scope: the MCP assistant
+misclassified half-beat-offset hats as on-beat despite intact numeric timing.
+Shared listening/report guidance now explains zero-based beat phase, native
+support and tempo-dependent sample conversion; unit and runner-owned
+four-beat capture coverage pass, but a corrected musical interpretation has not
+been visually qualified. A later owning Session run
+(`metric-rhythm-guidance-owning-session.json`) passed five single-capture cases,
+then failed before playback on the third same-source repetition with
+`metric_spectrum_shared_failure`. Its isolated repeat-three rerun passed
+(`metric-repeat-isolated.json`), so repeat reliability remains unresolved;
+the earlier positive repeat/switch receipts do not erase that failure.
+An additional MCP visual run was cancelled when scope was frozen. Its cleanup
+receipt reported an owned-Live identity mismatch; both recorded Agent/Live PIDs
+were independently confirmed absent. Do not count that run as a pass.
+Historical console-message attribution, absolute/sample-accurate calibration,
+public DMG/ZIP distribution and unrestricted restart behavior are not claimed.
 
 Qualification note: the corrected candidate completed a fresh isolated
 Desktop MIDI capture and retained both listener registrations in a subsequent
@@ -28,7 +96,7 @@ stopping transport and seeking to beat zero left the previously playing MIDI
 Session clip selected for playback. A stopped transport is not proof that all
 Session clips are stopped. This run does not resolve the earlier long-lived
 discovery loss or qualify cross-track switching; no automatic retry or source
-repair was performed. and Entity Context
+repair was performed.
 
 ## Independent metric timelines migration
 
@@ -48,10 +116,11 @@ including four-beat MIDI and audio phrases: 96,000 samples, 16 report rows,
 20 detector-input records and 47 FFT records each, with saved report reopening
 and verified cleanup. Same-source repeats and MIDI/audio/MIDI switching also
 retain registration. The packaged inventory matches the qualified production
-bundle. That same bundle is now installed, with a fresh protected review copy
-`installed-human-review-1793490074155/project/debug-two-clips-midi-audio-v1.als`.
-Normal installed review and specific attribution of the earlier Max
-console errors remain pending. The remaining Max background host exposes no
+bundle. That same bundle is now installed, with the final protected review copy
+`installed-human-review-1793497475064/project/debug-two-clips-midi-audio-v1.als`.
+Normal installed discovery/full-clip review is complete as described above;
+specific attribution of the earlier Max console messages remains unproven.
+The remaining Max background host exposes no
 content window and has no active Node-for-Max device runners; it is not proof
 of an open editor or a reason to terminate a user process.
 

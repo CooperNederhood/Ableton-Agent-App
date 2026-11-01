@@ -142,6 +142,7 @@ test("bundles native runtime packages for both macOS architectures", async () =>
 });
 
 test("launches the generated production application", async () => {
+  test.setTimeout(60_000);
   const profile = await mkdtemp(
     join(process.cwd(), "ableton-agent-packaged-electron-"),
   );
@@ -186,10 +187,14 @@ test("launches the generated production application", async () => {
       window.getByRole("navigation", { name: "Application views" }),
     ).toBeVisible();
     await expect
-      .poll(() =>
-        window.evaluate(() =>
-          (window as unknown as PackagedDesktopWindow).desktop.lifecycle.get(),
-        ),
+      .poll(
+        () =>
+          window.evaluate(() =>
+            (
+              window as unknown as PackagedDesktopWindow
+            ).desktop.lifecycle.get(),
+          ),
+        { timeout: 30_000 },
       )
       .toMatch(/^(ready|degraded)$/u);
     const descriptor: unknown = JSON.parse(

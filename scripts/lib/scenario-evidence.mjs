@@ -48,27 +48,49 @@ function incompleteResult(result) {
 
 export function classifyScenario(manifest, result) {
   if (incompleteResult(result)) return "fail";
-  if (result.status === 0 && result.json?.ok === true) return "pass";
   const payload = result.json;
+  if (payload === null || typeof payload !== "object") return "fail";
   if (
-    Array.isArray(payload?.operationFailures) &&
-    payload.operationFailures.length > 0 &&
-    payload.operationFailures.every(
-      (failure) => failure.code === "invalid_tool_arguments",
-    ) &&
-    payload.assertions?.length > 0 &&
-    payload.assertions.every((assertion) => assertion.passed === true) &&
-    (payload.policyViolations?.length ?? 0) === 0
+    manifest.id !== undefined &&
+    (payload.scenarioId !== manifest.id || payload.traceState !== "completed")
+  )
+    return "fail";
+  for (const field of [
+    "assertions",
+    "operationFailures",
+    "policyViolations",
+    "approvals",
+  ]) {
+    if (payload[field] !== undefined && !Array.isArray(payload[field]))
+      return "fail";
+  }
+  const assertions = payload.assertions ?? [];
+  const failures = payload.operationFailures ?? [];
+  const violations = payload.policyViolations ?? [];
+  if (assertions.some((assertion) => assertion?.passed !== true)) return "fail";
+  if (
+    result.status === 0 &&
+    payload.ok === true &&
+    assertions.length > 0 &&
+    failures.length === 0 &&
+    violations.length === 0
+  )
+    return "pass";
+  if (
+    failures.length > 0 &&
+    failures.every((failure) => failure?.code === "invalid_tool_arguments") &&
+    assertions.length > 0 &&
+    violations.length === 0
   ) {
     return "recovered-pass";
   }
   if (
     manifest.expectedOutcome === "expected-denial" &&
     Array.isArray(payload?.approvals) &&
-    payload.approvals.some((approval) => approval.approved === false) &&
-    payload.assertions?.every((assertion) => assertion.passed === true) &&
-    (payload.operationFailures?.length ?? 0) === 0 &&
-    payload.policyViolations?.every(
+    payload.approvals.some((approval) => approval?.approved === false) &&
+    assertions.length > 0 &&
+    failures.length === 0 &&
+    violations.every(
       (violation) =>
         violation === "scenario approval policy denied a tool request",
     )
@@ -78,13 +100,14 @@ export function classifyScenario(manifest, result) {
   if (
     Array.isArray(manifest.unsupportedCapabilities) &&
     manifest.unsupportedCapabilities.length > 0 &&
-    payload?.operationFailures?.some((failure) => {
-      const serialized = JSON.stringify(failure);
+    violations.length === 0 &&
+    failures.length > 0 &&
+    failures.every((failure) => {
+      const capability = failure?.details?.capability;
       return (
-        serialized.includes("unsupported_capability") &&
-        manifest.unsupportedCapabilities.some((capability) =>
-          serialized.includes(capability),
-        )
+        failure?.code === "unsupported_capability" &&
+        typeof capability === "string" &&
+        manifest.unsupportedCapabilities.includes(capability)
       );
     })
   ) {

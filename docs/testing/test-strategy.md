@@ -12,13 +12,15 @@ for one host does not prove every Live 11 configuration. Live 12 is outside scop
 
 Tests use filename and command-level classifications:
 
-- `*.test.ts` for deterministic unit and package integration tests.
+- `*.test.ts` and script `*.test.mjs` for deterministic unit and package
+  integration tests discovered by Vitest.
 - Max patch `*.test.cjs` and `*.test.mjs` use `pnpm test:max-patches`
   (`node:test`), not Vitest. Private `.test-artifacts/` diagnostic helpers also
   stay outside Vitest discovery and run only through their explicit commands.
 - Generated protocol fixtures plus Python decoder tests for `contract`.
 - Simulator-backed bridge tests for `integration`.
-- Playwright projects named `electron` for packaged desktop tests.
+- Playwright project `electron` for unpackaged Desktop integration and
+  `electron-packaged` for generated-application smoke tests.
 - Opt-in scripts and recorded release evidence under `real-live`.
 
 Every critical path requires success, failure, denial/guard, and cleanup
@@ -78,10 +80,179 @@ Tests must catch:
 
 ## Test layers
 
+### Entry points and evidence boundaries
+
+| Layer / command | Owns | Does not establish |
+| --- | --- | --- |
+| `pnpm test:ts` (Vitest) | Unit/component logic, controlled failures, workflow fakes and simulator-backed adapters | Actual Live or DSP execution |
+| `pnpm contracts:check`, `pnpm test:python` | Cross-language schemas, compatibility and fake-LOM handlers | Host qualification |
+| `pnpm test:max-patches` | Max source/generation contracts and synthetic publisher/readback regressions | Physical compilation, listening or acoustic quality |
+| `pnpm live:agent-smoke --scenario <id>` / `--group <id>` | Reviewed runtime/CLI actions and independently checked Live outcomes | Uncoached packaged Default-agent UX or MCP stdio |
+| `pnpm test:electron` | Main/preload/renderer integration with explicit fake or injected dependencies | Live outcomes from synthetic context/results |
+| `pnpm test:electron:packaged` (after distribution build) | Packaged resources, startup, native modules, bundled installer and explicitly executed authentication checks | Completed musical workflows or actual Live loading of delivered devices |
+| `pnpm live:ux-host` plus visible Desktop/MCP inspection | Attended cross-app workflows with correlated retained evidence | A continuously enforced packaged acceptance suite |
+
+Run the narrowest owning regression first, then its broader owning suite.
+Real-Live changes use the existing integration-testing skill before the
+desktop-ux-testing skill when both exact state and visible UX change.
+`pnpm check` builds then runs quality checks; `pnpm check:quality` includes
+format/lint/docs/ownership/version/contracts/typecheck and all three test runners.
+No hosted job launches real Live. A future packaged multi-turn MCP scenario
+runner is a separate milestone, not implemented by these foundations.
+
+The visible-message Electron test uses the direct automation client, not MCP
+stdio, and asserts ingress/rendering plus metric-listener descriptors, not
+terminal agent task completion. Its retrying readiness/message polling is not
+a send-once acceptance driver; separating readiness from submission belongs to
+the future packaged scenario work. MCP submission success itself means only
+message acceptance. Screenshots and assistant prose cannot replace exact
+postcondition reads.
+
+### Suite receipts and terminal evidence
+
+Receipt v2 keeps the selected scenario set, executed set and selected-but-unrun
+set visible (`selectedScenarioIds`, `executedScenarioIds`, `unrunScenarioIds`),
+including after setup failure or stop-on-first-failure. Selection
+is fixed before setup. Explicit scenario IDs excluded by group/resume selection
+are rejected with the excluded IDs; deliberate valid subsets need not execute
+every repository scenario.
+
+A clean general CLI pass requires nonempty independently passing assertions,
+the selected `scenarioId` and a completed `traceState`. An already-started
+scenario record survives setup/execution exceptions; do not silently relabel it
+as selected-but-unrun.
+
+The run `outcome` is `passed`, `failed`, `blocked` or `incomplete`.
+`sourceRevision`, `sourceDirty` and `buildPolicy.skipBuild` /
+`buildPolicy.skipInstall` retain source/build provenance. A dirty worktree is not
+the unchanged revision named by HEAD. `coverage` reports `selected`, `executed`, `passed`,
+`cleanPasses`, `recovered`, `passedAfterRetry`, `expectedDenials`,
+`expectedPartials`, `skipped`, `blocked`, `failed`, `cancelled` and `unrun`.
+Here `passed` counts satisfied reviewed contracts, not only clean capability
+successes. `expected-denial-pass` and `expected-partial-pass` contribute to
+contract satisfaction, not `cleanPasses`. `observedTools` has `count` and `names`,
+replacing the older `coverage.tools` / `toolCount`; observed starts are not
+successful capability coverage. Native names come from actual
+`operation.started` events, not the scenario allowlist.
+Source provenance is captured before native admission refusal and process
+inspection, including on blocked admission receipts.
+
+Keep every attempt and evidence reference. Report first-attempt success
+separately from a recovered final attempt or a recovered invalid-argument call.
+The attempt summary exposes `firstAttemptClassification`,
+`finalAttemptClassification`, `firstAttemptPassed` and `passedAfterRetry`.
+Executed/satisfied/skipped/blocked/unrun counts and attempt quality are distinct;
+tool starts do not count successfully supported capabilities. A requested suite
+with skipped, blocked or unrun selected work must exit unsuccessfully. Verified
+expected refusals and expected partial metric results can satisfy their own
+reviewed contracts, but are not successful mutation or all-metrics claims.
+Unsupported capability classification requires `code: "unsupported_capability"`
+and an exact reviewed `details.capability` in the current structured failure
+contract. Standalone legacy capability fields and diagnostic prose are not
+accepted, and cannot override failed assertions, unsafe/denied calls, unrelated
+failures or cleanup failure.
+
+A native execution checkpoint is provisional: records use
+`finalization: "checkpoint"` or `"final"`, and native `.checkpoint.json`
+evidence is separate from terminal `.json` evidence. `executionClassification`
+preserves the execution result when cleanup or persistence later fails; the
+summary is computed from final results, not copied from provisional success.
+Successful cleanup preserves a blocked or cancelled execution classification;
+it does not turn setup failure or cancellation into a pass. Checkpoint
+persistence failure independently fails acceptance even if `cleanup.status`
+reports successful cleanup.
+Terminal results must account
+for service/journal shutdown, exact-owned process release and fixture cleanup.
+Preserve the original failure alongside subsequent cleanup or writer failures,
+including failures returned as `ok: false` rather than thrown exceptions;
+per-scenario traces and aggregate outcomes must agree. Failure to persist
+evidence is a non-success diagnostic, not a fabricated receipt. Keep lifecycle
+timing and trace/correlation/causation attribution, sanitizing and bounding all
+persisted facts. Read receipts according to their version; never rewrite or
+silently reinterpret historical receipts as v2.
+
+`scripts/lib/scenario-receipts.mjs` uses the canonical sanitizer through the
+existing `tsx` source-import path, so admission failures can be reported before
+a build. Receipt writes are owner-only and atomic, bounded to 64 MiB per receipt
+and 16 KiB per scalar string, with visible omission markers for audio/binary
+bodies. These are test-evidence persistence guarantees, not a new application
+storage layout or feature.
+
+### Native fixture and qualification boundaries
+
+Version-specific native1–native5 inputs are not interchangeable. Start independent
+attempts with fresh owned processes, but preserve intentional same-instance
+passes, source switches and fixture-owned resets inside a reviewed scenario.
+`native-listening-fixture.mjs` stages byte-preserving execution copies;
+`saved-listening-fixture.mjs` explicitly migrates/provisions reviewed offline
+device references. Synthetic DTO builders belong in non-test helpers with
+caller-owned cleanup, not imports from executable test modules. The separate
+v2 external-WAV admission follow-up is not a new policy for later fixtures.
+
+Session capture supports the full active loop by default and guarded exact-end
+coverage, bounded to thirty seconds; the old universal four-beat or
+strictly-before-end limit does not apply. Wire4 adds explicit per-pass dual-mode
+behavior; wire5 uses independent level, spectral and attack timelines with
+`metric-audio-observation/v1`. Descriptive disagreement is advisory; strict timing
+is a distinct policy. Existing stopped-beat-zero and None global-quantization
+guards remain unchanged.
+
+The v5 verifier freezes source/geometry independently and requires non-silent
+level evidence, actual spectral coverage/energy when requested, immutable
+context reopening and cleanup proofs. This is not semantic kick classification,
+a general independent PCM oracle, or a no-crackle certificate. Expected unavailable
+spectrum cases remain explicitly partial; engineering-only and bootstrap-only
+evidence cannot qualify production delivery.
+
+The merged production bundle has **bounded Session and installed-startup
+qualification**, including matched production/package/install inventories and
+the corrected silent-tail scenario and owning group. This supersedes the
+unqualified deployment checkpoint at `5f8de53`; retain its failed receipts as
+historical evidence. A later same-source repetition failed before playback and
+passed only on isolated rerun, so repeat reliability remains unresolved.
+Incorrect offbeat interpretation also remains unqualified despite intact numeric
+timing. These results do not qualify arbitrary launch states or changes to this
+test runner. The current checkpoint in
+[Playback Listening](../tools/playback-listening.md) and delivery requirements in
+[Packaging and Operations](../platform/packaging-and-operations.md) are
+authoritative; this strategy does not duplicate their historical run ledger.
+Private `.test-artifacts/` inputs referenced in evidence are not portable fixtures
+or guaranteed to exist in another checkout.
+
+Before reconciliation with merged main, the attempted part-1
+`connection-and-session` run found an existing unowned Live process (PID 32309)
+and launched or changed no process. Its receipt reports blocked, zero executed
+and one unrun selected scenario with a nonzero exit. This safety refusal is not
+green real-host qualification; retain it as historical evidence.
+
+After reconciliation with `f84303e` and user-confirmed closure of the existing
+Live instance, the refactored runner passed `connection-and-session`, its full
+five-scenario inspection group, and all fourteen remaining non-native scenarios
+on Live 11.3.43. Across nineteen distinct scenarios, fourteen were clean passes
+and five recovered from invalid-argument calls within their first attempt; no scenario
+needed a fresh second attempt. All independent assertions and final cleanup
+passed, with no skipped or unrun selected scenarios. The recovered cases were
+track lifecycle, four-on-floor, Session clip lifecycle, Arrangement clip lifecycle
+and Arrangement region-fill lifecycle; they are not clean agent executions.
+Receipts are `.test-artifacts/testing-reconciled-connection.json`,
+`.test-artifacts/testing-reconciled-inspection-group.json` and
+`.test-artifacts/testing-reconciled-remaining.json`. All ten runner-owned Live
+processes closed, and a final process guard found none remaining.
+These are runtime/CLI results, not packaged MCP acceptance. Explicit native
+fixture inputs were not available in this worktree, so native physical scenarios
+were not selected or rerun; their synthetic coverage and upstream qualification
+must remain separately labeled.
+
+Application state uses the shared `@ableton-agent/storage` resolver and
+[Local Storage Layout](../platform/local-storage.md), including isolated automation
+roots and their `profiles/automation` ownership. Disposable fixture/evidence
+directories are not another application-state root. Reserved memory directories
+do not imply implemented general memory persistence.
+
 ### Canonical integration delivery
 
 Device delivery requires publisher and installer regressions as well as app
-launch coverage. Check complete canonical native-v4 and MIDI payload inventories,
+launch coverage. Check complete canonical native-v5 and MIDI payload inventories,
 portable/installed hashes, path rendering, selected-profile and custom-Library
 resolution, idempotent update, corrupt/missing/wrong-version resources, live-host
 guards, unrelated-file/token preservation, partial failures, cleanup/cancellation,
@@ -328,7 +499,7 @@ Critical workflows:
   identity, actionable timeout, preserved retry text, and no duplicate user
   bubble.
 
-The external driver uses the local stdio MCP adapter only to submit a message.
+The attended external driver uses the local stdio MCP adapter only to submit a message.
 Computer-use owns screenshots and visual inspection of the Electron app and
 Ableton Live.
 
@@ -392,6 +563,20 @@ Live Event delivery. Treat thresholds as testable named constants and publish
 enough diagnostics to explain regressions.
 
 ## CI
+
+The hosted validation job runs `pnpm check`; the macOS platform job builds.
+`package-desktop.yml` builds the workspace and integration payloads, runs the
+unpackaged `electron` project, then produces the macOS distribution. It does
+not currently execute `electron-packaged`; that remains an explicit local
+command, including bundled-installer tests without a checkout.
+
+Packaging selection follows Desktop's transitive workspace/test dependencies,
+Electron tests and configuration, workspace/TypeScript configuration, bundled
+`agents/` and `skills/`, and the integration builder's source/helper inputs.
+A configuration regression reads the actual workflow and dependency manifests,
+checks missing ownership triggers and preserves payload-build ordering before
+Electron/distribution. These filters select existing work; they introduce no
+new CI jobs, authentication provisioning or real-Live release gate.
 
 Every pull request should run:
 

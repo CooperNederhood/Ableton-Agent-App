@@ -82,6 +82,20 @@ it.each([
       expect(evidence.groups).toEqual([]);
       expect(evidence.scenarios).toEqual([]);
       expect(evidence.liveProcess).toBeUndefined();
+      expect(evidence).toMatchObject({
+        formatVersion: 2,
+        finalization: "final",
+        passed: false,
+        outcome: "blocked",
+        sourceRevision: expect.stringMatching(/^[a-f0-9]{40}$/),
+        sourceDirty: expect.any(Boolean),
+        executedScenarioIds: [],
+        observedTools: { count: 0, names: [] },
+        coverage: { passed: 0, executed: 0 },
+      });
+      expect(evidence.selectedScenarioIds).toContain(id);
+      expect(evidence.unrunScenarioIds).toEqual(evidence.selectedScenarioIds);
+      expect(evidence.coverage.unrun).toBe(evidence.coverage.selected);
     } finally {
       await rm(directory, { recursive: true, force: true });
     }

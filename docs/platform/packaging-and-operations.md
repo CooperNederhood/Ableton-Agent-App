@@ -8,6 +8,19 @@ qualification, packaging and installation retain the same identified bundle
 and reject stale or tampered resources. Normal installed startup discovers
 both listeners and captures all four MIDI/audio clips with complete records.
 
+The user subsequently tested the normal installed app on 2026-10-31, reported
+their tests passing, and accepted the original publication/install correction.
+This local user acceptance is distinct from a public release or qualification
+of the separate intermittent repeat-capture behavior.
+
+Payload reuse also validates MIDI source freshness: the current canonical
+companions and portable AMXD rendering must match the existing payload bytes.
+An internally consistent manifest alone is insufficient. The attributed
+`midi-current-source-check` stage fails or cancels explicitly without rewriting
+the retained bundle. Positive builds and reuse share the same portable-device
+rendering; MIDI-only source changes require a new payload rather than silently
+shipping old code.
+
 The single generated production parent and immutable payload reuse are
 implemented, and the final corrected Session bundle is installed. A subsequent
 silent-tail regression required retained publication and Max/Node scalar

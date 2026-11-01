@@ -34,6 +34,19 @@ export const DEFAULT_INTEGRATION_PAYLOAD_ROOT = join(
   "apps/desktop/build/ableton-integrations",
 );
 
+async function portableMidiDevice(sourceDirectory, signal) {
+  const inventory = INTEGRATION_DEVICE_INVENTORY["midi-capture"];
+  const midi = decodeAmxd(
+    await readFile(join(sourceDirectory, inventory.deviceFile), { signal }),
+  );
+  return encodeAmxd(
+    midi,
+    renderPortableDevice(midi.document, sourceDirectory, {
+      pathPlaceholder: MIDI_CAPTURE_PATH_PLACEHOLDER,
+    }),
+  );
+}
+
 /** Build only from tracked canonical sources. Never install or configure a profile. */
 export async function buildAbletonIntegrations(
   outDirectory = DEFAULT_INTEGRATION_PAYLOAD_ROOT,
@@ -125,6 +138,28 @@ export async function buildAbletonIntegrations(
           stage: packageStage,
           signal: options.signal,
         });
+        await packageStage("midi-current-source-check", async () => {
+          const inventory = INTEGRATION_DEVICE_INVENTORY["midi-capture"];
+          const sourceDirectory = join(source, "midi-capture");
+          for (const name of inventory.files) {
+            cancelled();
+            const current =
+              name === inventory.deviceFile
+                ? await portableMidiDevice(sourceDirectory, options.signal)
+                : await readFile(
+                    producerCompanionSource(name, sourceDirectory),
+                    { signal: options.signal },
+                  );
+            const retained = await readFile(
+              join(destination, "midi-capture", name),
+              { signal: options.signal },
+            );
+            if (!current.equals(retained))
+              throw new Error(
+                `Current MIDI source differs from payload: ${name}`,
+              );
+          }
+        });
         cancelled();
         emit("completed");
         return destination;
@@ -168,17 +203,9 @@ export async function buildAbletonIntegrations(
           source: producerCompanionSource(name, midiSource),
         })),
     });
-    const midi = decodeAmxd(
-      await readFile(join(midiSource, midiInventory.deviceFile)),
-    );
     await writeFile(
       join(midiDestination, midiInventory.deviceFile),
-      encodeAmxd(
-        midi,
-        renderPortableDevice(midi.document, midiSource, {
-          pathPlaceholder: MIDI_CAPTURE_PATH_PLACEHOLDER,
-        }),
-      ),
+      await portableMidiDevice(midiSource, options.signal),
     );
     emit("progress");
     const devices = [];

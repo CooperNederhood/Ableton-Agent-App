@@ -10,6 +10,11 @@ startup discovers both listeners and completes all four MIDI/audio clip
 captures with full retained metric coverage. This closes the publication bug,
 not every outstanding listening accuracy or reliability concern.
 
+User acceptance on 2026-10-31: the user tested the normal installed application,
+reported it working and passing their tests, and accepted closure of the
+original publishing/install fix. This is manual acceptance of that scope,
+not a claim that unrestricted repetition or every listening mode is qualified.
+
 The JS-authoritative patch/deployment cleanup is implemented. Normal installed
 startup in isolated profiles discovers both listeners and has completed MIDI
 and audio kick captures. A later full-phrase check exposed a zero-energy FFT

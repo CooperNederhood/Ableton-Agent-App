@@ -11,6 +11,10 @@ listeners registered. Remaining repeat reliability, musical interpretation,
 console attribution and general release work below are separate follow-ups,
 not open publication-fix acceptance items.
 
+- [x] Record user acceptance on 2026-10-31 after normal installed-app testing:
+  the user reported it working and passing their tests and accepted the
+  original publishing/install scope. Do not infer broader qualification.
+
 - [x] Commit the implemented JS-authoritative deployment pipeline, native-v5
   cleanup, regression ports and bounded metric-budget work as a working checkpoint.
 - [x] Reproduce a silent-tail spectral rejection with observed energy zero and

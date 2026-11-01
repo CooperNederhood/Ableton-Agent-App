@@ -4,6 +4,13 @@ Companion specification: [Packaging and Operations](packaging-and-operations.md)
 
 ## Current branch checkpoint
 
+- [x] Check canonical MIDI companions and portable AMXD bytes during shared
+  payload reuse, not only manifest integrity/current listening sources.
+  Source-change and cancellation regressions preserve the old payload and
+  cover attributed current-source lifecycle ordering and timing.
+- [x] Record the user's 2026-10-31 normal installed-app acceptance of the
+  original publication/install correction. Their tests passed; broader
+  listening/release claims remain unchanged.
 - [x] Close the original publication-fix scope with one generated functional
   source, hash-bound packaging/install reuse, installed byte equality and
   two-listener/four-clip normal-startup evidence. Broader listening/release

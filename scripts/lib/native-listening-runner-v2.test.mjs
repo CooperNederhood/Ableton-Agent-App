@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import * as application from "@ableton-agent/application";
 import * as runtime from "@ableton-agent/runtime";
 import * as observability from "@ableton-agent/observability";
@@ -13,7 +13,10 @@ import { JsonSessionStore } from "../../apps/desktop/src/main/desktop-service.ts
 import { createDesktopSessionContextManager } from "../../apps/desktop/src/main/desktop-session-context.ts";
 import { sessionSchema } from "../../apps/desktop/src/contracts.ts";
 import { publishSignalSecrets } from "../../apps/desktop/src/main/signal-credentials.ts";
-import { nativeFixtureInput } from "./native-listening-fixture.test.mjs";
+import {
+  disposeNativeFixtureRoots,
+  nativeFixtureInput as createNativeFixtureInput,
+} from "./native-listening-fixture-test-support.mjs";
 import {
   admitNativeScenarios,
   createNativeListeningRunner,
@@ -23,6 +26,11 @@ import {
 } from "./native-listening-runner.mjs";
 import { createNativeScenarioApproval } from "./native-listening-verification.mjs";
 import { nativeSourceOverrideRefusal } from "./native-listening-runner-source.mjs";
+
+const roots = [];
+const nativeFixtureInput = (options) =>
+  createNativeFixtureInput(roots, options);
+afterEach(() => disposeNativeFixtureRoots(roots));
 
 const load = async (id) =>
   JSON.parse(await readFile(`integration/live-scenarios/${id}.json`, "utf8"));
@@ -492,13 +500,17 @@ describe("sequential fresh native process orchestration (mock process controller
     launchFailure = false,
     discardFailure = false,
     callbackFailure = false,
+    resultCallbackFailure = false,
+    setupFailure = false,
     runFailure,
+    returnedError,
     expectedRefusal = false,
     scenarioIds = expectedRefusal ? ["native-source-session-override"] : ids,
   } = {}) {
     const log = [];
     const stages = [];
     const published = [];
+    const finalized = [];
     let owned;
     const manifests = await Promise.all(scenarioIds.map(load));
     const controller = {
@@ -530,6 +542,8 @@ describe("sequential fresh native process orchestration (mock process controller
       }),
     };
     const createRunner = vi.fn(async (_m, token) => {
+      if (setupFailure)
+        throw new Error("fixture staging failed token=private-value");
       const fixture = {
         setPath: token,
         cleanup: vi.fn(async () => {
@@ -551,6 +565,7 @@ describe("sequential fresh native process orchestration (mock process controller
           if (runFailure) throw runFailure;
           return {
             ok: !failed,
+            ...(returnedError === undefined ? {} : { error: returnedError }),
             ...(expectedRefusal && _m.id === "native-source-session-override"
               ? {
                   evidence: {
@@ -578,14 +593,134 @@ describe("sequential fresh native process orchestration (mock process controller
       controller,
       applicationPath: "test-only",
       createRunner,
-      onResult: async (_manifest, result) => {
+      onCheckpoint: async (_manifest, result) => {
         log.push("evidence");
         published.push(result);
         if (callbackFailure) throw new Error("evidence persistence failed");
       },
+      onResult: async (_manifest, result) => {
+        finalized.push(globalThis.structuredClone(result));
+        if (resultCallbackFailure)
+          throw new Error("terminal persistence failed");
+      },
     });
-    return { work, controller, createRunner, log, stages, published };
+    return {
+      work,
+      controller,
+      createRunner,
+      log,
+      stages,
+      published,
+      finalized,
+    };
   }
+  it.each([
+    ["shutdown", { stopFailure: true }],
+    ["fixture close", { cleanupFailure: true }],
+    ["checkpoint write", { callbackFailure: true }],
+    ["launch", { launchFailure: true }],
+  ])(
+    "finalizes %s failure without leaving a successful scenario receipt",
+    async (_name, options) => {
+      const f = await group(options);
+      await expect(f.work).rejects.toThrow();
+      expect(f.finalized).toHaveLength(1);
+      expect(f.finalized[0]).toMatchObject({
+        ok: false,
+        passed: false,
+        finalization: "final",
+        cleanup: {
+          status:
+            options.stopFailure || options.cleanupFailure
+              ? "failed"
+              : "completed",
+        },
+      });
+      expect(f.finalized[0].failures.length).toBeGreaterThan(0);
+      expect(f.finalized[0].processCleanup).toBeUndefined();
+      expect(f.createRunner).toHaveBeenCalledOnce();
+      if (!options.launchFailure) {
+        expect(f.finalized[0].executionClassification).toBe("pass");
+        expect(f.published[0].finalization).toBe("checkpoint");
+      }
+    },
+  );
+  it("retains a blocked setup separately from successful cleanup", async () => {
+    const f = await group({ setupFailure: true });
+    await expect(f.work).rejects.toThrow("fixture staging failed");
+    expect(f.finalized[0]).toMatchObject({
+      classification: "blocked",
+      executionStarted: false,
+      cleanup: { status: "completed" },
+    });
+    expect(JSON.stringify(f.finalized)).not.toContain("private-value");
+    expect(f.controller.launch).not.toHaveBeenCalled();
+  });
+  it("retains cancellation and its cleanup without reporting an ordinary execution failure", async () => {
+    const abort = new Error("actor cancelled", { cause: "test cancellation" });
+    abort.name = "AbortError";
+    const f = await group({ runFailure: abort });
+    await expect(f.work).rejects.toBe(abort);
+    expect(f.finalized[0]).toMatchObject({
+      classification: "cancelled",
+      executionClassification: "cancelled",
+      executionStarted: true,
+      cleanup: { status: "completed" },
+    });
+    expect(f.controller.discardAfterFailure).toHaveBeenCalledOnce();
+  });
+  it("stops the group when terminal persistence fails after cleanup", async () => {
+    const f = await group({ resultCallbackFailure: true });
+    await expect(f.work).rejects.toThrow("terminal persistence failed");
+    expect(f.createRunner).toHaveBeenCalledOnce();
+    expect(f.controller.publicRecord()).toBeUndefined();
+  });
+  it.each([
+    ["checkpoint-persistence", { callbackFailure: true }],
+    ["runner-close", { cleanupFailure: true }],
+  ])(
+    "preserves a returned execution failure before %s failure",
+    async (phase, options) => {
+      const f = await group({
+        failed: true,
+        returnedError: "primary verification failure token=private-value",
+        ...options,
+      });
+      await expect(f.work).rejects.toThrow();
+      expect(f.finalized[0]).toMatchObject({
+        ok: false,
+        classification: "fail",
+        executionClassification: "fail",
+        error: "primary verification failure token=[REDACTED]",
+        failures: [
+          {
+            phase: "execution",
+            message: "primary verification failure token=[REDACTED]",
+          },
+          { phase, message: expect.any(String) },
+        ],
+      });
+      expect(JSON.stringify(f.finalized)).not.toContain("private-value");
+      expect(f.createRunner).toHaveBeenCalledOnce();
+    },
+  );
+  it("finalizes success only after shutdown and close, retaining the provisional checkpoint", async () => {
+    const f = await group();
+    const results = await f.work;
+    expect(f.finalized).toHaveLength(results.length);
+    expect(
+      f.finalized.every(
+        (result) =>
+          result.ok &&
+          result.finalization === "final" &&
+          result.processCleanup.processStopped &&
+          result.processCleanup.fixtureCleaned,
+      ),
+    ).toBe(true);
+    expect(
+      f.published.every((result) => result.finalization === "checkpoint"),
+    ).toBe(true);
+  });
   it("awaits exact-owned refusal disposal before guarded fixture cleanup and returns truthful stopped cleanup", async () => {
     const f = await group({ expectedRefusal: true, stopFailure: true });
     const result = await f.work;
@@ -1339,7 +1474,11 @@ async function runnerV2(
                 }),
               ).toBe(true);
               await host.executeListeningOperation(params, context);
-              for (const fn of events) fn({ type: "operation.started" });
+              for (const fn of events)
+                fn({
+                  type: "operation.started",
+                  toolName: "ableton_listening",
+                });
             }
             if (failure === "actor-tool") {
               for (const fn of events)
@@ -1790,6 +1929,7 @@ describe("v2 runner expectation forwarding and production typed context reopenin
       const result = await f.runner.run(async () => {});
       expect(result.error).toBeUndefined();
       expect(result.ok).toBe(true);
+      expect(result.observedToolNames).toEqual(["ableton_listening"]);
       expect(result.recovery).toMatchObject({
         initialDeviceIndex: 0,
         finalDeviceIndex: 1,
@@ -1958,6 +2098,7 @@ describe("v2 runner expectation forwarding and production typed context reopenin
         const result = await f.runner.run(async () => {});
         expect(result.ok).toBe(false);
         expect(result.error).toContain("tool failed");
+        expect(result.observedToolNames).toEqual(["ableton_listening"]);
         expect(f.wait).not.toHaveBeenCalled();
         expect(f.appStop).toHaveBeenCalledOnce();
         expect(f.ingressStop).toHaveBeenCalledOnce();

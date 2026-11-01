@@ -1,7 +1,11 @@
 import { randomUUID } from "node:crypto";
-import { cp, mkdir, readFile, writeFile } from "node:fs/promises";
+import { cp, mkdir, readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { performance } from "node:perf_hooks";
+import {
+  describeScenarioError as describeError,
+  writeScenarioReceipt as writeReceipt,
+} from "./lib/scenario-receipts.mjs";
 
 import {
   LiveProcessController,
@@ -19,6 +23,13 @@ import {
   shouldRetryAgentScenario,
 } from "./lib/scenario-evidence.mjs";
 import { createIsolatedScenarioSession } from "./lib/scenario-session.mjs";
+import {
+  SCENARIO_RECEIPT_VERSION,
+  finalizeScenarioRecord,
+  publishScenarioRecord,
+  scenarioPassed,
+  summarizeScenarioRun,
+} from "./lib/scenario-results.mjs";
 import {
   admitNativeScenarios,
   createNativeListeningRunner,
@@ -53,7 +64,8 @@ const controller = hasFlag("computer-use")
   ? createComputerUseLiveController()
   : new LiveProcessController();
 const evidence = {
-  formatVersion: 1,
+  formatVersion: SCENARIO_RECEIPT_VERSION,
+  finalization: "checkpoint",
   runId: randomUUID(),
   startedAt: new Date().toISOString(),
   applicationPath,
@@ -66,13 +78,38 @@ const evidence = {
   groups: [],
   scenarios: [],
   cleanup: [],
+  selectedScenarioIds: [],
+  buildPolicy: {
+    skipBuild: hasFlag("skip-build"),
+    skipInstall: hasFlag("skip-install"),
+  },
 };
 const coveredTools = new Set();
 
 let failed = false;
+let activeGroup;
+let activeScenario;
+let activeScenarioPhase;
 try {
   const suite = await loadScenarioSuite();
   const selectedGroups = selectScenarioGroups(suite, evidence.selection);
+  evidence.selectedScenarioIds = selectedGroups.flatMap(
+    (group) => group.scenarios,
+  );
+  const revision = await runProcess("git", ["rev-parse", "HEAD"], {
+    timeoutMs: 5_000,
+  });
+  if (revision.status !== 0)
+    throw new Error("Could not identify runner source revision");
+  evidence.sourceRevision = revision.stdout.trim();
+  const sourceStatus = await runProcess(
+    "git",
+    ["status", "--porcelain", "--untracked-files=normal"],
+    { timeoutMs: 5_000 },
+  );
+  if (sourceStatus.status !== 0)
+    throw new Error("Could not identify runner worktree state");
+  evidence.sourceDirty = sourceStatus.stdout.trim().length > 0;
   if (
     hasFlag("approve-all") &&
     selectedGroups.some((group) => group.id === "transport")
@@ -131,6 +168,7 @@ try {
   const environment = { ...process.env, ABLETON_AGENT_TOKEN: token };
   for (const selectedGroup of selectedGroups) {
     const group = selectedGroup.id;
+    activeGroup = group;
     const scenarios =
       nativeGroups.get(group) ??
       (await Promise.all(selectedGroup.scenarios.map(loadManifest)));
@@ -178,45 +216,9 @@ try {
             environment,
             runId: scenarioRunId,
           }),
-        onResult: async (manifest, result, scenarioRunId, liveProcess) => {
-          const tracePath = resolve(
-            dirname(output),
-            "traces",
-            evidence.runId,
-            `${manifest.id}.json`,
-          );
-          evidence.liveProcess = liveProcess;
-          await mkdir(dirname(tracePath), { recursive: true });
-          await writeFile(
-            tracePath,
-            `${JSON.stringify(result, undefined, 2)}\n`,
-            { mode: 0o600 },
-          );
-          evidence.scenarios.push({
-            id: manifest.id,
-            group,
-            scenarioRunId,
-            liveProcess,
-            status: result.ok ? 0 : 5,
-            classification: result.ok ? "pass" : "fail",
-            passed: result.ok,
-            toolNames: manifest.allowedTools,
-            tracePath,
-            result,
-            stderr: "",
-          });
-        },
+        onCheckpoint: (...args) => publishNativeResult("checkpoint", ...args),
+        onResult: (...args) => publishNativeResult("final", ...args),
       });
-      for (const { manifest, result } of results) {
-        const scenario = evidence.scenarios.find(
-          (item) => item.id === manifest.id && item.group === group,
-        );
-        await writeFile(
-          scenario.tracePath,
-          `${JSON.stringify(result, undefined, 2)}\n`,
-          { mode: 0o600 },
-        );
-      }
       groupEvidence.passed =
         results.length === scenarios.length &&
         results.every(({ result }) => result.ok);
@@ -225,8 +227,6 @@ try {
         failed = true;
         break;
       }
-      for (const manifest of scenarios)
-        for (const tool of manifest.allowedTools) coveredTools.add(tool);
       continue;
     }
     await controller.launch(applicationPath);
@@ -253,12 +253,27 @@ try {
         evidence.runId,
         `${manifest.id}.json`,
       );
+      activeScenario = {
+        id: manifest.id,
+        group,
+        executionStarted: false,
+        classification: "blocked",
+        passed: false,
+        finalization: "checkpoint",
+        toolNames: [],
+        tracePath,
+      };
+      activeScenarioPhase = "setup";
+      evidence.scenarios.push(activeScenario);
       if (
         manifest.execution === "live-event-runtime" ||
         manifest.execution === "capability-surface" ||
         manifest.execution === "cue-point-runtime" ||
         manifest.execution === "routing-runtime"
       ) {
+        activeScenario.executionStarted = true;
+        activeScenario.classification = "fail";
+        activeScenarioPhase = "execution";
         const result =
           manifest.execution === "live-event-runtime"
             ? await runLiveEventRuntimeScenario(manifest, environment)
@@ -267,27 +282,25 @@ try {
               : manifest.execution === "cue-point-runtime"
                 ? await runCuePointRuntimeScenario(manifest, environment)
                 : await runRoutingRuntimeScenario(manifest, environment);
-        await mkdir(dirname(tracePath), { recursive: true });
-        await writeFile(
-          tracePath,
-          `${JSON.stringify(result, undefined, 2)}\n`,
-          {
-            encoding: "utf8",
-            mode: 0o600,
-          },
-        );
         const classification = result.ok ? "pass" : "fail";
-        evidence.scenarios.push({
+        Object.assign(activeScenario, {
           id: manifest.id,
           group,
           status: result.ok ? 0 : 5,
           classification,
-          passed: result.ok,
+          passed: false,
+          finalization: "checkpoint",
           toolNames: [],
           tracePath,
           result,
           stderr: "",
         });
+        activeScenarioPhase = "checkpoint-persistence";
+        await writeReceipt(tracePath, {
+          ...result,
+          finalization: "checkpoint",
+        });
+        activeScenario = undefined;
         if (!result.ok) {
           groupPassed = false;
           failed = true;
@@ -313,6 +326,9 @@ try {
                 evidence.runId,
                 `${manifest.id}.attempt-2.json`,
               );
+        activeScenario.executionStarted = true;
+        activeScenario.classification = "fail";
+        activeScenarioPhase = "execution";
         result = await runCli(
           [
             "run",
@@ -372,12 +388,13 @@ try {
       }
       const toolNames = collectToolNames(result);
       for (const toolName of toolNames) coveredTools.add(toolName);
-      evidence.scenarios.push({
+      Object.assign(activeScenario, {
         id: manifest.id,
         group,
         status: result.status,
         classification,
-        passed: classification !== "fail",
+        passed: false,
+        finalization: "checkpoint",
         sessionId,
         attempts,
         toolNames,
@@ -387,6 +404,7 @@ try {
         result: result.json,
         stderr: bounded(result.stderr),
       });
+      activeScenario = undefined;
       if (classification === "fail") {
         groupPassed = false;
         failed = true;
@@ -406,32 +424,67 @@ try {
   }
 } catch (error) {
   failed = true;
-  evidence.error = error instanceof Error ? error.message : String(error);
+  evidence.error = describeError(error);
+  if (activeScenario?.finalization === "checkpoint") {
+    activeScenario.executionClassification = activeScenario.classification;
+    activeScenario.classification = activeScenario.executionStarted
+      ? error?.name === "AbortError"
+        ? "cancelled"
+        : "fail"
+      : "blocked";
+    activeScenario.executionClassification =
+      activeScenarioPhase === "checkpoint-persistence"
+        ? activeScenario.executionClassification
+        : activeScenario.classification;
+    activeScenario.error = evidence.error;
+    if (activeScenarioPhase === "checkpoint-persistence")
+      activeScenario.persistenceError = evidence.error;
+  }
   if (controller.publicRecord() !== undefined) {
     try {
       await cleanupOwnedLive(true);
     } catch (cleanupError) {
-      evidence.cleanupError =
-        cleanupError instanceof Error
-          ? cleanupError.message
-          : String(cleanupError);
+      evidence.cleanupError = describeError(cleanupError);
     }
   }
 } finally {
   evidence.finishedAt = new Date().toISOString();
-  evidence.passed = !failed;
-  evidence.coverage = {
-    scenarioCount: evidence.scenarios.length,
-    passed: evidence.scenarios.filter((scenario) => scenario.passed).length,
-    toolCount: coveredTools.size,
-    tools: [...coveredTools].sort(),
+  Object.assign(
+    evidence,
+    summarizeScenarioRun(
+      evidence.selectedScenarioIds,
+      evidence.scenarios,
+      failed,
+    ),
+  );
+  evidence.finalization = "final";
+  evidence.observedTools = {
+    count: coveredTools.size,
+    names: [...coveredTools].sort(),
   };
-  await mkdir(dirname(output), { recursive: true });
-  await writeFile(output, `${JSON.stringify(evidence, undefined, 2)}\n`, {
-    encoding: "utf8",
-    mode: 0o600,
-  });
-  console.log(`Wrote agent smoke evidence to ${output}`);
+  for (const group of evidence.groups) {
+    const summary = summarizeScenarioRun(
+      group.scenarioIds,
+      evidence.scenarios.filter((scenario) => scenario.group === group.id),
+      group.id === activeGroup && failed,
+    );
+    Object.assign(group, {
+      passed: summary.passed,
+      outcome: summary.outcome,
+      coverage: summary.coverage,
+    });
+    group.finishedAt ??= evidence.finishedAt;
+  }
+  failed = !evidence.passed;
+  try {
+    await writeReceipt(output, evidence);
+    console.log(`Wrote agent smoke evidence to ${output}`);
+  } catch (error) {
+    failed = true;
+    console.error(
+      `Could not persist agent smoke evidence: ${describeError(error)}`,
+    );
+  }
 }
 
 if (failed) process.exitCode = 1;
@@ -468,10 +521,7 @@ async function cleanupOwnedLive(discard) {
   // Retain actor state first, but never strand an owned process on a journal error.
   let checkpointError;
   try {
-    await mkdir(dirname(output), { recursive: true });
-    await writeFile(output, `${JSON.stringify(evidence, undefined, 2)}\n`, {
-      mode: 0o600,
-    });
+    await writeReceipt(output, evidence);
   } catch (error) {
     checkpointError = error;
   }
@@ -481,9 +531,72 @@ async function cleanupOwnedLive(discard) {
     emit("completed");
   } catch (error) {
     emit("failed");
+    finalizeGroupCleanup({ status: "failed", errors: [describeError(error)] });
     throw error;
   }
+  finalizeGroupCleanup({
+    status: checkpointError === undefined ? "completed" : "failed",
+    errors:
+      checkpointError === undefined ? [] : [describeError(checkpointError)],
+  });
   if (checkpointError !== undefined) throw checkpointError;
+}
+
+function finalizeGroupCleanup(cleanup) {
+  evidence.scenarios = evidence.scenarios.map((scenario) =>
+    scenario.group === activeGroup && scenario.finalization === "checkpoint"
+      ? finalizeScenarioRecord(scenario, cleanup)
+      : scenario,
+  );
+}
+
+async function publishNativeResult(
+  phase,
+  manifest,
+  result,
+  scenarioRunId,
+  liveProcess,
+) {
+  const tracePath = resolve(
+    dirname(output),
+    "traces",
+    evidence.runId,
+    `${manifest.id}${phase === "checkpoint" ? ".checkpoint" : ""}.json`,
+  );
+  const classification =
+    result.classification ?? result.executionClassification;
+  const previous = evidence.scenarios.find(
+    (scenario) => scenario.id === manifest.id,
+  );
+  const toolNames = result.observedToolNames ?? [];
+  for (const name of toolNames) coveredTools.add(name);
+  evidence.liveProcess = liveProcess ?? evidence.liveProcess;
+  await publishScenarioRecord(
+    evidence.scenarios,
+    {
+      id: manifest.id,
+      group: manifest.group,
+      scenarioRunId,
+      liveProcess,
+      executionStarted: result.executionStarted,
+      executionClassification: result.executionClassification,
+      classification,
+      finalization: phase,
+      passed: phase === "final" && scenarioPassed(classification),
+      status: result.ok ? 0 : 5,
+      toolNames,
+      tracePath,
+      ...(phase === "checkpoint"
+        ? { checkpointPath: tracePath }
+        : previous?.checkpointPath
+          ? { checkpointPath: previous.checkpointPath }
+          : {}),
+      result,
+      stderr: "",
+    },
+    () => writeReceipt(tracePath, result),
+    describeError,
+  );
 }
 
 async function installRemoteScript(target) {

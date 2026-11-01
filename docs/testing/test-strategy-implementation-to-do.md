@@ -4,6 +4,100 @@ Companion specification: [Test Strategy](test-strategy.md)
 
 ## Test infrastructure
 
+- [x] Document current command discovery and separate runtime, unpackaged Electron,
+  packaged smoke and attended MCP/UX evidence. Preserve packaged installer
+  coverage and keep the future multi-turn packaged runner out of part 1.
+- [x] Define receipt-v2 coverage/attempt boundaries: retain selected/executed/unrun
+  identities, distinguish first-attempt and recovered results, reject silently
+  excluded explicit IDs, and require non-success for skipped/blocked/unrun work.
+  Verified expected refusal/partial contracts remain separate from capability
+  success; unsupported prose cannot override failures.
+- [x] Specify provisional native execution checkpoints versus terminal cleanup
+  results; document separate checkpoint/final files, `executionClassification`,
+  run provenance, final coverage and `observedTools` fields. Keep primary and
+  cleanup/write failures and historical versions.
+- [x] Document source-imported canonical receipt sanitization before build,
+  owner-only atomic writes and receipt/string bounds with audio/binary omission.
+  Distinguish successful cleanup from failed checkpoint persistence and preserve
+  blocked/cancelled outcomes; observed native tools come from actual starts.
+- [x] Align existing integration/UX skills with targeted selection, exact native
+  inputs, stateful scenario boundaries, ordinary qualification approvals and
+  resolver-owned isolated storage with explicit endpoint discovery.
+- [x] Extend packaging triggers to Desktop's transitive workspace/test closure,
+  Electron/configuration, bundled definitions and payload builder helpers;
+  preserve payload-build ordering and existing jobs.
+- [x] Validate workflow ownership before/after the fix: two missing-filter
+  regressions fail before the change, all three contract tests pass afterward.
+  The broader test-support suite passes 36 tests across six files; docs check
+  validates 56 documents/plans and the new contract passes ESLint. These are
+  deterministic configuration checks, not an Electron or physical Live run.
+- [x] Extract side-effect-free native fixture/evidence test-support modules;
+  filesystem callers own their roots and explicit disposal. Guard executable
+  test imports and hook registration without changing owning assertions.
+  The fixture-cleanup workstream's final report has 459 focused tests and lint
+  passing; original owning assertions are preserved.
+- [x] Complete broader native helper-extraction validation: 602 tests pass.
+  These synthetic results do not establish real-Live qualification.
+- [x] Complete shared reporting/finalization deterministic validation. The
+  pre-reconciliation full `pnpm check` passes build, format/lint/docs/ownership,
+  contracts/typecheck, 193 Vitest files / 3721 tests, 814 Max tests and 286 Python
+  tests. An installed-artifact test timed out once during a concurrent scripts
+  run, then passed standalone and in the full gate without threshold changes.
+  Preserve that failed attempt rather than describing the work as first-run clean.
+- [x] Complete the final blocked-native-admission provenance follow-up:
+  `sourceRevision` / `sourceDirty` are present before native refusal and process
+  inspection, verified red/green. The full-gate result above precedes this last
+  change; the final complete scripts suite passes 39 files / 918 tests with
+  `maxWorkers=2`, without increasing timeouts or skipping tests. Final selected
+  formatting/lint/diff checks pass. Physical qualification remains blocked.
+- [x] Document nonempty independent assertions and matching selected identity /
+  completed trace requirements for clean CLI passes; retain started scenario
+  records on setup/execution exceptions.
+- [x] Complete physical reporting validation after the unowned Live precondition
+  clears. Preserve the earlier blocked receipt for PID 32309 and the post-merge
+  guard refusal for PID 78254. After user-confirmed closure, the connection
+  scenario, full inspection group and remaining non-native suite pass on
+  Live 11.3.43: nineteen distinct scenarios, fourteen clean and five recovered,
+  no second-attempt retries, no selected skips/unrun work, verified cleanup.
+  All ten owned processes closed; the final guard found no Live process.
+  The recovered track/clip/Arrangement cases remain visible, not clean passes.
+- [x] Reconcile the testing refactor with merged main `f84303e` after upstream
+  publication fixes and qualification. Preserve strict reporting, isolated
+  fixture helpers, packaging-reuse checks and the corrected `spectralEnergy`
+  verifier. Replace obsolete unqualified/not-installed guidance without erasing
+  historical failed receipts.
+- [x] Record upstream bounded production-bundle qualification and reinstallation,
+  including matched payload inventories and the corrected silent-tail scenario
+  and group. The current [listening checkpoint](../tools/playback-listening.md)
+  retains a later repeat failure and unresolved musical interpretation; this
+  does not qualify the refactored runner or unrestricted listening.
+- [x] Complete post-reconciliation quality and available runner-owned host
+  validation. The merged build and 14 focused regression files / 446 tests pass.
+  Full `pnpm check` and the final post-classifier-fix `pnpm check:quality` pass:
+  194 Vitest files / 3726 tests, 819 Max tests and 286 Python tests. Real-host
+  receipts are `testing-reconciled-connection.json`,
+  `testing-reconciled-inspection-group.json` and `testing-reconciled-remaining.json`
+  under `.test-artifacts/`; they are runtime/CLI, not packaged MCP acceptance.
+- [ ] Requalify native physical scenarios when explicit reviewed versioned
+  inputs are provisioned in this worktree. No such inputs were available for
+  this run; no native physical pass is inferred from synthetic runner tests
+  or upstream installation evidence. Portable fixture provision remains a
+  follow-up dependency of the packaged-scenario phase.
+- [x] Follow the merged fix-forward policy for unsupported-capability evidence:
+  remove the standalone legacy field fallback and require the current
+  `details.capability` contract. Its rejection regression fails before the fix;
+  retain historical receipts without adding a compatibility execution path.
+- [x] Fix the final review finding: a returned native execution failure must stay
+  primary when checkpoint persistence or fixture cleanup subsequently fails.
+  Both regressions fail before the fix and pass afterward; 195 focused tests
+  and the final full quality gate pass (194 Vitest files / 3728 tests,
+  819 Max tests, 286 Python tests). Finalization preserves phase ordering and
+  redaction without changing capture behavior.
+- [ ] Implement the separate future packaged MCP acceptance runner and send-once
+  readiness boundary; the existing visible-message Electron test only proves
+  direct automation-client ingress/rendering and descriptor assertions. Parts
+  2–4 (packaged scenario, reusable scenario-driven development, and realistic
+  Session launching) remain deferred outside this phase.
 - [x] Select and configure TypeScript and Python test runners.
 - [x] Add shared fixture, fake clock, fake ID, and log-capture utilities.
 - [x] Build fake LOM object library.

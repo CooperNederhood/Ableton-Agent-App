@@ -2,6 +2,8 @@ import { randomUUID } from "node:crypto";
 import { lstat, mkdir, readFile, realpath } from "node:fs/promises";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { isDeepStrictEqual } from "node:util";
+import { describeScenarioError } from "./scenario-receipts.mjs";
+import { finalizeScenarioRecord } from "./scenario-results.mjs";
 
 import { stageNativeListeningFixture } from "./native-listening-fixture.mjs";
 import { createNativeRunnerLifecycle } from "./native-listening-lifecycle.mjs";
@@ -641,6 +643,7 @@ export async function runNativeScenarioGroup({
   controller,
   applicationPath,
   createRunner,
+  onCheckpoint = async () => {},
   onResult = async () => {},
 }) {
   assert(
@@ -662,10 +665,19 @@ export async function runNativeScenarioGroup({
     );
     await controller.assertNoPreExistingLive();
     const scenarioRunId = randomUUID();
-    const runner = await createRunner(manifest, scenarioRunId);
+    let runner;
     let result;
     let failure;
-    const retainFailure = (error) => {
+    let executionFailure;
+    let phase = "setup";
+    let liveProcess;
+    let executionStarted = false;
+    const errors = [];
+    const retainFailure = (error, phase) => {
+      errors.push({
+        phase,
+        message: describeScenarioError(error),
+      });
       failure =
         failure === undefined
           ? error
@@ -674,20 +686,42 @@ export async function runNativeScenarioGroup({
             });
     };
     try {
+      runner = await createRunner(manifest, scenarioRunId);
       await runner.stage("process-launch", () =>
         controller.launch(applicationPath, 90000, {
           fixturePath: runner.fixture.setPath,
         }),
       );
+      liveProcess = controller.publicRecord();
+      executionStarted = true;
+      phase = "execution";
       result = await runner.run(() => controller.validateOwnership());
-      await onResult(
-        manifest,
-        result,
-        scenarioRunId,
-        controller.publicRecord(),
-      );
+      if (!result.ok)
+        errors.push({
+          phase: "execution",
+          message: describeScenarioError(
+            result.error ??
+              result.cleanupError ??
+              "Native scenario execution failed",
+          ),
+        });
+      result = {
+        ...result,
+        executionStarted,
+        executionClassification: result.ok
+          ? result.evidence?.expectedRefusal !== undefined
+            ? "expected-denial-pass"
+            : reviewNativeScenario(manifest).expectedOutcome === "partial"
+              ? "expected-partial-pass"
+              : "pass"
+          : "fail",
+        finalization: "checkpoint",
+      };
+      phase = "checkpoint-persistence";
+      await onCheckpoint(manifest, result, scenarioRunId, liveProcess);
     } catch (error) {
-      retainFailure(error);
+      executionFailure = error;
+      retainFailure(error, phase);
     } finally {
       try {
         if (controller.publicRecord() !== undefined)
@@ -705,25 +739,66 @@ export async function runNativeScenarioGroup({
             );
           });
       } catch (error) {
-        retainFailure(error);
+        retainFailure(error, "process-shutdown");
       }
       try {
-        await runner.close({
+        await runner?.close({
           processStopped: controller.publicRecord() === undefined,
         });
       } catch (error) {
-        retainFailure(error);
+        retainFailure(error, "runner-close");
       }
     }
-    if (failure !== undefined) throw failure;
-    result.processCleanup = {
-      processStopped: true,
-      fixtureCleaned: true,
-      transportCleanup:
-        result.evidence?.expectedRefusal === undefined
-          ? "leave-running"
-          : "unchanged-stopped",
+    const executionClassification =
+      result?.executionClassification ??
+      (!executionStarted
+        ? "blocked"
+        : executionFailure?.name === "AbortError"
+          ? "cancelled"
+          : "fail");
+    const cleanupErrors = errors.filter((error) =>
+      ["process-shutdown", "runner-close"].includes(error.phase),
+    );
+    const persistenceError = errors.find(
+      (error) => error.phase === "checkpoint-persistence",
+    )?.message;
+    const finalized = finalizeScenarioRecord(
+      {
+        classification: executionClassification,
+        ...(persistenceError === undefined ? {} : { persistenceError }),
+      },
+      {
+        status: cleanupErrors.length === 0 ? "completed" : "failed",
+        errors: cleanupErrors,
+      },
+    );
+    result = {
+      ...result,
+      ...finalized,
+      ok: finalized.passed,
+      executionStarted,
+      ...(errors.length > 0
+        ? { error: errors[0].message, failures: errors }
+        : {}),
+      ...(failure === undefined
+        ? {
+            processCleanup: {
+              processStopped: true,
+              fixtureCleaned: true,
+              transportCleanup:
+                result?.evidence?.expectedRefusal === undefined
+                  ? "leave-running"
+                  : "unchanged-stopped",
+            },
+          }
+        : {}),
     };
+    try {
+      await onResult(manifest, result, scenarioRunId, liveProcess);
+    } catch (error) {
+      retainFailure(error, "result-persistence");
+    }
+    if (failure !== undefined) throw failure;
     results.push({ manifest, result, scenarioRunId });
     if (!result.ok) break;
   }
@@ -972,6 +1047,7 @@ export async function createNativeListeningRunner({
     stage: lifecycle.stage,
     async run(validateOwnership) {
       let result;
+      const observedToolNames = new Set();
       let postconditions;
       let preflight;
       let candidateAdmission;
@@ -1959,7 +2035,11 @@ export async function createNativeListeningRunner({
         void humanGatePromise.catch(() => {});
         let actorToolCalls = 0;
         unsubscribeApplication = runtime.application.subscribe((event) => {
-          if (event.type === "operation.started") actorToolCalls++;
+          if (event.type === "operation.started") {
+            actorToolCalls++;
+            if (typeof event.toolName === "string")
+              observedToolNames.add(event.toolName);
+          }
           if (
             reviewed.nativeVersion >= 2 &&
             event.type === "operation.failed" &&
@@ -3211,6 +3291,7 @@ export async function createNativeListeningRunner({
             nativeVersion: fixture.nativeVersion,
           },
           actorToolCalls,
+          observedToolNames: [...observedToolNames].sort(),
         };
       } catch (error) {
         result = {
@@ -3269,6 +3350,7 @@ export async function createNativeListeningRunner({
       });
       return {
         ...result,
+        observedToolNames: [...observedToolNames].sort(),
         ...hostEvidence,
         ...(metricFixtureAdmission ? { metricFixtureAdmission } : {}),
         ...(reviewed.nativeVersion === 5

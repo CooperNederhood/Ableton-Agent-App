@@ -57,6 +57,13 @@ export function selectScenarioGroups(
       `Resume scenario '${resumeFrom}' is outside the selected group`,
     );
   }
+  const selectedIds = new Set(selected.flatMap((entry) => entry.scenarios));
+  const excluded = [...requested].filter((id) => !selectedIds.has(id));
+  if (excluded.length > 0) {
+    throw new Error(
+      `Explicit scenarios excluded by group/resume selection: ${excluded.join(", ")}`,
+    );
+  }
   if (selected.length === 0) {
     throw new Error("Scenario selection is empty");
   }

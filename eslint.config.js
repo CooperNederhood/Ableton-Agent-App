@@ -9,6 +9,7 @@ export default tseslint.config(
       "**/coverage/**",
       "**/node_modules/**",
       "release/**",
+      "apps/desktop/build/ableton-integrations/**",
       "eslint.config.js",
     ],
   },

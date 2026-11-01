@@ -1,9 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
-  listenerNativeStatusV2Schema,
-  listenerNativeSessionStatusSchema,
-  NATIVE_SESSION_LISTENER_SCOPE,
+  listenerNativeMetricStatusSchema,
   type InspectListeningContextResult,
+  type NativeMetricArmProof,
+  type NativeMetricReadyProof,
 } from "@ableton-agent/protocol";
 import {
   resolveListenerBinding,
@@ -12,27 +12,43 @@ import {
   type ListenerBindingDescriptor,
   type ListenerBindingSelection,
 } from "./listener-binding.js";
+const { createSyntheticMetricWireFixture } = await vi.importActual<{
+  createSyntheticMetricWireFixture(this: void): {
+    wire: Pick<
+      NativeMetricArmProof["ownership"],
+      "connectionId" | "listenerId"
+    >;
+    registration: ListenerBindingDescriptor["registration"];
+    ready: NativeMetricReadyProof;
+    proof: { armed: NativeMetricArmProof };
+  };
+}>("../../signal-routing/src/listener-metric-test-support.js");
 
 const queryId = "10000000-0000-4000-8000-000000000001";
 const trackReference = "20000000-0000-4000-8000-000000000001";
 const deviceReference = "30000000-0000-4000-8000-000000000001";
-const blocked = {
-  version: 1 as const,
-  timing: "UNVERIFIED" as const,
-  readiness: "BLOCKED" as const,
-  reason: "real_live_timing_validation_required",
-};
+const synthetic = createSyntheticMetricWireFixture();
+const blocked = listenerNativeMetricStatusSchema.parse({
+  ...synthetic.registration.nativeStatus,
+  readiness: "BLOCKED",
+  reason: "fresh_per_pass_native_validation_required",
+  executedGen: null,
+});
 const connected: ConnectedListenerBinding = {
-  connectionId: "connection",
+  connectionId: synthetic.wire.connectionId,
   producerId: "path-hash-not-certificate",
   instanceId: "instance",
-  connectionEpoch: "epoch",
+  connectionEpoch: synthetic.registration.connectionEpoch,
   canonicalPath: "live_set tracks 0 devices 1",
   canonicalTrackPath: "live_set tracks 0",
   nativeStatus: blocked,
   signalKind: "audio",
-  schemaVersion: "audio-observation/v1",
+  schemaVersion: "metric-audio-observation/v1",
   status: "connected",
+  capabilities: ["audio-listener/independent-metric-timelines-v1"],
+  algorithmVersion: "3.0.0",
+  sampleRate: 48_000,
+  vectorSize: 64,
 };
 const selected: ListenerBindingSelection = {
   connectionId: connected.connectionId,
@@ -127,160 +143,304 @@ function descriptor(
       producerId: connected.producerId,
       instanceId: connected.instanceId,
       signalKind: "audio" as const,
-      schemaVersion: "audio-observation/v1",
+      schemaVersion: "metric-audio-observation/v1" as const,
       track: { id: "123", name: "Claimed Name" },
       device: { id: "456", name: "Claimed Device Name" },
       ...(capabilities === undefined ? {} : { capabilities }),
     },
-    registration: { connectionEpoch: connected.connectionEpoch, ...metadata },
+    registration: {
+      version: 5 as const,
+      connectionEpoch: connected.connectionEpoch,
+      capabilities: connected.capabilities,
+      algorithmVersion: connected.algorithmVersion,
+      sampleRate: connected.sampleRate,
+      vectorSize: connected.vectorSize,
+      ...metadata,
+    },
     binding: { trackId: "123", deviceId: "456" },
   };
   return raw;
 }
 
-describe("independent canonical listener binding", () => {
-  it("joins explicitly negotiated wire3 Session status to raw v2 measurements without certifying readiness", () => {
-    const nativeStatus = listenerNativeSessionStatusSchema.parse({
-      version: 3,
-      scope: NATIVE_SESSION_LISTENER_SCOPE,
-      readiness: "BLOCKED",
-      reason: "fresh_per_pass_native_validation_required",
-      alignment: "approximate",
-      verifiedAbsoluteErrorBoundSamples: null,
-      acceptedSampleRates: [44100, 48000],
-      acceptedVectorSizes: [64],
-      timingModes: ["descriptive", "strict"],
-      maxClockDisagreementSamples: 480,
-      maxAudioDurationMs: 30000,
-      maxWindows: 300,
-      abiVersion: 2,
-      sourceEvidence: "expected-context-only",
-      synchronization: "transport-coupled-first-iteration",
-      maxDurationBeats: 4,
-    });
-    const report: ListenerBindingDescriptor = {
-      ...descriptor(),
+describe("authenticated v5 metric listener binding metadata", () => {
+  function metricDescriptor(cold = true): ListenerBindingDescriptor {
+    const fixture = createSyntheticMetricWireFixture();
+    return {
+      connectionId: fixture.wire.connectionId,
       producer: {
-        ...descriptor().producer,
-        schemaVersion: "audio-observation/v2",
+        producerId: fixture.wire.listenerId,
+        instanceId: "synthetic-metric-instance",
+        signalKind: "audio",
+        schemaVersion: "metric-audio-observation/v1",
       },
       registration: {
-        version: 3,
-        capabilities: ["audio-listener/session-v1"],
-        connectionEpoch: connected.connectionEpoch,
+        ...fixture.registration,
+        version: 5,
         deviceCanonicalPath: connected.canonicalPath,
         trackCanonicalPath: connected.canonicalTrackPath,
-        nativeStatus,
+        nativeStatus: listenerNativeMetricStatusSchema.parse({
+          ...fixture.registration.nativeStatus,
+          ...(cold
+            ? {
+                readiness: "BLOCKED",
+                reason: "fresh_per_pass_native_validation_required",
+                executedGen: null,
+              }
+            : {}),
+        }),
       },
     };
-    const candidate = readConnectedListenerBinding(report);
-    expect(candidate).toEqual({
-      ok: true,
-      connection: {
-        ...connected,
-        schemaVersion: "audio-observation/v2",
-        nativeStatus,
+  }
+
+  function join(report: ListenerBindingDescriptor) {
+    return resolve({
+      selected: {
+        ...selected,
+        connectionId: report.connectionId,
+        producerId: report.producer.producerId,
+        instanceId: report.producer.instanceId,
+        connectionEpoch: report.registration.connectionEpoch,
       },
+      connected: [report],
     });
-    const joined = resolve({ connected: [report] });
-    expect(joined.ok).toBe(true);
-    if (!joined.ok) throw new Error(joined.reason);
-    expect(joined.connection.nativeStatus).toEqual(nativeStatus);
-    expect(joined.target.expectedDeviceReference).toBe(deviceReference);
-    expect(joined.attestation.deviceReference).not.toBe("456");
-    for (const change of [
-      { version: undefined },
-      { version: 2 },
-      { capabilities: undefined },
-      { capabilities: ["audio-listener/v2"] },
-      { capabilities: ["audio-listener/session-v1", "audio-listener/v2"] },
+  }
+
+  it.each([true, false])(
+    "binds cold=%s metadata without promoting approximate timing or ownership to DSP proof",
+    (cold) => {
+      const report = metricDescriptor(cold);
+      const before = structuredClone(report);
+      const candidate = readConnectedListenerBinding(report);
+      expect(candidate.ok).toBe(true);
+      if (!candidate.ok) throw new Error(candidate.reason);
+      expect(candidate.connection.nativeStatus).toEqual(
+        report.registration.nativeStatus,
+      );
+      expect(candidate.connection.capabilities).toEqual(
+        report.registration.capabilities,
+      );
+      const result = join(report);
+      expect(result.ok).toBe(true);
+      if (!result.ok) throw new Error(result.reason);
+      expect(result.target).toEqual(target);
+      expect(result.connection.nativeStatus.readiness).toBe(
+        cold ? "BLOCKED" : "READY",
+      );
+      expect(report).toEqual(before);
+      expect(
+        resolve({
+          selected: {
+            ...result.connection,
+            expectedTarget: target,
+          },
+          connected: [candidate.connection],
+        }).ok,
+      ).toBe(true);
+    },
+  );
+
+  it.each([
+    { version: undefined },
+    { version: 4 },
+    { version: 6 },
+    { capabilities: undefined },
+    { capabilities: [] },
+    { capabilities: ["audio-listener/dual-mode-v1"] },
+    {
+      capabilities: [
+        "audio-listener/independent-metric-timelines-v1",
+        "audio-listener/independent-metric-timelines-v1",
+      ],
+    },
+    {
+      capabilities: [
+        "audio-listener/independent-metric-timelines-v1",
+        "unknown",
+      ],
+    },
+    { algorithmVersion: undefined },
+    { algorithmVersion: "2.0.0" },
+    { sampleRate: undefined },
+    { vectorSize: undefined },
+    { nativeStatus: undefined },
+    { nativeStatus: { version: 4 } },
+    { connectionEpoch: "not-an-authenticated-uuid" },
+  ])("rejects missing, unknown or mismatched registration %j", (change) => {
+    const report = metricDescriptor();
+    Object.assign(report.registration, change);
+    expect(readConnectedListenerBinding(report).ok).toBe(false);
+  });
+
+  it.each([
+    "audio-observation/v1",
+    "audio-observation/v2",
+    "metric-audio-observation/v2",
+    "session-audio-observation/v1",
+  ])("rejects v5 paired with producer schema %s", (schemaVersion) => {
+    const report = metricDescriptor();
+    expect(
+      readConnectedListenerBinding({
+        ...report,
+        producer: { ...report.producer, schemaVersion },
+      }),
+    ).toEqual({ ok: false, reason: "invalid-input" });
+  });
+
+  it.each([1, 2, 3, 4, 6])(
+    "rejects superseded or unknown native version %s without fallback",
+    (version) => {
+      const report = descriptor({
+        deviceCanonicalPath: connected.canonicalPath,
+        trackCanonicalPath: connected.canonicalTrackPath,
+        nativeStatus: { ...blocked, version },
+      });
+      expect(
+        readConnectedListenerBinding({
+          ...report,
+          producer: {
+            ...report.producer,
+            schemaVersion: "metric-audio-observation/v1",
+          },
+        }),
+      ).toEqual({ ok: false, reason: "invalid-input" });
+    },
+  );
+
+  it.each([
+    "version",
+    "connectionEpoch",
+    "capabilities",
+    "algorithmVersion",
+    "sampleRate",
+    "vectorSize",
+    "nativeStatus",
+    "deviceCanonicalPath",
+    "trackCanonicalPath",
+  ] as const)("rejects inherited %s claims", (key) => {
+    const report = metricDescriptor();
+    const inherited = { [key]: report.registration[key] };
+    const registration = { ...report.registration };
+    delete registration[key];
+    Object.setPrototypeOf(registration, inherited);
+    expect(readConnectedListenerBinding({ ...report, registration }).ok).toBe(
+      false,
+    );
+  });
+
+  it.each([
+    { sampleRate: 44_100 },
+    { sampleRate: 96_000 },
+    { vectorSize: 128 },
+    { connectionEpoch: "11111111-1111-4111-8111-111111111111" },
+  ])("rejects READY metadata inconsistent with executed Gen %j", (change) => {
+    const report = metricDescriptor(false);
+    Object.assign(report.registration, change);
+    expect(readConnectedListenerBinding(report)).toEqual({
+      ok: false,
+      reason: "invalid-input",
+    });
+  });
+
+  it("rejects READY evidence from a different authenticated connection", () => {
+    const report = metricDescriptor(false);
+    expect(
+      readConnectedListenerBinding({
+        ...report,
+        connectionId: "11111111-1111-4111-8111-111111111111",
+      }),
+    ).toEqual({ ok: false, reason: "invalid-input" });
+  });
+
+  it("does not mistake idle readiness or forged epoch for executed DSP", () => {
+    const report = metricDescriptor(false);
+    const proof = createSyntheticMetricWireFixture();
+    for (const executedGen of [
+      proof.ready,
       {
-        nativeStatus: { ...nativeStatus, scope: "arrangement-descriptive/v2" },
+        ...proof.proof.armed,
+        ownership: { ...proof.proof.armed.ownership, nativeEpoch: 2 },
       },
-      { nativeStatus: { ...nativeStatus, abiVersion: 3 } },
     ]) {
-      const invalid = { ...report, registration: { ...report.registration } };
-      Object.assign(invalid.registration, change);
-      expect(readConnectedListenerBinding(invalid)).toEqual({
+      Object.assign(report.registration, {
+        nativeStatus: {
+          ...report.registration.nativeStatus,
+          executedGen,
+        },
+      });
+      expect(readConnectedListenerBinding(report)).toEqual({
         ok: false,
         reason: "invalid-input",
       });
     }
-    for (const schemaVersion of [
-      "audio-observation/v1",
-      "audio-observation/v3",
-      "session-audio-observation/v1",
-    ])
-      expect(
-        readConnectedListenerBinding({
-          ...report,
-          producer: { ...report.producer, schemaVersion },
-        }),
-      ).toEqual({ ok: false, reason: "invalid-input" });
-    const inherited = { ...report.registration };
-    delete inherited.version;
-    Object.setPrototypeOf(inherited, { version: 3 });
-    expect(
-      readConnectedListenerBinding({ ...report, registration: inherited }),
-    ).toEqual({
-      ok: false,
-      reason: "invalid-input",
-    });
   });
-  it("joins explicit v2 capabilities without upgrading approximate timing or accepting mixed versions", () => {
-    const nativeStatus = listenerNativeStatusV2Schema.parse({
-      version: 2,
-      scope: "arrangement-descriptive/v2",
-      readiness: "READY",
-      alignment: "approximate",
-      verifiedAbsoluteErrorBoundSamples: null,
-      acceptedSampleRates: [44_100, 48_000],
-      acceptedVectorSizes: [64],
-      timingModes: ["descriptive", "strict"],
-      maxClockDisagreementSamples: 480,
-      maxAudioDurationMs: 30_000,
-      maxWindows: 300,
-      abiVersion: 2,
-    });
-    const v2 = {
-      ...connected,
-      schemaVersion: "audio-observation/v2",
-      nativeStatus,
-    };
-    const report: ListenerBindingDescriptor = {
-      ...descriptor(),
-      producer: {
-        ...descriptor().producer,
-        schemaVersion: "audio-observation/v2",
-      },
-      registration: {
-        connectionEpoch: connected.connectionEpoch,
-        deviceCanonicalPath: connected.canonicalPath,
-        trackCanonicalPath: connected.canonicalTrackPath,
-        nativeStatus,
-      },
-    };
-    expect(readConnectedListenerBinding(report)).toEqual({
-      ok: true,
-      connection: v2,
-    });
-    const joined = resolve({ connected: [v2] });
-    expect(joined.ok).toBe(true);
-    if (!joined.ok) throw new Error(joined.reason);
-    expect(joined.connection.nativeStatus).toEqual(nativeStatus);
-    expect(resolve({ connected: [{ ...v2, nativeStatus: blocked }] })).toEqual({
-      ok: false,
-      reason: "invalid-input",
-    });
+
+  it("keeps stale inspection, source identity and placement guards strict", () => {
+    const report = metricDescriptor();
+    const candidate = readConnectedListenerBinding(report);
+    if (!candidate.ok) throw new Error(candidate.reason);
     expect(
       resolve({
-        connected: [{ ...v2, schemaVersion: "audio-observation/v1" }],
+        selected: candidate.connection,
+        connected: [report],
+        queryId: "11111111-1111-4111-8111-111111111111",
       }),
-    ).toEqual({
-      ok: false,
-      reason: "invalid-input",
-    });
+    ).toEqual({ ok: false, reason: "stale-inspection" });
+    expect(
+      resolve({
+        selected: {
+          ...candidate.connection,
+          instanceId: "stale-instance",
+        },
+        connected: [report],
+      }),
+    ).toEqual({ ok: false, reason: "stale-connection" });
+    expect(
+      resolve({
+        selected: {
+          ...candidate.connection,
+          expectedTarget: {
+            ...target,
+            expectedDeviceReference: "11111111-1111-4111-8111-111111111111",
+          },
+        },
+        connected: [report],
+      }),
+    ).toEqual({ ok: false, reason: "stale-target" });
+    const stale = inspection();
+    stale.listeners[0]!.enabled = false;
+    expect(
+      resolve({
+        selected: candidate.connection,
+        connected: [report],
+        inspection: stale,
+      }),
+    ).toEqual({ ok: false, reason: "inactive" });
+    expect(
+      readConnectedListenerBinding({
+        ...report,
+        registration: {
+          ...report.registration,
+          trackCanonicalPath: "live_set tracks 1",
+        },
+      }),
+    ).toEqual({ ok: false, reason: "unattested-path" });
   });
+
+  it("requires the same metric capability on flattened binding metadata", () => {
+    const candidate = readConnectedListenerBinding(metricDescriptor());
+    if (!candidate.ok) throw new Error(candidate.reason);
+    const invalid = structuredClone(candidate.connection);
+    Object.assign(invalid, { capabilities: undefined });
+    expect(
+      resolve({
+        selected: candidate.connection,
+        connected: [invalid],
+      }),
+    ).toEqual({ ok: false, reason: "invalid-input" });
+  });
+});
+
+describe("independent canonical listener binding", () => {
   it("requires explicit registration keys rather than inherited path values", () => {
     const report = descriptor();
     Object.setPrototypeOf(report.registration, {
@@ -361,7 +521,7 @@ describe("independent canonical listener binding", () => {
       }),
     ).toEqual({ ok: false, reason: "unattested-path" });
   });
-  it("rejects capability aliases and missing native status rather than upgrading legacy evidence", () => {
+  it("rejects capability aliases and missing native status without fallback", () => {
     const paths = {
       deviceCanonicalPath: connected.canonicalPath,
       trackCanonicalPath: connected.canonicalTrackPath,
@@ -435,7 +595,7 @@ describe("independent canonical listener binding", () => {
   );
   it.each([
     { instanceId: "replacement" },
-    { connectionEpoch: "reconnected" },
+    { connectionEpoch: "11111111-1111-4111-8111-111111111111" },
     { producerId: "other" },
     { canonicalPath: "live_set tracks 0 devices 0" },
   ])("rejects stale captured identity %j", (change) => {
@@ -465,7 +625,7 @@ describe("independent canonical listener binding", () => {
   ])("rejects colliding connected producer %j", (change) => {
     const other = {
       ...connected,
-      connectionId: "other",
+      connectionId: "11111111-1111-4111-8111-111111111111",
       producerId: "other",
       instanceId: "other",
       canonicalPath: "live_set tracks 0 devices 0",
@@ -503,17 +663,15 @@ describe("independent canonical listener binding", () => {
       ok: false,
       reason: "non-audio-effect",
     });
-    expect(
-      resolve({
-        connected: [
-          {
-            ...connected,
-            signalKind: "midi" as const,
-            schemaVersion: "midi-sample/v1",
-          },
-        ],
-      }),
-    ).toEqual({ ok: false, reason: "non-audio-producer" });
+    const nonAudio = structuredClone(connected);
+    Object.assign(nonAudio, {
+      signalKind: "midi",
+      schemaVersion: "midi-sample/v1",
+    });
+    expect(resolve({ connected: [nonAudio] })).toEqual({
+      ok: false,
+      reason: "invalid-input",
+    });
   });
   it("rejects replayed queries, moved/reloaded UUID bindings and never uses names as proof", () => {
     const state = inspection();

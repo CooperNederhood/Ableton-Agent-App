@@ -7,8 +7,11 @@ import {
   type InspectSessionListeningSourceResult,
   type SessionListeningPassParams,
   type SessionListeningPassResult,
+  readListeningFailureEvidence,
+  type ListeningFailureEvidence,
 } from "@ableton-agent/protocol";
 import { createSessionSourceDriver } from "./session-listening-driver.js";
+import { ListeningRuntimeRejection } from "./listening-failure.js";
 
 const uuid = (n: number) =>
   `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
@@ -159,7 +162,319 @@ function fixture() {
 
 afterEach(() => vi.useRealTimers());
 
+async function failure(promise: Promise<unknown>): Promise<{
+  error: Error;
+  evidence: ListeningFailureEvidence;
+}> {
+  const error: unknown = await promise.then(
+    () => undefined,
+    (cause: unknown) => cause,
+  );
+  expect(error).toBeInstanceOf(Error);
+  const result = readListeningFailureEvidence(error);
+  expect(result.status).toBe("present");
+  if (result.status !== "present")
+    throw new Error("Session failure evidence missing");
+  return { error: error as Error, evidence: result.evidence };
+}
+
 describe("guarded Session source driver", () => {
+  it("reports exact missing capability and Live version operands before acquiring a lease", async () => {
+    const f = fixture();
+    f.capabilities.capabilities["listening.inspect_session_pass"] = false;
+    const error = (await f.driver
+      .assertAvailable()
+      .catch((cause: unknown) => cause)) as ListeningRuntimeRejection;
+    expect(error).toBeInstanceOf(ListeningRuntimeRejection);
+    expect(error.rejectionFacts).toContainEqual({
+      field: "capability.listening.inspect_session_pass",
+      actual: { state: "observed", value: false },
+      expected: { state: "observed", value: true },
+    });
+    expect(error.rejectionFacts).toContainEqual(
+      expect.objectContaining({
+        field: "driver.liveVersion",
+        actual: { state: "observed", value: "11.3.43" },
+        expected: { state: "observed", value: "11.x" },
+      }),
+    );
+    expect(f.ableton.sessionListeningPass).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["ownerId", uuid(99), "receipt.ownerId"],
+    ["passId", uuid(98), "receipt.passId"],
+    ["durationBeats", 8, "receipt.durationBeats"],
+  ] as const)(
+    "attributes rejected %s receipts before cleanup with exact expected identity",
+    async (key, value, field) => {
+      const f = fixture();
+      f.ableton.sessionListeningPass.mockImplementationOnce(async (params) => ({
+        ...f.receipt(params),
+        [key]: value,
+      }));
+      const result = await failure(f.prepare());
+      const prepare = f.ableton.sessionListeningPass.mock.calls[0]![0];
+      const expected = key === "durationBeats" ? 4 : prepare[key];
+      expect(result.error).toBeInstanceOf(ListeningRuntimeRejection);
+      expect(result.evidence).toMatchObject({
+        code: "session_source_receipt_mismatch",
+        phase: "preparation",
+        component: "session-source",
+        reference: { ...f.pass.trace, passId: f.pass.passId },
+        facts: expect.arrayContaining([
+          {
+            field,
+            actual: { state: "observed", value },
+            expected: { state: "observed", value: expected },
+            ...(key === "durationBeats" ? { unit: "beats" } : {}),
+          },
+        ]) as unknown,
+      });
+      expect(
+        f.ableton.sessionListeningPass.mock.calls.map(
+          ([params]) => params.action,
+        ),
+      ).toEqual(["prepare", "release"]);
+      await expect(f.prepare()).resolves.toBeDefined();
+    },
+  );
+
+  it.each([
+    ["invalidated", 1000, "session_source_invalid"],
+    ["prepared", 0, "session_source_invalid"],
+    ["accepted", 1000, "session_source_prepare_failed"],
+  ] as const)(
+    "records refused prepare status=%s and lease remaining=%s",
+    async (status, expiresInMs, code) => {
+      const f = fixture();
+      f.ableton.sessionListeningPass.mockImplementationOnce(async (params) => ({
+        ...f.receipt(params),
+        status,
+        expiresInMs,
+        reason: "token=private-value",
+      }));
+      const { evidence } = await failure(f.prepare());
+      expect(evidence).toMatchObject({ code, phase: "preparation" });
+      expect(evidence.facts).toContainEqual(
+        expect.objectContaining({
+          field: "receipt.status",
+          actual: { state: "observed", value: status },
+        }),
+      );
+      if (code === "session_source_invalid")
+        expect(evidence.facts).toContainEqual(
+          expect.objectContaining({
+            field: "receipt.expiresInMs",
+            actual: { state: "observed", value: expiresInMs },
+            unit: "ms",
+          }),
+        );
+      expect(JSON.stringify(evidence)).not.toContain("private-value");
+    },
+  );
+
+  it("preserves schema exception identity with a typed bounded receipt predicate", async () => {
+    const f = fixture();
+    f.ableton.sessionListeningPass.mockImplementationOnce(
+      async () => ({ status: "playing" }) as SessionListeningPassResult,
+    );
+    const { error, evidence } = await failure(f.prepare());
+    expect(error.constructor.name).toBe("ZodError");
+    expect(evidence).toMatchObject({
+      code: "session.driver.receipt.schema",
+      phase: "preparation",
+      facts: expect.arrayContaining([
+        {
+          field: "schema.valid",
+          actual: { state: "observed", value: false },
+          expected: { state: "observed", value: true },
+        },
+      ]) as unknown,
+    });
+    expect(
+      f.ableton.sessionListeningPass.mock.calls.map(
+        ([params]) => params.action,
+      ),
+    ).toEqual(["prepare", "release"]);
+  });
+
+  it("retains immutable initiating evidence when release also rejects", async () => {
+    const f = fixture();
+    f.ableton.sessionListeningPass.mockImplementation(async (params) => ({
+      ...f.receipt(params),
+      status: params.action === "prepare" ? "invalidated" : "prepared",
+      reason: "primary denied",
+    }));
+    const { error, evidence } = await failure(f.prepare());
+    expect(error).toBeInstanceOf(AggregateError);
+    expect(evidence.code).toBe("session_source_invalid");
+    const errors = (error as AggregateError).errors as Error[];
+    expect(readListeningFailureEvidence(errors[1])).toMatchObject({
+      status: "present",
+      evidence: {
+        code: "session_source_release_unconfirmed",
+        phase: "cleanup",
+      },
+    });
+    expect(
+      Object.isFrozen(
+        Object.getOwnPropertyDescriptor(errors[0], "failureEvidence")!.value,
+      ),
+    ).toBe(true);
+  });
+
+  it("reports the exact five-second launch deadline without replaying or stopping the accepted launch", async () => {
+    vi.useFakeTimers();
+    const f = fixture();
+    const lease = await f.prepare();
+    f.ableton.sessionListeningPass.mockImplementation(async (params) => ({
+      ...f.receipt(params),
+      status: params.action === "release" ? "released" : "queued",
+    }));
+    const pending = failure(lease.launch(f.controller.signal));
+    await vi.advanceTimersByTimeAsync(5_001);
+    const { evidence } = await pending;
+    expect(evidence).toMatchObject({
+      code: "session_launch_unverified",
+      phase: "launch",
+    });
+    expect(evidence.facts).toContainEqual({
+      field: "launch.elapsedMs",
+      actual: { state: "observed", value: 5_001 },
+      expected: { state: "observed", value: 5_000 },
+      comparison: "at-most",
+      unit: "ms",
+    });
+    expect(evidence.facts).toContainEqual(
+      expect.objectContaining({
+        field: "receipt.sourceEpoch.present",
+        actual: { state: "observed", value: false },
+      }),
+    );
+    await lease.release();
+    expect(
+      f.ableton.sessionListeningPass.mock.calls.filter(
+        ([params]) => params.action === "launch",
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("reports an independently bounded release timeout after cancellation", async () => {
+    vi.useFakeTimers();
+    const f = fixture();
+    const lease = await f.prepare();
+    f.controller.abort();
+    f.ableton.sessionListeningPass.mockImplementationOnce(
+      () => new Promise(() => {}),
+    );
+    const pending = failure(lease.release());
+    await vi.advanceTimersByTimeAsync(10_001);
+    const { evidence } = await pending;
+    expect(evidence).toMatchObject({
+      code: "cleanup_timeout",
+      phase: "cleanup",
+    });
+    expect(evidence.facts).toContainEqual(
+      expect.objectContaining({
+        field: "cleanup.elapsedMs",
+        actual: { state: "observed", value: 10_000 },
+        expected: { state: "observed", value: 10_000 },
+        unit: "ms",
+      }),
+    );
+    expect(evidence.facts).toContainEqual(
+      expect.objectContaining({
+        field: "cleanup.cancelled",
+        actual: { state: "observed", value: true },
+      }),
+    );
+  });
+
+  it("distinguishes seal-before-launch and release-before-launch predicates without mutations", async () => {
+    const f = fixture();
+    const lease = await f.prepare();
+    expect(
+      (await failure(lease.seal(f.controller.signal))).evidence,
+    ).toMatchObject({
+      code: "session_launch_required",
+      facts: [
+        {
+          field: "launch.requested",
+          actual: { state: "observed", value: false },
+          expected: { state: "observed", value: true },
+        },
+      ],
+    });
+    await lease.release();
+    expect(
+      (await failure(lease.launch(f.controller.signal))).evidence,
+    ).toMatchObject({
+      code: "session_source_released",
+      facts: expect.arrayContaining([
+        {
+          field: "launch.dispatched",
+          actual: { state: "observed", value: false },
+        },
+      ]) as unknown,
+    });
+    expect(
+      f.ableton.sessionListeningPass.mock.calls.map(
+        ([params]) => params.action,
+      ),
+    ).toEqual(["prepare", "release"]);
+  });
+
+  it("distinguishes absent epochs from changed epoch values during continuity", async () => {
+    const f = fixture();
+    const lease = await f.prepare();
+    await lease.launch(f.controller.signal);
+    f.ableton.sessionListeningPass.mockImplementationOnce(async (params) => ({
+      ...f.receipt(params),
+      status: "accepted",
+      mutationState: "indeterminate",
+      sourceEpoch: null,
+    }));
+    const { evidence } = await failure(
+      lease.assertCurrent(f.controller.signal),
+    );
+    expect(evidence).toMatchObject({
+      code: "session_source_epoch_changed",
+      coverage: "partial",
+      coverageReasons: ["missing-operands"],
+    });
+    expect(evidence.facts).toContainEqual({
+      field: "receipt.sourceEpoch.startTimeBeats",
+      actual: { state: "unavailable", reason: "not-reported" },
+      expected: { state: "observed", value: 12 },
+      unit: "beats",
+    });
+    await lease.release();
+  });
+
+  it("records exact mismatched playing witness without publishing or relaunching", async () => {
+    const f = fixture();
+    const lease = await f.prepare();
+    f.ableton.sessionListeningPass.mockImplementationOnce(async (params) => ({
+      ...f.receipt(params),
+      status: "playing",
+      mutationState: "observed-playing",
+      sourceEpoch: {
+        clipReference: target.expectedClipReference,
+        startTimeBeats: 12,
+        observedGlobalBeat: 12.2,
+      },
+      lastObservedSource: { ...state, playingSlotIndex: 1 },
+    }));
+    const { evidence } = await failure(lease.launch(f.controller.signal));
+    expect(evidence.facts).toContainEqual({
+      field: "receipt.witness.playingSlotIndex",
+      actual: { state: "observed", value: 1 },
+      expected: { state: "observed", value: 0 },
+    });
+    await lease.release();
+  });
+
   it("requires every real Live 11 capability without simulator fallback", async () => {
     const f = fixture();
     await f.driver.assertAvailable();

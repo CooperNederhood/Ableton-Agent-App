@@ -4,6 +4,43 @@ Companion specification: [Local Storage Layout](local-storage.md)
 
 ## Canonical layout
 
+- [x] Admit protocol-approved 2 MiB native5 metric observations with a separate
+  16 KiB serialized entry-metadata budget and a 17.125 MiB atomic eight-listener
+  publication ceiling (eight metric entries plus 1 MiB pass/subject/link framing).
+  Preserve legacy 256 KiB entries, 32 MiB physical SQLite retention, resolver
+  layout, immutable reopen and explicit-only eviction. Regress genuine large
+  complete/partial timelines, exact records/rows, paged compact summaries and
+  trace attribution, quota denial, cancellation and reservation/file cleanup.
+  Do not enlarge LLM report-page or Desktop IPC result ceilings.
+
+- [x] Retain opt-in wire5 native/metric lifecycle data in the existing journal
+  with causal IDs, real optional stage duration, bounded redaction and a single
+  exact-ID writer. Regress authenticated ingress through durable typed reads,
+  including repeated native events and no duplicate global-failure projection.
+  Keep all profile paths, quotas, retention and runtime delivery gates unchanged.
+
+- [x] Register additive independent metric observations in the existing typed
+  context store and four-kind Desktop reference at schema version two; retain
+  canonical resolver-owned paths and historical declarations. Metric publication
+  byte admission is extended by the native5 item above; legacy limits remain.
+  Document indexed native evidence, compact summaries and honest partial passes
+  separately from legacy capture admission and whole-pipeline qualification.
+  Keep independent detector-window peak/RMS provenance and prefix-state limits
+  inside the same bounded processed observation, with no raw-audio persistence,
+  new path or historical payload rewriting.
+
+- [x] Redact nested credential assignments inside ordinary diagnostic prefixes
+  and preserve stable redaction markers across repeated boundary sanitation.
+  Keep the shared sanitizer and existing storage layout; retain regression
+  coverage for plain text, structured fields, journal persistence and ordinary
+  non-secret diagnostic operands.
+
+- [x] Keep integration detect/dry-run profile-registry reads side-effect-free;
+  use the packaged selected profile or explicit isolation override for installed
+  producer configuration and CLI journal ownership.
+- [x] Document host-owned managed Max bundles/receipts and owner-only discovery
+  paths without introducing independent application storage or exposing secrets.
+
 - [x] Add the shared `@ableton-agent/storage` path resolver.
 - [x] Default application-owned storage to `~/.live-agent`.
 - [x] Isolate packaged, development, and automation profiles.
@@ -66,8 +103,10 @@ Companion specification: [Local Storage Layout](local-storage.md)
   timing in sanitized summaries/detail/reopen. Require exact inspected Session
   clip and contributing-track evidence without exclusive attribution.
 - [x] Retain nearest-sample-rounded Session descriptor/coverage/actual ranges
-  through 4.001 beats without clamping points; keep nominal requests at most
-  four beats and exact-geometry/first-loop admission runtime-owned. Preserve
+  through the thirty-second/300-window envelope without clamping points; use
+  the tempo-derived historical bound 499.501 beats and retain the 0.001
+  actual/requested compatibility allowance. Keep exact-geometry/active-region
+  admission runtime-owned, allowing only half-sample native rounding. Preserve
   signed origin diagnostics and expose unknown follow actions as monitored,
   detection-limited evidence, never disabled.
 - [x] Provide typed native-v2 global-to-Session local descriptor conversion

@@ -21,7 +21,11 @@ import type {
   MidiNotesOperationParams,
   TracksOperationParams,
 } from "@ableton-agent/protocol";
-import { PROTOCOL_VERSION } from "@ableton-agent/protocol";
+import {
+  PROTOCOL_VERSION,
+  projectMetricListeningReport,
+} from "@ableton-agent/protocol";
+import { createSyntheticMetricListeningObservation } from "@ableton-agent/protocol/testing";
 
 import {
   CopilotAgentService,
@@ -2092,6 +2096,238 @@ describe("CopilotAgentService managed sessions", () => {
     }
   });
 
+  it("routes bounded context reports through the SDK with ordered owner-attributed lifecycle and failures", async () => {
+    const configs: SessionConfig[] = [];
+    const runtimeEvents: AgentRuntimeEvent[] = [];
+    const report = projectMetricListeningReport(
+      createSyntheticMetricListeningObservation({ endBeat: 4 }),
+    );
+    const reportEntry = {
+      contextId: "context",
+      passId: "pass",
+      listenerId: "listener",
+      subjectId: "subject",
+      kind: "metric-audio-observation/v1" as const,
+      createdAt: "2026-10-25T23:00:00.000Z",
+      freshness: "unknown" as const,
+      summary: "Stored metric report",
+    };
+    const executeContextOperation = vi.fn<
+      NonNullable<CopilotAgentServiceOptions["executeContextOperation"]>
+    >(async () => ({
+      action: "report",
+      entry: reportEntry,
+      report,
+    }));
+    const service = new CopilotAgentService(
+      baseOptions({
+        executeContextOperation,
+        runtimeObserver: { enqueue: (event) => runtimeEvents.push(event) },
+        clientFactory: () => ({
+          createSession: vi.fn(async (config: SessionConfig) => {
+            configs.push(config);
+            return createFakeSession(`session-${configs.length}`);
+          }),
+          resumeSession: vi.fn(async () => {
+            throw new Error("resume not expected");
+          }),
+          stop: vi.fn(async () => undefined),
+        }),
+      }),
+    );
+    try {
+      await service.start();
+      await service.createManagedAgent(
+        configuration("metric-reader", {
+          resolvedTools: ["ableton_context"],
+          resolvedOperations: ["context.report"],
+        }),
+      );
+      const handler = configs[1]?.tools?.find(
+        ({ name }) => name === "ableton_context",
+      )?.handler;
+      expect(handler).toBeDefined();
+      const args = {
+        action: "report",
+        contextId: "context",
+      };
+      await expect(
+        handler?.(args, {
+          sessionId: "session-2",
+          toolCallId: "report-call",
+          toolName: "ableton_context",
+          arguments: args,
+        }),
+      ).resolves.toMatchObject({
+        action: "report",
+        report: { offset: 0, nextOffset: 8 },
+      });
+      expect(executeContextOperation.mock.lastCall?.[1]).toMatchObject({
+        sessionId: "production-metric-reader",
+        agentId: "metric-reader",
+        trace: { causationId: "report-call" },
+      });
+      expect(executeContextOperation.mock.lastCall?.[0]).toMatchObject({
+        action: "report",
+        offset: 0,
+        limit: 8,
+        includeHistorical: false,
+      });
+      const events = runtimeEvents.filter((event) =>
+        event.type.startsWith("agent.operation."),
+      );
+      expect(events.map(({ type }) => type)).toEqual([
+        "agent.operation.requested",
+        "agent.operation.started",
+        "agent.operation.verification",
+        "agent.operation.completed",
+      ]);
+      expect(events.at(-1)).toMatchObject({
+        agentInstanceId: "metric-reader",
+        data: {
+          operationDescriptorId: "context.report",
+          toolCallId: "report-call",
+        },
+      });
+      expect(events.at(-1)?.data).toHaveProperty("durationMs");
+      executeContextOperation.mockRejectedValueOnce(
+        new Error("Scoped metric context unavailable password=report-secret"),
+      );
+      await Promise.resolve(
+        handler?.(args, {
+          sessionId: "session-2",
+          toolCallId: "report-failure",
+          toolName: "ableton_context",
+          arguments: args,
+        }),
+      ).catch(() => undefined);
+      expect(
+        runtimeEvents
+          .filter((event) => event.type.startsWith("agent.operation."))
+          .at(-1),
+      ).toMatchObject({
+        type: "agent.operation.failed",
+        data: {
+          operationDescriptorId: "context.report",
+          toolCallId: "report-failure",
+        },
+      });
+      expect(
+        JSON.stringify(
+          runtimeEvents
+            .filter((event) => event.type === "agent.operation.failed")
+            .at(-1),
+        ),
+      ).not.toContain("report-secret");
+      const byteHeavyObservation = createSyntheticMetricListeningObservation({
+        tempoBpm: 20,
+        endBeat: 10,
+      });
+      byteHeavyObservation.limitations = Array.from({ length: 16 }, () =>
+        "界".repeat(240),
+      );
+      for (const metric of Object.values(byteHeavyObservation.metrics)) {
+        metric.limitations = Array.from({ length: 8 }, () => "界".repeat(240));
+      }
+      const byteHeavyReport =
+        projectMetricListeningReport(byteHeavyObservation);
+      expect(
+        new TextEncoder().encode(JSON.stringify(byteHeavyReport)).byteLength,
+      ).toBeLessThanOrEqual(48 * 1024);
+      const uncappedReport = projectMetricListeningReport(
+        createSyntheticMetricListeningObservation({
+          tempoBpm: 20,
+          endBeat: 10,
+        }),
+        { limit: 32 },
+      );
+      const oversizedMetadataReport = {
+        ...uncappedReport,
+        limitations: byteHeavyObservation.limitations,
+        metricMetadata: {
+          level: {
+            ...uncappedReport.metricMetadata.level,
+            limitations: byteHeavyObservation.metrics.level.limitations,
+          },
+          "spectral-centroid": {
+            ...uncappedReport.metricMetadata["spectral-centroid"],
+            limitations:
+              byteHeavyObservation.metrics["spectral-centroid"].limitations,
+          },
+          attacks: {
+            ...uncappedReport.metricMetadata.attacks,
+            limitations: byteHeavyObservation.metrics.attacks.limitations,
+          },
+        },
+      };
+      expect(
+        new TextEncoder().encode(JSON.stringify(oversizedMetadataReport))
+          .byteLength,
+      ).toBeGreaterThan(48 * 1024);
+      for (const [part, invalid] of [
+        [
+          "entry",
+          {
+            action: "report" as const,
+            entry: {
+              ...reportEntry,
+              createdAt: `2026-10-25T23:00:00.${"0".repeat(30_000)}Z`,
+            },
+            report: byteHeavyReport,
+          },
+        ],
+        [
+          "metadata",
+          {
+            action: "report" as const,
+            entry: reportEntry,
+            report: oversizedMetadataReport,
+          },
+        ],
+      ] as const) {
+        executeContextOperation.mockResolvedValueOnce(invalid);
+        const toolCallId = `report-oversized-${part}`;
+        const result = await handler?.(args, {
+          sessionId: "session-2",
+          toolCallId,
+          toolName: "ableton_context",
+          arguments: args,
+        });
+        expect(result).toMatchObject({ resultType: "failure" });
+        expect(result).toHaveProperty(
+          "textResultForLlm",
+          expect.stringContaining(
+            part === "entry" ? "64 KiB UTF-8" : "48 KiB UTF-8",
+          ),
+        );
+        expect(result).not.toHaveProperty("report");
+        expect(result).not.toHaveProperty("entry");
+        expect(executeContextOperation.mock.lastCall?.[1]).toMatchObject({
+          sessionId: "production-metric-reader",
+          agentId: "metric-reader",
+          trace: { causationId: toolCallId },
+        });
+        const events = runtimeEvents.filter((event) =>
+          event.type.startsWith("agent.operation."),
+        );
+        expect(events.at(-1)).toMatchObject({
+          type: "agent.operation.failed",
+          agentInstanceId: "metric-reader",
+          data: { operationDescriptorId: "context.report", toolCallId },
+        });
+        expect(
+          events.filter(
+            (event) =>
+              event.type === "agent.operation.completed" &&
+              Reflect.get(event.data, "toolCallId") === toolCallId,
+          ),
+        ).toHaveLength(0);
+      }
+    } finally {
+      await service.stop();
+    }
+  });
+
   it("attributes context queries to the invoking App session and agent, not the selected session", async () => {
     const configs: SessionConfig[] = [];
     const executeContextOperation = vi.fn<
@@ -2150,7 +2386,7 @@ describe("CopilotAgentService managed sessions", () => {
     await service.stop();
   });
 
-  it.each(["completed", "failed", "cancelled"] as const)(
+  it.each(["completed", "partial", "failed", "cancelled"] as const)(
     "retains the listening transport lease until %s and reports the terminal outcome",
     async (stage) => {
       const configs: SessionConfig[] = [];
@@ -2266,7 +2502,7 @@ describe("CopilotAgentService managed sessions", () => {
         (event) => event.data.toolCallId === "listen-call",
       );
       const terminalType =
-        stage === "completed"
+        stage === "completed" || stage === "partial"
           ? "completed"
           : stage === "cancelled"
             ? "cancelled"
@@ -2278,7 +2514,7 @@ describe("CopilotAgentService managed sessions", () => {
         listeningEvents.some(
           (event) => event.type === "agent.operation.completed",
         ),
-      ).toBe(stage === "completed");
+      ).toBe(stage === "completed" || stage === "partial");
       await service.stop();
     },
   );

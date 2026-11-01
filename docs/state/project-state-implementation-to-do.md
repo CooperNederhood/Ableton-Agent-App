@@ -31,6 +31,11 @@ Companion specification: [Project State](project-state.md)
   with explicit truncation and unsupported group/routing domains.
 - [x] Persist explicit user Refresh captures through an injectable history
   repository while keeping startup/internal refresh non-persistent.
+- [x] Omit absent optional project/session identifiers before checkpoint
+  sanitization. Exercise real-journal Refresh for unassigned and associated
+  Sets, repeated unchanged checkpoints with unique snapshot IDs and stable
+  revisions, credential redaction, invalid identity rejection,
+  persistence failure propagation, and the production Electron Refresh control.
 - [x] Link terminal mutating agent operations to Set trajectory history by
   app session, agent session, turn, tool call, and semantic operation identity.
 - [ ] Define bounded snapshot projections for nested rack chains/pads,

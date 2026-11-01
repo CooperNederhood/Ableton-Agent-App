@@ -12,7 +12,7 @@ const markerStart = require("./fixtures/native-marker-start.json");
 const {
   nativeHostBinding,
   nativePreflightTiming,
-} = require("./audio_listener_native_coordinates.js");
+} = require("./fixtures/native-v1-6cceef6/audio_listener_native_coordinates.js");
 const sha = (value) => createHash("sha256").update(value).digest("hex");
 
 test("actual stopped native IO binds all ABI streams and complete fresh FFT coordinates", () => {

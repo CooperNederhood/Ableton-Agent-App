@@ -40,7 +40,7 @@ test("bounded archived assembler bytes retain source commit/path provenance and 
     sourceHash(bytes),
     sourceHash(
       await readFile(
-        new URL("./audio_listener_native_assembler.js", import.meta.url),
+        new URL("./audio_listener_metric_timelines.js", import.meta.url),
       ),
     ),
   );

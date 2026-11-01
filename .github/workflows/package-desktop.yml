@@ -6,6 +6,11 @@ on:
     paths:
       - "apps/desktop/**"
       - "remote-script/**"
+      - "max-patches/**"
+      - "packages/shared/**"
+      - "scripts/*device*.mjs"
+      - "scripts/m4l-producer-companions.mjs"
+      - "scripts/build-ableton-integrations.mjs"
       - "config/product-versions.json"
       - "package.json"
       - "pnpm-lock.yaml"
@@ -26,6 +31,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm versions:check
       - run: pnpm build
+      - run: node scripts/build-ableton-integrations.mjs
       - run: pnpm exec playwright test --project=electron
       - run: pnpm --filter @ableton-agent/desktop dist --mac
         env:

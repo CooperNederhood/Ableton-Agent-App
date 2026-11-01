@@ -51,12 +51,12 @@ describe("descriptive listening timing policy", () => {
             })[field],
           ).toBe(observed);
         }
-        expect(() =>
+        expect(
           evaluateListeningAlignment(policy, {
             ...measurements,
             [field]: limit + 1,
-          }),
-        ).toThrow("listening_alignment_budget_exceeded");
+          })[field],
+        ).toBe(limit + 1);
       }
     },
   );
@@ -79,7 +79,10 @@ describe("descriptive listening timing policy", () => {
           })),
         ];
         for (const policy of policies) {
-          if (observed > policy.maxClockDisagreementSamples) {
+          if (
+            policy.mode === "strict" &&
+            observed > policy.maxClockDisagreementSamples
+          ) {
             expect(() => evaluateListeningAlignment(policy, cohort)).toThrow(
               "listening_alignment_budget_exceeded",
             );
@@ -152,8 +155,6 @@ describe("descriptive listening timing policy", () => {
     { estimatedAbsoluteErrorSamples: 64 },
     { verifiedAbsoluteErrorBoundSamples: 64 },
     { captureEligible: true },
-    { observedClockDisagreementSamples: 65 },
-    { observedBeatDisagreementSamples: 65 },
     { sampleRate: Infinity },
     { vectorSize: 0 },
     { observedClockDisagreementSamples: -1 },
@@ -175,5 +176,21 @@ describe("descriptive listening timing policy", () => {
     expect(listeningDisagreementMilliseconds(480, 48_000)).toBe(10);
     expect(() => listeningDisagreementMilliseconds(64, 0)).toThrow();
     expect(() => listeningDisagreementMilliseconds(NaN, 48_000)).toThrow();
+  });
+
+  it("reports scheduling disagreement beyond the descriptive target without inventing precision", () => {
+    const observed = {
+      ...measurements,
+      observedClockDisagreementSamples: 4_800,
+      observedBeatDisagreementSamples: 9_600,
+    };
+    const quality = evaluateListeningAlignment(
+      DEFAULT_LISTENING_TIMING_POLICY,
+      observed,
+    );
+    expect(quality).toMatchObject(observed);
+    expect(listeningAlignmentQualitySchema.parse(quality)).toEqual(quality);
+    expect(quality.policy).toEqual(DEFAULT_LISTENING_TIMING_POLICY);
+    expect(quality.verifiedAbsoluteErrorBoundSamples).toBeNull();
   });
 });

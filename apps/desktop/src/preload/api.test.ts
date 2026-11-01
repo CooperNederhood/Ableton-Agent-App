@@ -1,8 +1,79 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { createDesktopApi, type PreloadTransport } from "./api.js";
+import { listeningFailureFixture } from "../renderer/test-fixtures/listening-failure.js";
+import type { DesktopListeningPage } from "../listening-contracts.js";
 
 describe("preload API", () => {
+  it("preserves shared failure evidence in typed inventory/events and filters foreign or raw diagnostic payloads", async () => {
+    const agentId = "00000000-0000-4000-8000-000000000001";
+    const page: DesktopListeningPage = {
+      sessionId: "session",
+      revision: 1,
+      jobs: [
+        {
+          passId: "preload-pass",
+          sessionId: "session",
+          liveSetId: "set",
+          agentId,
+          trace: {
+            traceId: agentId,
+            correlationId: "preload-fixture",
+            causationId: "fixture",
+          },
+          stage: "failed",
+          createdAt: "2026-10-12T00:00:00.000Z",
+          updatedAt: "2026-10-12T00:00:00.000Z",
+          durationMs: 1034,
+          contextIds: [],
+          cleanupPolicy: "leave-running",
+          evidence: "lifecycle-only",
+          error: "stale_native_preflight",
+          failureEvidence: listeningFailureFixture(agentId, "preload-pass"),
+        },
+      ],
+    };
+    const listeners: Array<(event: never, value: unknown) => void> = [];
+    const responses: Record<string, unknown> = { "listening:list": page };
+    const transport = transportFor(responses, listeners);
+    const api = createDesktopApi(transport);
+    await expect(
+      api.listening.list({ sessionId: "session", agentId }),
+    ).resolves.toEqual(page);
+    const handler = vi.fn();
+    const unsubscribe = api.events.subscribe(handler);
+    listeners[0]?.({} as never, { type: "listening.changed", page });
+    expect(handler).toHaveBeenCalledExactlyOnceWith({
+      type: "listening.changed",
+      page,
+    });
+    for (const invalid of [
+      { ...page.jobs[0]!.failureEvidence, rawNativeJson: "{}" },
+      {
+        ...page.jobs[0]!.failureEvidence,
+        reference: { traceId: agentId, passId: "foreign" },
+      },
+    ]) {
+      const invalidPage = {
+        ...page,
+        jobs: [{ ...page.jobs[0], failureEvidence: invalid }],
+      };
+      responses["listening:list"] = invalidPage;
+      await expect(
+        api.listening.list({ sessionId: "session", agentId }),
+      ).rejects.toThrow();
+      listeners[0]?.({} as never, {
+        type: "listening.changed",
+        page: invalidPage,
+      });
+    }
+    expect(handler).toHaveBeenCalledTimes(1);
+    unsubscribe();
+    expect(transport.removeListener).toHaveBeenCalledWith(
+      "app:event",
+      expect.any(Function),
+    );
+  });
   it("exposes only bounded listening reads and routes owned cancellation through the existing agent domain", async () => {
     const instanceId = "00000000-0000-4000-8000-000000000001";
     const transport = transportFor({

@@ -17,7 +17,7 @@ describe("bounded Session lifecycle detail", () => {
     ).toBeUndefined();
   });
   it.each([
-    { durationBeats: 4.01 },
+    { durationBeats: -1 },
     { sceneIndex: -1 },
     { clipName: "x".repeat(129) },
     { launch: { state: "verified", mutationState: "indeterminate" } },

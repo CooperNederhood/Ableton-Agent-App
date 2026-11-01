@@ -7,8 +7,18 @@ export interface DesktopLaunchOptions {
         descriptorPath: string;
         agentDefinition?: string;
         yolo: boolean;
+        independentMetricListeners?: true;
       }
     | undefined;
+}
+
+export function desktopMetricListenersEnabled(
+  options: DesktopLaunchOptions,
+): boolean {
+  return (
+    options.automation === undefined ||
+    options.automation.independentMetricListeners === true
+  );
 }
 
 export function parseDesktopLaunchOptions(
@@ -19,11 +29,15 @@ export function parseDesktopLaunchOptions(
   const descriptorPath = valueAfter(argv, "--automation-descriptor");
   const agentDefinition = valueAfter(argv, "--automation-agent");
   const yolo = argv.includes("--automation-yolo");
+  const independentMetricListeners = argv.includes(
+    "--automation-metric-listeners",
+  );
   const hasAutomationOption =
     profilePath !== undefined ||
     descriptorPath !== undefined ||
     agentDefinition !== undefined ||
-    yolo;
+    yolo ||
+    independentMetricListeners;
   if (!automationEnabled) {
     if (hasAutomationOption) {
       throw new Error("Automation options require --automation");
@@ -56,6 +70,9 @@ export function parseDesktopLaunchOptions(
         descriptorPath ?? join(profilePath, "automation-endpoint.json"),
       ...(agentDefinition === undefined ? {} : { agentDefinition }),
       yolo,
+      ...(independentMetricListeners
+        ? { independentMetricListeners: true as const }
+        : {}),
     },
   };
 }

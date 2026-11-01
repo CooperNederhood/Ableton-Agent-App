@@ -1,5 +1,10 @@
 import { z } from "zod";
-import { sessionListeningJobDetailSchema } from "@ableton-agent/protocol";
+import {
+  listeningFailureEvidenceSchema,
+  sessionListeningJobDetailSchema,
+  metricListeningResultSummariesSchema,
+  validateMetricListeningJobOutcome,
+} from "@ableton-agent/protocol";
 
 export const desktopListeningTraceSchema = z.strictObject({
   traceId: z.string().uuid(),
@@ -15,26 +20,44 @@ export const desktopListeningStageSchema = z.enum([
   "capturing",
   "persisting",
   "completed",
+  "partial",
   "failed",
   "cancelled",
   "interrupted",
 ]);
-export const desktopListeningJobSchema = z.strictObject({
-  passId: z.string().min(1).max(128),
-  sessionId: z.string().min(1).max(256),
-  liveSetId: z.string().min(1).max(256),
-  agentId: z.string().uuid(),
-  trace: desktopListeningTraceSchema,
-  stage: desktopListeningStageSchema,
-  createdAt: z.string().datetime(),
-  updatedAt: z.string().datetime(),
-  durationMs: z.number().finite().nonnegative().max(Number.MAX_SAFE_INTEGER),
-  contextIds: z.array(z.string().min(1).max(128)).max(100),
-  error: z.string().min(1).max(2048).optional(),
-  cleanupPolicy: z.literal("leave-running"),
-  evidence: z.literal("lifecycle-only"),
-  session: sessionListeningJobDetailSchema.optional(),
-});
+export const desktopListeningJobSchema = z
+  .strictObject({
+    passId: z.string().min(1).max(128),
+    sessionId: z.string().min(1).max(256),
+    liveSetId: z.string().min(1).max(256),
+    agentId: z.string().uuid(),
+    trace: desktopListeningTraceSchema,
+    stage: desktopListeningStageSchema,
+    createdAt: z.string().datetime(),
+    updatedAt: z.string().datetime(),
+    durationMs: z.number().finite().nonnegative().max(Number.MAX_SAFE_INTEGER),
+    contextIds: z.array(z.string().min(1).max(128)).max(100),
+    metricResults: metricListeningResultSummariesSchema.optional(),
+    error: z.string().min(1).max(2048).optional(),
+    failureEvidence: listeningFailureEvidenceSchema.optional(),
+    cleanupPolicy: z.literal("leave-running"),
+    evidence: z.literal("lifecycle-only"),
+    session: sessionListeningJobDetailSchema.optional(),
+  })
+  .superRefine(validateMetricListeningJobOutcome)
+  .superRefine((job, context) => {
+    if (
+      job.failureEvidence !== undefined &&
+      (job.failureEvidence.reference.passId !== job.passId ||
+        job.failureEvidence.reference.traceId !== job.trace.traceId)
+    )
+      context.addIssue({
+        code: "custom",
+        path: ["failureEvidence", "reference"],
+        message:
+          "Failure evidence must reference the owning listening pass and trace.",
+      });
+  });
 export const desktopListeningListRequestSchema = z.strictObject({
   sessionId: z.string().min(1).max(256),
   agentId: z.string().uuid(),
@@ -64,5 +87,11 @@ export interface DesktopListeningApi {
 export function listeningTerminal(
   stage: DesktopListeningJob["stage"],
 ): boolean {
-  return ["completed", "failed", "cancelled", "interrupted"].includes(stage);
+  return [
+    "completed",
+    "partial",
+    "failed",
+    "cancelled",
+    "interrupted",
+  ].includes(stage);
 }

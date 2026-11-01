@@ -4,12 +4,10 @@ import {
   listeningCanonicalDevicePathSchema,
   listeningCanonicalTrackPathSchema,
   listeningPathSelectorSchema,
-  listenerNativeStatusSchema,
-  listenerNativeStatusV2Schema,
-  listenerNativeSessionStatusSchema,
-  type ListenerNativeStatus,
-  type ListenerNativeStatusV2,
-  type ListenerNativeSessionStatus,
+  listenerNativeMetricStatusSchema,
+  NATIVE_METRIC_LISTENING_CAPABILITY,
+  NATIVE_METRIC_ALGORITHM_VERSION,
+  type ListenerNativeMetricStatus,
   type InspectListeningContextResult,
   type ListeningPathAttestation,
 } from "@ableton-agent/protocol";
@@ -18,30 +16,40 @@ export type ListenerBridgeTarget =
   InspectListeningContextResult["listeners"][number]["binding"];
 
 const id = z.string().min(1).max(128);
-const nativeStatusSchema = z.union([
-  listenerNativeStatusSchema,
-  listenerNativeStatusV2Schema,
-  listenerNativeSessionStatusSchema,
-]);
+const metricMetadata = {
+  capabilities: z.tuple([z.literal(NATIVE_METRIC_LISTENING_CAPABILITY)]),
+  algorithmVersion: z.literal(NATIVE_METRIC_ALGORITHM_VERSION),
+  sampleRate: z.number().int().min(8_000).max(384_000),
+  vectorSize: z.number().int().min(1).max(65_536),
+};
 const rawConnectionSchema = z
   .object({
-    connectionId: id,
+    connectionId: z.string().uuid(),
     producerId: id,
     instanceId: id,
-    connectionEpoch: id,
+    connectionEpoch: z.string().uuid(),
     canonicalPath: listeningPathSelectorSchema.shape.canonicalPath,
     canonicalTrackPath: listeningCanonicalTrackPathSchema,
-    nativeStatus: nativeStatusSchema,
-    signalKind: z.enum(["audio", "midi"]),
-    schemaVersion: id,
+    nativeStatus: listenerNativeMetricStatusSchema,
+    signalKind: z.literal("audio"),
+    schemaVersion: z.literal("metric-audio-observation/v1"),
     status: z.enum(["connected", "stale", "disconnected"]),
+    ...metricMetadata,
   })
   .strict();
-const connectionSchema = rawConnectionSchema.refine(
-  (value) =>
-    (value.nativeStatus.version !== 1) ===
-    (value.schemaVersion === "audio-observation/v2"),
-);
+const connectionSchema = rawConnectionSchema.refine((value) => {
+  const status = value.nativeStatus;
+  return (
+    status.readiness !== "READY" ||
+    (status.executedGen != null &&
+      status.acceptedSampleRates.some((rate) => rate === value.sampleRate) &&
+      status.acceptedVectorSizes.some((size) => size === value.vectorSize) &&
+      status.executedGen.config.geometry.sampleRate === value.sampleRate &&
+      status.executedGen.config.geometry.vectorSize === value.vectorSize &&
+      status.executedGen.ownership.connectionEpoch === value.connectionEpoch &&
+      status.executedGen.ownership.connectionId === value.connectionId)
+  );
+});
 
 /** Canonical path comes from authenticated producer metadata, never its ID hash. */
 export type ConnectedListenerBinding = z.infer<typeof connectionSchema>;
@@ -62,7 +70,6 @@ export type ListenerBindingFailure =
   | "unavailable"
   | "stale-connection"
   | "collision"
-  | "non-audio-producer"
   | "stale-inspection"
   | "unattested-path"
   | "ambiguous"
@@ -80,15 +87,15 @@ export interface ListenerBindingDescriptor {
     readonly capabilities?: Readonly<Record<string, unknown>>;
   };
   readonly registration: {
-    readonly version?: 1 | 2 | 3;
+    readonly version?: 5;
     readonly capabilities?: readonly string[];
     readonly connectionEpoch: string;
     readonly deviceCanonicalPath?: string;
     readonly trackCanonicalPath?: string;
-    readonly nativeStatus?:
-      | ListenerNativeStatus
-      | ListenerNativeStatusV2
-      | ListenerNativeSessionStatus;
+    readonly algorithmVersion?: string;
+    readonly sampleRate?: number;
+    readonly vectorSize?: number;
+    readonly nativeStatus?: ListenerNativeMetricStatus;
   };
   readonly status?: "connected" | "stale" | "disconnected";
 }
@@ -109,12 +116,15 @@ const descriptorHeaderSchema = z
       .strip(),
     registration: z
       .object({
-        connectionEpoch: id,
-        version: z.union([z.literal(1), z.literal(2), z.literal(3)]).optional(),
-        capabilities: z.array(z.string().min(1).max(128)).max(16).optional(),
+        connectionEpoch: rawConnectionSchema.shape.connectionEpoch,
+        version: z.literal(5).optional(),
+        capabilities: metricMetadata.capabilities.optional(),
         deviceCanonicalPath: listeningCanonicalDevicePathSchema.optional(),
         trackCanonicalPath: listeningCanonicalTrackPathSchema.optional(),
-        nativeStatus: nativeStatusSchema.optional(),
+        nativeStatus: listenerNativeMetricStatusSchema.optional(),
+        algorithmVersion: metricMetadata.algorithmVersion.optional(),
+        sampleRate: metricMetadata.sampleRate.optional(),
+        vectorSize: metricMetadata.vectorSize.optional(),
       })
       .strip(),
     status: z.enum(["connected", "stale", "disconnected"]).optional(),
@@ -143,14 +153,15 @@ export function readConnectedListenerBinding(
   }
   const registration = header.data.registration;
   if (
-    (registration.version !== undefined &&
-      registration.version !== registration.nativeStatus?.version) ||
-    (registration.nativeStatus?.version === 3 &&
-      (!Object.hasOwn(descriptor.registration, "version") ||
-        !Object.hasOwn(descriptor.registration, "capabilities") ||
-        registration.version !== 3 ||
-        registration.capabilities?.length !== 1 ||
-        registration.capabilities[0] !== "audio-listener/session-v1"))
+    registration.version !== 5 ||
+    ![
+      "version",
+      "connectionEpoch",
+      "capabilities",
+      "algorithmVersion",
+      "sampleRate",
+      "vectorSize",
+    ].every((key) => Object.hasOwn(descriptor.registration, key))
   )
     return { ok: false, reason: "invalid-input" };
   const connection = connectionSchema.safeParse({
@@ -164,6 +175,10 @@ export function readConnectedListenerBinding(
     canonicalPath: header.data.registration.deviceCanonicalPath,
     canonicalTrackPath: header.data.registration.trackCanonicalPath,
     nativeStatus: header.data.registration.nativeStatus,
+    capabilities: registration.capabilities,
+    algorithmVersion: registration.algorithmVersion,
+    sampleRate: registration.sampleRate,
+    vectorSize: registration.vectorSize,
   });
   if (!connection.success) return { ok: false, reason: "invalid-input" };
   if (
@@ -271,14 +286,6 @@ export function resolveListenerBinding(input: {
     connection.canonicalPath !== selected.data.canonicalPath
   ) {
     return { ok: false, reason: "stale-connection" };
-  }
-  if (
-    connection.signalKind !== "audio" ||
-    !["audio-observation/v1", "audio-observation/v2"].includes(
-      connection.schemaVersion,
-    )
-  ) {
-    return { ok: false, reason: "non-audio-producer" };
   }
   if (
     connected.data.some(

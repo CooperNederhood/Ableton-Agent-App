@@ -1,5 +1,18 @@
 # Remote Script Implementation To-Do
 
+## Full-active-region Session source monitoring
+
+- [x] Accept positive resolved durations beyond four beats within thirty seconds
+  and the active loop/nonlooping end; permit equality without silently trimming.
+- [x] Retain the original source epoch and unchanged fingerprint while admitting
+  only normal boundary observations at/after requested coverage. Cover callback
+  ordering, expected loop epoch reset, natural end, earlier wrap/stop, source
+  replacement/edit, cancellation and monitor cleanup. Never own transport.
+- [x] Emit protocol-8 `covered` as message-rate evidence only; native completion
+  remains independently required by the host. Explicitly refuse protocol 7.
+- [ ] Validate in fresh runner-owned Live after the user closes normal apps;
+  do not reinstall integrations or operate on the running user Set.
+
 Companion specification: [Remote Script](remote-script.md)
 
 ## Script foundation

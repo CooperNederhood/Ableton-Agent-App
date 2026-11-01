@@ -16,6 +16,11 @@ import {
   TAGGED_SPECTRUM_CODE,
   descriptiveSpectrumCode,
 } from "./synchronized-spectrum-source.mjs";
+import {
+  retainedNativePrototypeDocuments,
+  retainedMusicalEnvelopeDocument,
+  retainedNativeSpectrumSource,
+} from "./retained-native-source.mjs";
 
 const wire = (source, outlet, destination, inlet = 0) => ({
   patchline: { source: [source, outlet], destination: [destination, inlet] },
@@ -121,7 +126,11 @@ function spectrumDiagnosticsPatcher() {
 // A separate message cohort. The v2 analysis graph routes it through its own
 // generation-owned envelope IO, never through the root broadcast. Both bookend
 // epochs come from the SAME capture Gen evaluation.
-function configurationReadbackPatcher() {
+function configurationReadbackPatcher(
+  width = 7,
+  selector = "configuration_frame",
+  offset = 0,
+) {
   const document = {
     patcher: {
       fileversion: 1,
@@ -132,14 +141,14 @@ function configurationReadbackPatcher() {
     },
   };
   const specs = [
-    ["channels", "mc.pack~ 7", 7, 1, 10, 65],
-    ["snapshot", "mc.snapshot~ @offset 0", 1, 2, 10, 110],
+    ["channels", `mc.pack~ ${width}`, width, 1, 10, 65],
+    ["snapshot", `mc.snapshot~ @offset ${offset}`, 1, 2, 10, 110],
     ["voice", "route voice", 1, 2, 450, 110],
-    ["gate", "gate 7", 2, 7, 450, 155],
+    ["gate", `gate ${width}`, 2, width, 450, 155],
     [
       "pack",
-      `pack configuration_frame ${Array(7).fill("0.125").join(" ")}`,
-      8,
+      `pack ${selector} ${Array(width).fill("0.125").join(" ")}`,
+      width + 1,
       1,
       10,
       220,
@@ -157,17 +166,28 @@ function configurationReadbackPatcher() {
     ];
   }
   box(document, "output").maxclass = "outlet";
-  for (let index = 0; index < 8; index++) {
+  for (let index = 0; index <= width; index++) {
     const id = `input${index}`;
     add(document, id, "", 0, 1);
     box(document, id).maxclass = "inlet";
-    box(document, id).patching_rect = [10 + index * 100, 10, 25, 25];
+    box(document, id).patching_rect = [
+      width === 7
+        ? 10 + index * 100
+        : index === width
+          ? 760
+          : 10 + index * Math.floor(740 / width),
+      10,
+      25,
+      25,
+    ];
     document.patcher.lines.push(
-      index === 7 ? wire(id, 0, "snapshot") : wire(id, 0, "channels", index),
+      index === width
+        ? wire(id, 0, "snapshot")
+        : wire(id, 0, "channels", index),
     );
-    if (index < 7)
+    if (index < width)
       document.patcher.lines.push(
-        index === 6
+        index === width - 1
           ? wire("gate", index, "hot")
           : wire("gate", index, "pack", index + 1),
       );
@@ -177,11 +197,151 @@ function configurationReadbackPatcher() {
     wire("snapshot", 1, "voice"),
     wire("voice", 0, "gate"),
     wire("snapshot", 0, "gate", 1),
-    wire("hot", 1, "pack", 7),
+    wire("hot", 1, "pack", width),
     wire("hot", 0, "pack"),
     wire("pack", 0, "output"),
   );
   return document.patcher;
+}
+
+// V5 only. Each cohort samples native input4 on both sides of the actual Gen
+// outputs in one mc.snapshot~ bank. These are sample coordinates, not host time
+// or request IDs. The synchronous collector poll owns attribution separately.
+function metricAnalysisGraph(analysis, resource) {
+  prune(analysis, [
+    "channels",
+    "snapshot",
+    "voice",
+    "gate",
+    "pack",
+    "nativeHot",
+    "nativeCommands",
+    "measurementReadback",
+    "configurationReadback",
+    "configurationMessages",
+    "descriptiveConfig",
+    ...[
+      "epoch",
+      "cancel",
+      "totalSamples",
+      "hopSamples",
+      "tempoBpm",
+      "startBeatFraction",
+      "captureVector",
+    ].map((name) => `descriptive-${name}`),
+  ]);
+  box(analysis, "gen").numoutlets = 64;
+  box(analysis, "collector").text =
+    `js ${resource("audio_listener_metric_io.js")} musical-v1`;
+  box(analysis, "collector").numoutlets = 3;
+  add(
+    analysis,
+    "metricCommands",
+    "route metric_envelope metric_spectrum metric_parameter",
+    1,
+    4,
+  );
+  add(analysis, "metricPoll", "metric_poll", 2, 1);
+  add(analysis, "metricEmergency", "route stop release", 1, 3);
+  add(analysis, "metricGuardStop", "prepend metric_guard_stop", 1, 1);
+  add(
+    analysis,
+    "metricSpectrumGuardStop",
+    "prepend metric_spectrum_guard_stop",
+    1,
+    1,
+  );
+  box(analysis, "metricPoll").maxclass = "message";
+  add(analysis, "metricPollRoute", "route poll_frames spectrum_poll", 1, 3);
+  add(analysis, "metricSpectrumPoll", "qmetro 10 @active 0", 2, 1);
+  add(analysis, "metricSpectrumMessages", "route native_spectrum_poll", 1, 2);
+  analysis.patcher.lines = analysis.patcher.lines.filter(
+    ({ patchline }) =>
+      !(
+        patchline.source[0] === "fft" &&
+        patchline.destination[0] === "nativeMessages"
+      ),
+  );
+  box(analysis, "pollOrder").text = "trigger b b b b";
+  box(analysis, "pollOrder").numoutlets = 4;
+  analysis.patcher.lines = analysis.patcher.lines.filter(
+    ({ patchline }) =>
+      patchline.source[0] !== "pollOrder" &&
+      !(
+        patchline.source[0] === "poll" &&
+        patchline.destination[0] === "pollOrder"
+      ),
+  );
+  analysis.patcher.lines.push(
+    wire("command", 0, "metricCommands"),
+    wire("metricCommands", 0, "collector"),
+    wire("metricCommands", 1, "fft", 4),
+    wire("metricCommands", 2, "nativeControl"),
+    wire("metricCommands", 3, "metricEmergency"),
+    wire("metricEmergency", 0, "metricGuardStop"),
+    wire("metricEmergency", 1, "metricGuardStop"),
+    wire("metricGuardStop", 0, "collector"),
+    wire("metricEmergency", 0, "metricSpectrumGuardStop"),
+    wire("metricEmergency", 1, "metricSpectrumGuardStop"),
+    wire("metricSpectrumGuardStop", 0, "fft", 4),
+    wire("poll", 0, "metricPoll"),
+    wire("metricPoll", 0, "collector"),
+    wire("collector", 2, "metricPollRoute"),
+    wire("metricPollRoute", 0, "pollOrder"),
+    wire("metricPollRoute", 1, "metricSpectrumPoll"),
+    wire("metricSpectrumPoll", 0, "fft", 4),
+    wire("fft", 0, "metricSpectrumMessages"),
+    wire("metricSpectrumMessages", 0, "metricSpectrumPoll"),
+    wire("metricSpectrumMessages", 1, "nativeMessages"),
+  );
+  for (const { patchline } of analysis.patcher.lines) {
+    if (
+      patchline.source[0] === "metricEmergency" &&
+      patchline.destination[0] === "metricGuardStop"
+    )
+      patchline.order = 0;
+    if (
+      patchline.source[0] === "metricEmergency" &&
+      patchline.destination[0] === "metricSpectrumGuardStop"
+    )
+      patchline.order = 1;
+  }
+  for (const [id, first, width, selector, order] of [
+    ["configurationReadback", 8, 12, "metric_configuration_sample", 3],
+    ["timingReadback", 0, 8, "metric_timing_sample", 2],
+    ["levelReadback", 20, 22, "metric_level_sample", 1],
+    ["detectorReadback", 42, 22, "metric_detector_sample", 0],
+  ]) {
+    add(analysis, id, `p native-${selector}`, width + 3);
+    box(analysis, id).patcher = configurationReadbackPatcher(
+      width + 2,
+      selector,
+    );
+    analysis.patcher.lines.push(
+      wire("clock", 0, id, 0),
+      wire("clock", 0, id, width + 1),
+      wire("pollOrder", order, id, width + 2),
+      wire(id, 0, "collector"),
+    );
+    for (let index = 0; index < width; index++)
+      analysis.patcher.lines.push(wire("gen", first + index, id, index + 1));
+  }
+  for (const [id, x, y, width] of [
+    ["metricCommands", 10, 315, 480],
+    ["metricPoll", 10, 110, 90],
+    ["metricEmergency", 10, 285, 180],
+    ["metricGuardStop", 205, 285, 230],
+    ["metricPollRoute", 10, 190, 280],
+    ["metricSpectrumPoll", 570, 190, 180],
+    ["configurationReadback", 10, 230, 190],
+    ["timingReadback", 205, 230, 190],
+    ["levelReadback", 400, 230, 190],
+    ["detectorReadback", 595, 230, 190],
+    ["pollOrder", 10, 150, 180],
+    ["nativeControl", 530, 315, 180],
+    ["nativeMessages", 10, 355, 80],
+  ])
+    box(analysis, id).patching_rect = [x, y, width, 22];
 }
 
 /** Pair with nativeRuntimeDocuments using the same explicitly selected version.
@@ -192,7 +352,7 @@ export function appendNativeRuntimeGraph(
   document,
   { runtimeEntry, nativeVersion = 1 } = {},
 ) {
-  if (![1, 2, 3].includes(nativeVersion))
+  if (![1, 2, 3, 4, 5].includes(nativeVersion))
     throw new Error("unsupported_native_version");
   if (
     typeof runtimeEntry !== "string" ||
@@ -218,6 +378,46 @@ export function appendNativeRuntimeGraph(
   const runtime = runtimes[0].box;
   const input = inputs[0].box;
   const guard = guards[0].box;
+  if (nativeVersion === 5) {
+    const obsolete = new Set([
+      "threshold",
+      "thresholdMsg",
+      "spacing",
+      "spacingMsg",
+      "analysis",
+      "idle",
+      "enabled",
+      "hostTrigger",
+      "host",
+      "hostPack",
+      "snapTrigger",
+      "spectralPoll",
+      "spectralSnapshot",
+      "framePack",
+      "frameMsg",
+      ...Array.from({ length: 7 }, (_, index) => `snap${index}`),
+      "ml_device_preview",
+      "ml_device_state_query",
+      "ml_device_preview_latch",
+    ]);
+    patcher.boxes = patcher.boxes.filter(({ box }) => !obsolete.has(box.id));
+    patcher.lines = patcher.lines.filter(
+      ({ patchline }) =>
+        !obsolete.has(patchline.source[0]) &&
+        !obsolete.has(patchline.destination[0]),
+    );
+    if (patcher.parameters) {
+      delete patcher.parameters.threshold;
+      delete patcher.parameters.spacing;
+    }
+    const adapterInit = patcher.boxes.find(
+      ({ box }) => box.id === "ml_adapter_init",
+    )?.box;
+    if (adapterInit) {
+      adapterInit.text = "trigger b";
+      adapterInit.numoutlets = 1;
+    }
+  }
   if (guard.numoutlets !== undefined && guard.numoutlets < 3)
     throw new Error("authored_native_watchdog_outlet_missing");
   // Select the parent's independently bounded v2 watchdog explicitly; its v1
@@ -305,7 +505,7 @@ export function nativeRuntimeDocuments({
   resourceDirectory = null,
   nativeVersion = 1,
 } = {}) {
-  if (![1, 2, 3].includes(nativeVersion))
+  if (![1, 2, 3, 4, 5].includes(nativeVersion))
     throw new Error("unsupported_native_version");
   if (resourceDirectory !== null && !isAbsolute(resourceDirectory))
     throw new Error("native_resource_directory_must_be_absolute");
@@ -469,10 +669,6 @@ export function nativeRuntimeDocuments({
   }
 
   if (nativeVersion >= 2) {
-    // Authoritative samples cannot use qmetro's queue-overload drops.
-    for (const document of [clock, analysis])
-      box(document, "poll").text = "metro 10 @active 0";
-
     // Offset zero follows scheduler sub-vector time in Audio Interrupt mode.
     // Compare the host bracket with the latest available DSP sample instead.
     add(clock, "snapshotLastIndex", "- 1");
@@ -640,6 +836,120 @@ export function nativeRuntimeDocuments({
       11,
       { outputSpacing: 22 },
     );
+  }
+  if (nativeVersion === 4 || nativeVersion === 5) {
+    const retained = retainedNativePrototypeDocuments();
+    documents["audio_listener_native_envelope.gendsp"] =
+      retained["retained-envelope-prototype.gendsp"];
+    documents["audio_listener_native_spectrum.gendsp"] =
+      retained["retained-spectrum-prototype.gendsp"];
+    for (const [document, id] of [
+      [analysis, "collector"],
+      [fft, "nativeIO"],
+    ])
+      box(document, id).text += " retention-v1";
+    box(analysis, "gen").numoutlets = 53;
+    box(fft, "energy").numoutlets = 31;
+    for (const [document, producer, first, width, collector, offset] of [
+      [analysis, "gen", 23, 30, "collector", 0],
+      [fft, "energy", 11, 20, "nativeIO", 2047],
+    ]) {
+      add(
+        document,
+        "measurementReadback",
+        "p native-measurement-readback",
+        width + 1,
+      );
+      // The FFT commits at bin 2047; bin zero exposes the previous frame.
+      box(document, "measurementReadback").patcher =
+        configurationReadbackPatcher(width, "measurement_frame", offset);
+      box(document, "measurementReadback").patching_rect = [10, 305, 280, 22];
+      document.patcher.lines.push(wire("measurementReadback", 0, collector));
+      for (let index = 0; index < width; index++)
+        document.patcher.lines.push(
+          wire(producer, first + index, "measurementReadback", index),
+        );
+    }
+    box(analysis, "pollOrder").text = "trigger b b b b";
+    box(analysis, "pollOrder").numoutlets = 4;
+    for (const { patchline } of analysis.patcher.lines)
+      if (patchline.source[0] === "pollOrder") patchline.source[1]++;
+    analysis.patcher.lines.push(
+      wire("pollOrder", 0, "measurementReadback", 30),
+    );
+    fft.patcher.lines = fft.patcher.lines.filter(
+      ({ patchline }) =>
+        !(patchline.source[0] === "infoOrder" && patchline.source[1] === 0),
+    );
+    add(fft, "nativeControl", "route poll", 1, 2);
+    box(fft, "nativeControl").patching_rect = [610, 335, 160, 22];
+    fft.patcher.lines.push(
+      wire("infoOrder", 0, "measurementReadback", 20),
+      wire("nativeIO", 1, "nativeControl"),
+      wire("nativeControl", 1, "energy"),
+    );
+    prune(fft, [
+      "poll",
+      "pack",
+      "hot",
+      ...Array.from({ length: 6 }, (_, i) => `snap${i}`),
+    ]);
+  }
+  if (nativeVersion === 5) {
+    documents["audio_listener_native_envelope.gendsp"] =
+      retainedMusicalEnvelopeDocument();
+    box(clock, "collector").text =
+      `js ${resource("audio_listener_native_io.js")} clock metric-v1`;
+    box(fft, "nativeIO").text =
+      `js ${resource("audio_listener_native_io.js")} spectrum metric-v1`;
+    // Retained ABI outputs 23/24 are centroid/energy; normalize silence after storage.
+    documents["audio_listener_native_spectrum.gendsp"] = genDocument(
+      `${retainedNativeSpectrumSource().code}
+out23 = out24 == 0 ? 0 : out23;
+out32 = sourceClock;`,
+      7,
+      32,
+      { outputSpacing: 12 },
+    );
+    box(fft, "energy").numoutlets = 32;
+    add(fft, "metricSpectrumPollControl", "prepend native_spectrum_poll", 1, 1);
+    add(fft, "metricNativeMessages", "prepend native_spectrum", 1, 1);
+    fft.patcher.lines = fft.patcher.lines.filter(
+      ({ patchline }) =>
+        !(
+          patchline.source[0] === "nativeIO" &&
+          patchline.destination[0] === "out"
+        ),
+    );
+    fft.patcher.lines.push(
+      wire("nativeControl", 0, "metricSpectrumPollControl"),
+      wire("metricSpectrumPollControl", 0, "out"),
+      wire("nativeIO", 0, "metricNativeMessages"),
+      wire("metricNativeMessages", 0, "out"),
+    );
+    const readback = box(fft, "measurementReadback");
+    readback.numinlets = 23;
+    readback.patcher = configurationReadbackPatcher(
+      22,
+      "spectrum_measurement_frame",
+      2047,
+    );
+    fft.patcher.lines = fft.patcher.lines.filter(
+      ({ patchline }) =>
+        patchline.source[0] !== "measurementReadback" &&
+        patchline.destination[0] !== "measurementReadback",
+    );
+    fft.patcher.lines.push(
+      wire("energy", 31, "measurementReadback", 0),
+      wire("energy", 31, "measurementReadback", 21),
+      wire("infoOrder", 0, "measurementReadback", 22),
+      wire("measurementReadback", 0, "nativeIO"),
+    );
+    for (let index = 0; index < 20; index++)
+      fft.patcher.lines.push(
+        wire("energy", 11 + index, "measurementReadback", 1 + index),
+      );
+    metricAnalysisGraph(analysis, resource);
   }
   return documents;
 }

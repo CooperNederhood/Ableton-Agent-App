@@ -50,7 +50,10 @@ import {
 } from "./automation-host.js";
 import { resolvePackagedCopilotRuntimePath } from "./copilot-runtime.js";
 import { discoverGitHubCli, type GitHubCliDiscovery } from "./copilot-auth.js";
-import { parseDesktopLaunchOptions } from "./launch-options.js";
+import {
+  desktopMetricListenersEnabled,
+  parseDesktopLaunchOptions,
+} from "./launch-options.js";
 import type { AutomationControlServer } from "@ableton-agent/debug-control";
 import { DesktopProfileManager } from "./profile-manager.js";
 
@@ -316,6 +319,7 @@ async function composeProfile(
     agentsDirectory: bundledAgentsDirectory,
     skillsDirectory: bundledSkillsDirectory,
     storage: layout,
+    independentMetricListeners: desktopMetricListenersEnabled(launchOptions),
     agentBaseDirectory: layout.copilotDirectory,
     ...(githubCliDiscovery === undefined
       ? {}

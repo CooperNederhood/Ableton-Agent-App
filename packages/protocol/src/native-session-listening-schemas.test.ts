@@ -12,6 +12,8 @@ import {
   assertNativeSessionArmProof,
   nativeSessionLaunchCoordinates,
   assertNativeSessionCaptureObservation,
+  assertNativeSessionSourceCoverage,
+  nativeSessionSourceCoverageProofSchema,
   snapshotNativeSessionListeningExpectation,
 } from "./native-session-listening-schemas.js";
 
@@ -45,6 +47,40 @@ function fixture() {
   };
 }
 describe("negotiated Session wrapper over unchanged transport ABI2", () => {
+  it("separates shared source coverage from descriptor completeness without claiming clip proof", () => {
+    const f = fixture();
+    const { armed, launched, after, timingWitnesses } = f.proof;
+    const proof = {
+      scope,
+      source,
+      transport: { armed, launched, after, timingWitnesses },
+    };
+    expect(
+      nativeSessionSourceCoverageProofSchema.safeParse(proof).success,
+    ).toBe(true);
+    expect(assertNativeSessionSourceCoverage(proof, f.expected)).toMatchObject({
+      startSample: f.observation.startSample,
+      endSample: f.observation.endSample,
+      alignment: f.observation.alignment,
+    });
+    expect(
+      nativeSessionSourceCoverageProofSchema.safeParse({
+        ...proof,
+        transport: f.proof,
+      }).success,
+    ).toBe(false);
+    const foreign = structuredClone(proof);
+    foreign.source.target.sceneIndex++;
+    expect(() =>
+      assertNativeSessionSourceCoverage(foreign, f.expected),
+    ).toThrow("native_session_source_context_mismatch");
+    const corrupt = structuredClone(proof);
+    corrupt.transport.launched.nativeEpoch++;
+    expect(() =>
+      assertNativeSessionSourceCoverage(corrupt, f.expected),
+    ).toThrow("native_v2_launch_binding_mismatch");
+  });
+
   it.each([44100, 48000] as const)(
     "builds explicitly synthetic negotiated Session fixtures at %s Hz without relabelling transport evidence",
     (sampleRate) => {
@@ -100,7 +136,7 @@ describe("negotiated Session wrapper over unchanged transport ABI2", () => {
           source,
           endBeat: 5,
         }),
-      ).toThrow(/four beats/);
+      ).not.toThrow();
     },
   );
   it("validates arm, first transport movement, windows and global-coordinate descriptors", () => {
@@ -152,7 +188,7 @@ describe("negotiated Session wrapper over unchanged transport ABI2", () => {
       }),
     ).toThrow();
   });
-  it("retains exact bounded target, four beat and existing DSP quotas", () => {
+  it("retains exact bounded target and existing DSP quotas beyond four beats", () => {
     const f = fixture(),
       config = {
         geometry: f.expected.geometry,

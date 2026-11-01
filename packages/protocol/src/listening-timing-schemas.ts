@@ -16,6 +16,7 @@ const sampleRate = z.number().int().min(8_000).max(384_000);
 export const listeningTimingPolicySchema = z.discriminatedUnion("mode", [
   z.strictObject({
     mode: z.literal("descriptive"),
+    // Preserve the wire/preference field; the descriptive target is advisory.
     maxClockDisagreementSamples: configuredLimit,
   }),
   z.strictObject({
@@ -53,6 +54,7 @@ export const listeningAlignmentQualitySchema = z
   })
   .superRefine((value, ctx) => {
     if (
+      value.policy.mode === "strict" &&
       Math.max(
         value.observedClockDisagreementSamples,
         value.observedBeatDisagreementSamples,
@@ -76,6 +78,7 @@ export function evaluateListeningAlignment(
   const snapshot = Object.freeze(listeningTimingPolicySchema.parse(policy));
   const measured = listeningAlignmentMeasurementsSchema.parse(measurements);
   if (
+    snapshot.mode === "strict" &&
     Math.max(
       measured.observedClockDisagreementSamples,
       measured.observedBeatDisagreementSamples,

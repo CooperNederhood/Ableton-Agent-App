@@ -13,3 +13,6 @@ test-results/
 __pycache__/
 *.pyc
 /midiout.jsonl
+/apps/desktop/build/ableton-integrations/
+/apps/desktop/build/ableton-integrations.staged-*/
+/apps/desktop/build/ableton-integrations.previous-*/

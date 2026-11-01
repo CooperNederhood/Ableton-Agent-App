@@ -1,12 +1,1261 @@
 # Playback Listening and Entity Context
 
+## Current qualified installation
+
+The original Max patch publishing/deployment scope is complete: JavaScript is
+the single functional source, AMXD is generated output, and packaging/install
+reuse the identified payload with explicit stale/tampered-artifact rejection.
+The installed bundle matches production and qualification. Normal installed
+startup discovers both listeners and completes all four MIDI/audio clip
+captures with full retained metric coverage. This closes the publication bug,
+not every outstanding listening accuracy or reliability concern.
+
+User acceptance on 2026-10-31: the user tested the normal installed application,
+reported it working and passing their tests, and accepted closure of the
+original publishing/install fix. This is manual acceptance of that scope,
+not a claim that unrestricted repetition or every listening mode is qualified.
+
+The JS-authoritative patch/deployment cleanup is implemented. Normal installed
+startup in isolated profiles discovers both listeners and has completed MIDI
+and audio kick captures. A later full-phrase check exposed a zero-energy FFT
+record with a nonzero centroid. The v5-only retained readback now makes the
+centroid zero when retained energy is zero; the existing protocol represents
+that measured silent record with `centroidHz: null`. Positive-energy records,
+missing-record failures and frozen historical DSP sources remain unchanged.
+Bounded observed centroid/energy failure facts now reach typed local History.
+
+Final-boundary correction: the spectral producer also pairs the centroid with
+the final retained energy before publication. Its six spectral scalars cross
+classic Max to Node as a bounded JSON symbol (`spectrum-json`, at most 4096
+characters), avoiding numeric-atom conversion of very small positive energies.
+Node validates the exact six-number shape and forwards the original numeric
+packet to the unchanged strict spectral decoder. Raw spectral atom packets,
+malformed JSON and nonfinite values are explicitly rejected. Metadata and
+ownership framing remain unchanged; matching producer/runtime bundle bytes
+are required.
+
+Failure snapshots can contain more than the lifecycle contract's 24 facts.
+The runtime now sends separate, uniquely identified, attributed progress
+events of at most 24 facts, preserving every fact and the original failure's
+causation/timing. Previously an oversized diagnostic could trigger device
+disconnect and obscure the original capture failure.
+
+The unchanged managed silent-tail audio now passes its standalone scenario
+and owning group on Live 11.3.43, including complete metric timelines, actual
+zero-energy FFT records with null centroids, saved-report reopening and
+cleanup. The earlier disconnect and malformed-record runs remain negative
+evidence. Current local evidence:
+`.test-artifacts/independent-metric-listening/single-source-silent-tail-final-group.json`.
+
+The final Session production bundle is qualified and reinstalled. Seven
+bounded Session scenarios pass, covering MIDI/audio, four-beat phrases,
+same-source repeats and MIDI/audio/MIDI switching. Production, packaged and
+installed application inventories match SHA-256
+`787fe8b6cbb8a66ea6a69d45d81a09ec09c4e8d5888e277ea1e7aad438ac54a9`;
+all 21 immutable installed listening files match qualification.
+Installed authentication and packaged normal-startup/installation gates pass.
+The startup test waits for actual readiness using the owning Electron suite's
+30-second budget, not the default five-second assertion budget.
+
+The installed executable, without automation flags or changed normal approval
+preferences, also completes four independent full-phrase captures: both MIDI
+clips and both audio clips. Every pass retains all expected level, spectral
+and detector-input records, saves a report and leaves no missing records.
+Each case uses a fresh owned Live process at stopped beat zero with global
+quantization None; this does not qualify arbitrary nonzero stopped positions.
+Normal review evidence is
+`single-source-normal-installed-matrix-1793497253431.json`; every owned Desktop
+and Live process in that matrix closed successfully. A separate automation-MCP
+capture in `human-review-1793499606319/normal-installed-ux.json` also completed:
+the accepted message/trace/correlation IDs match the exactly-once rendered
+submission, and all three metric families are complete. Computer-use inspected
+the owned Agent and Live windows and confirmed the connected app, completed
+operations, audio-2 playback and enabled app-controlled listener. That private
+helper exited unsuccessfully because importing the MCP executable also invoked
+its CLI without `--descriptor`; it is not a clean harness pass.
+The additional fractional
+Arrangement attempts were denied at dependency-completeness preflight before
+playback and are not qualified by these Session results.
+
+Separate findings retained outside the publication-fix scope: the MCP assistant
+misclassified half-beat-offset hats as on-beat despite intact numeric timing.
+Shared listening/report guidance now explains zero-based beat phase, native
+support and tempo-dependent sample conversion; unit and runner-owned
+four-beat capture coverage pass, but a corrected musical interpretation has not
+been visually qualified. A later owning Session run
+(`metric-rhythm-guidance-owning-session.json`) passed five single-capture cases,
+then failed before playback on the third same-source repetition with
+`metric_spectrum_shared_failure`. Its isolated repeat-three rerun passed
+(`metric-repeat-isolated.json`), so repeat reliability remains unresolved;
+the earlier positive repeat/switch receipts do not erase that failure.
+An additional MCP visual run was cancelled when scope was frozen. Its cleanup
+receipt reported an owned-Live identity mismatch; both recorded Agent/Live PIDs
+were independently confirmed absent. Do not count that run as a pass.
+Historical console-message attribution, absolute/sample-accurate calibration,
+public DMG/ZIP distribution and unrestricted restart behavior are not claimed.
+
+Qualification note: the corrected candidate completed a fresh isolated
+Desktop MIDI capture and retained both listener registrations in a subsequent
+typed discovery read. The planned audio follow-up was blocked before capture:
+stopping transport and seeking to beat zero left the previously playing MIDI
+Session clip selected for playback. A stopped transport is not proof that all
+Session clips are stopped. This run does not resolve the earlier long-lived
+discovery loss or qualify cross-track switching; no automatic retry or source
+repair was performed.
+
+## Independent metric timelines migration
+
+### Production artifact continuity
+
+The first normal installation exposed a delivery gap: successful qualification
+used a generated parent, while production loaded a different saved AMXD parent.
+Normal discovery failed despite correct v5 companion versions. JavaScript now
+defines the production parent and its native augmentation; AMXD is build output.
+Default builds, positive qualification and packaging must use the same
+production payload and retained device/resource hashes. Installed listening
+bytes remain unchanged apart from separate profile configuration and manifest
+metadata. The new source/packaging regressions do not by themselves prove Live
+startup or resolve the user's reported invalid-object console messages.
+Fresh production-bundle discovery/capture now passes in owned Live 11.3.43,
+including four-beat MIDI and audio phrases: 96,000 samples, 16 report rows,
+20 detector-input records and 47 FFT records each, with saved report reopening
+and verified cleanup. Same-source repeats and MIDI/audio/MIDI switching also
+retain registration. The packaged inventory matches the qualified production
+bundle. That same bundle is now installed, with the final protected review copy
+`installed-human-review-1793497475064/project/debug-two-clips-midi-audio-v1.als`.
+Normal installed discovery/full-clip review is complete as described above;
+specific attribution of the earlier Max console messages remains unproven.
+The remaining Max background host exposes no
+content window and has no active Node-for-Max device runners; it is not proof
+of an open editor or a reason to terminate a user process.
+
+### Current bounded result transport
+
+Native v5 listening messages and metric observations have separate 2 MiB
+compact-JSON/UTF-8 ceilings. Explicit independent-metric ingress advertises the
+larger frame allowance; the same-folder compiled producer codec, SDK and runtime
+enforce it. Generic ingress and producer identity/credential bounds remain
+128 KiB, and earlier observation kinds retain their 256 KiB quota.
+Runtime pre-launch result staging remains bounded to two metric frames per
+listener. Identity, sequence, source, cleanup and cancellation checks are
+unchanged; increasing size does not authorize reducing authoritative timelines.
+
+Admission still reserves complete and possible partial publications, including
+schema-valid escaped diagnostics and the source proof. The current estimator
+admits all-three-metric 30-second ranges at 44.1/48 kHz through the reviewed
+120/128/240 BPM cases, including eight bars in 4/4 at 128 BPM (15 seconds).
+The existing 30-second duration ceiling remains. Extreme supported tempos can
+still exceed the 2 MiB worst-case partial budget and are explicitly rejected.
+This is not streaming or unrestricted long-form qualification.
+
+Saved context entry/pass quotas include bounded metadata around the observation;
+the canonical storage and retention contract applies. LLM-facing report paging,
+Desktop IPC response bounds and history redaction limits do not grow with the
+capture allowance. Both the app and a freshly compiled matched device bundle
+are required; an old producer descriptor can still negotiate the old ceiling.
+The earlier 128 KiB listening claims below are historical checkpoint evidence.
+
+**Current development qualification:** the matched v5 package now completes
+one-playback Session MIDI captures with all three requested metrics on owned
+Live Suite 11.3.43. Actual spectral records, exact expected frame counts,
+nonzero spectral energy, a pre-arm native phase witness, executed FFT cleanup
+and saved-context reopening are required by the deterministic verifier.
+Evidence: `seventeenth-three-metric-spectrum-owned-live.json` in
+`.test-artifacts/independent-metric-listening/`. This does not qualify the
+normal-profile installation, broader source modes or visible Desktop workflow.
+Older unknown-phase captures below remain historical negative evidence; their
+real-Live scenario needs an explicitly controlled unavailable-analyzer fixture
+now that the default FFT path works.
+
+The FFT source owns its poll lifecycle through the parent scheduler and has
+one retained reader/ACK owner. Its phase is derived from two actual coherent
+acquisitions and a fresh stopped-source clock bracket, not an assumed
+`captureStart + 2048`. Publication of known spectral cadence requires that
+matching phase witness and a newer executed cleared-bank cleanup receipt.
+Classic Max loads the retained reader via `include`, even when the host exposes
+a `require` function: the observed Max namespace lacked `createReader` and
+threw before any measurement-epoch controls were sent. Node continues using
+CommonJS. Reader API shape is checked explicitly. Bounded, redacted
+`spectrum-start-error` metadata and source-counter/header facts travel under
+the existing owned lifecycle into typed Desktop History diagnostics; they
+are not additional ACKs or proof of native parameter execution.
+
+The matching one-beat warped-audio Session scenario also passes on owned
+Live 11.3.43 (`third-audio-spectrum-owned-live.json`). Its immutable audio
+fixture has a four-beat active loop despite its historical eight-beat name;
+qualification freezes the actual four-beat loop without changing launch
+settings or capture budgets.
+
+Human-operated review of the protected two-clip Set also produced persisted
+complete one-beat MIDI and warped-audio terminal results: each has four level,
+eleven spectral and five attack-input records, with no missing records.
+Terminal completeness is separate from musical alignment. The audio agent
+reported 122.25 ms beat disagreement; its actual clock witnesses, frozen policy
+and cleanup ordering have now been audited. Clock disagreement is zero.
+Launch and retained playing-row sample/beat-origin residuals are 63 samples.
+The 5,868-sample maximum comes from a startup phase witness one sample before
+native launch detection: host transport already reports playing at beat zero,
+while DSP phase still matches its prior stopped value. Actual native origin
+36,475,968 precedes detection counter 36,476,032 by the witnessed 64-sample
+phase distance. This is not evidence of uniform 122.25 ms audio lateness or a
+shift of every report row. The observation remains intact, with unknown
+absolute accuracy. Descriptive mode accepts disagreement above the frozen
+64-sample advisory target; only strict mode enforces that admission limit.
+Cleanup precedes context publication, and typed saved-context/proof
+revalidation agrees with the terminal result.
+
+The same review host subsequently lost listener discovery. A coherent
+read-only journal snapshot records producer reconnection churn followed by both
+authenticated socket disconnections at 2026-10-31T12:21:06Z and no later ingress
+frames through 12:38:06Z. Desktop and Live were still running with an established
+Remote Script connection, before the user closed the test apps. An intact device
+in the Set does not prove that its
+producer connection is live. Source lifecycle coverage is unknown, and the
+disconnection cause remains unresolved. The discovery limitation
+`native_per_pass_validation_required` means independent validation is required
+for each capture; it does not invalidate an already verified successful pass.
+
+The reported console flood has a separate reproduced wiring cause: the v5
+parent retained legacy `host`/`frame` message feeds that the metric runtime does
+not implement. Its obsolete analysis/polling graph and unsupported
+enabled/preview messages are removed rather than adding retired handlers.
+Actual native plugsync/phasor acquisition, DSP metadata, initialization,
+watchdog and transparent stereo routing remain. Shared identity collection
+checks device/track IDs before asking for names, avoiding invalid-object
+queries without retaining stale placement as valid. Neither correction alone
+establishes the trigger for the original socket loss.
+
+The corrected matched candidate passes fresh owned Live 11.3.43 MIDI and audio
+all-metric scenarios and three consecutive one-beat MIDI captures on one loaded
+producer/registration. The repeated scenario performs exactly two independently
+verified harness-only stopped baselines, with no actor retry, replacement,
+rebind or installation; epochs increase and earlier contexts remain immutable.
+This does not qualify longer-lived Desktop discovery, MIDI/audio/MIDI
+switching, or every duration/Arrangement range.
+
+Normal Desktop startup now enables the same native-v5 admission in authenticated
+signal ingress and the listening host, without changing normal approvals.
+Isolated automation still uses explicit `--automation-metric-listeners`, which
+requires `--automation` and its separate profile. Electron coverage checks
+normal-startup v5 discovery and profile-scoped credentials, isolated opt-in and
+visible-message IPC.
+Production agent guidance identifies wire5 independent families and honest
+partial results, not the retired wire3/wire4 requirement.
+
+Saved-Set staging replaces both library-origin references and active
+project-collected references to the exact pinned old device. It must not merely
+update original preset history while leaving the active device pointing to an
+old `.amxd` excluded from the copy. The reviewed two-track Set contains four
+such file references (two active and two origin references); the explicit
+inventory is checked, and every replacement uses the same complete matched
+bundle. Source bytes, MIDI, audio and unrelated factory references remain
+unchanged. Offline preparation alone still does not prove that Live loaded it.
+
+The approved replacement design collects each measurement family independently
+during one playback, then projects trustworthy results onto a shared musical
+report. It applies to Session and Arrangement. A failed frequency family must
+not block independently valid level/level-derived attack evidence. A published
+partial result must identify usable metrics, actual support, gaps and reasons;
+shared ownership/source/clock failures remain capture failures. Cancellation
+does not silently publish a partial observation.
+
+The new coordinate contract, `metric-listening-geometry/v1`, uses a global
+quarter-beat (sixteenth-note in supported 4/4) grid clipped to the requested
+interval. Each sample boundary is independently rounded relative to the frozen
+capture origin; adding rounded hops repeatedly is not permitted. Fractional
+Arrangement endpoints have clipped rows. The duration ceiling remains thirty
+seconds; derived reporting rows are bounded to 2,000, spectral record admission
+to the capture-dependent FFT count plus boundary allowance, and the separate
+100 ms attack-detector cadence to at most 300 windows. These coordinate budgets
+do not override encoded transport, context-entry or storage byte quotas and are
+not physical source/timing proof.
+
+At 128 BPM/48 kHz, four beats require 90,000 samples and sixteen 5,625-sample
+reporting rows. Native FFT analysis retains its actual 2,048-sample support;
+a row projection must not pretend it is an exact whole-row average, split an
+old RMS/peak aggregate at a new boundary, or forward-fill missing spectra.
+
+This migration is **in progress, not the installed capture behavior**. Geometry
+and independent-collector foundations do not authorize a new listener capability
+or partial publication before native/SDK/runtime/context/UI integration and
+qualification. Existing saved schemas retain their historical semantics.
+The installed pipeline still uses coupled descriptors until that negotiated
+replacement is wired and qualified.
+
+Offline saved-Set preparation uses `scripts/lib/saved-listening-fixture.mjs`.
+It pins the original Set, project audio/device and referenced factory files,
+then permits exact project-path rebinding only into a fresh owned candidate.
+Bounds are 256 references, 8 MiB per file, 16 MiB expanded XML and 64 MiB total.
+A separately reviewed, hash-pinned complete native-v5 bundle is required before
+writing a candidate; without it the result is explicitly blocked. A prepared
+offline copy is not loaded-code or real-Live qualification. Original Sets and
+preserved copies remain read-only, and this utility never launches applications.
+
+The latest user-Set attempts passed preflight and arm but failed during
+collection: MIDI before any assembled window, audio after six, with controller
+queue eight, assembler queue zero and retained spectral backlog. The delivered
+preflight correction is scoped progress, not overall Session reliability.
+The reported 7-8 second envelope age used a preflight-only timestamp and does not
+establish collection latency. Preserve the observed predicates separately from
+unproven delivery causes.
+
+The shipping-boundary startup regressions now reproduce and correct a separate
+launch race: a live state snapshot could be promoted to a measured window, and
+a retained first window acknowledged before onset recognition could be lost.
+The controller preserves state-only provenance and stages immutable measured
+records until launch: at most sixteen retained envelopes and thirty-two spectra,
+then admits them in order exactly once. Changed holds, real measured sequence
+gaps and overflow still reject explicitly, with pre-cleanup counts and bounded
+lifecycle diagnostics. Eligible FFT prefix and cancellation cleanup are covered.
+The two corrected regressions fail before the source fix. This is source-level
+causal evidence, not fresh physical qualification or an installed update.
+The staging bound also covers a reproduced 6.83-second stopped-DSP armed wait:
+prune only FFT endpoints proven before future onset by an accepted stopped
+source clock or validated marker origin. Marker origin takes precedence once
+known. Crossing/post-onset frames remain protected; unknown backlog still
+rejects at the unchanged thirty-two-record capacity rather than rolling eviction.
+The controlled paused-spectrum baseline still reproduces coupled controller
+queue overflow with assembler pending zero; that remaining failure is not
+reclassified as solved by the startup correction.
+
+The additive `metric-audio-observation/v1` storage contract keeps independently
+indexed metric records and explicit gaps authoritative. Existing capture
+boundaries still parse legacy results explicitly: widening saved-context readers
+does not authorize an unnegotiated capture. Separate metric publication builders
+validate inspected source/range, connection epoch and trace ownership and persist
+partial passes atomically without promoting legacy failures or cancellations.
+
+Opt-in envelope ABI three / level configuration one now accumulates actual source
+samples at musical boundaries and separately at the unchanged physical 100 ms
+attack-input cadence. Both families retain bounded sixteen-slot FIFOs; native
+headers use source-counter coordinates and the values retain capture-local
+supports, counts, peaks and sums of squares. Version-two reader declarations
+explicitly distinguish variable musical support from fixed detector cadence
+while reusing the existing version-one FIFO framing, exact-once settlement and
+request-before-ACK rules. Sample-moment/support validation precedes admission.
+Controlled Gen-model-to-reader tests compare both timelines against independent
+PCM references; they are not physical Max/Live qualification. Default shipping
+wire-four/ABI-two generation remains unchanged and does not advertise this path.
+
+The opt-in spectral handoff consumes the actual retained `NativeMessageIO`
+forwards; it does not create another FIFO reader or issue another ACK. Capture
+slots come from an independently admitted first native-counter FFT endpoint,
+never the first delivered frame. Forwards omit the native epoch and FIFO sequence,
+so actual ABI/retention-ready binding and a fresh generation for every capture
+are required; these omissions must not be presented as measured packet metadata.
+Reader acceptance/ACK and Node collector acceptance remain distinct stages.
+Controlled Gen/reader/handoff/collector tests do not establish physical delivery.
+Production phase admission must obtain a validated pre-capture retained FFT
+endpoint under uninterrupted native-counter/DSP continuity. ABI, readiness,
+FFT-size and failed-frame diagnostics alone do not supply that endpoint.
+Changing retention epoch preserves FFT phase and can enqueue an already-cached
+endpoint, so sequence one does not prove a new post-arm frame. The first expected
+capture endpoint is the first anchored hop strictly after capture start, with
+capture end included. A missing phase anchor makes spectra unavailable, not the
+shared capture; a DSP/counter discontinuity invalidates the anchor. This optional
+preflight probe and controller phase admission remain unwired.
+Likewise, successful native IO stop/cleanup is not metric completeness: retained
+prefixes remain available even if neither envelope family is complete. Shared
+failures, cancellation and timeout cannot be converted into publishable data by
+successful cleanup. The controller still owns source proof and useful requested
+metric admission.
+The native IO evidence getter exposes only actual admitted counter-stamped
+timing/configuration receipts in eight fixed slots, including retained prelaunch
+and cleanup evidence. Absent slots stay explicitly unavailable, failed/cancelled
+receipts are diagnostic-only, and repeated queries do not refresh receipt age.
+These scalar receipts are neither readiness nor source-coverage certificates.
+
+The development-only metric IO is a clean break, not a fallback to the coupled
+listening pipeline. `NativeMessageIO(mode, send, control, diagnostic, { now })`
+accepts only passive `clock` or retained `spectrum` mode; classic Max loads it
+with `<mode> metric-v1`. Removed version arguments, opt-in flags, coupled
+envelope controls and latest-value/raw-bank selectors are not supported.
+Physical clock ABI2, FFT descriptor algorithm2 and FIFO ABI1 remain actual DSP
+primitives, not support for old application listening wires.
+
+Clock acquisitions and musical timing/configuration/measurement banks must be
+coherent before admission. A valid forward-moving counter that changes during
+one acquisition means that acquisition crossed a DSP boundary: discard it and
+retry within the existing deadline. Do not repair its values, refresh retained
+receipt age, acknowledge a measurement, or treat it as coverage. Malformed or
+backwards musical bookends remain fatal shared corruption. Owner-attributed
+`native_clock_cohort_skipped` and `native_metric_cohort_skipped` progress carries
+bounded acquisition operands; musical skip evidence is emitted on the first
+skip and every sixteenth skip, with its counter reset for each admitted pass.
+The required genuine clock cohorts, receipt counts and timing bounds are unchanged.
+
+Asynchronous evidence/status/tick queries have bounded separate delivery
+tracking: they cannot continually block readiness or arming solely by being
+queued immediately before those decisions. Configuration, arm and other
+controls retain their delivery barrier. Query rejection still fails the pass;
+terminal release accounts for both classes of outstanding delivery. Trace,
+correlation and causation identifiers preserve bounded application/tool-call
+punctuation rather than accepting only UUID-shaped identifiers.
+
+The first reviewed owned v5 Session MIDI capture passed on Live Suite 11.3.43:
+one beat at 120 BPM, independent level and attack timelines, typed saved-report
+reopen and executed cleanup. This is not spectrum, Arrangement, Session audio
+or Desktop delivery qualification. Saved Session reports include the canonical
+message-rate source/latency/routed-contributor limitations added by the host;
+verification compares all measured data exactly and requires that enrichment.
+
+An explicitly requested spectrum whose native FFT phase is not established is
+retained as a failed acquisition, not dropped and not assigned a guessed first
+endpoint. Its algorithm still identifies FFT size/hop/units, but
+`firstFrameEndSample` is `null`. No timed records, expected slots or gaps can be
+claimed until phase is known: `expectedRecords: 0` means no slots were assignable,
+not that zero frames were expected physically. Every report row labels this
+`unknown-phase`, distinct from known-cadence `no-frame` and measured silence.
+The acquisition retains an explicit phase-unavailable limitation and attributed
+failed lifecycle. Healthy level and attack timelines still publish a partial
+report through the same source/cleanup proofs. A request with no trustworthy
+metric data cannot publish a successful observation.
+
+The v5 retained FFT graph now snapshots twenty retained cells between two
+executed `sourceClock` taps (Gen output32), using bin2047 for all twenty-two
+cells and the current `spectrum_measurement_frame` selector. Counter carry is
+covered in generated-code/graph tests; retained reader-to-handoff tests use the
+current bookended API and executed disarm/release. This prepares physical
+readout, but does not itself qualify a native phase witness or authorize a
+positive frequency report; that controller binding remains unfinished.
+
+Forward-advancing FFT counter bookends discard a torn acquisition without
+admitting data, moving reader acknowledgements, or repairing timing. The
+existing bounded, owner-attributed `retention-unstable` progress event reports
+the retry. This also applies while acquiring a cleanup watermark or disabled
+receipt: only the next genuinely coherent bank may advance cleanup, and the
+original deadline remains fixed. Malformed, backwards, or regressing counter
+cohorts still fail rather than being retried.
+
+FFT cleanup uses `requestSpectrumStop(generation, nativeEpoch, outcome,
+absoluteDeadlineMs)` exclusively. Acceptance pauses forwarding/ACK; the next
+fresh coherent counter-bookended bank atomically captures the real source
+watermark and requests epoch zero. A separate newer cleared bank confirms
+disarm. `retainedSpectrumFrame` consumes `[counterBefore, ...raw20,
+counterAfter]`; explicit `spectrumCleanupTick` and `spectrumCleanupEvidence`
+retain the fixed deadline and bounded actual receipts until `release`.
+Classic-Max selectors are `request_spectrum_stop`,
+`spectrum_measurement_frame`, `spectrum_cleanup_tick` and
+`spectrum_cleanup_evidence`; the getter emits `native_metric_spectrum_cleanup`.
+Queued/started/progress/completed-or-failed cleanup evidence preserves the
+generation/epoch, timing and classified reason. No setter, reader completion,
+wall time or descriptor endpoint substitutes for executed disarm.
+
+Malformed FFT payload values fail the retained family without ACK or loss of
+the accepted prefix; malformed ownership/framing or source-counter bookends
+remain shared corruption. Cleanup receipts require fully numeric, coherent
+actual banks regardless of earlier family failure. Local synchronous output
+rejection does not ACK, but asynchronous Node collector acceptance is not an
+additional FIFO ACK dependency. Production graph/entry and consumer integration
+remain separate qualification gates; this source contract makes no installed
+or physical-delivery claim.
+
+The musical `metric_prefix_record <owner6> <family> <one-based-sequence>`
+getter returns one immutable, already validated record with a verified origin,
+not the entire prefix. `metric_status` supplies the genuine accepted count;
+the Node-owned cursor advances after collector admission. Requests neither ACK
+again nor refresh receipt age. `metric_record` remains the distinct clean-stop
+getter. Shared-failed, cancelled, stale and released ownership cannot retrieve
+publishable records through either getter.
+
+Attack observation records retain their own detector input peak/RMS, declared as
+`independent-100ms-level-windows`; missing musical-level packets are not missing
+detector input. Validation replays the original threshold/refractory/rise-state
+algorithm over a retained input prefix. A detector input gap ends trustworthy
+attack coverage rather than guessing a reset or publishing later empty lists.
+Threshold remains bounded to 120 dB, whereas measured strength can reach
+`120 + 20 * log10(64)` dB-rise for the supported above-unity input range. Neither
+measurement amplitude nor measured attack strength is clipped at 0 dBFS.
+
+`projectMetricListeningReport` assembles a bounded value-bearing view of those
+references, with default eight and maximum thirty-two reporting rows per page.
+It preserves native support, indexed gaps, acquisition status and next-row offset.
+Every page retains the source envelope, alignment and descriptive timing limits,
+requested metrics, algorithm versions and units, per-metric expected/retained/
+missing record counts and declared limitations. Paging must not strip the context
+needed to interpret linear amplitude, hertz or detector dB-rise correctly.
+The canonical strict `metricListeningReportSchema` enforces encoded page size,
+ownership of row indices/end events and distinct missing/silence semantics.
+`pageBudget` exposes the byte limit, requested row limit and whether a page was
+reduced for encoded size; `nextOffset` resumes at the next intact row.
+Offsets count retained row positions, not original musical row identities.
+Every page carries `reduction`, distinguishing explicitly omitted display rows
+from metric acquisition gaps. Selected rows retain their original indices and
+sample/beat boundaries, including capture-end event ownership; even a display
+reduced to zero rows retains its acquisition metadata and native timelines.
+Centroids use spectral-energy weights over endpoint-assigned frames, never a
+whole-row time average. No frames have null spectral energy; actual spectral
+silence has zero energy and null centroid. Empty valid attack lists remain
+distinct from unavailable support. Half-open musical rows and a final capture-end
+convention prevent duplicate frame/event attribution. Attack timestamps remain
+the end of their native detector window, not an inferred onset inside it.
+Separate event references preserve a boundary attack in the following musical
+row without extending the preceding detector's coverage into that row, including
+when the following row's own detector coverage is missing. This pure projection
+performs no playback, physical proof, retries or persistence, and does not change
+installed capture behavior.
+
+Agent-facing `ableton_context` adds `action: "report"` for a known metric context
+ID. It uses the same App-session repository, freshness scope, caller cancellation,
+trace and active-agent attribution as `get`. The request accepts `contextId`,
+`includeHistorical` (default false), `offset` (default zero) and `limit` (default
+eight, maximum thirty-two). Follow `report.nextOffset` until null; an offset at
+the end returns an empty final page, while an offset beyond the end is rejected.
+The complete `{action, entry, report}` response is limited to 64 KiB of encoded
+UTF-8 JSON, including non-ASCII text rather than counting JavaScript characters.
+Oversized entries or metadata fail the typed read; they never become truncated
+success-shaped reports or a partial acquisition outcome. The projection's
+separate 48 KiB page budget reserves room for the entry and response framing;
+row reduction must preserve deterministic continuation and every retained
+measurement, support and metadata field. Metadata or a single row that cannot
+fit is an explicit failure, not permission to discard evidence.
+The response contains the typed entry summary and `metric-listening-report/v1`
+page only, not the full authoritative observation arrays. Each musical row
+contains measured level records, weighted spectral centroid/energy with native
+frame support, attack events and support, and per-metric availability/gaps.
+Acquisition status and overall outcome remain separate from row availability.
+No-frame/missing spectral energy is null; zero denotes measured silence only.
+Existing `get` and all legacy payloads remain unchanged; `report` refuses legacy
+conversion. The application-owned operation lifecycle and timed repository reads
+remain authoritative for queued/started/completed/failed/cancelled events and
+trace propagation; the pure synchronous projection creates no new persisted
+state, audio body, network path or renderer storage access. Immediate reads do
+not enter the mutation queue. Serialized SDK failures for `context.report` emit
+an owning failed terminal operation event rather than a completed event, while
+retaining the existing bounded redacted failure result. This reader does not
+enable the still legacy-gated production capture pipeline.
+
+Shared transport verification is now reusable independently of descriptor
+completeness through `nativeSourceCoverageProofV2Schema` and
+`assertNativeSourceCoverageV2`, with the corresponding expected-context-only
+Session wrapper. They retain the existing armed policy/geometry, launch epoch,
+coherent stopped/playing clock brackets, immutable holds, post-end coverage,
+timing extrema and alignment checks. They do not prove clip identity, native
+musical configuration or metric correctness, and are not capability admission.
+Legacy full verification reuses this same transport check and still requires
+all legacy descriptor windows and independently verified summaries.
+
+The application coordinator has an explicit independent result-contract branch.
+Only a prepared capture declaring `independent-metric-timelines/v1` can enter
+it; the current legacy runtime does not declare that contract. It validates one
+owned result per listener and exact pass/trace/correlation/causation, disarms and
+cleans up before committing, and reports `partial` only after successful atomic
+publication. Failed cleanup, cancellation, foreign identity and schema rejection
+never become partial success. Existing legacy results retain strict completeness.
+Public tools, the embedded agent's transport lease and Desktop inventory/events
+carry that terminal outcome and bounded per-listener metric acquisition counts,
+gap reasons and context references. `listening.partial` retains the owning trace
+and duration; metric payloads are not copied into lifecycle metadata. This is
+prepared application plumbing, not new negotiated native capture or installation.
+
+Wire version 5 has a separate, explicitly opt-in authenticated ingress path.
+The internal `independentMetricListeners` server option defaults to false:
+normal descriptors and hello acknowledgements still advertise versions 1-4,
+and a version-5 hello is denied unless the option is enabled. Structural
+validation of version-5 messages does not by itself enable runtime admission.
+The metric producer contract, track/device binding and capability must agree.
+The server assigns the connection/listener identity, generation and control
+sequence; prepare freezes the original configuration and attribution for arm,
+cancel and publication.
+
+`sourceContext` carries the frozen expected observation source from application
+inspection. It supplies Arrangement track references and Session clip kind,
+clip-start offset and coordinate metadata that the native audio reader cannot
+infer from sound or manufacture as Bridge UUIDs. When supplied, its mode,
+transport range and Session target must match configuration, and final source
+metadata must match it exactly. Real capture orchestration and the native
+controller require this input before collection; pure commissioning/clock
+fixtures can omit it. It remains expected context, not a physical certificate
+of exclusive clip attribution or a replacement for the source-continuity guard.
+
+Ready proves stopped, unsealed idle preflight and reserves the future epoch;
+it does not arm DSP. The explicit arm must match that reservation, followed by
+a validated launch. Complete and partial publication must include the exact
+accepted arm/launch proofs and pass canonical source/observation validation
+against the original configuration, not a terminal-supplied replacement.
+Metric-scoped failed lifecycle events can remain progress while healthy
+collection continues. Shared failure, cancellation, deadline and uncertain
+cleanup cannot acquire a published partial observation. Native lifecycle
+events retain their own causal/event identity, metric scope and actual optional
+stage duration; pass elapsed time is not relabelled as a stage duration.
+Up to twenty-four canonical scalar evidence facts can carry actual per-family
+read/accepted/ACK counts, backlog/capacity, support and receipt operands.
+Unavailable operands remain explicitly unavailable, never invented zero values.
+Lifecycle payloads are bounded/redacted, duplicate event IDs are emitted once
+and mutation of an accepted ID is rejected. The capture deadline is fixed at
+prepare, never extended by arm or progress. Production controller, SDK/runtime,
+matched-resource delivery and real-host qualification remain separate gates.
+
+The shipping producer SDK now loads the same-folder compiled canonical codec
+for version 5, with no handwritten validator or legacy fallback. Its real TCP
+integration covers both modes, complete/partial outcomes, buffered-write
+backpressure, cancellation result-before-reply, cleanup failure and source
+substitution denial. These tests use explicitly synthetic native proofs, not
+physical DSP evidence. Runtime host integration has its own default-off
+`independentMetricListeners` option; it must retain authorized Arrangement
+positioning and Session source monitoring/sealing around the new control driver.
+Expected source/configuration and returned per-listener ownership are checked
+again at publication. Legacy listeners and historical observations keep their
+existing readers; unused replacements and temporary scaffolding must be removed
+rather than retained as alternate production paths.
+
+## Installing the development listener
+
+The normal app integration reinstall delivers the canonical
+`Machine-Listening-Development.amxd` as a complete native-v4/ABI2 bundle in
+`User Library/Presets/Audio Effects/Max Audio Effect/Machine-Listening-Development/`.
+Companion JavaScript/DSP/patcher files and hash metadata are required; copying
+only the authored AMXD is not equivalent. Packaging uses repository sources,
+not a saved test fixture or a previously installed device.
+
+The same integration operation installs canonical Midi-Capture into its own
+Max MIDI Effect folder and resolves one selected normal-profile discovery
+configuration for both. See [Packaging and Operations](../platform/packaging-and-operations.md)
+for commands, exact paths, confirmation, partial recovery and diagnostics.
+
+Insertion onto a track is manual. Installed-on-disk is distinct from loaded,
+authenticated native readiness; the app's negotiated capability checks remain
+authoritative. Installation does not itself establish capture readiness or
+real-host qualification. Existing unrelated Library copies remain untouched.
+
 Companion checklist:
 [Playback Listening Implementation To-Do](playback-listening-implementation-to-do.md).
 
 Architecture decision:
 [ADR 0006](../architecture/decisions/0006-playback-listening-and-entity-context.md).
 
-## Session MVP (#63)
+## Focused closeout candidate
+
+### Retained FFT vector readback correction
+
+The subsequent instrumented user session contains two original-Operator
+successes and four native preflight failures on original audio and fresh
+audio/Operator instances. Every failure received 80-92 accepted clocks, retained
+32, and established both readers' readiness. The wait transitions identify an
+FFT endpoint behind the newest clock, then stale metadata, followed by the
+one-source-second span rejection before launch. A zero post-clock count is
+expected before post-binding; it is not a missing preflight clock feed.
+
+The wire4 retained spectrum graph sampled bin zero of its full 2048-bin
+spectral vector even though the Gen producer commits a complete FFT descriptor
+at bin 2047. This exposes an earlier vector's descriptor and can add a whole
+FFT window of readback delay. The corrected measurement readback samples bin
+2047. Envelope/configuration sampling, legacy/non-retained graphs, record
+ordering, two-observation settlement, epoch ownership, capacities, deadlines
+and the strict nonnegative, less-than-2048 clock/FFT bound are unchanged.
+Post-clock count/span expectations are emitted only for post-binding failures.
+Existing lifecycle events, bounded diagnostics and typed History remain the
+observability path; no new storage or raw-audio logging is introduced.
+
+`native-retained-preflight-timing.test.mjs` executes the shipping Gen producer,
+IO, reader and controller with separate FFT-vector, parameter, clock and polling
+schedules. First-bin sampling reproduces stale preflight; an occasional rejected
+clock can make the old path pass at the exact 2047-sample boundary. Last-bin
+sampling corrects that boundary, but was insufficient in actual Live: two
+captures completed and the third still rejected preflight. The source model is
+not a Max scheduler oracle; preserve that failed physical run as a counterexample.
+
+### Bounded preflight clock-cohort join
+
+The retained controller previously kept moving its newest-clock target while
+immutable FFT evidence settled asynchronously. It now freezes an actual
+32-row before-binding clock cohort once prerequisites are ready, waits for the
+FFT endpoint to fit that cohort, and refreshes the cohort if the FFT is newer
+than its end. This reuses the existing immutable before-binding snapshot rather
+than inventing clocks or growing retention.
+
+The current clock and rolling acquisition remain live. Metadata/reader
+readiness, epoch ownership, stopped transport, the one-source-second acquisition
+span, current-host freshness, the two-second wall deadline and the strict
+nonnegative, less-than-2048 cohort/FFT distance remain enforced. Cleanup clears
+the cohort before another pass. Independent Gen/IO/reader/controller regressions
+reproduce the old refusal with 2048-6144 samples of delivery delay, pass after
+the correction, and still reject stalled sources, changed transport and
+over-budget acquisition.
+
+Named `preflight-cohort-clock` and `preflight-cohort-age` operands distinguish
+the selected cohort from the current source-span decision clocks. Both strict
+contract/SDK vocabularies carry these bounded facts through existing rejection
+events and typed History. No new storage or audio-body persistence is added.
+
+Actual runner-owned Live **11.3.43** qualification now completes MIDI A-B-A
+with three distinct immutable contexts, plus the wire4 Arrangement, MIDI
+Session and warped-audio Session group. Each case passes independent native
+coverage/source checks, typed reopen, exact postconditions and owned-process
+cleanup. The Arrangement check uses a bounded audio fixture: the earlier
+195-parameter synth fixture was refused before capture by the unchanged
+dependency-completeness guard.
+
+The four-beat audio loop also exposed a verifier omission: the existing Remote
+Script legitimately reports `covered` after the requested first iteration.
+The verifier now independently checks the unchanged epoch/clip, completed
+loop timing, phase, origin, launch and recording state instead of mislabeling
+that receipt invalidation. Source-driver completed lifecycle events retain
+bounded, sanitized request/result receipts so future refusals expose their
+actual action and status. This changes neither production source monitoring nor
+capture admission.
+
+A subsequent visible, isolated Desktop run on Live 11.3.43 established two
+registered baseline instances before the human duplicated the audio track.
+The new instance `02c5856e` and device `9a49d41d` then completed exactly one
+four-beat Session capture (`9323f148`), publishing context `787ff748`. Typed
+History and the returned observation independently confirm the new same-track
+binding, five-track inventory, 96,000 source samples at 48 kHz, 20 untruncated
+envelope windows, clip-local/global beats 0-4, nonzero peak and approximately
+-15.06 dBFS RMS. There was no capture retry. Earlier actor setup failures and
+denied duplicate requests remain separate, not recast as successful listening.
+
+The final visible run displayed YOLO; it does not qualify ordinary approval
+policy. The agent's one permitted immediate pass query correctly reported
+pending/arming; a separate read-only follow-up confirmed completion and
+retrieved the exact persisted context. The automation App closed cleanly at its
+time limit.
+
+The matched timing candidate was subsequently installed after Live/App closure,
+trace `f4af0faf-da25-48a6-9b7e-d2c91aed3ec2`. All 24 packaged native
+device/code/DSP resources match the physically qualified candidate; installed
+App ASAR SHA-256 is
+`9d39fd436c5a8c64dd5ad133eed84666b17a2e877ff1536987ac6f4cb6e6a2ab`.
+Production launch/integration package checks and installed authentication pass.
+Canonical detection reports all three integrations current; the Remote Script
+and protected normal-profile state were preserved. Broader acceptance in the
+user's own Set remains open. Use the canonical User Library device, not the
+isolated fixture's automation-profile-bound copy.
+
+### Earlier closeout history
+
+The user's fresh Operator MIDI Set failed a four-beat Session capture at
+128 BPM with `native_envelope_buffer_overflow` before any measurement assembled.
+A later Arrangement beats-16-32 pass completed through the same listener
+instance and connection, publishing 75 envelope samples and 16 attack estimates.
+These are different capture conditions, not a controlled proof that Session
+launch quantization caused the failure. The actual Session join blocker remains
+unproven.
+
+Retained captures now acquire the bounded 32-row post-clock proof when the
+source counter reaches the capture endpoint, independently of descriptor
+assembly latency. Confirmation still waits for exact descriptor coverage and
+the existing engine host-binding, alignment and freshness checks. The one-source-
+second evidence window, current-host freshness, descriptor age/capacity bounds,
+deadlines and non-retained/legacy behavior are unchanged. This corrects a
+reproduced acquisition-order defect: timely post clocks were previously discarded
+while the final descriptor was delayed. Independent 10 ms clock regressions cover
+700/900 ms tail delays at both 120 and 128 BPM, including strict policy, without
+weakening rejection of missing, invalid, stale or unconfirmed evidence.
+
+Failures can carry a first-owner, immutable
+`native-capture-join-rejection/v1` diagnostic. It distinguishes controller versus
+assembler envelope overflow and post-binding rejection, recording bounded pending
+counts/endpoints, accepted clock and age, spectral descriptor/interval, fixed
+retention state snapshots, and post-clock/coverage operands before cleanup.
+The existing SDK and typed ingress validate fixed array lengths, finite counters,
+closed enums and generation ownership. Trace/correlation/causation attribution
+continues through the terminal result and redacted history. The diagnostic is
+non-authoritative failure evidence: no raw audio, new storage path, completed
+context, automatic retry or transport cleanup is introduced.
+
+The eight-entry waiting-envelope bounds remain unchanged. The closeout candidate
+contains an evidence-based post-clock correction plus diagnostics, not a claimed
+fix for the user's still-unexplained MIDI overflow. A matched rebuilt App and
+listener are required to carry the new optional diagnostic scope. Human-assisted
+audio/MIDI repeated captures and an Arrangement sanity pass remain separate
+acceptance gates. Earlier fixture checkpoints below are historical evidence,
+not acceptance of the user's current Set.
+
+The matched diagnostic candidate was installed on 2026-10-25 after the user
+closed Live. The installed App `app.asar` SHA256 is
+`a3150e2f1551cdf44bec522d942aa1cbd6575a165fcd6389ec7aeee47755a711`;
+installation trace `d0d4b078-fd71-4a8e-8e23-612d422100a5` retains delivery
+attribution. Thirty unchanged bundle assets match the package, and the canonical
+detector validates both installer-normalized assets and reports all three
+integrations current. Preferences, credentials, session/project registries and
+the existing Remote Script were preserved; no rollback copy remains. This is
+installation evidence only: the owned repeat fixture failed at bridge startup
+before capture, and current-candidate human listening acceptance is still pending.
+Saved Sets must load a fresh canonical listener instance before that pass.
+
+## Rejection evidence closeout
+
+Two subsequent installed-candidate Operator passes failed during arming with
+`stale_native_preflight`, before launch or measurement. Complete typed traces
+preserved preparation and the failed arm reply but no native predicate operands.
+This is an application-owned rejection and an observability gap, not evidence
+of an Ableton failure or clip identity mismatch. Discovery's `ready: false`
+means independent per-pass native validation is required; it is not the failed
+predicate. A retained preflight span above one source-second can reproduce this
+code with several different missing or misaligned prerequisites. The physical
+host prerequisite that failed is not yet established.
+
+The shared `listening-failure/v1` contract retains the original code, owning
+component, phase, stable check ID, bounded actual/expected scalar facts, units
+and diagnostic trace/pass/job/request reference. Missing, invalid, nonfinite
+and observed-zero values are distinct. Coverage is explicit: complete evidence
+must have observed operands and no reported gaps; partial or unavailable
+evidence must name its limitations. Truncation downgrades complete coverage.
+The summary is non-authoritative and cannot make a rejected capture admissible.
+
+Native owners use the strict `native-check-rejection/v1` carrier, or optional
+`checkEvidence` on an existing diagnostic scope, for their stable predicate,
+launch disposition, elapsed/deadline timing, operand tuples and clock domains.
+The common summary preserves strict `less-than` separately from `at-most`
+and bit-mask `contains-all-bits` separately from equality. Flags, epochs,
+fractions and BPM retain their source units; thresholds are not rounded,
+relaxed or clamped for presentation. Native clock
+domains remain visible in fact names. The full validated native snapshot,
+metadata ages, input/clock counts, bounded accepted/rejected inputs and
+lifecycle remain in History. Source missing/suppressed/truncated evidence
+stays explicitly partial even when the original rejection is fully known.
+
+The optional native `checkEvidence.preflight` snapshot names
+`actualSpanSamples` and `maximumSpanSamples`, retaining the exact first/last
+11-cell decision clocks, prerequisite readiness/presence, receipt ages and
+exclusive spectrum/clock alignment bound. The source-span limit is one
+native-source second, not the separate wall-time acquisition deadline.
+The authenticated-ingress/reopened-journal regression compares the entire
+validated source diagnostic unchanged, including these decision rows.
+
+The source guard/phase/evidence/test inventory is maintained in
+`max-patches/audio-listener/native-rejection-inventory.mjs`. Source qualification
+passes the 1,010-test Max suite, and the integrated application passes 3,500
+TypeScript and 284 Python tests. The frozen-source authenticated-ingress,
+coordinator/public-result and reopened-journal gate also passes, as does the
+isolated Electron synthetic failure workflow. These are software qualification,
+not actual-host listening acceptance.
+
+The observability candidate is now installed. App ASAR SHA256:
+`071eb249c4d4e61fb9c454d310b41c9327982f5ec1f3b3117b72b976601e7349`;
+installation trace: `71950290-96e6-4f0f-b8e4-62aca4c46b8c`.
+Canonical detection reports the listener, MIDI device and existing Remote
+Script current; the Remote Script update was explicitly skipped. Twenty-five
+listener assets match raw packaged bytes, and the installer-normalized manifest
+is validated canonically. No rollback copy remains. Installed production
+authentication passes.
+
+The owned deterministic repeat run failed before capture at bridge startup.
+The separate isolated desktop run connected to Live 11.3.43, completed one
+read-only agent turn and repeated Refresh without the old error. Its Live
+fixture exposed audio-disabled and missing-device conditions, so it does not
+qualify listening. All owned App/Live processes were closed. The user's fresh
+canonical-listener diagnostic pass and MIDI/audio/Arrangement acceptance remain
+pending; neither installation nor these blocked fixtures prove a Session fix.
+
+Capture and runtime stage errors preserve the first rejection through primary
+cleanup aggregation rather than substituting a later cancellation error.
+Evidence is checked against the owning trace/pass/job. Application ingress
+rejections use an internal typed result side-channel, not a producer-controlled
+wire field, so their evidence survives fatal connection release while pending
+controls reject. This does not bypass ordinary result ownership, sequence,
+proof or completion validation. Independently rejected native proofs retain
+bounded validated inputs and the frozen expected configuration in History;
+malformed messages retain issue codes/paths, never the raw rejected body.
+
+Ingress records `output.listener.rejection.observed` and an explicit
+`output.listener.diagnostics.coverage-gap` when native source evidence is
+missing. Its rate-limited diagnostic callback reports bounded suppression
+counts separately from journal rejection events; callback suppression does not
+mean those rejection events were suppressed. Actual persistence and recorder
+degradation remain the existing journal's responsibility. No new datastore,
+renderer SQL/filesystem access, audio payload, upload path or capture dependency
+on journal writes is introduced.
+
+The current work adds source instrumentation and carries these summaries
+through the public job, agent result and Desktop's typed History navigation.
+An SDK/authenticated-ingress regression exercises native arm-counter
+replay after a completed pass and retains the actual counter versus the
+previous accepted counter plus one before socket closure. A separate regression
+closes/reopens the real resolver-owned journal and verifies that a legacy
+string-only preflight rejection is explicitly unavailable rather than invented
+native evidence. Neither regression establishes the user's host cause.
+
+A controlled missing-spectrum schedule now drives the shipping native
+controller's actual preflight rejection through the shipping SDK, authenticated
+TCP ingress, capture, coordinator and public `get-pass` tool result. After the
+real resolver-owned journal is closed/reopened, typed History retains the
+source-owned `preflight-source-span` check, 48,480 observed versus at most 48,000
+native samples, 1,010 ms elapsed versus a 2,000 ms deadline, missing spectrum
+and launch not attempted. The test verifies no playback/publication attempt and
+one reservation release. These are simulated independent inputs to real source
+code, not an actual-host capture or identification of the user's missing
+prerequisite. Native runtime publication/cleanup qualification, matched delivery
+and human acceptance remain separate gates. Do not request a blind retry or
+label this observability work a listening fix.
+The isolated real-Electron synthetic failure/lifecycle regression has passed
+through preload events and read-only IPC without starting Live. It validates
+presentation wiring, not a native source failure or a real listening pass.
+
+## Audio-safe capture work in progress
+
+Native clock and analysis collection now use request-gated low-priority
+`qmetro 10` instead of `metro 10`. The initial scheduler-only candidate retained
+all validators. The user reported clean ordinary playback with the updated
+device both bypassed and enabled; a subsequent capture failed during arming
+with `changed_native_clock_hold`. Its trace does not retain the differing clock
+fields, so a physical cause has not been established.
+
+Following explicit user approval, ordinary `descriptive` listening now treats
+host/DSP timing disagreement as measured information, not an admission or
+completion budget. `maxClockDisagreementSamples` remains in the wire contract
+as an advisory target for this mode; neither the target nor the measurements
+are increased, clamped or relabeled as verified accuracy. Observations retain
+the actual clock/beat discrepancies and continue to declare approximate,
+descriptive-only timing with no absolute error estimate or verified bound.
+Explicit `strict` mode retains its zero-disagreement requirement. This
+supersedes historical descriptive-budget rejection descriptions below.
+
+Settings labels the retained preference as a timing target, and Context
+details distinguish the descriptive advisory target from a strict acceptance
+limit. Actual disagreements remain visible even when larger than the target;
+changing the target never claims or enforces an absolute error bound.
+
+Capture duration and complete descriptor coverage still use DSP counters.
+Wrong source/owner, changed transport or tempo, malformed DSP data, missing
+audio measurements and incomplete coverage remain failures. A duplicate DSP
+snapshot whose message-rate fields changed is discarded, not promoted to
+timing evidence, when transport state is unchanged and its beat has not
+regressed. Mixed or pending clock reads can reacquire until the existing
+preflight, arm, launch or capture deadline; they do not refresh clock freshness.
+Progress is retained for at most 64 rejected reads per pass to bound diagnostic
+volume. Strict/legacy rejection quotas and spectrum/envelope integrity checks
+remain unchanged.
+
+This is not a buffering architecture or a claim of frame-exact collection under
+load. Compare ordinary capture behavior on the actual host before deciding
+whether additional retention changes are necessary.
+Idle DSP muting, parent metadata cadence and signal-sink changes are deliberately
+excluded so this comparison isolates the scheduler substitution. Existing
+capture/disarm/watchdog lifecycle events remain authoritative. Generated-source
+changes do not mean the user's loaded device has changed or audible dropouts
+have been resolved; the selected bundle must be installed and loaded afresh.
+
+The integrated candidate combines advisory descriptive timing, explicit wire4
+mode negotiation and full-active-region Session capture under bridge protocol8.
+The shared producer SDK also accepts honest beyond-target descriptive results,
+including partial failure observations; strict results retain their exact
+acceptance rule. Both timing directions, eight-beat native duration, exact-end
+source sealing and cancellation/cleanup are covered at their owning boundaries.
+The canonical bundle was rebuilt, verified synthetically and installed after
+the user confirmed app closure. Installed wire4 mode metadata and both qmetro
+graphs were checked; Desktop was replaced, authenticated and launched. The user
+reported crackle-free ordinary playback. One fresh-device eight-beat capture
+subsequently completed; two further passes failed as recorded below. Saved Sets
+must load a fresh device instance before qualifying newly installed resources.
+
+### Descriptive spectral snapshot coverage
+
+Descriptive ABI2 capture requires the latest complete FFT window for each
+published envelope measurement, not every intermediate message-rate snapshot.
+Low-priority collection may skip an intermediate FFT snapshot that no published
+measurement needs. The existing assembler and independent proof verifier still
+require a complete, correctly aligned 2048-sample spectral window ending before
+each measurement and less than 2048 samples away. A missing required window,
+changed duplicate, backward/off-grid packet or invalid-frame counter change
+still fails; no stale substitute, interpolation or fabricated data is accepted.
+Strict and legacy capture retain their every-frame sequence requirement.
+
+The first integrated normal-profile attempt failed after 15 measurements:
+its FFT counter jumped by 4096 samples, skipping one intermediate snapshot.
+The requested range was eight beats at 128 BPM, not four, and no context was
+published. Replaying those coordinates reproduces the overly strict rejection;
+the corrected descriptive path completes independent coverage checks. The
+older recorded five-frame loss still fails because it omits required
+measurement coverage. These are synthetic regressions, not a successful retry
+of the failed physical pass. The user reported no ordinary-playback crackles.
+The corrected `a436fed` candidate was subsequently installed after user-confirmed
+app closure (trace `39ba658f-2a7e-4190-8dc6-7956aed6b7e9`). Installed controller
+bytes match the source and all integrations report current against the signed
+app. On that loaded device, clip-1 pass
+`ab097a2f-3181-4869-89b2-452a3ffb5131` completed with 38 measurements and context
+`02cc2d12-6b1d-4398-bbb4-b8884e189eb1`. Subsequent clip-2 pass
+`6a18c215-1787-46e1-84f7-69ad440c3320` and clip-1 pass
+`58fdfc04-1bcc-4926-8991-76b493d53b02` failed `native_fft_window_missing` after
+four and three measurements respectively, with no context. Native epochs
+1/2/3 and clean reset receipts do not establish an allocation leak. Exact
+rejecting FFT coordinates were not retained for those two failures.
+
+### Modular measurement delivery development
+
+The approved next step separates producer-specific measurement calculation from
+reusable, owned delivery. Current spectrum and stereo envelope producers need
+bounded retention before low-priority snapshots, not another JavaScript queue
+after the loss point. One logical output contract permits per-producer FIFO
+streams, independent rates and value layouts, and future asynchronous adapters.
+It does not require a multi-writer audio-thread queue or arbitrary JSON output.
+Actual FluCoMa analyzers and dependency installation remain deferred.
+
+The initial native prototype uses local Gen `Data` for descriptor records, not
+audio. Envelope and spectrum capacities are 16 and 32 records. Each reserves
+2560 bytes of double-precision record storage, plus small fixed histories.
+Selected records remain immutable until acknowledged; the consumer advances its
+read request before acknowledging the previous record. Ownership/sequence
+bookends identify stale or incoherent reads, and overflow latches an explicit
+failure rather than overwriting unread data. Capacity does not extend existing
+deadlines or establish tolerable physical scheduler delay.
+Version1 record bounds are coordinates in the shared continuously running
+native DSP sample counter; a new epoch does not reset that clock. A future
+asynchronous adapter must map its known buffer origin into this coordinate
+domain, never substitute message-arrival/completion time for source time.
+
+`retained-measurement-source.mjs` generates the reusable primitive.
+`retained-native-source.mjs` composes it with the existing envelope/spectrum
+calculations and emits separate prototype documents; it does **not** select
+those documents without matching versioned graph selection. Executable Gen-subset tests compare actual
+producer outputs, preserve counters beyond float32 precision, retain earlier
+FFT frames across delayed reads, and preserve full/fractional envelope windows.
+Those tests are not a Max compiler, native readback or performance certificate.
+The isolated native primitive gate passed on Live Suite 11.3.43
+(`2025-10-06_b466d4f56c`) / Max 8.5.8: actual Gen compilation, FIFO recovery
+after a reader pause, exact `16777217` counter retention, immutable unread
+records, overflow/control-fault latching and epoch reset. Both complete native
+producer compositions compiled with the 30-/20-value readback rows. This
+qualifies the storage/readback primitive, not integrated listening, accuracy or
+audio performance. Only runner-owned hosts were closed; user processes were
+not adopted or stopped.
+
+Production integration is in progress for wire4 only. Its graph and reader
+explicitly select private `retention-v1`; the existing native ABI2 and public
+observation formats remain unchanged. Each attempted arm reserves a fresh epoch
+before initializing either queue, including attempts that fail preflight.
+Actual coherent matching-epoch readbacks from **both** producers are required
+before configuration/arming. A JavaScript constructor or lifecycle event is not
+native readiness. Missing/mixed support fails explicitly, without fallback to
+latest-only measurements. Wire1/2/3 retain their historical graphs and behavior.
+The retained wire4 producer also advertises `audio-listener/retention-v1`.
+Its endpoint must negotiate that feature before registration/arming, so an
+older app cannot first discover unsupported measurement lifecycle phases after
+playback has been authorized. Legacy single-capability producers remain usable
+against an updated endpoint.
+
+The low-priority selected-slot adapter accepts one settled record per two polls,
+with independent envelope/spectrum scheduling. Latest envelope snapshots remain
+on the control path for reset/launch receipts; they cannot provide measurement
+coverage. Required spectral/envelope records still pass through the existing
+assembler and independent proofs. New `measurement` lifecycle phases distinguish
+collection progress/completion from completion of the overall listening pass.
+Bounded `native-measurement-delivery-rejection/v1` failures retain stream identity,
+expected/produced/acknowledged sequence, capacity, high-water mark and fault code.
+Queue overflow means descriptor-delivery backpressure, not a claim of audio
+clipping or a musical spectral change.
+Retained native preflight timeout/stale-span failures emit at most sixteen
+attributed progress reasons before cleanup, identifying missing/stale metadata,
+producer readiness and control-state prerequisites, plus actual clock-span
+coordinates. These bounded lifecycle reasons diagnose admission without
+changing its deadlines, guards, failure result or capture authority.
+The modular candidate was installed for explicitly approved manual evaluation
+under trace `4b4ba604-7464-43e5-8252-faa47f0aa869`, preserving the default
+profile's preferences, session registries and credentials. Installed payload
+inventory, signature and production authentication matched the tested package.
+This is installation evidence, not physical qualification. On that same loaded
+instance, clip-2 pass `77d6bc40-f93d-4371-bbb9-f5a46bd5e71f` failed
+`host_sample_discontinuity`; subsequent clip-1 pass
+`83606312-3497-447d-a1af-5d5f50298a5b` failed
+`stale_native_preflight_native_stop_ack_timeout_unconfirmed`. Neither published a
+context. The combined latter error does not prove that a prior epoch leaked.
+
+A deterministic controller reproduction at both supported sample rates showed
+that valid retained descriptors could fail the old current-host-versus-record
+comparison after delivery lagged the live clock. Retained descriptors now use
+the independently bracketed native counter projected through the fixed launch
+host offset, with a causal, declared-envelope-capacity-times-hop delivery bound.
+They keep their original source coordinates; arrival time never becomes a
+measurement timestamp. Future records, excess backlog and missing clock evidence
+fail explicitly. The rejection lifecycle retains bounded clock operands and
+caller attribution. Independent host timing, strict policy, freshness, complete
+coverage, postchecks and existing deadlines still apply; legacy latest-only
+ingestion is unchanged. This source correction is not a claim that either manual
+failure, the failed-pass reset path or repeated real-host capture is qualified.
+
+Failed-pass stop cleanup now claims its stopping state before terminal
+callbacks and fences every remaining effect to its generation and reader
+queue. Reentrant stop/terminal callbacks cannot clear or send errors for a
+replacement generation; late configure/arm calls and remaining setters cannot
+reactivate a stopping owner. The stop receipt still requires executed reset
+controls followed by an epoch-zero, inactive ABI2 envelope.
+Gen clears its configuration seal on epoch-zero reset. If the pre-stop seal
+was never read, an independently read matching native epoch, all five unchanged
+configuration parameters and zero seal can establish that reset instead;
+wrong epochs/settings and an arm that never executed remain unconfirmed.
+The shipping Gen-expression model covers failed-generation cleanup followed by
+fresh-generation delivery at both sample rates, without retry or transport
+mutation. Pre-arm stopping without configuration is separately covered and
+was not a reproduced defect in the original implementation. These deterministic
+fixes do not establish the exact cause of the manual stale-preflight failure.
+
+The first owned-host rerun with these fixes completed a four-beat capture:
+48 kHz, 96,000 stereo frames, twenty envelope/spectral windows, accepted native
+and source proofs, and one durable context. Its reviewed fixture baseline then
+failed the old synchronous `tracks.mutate stop-clips` check. Independent failure
+reads showed both source clips stopped, slot index `-2` and no queued launch,
+confirming that Live settled the command after that immediate check. The
+Remote Script now dispatches once and verifies on the next Live tick, preserving
+identity guards and explicit unconfirmed failure. No capture retry, baseline
+permission expansion or production transport cleanup was added.
+A subsequent fresh owned-host run instead failed spectrum delivery with
+epoch1/expected38/produced37/acknowledged36/capacity32/high-water1/fault3 before
+source launch. At that checkpoint the exact reader cause and row were still
+unavailable, repeated qualification remained open, and the source correction
+was not installed in the normal app/listener. The Remote Script alone had been
+installed through the
+canonical integration CLI with its authentication credential preserved.
+
+The existing `native-measurement-delivery-rejection/v1` diagnostic now optionally
+preserves a fixed `readerReason` and up to three oldest-to-current descriptor
+readbacks. Each retains its actual length and at most thirty finite numbers or
+fixed invalid markers; arbitrary strings, objects and audio are excluded.
+Both optional fields occur together and survive the typed runtime, SDK and
+history boundaries. A numeric-only private packet arrives before the unchanged
+failure packets; the controller validates its exact encoding and latches only
+the first matching generation, epoch and family. Evidence cannot advance
+preflight, drain capture, alter reader guards or replace native stop proof.
+Wire4, ABI2, source-counter invariants and legacy diagnostic shapes are unchanged.
+Deterministic delayed-ACK replay reproduces the coarse counters with
+`invalid_sequence_order`, but is not proof of the actual host cause.
+
+A fresh instrumented owned-host run on Live 11.3.43 identified the actual
+rejection as `torn_readback`, not overflow or the speculative old-page replay.
+Pass `cb766fe4-87af-465f-a592-a24b6222e45c` failed before source launch.
+Its spectrum readback began with requested/slot sequence 21 but ended with
+slot/request sequence 22; the sampled row combined two producer updates.
+The preceding two rows were identical sequence-21 pages, with capacity 32 and
+high-water mark 1. Channel-by-channel signal sampling therefore does not
+guarantee a coherent descriptor row even though the retained slot is immutable.
+The reader now discards unstable acquisition without consuming or
+acknowledging it, advancing accepted counters or refreshing readiness/source
+freshness. It breaks consecutive settlement while preserving immutable
+fingerprints, then requires two coherent matching descriptor reads. Bounded
+generation/epoch-owned progress is descriptor-free and throttled to 250 ms per
+family. Existing deadlines, malformed-bound checks and coherent corruption,
+owner and overflow failures remain enforced. Internal partial collection/stop
+cleanup uses `failed` while the public partial result and original reason stay
+unchanged; an incomplete observation never becomes a completed context.
+
+Post-correction host runs completed the first capture. A fixture baseline then
+exposed the same premature verification problem for stopped transport seek;
+independent reads proved beat zero and stopped transport after the error.
+Stopped seeks now dispatch once and verify next tick with Song identity and
+stopped-state checks, without a compensating rewrite. A fresh run verified the
+entire reviewed baseline, then failed second-generation preflight on
+`invalid_uninitialized_readback`: an all-zero inactive epoch-zero page retained
+the prior bounded request sequence 144 in both bookends. No second context
+was published. The reader now recognizes a coherent all-zero inactive page
+with matching bounded request bookends as non-authoritative waiting, including
+request 144. Dirty inactive data, malformed bounds, post-ownership reset and
+active corruption remain rejected; persistent inactivity still times out.
+
+The next host reached second-pass publication and exposed a separate immutable
+track-subject collision: IDs covered only part of the stored binding. Track
+and Arrangement subject IDs now include the complete sanitized binding snapshot,
+including routing uncertainty, playback evidence and semantic name. Changed
+evidence creates a new subject instead of overwriting history; identical
+snapshots remain reusable. The repository's overwrite prohibition is unchanged.
+The verifier also canonicalizes clip inventory order by exact target before
+comparing all identities, intervals and settings: Live lists the playing
+Session clip first, so launching scene 1 legitimately reorders that inventory.
+Actual clip/setting mutations still fail the same binding postcondition.
+
+The corrected candidate passed clip-1 -> clip-2 -> clip-1 on the same loaded
+instance twice on fresh owned Live Suite 11.3.43 hosts, first as scenario run
+`56f38478-21f0-4645-8779-42a7ec524f7a`, then as owning-group run
+`88ebffa7-2af3-45f2-a7d1-166182fe9c45`. Each produced three distinct completed
+contexts at native epochs 1, 2 and 3; each four-beat capture contained 96,000
+stereo frames and twenty envelope/spectral windows at 48 kHz. Independent native
+and source postconditions, both reviewed fixture-only resets and preservation
+of prior contexts passed. All owned hosts and disposable fixtures closed.
+The adjacent wire4 Session scenario also passed. The broader dual-mode group
+stopped at Arrangement fixture admission because the Operator's dependency
+inventory is incomplete; its guard was not weakened.
+These are bounded descriptive Session results, not sample-accurate source
+identity, exclusive attribution, a 44.1 kHz host result or a general native
+qualification certificate.
+
+The corrected package also completed one visible, ordinary-approval Desktop
+workflow through `send_user_message`. Message
+`2b6f91e5-07cf-461d-97f1-1b4505c72bbe` appeared once, the exact listening
+approval was accepted once, and the turn returned to Ready with pass
+`747d12f4-eafe-4cc4-a0e3-8f9170e3305c` and durable context
+`5a49f69b-a8de-4ea9-a5f2-f1d54ac6ffdb`. Typed history independently recorded
+completed listening/publication; Live showed the requested clip and transport
+still running. No capture retry or auto-approval was used. Both owned apps
+closed and the isolated profile/credentials were removed after typed evidence
+extraction; the user's Set and unowned Max process were untouched.
+
+The normal signed app and matching canonical listener were then updated under
+installation trace `182d19a2-9847-4b84-9362-dc4f9723e1ee`. Exact installed
+app.asar and reader/IO/controller/engine bytes match the tested package and
+sources. Production authentication passed; preferences, sessions, project
+registry, credentials and the already-corrected Remote Script stayed unchanged.
+No rollback copies were retained. Apps were left closed. A fresh listener
+insertion is required in the user's Set to avoid testing an already-loaded old
+Max instance; that user-Set check remains separate from the owned-host results.
+
+The shared classic-JS/Node reader and protocol declarations use the same bounded
+record format. It settles an immutable selected slot before consumption and
+returns ordered request/acknowledgement actions; the caller retains scheduling
+and deadline ownership. Classic-Max IO and included reader sources must parse
+as ES5, not merely execute in a modern Node VM. Their formatting overrides
+exclude post-ES5 function-call trailing commas, and strict parser regressions
+cover both scripts before the existing include/handler interoperability checks.
+The helper also supports classic Max's CommonJS1 `exports` object separately
+from Node's `module.exports`; a successful `require` is not proof that the
+returned object exposes the reader API. Regression coverage exercises all
+three loading paths: classic require, classic include, and Node require.
+This first selected-slot prototype targets the current
+producer rates, not unlimited throughput. A future higher-rate analyzer needs
+an admitted publication cadence or a qualified batch adapter behind the same
+contract, not an assumption that increasing queue capacity fixes sustained
+under-consumption.
+
+Missing required-window failures now retain `native-coverage-rejection/v1`
+coordinates before assembler cleanup: expected envelope, required/available/
+latest spectral intervals, native owner and completed-measurement count. The
+existing runtime, authenticated SDK, ingress and typed terminal history accept
+the bounded diagnostic; the failure reason and no-context behavior are unchanged.
+Historical failures without this evidence remain without it.
+
+The extension keeps current observation/context schemas, source attribution,
+independent coverage proofs, strict/legacy behavior and leave-running cleanup.
+Future analyzers will declare their units, dimensions, timing and limits and
+provide an explicit typed result mapping; they will not silently add unknown
+fields to existing historical contexts. Retention is transient memory only;
+existing context/journal ownership and the shared storage resolver remain
+unchanged. Overflow or missing required data still means a failed pass, not a
+saved partial result or an automatic retry.
+
+## Full-active-region Session listening
+
+`play-session-and-listen` now defaults to one active loop for looping MIDI or
+warped-audio clips, not the complete underlying file. For nonlooping clips it
+uses the active start/end region. `durationBeats` is optional; an explicit
+positive duration may be shorter than or equal to that region, including four
+beats on an exactly four-beat clip. Admission still requires zero start/loop
+offsets, stopped transport at beat zero, Global None with clip Global, Trigger
+mode, legato off, 4/4, known recording-off and one exact same-track listener.
+Quantized launches and nonzero offsets remain deferred.
+
+There is no four-beat ceiling. Frozen metadata resolves the requested duration
+before arming; native geometry must fit thirty seconds and 300 windows.
+Oversized full loops fail without launching or silently truncating. Native
+endpoints retain nearest-sample rounding, including fractional final windows;
+only the unavoidable half-sample tail may cross the nominal active boundary.
+
+An independently observed original source epoch remains immutable. Early wrap,
+stop, retrigger, source replacement and settings edits invalidate capture.
+A normal wrap or supported natural end at/after the requested interval can
+produce a message-rate `covered` source receipt, but that is not completion:
+publication also requires the exact completed native DSP interval/proof and a
+fresh fingerprint/identity seal. Transport stop is never waived. Monitoring
+and native cleanup remain generation-owned, traced, bounded, cancellable and
+leave-running; no seek, transport ownership or timing-policy change is added.
+
+These expanded boundaries have deterministic regression coverage, not fresh
+physical qualification. Fresh runner-owned Real-Live smoke and visible UX reruns
+remain pending; no user process is adopted or closed by automation. Installation
+and synthetic acceptance do not qualify physical capture. The historical MVP evidence below
+only qualifies its original four-beat-before-eight-beat-end cases.
+The new `covered` output status requires bridge protocol 8. A protocol-7 Remote
+Script must fail the handshake explicitly, not silently downgrade this behavior;
+app and Remote Script must be rebuilt together before a fresh owned-host run.
+
+## Historical Session MVP (#63)
 
 The MVP sends MIDI rendered through its instrument chain and warped audio
 through the same native audio listener. Both kinds now pass their isolated
@@ -71,6 +1320,46 @@ queued/dispatched/completed/failed/cancelled events, and trace/correlation/
 causation propagation. It does not persist an audio observation, add a context
 kind, change storage ownership, fire clips, edit launch settings, stop transport
 or broaden existing Arrangement support.
+
+### Canonical Development dual-mode negotiation
+
+The canonical **Machine-Listening-Development.amxd** package can now select
+wire **4** (`build-native-authored --native-version 4`). It advertises exactly
+`audio-listener/dual-mode-v1`, native status scope
+`mode-negotiated-transport/v1`, and ordered `supportedModes:
+["arrangement", "session"]`. ABI **2**, algorithm **2.0.0**, the measurement
+graph, bounded resources and raw `audio-observation/v2` descriptors are shared.
+There is one Development filename and one recorder/runtime, not separate
+Arrangement and Session device variants. The authored source template remains
+immutable; packaging selects `audio_listener_native_v4_max.js` and guard 4.
+Manifest admission requires `nativeVersion: 4`, `nativeAbiVersion: 2`,
+`modeNegotiation: "explicit-per-pass"` and the exact supported-mode list.
+
+Every wire4 control, reply and result carries an explicit `mode`. Prepare
+freezes that mode and the immutable mode-specific configuration for the owned
+connection/job/pass/trace. Arm, cancellation, progress and terminal evidence
+must match it; absent/unknown modes, unsupported versions and mismatched or mixed
+proofs are denied, never downgraded. Arrangement still requires its unwrapped
+`arrangement-descriptive/v2` arm/launch/completion chain, guarded positioning
+and independent Arrangement source checks. Session still requires exact
+`session-transport-coupled/v1` wrappers with frozen expected source context,
+plus the independent source/origin join before publication. A wrapper is not
+clip-identity evidence, and its inner ABI2 transport scope is not an Arrangement
+pass. Wire1/2/3 keep their original contracts and selection behavior.
+
+Mode negotiation uses the existing traced prepare/arm/capture/cancel lifecycle,
+timing and redacted History paths; it adds no storage, buffering or idle-DSP
+architecture. Reconnect invalidates the old generation and cannot silently
+reuse its selected mode or source. Only fresh prepare can choose another mode.
+The runner-owned `native-listening-dual` group exercises Arrangement and Session
+against the same hash-pinned wire4 artifact through
+`--native-v4-fixture-input`; terminal verification independently checks exact
+wire version, explicit mode, coverage and the original mode-specific proof.
+Deterministic SDK/native/ingress/application/package regressions do not qualify
+physical Live behavior. No new Live/UI run or installation was performed while
+the user's Live and Desktop processes were active; physical qualification and
+the combined descriptive-jitter regression after the separate timing change
+remain integration gates.
 
 The implementation now composes the existing owned coordinator with guarded
 Session source leases and explicitly negotiated listener wire version 3.
@@ -279,6 +1568,10 @@ association, not only source settings. Repeated captures with a changed duration
 or upstream processing therefore publish distinct snapshots without overwriting
 the earlier observation; unchanged snapshots remain reusable. Real-store runtime
 regressions reproduce both immutable-binding conflicts before correction.
+Track and Arrangement subject IDs likewise include their entire sanitized
+binding snapshot. Routing uncertainty, playback evidence or semantic-name
+changes cannot reuse an ID with different immutable content; unchanged
+snapshots remain reusable without altering older subject or observation rows.
 
 The existing deterministic runner admits reviewed `native-session-midi` and
 `native-session-warped-audio` cases only with an explicitly pinned wire-3 fixture

@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { spawnSync } from "node:child_process";
 import {
   copyFile,
   mkdir,
@@ -8,13 +8,11 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { homedir } from "node:os";
-import { basename, dirname, join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import {
   producerCompanionSource,
   SHARED_PRODUCER_COMPANION,
-  resolveProducerDiscoveryStorage,
-  writeProducerDiscoveryConfiguration,
 } from "./m4l-producer-companions.mjs";
 import {
   decodeAmxd,
@@ -24,11 +22,12 @@ import {
 } from "./max-device-publisher.mjs";
 export { decodeAmxd, encodeAmxd } from "./max-device-publisher.mjs";
 
-export const DEVICE_FILE_NAME = "midi-capture.amxd";
+export const DEVICE_FILE_NAME = "Midi-Capture.amxd";
 export const DEVICE_DIRECTORY_PARTS = [
   "Presets",
   "MIDI Effects",
   "Max MIDI Effect",
+  "Midi-Capture",
 ];
 export const PATH_PLACEHOLDER = "__ABLETON_AGENT_MIDI_CAPTURE_DIR__";
 export const COMPANION_FILES = [
@@ -43,7 +42,6 @@ const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(scriptDirectory, "..");
 const canonicalDirectory = join(repositoryRoot, "max-patches", "midi-capture");
 const canonicalDevice = join(canonicalDirectory, "Midi-Capture.amxd");
-const metadataFileName = ".ableton-agent-midi-capture.json";
 
 export function normalizeValidatedDevice(document, sourceDirectory) {
   return renderPortableDevice(document, sourceDirectory, {
@@ -55,10 +53,6 @@ export function renderInstalledDevice(document, destinationDirectory) {
   return renderSharedInstalledDevice(document, destinationDirectory, {
     pathPlaceholder: PATH_PLACEHOLDER,
   });
-}
-
-function sha256(value) {
-  return createHash("sha256").update(value).digest("hex");
 }
 
 async function exists(path) {
@@ -204,47 +198,34 @@ async function checkCanonical() {
 
 async function install(options) {
   await checkCanonical();
-  const storage = await resolveProducerDiscoveryStorage(
-    options.profile ? { profile: options.profile } : {},
+  const cli = join(
+    repositoryRoot,
+    "apps/desktop/dist/main/ableton-integrations-cli.js",
   );
-  const userLibrary = await resolveUserLibrary(options["user-library"]);
-  const destinationDirectory = join(userLibrary, ...DEVICE_DIRECTORY_PARTS);
-  const destinationDevice = join(destinationDirectory, DEVICE_FILE_NAME);
-  const raw = await readFile(canonicalDevice);
-  const container = decodeAmxd(raw);
-  const installed = renderInstalledDevice(
-    container.document,
-    destinationDirectory,
-  );
-  const encoded = encodeAmxd(container, installed);
-  if (!options.dryRun) {
-    await mkdir(destinationDirectory, { recursive: true });
-    for (const fileName of COMPANION_FILES) {
-      await copyFile(
-        producerCompanionSource(fileName, canonicalDirectory),
-        join(destinationDirectory, fileName),
-      );
-    }
-    await atomicWrite(destinationDevice, encoded);
-    await writeProducerDiscoveryConfiguration(destinationDirectory, storage);
-    await atomicWrite(
-      join(destinationDirectory, metadataFileName),
-      `${JSON.stringify(
-        {
-          formatVersion: 1,
-          installedAt: new Date().toISOString(),
-          deviceFile: basename(destinationDevice),
-          canonicalSha256: sha256(raw),
-          installedSha256: sha256(encoded),
-        },
-        null,
-        2,
-      )}\n`,
+  if (!(await exists(cli)))
+    throw new Error(
+      "Build the integration installer and payload first: pnpm build && node scripts/build-ableton-integrations.mjs",
     );
-  }
-  console.log(
-    `${options.dryRun ? "Would install" : "Installed"} MIDI Capture at ${destinationDevice}`,
+  const result = spawnSync(
+    process.execPath,
+    [
+      cli,
+      "install",
+      "--components",
+      "midi-capture",
+      options.dryRun ? "--dry-run" : "--confirm",
+      ...(options["user-library"] === undefined
+        ? []
+        : ["--user-library", options["user-library"]]),
+      ...(options.profile === undefined ? [] : ["--profile", options.profile]),
+    ],
+    { cwd: repositoryRoot, stdio: "inherit" },
   );
+  if (result.error) throw result.error;
+  if (result.status !== 0)
+    throw new Error(
+      `Shared MIDI integration installation failed with exit code ${result.status}`,
+    );
 }
 
 export async function main(argv = process.argv.slice(2)) {

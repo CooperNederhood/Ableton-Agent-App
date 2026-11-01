@@ -18,13 +18,18 @@ import {
   type TelemetryEventEnvelope,
 } from "@ableton-agent/observability";
 
-import { preferencesSchema, sessionSchema } from "../contracts.js";
+import {
+  liveSetSnapshotSchema,
+  preferencesSchema,
+  sessionSchema,
+} from "../contracts.js";
 import { resolveLiveAgentStorage } from "@ableton-agent/storage";
 import * as runtimeModule from "@ableton-agent/runtime";
 import { ApprovalCoordinator, ApprovalPolicyController } from "./approvals.js";
 import { bridgeTokenKey } from "./bridge-credentials.js";
 import {
   createDesktopComposition as composeDesktop,
+  createSnapshotHistoryRepository,
   DesktopJournalHost,
   resolveDesktopSignalOptions,
 } from "./composition.js";
@@ -79,6 +84,146 @@ async function cleanupFixtures() {
 afterEach(cleanupFixtures);
 
 describe("desktop composition", () => {
+  it.each([undefined, false, true])(
+    "uses one metric admission setting for signal ingress and listening: %s",
+    async (independentMetricListeners) => {
+      const location = await paths();
+      const storage = resolveLiveAgentStorage({
+        environment: {
+          LIVE_AGENT_HOME: join(location.directory, "owned-storage"),
+          LIVE_AGENT_PROFILE: "automation",
+        },
+      });
+      const option =
+        independentMetricListeners === undefined
+          ? {}
+          : { independentMetricListeners };
+      const factory = vi.spyOn(runtimeModule, "createListeningRuntimeHost");
+      try {
+        await createDesktopComposition({
+          ...location,
+          storage,
+          environment: {},
+          ...option,
+        });
+        expect(factory.mock.calls[0]?.[1].independentMetricListeners).toBe(
+          independentMetricListeners === true,
+        );
+        expect(
+          resolveDesktopSignalOptions({ storage, ...option }, 9001)
+            .independentMetricListeners,
+        ).toBe(independentMetricListeners);
+      } finally {
+        factory.mockRestore();
+      }
+    },
+  );
+  it.each([
+    { project: undefined, session: undefined },
+    { project: undefined, session: "app-session" },
+    { project: "live-project", session: undefined },
+    { project: "live-project", session: "app-session" },
+  ])(
+    "persists checkpoint history with project=$project and session=$session",
+    async ({ project, session }) => {
+      const location = await paths();
+      const storage = resolveLiveAgentStorage({
+        environment: {
+          LIVE_AGENT_HOME: join(location.directory, "owned-storage"),
+        },
+        profile: "automation",
+      });
+      const host = await DesktopJournalHost.create({
+        path: storage.eventJournalPath,
+        retention: { maxAgeDays: 30, maxBytes: 1_000_000 },
+        enabled: true,
+      });
+      try {
+        const snapshot = liveSetSnapshotSchema.parse({
+          liveSetId: "live-set",
+          liveSetName: "Authorization: Bearer checkpoint-credential",
+          ...(project === undefined ? {} : { liveProjectId: project }),
+          tempo: 128,
+          timeSignature: "4/4",
+          tracks: [],
+        });
+        await createSnapshotHistoryRepository(host).save({
+          snapshot,
+          capturedAt: new Date().toISOString(),
+          trigger: "manual",
+          ...(session === undefined ? {} : { productionSessionId: session }),
+          activeAgents: [{ activeAgentId: "active-agent" }],
+        });
+        const journal = host.journal;
+        if (journal === undefined) throw new Error("Fixture journal is closed");
+        const history = await journal.readSetHistory({ limit: 10 });
+        expect(history.items.map(({ kind }) => kind).sort()).toEqual([
+          "set_save",
+          "set_snapshot",
+          "set_trajectory",
+        ]);
+        for (const record of history.items) {
+          expect(record.liveProjectId).toBe(project);
+          expect(record.appSessionId).toBe(session);
+          if (project === undefined)
+            expect(record).not.toHaveProperty("liveProjectId");
+          if (session === undefined)
+            expect(record).not.toHaveProperty("appSessionId");
+        }
+        expect(JSON.stringify(history)).not.toContain("checkpoint-credential");
+        expect(JSON.stringify(history)).toContain("[REDACTED]");
+      } finally {
+        await host.shutdown();
+      }
+    },
+  );
+
+  it("does not hide invalid checkpoint identities or journal write failures", async () => {
+    const location = await paths();
+    const storage = resolveLiveAgentStorage({
+      environment: {
+        LIVE_AGENT_HOME: join(location.directory, "owned-storage"),
+      },
+      profile: "automation",
+    });
+    const host = await DesktopJournalHost.create({
+      path: storage.eventJournalPath,
+      retention: { maxAgeDays: 30, maxBytes: 1_000_000 },
+      enabled: true,
+    });
+    const repository = createSnapshotHistoryRepository(host);
+    const record = {
+      snapshot: liveSetSnapshotSchema.parse({
+        liveSetId: "live-set",
+        liveSetName: "Checkpoint",
+        liveProjectId: "invalid project identity",
+        tempo: 128,
+        timeSignature: "4/4",
+        tracks: [],
+      }),
+      capturedAt: new Date().toISOString(),
+      trigger: "manual" as const,
+      productionSessionId: "app-session",
+      activeAgents: [],
+    };
+    try {
+      await expect(repository.save(record)).rejects.toThrow("liveProjectId");
+      const journal = host.journal;
+      if (journal === undefined) throw new Error("Fixture journal is closed");
+      expect((await journal.readSetHistory()).items).toEqual([]);
+      const failure = new Error("fixture journal persistence failure");
+      vi.spyOn(journal, "appendSetHistory").mockRejectedValueOnce(failure);
+      await expect(
+        repository.save({
+          ...record,
+          snapshot: { ...record.snapshot, liveProjectId: "valid-project" },
+        }),
+      ).rejects.toBe(failure);
+    } finally {
+      await host.shutdown();
+    }
+  });
+
   it("preserves fixture files and surfaces an owned shutdown failure", async () => {
     const location = await paths();
     const failure = new Error("fixture shutdown failed");

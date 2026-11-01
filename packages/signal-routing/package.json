@@ -7,6 +7,10 @@
     ".": {
       "types": "./src/index.ts",
       "default": "./dist/index.js"
+    },
+    "./testing": {
+      "types": "./src/listener-metric-test-support.ts",
+      "default": "./dist/listener-metric-test-support.js"
     }
   },
   "scripts": {

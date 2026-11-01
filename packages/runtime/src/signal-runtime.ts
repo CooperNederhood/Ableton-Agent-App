@@ -53,6 +53,7 @@ export type SignalRuntimeEvent =
     };
 
 export interface SignalRuntimeOptions {
+  readonly independentMetricListeners?: boolean;
   readonly secret?: string;
   readonly secretPath?: string;
   readonly descriptorPath?: string;
@@ -136,6 +137,12 @@ export class DefaultSignalRuntime
         ? undefined
         : new SignalIngressServer({
             secret: options.secret,
+            ...(options.independentMetricListeners === undefined
+              ? {}
+              : {
+                  independentMetricListeners:
+                    options.independentMetricListeners,
+                }),
             ...(options.secretPath === undefined
               ? {}
               : { secretPath: options.secretPath }),

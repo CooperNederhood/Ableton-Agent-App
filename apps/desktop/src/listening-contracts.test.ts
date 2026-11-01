@@ -1,8 +1,12 @@
 import { describe, expect, it } from "vitest";
+import { listeningFailureFixture } from "./renderer/test-fixtures/listening-failure.js";
+import { summarizeMetricListeningResult } from "@ableton-agent/protocol";
+import { createSyntheticPartialMetricListeningObservation } from "@ableton-agent/protocol/testing";
 import {
   desktopListeningJobSchema,
   desktopListeningListRequestSchema,
   desktopListeningPageSchema,
+  listeningTerminal,
 } from "./listening-contracts.js";
 const id = "00000000-0000-4000-8000-000000000001";
 const job = {
@@ -20,6 +24,62 @@ const job = {
   evidence: "lifecycle-only",
 };
 describe("Desktop listening wire contracts", () => {
+  it("accepts only published partial results with honest bounded metric coverage", () => {
+    const metricResults = [
+      summarizeMetricListeningResult(
+        createSyntheticPartialMetricListeningObservation(),
+      ),
+    ];
+    const partial = {
+      ...job,
+      stage: "partial",
+      contextIds: ["context"],
+      metricResults,
+    };
+    expect(desktopListeningJobSchema.parse(partial)).toEqual(partial);
+    expect(listeningTerminal("partial")).toBe(true);
+    for (const invalid of [
+      { ...partial, metricResults: undefined },
+      { ...partial, contextIds: [] },
+      { ...partial, error: "Cleanup uncertain" },
+      { ...partial, stage: "completed" },
+      {
+        ...partial,
+        metricResults: metricResults.map((result) => ({
+          ...result,
+          outcome: "complete",
+        })),
+      },
+    ])
+      expect(desktopListeningJobSchema.safeParse(invalid).success).toBe(false);
+  });
+  it("carries only bounded shared evidence correlated to the owning pass and trace", () => {
+    const failureEvidence = listeningFailureFixture(id, job.passId);
+    const failed = { ...job, stage: "failed", failureEvidence };
+    expect(desktopListeningJobSchema.parse(failed)).toEqual(failed);
+    for (const invalid of [
+      { ...failureEvidence, rawNativeJson: "{}" },
+      { ...failureEvidence, facts: Array(25).fill(failureEvidence.facts[0]) },
+      { ...failureEvidence, summary: "x".repeat(1025) },
+      {
+        ...failureEvidence,
+        reference: { ...failureEvidence.reference, passId: "foreign" },
+      },
+      {
+        ...failureEvidence,
+        reference: {
+          ...failureEvidence.reference,
+          traceId: "00000000-0000-4000-8000-000000000002",
+        },
+      },
+    ])
+      expect(
+        desktopListeningJobSchema.safeParse({
+          ...failed,
+          failureEvidence: invalid,
+        }).success,
+      ).toBe(false);
+  });
   it("bounds jobs and typed read scopes without raw bodies, arbitrary actors or SQL/paths", () => {
     expect(desktopListeningJobSchema.parse(job)).toEqual(job);
     for (const extra of [

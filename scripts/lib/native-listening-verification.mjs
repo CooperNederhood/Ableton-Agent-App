@@ -6,7 +6,14 @@ function requireValue(condition, message) {
 }
 
 export function inspectNativeStoppedPreflight(
-  { inspected, input, nativeVersion, session = false, limits },
+  {
+    inspected,
+    input,
+    nativeVersion,
+    session = false,
+    limits,
+    expectedTempoBpm = 120,
+  },
   sanitize,
 ) {
   const listeners = Array.isArray(inspected?.listeners)
@@ -18,7 +25,8 @@ export function inspectNativeStoppedPreflight(
   const checks = {
     transportStopped: transport?.playing === false,
     legacyBeatZero: nativeVersion >= 2 || transport?.currentBeat === 0,
-    tempo120: transport?.tempo === 120,
+    [expectedTempoBpm === 128 ? "tempo128" : "tempo120"]:
+      transport?.tempo === expectedTempoBpm,
     safeToStart: transport?.safeToStart === true,
     recordModeOff: recording?.recordMode === false,
     sessionRecordOff: recording?.sessionRecord === false,
@@ -130,7 +138,15 @@ function freeze(value) {
 
 /** Frozen deferred-source expectations, never physical identity or native admission evidence. */
 export function snapshotNativeSessionSource(
-  { source, target, sourceKind, geometry },
+  {
+    source,
+    target,
+    sourceKind,
+    geometry,
+    durationBeats = null,
+    sourceRegion,
+    expectedTempoBpm = 120,
+  },
   protocol,
 ) {
   const parsed =
@@ -142,6 +158,7 @@ export function snapshotNativeSessionSource(
     settings.loopEnd ?? 0,
     settings.endMarker ?? 0,
   );
+  const resolvedDurationBeats = durationBeats ?? settings.loopEnd;
   requireValue(
     isDeepStrictEqual(parsed.target, target) &&
       ["midi", "warped-audio"].includes(sourceKind) &&
@@ -158,8 +175,12 @@ export function snapshotNativeSessionSource(
           state.globalBeat === g.startBeat,
       ) &&
       g.startBeat >= 0 &&
-      Math.abs(g.endBeat - g.startBeat - 4) <= 1e-8 &&
-      g.tempoBpm === 120 &&
+      Number.isFinite(resolvedDurationBeats) &&
+      resolvedDurationBeats > 0 &&
+      Math.abs(g.endBeat - g.startBeat - resolvedDurationBeats) <= 1e-8 &&
+      g.totalSamples <= g.sampleRate * 30 &&
+      Math.ceil(g.totalSamples / g.hopSamples) <= 300 &&
+      g.tempoBpm === expectedTempoBpm &&
       settings.tempoBpm === g.tempoBpm &&
       settings.signatureNumerator === 4 &&
       settings.signatureDenominator === 4 &&
@@ -173,8 +194,12 @@ export function snapshotNativeSessionSource(
       (settings.globalQuantization !== 4 ||
         Math.abs(g.startBeat / 4 - Math.round(g.startBeat / 4)) <= 1e-10) &&
       settings.followActionEnabled !== true &&
-      span < firstIterationEndBeat &&
-      4 < firstIterationEndBeat,
+      (sourceRegion === undefined ||
+        Object.entries(sourceRegion).every(
+          ([key, value]) => settings[key] === value,
+        )) &&
+      span <= firstIterationEndBeat &&
+      resolvedDurationBeats <= firstIterationEndBeat,
     "Unsafe or mismatched immutable Session source/first-iteration geometry",
   );
   return freeze({
@@ -182,6 +207,7 @@ export function snapshotNativeSessionSource(
     sourceKind,
     source: parsed,
     geometry: g,
+    durationBeats: resolvedDurationBeats,
     firstIterationEndBeat,
     followActions:
       settings.followActionEnabled === false ? "disabled" : "unknown",
@@ -225,7 +251,7 @@ function verifySessionSourceJoin(input, observation, raw, expected, protocol) {
         result.ownerId === ownerId &&
         params.passId === pass.id &&
         result.passId === pass.id &&
-        result.durationBeats === 4 &&
+        result.durationBeats === frozen.durationBeats &&
         result.followActionState ===
           (frozen.followActions === "unknown" ? "unknown" : "known-disabled"),
       "Session source receipt changed ownership, duration or follow-action evidence",
@@ -237,7 +263,7 @@ function verifySessionSourceJoin(input, observation, raw, expected, protocol) {
           result.status === "prepared" &&
           params.expectedLiveSetId === owner.liveSetId &&
           params.expectedProjectRevision === frozen.source.projectRevision &&
-          params.durationBeats === 4 &&
+          params.durationBeats === frozen.durationBeats &&
           params.timingAnchor.globalBeat === expected.geometry.startBeat &&
           isDeepStrictEqual(params.target, frozen.target) &&
           isDeepStrictEqual(params.listener, target.binding),
@@ -256,26 +282,50 @@ function verifySessionSourceJoin(input, observation, raw, expected, protocol) {
       );
     else
       requireValue(
-        (launched ? ["accepted", "queued", "playing"] : ["prepared"]).includes(
-          result.status,
-        ),
-        "Session source continuity was invalidated",
+        (launched
+          ? ["accepted", "queued", "playing", "covered"]
+          : ["prepared"]
+        ).includes(result.status),
+        `Session source continuity was invalidated (${params.action}: ${result.status})`,
       );
     if (firstPlaying && params.action !== "release")
       requireValue(
-        result.status === "playing" &&
+        ["playing", "covered"].includes(result.status) &&
           isDeepStrictEqual(result.sourceEpoch, firstPlaying.sourceEpoch),
         "Session source epoch continuity was lost after the first observed playing witness",
       );
     if (result.sourceEpoch && params.action !== "release") {
       const epoch = result.sourceEpoch;
       const state = result.lastObservedSource;
+      const covered = result.status === "covered";
+      const loopEnd = frozen.source.settings.loopEnd;
+      const elapsed = state.globalBeat - epoch.startTimeBeats;
+      const phase = elapsed % loopEnd;
+      if (covered)
+        requireValue(
+          firstPlaying !== undefined &&
+            frozen.source.settings.looping === true &&
+            Number.isFinite(state.globalBeat) &&
+            Number.isFinite(state.playingPosition) &&
+            elapsed >= Math.max(frozen.durationBeats, loopEnd) &&
+            state.targetTriggered === false &&
+            state.firedSlotIndex === -1 &&
+            state.playingPosition >= 0 &&
+            state.playingPosition <= loopEnd &&
+            (Math.abs(state.playingPosition - phase) <= 0.25 ||
+              (phase <= 0.25 && state.playingPosition >= loopEnd - 0.25)),
+          "Session covered boundary lacks an independently witnessed completed loop",
+        );
       requireValue(
         launched &&
           epoch.clipReference === frozen.target.expectedClipReference &&
           Math.abs(epoch.startTimeBeats - expected.geometry.startBeat) <=
             1e-8 &&
-          state.startTimeBeats === epoch.startTimeBeats &&
+          (state.startTimeBeats === epoch.startTimeBeats ||
+            (covered &&
+              state.startTimeBeats ===
+                epoch.startTimeBeats +
+                  Math.floor(elapsed / loopEnd) * loopEnd)) &&
           state.selectedClipReference === epoch.clipReference &&
           state.playingSlotIndex === frozen.target.sceneIndex &&
           state.targetPlaying === true &&
@@ -542,7 +592,8 @@ export function verifyNativeListeningEvidence(input, protocol) {
   const requestedRange = session
     ? {
         startBeat: 0,
-        endBeat: 4,
+        endBeat: snapshotNativeSessionSource(input.session, protocol)
+          .durationBeats,
       }
     : expected
       ? {
@@ -606,7 +657,8 @@ export function verifyNativeListeningEvidence(input, protocol) {
     requireValue(
       entry.kind ===
         (session ? "session-audio-observation/v1" : "audio-observation/v2") &&
-        listener.registration.version === (session ? 3 : 2) &&
+        (listener.registration.version === (session ? 3 : 2) ||
+          listener.registration.version === 4) &&
         listener.producer.schemaVersion === "audio-observation/v2" &&
         expected.listenerId === listener.producer.producerId &&
         expected.passId === pass.id,
@@ -657,7 +709,9 @@ export function verifyNativeListeningEvidence(input, protocol) {
   const proof = session ? wrapper.transport : wrapper;
   if (expected) {
     requireValue(
-      event.result.listenerVersion === (session ? 3 : 2),
+      event.result.listenerVersion === listener.registration.version &&
+        (listener.registration.version !== 4 ||
+          event.result.mode === (session ? "session" : "arrangement")),
       "Native result version mismatch",
     );
     if (session) {
@@ -810,7 +864,10 @@ export function verifyNativeListeningEvidence(input, protocol) {
 }
 
 export function createNativeScenarioApproval(manifest, binding) {
-  const session = manifest.nativeVersion === 3;
+  const session =
+    manifest.nativeVersion === 3 ||
+    ((manifest.nativeVersion === 4 || manifest.nativeVersion === 5) &&
+      manifest.mode === "session");
   const capture = Object.freeze(
     manifest.nativeVersion >= 2
       ? { ...manifest.capture }
@@ -861,11 +918,10 @@ export function createNativeScenarioApproval(manifest, binding) {
           "action",
           "target",
           "listenerIds",
-          "durationBeats",
+          ...(Object.hasOwn(capture, "durationBeats") ? ["durationBeats"] : []),
           "maximumDurationMs",
         ]) ||
         mutationCount !== 0 ||
-        capture.durationBeats !== 4 ||
         capture.maximumDurationMs !== 30000 ||
         args.durationBeats !== capture.durationBeats ||
         args.maximumDurationMs !== capture.maximumDurationMs ||

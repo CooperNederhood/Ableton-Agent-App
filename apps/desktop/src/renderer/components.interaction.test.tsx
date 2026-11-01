@@ -19,17 +19,48 @@ import {
   ConnectionHeader,
   DesktopComposer,
   EventsView,
+  EventHistoryView,
   Inspector,
   SkillsView,
+  openListeningFailureHistory,
   slashCompletionsForState,
   WorkingDisclosure,
   Workspace,
   type WorkspaceSidebarWidths,
 } from "./App";
-import { desktopReducer, initialState, type DesktopState } from "./state";
+import { listeningFailureFixture } from "./test-fixtures/listening-failure.js";
+import type { DesktopListeningJob } from "../listening-contracts";
+import {
+  desktopReducer,
+  initialState,
+  type DesktopAction,
+  type DesktopState,
+} from "./state";
 
 const agentId = "00000000-0000-4000-8000-000000000001";
 const sessionId = "production-session";
+function failedListeningJob(): DesktopListeningJob {
+  return {
+    passId: "history-failure",
+    sessionId,
+    liveSetId: "live-set-1",
+    agentId,
+    trace: {
+      traceId: agentId,
+      correlationId: "history-fixture",
+      causationId: "fixture",
+    },
+    stage: "failed",
+    createdAt: "2026-10-12T00:00:00.000Z",
+    updatedAt: "2026-10-12T00:00:00.000Z",
+    durationMs: 1034,
+    contextIds: [],
+    cleanupPolicy: "leave-running",
+    evidence: "lifecycle-only",
+    error: "stale_native_preflight",
+    failureEvidence: listeningFailureFixture(agentId, "history-failure"),
+  };
+}
 const models: DesktopAgentModel[] = [
   {
     id: "model-a",
@@ -326,6 +357,127 @@ describe("desktop component interactions", () => {
     container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
+  });
+
+  it("opens the owned failure trace through typed History and navigates to the existing History view", async () => {
+    const state = rendererState();
+    const dispatch = vi.fn<(action: DesktopAction) => void>();
+    const page = { items: [], page: { totalItems: 0 } };
+    const trace = vi.fn().mockResolvedValue(page);
+    const set = vi.fn().mockResolvedValue(state.preferences);
+    const api = {
+      eventHistory: { trace },
+      preferences: { set },
+    } as unknown as DesktopApi;
+    await openListeningFailureHistory(
+      state,
+      dispatch,
+      failedListeningJob(),
+      api,
+    );
+    expect(trace).toHaveBeenCalledExactlyOnceWith(agentId, {
+      limit: 100,
+      order: "asc",
+    });
+    expect(set).toHaveBeenCalledWith({
+      ...state.preferences,
+      eventsViewMode: "history",
+    });
+    expect(dispatch.mock.calls.map(([action]) => action.type)).toEqual([
+      "event",
+      "view",
+      "event-history-select-trace",
+      "event-history-trace-loaded",
+    ]);
+    expect(dispatch).toHaveBeenCalledWith({ type: "view", view: "events" });
+    expect(dispatch).toHaveBeenCalledWith({
+      type: "event-history-trace-loaded",
+      traceId: agentId,
+      page,
+      append: false,
+    });
+    let reduced = state;
+    for (const [action] of dispatch.mock.calls)
+      reduced = desktopReducer(reduced, action);
+    expect(reduced.activeView).toBe("events");
+    expect(reduced.preferences.eventsViewMode).toBe("history");
+    expect(reduced.eventHistory.selectedTraceId).toBe(agentId);
+    await act(async () =>
+      root.render(
+        <EventHistoryView
+          state={{
+            ...reduced,
+            preferences: { ...reduced.preferences, eventsViewMode: "live" },
+          }}
+          dispatch={dispatch}
+        />,
+      ),
+    );
+    expect(container.textContent).toContain("Trace detail");
+    expect(container.textContent).toContain(`Diagnostic trace: ${agentId}`);
+    expect(container.textContent).toContain(
+      "evidence may be unavailable or pending",
+    );
+  });
+
+  it("denies stale failure owners and reports typed History read/save failures without capture changes", async () => {
+    const state = rendererState();
+    const dispatch = vi.fn<(action: DesktopAction) => void>();
+    const trace = vi
+      .fn()
+      .mockRejectedValue(new Error("Synthetic History unavailable"));
+    const set = vi
+      .fn()
+      .mockRejectedValue(new Error("Synthetic preference save unavailable"));
+    const api = {
+      eventHistory: { trace },
+      preferences: { set },
+    } as unknown as DesktopApi;
+    for (const change of [
+      { sessionId: "foreign" },
+      { liveSetId: "foreign" },
+      { agentId: "00000000-0000-4000-8000-000000000002" },
+    ])
+      await openListeningFailureHistory(
+        state,
+        dispatch,
+        { ...failedListeningJob(), ...change },
+        api,
+      );
+    expect(trace).not.toHaveBeenCalled();
+    expect(set).not.toHaveBeenCalled();
+    expect(
+      dispatch.mock.calls.some(
+        ([action]) =>
+          action.type === "event" &&
+          action.event.type === "diagnostic" &&
+          action.event.message.includes("owner changed"),
+      ),
+    ).toBe(true);
+    await openListeningFailureHistory(
+      state,
+      dispatch,
+      failedListeningJob(),
+      api,
+    );
+    const messages = dispatch.mock.calls.flatMap(([action]) =>
+      action.type === "event" && action.event.type === "diagnostic"
+        ? [action.event.message]
+        : [],
+    );
+    expect(
+      messages.some((message) => message.includes("History unavailable")),
+    ).toBe(true);
+    expect(
+      messages.some((message) =>
+        message.includes("preference save unavailable"),
+      ),
+    ).toBe(true);
+    expect(
+      dispatch.mock.calls.some(
+        ([action]) => action.type === "event-history-trace-loaded",
+      ),
+    ).toBe(false);
   });
 
   it.each([

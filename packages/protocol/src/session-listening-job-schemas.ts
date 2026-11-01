@@ -26,7 +26,7 @@ export const sessionListeningJobDetailSchema = z.strictObject({
   clipName: z.string().max(128),
   trackName: z.string().max(128),
   sceneIndex: z.number().int().min(0).max(255),
-  durationBeats: z.number().finite().positive().max(4),
+  durationBeats: z.number().finite().positive().optional(),
   launch: sessionListeningLaunchDetailSchema.optional(),
 });
 

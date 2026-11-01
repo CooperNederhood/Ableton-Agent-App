@@ -1,10 +1,46 @@
 # Isolated native commissioning harness
 
+## Current regression contract
+
+The supported capture path is native v5: independent metric runtime,
+controller, musical-envelope Gen/IO, passive clock and retained FFT IO.
+Wire/native v1-v4 capture tests are retired, not compatibility requirements.
+The older commissioning descriptions below are historical engineering
+provenance and do not authorize their constructors, package entries or wire
+handlers in the current runtime.
+
+`metric-closeout.test.mjs` compiles the canonical protocol from current source
+and checks actual shared-client registration, identity watcher fencing,
+generation/trace/deadline propagation, terminal invalidation and confirmed
+cleanup. `discovery-contract.test.mjs` stages the current runtime and shared
+reader to verify profile precedence and corruption denial without reading
+credentials or opening sockets. Native metric IO/controller/timeline suites
+retain source-integrity, immutable readback, epoch, timing, cancellation,
+reentrancy and wire coverage. Protected archived fixtures retain byte/commit
+provenance only; they are never current-runtime qualification.
+
+An identity, DSP or connection change invalidates the current runtime and
+requires reload; do not restore the retired automatic-reconnect capture path
+to satisfy historical tests. Offline passing results do not prove real-host
+timing or native readiness.
+
+Detector reference coverage does not execute the retired capture engine.
+`metric-detector-closeout.test.mjs` checks explicit threshold, refractory,
+silence-floor, zero-threshold, plateau/fall rearm, weak-rise, split-burst and
+one-sample-tail expectations against the current independent metric collector.
+`attack-phase.test.mjs` feeds independently integrated PCM envelopes into that
+same collector across reporting phases. Recorded v1 bracket/RMS provenance
+tests use only the existing protected historical coordinate artifact, never an
+active compatibility implementation.
+
 ## Inactive Session transport candidate (wire 3, native ABI 2)
 
-`build-native-authored --source <authored.amxd> --out <empty-staging-directory>
---native-version 3` explicitly stages the Session candidate only; it does not
-install, promote, or qualify a device. V1/V2 packaging remains unchanged.
+Historical only: the retired `build-native-authored --source` wire3 recipe is
+not supported by current packaging. Current positive candidates use
+`node scripts/build-ableton-integrations.mjs --out <payload-directory>` and
+load its generated native-v5 bundle. JavaScript is the single functional patch
+source; no saved authored AMXD is substituted during qualification or shipping.
+The following describes the historical candidate, not an executable fallback.
 The candidate selects `audio_listener_native_v3_max.js`, the v3 watchdog, and
 the **same generated ABI2 DSP/IO graph** as v2. The descriptor algorithm remains
 `2.0.0`, and observations remain raw global-coordinate `audio-observation/v2`.
@@ -13,8 +49,14 @@ Negotiation requires listener version `3`, capability
 `audio-listener/session-v1`, and scope `session-transport-coupled/v1`.
 Prepare freezes `{geometry, timingPolicy, source}`; `source` is
 `{mode: "session", synchronization: "transport-coupled-first-iteration",
-target: <exact bounded Session clip target>}`. Duration is at most four beats;
-all v2 rate/vector/hop/window/duration bounds remain in force.
+target: <exact bounded Session clip target>}`. Session duration is no longer
+capped at four beats; all v2 rate/vector/hop/window/duration bounds remain in
+force, including thirty seconds and 300 windows. Registration and candidate
+manifests expose `maxAudioDurationMs:30000` and `maxWindows:300`, not a fixed
+beat ceiling. Full active-loop/nonlooping-region resolution and normal-boundary
+source monitoring remain application/Remote-Script responsibilities, not DSP
+clip-identity authority. Expanded exact-end/long-loop physical commissioning
+is pending a fresh owned host; historical four-beat results do not qualify it.
 Native arm/launch/capture evidence uses explicit `{scope, source, transport}`
 wrappers. `transport` is independently validated, unchanged v2 evidence, **not
 a relabelled Session proof**.

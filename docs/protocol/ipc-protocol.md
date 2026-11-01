@@ -273,23 +273,30 @@ waiving unrelated edits.
 All requests contain `schemaVersion:1`, UUID `ownerId`/`passId`, and `action`.
 Prepare additionally requires `expectedLiveSetId`, `expectedProjectRevision`,
 the diagnostic's exact bounded Session `target`, one full same-track `listener`
-binding (device index `0..31`), `durationBeats` in `(0,4]`, and
+binding (device index `0..31`), positive resolved `durationBeats`, and
 `timingAnchor:{globalBeat}`. The anchor must equal the existing stopped global
 position; no seek occurs. Physical admission also requires at most thirty
 seconds, known recording-off, no pending launch, MIDI/warped source, supported
 launch settings and tempo, global None/1 Bar in 4/4, and
-`durationBeats < min(loopEnd,endMarker)`. Exact natural-end/wrap equality is
-refused even for nonlooping clips; no silent range trimming is allowed.
+`durationBeats <= (looping ? loopEnd : endMarker)`. The tool may omit duration
+to select that active region, but the prepared wire request always resolves a
+number. Exact natural-end/wrap equality is supported; no silent range trimming
+is allowed. The application still admits only stopped beat-zero/Global None;
+native configuration retains the thirty-second/300-window envelope.
 Release additionally requires `reason:"completed"|"cancelled"`.
 
 The shared result echoes owner/pass and carries `status` (`prepared`,
-`accepted`, `queued`, `playing`, `unverified`, `invalidated`, `released`,
+`accepted`, `queued`, `playing`, `covered`, `unverified`, `invalidated`, `released`,
 `cancelled`, or `expired`), `mutationState` (`not-attempted`, `indeterminate`,
 or `observed-playing`), nullable `reason`, `durationBeats`, `expiresInMs`
 (`0..40000`), and the diagnostic's bounded `lastObservedSource` state.
 `sourceEpoch` is null until actual `Clip.start_time` and exact active clip
 identity agree, then contains `startTimeBeats`, `clipReference`, and
 `observedGlobalBeat`. First origin and invalidation reason remain latched.
+`covered` records only a normal active boundary at/after the requested interval
+with a consistent monitored source/epoch/position. It cannot publish context
+without independent completed native DSP evidence and a fresh source seal;
+early wrap, stop, source/settings changes and transport stop remain failures.
 Acceptance/queueing is not source onset. Constants remain
 `cleanupPolicy:"leave-running"`, `evidence:"message-rate-only"`, and
 `nativeAlignment:"unverified"`.
@@ -333,7 +340,7 @@ include all four commands. Fixtures cover nonmutating phases, an actually
 observed playing epoch, and cancellation before fire, retaining unknown-follow
 limitations and unverified native authority across TypeScript/Python framing.
 
-### Listening source evidence (protocol 7)
+### Listening source evidence (protocol 8)
 
 `listening.inspect_context` includes optional bounded per-listener
 `sourceEvidence` alongside its unchanged nullable `sessionOverride`. Versioned
@@ -342,7 +349,7 @@ unknown/unavailable evidence; the evidence state must agree with the boolean.
 See [playback listening](../tools/playback-listening.md) for the decision fields,
 freshness/ownership attribution and refusal recovery contract.
 
-This uses protocol 7 and Remote Script/minimum installation `0.7.0`: older
+This uses protocol 8 and Remote Script/minimum installation `0.7.0`: older
 clients use strict result parsers and must not negotiate an extended inspection
 shape they cannot read. Older response fixtures without the optional detailed
 evidence remain parseable, but this is not mixed-version handshake support.

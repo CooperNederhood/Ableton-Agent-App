@@ -28,6 +28,7 @@
   },
   "devDependencies": {
     "@ableton-agent/project-state": "workspace:*",
+    "@ableton-agent/storage": "workspace:*",
     "@ableton-agent/test-support": "workspace:*"
   }
 }

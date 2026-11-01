@@ -27,6 +27,19 @@ endpoint.
   framework until UI complexity justifies it
 - Playwright for Electron end-to-end tests
 
+Independent-metric listening adds a terminal `partial` lifecycle outcome only
+for an actually published context with consistent bounded metric summaries.
+Typed main/preload inventory/events preserve each listener's acquisition
+status, expected/retained/missing record counts and gap reasons. The Listening
+passes panel distinguishes saved partial evidence from failure and full
+completion, does not call missing measurements silence, and disables capture
+cancellation after publication while retaining refresh. Main-process validation
+redacts all nested strings, keeps ownership and terminal ordering, and exposes
+no generic renderer storage access. Context-store declarations allow the four
+registered observation kinds without changing canonical paths or schema version.
+This consumer support does not advertise an independent native capability;
+installed legacy capture remains separate until the replacement is qualified.
+
 Desktop owns App-session identity. Ableton integration owns Live Set and Live
 Project identity. When a save event replaces an unsaved or Save As identity,
 Desktop serializes only the ownership-changing commit before the next prompt is
@@ -155,6 +168,32 @@ or proof of certified native capture. All outbound strings are sanitized and
 bounded. `HeadlessDesktopService.reportListeningJob(job)` is the concrete
 runtime's `onChange` adapter and emits typed `listening.changed` snapshots;
 the coordinator remains the authority for capture lifecycle and original traces.
+
+Failures additionally carry the shared optional `failureEvidence`
+(`listening-failure/v1`) summary, never arbitrary native JSON. Main validates
+that its diagnostic trace/pass reference matches the owning job, redacts every
+string, bounds summary/operand text, and retains the first terminal failure's
+error and evidence even if later cleanup updates arrive. Presentation telemetry
+uses the same owned trace, correlation/causation IDs and sanitized evidence.
+Local presentation truncation is explicitly marked as partial coverage with
+`diagnostic-truncated`; absent operands stay unavailable rather than becoming
+zero or a successful native observation.
+
+Failed/interrupted passes show the component, phase, stable check/code,
+decisive actual/expected operands with comparison and units, coverage and
+missing-evidence reasons, and diagnostic trace/pass/request/scope references.
+Strict `less-than` predicates render as `<`, never `<=`; `flags`/`epoch` unit
+labels and clock-domain-qualified fact fields remain visible without conversion.
+A legacy string-only failure explicitly says **Diagnostic evidence
+unavailable: source-evidence-not-reported**; it does not diagnose a clip identity
+mismatch or suggest speculative setting changes. **View failure in History**
+revalidates the selected session/Set/agent and opens the existing typed
+`eventHistory.trace` view. The selected trace remains visible even when absent
+from the current root-list page; an empty trace explicitly notes that persisted
+evidence may be unavailable or pending. Complete check evidence does not certify
+capture success or timing. Full available bounded, redacted native evidence
+remains in the existing local History journal; no new datastore, raw renderer
+SQL/filesystem access, network upload or transport-control API is added.
 
 The panel shows queued, validation, reservation, arming, playback-start, capture,
 publication and terminal stages, elapsed duration and actionable failure detail.

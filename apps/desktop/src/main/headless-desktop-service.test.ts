@@ -33,6 +33,8 @@ import type {
 } from "@ableton-agent/signal-routing";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { abletonToolMetadata } from "@ableton-agent/tools";
+import { summarizeMetricListeningResult } from "@ableton-agent/protocol";
+import { createSyntheticPartialMetricListeningObservation } from "@ableton-agent/protocol/testing";
 import type {
   RetentionPolicy,
   TelemetryEventEnvelope,
@@ -43,6 +45,7 @@ import {
 } from "@ableton-agent/storage";
 import { SESSION_CONTEXT_STORE_REFERENCE } from "@ableton-agent/project-state";
 import { randomUUID } from "node:crypto";
+import { listeningFailureFixture } from "../renderer/test-fixtures/listening-failure.js";
 
 import {
   desktopAgentCatalogSchema,
@@ -57,7 +60,10 @@ import {
   type DesktopSession,
 } from "../contracts.js";
 import { ApprovalCoordinator, ApprovalPolicyController } from "./approvals.js";
-import { DesktopJournalHost } from "./composition.js";
+import {
+  createSnapshotHistoryRepository,
+  DesktopJournalHost,
+} from "./composition.js";
 import { JsonPreferencesStore, JsonSessionStore } from "./desktop-service.js";
 import {
   HeadlessDesktopService,
@@ -950,6 +956,311 @@ describe("desktop adapter over the shared application", () => {
       "not accepting actions",
     );
     expect(onListeningTimingPolicyChange).toHaveBeenCalledTimes(2);
+  });
+
+  it("relays sanitized correlated failure evidence, latches the first failure and keeps owner-scoped immutable reads", async () => {
+    const records: Parameters<DesktopEventJournal["enqueue"]>[0][] = [];
+    const eventJournal = {
+      enqueue: vi.fn(
+        async (event: Parameters<DesktopEventJournal["enqueue"]>[0]) => {
+          records.push(event);
+        },
+      ),
+      enqueueConfigurationSnapshot: vi.fn().mockResolvedValue(undefined),
+      shutdown: vi.fn().mockResolvedValue(undefined),
+    } as unknown as DesktopEventJournal;
+    const { service, events } = await harness({}, { eventJournal });
+    await service.start();
+    const first = (await service.listActiveAgents())[0]!;
+    const second = await service.createActiveAgent("default");
+    const session = (await service.getSessions()).find((value) =>
+      value.activeAgents.some(({ id }) => id === first.id),
+    )!;
+    const trace = {
+      traceId: randomUUID(),
+      correlationId: "failure-fixture",
+      causationId: "fixture",
+    };
+    const evidence = listeningFailureFixture(trace.traceId, "failure-pass");
+    evidence.summary = "Bearer secret-first-failure";
+    evidence.facts.push({
+      field: "sourceIdentity",
+      actual: { state: "observed", value: "password=secret-actual" },
+      expected: { state: "observed", value: "token=secret-expected" },
+      unit: "identity",
+    });
+    const job: ListeningJob = {
+      passId: "failure-pass",
+      owner: {
+        sessionId: session.id,
+        liveSetId: session.liveSetId,
+        agentId: first.id,
+      },
+      trace,
+      stage: "failed",
+      createdAt: "2026-10-12T00:00:00.000Z",
+      updatedAt: "2026-10-12T00:00:00.000Z",
+      durationMs: 1034,
+      contextIds: [],
+      cleanupPolicy: "leave-running",
+      error: "stale_native_preflight",
+      failureEvidence: evidence,
+    };
+    service.reportListeningJob(job);
+    const request = { sessionId: session.id, agentId: first.id };
+    const initial = (await service.listListeningJobs(request)).jobs[0]!;
+    expect(initial.failureEvidence).toMatchObject({
+      checkId: "preflight.accepted-clock-age",
+      coverage: "partial",
+      reference: { traceId: trace.traceId, passId: job.passId },
+      facts: [
+        {
+          field: "acceptedClockAge",
+          actual: { state: "observed", value: 1034 },
+          expected: { state: "observed", value: 1000 },
+        },
+        {
+          field: "lastRejectedClock",
+          actual: { state: "unavailable", reason: "not-reported" },
+        },
+        {
+          field: "sourceIdentity",
+          actual: { state: "observed", value: "password=[REDACTED]" },
+          expected: { state: "observed", value: "token=[REDACTED]" },
+        },
+      ],
+    });
+    expect(initial.failureEvidence?.summary).toContain("[REDACTED]");
+    evidence.summary = "mutated producer object";
+    service.reportListeningJob({
+      ...job,
+      durationMs: 2000,
+      error: "cleanup_failed",
+      failureEvidence: { ...evidence, checkId: "cleanup.disarm" },
+    });
+    expect((await service.listListeningJobs(request)).jobs[0]).toMatchObject({
+      error: "stale_native_preflight",
+      failureEvidence: initial.failureEvidence,
+    });
+    initial.failureEvidence!.facts.splice(0);
+    expect(
+      (await service.listListeningJobs(request)).jobs[0]?.failureEvidence
+        ?.facts,
+    ).toHaveLength(3);
+    expect(
+      (await service.listListeningJobs({ ...request, agentId: second.id }))
+        .jobs,
+    ).toEqual([]);
+    for (const reference of [
+      { ...evidence.reference, passId: "foreign" },
+      { ...evidence.reference, traceId: randomUUID() },
+    ])
+      expect(() =>
+        service.reportListeningJob({
+          ...job,
+          failureEvidence: { ...evidence, reference },
+        }),
+      ).toThrow("owning");
+    expect(() =>
+      service.reportListeningJob({
+        ...job,
+        failureEvidence: {
+          ...evidence,
+          facts: Array.from({ length: 25 }, () => evidence.facts[0]!),
+        },
+      }),
+    ).toThrow();
+    await settle();
+    const presentation = records.filter(
+      (event) => event.name === "desktop.listening.presentation.completed",
+    );
+    expect(presentation).toHaveLength(2);
+    for (const record of presentation) {
+      expect(record).toMatchObject({
+        sessionId: session.id,
+        liveSetId: session.liveSetId,
+        activeAgentId: first.id,
+        trace: { traceId: trace.traceId },
+        correlationId: trace.correlationId,
+        causationId: trace.causationId,
+        attributes: {
+          failureEvidence: {
+            checkId: "preflight.accepted-clock-age",
+            coverage: "partial",
+          },
+        },
+      });
+      expect(record.durationMs).toBeGreaterThanOrEqual(0);
+    }
+    const changed = events.filter(
+      (event) => event.type === "listening.changed",
+    );
+    expect(changed).toHaveLength(2);
+    expect(JSON.stringify({ changed, records })).not.toMatch(
+      /secret-first-failure|secret-actual|secret-expected|mutated producer object|cleanup.disarm/u,
+    );
+    await service.stop();
+  });
+
+  it("marks locally truncated evidence partial and does not invent late evidence for a legacy first failure", async () => {
+    const { service } = await harness();
+    await service.start();
+    const agent = (await service.listActiveAgents())[0]!;
+    const session = (await service.getSessions()).find((value) =>
+      value.activeAgents.some(({ id }) => id === agent.id),
+    )!;
+    const trace = {
+      traceId: randomUUID(),
+      correlationId: "bounds-fixture",
+      causationId: "fixture",
+    };
+    const evidence = listeningFailureFixture(trace.traceId, "bounded-failure");
+    evidence.coverage = "complete";
+    evidence.coverageReasons = [];
+    evidence.summary = `${"x".repeat(1030)} Bearer secret-summary`;
+    evidence.facts[0]!.actual = {
+      state: "observed",
+      value: `${"y".repeat(260)} password=secret-fact`,
+    };
+    const job: ListeningJob = {
+      passId: "bounded-failure",
+      owner: {
+        sessionId: session.id,
+        liveSetId: session.liveSetId,
+        agentId: agent.id,
+      },
+      trace,
+      stage: "failed",
+      error: "stale_native_preflight",
+      createdAt: "2026-10-12T00:00:00.000Z",
+      updatedAt: "2026-10-12T00:00:00.000Z",
+      durationMs: 1034,
+      contextIds: [],
+      cleanupPolicy: "leave-running",
+      failureEvidence: evidence,
+    };
+    service.reportListeningJob(job);
+    const request = { sessionId: session.id, agentId: agent.id };
+    const bounded = (await service.listListeningJobs(request)).jobs[0]!
+      .failureEvidence!;
+    expect(bounded.summary).toHaveLength(1024);
+    expect(bounded.facts[0]!.actual).toEqual({
+      state: "observed",
+      value: "y".repeat(256),
+    });
+    expect(bounded).toMatchObject({
+      coverage: "partial",
+      coverageReasons: ["diagnostic-truncated"],
+    });
+    const { failureEvidence, ...legacyFields } = job;
+    expect(failureEvidence).toBeDefined();
+    const legacy = { ...legacyFields, passId: "legacy-failure" };
+    service.reportListeningJob(legacy);
+    service.reportListeningJob({
+      ...legacy,
+      failureEvidence: listeningFailureFixture(trace.traceId, legacy.passId),
+    });
+    expect(
+      (await service.listListeningJobs(request)).jobs.find(
+        (value) => value.passId === legacy.passId,
+      ),
+    ).toMatchObject({
+      error: "stale_native_preflight",
+      failureEvidence: undefined,
+    });
+    const { error, ...successFields } = legacy;
+    expect(error).toBe("stale_native_preflight");
+    service.reportListeningJob({
+      ...successFields,
+      passId: "fresh-success",
+      stage: "completed",
+    });
+    expect(
+      (await service.listListeningJobs(request)).jobs.find(
+        (value) => value.passId === "fresh-success",
+      ),
+    ).toMatchObject({ stage: "completed", cleanupPolicy: "leave-running" });
+    expect(
+      JSON.stringify(await service.listListeningJobs(request)),
+    ).not.toMatch(/secret-summary|secret-fact/u);
+    await service.stop();
+  });
+
+  it("preserves and redacts terminal partial metric publication in owned Desktop inventory", async () => {
+    const { service, events } = await harness();
+    await service.start();
+    const agent = (await service.listActiveAgents())[0]!;
+    const owner = (await service.getSessions()).find((session) =>
+      session.activeAgents.some(({ id }) => id === agent.id),
+    )!;
+    const summary = summarizeMetricListeningResult(
+      createSyntheticPartialMetricListeningObservation(),
+    );
+    summary.listenerId = "Bearer secret-metric-listener";
+    const job: ListeningJob = {
+      passId: "synthetic-partial-pass",
+      owner: {
+        sessionId: owner.id,
+        liveSetId: owner.liveSetId,
+        agentId: agent.id,
+      },
+      trace: {
+        traceId: randomUUID(),
+        correlationId: "partial",
+        causationId: "fixture",
+      },
+      stage: "partial",
+      createdAt: "2026-10-12T00:00:00.000Z",
+      updatedAt: "2026-10-12T00:00:01.000Z",
+      durationMs: 1_000,
+      contextIds: ["context"],
+      metricResults: [summary],
+      cleanupPolicy: "leave-running",
+    };
+    service.reportListeningJob(job);
+    const request = { sessionId: owner.id, agentId: agent.id };
+    const page = await service.listListeningJobs(request);
+    expect(page.jobs[0]).toMatchObject({
+      stage: "partial",
+      contextIds: ["context"],
+      metricResults: [
+        {
+          outcome: "partial",
+          metrics: [
+            { metric: "level", status: "complete" },
+            {
+              metric: "spectral-centroid",
+              status: "partial",
+              missingRecords: 1,
+            },
+            { metric: "attacks", status: "complete" },
+          ],
+        },
+      ],
+    });
+    expect(JSON.stringify(page)).not.toContain("secret-metric-listener");
+    expect(page.jobs[0]!.error).toBeUndefined();
+    expect(
+      events.some(
+        (event) =>
+          event.type === "listening.changed" &&
+          event.page.jobs.some((entry) => entry.stage === "partial"),
+      ),
+    ).toBe(true);
+    summary.metrics[1]!.missingRecords = 999;
+    expect(
+      (await service.listListeningJobs(request)).jobs[0]!.metricResults![0]!
+        .metrics[1]!.missingRecords,
+    ).toBe(1);
+    service.reportListeningJob({
+      ...job,
+      metricResults: page.jobs[0]!.metricResults!,
+      stage: "capturing",
+    });
+    expect((await service.listListeningJobs(request)).jobs[0]!.stage).toBe(
+      "partial",
+    );
+    await service.stop();
   });
 
   it("publishes bounded redacted owned listening lifecycle and traced read-only inventory without model-agent query attribution", async () => {
@@ -3357,6 +3668,75 @@ describe("desktop adapter over the shared application", () => {
     );
     await service.stop();
   });
+
+  it.each([undefined, "live-project"])(
+    "Refresh persists an actual checkpoint with project identity %s",
+    async (project) => {
+      const directory = await temporaryDirectory();
+      const storage = resolveLiveAgentStorage({
+        environment: { LIVE_AGENT_HOME: join(directory, "owned-storage") },
+        profile: "automation",
+      });
+      const host = await DesktopJournalHost.create({
+        path: storage.eventJournalPath,
+        retention: { maxAgeDays: 30, maxBytes: 1_000_000 },
+        enabled: true,
+      });
+      const { service, ableton } = await harness(
+        {},
+        { snapshotHistory: createSnapshotHistoryRepository(host) },
+      );
+      if (project !== undefined) {
+        ableton.state.liveIdentity = {
+          ...ableton.state.liveIdentity,
+          liveProjectId: project,
+          liveProjectName: "Project",
+        };
+      }
+      try {
+        await service.start();
+        const snapshot = await service.getSnapshot();
+        expect(snapshot.liveProjectId).toBe(project);
+        await expect(service.getSnapshot()).resolves.toMatchObject({
+          liveSetId: snapshot.liveSetId,
+          liveSetName: snapshot.liveSetName,
+        });
+        const journal = host.journal;
+        if (journal === undefined) throw new Error("Fixture journal is closed");
+        const history = await journal.readSetHistory({
+          liveSetId: snapshot.liveSetId,
+          kinds: ["set_save", "set_snapshot"],
+        });
+        expect(history.items.map(({ kind }) => kind).sort()).toEqual([
+          "set_save",
+          "set_save",
+          "set_snapshot",
+          "set_snapshot",
+        ]);
+        const checkpoints = history.items.filter(
+          (record) => record.kind === "set_snapshot",
+        );
+        expect(new Set(checkpoints.map(({ id }) => id)).size).toBe(2);
+        expect(new Set(checkpoints.map(({ revision }) => revision)).size).toBe(
+          1,
+        );
+        for (const observation of history.items.filter(
+          (record) => record.kind === "set_save",
+        )) {
+          expect(checkpoints.map(({ id }) => id)).toContain(
+            observation.details.snapshotId,
+          );
+        }
+        for (const record of history.items) {
+          expect(record.liveProjectId).toBe(project);
+          expect(record.appSessionId).toBe(service.activeSessionId);
+        }
+      } finally {
+        await service.stop();
+        await host.shutdown();
+      }
+    },
+  );
 
   it("persists an observed Save after the configured quiet period", async () => {
     const save = vi.fn<LiveSetSnapshotHistoryRepository["save"]>(() =>
@@ -6288,9 +6668,18 @@ describe("desktop adapter over the shared application", () => {
       newSdkSessionId: "replacement-sdk",
       reason: "missing-session",
     });
-    await settle();
-    await settle();
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    await vi.waitFor(async () => {
+      expect(
+        (await sessionStore.load())[0]!.activeAgents[0]!.sdkSessionId,
+      ).toBe("replacement-sdk");
+      expect(
+        events.filter(
+          (event) =>
+            event.type === "agent.instance_changed" &&
+            event.change === "session-rotated",
+        ),
+      ).toHaveLength(1);
+    });
     sharedEvents.publish({
       type: "agent.sdk_session_rotated",
       agentInstanceId: instance.id,

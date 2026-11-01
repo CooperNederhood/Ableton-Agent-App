@@ -4,6 +4,13 @@ Companion specification: [IPC Protocol](ipc-protocol.md)
 
 ## Schema design
 
+- [x] Negotiate protocol 8 for the Session pass `covered` output enum; regenerate
+  canonical TypeScript/Python version constants and contracts, and explicitly
+  reject a protocol-7 handshake. Resolve optional tool duration before wire
+  preparation, retain positive exact active-region durations beyond four beats,
+  and require native thirty-second/300-window proof before publication.
+- [x] Cover exact-end/longer/fractional preparation framing and source coverage
+  without converting message-rate `covered` into native alignment authority.
 - [x] Add capability-negotiated read-only `listening.inspect_session_source`
   contracts and generated cross-language fixtures, with bounded exact selectors,
   signed origins, nullable unknowns and explicit unverified/message-rate labels.
@@ -17,7 +24,8 @@ Companion specification: [IPC Protocol](ipc-protocol.md)
   include pass registration in the Remote Script catalog scan.
 - [x] Cover TypeScript/Python granular request validation and framing, bounded
   32-receipt release idempotence, deferred-fire fences, disconnect/shutdown
-  cleanup, and strict-before-wrap/natural-end admission with no trimming.
+  cleanup, and the original strict-before-wrap/natural-end admission with no
+  trimming (superseded by protocol-8 guarded equality).
 - [x] Disclose event-assisted origin polling and missed-between-observation
   limits in Session results/fixtures, without changing wire shapes, claiming
   get-only property notification coverage, or relaxing native alignment gates.
@@ -28,7 +36,7 @@ Companion specification: [IPC Protocol](ipc-protocol.md)
   does not authorize Session playback or establish native alignment.
 
 - [x] Add bounded tri-state listening source inputs with cross-field validation.
-  Negotiate protocol 7 / Remote Script and minimum `0.7.0` because old strict
+  Originally negotiate protocol 7 / Remote Script and minimum `0.7.0` because old strict
   clients cannot read the extended inspection result.
 - [x] Preserve existing wire schemas for placement refresh: replace authenticated
   registration, fence old connection/instance/epoch, recheck after asynchronous

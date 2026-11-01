@@ -1,22 +1,24 @@
 /* global process */
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdtemp, copyFile, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
-import {
-  build,
-  checkArtifact,
-  ALL_RESOURCES,
-  PROFILE_CONFIGURATION,
-  SOURCE_DIRECTORY,
-} from "../../scripts/audio-listener-device.mjs";
+import { fileURLToPath, URL } from "node:url";
+import { compileNativeMetricProtocol } from "../../scripts/lib/native-metric-protocol-bundle.mjs";
+import { writeProducerDiscoveryConfiguration } from "../../scripts/m4l-producer-companions.mjs";
+
+const SOURCE_DIRECTORY = fileURLToPath(new URL(".", import.meta.url));
+const PROFILE_CONFIGURATION = "agent_signal_storage.js";
+const bundle = await compileNativeMetricProtocol({
+  stage: async (_name, work) => work(),
+});
 
 // Each child loads only the staged companions and the REAL shared reader.
 // No Max/Live process, sockets, descriptor reads, or secret-content reads occur.
 const STARTUP = `
 const { AgentSignalClient } = require("./agent_signal_client_common.js");
-const { createRuntime } = require("./audio_listener_runtime.js");
+const { createMetricRuntime } = require("./audio_listener_metric_runtime.js");
 const handlers = {}, output = [], created = [];
 class OfflineClient extends AgentSignalClient {
   constructor(options) {
@@ -27,28 +29,25 @@ class OfflineClient extends AgentSignalClient {
   }
   start() { this.started = true; }
 }
-const runtime = createRuntime({
+const runtime = createMetricRuntime({
   maxApi: { addHandler(name,fn) { handlers[name]=fn; }, outlet(...args) { output.push(args); } },
-  Client: OfflineClient, env: JSON.parse(process.argv[2]), clock: () => 0,
+  Client: OfflineClient, env: JSON.parse(process.argv[2]), now: () => 0,
+  createController: () => ({dispose() {}, snapshot: () => ({state:"idle",cleanup:"completed"})}),
   interval: () => 1, clear() {}
 });
 handlers.identity(JSON.stringify({canonicalPath:"live_set tracks 0 devices 0",
   track:{id:"1",name:"fixture"},device:{id:"2",name:"Audio-Listener"}}));
-handlers.dsp(1,48000,64); handlers.host(0,4,10000,3);
-let readiness = null;
-if (runtime.engine) {
-  try { runtime.engine.prepare({passId:"pass",connectionEpoch:"epoch",startBeat:4,endBeat:8}); }
-  catch (error) { readiness = error.message; }
-}
+handlers.dsp(1,48000,64);
+const client = created[0];
 const result = {readerAvailable:typeof AgentSignalClient === "function" &&
   typeof require("./agent_signal_client_common.js").installedDiscoveryPaths === "function",
-  started:created.length,descriptorPath:runtime.client?.descriptorPath,
-  secretPath:runtime.client?.secretPath,legacyDiscovery:runtime.client?.legacyDiscovery,
-  deviceCanonicalPath:runtime.client?.listener?.deviceCanonicalPath,
-  trackCanonicalPath:runtime.client?.listener?.trackCanonicalPath,
-  nativeStatus:runtime.client?.listener?.nativeStatus,
-  readiness,diagnostics:output.filter(v=>v[0]==="diagnostic").map(v=>v[1]),
-  analysisOff:output.some(v=>v[0]==="analysis" && v[1]===0 && v[2]===1)};
+  started:created.length,descriptorPath:client?.descriptorPath,
+  secretPath:client?.secretPath,legacyDiscovery:client?.legacyDiscovery,
+  deviceCanonicalPath:client?.listener?.deviceCanonicalPath,
+  trackCanonicalPath:client?.listener?.trackCanonicalPath,
+  nativeStatus:client?.listener?.nativeStatus,
+  readiness:client?.listener?.nativeStatus.reason ?? null,
+  diagnostics:output.filter(v=>v[0]==="diagnostic").map(v=>v[1])};
 runtime.stop();
 console.log(JSON.stringify(result));
 `;
@@ -70,11 +69,21 @@ async function staging(configured, action) {
     ),
   };
   try {
-    const manifest = await build(
-      directory,
-      configured ? { discoveryStorage: storage } : {},
+    await copyFile(
+      join(SOURCE_DIRECTORY, "audio_listener_metric_runtime.js"),
+      join(directory, "audio_listener_metric_runtime.js"),
     );
-    await action(directory, storage, manifest);
+    await copyFile(
+      join(SOURCE_DIRECTORY, "../shared/agent_signal_client.js"),
+      join(directory, "agent_signal_client_common.js"),
+    );
+    await writeFile(
+      join(directory, "audio_listener_metric_protocol.js"),
+      bundle.source,
+    );
+    if (configured)
+      await writeProducerDiscoveryConfiguration(directory, storage);
+    await action(directory, storage);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
@@ -96,14 +105,7 @@ function startup(directory, env = {}) {
 }
 
 test("isolated artifact consumes shared generated profile configuration without env overrides", async () => {
-  await staging(true, async (directory, storage, manifest) => {
-    assert.equal(manifest.discoveryConfigured, true);
-    assert.deepEqual(
-      manifest.resources.map((r) => r.name),
-      [...ALL_RESOURCES, PROFILE_CONFIGURATION],
-    );
-    assert.equal(manifest.resources.at(-1).scope, "profile");
-    await checkArtifact(directory);
+  await staging(true, async (directory, storage) => {
     const configPath = join(directory, PROFILE_CONFIGURATION);
     if (process.platform !== "win32")
       assert.equal((await stat(configPath)).mode & 0o077, 0);
@@ -114,21 +116,12 @@ test("isolated artifact consumes shared generated profile configuration without 
     assert.equal(result.legacyDiscovery, false);
     assert.equal(result.deviceCanonicalPath, "live_set tracks 0 devices 0");
     assert.equal(result.trackCanonicalPath, "live_set tracks 0");
-    assert.deepEqual(result.nativeStatus, {
-      version: 1,
-      timing: "UNVERIFIED",
-      readiness: "BLOCKED",
-      reason: "real_live_timing_validation_required",
-    });
-    assert.equal(result.readiness, "real_live_timing_validation_required");
-    assert.equal(result.analysisOff, true);
+    assert.equal(result.nativeStatus.version, 5);
+    assert.equal(result.nativeStatus.readiness, "BLOCKED");
+    assert.equal(result.nativeStatus.alignment, "approximate");
+    assert.equal(result.nativeStatus.verifiedAbsoluteErrorBoundSamples, null);
+    assert.equal(result.readiness, "fresh_per_pass_native_validation_required");
     assert.deepEqual(result.diagnostics, []);
-    const saved = await readFile(configPath);
-    await rm(configPath);
-    await assert.rejects(() => checkArtifact(directory), /ENOENT/);
-    await writeFile(configPath, saved);
-    await writeFile(configPath, `${saved.toString("utf8")}\n// changed\n`);
-    await assert.rejects(() => checkArtifact(directory), /hash mismatch/);
   });
 });
 test("missing installed configuration fails explicitly; no MIDI legacy profile fallback", async () => {
@@ -139,7 +132,6 @@ test("missing installed configuration fails explicitly; no MIDI legacy profile f
     assert.ok(
       result.diagnostics.includes("explicit_profile_discovery_required"),
     );
-    assert.equal(result.analysisOff, true);
   });
 });
 test("malformed installed config fails closed, even with otherwise valid full env overrides", async () => {
@@ -173,7 +165,6 @@ test("malformed installed config fails closed, even with otherwise valid full en
             "invalid_installed_profile_configuration",
           ),
         );
-        assert.equal(result.analysisOff, true);
       }
     }
   });
@@ -189,7 +180,7 @@ test("absolute env overrides win; partial overrides merge with validated install
     assert.equal(full.started, 1);
     assert.equal(full.descriptorPath, descriptor);
     assert.equal(full.secretPath, secret);
-    assert.equal(full.readiness, "real_live_timing_validation_required");
+    assert.equal(full.readiness, "fresh_per_pass_native_validation_required");
     const descriptorOnly = startup(directory, {
       ABLETON_AGENT_SIGNAL_INGRESS_DESCRIPTOR: descriptor,
     });
@@ -220,7 +211,6 @@ test("malformed explicit overrides never silently fall back to a valid installed
       assert.ok(
         result.diagnostics.includes("explicit_profile_discovery_required"),
       );
-      assert.equal(result.analysisOff, true);
     }
   });
 });
@@ -239,6 +229,6 @@ test("complete absolute env overrides still work without installed configuration
       ),
     });
     assert.equal(result.started, 1);
-    assert.equal(result.readiness, "real_live_timing_validation_required");
+    assert.equal(result.readiness, "fresh_per_pass_native_validation_required");
   });
 });

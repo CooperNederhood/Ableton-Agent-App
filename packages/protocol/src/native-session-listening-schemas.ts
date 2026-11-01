@@ -11,9 +11,11 @@ import {
   nativeArmProofV2Schema,
   nativeLaunchProofV2Schema,
   nativeCaptureProofV2Schema,
+  nativeSourceCoverageProofV2Schema,
   assertNativeArmProofV2,
   nativeLaunchCoordinatesV2,
   assertNativeCaptureObservationV2,
+  assertNativeSourceCoverageV2,
   snapshotNativeListeningExpectationV2,
   type NativeListeningExpectationV2,
 } from "./native-listening-v2-schemas.js";
@@ -27,10 +29,7 @@ export const sessionNativeSourceSchema = z.strictObject({
   target: inspectSessionListeningSourceParamsSchema.shape.target,
 });
 export const nativeSessionListeningConfigSchema = z.strictObject({
-  geometry: nativeListeningGeometrySchema.refine(
-    (g) => g.endBeat - g.startBeat <= 4,
-    "Session transport capture is limited to the first four beats",
-  ),
+  geometry: nativeListeningGeometrySchema,
   timingPolicy: listeningTimingPolicySchema,
   source: sessionNativeSourceSchema,
 });
@@ -51,6 +50,10 @@ export const nativeSessionCaptureProofSchema = z.strictObject({
   ...wrapper,
   transport: nativeCaptureProofV2Schema,
 });
+export const nativeSessionSourceCoverageProofSchema = z.strictObject({
+  ...wrapper,
+  transport: nativeSourceCoverageProofV2Schema,
+});
 export const listenerNativeSessionStatusSchema = z
   .strictObject({
     ...listenerNativeStatusV2Schema.shape,
@@ -58,7 +61,6 @@ export const listenerNativeSessionStatusSchema = z
     scope: z.literal(NATIVE_SESSION_LISTENER_SCOPE),
     sourceEvidence: z.literal("expected-context-only"),
     synchronization: z.literal("transport-coupled-first-iteration"),
-    maxDurationBeats: z.literal(4),
   })
   .refine(
     (v) => v.readiness !== "BLOCKED" || v.reason !== undefined,
@@ -74,6 +76,9 @@ export type NativeSessionLaunchProof = z.infer<
 >;
 export type NativeSessionCaptureProof = z.infer<
   typeof nativeSessionCaptureProofSchema
+>;
+export type NativeSessionSourceCoverageProof = z.infer<
+  typeof nativeSessionSourceCoverageProofSchema
 >;
 export type ListenerNativeSessionStatus = z.infer<
   typeof listenerNativeSessionStatusSchema
@@ -128,6 +133,18 @@ export function nativeSessionLaunchCoordinates(
   );
 }
 /** Transport completeness only; application must independently join exact active source + origin. */
+export function assertNativeSessionSourceCoverage(
+  raw: NativeSessionSourceCoverageProof,
+  expected: NativeSessionListeningExpectation,
+) {
+  const proof = nativeSessionSourceCoverageProofSchema.parse(raw);
+  return assertNativeSourceCoverageV2(
+    proof.transport,
+    context(proof.source, expected),
+  );
+}
+
+/** Transport and descriptor completeness; exact active source + origin remain application-owned. */
 export function assertNativeSessionCaptureObservation(
   raw: NativeSessionCaptureProof,
   observation: AudioObservationV2,

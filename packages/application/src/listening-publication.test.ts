@@ -190,6 +190,75 @@ async function repository(sessionId = owner.sessionId) {
 }
 
 describe("atomic listening context publication", () => {
+  it("preserves three distinct clip1-clip2-clip1 contexts without overwriting an earlier completed pass", async () => {
+    const store = await repository();
+    const ids: string[] = [];
+    const snapshots = [];
+    for (const index of [0, 1, 2]) {
+      const base = sessionFixture();
+      const observation = structuredClone(base.observations[0]!);
+      if (observation.schema !== "session-audio-observation/v1")
+        throw new Error("Expected Session observation");
+      const clip = index % 2;
+      const reference = `00000000-0000-4000-8000-00000000000${clip + 3}`;
+      const binding = structuredClone(base.bindings[0]!);
+      const passId = `repeat-${index}`;
+      observation.passId = passId;
+      observation.source.target.sceneIndex = clip;
+      observation.source.target.expectedClipReference = reference;
+      observation.source.target.expectedClipName = `clip-${clip + 1}`;
+      binding.primary.id = `clip-${clip + 1}`;
+      binding.primary.binding.semanticLocator.name = `clip-${clip + 1}`;
+      binding.primary.binding.semanticLocator.sceneIndex = clip;
+      binding.primary.binding.previousRuntimeBindings = [reference];
+      const input = {
+        ...base,
+        passId,
+        observations: [observation],
+        bindings: [binding],
+      };
+      if (index === 1) {
+        const incomplete = structuredClone(input);
+        incomplete.observations[0]!.complete = false;
+        await expect(
+          persistListeningObservations(
+            store,
+            incomplete,
+            new AbortController().signal,
+          ),
+        ).rejects.toThrow();
+        expect(
+          (await store.listEntries({ includeHistorical: true })).items,
+        ).toHaveLength(1);
+      }
+      const [entryId] = await persistListeningObservations(
+        store,
+        input,
+        new AbortController().signal,
+      );
+      expect(entryId).toBeDefined();
+      ids.push(entryId!);
+      snapshots.push(await store.getEntry(entryId!));
+    }
+    expect(new Set(ids).size).toBe(3);
+    for (const [index, id] of ids.entries()) {
+      const entry = await store.getEntry(id);
+      expect(entry).toEqual(snapshots[index]);
+      expect(entry?.payload).toMatchObject({
+        passId: `repeat-${index}`,
+        source: {
+          target: {
+            sceneIndex: index % 2,
+            expectedClipName: `clip-${(index % 2) + 1}`,
+          },
+        },
+      });
+    }
+    expect(
+      (await store.listEntries({ includeHistorical: true })).items,
+    ).toHaveLength(3);
+  });
+
   it("uses exact Session references rather than raw names and redacts bounded source targets without changing caller quality", async () => {
     const base = sessionFixture();
     const observation = structuredClone(base.observations[0]!);
@@ -300,7 +369,7 @@ describe("atomic listening context publication", () => {
     expect(() =>
       buildListeningPublication({
         ...input,
-        requestedRange: { startBeat: 0, endBeat },
+        requestedRange: { startBeat: 0, endBeat: 500 },
       }),
     ).toThrow("playback coordinates");
   });
@@ -528,6 +597,8 @@ describe("atomic listening context publication", () => {
     const input = fixture();
     const binding = input.bindings[0]!;
     const first = input.observations[0]!;
+    if (first.schema === "metric-audio-observation/v1")
+      throw new Error("Expected legacy multi-tap publication fixture");
     const clip: ContextSubject = {
       ...binding.primary,
       id: "clip-subject",

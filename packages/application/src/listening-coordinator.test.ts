@@ -1,12 +1,17 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   audioObservationSchema,
+  type ListeningFailureEvidence,
   type AudioObservation,
 } from "@ableton-agent/protocol";
-import { telemetryEventEnvelopeSchema } from "@ableton-agent/observability";
+import {
+  telemetryEventEnvelopeSchema,
+  type TelemetryEventEnvelope,
+} from "@ableton-agent/observability";
 
 import {
   ListeningCoordinator,
+  ListeningFailure,
   listeningLimits,
   type ListeningCoordinatorOptions,
   type ListeningCoordinatorServices,
@@ -98,7 +103,7 @@ function fixture(
     validateObservations: vi.fn(),
     ...overrides,
   };
-  const enqueue = vi.fn();
+  const enqueue = vi.fn<(event: TelemetryEventEnvelope) => void>();
   const coordinator = new ListeningCoordinator({
     services,
     telemetry: { enqueue },
@@ -118,6 +123,580 @@ function fixture(
 afterEach(() => vi.useRealTimers());
 
 describe("headless listening coordinator", () => {
+  it("keeps omitted Session duration and absent failure evidence genuinely absent from queued snapshots", async () => {
+    const f = fixture();
+    const job = f.coordinator.start(
+      {
+        mode: "session",
+        listenerIds: ["listener"],
+        clipReference: "clip",
+        trackReference: "track",
+        maximumDurationMs: 1000,
+        target: {
+          view: "session",
+          sceneIndex: 0,
+          expectedClipReference: trace.traceId,
+          expectedClipName: "Clip",
+          track: {
+            kind: "regular",
+            index: 0,
+            expectedReference: trace.correlationId,
+            expectedName: "Track",
+          },
+        },
+      },
+      owner,
+      trace,
+    );
+    expect(job.session).not.toHaveProperty("durationBeats");
+    expect(job).not.toHaveProperty("failureEvidence");
+    await f.coordinator.cancel(job.passId, owner);
+  });
+
+  const nativeEvidence = (passId: string): ListeningFailureEvidence => ({
+    schema: "listening-failure/v1",
+    code: "stale_native_preflight",
+    phase: "preflight",
+    component: "native-controller",
+    checkId: "native.preflight.accepted-clock-count",
+    summary: "No accepted clock; password=private-native-secret",
+    coverage: "complete",
+    coverageReasons: [],
+    facts: [
+      {
+        field: "acceptedClockCount",
+        actual: { state: "observed", value: 0 },
+        expected: { state: "observed", value: 1 },
+        comparison: "at-least",
+        unit: "count",
+      },
+    ],
+    reference: { passId, traceId: trace.traceId },
+  });
+
+  it("accepts failure evidence as the third ListeningFailure argument through a runtime-stage wrapper", async () => {
+    const f = fixture({
+      prepare: async ({ passId }) => {
+        const error = new ListeningFailure(
+          "listening_runtime_failed",
+          "Runtime preparation rejected",
+          nativeEvidence(passId),
+        );
+        expect(error.code).toBe("listening_runtime_failed");
+        expect(error.message).toBe("Runtime preparation rejected");
+        expect(error).not.toHaveProperty("check");
+        throw error;
+      },
+    });
+    const job = f.coordinator.start(request, owner, trace);
+    const result = await f.coordinator.wait(job.passId, owner);
+    expect(result).toMatchObject({
+      stage: "failed",
+      error: "Runtime preparation rejected",
+      failureEvidence: {
+        code: "stale_native_preflight",
+        component: "native-controller",
+        checkId: "native.preflight.accepted-clock-count",
+        reference: { passId: job.passId, traceId: trace.traceId },
+      },
+    });
+  });
+
+  it("reuses the shared evidence reader through Error.cause without losing source operands", async () => {
+    const f = fixture({
+      prepare: async ({ passId }) => {
+        throw new Error("Outer preparation boundary", {
+          cause: Object.assign(new Error("Native preparation failed"), {
+            failureEvidence: nativeEvidence(passId),
+          }),
+        });
+      },
+    });
+    const job = f.coordinator.start(request, owner, trace);
+    expect(await f.coordinator.wait(job.passId, owner)).toMatchObject({
+      stage: "failed",
+      failureEvidence: {
+        checkId: "native.preflight.accepted-clock-count",
+        component: "native-controller",
+        coverage: "complete",
+      },
+    });
+  });
+
+  it("preserves source provenance while downgrading requested complete evidence with unavailable expected operands", async () => {
+    const f = fixture({
+      prepare: async ({ passId }) => {
+        const evidence = nativeEvidence(passId);
+        evidence.facts[0]!.expected = {
+          state: "unavailable",
+          reason: "not-reported",
+        };
+        throw new ListeningFailure(
+          "listening_runtime_failed",
+          "Source preflight rejected",
+          evidence,
+        );
+      },
+    });
+    const job = f.coordinator.start(request, owner, trace);
+    expect(await f.coordinator.wait(job.passId, owner)).toMatchObject({
+      failureEvidence: {
+        component: "native-controller",
+        phase: "preflight",
+        checkId: "native.preflight.accepted-clock-count",
+        coverage: "partial",
+        coverageReasons: ["missing-operands"],
+      },
+    });
+  });
+
+  it("marks an unrepresentable guard string unavailable instead of publishing silently truncated complete operands", async () => {
+    const f = fixture({
+      inspect: async () => ({
+        liveSetId: "x".repeat(257),
+        identityVerified: true,
+        isPlaying: false,
+        isRecording: false,
+        recordingStateKnown: true,
+      }),
+    });
+    const job = f.coordinator.start(request, owner, trace);
+    const result = await f.coordinator.wait(job.passId, owner);
+    expect(result.failureEvidence).toMatchObject({
+      checkId: "application.binding.live-set",
+      coverage: "partial",
+      coverageReasons: ["missing-operands"],
+    });
+    expect(result.failureEvidence?.facts).toContainEqual({
+      field: "liveSetId",
+      actual: { state: "unavailable", reason: "invalid" },
+      expected: { state: "observed", value: owner.liveSetId },
+      comparison: "equal",
+    });
+  });
+
+  it.each(["accessor", "cycle", "chain-limit"] as const)(
+    "turns shared-reader %s rejection into an explicit coverage gap",
+    async (kind) => {
+      const accessor = vi.fn(() => {
+        throw new Error("Evidence getter must not execute");
+      });
+      const f = fixture({
+        prepare: async ({ passId }) => {
+          let error: Error = new Error("Preparation failed");
+          if (kind === "accessor")
+            Object.defineProperty(error, "failureEvidence", { get: accessor });
+          else if (kind === "cycle")
+            Object.defineProperty(error, "cause", { value: error });
+          else {
+            error = Object.assign(error, {
+              failureEvidence: nativeEvidence(passId),
+            });
+            for (let depth = 0; depth < 9; depth++)
+              error = new Error("Outer boundary", { cause: error });
+          }
+          throw error;
+        },
+      });
+      const job = f.coordinator.start(request, owner, trace);
+      const result = await f.coordinator.wait(job.passId, owner);
+      expect(result).toMatchObject({
+        stage: "failed",
+        failureEvidence: {
+          coverage: "unavailable",
+          coverageReasons: ["invalid-evidence"],
+        },
+      });
+      expect(result.failureEvidence?.facts).toContainEqual({
+        field: "sourceEvidenceRejection",
+        actual: {
+          state: "observed",
+          value: kind === "accessor" ? "accessor" : "error-chain-limit",
+        },
+      });
+      expect(accessor).not.toHaveBeenCalled();
+      expect(f.services.persist).not.toHaveBeenCalled();
+    },
+  );
+
+  it("latches primary native evidence before cleanup, redacts it and recovers on a fresh pass", async () => {
+    const seen: ListeningJob[] = [];
+    const f = fixture(
+      {
+        prepare: async ({ passId }) => {
+          throw new AggregateError(
+            [
+              Object.assign(new Error("stale_native_preflight"), {
+                code: "stale_native_preflight",
+                failureEvidence: nativeEvidence(passId),
+              }),
+              new Error("secondary disarm failure"),
+            ],
+            "Native setup failed",
+          );
+        },
+        reservePublication: async () => ({
+          release: async () => {
+            throw new Error("password=private-cleanup-secret");
+          },
+        }),
+      },
+      (job) => seen.push(job),
+    );
+    const job = f.coordinator.start(request, owner, trace);
+    const result = await f.coordinator.wait(job.passId, owner);
+    expect(result).toMatchObject({
+      stage: "failed",
+      failureEvidence: {
+        code: "stale_native_preflight",
+        checkId: "native.preflight.accepted-clock-count",
+        coverage: "complete",
+        reference: { passId: job.passId, traceId: trace.traceId },
+      },
+    });
+    expect(JSON.stringify([result, seen, f.enqueue.mock.calls])).not.toContain(
+      "private-native-secret",
+    );
+    expect(JSON.stringify([result, seen, f.enqueue.mock.calls])).not.toContain(
+      "private-cleanup-secret",
+    );
+    const events = f.enqueue.mock.calls.map(([event]) => event);
+    expect(
+      events.find((event) => event.name === "listening.cleanup.failed")
+        ?.attributes.failureEvidence,
+    ).toMatchObject({ checkId: "application.cleanup.quota-release" });
+    expect(
+      events.find((event) => event.name === "listening.failed")?.attributes
+        .failureEvidence,
+    ).toMatchObject({
+      checkId: result.failureEvidence?.checkId,
+      facts: result.failureEvidence?.facts,
+      reference: result.failureEvidence?.reference,
+    });
+    expect(seen.at(-1)?.failureEvidence).toEqual(result.failureEvidence);
+    f.services.prepare = async ({ passId }) => ({
+      observations: Promise.resolve([observation(passId)]),
+      disarm: async () => {},
+    });
+    f.services.reservePublication = async () => ({ release: async () => {} });
+    const next = f.coordinator.start(request, owner, trace);
+    expect(await f.coordinator.wait(next.passId, owner)).toMatchObject({
+      stage: "completed",
+    });
+    expect(f.coordinator.get(next.passId, owner)).not.toHaveProperty(
+      "failureEvidence",
+    );
+  });
+
+  it.each(["missing", "malformed", "foreign-pass", "foreign-trace"])(
+    "marks %s source evidence as a gap without inventing native operands",
+    async (kind) => {
+      const f = fixture({
+        prepare: async ({ passId }) => {
+          const evidence = nativeEvidence(passId);
+          if (kind === "foreign-pass") evidence.reference.passId = "other-pass";
+          if (kind === "foreign-trace")
+            evidence.reference.traceId = trace.correlationId;
+          throw Object.assign(new Error("stale_native_preflight"), {
+            code: "stale_native_preflight",
+            ...(kind === "missing"
+              ? {}
+              : {
+                  failureEvidence:
+                    kind === "malformed"
+                      ? { raw: "password=private-secret" }
+                      : evidence,
+                }),
+          });
+        },
+      });
+      const job = f.coordinator.start(request, owner, trace);
+      const result = await f.coordinator.wait(job.passId, owner);
+      expect(result.failureEvidence).toMatchObject({
+        code: "stale_native_preflight",
+        coverage: "unavailable",
+        coverageReasons: [
+          kind === "missing"
+            ? "source-evidence-not-reported"
+            : "invalid-evidence",
+        ],
+        reference: { passId: job.passId, traceId: trace.traceId },
+      });
+      expect(JSON.stringify(result)).not.toContain("acceptedClockCount");
+      expect(JSON.stringify(result)).not.toContain("private-secret");
+    },
+  );
+
+  it("sanitizes every bounded source evidence string and visibly rejects oversized evidence", async () => {
+    const f = fixture({
+      prepare: async ({ passId }) => {
+        const evidence = nativeEvidence(passId);
+        evidence.facts.push({
+          field: "reportedState",
+          actual: { state: "observed", value: "Bearer source-private-secret" },
+          expected: {
+            state: "observed",
+            value: "password=expected-private-secret",
+          },
+        });
+        evidence.reference.requestId = "token=request-private-secret";
+        evidence.listener = {
+          listenerId: "password=listener-private-secret",
+          instanceId: "password=instance-private-secret",
+          connectionId: "password=connection-private-secret",
+          connectionEpoch: "password=epoch-private-secret",
+        };
+        throw Object.assign(new Error("password=error-private-secret"), {
+          failureEvidence: evidence,
+        });
+      },
+    });
+    const job = f.coordinator.start(request, owner, trace);
+    const result = await f.coordinator.wait(job.passId, owner);
+    expect(result.failureEvidence?.coverage).toBe("complete");
+    expect(JSON.stringify([result, f.enqueue.mock.calls])).not.toContain(
+      "private-secret",
+    );
+    expect(result.failureEvidence?.reference).not.toHaveProperty("jobId");
+    f.services.prepare = async ({ passId }) => {
+      throw Object.assign(new Error("Source rejected"), {
+        failureEvidence: {
+          ...nativeEvidence(passId),
+          facts: Array.from(
+            { length: 25 },
+            () => nativeEvidence(passId).facts[0],
+          ),
+        },
+      });
+    };
+    const oversized = f.coordinator.start(request, owner, trace);
+    expect(await f.coordinator.wait(oversized.passId, owner)).toMatchObject({
+      failureEvidence: {
+        coverage: "unavailable",
+        coverageReasons: ["invalid-evidence"],
+      },
+    });
+  });
+
+  it("records exact stopped/recording/identity guard operands and pre-pass denials without a pass", async () => {
+    const f = fixture({
+      inspect: async () => ({
+        liveSetId: owner.liveSetId,
+        identityVerified: true,
+        isPlaying: true,
+        isRecording: false,
+        recordingStateKnown: true,
+      }),
+    });
+    const job = f.coordinator.start(request, owner, trace);
+    const result = await f.coordinator.wait(job.passId, owner);
+    expect(result.failureEvidence).toMatchObject({
+      checkId: "application.playback.stopped-recording-off",
+      coverage: "complete",
+    });
+    expect(result.failureEvidence?.facts).toContainEqual({
+      field: "isPlaying",
+      actual: { state: "observed", value: true },
+      expected: { state: "observed", value: false },
+      comparison: "equal",
+    });
+    expect(() =>
+      f.coordinator.start({ ...request, listenerIds: [] }, owner, trace),
+    ).toThrow("distinct listener");
+    const event = f.enqueue.mock.calls.at(-1)?.[0];
+    expect(event).toMatchObject({
+      name: "listening.attempt.failed",
+      trace: { traceId: trace.traceId },
+      attributes: {
+        checkId: "application.input.listeners",
+        coverage: "partial",
+        passIdState: "not-accepted",
+      },
+    });
+    expect(event?.attributes.facts).toContainEqual(
+      expect.objectContaining({
+        field: "listenerCount",
+        actual: { state: "observed", value: 0 },
+      }),
+    );
+    expect(event?.attributes).not.toHaveProperty("passId");
+  });
+
+  it.each([
+    [
+      { ...request, listenerIds: ["same", "same"] },
+      "application.input.listeners",
+    ],
+    [{ ...request, maximumDurationMs: Infinity }, "application.input.duration"],
+    [{ ...request, startBeat: 8, endBeat: 4 }, "application.input.arrangement"],
+    [
+      {
+        mode: "session",
+        listenerIds: ["listener"],
+        clipReference: "clip",
+        trackReference: "track",
+        durationBeats: 0,
+        maximumDurationMs: 1000,
+      },
+      "application.input.session",
+    ],
+  ] as const)(
+    "attributes pre-pass input rejection %s to %s",
+    (input, checkId) => {
+      const f = fixture();
+      expect(() => f.coordinator.start(input, owner, trace)).toThrow();
+      expect(f.enqueue.mock.lastCall?.[0]).toMatchObject({
+        name: "listening.attempt.failed",
+        attributes: {
+          checkId,
+          passIdState: "not-accepted",
+        },
+      });
+      expect(f.services.inspect).not.toHaveBeenCalled();
+      expect(f.enqueue.mock.lastCall?.[0].attributes).not.toHaveProperty(
+        "passId",
+      );
+    },
+  );
+
+  it("attributes owner, concurrency and closed admission guards without allocating a second pass", async () => {
+    const f = fixture();
+    expect(() =>
+      f.coordinator.start(request, { ...owner, agentId: "" }, trace),
+    ).toThrow("owner is invalid");
+    expect(f.enqueue.mock.lastCall?.[0].attributes.checkId).toBe(
+      "application.input.owner",
+    );
+    const job = f.coordinator.start(request, owner, trace);
+    expect(() => f.coordinator.start(request, owner, trace)).toThrow(
+      "Another listening pass",
+    );
+    expect(f.enqueue.mock.lastCall?.[0].attributes).toMatchObject({
+      checkId: "application.admission.concurrency",
+    });
+    expect(f.enqueue.mock.lastCall?.[0].attributes.facts).toContainEqual(
+      expect.objectContaining({
+        field: "activePassId",
+        actual: { state: "observed", value: job.passId },
+      }),
+    );
+    await f.coordinator.shutdown();
+    expect(() => f.coordinator.start(request, owner, trace)).toThrow(
+      "shut down",
+    );
+    expect(f.enqueue.mock.lastCall?.[0].attributes.checkId).toBe(
+      "application.admission.open",
+    );
+  });
+
+  it.each([
+    ["inspect", "application.binding.inspect", "validation"],
+    ["reservePublication", "application.publication.reserve", "publication"],
+    ["prepare", "application.capture.prepare", "preparation"],
+    ["startPlayback", "application.playback.start", "launch"],
+    [
+      "validateObservations",
+      "application.observation.validate",
+      "post-binding",
+    ],
+    ["persist", "application.publication.persist", "publication"],
+  ] as const)(
+    "records the exact application boundary for %s rejection without inventing its source predicate",
+    async (method, checkId, phase) => {
+      const f = fixture();
+      f.services[method] = () => {
+        throw Object.assign(
+          new Error("Adapter rejected; password=private-adapter-secret"),
+          { code: "adapter_rejected" },
+        );
+      };
+      const job = f.coordinator.start(request, owner, trace);
+      f.resolveCapture([observation(job.passId)]);
+      const result = await f.coordinator.wait(job.passId, owner);
+      expect(result).toMatchObject({
+        stage: "failed",
+        contextIds: [],
+        failureEvidence: {
+          code: "adapter_rejected",
+          checkId,
+          phase,
+          coverage: "unavailable",
+          coverageReasons: ["source-evidence-not-reported"],
+          reference: { passId: job.passId, traceId: trace.traceId },
+        },
+      });
+      expect(JSON.stringify([result, f.enqueue.mock.calls])).not.toContain(
+        "private-adapter-secret",
+      );
+    },
+  );
+
+  it("records application schema rejection counts without publishing or retaining malformed observation bodies", async () => {
+    const f = fixture({
+      prepare: async () => ({
+        observations: Promise.resolve([{}] as never),
+        disarm: async () => {},
+      }),
+    });
+    const job = f.coordinator.start(request, owner, trace);
+    const result = await f.coordinator.wait(job.passId, owner);
+    expect(result.failureEvidence).toMatchObject({
+      checkId: "application.observation.schema",
+      coverage: "complete",
+    });
+    expect(result.failureEvidence?.facts).toContainEqual({
+      field: "observationCount",
+      actual: { state: "observed", value: 1 },
+      expected: { state: "observed", value: 1 },
+      comparison: "equal",
+    });
+    expect(
+      result.failureEvidence?.facts.find(
+        ({ field }) => field === "schemaIssueCount",
+      )?.actual,
+    ).toMatchObject({ state: "observed" });
+    expect(f.services.persist).not.toHaveBeenCalled();
+  });
+
+  it.each(["disarm", "playback", "quota-release"] as const)(
+    "records cleanup %s as a separate timed failure while retaining owner cancellation",
+    async (boundary) => {
+      const f = fixture();
+      if (boundary === "disarm")
+        f.disarm.mockRejectedValue(new Error("Disarm unavailable"));
+      if (boundary === "playback")
+        f.stop.mockRejectedValue(new Error("Stop unavailable"));
+      if (boundary === "quota-release")
+        f.releaseReservation.mockRejectedValue(
+          new Error("Release unavailable"),
+        );
+      const job = f.coordinator.start(request, owner, trace);
+      await vi.waitFor(() =>
+        expect(f.services.startPlayback).toHaveBeenCalledOnce(),
+      );
+      const result = await f.coordinator.cancel(job.passId, owner);
+      expect(result).toMatchObject({
+        stage: "failed",
+        failureEvidence: {
+          code: "cancelled",
+          checkId: "application.cancellation.owner",
+          coverage: "complete",
+        },
+      });
+      const event = f.enqueue.mock.calls
+        .map(([value]) => telemetryEventEnvelopeSchema.parse(value))
+        .find((value) => value.name === "listening.cleanup.failed");
+      expect(event).toMatchObject({
+        trace: { traceId: trace.traceId },
+        attributes: {
+          checkId: `application.cleanup.${boundary}`,
+          failureEvidence: { coverage: "unavailable", phase: "cleanup" },
+        },
+      });
+      expect(event?.durationMs).toBeGreaterThanOrEqual(0);
+    },
+  );
+
   it("retains redacted Session source and ordered launch details through terminal failure", async () => {
     const seen: ListeningJob[] = [];
     const f = fixture(
@@ -280,7 +859,7 @@ describe("headless listening coordinator", () => {
   });
 
   it.each([
-    { durationBeats: 4.01 },
+    { durationBeats: -1 },
     { durationBeats: 0 },
     { listenerIds: ["listener", "second-listener"] },
   ])("rejects Session MVP bounds before inspection: %j", (change) => {
@@ -299,7 +878,7 @@ describe("headless listening coordinator", () => {
         owner,
         trace,
       ),
-    ).toThrow("at most four first-iteration beats");
+    ).toThrow("positive first-iteration duration");
     expect(f.services.inspect).not.toHaveBeenCalled();
   });
 
@@ -524,7 +1103,25 @@ describe("headless listening coordinator", () => {
       }),
     });
     const job = f.coordinator.start(request, owner, trace);
-    expect((await f.coordinator.wait(job.passId, owner)).stage).toBe("failed");
+    const result = await f.coordinator.wait(job.passId, owner);
+    expect(result).toMatchObject({
+      stage: "failed",
+      failureEvidence: {
+        checkId:
+          "liveSetId" in patch || "identityVerified" in patch
+            ? "application.binding.live-set"
+            : "application.playback.stopped-recording-off",
+        coverage: "complete",
+      },
+    });
+    for (const [field, value] of Object.entries<unknown>(patch)) {
+      expect(result.failureEvidence?.facts).toContainEqual(
+        expect.objectContaining({
+          field,
+          actual: { state: "observed", value },
+        }),
+      );
+    }
     expect(f.services.prepare).not.toHaveBeenCalled();
     expect(f.services.startPlayback).not.toHaveBeenCalled();
   });
@@ -582,7 +1179,14 @@ describe("headless listening coordinator", () => {
         identityVerified: true,
       });
     const job = f.coordinator.start(request, owner, trace);
-    expect((await f.coordinator.wait(job.passId, owner)).stage).toBe("failed");
+    expect(await f.coordinator.wait(job.passId, owner)).toMatchObject({
+      stage: "failed",
+      failureEvidence: {
+        checkId: "application.playback.stopped-recording-off",
+        phase: "post-binding",
+        coverage: "complete",
+      },
+    });
     expect(f.services.inspect).toHaveBeenCalledTimes(2);
     expect(f.services.startPlayback).not.toHaveBeenCalled();
     expect(f.disarm).toHaveBeenCalledOnce();
@@ -648,6 +1252,12 @@ describe("headless listening coordinator", () => {
       "listening.progress",
       "listening.progress",
       "listening.progress",
+      "listening.cleanup.started",
+      "listening.cleanup.completed",
+      "listening.cleanup.started",
+      "listening.cleanup.completed",
+      "listening.cleanup.started",
+      "listening.cleanup.completed",
       "listening.cancelled",
     ]);
     expect(
@@ -776,9 +1386,20 @@ describe("headless listening coordinator", () => {
                 : { ...after, complete: failure !== "partial" },
             ],
       );
-      expect((await f.coordinator.wait(job.passId, owner)).stage).toBe(
-        "failed",
-      );
+      const result = await f.coordinator.wait(job.passId, owner);
+      expect(result).toMatchObject({
+        stage: "failed",
+        failureEvidence: {
+          checkId: "application.observation.coverage",
+          coverage: "complete",
+        },
+      });
+      expect(result.failureEvidence?.facts).toContainEqual({
+        field: "observationCount",
+        actual: { state: "observed", value: failure === "missing" ? 1 : 2 },
+        expected: { state: "observed", value: 2 },
+        comparison: "equal",
+      });
       expect(f.services.persist).not.toHaveBeenCalled();
       expect(f.stop).toHaveBeenCalledOnce();
       expect(f.disarm).toHaveBeenCalledOnce();
@@ -848,6 +1469,17 @@ describe("headless listening coordinator", () => {
       expect(result.contextIds).toEqual([]);
       expect(result.error).toContain("may have committed");
       expect(result.error).toContain(job.passId);
+      expect(result.failureEvidence).toMatchObject({
+        code: "publication_indeterminate",
+        checkId: "application.publication.commit-state",
+        coverage: "partial",
+        coverageReasons: ["missing-operands"],
+      });
+      expect(result.failureEvidence?.facts).toContainEqual({
+        field: "committed",
+        actual: { state: "unavailable", reason: "unknown" },
+        expected: { state: "observed", value: true },
+      });
       expect(f.stop).toHaveBeenCalledOnce();
       expect(f.disarm).toHaveBeenCalledOnce();
       await f.coordinator.shutdown();
@@ -877,6 +1509,16 @@ describe("headless listening coordinator", () => {
     expect(result.stage).toBe("failed");
     expect(result.contextIds).toEqual([]);
     expect(result.error).toContain("every listener observation");
+    expect(result.failureEvidence).toMatchObject({
+      checkId: "application.publication.receipts",
+      coverage: "complete",
+    });
+    expect(result.failureEvidence?.facts).toContainEqual({
+      field: "distinctReceiptCount",
+      actual: { state: "observed", value: 1 },
+      expected: { state: "observed", value: 2 },
+      comparison: "equal",
+    });
   });
 
   it("interrupts complete observations after takeover rather than stopping user playback", async () => {
@@ -889,9 +1531,20 @@ describe("headless listening coordinator", () => {
       expect(f.coordinator.get(job.passId, owner).stage).toBe("capturing"),
     );
     f.resolveCapture([observation(job.passId)]);
-    expect((await f.coordinator.wait(job.passId, owner)).stage).toBe(
-      "interrupted",
-    );
+    const result = await f.coordinator.wait(job.passId, owner);
+    expect(result).toMatchObject({
+      stage: "interrupted",
+      failureEvidence: {
+        checkId: "application.playback.ownership",
+        coverage: "complete",
+      },
+    });
+    expect(result.failureEvidence?.facts).toContainEqual({
+      field: "playbackOwned",
+      actual: { state: "observed", value: false },
+      expected: { state: "observed", value: true },
+      comparison: "equal",
+    });
     expect(stop).not.toHaveBeenCalled();
     expect(f.disarm).toHaveBeenCalledOnce();
     expect(f.services.persist).not.toHaveBeenCalled();

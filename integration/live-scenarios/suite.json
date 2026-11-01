@@ -52,6 +52,33 @@
       "scenarios": ["native-playback-and-listen"]
     },
     {
+      "id": "native-listening-metric",
+      "scenarios": [
+        "native-metric-session-midi",
+        "native-metric-session-midi-spectrum",
+        "native-metric-session-audio-spectrum",
+        "native-metric-session-midi-production-phrase",
+        "native-metric-session-audio-production-phrase",
+        "native-metric-session-midi-repeat-3",
+        "native-metric-session-midi-audio-midi",
+        "native-metric-arrangement-audio-fractional-spectrum",
+        "native-metric-session-midi-partial-spectrum"
+      ]
+    },
+    {
+      "id": "native-listening-metric-silent-tail",
+      "scenarios": ["native-metric-session-audio-silent-tail"]
+    },
+    {
+      "id": "native-listening-metric-long",
+      "scenarios": [
+        "native-metric-session-midi-eight-bars",
+        "native-metric-session-audio-eight-bars",
+        "native-metric-session-midi-30-seconds",
+        "native-metric-session-audio-30-seconds"
+      ]
+    },
+    {
       "id": "native-listening-rebinding",
       "scenarios": ["native-descriptive-insert-before"]
     },
@@ -66,7 +93,24 @@
     },
     {
       "id": "native-listening-session",
-      "scenarios": ["native-session-midi", "native-session-warped-audio"]
+      "scenarios": [
+        "native-session-midi",
+        "native-session-warped-audio",
+        "native-session-midi-full-loop",
+        "native-session-midi-eight-beats"
+      ]
+    },
+    {
+      "id": "native-listening-dual",
+      "scenarios": [
+        "native-dual-arrangement",
+        "native-dual-session-midi",
+        "native-dual-session-warped-audio"
+      ]
+    },
+    {
+      "id": "native-listening-repeated",
+      "scenarios": ["native-dual-session-repeat-1-2-1"]
     },
     {
       "id": "native-listening-source-investigation",

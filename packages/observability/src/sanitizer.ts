@@ -49,7 +49,9 @@ const authorizationPattern =
 const digestAuthorizationPattern =
   /\b(Digest)[ \t]+(?=[a-z][\w-]*[ \t]*=)[^\r\n]+/giu;
 const credentialAssignmentPattern =
-  /(?<![a-z0-9_.-])((["']?)((?:[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*)|(?:(?:x[ \t]+)?api[ \t]+(?:key|secret))|(?:(?:proxy[ \t]+)?authorization)|(?:(?:access|auth(?:entication)?|bearer|bridge|client|consumer|copilot|github|id|oauth|refresh|session|signing|webhook)[ \t]+(?:token|secret))|(?:personal[ \t]+access[ \t]+token)|(?:secret[ \t]+access[ \t]+key)|(?:private[ \t]+key))\2[ \t]*(?:=|:)[ \t]*)(?:"(?:\\[\s\S]|[^"\\])*"|'(?:\\[\s\S]|[^'\\])*'|[^\s,;&}\])]+)/giu;
+  /(?<![a-z0-9_.-])((["']?)((?:[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*)|(?:(?:x[ \t]+)?api[ \t]+(?:key|secret))|(?:(?:proxy[ \t]+)?authorization)|(?:(?:access|auth(?:entication)?|bearer|bridge|client|consumer|copilot|github|id|oauth|refresh|session|signing|webhook)[ \t]+(?:token|secret))|(?:personal[ \t]+access[ \t]+token)|(?:secret[ \t]+access[ \t]+key)|(?:private[ \t]+key))\2[ \t]*(?:=|:)[ \t]*)/giu;
+const credentialValuePattern =
+  /(?:"(?:\\[\s\S]|[^"\\])*"|'(?:\\[\s\S]|[^'\\])*'|\[REDACTED\][^\s,;&}\])]*|[^\s,;&}\])]+)/uy;
 const urlUserInfoPattern = /\b([a-z][a-z0-9+.-]*:\/\/)[^\s/?#@]+@/giu;
 const privateKeyPattern =
   /-----BEGIN ([A-Z0-9 ]*PRIVATE KEY)-----[\s\S]*?-----END \1-----/giu;
@@ -204,24 +206,41 @@ function normalizedFieldName(key: string): string {
   return key.replace(/[^a-z0-9]/giu, "").toLowerCase();
 }
 
-function redactSensitiveText(value: string): string {
-  let redacted = value
-    .replace(privateKeyPattern, REDACTED_VALUE)
-    .replace(authorizationPattern, "$1 [REDACTED]")
-    .replace(digestAuthorizationPattern, "$1 [REDACTED]")
-    .replace(urlUserInfoPattern, `$1${REDACTED_VALUE}@`)
-    .replace(
-      credentialAssignmentPattern,
-      (match, assignment: string, _quote: string, key: string) => {
-        if (!isCredentialField(key)) return match;
-        const assignedValue = match.slice(assignment.length);
-        const quote =
-          assignedValue.startsWith('"') || assignedValue.startsWith("'")
-            ? assignedValue[0]
-            : "";
-        return `${assignment}${quote}${REDACTED_VALUE}${quote}`;
-      },
+function redactCredentialAssignments(value: string): string {
+  const parts: string[] = [];
+  let copiedThrough = 0;
+  credentialAssignmentPattern.lastIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = credentialAssignmentPattern.exec(value)) !== null) {
+    if (!isCredentialField(match[3]!)) continue;
+    const valueStart = credentialAssignmentPattern.lastIndex;
+    credentialValuePattern.lastIndex = valueStart;
+    const assigned = credentialValuePattern.exec(value);
+    if (!assigned) continue;
+    const assignedValue = assigned[0];
+    const quote = assignedValue.startsWith('"')
+      ? '"'
+      : assignedValue.startsWith("'")
+        ? "'"
+        : "";
+    parts.push(
+      value.slice(copiedThrough, match.index),
+      `${match[1]!}${quote}${REDACTED_VALUE}${quote}`,
     );
+    copiedThrough = credentialValuePattern.lastIndex;
+    credentialAssignmentPattern.lastIndex = copiedThrough;
+  }
+  return parts.length ? parts.join("") + value.slice(copiedThrough) : value;
+}
+
+function redactSensitiveText(value: string): string {
+  let redacted = redactCredentialAssignments(
+    value
+      .replace(privateKeyPattern, REDACTED_VALUE)
+      .replace(authorizationPattern, "$1 [REDACTED]")
+      .replace(digestAuthorizationPattern, "$1 [REDACTED]")
+      .replace(urlUserInfoPattern, `$1${REDACTED_VALUE}@`),
+  );
   for (const pattern of providerTokenPatterns) {
     redacted = redacted.replace(pattern, REDACTED_VALUE);
   }

@@ -406,6 +406,22 @@ preserved. Credentials and tokens embedded in any string are redacted, while
 binary/audio bodies are replaced with visible omission markers. Sanitization
 occurs at the producer boundary and again in the journal writer.
 
+The opt-in independent-metric listener ingress records native stages as
+`output.listener.native.{stage}` and metric-scoped stages as
+`output.listener.native.metric.{metric}.{stage}`. These retain the producer's
+validated event ID, capture trace, stage-parent causation, generation/epoch and
+bounded redacted lifecycle payload. Optional `durationMs` is actual stage time;
+`elapsedMs` remains pass elapsed time. Queued/started/progress have unknown
+outcome rather than implying completed work. Up to twenty-four canonical
+evidence facts retain actual counts, support/receipt operands or explicit
+unavailability, reusing the existing typed fact and redaction contract.
+A metric failure can coexist with
+capture progress and later published partial data; it is not itself a global
+capture failure. Exact repeated native events are journaled once per pass,
+mutated event IDs and inconsistent epochs are rejected, and receipt tracking is
+bounded. This changes neither journal ownership nor retention, introduces no
+raw-audio storage or upload path, and does not enable the legacy-gated runtime.
+
 The unified history database is stored only at
 `~/.live-agent/profiles/{profile}/observability/agent-set-event-history.sqlite`
 (or the explicit `LIVE_AGENT_HOME` override). App events and configuration

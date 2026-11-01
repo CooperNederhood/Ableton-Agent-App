@@ -4,7 +4,9 @@ import { createRequire } from "node:module";
 import { createKnownListeningFixture } from "../../packages/test-support/src/listening-fixture.ts";
 
 const require = createRequire(import.meta.url);
-const { AudioListenerEngine, VERSION } = require("./audio_listener_engine.js");
+const {
+  createMetricTimelines,
+} = require("./audio_listener_metric_timelines.js");
 const HOP = 4800;
 
 // Independent quantized source integration, not execution of native DSP.
@@ -46,52 +48,44 @@ function envelopeWindows(fixture, offset) {
 }
 
 function estimates(points, threshold = 6) {
-  const host = {
+  const totalSamples = points.at(-1).sample;
+  const owner = {
+    generation: "00000000-0000-4000-8000-000000000008",
+    nativeEpoch: 1,
+    arm: "numeric-phase-arm",
+  };
+  const collector = createMetricTimelines({
+    owner,
+    originSample: 0,
+    originBeat: 0,
     sampleRate: 48000,
     vectorSize: 64,
-    sample: 0,
-    beat: 0,
-    flags: 19,
-    playing: false,
-    dspOn: true,
-  };
-  const owner = { passId: "numeric-phase-test", connectionEpoch: "test-epoch" };
-  const engine = new AudioListenerEngine({
-    listenerId: "numeric-only",
-    now: () => 0,
-    // Test-only adapter: never a real launch/timing certificate.
-    certificate: {
-      validated: true,
-      algorithmVersion: VERSION,
-      hostVersion: "synthetic",
-      maxVersion: "synthetic",
-      launchAligned: true,
-      requiredHostFlags: 19,
-      sampleRate: 48000,
-      vectorSize: 64,
-      uncertaintySamples: 64,
-      descriptorOffsetSamples: 0,
-    },
-  });
-  engine.configureHost(host);
-  engine.prepare({
-    ...owner,
+    tempo: 120,
     startBeat: 0,
-    endBeat: 8,
-    settings: { attackThresholdDb: threshold },
+    endBeat: totalSamples / 24000,
+    captureStartSample: 0,
+    captureEndSample: totalSamples,
+    requestedMetrics: ["attacks"],
+    attacks: { thresholdDb: threshold, minSpacingSamples: HOP },
+    traceId: "numeric-phase-trace",
+    correlationId: "numeric-phase-correlation",
+    causationId: "numeric-phase-cause",
   });
-  engine.arm(owner);
-  engine.configureHost({ ...host, playing: true });
-  for (const point of points) {
-    engine.configureHost({
-      ...host,
-      playing: true,
-      sample: point.sample,
-      beat: point.beat,
+  for (const [index, point] of points.entries()) {
+    const accepted = collector.ingestDetectorLevel({
+      owner,
+      sequence: index + 1,
+      startSample: point.sample - HOP,
+      endSample: point.sample,
+      count: HOP,
+      peak: point.peak,
+      rms: point.rms,
     });
-    assert.equal(engine.ingest(point, owner), true);
+    assert.equal(accepted.accepted, true);
   }
-  return engine.cancel(owner).observation;
+  const result = collector.finalize({ owner, sourceEndSample: totalSamples });
+  assert.equal(result.metrics.attacks.status, "completed");
+  return { attacks: result.metrics.attacks.summary.events };
 }
 
 for (const kind of ["quarter-sine", "anti-phase-quarter-sine", "silence"]) {

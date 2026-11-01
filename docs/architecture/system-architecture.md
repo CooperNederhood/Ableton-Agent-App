@@ -80,6 +80,15 @@ Journal attribution uses `liveSetId` for the open `.als` and adds
 `liveProjectId` only when that optional grouping is known; these fields remain
 independent of trace, correlation, and causation identifiers.
 
+Independent listening publication has a distinct `listening.partial` terminal
+event after confirmed capture cleanup and atomic context commit. Its bounded
+metadata contains per-listener metric acquisition counts/status/gap reasons,
+context references, elapsed time and the owning trace/correlation/causation.
+It is not a generic failed tool or a claim that every metric completed. Desktop
+presentation retains the same typed outcome and redacts nested strings before
+journaling. Producer/collector/source/drain telemetry for the new native path
+remains a separate integration milestone; consumer support cannot certify it.
+
 ### Local storage topology
 
 The canonical structure and ownership rules are specified in

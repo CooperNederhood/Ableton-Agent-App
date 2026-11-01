@@ -5,11 +5,26 @@ export function genModel(code, outputs, sampleRate = 48000) {
   const state = {},
     initial = {},
     delays = {},
+    data = {},
     parameters = { sourceSampleRate: sampleRate };
   const histories = [],
     params = [],
-    delayNames = [];
+    delayNames = [],
+    dataNames = [];
   let js = code
+    .replace(/Data (\w+)\((\d+),\s*(\d+)\);/g, (_, name, frames, channels) => {
+      frames = Number(frames);
+      channels = Number(channels);
+      if (frames * channels > 65536 || frames < 1 || channels < 1)
+        throw new Error("unsupported model data");
+      dataNames.push(name);
+      data[name] = {
+        frames,
+        channels,
+        values: new Float64Array(frames * channels),
+      };
+      return `const ${name} = data.${name};`;
+    })
     .replace(/Delay (\w+)\((\d+)\);/g, (_, name, size) => {
       size = Number(size);
       if (size < 1 || size > 65536) throw new Error("unsupported model delay");
@@ -48,6 +63,7 @@ export function genModel(code, outputs, sampleRate = 48000) {
     ...histories,
     ...params,
     ...delayNames,
+    ...dataNames,
     ...outputNames,
   ]);
   const locals = [
@@ -60,6 +76,7 @@ export function genModel(code, outputs, sampleRate = 48000) {
     "state",
     "params",
     "delays",
+    "data",
     "samplerate",
     ...inputNames,
     "max",
@@ -68,6 +85,8 @@ export function genModel(code, outputs, sampleRate = 48000) {
     "sqrt",
     "round",
     "floor",
+    "peek",
+    "poke",
     js,
   );
   return {
@@ -76,6 +95,7 @@ export function genModel(code, outputs, sampleRate = 48000) {
         state,
         parameters,
         delays,
+        data,
         sampleRate,
         ...inputNames.map((_, i) => values[i] ?? 0),
         Math.max,
@@ -84,6 +104,8 @@ export function genModel(code, outputs, sampleRate = 48000) {
         Math.sqrt,
         Math.round,
         Math.floor,
+        peekData,
+        pokeData,
       );
     },
     configure(values) {
@@ -92,6 +114,30 @@ export function genModel(code, outputs, sampleRate = 48000) {
     reset() {
       Object.assign(state, initial);
       for (const delay of Object.values(delays)) delay.reset();
+      for (const memory of Object.values(data)) memory.values.fill(0);
     },
   };
+}
+
+function checkDataAccess(memory, index, channel) {
+  if (
+    !memory ||
+    !Number.isInteger(index) ||
+    index < 0 ||
+    index >= memory.frames ||
+    !Number.isInteger(channel) ||
+    channel < 0 ||
+    channel >= memory.channels
+  )
+    throw new Error("invalid model data access");
+}
+
+function peekData(memory, index, channel) {
+  checkDataAccess(memory, index, channel);
+  return memory.values[index * memory.channels + channel];
+}
+
+function pokeData(memory, value, index, channel) {
+  checkDataAccess(memory, index, channel);
+  memory.values[index * memory.channels + channel] = value;
 }

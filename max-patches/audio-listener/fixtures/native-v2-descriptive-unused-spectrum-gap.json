@@ -1,0 +1,26 @@
+{
+  "scope": "native-v2-descriptive-unused-spectrum-gap/v1",
+  "diagnosticOnly": true,
+  "realHostQualified": false,
+  "passId": "b47c8393-1f30-40c5-9166-db78ee84c8d2",
+  "traceId": "4ce6d6ab-6079-4dbc-acf9-d9d33e1e0b2e",
+  "failureReason": "changed_native_spectrum_sequence",
+  "sampleRate": 48000,
+  "vectorSize": 64,
+  "tempoBpm": 128,
+  "nativeOriginCounter": 13128704,
+  "totalSamples": 180000,
+  "completedEnvelopeWindows": 15,
+  "nextEnvelopeCounter": 13205504,
+  "previousPacket": [
+    13199360, 47.69192730206386, 83015.88003912914, 13197312, 13199360, 0
+  ],
+  "packet": [
+    13203456, 59.757740815262906, 21157.377845754123, 13201408, 13203456, 0
+  ],
+  "missingSnapshotCounter": 13201408,
+  "outcome": {
+    "completed": false,
+    "contextIds": []
+  }
+}

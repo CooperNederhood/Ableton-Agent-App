@@ -11,6 +11,10 @@ import { dirname, resolve } from "node:path";
 import { performance } from "node:perf_hooks";
 import type { BindParams, Database, SqlJsStatic } from "sql.js";
 import {
+  storedObservationCoordinates,
+  storedObservationIdentity,
+} from "@ableton-agent/protocol";
+import {
   createNonBlockingObservabilityRecorder,
   OBSERVABILITY_CONTRACT_VERSION,
   sanitizePersistedText,
@@ -63,7 +67,20 @@ export interface ContextOperationOptions {
 }
 
 type ObservationSummary<T> = T extends unknown
-  ? Omit<T, "samples" | "attacks">
+  ? T extends {
+      schema: "metric-audio-observation/v1";
+      geometry: infer G;
+      metrics: infer M;
+    }
+    ? Omit<T, "geometry" | "metrics" | "rows"> & {
+        readonly geometry: Omit<G, "rows">;
+        readonly metrics: {
+          readonly [K in keyof M]: Omit<M[K], "records"> & {
+            readonly retainedRecords: number;
+          };
+        };
+      }
+    : Omit<T, "samples" | "attacks">
   : never;
 export type ContextEntrySummary = Omit<ContextEntry, "payload"> & {
   readonly payload: ObservationSummary<ContextEntry["payload"]>;
@@ -223,6 +240,46 @@ const parseLink = (value: unknown): ContextLink =>
   contextLinkSchema.parse(value);
 const parsePass = (value: unknown): ListeningPass =>
   listeningPassSchema.parse(value);
+
+function omitFields<T extends object, K extends keyof T>(
+  value: T,
+  ...keys: K[]
+): Omit<T, K> {
+  const copy = { ...value };
+  for (const key of keys) Reflect.deleteProperty(copy, key);
+  return copy;
+}
+
+function summarizeObservation(
+  observation: ContextEntry["payload"],
+): ContextEntrySummary["payload"] {
+  if (observation.schema === "metric-audio-observation/v1") {
+    const { geometry, metrics } = observation;
+    const summarizeMetric = <T extends { records: readonly unknown[] }>(
+      metric: T,
+    ): Omit<T, "records"> & { retainedRecords: number } => {
+      const { records, ...summary } = metric;
+      return { ...summary, retainedRecords: records.length };
+    };
+    return {
+      ...omitFields(observation, "rows", "geometry", "metrics"),
+      geometry: omitFields(geometry, "rows"),
+      metrics: {
+        level: summarizeMetric(metrics.level),
+        "spectral-centroid": summarizeMetric(metrics["spectral-centroid"]),
+        attacks: summarizeMetric(metrics.attacks),
+      },
+    };
+  }
+  switch (observation.schema) {
+    case "session-audio-observation/v1":
+      return omitFields(observation, "samples", "attacks");
+    case "audio-observation/v2":
+      return omitFields(observation, "samples", "attacks");
+    case "audio-observation/v1":
+      return omitFields(observation, "samples", "attacks");
+  }
+}
 
 function queryFingerprint(
   query: ReturnType<typeof contextQuerySchema.parse>,
@@ -749,44 +806,9 @@ export class SessionContextStore implements EntityContextRepository {
           }
           if (!applicable) continue;
         }
-        const observation = entry.payload;
-        const common = {
-          listenerId: observation.listenerId,
-          passId: observation.passId,
-          sampleRate: observation.sampleRate,
-          startSample: observation.startSample,
-          endSample: observation.endSample,
-          startBeat: observation.startBeat,
-          endBeat: observation.endBeat,
-          complete: observation.complete,
-          limitations: observation.limitations,
-          summaries: observation.summaries,
-          reduction: observation.reduction,
-        };
-        const payload =
-          observation.schema === "session-audio-observation/v1"
-            ? {
-                ...common,
-                schema: observation.schema,
-                algorithm: observation.algorithm,
-                alignment: observation.alignment,
-                source: observation.source,
-              }
-            : observation.schema === "audio-observation/v2"
-              ? {
-                  ...common,
-                  schema: observation.schema,
-                  algorithm: observation.algorithm,
-                  alignment: observation.alignment,
-                }
-              : {
-                  ...common,
-                  schema: observation.schema,
-                  algorithm: observation.algorithm,
-                };
         items.push({
           ...entry,
-          payload,
+          payload: summarizeObservation(entry.payload),
         });
       }
       return { ...page, items };
@@ -1082,8 +1104,36 @@ export class SessionContextStore implements EntityContextRepository {
       }
     }
     for (const entry of entries) {
-      if (entry.payload.schema === "session-audio-observation/v1") {
-        const observation = entry.payload;
+      const identity = storedObservationIdentity(entry.payload);
+      const coordinates = storedObservationCoordinates(entry.payload);
+      const complete =
+        entry.payload.schema === "metric-audio-observation/v1"
+          ? entry.payload.outcome === "complete"
+          : entry.payload.complete;
+      if (
+        entry.payload.schema === "metric-audio-observation/v1" &&
+        (entry.payload.ownership.traceId !== entry.trace.traceId ||
+          entry.payload.ownership.correlationId !== entry.trace.correlationId ||
+          entry.payload.ownership.causationId !== entry.trace.causationId ||
+          entry.payload.ownership.connectionEpoch !==
+            entry.producer.connectionEpoch ||
+          pass.requestedMode !== entry.payload.source.view ||
+          pass.actualMode !== entry.payload.source.view ||
+          pass.actualRange === null ||
+          coordinates.startBeat < pass.actualRange.startBeat ||
+          coordinates.endBeat > pass.actualRange.endBeat ||
+          !["completed", "partial"].includes(pass.status))
+      ) {
+        throw new TypeError(
+          "Metric observation requires successful shared acquisition and exact producer provenance",
+        );
+      }
+      const source =
+        entry.payload.schema === "session-audio-observation/v1" ||
+        entry.payload.schema === "metric-audio-observation/v1"
+          ? entry.payload.source
+          : undefined;
+      if (source?.view === "session") {
         const entryLinks = links.filter((link) => link.entryId === entry.id);
         const primaryLinks = entryLinks.filter(
           (link) => link.relationship === "primary",
@@ -1105,7 +1155,7 @@ export class SessionContextStore implements EntityContextRepository {
             subject.id === primary?.trackId &&
             subject.trackId === primary?.trackId &&
             subject.binding.previousRuntimeBindings.includes(
-              observation.source.target.track.expectedReference,
+              source.target.track.expectedReference,
             )
           );
         });
@@ -1113,16 +1163,17 @@ export class SessionContextStore implements EntityContextRepository {
           pass.requestedMode !== "session" ||
           pass.actualMode !== "session" ||
           pass.requestedRange.startBeat !== 0 ||
-          pass.requestedRange.endBeat > 4 ||
+          pass.requestedRange.endBeat > 499.5 ||
           pass.actualRange?.startBeat !== 0 ||
-          pass.actualRange.endBeat < observation.endBeat ||
-          pass.actualRange.endBeat > 4.001 ||
+          pass.actualRange.endBeat < coordinates.endBeat ||
+          Math.abs(pass.actualRange.endBeat - pass.requestedRange.endBeat) >
+            0.001 + 1e-8 ||
           primary?.kind !== "clip" ||
           primary.location !== "session" ||
           primary.binding.semanticLocator.sceneIndex !==
-            observation.source.target.sceneIndex ||
+            source.target.sceneIndex ||
           !primary.binding.previousRuntimeBindings.includes(
-            observation.source.target.expectedClipReference,
+            source.target.expectedClipReference,
           ) ||
           !track ||
           contributors.some(
@@ -1137,20 +1188,28 @@ export class SessionContextStore implements EntityContextRepository {
       }
       if (
         entry.passId !== pass.id ||
-        entry.payload.passId !== pass.id ||
+        identity.passId !== pass.id ||
         entry.producer.agentId !== pass.initiatorAgentId ||
         entry.trace.traceId !== pass.trace.traceId ||
         entry.trace.correlationId !== pass.trace.correlationId ||
-        entry.payload.listenerId !== entry.producer.listenerId ||
+        identity.listenerId !== entry.producer.listenerId ||
         !pass.listenerIds.includes(entry.producer.listenerId) ||
-        (pass.complete && !entry.payload.complete)
+        (pass.complete && !complete)
       )
         throw new TypeError(
           "Observation pass/listener/completeness attribution is inconsistent",
         );
+      const entryBytes = Buffer.byteLength(JSON.stringify(entry), "utf8");
+      const metric = entry.kind === "metric-audio-observation/v1";
       if (
-        Buffer.byteLength(JSON.stringify(entry), "utf8") >
-        CONTEXT_LIMITS.entryBytes
+        entryBytes >
+          (metric
+            ? CONTEXT_LIMITS.metricEntryBytes
+            : CONTEXT_LIMITS.entryBytes) ||
+        (metric &&
+          entryBytes -
+            Buffer.byteLength(JSON.stringify(entry.payload), "utf8") >
+            CONTEXT_LIMITS.metricEntryMetadataBytes)
       ) {
         throw new ContextQuotaError("Encoded context entry exceeds quota");
       }
@@ -1178,12 +1237,17 @@ export class SessionContextStore implements EntityContextRepository {
           "Approximate descriptive observations cannot certify exclusive attribution",
         );
       }
-      const session = entry.payload.schema === "session-audio-observation/v1";
+      const session =
+        entry.payload.schema === "session-audio-observation/v1" ||
+        (entry.payload.schema === "metric-audio-observation/v1" &&
+          entry.payload.source.view === "session");
       const measured =
-        entry.payload.schema === "session-audio-observation/v1" &&
+        (entry.payload.schema === "session-audio-observation/v1" ||
+          (entry.payload.schema === "metric-audio-observation/v1" &&
+            entry.payload.source.view === "session")) &&
         link.relationship === "contributor"
           ? entry.payload.source.transport
-          : entry.payload;
+          : storedObservationCoordinates(entry.payload);
       if (
         link.coverage.startBeat < measured.startBeat ||
         link.coverage.endBeat > measured.endBeat ||

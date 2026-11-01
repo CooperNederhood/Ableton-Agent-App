@@ -433,7 +433,7 @@ export function deviceDocument() {
   boxes.push(
     box(
       "label",
-      "Audio Listener — transparent stereo tap; production capture requires real-Live calibration",
+      "Machine Listening - transparent stereo tap; capture controlled by Ableton Agent",
       10,
       350,
       1,
@@ -454,7 +454,7 @@ export function deviceDocument() {
         spacing: ["Attack gap ms", "Attack gap ms", 0],
       },
       description:
-        "On-demand native measurements. No audio recording. Calibration required.",
+        "On-demand native measurements. No audio recording. Capture controlled by Ableton Agent.",
       dependency_cache: [],
     }),
   );

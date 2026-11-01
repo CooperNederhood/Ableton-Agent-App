@@ -5,7 +5,7 @@ import {
   createListeningHost,
   ListeningFailure,
   listeningLimits,
-  persistListeningObservations,
+  persistMetricListeningObservations,
   readConnectedListenerBinding,
   reserveListeningPublication,
   resolveListenerBinding,
@@ -25,26 +25,36 @@ import {
   sanitizeTelemetryAttributes,
 } from "@ableton-agent/observability";
 import {
-  storedAudioObservationSchema,
-  createNativeListeningGeometry,
   DEFAULT_LISTENING_TIMING_POLICY,
   listeningTimingPolicySchema,
-  NATIVE_LISTENER_SCOPE,
-  NATIVE_LISTENER_SCOPE_V2,
+  readListeningFailureEvidence,
+  NATIVE_METRIC_LISTENING_SCOPE,
+  MAX_METRIC_LISTENING_SECONDS,
   inspectListeningContextResultSchema,
   positionListeningPlaybackResultSchema,
   type InspectListeningContextResult,
-  type NativeListeningGeometry,
   type PositionListeningPlaybackParams,
-  type StartListeningPlaybackParams,
   type ListeningTimingPolicy,
+  type ListeningFailureEvidence,
+  type NativeMetricListeningConfig,
 } from "@ableton-agent/protocol";
 import {
   recordSignalTelemetry,
   type ListenerDescriptor,
   type ListenerService,
 } from "@ableton-agent/signal-routing";
-import { prepareListenerCapture } from "./listening-capture.js";
+import { prepareMetricListenerCapture } from "./metric-listening-capture.js";
+import {
+  createMetricCaptureBinding,
+  validateMetricCaptureObservations,
+  type MetricCaptureBinding,
+} from "./metric-listening-config.js";
+import {
+  captureFailureEvidence,
+  failureFact,
+  ListeningRuntimeRejection,
+  denyListening as deny,
+} from "./listening-failure.js";
 import { createSessionListeningServices } from "./session-listening-runtime.js";
 import type {
   ListeningRuntimeDependencies,
@@ -59,6 +69,11 @@ type ContextPorts = Pick<
 >;
 
 export interface ListeningRuntimeHostOptions {
+  /** Internal opt-in; production delivery remains gated on full native qualification. */
+  readonly independentMetricListeners?: boolean;
+  readonly requestedMetrics?: Readonly<
+    NativeMetricListeningConfig["requestedMetrics"]
+  >;
   readonly resolveTimingPolicy?: () => ListeningTimingPolicy;
   readonly resolveOwner: (
     context: ListeningExecutionContext,
@@ -88,70 +103,27 @@ interface CaptureState {
   readonly connections: readonly ConnectedListenerBinding[];
   inspection: InspectListeningContextResult;
   readonly timingPolicy: Readonly<ListeningTimingPolicy>;
-  readonly geometry?: Readonly<NativeListeningGeometry>;
-  positioned: boolean;
+  readonly metricBindings: readonly MetricCaptureBinding[];
+  readonly trace: ListeningPassContext["trace"];
   readonly createdAt: string;
   repository?: Repository;
   reserved: boolean;
   startedAt?: string;
   endedAt?: string;
-  captureFailure?: string;
+  captureFailure?: ListeningFailure;
   nativeLaunch?: Promise<void>;
-}
-
-interface PlaybackResult {
-  readonly cleanupPolicy: "leave-running";
-  readonly startedAtBeat: number;
-  readonly sourceOnset: "measured" | "unverified";
-  release(): Promise<void>;
-}
-
-/**
- * Explicit test-owned assembly seam, NOT exported from the runtime package.
- * Its readiness check represents independent measured commissioning/onset
- * evidence, not producer READY metadata. Production has no such authority yet.
- */
-export interface ListeningRuntimeTestAdapter {
-  readonly provenance: "test-owned-certified-adapter";
-  assertMeasuredReadiness(
-    this: void,
-    input: {
-      readonly context: ListeningPassContext;
-      readonly listeners: readonly ListenerDescriptor[];
-      readonly inspection: InspectListeningContextResult;
-      readonly signal: AbortSignal;
-      readonly request: ListeningRequest & { mode: "arrangement" };
-      readonly timingPolicy: Readonly<ListeningTimingPolicy>;
-      readonly positioned: boolean;
-    },
-  ): Promise<void>;
-  prepare: typeof prepareListenerCapture;
-  start(
-    this: void,
-    params: StartListeningPlaybackParams,
-    signal: AbortSignal,
-  ): Promise<PlaybackResult>;
-}
-
-interface RuntimeAdapter {
-  assertReadiness: ListeningRuntimeTestAdapter["assertMeasuredReadiness"];
-  prepare: typeof prepareListenerCapture;
-  start: ListeningRuntimeTestAdapter["start"];
-}
-
-function deny(code: string, detail?: string): never {
-  throw new ListeningFailure(code, detail ? `${code}: ${detail}` : code);
 }
 
 function execution(
   context: ListeningPassContext,
   signal: AbortSignal,
-): ListeningExecutionContext {
+): ListeningExecutionContext & { readonly listeningPassId: string } {
   return {
     sessionId: context.owner.sessionId,
     agentId: context.owner.agentId,
     trace: context.trace,
     actorKind: "agent",
+    listeningPassId: context.passId,
     signal,
   };
 }
@@ -164,24 +136,54 @@ function sameOwner(a: ListeningOwner, b: ListeningOwner): boolean {
   );
 }
 
-function captureDuration(
+function assertCaptureDuration(
   request: ListeningRequest & { mode: "arrangement" },
   inspection: InspectListeningContextResult,
-): number {
+): void {
   const tempo = inspection.transport.tempo;
-  if (tempo === null) deny("tempo_unknown");
+  if (tempo === null)
+    deny("tempo_unknown", undefined, [
+      failureFact("transport.tempoKnown", false, true, {
+        comparison: "equal",
+        unit: "boolean",
+      }),
+    ]);
   const duration = Math.ceil(
     ((request.endBeat - request.startBeat) * 60000) / tempo,
   );
-  if (duration < 1 || duration > 120000 || duration > request.maximumDurationMs)
-    deny("native_capture_quota");
-  return duration;
+  const maximumDurationMs = MAX_METRIC_LISTENING_SECONDS * 1000;
+  if (
+    duration < 1 ||
+    duration > maximumDurationMs ||
+    duration > request.maximumDurationMs
+  )
+    deny("native_capture_quota", undefined, [
+      failureFact("capture.durationMs", duration, maximumDurationMs, {
+        comparison: "at-most",
+        unit: "ms",
+      }),
+      failureFact(
+        "capture.requestedMaximumMs",
+        duration,
+        request.maximumDurationMs,
+        { comparison: "at-most", unit: "ms" },
+      ),
+      failureFact("capture.durationPositive", duration >= 1, true, {
+        comparison: "equal",
+        unit: "boolean",
+      }),
+    ]);
 }
 
 function bindingDescriptor(
   descriptor: ListenerDescriptor,
+  independentMetrics = false,
 ): Parameters<typeof readConnectedListenerBinding>[0] {
   const registration = descriptor.registration;
+  if (!independentMetrics)
+    deny("listening_not_enabled", undefined, [
+      failureFact("listening.enabled", independentMetrics, true),
+    ]);
   return {
     connectionId: descriptor.connectionId,
     producer: {
@@ -192,6 +194,9 @@ function bindingDescriptor(
     },
     registration: {
       version: registration.version,
+      algorithmVersion: registration.algorithmVersion,
+      sampleRate: registration.sampleRate,
+      vectorSize: registration.vectorSize,
       capabilities: registration.capabilities,
       connectionEpoch: registration.connectionEpoch,
       ...(registration.deviceCanonicalPath === undefined
@@ -207,43 +212,39 @@ function bindingDescriptor(
   };
 }
 
-function nativeGeometry(
-  descriptors: readonly ListenerDescriptor[],
-  request: ListeningRequest & { mode: "arrangement" },
-  inspection: InspectListeningContextResult,
-  policy: ListeningTimingPolicy,
-): Readonly<NativeListeningGeometry> | undefined {
-  const first = descriptors[0]!.registration;
-  if (descriptors.some((item) => item.registration.version !== first.version))
-    deny("mixed_listener_versions_unsupported");
-  if (first.version === 1) {
-    if (policy.mode !== "strict")
-      deny(
-        "descriptive_requires_v2_listener",
-        "Descriptive listening requires a v2 listener device. Update the listener, or explicitly choose Strict mode to use the restricted legacy prototype. No automatic fallback was attempted.",
-      );
-    return undefined;
-  }
-  const rate = first.sampleRate;
-  if (rate !== 44_100 && rate !== 48_000)
-    deny("unsupported_native_sample_rate");
+function assertMetricDspGeometry(
+  bindings: readonly MetricCaptureBinding[],
+): void {
+  const first = bindings[0]?.config.geometry;
+  if (!first)
+    deny("listener_unavailable_or_ambiguous", undefined, [
+      failureFact("listener.count", bindings.length, "at least one"),
+    ]);
   if (
-    descriptors.some(
-      (item) =>
-        item.registration.version !== 2 ||
-        item.registration.sampleRate !== rate ||
-        item.registration.vectorSize !== first.vectorSize,
+    bindings.some(
+      ({ config }) =>
+        config.geometry.sampleRate !== first.sampleRate ||
+        config.geometry.vectorSize !== first.vectorSize,
     )
   )
-    deny("listener_dsp_geometry_mismatch");
-  if (inspection.transport.tempo === null) deny("tempo_unknown");
-  return createNativeListeningGeometry({
-    sampleRate: rate,
-    vectorSize: first.vectorSize,
-    tempoBpm: inspection.transport.tempo,
-    startBeat: request.startBeat,
-    endBeat: request.endBeat,
-  });
+    deny(
+      "listener_dsp_geometry_mismatch",
+      undefined,
+      bindings.flatMap(({ config }, index) => [
+        failureFact(
+          `listener.${index}.sampleRate`,
+          config.geometry.sampleRate,
+          first.sampleRate,
+          { comparison: "equal", unit: "Hz" },
+        ),
+        failureFact(
+          `listener.${index}.vectorSize`,
+          config.geometry.vectorSize,
+          first.vectorSize,
+          { comparison: "equal", unit: "samples" },
+        ),
+      ]),
+    );
 }
 
 function playbackParameters(
@@ -277,6 +278,26 @@ function subject(
   const fingerprint = listener.fingerprint.digest;
   const digest = (value: unknown) =>
     createHash("sha256").update(JSON.stringify(value)).digest("hex");
+  const binding: ListeningPublicationBinding["primary"]["binding"] = {
+    version: 1,
+    semanticLocator: {
+      name: sanitizePersistedText(listener.binding.track.expectedName).slice(
+        0,
+        128,
+      ),
+      trackId,
+      ...(kind === "track" ? {} : { arrangementRange: range }),
+    },
+    sourceIdentity: `live-connection:${trackId}`,
+    playbackSettingsHash: digest(listener.trackEvidence),
+    upstreamProcessingHash: fingerprint,
+    routingHash: digest({
+      scope: "unknown",
+      reasons: listener.unknownReasons,
+    }),
+    dependencyScope: "unknown",
+    previousRuntimeBindings: [trackId],
+  };
   return {
     id: digest({
       sessionId: owner.sessionId,
@@ -284,33 +305,14 @@ function subject(
       trackId,
       kind,
       range,
-      fingerprint,
+      binding,
     }),
     sessionId: owner.sessionId,
     liveSetId: owner.liveSetId,
     kind,
     trackId,
     location: kind === "track" ? "track" : "arrangement",
-    binding: {
-      version: 1,
-      semanticLocator: {
-        name: sanitizePersistedText(listener.binding.track.expectedName).slice(
-          0,
-          128,
-        ),
-        trackId,
-        ...(kind === "track" ? {} : { arrangementRange: range }),
-      },
-      sourceIdentity: `live-connection:${trackId}`,
-      playbackSettingsHash: digest(listener.trackEvidence),
-      upstreamProcessingHash: fingerprint,
-      routingHash: digest({
-        scope: "unknown",
-        reasons: listener.unknownReasons,
-      }),
-      dependencyScope: "unknown",
-      previousRuntimeBindings: [trackId],
-    },
+    binding,
   };
 }
 
@@ -344,10 +346,9 @@ function publicationBindings(
   });
 }
 
-function assemble(
+export function createListeningRuntimeHost(
   dependencies: ListeningRuntimeDependencies,
   options: ListeningRuntimeHostOptions,
-  adapter: RuntimeAdapter,
 ): ConcreteListeningRuntimeHost {
   const service: ListenerService | undefined =
     dependencies.signals.listeners ?? dependencies.signals.listenerTransport;
@@ -364,13 +365,20 @@ function assemble(
 
   async function stage<T>(
     name: string,
-    context: ListeningExecutionContext,
+    context: ListeningExecutionContext & { readonly listeningPassId?: string },
     operation: (progress: (detail: string) => void) => Promise<T>,
     compensate?: (result: T) => Promise<void>,
     attributes?: Readonly<Record<string, unknown>>,
   ): Promise<T> {
     const started = performance.now();
-    const event = (lifecycle: string, detail?: string) =>
+    const passId =
+      context.listeningPassId ??
+      (typeof attributes?.passId === "string" ? attributes.passId : undefined);
+    const event = (
+      lifecycle: string,
+      detail?: string,
+      evidence?: ListeningFailureEvidence,
+    ) =>
       recordSignalTelemetry(dependencies.telemetry, {
         name: `listening.runtime.${name}.${lifecycle}`,
         source: "listening-runtime-host",
@@ -386,7 +394,11 @@ function assemble(
             : lifecycle === "cancelled"
               ? "cancelled"
               : "success",
-        attributes: sanitizeTelemetryAttributes({ ...attributes, detail }),
+        attributes: sanitizeTelemetryAttributes({
+          ...attributes,
+          ...(detail === undefined ? {} : { detail }),
+          ...(evidence === undefined ? {} : { failureEvidence: evidence }),
+        }),
       });
     const compensateAbort = async (result: T) => {
       if (!compensate) return;
@@ -424,7 +436,13 @@ function assemble(
     event("queued");
     event("started");
     try {
-      if (closed) deny("listening_host_closed");
+      if (closed)
+        deny("listening_host_closed", undefined, [
+          failureFact("runtime.closed", closed, false, {
+            comparison: "equal",
+            unit: "boolean",
+          }),
+        ]);
       context.signal?.throwIfAborted();
       const result = await withCorrelation(
         {
@@ -454,16 +472,97 @@ function assemble(
       event("completed");
       return result;
     } catch (cause) {
+      const parsedEvidence = readListeningFailureEvidence(cause);
+      const evidenceOwned =
+        parsedEvidence.status === "present" &&
+        parsedEvidence.evidence.reference.traceId === context.trace.traceId &&
+        (passId === undefined ||
+          parsedEvidence.evidence.reference.passId === passId);
+      let evidence =
+        evidenceOwned && parsedEvidence.status === "present"
+          ? parsedEvidence.evidence
+          : undefined;
+      if (parsedEvidence.status !== "absent" && !evidenceOwned) {
+        recordSignalTelemetry(dependencies.telemetry, {
+          name: "listening.runtime.diagnostics.coverage-gap",
+          source: "listening-runtime-host",
+          sessionId: context.sessionId,
+          activeAgentId: context.agentId,
+          correlationId: context.trace.correlationId,
+          causationId: context.trace.causationId,
+          trace: { traceId: context.trace.traceId, spanId: randomUUID() },
+          outcome: "unknown",
+          level: "warn",
+          attributes: {
+            boundary: name,
+            reason:
+              parsedEvidence.status === "present"
+                ? "diagnostic-owner-mismatch"
+                : "invalid-evidence",
+          },
+        });
+      }
+      if (cause instanceof ListeningRuntimeRejection) {
+        const phase: ListeningFailureEvidence["phase"] =
+          name === "publication" || name === "reservation"
+            ? "publication"
+            : name === "capture-preparation"
+              ? "arming"
+              : name === "playback-start" ||
+                  name === "native-onset" ||
+                  name === "source-positioning"
+                ? "launch"
+                : "validation";
+        const component = phase === "publication" ? "publication" : "binding";
+        if (passId !== undefined && evidence === undefined)
+          evidence = captureFailureEvidence({
+            code: cause.code,
+            message: cause.message,
+            phase,
+            component,
+            checkId: `runtime.${name}.${cause.code}`,
+            trace: context.trace,
+            passId,
+            facts: cause.rejectionFacts,
+            coverage: cause.rejectionFacts.length ? "complete" : "unavailable",
+            coverageReasons: cause.rejectionFacts.length
+              ? []
+              : ["missing-operands"],
+          });
+        recordSignalTelemetry(dependencies.telemetry, {
+          name: "listening.runtime.rejection.observed",
+          source: "listening-runtime-host",
+          sessionId: context.sessionId,
+          activeAgentId: context.agentId,
+          correlationId: context.trace.correlationId,
+          causationId: context.trace.causationId,
+          trace: { traceId: context.trace.traceId, spanId: randomUUID() },
+          outcome: "failure",
+          durationMs: Math.max(0, performance.now() - started),
+          attributes: sanitizeTelemetryAttributes({
+            boundary: name,
+            checkId: evidence?.checkId ?? `runtime.${name}.${cause.code}`,
+            code: cause.code,
+            component: evidence?.component ?? component,
+            facts: evidence?.facts ?? cause.rejectionFacts,
+            coverage: evidence?.coverage ?? "unavailable",
+            ...(passId === undefined ? {} : { passId }),
+          }),
+        });
+      }
       event(
         context.signal?.aborted ? "cancelled" : "failed",
         cause instanceof Error ? cause.message : "Listening boundary failed",
+        evidence,
       );
-      if (cause instanceof ListeningFailure) throw cause;
+      if (cause instanceof ListeningFailure)
+        throw new ListeningFailure(cause.code, cause.message, evidence);
       throw new ListeningFailure(
         context.signal?.aborted ? "cancelled" : "listening_runtime_failed",
         sanitizePersistedText(
           cause instanceof Error ? cause.message : "Listening boundary failed",
         ).slice(0, 512),
+        evidence,
       );
     }
   }
@@ -478,20 +577,52 @@ function assemble(
       resolved.agentId !== context.agentId ||
       !resolved.liveSetId
     )
-      deny("permission_denied");
+      deny("permission_denied", undefined, [
+        failureFact("owner.sessionId", resolved.sessionId, context.sessionId, {
+          comparison: "equal",
+          unit: "identity",
+        }),
+        failureFact("owner.agentId", resolved.agentId, context.agentId, {
+          comparison: "equal",
+          unit: "identity",
+        }),
+        failureFact(
+          "owner.liveSetAvailable",
+          Boolean(resolved.liveSetId),
+          true,
+          { comparison: "equal", unit: "boolean" },
+        ),
+      ]);
     return { ...resolved };
   }
 
   function listeners(): ListenerService {
-    if (!service) deny("listener_ingress_unavailable");
+    if (!service)
+      deny("listener_ingress_unavailable", undefined, [
+        failureFact("ingress.available", false, true, {
+          comparison: "equal",
+          unit: "boolean",
+        }),
+      ]);
     return service;
   }
 
   function connected(descriptors: readonly ListenerDescriptor[]) {
-    if (descriptors.length > 128) deny("listener_inventory_quota");
+    if (descriptors.length > 128)
+      deny("listener_inventory_quota", undefined, [
+        failureFact("listener.inventoryCount", descriptors.length, 128, {
+          comparison: "at-most",
+          unit: "count",
+        }),
+      ]);
     return descriptors.flatMap((descriptor) => {
+      if (
+        descriptor.registration.version === 5 &&
+        options.independentMetricListeners !== true
+      )
+        return [];
       const result = readConnectedListenerBinding(
-        bindingDescriptor(descriptor),
+        bindingDescriptor(descriptor, options.independentMetricListeners),
       );
       return result.ok ? [result.connection] : [];
     });
@@ -519,16 +650,54 @@ function assemble(
   > {
     return stage("binding-validation", context, async (progress) => {
       if (!dependencies.ableton.inspectListeningContext)
-        deny("listening_inspection_unavailable");
+        deny("listening_inspection_unavailable", undefined, [
+          failureFact("bridge.inspectListeningContextAvailable", false, true, {
+            comparison: "equal",
+            unit: "boolean",
+          }),
+        ]);
       const inspectionStarted = Date.now();
-      if (!sameOwner(await owner(context), expectedOwner))
-        deny("permission_denied");
+      const observedOwner = await owner(context);
+      if (!sameOwner(observedOwner, expectedOwner))
+        deny("permission_denied", undefined, [
+          failureFact(
+            "owner.sessionId",
+            observedOwner.sessionId,
+            expectedOwner.sessionId,
+            { comparison: "equal", unit: "identity" },
+          ),
+          failureFact(
+            "owner.agentId",
+            observedOwner.agentId,
+            expectedOwner.agentId,
+            { comparison: "equal", unit: "identity" },
+          ),
+          failureFact(
+            "owner.liveSetId",
+            observedOwner.liveSetId,
+            expectedOwner.liveSetId,
+            { comparison: "equal", unit: "identity" },
+          ),
+        ]);
       const identity = await dependencies.ableton.getLiveIdentity();
       context.signal?.throwIfAborted();
       if (identity.liveSetId !== expectedOwner.liveSetId)
-        deny("live_set_changed");
+        deny("live_set_changed", undefined, [
+          failureFact(
+            "liveSet.id",
+            identity.liveSetId,
+            expectedOwner.liveSetId,
+            { comparison: "equal", unit: "identity" },
+          ),
+        ]);
       const inventory = listeners().inspectListeners();
-      if (inventory.length > 128) deny("listener_inventory_quota");
+      if (inventory.length > 128)
+        deny("listener_inventory_quota", undefined, [
+          failureFact("listener.inventoryCount", inventory.length, 128, {
+            comparison: "at-most",
+            unit: "count",
+          }),
+        ]);
       for (const [id, attested] of attestedBindings) {
         if (
           attested.liveSetId !== expectedOwner.liveSetId ||
@@ -546,11 +715,29 @@ function assemble(
         const matches = inventory.filter(
           (item) => item.producer.producerId === id,
         );
-        if (matches.length !== 1) deny("listener_unavailable_or_ambiguous");
+        if (matches.length !== 1)
+          deny("listener_unavailable_or_ambiguous", undefined, [
+            failureFact("listener.matchingCount", matches.length, 1, {
+              comparison: "equal",
+              unit: "count",
+            }),
+            failureFact("listener.requestedId", id, undefined, {
+              unit: "identity",
+            }),
+          ]);
         const candidate = readConnectedListenerBinding(
-          bindingDescriptor(matches[0]!),
+          bindingDescriptor(matches[0]!, options.independentMetricListeners),
         );
-        if (!candidate.ok) deny(candidate.reason);
+        if (!candidate.ok)
+          deny(candidate.reason, undefined, [
+            failureFact("binding.registrationAccepted", candidate.ok, true, {
+              comparison: "equal",
+              unit: "boolean",
+            }),
+            failureFact("binding.reason", candidate.reason, undefined, {
+              unit: "state",
+            }),
+          ]);
         return {
           descriptor: structuredClone(matches[0]!),
           connection: candidate.connection,
@@ -586,19 +773,50 @@ function assemble(
               deny(
                 "listener_placement_stale",
                 "The registered path no longer attests the previously inspected Max listener. Wait for placement refresh, inspect listeners again, and start a new capture.",
+                [
+                  failureFact("binding.maxAudioEffectAttested", false, true, {
+                    comparison: "equal",
+                    unit: "boolean",
+                  }),
+                ],
               );
             throw cause;
           }),
       );
       context.signal?.throwIfAborted();
-      if (
-        (await dependencies.ableton.getLiveIdentity()).liveSetId !==
-        expectedOwner.liveSetId
-      )
-        deny("live_set_changed");
+      const confirmedIdentity = await dependencies.ableton.getLiveIdentity();
+      if (confirmedIdentity.liveSetId !== expectedOwner.liveSetId)
+        deny("live_set_changed", undefined, [
+          failureFact(
+            "liveSet.id",
+            confirmedIdentity.liveSetId,
+            expectedOwner.liveSetId,
+            { comparison: "equal", unit: "identity" },
+          ),
+        ]);
       context.signal?.throwIfAborted();
-      if (!sameOwner(await owner(context), expectedOwner))
-        deny("permission_denied");
+      const confirmedOwner = await owner(context);
+      if (!sameOwner(confirmedOwner, expectedOwner))
+        deny("permission_denied", undefined, [
+          failureFact(
+            "owner.sessionId",
+            confirmedOwner.sessionId,
+            expectedOwner.sessionId,
+            { comparison: "equal", unit: "identity" },
+          ),
+          failureFact(
+            "owner.agentId",
+            confirmedOwner.agentId,
+            expectedOwner.agentId,
+            { comparison: "equal", unit: "identity" },
+          ),
+          failureFact(
+            "owner.liveSetId",
+            confirmedOwner.liveSetId,
+            expectedOwner.liveSetId,
+            { comparison: "equal", unit: "identity" },
+          ),
+        ]);
       context.signal?.throwIfAborted();
       const currentInventory = listeners().inspectListeners();
       const candidates = connected(currentInventory);
@@ -620,16 +838,49 @@ function assemble(
           deny(
             "listener_placement_changed",
             "Listener registration changed during inspection. Wait for placement refresh, inspect listeners again, and start a new capture.",
+            [
+              failureFact("binding.currentConnectionCount", current.length, 1, {
+                comparison: "equal",
+                unit: "count",
+              }),
+              failureFact(
+                "binding.connectionUnchanged",
+                isDeepStrictEqual(current[0], connection),
+                true,
+                { comparison: "equal", unit: "boolean" },
+              ),
+              failureFact(
+                "binding.registrationUnchanged",
+                isDeepStrictEqual(
+                  currentDescriptor?.registration,
+                  descriptor.registration,
+                ),
+                true,
+                { comparison: "equal", unit: "boolean" },
+              ),
+            ],
           );
         if (
           !discovery &&
           previous === undefined &&
           currentDescriptor?.phase !== "idle"
         )
-          deny("listener_not_idle");
+          deny("listener_not_idle", undefined, [
+            failureFact("listener.phase", currentDescriptor?.phase, "idle", {
+              comparison: "equal",
+              unit: "state",
+            }),
+          ]);
       }
       if (inspection.listeners.length !== selected.length)
-        deny("ambiguous_inspection");
+        deny("ambiguous_inspection", undefined, [
+          failureFact(
+            "binding.inspectedListenerCount",
+            inspection.listeners.length,
+            selected.length,
+            { comparison: "equal", unit: "count" },
+          ),
+        ]);
       for (const { connection, descriptor } of selected) {
         const old = previous?.connections.find(
           (item) => item.producerId === connection.producerId,
@@ -641,7 +892,32 @@ function assemble(
             old.connectionEpoch !== connection.connectionEpoch ||
             old.canonicalPath !== connection.canonicalPath)
         )
-          deny("listener_instance_changed");
+          deny("listener_instance_changed", undefined, [
+            failureFact(
+              "listener.connectionId",
+              connection.connectionId,
+              old.connectionId,
+              { comparison: "equal", unit: "identity" },
+            ),
+            failureFact(
+              "listener.instanceId",
+              connection.instanceId,
+              old.instanceId,
+              { comparison: "equal", unit: "identity" },
+            ),
+            failureFact(
+              "listener.connectionEpoch",
+              connection.connectionEpoch,
+              old.connectionEpoch,
+              { comparison: "equal", unit: "identity" },
+            ),
+            failureFact(
+              "listener.canonicalPath",
+              connection.canonicalPath,
+              old.canonicalPath,
+              { comparison: "equal", unit: "identity" },
+            ),
+          ]);
         const oldDescriptor = previous?.descriptors.find(
           (item) => item.producer.producerId === descriptor.producer.producerId,
         );
@@ -653,12 +929,35 @@ function assemble(
               descriptor.registration.algorithmVersion ||
             oldDescriptor.registration.version !==
               descriptor.registration.version ||
-            (oldDescriptor.registration.version !== 1 &&
-              descriptor.registration.version !== 1 &&
-              oldDescriptor.registration.vectorSize !==
-                descriptor.registration.vectorSize))
+            oldDescriptor.registration.vectorSize !==
+              descriptor.registration.vectorSize)
         )
-          deny("listener_algorithm_or_sample_rate_changed");
+          deny("listener_algorithm_or_sample_rate_changed", undefined, [
+            failureFact(
+              "listener.sampleRate",
+              descriptor.registration.sampleRate,
+              oldDescriptor.registration.sampleRate,
+              { comparison: "equal", unit: "Hz" },
+            ),
+            failureFact(
+              "listener.algorithmVersion",
+              descriptor.registration.algorithmVersion,
+              oldDescriptor.registration.algorithmVersion,
+              { comparison: "equal", unit: "identity" },
+            ),
+            failureFact(
+              "listener.version",
+              descriptor.registration.version,
+              oldDescriptor.registration.version,
+              { comparison: "equal" },
+            ),
+            failureFact(
+              "listener.vectorSize",
+              descriptor.registration.vectorSize,
+              oldDescriptor.registration.vectorSize,
+              { comparison: "equal", unit: "samples" },
+            ),
+          ]);
         const expectedTarget =
           previous?.inspection.listeners.find(
             (item) => item.canonicalPath === connection.canonicalPath,
@@ -677,17 +976,68 @@ function assemble(
             deny(
               resolution.reason,
               "The reply does not match the current inspection. Request a fresh inspection before explicitly requesting a new listening pass.",
+              [
+                failureFact("binding.resolutionAccepted", false, true, {
+                  comparison: "equal",
+                  unit: "boolean",
+                }),
+                failureFact(
+                  "binding.resolutionReason",
+                  resolution.reason,
+                  undefined,
+                  { unit: "state" },
+                ),
+                failureFact("binding.requestQueryId", queryId, undefined, {
+                  unit: "identity",
+                }),
+              ],
             );
           if (resolution.reason === "stale-connection")
             deny(
               "listener_instance_changed",
               "The listener connection changed during inspection. Rediscover the current listener before explicitly requesting a new listening pass.",
+              [
+                failureFact("binding.resolutionAccepted", false, true, {
+                  comparison: "equal",
+                  unit: "boolean",
+                }),
+                failureFact(
+                  "binding.connectionId",
+                  connection.connectionId,
+                  undefined,
+                  { unit: "identity" },
+                ),
+                failureFact(
+                  "binding.connectionEpoch",
+                  connection.connectionEpoch,
+                  undefined,
+                  { unit: "identity" },
+                ),
+              ],
             );
           deny(
             resolution.reason,
             resolution.reason === "stale-target"
               ? "Listener placement no longer matches its attested device. Wait for placement refresh, inspect listeners again, and start a new capture."
               : undefined,
+            [
+              failureFact("binding.resolutionAccepted", false, true, {
+                comparison: "equal",
+                unit: "boolean",
+              }),
+              failureFact(
+                "binding.resolutionReason",
+                resolution.reason,
+                undefined,
+                { unit: "state" },
+              ),
+              failureFact(
+                "binding.registeredPath",
+                connection.canonicalPath,
+                undefined,
+                { unit: "identity" },
+              ),
+            ],
           );
         }
         attestedBindings.set(connection.connectionId, {
@@ -697,25 +1047,35 @@ function assemble(
         });
         if (
           !discovery &&
-          connection.nativeStatus.scope !== NATIVE_LISTENER_SCOPE &&
-          connection.nativeStatus.scope !== NATIVE_LISTENER_SCOPE_V2 &&
-          connection.nativeStatus.scope !== "session-transport-coupled/v1" &&
-          (connection.nativeStatus.version !== 1 ||
-            connection.nativeStatus.timing !== "VERIFIED" ||
-            connection.nativeStatus.readiness !== "READY")
+          connection.nativeStatus.scope !== NATIVE_METRIC_LISTENING_SCOPE
         )
-          deny("real_live_timing_validation_required");
-        if (
-          !discovery &&
-          connection.nativeStatus.scope === NATIVE_LISTENER_SCOPE &&
-          (range.startBeat !== 0 ||
-            range.endBeat <= 0 ||
-            range.endBeat > 20 ||
-            !Number.isInteger(range.endBeat * 5))
-        )
-          deny("unsupported_native_capture_scope");
+          deny("real_live_timing_validation_required", undefined, [
+            failureFact(
+              "listener.nativeScope",
+              connection.nativeStatus.scope,
+              undefined,
+              { unit: "state" },
+            ),
+            failureFact(
+              "listener.nativeReadiness",
+              connection.nativeStatus.readiness,
+              "READY",
+              { comparison: "equal", unit: "state" },
+            ),
+            failureFact(
+              "listener.nativeVersion",
+              connection.nativeStatus.version,
+              5,
+              { comparison: "equal" },
+            ),
+          ]);
         if (!discovery && previous === undefined && descriptor.phase !== "idle")
-          deny("listener_not_idle");
+          deny("listener_not_idle", undefined, [
+            failureFact("listener.phase", descriptor.phase, "idle", {
+              comparison: "equal",
+              unit: "state",
+            }),
+          ]);
       }
       if (!discovery && sourceMode === "arrangement") {
         const hasOverride = inspection.listeners.some(
@@ -789,20 +1149,61 @@ function assemble(
           deny(
             refusal,
             "A Session source override was detected for at least one selected listener. Return to Arrangement in Live for that track, then explicitly request a new listening pass. No capture was published.",
+            [
+              failureFact("source.sessionOverridePresent", hasOverride, false, {
+                comparison: "equal",
+                unit: "boolean",
+              }),
+            ],
           );
         if (refusal === "arrangement_source_unknown")
           deny(
             refusal,
             "Arrangement source selection could not be verified for at least one selected listener. Check the listener connection and source state in Live, then request a fresh inspection before a new listening pass. No capture was published.",
+            [
+              failureFact("source.selectionUnknown", hasUnknown, false, {
+                comparison: "equal",
+                unit: "boolean",
+              }),
+            ],
           );
-        if (refusal !== undefined) deny(refusal);
+        if (refusal !== undefined)
+          deny(refusal, undefined, [
+            failureFact(
+              "transport.safeToStart",
+              inspection.transport.safeToStart,
+              true,
+              { comparison: "equal", unit: "boolean" },
+            ),
+            failureFact("source.sessionOverridePresent", hasOverride, false, {
+              comparison: "equal",
+              unit: "boolean",
+            }),
+            failureFact("source.selectionUnknown", hasUnknown, false, {
+              comparison: "equal",
+              unit: "boolean",
+            }),
+          ]);
       }
       if (
         previous &&
         previous.inspection.projectRevision !== inspection.projectRevision &&
         !allowPositionRevision
       )
-        deny("project_revision_changed");
+        deny("project_revision_changed", undefined, [
+          failureFact(
+            "project.revision",
+            inspection.projectRevision,
+            previous.inspection.projectRevision,
+            { comparison: "equal", unit: "identity" },
+          ),
+          failureFact(
+            "project.allowPositionRevision",
+            allowPositionRevision,
+            true,
+            { comparison: "equal", unit: "boolean" },
+          ),
+        ]);
       if (
         previous &&
         (previous.inspection.transport.tempo !== inspection.transport.tempo ||
@@ -813,7 +1214,24 @@ function assemble(
               )?.fingerprint.digest !== before.fingerprint.digest,
           ))
       )
-        deny("listening_source_changed");
+        deny("listening_source_changed", undefined, [
+          failureFact(
+            "source.tempo",
+            inspection.transport.tempo,
+            previous.inspection.transport.tempo,
+            { comparison: "equal" },
+          ),
+          ...previous.inspection.listeners.map((before, index) =>
+            failureFact(
+              `source.listener.${index}.fingerprint`,
+              inspection.listeners.find(
+                (after) => after.canonicalPath === before.canonicalPath,
+              )?.fingerprint.digest,
+              before.fingerprint.digest,
+              { comparison: "equal", unit: "identity" },
+            ),
+          ),
+        ]);
       return {
         owner: expectedOwner,
         descriptors: selected.map((item) => item.descriptor),
@@ -826,21 +1244,65 @@ function assemble(
   function state(input: ListeningPassContext): CaptureState {
     const cached = states.get(input.passId);
     if (!cached || !sameOwner(cached.owner, input.owner))
-      deny("stale_listening_pass");
+      deny("stale_listening_pass", undefined, [
+        failureFact("pass.cached", cached !== undefined, true, {
+          comparison: "equal",
+          unit: "boolean",
+        }),
+        failureFact(
+          "pass.ownerMatches",
+          cached !== undefined && sameOwner(cached.owner, input.owner),
+          true,
+          { comparison: "equal", unit: "boolean" },
+        ),
+      ]);
     return cached;
   }
 
   async function repository(input: PassInput): Promise<Repository> {
     const context = execution(input, input.signal);
-    if (!sameOwner(await owner(context), input.owner))
-      deny("permission_denied");
+    const observedOwner = await owner(context);
+    if (!sameOwner(observedOwner, input.owner))
+      deny("permission_denied", undefined, [
+        failureFact(
+          "repository.ownerSession",
+          observedOwner.sessionId,
+          input.owner.sessionId,
+          { comparison: "equal", unit: "identity" },
+        ),
+        failureFact(
+          "repository.ownerAgent",
+          observedOwner.agentId,
+          input.owner.agentId,
+          { comparison: "equal", unit: "identity" },
+        ),
+        failureFact(
+          "repository.ownerSet",
+          observedOwner.liveSetId,
+          input.owner.liveSetId,
+          { comparison: "equal", unit: "identity" },
+        ),
+      ]);
     const resolved = await options.resolveRepository(input.owner, context);
     input.signal.throwIfAborted();
     if (
       resolved.sessionId !== input.owner.sessionId ||
       resolved.liveSetId !== input.owner.liveSetId
     )
-      deny("permission_denied");
+      deny("permission_denied", undefined, [
+        failureFact(
+          "repository.sessionId",
+          resolved.sessionId,
+          input.owner.sessionId,
+          { comparison: "equal", unit: "identity" },
+        ),
+        failureFact(
+          "repository.liveSetId",
+          resolved.liveSetId,
+          input.owner.liveSetId,
+          { comparison: "equal", unit: "identity" },
+        ),
+      ]);
     return resolved;
   }
 
@@ -850,7 +1312,10 @@ function assemble(
       options.resolveTimingPolicy?.() ?? DEFAULT_LISTENING_TIMING_POLICY,
     resolveRepository: repository,
     listeners,
-    prepareCapture: adapter.prepare,
+    independentMetricListeners: options.independentMetricListeners === true,
+    ...(options.requestedMetrics
+      ? { requestedMetrics: options.requestedMetrics }
+      : {}),
     stage,
     inspectBindings: (input) =>
       inspect(
@@ -895,22 +1360,40 @@ function assemble(
             boundary: previous ? "post-arm-inspection" : "initial-inspection",
           },
         );
-        captureDuration(request, snapshot.inspection);
-        const geometry = nativeGeometry(
-          snapshot.descriptors,
-          request,
-          snapshot.inspection,
-          timingPolicy,
-        );
-        await adapter.assertReadiness({
-          context: pass,
-          listeners: snapshot.descriptors,
-          inspection: snapshot.inspection,
-          signal,
-          request,
-          timingPolicy,
-          positioned: previous?.positioned ?? false,
+        assertCaptureDuration(request, snapshot.inspection);
+        if (!dependencies.ableton.positionListeningPlayback)
+          deny("listening_positioning_unavailable", undefined, [
+            failureFact("playback.positioningAvailable", false, true),
+          ]);
+        const metricBindings = snapshot.descriptors.map((descriptor, index) => {
+          const track = snapshot.inspection.listeners[index]!.binding.track;
+          const targetIndex = track.kind === "master" ? null : track.index;
+          if (targetIndex === undefined)
+            deny("listener_track_index_unknown", undefined, [
+              failureFact("binding.track.index", targetIndex, "known"),
+            ]);
+          return createMetricCaptureBinding({
+            ...(options.requestedMetrics
+              ? { requestedMetrics: options.requestedMetrics }
+              : {}),
+            descriptor,
+            tempoBpm: snapshot.inspection.transport.tempo!,
+            timingPolicy,
+            source: {
+              view: "arrangement",
+              target: {
+                kind: track.kind,
+                index: targetIndex,
+                expectedReference: track.expectedReference,
+              },
+              transport: {
+                startBeat: request.startBeat,
+                endBeat: request.endBeat,
+              },
+            },
+          });
         });
+        assertMetricDspGeometry(metricBindings);
         signal.throwIfAborted();
         if (!previous)
           states.set(pass.passId, {
@@ -920,8 +1403,8 @@ function assemble(
             createdAt: new Date().toISOString(),
             reserved: false,
             timingPolicy,
-            ...(geometry ? { geometry } : {}),
-            positioned: false,
+            trace: structuredClone(pass.trace),
+            metricBindings,
           });
         const recording = Object.values(
           snapshot.inspection.transport.recording,
@@ -966,7 +1449,10 @@ function assemble(
           if (input.request.mode === "session")
             return session.services.prepare(input);
           const cached = state(input);
-          if (!cached.reserved) deny("context_reservation_required");
+          if (!cached.reserved)
+            deny("context_reservation_required", undefined, [
+              failureFact("context.reserved", cached.reserved, true),
+            ]);
           await repository(input);
           let snapshot = await inspect(
             input.request.listenerIds,
@@ -978,19 +1464,28 @@ function assemble(
             false,
             { passId: input.passId, boundary: "preparation-inspection" },
           );
-          if (cached.geometry) {
+          {
             const params = playbackParameters(cached, input);
             await stage(
               "source-positioning",
               execution(input, input.signal),
               async () => {
                 if (!dependencies.ableton.positionListeningPlayback)
-                  deny("listening_positioning_unavailable");
+                  deny("listening_positioning_unavailable", undefined, [
+                    failureFact("playback.positioningAvailable", false, true),
+                  ]);
                 const result = positionListeningPlaybackResultSchema.parse(
                   await dependencies.ableton.positionListeningPlayback(params),
                 );
                 if (result.requestedStartBeat !== cached.request.startBeat)
-                  deny("invalid_source_position_readback");
+                  deny("invalid_source_position_readback", undefined, [
+                    failureFact(
+                      "playback.requestedStartBeat",
+                      result.requestedStartBeat,
+                      cached.request.startBeat,
+                      { unit: "beats" },
+                    ),
+                  ]);
               },
             );
             snapshot = await stage(
@@ -1012,59 +1507,41 @@ function assemble(
               snapshot.inspection.transport.currentBeat !==
               cached.request.startBeat
             )
-              deny("source_position_changed");
+              deny("source_position_changed", undefined, [
+                failureFact(
+                  "transport.currentBeat",
+                  snapshot.inspection.transport.currentBeat,
+                  cached.request.startBeat,
+                  { unit: "beats" },
+                ),
+              ]);
             cached.inspection = snapshot.inspection;
-            cached.positioned = true;
           }
-          await adapter.assertReadiness({
-            context: input,
-            listeners: snapshot.descriptors,
-            inspection: snapshot.inspection,
-            signal: input.signal,
-            request: cached.request,
-            timingPolicy: cached.timingPolicy,
-            positioned: cached.positioned,
-          });
           input.signal.throwIfAborted();
-          const durationMs = captureDuration(
-            cached.request,
-            snapshot.inspection,
-          );
-          const capture = await adapter.prepare(listeners(), {
-            listeners: snapshot.descriptors,
-            config: cached.geometry
-              ? {
-                  geometry: cached.geometry,
-                  timingPolicy: cached.timingPolicy,
-                }
-              : {
-                  durationMs,
-                  maxWindows: snapshot.descriptors.every(
-                    (descriptor) =>
-                      descriptor.registration.nativeStatus?.scope ===
-                      NATIVE_LISTENER_SCOPE,
-                  )
-                    ? cached.request.endBeat * 5
-                    : 512,
-                  source: {
-                    mode: "arrangement",
-                    startBeat: cached.request.startBeat,
-                    endBeat: cached.request.endBeat,
-                  },
-                },
+          assertCaptureDuration(cached.request, snapshot.inspection);
+          const captureInput = {
             passId: input.passId,
             trace: input.trace,
             signal: input.signal,
             ...(dependencies.telemetry
               ? { telemetry: dependencies.telemetry }
               : {}),
+          };
+          const capture = await prepareMetricListenerCapture(listeners(), {
+            ...captureInput,
+            bindings: cached.metricBindings,
           });
           void capture.result.catch((cause: unknown) => {
-            cached.captureFailure = sanitizePersistedText(
-              cause instanceof Error
-                ? cause.message
-                : "Listener capture failed",
-            ).slice(0, 512);
+            const source = readListeningFailureEvidence(cause);
+            cached.captureFailure = new ListeningFailure(
+              "capture_failed",
+              sanitizePersistedText(
+                cause instanceof Error
+                  ? cause.message
+                  : "Listener capture failed",
+              ).slice(0, 512),
+              source.status === "present" ? source.evidence : undefined,
+            );
           });
           if (capture.nativeLaunch !== undefined)
             cached.nativeLaunch = capture.nativeLaunch;
@@ -1072,6 +1549,7 @@ function assemble(
           return {
             observations: capture.result,
             disarm: () => capture.disarm(),
+            observationContract: capture.observationContract,
           };
         },
         (capture) => capture.disarm(),
@@ -1084,54 +1562,43 @@ function assemble(
           if (input.request.mode === "session")
             return session.services.startPlayback(input);
           const cached = state(input);
-          if (!cached.reserved) deny("context_reservation_required");
+          if (!cached.reserved)
+            deny("context_reservation_required", undefined, [
+              failureFact("context.reserved", cached.reserved, true),
+            ]);
           await repository(input);
           input.signal.throwIfAborted();
-          if (cached.captureFailure !== undefined)
-            throw new ListeningFailure("capture_failed", cached.captureFailure);
-          const playback = await adapter.start(
+          if (cached.captureFailure !== undefined) throw cached.captureFailure;
+          if (!dependencies.ableton.startListeningPlayback)
+            deny("listening_playback_unavailable", undefined, [
+              failureFact("playback.startAvailable", false, true),
+            ]);
+          const nativeLaunch = cached.nativeLaunch;
+          if (nativeLaunch === undefined)
+            deny("source_onset_unverified", undefined, [
+              failureFact("playback.nativeLaunchPresent", false, true),
+            ]);
+          const playback = await dependencies.ableton.startListeningPlayback(
             playbackParameters(cached, input),
-            input.signal,
           );
-          try {
-            const scoped = (descriptor: ListenerDescriptor) =>
-              descriptor.registration.nativeStatus?.scope ===
-                NATIVE_LISTENER_SCOPE ||
-              descriptor.registration.nativeStatus?.scope ===
-                NATIVE_LISTENER_SCOPE_V2;
-            const nativeLaunch = cached.nativeLaunch;
-            if (
-              playback.startedAtBeat !== cached.request.startBeat ||
-              (cached.descriptors.some(scoped) && nativeLaunch === undefined) ||
-              (playback.sourceOnset !== "measured" &&
-                (!cached.descriptors.every(scoped) ||
-                  nativeLaunch === undefined))
-            )
-              deny("source_onset_unverified");
-            if (cached.descriptors.some(scoped) && nativeLaunch !== undefined)
-              await stage(
-                "native-onset",
-                execution(input, input.signal),
-                () => nativeLaunch,
-              );
-          } catch (cause) {
-            try {
-              await awaitListeningBoundary(
-                playback.release(),
-                AbortSignal.timeout(listeningLimits.cleanupTimeoutMs),
-              );
-            } catch (cleanupCause) {
-              throw new AggregateError(
-                [cause, cleanupCause],
-                "Native onset failed and playback monitor release failed",
-              );
-            }
-            throw cause;
-          }
+          if (playback.startedAtBeat !== cached.request.startBeat)
+            deny("source_onset_unverified", undefined, [
+              failureFact(
+                "playback.startedAtBeat",
+                playback.startedAtBeat,
+                cached.request.startBeat,
+                { unit: "beats" },
+              ),
+            ]);
+          await stage(
+            "native-onset",
+            execution(input, input.signal),
+            () => nativeLaunch,
+          );
           cached.startedAt = new Date().toISOString();
           return {
             cleanupPolicy: "leave-running",
-            release: () => playback.release(),
+            release: async () => {},
           };
         },
         (playback) => playback.release(),
@@ -1145,41 +1612,15 @@ function assemble(
         );
       const cached = states.get(passId);
       if (!cached || request.mode !== "arrangement" || !cached.startedAt)
-        deny("stale_listening_pass");
-      for (const raw of observations) {
-        const item = storedAudioObservationSchema.parse(raw);
-        const descriptor = cached.descriptors.find(
-          (entry) => entry.producer.producerId === item.listenerId,
-        );
-        if (
-          !descriptor ||
-          !item.complete ||
-          item.passId !== passId ||
-          item.startBeat !== request.startBeat ||
-          item.endBeat !==
-            (cached.geometry
-              ? cached.geometry.startBeat +
-                cached.geometry.totalSamples /
-                  ((cached.geometry.sampleRate * 60) / cached.geometry.tempoBpm)
-              : request.endBeat) ||
-          (item.schema === "audio-observation/v2") !==
-            (descriptor?.registration.version === 2) ||
-          item.endSample <= item.startSample ||
-          item.samples.length > 512 ||
-          item.sampleRate !== descriptor.registration.sampleRate ||
-          item.algorithm.version !== descriptor.registration.algorithmVersion
-        )
-          deny("invalid_capture_observation");
-        if (
-          item.schema === "audio-observation/v2" &&
-          (item.alignment.policy.mode !== cached.timingPolicy.mode ||
-            item.alignment.policy.maxClockDisagreementSamples !==
-              cached.timingPolicy.maxClockDisagreementSamples ||
-            item.alignment.vectorSize !== cached.geometry?.vectorSize ||
-            item.endSample - item.startSample !== cached.geometry.totalSamples)
-        )
-          deny("invalid_capture_alignment");
-      }
+        deny("stale_listening_pass", undefined, [
+          failureFact("pass.cached", cached !== undefined, true),
+          failureFact("pass.mode", request.mode, "arrangement"),
+          failureFact("pass.started", cached?.startedAt !== undefined, true),
+        ]);
+      validateMetricCaptureObservations(observations, cached.metricBindings, {
+        passId,
+        trace: cached.trace,
+      });
       cached.endedAt = new Date().toISOString();
     },
     persist: (input) =>
@@ -1194,8 +1635,25 @@ function assemble(
           !cached.startedAt ||
           !cached.endedAt
         )
-          deny("invalid_publication_lifecycle");
-        return persistListeningObservations(
+          deny("invalid_publication_lifecycle", undefined, [
+            failureFact("publication.reserved", cached.reserved, true),
+            failureFact(
+              "publication.repositoryMatches",
+              cached.repository === resolved,
+              true,
+            ),
+            failureFact(
+              "publication.started",
+              cached.startedAt !== undefined,
+              true,
+            ),
+            failureFact(
+              "publication.ended",
+              cached.endedAt !== undefined,
+              true,
+            ),
+          ]);
+        return persistMetricListeningObservations(
           resolved,
           {
             passId: input.passId,
@@ -1210,7 +1668,11 @@ function assemble(
             createdAt: cached.createdAt,
             startedAt: cached.startedAt,
             endedAt: cached.endedAt,
-            observations: input.observations,
+            observations: validateMetricCaptureObservations(
+              input.observations,
+              cached.metricBindings,
+              { passId: input.passId, trace: input.trace },
+            ),
             bindings: publicationBindings(cached),
           },
           input.signal,
@@ -1255,24 +1717,14 @@ function assemble(
           }
           // Producer self-report is never independent commissioning evidence.
           limitations.push(
-            candidate.nativeStatus.scope === NATIVE_LISTENER_SCOPE ||
-              candidate.nativeStatus.scope === NATIVE_LISTENER_SCOPE_V2 ||
-              candidate.nativeStatus.scope === "session-transport-coupled/v1"
-              ? "native_per_pass_validation_required"
-              : "real_live_timing_validation_required",
+            "native_per_pass_validation_required",
             "source_onset_unverified",
+            "approximate_descriptive_only",
+            "absolute_timing_accuracy_unknown",
+            "constant_tempo_assumed_not_independently_verified",
+            "tempo_automation_unsupported",
           );
-          if (
-            candidate.nativeStatus.version === 2 ||
-            candidate.nativeStatus.scope === "session-transport-coupled/v1"
-          )
-            limitations.push(
-              "approximate_descriptive_only",
-              "absolute_timing_accuracy_unknown",
-              "constant_tempo_assumed_not_independently_verified",
-              "tempo_automation_unsupported",
-            );
-          if (candidate.nativeStatus.scope === "session-transport-coupled/v1")
+          if (candidate.nativeStatus.supportedModes.includes("session"))
             limitations.push(
               "session_first_iteration_midi_or_warped_audio_only",
               "message_rate_source_monitoring_not_sample_accurate_continuity",
@@ -1303,11 +1755,14 @@ function assemble(
         const resolved = await owner(context);
         const snapshot = await dependencies.ableton.inspectSession();
         context.signal?.throwIfAborted();
-        if (
-          (await dependencies.ableton.getLiveIdentity()).liveSetId !==
-          resolved.liveSetId
-        )
-          deny("live_set_changed");
+        const identity = await dependencies.ableton.getLiveIdentity();
+        if (identity.liveSetId !== resolved.liveSetId)
+          deny("live_set_changed", undefined, [
+            failureFact("liveSet.id", identity.liveSetId, resolved.liveSetId, {
+              comparison: "equal",
+              unit: "identity",
+            }),
+          ]);
         const track = snapshot.tracks.find(
           (item) =>
             item.index === target.track.index &&
@@ -1321,7 +1776,35 @@ function assemble(
             item.reference === target.expectedClipReference &&
             item.name === target.expectedClipName,
         );
-        if (!track || !clip) deny("stale_session_target");
+        if (!track || !clip)
+          deny("stale_session_target", undefined, [
+            failureFact("source.trackMatched", track !== undefined, true, {
+              comparison: "equal",
+              unit: "boolean",
+            }),
+            failureFact("source.clipMatched", clip !== undefined, true, {
+              comparison: "equal",
+              unit: "boolean",
+            }),
+            failureFact("source.trackIndex", target.track.index, undefined, {
+              unit: "count",
+            }),
+            failureFact("source.sceneIndex", target.sceneIndex, undefined, {
+              unit: "count",
+            }),
+            failureFact(
+              "source.expectedTrackReference",
+              target.track.expectedReference,
+              undefined,
+              { unit: "identity" },
+            ),
+            failureFact(
+              "source.expectedClipReference",
+              target.expectedClipReference,
+              undefined,
+              { unit: "identity" },
+            ),
+          ]);
         return {
           clipReference: clip.reference,
           trackReference: track.reference,
@@ -1330,7 +1813,9 @@ function assemble(
       }),
     onChange: (job) => {
       if (
-        ["completed", "failed", "cancelled", "interrupted"].includes(job.stage)
+        ["completed", "partial", "failed", "cancelled", "interrupted"].includes(
+          job.stage,
+        )
       ) {
         states.delete(job.passId);
         session.forget(job.passId);
@@ -1386,88 +1871,14 @@ function assemble(
     ports.getSessionContextInventory = (sessionId, context) =>
       stage("context-inventory", context, async () => {
         await owner(context);
-        if (sessionId !== context.sessionId) deny("permission_denied");
+        if (sessionId !== context.sessionId)
+          deny("permission_denied", undefined, [
+            failureFact("context.sessionId", sessionId, context.sessionId, {
+              comparison: "equal",
+              unit: "identity",
+            }),
+          ]);
         return contextPorts.getSessionContextInventory!(sessionId, context);
       });
   return ports;
-}
-
-/** Only exact native scope may attempt fresh proof; metadata never certifies timing. */
-export function createListeningRuntimeHost(
-  dependencies: ListeningRuntimeDependencies,
-  options: ListeningRuntimeHostOptions,
-): ConcreteListeningRuntimeHost {
-  return assemble(dependencies, options, {
-    assertReadiness: async ({
-      listeners,
-      inspection,
-      signal,
-      request,
-      positioned,
-    }) => {
-      signal.throwIfAborted();
-      if (
-        listeners.length > 0 &&
-        listeners.every(
-          (listener) =>
-            listener.registration.version === 2 &&
-            listener.registration.nativeStatus.scope ===
-              NATIVE_LISTENER_SCOPE_V2 &&
-            (listener.registration.nativeStatus.readiness === "READY" ||
-              listener.registration.nativeStatus.reason ===
-                "fresh_per_pass_native_validation_required"),
-        )
-      ) {
-        if (!dependencies.ableton.positionListeningPlayback)
-          deny("listening_positioning_unavailable");
-        if (
-          positioned &&
-          inspection.transport.currentBeat !== request.startBeat
-        )
-          deny("unsupported_native_preflight");
-        return;
-      }
-      if (
-        listeners.length === 0 ||
-        listeners.some(
-          (listener) =>
-            listener.registration.nativeStatus?.scope !== NATIVE_LISTENER_SCOPE,
-        )
-      )
-        deny("real_live_timing_validation_required");
-      if (
-        inspection.transport.currentBeat !== 0 ||
-        inspection.transport.tempo !== 120 ||
-        listeners.some((listener) => listener.registration.sampleRate !== 48000)
-      )
-        deny("unsupported_native_preflight");
-    },
-    prepare: prepareListenerCapture,
-    start: async (params, signal) => {
-      signal.throwIfAborted();
-      if (!dependencies.ableton.startListeningPlayback)
-        deny("listening_playback_unavailable");
-      const result = await dependencies.ableton.startListeningPlayback(params);
-      return {
-        cleanupPolicy: "leave-running",
-        startedAtBeat: result.startedAtBeat,
-        sourceOnset: "unverified",
-        release: async () => {},
-      };
-    },
-  });
-}
-
-/** Positive composition tests inject measured, test-owned adapters, never production flags/files. */
-export function assembleListeningRuntimeHostForTests(
-  dependencies: ListeningRuntimeDependencies,
-  options: ListeningRuntimeHostOptions,
-  adapter: ListeningRuntimeTestAdapter,
-): ConcreteListeningRuntimeHost {
-  if (adapter.provenance !== "test-owned-certified-adapter")
-    deny("invalid_test_adapter");
-  return assemble(dependencies, options, {
-    ...adapter,
-    assertReadiness: adapter.assertMeasuredReadiness,
-  });
 }

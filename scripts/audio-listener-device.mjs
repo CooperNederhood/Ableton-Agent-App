@@ -1,5 +1,6 @@
 import { mkdir, readFile, writeFile, readdir, stat } from "node:fs/promises";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
+import { Buffer } from "node:buffer";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { tsImport } from "tsx/esm/api";
@@ -15,84 +16,100 @@ import {
   SHARED_PRODUCER_IDENTITY,
   writeProducerDiscoveryConfiguration,
 } from "./m4l-producer-companions.mjs";
-import {
-  addDevicePreviewRouting,
-  sourceDocuments,
-} from "../max-patches/audio-listener/native-source.mjs";
+import { sourceDocuments } from "../max-patches/audio-listener/native-source.mjs";
 import { calibrationDocuments } from "../max-patches/audio-listener/calibration-source.mjs";
-import { VERSION } from "../max-patches/audio-listener/audio_listener_engine.js";
 import {
   appendNativeRuntimeGraph,
   nativeRuntimeDocuments,
 } from "../max-patches/audio-listener/native-runtime-source.mjs";
-import { NATIVE_CAPTURE_SCOPE } from "../max-patches/audio-listener/audio_listener_native_controller.js";
+import {
+  compileNativeMetricProtocol,
+  NATIVE_METRIC_PROTOCOL_FILE,
+} from "./lib/native-metric-protocol-bundle.mjs";
+import { createNativeRunnerLifecycle } from "./lib/native-listening-lifecycle.mjs";
+import { sanitizeTelemetryAttributes } from "../packages/observability/dist/sanitizer.js";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 export const SOURCE_DIRECTORY = join(root, "max-patches", "audio-listener");
-export const DEVICE_FILE_NAME = "Audio-Listener.amxd";
+export const DEVICE_FILE_NAME = "Machine-Listening-Development.amxd";
 export const DEVICE_DIRECTORY_PARTS = [
   "Presets",
   "Audio Effects",
   "Max Audio Effect",
   "Audio-Listener",
 ];
-export const LOCAL_RESOURCES = [
-  "audio_listener_engine.js",
-  "audio_listener_native_coordinates.js",
-  "audio_listener_native_assembler.js",
-  "audio_listener_native_controller.js",
-  "audio_listener_runtime.js",
-  "audio_listener_max.js",
-  "audio_listener_guard.js",
-  "package.json",
-  "audio_listener_analysis.maxpat",
-  "audio_listener_spectrum.maxpat",
-  "audio_listener_envelope.gendsp",
-  "audio_listener_spectrum_energy.gendsp",
-];
+export const LOCAL_RESOURCES = ["audio_listener_guard.js", "package.json"];
 export const SHARED_RESOURCES = [
   SHARED_PRODUCER_COMPANION,
   SHARED_PRODUCER_IDENTITY,
 ];
 export const ALL_RESOURCES = [...LOCAL_RESOURCES, ...SHARED_RESOURCES];
 export const NATIVE_CANDIDATE_RESOURCES = [
-  "audio_listener_native_max.js",
+  "audio_listener_native_v5_max.js",
+  "audio_listener_metric_runtime.js",
+  "audio_listener_metric_controller.js",
+  "audio_listener_metric_spectrum.js",
+  "audio_listener_metric_io.js",
+  "audio_listener_metric_timelines.js",
+  "audio_listener_measurements.js",
   "audio_listener_native_io.js",
-  ...Object.keys(nativeRuntimeDocuments()),
+  NATIVE_METRIC_PROTOCOL_FILE,
+  ...Object.keys(nativeRuntimeDocuments({ nativeVersion: 5 })),
 ];
 export const PROFILE_CONFIGURATION = "agent_signal_storage.js";
 const hash = (raw) => createHash("sha256").update(raw).digest("hex");
 
-function nativePackageProfile(version) {
-  const descriptive = version === 2 || version === 3;
-  const documents = nativeRuntimeDocuments({ nativeVersion: version });
-  const runtimeEntry =
-    version === 3
-      ? "audio_listener_native_v3_max.js"
-      : descriptive
-        ? "audio_listener_native_v2_max.js"
-        : "audio_listener_native_max.js";
+export function generatedListeningParent() {
+  const document = sourceDocuments()["Audio-Listener.maxpat"];
+  for (const [id, varname] of Object.entries({
+    analysis: "ml_analysis",
+    node: "ml_runtime",
+    guard: "ml_guard",
+    identity: "ml_identity",
+  })) {
+    const owned = document.patcher.boxes.find(({ box }) => box.id === id);
+    if (!owned) throw new Error(`missing generated listening object: ${id}`);
+    owned.box.varname = varname;
+  }
+  return document;
+}
+const ENGINEERING_FIXTURE = "native5-unavailable-spectrum/v1";
+const ENGINEERING_FIXTURE_ENTRY =
+  "audio_listener_native_v5_unavailable_spectrum_max.js";
+
+// Builder-only selection; the shared/default runtime has no fixture switch.
+function validateEngineeringFixtureOptions(options) {
+  if (Object.hasOwn(options, "spectrumEnabled"))
+    throw new Error("native_metric_engineering_fixture_override_denied");
+  const selected =
+    Object.hasOwn(options, "engineeringFixture") ||
+    Object.hasOwn(options, "engineeringOnly");
+  if (
+    selected &&
+    (options.engineeringFixture !== ENGINEERING_FIXTURE ||
+      options.engineeringOnly !== true ||
+      options.nativeVersion !== 5 ||
+      options.nativeMode !== true)
+  )
+    throw new Error("native_metric_engineering_fixture_denied");
+  return selected;
+}
+
+function nativePackageProfile(engineeringFixture) {
+  const documents = nativeRuntimeDocuments({ nativeVersion: 5 });
+  const runtimeEntry = engineeringFixture
+    ? ENGINEERING_FIXTURE_ENTRY
+    : "audio_listener_native_v5_max.js";
   return {
     documents,
     runtimeEntry,
-    scope:
-      version === 3
-        ? "session-transport-coupled/v1"
-        : descriptive
-          ? "arrangement-descriptive/v2"
-          : NATIVE_CAPTURE_SCOPE,
-    algorithmVersion: descriptive ? "2.0.0" : VERSION,
-    observationSchema: descriptive
-      ? "audio-observation/v2"
-      : "audio-observation/v1",
-    durationMs: descriptive ? 30000 : 10000,
-    maxWindows: descriptive ? 300 : 100,
-    watchdogMs: descriptive ? 60000 : 30000,
-    resources: [
-      runtimeEntry,
-      "audio_listener_native_io.js",
-      ...Object.keys(documents),
-    ],
+    scope: "independent-metric-timelines/v1",
+    algorithmVersion: "3.0.0",
+    observationSchema: "metric-audio-observation/v1",
+    durationMs: 30000,
+    maxWindows: 2000,
+    watchdogMs: 60000,
+    resources: [runtimeEntry, ...NATIVE_CANDIDATE_RESOURCES.slice(1)],
   };
 }
 
@@ -180,8 +197,8 @@ export function prepareAuthoredDevice(
   if (!p || !Array.isArray(p.boxes) || !Array.isArray(p.lines))
     throw new Error("invalid authored patcher");
   const replacements = {
-    ml_analysis: "poly~ audio_listener_analysis 1 @parallel 0",
-    ml_runtime: "node.script audio_listener_max.js @autostart 1 @watch 0",
+    ml_runtime:
+      "node.script audio_listener_native_v5_max.js @autostart 1 @watch 0",
     ml_guard: "js audio_listener_guard.js",
     ml_identity: `js ${SHARED_PRODUCER_IDENTITY} watch`,
   };
@@ -197,22 +214,6 @@ export function prepareAuthoredDevice(
       throw new Error(`unexpected owned object type: ${name}`);
     b.text = text;
   }
-  const bottom = Math.max(
-    ...p.boxes.map(({ box }) =>
-      Array.isArray(box.patching_rect)
-        ? box.patching_rect[1] + box.patching_rect[3]
-        : 0,
-    ),
-  );
-  addDevicePreviewRouting(result, { x: 30, y: bottom + 30 });
-  p.rect[3] = Math.max(
-    p.rect[3],
-    ...p.boxes.map(({ box }) =>
-      Array.isArray(box.patching_rect)
-        ? box.patching_rect[1] + box.patching_rect[3] + 30
-        : 0,
-    ),
-  );
   const removed = new Set(
     p.boxes
       .filter(({ box }) =>
@@ -277,11 +278,19 @@ export async function checkSource() {
     ),
   );
   if (
+    manifest.formatVersion !== 2 ||
+    manifest.deviceFile !== DEVICE_FILE_NAME ||
+    manifest.canonicalSource !== "native-source.mjs" ||
     JSON.stringify(manifest.resources) !== JSON.stringify(ALL_RESOURCES) ||
+    JSON.stringify(manifest.nativeResources) !==
+      JSON.stringify(NATIVE_CANDIDATE_RESOURCES) ||
     manifest.optionalProfileConfiguration !== PROFILE_CONFIGURATION ||
     manifest.realLiveValidated !== false ||
-    manifest.algorithmVersion !== VERSION ||
-    manifest.observationSchema !== "audio-observation/v1"
+    manifest.nativeVersion !== 5 ||
+    manifest.nativeAbiVersion !== 3 ||
+    manifest.algorithmVersion !== "3.0.0" ||
+    manifest.observationSchema !== "metric-audio-observation/v1" ||
+    manifest.nativeScope !== "independent-metric-timelines/v1"
   ) {
     throw new Error("canonical resource manifest mismatch");
   }
@@ -299,6 +308,10 @@ export async function checkSource() {
     await readFile(join(SOURCE_DIRECTORY, "audio-effect-template.amxd")),
   );
   for (const name of ALL_RESOURCES) await readFile(await resourceSource(name));
+  const generated = nativeRuntimeDocuments({ nativeVersion: 5 });
+  for (const name of NATIVE_CANDIDATE_RESOURCES)
+    if (name !== NATIVE_METRIC_PROTOCOL_FILE && !Object.hasOwn(generated, name))
+      await readFile(await resourceSource(name));
   return documents;
 }
 
@@ -320,6 +333,10 @@ export async function build(outDirectory, options = {}) {
       operation: "m4l.audio-listener.package",
       stage,
       durationMs: Date.now() - startedAt,
+      ...(options.engineeringOnly === true &&
+      options.engineeringFixture === ENGINEERING_FIXTURE
+        ? { engineeringFixture: ENGINEERING_FIXTURE }
+        : {}),
       ...(errorCode === undefined ? {} : { errorCode }),
       ...(options.traceId === undefined ? {} : { traceId: options.traceId }),
       ...(options.correlationId === undefined
@@ -347,67 +364,83 @@ export async function build(outDirectory, options = {}) {
   }
 }
 
-async function buildPackage(
-  outDirectory,
-  {
+async function buildPackage(outDirectory, options = {}) {
+  const {
     discoveryStorage,
     authoredDevicePath,
     keepMcpBridge = false,
-    nativeMode = false,
-    nativeVersion = 1,
+    nativeMode = true,
+    nativeVersion = 5,
+    engineeringFixture,
+    engineeringOnly,
     ...publicationOptions
-  } = {},
-) {
+  } = options;
   if (!outDirectory || typeof outDirectory !== "string")
     throw new Error("explicit staging directory required");
-  if (![1, 2, 3].includes(nativeVersion) || (nativeVersion >= 2 && !nativeMode))
+  const fixtureSelected = validateEngineeringFixtureOptions(options);
+  if (fixtureSelected && (nativeMode !== true || nativeVersion !== 5))
+    throw new Error("native_metric_engineering_fixture_requires_native5");
+  if (nativeVersion !== 5 || nativeMode !== true)
     throw new Error(
-      "native version must be 1 or explicit native-mode version 2/3",
+      "listener packaging requires native v5; retired/non-native packages are denied",
     );
+  if (keepMcpBridge)
+    throw new Error("external authoring bridge is not a listening build input");
   if (
-    typeof nativeMode !== "boolean" ||
-    (nativeMode && authoredDevicePath === undefined)
+    authoredDevicePath !== undefined &&
+    typeof authoredDevicePath !== "string"
   )
-    throw new Error("native candidate requires explicit authored source");
-  const native = nativeMode ? nativePackageProfile(nativeVersion) : undefined;
+    throw new Error("invalid authored source path");
+  const native = nativePackageProfile(engineeringFixture);
+  if (fixtureSelected && typeof publicationOptions.stage === "function") {
+    const stage = publicationOptions.stage;
+    publicationOptions.stage = (name, operation, attributes) =>
+      stage(name, operation, {
+        ...attributes,
+        engineeringFixture: ENGINEERING_FIXTURE,
+      });
+  }
+  const metricCodec = await compileNativeMetricProtocol({
+    stage: publicationOptions.stage,
+    signal: publicationOptions.signal,
+  });
   const destination = resolve(outDirectory);
   if (destination === SOURCE_DIRECTORY)
     throw new Error("build must not overwrite canonical sources");
-  const documents = await checkSource();
+  await checkSource();
   const rawTemplate = await readFile(
     join(SOURCE_DIRECTORY, "audio-effect-template.amxd"),
   );
-  const container = isAudioTemplate(rawTemplate);
-  let deviceFile = DEVICE_FILE_NAME;
-  let rawDevice = encodeAmxd(container, documents["Audio-Listener.maxpat"]);
+  isAudioTemplate(rawTemplate);
+  if (
+    authoredDevicePath !== undefined &&
+    dirname(resolve(authoredDevicePath)) === destination
+  )
+    throw new Error(
+      "authored packaging must not overwrite its source directory",
+    );
+  const parent = generatedListeningParent();
+  // Existing fixture callers may supply a copy, but cannot substitute a graph.
   if (authoredDevicePath !== undefined) {
-    if (dirname(resolve(authoredDevicePath)) === destination)
-      throw new Error(
-        "authored packaging must not overwrite its source directory",
-      );
     const metadata = await stat(authoredDevicePath);
     if (!metadata.isFile() || metadata.size > 8 * 1024 * 1024)
       throw new Error("authored device exceeds size bound");
-    const source = await readFile(authoredDevicePath);
-    if (source.length > 8 * 1024 * 1024)
-      throw new Error("authored device exceeds size bound");
-    deviceFile = basename(authoredDevicePath);
-    if (!/^[A-Za-z0-9][A-Za-z0-9 _.-]{0,127}\.amxd$/.test(deviceFile))
-      throw new Error("invalid authored device filename");
-    const authored = isAudioTemplate(source);
-    let prepared = prepareAuthoredDevice(authored.document, { keepMcpBridge });
-    if (nativeMode) {
-      prepared = appendNativeRuntimeGraph(prepared, {
-        runtimeEntry: native.runtimeEntry,
-        nativeVersion,
-      });
-      validateAuthoredDocument(prepared, { keepMcpBridge });
-    }
-    rawDevice = encodeAmxd(authored, prepared);
-  } else if (keepMcpBridge)
-    throw new Error("authoring bridge requires an authored device");
+    const source = isAudioTemplate(await readFile(authoredDevicePath));
+    if (JSON.stringify(source.document) !== JSON.stringify(parent))
+      throw new Error("alternate listening patch source denied");
+  }
+  const deviceFile = DEVICE_FILE_NAME;
+  if (!/^[A-Za-z0-9][A-Za-z0-9 _.-]{0,127}\.amxd$/.test(deviceFile))
+    throw new Error("invalid authored device filename");
+  const authored = isAudioTemplate(rawTemplate);
+  const prepared = appendNativeRuntimeGraph(
+    prepareAuthoredDevice(parent, { keepMcpBridge }),
+    { runtimeEntry: native.runtimeEntry, nativeVersion: 5 },
+  );
+  validateAuthoredDocument(prepared, { keepMcpBridge });
+  const rawDevice = encodeAmxd(authored, prepared);
   await mkdir(destination, { recursive: true });
-  if (authoredDevicePath !== undefined && (await readdir(destination)).length) {
+  if ((await readdir(destination)).length) {
     throw new Error("authored staging directory must be empty");
   }
   const resources = [];
@@ -423,26 +456,27 @@ async function buildPackage(
       scope: SHARED_RESOURCES.includes(name) ? "shared" : "audio",
     });
   }
-  if (nativeMode) {
-    const generated = native.documents;
-    for (const name of native.resources) {
-      checkPackageCancellation(publicationOptions.signal);
-      let source;
-      if (Object.hasOwn(generated, name)) {
-        source = join(destination, name);
-        await writeFile(source, JSON.stringify(generated[name], null, 2), {
-          flag: "wx",
-        });
-      } else source = await resourceSource(name);
-      const raw = await readFile(source);
-      publication.push({ fileName: name, source });
-      resources.push({
-        name,
-        sha256: hash(raw),
-        bytes: raw.length,
-        scope: "audio",
+  const generated = native.documents;
+  for (const name of native.resources) {
+    checkPackageCancellation(publicationOptions.signal);
+    let source;
+    if (name === metricCodec.fileName) {
+      source = join(destination, name);
+      await writeFile(source, metricCodec.source, { flag: "wx" });
+    } else if (Object.hasOwn(generated, name)) {
+      source = join(destination, name);
+      await writeFile(source, JSON.stringify(generated[name], null, 2), {
+        flag: "wx",
       });
-    }
+    } else source = await resourceSource(name);
+    const raw = await readFile(source);
+    publication.push({ fileName: name, source });
+    resources.push({
+      name,
+      sha256: hash(raw),
+      bytes: raw.length,
+      scope: "audio",
+    });
   }
   await publishResources({
     ...publicationOptions,
@@ -462,55 +496,55 @@ async function buildPackage(
     });
   }
   checkPackageCancellation(publicationOptions.signal);
-  await writeFile(
-    join(destination, deviceFile),
-    rawDevice,
-    authoredDevicePath === undefined ? undefined : { flag: "wx" },
-  );
+  await writeFile(join(destination, deviceFile), rawDevice, { flag: "wx" });
   const manifest = {
-    formatVersion: authoredDevicePath === undefined ? 1 : 2,
+    formatVersion: 2,
     deviceFile,
-    authored: authoredDevicePath !== undefined,
+    authored: true,
     externalAuthoringBridge: keepMcpBridge,
     deviceType: "MxDeviceAudioEffect",
-    algorithmVersion: native?.algorithmVersion ?? VERSION,
-    observationSchema: native?.observationSchema ?? "audio-observation/v1",
+    algorithmVersion: native.algorithmVersion,
+    observationSchema: native.observationSchema,
     sharedTransportProtocolVersion: 1,
     discoveryConfigured: discoveryStorage !== undefined,
     providerLimits: {
-      durationMs: native?.durationMs ?? 120000,
-      maxWindows: native?.maxWindows ?? 512,
+      durationMs: native.durationMs,
+      maxWindows: native.maxWindows,
       envelopeUpdatesPerSecond: 10,
     },
     planningCeilings: {
-      watchdogMs: native?.watchdogMs ?? 300000,
+      watchdogMs: native.watchdogMs,
       observationPoints: 1024,
       attackCandidates: 512,
     },
     portable: !keepMcpBridge,
     listenerResourcesPortable: true,
     realLiveValidated: false,
-    ...(nativeMode
+    ...(fixtureSelected
       ? {
-          nativeMode: true,
-          nativeScope: native.scope,
-          ...(nativeVersion >= 2
-            ? {
-                nativeVersion,
-                ...(nativeVersion === 3
-                  ? {
-                      nativeAbiVersion: 2,
-                      sourceEvidence: "expected-context-only",
-                      synchronization: "transport-coupled-first-iteration",
-                      maxDurationBeats: 4,
-                    }
-                  : {}),
-                tempoPolicy: "constant-tempo-assumed",
-                tempoAutomationSupported: false,
-              }
-            : {}),
+          engineeringFixture: {
+            schema: "native-metric-engineering-fixture/v1",
+            id: engineeringFixture,
+            engineeringOnly,
+            unavailableMetric: "spectral-centroid",
+            sourceSemantics: "spectral-acquisition-not-started",
+            runtimeEntry: native.runtimeEntry,
+            runtimeEntrySha256: resources.find(
+              (resource) => resource.name === native.runtimeEntry,
+            ).sha256,
+          },
         }
       : {}),
+    nativeMode: true,
+    nativeScope: native.scope,
+    nativeVersion: 5,
+    nativeAbiVersion: 3,
+    measurementDelivery: "independent-metric-timelines/v1",
+    supportedModes: ["arrangement", "session"],
+    modeNegotiation: "explicit-per-pass",
+    metricProtocol: metricCodec.provenance,
+    tempoPolicy: "constant-tempo-assumed",
+    tempoAutomationSupported: false,
     templateSha256: hash(rawTemplate),
     deviceSha256: hash(rawDevice),
     resources,
@@ -526,7 +560,7 @@ async function buildPackage(
   await writeFile(
     join(destination, "audio-listener-manifest.json"),
     `${JSON.stringify(manifest, null, 2)}\n`,
-    authoredDevicePath === undefined ? undefined : { flag: "wx" },
+    { flag: "wx" },
   );
   await checkArtifact(destination);
   return manifest;
@@ -536,45 +570,62 @@ export async function checkArtifact(directory) {
   const manifest = JSON.parse(
     await readFile(join(directory, "audio-listener-manifest.json"), "utf8"),
   );
-  if (
-    manifest.nativeVersion !== undefined &&
-    (![2, 3].includes(manifest.nativeVersion) || manifest.nativeMode !== true)
-  )
+  if (Object.hasOwn(manifest, "engineeringFixture")) {
+    const fixture = manifest.engineeringFixture;
+    if (
+      manifest.nativeMode !== true ||
+      manifest.nativeVersion !== 5 ||
+      fixture?.schema !== "native-metric-engineering-fixture/v1" ||
+      fixture.id !== ENGINEERING_FIXTURE ||
+      fixture.engineeringOnly !== true ||
+      fixture.unavailableMetric !== "spectral-centroid" ||
+      fixture.sourceSemantics !== "spectral-acquisition-not-started" ||
+      fixture.runtimeEntry !== ENGINEERING_FIXTURE_ENTRY ||
+      fixture.runtimeEntrySha256 !==
+        manifest.resources?.find((r) => r.name === ENGINEERING_FIXTURE_ENTRY)
+          ?.sha256 ||
+      fixture.runtimeEntrySha256 !==
+        hash(
+          await readFile(join(SOURCE_DIRECTORY, ENGINEERING_FIXTURE_ENTRY)),
+        ) ||
+      Object.keys(fixture).sort().join(",") !==
+        "engineeringOnly,id,runtimeEntry,runtimeEntrySha256,schema,sourceSemantics,unavailableMetric"
+    )
+      throw new Error("invalid native metric engineering fixture manifest");
+  }
+  if (manifest.nativeVersion !== 5 || manifest.nativeMode !== true)
     throw new Error("invalid native version manifest");
-  const native =
-    manifest.nativeMode === true
-      ? nativePackageProfile(manifest.nativeVersion ?? 1)
-      : undefined;
+  const native = nativePackageProfile(manifest.engineeringFixture?.id);
   const expectedResources = [
     ...ALL_RESOURCES,
-    ...(native?.resources ?? []),
+    ...native.resources,
     ...(manifest.discoveryConfigured === true ? [PROFILE_CONFIGURATION] : []),
   ];
-  const authored = manifest.formatVersion === 2;
-  const validPackagingFlags = authored
-    ? manifest.authored === true &&
-      typeof manifest.externalAuthoringBridge === "boolean" &&
-      manifest.portable === !manifest.externalAuthoringBridge &&
-      manifest.listenerResourcesPortable === true
-    : (manifest.authored === undefined || manifest.authored === false) &&
-      (manifest.externalAuthoringBridge === undefined ||
-        manifest.externalAuthoringBridge === false) &&
-      manifest.portable === true &&
-      (manifest.listenerResourcesPortable === undefined ||
-        manifest.listenerResourcesPortable === true);
+  const validPackagingFlags =
+    manifest.authored === true &&
+    typeof manifest.externalAuthoringBridge === "boolean" &&
+    manifest.portable === !manifest.externalAuthoringBridge &&
+    manifest.listenerResourcesPortable === true;
   if (
-    ![1, 2].includes(manifest.formatVersion) ||
+    manifest.nativeAbiVersion !== 3 ||
+    manifest.measurementDelivery !== "independent-metric-timelines/v1" ||
+    manifest.modeNegotiation !== "explicit-per-pass" ||
+    JSON.stringify(manifest.supportedModes) !==
+      JSON.stringify(["arrangement", "session"]) ||
+    manifest.metricProtocol?.schema !== "native-metric-protocol-bundle/v1" ||
+    manifest.metricProtocol.sha256 !==
+      manifest.resources.find((r) => r.name === NATIVE_METRIC_PROTOCOL_FILE)
+        ?.sha256
+  )
+    throw new Error("invalid independent-metric native manifest");
+  if (
+    manifest.formatVersion !== 2 ||
     manifest.realLiveValidated !== false ||
     manifest.sharedTransportProtocolVersion !== 1 ||
     typeof manifest.discoveryConfigured !== "boolean" ||
     manifest.deviceType !== "MxDeviceAudioEffect" ||
-    (manifest.nativeMode !== undefined &&
-      (manifest.nativeMode !== true ||
-        manifest.formatVersion !== 2 ||
-        manifest.nativeScope !== native.scope)) ||
-    (manifest.nativeMode === undefined && manifest.nativeScope !== undefined) ||
+    manifest.nativeScope !== native.scope ||
     !validPackagingFlags ||
-    (!authored && manifest.deviceFile !== DEVICE_FILE_NAME) ||
     !/^[A-Za-z0-9][A-Za-z0-9 _.-]{0,127}\.amxd$/.test(manifest.deviceFile) ||
     JSON.stringify(manifest.resources.map((r) => r.name)) !==
       JSON.stringify(expectedResources)
@@ -582,21 +633,21 @@ export async function checkArtifact(directory) {
     throw new Error("invalid resource manifest");
   }
   if (
-    manifest.nativeVersion >= 2 &&
-    (manifest.algorithmVersion !== native.algorithmVersion ||
-      manifest.observationSchema !== native.observationSchema ||
-      manifest.tempoPolicy !== "constant-tempo-assumed" ||
-      manifest.tempoAutomationSupported !== false)
+    manifest.algorithmVersion !== native.algorithmVersion ||
+    manifest.observationSchema !== native.observationSchema ||
+    manifest.tempoPolicy !== "constant-tempo-assumed" ||
+    manifest.tempoAutomationSupported !== false
   )
-    throw new Error("invalid descriptive native manifest");
-  if (
-    manifest.nativeVersion === 3 &&
-    (manifest.nativeAbiVersion !== 2 ||
-      manifest.sourceEvidence !== "expected-context-only" ||
-      manifest.synchronization !== "transport-coupled-first-iteration" ||
-      manifest.maxDurationBeats !== 4)
-  )
-    throw new Error("invalid Session transport native manifest");
+    throw new Error("invalid independent-metric native manifest");
+  for (const field of [
+    "sourceEvidence",
+    "synchronization",
+    "maxAudioDurationMs",
+    "maxWindows",
+    "maxDurationBeats",
+  ])
+    if (Object.hasOwn(manifest, field))
+      throw new Error("retired native manifest metadata denied");
   if (!manifest.discoveryConfigured) {
     try {
       await readFile(join(directory, PROFILE_CONFIGURATION));
@@ -609,11 +660,15 @@ export async function checkArtifact(directory) {
   const { document } = isAudioTemplate(device);
   if (hash(device) !== manifest.deviceSha256)
     throw new Error("device hash mismatch");
-  if (authored)
-    validateAuthoredDocument(document, {
-      keepMcpBridge: manifest.externalAuthoringBridge,
-    });
-  else validateDocument(document);
+  validateAuthoredDocument(document, {
+    keepMcpBridge: manifest.externalAuthoringBridge,
+  });
+  const expectedDocument = appendNativeRuntimeGraph(
+    prepareAuthoredDevice(generatedListeningParent()),
+    { runtimeEntry: native.runtimeEntry, nativeVersion: 5 },
+  );
+  if (JSON.stringify(document) !== JSON.stringify(expectedDocument))
+    throw new Error("generated listening graph mismatch");
   if (manifest.nativeMode === true) {
     const runtimes = document.patcher.boxes.filter(
       ({ box }) => box.varname === "ml_runtime",
@@ -642,6 +697,26 @@ export async function checkArtifact(directory) {
   return manifest;
 }
 
+export async function checkCurrentArtifact(directory, options = {}) {
+  const manifest = await checkArtifact(directory);
+  const native = nativePackageProfile(manifest.engineeringFixture?.id);
+  for (const name of [...ALL_RESOURCES, ...native.resources]) {
+    if (name === NATIVE_METRIC_PROTOCOL_FILE) continue;
+    const expected = Object.hasOwn(native.documents, name)
+      ? Buffer.from(JSON.stringify(native.documents[name], null, 2))
+      : await readFile(await resourceSource(name));
+    if (!(await readFile(join(directory, name))).equals(expected))
+      throw new Error(`stale listening resource: ${name}`);
+  }
+  const codec = await compileNativeMetricProtocol(options);
+  if (
+    manifest.metricProtocol.sha256 !== codec.provenance.sha256 ||
+    JSON.stringify(manifest.metricProtocol) !== JSON.stringify(codec.provenance)
+  )
+    throw new Error("stale listening codec provenance");
+  return manifest;
+}
+
 export const CALIBRATION_RESOURCES = [
   "Audio-Listener-Commissioning.maxpat",
   "calibration_clock.gendsp",
@@ -661,6 +736,7 @@ const CALIBRATION_FIXTURES = [
 ];
 const FORBIDDEN_CALIBRATION_FILES = [
   DEVICE_FILE_NAME,
+  "Audio-Listener.amxd",
   "audio_listener_runtime.js",
   "audio_listener_engine.js",
   "audio_listener_native_coordinates.js",
@@ -828,13 +904,18 @@ export async function checkCalibrationArtifact(directory) {
   return manifest;
 }
 
+function cliPackageStage() {
+  const traceId = randomUUID();
+  return createNativeRunnerLifecycle({
+    telemetry: { enqueue: (event) => console.error(JSON.stringify(event)) },
+    sanitize: sanitizeTelemetryAttributes,
+    trace: { traceId, correlationId: traceId, causationId: traceId },
+  }).stage;
+}
+
 export async function main(argv = process.argv.slice(2)) {
   if (
-    [
-      "build-authored",
-      "build-native-authored",
-      "build-native-v2-authored",
-    ].includes(argv[0]) &&
+    ["build-authored", "build-native-authored"].includes(argv[0]) &&
     argv[1] === "--source" &&
     argv[2] &&
     argv[3] === "--out" &&
@@ -843,15 +924,15 @@ export async function main(argv = process.argv.slice(2)) {
       (argv.length === 7 &&
         argv[0] === "build-native-authored" &&
         argv[5] === "--native-version" &&
-        argv[6] === "3") ||
+        argv[6] === "5") ||
       (argv.length === 6 && argv[5] === "--keep-authoring-bridge"))
   ) {
     const manifest = await build(argv[4], {
       authoredDevicePath: argv[2],
       keepMcpBridge: argv[5] === "--keep-authoring-bridge",
-      nativeMode: argv[0] !== "build-authored",
-      nativeVersion:
-        argv[6] === "3" ? 3 : argv[0] === "build-native-v2-authored" ? 2 : 1,
+      nativeMode: true,
+      nativeVersion: 5,
+      stage: cliPackageStage(),
     });
     console.log(
       `Staged ${manifest.deviceFile}; listener resources are adjacent. ` +
@@ -889,7 +970,7 @@ export async function main(argv = process.argv.slice(2)) {
     argv[2] &&
     argv.length === 3
   ) {
-    const manifest = await build(argv[2]);
+    const manifest = await build(argv[2], { stage: cliPackageStage() });
     console.log(
       `Built staged ${manifest.deviceFile}; real-Live validation is REQUIRED.`,
     );
@@ -924,7 +1005,7 @@ export async function main(argv = process.argv.slice(2)) {
     return;
   }
   throw new Error(
-    "Usage: audio-listener-device.mjs check | build --out <staging-directory> | build-authored --source <device.amxd> --out <staging-directory> [--keep-authoring-bridge] | build-native-authored --source <device.amxd> --out <staging-directory> [--keep-authoring-bridge | --native-version 3] | build-native-v2-authored --source <device.amxd> --out <staging-directory> [--keep-authoring-bridge] | check-artifact <directory> | check-calibration | build-calibration --out <directory> | check-calibration-artifact <directory> | verify-calibration-report <report.json> [--artifact <directory>]. No installation/promotion.",
+    "Usage: audio-listener-device.mjs check | build --out <staging-directory> | build-authored --source <device.amxd> --out <staging-directory> [--keep-authoring-bridge] | build-native-authored --source <device.amxd> --out <staging-directory> [--keep-authoring-bridge | --native-version 5] | check-artifact <directory> | check-calibration | build-calibration --out <directory> | check-calibration-artifact <directory> | verify-calibration-report <report.json> [--artifact <directory>]. Listener packaging is native v5 only; no installation/promotion.",
   );
 }
 if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href)

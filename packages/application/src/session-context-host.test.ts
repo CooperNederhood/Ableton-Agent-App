@@ -6,9 +6,15 @@ import {
 } from "@ableton-agent/project-state";
 import {
   audioObservationSchema,
+  createMetricObservationReportRows,
+  metricAudioObservationSchema,
+  type MetricAudioObservation,
   type StoredAudioObservation,
 } from "@ableton-agent/protocol";
-import { createSyntheticNativeListeningFixtureV2 } from "@ableton-agent/protocol/testing";
+import {
+  createSyntheticNativeListeningFixtureV2,
+  createSyntheticMetricListeningObservation,
+} from "@ableton-agent/protocol/testing";
 import { contextOperationResultSchema } from "@ableton-agent/tools";
 import { createSessionContextHost } from "./session-context-host.js";
 import { buildListeningPublication } from "./listening-publication.js";
@@ -21,12 +27,92 @@ const trace = {
 const context = { sessionId: "session-a", agentId: "reader", trace };
 const timestamp = "2026-10-12T00:00:00.000Z";
 const stores: EntityContextRepository[] = [];
+const reportDefaults = { includeHistorical: false, offset: 0, limit: 8 };
+
+function metricFixture(): MetricAudioObservation {
+  const value = createSyntheticMetricListeningObservation({ endBeat: 4 });
+  Object.assign(value.ownership, trace);
+  const spectral = value.metrics["spectral-centroid"];
+  spectral.status = "failed";
+  spectral.gaps = [
+    {
+      firstIndex: 0,
+      count: spectral.expectedRecords,
+      startSample: spectral.records[0]!.support.startSample,
+      endSample: spectral.records.at(-1)!.support.endSample,
+      reason: "drain-timeout",
+      detail: "No validated frames",
+    },
+  ];
+  spectral.records = [];
+  const [first, quiet, rise] = value.metrics.attacks.records;
+  quiet!.inputLevel = { peak: [0, 0], rms: [0, 0] };
+  quiet!.events = [];
+  rise!.events = first!.events.map((event) => ({
+    ...event,
+    sample: rise!.support.endSample,
+  }));
+  value.outcome = "partial";
+  value.rows = createMetricObservationReportRows(value);
+  return metricAudioObservationSchema.parse(value);
+}
 
 afterEach(async () => {
   await Promise.all(stores.splice(0).map((store) => store.close()));
 });
 
-async function fixture(name = "Known sine", supplied?: StoredAudioObservation) {
+async function fixture(
+  name = "Known sine",
+  supplied?: StoredAudioObservation,
+): Promise<{
+  store: EntityContextRepository;
+  host: ReturnType<typeof createSessionContextHost>;
+  payload: StoredAudioObservation;
+}> {
+  if (supplied?.schema === "metric-audio-observation/v1") {
+    // This host boundary consumes typed repository reads; metric publication is
+    // independently owned and validated by the publication/repository tests.
+    const seeded = await fixture(name);
+    const { rows, geometry, metrics, ...provenance } = supplied;
+    const { rows: geometryRows, ...coordinates } = geometry;
+    expect(rows.length).toBe(supplied.reduction.retainedReportRows);
+    expect(geometryRows.length).toBe(supplied.reduction.originalReportRows);
+    const metricSummary = <T extends { records: unknown[] }>(metric: T) => {
+      const { records, ...summary } = metric;
+      return { ...summary, retainedRecords: records.length };
+    };
+    const payload = {
+      ...provenance,
+      geometry: coordinates,
+      metrics: {
+        level: metricSummary(metrics.level),
+        "spectral-centroid": metricSummary(metrics["spectral-centroid"]),
+        attacks: metricSummary(metrics.attacks),
+      },
+    };
+    const listEntries = seeded.store.listEntries.bind(seeded.store);
+    const getEntry = seeded.store.getEntry.bind(seeded.store);
+    vi.spyOn(seeded.store, "listEntries").mockImplementation(
+      async (...args) => {
+        const page = await listEntries(...args);
+        return {
+          ...page,
+          items: page.items.map((entry) => ({
+            ...entry,
+            kind: supplied.schema,
+            payload,
+          })),
+        };
+      },
+    );
+    vi.spyOn(seeded.store, "getEntry").mockImplementation(async (...args) => {
+      const entry = await getEntry(...args);
+      return entry === undefined
+        ? undefined
+        : { ...entry, kind: supplied.schema, payload: supplied };
+    });
+    return { ...seeded, payload: supplied };
+  }
   const store = await createInMemorySessionContextStore({
     sessionId: context.sessionId,
     liveSetId: "set-a",
@@ -221,6 +307,520 @@ async function fixture(name = "Known sine", supplied?: StoredAudioObservation) {
 }
 
 describe("typed App-session context host", () => {
+  it("reads a bounded stacked metric timeline with deterministic continuation and no full payload", async () => {
+    const observation = createSyntheticMetricListeningObservation({
+      endBeat: 4,
+    });
+    const { host, store } = await fixture("Stacked complete", observation);
+    const read = vi.spyOn(store, "getEntry");
+    const first = contextOperationResultSchema.parse(
+      await host.executeContextOperation(
+        {
+          ...reportDefaults,
+          action: "report",
+          contextId: "entry",
+          includeHistorical: true,
+        },
+        context,
+      ),
+    );
+    if (first.action !== "report") throw new Error("Expected report");
+    expect(first).not.toHaveProperty("observation");
+    expect(first.report).toMatchObject({
+      observationOutcome: "complete",
+      offset: 0,
+      totalRows: 16,
+      nextOffset: 8,
+    });
+    expect(first.report.rows).toHaveLength(8);
+    expect(first.report.rows[0]).toMatchObject({
+      index: 0,
+      startBeat: 0,
+      endBeat: 0.25,
+      startSample: 10_000,
+      endSample: 16_000,
+      level: { availability: "available", records: [{ rms: [0.25, 0.25] }] },
+      "spectral-centroid": {
+        availability: "available",
+        centroidHz: 500,
+        frameCount: 2,
+        supports: [
+          { startSample: 10_000, endSample: 12_048 },
+          { startSample: 12_048, endSample: 14_096 },
+        ],
+      },
+    });
+    expect(read).toHaveBeenCalledWith("entry", {
+      trace,
+      activeAgentId: "reader",
+    });
+    const last = await host.executeContextOperation(
+      {
+        ...reportDefaults,
+        action: "report",
+        contextId: "entry",
+        offset: first.report.nextOffset!,
+        limit: 32,
+      },
+      context,
+    );
+    expect(last).toMatchObject({
+      action: "report",
+      report: { offset: 8, nextOffset: null },
+    });
+    if (last.action !== "report") throw new Error("Expected last page");
+    expect(last.report.rows).toHaveLength(8);
+    const end = await host.executeContextOperation(
+      { ...reportDefaults, action: "report", contextId: "entry", offset: 16 },
+      context,
+    );
+    expect(end).toMatchObject({
+      action: "report",
+      report: { offset: 16, rows: [], nextOffset: null },
+    });
+  });
+
+  it("reads selected report rows with native identities and retained-position continuation", async () => {
+    const observation = createSyntheticMetricListeningObservation();
+    observation.rows = [observation.rows[0]!, observation.rows[2]!];
+    observation.reduction = {
+      mode: "selected-report-rows",
+      originalReportRows: 4,
+      retainedReportRows: 2,
+      authoritativeTimelines: "retained",
+    };
+    const { host } = await fixture("Selected report rows", observation);
+    for (const [offset, index] of [
+      [0, 0],
+      [1, 2],
+    ] as const) {
+      const result = contextOperationResultSchema.parse(
+        await host.executeContextOperation(
+          {
+            ...reportDefaults,
+            action: "report",
+            contextId: "entry",
+            offset,
+            limit: 1,
+          },
+          context,
+        ),
+      );
+      if (result.action !== "report") throw new Error("Expected report");
+      expect(result.report).toMatchObject({
+        observationOutcome: "complete",
+        reduction: observation.reduction,
+        offset,
+        nextOffset: offset === 0 ? 1 : null,
+        totalRows: 2,
+      });
+      expect(result.report.rows.map((row) => row.index)).toEqual([index]);
+    }
+  });
+
+  it("preserves partial acquisition and missing row support without fake spectral zeros", async () => {
+    const observation = metricFixture();
+    const { host } = await fixture("Stacked partial", observation);
+    const result = await host.executeContextOperation(
+      { ...reportDefaults, action: "report", contextId: "entry", limit: 1 },
+      context,
+    );
+    if (result.action !== "report") throw new Error("Expected report");
+    expect(result.report).toMatchObject({
+      observationOutcome: "partial",
+      metricStatus: { "spectral-centroid": "failed" },
+    });
+    expect(result.report.rows[0]).toMatchObject({
+      level: { availability: "available", records: [{ rms: [0.25, 0.25] }] },
+      "spectral-centroid": {
+        availability: "missing",
+        centroidHz: null,
+        spectralEnergy: null,
+        frameCount: 0,
+        gaps: [
+          {
+            reason: "drain-timeout",
+            support: { startSample: 10_000, endSample: 104_208 },
+          },
+        ],
+      },
+      attacks: {
+        availability: "available",
+        events: [observation.metrics.attacks.records[0]!.events[0]],
+      },
+    });
+  });
+
+  it("preserves byte-limited canonical continuation through the application response without changing acquisition outcome", async () => {
+    const observation = createSyntheticMetricListeningObservation({
+      tempoBpm: 20,
+      endBeat: 10,
+    });
+    observation.limitations = Array.from({ length: 16 }, () =>
+      "界".repeat(240),
+    );
+    for (const metric of Object.values(observation.metrics)) {
+      metric.limitations = Array.from({ length: 8 }, () => "界".repeat(240));
+    }
+    const { host } = await fixture(
+      "Byte-limited report",
+      metricAudioObservationSchema.parse(observation),
+    );
+    const first = await host.executeContextOperation(
+      { ...reportDefaults, action: "report", contextId: "entry", limit: 32 },
+      context,
+    );
+    if (first.action !== "report") throw new Error("Expected report");
+    expect(first.report.pageBudget).toEqual({
+      byteLimit: 48 * 1024,
+      requestedRowLimit: 32,
+      byteLimited: true,
+    });
+    expect(first.report.rows.length).toBeGreaterThan(0);
+    expect(first.report.rows.length).toBeLessThan(32);
+    expect(first.report.observationOutcome).toBe("complete");
+    expect(first.report.nextOffset).toBe(first.report.rows.length);
+    expect(
+      new TextEncoder().encode(JSON.stringify(first.report)).byteLength,
+    ).toBeLessThanOrEqual(48 * 1024);
+    expect(
+      new TextEncoder().encode(JSON.stringify(first)).byteLength,
+    ).toBeLessThanOrEqual(64 * 1024);
+    const next = await host.executeContextOperation(
+      {
+        ...reportDefaults,
+        action: "report",
+        contextId: "entry",
+        offset: first.report.nextOffset!,
+        limit: 32,
+      },
+      context,
+    );
+    if (next.action !== "report") throw new Error("Expected continuation");
+    expect(next.report.rows[0]?.index).toBe(first.report.rows.length);
+    expect(next.report.limitations).toEqual(observation.limitations);
+    expect(next.report.metricMetadata.attacks.algorithm).toEqual(
+      observation.metrics.attacks.algorithm,
+    );
+  });
+  it.each([false, true])(
+    "distinguishes no-frame and measured silence in reports (silence=%s)",
+    async (silence) => {
+      const observation = createSyntheticMetricListeningObservation({
+        endBeat: silence ? 4 : 0.01,
+      });
+      if (silence) {
+        observation.metrics.level.records.forEach((record) => {
+          record.peak = [0, 0];
+          record.rms = [0, 0];
+        });
+        observation.metrics["spectral-centroid"].records.forEach((frame) => {
+          frame.centroidHz = null;
+          frame.spectralEnergy = 0;
+        });
+        observation.metrics.attacks.records.forEach((window) => {
+          window.inputLevel = { peak: [0, 0], rms: [0, 0] };
+          window.events = [];
+        });
+        observation.rows = createMetricObservationReportRows(observation);
+      }
+      const { host } = await fixture("Spectral support", observation);
+      const result = contextOperationResultSchema.parse(
+        await host.executeContextOperation(
+          { ...reportDefaults, action: "report", contextId: "entry", limit: 1 },
+          context,
+        ),
+      );
+      if (result.action !== "report") throw new Error("Expected report");
+      expect(result.report.rows[0]?.["spectral-centroid"]).toMatchObject({
+        availability: silence ? "available" : "no-frame",
+        frameCount: silence ? 2 : 0,
+        centroidHz: null,
+        spectralEnergy: silence ? 0 : null,
+      });
+    },
+  );
+
+  it("refuses legacy conversion, invalid/missing pages and foreign session reports without bypassing scoped reads", async () => {
+    const { host: legacy } = await fixture();
+    await expect(
+      legacy.executeContextOperation(
+        { ...reportDefaults, action: "report", contextId: "entry" },
+        context,
+      ),
+    ).rejects.toThrow("use get for legacy");
+    const { host, store } = await fixture("Scoped report", metricFixture());
+    const read = vi.spyOn(store, "getEntry");
+    for (const paging of [
+      { offset: -1 },
+      { offset: 17 },
+      { offset: 0.5 },
+      { limit: 0 },
+      { limit: 33 },
+    ]) {
+      await expect(
+        host.executeContextOperation(
+          {
+            ...reportDefaults,
+            action: "report",
+            contextId: "entry",
+            ...paging,
+          },
+          context,
+        ),
+      ).rejects.toThrow();
+    }
+    await expect(
+      host.executeContextOperation(
+        { ...reportDefaults, action: "report", contextId: "entry" },
+        { ...context, sessionId: "foreign" },
+      ),
+    ).rejects.toThrow("another App session");
+    read.mockClear();
+    vi.spyOn(store, "listEntries").mockResolvedValueOnce({ items: [] });
+    await expect(
+      host.executeContextOperation(
+        { ...reportDefaults, action: "report", contextId: "entry" },
+        context,
+      ),
+    ).rejects.toThrow("session/freshness scope");
+    expect(read).not.toHaveBeenCalled();
+    read.mockResolvedValueOnce(undefined);
+    await expect(
+      host.executeContextOperation(
+        { ...reportDefaults, action: "report", contextId: "entry" },
+        context,
+      ),
+    ).rejects.toThrow("no longer exists");
+    const caller = new AbortController();
+    caller.abort(new Error("Cancelled report"));
+    read.mockClear();
+    await expect(
+      host.executeContextOperation(
+        { ...reportDefaults, action: "report", contextId: "entry" },
+        { ...context, signal: caller.signal },
+      ),
+    ).rejects.toThrow("Cancelled report");
+    expect(read).not.toHaveBeenCalled();
+  });
+
+  it("summarizes trustworthy metric records, independent attack events and explicit missing data without legacy aggregates", async () => {
+    const observation = metricFixture();
+    const { host, store } = await fixture("Metric source", observation);
+    const getEntry = vi.spyOn(store, "getEntry");
+    const listed = contextOperationResultSchema.parse(
+      await host.executeContextOperation(
+        { action: "list", includeHistorical: true, limit: 20 },
+        context,
+      ),
+    );
+    if (listed.action !== "list") throw new Error("Expected list");
+    const summary = listed.entries[0]!.summary;
+    expect(summary).toContain("Metric observation outcome partial");
+    expect(summary).toContain("level complete: 16/16");
+    expect(summary).toContain(
+      "spectral-centroid failed: 0/46 validated records; 46 missing records (drain-timeout)",
+    );
+    expect(summary).toContain("-12.04 dBFS");
+    expect(summary).toContain("not a whole-pass aggregate");
+    expect(summary).toContain(
+      "2 estimated attacks across retained independent windows",
+    );
+    expect(summary).toContain(
+      "Missing data and no-frame intervals are not silence",
+    );
+    expect(summary).toContain("samples 10000-106000 at 48000 Hz");
+    expect(summary).not.toContain("silence/below floor");
+    expect(summary).not.toContain("Centroid not observed");
+    const detail = contextOperationResultSchema.parse(
+      await host.executeContextOperation(
+        { action: "get", contextId: "entry", includeHistorical: true },
+        context,
+      ),
+    );
+    expect(detail).toMatchObject({
+      action: "get",
+      entry: {
+        passId: "pass",
+        listenerId: "listener",
+        kind: observation.schema,
+      },
+      observation,
+    });
+    const inventory = JSON.parse(
+      await host.getSessionContextInventory(context.sessionId, context),
+    ) as { entries: Array<{ summary: string }> };
+    expect(inventory.entries[0]?.summary).toBe(summary);
+    expect(JSON.stringify(inventory)).not.toContain('"records"');
+    expect(getEntry).toHaveBeenCalledWith("entry", {
+      trace,
+      activeAgentId: "reader",
+    });
+    const projected = await store.listEntries({ includeHistorical: true });
+    expect(projected.items[0]?.payload).not.toHaveProperty("rows");
+    expect(projected.items[0]?.payload).not.toHaveProperty(
+      "metrics.level.records",
+    );
+    expect(projected.items[0]?.payload).toHaveProperty(
+      "metrics.level.retainedRecords",
+      16,
+    );
+  });
+
+  it("fails an unavailable metric timeline read rather than fabricating a summary from projected counts", async () => {
+    const { host, store } = await fixture(
+      "Disappearing metric source",
+      metricFixture(),
+    );
+    const getEntry = vi.spyOn(store, "getEntry");
+    getEntry.mockResolvedValueOnce(undefined);
+    await expect(
+      host.executeContextOperation(
+        { action: "list", includeHistorical: false, limit: 20 },
+        context,
+      ),
+    ).rejects.toThrow("no longer exists");
+    getEntry.mockRejectedValueOnce(new Error("Metric timeline read cancelled"));
+    await expect(
+      host.executeContextOperation(
+        { action: "list", includeHistorical: false, limit: 20 },
+        context,
+      ),
+    ).rejects.toThrow("Metric timeline read cancelled");
+  });
+
+  it("reports partial level coverage without extrapolating retained RMS into missing intervals", async () => {
+    const observation = metricFixture();
+    const removed = observation.metrics.level.records.pop()!;
+    observation.metrics.level.status = "partial";
+    observation.metrics.level.gaps = [
+      {
+        firstIndex: removed.index,
+        count: 1,
+        ...removed.support,
+        reason: "sequence-gap",
+        detail: "Final interval missing",
+      },
+    ];
+    observation.metrics.attacks = {
+      status: "not-requested",
+      expectedRecords: 0,
+      algorithm: null,
+      records: [],
+      gaps: [],
+      limitations: [],
+    };
+    observation.requestedMetrics = ["level", "spectral-centroid"];
+    observation.rows = createMetricObservationReportRows(observation);
+    const { host } = await fixture(
+      "Partial levels",
+      metricAudioObservationSchema.parse(observation),
+    );
+    const result = await host.executeContextOperation(
+      { action: "list", includeHistorical: false, limit: 20 },
+      context,
+    );
+    if (result.action !== "list") throw new Error("Expected list");
+    const summary = result.entries[0]!.summary;
+    expect(summary).toContain("outcome partial");
+    expect(summary).toContain(
+      "level partial: 15/16 validated records; 1 missing records (sequence-gap)",
+    );
+    expect(summary).toContain("Retained level records: RMS ranges");
+    expect(summary).not.toContain("silence (measured zero)");
+  });
+
+  it("distinguishes measured silence, nonrequested metrics and Session geometry from missing spectra", async () => {
+    const observation = metricFixture();
+    observation.metrics.level.records.forEach((record) => {
+      record.peak = [0, 0];
+      record.rms = [0, 0];
+    });
+    observation.metrics.attacks = {
+      status: "not-requested",
+      expectedRecords: 0,
+      algorithm: null,
+      records: [],
+      gaps: [],
+      limitations: [],
+    };
+    observation.requestedMetrics = ["level", "spectral-centroid"];
+    observation.source = {
+      view: "session",
+      target: {
+        view: "session",
+        track: {
+          kind: "regular",
+          index: 0,
+          expectedReference: "00000000-0000-4000-8000-000000000001",
+          expectedName: "Track",
+        },
+        sceneIndex: 0,
+        expectedClipReference: "00000000-0000-4000-8000-000000000002",
+        expectedClipName: "Clip",
+      },
+      clipReference: "00000000-0000-4000-8000-000000000002",
+      kind: "midi",
+      coordinate: { unit: "beats", iteration: 0, startBeat: 0, endBeat: 4 },
+      transport: { startBeat: 0, endBeat: 4 },
+      clipStartTimeBeats: 0,
+      synchronization: "transport-coupled-first-iteration",
+    };
+    observation.rows = createMetricObservationReportRows(observation);
+    const { host } = await fixture(
+      "Silent metric session",
+      metricAudioObservationSchema.parse(observation),
+    );
+    const result = await host.executeContextOperation(
+      { action: "list", includeHistorical: true, limit: 20 },
+      context,
+    );
+    if (result.action !== "list") throw new Error("Expected list");
+    const summary = result.entries[0]!.summary;
+    expect(summary).toContain("silence (measured zero)");
+    expect(summary).toContain("attacks not-requested");
+    expect(summary).toContain("spectral-centroid failed");
+    expect(summary).toContain(
+      "clip-local beats 0-4; global transport beats 0-4; midi",
+    );
+    expect(summary).not.toContain("Infinity");
+    expect(summary).not.toContain("0 estimated attacks");
+  });
+
+  it("labels complete metric data without fabricating a legacy centroid aggregate", async () => {
+    const observation = metricFixture();
+    const spectral = observation.metrics["spectral-centroid"];
+    spectral.status = "complete";
+    spectral.gaps = [];
+    spectral.records = Array.from(
+      { length: spectral.expectedRecords },
+      (_, index) => ({
+        index,
+        support: {
+          startSample: 10_000 + index * 2048,
+          endSample: 10_000 + (index + 1) * 2048,
+        },
+        centroidHz: index === 0 ? null : 500,
+        spectralEnergy: index === 0 ? 0 : 2,
+      }),
+    );
+    observation.outcome = "complete";
+    observation.rows = createMetricObservationReportRows(observation);
+    const { host } = await fixture(
+      "Complete metrics",
+      metricAudioObservationSchema.parse(observation),
+    );
+    const result = await host.executeContextOperation(
+      { action: "list", includeHistorical: false, limit: 20 },
+      context,
+    );
+    if (result.action !== "list") throw new Error("Expected list");
+    expect(result.entries[0]!.summary).toContain("outcome complete");
+    expect(result.entries[0]!.summary).toContain(
+      "centroid range 500.0-500.0 Hz; 1 measured zero-energy frames",
+    );
+  });
+
   it("exposes Session local and transport coordinates plus historical timing limitations in existing typed APIs", async () => {
     const observation: StoredAudioObservation = {
       ...createSyntheticNativeListeningFixtureV2({ listenerId: "listener" })

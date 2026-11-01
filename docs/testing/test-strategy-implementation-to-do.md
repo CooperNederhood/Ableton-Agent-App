@@ -31,6 +31,28 @@ Companion specification: [Test Strategy](test-strategy.md)
 
 ## Coverage implementation
 
+- [x] Exercise actual retained Gen producers through the declared reader/native
+  IO at 44.1/48 kHz, including precise counters, fractional tails, FIFO ACKs
+  and release. Preserve latest-only loss and explicit overflow regressions.
+- [x] Prepare the reviewed native4 same-loaded-instance scene 0 -> 1 -> 0
+  verifier, distinct immutable contexts and explicit stopped baselines.
+- [x] Admit the repeated-native group before setup/credential/process work;
+  reproduce its former missing-input guard bypass and verify the correction.
+- [ ] Execute the retained native4 repeat scenario, owning group and remaining
+  real-host suite with explicit fixture pins and exact-PID ownership.
+- [x] Verify retained delivery failures through Electron preload/events:
+  failed status, zero new context references, preserved prior references and
+  disabled capture cancellation without transport cleanup or automatic retry.
+- [ ] Complete visible desktop and human repeated-listening acceptance after
+  deterministic native verification. Preserve the user's installed-version
+  no-crackle acceptance; descriptors do not establish acoustic performance.
+- [x] Add canonical Max payload, shared installer/CLI, profile/dry-run,
+  guard/cancellation/partial recovery, lifecycle and corruption regressions.
+- [x] Exercise the actual packaged integration CLI in an isolated no-checkout
+  Library, including repeated-current delivery and pre-publication failure.
+- [ ] Validate fresh owned Live11 loading/registration and MIDI ingress from
+  newly installed bundles, preserving unrelated user processes/data.
+
 - [x] Add unit-test requirements to every package template.
 - [x] Implement cross-language protocol contract test runner.
 - [~] Implement bridge fault-injection tests.

@@ -1872,7 +1872,7 @@ export class CopilotAgentService implements AgentService {
         .then((terminalJob) => {
           if (
             terminalJob.passId !== passId ||
-            terminalJob.stage !== "completed"
+            !["completed", "partial"].includes(terminalJob.stage)
           ) {
             const error = new Error(
               terminalJob.error ??
@@ -1881,7 +1881,11 @@ export class CopilotAgentService implements AgentService {
             if (terminalJob.stage === "cancelled") error.name = "AbortError";
             throw error;
           }
-          return { passId, verified: true };
+          return {
+            passId,
+            verified: true,
+            ...(terminalJob.stage === "partial" ? { outcome: "partial" } : {}),
+          };
         });
       state.listeningPasses.set(passId, {
         completion,
@@ -2293,6 +2297,31 @@ export class CopilotAgentService implements AgentService {
             base,
           );
           const result = await execute();
+          // The SDK tool boundary serializes read errors before this observer.
+          // Keep the new report's terminal event honest without changing legacy reads.
+          if (
+            operation.descriptor.operationId === "context.report" &&
+            result !== null &&
+            typeof result === "object" &&
+            Reflect.get(result, "resultType") === "failure"
+          ) {
+            const serialized = Reflect.get(result, "error") as unknown;
+            const failure =
+              typeof serialized === "string"
+                ? parseAbletonToolFailure(serialized)
+                : undefined;
+            this.#recordRuntime(
+              state,
+              operation.descriptor.lifecycleEvents.failed,
+              {
+                ...base,
+                durationMs: Math.max(0, Date.now() - requestedAt),
+                errorCode: failure?.code ?? "context_report_failed",
+                error: failure?.message ?? "Metric context report failed",
+              },
+            );
+            return result;
+          }
           this.#recordRuntime(
             state,
             operation.descriptor.lifecycleEvents.verification,
@@ -4362,7 +4391,7 @@ export class CopilotAgentService implements AgentService {
       if (
         result.action !== "cancel" ||
         result.job.passId !== passId ||
-        !["completed", "cancelled"].includes(result.job.stage)
+        !["completed", "partial", "cancelled"].includes(result.job.stage)
       ) {
         throw new Error(
           "Listening cancellation returned no clean terminal receipt",

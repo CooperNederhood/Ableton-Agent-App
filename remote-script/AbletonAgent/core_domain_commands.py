@@ -1513,15 +1513,38 @@ def execute_tracks(context, params):
         )
         before = summarize()
         track.stop_all_clips(params.get("quantized", True))
-        after = summarize()
-        if _safe_lom_getattr(track, "playing_slot_index") not in (-2, -1, None):
-            raise ProtocolFailure(
-                "conflict", "Track clips did not stop as requested"
-            )
-        return {
-            "action": action,
-            "result": {"before": before, "after": after, "verified": True},
-        }
+
+        def start_verification(on_success, on_failure, on_progress):
+            def verify():
+                try:
+                    current = _resolve_track(context, target)
+                    if not _same_lom_object(current, track):
+                        raise ProtocolFailure(
+                            "conflict",
+                            "Track identity changed before stop verification",
+                        )
+                    if _safe_lom_getattr(track, "playing_slot_index") not in (-2, -1):
+                        raise ProtocolFailure(
+                            "conflict", "Track clips did not stop as requested"
+                        )
+                    on_success(
+                        {
+                            "action": action,
+                            "result": {
+                                "before": before,
+                                "after": summarize(),
+                                "verified": True,
+                            },
+                        }
+                    )
+                except Exception as exc:
+                    on_failure(exc)
+
+            if on_progress is not None:
+                on_progress({"phase": "track-stop-verification"})
+            context.schedule_message(1, verify)
+
+        return DeferredResult(start_verification, supports_progress=True)
     if action == "back-to-arrangement":
         _require_attrs(
             track,
@@ -2211,6 +2234,46 @@ def execute_transport(context, params):
             "verified": True,
         }
     before = _transport_state(song)
+    if action == "seek" and before["isPlaying"] is False:
+        requested_time = params["time"]
+        song.current_song_time = requested_time
+
+        def start_seek_verification(on_success, on_failure, on_progress):
+            def verify():
+                try:
+                    if not _same_lom_object(context.song, song):
+                        raise ProtocolFailure(
+                            "conflict", "Song identity changed before seek verification"
+                        )
+                    after = _transport_state(song)
+                    if after["isPlaying"] is not False or abs(
+                        after["currentSongTime"] - requested_time
+                    ) >= 0.000001:
+                        raise ProtocolFailure(
+                            "conflict",
+                            "Stopped transport seek could not be verified",
+                            details={
+                                "requestedTime": requested_time,
+                                "afterTime": after["currentSongTime"],
+                                "afterIsPlaying": after["isPlaying"],
+                            },
+                        )
+                    on_success(
+                        {
+                            "action": action,
+                            "before": before,
+                            "after": after,
+                            "verified": True,
+                        }
+                    )
+                except Exception as exc:
+                    on_failure(exc)
+
+            if on_progress is not None:
+                on_progress({"phase": "transport-seek-verification"})
+            context.schedule_message(1, verify)
+
+        return DeferredResult(start_seek_verification, supports_progress=True)
     if action == "seek":
         changes = (("current_song_time", params["time"]),)
         check = lambda state: abs(state["currentSongTime"] - params["time"]) < 0.000001

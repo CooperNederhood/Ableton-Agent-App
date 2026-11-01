@@ -21,6 +21,9 @@ export default defineConfig({
       "@ableton-agent/protocol/testing": source(
         "./packages/protocol/src/testing.ts",
       ),
+      "@ableton-agent/signal-routing/testing": source(
+        "./packages/signal-routing/src/listener-metric-test-support.ts",
+      ),
       "@ableton-agent/ableton-contracts": source(
         "./packages/ableton-contracts/src/index.ts",
       ),
@@ -44,6 +47,9 @@ export default defineConfig({
       "@ableton-agent/runtime": source("./packages/runtime/src/index.ts"),
       "@ableton-agent/signal-routing": source(
         "./packages/signal-routing/src/index.ts",
+      ),
+      "@ableton-agent/shared/m4l-devices": source(
+        "./packages/shared/src/m4l-devices.ts",
       ),
       "@ableton-agent/shared": source("./packages/shared/src/index.ts"),
       "@ableton-agent/storage": source("./packages/storage/src/index.ts"),

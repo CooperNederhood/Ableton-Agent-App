@@ -101,6 +101,67 @@ ownership. Context survives journal retention and App-session closure. Resume
 prepares a bounded inventory; tools retrieve detail. Never inject all recorded
 arrays into each agent prompt.
 
+## Independent metric timelines extension
+
+The approved replacement for coupled descriptor collection applies to Session
+and Arrangement. Collect each metric family concurrently and independently
+during one playback, validating ordered immutable records with bounded state.
+Process valid records eagerly; only final report construction combines the
+timelines. A stalled FFT reader must not block admission of trustworthy level
+records. Level-derived attacks retain an explicit dependency on level evidence,
+not on spectral availability.
+
+Use the shared capture identity, native sample clock and source proof as the
+trust boundary. Shared identity/timing/ownership failures remain fatal.
+Metric-local failure preserves independently validated evidence and explicitly
+unavailable intervals; it cannot invent silence, zero values or event absence.
+At least one usable requested metric permits an explicitly partial published
+observation. No usable data fails the pass. Cancellation does not implicitly
+publish partial data. Fixed collection/drain and cleanup deadlines remain.
+
+The agent-facing projection uses sixteenth-note rows on a global quarter-beat
+grid in the supported constant-tempo/4/4 scope, clipped to requested boundaries.
+Round each boundary independently from the frozen source origin. Keep actual
+analysis support distinct from the report grid: FFT frames can cross a musical
+boundary, and precomputed RMS/peak aggregates cannot be split retrospectively.
+Level accumulation must honor actual row boundaries. Native metric cadence and
+attack detection semantics must not silently change with presentation cadence.
+
+Retain the thirty-second duration ceiling and derive bounded per-family and
+reporting counts rather than applying the old 300-row/100 ms assumption.
+Transport and context byte limits still require admission before playback;
+neither unlimited buffering nor silent shortening is permitted.
+
+Version observation/capability/publication contracts, distinguish valid silence
+from failed/unavailable metrics, and expose partial outcomes through agent tools,
+typed History and Desktop. Retain historical versions without fabricating new
+coverage. Reuse the canonical context repository and storage resolver; no raw
+renderer database access or audio-body persistence.
+
+This is an approved architecture direction, **not installed production
+readiness**. Current native/runtime/publication integration and physical
+qualification remain tracked in the
+[listening implementation to-do](../../tools/playback-listening-implementation-to-do.md).
+The prior preflight fix passed scoped cases but later user captures failed after
+launch; preserve those distinct evidence scopes.
+
+## Measurement delivery extension in development
+
+The approved extension generalizes acquisition/delivery for the current
+envelope and spectrum analyzers without adding FluCoMa dependencies or changing
+stored context versions. Producer declarations define dimensions, units,
+window/hop and sample-clock semantics; bounded owned records use per-producer
+sequence and actual sample coordinates. A common collector can accept retained
+real-time records and, later, explicitly adapted asynchronous measurements.
+
+Retention must precede the DSP-to-message loss point. The initial local-Gen-Data
+prototype is descriptor-only, preallocated and fail-on-overflow. It remains
+outside the production graph pending real native-host readback/compilation
+qualification. Numeric-model tests do not establish physical reliability.
+Current proof validation and typed result mapping remain authoritative; new
+measurement kinds require explicit registration and output semantics, not
+arbitrary JSON persistence or reinterpretation of old observations.
+
 ## Alternatives
 
 | Approach | Strengths | Limitations | Decision |

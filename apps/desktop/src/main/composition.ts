@@ -85,6 +85,7 @@ export interface DesktopCompositionOptions {
   storage?: LiveAgentStorageLayout;
   signalDescriptorPath?: string;
   signalSecretPath?: string;
+  independentMetricListeners?: boolean;
   legacySignalDescriptorPath?: string;
   /** Copilot session storage owned by the desktop app. */
   agentBaseDirectory: string;
@@ -126,11 +127,16 @@ export function resolveDesktopSignalOptions(
     | "signalDescriptorPath"
     | "signalSecretPath"
     | "legacySignalDescriptorPath"
+    | "independentMetricListeners"
   >,
   port: number,
 ): Pick<
   SignalRuntimeOptions,
-  "port" | "descriptorPath" | "secretPath" | "legacyDescriptorPath"
+  | "port"
+  | "descriptorPath"
+  | "secretPath"
+  | "legacyDescriptorPath"
+  | "independentMetricListeners"
 > {
   const descriptorPath =
     options.signalDescriptorPath ??
@@ -139,6 +145,9 @@ export function resolveDesktopSignalOptions(
     options.signalSecretPath ?? options.storage?.signalIngressSecretPath;
   return {
     port,
+    ...(options.independentMetricListeners === undefined
+      ? {}
+      : { independentMetricListeners: options.independentMetricListeners }),
     ...(descriptorPath === undefined ? {} : { descriptorPath }),
     ...(secretPath === undefined ? {} : { secretPath }),
     ...(options.legacySignalDescriptorPath === undefined
@@ -205,7 +214,7 @@ function snapshotContent(snapshot: DesktopLiveSetSnapshot): object {
   };
 }
 
-function createSnapshotHistoryRepository(
+export function createSnapshotHistoryRepository(
   journal: DesktopJournalHost,
 ): LiveSetSnapshotHistoryRepository {
   return {
@@ -214,13 +223,17 @@ function createSnapshotHistoryRepository(
       const contentHash = createHash("sha256")
         .update(stableJson(normalized))
         .digest("hex");
-      const snapshotId = `snapshot:${contentHash}`;
       const observationId = randomUUID();
+      const snapshotId = `snapshot:${observationId}`;
       const common = {
         version: 1 as const,
-        appSessionId: record.productionSessionId,
+        ...(record.productionSessionId === undefined
+          ? {}
+          : { appSessionId: record.productionSessionId }),
         liveSetId: record.snapshot.liveSetId,
-        liveProjectId: record.snapshot.liveProjectId,
+        ...(record.snapshot.liveProjectId === undefined
+          ? {}
+          : { liveProjectId: record.snapshot.liveProjectId }),
       };
       await journal.appendSetHistory({
         ...common,
@@ -976,6 +989,8 @@ export async function createDesktopComposition(
             dependencies: Parameters<typeof createListeningRuntimeHost>[0],
           ) => {
             const host = createListeningRuntimeHost(dependencies, {
+              independentMetricListeners:
+                options.independentMetricListeners === true,
               contextPorts: contextHost,
               resolveTimingPolicy: () => listeningTimingPolicy,
               onChange: (job) => {

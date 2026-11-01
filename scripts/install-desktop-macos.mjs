@@ -3,6 +3,7 @@ import { access, readFile, rename, rm } from "node:fs/promises";
 import { arch, platform } from "node:os";
 import { join, resolve } from "node:path";
 import process from "node:process";
+import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 
 const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
@@ -16,13 +17,19 @@ export function parseInstallArguments(argv) {
     launch: true,
     remoteScript: true,
   };
-  for (const argument of argv) {
+  for (let index = 0; index < argv.length; index += 1) {
+    const argument = argv[index];
     if (argument === "--") continue;
     if (argument === "--skip-checks") options.checks = false;
     else if (argument === "--skip-auth-smoke") options.authSmoke = false;
     else if (argument === "--no-launch") options.launch = false;
     else if (argument === "--skip-remote-script") options.remoteScript = false;
-    else {
+    else if (argument === "--user-library" || argument === "--profile") {
+      const value = argv[++index];
+      if (!value || value.startsWith("--"))
+        throw new Error(`Missing value for ${argument}`);
+      options[argument === "--profile" ? "profile" : "userLibrary"] = value;
+    } else {
       throw new Error(`Unknown option: ${argument}`);
     }
   }
@@ -45,7 +52,7 @@ export function liveProcesses(processTable) {
     .split("\n")
     .map((line) => line.trim())
     .filter((line) =>
-      /\/Ableton Live 11[^/]*\.app\/Contents\/MacOS\/Live$/u.test(line),
+      /\/Ableton Live 11[^/]*\.app\/Contents\/MacOS\/Live(?:\s|$)/u.test(line),
     );
 }
 
@@ -79,7 +86,7 @@ function processTable() {
   return run("ps", ["-axo", "pid=,command="], { capture: true });
 }
 
-function assertProcessesStopped({ remoteScript }) {
+function assertProcessesStopped() {
   const table = processTable();
   const desktop = desktopProcesses(table);
   if (desktop.length > 0) {
@@ -87,13 +94,37 @@ function assertProcessesStopped({ remoteScript }) {
       `Quit every Ableton Agent copy before installing:\n${desktop.join("\n")}`,
     );
   }
-  if (!remoteScript) return;
   const live = liveProcesses(table);
   if (live.length > 0) {
     throw new Error(
-      `Fully quit Ableton Live before updating the Remote Script:\n${live.join("\n")}`,
+      `Fully quit Ableton Live before updating Ableton integrations:\n${live.join("\n")}`,
     );
   }
+}
+
+export function integrationInstallArguments(options, packagedPath, traceId) {
+  return [
+    "--filter",
+    "@ableton-agent/desktop",
+    "integrations",
+    "update",
+    "--confirm",
+    "--resources",
+    join(packagedPath, "Contents", "Resources"),
+    "--trace-id",
+    traceId,
+    "--correlation-id",
+    traceId,
+    "--causation-id",
+    `desktop-reinstall-${traceId}`,
+    ...(options.remoteScript
+      ? []
+      : ["--components", "machine-listening,midi-capture"]),
+    ...(options.userLibrary === undefined
+      ? []
+      : ["--user-library", options.userLibrary]),
+    ...(options.profile === undefined ? [] : ["--profile", options.profile]),
+  ];
 }
 
 async function verifyRepository() {
@@ -196,16 +227,16 @@ export async function installDesktopMacos(
     throw new Error("desktop:install:mac is supported only on macOS");
   }
   await verifyRepository();
-  assertProcessesStopped(options);
+  assertProcessesStopped();
   await rm(releaseRoot, { recursive: true, force: true });
   run("pnpm", ["clean"]);
-  run("pnpm", ["install", "--frozen-lockfile"]);
   if (options.checks) {
     run("pnpm", ["check"]);
     run("pnpm", ["exec", "playwright", "test", "--project=electron"]);
   } else {
     run("pnpm", ["build"]);
   }
+  run("node", ["scripts/build-ableton-integrations.mjs", "--reuse"]);
   const packagedPath = await packageHostApplication();
   run("pnpm", [
     "exec",
@@ -213,17 +244,11 @@ export async function installDesktopMacos(
     "test",
     "--project=electron-packaged",
     "--grep",
-    "launches the generated production application",
+    "launches the generated production application|installs both canonical Max bundles",
   ]);
-  if (options.remoteScript) {
-    run("pnpm", [
-      "--filter",
-      "@ableton-agent/desktop",
-      "remote-script",
-      "update",
-      "--confirm",
-    ]);
-  }
+  assertProcessesStopped();
+  run("pnpm", integrationInstallArguments(options, packagedPath, randomUUID()));
+  assertProcessesStopped();
   await installApplication(packagedPath);
   if (options.authSmoke) {
     run(
@@ -252,9 +277,11 @@ export async function installDesktopMacos(
   if (options.launch) await verifyLaunch();
   process.stdout.write(
     `\nInstalled the verified ${arch()} application at ${applicationPath}.\n` +
+      "Machine-Listening-Development and Midi-Capture bundles were installed; " +
+      "insert them manually from the User Library.\n" +
       (options.remoteScript
         ? "The Remote Script was updated; start Ableton Live to load it.\n"
-        : ""),
+        : "The Remote Script update was explicitly skipped.\n"),
   );
 }
 

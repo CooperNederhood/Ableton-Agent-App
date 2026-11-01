@@ -15,7 +15,19 @@ import {
   type TelemetryEventEnvelope,
 } from "@ableton-agent/observability";
 import { type Database } from "sql.js";
-import { createSyntheticNativeListeningFixtureV2 } from "@ableton-agent/protocol/testing";
+import {
+  createSyntheticMetricListeningObservation,
+  createSyntheticPartialMetricListeningObservation,
+  createSyntheticNativeListeningFixtureV2,
+} from "@ableton-agent/protocol/testing";
+import {
+  createMetricObservationReportRows,
+  metricAudioObservationSchema,
+} from "@ableton-agent/protocol";
+import {
+  resolveLiveAgentStorage,
+  resolveNestedSessionStorage,
+} from "../../storage/dist/index.js";
 import { loadSqlJs, SqliteProjectStateStore } from "./sqlite.js";
 import { appSessionSchema } from "./schemas.js";
 import { InMemoryProjectStateStore } from "./repository.js";
@@ -27,6 +39,7 @@ import {
   type AppendContextPass,
   type ContextBindingEvidence,
   type ContextFreshnessAssessment,
+  type ContextEntry,
 } from "./context-schemas.js";
 import {
   createInMemorySessionContextStore,
@@ -57,7 +70,17 @@ function binding(): ContextBindingEvidence {
   };
 }
 
-function publication(id = "1", listeners = 1): AppendContextPass {
+type LegacyPublication = Omit<AppendContextPass, "entries"> & {
+  entries: (Omit<ContextEntry, "kind" | "payload"> & {
+    kind: "audio-observation/v1";
+    payload: Extract<
+      ContextEntry["payload"],
+      { schema: "audio-observation/v1" }
+    >;
+  })[];
+};
+
+function publication(id = "1", listeners = 1): LegacyPublication {
   const passId = `pass:${id}`;
   const listenerIds = Array.from(
     { length: listeners },
@@ -206,6 +229,74 @@ function descriptivePublication(id = "descriptive") {
   };
 }
 
+function metricPublication(id = "metric", partial = false): AppendContextPass {
+  const legacy = publication(id);
+  const entry = legacy.entries[0]!;
+  entry.producer.connectionEpoch = "00000000-0000-4000-8000-000000000004";
+  const payload = createSyntheticMetricListeningObservation({ endBeat: 2 });
+  payload.ownership = {
+    ...payload.ownership,
+    listenerId: entry.producer.listenerId,
+    passId: entry.passId,
+    connectionEpoch: entry.producer.connectionEpoch,
+    ...trace,
+  };
+  payload.outcome = partial ? "partial" : "complete";
+  payload.requestedMetrics = partial
+    ? ["level", "spectral-centroid"]
+    : ["level"];
+  const unrequested = {
+    status: "not-requested" as const,
+    expectedRecords: 0,
+    algorithm: null,
+    records: [],
+    gaps: [],
+    limitations: [],
+  };
+  payload.metrics.attacks = { ...unrequested };
+  if (partial) {
+    const spectrum = payload.metrics["spectral-centroid"];
+    const first = spectrum.records[0]!;
+    const last = spectrum.records.at(-1)!;
+    spectrum.status = "failed";
+    spectrum.gaps = [
+      {
+        firstIndex: first.index,
+        count: spectrum.records.length,
+        startSample: first.support.startSample,
+        endSample: last.support.endSample,
+        reason: "drain-timeout",
+        detail: "Synthetic missing spectral frames; not actual audio evidence",
+      },
+    ];
+    spectrum.records = [];
+    spectrum.limitations = [
+      "Synthetic spectral acquisition failure; retained level fixture only",
+    ];
+  } else {
+    payload.metrics["spectral-centroid"] = { ...unrequested };
+  }
+  payload.rows = createMetricObservationReportRows(payload);
+  return {
+    ...legacy,
+    pass: {
+      ...legacy.pass,
+      requestedMode: "arrangement",
+      actualMode: "arrangement",
+      status: partial ? "partial" : "completed",
+      complete: !partial,
+    },
+    entries: [
+      {
+        ...entry,
+        kind: "metric-audio-observation/v1",
+        payload: metricAudioObservationSchema.parse(payload),
+      },
+    ],
+    links: legacy.links.map((link) => ({ ...link, attribution: "unknown" })),
+  };
+}
+
 function sessionPublication(endBeat = 2): AppendContextPass {
   const value = descriptivePublication("session");
   const clipReference = "00000000-0000-4000-8000-000000000001";
@@ -306,6 +397,595 @@ function sessionPublication(endBeat = 2): AppendContextPass {
   };
 }
 
+function largeMetricPublication(
+  id: string,
+  partial = false,
+  listeners = 1,
+): AppendContextPass {
+  const value = publication(id, listeners);
+  const geometry = {
+    tempoBpm: 240,
+    endBeat: 120,
+    startSample: 10_000,
+  };
+  const original = partial
+    ? createSyntheticPartialMetricListeningObservation(geometry)
+    : createSyntheticMetricListeningObservation(geometry);
+  for (const record of original.metrics.level.records) {
+    record.peak = [0.5000000000000001, 0.5000000000000002];
+    record.rms = [0.2500000000000001, 0.2500000000000002];
+  }
+  original.rows = createMetricObservationReportRows(original);
+  return {
+    ...value,
+    pass: {
+      ...value.pass,
+      requestedMode: "arrangement",
+      actualMode: "arrangement",
+      requestedRange: { startBeat: 0, endBeat: 120 },
+      actualRange: { startBeat: 0, endBeat: 120 },
+      status: partial ? "partial" : "completed",
+      complete: !partial,
+    },
+    entries: value.entries.map((entry) => ({
+      ...entry,
+      kind: "metric-audio-observation/v1",
+      producer: {
+        ...entry.producer,
+        connectionEpoch: original.ownership.connectionEpoch,
+      },
+      payload: {
+        ...original,
+        ownership: {
+          ...original.ownership,
+          listenerId: entry.producer.listenerId,
+          passId: entry.passId,
+          ...trace,
+        },
+      },
+    })),
+    links: value.links.map((link) => ({
+      ...link,
+      coverage: { startBeat: 0, endBeat: 120 },
+      attribution: "unknown",
+    })),
+  };
+}
+
+describe("typed metric context history", () => {
+  it.each([false, true])(
+    "reopens a large complete/partial=%s metric pass with exact timelines and bounded paged summaries",
+    async (partial) => {
+      const path = await diskPath();
+      const events: TelemetryEventEnvelope[] = [];
+      const store = await openSessionContextStore({
+        ...ownership,
+        path,
+        recorder: {
+          enqueue: (event) => {
+            events.push(telemetryEventEnvelopeSchema.parse(event));
+          },
+        },
+      });
+      stores.push(store);
+      const value = largeMetricPublication(`large-${partial}`, partial, 8);
+      const encodedBytes = Buffer.byteLength(JSON.stringify(value));
+      expect(encodedBytes).toBeGreaterThan(2 * 1_024 * 1_024);
+      expect(encodedBytes).toBeLessThan(CONTEXT_LIMITS.passBytes);
+      for (const entry of value.entries) {
+        expect(Buffer.byteLength(JSON.stringify(entry))).toBeGreaterThan(
+          CONTEXT_LIMITS.entryBytes,
+        );
+        expect(entry.payload).toMatchObject({
+          metrics: {
+            level: { expectedRecords: 480 },
+            attacks: { expectedRecords: 300 },
+          },
+        });
+      }
+      await store.reservePass(value.pass.id, CONTEXT_LIMITS.passBytes, {
+        trace,
+        activeAgentId: value.pass.initiatorAgentId,
+      });
+      await store.appendPass(value);
+      await store.close();
+      expect((await stat(path)).size).toBeLessThan(CONTEXT_LIMITS.storeBytes);
+      expect(await readdir(dirname(path))).toEqual(["entity-context.sqlite"]);
+      const reopened = await openSessionContextStore({ ...ownership, path });
+      stores.push(reopened);
+      expect(await reopened.getPass(value.pass.id)).toEqual(value.pass);
+      for (const entry of value.entries) {
+        const retained = await reopened.getEntry(entry.id, {
+          trace,
+          activeAgentId: value.pass.initiatorAgentId,
+        });
+        expect(retained).toEqual(entry);
+        if (retained?.payload.schema !== "metric-audio-observation/v1")
+          throw new Error("Expected retained metric observation");
+        expect(retained.payload.rows).toHaveLength(480);
+        expect(retained.payload.geometry.rows).toHaveLength(480);
+        expect(retained.payload.metrics.level.records).toHaveLength(480);
+        expect(retained.payload.metrics.attacks.records).toHaveLength(300);
+        expect(
+          retained.payload.metrics["spectral-centroid"].records,
+        ).toHaveLength(partial ? 702 : 703);
+        expect(retained.payload.rows).toEqual(
+          createMetricObservationReportRows(retained.payload),
+        );
+      }
+      const ids: string[] = [];
+      let cursor: string | undefined;
+      do {
+        const page = await reopened.listEntries({
+          kind: "metric-audio-observation/v1",
+          passId: value.pass.id,
+          subjectId: value.subjects[0]!.id,
+          range: { startBeat: 119.5, endBeat: 120 },
+          includeHistorical: true,
+          limit: 3,
+          ...(cursor === undefined ? {} : { cursor }),
+        });
+        ids.push(...page.items.map((entry) => entry.id));
+        expect(Buffer.byteLength(JSON.stringify(page))).toBeLessThan(32_768);
+        expect(JSON.stringify(page)).not.toContain('"records"');
+        expect(JSON.stringify(page)).not.toContain('"rows"');
+        for (const entry of page.items) {
+          expect(entry.trace).toEqual(trace);
+          expect(entry.payload).toMatchObject({
+            ownership: { ...trace, listenerId: entry.producer.listenerId },
+            metrics: { level: { retainedRecords: 480 } },
+          });
+        }
+        cursor = page.nextCursor;
+      } while (cursor !== undefined);
+      expect(ids).toEqual(value.entries.map((entry) => entry.id));
+      await expect(reopened.appendPass(value)).rejects.toThrow("immutable");
+      expect(await reopened.getEntry(value.entries[0]!.id)).toEqual(
+        value.entries[0],
+      );
+      await new Promise<void>((resolve) => queueMicrotask(resolve));
+      const lifecycle = events.filter((event) =>
+        event.name.startsWith("context.publish."),
+      );
+      expect(lifecycle.map((event) => event.stage)).toEqual([
+        "queued",
+        "started",
+        "progress",
+        "completed",
+      ]);
+      for (const event of lifecycle) {
+        expect(event).toMatchObject({
+          ...ownership,
+          activeAgentId: value.pass.initiatorAgentId,
+          correlationId: trace.correlationId,
+          trace: { traceId: trace.traceId },
+        });
+      }
+      expect(lifecycle.at(-1)?.durationMs).toBeGreaterThanOrEqual(0);
+      expect(JSON.stringify(events)).not.toContain('"records"');
+    },
+    30_000,
+  );
+
+  it("atomically denies oversized large publications and releases reservation/file ownership after failure or cancellation", async () => {
+    const path = await diskPath();
+    const value = largeMetricPublication("large-rejected");
+    const bytes = Buffer.byteLength(JSON.stringify(value));
+    const events: TelemetryEventEnvelope[] = [];
+    const store = await openSessionContextStore({
+      ...ownership,
+      path,
+      maxPassBytes: bytes - 1,
+      recorder: {
+        enqueue: (event) => {
+          events.push(telemetryEventEnvelopeSchema.parse(event));
+        },
+      },
+    });
+    stores.push(store);
+    await store.reservePass(value.pass.id, bytes - 1, { trace });
+    await expect(store.appendPass(value)).rejects.toThrow("publication quota");
+    await expect(
+      store.reservePass("pass:too-large", CONTEXT_LIMITS.passBytes + 1),
+    ).rejects.toThrow("Invalid pass reservation");
+    const oversizedMetadata = largeMetricPublication("large-metadata");
+    oversizedMetadata.entries[0]!.createdAt = `2026-10-12T00:00:00.${"0".repeat(CONTEXT_LIMITS.metricEntryMetadataBytes)}Z`;
+    await expect(store.appendPass(oversizedMetadata)).rejects.toThrow(
+      "entry exceeds quota",
+    );
+    const abort = new AbortController();
+    abort.abort(new Error("large capture cancelled"));
+    await expect(
+      store.appendPass(value, { signal: abort.signal }),
+    ).rejects.toThrow("large capture cancelled");
+    expect((await store.listPasses()).items).toEqual([]);
+    expect((await store.listEntries()).items).toEqual([]);
+    expect((await store.listLinks()).items).toEqual([]);
+    expect(await store.getSubject(value.subjects[0]!.id)).toBeUndefined();
+    await store.releaseReservation(value.pass.id, { trace });
+    await store.close();
+    expect(await readdir(dirname(path))).toEqual(["entity-context.sqlite"]);
+    const reopened = await openSessionContextStore({ ...ownership, path });
+    stores.push(reopened);
+    await reopened.reservePass(value.pass.id, CONTEXT_LIMITS.passBytes);
+    await reopened.appendPass(value);
+    expect(await reopened.getEntry(value.entries[0]!.id)).toEqual(
+      value.entries[0],
+    );
+    await new Promise<void>((resolve) => queueMicrotask(resolve));
+    expect(events.map((event) => event.name)).toContain(
+      "context.publish.failed",
+    );
+    expect(events.map((event) => event.name)).toContain(
+      "context.publish.cancelled",
+    );
+  });
+
+  it("uses existing attributed lifecycle, redaction and cancellation for metric publication and reads", async () => {
+    const events: TelemetryEventEnvelope[] = [];
+    const store = await memory({
+      ...ownership,
+      recorder: {
+        enqueue: (event) => {
+          events.push(telemetryEventEnvelopeSchema.parse(event));
+        },
+      },
+    });
+    const value = metricPublication("redacted", true);
+    const payload = value.entries[0]!.payload;
+    if (payload.schema !== "metric-audio-observation/v1")
+      throw new Error("Expected metric fixture");
+    payload.limitations.push("Authorization: Bearer metric-secret-token");
+    payload.metrics.level.limitations = ["token=metric-secret-token"];
+    payload.metrics["spectral-centroid"].gaps[0]!.detail =
+      "token=metric-secret-token";
+    await store.appendPass(value);
+    const retained = (await store.getEntry(value.entries[0]!.id))?.payload;
+    expect(JSON.stringify(retained)).toContain("[REDACTED]");
+    expect(JSON.stringify(retained)).not.toContain("metric-secret-token");
+    expect(retained).toMatchObject({
+      outcome: "partial",
+      ownership: payload.ownership,
+      metrics: { "spectral-centroid": { status: "failed" } },
+    });
+    const page = await store.listEntries({ includeHistorical: true });
+    expect(JSON.stringify(page)).not.toContain("metric-secret-token");
+    await new Promise<void>((resolve) => queueMicrotask(resolve));
+    const lifecycle = events.filter((event) =>
+      event.name.startsWith("context.publish."),
+    );
+    expect(lifecycle.map((event) => event.stage)).toEqual([
+      "queued",
+      "started",
+      "progress",
+      "completed",
+    ]);
+    for (const event of lifecycle) {
+      expect(event).toMatchObject({
+        ...ownership,
+        activeAgentId: value.pass.initiatorAgentId,
+        correlationId: trace.correlationId,
+        trace: { traceId: trace.traceId },
+      });
+    }
+    expect(lifecycle[0]?.causationId).toBe(trace.causationId);
+    expect(lifecycle[1]?.causationId).toBe(lifecycle[0]?.id);
+    expect(lifecycle[2]?.causationId).toBe(lifecycle[1]?.id);
+    expect(lifecycle[3]?.causationId).toBe(lifecycle[2]?.id);
+    expect(lifecycle[3]?.durationMs).toBeGreaterThanOrEqual(0);
+    await expect(store.appendPass(value)).rejects.toThrow("immutable");
+    const abort = new AbortController();
+    abort.abort(new Error("cancelled"));
+    await expect(
+      store.appendPass(metricPublication("cancelled"), {
+        signal: abort.signal,
+      }),
+    ).rejects.toThrow("cancelled");
+    await new Promise<void>((resolve) => queueMicrotask(resolve));
+    expect(events.map((event) => event.name)).toContain(
+      "context.publish.failed",
+    );
+    expect(events.map((event) => event.name)).toContain(
+      "context.publish.cancelled",
+    );
+    expect(await store.getPass("pass:cancelled")).toBeUndefined();
+    expect(JSON.stringify(events)).not.toContain("metric-secret-token");
+    expect(JSON.stringify(events)).not.toContain('"records"');
+  });
+
+  it("rolls back physical metric quota failures and leaves no staging files or writer locks", async () => {
+    const path = await diskPath();
+    const initial = await openSessionContextStore({ ...ownership, path });
+    stores.push(initial);
+    const baseline = publication("physical-baseline");
+    await initial.appendPass(baseline);
+    await initial.close();
+    const bytes = (await stat(path)).size;
+    const limited = await openSessionContextStore({
+      ...ownership,
+      path,
+      maxStoreBytes: bytes,
+    });
+    stores.push(limited);
+    const value = largeMetricPublication("physical-quota");
+    await expect(limited.appendPass(value)).rejects.toThrow("quota");
+    expect(await limited.getPass(value.pass.id)).toBeUndefined();
+    await limited.close();
+    expect(await readdir(dirname(path))).toEqual(["entity-context.sqlite"]);
+    const reopened = await openSessionContextStore({ ...ownership, path });
+    stores.push(reopened);
+    expect(await reopened.getEntry(baseline.entries[0]!.id)).toEqual(
+      baseline.entries[0],
+    );
+    expect(
+      (await reopened.listEntries({ includeHistorical: true })).items.map(
+        (entry) => entry.id,
+      ),
+    ).toEqual([baseline.entries[0]!.id]);
+    await reopened.appendPass(value);
+    expect(await reopened.getEntry(value.entries[0]!.id)).toEqual(
+      value.entries[0],
+    );
+  });
+
+  it("keeps Session metric coordinates and exact clip/track association guards", async () => {
+    const store = await memory();
+    const value = metricPublication("metric-session", true);
+    const session = sessionPublication();
+    const source = session.entries[0]!.payload;
+    const entry = value.entries[0]!;
+    if (
+      source.schema !== "session-audio-observation/v1" ||
+      entry.payload.schema !== "metric-audio-observation/v1"
+    )
+      throw new Error("Expected fixtures");
+    value.pass.requestedMode = "session";
+    value.pass.actualMode = "session";
+    value.subjects = session.subjects;
+    value.links = session.links.map((link, index) => ({
+      ...link,
+      id: `link:metric-session:${index}`,
+      entryId: entry.id,
+      coverage: { ...link.coverage, startBeat: 0, endBeat: 2 },
+    }));
+    entry.payload.source = {
+      view: "session",
+      target: source.source.target,
+      clipReference: source.source.target.expectedClipReference,
+      kind: source.source.kind,
+      coordinate: { unit: "beats", iteration: 0, startBeat: 0, endBeat: 2 },
+      transport: { startBeat: 0, endBeat: 2 },
+      clipStartTimeBeats: 0,
+      synchronization: "transport-coupled-first-iteration",
+    };
+    for (const mutate of [
+      (input: AppendContextPass) => {
+        input.links[0]!.coverage = { startBeat: 0, endBeat: 2 };
+      },
+      (input: AppendContextPass) => {
+        input.subjects[0]!.binding.previousRuntimeBindings = ["unrelated"];
+      },
+      (input: AppendContextPass) => {
+        input.links[1]!.freshness.status = "fresh";
+      },
+    ]) {
+      const invalid = structuredClone(value);
+      mutate(invalid);
+      await expect(store.appendPass(invalid)).rejects.toThrow();
+      expect(await store.getEntry(entry.id)).toBeUndefined();
+    }
+    await store.appendPass(value);
+    expect(await store.getEntry(entry.id)).toEqual(entry);
+    expect(
+      (
+        await store.listLinks({
+          passId: value.pass.id,
+          includeHistorical: true,
+        })
+      ).items.map((link) => link.coverage),
+    ).toEqual([
+      {
+        coordinate: "clip-local-beats",
+        iteration: 0,
+        startBeat: 0,
+        endBeat: 2,
+      },
+      { coordinate: "transport-beats", startBeat: 0, endBeat: 2 },
+    ]);
+  });
+
+  it("durably reopens resolver-owned full/partial metric evidence alongside unchanged old kinds", async () => {
+    const root = join(process.cwd(), `.test-context-${randomUUID()}`);
+    roots.push(root);
+    const layout = resolveLiveAgentStorage({
+      homeDirectory: root,
+      environment: {},
+      profile: "metric-context-test",
+    });
+    const path = resolveNestedSessionStorage(
+      layout,
+      ownership,
+    ).entityContextPath;
+    expect(path).toContain("/.live-agent/profiles/metric-context-test/");
+    expect(path).toMatch(/\/context\/entity-context.sqlite$/u);
+    const store = await openSessionContextStore({ ...ownership, path });
+    stores.push(store);
+    const values = [
+      publication("legacy"),
+      descriptivePublication(),
+      sessionPublication(),
+      metricPublication(),
+      metricPublication("partial", true),
+    ];
+    for (const value of values) await store.appendPass(value);
+    await store.close();
+    const reopened = await openSessionContextStore({ ...ownership, path });
+    stores.push(reopened);
+    expect(reopened.schemaVersion).toBe(2);
+    for (const value of values) {
+      expect(await reopened.getEntry(value.entries[0]!.id)).toEqual(
+        value.entries[0],
+      );
+      expect(await reopened.getPass(value.pass.id)).toEqual(value.pass);
+      if (value.entries[0]!.payload.schema === "metric-audio-observation/v1") {
+        expect(value.entries[0]!.payload.limitations).toContain(
+          "Synthetic contract fixture; not actual audio evidence",
+        );
+      }
+    }
+    const partial = values[4]!;
+    const page = await reopened.listEntries({
+      kind: "metric-audio-observation/v1",
+      listenerId: "listener:0",
+      passId: partial.pass.id,
+      range: { startBeat: 1, endBeat: 2 },
+      includeHistorical: true,
+    });
+    expect(page.items).toHaveLength(1);
+    const original = partial.entries[0]!;
+    const payload = original.payload;
+    if (payload.schema !== "metric-audio-observation/v1")
+      throw new Error("Expected metric fixture");
+    const { rows: _rows, geometry, metrics, ...provenance } = payload;
+    const { rows: _geometryRows, ...coordinates } = geometry;
+    expect(_rows).toHaveLength(8);
+    expect(_geometryRows).toHaveLength(8);
+    const compactMetric = <T extends { records: readonly unknown[] }>(
+      metric: T,
+    ) => {
+      const { records, ...summary } = metric;
+      return { ...summary, retainedRecords: records.length };
+    };
+    expect(page.items[0]).toEqual({
+      ...original,
+      payload: {
+        ...provenance,
+        geometry: coordinates,
+        metrics: {
+          level: compactMetric(metrics.level),
+          "spectral-centroid": compactMetric(metrics["spectral-centroid"]),
+          attacks: compactMetric(metrics.attacks),
+        },
+      },
+    });
+    expect(page.items[0]?.payload).not.toHaveProperty("complete");
+    expect(page.items[0]?.payload).not.toHaveProperty("summaries");
+    expect(JSON.stringify(page)).not.toContain('"records"');
+    expect(JSON.stringify(page)).not.toContain('"rows"');
+    expect(JSON.stringify(page)).not.toContain('"peak"');
+    expect(Buffer.byteLength(JSON.stringify(page))).toBeLessThan(12_000);
+    await expect(reopened.appendPass(partial)).rejects.toThrow("immutable");
+    expect(
+      (
+        await reopened.listEntries({
+          kind: "metric-audio-observation/v1",
+          limit: 1,
+          includeHistorical: true,
+        })
+      ).nextCursor,
+    ).toBeDefined();
+    const links = await reopened.listLinks({ passId: partial.pass.id });
+    expect(links.items[0]?.freshness.status).toBe("unknown");
+    await reopened.assessLink(
+      partial.links[0]!.id,
+      {
+        status: "historical",
+        assessedAt: timestamp,
+        reason: "Explicit invalidation",
+      },
+      { trace },
+    );
+    expect(
+      (await reopened.listEntries({ passId: partial.pass.id })).items,
+    ).toEqual([]);
+    expect(
+      (
+        await reopened.listEntries({
+          passId: partial.pass.id,
+          includeHistorical: true,
+        })
+      ).items[0]?.payload,
+    ).toMatchObject({ outcome: "partial" });
+  });
+
+  it.each([
+    "kind",
+    "raw",
+    "contradictory-outcome",
+    "listener",
+    "pass",
+    "trace",
+    "epoch",
+    "ownership",
+    "exclusive",
+    "coverage",
+    "mode",
+    "pass-coverage",
+    "promoted",
+    "failed",
+    "cancelled",
+    "interrupted",
+    "reservation",
+    "quota",
+    "abort",
+  ] as const)(
+    "atomically rejects metric %s violations without changing old evidence",
+    async (failure) => {
+      const store = await memory(
+        failure === "quota" ? { ...ownership, maxPassBytes: 4_000 } : ownership,
+      );
+      const legacy = publication("legacy");
+      await store.appendPass(legacy);
+      const value = metricPublication("metric", true);
+      const entry = value.entries[0]!;
+      if (entry.payload.schema !== "metric-audio-observation/v1")
+        throw new Error("Expected metric fixture");
+      if (failure === "kind") entry.kind = "audio-observation/v1";
+      if (failure === "raw") Object.assign(entry.payload, { samples: [0.5] });
+      if (failure === "contradictory-outcome")
+        entry.payload.outcome = "complete";
+      if (failure === "listener")
+        entry.payload.ownership.listenerId = "listener:other";
+      if (failure === "pass") entry.payload.ownership.passId = "pass:other";
+      if (failure === "trace")
+        entry.payload.ownership.causationId = "cause:other";
+      if (failure === "epoch") entry.producer.connectionEpoch = "epoch:other";
+      if (failure === "ownership") entry.liveSetId = "set:other";
+      if (failure === "exclusive") value.links[0]!.attribution = "exclusive";
+      if (failure === "coverage") value.links[0]!.coverage.endBeat = 3;
+      if (failure === "mode") value.pass.actualMode = "session";
+      if (failure === "pass-coverage")
+        value.pass.actualRange = { startBeat: 0, endBeat: 1 };
+      if (failure === "promoted") {
+        value.pass.complete = true;
+        value.pass.status = "completed";
+      }
+      if (["failed", "cancelled", "interrupted"].includes(failure))
+        value.pass.status = failure as "failed" | "cancelled" | "interrupted";
+      if (failure === "reservation")
+        await store.reservePass(value.pass.id, 1, { trace });
+      const signal = new AbortController();
+      if (failure === "abort") signal.abort(new Error("cancelled"));
+      await expect(
+        store.appendPass(value, { signal: signal.signal }),
+      ).rejects.toThrow();
+      expect(await store.getPass(value.pass.id)).toBeUndefined();
+      expect(await store.getEntry(entry.id)).toBeUndefined();
+      expect(
+        (await store.listEntries({ includeHistorical: true })).items,
+      ).toHaveLength(1);
+      expect(await store.getEntry(legacy.entries[0]!.id)).toEqual(
+        legacy.entries[0],
+      );
+      if (failure === "reservation") {
+        await store.releaseReservation(value.pass.id, { trace });
+        await store.appendPass(value);
+        expect(await store.getEntry(entry.id)).toEqual(entry);
+      }
+    },
+  );
+});
+
 describe("typed descriptive context history", () => {
   it("reopens exact rounded Session coverage while rejecting oversized nominal requests", async () => {
     const path = await diskPath();
@@ -313,7 +993,7 @@ describe("typed descriptive context history", () => {
     stores.push(store);
     const value = sessionPublication(4.001);
     const invalid = structuredClone(value);
-    invalid.pass.requestedRange.endBeat = 4.001;
+    invalid.pass.requestedRange.endBeat = 499.502;
     await expect(store.appendPass(invalid)).rejects.toThrow("local coverage");
     expect(await store.getPass(value.pass.id)).toBeUndefined();
     await store.appendPass(value);
@@ -327,8 +1007,8 @@ describe("typed descriptive context history", () => {
       4.001,
     );
     expect(
-      (await reopened.getEntry(value.entries[0]!.id))?.payload.endBeat,
-    ).toBe(4.001);
+      (await reopened.getEntry(value.entries[0]!.id))?.payload,
+    ).toMatchObject({ endBeat: 4.001 });
     expect(
       (await reopened.listLinks({ includeHistorical: true })).items.map(
         (link) => link.coverage.endBeat,
@@ -336,17 +1016,30 @@ describe("typed descriptive context history", () => {
     ).toEqual([4.001, 104.001]);
   });
 
-  it("retains old store references and registers both bounded observation kinds", () => {
+  it("retains old store references and additively registers all four bounded observation kinds", () => {
     expect(
       sessionContextStoreReferenceSchema.parse({
         ...SESSION_CONTEXT_STORE_REFERENCE,
         kinds: ["audio-observation/v1"],
       }).kinds,
     ).toEqual(["audio-observation/v1"]);
+    const oldReference = {
+      schemaVersion: 2,
+      relativePath: "context/entity-context.sqlite",
+      kinds: [
+        "audio-observation/v1",
+        "audio-observation/v2",
+        "session-audio-observation/v1",
+      ],
+    };
+    expect(sessionContextStoreReferenceSchema.parse(oldReference)).toEqual(
+      oldReference,
+    );
     expect(SESSION_CONTEXT_STORE_REFERENCE.kinds).toEqual([
       "audio-observation/v1",
       "audio-observation/v2",
       "session-audio-observation/v1",
+      "metric-audio-observation/v1",
     ]);
     expect(
       sessionContextStoreReferenceSchema.safeParse({
@@ -493,9 +1186,10 @@ describe("typed descriptive context history", () => {
     });
     expect(page.items[0]?.payload).not.toHaveProperty("samples");
     expect(page.items[0]?.payload).not.toHaveProperty("attacks");
-    expect(page.items[0]?.payload.algorithm).not.toHaveProperty(
-      "timingUncertaintySamples",
-    );
+    const retained = page.items[0]?.payload;
+    if (retained?.schema !== "audio-observation/v2")
+      throw new Error("Expected descriptive payload");
+    expect(retained.algorithm).not.toHaveProperty("timingUncertaintySamples");
     await store.close();
     const reopened = await openSessionContextStore({ ...ownership, path });
     stores.push(reopened);
@@ -580,9 +1274,9 @@ describe.each(["memory", "sqlite"] as const)(
         (await context.listPasses({ entryId: "entry:missing" })).items,
       ).toEqual([]);
       input.entries[0]!.payload.summaries.peak[0] = 1;
-      expect(
-        (await context.getEntry("entry:1:0"))?.payload.summaries.peak[0],
-      ).toBe(0.5);
+      expect((await context.getEntry("entry:1:0"))?.payload).toMatchObject({
+        summaries: { peak: [0.5, 0.5] },
+      });
       await expect(context.appendPass(publication())).rejects.toThrow(
         "immutable",
       );

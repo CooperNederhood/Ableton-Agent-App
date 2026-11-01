@@ -1,7 +1,11 @@
 {
   "overrides": [
     {
-      "files": ["hosted_calibration_probe.js", "audio_listener_native_io.js"],
+      "files": [
+        "hosted_calibration_probe.js",
+        "audio_listener_native_io.js",
+        "audio_listener_measurements.js"
+      ],
       "options": {
         "trailingComma": "es5"
       }

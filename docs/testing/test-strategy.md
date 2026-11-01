@@ -26,6 +26,12 @@ coverage. Bug fixes must include a regression test at the narrowest owning
 boundary. Vitest runs with default ten-second test/hook deadlines and zero retries;
 flaky tests are fixed or explicitly quarantined rather than silently retried.
 
+Retained-listener delivery failures require renderer and Electron preload/event
+coverage: the failed pass has no new context references, prior completed-pass
+references remain visible, and capture cancellation is disabled without
+transport cleanup or automatic retry. Synthetic lifecycle fixtures test this
+presentation contract, not actual descriptor capture or acoustic performance.
+
 Hosted validation runs `pnpm check` through `tee` using explicitly selected Bash,
 which enables pipefail. The validator's failure must fail the job and retain
 stdout/stderr diagnostics; a successful log writer is not evidence that tests
@@ -71,6 +77,54 @@ Tests must catch:
   stale type/channel snapshots, and routing assignment verification failures.
 
 ## Test layers
+
+### Canonical integration delivery
+
+Device delivery requires publisher and installer regressions as well as app
+launch coverage. Check complete canonical native-v4 and MIDI payload inventories,
+portable/installed hashes, path rendering, selected-profile and custom-Library
+resolution, idempotent update, corrupt/missing/wrong-version resources, live-host
+guards, unrelated-file/token preservation, partial failures, cleanup/cancellation,
+and redacted trace/timing coverage. Detect/dry-run must not create profile data.
+
+Packaged Electron coverage executes the bundled integration CLI with an isolated
+Library/profile and a working directory without a checkout. Assert both devices
+and Remote Script are delivered, repeat installation is current, and a missing
+companion refuses all publication. An app launch/authentication test alone does
+not prove device delivery.
+
+Fresh owned Live11 acceptance must load newly installed bundles, resolve adjacent
+resources and verify listener registration/bounded capture plus exact MIDI
+ingress. Record the actual full host version and clean only owned processes and
+fixtures. Do not replace this check with an older independently packaged device,
+or claim static package checks complete the separate legacy physical matrix.
+
+### Retained measurement delivery
+
+Exercise the actual Gen publisher with delayed low-priority reads, not only an
+already-perfect JavaScript FIFO. Preserve the latest-only missing-window
+regression; require coherent owned FIFO recovery, full counter precision,
+fractional tails, explicit overflow/control faults and release at both supported
+sample rates. Cover the shared reader, native IO, controller, authenticated SDK,
+ingress telemetry and immutable context publication independently. Qualify
+actual Gen compilation/readback in an isolated host before production wiring.
+
+The reviewed `native-dual-session-repeat-1-2-1` scenario belongs to
+`native-listening-repeated`. It requires explicit pinned native4 input and
+ordinary guarded approvals; admission must run before setup, credentials or
+process inspection. Three captures target scenes 0, 1, 0 on the same loaded
+producer/connection/binding, with three distinct pass/context IDs, increasing
+native epochs and independently verified source/coverage proofs. The only
+between-pass stops are two explicit fixture-owned baseline operations, after
+the preceding pass verifies. Their explicitly user-approved contract revision
+also positions the stopped disposable Set to beat zero and independently
+verifies that qualified anchor, source identity and unchanged settings. The
+original stop-only/no-seek contract is preserved in historical failure evidence;
+it could not establish the existing production Session precondition.
+No actor stop/seek/retry permission or production guard is relaxed.
+Preserve earlier contexts and fail at the first
+failed subpass without retrying. Preparation/unit success is not a physical
+run; non-silent/nonclipping descriptors are not a no-crackle certificate.
 
 ### Unit tests
 

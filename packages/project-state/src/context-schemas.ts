@@ -1,15 +1,24 @@
 import { z } from "zod";
 import {
+  MAX_METRIC_OBSERVATION_BYTES,
   audioObservationKindSchema,
   storedAudioObservationSchema,
 } from "@ableton-agent/protocol";
 
+const listenersPerPass = 8;
+const metricEntryMetadataBytes = 16 * 1_024;
+const metricEntryBytes =
+  MAX_METRIC_OBSERVATION_BYTES + metricEntryMetadataBytes;
+
 export const CONTEXT_LIMITS = Object.freeze({
-  listenersPerPass: 8,
+  listenersPerPass,
   pageSize: 100,
   revalidationsPerQuery: 100,
   entryBytes: 256 * 1_024,
-  passBytes: 2 * 1_024 * 1_024,
+  metricEntryMetadataBytes,
+  metricEntryBytes,
+  // Publication JSON includes subjects, links and the pass as well as entries.
+  passBytes: listenersPerPass * metricEntryBytes + 1_024 * 1_024,
   storeBytes: 32 * 1_024 * 1_024,
   pendingOperations: 32,
 });
@@ -21,7 +30,7 @@ export const sessionContextStoreReferenceSchema = z
     kinds: z
       .array(audioObservationKindSchema)
       .min(1)
-      .max(3)
+      .max(4)
       .refine((values) => new Set(values).size === values.length)
       .readonly(),
   })
@@ -35,6 +44,7 @@ export const SESSION_CONTEXT_STORE_REFERENCE =
       "audio-observation/v1",
       "audio-observation/v2",
       "session-audio-observation/v1",
+      "metric-audio-observation/v1",
     ],
   });
 
@@ -231,7 +241,7 @@ export const contextLinkSchema = z.strictObject({
       coordinate: z.literal("clip-local-beats"),
       iteration: z.literal(0),
       startBeat: z.literal(0),
-      endBeat: z.number().finite().positive().max(4.001),
+      endBeat: z.number().finite().positive().max(499.501),
     }),
     z
       .strictObject({

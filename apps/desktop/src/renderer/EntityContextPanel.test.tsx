@@ -8,7 +8,26 @@ import type {
   DesktopEntityContextApi,
 } from "../context-contracts.js";
 import { EntityContextPanel } from "./EntityContextPanel.js";
-import { audioObservationV2Schema } from "@ableton-agent/protocol";
+import {
+  audioObservationV2Schema,
+  createMetricObservationReportRows,
+  metricAudioObservationSchema,
+  type MetricAudioObservation,
+} from "@ableton-agent/protocol";
+import { createSyntheticMetricListeningObservation } from "@ableton-agent/protocol/testing";
+
+function metricFixture(endBeat = 4): MetricAudioObservation {
+  return createSyntheticMetricListeningObservation({ endBeat });
+}
+
+function metricDetail(value: MetricAudioObservation): DesktopContextDetail {
+  value.rows = createMetricObservationReportRows(value);
+  return {
+    action: "get",
+    entry: { ...entry, kind: value.schema },
+    observation: metricAudioObservationSchema.parse(value),
+  };
+}
 
 const entry: DesktopContextPage["entries"][number] = {
   contextId: "context",
@@ -108,11 +127,239 @@ async function click(text: string) {
 }
 
 describe("stored listening context presentation", () => {
+  it("shows unknown spectral timing as unavailable, not no-frame or measured silence", async () => {
+    const observation = metricFixture(1);
+    observation.outcome = "partial";
+    const spectrum = observation.metrics["spectral-centroid"];
+    if (!spectrum.algorithm)
+      throw new Error("Expected spectral fixture algorithm");
+    spectrum.algorithm.firstFrameEndSample = null;
+    spectrum.status = "failed";
+    spectrum.expectedRecords = 0;
+    spectrum.records = [];
+    spectrum.gaps = [];
+    spectrum.limitations = [
+      "FFT phase unavailable; timed supports cannot be established.",
+    ];
+    const source = api();
+    source.get.mockResolvedValueOnce(metricDetail(observation));
+    await render("session", source);
+    await click("View observation context");
+    const rows = container.querySelector('[aria-label="Report rows"]');
+    expect(rows?.textContent).toContain(
+      "spectral-centroid: unknown-phase; record indices none",
+    );
+    expect(rows?.textContent).not.toContain("spectral-centroid: no-frame");
+    expect(container.textContent).toContain("FFT phase unavailable");
+    expect(container.textContent).not.toContain(
+      "Silence (measured zero spectral energy)",
+    );
+  });
+  it("labels a report interval with no FFT frame without inventing a silent measurement", async () => {
+    const source = api();
+    source.get.mockResolvedValueOnce(metricDetail(metricFixture(0.01)));
+    await render("session", source);
+    await click("View observation context");
+    const rows = container.querySelector('[aria-label="Report rows"]');
+    expect(rows?.textContent).toContain("beats [0, 0.01)");
+    expect(rows?.textContent).toContain(
+      "spectral-centroid: no-frame; record indices none",
+    );
+    expect(
+      container.querySelector('[aria-label="spectral-centroid records"]')
+        ?.textContent,
+    ).toContain("No retained data");
+    expect(container.textContent).not.toContain(
+      "Silence (measured zero spectral energy)",
+    );
+  });
+
+  it("renders metric completeness, measured values and actual support with accessible bounded pages", async () => {
+    const source = api();
+    source.get.mockResolvedValueOnce(metricDetail(metricFixture()));
+    await render("session", source);
+    await click("View observation context");
+    const text = container.textContent;
+    expect(text).toContain("Complete; requested metrics only");
+    expect(text).toContain("level: complete");
+    expect(text).toContain("-12.04 dBFS");
+    expect(text).toContain("500.0 Hz");
+    expect(text).toContain("1 estimated attacks in validated window");
+    expect(text).toContain("samples [10000, 12048)");
+    expect(text).toContain("samples [10000, 14800)");
+    expect(text).toContain("not averaged or duplicated measurements");
+    expect(text).toContain("Attack windows are independent");
+    expect(text).toContain("Approximate; descriptive-only");
+    const rows = container.querySelector('[aria-label="Report rows"]');
+    expect(rows?.querySelectorAll("li")).toHaveLength(10);
+    expect(rows?.textContent).not.toContain("Row 10:");
+    const next = rows?.querySelector<HTMLButtonElement>(
+      '[aria-label="Next Report rows"]',
+    );
+    if (!next) throw new Error("Missing row pagination");
+    await act(async () => next.click());
+    expect(rows?.querySelectorAll("li")).toHaveLength(6);
+    expect(rows?.textContent).toContain("Row 10:");
+    expect(rows?.textContent).not.toContain("Row 0:");
+    const previous = rows?.querySelector<HTMLButtonElement>(
+      '[aria-label="Previous Report rows"]',
+    );
+    if (!previous) throw new Error("Missing previous row page");
+    await act(async () => previous.click());
+    expect(rows?.textContent).toContain("Row 0:");
+    expect(container.textContent).not.toContain("silence/below floor");
+  });
+
+  it("distinguishes partial, failed and not-requested metrics from silence and retains gap reasons", async () => {
+    const value = metricFixture();
+    const removed = value.metrics.level.records.pop()!;
+    value.metrics.level.status = "partial";
+    value.metrics.level.gaps = [
+      {
+        firstIndex: removed.index,
+        count: 1,
+        ...removed.support,
+        reason: "sequence-gap",
+        detail: "Missing level packet",
+      },
+    ];
+    value.metrics.level.limitations = ["Last reporting interval unavailable"];
+    const spectral = value.metrics["spectral-centroid"];
+    spectral.status = "failed";
+    spectral.gaps = [
+      {
+        firstIndex: 0,
+        count: spectral.expectedRecords,
+        startSample: spectral.records[0]!.support.startSample,
+        endSample: spectral.records.at(-1)!.support.endSample,
+        reason: "drain-timeout",
+        detail: "No validated FFT frames",
+      },
+    ];
+    spectral.records = [];
+    value.metrics.attacks = {
+      status: "not-requested",
+      expectedRecords: 0,
+      algorithm: null,
+      records: [],
+      gaps: [],
+      limitations: [],
+    };
+    value.requestedMetrics = ["level", "spectral-centroid"];
+    value.outcome = "partial";
+    const source = api();
+    source.get.mockResolvedValueOnce(metricDetail(value));
+    await render("session", source);
+    await click("View observation context");
+    expect(container.textContent).toContain("Partial; requested metrics only");
+    expect(container.textContent).toContain("15/16 validated records");
+    expect(container.textContent).toContain("level: partial");
+    expect(container.textContent).toContain(
+      "sequence-gap: Missing level packet",
+    );
+    expect(container.textContent).toContain(
+      "Last reporting interval unavailable",
+    );
+    expect(container.textContent).toContain("spectral-centroid: failed");
+    expect(container.textContent).toContain(
+      "No trustworthy data available; not silence",
+    );
+    expect(container.textContent).toContain(
+      "drain-timeout: No validated FFT frames",
+    );
+    expect(container.textContent).toContain("attacks: not-requested");
+    expect(container.textContent).not.toContain("silence (measured zero)");
+    expect(container.textContent).not.toContain("500.0 Hz");
+  });
+
+  it("shows measured zero as silence only on measured support and preserves historical metric detail", async () => {
+    const value = metricFixture();
+    value.metrics.level.records.forEach((record) => {
+      record.peak = [0, 0];
+      record.rms = [0, 0];
+    });
+    value.metrics["spectral-centroid"].records.forEach((record) => {
+      record.centroidHz = null;
+      record.spectralEnergy = 0;
+    });
+    value.metrics.attacks.records.forEach((window) => {
+      window.inputLevel = { peak: [0, 0], rms: [0, 0] };
+      window.events = [];
+    });
+    const source = api();
+    source.get.mockResolvedValueOnce({
+      ...metricDetail(value),
+      entry: { ...entry, kind: value.schema, freshness: "historical" },
+    });
+    await render("session", source);
+    const checkbox = container.querySelector<HTMLInputElement>(
+      "input[type=checkbox]",
+    )!;
+    await act(async () => checkbox.click());
+    await click("View observation context");
+    expect(source.get).toHaveBeenLastCalledWith({
+      sessionId: "session",
+      contextId: "context",
+      includeHistorical: true,
+    });
+    expect(container.textContent).toContain("Freshnesshistorical");
+    expect(container.textContent).toContain("silence (measured zero)");
+    expect(container.textContent).toContain(
+      "Silence (measured zero spectral energy); centroid undefined",
+    );
+    expect(container.textContent).toContain(
+      "0 estimated attacks in validated window",
+    );
+    expect(container.textContent).not.toContain("Infinity");
+    expect(container.textContent).not.toContain("Not observed");
+  });
+
+  it("rejects observations with no trustworthy metric data instead of inventing silence", async () => {
+    const value = metricFixture();
+    value.requestedMetrics = ["level"];
+    value.metrics.level.status = "failed";
+    value.metrics.level.gaps = [
+      {
+        firstIndex: 0,
+        count: 16,
+        ...value.sourceCoverage,
+        reason: "unavailable",
+        detail: "No data",
+      },
+    ];
+    value.metrics.level.records = [];
+    for (const name of ["spectral-centroid", "attacks"] as const) {
+      value.metrics[name] = {
+        status: "not-requested",
+        algorithm: null,
+        expectedRecords: 0,
+        records: [],
+        gaps: [],
+        limitations: [],
+      };
+    }
+    value.outcome = "partial";
+    value.rows = createMetricObservationReportRows(value);
+    const source = api();
+    source.get.mockResolvedValueOnce({
+      action: "get",
+      entry: { ...entry, kind: value.schema },
+      observation: value,
+    });
+    await render("session", source);
+    await click("View observation context");
+    expect(container.querySelector("[role=alert]")).not.toBeNull();
+    expect(container.textContent).not.toContain("silence (measured zero)");
+    expect(container.querySelector('[aria-label="level metric"]')).toBeNull();
+  });
+
   it.each([
     [44_100, 64, "1.451", 128, "2.902", "0.726"],
     [48_000, 64, "1.333", 128, "2.667", "0.667"],
     [44_100, 0, "0.000", 0, "0.000", "0.000"],
     [48_000, 0, "0.000", 0, "0.000", "0.000"],
+    [48_000, 4_800, "100.000", 64, "1.333", "50.000"],
+    [48_000, 9_600, "200.000", 64, "1.333", "100.000"],
   ])(
     "shows v2 approximate descriptive quality at actual %i Hz and %i observed samples",
     async (
@@ -174,7 +421,13 @@ describe("stored listening context presentation", () => {
         [...container.querySelectorAll("dt")].find(
           (item) => item.textContent === label,
         )?.nextElementSibling?.textContent;
-      expect(row("Configured acceptance limit")).toContain(
+      expect(
+        row(
+          samples === 0
+            ? "Configured acceptance limit"
+            : "Advisory timing target",
+        ),
+      ).toContain(
         `${configured} samples (${configuredMs} ms at ${sampleRate} Hz)`,
       );
       expect(row("Observed clock disagreement")).toBe(
@@ -193,6 +446,7 @@ describe("stored listening context presentation", () => {
         "Timing uncertainty (legacy v1)",
       );
       if (samples === 0) expect(container.textContent).toContain("no fallback");
+      else expect(container.textContent).toContain("not a capture limit");
     },
   );
 

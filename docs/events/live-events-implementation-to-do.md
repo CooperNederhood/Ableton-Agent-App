@@ -9,6 +9,14 @@ roadmaps and must not duplicate this checklist.
 
 ## Status
 
+- [x] Qualify opt-in metric-listener native/metric journal attribution:
+  immutable event IDs and epoch, exact-duplicate suppression, stage-parent
+  causation, actual optional duration versus pass elapsed time, redaction and
+  scoped metric failure without false global failure. Regress actual typed
+  journal persistence and disable the second legacy projection for wire5.
+  Keep default wire5
+  denial and runtime/real-host qualification distinct from structural support.
+
 - Overall: `[~] In progress`
 - Scope: Remote Script-owned subscriptions plus local Desktop history; no Max
   for Live or cloud-journal dependency

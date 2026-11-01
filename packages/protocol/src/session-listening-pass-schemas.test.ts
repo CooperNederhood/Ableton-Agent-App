@@ -104,8 +104,14 @@ describe("bounded Session pass authority", () => {
 
   it("accepts only exact prepare identities and bounded beat durations", () => {
     expect(sessionListeningPassParamsSchema.parse(prepare)).toEqual(prepare);
+    expect(
+      sessionListeningPassParamsSchema.parse({
+        ...prepare,
+        durationBeats: 8.125,
+      }),
+    ).toMatchObject({ durationBeats: 8.125 });
     for (const change of [
-      { durationBeats: 4.01 },
+      { durationBeats: -1 },
       { durationBeats: 0 },
       { durationBeats: Number.NaN },
       { ownerId: "owner" },
@@ -162,6 +168,7 @@ describe("bounded Session pass authority", () => {
       { limitations: [] },
       { followActionState: "disabled" },
       { status: "playing" },
+      { status: "covered" },
       { mutationState: "observed-playing" },
       { sourceEpoch: { startTimeBeats: 12 } },
       { audio: [0, 1] },
@@ -183,5 +190,30 @@ describe("bounded Session pass authority", () => {
         },
       }).success,
     ).toBe(true);
+  });
+
+  it("retains covered source evidence without promoting it to native completion", () => {
+    const covered = {
+      ...result,
+      durationBeats: 8.125,
+      status: "covered",
+      mutationState: "observed-playing",
+      sourceEpoch: {
+        startTimeBeats: 0,
+        clipReference: passId,
+        observedGlobalBeat: 0.125,
+      },
+      lastObservedSource: {
+        ...result.lastObservedSource,
+        transportPlaying: true,
+        globalBeat: 8.125,
+        startTimeBeats: 0,
+      },
+    };
+    expect(sessionListeningPassResultSchema.parse(covered)).toMatchObject({
+      status: "covered",
+      nativeAlignment: "unverified",
+      cleanupPolicy: "leave-running",
+    });
   });
 });

@@ -2,13 +2,19 @@ import { describe, expect, it } from "vitest";
 import {
   inspectSessionListeningSourceResultSchema,
   createNativeListeningGeometry,
+  createMetricListeningGeometry,
+  readListeningFailureEvidence,
+  listeningFailureFactSchema,
 } from "@ableton-agent/protocol";
 import {
   freezeSessionSourceExpectation,
   assertSessionSourceUnchanged,
   assertTransportCoupledSessionOrigin,
   assertSessionFirstIterationCoverage,
+  attributeSessionRejection,
+  assertSessionSignal,
 } from "./session-listening-source.js";
+import { ListeningRuntimeRejection } from "./listening-failure.js";
 
 const target = {
   view: "session" as const,
@@ -69,8 +75,305 @@ const origin = {
   clipStartTimeBeats: 0,
   observedAtGlobalBeat: 0.2,
 };
+const pass = {
+  passId: "source-pass",
+  owner: { sessionId: "session", liveSetId: "set", agentId: "agent" },
+  trace: {
+    traceId: "00000000-0000-4000-8000-000000000004",
+    correlationId: "source-correlation",
+    causationId: "source-cause",
+  },
+};
+
+function rejection(operation: () => unknown): ListeningRuntimeRejection {
+  try {
+    operation();
+  } catch (error) {
+    expect(error).toBeInstanceOf(ListeningRuntimeRejection);
+    const rejected = error as ListeningRuntimeRejection;
+    expect(rejected.rejectionFacts.length).toBeGreaterThan(0);
+    for (const fact of rejected.rejectionFacts)
+      expect(listeningFailureFactSchema.safeParse(fact).success).toBe(true);
+    return rejected;
+  }
+  throw new Error("Expected a guarded Session rejection");
+}
 
 describe("Session source admission and independent transport join", () => {
+  it.each([
+    [
+      "identity",
+      {
+        target: {
+          ...target,
+          expectedClipReference: "00000000-0000-4000-8000-000000000099",
+        },
+      },
+      "stale_session_target",
+      "source.target.expectedClipReference",
+      "00000000-0000-4000-8000-000000000099",
+      target.expectedClipReference,
+    ],
+    [
+      "kind",
+      { sourceKind: "unwarped-audio", positionUnit: "seconds" },
+      "unsupported_session_source",
+      "source.kind",
+      "unwarped-audio",
+      "midi|warped-audio",
+    ],
+    [
+      "recording",
+      { after: { ...source().after, targetRecording: true } },
+      "session_launch_state_unknown_or_active",
+      "source.after.targetRecording",
+      true,
+      false,
+    ],
+    [
+      "transport continuity",
+      { after: { ...source().after, globalBeat: 2 } },
+      "session_transport_changed",
+      "source.after.globalBeat",
+      2,
+      0,
+    ],
+    [
+      "launch settings",
+      { settings: { ...source().settings, launchMode: 1 } },
+      "unsupported_session_launch_settings",
+      "source.settings.launchMode",
+      1,
+      0,
+    ],
+    [
+      "follow actions",
+      { settings: { ...source().settings, followActionEnabled: true } },
+      "session_follow_actions_enabled",
+      "source.settings.followActionEnabled",
+      true,
+      "false|unknown",
+    ],
+    [
+      "qualified anchor",
+      {
+        before: { ...source().before, globalBeat: 1 },
+        after: { ...source().after, globalBeat: 1 },
+      },
+      "session_launch_case_unqualified",
+      "source.startBeat",
+      1,
+      0,
+    ],
+    [
+      "first iteration",
+      { settings: { ...source().settings, loopEnd: 3 } },
+      "session_first_iteration_exceeded",
+      "request.durationBeats",
+      4,
+      3,
+    ],
+    [
+      "quota",
+      { settings: { ...source().settings, tempoBpm: 4 } },
+      "native_capture_quota",
+      "capture.durationMs",
+      60_000,
+      30_000,
+    ],
+  ] as const)(
+    "records exact %s rejection operands at admission",
+    (_name, changes, code, field, actual, expected) => {
+      const error = rejection(() =>
+        freezeSessionSourceExpectation({ ...source(), ...changes }, target, 4),
+      );
+      expect(error.code).toBe(code);
+      expect(error.rejectionFacts).toContainEqual(
+        expect.objectContaining({
+          field,
+          actual: { state: "observed", value: actual },
+          expected: { state: "observed", value: expected },
+        }),
+      );
+    },
+  );
+
+  it("does not invent zero for unavailable state or nonfinite durations", () => {
+    const unknown = source();
+    unknown.after.playingSlotIndex = null;
+    expect(
+      rejection(() => freezeSessionSourceExpectation(unknown, target, 4))
+        .rejectionFacts,
+    ).toContainEqual(
+      expect.objectContaining({
+        field: "source.after.playingSlotIndex",
+        actual: { state: "unavailable", reason: "not-reported" },
+      }),
+    );
+    expect(
+      rejection(() => freezeSessionSourceExpectation(source(), target, NaN))
+        .rejectionFacts,
+    ).toContainEqual(
+      expect.objectContaining({
+        field: "request.durationBeats",
+        actual: { state: "unavailable", reason: "nonfinite" },
+      }),
+    );
+  });
+
+  it("retains schema exception identity and attributes its typed predicate without retaining the raw snapshot", () => {
+    let error: unknown;
+    try {
+      freezeSessionSourceExpectation(
+        { ...source(), schemaVersion: 7 } as unknown as ReturnType<
+          typeof source
+        >,
+        target,
+      );
+    } catch (caught) {
+      error = caught;
+    }
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).constructor.name).toBe("ZodError");
+    attributeSessionRejection(error, pass, "validation");
+    expect(readListeningFailureEvidence(error)).toMatchObject({
+      status: "present",
+      evidence: {
+        code: "session.source.schema",
+        phase: "validation",
+        component: "session-source",
+        reference: { ...pass.trace, passId: pass.passId },
+        facts: expect.arrayContaining([
+          {
+            field: "schema.valid",
+            actual: { state: "observed", value: false },
+            expected: { state: "observed", value: true },
+          },
+          {
+            field: "schema.issue.0.value",
+            actual: { state: "observed", value: 7 },
+            expected: { state: "observed", value: 1 },
+          },
+        ]) as unknown,
+      },
+    });
+  });
+
+  it("records changed settings, rounded geometry operands and origin tolerance instead of opaque error codes", () => {
+    const expected = freezeSessionSourceExpectation(source(), target, 4);
+    const edited = source();
+    edited.settings.loopEnd = 5;
+    expect(
+      rejection(() => assertSessionSourceUnchanged(expected, edited))
+        .rejectionFacts,
+    ).toContainEqual(
+      expect.objectContaining({
+        field: "source.settings.loopEnd",
+        actual: { state: "observed", value: 5 },
+        expected: { state: "observed", value: 8 },
+      }),
+    );
+    const geometry = createNativeListeningGeometry({
+      sampleRate: 48_000,
+      vectorSize: 64,
+      tempoBpm: 120,
+      startBeat: 0,
+      endBeat: 4,
+    });
+    const rounded = rejection(() =>
+      assertSessionFirstIterationCoverage(
+        { ...expected, firstIterationEndBeat: 3.5 },
+        geometry,
+      ),
+    );
+    expect(rounded.rejectionFacts).toContainEqual(
+      expect.objectContaining({
+        field: "geometry.iterationExcessBeats",
+        actual: { state: "observed", value: 0.5 },
+        expected: { state: "observed", value: 120 / (120 * 48_000) + 1e-10 },
+        unit: "beats",
+        comparison: "at-most",
+      }),
+    );
+    expect(
+      rejection(() =>
+        assertTransportCoupledSessionOrigin(expected, {
+          ...origin,
+          clipStartTimeBeats: 1,
+        }),
+      ).rejectionFacts,
+    ).toContainEqual(
+      expect.objectContaining({
+        field: "origin.anchorToleranceBeats",
+        actual: { state: "observed", value: 1e-8 },
+      }),
+    );
+  });
+
+  it("latches immutable primary attribution before cleanup and does not bless malformed or foreign evidence", () => {
+    const primary = rejection(() =>
+      freezeSessionSourceExpectation(source(), target, -1),
+    );
+    attributeSessionRejection(primary, pass, "validation");
+    const first = readListeningFailureEvidence(primary);
+    expect(first.status).toBe("present");
+    const aggregate = new AggregateError(
+      [primary, new Error("release failed")],
+      "cleanup failed",
+    );
+    attributeSessionRejection(aggregate, pass, "cleanup");
+    expect(readListeningFailureEvidence(aggregate)).toEqual(first);
+    const evidence = Object.getOwnPropertyDescriptor(
+      primary,
+      "failureEvidence",
+    )!.value as object;
+    expect(Object.isFrozen(evidence)).toBe(true);
+    for (const supplied of [
+      { schema: "invalid" },
+      {
+        ...(first.status === "present" ? first.evidence : {}),
+        reference: { ...pass.trace, passId: "foreign-pass" },
+      },
+    ]) {
+      const rejected = rejection(() =>
+        freezeSessionSourceExpectation(source(), target, -1),
+      );
+      Object.defineProperty(rejected, "failureEvidence", { value: supplied });
+      attributeSessionRejection(rejected, pass, "validation");
+      expect(
+        Object.getOwnPropertyDescriptor(rejected, "failureEvidence")!.value,
+      ).toBe(supplied);
+    }
+  });
+
+  it("keeps cancellation reason identity and exact signal facts", () => {
+    const controller = new AbortController();
+    const reason = new Error("caller cancelled");
+    controller.abort(reason);
+    expect(() => assertSessionSignal(controller.signal, "source-test")).toThrow(
+      reason,
+    );
+    attributeSessionRejection(reason, pass, "launch");
+    expect(readListeningFailureEvidence(reason)).toMatchObject({
+      status: "present",
+      evidence: {
+        code: "cancelled",
+        phase: "launch",
+        facts: [
+          {
+            field: "signal.aborted",
+            actual: { state: "observed", value: true },
+            expected: { state: "observed", value: false },
+          },
+          {
+            field: "signal.check",
+            actual: { state: "observed", value: "source-test" },
+          },
+        ],
+      },
+    });
+  });
+
   it.each(["midi", "warped-audio"] as const)(
     "freezes %s metadata without attributing historical start_time",
     (kind) => {
@@ -113,7 +416,6 @@ describe("Session source admission and independent transport join", () => {
     { settings: { ...source().settings, loopStart: 1 } },
     { settings: { ...source().settings, startMarker: 1 } },
     { settings: { ...source().settings, loopEnd: 3 } },
-    { settings: { ...source().settings, loopEnd: 4 } },
     { settings: { ...source().settings, tempoBpm: null } },
     { settings: { ...source().settings, signatureNumerator: 3 } },
     {
@@ -157,18 +459,49 @@ describe("Session source admission and independent transport join", () => {
   });
 
   it.each([true, false])(
-    "rejects capture at either first-iteration boundary with looping=%s",
+    "captures the exact active boundary with looping=%s",
     (looping) => {
-      for (const field of ["loopEnd", "endMarker"] as const) {
-        const snapshot = source();
-        snapshot.settings.looping = looping;
-        snapshot.settings[field] = 4;
-        expect(() =>
-          freezeSessionSourceExpectation(snapshot, target, 4),
-        ).toThrow("session_first_iteration_exceeded");
-      }
+      const snapshot = source();
+      snapshot.settings.looping = looping;
+      snapshot.settings[looping ? "loopEnd" : "endMarker"] = 4;
+      expect(
+        freezeSessionSourceExpectation(snapshot, target, 4).durationBeats,
+      ).toBe(4);
     },
   );
+
+  it("defaults to the active loop, not underlying file end, and permits an explicit shorter region", () => {
+    const snapshot = source();
+    snapshot.sourceKind = "warped-audio";
+    snapshot.settings.endMarker = 200;
+    snapshot.settings.loopEnd = 8.125;
+    expect(freezeSessionSourceExpectation(snapshot, target).durationBeats).toBe(
+      8.125,
+    );
+    expect(
+      freezeSessionSourceExpectation(snapshot, target, 2.25).durationBeats,
+    ).toBe(2.25);
+    snapshot.settings.looping = false;
+    expect(() => freezeSessionSourceExpectation(snapshot, target)).toThrow(
+      "native_capture_quota",
+    );
+    snapshot.settings.endMarker = 6.25;
+    snapshot.settings.loopEnd = 1;
+    expect(freezeSessionSourceExpectation(snapshot, target).durationBeats).toBe(
+      6.25,
+    );
+  });
+
+  it("rejects oversized full loops rather than silently truncating", () => {
+    const snapshot = source();
+    snapshot.settings.loopEnd = 60.01;
+    expect(() => freezeSessionSourceExpectation(snapshot, target)).toThrow(
+      "native_capture_quota",
+    );
+    expect(
+      freezeSessionSourceExpectation(snapshot, target, 4).durationBeats,
+    ).toBe(4);
+  });
 
   it.each([
     { clipReference: "other" },
@@ -201,27 +534,45 @@ describe("Session source admission and independent transport join", () => {
     );
   });
 
-  it("rejects a rounded native span crossing the first loop instead of trimming it", () => {
-    const snapshot = source();
-    snapshot.settings.tempoBpm = 128;
-    snapshot.settings.loopEnd = 4.00001;
-    const expected = freezeSessionSourceExpectation(snapshot, target, 4);
-    const geometry = createNativeListeningGeometry({
-      sampleRate: 44100,
-      vectorSize: 64,
-      tempoBpm: 128,
-      startBeat: 0,
-      endBeat: 4,
-    });
-    expect(() =>
-      assertSessionFirstIterationCoverage(expected, geometry),
-    ).toThrow("session_first_iteration_exceeded");
-    snapshot.settings.loopEnd = 8;
-    expect(() =>
-      assertSessionFirstIterationCoverage(
-        freezeSessionSourceExpectation(snapshot, target, 4),
-        geometry,
-      ),
-    ).not.toThrow();
-  });
+  it.each([
+    ["legacy", 44_100],
+    ["legacy", 48_000],
+    ["metric", 44_100],
+    ["metric", 48_000],
+  ] as const)(
+    "permits only the half-sample rounding tail for %s at %s Hz",
+    (kind, sampleRate) => {
+      const snapshot = source();
+      snapshot.settings.tempoBpm = 128;
+      snapshot.settings.loopEnd = 4.00001;
+      const expected = freezeSessionSourceExpectation(snapshot, target, 4);
+      const input = {
+        sampleRate,
+        vectorSize: 64,
+        tempoBpm: 128,
+        startBeat: 0,
+        endBeat: 4,
+      };
+      const geometry =
+        kind === "metric"
+          ? createMetricListeningGeometry({ ...input, startSample: 0 })
+          : createNativeListeningGeometry(input);
+      expect(() =>
+        assertSessionFirstIterationCoverage(expected, geometry),
+      ).not.toThrow();
+      expect(() =>
+        assertSessionFirstIterationCoverage(
+          { ...expected, firstIterationEndBeat: 3.9999 },
+          geometry,
+        ),
+      ).toThrow("session_first_iteration_exceeded");
+      snapshot.settings.loopEnd = 8;
+      expect(() =>
+        assertSessionFirstIterationCoverage(
+          freezeSessionSourceExpectation(snapshot, target, 4),
+          geometry,
+        ),
+      ).not.toThrow();
+    },
+  );
 });

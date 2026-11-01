@@ -685,8 +685,9 @@ function validateProfileRegistry(value: unknown): ProfileRegistry {
 export async function loadProfileRegistry(
   layout: LiveAgentStorageLayout,
   now: () => Date = () => new Date(),
+  options: { readonly readOnly?: boolean } = {},
 ): Promise<ProfileRegistry> {
-  await ensureLiveAgentStorage(layout);
+  if (options.readOnly !== true) await ensureLiveAgentStorage(layout);
   try {
     const content = await boundedReadFile(
       layout.profilesRegistryPath,
@@ -696,7 +697,8 @@ export async function loadProfileRegistry(
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     const registry = defaultProfileRegistry(now());
-    await writeJsonAtomically(layout.profilesRegistryPath, registry);
+    if (options.readOnly !== true)
+      await writeJsonAtomically(layout.profilesRegistryPath, registry);
     return registry;
   }
 }

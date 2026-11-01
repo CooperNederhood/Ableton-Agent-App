@@ -193,7 +193,7 @@ class SessionListeningPassTest(unittest.TestCase):
             ("clip", "launch_quantization", 4), ("clip", "launch_quantization", 5),
             ("clip", "legato", True),
             ("clip", "start_marker", 1), ("clip", "loop_start", 1),
-            ("clip", "loop_end", 3), ("clip", "end_marker", 3),
+            ("clip", "loop_end", 3),
             ("clip", "follow_action_enabled", True), ("clip", "launch_mode", 1),
             ("clip", "is_recording", None), ("clip", "is_triggered", True),
             ("clip", "is_triggered", None), ("clip", "start_time", None),
@@ -505,21 +505,111 @@ class SessionListeningPassTest(unittest.TestCase):
         self.call("release", reason="completed")
         self.assertTrue(self.song.is_playing)
 
-    def test_capture_must_finish_strictly_before_wrap_or_natural_end(self):
-        for looping, field in (
-            (True, "loop_end"), (True, "end_marker"),
-            (False, "loop_end"), (False, "end_marker"),
-        ):
-            with self.subTest(looping=looping, field=field):
+    def test_exact_active_loop_and_nonlooping_end_are_admitted(self):
+        for looping in (True, False):
+            with self.subTest(looping=looping):
                 self.setUp()
                 self.clip.looping = looping
-                setattr(self.clip, field, self.params["durationBeats"])
-                with self.assertRaises(ProtocolFailure) as failure:
-                    self.call()
-                self.assertIn("strictly before", failure.exception.message)
-                self.assertEqual(self.params["durationBeats"], 4)
-                self.assertEqual(self.fires, 0)
+                setattr(self.clip, "loop_end" if looping else "end_marker", 4)
+                self.assertEqual(self.call()["status"], "prepared")
+                self.call("release", reason="cancelled")
                 self.assert_no_monitors()
+
+    def test_normal_wrap_and_natural_end_preserve_covered_audio_and_original_epoch(self):
+        for looping, duration in ((True, 4), (True, 8.125), (False, 4)):
+            with self.subTest(looping=looping, duration=duration):
+                self.setUp()
+                self.clip.looping = looping
+                self.clip.loop_end = self.clip.end_marker = duration
+                self.params["durationBeats"] = duration
+                self.call()
+                self.launch()
+                self.activate()
+                self.song.current_song_time = 16 + duration
+                if looping:
+                    self.clip.change("playing_position", 0)
+                else:
+                    self.clip.playing_position = duration
+                    self.clip.change("is_playing", False)
+                    self.track.change("playing_slot_index", -1)
+                covered = self.call("inspect")
+                self.assertEqual(covered["status"], "covered")
+                self.assertEqual(covered["sourceEpoch"]["startTimeBeats"], 16)
+                self.assertEqual(covered["nativeAlignment"], "unverified")
+                self.call("release", reason="completed")
+                self.assertTrue(self.song.is_playing)
+                self.assert_no_monitors()
+
+    def test_shorter_range_does_not_waive_early_wrap_stop_or_post_boundary_edit(self):
+        for change in ("wrap", "stop", "edit", "replacement", "epoch"):
+            with self.subTest(change=change):
+                self.setUp()
+                self.params["durationBeats"] = 2
+                self.call()
+                self.launch()
+                self.activate()
+                self.song.current_song_time = 18
+                self.clip.change("playing_position", 2)
+                self.song.current_song_time = 19
+                if change == "wrap":
+                    self.clip.change("playing_position", 0)
+                elif change == "stop":
+                    self.clip.change("is_playing", False)
+                elif change == "edit":
+                    self.song.current_song_time = 24
+                    self.clip.change("playing_position", 0)
+                    self.assertEqual(self.call("inspect")["status"], "covered")
+                    self.clip.change("loop_end", 16)
+                elif change == "replacement":
+                    self.slot.change("clip", Observable(name="Replacement"))
+                else:
+                    self.clip.start_time = 20
+                self.assertEqual(self.call("inspect")["status"], "invalidated")
+                self.call("release", reason="cancelled")
+                self.assert_no_monitors()
+
+    def test_normal_end_callback_order_and_loop_epoch_reset_are_not_early_source_changes(self):
+        for looping in (True, False):
+            with self.subTest(looping=looping):
+                self.setUp()
+                self.params["durationBeats"] = 4
+                self.clip.looping = looping
+                self.clip.loop_end = self.clip.end_marker = 4
+                self.call()
+                self.launch()
+                self.activate()
+                self.song.current_song_time = 19.9
+                self.clip.change("playing_position", 3.9)
+                self.song.current_song_time = 20
+                if looping:
+                    self.clip.start_time = 20
+                    self.tick()
+                    self.clip.change("playing_position", 0)
+                else:
+                    self.clip.playing_position = 4
+                    self.track.change("playing_slot_index", -1)
+                    self.clip.change("is_playing", False)
+                    self.clip.change("playing_position", 0)
+                result = self.call("inspect")
+                self.assertEqual(result["status"], "covered")
+                self.assertEqual(result["sourceEpoch"]["startTimeBeats"], 16)
+                self.song.change("is_playing", False)
+                self.assertEqual(self.call("inspect")["status"], "invalidated")
+                self.call("release", reason="cancelled")
+                self.assert_no_monitors()
+
+    def test_longer_loop_resource_envelope_and_cancellation_are_bounded(self):
+        self.clip.loop_end = self.clip.end_marker = 64
+        self.params["durationBeats"] = 64
+        self.assert_denied()
+        self.params["durationBeats"] = 8.125
+        self.assertEqual(self.call()["status"], "prepared")
+        self.launch()
+        self.activate()
+        self.call("release", reason="cancelled")
+        self.tick()
+        self.assert_no_monitors()
+        self.assertTrue(self.song.is_playing)
 
     def test_capability_requires_real_monitor_primitives_and_simulator_refuses(self):
         self.assertTrue(session_listening_pass_supported(self.song))
@@ -626,7 +716,7 @@ class SessionListeningPassTest(unittest.TestCase):
                 "ownerId": OWNER, "passId": PASS,
             }))
         for change in (
-            {"durationBeats": 5}, {"durationBeats": 0}, {"durationBeats": True},
+            {"durationBeats": 0}, {"durationBeats": True},
             {"ownerId": "owner"}, {"audio": "body"}, {"nativeAlignment": "verified"},
             {"target": {**self.target, "view": "arrangement"}},
         ):

@@ -7,6 +7,10 @@
     ".": {
       "types": "./src/index.ts",
       "default": "./dist/index.js"
+    },
+    "./m4l-devices": {
+      "types": "./src/m4l-devices.ts",
+      "default": "./dist/m4l-devices.js"
     }
   },
   "scripts": {

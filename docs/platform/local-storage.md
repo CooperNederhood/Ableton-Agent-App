@@ -163,27 +163,78 @@ alone remains Copilot SDK-owned and does not promote the Desktop session.
 
 `resolveNestedSessionStorage` returns `contextDirectory` and `entityContextPath`
 from the required Set/Project/App-session ownership tuple. Store processed,
-credential-redacted `audio-observation/v1`, `audio-observation/v2`, and
-`session-audio-observation/v1` payloads
+credential-redacted `audio-observation/v1`, `audio-observation/v2`,
+`session-audio-observation/v1` and `metric-audio-observation/v1` payloads
 only, with exact entry-kind/payload-version agreement. V2 retains approximate,
 descriptive-only quality and unknown absolute timing error in both detail and
 bounded summaries; it cannot certify exclusive attribution. Raw audio and
-arbitrary JSON are not accepted. The default limits are 256 KiB per entry, 2 MiB per pass
-and 32 MiB per App-session store. Full-store failure is visible and does not
-silently evict observations.
+arbitrary JSON are not accepted. Legacy entry limits remain 256 KiB.
+Independent metric observations allow the protocol's 2 MiB processed payload
+plus at most 16 KiB of UTF-8 JSON entry framing and metadata (entry/ownership
+IDs, producer, timestamps, trace and the enclosing `payload` field). Metric
+entries therefore have a 2 MiB + 16 KiB serialized ceiling; both the total
+entry and its metadata portion are checked after credential sanitation.
+Publication admission measures the complete serialized
+`{pass, subjects, entries, links}` object, not just observation payloads.
+Its ceiling is eight metric entry ceilings plus 1 MiB for bounded
+pass/subject/link framing: 17.125 MiB (17,956,864 bytes). Schema count limits do
+not grant permission for arbitrarily large metadata: the aggregate byte ceiling
+still applies. These quotas allow an atomic eight-listener metric pass without
+enlarging unrelated observation-kind protocol limits.
 
-Session observations add a registered kind without changing the database
-format, canonical path, or the meanings of old v1/v2 records. Existing one- or
-two-kind declarations remain readable; publication reconciles the supported
-three-kind declaration additively through the same registry/manifest API.
+The physical exported SQLite store remains capped at 32 MiB per App session,
+including database/index overhead and outstanding pass reservations. A full
+eight-listener pass fits a fresh store; existing history can still require
+explicit reviewed pruning before reservation or publication. Full-store failure is visible and does not
+silently evict observations.
+Quota failure/cancellation rolls back the entire publication; releasing the
+reservation or closing its owner releases admission capacity. Reopen preserves
+immutable exact native records, gaps, musical rows and causal attribution.
+Typed inventory queries paginate compact summaries without copying measurement
+records/rows. LLM report-page and Desktop IPC result ceilings are unchanged;
+storage admission is not permission to send a full large entry through either
+boundary.
+
+Session and independent-metric observations add registered kinds without changing
+the database format, schema version two, canonical path or historical semantics.
+Existing one-, two- and three-kind declarations remain readable; publication
+reconciles the four-kind declaration additively through the same registry/manifest
+API. Independent metric entries retain indexed native records, explicit gaps,
+actual support and reference-only musical rows; their typed compact summaries
+do not duplicate full measurement timelines. Partial entries require an honest
+partial pass and useful trustworthy requested data, never failed/cancelled
+publication or fabricated legacy coverage. Attack records also retain the
+bounded stereo peak/RMS input for their independent physical 100 ms detector
+windows. These processed features are not raw audio or reconstructed musical
+level rows. Retained attack inputs form a validated prefix; missing input ends
+that detector's trustworthy coverage rather than inventing later event absence.
+Missing musical-level delivery does not invalidate independently retained
+detector inputs. Explicit pruning, 32 MiB store retention,
+profile/session ownership and redaction remain unchanged. Geometry count limits
+do not override byte admission. This stored-kind extension is not authorization
+for unnegotiated native capture.
+
+Opt-in wire5 native and metric lifecycle records use the same profile-owned
+observability journal and typed redacted History reads. They retain bounded
+generation/epoch, stage-parent causation, optional actual stage duration and
+explicit metric scope; a metric failure is not stored as a second global
+native failure. Exact event-ID deduplication has one wire5 writer, separate
+from the legacy lifecycle projection. This adds no database, directory,
+retention exception, raw-audio body or upload path.
+
 Session descriptor/sample/attack beats cover clip-local first iteration zero,
-starting at zero with nominal requested duration at most four beats. Historical
-descriptor, primary coverage, and actual pass ranges may end at up to 4.001 beats
-to retain nearest-sample-rounded physical coverage (for example,
+starting at zero with a resolved full-active-region or explicit shorter/equal
+duration. The legacy native envelope remains thirty seconds/300 windows; the
+tempo-derived historical beat bound is 499.501 (999 BPM for thirty seconds,
+plus the retained 0.001 historical rounding allowance). Historical
+descriptor, primary coverage, and actual pass ranges retain nearest-sample-rounded
+physical coverage (for example,
 4.000024187452759 beats at 44.1 kHz / 128 BPM). Stored sample/attack beats are
 never clamped or interpolated to hide the rounded span. Runtime independently
-checks exact native geometry and rejects rounded coverage crossing the first
-loop end before firing. This historical allowance is not admission authority.
+checks exact native geometry before firing and permits only a half-sample
+rounding tail at the active boundary. Storage retains the existing 0.001
+historical actual/requested allowance for compatibility; this is not admission
+authority. No storage path, ownership, retention or database format changes.
 Native sample indices retain
 their original DSP-clock coordinates and may start above zero. Explicit source
 transport coverage is global, with the same duration and message-rate clip
@@ -328,11 +379,25 @@ Publication failure/cancellation cleans owned values, and cleanup preserves a
 file replaced by another publisher. Lifecycle events contain paths/counts and
 timing, never key bytes.
 
+Integration installation resolves producer configuration from the explicitly
+selected profile/environment, or the normal packaged app's selected registry
+profile. It does not silently substitute `default`, `development` or a previous
+automation endpoint. Profile registry reads used by detect/dry-run are
+side-effect-free: a missing registry yields the normal default in memory without
+creating directories or writing metadata. Invalid existing registries still fail.
+Actual installation lifecycle records use the selected profile's existing event
+journal and typed History; no new journal location or upload path is introduced.
+
 ## Data that intentionally remains outside the root
 
 - The installed Remote Script token remains in the managed Ableton Remote
   Script directory because Live must read it. Desktop may copy it into the
   encrypted credential vault.
+- Host-consumed Machine-Listening-Development and Midi-Capture bundles, their
+  hash/installation manifests and owner-only discovery path configuration reside
+  in their dedicated preset folders in the selected Ableton User Library.
+  These are deployed host assets, not another application-state root. Portable
+  packaged copies contain no profile configuration or credentials.
 - User-selected exports and support bundles are written only to the explicit
   destination selected by the user.
 - Build, test, and release artifacts remain in their repository-defined or
@@ -349,6 +414,12 @@ timing, never key bytes.
 - Do not follow or migrate symbolic links into the canonical store.
 - Sanitize and bound persisted payloads. Redact credentials embedded in every
   string and replace binary/audio bodies with visible omission markers.
+- Credential assignment scanning must continue inside ordinary diagnostic
+  prefixes such as `failed: token=...`; an unrecognized outer assignment cannot
+  hide a nested credential. Repeated sanitation across runtime, publication,
+  IPC and History boundaries must preserve existing redaction markers without
+  growing them or exposing the original value. This uses the canonical
+  sanitizer, not a listening-specific copy, and requires no history migration.
 - Persist only the reasoning-summary preference, never model reasoning text, in
   `config/preferences.json`. Bounded, redacted Working summaries belong in the
   profile-wide observability journal and typed renderer history.

@@ -39,27 +39,109 @@ if the target changed.
 ## Set History
 
 App-session entity context is separate from event/Set History retention. The
-optional `ableton_context` surface uses typed list/get/prune actions, not SQL;
-the optional `ableton_listening` surface discovers listeners and coordinates
-bounded Arrangement playback with capture; Session capture remains unsupported
-until source onset is independently established. They are registered only
+optional `ableton_context` surface uses typed list/get/report/prune actions, not SQL;
+`report` reads only versioned metric observations as stacked musical-value pages
+(offset zero and eight rows by default, maximum thirty-two; follow nextOffset
+until null). It returns availability, gaps and actual native support without full
+observation arrays or legacy conversion. This read path does not commission new
+capture capability.
+The optional `ableton_listening` surface discovers listeners and coordinates
+bounded Arrangement playback and guarded explicit Session capture. Session
+publication requires independently established source onset and native coverage;
+queued acceptance is not measured audio. They are registered only
 when their application services are configured. Production enablement requires
 the timing, device, and integration gates in
 [Playback Listening](playback-listening.md).
 
 `play-arrangement-and-listen` uses the trusted policy saved in Settings, frozen
-once for the pass; the agent cannot raise its budget. Default descriptive v2
-supports a constant-tempo range from one approximately 100 ms hop through
-30 seconds at actual 44.1/48 kHz DSP geometry, with guarded nonzero/fractional
-positioning before arm. Completion, cancellation and failure leave playback
-running. Results retain approximate/descriptive-only alignment and unknown
-absolute timing error. A v1-only listener requires explicitly selected
-restricted strict mode; there is no automatic fallback. Native v2 and visible
-acceptance are not implied by this implemented App contract.
+once for the pass; the agent cannot raise its budget. Current wire5 uses a
+globally anchored quarter-beat reporting grid, clipped range endpoints, actual
+FFT support and an independent 100 ms attack-detector cadence through
+30 seconds at actual 44.1/48 kHz DSP geometry. Guarded nonzero/fractional
+Arrangement positioning occurs before arm. Completion, cancellation and failure
+leave playback running. Results retain approximate/descriptive-only alignment
+and unknown absolute timing error. Strict mode enforces the configured observed
+disagreement limit; descriptive mode can accept values above its advisory
+target. Completion is not proof of within-target timing. Maximum observed beat
+disagreement includes startup transport/phase comparisons and is not measured
+uniform audio latency. No witness is discarded to improve the reported number.
+There is no automatic fallback to retired capture; historical contexts preserve
+their declared schemas. Native and visible qualification remain separate.
 Tempo stability is assumed rather than independently verified. Do not change
 tempo during a pass; tempo automation is unsupported, and completion is not
 proof that tempo stayed constant. Existing detected-tempo/timing failures remain
 active; guaranteed change detection is a deferred follow-up, not a release gate.
+
+Listening jobs optionally expose the shared strict `listening-failure/v1`
+`failureEvidence` DTO. Failed coordinator passes retain the first/primary
+evidence, including the primary error inside an `AggregateError`, before cleanup.
+Runtime stage wrappers retain this DTO on `ListeningFailure`; wrapping an error
+must not reduce validated source evidence to a message.
+Valid source component/phase attribution is retained, not relabeled as the
+coordinator merely because it publishes the terminal job.
+The shared bounded reader follows primary aggregate errors and `Error.cause`;
+accessors and cyclic/overlong chains become explicit invalid-evidence gaps.
+The same bounded check, operands and pass/trace reference survive terminal
+snapshots, notifications, `get-pass`, `list-passes` and tool results. Native
+payloads are not copied into jobs. All strings are redacted using the existing
+application sanitizer; absent optional fields remain absent.
+
+Incoming evidence must validate and belong to both the accepted pass and trace.
+Missing source evidence is `unavailable` with
+`source-evidence-not-reported`; malformed, oversized or foreign evidence is an
+explicit `invalid-evidence` coverage gap, never a complete native diagnosis.
+Application-owned checks report the actual decision operands and expected
+values; unavailable actual or expected operands and truncation visibly reduce
+coverage. Oversized operand strings are explicitly unavailable rather than
+silently clipped and presented as complete observations. Normalization retains
+validated source component/phase even when coverage must be downgraded.
+Cleanup has separate timed `listening.cleanup.started/completed/failed`
+events, and cannot overwrite the initiating evidence. Existing job
+queued/started/progress/completed/failed/cancelled events retain trace and
+elapsed time. A failed cleanup can still make the terminal job failed; this
+does not change leave-running, cancellation or publication-indeterminate rules.
+
+Pre-pass input, ownership, concurrency and quota rejections use
+`listening.attempt.failed` (or `cancelled`), the invoking request/trace attribution,
+typed bounded facts and `passIdState: not-accepted`. They do **not** invent a
+pass ID or a native observation. SDK schema/approval denials that do not invoke
+the host remain owned by the existing tool/SDK lifecycle recorder.
+
+`inspect-listeners` returning `ready: false` with
+`native_per_pass_validation_required` means fresh native validation is required
+for each capture, not a permanent commissioning failure. A completed capture
+can retain valid per-pass proof while discovery still reports ready:false.
+Neither this limitation nor an empty discovery list proves an identity mismatch,
+removed device or broken listener. An error code alone is not a precise cause: report the
+observed phase/check, actual versus expected operands, coverage and diagnostic
+reference. Missing evidence is an observability gap. Do not invent a mismatch,
+automatically retry, edit settings, or fall back to another mode to diagnose a
+rejection. Existing explicit-request, launch-settings and leave-running guards
+are unchanged.
+
+### Application rejection ownership and regressions
+
+These IDs describe application decisions, not reconstructed native predicates.
+Regressions live beside `listening-coordinator.ts`, `listening-host.ts` and
+`listening-tools.ts`; runtime/native rejection inventories are owned by their
+respective specifications.
+
+| Stable check ID(s) | Decision operands / authority | Owning regression |
+| --- | --- | --- |
+| `application.input.listeners`, `.duration`, `.arrangement`, `.session`, `.owner` | Distinct/count/ID bounds; finite integer duration and maximum; beat ordering; Session exact-target presence and optional positive duration; owner ID bounds | Coordinator input rejection matrix, invalid-owner admission |
+| `application.admission.open`, `.concurrency`, `.quota` | Closed state; active pass count/reference; job count and evictable count | Coordinator closed/concurrent admission and host bounded pagination/eviction (quota exhaustion is defensive under single-active-pass invariant) |
+| `application.binding.live-set`, `application.playback.stopped-recording-off` | Actual/expected Set identity, verified flag, playing, recording and known recording state | Coordinator initial guard matrix and post-arm transport recheck |
+| `application.binding.inspect`, `.post-arm-inspect`, `application.capture.prepare`, `application.publication.reserve`, `application.playback.start` | Application-observed asynchronous boundary; upstream predicates explicitly unavailable without validated source evidence | Coordinator preparation evidence/foreign evidence matrix, quota setup, stalled boundary and launch failure tests |
+| `application.deadline.session`, `.capture`, `.initial-inspection`, `.context-reservation`, `.listener-preparation`, `.post-arm-inspection`, `.cleanup` | Total/readiness/capture/cleanup budget and expired deadline; readiness boundary | Coordinator total Session budget matrix, independent readiness budgets, unresponsive capture/cleanup tests |
+| `application.observation.schema`, `.coverage`, `.validate` | Typed observation admission; observed versus selected count/distinctness, pass/listener/completeness/sample/beat operands; adapter validation | Coordinator missing/duplicate/wrong-pass/partial/zero-coverage and external validation failures |
+| `application.playback.ownership` | Observed playback ownership versus required ownership | Coordinator takeover interruption (no stop or publication) |
+| `application.publication.persist`, `.commit-state`, `.receipts` | Publication boundary; abort and explicitly unknown commit state; receipt count/distinctness/ID validity | Coordinator atomic persistence, indeterminate cancellation/timeout, duplicate receipt tests |
+| `application.cancellation.signal`, `.caller`, `.owner`, `.shutdown` | Aborted/requested/closed state | Coordinator pre-cancel, caller abort, owner cancellation and shutdown tests |
+| `application.cleanup.disarm`, `.playback`, `.quota-release` | Acquired resource, cleanup policy, cleanup budget; unknown adapter rejection operands remain unavailable | Coordinator timed cleanup failure matrix, first-failure retention and fresh-pass recovery |
+| `application.query.pass-owner`, `application.host.pass-owner`, `.resolved-owner`, `.initiating-agent` | Pass existence and actual/expected owner matches; initiating actor kind | Coordinator scoped job access; host cross-session/agent read/wait/cancel and resolved-owner guards |
+| `application.host.input-schema`, `.result-schema`, `.result-action`, `.cursor-schema`, `.cursor-owner`, `.cursor-present` | Schema issue count; actual/expected action; cursor encoding/schema, scope matches and lookup index | Host schema/actor/inspection rejection matrix, scoped cursor pagination and expiry; tool strict evidence and mismatched-action contracts |
+| `application.host.resolve-owner`, `.session-target`, `.inventory-quota`, `.inspect-listeners` | Pre-admission service boundary or defensive bounded inventory; source operands unavailable if not reported | Host cancelled owner resolution, target/inspection service rejection, bounded inventory tests |
+| `application.evidence.unavailable` | Evidence sanitization/contract admission failed; no raw rejected body retained | Coordinator bounded-string redaction and oversized/malformed evidence tests |
 
 | Tool | Purpose | Risk | Scope | Duration | Key inputs |
 | --- | --- | --- | --- | --- | --- |
@@ -118,6 +200,21 @@ lifecycle identity.
 | `ableton_warp_markers` | Revision-bound add/move/remove with ordering, BPM validation, verification, and compensation |
 | `ableton_special_devices` | Capability-detected Live 11 Simpler, Looper, and Wavetable operations |
 | `ableton_workflow_jobs` | Get/list bounded asynchronous workflow jobs and cancel only jobs owned by the active agent |
+
+Track `stop-clips` dispatches exactly one stop request, then verifies on the
+next Live tick rather than treating an immediately stale slot index as a
+failure. It revalidates track identity before reporting success and requires an
+actual stopped slot index (`-2` or `-1`); unavailable state is not proof.
+Unconfirmed stops remain explicit failures without redispatch, transport stop,
+seek or launch-setting changes. The existing request lifecycle includes
+attributed verification progress and completion/failure timing.
+
+Transport `seek` while stopped also dispatches once and verifies on the next
+Live tick. Success requires the same Song, the requested position and transport
+still stopped. An unconfirmed seek fails explicitly without a second seek or
+an unverified compensating rewrite; its request lifecycle includes attributed
+verification progress and terminal timing. Playing-transport seek behavior is
+unchanged.
 
 Audio clip `inspect` returns gain/pitch, warp state/mode and available modes,
 start/end/loop markers, RAM mode, source file path, sample length/rate, and exact

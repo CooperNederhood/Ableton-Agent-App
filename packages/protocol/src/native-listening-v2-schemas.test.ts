@@ -9,8 +9,10 @@ import {
 } from "./native-listening-geometry.js";
 import {
   assertNativeCaptureObservationV2,
+  assertNativeSourceCoverageV2,
   nativeArmProofV2Schema,
   nativeCaptureProofV2Schema,
+  nativeSourceCoverageProofV2Schema,
   nativeLaunchCoordinatesV2,
   nativeListenerLifecycleV2Schema,
   snapshotNativeListeningExpectationV2,
@@ -18,12 +20,143 @@ import {
 } from "./native-listening-v2-schemas.js";
 import {
   nativeArmProofSchema,
+  nativeListenerLifecycleSchema,
   NATIVE_LISTENER_SCOPE,
 } from "./native-listening-schemas.js";
 import {
   evaluateListeningAlignment,
   type ListeningTimingPolicy,
 } from "./listening-timing-schemas.js";
+
+describe("descriptor-independent native source coverage", () => {
+  function sourceFixture(options: Parameters<typeof fixture>[0] = {}) {
+    const value = fixture(options);
+    const { armed, launched, after, timingWitnesses } = value.proof;
+    return {
+      ...value,
+      sourceProof: { armed, launched, after, timingWitnesses },
+    };
+  }
+
+  it.each([44_100, 48_000] as const)(
+    "proves the source interval at %i without any metric record",
+    (sampleRate) => {
+      const { sourceProof, observation, expected } = sourceFixture({
+        sampleRate,
+      });
+      expect(
+        nativeSourceCoverageProofV2Schema.safeParse(sourceProof).success,
+      ).toBe(true);
+      expect(assertNativeSourceCoverageV2(sourceProof, expected)).toMatchObject(
+        {
+          startSample: observation.startSample,
+          endSample: observation.endSample,
+          alignment: observation.alignment,
+        },
+      );
+      expect("envelopeWindows" in sourceProof).toBe(false);
+      expect("spectralWindows" in sourceProof).toBe(false);
+    },
+  );
+
+  it("does not make incomplete legacy observations pass their strict verifier", () => {
+    const { proof, sourceProof, observation, expected } = sourceFixture();
+    expect(() =>
+      assertNativeSourceCoverageV2(sourceProof, expected),
+    ).not.toThrow();
+    expect(() =>
+      assertNativeCaptureObservationV2(
+        { ...proof, envelopeWindows: [], spectralWindows: [] },
+        observation,
+        expected,
+      ),
+    ).toThrow();
+    expect(nativeSourceCoverageProofV2Schema.safeParse(proof).success).toBe(
+      false,
+    );
+  });
+
+  it("still rejects a foreign launch epoch without metric data", () => {
+    const { sourceProof, expected } = sourceFixture();
+    sourceProof.launched.nativeEpoch++;
+    expect(() => assertNativeSourceCoverageV2(sourceProof, expected)).toThrow(
+      "native_v2_launch_binding_mismatch",
+    );
+  });
+
+  it("still requires source clocks after the requested endpoint", () => {
+    const { sourceProof, expected } = sourceFixture();
+    for (const row of sourceProof.after.frames) {
+      row[4] -= 100_000;
+      row[6] -= 100_000;
+    }
+    expect(() => assertNativeSourceCoverageV2(sourceProof, expected)).toThrow(
+      "native_v2_capture_coverage_mismatch",
+    );
+  });
+
+  it("rejects changed immutable clock holds even without descriptor verification", () => {
+    const { sourceProof, expected } = sourceFixture();
+    const changed: typeof sourceProof.timingWitnesses.minHostOffset = [
+      ...sourceProof.after.frames[0]!,
+    ];
+    changed[2]++;
+    changed[9]++;
+    sourceProof.timingWitnesses.minHostOffset = changed;
+    expect(() => assertNativeSourceCoverageV2(sourceProof, expected)).toThrow(
+      "native_v2_changed_clock_hold",
+    );
+  });
+
+  it("retains strict alignment denial independently of healthy or absent metrics", () => {
+    const { sourceProof, expected } = sourceFixture({
+      strict: true,
+      shift: 128,
+    });
+    expect(() => assertNativeSourceCoverageV2(sourceProof, expected)).toThrow(
+      "listening_alignment_budget_exceeded",
+    );
+  });
+
+  it("returns isolated frozen coordinates without modifying the proof", () => {
+    const { sourceProof, expected } = sourceFixture();
+    const original = JSON.stringify(sourceProof);
+    const result = assertNativeSourceCoverageV2(sourceProof, expected);
+    expect(Object.isFrozen(result)).toBe(true);
+    expect(JSON.stringify(sourceProof)).toBe(original);
+  });
+});
+
+it("admits bounded measurement lifecycle only in the descriptive v2 contract", () => {
+  const event = {
+    scope: NATIVE_LISTENER_SCOPE_V2,
+    eventId: "11111111-1111-4111-8111-111111111111",
+    causationId: "measurement-control",
+    generation: "22222222-2222-4222-8222-222222222222",
+    phase: "measurement",
+    stage: "started",
+    nativeEpoch: 1,
+    elapsedMs: 20,
+    frames: 0,
+    reason: "native_envelope_collection_started",
+  };
+  expect(nativeListenerLifecycleV2Schema.safeParse(event).success).toBe(true);
+  expect(nativeListenerLifecycleSchema.safeParse(event).success).toBe(false);
+  expect(
+    nativeListenerLifecycleV2Schema.safeParse({ ...event, phase: "unknown" })
+      .success,
+  ).toBe(false);
+  expect(
+    nativeListenerLifecycleV2Schema.safeParse({ ...event, elapsedMs: 120001 })
+      .success,
+  ).toBe(false);
+  expect(
+    nativeListenerLifecycleV2Schema.safeParse({
+      ...event,
+      reason: "token=secret",
+    }).success,
+  ).toBe(false);
+});
 
 function fixture(
   options: {
@@ -203,14 +336,8 @@ function fixture(
     alignment: evaluateListeningAlignment(policy, {
       sampleRate: rate,
       vectorSize: 64,
-      observedClockDisagreementSamples: Math.min(
-        shift,
-        policy.maxClockDisagreementSamples,
-      ),
-      observedBeatDisagreementSamples: Math.min(
-        shift,
-        policy.maxClockDisagreementSamples,
-      ),
+      observedClockDisagreementSamples: policy.mode === "strict" ? 0 : shift,
+      observedBeatDisagreementSamples: policy.mode === "strict" ? 0 : shift,
     }),
     summaries: {
       peak: [rawPeak, rawPeak],
@@ -496,11 +623,8 @@ describe("versioned native geometry and independent descriptive validation", () 
     ).not.toThrow();
   });
 
-  it("fails above budget and under strict policy instead of falling back", () => {
-    for (const value of [
-      fixture({ shift: 65 }),
-      fixture({ strict: true, shift: 1 }),
-    ]) {
+  it("retains strict timing rejection without imposing it on descriptive listening", () => {
+    for (const value of [fixture({ strict: true, shift: 1 })]) {
       expect(() =>
         assertNativeCaptureObservationV2(
           value.proof,
@@ -572,24 +696,25 @@ describe("versioned native geometry and independent descriptive validation", () 
     ).not.toThrow();
   });
 
-  it("uses the exact configured480-sample maximum without increasing it to admit481", () => {
-    const accepted = fixture({ limit: 480, shift: 480 });
-    expect(() =>
-      assertNativeCaptureObservationV2(
-        accepted.proof,
-        accepted.observation,
-        accepted.expected,
-      ),
-    ).not.toThrow();
-    const denied = fixture({ limit: 480, shift: 481 });
-    expect(() =>
-      assertNativeCaptureObservationV2(
-        denied.proof,
-        denied.observation,
-        denied.expected,
-      ),
-    ).toThrow("listening_alignment_budget_exceeded");
-  });
+  it.each([480, 481, 4_800])(
+    "retains the actual descriptive discrepancy %i without increasing the configured target",
+    (shift) => {
+      const accepted = fixture({ limit: 480, shift });
+      expect(() =>
+        assertNativeCaptureObservationV2(
+          accepted.proof,
+          accepted.observation,
+          accepted.expected,
+        ),
+      ).not.toThrow();
+      expect(
+        accepted.observation.alignment.observedClockDisagreementSamples,
+      ).toBe(shift);
+      expect(
+        accepted.observation.alignment.policy.maxClockDisagreementSamples,
+      ).toBe(480);
+    },
+  );
 
   it.each([
     "epoch",

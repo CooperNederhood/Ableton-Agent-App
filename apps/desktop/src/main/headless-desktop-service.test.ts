@@ -6668,9 +6668,18 @@ describe("desktop adapter over the shared application", () => {
       newSdkSessionId: "replacement-sdk",
       reason: "missing-session",
     });
-    await settle();
-    await settle();
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    await vi.waitFor(async () => {
+      expect(
+        (await sessionStore.load())[0]!.activeAgents[0]!.sdkSessionId,
+      ).toBe("replacement-sdk");
+      expect(
+        events.filter(
+          (event) =>
+            event.type === "agent.instance_changed" &&
+            event.change === "session-rotated",
+        ),
+      ).toHaveLength(1);
+    });
     sharedEvents.publish({
       type: "agent.sdk_session_rotated",
       agentInstanceId: instance.id,

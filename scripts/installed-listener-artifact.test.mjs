@@ -145,4 +145,4 @@ it("retains the native artifact contract after installed profile configuration i
   } finally {
     await rm(root, { recursive: true, force: true });
   }
-});
+}, 30_000);

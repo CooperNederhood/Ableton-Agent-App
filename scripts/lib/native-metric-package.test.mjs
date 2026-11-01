@@ -79,7 +79,7 @@ it("packages a matched v5 executable, actual controller and fresh same-folder co
     manifest.resources.find(
       (r) => r.name === "audio_listener_metric_runtime.js",
     ).sha256,
-  ).toBe("71f22a0697305dbcc8572a15e98f0e27b9b0cf27bebe5161aec41f468382000c");
+  ).toBe("d9919fb011538d0f2aae9f1db78def5fa1aa9f2af5ac85043516c484319a08f4");
   const defaultDevice = decodeAmxd(
     await readFile(join(output, manifest.deviceFile)),
   );

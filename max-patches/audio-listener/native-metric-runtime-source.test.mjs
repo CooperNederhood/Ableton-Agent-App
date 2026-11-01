@@ -8,7 +8,7 @@ import {
   nativeRuntimeDocuments,
   appendNativeRuntimeGraph,
 } from "./native-runtime-source.mjs";
-import { sourceDocuments } from "./native-source.mjs";
+import { addDevicePreviewRouting, sourceDocuments } from "./native-source.mjs";
 import { retainedMusicalEnvelopeSource } from "./retained-native-source.mjs";
 import { genModel } from "./gen-model.mjs";
 
@@ -28,6 +28,87 @@ const connected = (doc, source, outlet, target, inlet = 0) =>
       JSON.stringify(p.source) === JSON.stringify([source, outlet]) &&
       JSON.stringify(p.destination) === JSON.stringify([target, inlet]),
   );
+
+const obsoleteParentIds = new Set([
+  "threshold",
+  "thresholdMsg",
+  "spacing",
+  "spacingMsg",
+  "analysis",
+  "idle",
+  "enabled",
+  "hostTrigger",
+  "host",
+  "hostPack",
+  "snapTrigger",
+  "spectralPoll",
+  "spectralSnapshot",
+  "framePack",
+  "frameMsg",
+  ...Array.from({ length: 7 }, (_, index) => `snap${index}`),
+  "ml_device_preview",
+  "ml_device_state_query",
+  "ml_device_preview_latch",
+]);
+
+function authoredParent(preview = false) {
+  const document = sourceDocuments()["Audio-Listener.maxpat"];
+  if (preview) addDevicePreviewRouting(document);
+  const node = document.patcher.boxes.find(({ box }) =>
+    box.text?.startsWith("node.script "),
+  ).box;
+  const guard = document.patcher.boxes.find(
+    ({ box }) => box.text === "js audio_listener_guard.js",
+  ).box;
+  node.varname = "ml_runtime";
+  guard.varname = "ml_guard";
+  return { document, node, guard };
+}
+
+test("v5 sends only implemented messages to its Node runtime, including preview-decorated startup", () => {
+  for (const preview of [false, true]) {
+    const { document, node } = authoredParent(preview);
+    const result = appendNativeRuntimeGraph(document, {
+      nativeVersion: 5,
+      runtimeEntry: "audio_listener_native_v5_max.js",
+    });
+    const implementedSources = new Set([
+      "identity",
+      "dspPack",
+      "scoped-native-clock",
+      "scoped-native-analysis",
+    ]);
+    for (const { patchline } of result.patcher.lines) {
+      if (patchline.destination[0] === node.id)
+        assert.ok(
+          implementedSources.has(patchline.source[0]),
+          `unhandled Node source: ${patchline.source[0]}`,
+        );
+      assert.ok(!obsoleteParentIds.has(patchline.source[0]));
+      assert.ok(!obsoleteParentIds.has(patchline.destination[0]));
+    }
+    for (const { box } of result.patcher.boxes)
+      assert.ok(!obsoleteParentIds.has(box.id));
+    assert.ok(connected(result, "identity", 0, node.id));
+    assert.ok(connected(result, "dspPack", 0, node.id));
+    assert.ok(connected(result, "input", 0, "output", 0));
+    assert.ok(connected(result, "input", 1, "output", 1));
+    if (boxes(result).has("ml_adapter_init")) {
+      assert.equal(boxes(result).get("ml_adapter_init").text, "trigger b");
+      assert.equal(boxes(result).get("ml_adapter_init").numoutlets, 1);
+      assert.ok(connected(result, "nodeMessages", 0, "ml_adapter_init"));
+      assert.ok(connected(result, "ml_adapter_init", 0, "init"));
+    } else {
+      assert.ok(connected(result, "nodeMessages", 0, "init"));
+    }
+    assert.ok(connected(result, "init", 0, "identity"));
+  }
+  const clock = nativeRuntimeDocuments({ nativeVersion: 5 })[
+    "audio_listener_native_clock.maxpat"
+  ];
+  assert.equal(boxes(clock).get("host").text, "plugsync~");
+  assert.equal(boxes(clock).get("phase").text, "plugphasor~");
+});
 
 test("FFT ownership controls exactly one parent scheduler and preserves cleanup after watchdog stop", () => {
   const docs = nativeRuntimeDocuments({ nativeVersion: 5 });
@@ -131,15 +212,7 @@ test("v5 is explicit and every legacy document remains byte-identical with stric
 });
 
 test("v5 composes its real Node entry without a second client or changed stereo path", () => {
-  const authored = sourceDocuments()["Audio-Listener.maxpat"];
-  const node = authored.patcher.boxes.find(({ box }) =>
-    box.text?.startsWith("node.script "),
-  ).box;
-  const guard = authored.patcher.boxes.find(
-    ({ box }) => box.text === "js audio_listener_guard.js",
-  ).box;
-  node.varname = "ml_runtime";
-  guard.varname = "ml_guard";
+  const { document: authored, node, guard } = authoredParent();
   const original = JSON.stringify(authored);
   const result = appendNativeRuntimeGraph(authored, {
     nativeVersion: 5,
@@ -165,17 +238,11 @@ test("v5 composes its real Node entry without a second client or changed stereo 
     boxes(result).get(guard.id).text,
     "js audio_listener_guard.js 5",
   );
-  const obsolete = new Set([
-    "threshold",
-    "thresholdMsg",
-    "spacing",
-    "spacingMsg",
-  ]);
   for (const { patchline } of authored.patcher.lines) {
     if (
       patchline.source[0] !== node.id &&
-      !obsolete.has(patchline.source[0]) &&
-      !obsolete.has(patchline.destination[0])
+      !obsoleteParentIds.has(patchline.source[0]) &&
+      !obsoleteParentIds.has(patchline.destination[0])
     ) {
       assert(
         result.patcher.lines.some(
@@ -187,7 +254,7 @@ test("v5 composes its real Node entry without a second client or changed stereo 
   }
 });
 
-test("v5 uses the actual 64-output source and preserves retained FFT computation while adding a counter tap", () => {
+test("v5 preserves retained FFT computation with coherent silence and a counter tap", () => {
   const docs = nativeRuntimeDocuments({ nativeVersion: 5 });
   const old = nativeRuntimeDocuments({ nativeVersion: 4 });
   assert.equal(Object.keys(docs).length, 7);
@@ -204,7 +271,7 @@ test("v5 uses the actual 64-output source and preserves retained FFT computation
     assert.deepEqual(docs[resource], old[resource], resource);
   assert.equal(
     boxes(docs["audio_listener_native_spectrum.gendsp"]).get("code").code,
-    `${boxes(old["audio_listener_native_spectrum.gendsp"]).get("code").code}\nout32 = sourceClock;`,
+    `${boxes(old["audio_listener_native_spectrum.gendsp"]).get("code").code}\nout23 = out24 == 0 ? 0 : out23;\nout32 = sourceClock;`,
   );
   const clockGraph = docs["audio_listener_native_clock.maxpat"];
   assert.equal(

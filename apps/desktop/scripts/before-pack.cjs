@@ -6,7 +6,7 @@ module.exports = async function beforePack() {
   const root = resolve(__dirname, "../../..");
   execFileSync(
     process.execPath,
-    [resolve(root, "scripts/build-ableton-integrations.mjs")],
+    [resolve(root, "scripts/build-ableton-integrations.mjs"), "--reuse"],
     {
       cwd: root,
       stdio: "inherit",

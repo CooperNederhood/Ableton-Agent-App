@@ -1,5 +1,6 @@
 export * from "./constants.js";
 export * from "./audio-observation-schemas.js";
+export { MAX_METRIC_OBSERVATION_BYTES } from "./audio-observation-limits.js";
 export * from "./catalog.js";
 export * from "./core-domain-schemas.js";
 export * from "./framing.js";

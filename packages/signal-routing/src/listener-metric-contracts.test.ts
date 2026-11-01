@@ -3,6 +3,7 @@ import {
   assertNativeMetricSourceCoverage,
   createMetricListeningGeometry,
   MAX_AUDIO_OBSERVATION_BYTES,
+  MAX_METRIC_RESULT_FRAME_BYTES,
   metricAudioObservationSchema,
 } from "@ableton-agent/protocol";
 import { createSyntheticMetricListeningObservation } from "@ableton-agent/protocol/testing";
@@ -27,6 +28,68 @@ import { producerMessageSchema } from "./ingress-contracts.js";
 import { createSyntheticMetricWireFixture as fixture } from "./listener-metric-test-support.js";
 
 describe("wire5 independent metric contracts", () => {
+  it.each(["arrangement", "session"] as const)(
+    "requires counter-bound FFT phase and confirmed owned cleanup for complete/partial %s publications",
+    (mode) => {
+      for (const partial of [false, true]) {
+        const f = fixture(mode, partial);
+        const terminal = {
+          ...f.wire,
+          type: "listener.result",
+          status: partial ? "partial" : "completed",
+          observation: f.observation,
+          nativeSourceCoverage: f.proof,
+        };
+        expect(listenerResultMetricSchema.safeParse(terminal).success).toBe(
+          true,
+        );
+        for (const fault of [
+          "missing-phase",
+          "missing-cleanup",
+          "foreign-phase-owner",
+          "foreign-cleanup-owner",
+          "foreign-cleanup-epoch",
+          "pending-cleanup",
+          "torn-phase",
+          "wrong-phase-cadence",
+          "uncleared-bank",
+          "stale-cleanup-receipt",
+        ]) {
+          const proof = structuredClone(f.proof);
+          if (fault === "missing-phase") delete proof.spectrumPhase;
+          if (fault === "missing-cleanup") delete proof.spectrumCleanup;
+          if (fault === "foreign-phase-owner")
+            proof.spectrumPhase!.ownership.generation =
+              "11111111-1111-4111-8111-111111111111";
+          if (fault === "foreign-cleanup-owner")
+            proof.spectrumCleanup!.generation =
+              "11111111-1111-4111-8111-111111111111";
+          if (fault === "foreign-cleanup-epoch")
+            proof.spectrumCleanup!.nativeEpoch++;
+          if (fault === "pending-cleanup")
+            proof.spectrumCleanup!.status = "pending";
+          if (fault === "torn-phase") proof.spectrumPhase!.acquisitions[0][2]++;
+          if (fault === "wrong-phase-cadence")
+            for (const acquisition of proof.spectrumPhase!.acquisitions)
+              for (const index of [1, 2, 3] as const) acquisition[index]--;
+          if (fault === "uncleared-bank")
+            proof.spectrumCleanup!.receipt.value!.raw[1] = 1;
+          if (fault === "stale-cleanup-receipt")
+            proof.spectrumCleanup!.receipt = structuredClone(
+              proof.spectrumCleanup!.watermarkReceipt,
+            );
+          expect(
+            listenerResultMetricSchema.safeParse({
+              ...terminal,
+              nativeSourceCoverage: proof,
+            }).success,
+            fault,
+          ).toBe(false);
+        }
+      }
+    },
+  );
+
   it.each(["level", "spectral-centroid", "attacks"] as const)(
     "continues healthy capture with attributable %s failure/cancellation progress",
     (metric) => {
@@ -576,7 +639,10 @@ describe("wire5 independent metric contracts", () => {
     expect(
       new TextEncoder().encode(JSON.stringify(oversized)).byteLength,
     ).toBeGreaterThan(DEFAULT_MAX_INGRESS_FRAME_BYTES);
-    expect(listenerResultMetricSchema.safeParse(oversized).success).toBe(false);
+    expect(listenerResultMetricSchema.safeParse(oversized).success).toBe(true);
+    expect(
+      new TextEncoder().encode(JSON.stringify(oversized)).byteLength,
+    ).toBeLessThan(MAX_METRIC_RESULT_FRAME_BYTES);
     const config = {
       ...f.config,
       geometry: createMetricListeningGeometry({
@@ -597,7 +663,7 @@ describe("wire5 independent metric contracts", () => {
     expect(
       new TextEncoder().encode(JSON.stringify(prepare)).byteLength,
     ).toBeGreaterThan(DEFAULT_MAX_INGRESS_FRAME_BYTES);
-    expect(listenerControlMetricSchema.safeParse(prepare).success).toBe(false);
+    expect(listenerControlMetricSchema.safeParse(prepare).success).toBe(true);
   });
 });
 

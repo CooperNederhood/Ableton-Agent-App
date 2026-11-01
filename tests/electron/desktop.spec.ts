@@ -962,7 +962,7 @@ test("restores typed v1/v2/Session context and approximate quality across Electr
   }
 });
 
-test("publishes producer discovery and credential references only inside the isolated profile", async () => {
+test("normal startup advertises metric listening and keeps producer credentials inside the isolated profile", async () => {
   const bridge = createServer((socket) => socket.destroy());
   await new Promise<void>((resolve) => bridge.listen(0, "127.0.0.1", resolve));
   const address = bridge.address();
@@ -1031,9 +1031,10 @@ test("publishes producer discovery and credential references only inside the iso
     expect(descriptor).toMatchObject({
       secretPath: storage.signalIngressSecretPath,
       port: signalAddress.port,
+      maxFrameBytes: 2 * 1024 * 1024,
+      listenerVersions: [5],
+      listenerCapabilities: ["audio-listener/independent-metric-timelines-v1"],
     });
-    expect(descriptor).not.toHaveProperty("listenerVersions");
-    expect(descriptor).not.toHaveProperty("listenerCapabilities");
     expect(JSON.stringify(descriptor)).not.toContain(token);
     await expect(window.locator("body")).not.toContainText(token);
   } finally {

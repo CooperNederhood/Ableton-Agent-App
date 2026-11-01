@@ -6,7 +6,14 @@ function requireValue(condition, message) {
 }
 
 export function inspectNativeStoppedPreflight(
-  { inspected, input, nativeVersion, session = false, limits },
+  {
+    inspected,
+    input,
+    nativeVersion,
+    session = false,
+    limits,
+    expectedTempoBpm = 120,
+  },
   sanitize,
 ) {
   const listeners = Array.isArray(inspected?.listeners)
@@ -18,7 +25,8 @@ export function inspectNativeStoppedPreflight(
   const checks = {
     transportStopped: transport?.playing === false,
     legacyBeatZero: nativeVersion >= 2 || transport?.currentBeat === 0,
-    tempo120: transport?.tempo === 120,
+    [expectedTempoBpm === 128 ? "tempo128" : "tempo120"]:
+      transport?.tempo === expectedTempoBpm,
     safeToStart: transport?.safeToStart === true,
     recordModeOff: recording?.recordMode === false,
     sessionRecordOff: recording?.sessionRecord === false,
@@ -130,7 +138,15 @@ function freeze(value) {
 
 /** Frozen deferred-source expectations, never physical identity or native admission evidence. */
 export function snapshotNativeSessionSource(
-  { source, target, sourceKind, geometry, durationBeats = null, sourceRegion },
+  {
+    source,
+    target,
+    sourceKind,
+    geometry,
+    durationBeats = null,
+    sourceRegion,
+    expectedTempoBpm = 120,
+  },
   protocol,
 ) {
   const parsed =
@@ -164,7 +180,7 @@ export function snapshotNativeSessionSource(
       Math.abs(g.endBeat - g.startBeat - resolvedDurationBeats) <= 1e-8 &&
       g.totalSamples <= g.sampleRate * 30 &&
       Math.ceil(g.totalSamples / g.hopSamples) <= 300 &&
-      g.tempoBpm === 120 &&
+      g.tempoBpm === expectedTempoBpm &&
       settings.tempoBpm === g.tempoBpm &&
       settings.signatureNumerator === 4 &&
       settings.signatureDenominator === 4 &&

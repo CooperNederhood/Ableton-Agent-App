@@ -2,22 +2,153 @@
 
 Companion specification: [Packaging and Operations](packaging-and-operations.md)
 
+## Current branch checkpoint
+
+- [x] Check in current implementation and regression work on the existing branch;
+  this is a working checkpoint, not a finished release.
+- [ ] Resolve the managed silent-tail scenario's capture-cleanup failure and
+  qualify the current v5-only zero-energy readback bundle.
+- [ ] Package/reinstall that final qualified inventory without regeneration,
+  compare installed immutable files, and finish installed capture/restart/UX review.
+  The prior installed app/device do not yet include the additional silence fix.
+
+## Normal-startup listening candidate delivery
+
+Current correction: the initial normal installation failed listener discovery.
+Its saved production parent differed from the generated parent used in successful
+Live qualification. Historical install/signature/authentication checks below
+did not qualify that functional parent.
+
+- [x] Use the tested JavaScript construction for the default listener builder and
+  production integration caller; reject alternate functional source graphs.
+- [x] Verify the default production graph's identity/DSP startup and supported
+  runtime feeds, not only its version, and compare production/candidate bytes.
+- [x] Reuse identified integration payloads before packing without rewriting;
+  reject stale graph/resources/codec or tampered payloads. Preserve existing
+  portable source identity and installed immutable hashes across profile changes.
+- [ ] Attribute the current Max invalid-object errors and prove corrected
+  production-bundle discovery/capture in owned Live.
+- [x] Qualify the identical production payload in owned Live 11.3.43 for MIDI,
+  audio, repeats, switching and four-beat phrases. Packaging preserves the
+  qualified inventory SHA; packaged startup and isolated integration CLI
+  byte-continuity smoke passed.
+- [x] Safely reinstall after the user closes both apps. Installed immutable
+  listening files match the qualified payload; installed-app authentication
+  passes. Prepare the protected
+  `installed-human-review-1793490074155/project/debug-two-clips-midi-audio-v1.als`
+  copy with four installed references and unchanged original/source Set hashes.
+- [ ] Human-verify normal installed discovery, MIDI/audio reports and restart.
+
+- [x] Enable the shared native-v5 ingress/runtime admission on normal Desktop
+  startup, without changing saved approvals or enabling automation/YOLO.
+  Preserve explicit opt-in for isolated automation.
+- [x] Add normal-launch policy coverage and a production main/preload Electron
+  regression for v5 discovery, the 2 MiB allowance and secret-free profile paths.
+- [x] Reuse bootstrapped dependencies during local installation instead of
+  reinstalling an unchanged dependency manifest.
+- [x] Install and verify a fresh matched app, canonical device bundles and Remote
+  Script for the normal `default` profile. Deployment trace:
+  `08f810b0-3642-4f01-949d-6c3286efa062`; the Remote Script was already current.
+  Packaged resource/signature/authentication checks passed. Prepare the protected
+  `installed-human-review-1793481683623/project/debug-two-clips-midi-audio-v1.als`
+  copy with four absolute references to the installed User Library device,
+  no retained engineering bundle, and unchanged original Set/source/audio.
+- [ ] Human-verify normal launch, four full-clip reports and discovery after
+  restarting both apps. This is local candidate review, not public release.
+
+## Native v5 package clean break and engineering negative fixture
+
+- [x] Make the listener builder/artifact checker native-v5-only, defaulting to
+  the canonical generated `Machine-Listening-Development.amxd`, format2/ABI3,
+  algorithm `3.0.0`, metric observation schema and
+  `independent-metric-timelines/v1` delivery. Reject explicit retired versions,
+  non-native requests and retired manifest metadata before publication; remove
+  retired controller/engine imports and runtime/assembler/coordinates resource
+  publication. Retain genuine clock, musical/spectrum DSP, shared IO and
+  unchanged historical graph-source hashes.
+- [x] Require caller-owned `stage(name, execute)` for the compiled protocol;
+  supply bounded traced stages in the build CLI rather than bypassing the
+  lifecycle-required compiler guard. Keep compiler/input/lockfile/license
+  provenance and the generated codec's resource SHA in the artifact manifest.
+- [x] Stage the negative variant only with explicit `nativeMode: true`,
+  `nativeVersion: 5`, `engineeringOnly: true` and
+  `engineeringFixture: "native5-unavailable-spectrum/v1"`. Reject missing,
+  unknown or malformed fixture selection before publication. No normal profile,
+  environment variable or agent permission may silently disable spectrum.
+- [x] Select the separately declared
+  `audio_listener_native_v5_unavailable_spectrum_max.js` entry using the existing
+  injected controller factory. Preserve shared runtime/default entry bytes and
+  default actual-spectrum acquisition; do not add a shared runtime switch.
+- [x] Expose `native-metric-engineering-fixture/v1` provenance with the fixture
+  ID, `engineeringOnly`, entry filename/SHA, unavailable metric and
+  `sourceSemantics: "spectral-acquisition-not-started"`. Check the literal entry,
+  device SHA and complete resource hashes; reject missing/foreign metadata,
+  mismatched entry pins or relabeling a default bundle. Scenario input must
+  pin the exact manifest bytes as `candidateManifestSha256`.
+- [x] Verify honest partial semantics with measured nonzero level/detector input,
+  complete level/attacks, unknown spectral phase and no FFT records, invented
+  endpoint or zero-energy substitute. Spectrum-only remains denied. Actual
+  envelope/shared-clock cleanup remains mandatory; never fabricate spectral
+  cleanup for an unowned source or publish usable data after cleanup failure.
+- [x] Attribute package stages with the bounded fixture ID and fixture-only
+  failure logs with owned event/generation/epoch. Keep code/audio out of those
+  logs and preserve normal bridge failure evidence and sticky fail-closed
+  invalidation.
+- [x] Demonstrate red-before/green-after default/retired-selection, lifecycle,
+  literal-entry, manifest/resource SHA, partial-data and cancellation/cleanup
+  regressions. Initial fixture checks passed 126 Node tests. Latest production
+  hardening demonstrated two red failures before fixing mutable provenance and
+  oversized self-rehashed codec admission. Current narrow shared/package/compiler/
+  lifecycle checks pass 79 tests (including 60 shared payload tests); broader
+  shared/isolated installer/CLI/packaging/telemetry checks pass 148 tests.
+  The full source-only Max suite passes 811/811. These are deterministic
+  implementation checks, not physical qualification.
+- [x] Complete the coordinated production integration caller and shared payload
+  inventory/validator migration to native5/ABI3/algorithm3 and independent metric
+  delivery. Bind identical codec provenance in both manifests to the actual
+  resource SHA/bytes; validate bounded compiler/input/lock/license provenance.
+  Freeze the validated provenance snapshot, compiler and input records; enforce
+  the compiler's same 4 MiB output and 16 MiB input ceilings in managed reading.
+  Preserve owned compile lifecycle, cancellation, atomic publication and existing
+  output after failure. Explicit retired callers fail closed, never fall back.
+  Reject engineering flags in managed packaging and metadata in managed reading,
+  including a renamed/rehashed negative entry using the unchanged default-entry
+  SHA pin. Release all ten retired runtime/controller/assembler/entry/engine/
+  coordinates publication dependencies; retain current DSP/IO/transport
+  validators, protected historical hash/coordinate artifacts and explicit
+  current detector/PCM reference coverage. Shared build, shared/desktop consumer
+  types, owned lint/format and test-ownership checks pass. Exercise the actual
+  application before-pack hook through the lifecycle-backed production CLI:
+  validate the generated native5/ABI3 22-file listener payload and unchanged
+  six-file MIDI inventory without a normal-profile installation or app launch.
+- [ ] Have the parent qualify the exact separately pinned negative bundle with
+  the reviewed one-capture partial-spectrum scenario in a fresh runner-owned
+  process. Require a valid stopped fixture baseline, healthy measured level and
+  attacks, unavailable spectrum, persisted partial context and actual cleanup.
+  Do not retry or repair a failed baseline. The fixture remains
+  `realLiveValidated: false`; it is not production spectrum qualification.
+- [ ] Have the parent record current positive/negative real qualification and
+  reviewed evidence in the owned playback/listening tool documents. Closed UX
+  apps, historical deployment or deterministic test success do not complete
+  those gates.
+
 ## Desktop distribution
 
 - [x] Add an opt-in canonical metric-protocol CommonJS compiler with immutable
   input/compiler/lock/license provenance and caller-owned lifecycle stages.
   Verify ordinary dependency-free loading, canonical validation, deterministic
   bytes, redacted failure, cancellation and denial of unpinned/external output.
-- [ ] Wire the compiled metric protocol into the complete native-v5 producer,
-  shared client, matched resource inventory and qualified integration bundle.
-  Keep default v4 packaging and installed capabilities unchanged until then.
-- [x] Package the wire4 retained reader with matching Gen/IO resources and
+- [x] Wire the compiled metric protocol into the complete production v5
+  integration bundle and matching shared inventory/validator. Staged source,
+  lifecycle and hash contracts are covered above; fresh real qualification and
+  installation remain separate pending gates. Do not re-enable retired v4 packaging.
+- [x] Historically package the wire4 retained reader with matching Gen/IO resources and
   explicit `retention-v1` metadata in both manifests. Reject mismatched/missing
   delivery claims and preserve wire1/2/3 graphs and historical fixtures.
-- [ ] Validate and install the retained-delivery candidate after coordinated
+- [ ] Validate and install the current matched v5 candidate after coordinated
   saved app closure; packaging and native primitive qualification alone are
   not repeated-listening acceptance.
-- [x] Generate canonical native-v4 Machine-Listening-Development and Midi-Capture
+- [x] Historically generate canonical native-v4 Machine-Listening-Development and Midi-Capture
   bundles through every electron-builder entry point; validate complete portable
   hashes/resources without source promotion or machine configuration.
 - [x] Verify the integrated wire-4 dual-mode bundle after merging mode, full-loop
@@ -28,7 +159,7 @@ Companion specification: [Packaging and Operations](packaging-and-operations.md)
   Verify all three installed components are current, actual qmetro/mode metadata
   is correct and the signed installed Desktop authenticates and launches.
   Deployment trace: `bbcb1938-a23d-4e60-a32d-7170bad682d6`.
-- [ ] Physically qualify the new candidate in fresh Live/device instances;
+- [ ] Physically qualify the current v5 candidate in fresh Live/device instances;
   historical v3 installs and packaged smoke tests are not capture acceptance.
 - [x] Install both managed bundles with the Remote Script through a shared typed
   installer and CLI, preserving tokens/unrelated files and stopped-Live guards

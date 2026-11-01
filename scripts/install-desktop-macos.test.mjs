@@ -80,6 +80,23 @@ describe("macOS desktop installer", () => {
         .mocked(spawnSync)
         .mock.calls.some(([, args]) => args.includes("integrations")),
     ).toBe(false);
+    expect(
+      vi
+        .mocked(spawnSync)
+        .mock.calls.some(
+          ([command, args]) =>
+            command === "node" &&
+            args[0] === "scripts/build-ableton-integrations.mjs" &&
+            args[1] === "--reuse",
+        ),
+    ).toBe(true);
+    expect(
+      vi
+        .mocked(spawnSync)
+        .mock.calls.some(
+          ([command, args]) => command === "pnpm" && args[0] === "install",
+        ),
+    ).toBe(false);
   });
 
   it("delivers both devices even when Python is skipped, with one explicit target", () => {

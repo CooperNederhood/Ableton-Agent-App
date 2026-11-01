@@ -75,22 +75,67 @@ async function rehash(
 }
 
 describe("canonical integration payloads", () => {
-  it("validates real generated dual-mode native4/ABI2 and portable MIDI inventories", async () => {
+  it.each([
+    ["live.thisdevice", "loadbang"],
+    ["pack dsp 0 0. 0", "pack dsp 0 0 0"],
+    ["route adapter-started", "route ignored-startup"],
+  ])("rejects self-rehashed startup substitution %s", async (from, to) => {
+    const path = await fixture();
+    const name = "Machine-Listening-Development.amxd";
+    const container = decodeAmxd(
+      await readFile(join(path, "machine-listening", name)),
+    );
+    const serialized = JSON.stringify(container.document);
+    expect(serialized).toContain(from);
+    const document = JSON.parse(serialized.replace(from, to)) as MaxValue;
+    await rehash(
+      path,
+      "machine-listening",
+      name,
+      encodeAmxd(container, document),
+    );
+    await expect(readIntegrationDevicePayloads(path)).rejects.toThrow(
+      /listening startup/,
+    );
+  });
+
+  it("validates generated metric native5/ABI3, pinned codec provenance and portable MIDI inventories", async () => {
     const payloads = await readIntegrationDevicePayloads(generated);
     expect(payloads.map(({ id }) => id)).toEqual([
       "machine-listening",
       "midi-capture",
     ]);
     expect(payloads[0]).toMatchObject({
-      nativeVersion: 4,
-      nativeAbiVersion: 2,
-      measurementDelivery: "retention-v1",
+      nativeVersion: 5,
+      nativeAbiVersion: 3,
+      measurementDelivery: "independent-metric-timelines/v1",
       deviceFile: "Machine-Listening-Development.amxd",
     });
     expect(payloads[1]).toMatchObject({
       pathPlaceholder: MIDI_CAPTURE_PATH_PLACEHOLDER,
       deviceFile: "Midi-Capture.amxd",
     });
+    const native = JSON.parse(
+      await readFile(
+        join(payloads[0]!.sourceDirectory, "audio-listener-manifest.json"),
+        "utf8",
+      ),
+    ) as Record<string, unknown>;
+    expect(native).toMatchObject({
+      nativeVersion: 5,
+      nativeAbiVersion: 3,
+      algorithmVersion: "3.0.0",
+      realLiveValidated: false,
+      metricProtocol: { schema: "native-metric-protocol-bundle/v1" },
+    });
+    expect(payloads[0]).toHaveProperty("metricProtocol", native.metricProtocol);
+    expect(
+      payloads[0]!.files.some(({ name }) =>
+        /^audio_listener_(?:engine|runtime|max|native_(?:coordinates|assembler|controller|v[234]_max))\.js$/.test(
+          name,
+        ),
+      ),
+    ).toBe(false);
     for (const payload of payloads) {
       expect(payload.files.map(({ name }) => name).sort()).toEqual(
         [...INTEGRATION_DEVICE_INVENTORY[payload.id].files].sort(),
@@ -109,7 +154,7 @@ describe("canonical integration payloads", () => {
     }
   });
 
-  it.each([undefined, 1, 2, 3, 5])(
+  it.each([undefined, 1, 2, 3, 4, 6])(
     "rejects absent or wrong native version %s despite a complete inventory",
     async (version) => {
       const path = await fixture();
@@ -122,6 +167,93 @@ describe("canonical integration payloads", () => {
       );
     },
   );
+  it("returns a deeply immutable snapshot of validated compiler/input provenance", async () => {
+    const payloads = await readIntegrationDevicePayloads(generated);
+    const provenance = payloads[0]!.metricProtocol!;
+    expect(Object.isFrozen(provenance)).toBe(true);
+    expect(Object.isFrozen(provenance.compiler)).toBe(true);
+    expect(Object.isFrozen(provenance.inputs)).toBe(true);
+    expect(provenance.inputs.every(Object.isFrozen)).toBe(true);
+    expect(Reflect.set(provenance, "sha256", "0".repeat(64))).toBe(false);
+    expect(Reflect.set(provenance.inputs[0]!, "path", "../foreign")).toBe(
+      false,
+    );
+  });
+  it.each(["missing-codec", "retired-entry"])(
+    "rejects incomplete or retired native resource inventory %s",
+    async (kind) => {
+      const path = await fixture();
+      if (kind === "missing-codec")
+        await rm(
+          join(path, "machine-listening", "audio_listener_metric_protocol.js"),
+        );
+      else
+        await manifestMutation(path, ({ devices }) => {
+          const file = devices[0]!.files.find(
+            ({ name }) => name === "audio_listener_native_v5_max.js",
+          )!;
+          file.name = "audio_listener_native_v4_max.js";
+        });
+      await expect(readIntegrationDevicePayloads(path)).rejects.toThrow(
+        /inventory/,
+      );
+    },
+  );
+  it.each(["missing-provenance", "engineering-fixture"])(
+    "denies invalid root production metadata %s before delivering install payloads",
+    async (kind) => {
+      const path = await fixture();
+      await manifestMutation(path, ({ devices }) => {
+        const entry = devices[0]! as Record<string, unknown>;
+        if (kind === "missing-provenance") delete entry.metricProtocol;
+        else
+          entry.engineeringFixture = { id: "native5-unavailable-spectrum/v1" };
+      });
+      await expect(readIntegrationDevicePayloads(path)).rejects.toThrow(
+        /metric protocol|native version/,
+      );
+    },
+  );
+  it("rejects a self-rehashed codec larger than the compiler output budget", async () => {
+    const path = await fixture();
+    const name = "audio-listener-manifest.json";
+    const native = JSON.parse(
+      await readFile(join(path, "machine-listening", name), "utf8"),
+    ) as {
+      metricProtocol: { sha256: string; bytes: number };
+      resources: { name: string; sha256: string; bytes: number }[];
+    };
+    const raw = Buffer.alloc(4 * 1024 * 1024 + 1, 32);
+    const identity = {
+      sha256: createHash("sha256").update(raw).digest("hex"),
+      bytes: raw.length,
+    };
+    Object.assign(native.metricProtocol, identity);
+    Object.assign(
+      native.resources.find(
+        ({ name }) => name === "audio_listener_metric_protocol.js",
+      )!,
+      identity,
+    );
+    await manifestMutation(path, ({ devices }) => {
+      Object.assign(devices[0]!, { metricProtocol: native.metricProtocol });
+    });
+    await rehash(
+      path,
+      "machine-listening",
+      "audio_listener_metric_protocol.js",
+      raw,
+    );
+    await rehash(
+      path,
+      "machine-listening",
+      name,
+      Buffer.from(JSON.stringify(native)),
+    );
+    await expect(readIntegrationDevicePayloads(path)).rejects.toThrow(
+      /metric protocol/,
+    );
+  });
   it("rejects incorrect ABI and self-rehashed internal native versions", async () => {
     const path = await fixture();
     await manifestMutation(path, ({ devices }) => {
@@ -139,7 +271,7 @@ describe("canonical integration payloads", () => {
       internal,
       "machine-listening",
       "audio-listener-manifest.json",
-      Buffer.from(raw.replace('"nativeVersion": 4', '"nativeVersion": 2')),
+      Buffer.from(raw.replace('"nativeVersion": 5', '"nativeVersion": 4')),
     );
     await expect(readIntegrationDevicePayloads(internal)).rejects.toThrow(
       /native manifest/,
@@ -196,7 +328,7 @@ describe("canonical integration payloads", () => {
     const container = decodeAmxd(raw);
     const altered = JSON.parse(
       JSON.stringify(container.document).replace(
-        "audio_listener_native_v4_max.js",
+        "audio_listener_native_v5_max.js",
         "audio_listener_max.js",
       ),
     ) as MaxValue;
@@ -230,6 +362,8 @@ describe("canonical integration payloads", () => {
     { modeNegotiation: "implicit" },
     { measurementDelivery: "latest-only" },
     { measurementDelivery: undefined },
+    { measurementDelivery: "retention-v1" },
+    { engineeringFixture: { id: "native5-unavailable-spectrum/v1" } },
     { nativeScope: "session-transport-coupled/v1" },
     { realLiveValidated: true },
     {
@@ -256,6 +390,152 @@ describe("canonical integration payloads", () => {
       /native runtime metadata|native provider limits|canonical native manifest/,
     );
   });
+  it.each([
+    "missing",
+    "foreign-schema",
+    "wrong-codec-sha",
+    "missing-inputs",
+    "unbounded-input",
+    "foreign-fields",
+    "root-mismatch",
+    "missing-lockfile",
+    "missing-license",
+    "wrong-byte-count",
+    "foreign-compiler",
+  ])(
+    "rejects self-rehashed incomplete or mismatched metric protocol provenance %s",
+    async (kind) => {
+      const path = await fixture();
+      const name = "audio-listener-manifest.json";
+      const native = JSON.parse(
+        await readFile(join(path, "machine-listening", name), "utf8"),
+      ) as {
+        metricProtocol?: {
+          schema: string;
+          sha256: string;
+          inputs: { path: string; bytes: number; sha256: string }[];
+        };
+      };
+      if (kind === "missing") delete native.metricProtocol;
+      if (kind === "foreign-schema")
+        native.metricProtocol!.schema = "unreviewed/v1";
+      if (kind === "wrong-codec-sha")
+        native.metricProtocol!.sha256 = "0".repeat(64);
+      if (kind === "missing-inputs") native.metricProtocol!.inputs = [];
+      if (kind === "unbounded-input")
+        native.metricProtocol!.inputs[0]!.path = "../unreviewed";
+      if (kind === "foreign-fields")
+        Object.assign(native.metricProtocol!, {
+          engineeringFixture: "native5-unavailable-spectrum/v1",
+        });
+      if (kind === "root-mismatch")
+        await manifestMutation(path, (manifest) => {
+          Object.assign(manifest.devices[0]!, {
+            metricProtocol: {
+              ...native.metricProtocol,
+              sha256: "0".repeat(64),
+            },
+          });
+        });
+      if (kind === "missing-lockfile")
+        Reflect.deleteProperty(native.metricProtocol!, "lockfileSha256");
+      if (kind === "missing-license")
+        Reflect.deleteProperty(native.metricProtocol!, "licenseSha256");
+      if (kind === "wrong-byte-count")
+        Object.assign(native.metricProtocol!, { bytes: 1 });
+      if (kind === "foreign-compiler")
+        Object.assign(native.metricProtocol!, {
+          compiler: {
+            name: "unreviewed",
+            version: "1",
+            format: "cjs",
+            syntaxTarget: "es2020",
+          },
+        });
+      await rehash(
+        path,
+        "machine-listening",
+        name,
+        Buffer.from(JSON.stringify(native)),
+      );
+      await expect(readIntegrationDevicePayloads(path)).rejects.toThrow(
+        /metric protocol/,
+      );
+    },
+  );
+  it("rejects negative fixture code renamed to the production entry even after both manifests are rehashed", async () => {
+    const path = await fixture();
+    const entry = "audio_listener_native_v5_max.js";
+    const raw = await readFile(
+      resolve(
+        "max-patches/audio-listener/audio_listener_native_v5_unavailable_spectrum_max.js",
+      ),
+    );
+    const nativeFile = "audio-listener-manifest.json";
+    const native = JSON.parse(
+      await readFile(join(path, "machine-listening", nativeFile), "utf8"),
+    ) as {
+      resources: { name: string; sha256: string; bytes: number }[];
+    };
+    Object.assign(
+      native.resources.find(({ name }) => name === entry)!,
+      {
+        sha256: createHash("sha256").update(raw).digest("hex"),
+        bytes: raw.length,
+      },
+    );
+    await rehash(path, "machine-listening", entry, raw);
+    await rehash(
+      path,
+      "machine-listening",
+      nativeFile,
+      Buffer.from(JSON.stringify(native)),
+    );
+    await expect(readIntegrationDevicePayloads(path)).rejects.toThrow(
+      /runtime version|runtime entry/,
+    );
+  });
+  it.each([
+    {
+      engineeringOnly: true,
+      engineeringFixture: "native5-unavailable-spectrum/v1",
+    },
+    { engineeringFixture: undefined },
+    { spectrumEnabled: false },
+    { nativeVersion: 4 },
+    { nativeMode: false },
+  ])(
+    "production builder denies fixture/retired overrides before publication %#",
+    async (options) => {
+      const path = join(scratch, randomUUID());
+      const result = JSON.parse(
+        execFileSync(
+          process.execPath,
+          [
+            "--input-type=module",
+            "-e",
+            `
+      import { buildAbletonIntegrations } from "./scripts/build-ableton-integrations.mjs";
+      const options = ${JSON.stringify(options)};
+      if (${Object.hasOwn(options, "engineeringFixture") && options.engineeringFixture === undefined})
+        options.engineeringFixture = undefined;
+      try {
+        await buildAbletonIntegrations(${JSON.stringify(path)}, {
+          ...options,
+        });
+        console.log(JSON.stringify({ error: null }));
+      } catch (error) { console.log(JSON.stringify({ error: error.message })); }
+      `,
+          ],
+          { encoding: "utf8" },
+        ),
+      ) as { error: string | null };
+      expect(result.error).toMatch(/fixture|native v5/);
+      await expect(
+        readFile(join(path, INTEGRATION_PAYLOAD_MANIFEST)),
+      ).rejects.toMatchObject({ code: "ENOENT" });
+    },
+  );
   it.each(["mcp_bridge", "agent_signal_storage.js", "/Users/private/profile"])(
     "rejects self-rehashed nonportable device data %s",
     async (marker) => {
@@ -265,7 +545,10 @@ describe("canonical integration payloads", () => {
         await readFile(join(path, "machine-listening", name)),
       );
       const document = JSON.parse(
-        JSON.stringify(container.document).replace("ml_status_note", marker),
+        JSON.stringify(container.document).replace(
+          "Machine Listening - transparent stereo tap",
+          marker,
+        ),
       ) as MaxValue;
       await rehash(
         path,
@@ -333,9 +616,7 @@ describe("canonical integration payloads", () => {
   });
   it("replaces stale output without changing canonical sources or retaining profile state", async () => {
     const path = await fixture();
-    const canonical = resolve(
-      "max-patches/audio-listener/Machine-Listening-Development.amxd",
-    );
+    const canonical = resolve("max-patches/audio-listener/native-source.mjs");
     const midi = resolve("max-patches/midi-capture/Midi-Capture.amxd");
     const before = await Promise.all([readFile(canonical), readFile(midi)]);
     await writeFile(join(path, "stale-profile.js"), "secret");
@@ -419,6 +700,87 @@ describe("canonical integration payloads", () => {
       await expect(readIntegrationDevicePayloads(path)).resolves.toHaveLength(
         2,
       );
+    },
+  );
+  it.each(["success", "cancelled", "observer-failed"])(
+    "owns bounded codec compilation %s lifecycle without an unowned compiler fallback",
+    async (outcome) => {
+      const path = await fixture();
+      const before = await readFile(join(path, INTEGRATION_PAYLOAD_MANIFEST));
+      const result = JSON.parse(
+        execFileSync(
+          process.execPath,
+          [
+            "--input-type=module",
+            "-e",
+            `
+        import { buildAbletonIntegrations } from "./scripts/build-ableton-integrations.mjs";
+        const controller = new AbortController();
+        const events = [];
+        let failed = false;
+        try {
+          await buildAbletonIntegrations(${JSON.stringify(path)}, {
+            signal: controller.signal,
+            traceId: "private/profile/value", correlationId: "correlation", causationId: "cause",
+            onEvent(event) {
+              events.push(event);
+              if (event.operation !== "m4l.integrations.stage") return;
+              if (${JSON.stringify(outcome)} === "cancelled" && event.stage === "progress") controller.abort();
+              if (${JSON.stringify(outcome)} === "observer-failed") throw new Error("private observer data");
+            },
+          });
+        } catch { failed = true; }
+        console.log(JSON.stringify({ events, failed }));
+        `,
+          ],
+          { encoding: "utf8" },
+        ),
+      ) as {
+        events: {
+          operation: string;
+          stage: string;
+          name?: string;
+          trace?: { traceId: string };
+          attributes?: Record<string, unknown>;
+        }[];
+        failed: boolean;
+      };
+      const compiler = result.events.filter(
+        ({ operation }) => operation === "m4l.integrations.stage",
+      );
+      expect(compiler.map(({ stage }) => stage)).toEqual([
+        "queued",
+        "started",
+        "progress",
+        outcome === "cancelled" ? "cancelled" : "completed",
+      ]);
+      expect(result.failed).toBe(outcome === "cancelled");
+      for (const event of compiler) {
+        expect(event.name).toMatch(
+          /^integration\.native_listening\.native-metric-protocol-compile\./,
+        );
+        expect(event.attributes).toMatchObject({
+          artifact: "audio_listener_metric_protocol.js",
+          syntaxTarget: "es2020",
+        });
+        expect(event.trace?.traceId).toMatch(/^[0-9a-f-]{36}$/);
+        expect(JSON.stringify(event).length).toBeLessThan(2048);
+      }
+      expect(JSON.stringify(result.events)).not.toMatch(
+        /private\/profile|private observer data/,
+      );
+      if (outcome === "cancelled")
+        expect(
+          await readFile(join(path, INTEGRATION_PAYLOAD_MANIFEST)),
+        ).toEqual(before);
+      await expect(readIntegrationDevicePayloads(path)).resolves.toHaveLength(
+        2,
+      );
+      expect(
+        (await readdir(scratch)).some((name) =>
+          /\.staged-|\.previous-/.test(name),
+        ),
+      ).toBe(false);
     },
   );
 });

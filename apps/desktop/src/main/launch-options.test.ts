@@ -1,9 +1,18 @@
 import { describe, expect, it } from "vitest";
 
-import { parseDesktopLaunchOptions } from "./launch-options.js";
+import {
+  desktopMetricListenersEnabled,
+  parseDesktopLaunchOptions,
+} from "./launch-options.js";
 
 describe("desktop launch options", () => {
-  it("enables metric listeners only through explicit isolated automation", () => {
+  it("enables normal listening without enabling automation or changing approvals", () => {
+    const normal = parseDesktopLaunchOptions(["electron", "."]);
+    expect(desktopMetricListenersEnabled(normal)).toBe(true);
+    expect(normal.automation).toBeUndefined();
+  });
+
+  it("requires explicit metric admission for isolated automation", () => {
     expect(() =>
       parseDesktopLaunchOptions(["--automation-metric-listeners"]),
     ).toThrow("require --automation");
@@ -22,6 +31,25 @@ describe("desktop launch options", () => {
         "/tmp/ableton-agent-metric-profile",
       ]).automation?.independentMetricListeners,
     ).toBeUndefined();
+    expect(
+      desktopMetricListenersEnabled(
+        parseDesktopLaunchOptions([
+          "--automation",
+          "--automation-profile",
+          "/tmp/ableton-agent-metric-profile",
+        ]),
+      ),
+    ).toBe(false);
+    expect(
+      desktopMetricListenersEnabled(
+        parseDesktopLaunchOptions([
+          "--automation",
+          "--automation-profile",
+          "/tmp/ableton-agent-metric-profile",
+          "--automation-metric-listeners",
+        ]),
+      ),
+    ).toBe(true);
   });
   it("parses an isolated automation launch", () => {
     expect(

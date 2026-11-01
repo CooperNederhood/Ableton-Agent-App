@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { connect, Socket } from "node:net";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { setImmediate as nextTurn } from "node:timers/promises";
+import { MAX_METRIC_RESULT_FRAME_BYTES } from "@ableton-agent/protocol";
 import type { TelemetryEventEnvelope } from "@ableton-agent/observability";
 import {
   SignalIngressServer,
@@ -36,7 +38,10 @@ afterEach(async () => {
   for (const dispose of resources.splice(0).reverse()) await dispose();
 });
 
-async function peer(endpoint: { host: string; port: number }) {
+async function peer(
+  endpoint: { host: string; port: number },
+  responseTimeoutMs = 2000,
+) {
   const socket = connect(endpoint);
   sockets.push(socket);
   const queue: unknown[] = [];
@@ -83,6 +88,23 @@ async function peer(endpoint: { host: string; port: number }) {
         `${values.map((value) => JSON.stringify(value)).join("\n")}\n`,
       );
     },
+    async sendFragmented(value: unknown, frameBytes?: number) {
+      const json = JSON.stringify(value);
+      const size = Buffer.byteLength(json);
+      if (frameBytes !== undefined && frameBytes < size)
+        throw new Error("Fragmented test frame cannot truncate JSON");
+      const encoded = Buffer.from(
+        `${json}${" ".repeat((frameBytes ?? size) - size)}\n`,
+      );
+      for (let offset = 0; offset < encoded.length; offset += 16 * 1024) {
+        if (socket.destroyed) throw new Error("Metric peer closed");
+        socket.write(encoded.subarray(offset, offset + 16 * 1024));
+        await nextTurn();
+      }
+    },
+    sendRaw(value: string) {
+      socket.write(value);
+    },
     next(): Promise<unknown> {
       if (queue.length) return Promise.resolve(queue.shift());
       if (socket.destroyed)
@@ -92,7 +114,7 @@ async function peer(endpoint: { host: string; port: number }) {
           const index = waiting.findIndex((item) => item.timer === timer);
           if (index >= 0) waiting.splice(index, 1);
           reject(new Error("Metric peer response timeout"));
-        }, 2000);
+        }, responseTimeoutMs);
         waiting.push({ resolve, reject, timer });
       });
     },
@@ -102,6 +124,7 @@ async function peer(endpoint: { host: string; port: number }) {
 async function start(
   options: Partial<SignalIngressServerOptions> = {},
   qualified = true,
+  responseTimeoutMs = 2000,
 ) {
   const registry = new InMemoryConnectionRegistry({ staleAfterMs: 100_000 });
   const events: TelemetryEventEnvelope[] = [];
@@ -119,7 +142,11 @@ async function start(
     ...options,
   });
   servers.push(server);
-  return { server, events, client: await peer(await server.start()) };
+  return {
+    server,
+    events,
+    client: await peer(await server.start(), responseTimeoutMs),
+  };
 }
 
 function hello(fixture: ReturnType<typeof createSyntheticMetricWireFixture>) {
@@ -165,8 +192,9 @@ async function session(
   partial = false,
   options: Partial<SignalIngressServerOptions> = {},
   withSourceContext = false,
+  geometry: false | { tempoBpm: number; endBeat: number } = false,
 ) {
-  const f = createSyntheticMetricWireFixture(mode, partial);
+  const f = createSyntheticMetricWireFixture(mode, partial, geometry);
   if (withSourceContext) {
     const config = nativeMetricListeningConfigSchema.parse({
       ...f.config,
@@ -176,7 +204,12 @@ async function session(
     f.ready.config = structuredClone(config);
     f.proof.armed.config = structuredClone(config);
   }
-  const { server, client, events } = await start(options);
+  // Large-frame peers need headroom when the owning suite runs CPU-heavy workers.
+  const { server, client, events } = await start(
+    options,
+    true,
+    geometry ? 10_000 : 2000,
+  );
   const received: ListenerResultEvent[] = [];
   server.onListenerResult((event) => {
     received.push(event);
@@ -227,7 +260,7 @@ async function session(
     });
     return message;
   }
-  async function result(payload: object) {
+  async function result(payload: object, frameBytes?: number) {
     const message = {
       ...wire(prepare),
       type: "listener.result",
@@ -235,7 +268,8 @@ async function session(
       sequence: sequence++,
       ...payload,
     };
-    client.send(message);
+    if (frameBytes === undefined) client.send(message);
+    else await client.sendFragmented(message, frameBytes);
     return { message, acknowledgement: await client.next() };
   }
   async function ready() {
@@ -296,6 +330,52 @@ function lifecycle(
 }
 
 describe("opt-in authenticated independent metric ingress", () => {
+  it.each([false, true])(
+    "receives a fragmented 2 MiB complete/partial frame with thirty-second records (partial=%s)",
+    async (partial) => {
+      const s = await session("session", partial, {}, true, {
+        tempoBpm: 128,
+        endBeat: 64,
+      });
+      await s.ready();
+      await s.arm();
+      const payload = {
+        status: partial ? "partial" : "completed",
+        observation: s.bound.observation,
+        nativeSourceCoverage: s.bound.proof,
+      };
+      const { acknowledgement } = await s.result(
+        payload,
+        MAX_METRIC_RESULT_FRAME_BYTES,
+      );
+      expect(acknowledgement).toMatchObject({
+        type: "producer.ack",
+        action: "listener",
+      });
+      const terminal = s.received.at(-1);
+      expect(terminal?.result).toMatchObject(payload);
+      expect(terminal?.result.observation?.rows).toHaveLength(256);
+      expect(terminal?.result.traceId).toBe(s.prepare.traceId);
+      expect(s.server.inspectListeners()[0]?.phase).toBe("idle");
+      expect(s.events.filter((event) => event.outcome === "failure")).toEqual(
+        [],
+      );
+    },
+  );
+
+  it("rejects one byte above the metric frame ceiling and incomplete oversized frames", async () => {
+    for (const terminated of [false, true]) {
+      const { client } = await start();
+      client.sendRaw(
+        `${" ".repeat(MAX_METRIC_RESULT_FRAME_BYTES + 1)}${terminated ? "\n" : ""}`,
+      );
+      expect(await client.next()).toMatchObject({
+        type: "producer.error",
+        code: "frame-too-large",
+      });
+    }
+  });
+
   it.each([undefined, false, true])(
     "denies old listening registrations and replies/results with gate %s",
     async (gate) => {

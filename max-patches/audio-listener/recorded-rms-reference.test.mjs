@@ -8,7 +8,9 @@ import { createKnownListeningFixture } from "../../packages/test-support/src/lis
 import { CLOCK_ANCHORED_ENVELOPE_CODE } from "./synchronized-envelope-source.mjs";
 
 const require = createRequire(import.meta.url);
-const { nativeHostBinding } = require("./audio_listener_native_coordinates.js");
+const {
+  nativeHostBinding,
+} = require("./fixtures/native-v1-6cceef6/audio_listener_native_coordinates.js");
 const evidence = JSON.parse(
   await readFile(
     new URL("./fixtures/native-rms-reference.json", import.meta.url),

@@ -10,9 +10,6 @@ import {
 import { descriptiveSpectrumCode } from "./synchronized-spectrum-source.mjs";
 import { validateDocument } from "../../scripts/audio-listener-device.mjs";
 
-const { NativeDescriptorAssembler } = createRequire(import.meta.url)(
-  "./audio_listener_native_assembler.js",
-);
 const measurements = createRequire(import.meta.url)(
   "./audio_listener_measurements.js",
 );
@@ -97,42 +94,7 @@ for (const rate of [44100, 48000])
       connectionEpoch: "owned-model",
       nativeEpoch: 1,
     };
-    const makeAssembler = () =>
-      new NativeDescriptorAssembler({
-        owner,
-        armCounter: origin - 512,
-        originCounter: origin,
-        hostOffsetSamples: 0,
-        geometry: {
-          sampleRate: rate,
-          hopSamples: rate / 10,
-          totalSamples: rate / 5,
-        },
-        invalidFrames: 0,
-        onFrame: () => true,
-        onFailure: () => {},
-      });
-
-    const envelope = (index) => ({
-      nativeEpoch: 1,
-      armCounter: origin - 512,
-      originCounter: origin,
-      endCounter: origin + (index * rate) / 10,
-      peak: [0.8, 0.6],
-      rms: [0.3, 0.2],
-    });
-    const latestOnly = makeAssembler();
-    latestOnly.pushSpectrum(
-      [before[3], before[0], before[1], before[2], before[3], before[4]],
-      owner,
-    );
-    assert.throws(
-      () => latestOnly.pushEnvelope(envelope(1), owner),
-      /native_fft_window_missing/,
-    );
-    const retainedAssembly = makeAssembler();
-    retainedAssembly.pushEnvelope(envelope(1), owner);
-    retainedAssembly.pushEnvelope(envelope(2), owner);
+    const acceptedFrames = [];
     const reader = measurements.createReader({
       declaration: {
         version: 1,
@@ -160,7 +122,8 @@ for (const rate of [44100, 48000])
       consume: (record) => {
         assert.equal(record.startSample, record.values[3]);
         assert.equal(record.endSample, record.values[0]);
-        return retainedAssembly.pushSpectrum(record.values, owner);
+        acceptedFrames.push(record);
+        return true;
       },
     });
     reader.begin();
@@ -190,9 +153,14 @@ for (const rate of [44100, 48000])
     }
     assert.equal(reader.complete().status, "completed");
     assert.equal(reader.stats().accepted, 4);
-    assert.equal(retainedAssembly.state, "covered");
-    assert.equal(retainedAssembly.frames, 2);
-    assert.equal(retainedAssembly.spectralWindows(owner).length, 2);
+    assert.equal(acceptedFrames.length, 4);
+    for (const [index, record] of acceptedFrames.entries()) {
+      assert.equal(record.sequence, index + 1);
+      assert.equal(record.startSample, origin + index * 2048);
+      assert.equal(record.endSample, origin + (index + 1) * 2048);
+      assert.equal(record.values[1], published[index][0]);
+      assert.equal(record.values[2], published[index][1]);
+    }
   });
 
 for (const rate of [44100, 48000])

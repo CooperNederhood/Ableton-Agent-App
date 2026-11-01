@@ -7,6 +7,7 @@ import { fileURLToPath, URL } from "node:url";
 import process from "node:process";
 import { genModel } from "./gen-model.mjs";
 import { retainedNativeSpectrumSource } from "./retained-native-source.mjs";
+import { nativeRuntimeDocuments } from "./native-runtime-source.mjs";
 import { fftReference } from "./fft-reference.mjs";
 
 const require = createRequire(import.meta.url);
@@ -22,9 +23,11 @@ const {
 const [
   { metricAudioObservationSchema, createMetricObservationReportRows },
   { DEFAULT_LISTENING_TIMING_POLICY, evaluateListeningAlignment },
+  { listeningFailureFactSchema },
 ] = await Promise.all([
   import("../../packages/protocol/src/metric-observation-schemas.ts"),
   import("../../packages/protocol/src/listening-timing-schemas.ts"),
+  import("../../packages/protocol/src/listening-failure-schemas.ts"),
 ]);
 
 const GENERATION = "11111111-1111-4111-8111-111111111111";
@@ -136,6 +139,52 @@ function frame(index = 1, changes = {}) {
     changes.invalidFrames ?? 0,
   ];
 }
+test("invalid spectral values retain bounded observed energy and centroid facts", () => {
+  for (const energy of [0, Number.MAX_SAFE_INTEGER + 1]) {
+    const f = make();
+    assert.equal(
+      f.handoff.receive(frame(1, { centroidHz: 10000, energy })).reason,
+      "invalid_spectrum_values",
+    );
+    const failure = f.events.find((event) => event.stage === "failed");
+    assert.equal(failure.traceId, GENERATION);
+    assert.equal(failure.generation, GENERATION);
+    assert.equal(failure.nativeEpoch, OWNER.nativeEpoch);
+    assert.deepEqual(failure.facts[0].actual, {
+      state: "observed",
+      value: 10000,
+    });
+    assert.deepEqual(failure.facts[1].actual, {
+      state: "observed",
+      value: energy === 0 ? 0 : String(energy),
+    });
+    assert.ok(Object.isFrozen(failure.facts));
+    for (const fact of failure.facts)
+      assert.equal(listeningFailureFactSchema.safeParse(fact).success, true);
+    assert.equal(f.collector.progress().metrics.spectrum.acceptedRecords, 0);
+  }
+});
+test("retained FFT readback keeps a zero stored energy paired with zero centroid", () => {
+  const document = nativeRuntimeDocuments({ nativeVersion: 5 })[
+    "audio_listener_native_spectrum.gendsp"
+  ];
+  const source = document.patcher.boxes.find(
+    ({ box }) => box.id === "code",
+  ).box;
+  const code = source.code.replace(
+    "measurementValue2 = peek(measurementRecords, measurementReadIndex, 6);",
+    "measurementValue2 = 0;",
+  );
+  assert.notEqual(code, source.code);
+  const model = genModel(code, source.numoutlets, 48000);
+  model.configure({ measurementEpoch: 7, measurementReadSequence: 1 });
+  let row;
+  for (let bin = 0; bin < 2048; bin++)
+    row = model.step(bin === 32 ? 1 : 0, 0, 0, 0, bin, SOURCE_START + bin, 0);
+  assert.equal(row[22], 0);
+  assert.equal(row[23], 0);
+  assert.equal(row[15], 1);
+});
 function feedOtherFamilies(f, valueAt = () => [0.25, 0.125]) {
   const record = (startSample, endSample, sequence) => {
     const peak = [0, 0],

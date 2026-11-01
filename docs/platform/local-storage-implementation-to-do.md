@@ -4,6 +4,15 @@ Companion specification: [Local Storage Layout](local-storage.md)
 
 ## Canonical layout
 
+- [x] Admit protocol-approved 2 MiB native5 metric observations with a separate
+  16 KiB serialized entry-metadata budget and a 17.125 MiB atomic eight-listener
+  publication ceiling (eight metric entries plus 1 MiB pass/subject/link framing).
+  Preserve legacy 256 KiB entries, 32 MiB physical SQLite retention, resolver
+  layout, immutable reopen and explicit-only eviction. Regress genuine large
+  complete/partial timelines, exact records/rows, paged compact summaries and
+  trace attribution, quota denial, cancellation and reservation/file cleanup.
+  Do not enlarge LLM report-page or Desktop IPC result ceilings.
+
 - [x] Retain opt-in wire5 native/metric lifecycle data in the existing journal
   with causal IDs, real optional stage duration, bounded redaction and a single
   exact-ID writer. Regress authenticated ingress through durable typed reads,
@@ -12,12 +21,13 @@ Companion specification: [Local Storage Layout](local-storage.md)
 
 - [x] Register additive independent metric observations in the existing typed
   context store and four-kind Desktop reference at schema version two; retain
-  canonical resolver-owned paths, historical declarations and all byte quotas.
+  canonical resolver-owned paths and historical declarations. Metric publication
+  byte admission is extended by the native5 item above; legacy limits remain.
   Document indexed native evidence, compact summaries and honest partial passes
   separately from legacy capture admission and whole-pipeline qualification.
   Keep independent detector-window peak/RMS provenance and prefix-state limits
   inside the same bounded processed observation, with no raw-audio persistence,
-  new path, quota increase or historical payload rewriting.
+  new path or historical payload rewriting.
 
 - [x] Redact nested credential assignments inside ordinary diagnostic prefixes
   and preserve stable redaction markers across repeated boundary sanitation.

@@ -54,14 +54,19 @@ the timing, device, and integration gates in
 [Playback Listening](playback-listening.md).
 
 `play-arrangement-and-listen` uses the trusted policy saved in Settings, frozen
-once for the pass; the agent cannot raise its budget. Default descriptive v2
-supports a constant-tempo range from one approximately 100 ms hop through
-30 seconds at actual 44.1/48 kHz DSP geometry, with guarded nonzero/fractional
-positioning before arm. Completion, cancellation and failure leave playback
-running. Results retain approximate/descriptive-only alignment and unknown
-absolute timing error. A v1-only listener requires explicitly selected
-restricted strict mode; there is no automatic fallback. Native v2 and visible
-acceptance are not implied by this implemented App contract.
+once for the pass; the agent cannot raise its budget. Current wire5 uses a
+globally anchored quarter-beat reporting grid, clipped range endpoints, actual
+FFT support and an independent 100 ms attack-detector cadence through
+30 seconds at actual 44.1/48 kHz DSP geometry. Guarded nonzero/fractional
+Arrangement positioning occurs before arm. Completion, cancellation and failure
+leave playback running. Results retain approximate/descriptive-only alignment
+and unknown absolute timing error. Strict mode enforces the configured observed
+disagreement limit; descriptive mode can accept values above its advisory
+target. Completion is not proof of within-target timing. Maximum observed beat
+disagreement includes startup transport/phase comparisons and is not measured
+uniform audio latency. No witness is discarded to improve the reported number.
+There is no automatic fallback to retired capture; historical contexts preserve
+their declared schemas. Native and visible qualification remain separate.
 Tempo stability is assumed rather than independently verified. Do not change
 tempo during a pass; tempo automation is unsupported, and completion is not
 proof that tempo stayed constant. Existing detected-tempo/timing failures remain
@@ -103,9 +108,11 @@ pass ID or a native observation. SDK schema/approval denials that do not invoke
 the host remain owned by the existing tool/SDK lifecycle recorder.
 
 `inspect-listeners` returning `ready: false` with
-`native_per_pass_validation_required` deliberately means uncommissioned pending
-fresh per-pass native validation. It is not evidence of an identity mismatch or
-a broken listener. An error code alone is not a precise cause: report the
+`native_per_pass_validation_required` means fresh native validation is required
+for each capture, not a permanent commissioning failure. A completed capture
+can retain valid per-pass proof while discovery still reports ready:false.
+Neither this limitation nor an empty discovery list proves an identity mismatch,
+removed device or broken listener. An error code alone is not a precise cause: report the
 observed phase/check, actual versus expected operands, coverage and diagnostic
 reference. Missing evidence is an observability gap. Do not invent a mismatch,
 automatically retry, edit settings, or fall back to another mode to diagnose a

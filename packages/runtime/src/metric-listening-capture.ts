@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import {
   admitMetricListeningBudget,
+  MAX_METRIC_RESULT_FRAME_BYTES,
   assertNativeMetricArmProof,
   assertNativeMetricObservationSource,
   assertNativeMetricReadyProof,
@@ -24,7 +25,6 @@ import {
   type NonBlockingObservabilityRecorder,
 } from "@ableton-agent/observability";
 import {
-  DEFAULT_MAX_INGRESS_FRAME_BYTES,
   listenerMetricProducerSchema,
   listenerRegistrationMetricSchema,
   listenerReplyMetricSchema,
@@ -735,7 +735,7 @@ class MetricCapture implements PreparedMetricListeningCapture {
       )
         this.#deny("listener-ownership-changed", item);
       const bytes = Buffer.byteLength(JSON.stringify(event.result), "utf8");
-      if (bytes > DEFAULT_MAX_INGRESS_FRAME_BYTES || ++item.resultCount > 1024)
+      if (bytes > MAX_METRIC_RESULT_FRAME_BYTES || ++item.resultCount > 1024)
         this.#deny("result-overflow", item);
       const message = listenerResultMetricSchema.parse(event.result);
       this.#identity(item, message);
@@ -769,7 +769,7 @@ class MetricCapture implements PreparedMetricListeningCapture {
       if (item.pending) {
         if (
           item.buffered.length >= 32 ||
-          item.bufferedBytes + bytes > 256 * 1024
+          item.bufferedBytes + bytes > 2 * MAX_METRIC_RESULT_FRAME_BYTES
         )
           this.#deny("result-startup-buffer-overflow", item);
         if (

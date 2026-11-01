@@ -65,9 +65,9 @@ test("native protocol tests resolve emitted .js imports to actual TS source depe
   );
 });
 
-test("native v2 wire tests resolve only the owned protocol/signal TS source graph without stale dist artifacts", async () => {
+test("native metric wire tests resolve only the owned protocol/signal TS source graph without stale dist artifacts", async () => {
   const signalParent = new URL(
-    "../../packages/signal-routing/src/listener-v2-contracts.ts",
+    "../../packages/signal-routing/src/listener-metric-contracts.ts",
     import.meta.url,
   ).href;
   const calls = [];
@@ -82,9 +82,9 @@ test("native v2 wire tests resolve only the owned protocol/signal TS source grap
   assert.deepEqual(calls, [
     new URL("../../packages/protocol/src/index.ts", import.meta.url).href,
   ]);
-  const { listenerResultV2Schema } =
-    await import("../../packages/signal-routing/src/listener-v2-contracts.ts");
-  assert.equal(typeof listenerResultV2Schema.safeParse, "function");
+  const { listenerResultMetricSchema } =
+    await import("../../packages/signal-routing/src/listener-metric-contracts.ts");
+  assert.equal(typeof listenerResultMetricSchema.safeParse, "function");
 });
 
 test("existing JS modules and imports outside the two TS source roots retain normal resolution", async () => {

@@ -574,13 +574,13 @@
         "box": {
           "id": "label",
           "maxclass": "comment",
-          "text": "Audio Listener — transparent stereo tap; production capture requires real-Live calibration",
+          "text": "Machine Listening - transparent stereo tap; capture controlled by Ableton Agent",
           "numinlets": 1,
           "numoutlets": 0,
           "patching_rect": [
             10,
             350,
-            540,
+            474,
             22
           ],
           "presentation": 1,
@@ -1537,7 +1537,7 @@
         0
       ]
     },
-    "description": "On-demand native measurements. No audio recording. Calibration required.",
+    "description": "On-demand native measurements. No audio recording. Capture controlled by Ableton Agent.",
     "dependency_cache": []
   }
 }

@@ -406,7 +406,9 @@ describe("SignalIngressServer", () => {
         port: endpoint.port,
         protocol: "newline-delimited-json",
         protocolVersion: PRODUCER_PROTOCOL_VERSION,
-        maxFrameBytes: 128 * 1024,
+        maxFrameBytes: independentMetricListeners
+          ? 2 * 1024 * 1024
+          : 128 * 1024,
         ...(independentMetricListeners
           ? {
               listenerVersions: [5],

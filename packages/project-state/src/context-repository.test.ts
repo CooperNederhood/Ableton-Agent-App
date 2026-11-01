@@ -17,6 +17,7 @@ import {
 import { type Database } from "sql.js";
 import {
   createSyntheticMetricListeningObservation,
+  createSyntheticPartialMetricListeningObservation,
   createSyntheticNativeListeningFixtureV2,
 } from "@ableton-agent/protocol/testing";
 import {
@@ -396,7 +397,230 @@ function sessionPublication(endBeat = 2): AppendContextPass {
   };
 }
 
+function largeMetricPublication(
+  id: string,
+  partial = false,
+  listeners = 1,
+): AppendContextPass {
+  const value = publication(id, listeners);
+  const geometry = {
+    tempoBpm: 240,
+    endBeat: 120,
+    startSample: 10_000,
+  };
+  const original = partial
+    ? createSyntheticPartialMetricListeningObservation(geometry)
+    : createSyntheticMetricListeningObservation(geometry);
+  for (const record of original.metrics.level.records) {
+    record.peak = [0.5000000000000001, 0.5000000000000002];
+    record.rms = [0.2500000000000001, 0.2500000000000002];
+  }
+  original.rows = createMetricObservationReportRows(original);
+  return {
+    ...value,
+    pass: {
+      ...value.pass,
+      requestedMode: "arrangement",
+      actualMode: "arrangement",
+      requestedRange: { startBeat: 0, endBeat: 120 },
+      actualRange: { startBeat: 0, endBeat: 120 },
+      status: partial ? "partial" : "completed",
+      complete: !partial,
+    },
+    entries: value.entries.map((entry) => ({
+      ...entry,
+      kind: "metric-audio-observation/v1",
+      producer: {
+        ...entry.producer,
+        connectionEpoch: original.ownership.connectionEpoch,
+      },
+      payload: {
+        ...original,
+        ownership: {
+          ...original.ownership,
+          listenerId: entry.producer.listenerId,
+          passId: entry.passId,
+          ...trace,
+        },
+      },
+    })),
+    links: value.links.map((link) => ({
+      ...link,
+      coverage: { startBeat: 0, endBeat: 120 },
+      attribution: "unknown",
+    })),
+  };
+}
+
 describe("typed metric context history", () => {
+  it.each([false, true])(
+    "reopens a large complete/partial=%s metric pass with exact timelines and bounded paged summaries",
+    async (partial) => {
+      const path = await diskPath();
+      const events: TelemetryEventEnvelope[] = [];
+      const store = await openSessionContextStore({
+        ...ownership,
+        path,
+        recorder: {
+          enqueue: (event) => {
+            events.push(telemetryEventEnvelopeSchema.parse(event));
+          },
+        },
+      });
+      stores.push(store);
+      const value = largeMetricPublication(`large-${partial}`, partial, 8);
+      const encodedBytes = Buffer.byteLength(JSON.stringify(value));
+      expect(encodedBytes).toBeGreaterThan(2 * 1_024 * 1_024);
+      expect(encodedBytes).toBeLessThan(CONTEXT_LIMITS.passBytes);
+      for (const entry of value.entries) {
+        expect(Buffer.byteLength(JSON.stringify(entry))).toBeGreaterThan(
+          CONTEXT_LIMITS.entryBytes,
+        );
+        expect(entry.payload).toMatchObject({
+          metrics: {
+            level: { expectedRecords: 480 },
+            attacks: { expectedRecords: 300 },
+          },
+        });
+      }
+      await store.reservePass(value.pass.id, CONTEXT_LIMITS.passBytes, {
+        trace,
+        activeAgentId: value.pass.initiatorAgentId,
+      });
+      await store.appendPass(value);
+      await store.close();
+      expect((await stat(path)).size).toBeLessThan(CONTEXT_LIMITS.storeBytes);
+      expect(await readdir(dirname(path))).toEqual(["entity-context.sqlite"]);
+      const reopened = await openSessionContextStore({ ...ownership, path });
+      stores.push(reopened);
+      expect(await reopened.getPass(value.pass.id)).toEqual(value.pass);
+      for (const entry of value.entries) {
+        const retained = await reopened.getEntry(entry.id, {
+          trace,
+          activeAgentId: value.pass.initiatorAgentId,
+        });
+        expect(retained).toEqual(entry);
+        if (retained?.payload.schema !== "metric-audio-observation/v1")
+          throw new Error("Expected retained metric observation");
+        expect(retained.payload.rows).toHaveLength(480);
+        expect(retained.payload.geometry.rows).toHaveLength(480);
+        expect(retained.payload.metrics.level.records).toHaveLength(480);
+        expect(retained.payload.metrics.attacks.records).toHaveLength(300);
+        expect(
+          retained.payload.metrics["spectral-centroid"].records,
+        ).toHaveLength(partial ? 702 : 703);
+        expect(retained.payload.rows).toEqual(
+          createMetricObservationReportRows(retained.payload),
+        );
+      }
+      const ids: string[] = [];
+      let cursor: string | undefined;
+      do {
+        const page = await reopened.listEntries({
+          kind: "metric-audio-observation/v1",
+          passId: value.pass.id,
+          subjectId: value.subjects[0]!.id,
+          range: { startBeat: 119.5, endBeat: 120 },
+          includeHistorical: true,
+          limit: 3,
+          ...(cursor === undefined ? {} : { cursor }),
+        });
+        ids.push(...page.items.map((entry) => entry.id));
+        expect(Buffer.byteLength(JSON.stringify(page))).toBeLessThan(32_768);
+        expect(JSON.stringify(page)).not.toContain('"records"');
+        expect(JSON.stringify(page)).not.toContain('"rows"');
+        for (const entry of page.items) {
+          expect(entry.trace).toEqual(trace);
+          expect(entry.payload).toMatchObject({
+            ownership: { ...trace, listenerId: entry.producer.listenerId },
+            metrics: { level: { retainedRecords: 480 } },
+          });
+        }
+        cursor = page.nextCursor;
+      } while (cursor !== undefined);
+      expect(ids).toEqual(value.entries.map((entry) => entry.id));
+      await expect(reopened.appendPass(value)).rejects.toThrow("immutable");
+      expect(await reopened.getEntry(value.entries[0]!.id)).toEqual(
+        value.entries[0],
+      );
+      await new Promise<void>((resolve) => queueMicrotask(resolve));
+      const lifecycle = events.filter((event) =>
+        event.name.startsWith("context.publish."),
+      );
+      expect(lifecycle.map((event) => event.stage)).toEqual([
+        "queued",
+        "started",
+        "progress",
+        "completed",
+      ]);
+      for (const event of lifecycle) {
+        expect(event).toMatchObject({
+          ...ownership,
+          activeAgentId: value.pass.initiatorAgentId,
+          correlationId: trace.correlationId,
+          trace: { traceId: trace.traceId },
+        });
+      }
+      expect(lifecycle.at(-1)?.durationMs).toBeGreaterThanOrEqual(0);
+      expect(JSON.stringify(events)).not.toContain('"records"');
+    },
+    30_000,
+  );
+
+  it("atomically denies oversized large publications and releases reservation/file ownership after failure or cancellation", async () => {
+    const path = await diskPath();
+    const value = largeMetricPublication("large-rejected");
+    const bytes = Buffer.byteLength(JSON.stringify(value));
+    const events: TelemetryEventEnvelope[] = [];
+    const store = await openSessionContextStore({
+      ...ownership,
+      path,
+      maxPassBytes: bytes - 1,
+      recorder: {
+        enqueue: (event) => {
+          events.push(telemetryEventEnvelopeSchema.parse(event));
+        },
+      },
+    });
+    stores.push(store);
+    await store.reservePass(value.pass.id, bytes - 1, { trace });
+    await expect(store.appendPass(value)).rejects.toThrow("publication quota");
+    await expect(
+      store.reservePass("pass:too-large", CONTEXT_LIMITS.passBytes + 1),
+    ).rejects.toThrow("Invalid pass reservation");
+    const oversizedMetadata = largeMetricPublication("large-metadata");
+    oversizedMetadata.entries[0]!.createdAt = `2026-10-12T00:00:00.${"0".repeat(CONTEXT_LIMITS.metricEntryMetadataBytes)}Z`;
+    await expect(store.appendPass(oversizedMetadata)).rejects.toThrow(
+      "entry exceeds quota",
+    );
+    const abort = new AbortController();
+    abort.abort(new Error("large capture cancelled"));
+    await expect(
+      store.appendPass(value, { signal: abort.signal }),
+    ).rejects.toThrow("large capture cancelled");
+    expect((await store.listPasses()).items).toEqual([]);
+    expect((await store.listEntries()).items).toEqual([]);
+    expect((await store.listLinks()).items).toEqual([]);
+    expect(await store.getSubject(value.subjects[0]!.id)).toBeUndefined();
+    await store.releaseReservation(value.pass.id, { trace });
+    await store.close();
+    expect(await readdir(dirname(path))).toEqual(["entity-context.sqlite"]);
+    const reopened = await openSessionContextStore({ ...ownership, path });
+    stores.push(reopened);
+    await reopened.reservePass(value.pass.id, CONTEXT_LIMITS.passBytes);
+    await reopened.appendPass(value);
+    expect(await reopened.getEntry(value.entries[0]!.id)).toEqual(
+      value.entries[0],
+    );
+    await new Promise<void>((resolve) => queueMicrotask(resolve));
+    expect(events.map((event) => event.name)).toContain(
+      "context.publish.failed",
+    );
+    expect(events.map((event) => event.name)).toContain(
+      "context.publish.cancelled",
+    );
+  });
+
   it("uses existing attributed lifecycle, redaction and cancellation for metric publication and reads", async () => {
     const events: TelemetryEventEnvelope[] = [];
     const store = await memory({
@@ -473,6 +697,8 @@ describe("typed metric context history", () => {
     const path = await diskPath();
     const initial = await openSessionContextStore({ ...ownership, path });
     stores.push(initial);
+    const baseline = publication("physical-baseline");
+    await initial.appendPass(baseline);
     await initial.close();
     const bytes = (await stat(path)).size;
     const limited = await openSessionContextStore({
@@ -481,19 +707,25 @@ describe("typed metric context history", () => {
       maxStoreBytes: bytes,
     });
     stores.push(limited);
-    await expect(limited.appendPass(metricPublication())).rejects.toThrow(
-      "quota",
-    );
-    expect(await limited.getPass("pass:metric")).toBeUndefined();
+    const value = largeMetricPublication("physical-quota");
+    await expect(limited.appendPass(value)).rejects.toThrow("quota");
+    expect(await limited.getPass(value.pass.id)).toBeUndefined();
     await limited.close();
     expect(await readdir(dirname(path))).toEqual(["entity-context.sqlite"]);
     const reopened = await openSessionContextStore({ ...ownership, path });
     stores.push(reopened);
+    expect(await reopened.getEntry(baseline.entries[0]!.id)).toEqual(
+      baseline.entries[0],
+    );
     expect(
-      (await reopened.listEntries({ includeHistorical: true })).items,
-    ).toEqual([]);
-    await reopened.appendPass(metricPublication());
-    expect(await reopened.getEntry("entry:metric:0")).toBeDefined();
+      (await reopened.listEntries({ includeHistorical: true })).items.map(
+        (entry) => entry.id,
+      ),
+    ).toEqual([baseline.entries[0]!.id]);
+    await reopened.appendPass(value);
+    expect(await reopened.getEntry(value.entries[0]!.id)).toEqual(
+      value.entries[0],
+    );
   });
 
   it("keeps Session metric coordinates and exact clip/track association guards", async () => {

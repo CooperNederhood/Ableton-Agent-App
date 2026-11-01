@@ -223,7 +223,16 @@ test("terminal reader callbacks cannot restart obsolete controls after reentrant
   assert.equal(f.begin(), false);
   assert.equal(f.io.generation, OTHER);
   assert.equal(f.io.retentionReader.stats().state, "started");
-  assert.deepEqual(f.controls.at(-1), ["measurementEpoch", EPOCH + 1]);
+  assert.deepEqual(f.controls.slice(-2), [
+    ["measurementEpoch", EPOCH + 1],
+    ["poll", 1],
+  ]);
+  assert.equal(
+    f.controls.filter(
+      ([name, value]) => name === "measurementEpoch" && value === EPOCH + 1,
+    ).length,
+    1,
+  );
 });
 
 test("snapshot delivery failure is explicit and bounded without changing sole-reader admission", () => {

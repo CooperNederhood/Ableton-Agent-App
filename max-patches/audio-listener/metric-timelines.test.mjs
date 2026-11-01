@@ -1,14 +1,11 @@
 import "./native-protocol-test-loader.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
+import { Buffer } from "node:buffer";
 import { createRequire } from "node:module";
 import { spawnSync } from "node:child_process";
 import process from "node:process";
 const require = createRequire(import.meta.url);
-const {
-  AudioListenerEngine,
-  VERSION: LEGACY_VERSION,
-} = require("./audio_listener_engine.js");
 const [
   { createMetricListeningGeometry: createProtocolGeometry },
   { metricAudioObservationSchema, createMetricObservationReportRows },
@@ -121,8 +118,10 @@ function level(row, overrides = {}) {
 }
 
 test("unknown FFT phase cannot invent supports or block independently retained level records", () => {
-  const f = fixture({ requestedMetrics: ["level", "spectrum"],
-    spectrum: { firstEndSample: null } });
+  const f = fixture({
+    requestedMetrics: ["level", "spectrum"],
+    spectrum: { firstEndSample: null },
+  });
   for (const row of createMusicalGrid(f.input))
     assert.equal(f.collector.ingestLevel(level(row)).accepted, true);
   const result = f.finish();
@@ -133,7 +132,9 @@ test("unknown FFT phase cannot invent supports or block independently retained l
   assert.equal(result.envelope.spectrum.firstEndSample, null);
   assert.deepEqual(result.metrics.spectrum.records, []);
   assert.deepEqual(result.metrics.spectrum.missing, []);
-  assert.ok(result.rows.every(row => row.spectrum.availability === "unknown-phase"));
+  assert.ok(
+    result.rows.every((row) => row.spectrum.availability === "unknown-phase"),
+  );
 });
 function spectrum(input, sequence, overrides = {}) {
   const declaration = input.spectrum ?? {};
@@ -1604,7 +1605,7 @@ test("adapter never fabricates shared proof, ownership, alignment, trace lineage
   );
 });
 
-test("adapter propagates schema/byte-quota failures without truncation or success-shaped fallback", () => {
+test("adapter propagates schema failures and admits larger detail without truncation or fallback", () => {
   const f = adapterFixture();
   feedLevel(f);
   const result = f.finish();
@@ -1631,15 +1632,16 @@ test("adapter propagates schema/byte-quota failures without truncation or succes
   });
   feedLevel(oversized);
   const largeResult = oversized.finish();
-  assert.throws(
-    () =>
-      adaptMetricTimelineObservation(
-        largeResult,
-        adapterContext(oversized),
-        adapterContract(),
-      ),
-    /encoded payload quota/,
+  const observation = adaptMetricTimelineObservation(
+    largeResult,
+    adapterContext(oversized),
+    adapterContract(),
   );
+  const bytes = Buffer.byteLength(JSON.stringify(observation));
+  assert(bytes > 256 * 1024);
+  assert(bytes <= 2 * 1024 * 1024);
+  assert.equal(observation.metrics.level.records.length, 1998);
+  assert.equal(observation.rows.length, 1998);
   assert.equal(largeResult.metrics.level.records.length, 1998);
   assert.equal(largeResult.rows.length, 1998);
 });
@@ -2201,7 +2203,7 @@ test("detector algorithm admission is explicit, frozen and cannot be changed by 
   assert.throws(budgeted, /metric_quota_exceeded/);
 });
 
-test("the unchanged shipping legacy engine and independent detector produce identical full-window numeric events", () => {
+test("independent detector matches explicit full-window event coordinates and dB-rise references", () => {
   const f = adapterFixture({ requestedMetrics: ["attacks"], endBeat: 1.6 });
   const levels = [
     [0.125, 0.125],
@@ -2213,76 +2215,19 @@ test("the unchanged shipping legacy engine and independent detector produce iden
     [1, 1],
     [2, 2],
   ];
-  const legacyOwner = {
-    passId: "numeric-only",
-    connectionEpoch: "synthetic-epoch",
-  };
-  const host = {
-    sampleRate: 48000,
-    vectorSize: 64,
-    sample: 0,
-    beat: 0,
-    flags: 19,
-    playing: false,
-    dspOn: true,
-  };
-  // Synthetic numeric reference only, never native timing/source certification.
-  const engine = new AudioListenerEngine({
-    listenerId: "numeric-only",
-    now: () => 0,
-    certificate: {
-      validated: true,
-      algorithmVersion: LEGACY_VERSION,
-      hostVersion: "synthetic",
-      maxVersion: "synthetic",
-      launchAligned: true,
-      requiredHostFlags: 19,
-      sampleRate: 48000,
-      vectorSize: 64,
-      uncertaintySamples: 64,
-      descriptorOffsetSamples: 0,
-    },
-  });
-  engine.configureHost(host);
-  engine.prepare({
-    ...legacyOwner,
-    startBeat: 0,
-    endBeat: 8,
-    settings: { attackThresholdDb: 6, minAttackSpacingSamples: 4800 },
-  });
-  engine.arm(legacyOwner);
-  engine.configureHost({ ...host, playing: true });
   for (const [index, rms] of levels.entries()) {
     const record = detectorLevel(f, index + 1, rms);
     f.collector.ingestDetectorLevel(record);
-    const beat = record.endSample / 24000;
-    engine.configureHost({
-      ...host,
-      playing: true,
-      sample: record.endSample,
-      beat,
-    });
-    assert.equal(
-      engine.ingest(
-        {
-          sample: record.endSample,
-          beat,
-          windowSamples: record.count,
-          peak: record.peak,
-          rms,
-          centroidHz: 440,
-          spectralEnergy: rms[0] ** 2 + rms[1] ** 2,
-        },
-        legacyOwner,
-      ),
-      true,
-    );
   }
-  const legacy = engine.cancel(legacyOwner).observation;
+  const events = f.finish().metrics.attacks.summary.events;
   assert.deepEqual(
-    f.finish().metrics.attacks.summary.events,
-    legacy.attacks.map(({ sample, strength }) => ({ sample, strength })),
+    events.map(({ sample }) => sample),
+    [4800, 28800, 38400],
   );
+  for (const [index, strength] of [
+    101.93820026016112, 6.020599913279624, 6.020599913279624,
+  ].entries())
+    assert(Math.abs(events[index].strength - strength) < 1e-12);
 });
 
 test("detector failure and reentrant cancellation terminate once with measured family duration and immutable cleanup", () => {

@@ -17,11 +17,12 @@ import {
   NATIVE_METRIC_LISTENING_SCOPE,
   NATIVE_METRIC_LISTENING_CAPABILITY,
   NATIVE_METRIC_ALGORITHM_VERSION,
+  MAX_METRIC_RESULT_FRAME_BYTES,
   type NativeMetricArmProof,
 } from "@ableton-agent/protocol";
 import {
-  outputProducerSchema,
   DEFAULT_MAX_INGRESS_FRAME_BYTES,
+  outputProducerSchema,
 } from "./contracts.js";
 import {
   listenerPathsHaveSameOwner,
@@ -49,7 +50,9 @@ export const listenerMetricProducerSchema = z
     signalKind: z.literal("audio"),
     schemaVersion: z.literal(LISTENER_METRIC_PRODUCER_SCHEMA_VERSION),
   })
-  .superRefine(enforceFrameQuota);
+  .superRefine((value, ctx) =>
+    enforceFrameQuota(value, ctx, DEFAULT_MAX_INGRESS_FRAME_BYTES),
+  );
 
 const identifier = z.string().min(1).max(128);
 const sequence = z.number().int().min(0).max(Number.MAX_SAFE_INTEGER);
@@ -349,11 +352,12 @@ export type ListenerMetricProducer = z.infer<
   typeof listenerMetricProducerSchema
 >;
 
-function enforceFrameQuota(value: unknown, ctx: z.RefinementCtx): void {
-  if (
-    new TextEncoder().encode(JSON.stringify(value)).byteLength >
-    DEFAULT_MAX_INGRESS_FRAME_BYTES
-  ) {
+function enforceFrameQuota(
+  value: unknown,
+  ctx: z.RefinementCtx,
+  byteLimit = MAX_METRIC_RESULT_FRAME_BYTES,
+): void {
+  if (new TextEncoder().encode(JSON.stringify(value)).byteLength > byteLimit) {
     ctx.addIssue({
       code: "custom",
       message:

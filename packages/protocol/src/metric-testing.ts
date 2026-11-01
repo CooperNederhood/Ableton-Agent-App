@@ -9,6 +9,71 @@ import {
   DEFAULT_LISTENING_TIMING_POLICY,
   evaluateListeningAlignment,
 } from "./listening-timing-schemas.js";
+import {
+  nativeMetricSpectrumPhaseSchema,
+  nativeMetricSpectrumCleanupSchema,
+  type NativeMetricSourceCoverageProof,
+} from "./native-metric-listening-schemas.js";
+
+/** Synthetic shared-counter acquisitions and cleared bank, never physical DSP evidence. */
+export function createSyntheticMetricSpectrumEvidence(input: {
+  ownership: NativeMetricSourceCoverageProof["armed"]["ownership"];
+  clock: NativeMetricSourceCoverageProof["armed"]["before"];
+  firstAcquisitionEndpoint: number;
+  stopWatermark: number;
+}) {
+  const { ownership, clock, firstAcquisitionEndpoint, stopWatermark } = input;
+  const receipt = (counter: number, hostMs: number) => {
+    const raw = Array<number>(20).fill(0);
+    raw[0] = 1;
+    raw[2] = raw[18] = counter;
+    return {
+      raw,
+      counterBefore: counter,
+      counterAfter: counter,
+      nativeSourceCounter: counter,
+      observedHostReceiptMs: hostMs,
+    };
+  };
+  return {
+    spectrumPhase: nativeMetricSpectrumPhaseSchema.parse({
+      scope: "native-metric-spectrum-phase/v1",
+      ownership: structuredClone(ownership),
+      fftInformation: [2048, 2048, 2048, 1],
+      binding: { abi: 2, ready: [2, 1, ownership.nativeEpoch] },
+      clock: structuredClone(clock),
+      acquisitions: [
+        firstAcquisitionEndpoint,
+        firstAcquisitionEndpoint + 2048,
+      ].map((endpoint) => [
+        ownership.nativeEpoch,
+        endpoint - 1,
+        endpoint - 1,
+        endpoint,
+      ]),
+    }),
+    spectrumCleanup: nativeMetricSpectrumCleanupSchema.parse({
+      type: "native-metric-spectrum-cleanup/v1",
+      generation: ownership.generation,
+      nativeEpoch: ownership.nativeEpoch,
+      status: "completed",
+      phase: "disabled-confirmed",
+      outcome: "complete",
+      diagnosticOnly: false,
+      inputFailureReason: null,
+      reason: null,
+      stopWatermark,
+      deadlineMs: 2010,
+      requestedHostMs: 10,
+      completedHostMs: 30,
+      watermarkReceipt: { available: true, value: receipt(stopWatermark, 20) },
+      receipt: {
+        available: true,
+        value: receipt(stopWatermark + clock.dsp[2], 30),
+      },
+    }),
+  };
+}
 
 /** Synthetic contract evidence, never physical DSP or source identity proof. */
 export function createSyntheticMetricListeningObservation(
@@ -150,7 +215,9 @@ export function createSyntheticMetricListeningObservation(
   };
   const attackAlgorithm = observation.metrics.attacks.algorithm;
   if (attackAlgorithm === null)
-    throw new Error("Synthetic detector fixture requires its declared algorithm");
+    throw new Error(
+      "Synthetic detector fixture requires its declared algorithm",
+    );
   const detected = new Map(
     deriveMetricAttackEvents(attackRecords, attackAlgorithm).map((event) => [
       event.sample,

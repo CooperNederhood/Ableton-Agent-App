@@ -769,7 +769,7 @@ export function createSessionListeningServices(
             "Native Session capture failed",
           );
         });
-        if (!native.nativeLaunch)
+        if (native.nativeLaunch === undefined || native.nativeLaunch === null)
           deny("session_native_launch_proof_required", undefined, [
             failureFact(
               "capture.nativeLaunch.present",

@@ -8,6 +8,7 @@ import {
   nativeMetricListeningConfigSchema,
   nativeMetricReadyProofSchema,
   nativeMetricSourceCoverageProofSchema,
+  nativeMetricFirstSpectrumEndpoint,
 } from "@ableton-agent/protocol";
 import {
   listenerControlMetricSchema,
@@ -60,6 +61,7 @@ function owners(fixture: SyntheticMetricWireFixture) {
     fixture.ready.ownership,
     fixture.proof.armed.ownership,
     fixture.proof.launched.ownership,
+    fixture.proof.spectrumPhase!.ownership,
     fixture.observation.ownership,
     fixture.registration.nativeStatus.executedGen.ownership,
   ];
@@ -108,6 +110,21 @@ describe("source-only SYNTHETIC metric wire fixture", () => {
           "admitted-not-executed",
         );
         expect(fixture.ready.phase).toBe("idle-preflight");
+        expect(
+          nativeMetricFirstSpectrumEndpoint(
+            fixture.proof.spectrumPhase!,
+            fixture.observation.geometry.startSample,
+          ),
+        ).toBe(
+          fixture.observation.metrics["spectral-centroid"].algorithm!
+            .firstFrameEndSample,
+        );
+        expect(fixture.proof.spectrumCleanup).toMatchObject({
+          generation: fixture.wire.generation,
+          nativeEpoch: fixture.observation.ownership.nativeEpoch,
+          status: "completed",
+          phase: "disabled-confirmed",
+        });
       }
     },
   );
@@ -149,6 +166,9 @@ describe("source-only SYNTHETIC metric wire fixture", () => {
         }
         expect(bound.registration.connectionEpoch).toBe(
           control.connectionEpoch,
+        );
+        expect(bound.proof.spectrumCleanup!.generation).toBe(
+          control.generation,
         );
         expect(
           listenerRegistrationMetricSchema.parse(bound.registration),
@@ -200,6 +220,7 @@ describe("source-only SYNTHETIC metric wire fixture", () => {
       bound.proof.armed.before.frames,
       bound.proof.after.frames,
       bound.ready.before.frames,
+      bound.proof.spectrumPhase!.clock.frames,
     ]) {
       expect(
         rows.every(
@@ -231,7 +252,44 @@ describe("source-only SYNTHETIC metric wire fixture", () => {
       for (const key of ownershipKeys) owner[key] = fixture.wire[key];
     }
     bound.registration.connectionEpoch = fixture.registration.connectionEpoch;
+    bound.proof.spectrumCleanup!.generation =
+      fixture.proof.spectrumCleanup!.generation;
     expect(bound).toEqual(fixture);
+  });
+
+  it("does not repair invalid spectral acquisitions or cleanup while rebinding ownership", () => {
+    const fixture = createSyntheticMetricWireFixture();
+    fixture.proof.spectrumPhase!.acquisitions[0][2]++;
+    fixture.proof.spectrumCleanup!.receipt.value!.raw[1] = 1;
+    const bound = bindMetricFixtureToControl(fixture, prepare(fixture));
+    expect(bound.proof.spectrumPhase!.acquisitions).toEqual(
+      fixture.proof.spectrumPhase!.acquisitions,
+    );
+    expect(bound.proof.spectrumCleanup!.receipt).toEqual(
+      fixture.proof.spectrumCleanup!.receipt,
+    );
+    expect(
+      nativeMetricSourceCoverageProofSchema.safeParse(bound.proof).success,
+    ).toBe(false);
+  });
+
+  it("does not synthesize missing phase or cleanup evidence when rebinding an invalid fixture", () => {
+    const fixture = createSyntheticMetricWireFixture();
+    delete fixture.proof.spectrumPhase;
+    delete fixture.proof.spectrumCleanup;
+    const bound = bindMetricFixtureToControl(fixture, prepare(fixture));
+    expect(bound.proof.spectrumPhase).toBeUndefined();
+    expect(bound.proof.spectrumCleanup).toBeUndefined();
+    const result = listenerResultMetricSchema.safeParse({
+      ...bound.wire,
+      type: "listener.result",
+      status: "completed",
+      observation: bound.observation,
+      nativeSourceCoverage: bound.proof,
+    });
+    expect(result.error?.issues.map((issue) => issue.message)).toContain(
+      "native_metric_spectrum_phase_binding_mismatch",
+    );
   });
 
   it("retains a self-consistent WRONG capture range so the actual job expectation denies it", () => {

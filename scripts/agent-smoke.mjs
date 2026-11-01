@@ -84,6 +84,8 @@ try {
     [
       "native-listening",
       "native-listening-metric",
+      "native-listening-metric-silent-tail",
+      "native-listening-metric-long",
       "native-listening-descriptive",
       "native-listening-session",
       "native-listening-dual",

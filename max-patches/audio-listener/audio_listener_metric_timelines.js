@@ -570,20 +570,24 @@ function createMetricTimelines(input, options = {}) {
       integer(declaration.hopSamples) &&
       declaration.hopSamples > 0 &&
       declaration.hopSamples <= declaration.supportSamples &&
-      (declaration.firstEndSample === null || (integer(declaration.firstEndSample) &&
-      declaration.firstEndSample > input.captureStartSample &&
-      declaration.firstEndSample >= declaration.supportSamples &&
-      declaration.firstEndSample <=
-        input.captureStartSample + declaration.supportSamples)),
+      (declaration.firstEndSample === null ||
+        (integer(declaration.firstEndSample) &&
+          declaration.firstEndSample > input.captureStartSample &&
+          declaration.firstEndSample >= declaration.supportSamples &&
+          declaration.firstEndSample <=
+            input.captureStartSample + declaration.supportSamples)),
     "invalid_spectrum_declaration",
   );
-  const expectedSpectrum = declaration.firstEndSample === null ? 0 : Math.max(
-    0,
-    Math.floor(
-      (input.captureEndSample - declaration.firstEndSample) /
-        declaration.hopSamples,
-    ) + 1,
-  );
+  const expectedSpectrum =
+    declaration.firstEndSample === null
+      ? 0
+      : Math.max(
+          0,
+          Math.floor(
+            (input.captureEndSample - declaration.firstEndSample) /
+              declaration.hopSamples,
+          ) + 1,
+        );
   const envelope = freeze({
     owner,
     originSample: input.originSample,
@@ -718,7 +722,10 @@ function createMetricTimelines(input, options = {}) {
     emit("queued", metric);
     states.get(metric).startedMs = emit("started", metric).elapsedMs;
   }
-  if (requestedMetrics.includes("spectrum") && declaration.firstEndSample === null)
+  if (
+    requestedMetrics.includes("spectrum") &&
+    declaration.firstEndSample === null
+  )
     failMetric("spectrum", "native_phase_unavailable");
 
   function stateFor(metric) {
@@ -1010,11 +1017,11 @@ function createMetricTimelines(input, options = {}) {
                 ? frames.length === expectedHere
                   ? "available"
                   : "partial"
-                :                 declaration.firstEndSample === null
+                : declaration.firstEndSample === null
                   ? "unknown-phase"
                   : expectedHere === 0
-                  ? "no-frame"
-                  : "missing",
+                    ? "no-frame"
+                    : "missing",
               expectedFrames: expectedHere,
               ...summary,
               supports: frames.map((frame) => ({
@@ -1240,7 +1247,9 @@ function protocolMetric(result, metric) {
   const internal = result.metrics[metric];
   if (!internal) return unrequestedProtocolMetric();
   const all =
-    !(metric === "spectrum" && result.envelope.spectrum.firstEndSample === null) &&
+    !(
+      metric === "spectrum" && result.envelope.spectrum.firstEndSample === null
+    ) &&
     internal.records.length === internal.expectedRecords &&
     internal.missing.length === 0;
   // The current public contract defines status by expected-slot completeness.
@@ -1317,8 +1326,10 @@ function protocolMetric(result, metric) {
     records,
     gaps,
     limitations: [
-      ...(metric === "spectrum" && result.envelope.spectrum.firstEndSample === null
-        ? ["FFT phase unavailable; timed supports cannot be established."] : []),
+      ...(metric === "spectrum" &&
+      result.envelope.spectrum.firstEndSample === null
+        ? ["FFT phase unavailable; timed supports cannot be established."]
+        : []),
       ...(metric === "spectrum"
         ? [
             "FFT endpoints reference full native supports, not exact whole-row measurements.",

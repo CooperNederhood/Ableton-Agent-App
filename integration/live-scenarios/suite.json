@@ -57,7 +57,25 @@
         "native-metric-session-midi",
         "native-metric-session-midi-spectrum",
         "native-metric-session-audio-spectrum",
+        "native-metric-session-midi-production-phrase",
+        "native-metric-session-audio-production-phrase",
+        "native-metric-session-midi-repeat-3",
+        "native-metric-session-midi-audio-midi",
+        "native-metric-arrangement-audio-fractional-spectrum",
         "native-metric-session-midi-partial-spectrum"
+      ]
+    },
+    {
+      "id": "native-listening-metric-silent-tail",
+      "scenarios": ["native-metric-session-audio-silent-tail"]
+    },
+    {
+      "id": "native-listening-metric-long",
+      "scenarios": [
+        "native-metric-session-midi-eight-bars",
+        "native-metric-session-audio-eight-bars",
+        "native-metric-session-midi-30-seconds",
+        "native-metric-session-audio-30-seconds"
       ]
     },
     {

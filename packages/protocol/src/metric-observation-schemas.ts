@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { MAX_AUDIO_OBSERVATION_BYTES } from "./audio-observation-limits.js";
+import { MAX_METRIC_OBSERVATION_BYTES } from "./audio-observation-limits.js";
 import {
   METRIC_FFT_SAMPLES,
   MAX_METRIC_REPORT_ROWS,
@@ -680,7 +680,7 @@ export const metricAudioObservationSchema = body.superRefine((value, ctx) => {
   }
   if (
     new TextEncoder().encode(JSON.stringify(value)).byteLength >
-    MAX_AUDIO_OBSERVATION_BYTES
+    MAX_METRIC_OBSERVATION_BYTES
   ) {
     issue("Observation exceeds encoded payload quota");
   }

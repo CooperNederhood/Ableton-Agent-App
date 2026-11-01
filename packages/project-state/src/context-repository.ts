@@ -1199,9 +1199,17 @@ export class SessionContextStore implements EntityContextRepository {
         throw new TypeError(
           "Observation pass/listener/completeness attribution is inconsistent",
         );
+      const entryBytes = Buffer.byteLength(JSON.stringify(entry), "utf8");
+      const metric = entry.kind === "metric-audio-observation/v1";
       if (
-        Buffer.byteLength(JSON.stringify(entry), "utf8") >
-        CONTEXT_LIMITS.entryBytes
+        entryBytes >
+          (metric
+            ? CONTEXT_LIMITS.metricEntryBytes
+            : CONTEXT_LIMITS.entryBytes) ||
+        (metric &&
+          entryBytes -
+            Buffer.byteLength(JSON.stringify(entry.payload), "utf8") >
+            CONTEXT_LIMITS.metricEntryMetadataBytes)
       ) {
         throw new ContextQuotaError("Encoded context entry exceeds quota");
       }

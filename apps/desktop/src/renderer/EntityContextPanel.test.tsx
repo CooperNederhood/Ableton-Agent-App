@@ -131,22 +131,29 @@ describe("stored listening context presentation", () => {
     const observation = metricFixture(1);
     observation.outcome = "partial";
     const spectrum = observation.metrics["spectral-centroid"];
-    if (!spectrum.algorithm) throw new Error("Expected spectral fixture algorithm");
+    if (!spectrum.algorithm)
+      throw new Error("Expected spectral fixture algorithm");
     spectrum.algorithm.firstFrameEndSample = null;
     spectrum.status = "failed";
     spectrum.expectedRecords = 0;
     spectrum.records = [];
     spectrum.gaps = [];
-    spectrum.limitations = ["FFT phase unavailable; timed supports cannot be established."];
+    spectrum.limitations = [
+      "FFT phase unavailable; timed supports cannot be established.",
+    ];
     const source = api();
     source.get.mockResolvedValueOnce(metricDetail(observation));
     await render("session", source);
     await click("View observation context");
     const rows = container.querySelector('[aria-label="Report rows"]');
-    expect(rows?.textContent).toContain("spectral-centroid: unknown-phase; record indices none");
+    expect(rows?.textContent).toContain(
+      "spectral-centroid: unknown-phase; record indices none",
+    );
     expect(rows?.textContent).not.toContain("spectral-centroid: no-frame");
     expect(container.textContent).toContain("FFT phase unavailable");
-    expect(container.textContent).not.toContain("Silence (measured zero spectral energy)");
+    expect(container.textContent).not.toContain(
+      "Silence (measured zero spectral energy)",
+    );
   });
   it("labels a report interval with no FFT frame without inventing a silent measurement", async () => {
     const source = api();

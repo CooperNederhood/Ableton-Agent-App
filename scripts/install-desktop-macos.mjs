@@ -230,13 +230,13 @@ export async function installDesktopMacos(
   assertProcessesStopped();
   await rm(releaseRoot, { recursive: true, force: true });
   run("pnpm", ["clean"]);
-  run("pnpm", ["install", "--frozen-lockfile"]);
   if (options.checks) {
     run("pnpm", ["check"]);
     run("pnpm", ["exec", "playwright", "test", "--project=electron"]);
   } else {
     run("pnpm", ["build"]);
   }
+  run("node", ["scripts/build-ableton-integrations.mjs", "--reuse"]);
   const packagedPath = await packageHostApplication();
   run("pnpm", [
     "exec",

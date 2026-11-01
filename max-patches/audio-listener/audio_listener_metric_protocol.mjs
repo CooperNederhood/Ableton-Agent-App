@@ -7,6 +7,8 @@ export {
   createMetricListeningGeometry,
   createMetricObservationReportRows,
   MAX_AUDIO_OBSERVATION_BYTES,
+  MAX_METRIC_OBSERVATION_BYTES,
+  MAX_METRIC_RESULT_FRAME_BYTES,
   metricAudioObservationSchema,
   nativeMetricArmProofSchema,
   nativeMetricIdleConfigurationReadbackSchema,

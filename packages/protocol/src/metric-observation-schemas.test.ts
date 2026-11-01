@@ -4,8 +4,8 @@ import {
   audioObservationV2Schema,
   legacyStoredAudioObservationSchema,
   storedAudioObservationSchema,
-  MAX_AUDIO_OBSERVATION_BYTES,
 } from "./audio-observation-schemas.js";
+import { MAX_METRIC_OBSERVATION_BYTES } from "./audio-observation-limits.js";
 import { createSyntheticMetricListeningObservation } from "./testing.js";
 import {
   createMetricObservationReportRows,
@@ -23,18 +23,25 @@ const uuid = "00000000-0000-4000-8000-000000000001";
 it("unknown spectral phase is explicit failed availability, never invented silence or cadence", () => {
   const value = fixture();
   const spectrum = value.metrics["spectral-centroid"];
-  if (!spectrum.algorithm) throw new Error("fixture spectrum algorithm missing");
+  if (!spectrum.algorithm)
+    throw new Error("fixture spectrum algorithm missing");
   spectrum.algorithm.firstFrameEndSample = null;
   spectrum.status = "failed";
   value.outcome = "partial";
   spectrum.records = [];
   spectrum.gaps = [];
   spectrum.expectedRecords = 0;
-  spectrum.limitations = ["FFT phase unavailable; timed supports cannot be established."];
+  spectrum.limitations = [
+    "FFT phase unavailable; timed supports cannot be established.",
+  ];
   value.rows = createMetricObservationReportRows(value);
   const parsed = metricAudioObservationSchema.safeParse(value);
   expect(parsed.error?.issues).toEqual(undefined);
-  expect(value.rows.every(row => row["spectral-centroid"].availability === "unknown-phase")).toBe(true);
+  expect(
+    value.rows.every(
+      (row) => row["spectral-centroid"].availability === "unknown-phase",
+    ),
+  ).toBe(true);
   spectrum.status = "complete";
   expect(metricAudioObservationSchema.safeParse(value).success).toBe(false);
 });
@@ -1192,23 +1199,33 @@ describe("independent metric audio observation v1", () => {
   });
 
   it("enforces the full UTF-8 byte quota without silently reducing detail", () => {
-    // The full 30-second fast-tempo grid is intentionally not promised to fit.
-    expect(() => fixture({ tempoBpm: 999, endBeat: 499.5 })).toThrow(
-      /payload quota/,
-    );
-    const value = fixture({ tempoBpm: 999, endBeat: 130 });
+    const value = fixture({ tempoBpm: 999, endBeat: 499.5 });
+    expect(metricAudioObservationSchema.safeParse(value).success).toBe(true);
     value.limitations = Array<string>(16).fill("界".repeat(240));
     for (const metric of metricNames) {
       value.metrics[metric].limitations = Array<string>(8).fill(
         "界".repeat(240),
       );
+      const acquisition = value.metrics[metric];
+      const retained = metric === "level" ? 1 : 0;
+      acquisition.gaps = acquisition.records.slice(retained).map((record) => ({
+        firstIndex: record.index,
+        count: 1,
+        ...record.support,
+        reason: "unavailable",
+        detail: "界".repeat(160),
+      }));
+      acquisition.records.splice(retained);
+      acquisition.status = retained ? "partial" : "failed";
     }
+    value.outcome = "partial";
+    reproject(value);
     expect(JSON.stringify(value).length).toBeLessThan(
-      MAX_AUDIO_OBSERVATION_BYTES,
+      MAX_METRIC_OBSERVATION_BYTES,
     );
     expect(
       new TextEncoder().encode(JSON.stringify(value)).byteLength,
-    ).toBeGreaterThan(MAX_AUDIO_OBSERVATION_BYTES);
+    ).toBeGreaterThan(MAX_METRIC_OBSERVATION_BYTES);
     const result = metricAudioObservationSchema.safeParse(value);
     expect(result.success).toBe(false);
     if (!result.success) {
@@ -1222,7 +1239,7 @@ describe("independent metric audio observation v1", () => {
     value.rows = [];
     value.reduction.mode = "selected-report-rows";
     value.reduction.retainedReportRows = 0;
-    expect(metricAudioObservationSchema.parse(value).outcome).toBe("complete");
+    expect(metricAudioObservationSchema.parse(value).outcome).toBe("partial");
   });
 
   it("does not auto-accept or reinterpret this version through legacy readers", () => {

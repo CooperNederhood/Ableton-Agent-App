@@ -143,7 +143,7 @@ afterEach(async () => {
 });
 
 describe("typed Ableton integration installation", () => {
-  it("installs and verifies real generated canonical native3/ABI2 and portable MIDI resources through the production validator", async () => {
+  it("installs and verifies real generated canonical native5/ABI3 and portable MIDI resources through the production validator", async () => {
     const { root, options } = await fixture();
     const generated = join(root, "generated-integrations");
     await promisify(execFile)(
@@ -180,8 +180,8 @@ describe("typed Ableton integration installation", () => {
       ) as { nativeVersion?: number; nativeAbiVersion?: number };
       if (payload.id === "machine-listening")
         expect(metadata).toMatchObject({
-          nativeVersion: 4,
-          nativeAbiVersion: 2,
+          nativeVersion: 5,
+          nativeAbiVersion: 3,
         });
       if (payload.id === "machine-listening") {
         const portableManifest = await readFile(

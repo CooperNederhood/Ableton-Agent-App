@@ -5,7 +5,7 @@ import {
   MAX_METRIC_RESULT_FRAME_BYTES,
   type MetricListeningBudgetInput,
 } from "./metric-listening-budget.js";
-import { MAX_AUDIO_OBSERVATION_BYTES } from "./audio-observation-limits.js";
+import { MAX_METRIC_OBSERVATION_BYTES } from "./audio-observation-limits.js";
 import { createMetricListeningGeometry } from "./metric-listening-geometry.js";
 import {
   createMetricObservationReportRows,
@@ -13,7 +13,10 @@ import {
   metricAudioObservationSchema,
   metricObservationMetricSchema,
 } from "./metric-observation-schemas.js";
-import { createSyntheticMetricListeningObservation } from "./metric-testing.js";
+import {
+  createSyntheticMetricListeningObservation,
+  createSyntheticMetricSpectrumEvidence,
+} from "./metric-testing.js";
 import {
   assertNativeMetricSourceCoverage,
   nativeMetricListeningConfigSchema,
@@ -339,6 +342,12 @@ function fixture(
       maxPhaseDisagreement: extreme(playing, phase, true),
     },
     postElapsedMs: longNumber,
+    ...createSyntheticMetricSpectrumEvidence({
+      ownership,
+      clock: { dsp: [1, rate, 64], frames: before },
+      firstAcquisitionEndpoint: origin + (options.noFrame ? 0 : 1) - 8192,
+      stopWatermark: after[0]![4],
+    }),
   });
   observation.alignment = {
     ...assertNativeMetricSourceCoverage(proof, { ...ownership, config })
@@ -392,7 +401,7 @@ function assertBounded(value: ReturnType<typeof fixture>) {
     decision.operands.metricsBytes[outcome],
   );
   const parsed = metricAudioObservationSchema.safeParse(value.observation);
-  if (encoded(value.observation) <= MAX_AUDIO_OBSERVATION_BYTES)
+  if (encoded(value.observation) <= MAX_METRIC_OBSERVATION_BYTES)
     expect(parsed.success, JSON.stringify(parsed.error?.issues)).toBe(true);
   else {
     expect(parsed.success).toBe(false);
@@ -402,7 +411,7 @@ function assertBounded(value: ReturnType<typeof fixture>) {
   }
   if (decision.admitted) {
     expect(encoded(value.observation)).toBeLessThanOrEqual(
-      MAX_AUDIO_OBSERVATION_BYTES,
+      MAX_METRIC_OBSERVATION_BYTES,
     );
     expect(encoded(value.frame)).toBeLessThanOrEqual(
       MAX_METRIC_RESULT_FRAME_BYTES,
@@ -466,6 +475,33 @@ function callTestCollector(
 }
 
 describe("pre-playback independent metric encoded-result admission", () => {
+  it.each([44_100, 48_000] as const)(
+    "admits eight-bar and thirty-second complete/partial capture bounds at%sHz",
+    (rate) => {
+      expect(MAX_METRIC_RESULT_FRAME_BYTES).toBe(2 * 1_024 * 1_024);
+      for (const seconds of [15, 30])
+        for (const tempo of [120, 128, 240])
+          for (const partial of [false, true]) {
+            const value = fixture({
+              rate,
+              seconds,
+              tempo,
+              partial,
+              session: true,
+              adversarial: true,
+            });
+            const decision = admitMetricListeningBudget(value.input);
+            expect(decision.admitted).toBe(true);
+            expect(
+              metricAudioObservationSchema.safeParse(value.observation).success,
+            ).toBe(true);
+            expect(value.observation.rows).toHaveLength(
+              value.observation.geometry.rows.length,
+            );
+          }
+    },
+  );
+
   it.each([false, true])(
     "counts sourceContext in armed config separately from observation source (Session=%s)",
     async (session) => {
@@ -549,10 +585,10 @@ describe("pre-playback independent metric encoded-result admission", () => {
     ].reduce((sum, text) => sum + encoded(text) - 2, 0);
     expect({ observationBytes, frameBytes, textContentBytes }).toEqual({
       observationBytes: 153_346,
-      frameBytes: 165_391,
+      frameBytes: 170_217,
       textContentBytes: 136_320,
     });
-    expect(textContentBytes).toBeGreaterThan(MAX_METRIC_RESULT_FRAME_BYTES);
+    expect(textContentBytes).toBeGreaterThan(128 * 1_024);
     expect(value.input.ownership).toEqual(
       createSyntheticMetricListeningObservation().ownership,
     );
@@ -579,15 +615,13 @@ describe("pre-playback independent metric encoded-result admission", () => {
     expect(
       metricAudioObservationSchema.safeParse(value.observation).success,
     ).toBe(true);
-    expect(observationBytes).toBeGreaterThan(MAX_METRIC_RESULT_FRAME_BYTES);
-    expect(observationBytes).toBeLessThan(MAX_AUDIO_OBSERVATION_BYTES);
-    expect(frameBytes).toBeGreaterThan(MAX_METRIC_RESULT_FRAME_BYTES);
+    expect(observationBytes).toBeGreaterThan(128 * 1_024);
+    expect(observationBytes).toBeLessThan(MAX_METRIC_OBSERVATION_BYTES);
+    expect(frameBytes).toBeGreaterThan(128 * 1_024);
     const wire = await actualMetricWireSchema();
     const parsed = wire.safeParse(value.frame);
-    expect(parsed.error?.issues.map((issue) => issue.message)).toEqual([
-      "Independent metric listener message exceeds ingress frame quota",
-    ]);
-    expect(assertBounded(value).admitted).toBe(false);
+    expect(parsed.success).toBe(true);
+    expect(assertBounded(value).admitted).toBe(true);
   });
 
   it("the actual collector fits identical four-beat numeric timelines with fixed text and coalesced gaps", async () => {
@@ -680,13 +714,13 @@ describe("pre-playback independent metric encoded-result admission", () => {
     expect({
       observationBytes: encoded(nativeObservation),
       frameBytes: encoded(frame),
-    }).toEqual({ observationBytes: 8_463, frameBytes: 20_508 });
+    }).toEqual({ observationBytes: 8_463, frameBytes: 25_334 });
     const wire = await actualMetricWireSchema();
     expect(wire.safeParse(frame).success).toBe(true);
     expect(encoded(frame)).toBeLessThan(MAX_METRIC_RESULT_FRAME_BYTES);
   });
 
-  it("matches the actual terminal wire schema and unchanged ingress cap", async () => {
+  it("matches the actual metric wire ceiling without enlarging the generic ingress default", async () => {
     // Test-only peer validation without a protocol -> signal-routing compile
     // dependency. Production admission imports only canonical protocol schemas.
     const wire = await actualMetricWireSchema();
@@ -698,9 +732,8 @@ describe("pre-playback independent metric encoded-result admission", () => {
       !("DEFAULT_MAX_INGRESS_FRAME_BYTES" in caps)
     )
       throw new Error("Missing canonical metric wire contract");
-    expect(MAX_METRIC_RESULT_FRAME_BYTES).toBe(
-      caps.DEFAULT_MAX_INGRESS_FRAME_BYTES,
-    );
+    expect(caps.DEFAULT_MAX_INGRESS_FRAME_BYTES).toBe(128 * 1_024);
+    expect(MAX_METRIC_RESULT_FRAME_BYTES).toBe(2 * 1_024 * 1_024);
     for (const session of [false, true])
       for (const partial of [false, true]) {
         const value = fixture({ session, partial, adversarial: true });
@@ -708,11 +741,8 @@ describe("pre-playback independent metric encoded-result admission", () => {
         assertBounded(value);
       }
     const overIngress = fixture({ seconds: 30, tempo: 20 });
-    const denied = wire.safeParse(overIngress.frame);
-    expect(denied.success).toBe(false);
-    expect(denied.error?.issues.map((issue) => issue.message)).toEqual([
-      "Independent metric listener message exceeds ingress frame quota",
-    ]);
+    expect(wire.safeParse(overIngress.frame).success).toBe(true);
+    expect(assertBounded(overIngress).admitted).toBe(true);
   });
 
   it.each([44_100, 48_000] as const)(
@@ -829,7 +859,7 @@ describe("pre-playback independent metric encoded-result admission", () => {
         for (const tempo of [20, 120, 999]) {
           const value = fixture({ rate, seconds: 30, tempo, partial });
           const decision = assertBounded(value);
-          expect(decision.admitted).toBe(false);
+          expect(decision.admitted).toBe(tempo !== 999);
           expect(value.observation.reduction.mode).toBe("none");
           expect(value.observation.rows.length).toBe(
             value.observation.geometry.rows.length,
@@ -848,7 +878,7 @@ describe("pre-playback independent metric encoded-result admission", () => {
   });
 
   it("denies on the possible partial bound even when the complete bound fits", () => {
-    const value = fixture({ seconds: 2, tempo: 120 });
+    const value = fixture({ seconds: 30, tempo: 999 });
     const decision = assertBounded(value);
     expect(decision.upperBounds.complete.frameBytes).toBeLessThan(
       MAX_METRIC_RESULT_FRAME_BYTES,
@@ -863,8 +893,9 @@ describe("pre-playback independent metric encoded-result admission", () => {
       outcome: "partial",
       boundary: "frame",
       upperBoundBytes: decision.upperBounds.partial.frameBytes,
-      byteLimit: 128 * 1_024,
-      excessBytes: decision.upperBounds.partial.frameBytes - 128 * 1_024,
+      byteLimit: MAX_METRIC_RESULT_FRAME_BYTES,
+      excessBytes:
+        decision.upperBounds.partial.frameBytes - MAX_METRIC_RESULT_FRAME_BYTES,
     });
   });
 
@@ -873,12 +904,12 @@ describe("pre-playback independent metric encoded-result admission", () => {
       fixture({ seconds: 30, tempo: 999, adversarial: true }),
     );
     expect(decision.limits).toEqual({
-      observationBytes: 256 * 1_024,
-      frameBytes: 128 * 1_024,
+      observationBytes: MAX_METRIC_OBSERVATION_BYTES,
+      frameBytes: MAX_METRIC_RESULT_FRAME_BYTES,
     });
     expect(decision.admitted).toBe(false);
     if (decision.admitted) throw new Error("expected typed denial");
-    for (const outcome of ["complete", "partial"])
+    for (const outcome of ["partial"])
       for (const boundary of ["observation", "frame"])
         expect(decision.violations).toContainEqual(
           expect.objectContaining({ outcome, boundary }),
@@ -887,17 +918,17 @@ describe("pre-playback independent metric encoded-result admission", () => {
     expect(decision.operands.reportRowsBytes).toBeGreaterThan(300_000);
   });
 
-  it("denies a valid observation whose full proof-bearing frame exceeds ingress", () => {
+  it("admits a thirty-second result formerly denied by its proof-bearing frame", () => {
     const value = fixture({ seconds: 30, tempo: 20 });
     const decision = assertBounded(value);
     expect(
       metricAudioObservationSchema.safeParse(value.observation).success,
     ).toBe(true);
     expect(encoded(value.observation)).toBeLessThan(
-      MAX_AUDIO_OBSERVATION_BYTES,
+      MAX_METRIC_OBSERVATION_BYTES,
     );
-    expect(encoded(value.frame)).toBeGreaterThan(MAX_METRIC_RESULT_FRAME_BYTES);
-    expect(decision.admitted).toBe(false);
+    expect(encoded(value.frame)).toBeGreaterThan(128 * 1_024);
+    expect(decision.admitted).toBe(true);
   });
 
   it("counts a maximal regenerated terminal requestId, not a short prepare requestId", () => {

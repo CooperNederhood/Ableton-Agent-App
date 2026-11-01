@@ -2,7 +2,104 @@
 
 Companion specification: [Playback Listening](playback-listening.md).
 
+## Current branch checkpoint: remaining delivery work
+
+- [x] Commit the implemented JS-authoritative deployment pipeline, native-v5
+  cleanup, regression ports and bounded metric-budget work as a working checkpoint.
+- [x] Reproduce a silent-tail spectral rejection with observed energy zero and
+  nonzero centroid; add bounded traced failure facts and a red/green v5 retained
+  readback regression. Preserve historical DSP hashes; full Max suite: 814 passed.
+- [ ] Diagnose the new managed silent-tail scenario's terminal cleanup failure.
+  Its failed evidence is `single-source-managed-silent-tail.json`; process and
+  fixture cleanup completed, but capture cleanup did not qualify.
+- [ ] Qualify the final changed production bundle with the owning deterministic
+  scenarios; package and reinstall those exact bytes.
+- [ ] Complete final installed normal-startup full-phrase, restart and visible
+  cross-app review. The currently installed bundle predates the silence fix.
+
 ## Independent metric timelines replacement
+
+Current blocker supersedes the earlier review-ready installation wording below:
+the normal installed parent was not the generated parent qualified in Live,
+and the user observed no registered listeners plus repeated invalid-object
+console errors.
+
+- [x] Unify production/default builds on the tested JS parent construction and
+  prevent alternate fixture graphs from entering positive builds.
+- [x] Add independent production startup/feed assertions and byte continuity
+  checks through packaging reuse and profile-configured installation.
+- [ ] Diagnose the actual console/readiness failure in isolated owned Live.
+- [x] Qualify production-payload listeners, four-beat MIDI/audio captures,
+  retained reports, fresh-process registration, repeat and switching behavior
+  on owned Live 11.3.43. Source inventory and packaged payload are identical;
+  all owned validation Live processes and temporary fixtures are cleaned up.
+- [x] Reinstall with user Live and Ableton Agent closed. Immutable installed
+  AMXD/runtime/DSP files match qualification; installed authentication passes.
+  The new `installed-human-review-1793490074155` copy preserves original/source
+  Set bytes and binds all four devices to the installed generated AMXD.
+- [ ] Human-verify normal installed discovery and reports without automation
+  flags, then restart discovery; attribute any remaining console errors.
+
+Normal-install handoff: normal Desktop launch now enables v5 discovery/capture
+with existing approval preferences. Automation remains explicitly opt-in.
+The user's four full-loop MIDI/audio captures successfully identified the
+on-beat kick and off-beat hat patterns with complete metric coverage.
+Installed-app review and restart verification are next; sample-accurate
+calibration and streaming are separate follow-up work, not blockers for that
+musical-use review.
+
+The user authorized local installation and closed both apps. The matched app
+is installed at `/Applications/Ableton Agent.app`, with normal-profile device
+bundles in the User Library and the current Remote Script. Packaged startup,
+resource, signing and installed authentication checks passed; the normal-launch
+Electron discovery regression is red-before/green-after. Installed-bundle review
+copy: `installed-human-review-1793481683623/project/debug-two-clips-midi-audio-v1.als`.
+Its four listener references point to the installed canonical device; the
+original and prior review Set hashes are unchanged. Human capture/restart
+verification on this installed candidate remains pending.
+
+Review-ready bounded candidate: canonical v5-only package, complete MIDI/audio,
+same-source repetition, MIDI/audio/MIDI switching, fractional Arrangement and
+explicit optional-spectrum failure all pass current owned-host qualification.
+The final visible Desktop audio capture also agrees with typed saved history.
+Prepared protected copy: `candidate-human-review-1793463555322`.
+Normal-profile local installation is now authorized and completed as described
+above; older isolated-review checkpoints below retain their original scope.
+Absolute timing accuracy, unrestricted full-duration acceptance and the exact
+cause of the historical discovery loss are not claimed as resolved.
+
+- [x] Replace the inherited 128 KiB native-v5 frame and 256 KiB metric-observation
+  ceilings with matched 2 MiB bounds in admission, codec, SDK, explicit ingress,
+  validation and runtime staging. Keep generic producer/credential limits and
+  earlier observation kinds unchanged. Preserve bounded complete/partial
+  admission and truthful extreme-tempo rejection.
+- [x] Add 15/30-second success/partial admission, non-reduced long-result delivery,
+  fragmented exact-limit ingress, one-byte-over/incomplete-frame refusal and
+  compiled SDK negotiation regressions. Keep LLM report pages unchanged.
+- [ ] Qualify the fresh matched bundle for eight-bar and exact 30-second native
+  captures on runner-owned Live, including complete records, phase, source
+  identity, cleanup and immutable saved-context reopening.
+
+- [x] Port Max owning registration, watcher, discovery, source/compiled-codec
+  provenance and shutdown regressions to the actual v5 metric path. Retire
+  coupled v1-v4 runtime/assembler/ABI tests only with recorded coverage mapping;
+  retain current metric Gen/IO/controller safety coverage and protected
+  historical byte provenance. The reentrant FFT replacement assertion includes
+  the current replacement's explicit polling enable after its epoch control.
+  Offline closeout evidence lives under
+  `.test-artifacts/independent-metric-listening/max-closeout-*`; it is not a
+  real-host qualification or permission to restore legacy runtime compatibility.
+- [x] Remove retired engine parity dependencies: current detector tests use
+  explicit expected-value references and independently integrated PCM, retaining
+  threshold/refractory/zero/silence/window/tail semantics and malformed-input
+  guards. Historical bracket/RMS tests reference only protected archived source;
+  they do not require active v1-v4 capture engine/coordinate implementations.
+- [x] After the packaging owner released obsolete imports/resources, delete the
+  ten active v1-v4 capture implementation files, including engine/coordinates.
+  Final owning Max validation passes 811 tests; detector/PCM/provenance ports
+  pass 99 focused tests, and recorded SDK entry provenance retains its explicit
+  historical hash without loading the retired entry. Required native clock/FFT
+  IO, shared transport validation and protected historical source remain intact.
 
 Current checkpoint superseding the earlier unknown-phase checkpoint below:
 owned Live Suite 11.3.43 completes the reviewed all-metric Session MIDI scenario
@@ -42,28 +139,158 @@ owning suites pass 160 tests.
   Context: `a728e2d9-2f31-48c9-ad20-2982c3c0ebb6`; trace:
   `3a105b66-f476-4a5e-9e54-9484028b3a0f`. This verifies terminal coverage,
   not the agent's interpretation of the reported 122.25 ms beat disagreement.
-- [ ] Audit the audio clock witnesses, frozen timing policy and
-  cleanup-before-publication ordering. Identify the specific beat-disagreement
-  check before treating the capture as musically aligned or changing a guard.
-- [ ] Resolve lost listener discovery in the still-running human review host.
+- [x] Audit the audio clock witnesses, frozen timing policy, saved context and
+  cleanup-before-publication ordering. Clock disagreement is zero; launch and
+  retained playing-row sample/beat-origin residuals are 63 samples. The
+  5,868-sample/122.25 ms maximum is the startup phase witness at counter
+  36,476,031, one sample before native launch detection, with the previous
+  stopped phase still retained. Native origin 36,475,968 and detection counter
+  36,476,032 differ by the witnessed 64-sample launch phase distance. Preserve
+  the measured maximum and unknown absolute accuracy; do not discard witnesses
+  or infer that every report row is shifted by 122.25 ms. Descriptive mode
+  accepts this above-target observation; the frozen 64-sample target is not an
+  enforced descriptive admission bound. Audio cleanup precedes context
+  publication and terminal completion, and the stored proof revalidates.
+- [x] Fix the reproduced v5 console flood by removing the retired parent
+  host/frame/analysis feeds, unsupported enabled/preview messages and their
+  unused polling graph. Preserve actual native plugsync/phasor, DSP admission,
+  initialization, watchdog and transparent stereo routing. Guard device/track
+  IDs before querying names in shared identity collection; initial id zero,
+  lost/restored placement, bounded retries and deletion are covered. Four new
+  regressions fail before the fix; the focused graph/identity suites pass 21
+  tests and matching package/runtime/scenario suites pass 25.
+- [x] Correct production guidance: ready:false is per-pass validation, not a
+  permanent commissioning failure; descriptive completion does not prove
+  disagreement is within the advisory target. Current wire5 quarter-beat
+  reporting and independent attack cadence replace stale v2 capture guidance.
+- [x] Requalify the corrected candidate on owned Live 11.3.43 for complete
+  MIDI/audio metrics and three consecutive one-beat captures on the same
+  loaded MIDI listener, without restart/rebind. Evidence:
+  `post-discovery-fix-midi-spectrum-owned-live-qualified.json`,
+  `post-discovery-fix-audio-spectrum-owned-live.json` and
+  `post-discovery-fix-repeated-native5-owned-live.json`. Repeated qualification
+  preserves instance/registration, increasing native epochs, unique passes,
+  immutable prior contexts and exactly two harness-only stopped baselines.
+  This is same-source repetition, not MIDI/audio/MIDI switching.
+- [x] Qualify MIDI/audio/MIDI switching in one owned Live process using the
+  fixed reviewed two-listener plan. All three one-beat passes complete with
+  four level rows, twelve spectra and five attack-input windows each.
+  The same loaded producer instances remain bound; native epochs progress
+  per producer as 1/1/2, with exactly two previous-track stop/both-track
+  verified stopped baselines and immutable, reopened prior contexts.
+  Evidence: `midi-audio-midi-v5-only-owned-live.json`, repeated schema
+  `native-switching-metric-session/v1`. Baseline operations remain
+  harness-owned; no agent stop/seek/repair authority or active-clip admission
+  guard was broadened.
+- [ ] Resolve the original longer-lived Desktop discovery failure.
   A coherent read-only journal snapshot records repeated producer reconnections
   followed by both socket disconnections at 2026-10-31T12:21:06Z, with no later
-  ingress frames through the snapshot at 12:38:06Z. The Desktop and Live
-  processes remain running and their Remote Script connection is established.
+  ingress frames through the snapshot at 12:38:06Z. At that checkpoint the
+  Desktop and Live processes remained running with an established Remote Script
+  connection; the user subsequently closed both test apps.
   Producer lifecycle coverage is explicitly unknown; do not infer the cause
   from intact device placement or the absence of an ingress error event.
+  A fresh isolated Desktop/Live reproduction on the corrected candidate
+  completed MIDI pass `885b9660-19af-40ac-9095-8855620c0d3e` with all three
+  metrics complete. Typed post-capture discovery at 13:39:56Z still returned
+  both original listener instances. The subsequent audio attempt was not
+  submitted: independent baseline reads confirmed stopped transport at beat
+  zero but the MIDI Session clip still marked playing. Transport stop alone
+  does not clear Session clip playback selection. The agent exposed this
+  unmet precondition rather than repairing or retrying; its question blocked
+  further turns. Both owned processes were closed without saving the copied
+  Set, and the original Set hash remains unchanged. This is a baseline
+  preparation/UX block, not a reproduced listening or discovery failure.
+  Final coherent journal readback additionally shows both original producer
+  connections heartbeating through 13:49:00Z, about 15 minutes 40 seconds after
+  MIDI completion and nearly six minutes after transport stop. Their recorded
+  disconnections coincide with the owned Desktop shutdown. This verifies
+  connection liveness, not a fresh post-baseline listener-enumeration result;
+  producer-origin lifecycle coverage remains explicitly unknown.
 - [x] Correct the causally reproduced saved-Set staging error: active collected
   device references were left pointing to an excluded old file while only
   origin/history references were replaced. The new regression fails before
   the fix; all 56 saved-fixture tests pass. A fresh 36-file protected review
   copy is staged with all four exact device references replaced.
-- [ ] Replace the historical implicitly unavailable FFT scenario with a
+- [x] Replace the historical implicitly unavailable FFT scenario with a
   controlled negative fixture; do not expect the repaired default source to
   fail or widen capture/tool guards.
+  The explicitly tagged `native5-unavailable-spectrum/v1` candidate passes
+  owned Live qualification (`controlled-unavailable-spectrum-owned-live.json`):
+  pass `231e62a4-9a94-4c7b-b3fc-0985ff34af29` preserves four level rows and
+  five attack-input windows, while spectrum is explicitly failed with
+  `native_phase_unavailable`, no records and no invented phase or unowned
+  cleanup receipt. Shared native cleanup precedes terminal publication and
+  context `a04dacab-c7c0-4d28-9d49-7022939d1ef9` saves and reopens.
+  Hash/metadata admission rejects the repaired default for this deliberate
+  partial case before Live starts. This is an engineering source fixture,
+  not a production profile toggle or an absolute-accuracy qualification.
+- [x] Qualify fractional Arrangement audio over beats 0.25–1.25 on the
+  existing hash-pinned bounded fixture, with all three metrics and no source
+  edits. The v5-only staged package completes pass
+  `c4030f4c-db18-4243-a81c-3420569b6082`: 24,000 samples, four level rows,
+  twelve expected/retained spectra at the actual witnessed phase, and five
+  attack-input windows. Native/spectrum cleanup precedes terminal publication,
+  and context `415b57e2-9f8d-499b-bba5-83692307697b` saves and reopens.
+  Evidence: `fractional-arrangement-v5-only-owned-live.json`. An independent
+  pinned PCM comparison matches three steady-state level RMS values exactly
+  and seven spectral supports within 1 Hz, without applying a counter offset.
+  This does not calibrate absolute timing or assume the startup row equals
+  steady-state PCM.
+  Current physical qualification uses Live
+  `11.3.43 (2025-10-06_b466d4f56c)`; the build suffix is provenance, not a
+  support pin or downgrade requirement.
 - [ ] Expand complete FFT cancellation/failure/source-integrity coverage,
-  qualify Arrangement, finish real Desktop visual
+  finish real Desktop visual
   end-to-end qualification, and prepare the protected copied Set for review.
   These remain delivery gates; the installed user profile is unchanged.
+- [x] Close the broader deterministic regression baseline. The initial full
+  TypeScript run passed 3,769 tests but failed 59 tests across eight files:
+  synthetic current-wire factories omitted owned FFT phase and confirmed
+  cleanup evidence. Canonical test-only evidence and complete ownership
+  rebinding fix those fixtures without changing production validators or
+  timing admission. Expanded missing/foreign/torn/stale/uncleared evidence
+  regressions preserve fail-closed behavior. The narrow eight-file escalation
+  passes 182 tests; the latest full TypeScript run passes 3,846 tests across
+  184 files (`ts-closeout-full-coordination-final.log`). Evidence and exact
+  ownership coverage are retained in `ts-closeout-summary.json`. The full
+  Remote Script Python owning suite passes 286 tests.
+  After porting current SDK/compiled-codec identity, epoch, cancellation,
+  deadline, cleanup and source-provenance coverage and retiring superseded
+  coupled fixtures, a subsequent full Max owning run passes 826 tests
+  (`max-owning-after-ports.log`). The coverage mapping is retained as
+  `max-closeout-coverage.json`; passing tests do not yet authorize deleting
+  implementation resources still referenced by packaging.
+  A fresh workspace build and all twelve production Electron owning tests
+  also pass, including isolated discovery, typed IPC, lifecycle rendering,
+  profile persistence and restart behavior. This deterministic Electron
+  result does not replace the still-blocked real cross-track visual workflow.
+- [x] Retire ten obsolete root implementation files and thirty-six
+  superseded tests/helpers after removing package imports/publication.
+  Current detector coverage uses explicit numerical references and the
+  actual metric collector; protected historical artifacts retain provenance.
+  Current shared clock, transport-proof, metric IO and retained DSP
+  dependencies remain intact. The subsequent Max owning run passes 811
+  tests; v5-only staged artifacts then pass Arrangement and switching.
+- [x] Finish the atomic managed-production caller/shared payload validation
+  migration to v5/ABI3 and compiled-codec provenance, with engineering
+  fixtures rejected. Earlier staged qualification is not a managed
+  installation claim, and the normal user profile remains unchanged.
+  Actual generated-resource installation/provenance checks also pass in an
+  isolated temporary library. Final owning suites pass 3,899 TypeScript,
+  811 Max and 286 Python tests; workspace build/types, application/package/
+  support lint, contracts and paired documentation checks pass. Formatting
+  excludes only the preserved unrelated local Electron profile directory.
+- [x] Verify final visible Desktop audio-first capture on the protected
+  two-track copy. Pass `389cb98b-3519-4c95-af04-1fe01f06846c` completes
+  level 4/4, spectrum 11/11 and attack-input 5/5 with zero missing records.
+  Typed saved-history report `b3a809d1-e43d-43b3-bb4e-455f25967b48` agrees
+  with the visible completed response and playing audio clip in Live.
+  Both validation-owned apps are closed; the user assisted with Live's
+  automation-inaccessible quit dialog. Original Set bytes remain unchanged.
+  The prepared review copy is `candidate-human-review-1793463555322`.
+  This bounded review candidate is not a full-duration/30-second acceptance
+  claim, an absolute-timing calibration, or a normal-profile installation.
 
 This supersedes the narrow post-launch repair plan, not its historical evidence.
 Apply to both Session and Arrangement; the installed coupled pipeline is not

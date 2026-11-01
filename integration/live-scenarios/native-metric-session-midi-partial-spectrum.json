@@ -8,10 +8,18 @@
   "requestedMetrics": ["level", "spectral-centroid", "attacks"],
   "prompt": "Make these calls sequentially: inspect-listeners, exactly one play-session-and-listen for the supplied MIDI Session target with durationBeats 1, maximumDurationMs 30000 and only the supplied listener ID, then get-pass once with the returned passId. The runner explicitly requests level, spectral-centroid and attacks; spectral timing is deliberately unestablished and must be reported as unavailable. Use only the new v5 independent-metric pipeline. If a call fails, stop and report it: do not retry, repair, seek, stop playback, change settings, edit the Set or use another listener. After the first get-pass, if it is nonterminal, immediately finish your turn with pending. Never call get-pass twice, poll or wait: the harness owns the terminal wait. Only after completed or partial may you get the context with includeHistorical=true. Leave playback running. Report measured level and attack availability without inventing frequency information or claiming exclusive clip audio.",
   "artifactPrefix": "AA_SMOKE_METRIC_MIDI_",
-  "capture": {"durationBeats": 1, "maximumDurationMs": 30000, "sceneIndex": 0},
+  "capture": {
+    "durationBeats": 1,
+    "maximumDurationMs": 30000,
+    "sceneIndex": 0
+  },
   "allowedTools": ["ableton_listening", "ableton_context"],
   "allowedActions": {
-    "ableton_listening": ["inspect-listeners", "play-session-and-listen", "get-pass"],
+    "ableton_listening": [
+      "inspect-listeners",
+      "play-session-and-listen",
+      "get-pass"
+    ],
     "ableton_context": ["get"]
   },
   "allowedRisks": ["read", "reversible"],
@@ -21,24 +29,31 @@
   "setupContract": {
     "nativeVersion": 5,
     "inputOption": "--native-v5-fixture-input",
-    "timingPolicy": {"mode": "descriptive", "maxClockDisagreementSamples": 64},
+    "timingPolicy": {
+      "mode": "descriptive",
+      "maxClockDisagreementSamples": 64
+    },
     "tempoPolicy": "constant-tempo-assumed",
     "tempoAutomationSupported": false,
+    "engineeringFixture": "native5-unavailable-spectrum/v1",
     "processPolicy": "Fresh exact-PID runner-owned Live 11 and isolated storage. Refuse existing Live. Hash-pinned copied fixture; never install into the user profile.",
-    "reviewStatus": "One-beat all-metric request with explicit unavailable FFT phase; healthy level/attack data must persist as partial. No physical spectrum qualification."
+    "reviewStatus": "One-beat all-metric request requires explicitly engineered native5-unavailable-spectrum/v1 package metadata and runtime-entry SHA256 binding before Live/playback; repaired defaults and foreign/tagged variants are denied. Healthy level/attack data must persist as partial. No physical spectrum qualification."
   },
-  "ordering": [{
-    "before": "ableton_listening",
-    "beforeAction": "inspect-listeners",
-    "after": "ableton_listening",
-    "afterAction": "play-session-and-listen"
-  }],
+  "ordering": [
+    {
+      "before": "ableton_listening",
+      "beforeAction": "inspect-listeners",
+      "after": "ableton_listening",
+      "afterAction": "play-session-and-listen"
+    }
+  ],
   "assertions": [
     "one-owned-pass-no-retries",
     "frozen-all-metrics-explicit-unknown-phase",
     "actual-native-source-and-cleanup-proofs",
     "non-silent-independent-level-timeline",
     "one-persisted-context-readable-after-reopen",
-    "unchanged-fixture-and-leave-running-idle"
+    "unchanged-fixture-and-leave-running-idle",
+    "explicit-engineering-unavailable-spectrum-candidate"
   ]
 }

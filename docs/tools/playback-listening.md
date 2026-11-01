@@ -1,6 +1,85 @@
 # Playback Listening and Entity Context
 
+## Working checkpoint: final deployment is not qualified
+
+The JS-authoritative patch/deployment cleanup is implemented. Normal installed
+startup in isolated profiles discovers both listeners and has completed MIDI
+and audio kick captures. A later full-phrase check exposed a zero-energy FFT
+record with a nonzero centroid. The v5-only retained readback now makes the
+centroid zero when retained energy is zero; the existing protocol represents
+that measured silent record with `centroidHz: null`. Positive-energy records,
+missing-record failures and frozen historical DSP sources remain unchanged.
+Bounded observed centroid/energy failure facts now reach typed local History.
+
+The corrected readback passed a focused owned MIDI reproduction, and the full
+Max suite passes 814 tests. **The final changed production bundle has not yet
+been qualified or reinstalled.** The new managed
+`native-metric-session-audio-silent-tail` scenario currently fails with
+`Metric capture cleanup could not be confirmed`; its runner reports exact-owned
+process shutdown and fixture cleanup. Do not reinterpret that run as a pass.
+Local failure evidence is
+`.test-artifacts/independent-metric-listening/single-source-managed-silent-tail.json`
+in the working session, not a committed or portable fixture. and Entity Context
+
+Qualification note: the corrected candidate completed a fresh isolated
+Desktop MIDI capture and retained both listener registrations in a subsequent
+typed discovery read. The planned audio follow-up was blocked before capture:
+stopping transport and seeking to beat zero left the previously playing MIDI
+Session clip selected for playback. A stopped transport is not proof that all
+Session clips are stopped. This run does not resolve the earlier long-lived
+discovery loss or qualify cross-track switching; no automatic retry or source
+repair was performed. and Entity Context
+
 ## Independent metric timelines migration
+
+### Production artifact continuity
+
+The first normal installation exposed a delivery gap: successful qualification
+used a generated parent, while production loaded a different saved AMXD parent.
+Normal discovery failed despite correct v5 companion versions. JavaScript now
+defines the production parent and its native augmentation; AMXD is build output.
+Default builds, positive qualification and packaging must use the same
+production payload and retained device/resource hashes. Installed listening
+bytes remain unchanged apart from separate profile configuration and manifest
+metadata. The new source/packaging regressions do not by themselves prove Live
+startup or resolve the user's reported invalid-object console messages.
+Fresh production-bundle discovery/capture now passes in owned Live 11.3.43,
+including four-beat MIDI and audio phrases: 96,000 samples, 16 report rows,
+20 detector-input records and 47 FFT records each, with saved report reopening
+and verified cleanup. Same-source repeats and MIDI/audio/MIDI switching also
+retain registration. The packaged inventory matches the qualified production
+bundle. That same bundle is now installed, with a fresh protected review copy
+`installed-human-review-1793490074155/project/debug-two-clips-midi-audio-v1.als`.
+Normal installed review and specific attribution of the earlier Max
+console errors remain pending. The remaining Max background host exposes no
+content window and has no active Node-for-Max device runners; it is not proof
+of an open editor or a reason to terminate a user process.
+
+### Current bounded result transport
+
+Native v5 listening messages and metric observations have separate 2 MiB
+compact-JSON/UTF-8 ceilings. Explicit independent-metric ingress advertises the
+larger frame allowance; the same-folder compiled producer codec, SDK and runtime
+enforce it. Generic ingress and producer identity/credential bounds remain
+128 KiB, and earlier observation kinds retain their 256 KiB quota.
+Runtime pre-launch result staging remains bounded to two metric frames per
+listener. Identity, sequence, source, cleanup and cancellation checks are
+unchanged; increasing size does not authorize reducing authoritative timelines.
+
+Admission still reserves complete and possible partial publications, including
+schema-valid escaped diagnostics and the source proof. The current estimator
+admits all-three-metric 30-second ranges at 44.1/48 kHz through the reviewed
+120/128/240 BPM cases, including eight bars in 4/4 at 128 BPM (15 seconds).
+The existing 30-second duration ceiling remains. Extreme supported tempos can
+still exceed the 2 MiB worst-case partial budget and are explicitly rejected.
+This is not streaming or unrestricted long-form qualification.
+
+Saved context entry/pass quotas include bounded metadata around the observation;
+the canonical storage and retention contract applies. LLM-facing report paging,
+Desktop IPC response bounds and history redaction limits do not grow with the
+capture allowance. Both the app and a freshly compiled matched device bundle
+are required; an old producer descriptor can still negotiate the old ceiling.
+The earlier 128 KiB listening claims below are historical checkpoint evidence.
 
 **Current development qualification:** the matched v5 package now completes
 one-playback Session MIDI captures with all three requested metrics on owned
@@ -38,23 +117,54 @@ complete one-beat MIDI and warped-audio terminal results: each has four level,
 eleven spectral and five attack-input records, with no missing records.
 Terminal completeness is separate from musical alignment. The audio agent
 reported 122.25 ms beat disagreement; its actual clock witnesses, frozen policy
-and cleanup ordering still require audit before broader acceptance.
+and cleanup ordering have now been audited. Clock disagreement is zero.
+Launch and retained playing-row sample/beat-origin residuals are 63 samples.
+The 5,868-sample maximum comes from a startup phase witness one sample before
+native launch detection: host transport already reports playing at beat zero,
+while DSP phase still matches its prior stopped value. Actual native origin
+36,475,968 precedes detection counter 36,476,032 by the witnessed 64-sample
+phase distance. This is not evidence of uniform 122.25 ms audio lateness or a
+shift of every report row. The observation remains intact, with unknown
+absolute accuracy. Descriptive mode accepts disagreement above the frozen
+64-sample advisory target; only strict mode enforces that admission limit.
+Cleanup precedes context publication, and typed saved-context/proof
+revalidation agrees with the terminal result.
 
 The same review host subsequently lost listener discovery. A coherent
 read-only journal snapshot records producer reconnection churn followed by both
 authenticated socket disconnections at 2026-10-31T12:21:06Z and no later ingress
-frames through 12:38:06Z. Desktop and Live remain running with an established
-Remote Script connection. An intact device in the Set does not prove that its
+frames through 12:38:06Z. Desktop and Live were still running with an established
+Remote Script connection, before the user closed the test apps. An intact device
+in the Set does not prove that its
 producer connection is live. Source lifecycle coverage is unknown, and the
 disconnection cause remains unresolved. The discovery limitation
 `native_per_pass_validation_required` means independent validation is required
 for each capture; it does not invalidate an already verified successful pass.
 
-Desktop review admission is explicit and automation-only:
-`--automation-metric-listeners` requires `--automation` and its separate profile.
-It supplies the same opt-in to authenticated signal ingress and the listening
-host; normal startup remains unchanged. Electron coverage checks wire5 discovery
-under that flag, no listener advertisement without it, and visible-message IPC.
+The reported console flood has a separate reproduced wiring cause: the v5
+parent retained legacy `host`/`frame` message feeds that the metric runtime does
+not implement. Its obsolete analysis/polling graph and unsupported
+enabled/preview messages are removed rather than adding retired handlers.
+Actual native plugsync/phasor acquisition, DSP metadata, initialization,
+watchdog and transparent stereo routing remain. Shared identity collection
+checks device/track IDs before asking for names, avoiding invalid-object
+queries without retaining stale placement as valid. Neither correction alone
+establishes the trigger for the original socket loss.
+
+The corrected matched candidate passes fresh owned Live 11.3.43 MIDI and audio
+all-metric scenarios and three consecutive one-beat MIDI captures on one loaded
+producer/registration. The repeated scenario performs exactly two independently
+verified harness-only stopped baselines, with no actor retry, replacement,
+rebind or installation; epochs increase and earlier contexts remain immutable.
+This does not qualify longer-lived Desktop discovery, MIDI/audio/MIDI
+switching, or every duration/Arrangement range.
+
+Normal Desktop startup now enables the same native-v5 admission in authenticated
+signal ingress and the listening host, without changing normal approvals.
+Isolated automation still uses explicit `--automation-metric-listeners`, which
+requires `--automation` and its separate profile. Electron coverage checks
+normal-startup v5 discovery and profile-scoped credentials, isolated opt-in and
+visible-message IPC.
 Production agent guidance identifies wire5 independent families and honest
 partial results, not the retired wire3/wire4 requirement.
 

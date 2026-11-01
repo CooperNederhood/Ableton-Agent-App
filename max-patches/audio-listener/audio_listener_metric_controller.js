@@ -1151,6 +1151,8 @@ function createMetricController(options) {
               event.stage,
               "spectrum",
               event.reason || undefined,
+              undefined,
+              event.facts,
             );
           },
         },

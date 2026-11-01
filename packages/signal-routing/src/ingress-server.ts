@@ -10,6 +10,7 @@ import {
   assertNativeMetricObservationSource,
   snapshotNativeMetricListeningExpectation,
   nativeMetricLaunchCoordinates,
+  MAX_METRIC_RESULT_FRAME_BYTES,
   type NativeMetricReadyProof,
   type NativeMetricArmProof,
   type NativeMetricLaunchProof,
@@ -256,7 +257,10 @@ export class SignalIngressServer implements ListenerService {
         "Signal ingress secretPath must be a bounded absolute file reference",
       );
     const maxFrameBytes =
-      options.maxFrameBytes ?? DEFAULT_MAX_INGRESS_FRAME_BYTES;
+      options.maxFrameBytes ??
+      (options.independentMetricListeners
+        ? MAX_METRIC_RESULT_FRAME_BYTES
+        : DEFAULT_MAX_INGRESS_FRAME_BYTES);
     const maxOutstandingMessages = options.maxOutstandingMessages ?? 32;
     const idleTimeoutMs = options.idleTimeoutMs ?? 15_000;
     const idleCheckIntervalMs =

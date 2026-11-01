@@ -12,6 +12,15 @@ export interface DesktopLaunchOptions {
     | undefined;
 }
 
+export function desktopMetricListenersEnabled(
+  options: DesktopLaunchOptions,
+): boolean {
+  return (
+    options.automation === undefined ||
+    options.automation.independentMetricListeners === true
+  );
+}
+
 export function parseDesktopLaunchOptions(
   argv: readonly string[],
 ): DesktopLaunchOptions {

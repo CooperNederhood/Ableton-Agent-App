@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { MAX_AUDIO_OBSERVATION_BYTES } from "./audio-observation-limits.js";
+import { MAX_METRIC_OBSERVATION_BYTES } from "./audio-observation-limits.js";
 import { METRIC_FFT_SAMPLES } from "./metric-listening-geometry.js";
 import {
   metricAudioObservationSchema,
@@ -12,9 +12,9 @@ import {
   nativeMetricSourceCoverageProofSchema,
 } from "./native-metric-listening-schemas.js";
 
-// The version 5 terminal listener.result contract has a 128 KiB ingress ceiling.
+// The version 5 terminal listener.result contract has a 2 MiB ingress ceiling.
 // This module cannot import signal-routing, which itself imports protocol.
-export const MAX_METRIC_RESULT_FRAME_BYTES = 128 * 1_024;
+export const MAX_METRIC_RESULT_FRAME_BYTES = 2 * 1_024 * 1_024;
 
 const wireIdentifier = nativeMetricOwnershipSchema.shape.listenerId.max(128);
 export const metricListeningBudgetInputSchema = z.strictObject({
@@ -388,7 +388,7 @@ export function admitMetricListeningBudget(
     }),
   ) as Record<Outcome, MetricListeningBudgetBounds>;
   const limits = {
-    observationBytes: MAX_AUDIO_OBSERVATION_BYTES,
+    observationBytes: MAX_METRIC_OBSERVATION_BYTES,
     frameBytes: MAX_METRIC_RESULT_FRAME_BYTES,
   };
   const violations: MetricListeningBudgetViolation[] = [];

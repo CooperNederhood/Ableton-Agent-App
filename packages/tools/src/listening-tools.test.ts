@@ -323,6 +323,13 @@ describe("optional listening tool contracts", () => {
     expect(LISTENING_AGENT_GUIDANCE).toContain(
       "Partial attack coverage cannot establish absence",
     );
+    expect(LISTENING_AGENT_GUIDANCE).toContain(
+      "Descriptive mode can accept disagreement above that advisory target",
+    );
+    expect(LISTENING_AGENT_GUIDANCE).toContain("not a uniform audio delay");
+    expect(LISTENING_AGENT_GUIDANCE).toContain(
+      "Completion is not proof that observed disagreement is within the configured target",
+    );
   });
   it("returns partial as a published outcome rather than a failure or full success", () => {
     const job = {
@@ -416,7 +423,7 @@ describe("optional listening tool contracts", () => {
       listeningOperationResultSchema.parse({ action: "get-pass", job: legacy }),
     ).not.toHaveProperty("job.failureEvidence");
     expect(LISTENING_AGENT_GUIDANCE).toContain(
-      "deliberately uncommissioned pending fresh per-pass native validation",
+      "not a permanent commissioning failure",
     );
     expect(LISTENING_AGENT_GUIDANCE).toContain(
       "An error code alone is not a precise cause",
@@ -520,7 +527,17 @@ describe("optional listening tool contracts", () => {
     );
     expect(tool.description).toContain("complete coverage before publication");
     expect(tool.description).toContain(
-      "Other uncommissioned listeners remain denied",
+      "Unsupported or unbound listeners remain denied",
+    );
+    expect(tool.description).toContain(
+      "globally anchored quarter-beat report grid",
+    );
+    expect(tool.description).toContain(
+      "independent 100 ms attack-detector cadence",
+    );
+    expect(tool.description).not.toContain("Descriptive v2");
+    expect(tool.description).not.toContain(
+      "one approximately 100 ms reporting hop",
     );
   });
 

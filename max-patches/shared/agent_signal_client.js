@@ -17,6 +17,7 @@ function loadMetricProtocol() {
   }
   if (
     codec.LISTENER_VERSION_METRIC !== 5 ||
+    codec.MAX_METRIC_RESULT_FRAME_BYTES !== 2 * 1024 * 1024 ||
     codec.LISTENER_CAPABILITY_METRIC !==
       "audio-listener/independent-metric-timelines-v1" ||
     codec.LISTENER_METRIC_ALGORITHM_VERSION !== "3.0.0" ||
@@ -385,7 +386,9 @@ class AgentSignalClient {
     this.reconnectInitialMs = options.reconnectInitialMs || 250;
     this.reconnectMaxMs = options.reconnectMaxMs || 10000;
     this.configuredMaxFrameBytes =
-      options.maxFrameBytes || DEFAULT_MAX_FRAME_BYTES;
+      options.maxFrameBytes ||
+      this.metricProtocol?.MAX_METRIC_RESULT_FRAME_BYTES ||
+      DEFAULT_MAX_FRAME_BYTES;
     this.started = false;
     this.stopping = false;
     this.authenticated = false;
@@ -1240,7 +1243,7 @@ class AgentSignalClient {
 
   maxFrameBytes() {
     return Math.min(
-      this.listener ? DEFAULT_MAX_FRAME_BYTES : Infinity,
+      this.metricProtocol?.MAX_METRIC_RESULT_FRAME_BYTES || Infinity,
       this.descriptor?.maxFrameBytes || DEFAULT_MAX_FRAME_BYTES,
       this.configuredMaxFrameBytes
     );

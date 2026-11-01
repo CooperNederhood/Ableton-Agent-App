@@ -88,7 +88,8 @@ describe("metric Node-for-Max entry wiring", () => {
     f.ready();
     const controller = f.controllers[0];
     controller.snapshot.mockReturnValue({
-      state: "preflight", cleanup: "failed",
+      state: "preflight",
+      cleanup: "failed",
       inputFailureReason: "invalid_native_timing",
     });
     const control = { requestId: "actual-request" };
@@ -96,7 +97,8 @@ describe("metric Node-for-Max entry wiring", () => {
       control,
       nativeLifecycle: {
         eventId: "00000000-0000-4000-8000-000000000001",
-        stage: "failed", reason: "metric_cleanup_unconfirmed",
+        stage: "failed",
+        reason: "metric_cleanup_unconfirmed",
       },
     });
     expect(f.clients[0].sendListenerDiagnostic).toHaveBeenCalledWith(
@@ -106,8 +108,14 @@ describe("metric Node-for-Max entry wiring", () => {
         reason: "native_failure_evidence",
         causationId: "00000000-0000-4000-8000-000000000001",
         facts: [
-          { field: "capture.inputFailureReason", actual: { state: "observed", value: "invalid_native_timing" } },
-          { field: "capture.cleanup", actual: { state: "observed", value: "failed" } },
+          {
+            field: "capture.inputFailureReason",
+            actual: { state: "observed", value: "invalid_native_timing" },
+          },
+          {
+            field: "capture.cleanup",
+            actual: { state: "observed", value: "failed" },
+          },
         ],
       }),
     );

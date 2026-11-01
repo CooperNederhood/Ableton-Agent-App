@@ -11,7 +11,7 @@ const evidence = require("./fixtures/native-runtime-io.json");
 const {
   nativeHostBinding,
   nativePreflightTiming,
-} = require("./audio_listener_native_coordinates.js");
+} = require("./fixtures/native-v1-6cceef6/audio_listener_native_coordinates.js");
 const sha = (value) => createHash("sha256").update(value).digest("hex");
 
 test("actual native IO executed every compiled ABI and bounded generation-owned stream", () => {

@@ -1,12 +1,22 @@
 import { spawnSync } from "node:child_process";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, readFile, rm } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import { join, resolve } from "node:path";
 import { expect, it } from "vitest";
 
 import { admitNativeScenarios } from "./lib/native-listening-runner.mjs";
 
 it.each([
+  {
+    id: "native-metric-session-midi-spectrum",
+    group: "native-listening-metric",
+    approveAll: false,
+  },
+  {
+    id: "native-metric-session-midi-eight-bars",
+    group: "native-listening-metric-long",
+    approveAll: false,
+  },
   {
     id: "native-session-midi",
     group: "native-listening-session",
@@ -42,9 +52,11 @@ it.each([
         return error.message;
       },
     );
-    const directory = await mkdtemp(
-      join(tmpdir(), "session-native-admission-"),
+    const directory = resolve(
+      ".test-artifacts",
+      `session-native-admission-${randomUUID()}`,
     );
+    await mkdir(directory, { recursive: true });
     try {
       const output = join(directory, "evidence.json");
       const child = spawnSync(

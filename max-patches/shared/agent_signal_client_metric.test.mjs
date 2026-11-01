@@ -58,7 +58,8 @@ after(async () => {
 });
 
 function setup(mode = "arrangement", partial = false, options = {}) {
-  const raw = createFixture(mode, partial);
+  const { fixtureGeometry = false, ...clientOptions } = options;
+  const raw = createFixture(mode, partial, fixtureGeometry);
   const registration = structuredClone(raw.registration);
   registration.nativeStatus = {
     ...registration.nativeStatus,
@@ -80,7 +81,7 @@ function setup(mode = "arrangement", partial = false, options = {}) {
     onListenerFailure: (reason, job, diagnostic) =>
       failures.push({ reason, job, diagnostic }),
     onListenerControl: (control) => admitted.push(control),
-    ...options
+    ...clientOptions
   });
   client.configureProducer({
     canonicalPath: "live_set tracks 0 devices 0",
@@ -123,6 +124,93 @@ function setup(mode = "arrangement", partial = false, options = {}) {
     statuses
   };
 }
+
+test("matched SDK negotiates 2 MiB and delivers thirty-second complete/partial observations without reduction", () => {
+  for (const { partial, fixtureGeometry, nearCeiling } of [
+    { partial: false, fixtureGeometry: { tempoBpm: 128, endBeat: 64 } },
+    { partial: true, fixtureGeometry: { tempoBpm: 128, endBeat: 64 } },
+    {
+      partial: true,
+      fixtureGeometry: { tempoBpm: 999, endBeat: 499.5 },
+      nearCeiling: true
+    }
+  ]) {
+    const f = setup("session", partial, {
+      fixtureGeometry
+    });
+    if (nearCeiling) {
+      const observation = f.native.observation;
+      for (const metric of observation.requestedMetrics) {
+        const acquisition = observation.metrics[metric];
+        const retained = metric === "level" ? 1 : 0;
+        const source = createFixture("session", false, fixtureGeometry)
+          .observation.metrics[metric];
+        acquisition.gaps = source.records.slice(retained).map((record) => ({
+          firstIndex: record.index,
+          count: 1,
+          ...record.support,
+          reason: "unavailable",
+          detail: "\u754c".repeat(114)
+        }));
+        acquisition.records = source.records.slice(0, retained);
+        acquisition.status = retained ? "partial" : "failed";
+      }
+      observation.rows = codec.createMetricObservationReportRows(observation);
+    }
+    f.client.descriptor = {
+      maxFrameBytes: codec.MAX_METRIC_RESULT_FRAME_BYTES
+    };
+    assert.equal(f.client.maxFrameBytes(), 2 * 1024 * 1024);
+    f.client.handleListenerControl(f.prepare);
+    assert.equal(
+      f.client.sendListenerReply(f.prepare, {
+        status: "ready",
+        nativeReady: f.native.ready
+      }),
+      true
+    );
+    const arm = f.control("arm");
+    f.client.handleListenerControl(arm);
+    assert.equal(
+      f.client.sendListenerReply(arm, {
+        status: "armed",
+        nativeArm: f.native.proof.armed
+      }),
+      true
+    );
+    assert.equal(
+      f.client.sendListenerResult(f.prepare, {
+        status: "progress",
+        nativeLaunch: f.native.proof.launched
+      }),
+      true
+    );
+    assert.equal(
+      f.client.sendListenerResult(f.prepare, {
+        status: partial ? "partial" : "completed",
+        observation: f.native.observation,
+        nativeSourceCoverage: f.native.proof
+      }),
+      true
+    );
+    const terminal = f.writes.at(-1);
+    assert(Buffer.byteLength(JSON.stringify(terminal)) > 128 * 1024);
+    assert.deepEqual(terminal.observation, f.native.observation);
+    assert.equal(
+      terminal.observation.rows.length,
+      f.native.observation.geometry.rows.length
+    );
+    if (nearCeiling)
+      assert(
+        Buffer.byteLength(JSON.stringify(terminal)) >
+          codec.MAX_METRIC_RESULT_FRAME_BYTES - 16_384
+      );
+    assert.equal(terminal.traceId, f.prepare.traceId);
+    assert.equal(f.failures.length, 0);
+    f.client.descriptor.maxFrameBytes = 128 * 1024;
+    assert.equal(f.client.maxFrameBytes(), 128 * 1024);
+  }
+});
 
 test("wire5 constructor accepts canonical cold BLOCKED registration without arming", () => {
   const f = setup();

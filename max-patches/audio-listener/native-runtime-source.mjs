@@ -384,6 +384,21 @@ export function appendNativeRuntimeGraph(
       "thresholdMsg",
       "spacing",
       "spacingMsg",
+      "analysis",
+      "idle",
+      "enabled",
+      "hostTrigger",
+      "host",
+      "hostPack",
+      "snapTrigger",
+      "spectralPoll",
+      "spectralSnapshot",
+      "framePack",
+      "frameMsg",
+      ...Array.from({ length: 7 }, (_, index) => `snap${index}`),
+      "ml_device_preview",
+      "ml_device_state_query",
+      "ml_device_preview_latch",
     ]);
     patcher.boxes = patcher.boxes.filter(({ box }) => !obsolete.has(box.id));
     patcher.lines = patcher.lines.filter(
@@ -394,6 +409,13 @@ export function appendNativeRuntimeGraph(
     if (patcher.parameters) {
       delete patcher.parameters.threshold;
       delete patcher.parameters.spacing;
+    }
+    const adapterInit = patcher.boxes.find(
+      ({ box }) => box.id === "ml_adapter_init",
+    )?.box;
+    if (adapterInit) {
+      adapterInit.text = "trigger b";
+      adapterInit.numoutlets = 1;
     }
   }
   if (guard.numoutlets !== undefined && guard.numoutlets < 3)
@@ -880,8 +902,11 @@ export function nativeRuntimeDocuments({
       `js ${resource("audio_listener_native_io.js")} clock metric-v1`;
     box(fft, "nativeIO").text =
       `js ${resource("audio_listener_native_io.js")} spectrum metric-v1`;
+    // Retained ABI outputs 23/24 are centroid/energy; normalize silence after storage.
     documents["audio_listener_native_spectrum.gendsp"] = genDocument(
-      `${retainedNativeSpectrumSource().code}\nout32 = sourceClock;`,
+      `${retainedNativeSpectrumSource().code}
+out23 = out24 == 0 ? 0 : out23;
+out32 = sourceClock;`,
       7,
       32,
       { outputSpacing: 12 },

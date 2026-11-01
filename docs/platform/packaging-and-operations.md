@@ -1,5 +1,17 @@
 # Packaging and Operations
 
+## Working checkpoint: pending final payload promotion
+
+The single generated production parent and immutable payload reuse are
+implemented, and the prior qualified bundle is installed. A subsequent
+silent-tail regression required a v5-only DSP readback correction plus bounded
+failure-value observability. That newer source bundle is **not yet qualified
+or installed**. Preserve the prior installation receipt's provenance rather
+than treating its successful authentication/hash checks as qualification of
+the newly changed bundle. Resolve the managed silent-tail capture-cleanup
+failure, qualify the final payload, then carry its inventory and immutable
+file hashes through packaging and installation again.
+
 ## Distribution
 
 Ship a signed desktop application for macOS and Windows. The installer should:
@@ -44,7 +56,8 @@ every running copy of Ableton Agent, then run:
 pnpm desktop:install:mac
 ```
 
-This command removes stale release artifacts, restores the pinned dependencies,
+This command reuses the repository's already bootstrapped pinned dependencies,
+removes stale release artifacts,
 runs the production quality and source-mode Electron gates, packages only the
 host architecture, smoke-tests the packaged app, updates the managed Remote
 Script and both Max-device bundles, applies a complete local ad-hoc signature, atomically replaces
@@ -60,17 +73,29 @@ the installed app should remain closed. Skipping Python does not skip either Max
 device or permit Live to remain open. `--user-library <directory>` and
 `--profile <name>` select one explicit destination/profile for all integrations.
 
+Normal Desktop startup enables native-v5 machine-listening discovery and capture
+without automation flags. The receiver and listening host share the same launch
+admission, with a 2 MiB metric-message allowance and unchanged normal approval
+preferences. Isolated automation still requires explicit
+`--automation-metric-listeners`; omitting it keeps that test capability disabled.
+Installing the matching device bundle does not replace device instances already
+referenced by saved Sets. Installed-app review must use a copied Set rebound to
+the installed User Library bundle, or manually replace devices in that copy.
+
 ## Canonical Max-device delivery
 
-The repository owns the authored
-`max-patches/audio-listener/Machine-Listening-Development.amxd`, its current
-native-v4/ABI2 runtime/DSP companions and the canonical
+The authoritative listening patch is JavaScript:
+`max-patches/audio-listener/native-source.mjs` and `native-runtime-source.mjs`.
+`generatedListeningParent` in `scripts/audio-listener-device.mjs` owns the
+common construction and object identities. `Machine-Listening-Development.amxd`
+is generated output, not a separately maintained production input.
+The repository also owns the native-v5/ABI3 metric runtime/DSP companions and the canonical
 `max-patches/midi-capture/Midi-Capture.amxd` with shared producer resources.
 These are build inputs, not permission to copy an arbitrary installed device
 back into source. Neither installation nor packaging runs MIDI promotion or
 uses ignored real-host fixture bundles as release inputs.
 
-The electron-builder lifecycle generates and validates a complete integration
+The electron-builder lifecycle generates or reuses and validates a complete integration
 payload under `apps/desktop/build/ableton-integrations`, including when invoked
 directly by CI or the macOS installer. Packaged resources contain
 `ableton-integrations/` with both portable device bundles and hash manifests.
@@ -78,15 +103,48 @@ No machine-specific profile configuration or credential bodies enter that
 payload. Installation uses bundled code/resources, not a repository checkout
 or a package-manager subprocess in the installed application.
 
-The wire4 listener bundle now declares `measurementDelivery: "retention-v1"`
-and includes `audio_listener_measurements.js` alongside its matching IO and
-retained Gen graphs. Both canonical manifests and the exact managed inventory
-must agree; missing/foreign delivery claims are rejected even if file hashes
-are recomputed. Native ABI2 measurement/proof semantics remain unchanged.
-Runtime arming additionally requires actual coherent native readback from both
-retained producers, not only installed manifest metadata. This new bundle is
-under integration validation and has not replaced the previously installed
-candidate.
+Build the production payload once with `node scripts/build-ableton-integrations.mjs`
+before qualification. The before-pack hook uses `--reuse`: an existing payload
+is validated without rewriting its files; changed graph/resource/codec inputs
+or tampered files cause refusal, not silent regeneration. An absent payload is
+built normally. The local macOS installer uses the same reuse check before
+packaging rather than overwriting an already-qualified payload. After source
+changes, explicitly build a fresh candidate and requalify it; stale existing
+payloads are refused. Building an absent payload is not real-Live qualification.
+
+Use the manifest's device and resource hashes and the integration inventory's
+source identity to bind qualification to the actual bundle, not just v5 version
+metadata. Positive Live fixtures must load this production payload, without a
+test-local generated replacement. Installation preserves listening AMXD/runtime/
+DSP bytes and adds only profile discovery configuration, its manifest entry and
+managed installation metadata. Verify installed immutable hashes against the
+qualified portable bundle. A different source identity is a different candidate.
+Actual normal-profile discovery and capture remain distinct acceptance gates;
+app authentication and successful copying do not certify listening.
+
+The corrected production payload is physically qualified on Live 11.3.43:
+MIDI/audio one-beat captures, repeated captures, MIDI/audio/MIDI switching and
+four-beat MIDI/audio phrases pass with retained reports and verified cleanup.
+Qualification binds payload inventory SHA256
+`3888e9a78a19446d4bdcc7c3030820fb4b06ca8c5f3e150d048c01cdcb9dd53d`;
+the packaged payload is byte-identical. Evidence is
+`.test-artifacts/independent-metric-listening/single-source-production.json`.
+The same immutable listening files are now installed in the normal `default`
+profile and the packaged app is installed at `/Applications/Ableton Agent.app`.
+Installed-byte comparison and installed-app authentication pass. Normal-profile
+capture/restart review and attribution of the earlier invalid-object console
+messages remain separate checks.
+
+The listener builder and artifact checker accept only native v5 and default to
+the canonical JavaScript-generated device. They declare
+`measurementDelivery: "independent-metric-timelines/v1"`, algorithm `3.0.0` and
+the metric observation schema, and package only the matching metric runtime,
+measurements, genuine clock/musical/spectrum IO/DSP and producer companions.
+Retired versions, non-native requests and retired manifest claims are denied;
+old controller/engine imports and runtime/assembler/coordinates publication are
+removed. Historical wire4 retained-delivery deployment evidence and unchanged
+graph sources are not executable packaging fallback. Runtime admission still
+requires actual per-pass native source/clock/cleanup proof, not a manifest claim.
 
 Independent-metric integration has an opt-in protocol compiler,
 `compileNativeMetricProtocol` in `scripts/lib/native-metric-protocol-bundle.mjs`.
@@ -98,8 +156,54 @@ does not write or install a bundle. Caller-owned lifecycle stages cover failure
 and cancellation. External runtime imports, unpinned or changing inputs and
 oversized output are rejected, and the bundled Zod MIT notice is retained.
 Standalone Node loading is a format/contract check, not Max execution evidence.
-Production packaging remains native-v4 until the complete v5 controller, SDK,
-runtime, resource inventory and real-host qualification are ready together.
+The production integration caller and shared payload inventory/validator use the
+same native5/ABI3/algorithm3 bundle and independent metric delivery. Both manifests
+bind compiler/input/lockfile/license provenance to the packaged codec SHA/bytes;
+the managed reader rejects mismatches and unbounded or foreign provenance.
+Validated provenance is returned as a frozen snapshot, including compiler,
+inputs and input records. Its codec size must satisfy the compiler's same
+4 MiB output ceiling, with at most 512 inputs totaling 16 MiB.
+Owned bounded codec compilation stages preserve cancellation and the existing
+atomic publication/rollback behavior. Retired explicit versions fail closed.
+Managed packaging denies engineering selection, and managed reading denies
+fixture metadata or a renamed/rehashed negative entry through the unchanged
+default-entry SHA pin. The application before-pack hook calls this same
+lifecycle-backed production CLI; MIDI payload rendering/inventory is unchanged.
+That source-role pin and deterministic packaging checks are not qualification
+certificates.
+Fresh real-host qualification and installation remain parent-owned gates,
+separate from these source-only package checks.
+Every staged manifest remains `realLiveValidated: false`.
+
+An engineering-only negative v5 candidate can be staged through the builder API
+with `nativeMode: true`, `nativeVersion: 5`, `engineeringOnly: true` and
+`engineeringFixture: "native5-unavailable-spectrum/v1"`, plus the existing
+explicit authored source and lifecycle stage. This is not an agent permission,
+production profile/environment switch, installer option, or qualification claim.
+It selects `audio_listener_native_v5_unavailable_spectrum_max.js` while retaining
+the default v5 generated DSP documents. Spectral acquisition is not started;
+the controller's existing unknown-phase path returns no FFT records, no invented
+first endpoint, and no spectral cleanup receipt for an unowned source. Measured
+level/attacks and shared clock/envelope cleanup remain mandatory. An all-three
+request can therefore be honestly partial; spectrum-only remains blocked.
+The separately declared entry injects a controller factory that overrides only
+spectral acquisition and adds fixture-only lifecycle attribution. The shared
+runtime, default v5 entry and generated DSP documents remain byte-identical;
+default v5 still enables actual spectrum acquisition.
+
+Negative-scenario pins must bind the manifest's
+`engineeringFixture.id`, `engineeringFixture.runtimeEntry`,
+`engineeringFixture.runtimeEntrySha256`, `deviceSha256`, complete resource
+hash inventory and `metricProtocol` provenance to the same staged bundle.
+The fixture manifest uses `native-metric-engineering-fixture/v1`, declares
+`sourceSemantics: "spectral-acquisition-not-started"` and remains
+`realLiveValidated: false`. Artifact checking rejects missing/foreign fixture
+metadata or relabeling a default bundle. Build lifecycle attributes contain the
+bounded fixture identifier. The fixture entry uses the existing Max API diagnostic
+log to attribute spectral failure to that identifier and its owned lifecycle
+event/generation/epoch, without changing normal bridge failure evidence or
+including code/audio. Deterministic source tests are not real Max/Live
+qualification.
 
 The common CLI installs all host integrations:
 

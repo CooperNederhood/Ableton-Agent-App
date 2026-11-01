@@ -327,4 +327,5 @@ export function createSyntheticNativeSessionListeningFixture(
 export {
   createSyntheticMetricListeningObservation,
   createSyntheticPartialMetricListeningObservation,
+  createSyntheticMetricSpectrumEvidence,
 } from "./metric-testing.js";

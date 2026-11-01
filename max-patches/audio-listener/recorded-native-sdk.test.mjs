@@ -175,6 +175,14 @@ test("historical native math and SDK provenance stay pinned separately from unqu
     ...evidence.sdkCodeSha256,
   })) {
     if (!name.endsWith(".js")) continue;
+    if (name === "audio_listener_native_max.js") {
+      assert.equal(
+        expected,
+        "84d6432d43526e2f9469e8fdcd06a08a6a959aeee3c4ae5e1c0a661a942454db",
+        "retired entry retains recorded hash provenance, not current-runtime qualification",
+      );
+      continue;
+    }
     const revision = revisions.currentSourceSnapshot[name];
     if (revision) assert.equal(revision.baselineSha256, expected);
     const source = historicalNativeSourceURL(name);

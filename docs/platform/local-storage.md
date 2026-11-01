@@ -168,9 +168,32 @@ credential-redacted `audio-observation/v1`, `audio-observation/v2`,
 only, with exact entry-kind/payload-version agreement. V2 retains approximate,
 descriptive-only quality and unknown absolute timing error in both detail and
 bounded summaries; it cannot certify exclusive attribution. Raw audio and
-arbitrary JSON are not accepted. The default limits are 256 KiB per entry, 2 MiB per pass
-and 32 MiB per App-session store. Full-store failure is visible and does not
+arbitrary JSON are not accepted. Legacy entry limits remain 256 KiB.
+Independent metric observations allow the protocol's 2 MiB processed payload
+plus at most 16 KiB of UTF-8 JSON entry framing and metadata (entry/ownership
+IDs, producer, timestamps, trace and the enclosing `payload` field). Metric
+entries therefore have a 2 MiB + 16 KiB serialized ceiling; both the total
+entry and its metadata portion are checked after credential sanitation.
+Publication admission measures the complete serialized
+`{pass, subjects, entries, links}` object, not just observation payloads.
+Its ceiling is eight metric entry ceilings plus 1 MiB for bounded
+pass/subject/link framing: 17.125 MiB (17,956,864 bytes). Schema count limits do
+not grant permission for arbitrarily large metadata: the aggregate byte ceiling
+still applies. These quotas allow an atomic eight-listener metric pass without
+enlarging unrelated observation-kind protocol limits.
+
+The physical exported SQLite store remains capped at 32 MiB per App session,
+including database/index overhead and outstanding pass reservations. A full
+eight-listener pass fits a fresh store; existing history can still require
+explicit reviewed pruning before reservation or publication. Full-store failure is visible and does not
 silently evict observations.
+Quota failure/cancellation rolls back the entire publication; releasing the
+reservation or closing its owner releases admission capacity. Reopen preserves
+immutable exact native records, gaps, musical rows and causal attribution.
+Typed inventory queries paginate compact summaries without copying measurement
+records/rows. LLM report-page and Desktop IPC result ceilings are unchanged;
+storage admission is not permission to send a full large entry through either
+boundary.
 
 Session and independent-metric observations add registered kinds without changing
 the database format, schema version two, canonical path or historical semantics.
@@ -186,7 +209,7 @@ windows. These processed features are not raw audio or reconstructed musical
 level rows. Retained attack inputs form a validated prefix; missing input ends
 that detector's trustworthy coverage rather than inventing later event absence.
 Missing musical-level delivery does not invalidate independently retained
-detector inputs. Existing quotas, pruning, retention,
+detector inputs. Explicit pruning, 32 MiB store retention,
 profile/session ownership and redaction remain unchanged. Geometry count limits
 do not override byte admission. This stored-kind extension is not authorization
 for unnegotiated native capture.

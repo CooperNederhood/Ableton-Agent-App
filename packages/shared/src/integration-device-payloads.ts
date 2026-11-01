@@ -17,7 +17,27 @@ export interface IntegrationDevicePayload {
   readonly pathPlaceholder?: string;
   readonly nativeVersion?: number;
   readonly nativeAbiVersion?: number;
-  readonly measurementDelivery?: "retention-v1";
+  readonly measurementDelivery?: "independent-metric-timelines/v1";
+  readonly metricProtocol?: NativeMetricProtocolProvenance;
+}
+export interface NativeMetricProtocolProvenance {
+  readonly schema: "native-metric-protocol-bundle/v1";
+  readonly entry: string;
+  readonly compiler: {
+    readonly name: "esbuild";
+    readonly version: string;
+    readonly format: "cjs";
+    readonly syntaxTarget: "es2020";
+  };
+  readonly bytes: number;
+  readonly sha256: string;
+  readonly lockfileSha256: string;
+  readonly licenseSha256: string;
+  readonly inputs: readonly {
+    readonly path: string;
+    readonly bytes: number;
+    readonly sha256: string;
+  }[];
 }
 export const INTEGRATION_PAYLOAD_MANIFEST = "integration-devices.json";
 export const MIDI_CAPTURE_PATH_PLACEHOLDER =
@@ -28,23 +48,19 @@ export const INTEGRATION_DEVICE_INVENTORY = {
     files: [
       "Machine-Listening-Development.amxd",
       "audio-listener-manifest.json",
-      "audio_listener_engine.js",
-      "audio_listener_native_coordinates.js",
-      "audio_listener_native_assembler.js",
-      "audio_listener_native_controller.js",
-      "audio_listener_runtime.js",
-      "audio_listener_max.js",
       "audio_listener_guard.js",
       "package.json",
-      "audio_listener_analysis.maxpat",
-      "audio_listener_spectrum.maxpat",
-      "audio_listener_envelope.gendsp",
-      "audio_listener_spectrum_energy.gendsp",
       "agent_signal_client_common.js",
       "producer_identity_common.js",
-      "audio_listener_native_v4_max.js",
+      "audio_listener_native_v5_max.js",
+      "audio_listener_metric_runtime.js",
+      "audio_listener_metric_controller.js",
+      "audio_listener_metric_spectrum.js",
+      "audio_listener_metric_io.js",
+      "audio_listener_metric_timelines.js",
       "audio_listener_native_io.js",
       "audio_listener_measurements.js",
+      "audio_listener_metric_protocol.js",
       "audio_listener_native_clock.gendsp",
       "audio_listener_native_envelope.gendsp",
       "audio_listener_native_spectrum.gendsp",
@@ -71,6 +87,107 @@ function record(value: unknown): Record<string, unknown> {
   if (value === null || typeof value !== "object" || Array.isArray(value))
     throw new Error("Invalid integration payload object");
   return value as Record<string, unknown>;
+}
+
+function metricProtocolProvenance(
+  value: unknown,
+  codec: { sha256: string; bytes: number } | undefined,
+): NativeMetricProtocolProvenance {
+  try {
+    const protocol = record(value);
+    const compiler = record(protocol.compiler);
+    if (
+      !sameNames(Object.keys(protocol), [
+        "schema",
+        "entry",
+        "compiler",
+        "bytes",
+        "sha256",
+        "lockfileSha256",
+        "licenseSha256",
+        "inputs",
+      ]) ||
+      !sameNames(Object.keys(compiler), [
+        "name",
+        "version",
+        "format",
+        "syntaxTarget",
+      ]) ||
+      protocol.schema !== "native-metric-protocol-bundle/v1" ||
+      protocol.entry !==
+        "max-patches/audio-listener/audio_listener_metric_protocol.mjs" ||
+      compiler.name !== "esbuild" ||
+      compiler.format !== "cjs" ||
+      compiler.syntaxTarget !== "es2020" ||
+      typeof compiler.version !== "string" ||
+      !/^[0-9A-Za-z.+-]{1,64}$/.test(compiler.version) ||
+      !codec ||
+      codec.bytes > 4 * 1024 * 1024 ||
+      protocol.sha256 !== codec.sha256 ||
+      protocol.bytes !== codec.bytes ||
+      ![protocol.sha256, protocol.lockfileSha256, protocol.licenseSha256].every(
+        (hash) => typeof hash === "string" && /^[0-9a-f]{64}$/.test(hash),
+      ) ||
+      !Array.isArray(protocol.inputs) ||
+      protocol.inputs.length < 1 ||
+      protocol.inputs.length > 512
+    )
+      throw new Error();
+    const paths = new Set<string>();
+    let bytes = 0;
+    const inputs = Object.freeze(
+      protocol.inputs
+        .map((value: unknown) => {
+          const input = record(value);
+          if (
+            !sameNames(Object.keys(input), ["path", "bytes", "sha256"]) ||
+            typeof input.path !== "string" ||
+            input.path.length > 1024 ||
+            (input.path !== protocol.entry &&
+              !/^(?:packages\/(?:protocol|signal-routing)\/src\/|dependency:zod\/)[A-Za-z0-9_.-]+(?:\/[A-Za-z0-9_.-]+)*\.(?:[cm]?[jt]s|json)$/.test(
+                input.path,
+              )) ||
+            input.path
+              .split("/")
+              .some((part) => part === "." || part === "..") ||
+            paths.has(input.path) ||
+            typeof input.bytes !== "number" ||
+            !Number.isSafeInteger(input.bytes) ||
+            input.bytes < 1 ||
+            typeof input.sha256 !== "string" ||
+            !/^[0-9a-f]{64}$/.test(input.sha256)
+          )
+            throw new Error();
+          paths.add(input.path);
+          bytes += input.bytes;
+          if (bytes > 16 * 1024 * 1024) throw new Error();
+          return Object.freeze({
+            path: input.path,
+            bytes: input.bytes,
+            sha256: input.sha256,
+          });
+        })
+        .sort((a, b) => a.path.localeCompare(b.path)),
+    );
+    if (!paths.has(protocol.entry)) throw new Error();
+    return Object.freeze({
+      schema: "native-metric-protocol-bundle/v1",
+      entry: protocol.entry,
+      compiler: Object.freeze({
+        name: "esbuild",
+        version: compiler.version,
+        format: "cjs",
+        syntaxTarget: "es2020",
+      }),
+      bytes: codec.bytes,
+      sha256: codec.sha256,
+      lockfileSha256: protocol.lockfileSha256 as string,
+      licenseSha256: protocol.licenseSha256 as string,
+      inputs,
+    });
+  } catch {
+    throw new Error("Invalid canonical metric protocol provenance");
+  }
 }
 function sameNames(
   actual: readonly string[],
@@ -193,10 +310,10 @@ function validateWiring(raw: Buffer, id: IntegrationDeviceId): void {
       throw new Error("Unexpected listening path placeholder");
     owned(
       "ml_runtime",
-      "node.script audio_listener_native_v4_max.js @autostart 1 @watch 0",
+      "node.script audio_listener_native_v5_max.js @autostart 1 @watch 0",
     );
     owned("ml_identity", "js producer_identity_common.js watch");
-    owned("ml_guard", "js audio_listener_guard.js 4");
+    owned("ml_guard", "js audio_listener_guard.js 5");
     owned("ml_scoped_native_control", "route native_control");
     for (const text of [
       "plugin~",
@@ -214,6 +331,48 @@ function validateWiring(raw: Buffer, id: IntegrationDeviceId): void {
     }
     const byName = (name: string) =>
       boxes.find((box) => box.varname === name)?.id;
+    const uniqueObject = (text: string) => {
+      const matches = boxes.filter((box) => box.text === text);
+      if (matches.length !== 1)
+        throw new Error("Ambiguous listening startup object");
+      return matches[0]!.id;
+    };
+    const identity = byName("ml_identity");
+    const runtime = byName("ml_runtime");
+    const init = uniqueObject("live.thisdevice");
+    const dsp = uniqueObject("dspstate~");
+    const dspPack = uniqueObject("pack dsp 0 0. 0");
+    const adapter = uniqueObject("route adapter-started");
+    const startup = uniqueObject("trigger b");
+    for (const [from, outlet, to, inlet] of [
+      [init, 0, identity, 0],
+      [identity, 0, runtime, 0],
+      [dsp, 0, dspPack, 1],
+      [dsp, 1, dspPack, 2],
+      [dsp, 2, dspPack, 3],
+      [dspPack, 0, runtime, 0],
+      [byName("ml_scoped_native_control"), 1, adapter, 0],
+      [adapter, 0, startup, 0],
+      [startup, 0, init, 0],
+    ] as const)
+      if (!connected(from, outlet, to, inlet))
+        throw new Error("Missing listening identity/DSP startup wiring");
+    const inputs = new Set([
+      identity,
+      dspPack,
+      byName("ml_scoped_native_clock"),
+      byName("ml_scoped_native_analysis"),
+    ]);
+    for (const entry of patcher.lines) {
+      const line = record(record(entry).patchline);
+      if (
+        Array.isArray(line.destination) &&
+        line.destination[0] === runtime &&
+        Array.isArray(line.source) &&
+        !inputs.has(line.source[0])
+      )
+        throw new Error("Unsupported listening runtime input");
+    }
     for (const [from, outlet, to, inlet] of [
       ["ml_runtime", 0, "ml_scoped_native_control", 0],
       ["ml_scoped_native_control", 0, "ml_scoped_native_clock", 0],
@@ -310,10 +469,12 @@ export async function readIntegrationDevicePayloads(
       throw new Error("Integration device inventory mismatch");
     if (
       id === "machine-listening" &&
-      (entry.nativeVersion !== 4 ||
-        entry.nativeAbiVersion !== 2 ||
-        entry.measurementDelivery !== "retention-v1" ||
-        entry.algorithmVersion !== "2.0.0")
+      (entry.nativeVersion !== 5 ||
+        entry.nativeAbiVersion !== 3 ||
+        entry.measurementDelivery !== "independent-metric-timelines/v1" ||
+        entry.algorithmVersion !== "3.0.0" ||
+        Object.hasOwn(entry, "engineeringFixture") ||
+        Object.hasOwn(entry, "engineeringOnly"))
     )
       throw new Error("Integration native version mismatch");
     if (
@@ -349,6 +510,7 @@ export async function readIntegrationDevicePayloads(
       contents.set(file.name, raw);
     }
     validateWiring(contents.get(expected.deviceFile)!, id);
+    let metricProtocol: NativeMetricProtocolProvenance | undefined;
     if (id === "machine-listening") {
       const native = record(
         JSON.parse(
@@ -356,10 +518,10 @@ export async function readIntegrationDevicePayloads(
         ),
       );
       if (
-        native.nativeVersion !== 4 ||
-        native.nativeAbiVersion !== 2 ||
-        native.measurementDelivery !== "retention-v1" ||
-        native.algorithmVersion !== "2.0.0" ||
+        native.nativeVersion !== 5 ||
+        native.nativeAbiVersion !== 3 ||
+        native.measurementDelivery !== "independent-metric-timelines/v1" ||
+        native.algorithmVersion !== "3.0.0" ||
         native.nativeMode !== true ||
         native.authored !== true ||
         native.portable !== true ||
@@ -370,8 +532,8 @@ export async function readIntegrationDevicePayloads(
         throw new Error("Invalid canonical native manifest");
       if (
         native.formatVersion !== 2 ||
-        native.nativeScope !== "mode-negotiated-transport/v1" ||
-        native.observationSchema !== "audio-observation/v2" ||
+        native.nativeScope !== "independent-metric-timelines/v1" ||
+        native.observationSchema !== "metric-audio-observation/v1" ||
         native.sharedTransportProtocolVersion !== 1 ||
         !Array.isArray(native.supportedModes) ||
         !sameNames(native.supportedModes, ["arrangement", "session"]) ||
@@ -379,6 +541,13 @@ export async function readIntegrationDevicePayloads(
         native.sourceEvidence !== undefined ||
         native.synchronization !== undefined ||
         native.maxDurationBeats !== undefined ||
+        native.maxAudioDurationMs !== undefined ||
+        native.maxWindows !== undefined ||
+        Object.hasOwn(native, "engineeringFixture") ||
+        Object.hasOwn(native, "engineeringOnly") ||
+        native.listenerResourcesPortable !== true ||
+        native.tempoPolicy !== "constant-tempo-assumed" ||
+        native.tempoAutomationSupported !== false ||
         native.realLiveValidated !== false ||
         native.deviceSha256 !==
           files.find(({ name }) => name === expected.deviceFile)?.sha256 ||
@@ -388,8 +557,15 @@ export async function readIntegrationDevicePayloads(
       const limits = record(native.providerLimits);
       if (
         limits.durationMs !== 30_000 ||
-        limits.maxWindows !== 300 ||
+        limits.maxWindows !== 2000 ||
         limits.envelopeUpdatesPerSecond !== 10
+      )
+        throw new Error("Invalid canonical native provider limits");
+      const ceilings = record(native.planningCeilings);
+      if (
+        ceilings.watchdogMs !== 60_000 ||
+        ceilings.observationPoints !== 1024 ||
+        ceilings.attackCandidates !== 512
       )
         throw new Error("Invalid canonical native provider limits");
       const expectedResources = expected.files.filter(
@@ -418,6 +594,16 @@ export async function readIntegrationDevicePayloads(
         )
           throw new Error("Canonical native resource hash mismatch");
       }
+      const codec = files.find(
+        ({ name }) => name === "audio_listener_metric_protocol.js",
+      );
+      metricProtocol = metricProtocolProvenance(native.metricProtocol, codec);
+      if (
+        JSON.stringify(
+          metricProtocolProvenance(entry.metricProtocol, codec),
+        ) !== JSON.stringify(metricProtocol)
+      )
+        throw new Error("Canonical metric protocol provenance mismatch");
       const companionPackage = record(
         JSON.parse(contents.get("package.json")!.toString("utf8")),
       );
@@ -427,10 +613,11 @@ export async function readIntegrationDevicePayloads(
       )
         throw new Error("Native companions must remain portable CommonJS");
       if (
-        !contents
-          .get("audio_listener_native_v4_max.js")!
-          .toString("utf8")
-          .includes("nativeVersion: 4")
+        // Pin the unchanged default entry itself: a renamed/rehashed engineering
+        // factory is not a production entry, even without fixture metadata.
+        files.find(({ name }) => name === "audio_listener_native_v5_max.js")
+          ?.sha256 !==
+        "0e433939b4146340591b83b61fb671bff8bb46f18fa8e87c6360531f0ba8d163"
       )
         throw new Error("Invalid native runtime version");
     }
@@ -441,9 +628,10 @@ export async function readIntegrationDevicePayloads(
       files,
       ...(id === "machine-listening"
         ? {
-            nativeVersion: 4,
-            nativeAbiVersion: 2,
-            measurementDelivery: "retention-v1",
+            nativeVersion: 5,
+            nativeAbiVersion: 3,
+            measurementDelivery: "independent-metric-timelines/v1",
+            metricProtocol: metricProtocol!,
           }
         : { pathPlaceholder: MIDI_CAPTURE_PATH_PLACEHOLDER }),
     });

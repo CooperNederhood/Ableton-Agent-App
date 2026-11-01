@@ -99,9 +99,12 @@ function findTrack() {
 function buildIdentity() {
   var deviceApi = makeApi("live_set this_device");
   var deviceId = numericId(deviceApi);
+  if (!deviceId) {
+    return null;
+  }
   var canonicalPath = apiPath(deviceApi);
   var deviceName = apiName(deviceApi);
-  if (!deviceId || !canonicalPath || !deviceName) {
+  if (!canonicalPath || !deviceName) {
     return null;
   }
 
@@ -110,9 +113,12 @@ function buildIdentity() {
     return null;
   }
   var trackId = numericId(trackApi);
+  if (!trackId) {
+    return null;
+  }
   var trackPath = apiPath(trackApi);
   var trackName = apiName(trackApi);
-  if (!trackId || !trackPath || !trackName) {
+  if (!trackPath || !trackName) {
     return null;
   }
 

@@ -11,6 +11,7 @@ import {
 import {
   createSyntheticMetricListeningObservation,
   createSyntheticPartialMetricListeningObservation,
+  createSyntheticMetricSpectrumEvidence,
 } from "@ableton-agent/protocol/testing";
 import {
   LISTENER_CAPABILITY_METRIC,
@@ -25,7 +26,7 @@ export type NativeHostClockRow = z.infer<typeof nativeHostClockRowSchema>;
 export function createSyntheticMetricWireFixture(
   mode: "arrangement" | "session" = "arrangement",
   partial = false,
-  large = false,
+  large: boolean | { tempoBpm: number; endBeat: number } = false,
 ) {
   const observation = (
     partial
@@ -33,7 +34,11 @@ export function createSyntheticMetricWireFixture(
       : createSyntheticMetricListeningObservation
   )({
     startSample: 200_000,
-    ...(large ? { tempoBpm: 999, endBeat: 80 } : {}),
+    ...(typeof large === "object"
+      ? large
+      : large
+        ? { tempoBpm: 999, endBeat: 80 }
+        : {}),
   });
   const ownership = observation.ownership;
   const wire = {
@@ -237,6 +242,12 @@ export function createSyntheticMetricWireFixture(
       maxPhaseDisagreement: extreme(playing, phase, true),
     },
     postElapsedMs: 100,
+    ...createSyntheticMetricSpectrumEvidence({
+      ownership: owner,
+      clock: { dsp: [1, g.sampleRate, g.vectorSize], frames: before },
+      firstAcquisitionEndpoint: origin - 8192,
+      stopWatermark: after[0]![4],
+    }),
   });
   observation.alignment = {
     ...assertNativeMetricSourceCoverage(proof, { ...owner, config }).alignment,
@@ -329,10 +340,13 @@ export function bindMetricFixtureToControl(
     bound.ready.ownership,
     bound.proof.armed.ownership,
     bound.proof.launched.ownership,
+    ...(bound.proof.spectrumPhase ? [bound.proof.spectrumPhase.ownership] : []),
     bound.observation.ownership,
     bound.registration.nativeStatus.executedGen.ownership,
   ])
     Object.assign(owner, ownership);
   bound.registration.connectionEpoch = control.connectionEpoch;
+  if (bound.proof.spectrumCleanup)
+    bound.proof.spectrumCleanup.generation = control.generation;
   return bound;
 }

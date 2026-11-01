@@ -36,6 +36,12 @@ Companion reference: [Ableton Tool List](tool-list.md)
 - [x] Document the application rejection inventory, pre-pass attempt telemetry
   without fabricated pass IDs, explicit coverage gaps, and fresh-per-pass
   commissioning semantics in listener inspection and agent guidance.
+- [x] Correct wire5 production descriptions and regressions after human review:
+  per-pass readiness is not permanent commissioning failure; descriptive
+  completion is not proof of within-target timing; a startup phase maximum is
+  not uniform measured latency. Preserve observed timing and unknown absolute
+  accuracy. Remove stale v2/100 ms reporting and legacy-capture fallback guidance
+  while preserving historical context reads and unchanged capture guards.
 - [ ] Complete the cross-owner real-journal/typed History, SDK and Desktop
   end-to-end observability release gate; application/tool unit evidence alone
   does not qualify a native capture or the user's current Session Set.

@@ -58,8 +58,7 @@ interface PackagedDesktopWindow {
 
 function packagedResources(directory: string): string {
   const explicit = process.env.ABLETON_AGENT_PACKAGED_EXECUTABLE?.trim();
-  if (explicit)
-    return join(dirname(dirname(explicit)), "Resources");
+  if (explicit) return join(dirname(dirname(explicit)), "Resources");
   return join(
     releaseRoot,
     directory,
@@ -146,6 +145,10 @@ test("launches the generated production application", async () => {
   const profile = await mkdtemp(
     join(process.cwd(), "ableton-agent-packaged-electron-"),
   );
+  const storage = resolveLiveAgentStorage({
+    environment: { LIVE_AGENT_HOME: join(profile, "live-agent") },
+    profile: "default",
+  });
   const application = await electron.launch({
     executablePath: await packagedExecutable(),
     args: [`--user-data-dir=${join(profile, "electron")}`],
@@ -182,8 +185,22 @@ test("launches the generated production application", async () => {
     await expect(
       window.getByRole("navigation", { name: "Application views" }),
     ).toBeVisible();
+    await expect
+      .poll(() =>
+        window.evaluate(() =>
+          (window as unknown as PackagedDesktopWindow).desktop.lifecycle.get(),
+        ),
+      )
+      .toMatch(/^(ready|degraded)$/u);
+    const descriptor: unknown = JSON.parse(
+      await readFile(storage.signalIngressDescriptorPath, "utf8"),
+    );
+    expect(descriptor).toMatchObject({ listenerVersions: [5] });
   } finally {
     await application.close();
+    await expect(
+      access(storage.signalIngressDescriptorPath),
+    ).rejects.toMatchObject({ code: "ENOENT" });
     await rm(profile, { recursive: true, force: true });
   }
 });
@@ -196,6 +213,13 @@ test("installs both canonical Max bundles and Remote Script from packaged resour
     const executable = await packagedExecutable();
     const resources = resolve(dirname(executable), "../Resources");
     const payload = join(resources, "ableton-integrations");
+    expect(await readFile(join(payload, "integration-devices.json"))).toEqual(
+      await readFile(
+        resolve(
+          "apps/desktop/build/ableton-integrations/integration-devices.json",
+        ),
+      ),
+    );
     const devices = await readIntegrationDevicePayloads(payload);
     expect(devices.map(({ id }) => id).sort()).toEqual([
       "machine-listening",
@@ -268,6 +292,13 @@ test("installs both canonical Max bundles and Remote Script from packaged resour
         await expect(
           access(join(installed, file.name)),
         ).resolves.toBeUndefined();
+      if (device.id === "machine-listening")
+        for (const file of device.files) {
+          if (file.name === "audio-listener-manifest.json") continue;
+          expect(await readFile(join(installed, file.name))).toEqual(
+            await readFile(join(device.sourceDirectory, file.name)),
+          );
+        }
     }
     const second = await promisify(execFile)(executable, args, {
       cwd: root,

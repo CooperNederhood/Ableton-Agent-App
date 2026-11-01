@@ -10,8 +10,13 @@ import {
 } from "node:fs/promises";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { build as buildListening } from "./audio-listener-device.mjs";
+import {
+  build as buildListening,
+  checkCurrentArtifact,
+} from "./audio-listener-device.mjs";
 import { producerCompanionSource } from "./m4l-producer-companions.mjs";
+import { createNativeRunnerLifecycle } from "./lib/native-listening-lifecycle.mjs";
+import { sanitizeTelemetryAttributes } from "../packages/observability/dist/sanitizer.js";
 import {
   INTEGRATION_DEVICE_INVENTORY,
   INTEGRATION_PAYLOAD_MANIFEST,
@@ -47,6 +52,32 @@ export async function buildAbletonIntegrations(
   const stage = `${destination}.staged-${randomUUID()}`;
   const backup = `${destination}.previous-${randomUUID()}`;
   const startedAt = Date.now();
+  const traceId = randomUUID();
+  const trace = Object.fromEntries(
+    ["traceId", "correlationId", "causationId"].map((key) => [
+      key,
+      typeof options[key] === "string" &&
+      /^[A-Za-z0-9_.:-]{1,128}$/.test(options[key])
+        ? options[key]
+        : traceId,
+    ]),
+  );
+  const lifecycle = createNativeRunnerLifecycle({
+    signal: options.signal,
+    trace,
+    sanitize: sanitizeTelemetryAttributes,
+    telemetry: {
+      enqueue(event) {
+        try {
+          options.onEvent?.({ ...event, operation: "m4l.integrations.stage" });
+        } catch {
+          /* Observers cannot interrupt publication. */
+        }
+      },
+    },
+  });
+  const packageStage = options.stage ?? lifecycle.stage;
+  const publicationOptions = { ...options, ...trace, stage: packageStage };
   const emit = (phase, errorCode) => {
     try {
       options.onEvent?.({
@@ -54,11 +85,7 @@ export async function buildAbletonIntegrations(
         stage: phase,
         durationMs: Date.now() - startedAt,
         ...(errorCode ? { errorCode } : {}),
-        ...Object.fromEntries(
-          ["traceId", "correlationId", "causationId"]
-            .filter((key) => typeof options[key] === "string")
-            .map((key) => [key, options[key]]),
-        ),
+        ...trace,
       });
     } catch {
       /* Observers cannot interrupt publication. */
@@ -70,6 +97,39 @@ export async function buildAbletonIntegrations(
   try {
     cancelled();
     emit("started");
+    if (
+      ["engineeringFixture", "engineeringOnly", "spectrumEnabled"].some(
+        (field) => Object.hasOwn(options, field),
+      )
+    )
+      throw new Error(
+        "Engineering fixture selection is forbidden in production packaging",
+      );
+    if (
+      (Object.hasOwn(options, "nativeVersion") &&
+        options.nativeVersion !== 5) ||
+      (Object.hasOwn(options, "nativeMode") && options.nativeMode !== true)
+    )
+      throw new Error("Production integration packaging requires native v5");
+    if (options.reuse === true) {
+      let existing = false;
+      try {
+        await lstat(join(destination, INTEGRATION_PAYLOAD_MANIFEST));
+        existing = true;
+      } catch (error) {
+        if (error.code !== "ENOENT") throw error;
+      }
+      if (existing) {
+        await readIntegrationDevicePayloads(destination);
+        await checkCurrentArtifact(join(destination, "machine-listening"), {
+          stage: packageStage,
+          signal: options.signal,
+        });
+        cancelled();
+        emit("completed");
+        return destination;
+      }
+    }
     try {
       const metadata = await lstat(destination);
       if (!metadata.isDirectory() || metadata.isSymbolicLink())
@@ -83,24 +143,23 @@ export async function buildAbletonIntegrations(
       if (error.code !== "ENOENT") throw error;
     }
     await mkdir(stage, { recursive: true });
-    await buildListening(join(stage, "machine-listening"), {
-      ...options,
-      authoredDevicePath: join(
-        source,
-        "audio-listener",
-        "Machine-Listening-Development.amxd",
-      ),
-      keepMcpBridge: false,
-      nativeMode: true,
-      nativeVersion: 4,
-    });
+    const listeningManifest = await buildListening(
+      join(stage, "machine-listening"),
+      {
+        ...publicationOptions,
+        keepMcpBridge: false,
+        nativeMode: true,
+        nativeVersion: 5,
+        stage: packageStage,
+      },
+    );
     emit("progress");
     cancelled();
     const midiSource = join(source, "midi-capture");
     const midiDestination = join(stage, "midi-capture");
     const midiInventory = INTEGRATION_DEVICE_INVENTORY["midi-capture"];
     await publishResources({
-      ...options,
+      ...publicationOptions,
       destinationDirectory: midiDestination,
       resources: midiInventory.files
         .filter((name) => name !== midiInventory.deviceFile)
@@ -142,10 +201,11 @@ export async function buildAbletonIntegrations(
         files,
         ...(id === "machine-listening"
           ? {
-              nativeVersion: 4,
-              nativeAbiVersion: 2,
-              algorithmVersion: "2.0.0",
-              measurementDelivery: "retention-v1",
+              nativeVersion: 5,
+              nativeAbiVersion: 3,
+              algorithmVersion: "3.0.0",
+              measurementDelivery: "independent-metric-timelines/v1",
+              metricProtocol: listeningManifest.metricProtocol,
             }
           : { pathPlaceholder: MIDI_CAPTURE_PATH_PLACEHOLDER }),
       });
@@ -190,14 +250,19 @@ export async function buildAbletonIntegrations(
 }
 
 export async function main(argv = process.argv.slice(2)) {
+  const reuse = argv.includes("--reuse");
+  argv = argv.filter((argument) => argument !== "--reuse");
   if (
     argv.length !== 0 &&
     (argv.length !== 2 || argv[0] !== "--out" || !argv[1])
   )
     throw new Error(
-      "Usage: node scripts/build-ableton-integrations.mjs [--out directory]",
+      "Usage: node scripts/build-ableton-integrations.mjs [--reuse] [--out directory]",
     );
-  const output = await buildAbletonIntegrations(argv[1]);
+  const output = await buildAbletonIntegrations(argv[1], {
+    reuse,
+    onEvent: (event) => console.error(JSON.stringify(event)),
+  });
   console.log(`Built canonical Ableton integrations: ${output}`);
 }
 if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {

@@ -1,15 +1,24 @@
 import { z } from "zod";
 import {
+  MAX_METRIC_OBSERVATION_BYTES,
   audioObservationKindSchema,
   storedAudioObservationSchema,
 } from "@ableton-agent/protocol";
 
+const listenersPerPass = 8;
+const metricEntryMetadataBytes = 16 * 1_024;
+const metricEntryBytes =
+  MAX_METRIC_OBSERVATION_BYTES + metricEntryMetadataBytes;
+
 export const CONTEXT_LIMITS = Object.freeze({
-  listenersPerPass: 8,
+  listenersPerPass,
   pageSize: 100,
   revalidationsPerQuery: 100,
   entryBytes: 256 * 1_024,
-  passBytes: 2 * 1_024 * 1_024,
+  metricEntryMetadataBytes,
+  metricEntryBytes,
+  // Publication JSON includes subjects, links and the pass as well as entries.
+  passBytes: listenersPerPass * metricEntryBytes + 1_024 * 1_024,
   storeBytes: 32 * 1_024 * 1_024,
   pendingOperations: 32,
 });

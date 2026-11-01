@@ -3,6 +3,7 @@ import { connect } from "node:net";
 import { afterEach, describe, expect, expectTypeOf, it, vi } from "vitest";
 import {
   createMetricObservationReportRows,
+  MAX_METRIC_RESULT_FRAME_BYTES,
   metricAudioObservationSchema,
   nativeMetricListeningConfigSchema,
   readListeningFailureEvidence,
@@ -46,8 +47,12 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-function seed(mode: "arrangement" | "session", partial = false): Fixture {
-  const f = createSyntheticMetricWireFixture(mode, partial);
+function seed(
+  mode: "arrangement" | "session",
+  partial = false,
+  geometry: false | { tempoBpm: number; endBeat: number } = false,
+): Fixture {
+  const f = createSyntheticMetricWireFixture(mode, partial, geometry);
   if (f.observation.source.view === "arrangement")
     f.observation.source.target = {
       kind: "regular",
@@ -71,8 +76,9 @@ class Service extends SyntheticMetricListenerPeer {
   constructor(
     mode: "arrangement" | "session" = "arrangement",
     partial = false,
+    geometry: false | { tempoBpm: number; endBeat: number } = false,
   ) {
-    const data = seed(mode, partial);
+    const data = seed(mode, partial, geometry);
     const descriptor: ListenerDescriptor = {
       connectionId: randomUUID(),
       binding: { trackId: "17", deviceId: "29" },
@@ -122,6 +128,30 @@ class Service extends SyntheticMetricListenerPeer {
 }
 
 describe("real version5 ListenerService orchestration", () => {
+  it.each([false, true])(
+    "retains thirty-second complete/partial results larger than the old frame ceiling (partial=%s)",
+    async (partial) => {
+      const s = new Service("session", partial, {
+        tempoBpm: 128,
+        endBeat: 64,
+      });
+      expect(
+        Buffer.byteLength(JSON.stringify(s.data.observation)),
+      ).toBeGreaterThan(128 * 1024);
+      const prepared = await prepareMetricListenerCapture(s, s.input);
+      s.launch();
+      await prepared.nativeLaunch;
+      s.complete();
+      const [observation] = await prepared.result;
+      expect(observation?.rows).toHaveLength(256);
+      expect(observation?.metrics).toEqual(s.data.observation.metrics);
+      expect(observation?.ownership.traceId).toBe(trace.traceId);
+      expect(observation?.outcome).toBe(partial ? "partial" : "complete");
+      await prepared.disarm();
+      expect(s.subscribers.size).toBe(0);
+    },
+  );
+
   it("exposes only implemented capture progress stages", () => {
     expectTypeOf<MetricListeningCaptureProgress["stage"]>().toEqualTypeOf<
       "preparing" | "arming" | "capturing" | "completed"
@@ -540,9 +570,10 @@ describe("real version5 ListenerService orchestration", () => {
 
   it("exposes typed canonical budget denial before arm without reducing capture", async () => {
     const s = new Service();
-    // The safe current generic bound rejects long all-metric requests. Use the
-    // shared fixture's large case rather than a runtime-only budget bypass.
-    const large = createSyntheticMetricWireFixture("arrangement", false, true);
+    const large = createSyntheticMetricWireFixture("arrangement", false, {
+      tempoBpm: 999,
+      endBeat: 499.5,
+    });
     large.observation.source = structuredClone(s.data.observation.source);
     large.observation.source.transport.endBeat = large.config.geometry.endBeat;
     large.config.sourceContext = large.observation.source;
@@ -796,7 +827,8 @@ describe("real version5 ListenerService orchestration", () => {
         }
         if (fault === "epoch") message.nativeLifecycle!.nativeEpoch++;
         if (fault === "duplicate") message.sequence--;
-        if (fault === "overflow") message.requestId = "x".repeat(128 * 1024);
+        if (fault === "overflow")
+          message.requestId = "x".repeat(MAX_METRIC_RESULT_FRAME_BYTES);
         s.emit(message);
       };
       s.abort.abort();

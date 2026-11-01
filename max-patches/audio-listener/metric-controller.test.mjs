@@ -9,6 +9,7 @@ import {
 } from "./retained-native-source.mjs";
 import { DESCRIPTIVE_CLOCK_CODE } from "./host-timing-source.mjs";
 import { fftReference } from "./fft-reference.mjs";
+import { metricRuntimeHarness } from "./metric-runtime-test-helpers.mjs";
 
 const require = createRequire(import.meta.url);
 const { NativeMessageIO } = require("./audio_listener_native_io.js");
@@ -31,6 +32,7 @@ async function controllerHarness({
   spectrumEnabled = false,
   unavailableSpectrum = false,
   suppressSpectrumCleanup = false,
+  engineeringRuntime = false,
 } = {}) {
   const codec = await loadCodec();
   const sampleRate = 48000,
@@ -180,9 +182,19 @@ async function controllerHarness({
     (reason) => assert.fail(reason),
     { now: () => now },
   );
+  const runtimeHarness = engineeringRuntime
+    ? metricRuntimeHarness({
+        controller: {
+          snapshot: () => controller?.snapshot() ?? { state: "idle" },
+        },
+        engineeringEntry: true,
+      })
+    : null;
   controller = createMetricController({
     codec,
-    spectrumEnabled,
+    spectrumEnabled: runtimeHarness
+      ? runtimeHarness.controllerOptions.spectrumEnabled
+      : spectrumEnabled,
     now: () => now,
     sendControl(target, selector, args) {
       if (target === "metric_spectrum") {
@@ -231,6 +243,7 @@ async function controllerHarness({
     },
     onEvent(event) {
       events.push(event);
+      runtimeHarness?.controllerOptions.onEvent(event);
       onEvent?.(event, controller, cancel);
     },
   });
@@ -330,6 +343,7 @@ async function controllerHarness({
   return {
     codec,
     controller,
+    runtimeHarness,
     adapter,
     controls,
     replies,
@@ -434,6 +448,7 @@ test("unavailable FFT declaration remains a local partial result with genuine FF
 test("requested spectrum without proven phase publishes honest partial data without blocking level or attacks", async () => {
   const h = await controllerHarness({
     requestedMetrics: ["level", "spectral-centroid", "attacks"],
+    engineeringRuntime: true,
   });
   h.launch();
   h.until(() => h.controller.snapshot().state === "partial");
@@ -455,6 +470,25 @@ test("requested spectrum without proven phase publishes honest partial data with
     ),
   );
   assert.equal(h.controller.snapshot().cleanup, "completed");
+  assert.equal(
+    h.controls.some((control) => control.target === "metric_spectrum"),
+    false,
+  );
+  assert.ok(result.observation.metrics.level.records.length > 0);
+  assert.ok(result.observation.metrics.attacks.records.length > 0);
+  for (const record of result.observation.metrics.level.records) {
+    assert.deepEqual(record.peak, [0.25, 0.125]);
+    assert.deepEqual(record.rms, [0.25, 0.125]);
+  }
+  assert.deepEqual(result.observation.metrics["spectral-centroid"].records, []);
+  assert.equal(h.controller.snapshot().spectrum.started, false);
+  assert.equal(h.controller.snapshot().spectrum.receivedRecords, 0);
+  assert.equal(h.controller.snapshot().spectrum.acceptedRecords, 0);
+  assert.equal(result.nativeSourceCoverage.spectrumCleanup, undefined);
+  assert.equal(result.nativeSourceCoverage.spectrumPhase, undefined);
+  for (const record of result.observation.metrics.attacks.records) {
+    assert.deepEqual(record.inputLevel.rms, [0.25, 0.125]);
+  }
   assert.ok(
     h.events.some(
       (e) =>
@@ -462,11 +496,52 @@ test("requested spectrum without proven phase publishes honest partial data with
         e.nativeLifecycle.stage === "failed",
     ),
   );
+  const marker = h.runtimeHarness.logs.find(
+    (row) =>
+      row.event === "native_metric_engineering_fixture" &&
+      row.fixture === "native5-unavailable-spectrum/v1",
+  );
+  assert.ok(marker);
+  const attributed = h.runtimeHarness.diagnostics.find(
+    ({ payload }) => payload.causationId === marker.eventId,
+  );
+  assert.ok(attributed);
+  h.codec.nativeMetricLifecycleSchema.parse(attributed.payload);
+  await h.runtimeHarness.runtime.stop();
+});
+
+test("engineering unavailable-spectrum fixture cancellation still executes real envelope cleanup without publishing", async () => {
+  let cancelled = false;
+  const h = await controllerHarness({
+    engineeringRuntime: true,
+    requestedMetrics: ["level", "spectral-centroid", "attacks"],
+    onEvent(event, controller, command) {
+      if (
+        !cancelled &&
+        event.nativeLifecycle.metric === "level" &&
+        event.nativeLifecycle.stage === "completed"
+      ) {
+        cancelled = true;
+        controller.cancel(command);
+      }
+    },
+  });
+  h.launch();
+  h.until(() => h.controller.snapshot().state === "cancelled");
+  assert.equal(h.controller.snapshot().cleanup, "completed");
+  assert.equal(h.controller.snapshot().spectrum.started, false);
+  assert.equal(
+    h.results.some(({ payload }) => payload.observation),
+    false,
+  );
+  assert.equal(h.controls.at(-1).selector, "release");
+  await h.runtimeHarness.runtime.stop();
 });
 
 test("a spectrum-only request with unavailable phase fails before arming and confirms owned cleanup", async () => {
   const h = await controllerHarness({
     requestedMetrics: ["spectral-centroid"],
+    engineeringRuntime: true,
   });
   h.until(() => h.controller.snapshot().state === "failed");
   assert.equal(
@@ -487,6 +562,27 @@ test("a spectrum-only request with unavailable phase fails before arming and con
   assert.equal(
     h.results.some((r) => r.payload.observation),
     false,
+  );
+  await h.runtimeHarness.runtime.stop();
+});
+
+test("engineering partial fixture cannot publish healthy data when actual envelope cleanup is unconfirmed", async () => {
+  const h = await controllerHarness({
+    engineeringRuntime: true,
+    requestedMetrics: ["level", "spectral-centroid", "attacks"],
+    suppressCleanup: true,
+  });
+  h.launch();
+  h.until(() => h.controller.snapshot().state === "failed");
+  assert.equal(h.controller.snapshot().cleanup, "failed");
+  assert.equal(h.controller.snapshot().spectrum.started, false);
+  assert.equal(
+    h.results.some(({ payload }) => payload.observation),
+    false,
+  );
+  await assert.rejects(
+    h.runtimeHarness.runtime.stop(),
+    /native_cleanup_unconfirmed/,
   );
 });
 

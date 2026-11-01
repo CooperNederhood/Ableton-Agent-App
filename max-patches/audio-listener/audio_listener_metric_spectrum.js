@@ -241,6 +241,7 @@ function createMetricSpectrumHandoff(config, options) {
   let lastTime = startedAt,
     sealed = null,
     progressCount = 0;
+  let failureFacts;
   const fingerprints = new Map();
   const upstream = {
     producedSequence: null,
@@ -310,6 +311,7 @@ function createMetricSpectrumHandoff(config, options) {
         acceptedRecords: node.acceptedRecords,
         missingRecords: geometry.expectedCount - node.acceptedRecords,
         upstream: { ...upstream },
+        ...(failureFacts === undefined ? {} : { facts: failureFacts }),
       }),
     );
   }
@@ -357,7 +359,8 @@ function createMetricSpectrumHandoff(config, options) {
   function reject(reason, classification = null) {
     return freeze({ accepted: false, reason, classification });
   }
-  function metricFailure(reason, collectorReason = "malformed_record") {
+  function metricFailure(reason, collectorReason = "malformed_record", facts) {
+    if (facts !== undefined) failureFacts = freeze(facts);
     increment("rejectedRecords");
     close(node.acceptedRecords ? "partial" : "failed", reason, "metric", () =>
       collector.failMetric("spectrum", collectorReason),
@@ -594,7 +597,29 @@ function createMetricSpectrumHandoff(config, options) {
       centroid > geometry.sampleRate / 2 ||
       (energy === 0 && centroid !== 0)
     )
-      return metricFailure("invalid_spectrum_values");
+      return metricFailure("invalid_spectrum_values", "malformed_record", [
+        {
+          field: "spectrum.centroidHz",
+          actual: {
+            state: "observed",
+            value:
+              Math.abs(centroid) <= Number.MAX_SAFE_INTEGER
+                ? centroid
+                : String(centroid),
+          },
+          unit: "Hz",
+        },
+        {
+          field: "spectrum.energy",
+          actual: {
+            state: "observed",
+            value:
+              Math.abs(energy) <= Number.MAX_SAFE_INTEGER
+                ? energy
+                : String(energy),
+          },
+        },
+      ]);
     const offset = (end - geometry.firstFrameEndCounter) / SUPPORT;
     if (!Number.isSafeInteger(offset))
       return metricFailure("unexpected_spectrum_phase", "support_mismatch");

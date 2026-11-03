@@ -104,10 +104,11 @@ the MCP process reads that descriptor on each tool call.
 
 Add `--automation-yolo` only for an explicitly automatic-approval diagnostic;
 label that evidence and do not present it as normal approval qualification.
-For independent metric-listener automation, explicitly add
-`--automation-metric-listeners` and record it; automation defaults are not the
-same as normal installed startup. Unpackaged isolation is also not the packaged
-Finder-like PATH/token environment tested by `electron-packaged`.
+Metric listeners are enabled by default in automation, matching normal
+installed startup; the legacy `--automation-metric-listeners` flag remains
+accepted but is no longer required. Enabling the automation endpoint does not
+change ordinary approval requirements. Unpackaged isolation is still not the
+packaged Finder-like PATH/token environment tested by `electron-packaged`.
 
 The registered local stdio MCP server must use the stable descriptor:
 

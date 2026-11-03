@@ -5,7 +5,7 @@ import {
   type ToolApprovalRequest,
 } from "@ableton-agent/tools";
 
-import type { ApprovalRequest } from "../contracts.js";
+import { appEventSchema, type ApprovalRequest } from "../contracts.js";
 import {
   type ApprovalAttribution,
   ApprovalCoordinator,
@@ -147,6 +147,53 @@ describe("ApprovalPolicyController", () => {
 });
 
 describe("ApprovalCoordinator", () => {
+  it("exposes detached original tool arguments for exact approval matching", () => {
+    const request = {
+      ...baseRequest,
+      arguments: { ...baseRequest.arguments, target: { index: 1 } },
+    };
+    const approval = toDesktopApproval("approval-1", request);
+    expect(approval.tool).toEqual({
+      name: "ableton_transport",
+      action: "set-tempo",
+      arguments: request.arguments,
+      argumentsComplete: true,
+    });
+    request.arguments.target.index = 9;
+    expect(approval.tool?.arguments).toMatchObject({ target: { index: 1 } });
+    expect(
+      appEventSchema.parse({
+        type: "approval.requested",
+        approval,
+        agentInstanceId: "00000000-0000-4000-8000-000000000001",
+        sdkSessionId: "sdk-1",
+      }),
+    ).toMatchObject({
+      approval: { tool: approval.tool },
+      sdkSessionId: "sdk-1",
+    });
+  });
+
+  it("marks redacted, truncated, binary and circular arguments unsuitable for exact approval", () => {
+    const circular: Record<string, unknown> = {};
+    circular.self = circular;
+    for (const extra of [
+      { note: "Authorization: Bearer private-test-credential" },
+      { password: "private-test-credential" },
+      { content: "x".repeat(40_000) },
+      { samples: new Uint8Array([1, 2, 3]) },
+      circular,
+    ]) {
+      const approval = toDesktopApproval("approval-1", {
+        ...baseRequest,
+        arguments: { ...baseRequest.arguments, extra },
+      });
+      expect(approval.tool?.argumentsComplete).toBe(false);
+      expect(JSON.stringify(approval)).not.toContain("private-test-credential");
+      expect(JSON.stringify(approval).length).toBeLessThan(40_000);
+    }
+  });
+
   it("discloses Session launch and cancellation side effects before approval", () => {
     const args = {
       action: "play-session-and-listen",
@@ -222,6 +269,33 @@ describe("ApprovalCoordinator", () => {
 
     await expect(pending).resolves.toBe(true);
     expect(publish).toHaveBeenCalledOnce();
+  });
+
+  it("bounds and redacts session attribution without changing ordinary denial cleanup", async () => {
+    const approvals = new ApprovalCoordinator();
+    const publish = vi.fn<
+      (approval: ApprovalRequest, attribution: ApprovalAttribution) => boolean
+    >(() => true);
+    const unpublish = approvals.setPublisher(publish);
+    const pending = approvals.request({
+      ...requestFor("agent-a"),
+      sdkSessionId: `Bearer private-test-credential ${"s".repeat(512)}`,
+      trace: {
+        traceId: "Bearer private-test-credential",
+        correlationId: "sdk-turn",
+        causationId: `secret=private-test-credential ${"c".repeat(512)}`,
+      },
+    });
+    expect(JSON.stringify(publish.mock.calls)).not.toContain(
+      "private-test-credential",
+    );
+    const attribution = publish.mock.calls[0]?.[1];
+    expect(attribution?.sdkSessionId?.length).toBeLessThanOrEqual(256);
+    expect(attribution?.trace?.correlationId).toBe("sdk-turn");
+    expect(attribution?.trace?.causationId.length).toBeLessThanOrEqual(256);
+    unpublish();
+    await expect(pending).resolves.toBe(false);
+    expect(approvals.pendingCount).toBe(0);
   });
 
   it("approves pending requests only for targeted agents", async () => {

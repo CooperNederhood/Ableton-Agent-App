@@ -2,6 +2,11 @@ import { Buffer } from "node:buffer";
 import { copyFile, stat, mkdir, rename, rm } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { basename, join, normalize, resolve } from "node:path";
+import {
+  decodeMaxCollective,
+  encodeMaxCollective,
+  type FrozenMaxFile,
+} from "./max-collective.js";
 
 export type MaxValue =
   string | number | boolean | null | MaxValue[] | { [key: string]: MaxValue };
@@ -9,6 +14,7 @@ export interface AmxdContainer {
   readonly document: MaxValue;
   readonly prefix: Buffer;
   readonly suffix: Buffer;
+  readonly frozenFiles?: readonly FrozenMaxFile[];
 }
 
 export function decodeAmxd(raw: Buffer): AmxdContainer {
@@ -18,32 +24,169 @@ export function decodeAmxd(raw: Buffer): AmxdContainer {
   const end = marker + 8 + raw.readUInt32LE(marker + 4);
   if (end > raw.length) throw new Error("AMXD ptch chunk is truncated");
   const payload = raw.subarray(marker + 8, end);
-  if (payload.subarray(0, 4).toString("ascii") === "mx@c")
-    throw new Error(
-      "Compressed AMXD ptch chunks are not supported by the publisher",
-    );
+  const frozenFiles =
+    payload.subarray(0, 4).toString("ascii") === "mx@c"
+      ? decodeMaxCollective(payload)
+      : undefined;
+  const patcher = frozenFiles?.[0]?.data ?? payload;
   return {
     document: JSON.parse(
-      payload
-        .subarray(0, payload.length - (payload.at(-1) === 0 ? 1 : 0))
+      patcher
+        .subarray(0, patcher.length - (patcher.at(-1) === 0 ? 1 : 0))
         .toString("utf8"),
     ) as MaxValue,
     prefix: raw.subarray(0, marker + 4),
     suffix: raw.subarray(end),
+    ...(frozenFiles === undefined ? {} : { frozenFiles }),
   };
 }
 
 export function encodeAmxd(
-  container: Pick<AmxdContainer, "prefix" | "suffix">,
+  container: Pick<AmxdContainer, "prefix" | "suffix" | "frozenFiles">,
   document: MaxValue,
 ): Buffer {
   const json = Buffer.from(
     `${JSON.stringify(document, null, "\t")}\n\0`,
     "utf8",
   );
+  const payload = container.frozenFiles
+    ? encodeMaxCollective(
+        container.frozenFiles.map((file, index) =>
+          index === 0 ? { ...file, data: json } : file,
+        ),
+      )
+    : json;
   const size = Buffer.alloc(4);
-  size.writeUInt32LE(json.length);
-  return Buffer.concat([container.prefix, size, json, container.suffix]);
+  size.writeUInt32LE(payload.length);
+  return Buffer.concat([container.prefix, size, payload, container.suffix]);
+}
+
+/** Freeze an explicit, complete bundle; never guess dependencies from search paths. */
+export function freezeAmxd(
+  raw: Buffer,
+  deviceFile: string,
+  resources: ReadonlyMap<string, Uint8Array>,
+): Buffer {
+  if (
+    resources.size >= 512 ||
+    raw.length +
+      [...resources.values()].reduce(
+        (sum, bytes) => sum + bytes.byteLength,
+        0,
+      ) >
+      64 * 1024 * 1024
+  )
+    throw new Error("Frozen bundle exceeds file or byte bound");
+  const container = decodeAmxd(raw);
+  if (container.frozenFiles) throw new Error("Device is already frozen");
+  if (
+    raw.toString("ascii", 0, 4) !== "ampf" ||
+    raw.readUInt32LE(4) !== 4 ||
+    !["aaaa", "mmmm", "iiii"].includes(raw.toString("ascii", 8, 12))
+  )
+    throw new Error("Unsupported AMXD wrapper for freezing");
+  const root = object(container.document);
+  const patcher = object(root?.patcher);
+  if (!root || !patcher) throw new Error("Missing device patcher");
+  const nodeScripts = new Set<string>();
+  const pending: MaxValue[] = [container.document];
+  while (pending.length) {
+    const value = pending.pop()!;
+    if (Array.isArray(value)) pending.push(...value);
+    else if (value && typeof value === "object") {
+      if (
+        typeof value.text === "string" &&
+        value.text.startsWith("node.script ")
+      ) {
+        const match = /^node\.script\s+(?:"([^"]+)"|(\S+))/u.exec(value.text);
+        const name = match?.[1] ?? match?.[2];
+        if (!name || !resources.has(name))
+          throw new Error("Missing frozen Node script dependency");
+        nodeScripts.add(name);
+      }
+      pending.push(...Object.values(value));
+    }
+  }
+  const files: FrozenMaxFile[] = [...resources]
+    .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
+    .map(([name, bytes]) => ({
+      name,
+      type:
+        name.endsWith(".maxpat") || name.endsWith(".json")
+          ? "JSON"
+          : name.endsWith(".gendsp")
+            ? "gDSP"
+            : "TEXT",
+      // Node cannot require archive-only entries; Max extracts only flag-8 files.
+      flags: nodeScripts.size > 0 && /\.(?:[cm]?js|json)$/u.test(name) ? 8 : 0,
+      data: Buffer.from(bytes),
+    }));
+  // Max requires project metadata in the main patcher of a collective.
+  const document: MaxValue = {
+    ...root,
+    patcher: {
+      ...patcher,
+      project: {
+        version: 1,
+        creationdate: 2_082_844_800,
+        modificationdate: 2_082_844_800,
+        viewrect: [0, 0, 300, 500],
+        autoorganize: 1,
+        hideprojectwindow: 1,
+        showdependencies: 1,
+        autolocalize: 0,
+        contents: { patchers: {}, media: {}, other: {} },
+        layout: {},
+        searchpath: {},
+        detailsvisible: 0,
+        amxdtype: raw.readUInt32BE(8),
+        readonly: 1,
+        devpathtype: 0,
+        devpath: ".",
+        sortmode: 0,
+        viewmode: 0,
+        includepackages: 0,
+        ...object(patcher.project),
+      },
+    },
+  };
+  let prefix = Buffer.from(container.prefix);
+  let metadata = false;
+  for (let offset = 0; offset < prefix.length - 4;) {
+    if (offset + 8 > prefix.length)
+      throw new Error("Invalid AMXD wrapper chunk");
+    const length = prefix.readUInt32LE(offset + 4);
+    if (length > prefix.length - offset - 8)
+      throw new Error("Invalid AMXD wrapper chunk");
+    if (prefix.toString("ascii", offset, offset + 4) === "meta") {
+      if (metadata || length !== 4) throw new Error("Invalid AMXD metadata");
+      prefix.writeUInt32LE(7, offset + 8);
+      metadata = true;
+    }
+    offset += length + 8;
+  }
+  if (!metadata) {
+    const chunk = Buffer.alloc(12);
+    chunk.write("meta", "ascii");
+    chunk.writeUInt32LE(4, 4);
+    chunk.writeUInt32LE(7, 8);
+    prefix = Buffer.concat([
+      prefix.subarray(0, -4),
+      chunk,
+      Buffer.from("ptch"),
+    ]);
+  }
+  return encodeAmxd(
+    {
+      prefix,
+      suffix: container.suffix,
+      frozenFiles: [
+        { name: deviceFile, type: "JSON", flags: 17, data: Buffer.alloc(0) },
+        ...files,
+      ],
+    },
+    document,
+  );
 }
 
 function mapStrings(

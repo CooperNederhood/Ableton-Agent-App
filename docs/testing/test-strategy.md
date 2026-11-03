@@ -1,5 +1,8 @@
 # Test Strategy
 
+For a high-level architecture, suite map, and shared-fixture vision, start with
+the [integration testing summary](integration-testing-summary.md).
+
 ## Test classifications and quality gates
 
 Support targets Live 11, not an exact patch version. Current development and
@@ -87,6 +90,8 @@ Tests must catch:
 | `pnpm test:ts` (Vitest) | Unit/component logic, controlled failures, workflow fakes and simulator-backed adapters | Actual Live or DSP execution |
 | `pnpm contracts:check`, `pnpm test:python` | Cross-language schemas, compatibility and fake-LOM handlers | Host qualification |
 | `pnpm test:max-patches` | Max source/generation contracts and synthetic publisher/readback regressions | Physical compilation, listening or acoustic quality |
+| `pnpm test:acceptance:list` / `pnpm test:acceptance:validate` | Offline acceptance catalog/schema and registered-fixture validation | An empty catalog or schema-only template is not an executed acceptance case |
+| `pnpm live:acceptance --scenario <registered-id>` | Packaged Automation Endpoint driver for reviewed fixture-backed conversations; `session-clip-identify` registered, qualification determined by terminal receipts | Desktop UI submission, migrated runtime/CLI coverage, or qualification from framework tests |
 | `pnpm live:agent-smoke --scenario <id>` / `--group <id>` | Reviewed runtime/CLI actions and independently checked Live outcomes | Uncoached packaged Default-agent UX or MCP stdio |
 | `pnpm test:electron` | Main/preload/renderer integration with explicit fake or injected dependencies | Live outcomes from synthetic context/results |
 | `pnpm test:electron:packaged` (after distribution build) | Packaged resources, startup, native modules, bundled installer and explicitly executed authentication checks | Completed musical workflows or actual Live loading of delivered devices |
@@ -97,16 +102,99 @@ Real-Live changes use the existing integration-testing skill before the
 desktop-ux-testing skill when both exact state and visible UX change.
 `pnpm check` builds then runs quality checks; `pnpm check:quality` includes
 format/lint/docs/ownership/version/contracts/typecheck and all three test runners.
-No hosted job launches real Live. A future packaged multi-turn MCP scenario
-runner is a separate milestone, not implemented by these foundations.
+No hosted job launches real Live. The new packaged multi-turn acceptance lane
+uses the Automation Endpoint directly; MCP is optional, not another required
+execution tier. See [acceptance authoring](acceptance-authoring.md) for its
+authoring workflow and implementation/qualification boundaries.
 
 The visible-message Electron test uses the direct automation client, not MCP
 stdio, and asserts ingress/rendering plus metric-listener descriptors, not
-terminal agent task completion. Its retrying readiness/message polling is not
-a send-once acceptance driver; separating readiness from submission belongs to
-the future packaged scenario work. MCP submission success itself means only
-message acceptance. Screenshots and assistant prose cannot replace exact
-postcondition reads.
+terminal agent task completion. The separate packaged acceptance adapter is
+`tests/electron/acceptance-driver.ts`; submission, attributable completion, and
+independent evidence are distinct boundaries. MCP submission success itself
+means only message acceptance. Screenshots and assistant prose cannot replace
+exact postcondition reads.
+
+Automation metric listeners now default to enabled, matching normal startup;
+the legacy `--automation-metric-listeners` flag is accepted but not required.
+This changes neither ordinary approvals nor the need for real-host qualification.
+
+### Fixture-backed acceptance authoring
+
+The development-agent-only
+[`author-integration-test` skill](../../.github/skills/author-integration-test/SKILL.md)
+is the primary interface: a developer supplies a Set, desired turns, correctness,
+and protected state. Inspect only an owned copy, propose exact initial
+conditions/actions/mutation scope/assertions, and obtain human review before
+freezing portable licensed assets and a registered scenario. Keep oracle data
+out of the ordinary Default agent's prompts, skills, context, and project paths.
+Do not introduce a bespoke runner for each new case.
+
+The shared foundation lives at `@ableton-agent/test-support/integration`, with
+`integration/fixtures/` and `integration/acceptance-scenarios/` catalogs.
+Generic coordination compares declared scalar baseline facts and dependency
+hashes without assuming audio sources or listeners. The Desktop audio driver
+owns supported audio-baseline validation and staged-media verification; other
+drivers can use non-listening baselines and assertions.
+Independent cases stage fresh copies; ordered turns retain their working world.
+Read and verify loaded preconditions before submission, without repairing them.
+Resolve only explicit fixture-scoped ordinary approvals. Check terminal turn,
+source, context, mutation scope, persistence, and cleanup independently rather
+than treating acceptance acknowledgements or assistant prose as completion.
+The adapter reads public typed `eventHistory.trace` and preserves bounded
+redacted `product-evidence.json`. Capture/source cleanup needs separately
+journaled evidence; a completed job lifecycle alone cannot prove it.
+Unchanged-scope assertions apply only to explicitly named observed data. The
+current `session-structure` hash includes public snapshot identities and exposed
+mixer/routing fields, plus scenes/Arrangement/cues when present, not every device
+or plug-in parameter. `source-settings` uses exact source launch/audio settings,
+recording, and file identity. Broader protected-state contracts require broader
+independent reads rather than an arbitrary all-parameter immutability claim.
+The public source-read adapter reuses `listening.inspect_session_source` and
+its existing query lifecycle, not a new protocol mutation or repair path.
+Global recording preflight uses the separate read-only `inspectRecording()`
+surface over `recording.inspect`: Arrangement Record and Session Record must both
+be false. Target recording alone cannot establish this; missing/malformed global
+evidence rejects admission rather than defaulting to false.
+The compound `inspectSessionListeningPreflight` read joins existing source,
+actual Live audio metadata, and global recording reads under the same query
+correlation. It is sequential, not atomic. Validate target identity and reject
+null path/sample-rate evidence; do not derive those observations from the fixture.
+The audio read reports the loaded media sample rate, not the capture engine
+rate. Verify the loaded path and hash the admitted staged file independently.
+Strict unattended approvals require fully attributed, complete structured
+tool/action/arguments; sanitizer changes or missing ownership fail closed.
+
+Typed acceptance evidence must survive bounded sanitization without structural
+loss. Revalidate it after sanitization; credential redaction and visible
+binary/audio omission are allowed, but removed/renamed fields, truncated text or
+arrays, and depth/byte fallback cannot silently become successful evidence.
+Cancellation tracks in-flight owned-resource acquisition through staging,
+provisioning, launch, subscription, and collection. Give it a bounded cleanup
+grace; unsettled acquisition reports incomplete cleanup and explicit deferred
+cleanup failure, then reclaims late-owned resources when acquisition settles.
+Late lifecycle events remain observable, but a failed/cancelled receipt never
+retroactively becomes a pass. Drivers still honor cancellation and register
+ownership when creating resources.
+
+Stage A delivered the foundation; joint user review has now registered two-turn
+`session-clip-identify`; its
+[review contract](../../.github/skills/author-integration-test/references/test-contract.md)
+freezes the approved 128-BPM Global None / clip Global / stopped-zero baseline and strict
+`(B)` answer plus independent capture/context/persistence/scope checks. No real
+fixture, listening qualification, or UI acceptance adapter is implied by
+controlled framework tests. The existing runtime/CLI catalog remains separate.
+The registered case subsequently passed all independent assertions twice in
+fresh owned Live 11.3.43 processes on 2026-11-02; see the authoring guide for
+terminal receipts and limitations. This is bounded scenario qualification, not
+a claim that the remaining listening/reliability gaps are closed.
+
+Missing assets, invalid references, hash changes, unsupported drivers, and
+failed preconditions are setup/admission failures, not red product tests. A
+properly admitted product contract failure remains a useful red test; never
+change its oracle to fit output. Preserve original failures, distinguish cleanup
+and receipt-write failure, and require renewed human review for contract changes.
+The [authoring guide](acceptance-authoring.md) owns the concise command workflow.
 
 ### Suite receipts and terminal evidence
 

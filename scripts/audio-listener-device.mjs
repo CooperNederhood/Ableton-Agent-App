@@ -7,6 +7,7 @@ import { tsImport } from "tsx/esm/api";
 import {
   decodeAmxd,
   encodeAmxd,
+  freezeAmxd,
   publishResources,
   renderPortableDevice,
 } from "./max-device-publisher.mjs";
@@ -657,7 +658,8 @@ export async function checkArtifact(directory) {
     }
   }
   const device = await readFile(join(directory, manifest.deviceFile));
-  const { document } = isAudioTemplate(device);
+  const container = isAudioTemplate(device);
+  const { document } = container;
   if (hash(device) !== manifest.deviceSha256)
     throw new Error("device hash mismatch");
   validateAuthoredDocument(document, {
@@ -667,7 +669,10 @@ export async function checkArtifact(directory) {
     prepareAuthoredDevice(generatedListeningParent()),
     { runtimeEntry: native.runtimeEntry, nativeVersion: 5 },
   );
-  if (JSON.stringify(document) !== JSON.stringify(expectedDocument))
+  if (
+    !container.frozenFiles &&
+    JSON.stringify(document) !== JSON.stringify(expectedDocument)
+  )
     throw new Error("generated listening graph mismatch");
   if (manifest.nativeMode === true) {
     const runtimes = document.patcher.boxes.filter(
@@ -688,11 +693,25 @@ export async function checkArtifact(directory) {
       throw new Error("native candidate limit mismatch");
   }
   validatePassThrough(document);
+  const resources = new Map();
   for (const { name, sha256, bytes } of manifest.resources) {
     if (basename(name) !== name) throw new Error("unsafe resource name");
     const raw = await readFile(join(directory, name));
     if (hash(raw) !== sha256 || raw.length !== bytes)
       throw new Error(`resource hash mismatch: ${name}`);
+    resources.set(name, raw);
+  }
+  if (container.frozenFiles) {
+    const expected = freezeAmxd(
+      encodeAmxd(
+        { prefix: container.prefix, suffix: container.suffix },
+        expectedDocument,
+      ),
+      manifest.deviceFile,
+      resources,
+    );
+    if (!expected.equals(device))
+      throw new Error("frozen listening graph or embedded resources mismatch");
   }
   return manifest;
 }

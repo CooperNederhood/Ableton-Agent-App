@@ -1,0 +1,14 @@
+{
+  "extends": "../../tsconfig.test-runtime.json",
+  "compilerOptions": {
+    "lib": ["ES2022", "DOM"],
+    "noEmit": true,
+    "types": ["node"]
+  },
+  "include": [
+    "acceptance-*.ts",
+    "packaged-paths.test.ts",
+    "../../.github/skills/author-integration-test/scripts/*.ts",
+    "../../apps/desktop/src/renderer/global.d.ts"
+  ]
+}

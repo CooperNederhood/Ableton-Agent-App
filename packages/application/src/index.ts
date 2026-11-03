@@ -75,6 +75,8 @@ import type {
   InspectDeviceParametersResult,
   InspectDevicesParams,
   InspectDevicesResult,
+  InspectSessionListeningSourceParams,
+  InspectSessionListeningSourceResult,
   InspectBrowserRootsResult,
   InspectBrowserChildrenParams,
   InspectBrowserChildrenResult,
@@ -139,6 +141,9 @@ import type {
 import {
   recordingCommandParamsSchema,
   recordingOperationParamsSchema,
+  recordingOperationResultSchema,
+  audioClipsOperationResultSchema,
+  inspectSessionListeningSourceParamsSchema,
   specializedDeviceCommandParamsSchema,
   specializedDeviceOperationParamsSchema,
   workflowJobCommandParamsSchema,
@@ -3477,23 +3482,6 @@ export class CopilotAgentService implements AgentService {
             },
           }),
     });
-    const requestToolApproval =
-      this.options.requestToolApproval === undefined
-        ? undefined
-        : (request: Parameters<ToolApprovalRequester>[0]) =>
-            this.options.requestToolApproval!({
-              ...request,
-              ...(state.exposeInstanceId
-                ? { agentInstanceId: state.configuration.instanceId }
-                : {}),
-              ...(state.session?.sessionId === undefined
-                ? {}
-                : { sdkSessionId: state.session.sessionId }),
-            });
-    const permissionHandler = createAbletonPermissionHandler(
-      requestToolApproval,
-      this.options.askForReadApproval,
-    );
     const model = state.exposeInstanceId
       ? state.configuration.model
       : this.options.model;
@@ -3543,6 +3531,35 @@ export class CopilotAgentService implements AgentService {
         const permissionId =
           ("toolCallId" in request ? request.toolCallId : undefined) ??
           randomUUID();
+        const permissionTurn =
+          state.session?.sessionId === invocation.sessionId
+            ? state.activeTurn
+            : undefined;
+        const approvalAttribution = {
+          ...(state.exposeInstanceId
+            ? { agentInstanceId: state.configuration.instanceId }
+            : {}),
+          sdkSessionId: invocation.sessionId,
+          ...(permissionTurn === undefined
+            ? {}
+            : {
+                trace: {
+                  traceId: permissionTurn.trace.traceId,
+                  correlationId: permissionTurn.id,
+                  causationId: permissionId,
+                },
+              }),
+        };
+        const permissionHandler = createAbletonPermissionHandler(
+          this.options.requestToolApproval === undefined
+            ? undefined
+            : (approval) =>
+                this.options.requestToolApproval!({
+                  ...approval,
+                  ...approvalAttribution,
+                }),
+          this.options.askForReadApproval,
+        );
         const resolvedMetadata =
           request.kind === "custom-tool"
             ? (() => {
@@ -6444,6 +6461,19 @@ export class HeadlessApplication {
     );
   }
 
+  public async inspectRecording(): Promise<
+    Extract<RecordingOperationResult, { action: "inspect" }>
+  > {
+    if (this.services.ableton.executeRecordingOperation === undefined) {
+      throw new Error("Recording inspection is unavailable");
+    }
+    return recordingOperationResultSchema.options[0].parse(
+      await this.services.ableton.executeRecordingOperation({
+        action: "inspect",
+      }),
+    );
+  }
+
   public executeGrooveOperation(
     params: GrooveOperationParams,
   ): Promise<GrooveOperationResult> {
@@ -6550,6 +6580,47 @@ export class HeadlessApplication {
     params: InspectDevicesParams,
   ): Promise<InspectDevicesResult> {
     return this.services.ableton.inspectDevices(params);
+  }
+
+  public inspectSessionListeningSource(
+    params: InspectSessionListeningSourceParams,
+  ): Promise<InspectSessionListeningSourceResult> {
+    if (this.services.ableton.inspectSessionListeningSource === undefined) {
+      return Promise.reject(
+        new Error("Session listening source inspection is unavailable"),
+      );
+    }
+    return this.services.ableton.inspectSessionListeningSource(params);
+  }
+
+  public async inspectSessionListeningPreflight(
+    params: InspectSessionListeningSourceParams,
+  ): Promise<{
+    source: InspectSessionListeningSourceResult;
+    audio: Extract<AudioClipsOperationResult, { action: "inspect" }>["clip"];
+    recording: Extract<RecordingOperationResult, { action: "inspect" }>;
+  }> {
+    const request = inspectSessionListeningSourceParamsSchema.parse(params);
+    if (this.services.ableton.executeAudioClipsOperation === undefined) {
+      throw new Error("Audio clip inspection is unavailable");
+    }
+    const source = await this.inspectSessionListeningSource(request);
+    const { clip: audio } = audioClipsOperationResultSchema.options[0].parse(
+      await this.services.ableton.executeAudioClipsOperation({
+        action: "inspect",
+        target: request.target,
+      }),
+    );
+    if (
+      audio.reference !== request.target.expectedClipReference ||
+      audio.name !== request.target.expectedClipName
+    ) {
+      throw new Error(
+        "Audio inspection did not match the requested Session clip",
+      );
+    }
+    const recording = await this.inspectRecording();
+    return { source, audio, recording };
   }
 
   public inspectBrowserRoots(): Promise<InspectBrowserRootsResult> {

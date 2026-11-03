@@ -15,6 +15,7 @@ import {
   readIntegrationDevicePayloads,
   decodeAmxd,
   encodeAmxd,
+  freezeAmxd,
   renderInstalledDevice,
   type IntegrationDevicePayload,
 } from "@ableton-agent/shared/m4l-devices";
@@ -68,6 +69,9 @@ export class IntegrationInstallError extends Error {
 
 const metadataName = ".ableton-agent-device-install.json";
 const configName = "agent_signal_storage.js";
+const profileConfiguredFile = (component: IntegrationComponent, name: string) =>
+  name === configName ||
+  (component === "machine-listening" && name.endsWith(".amxd"));
 const allComponents: readonly IntegrationComponent[] = [
   "remote-script",
   "machine-listening",
@@ -180,6 +184,11 @@ async function prepareDevice(
   payload: IntegrationDevicePayload,
   target: string,
   storage: LiveAgentStorageLayout,
+  freeze: (
+    raw: Buffer,
+    resources: ReadonlyMap<string, Uint8Array>,
+  ) => Promise<Buffer> = async (raw, resources) =>
+    freezeAmxd(raw, payload.deviceFile, resources),
 ): Promise<PreparedDevice> {
   const files = new Map<string, Uint8Array>();
   for (const file of payload.files) {
@@ -225,6 +234,14 @@ async function prepareDevice(
       !Array.isArray(manifest.resources)
     )
       throw new Error("Invalid portable listener discovery manifest");
+    const resources = new Map(files);
+    resources.delete(payload.deviceFile);
+    resources.delete(manifestName);
+    const frozen = await freeze(
+      Buffer.from(files.get(payload.deviceFile)!),
+      resources,
+    );
+    files.set(payload.deviceFile, frozen);
     files.set(
       manifestName,
       Buffer.from(
@@ -232,6 +249,7 @@ async function prepareDevice(
           {
             ...manifest,
             discoveryConfigured: true,
+            deviceSha256: digest(frozen),
             resources: [
               ...(manifest.resources as unknown[]),
               {
@@ -278,7 +296,16 @@ async function deviceCurrent(
     previous.nativeAbiVersion === expected.nativeAbiVersion &&
     JSON.stringify(previous.installedHashes) ===
       JSON.stringify(expected.installedHashes) &&
-    ((await lstat(join(path, configName))).mode & 0o777) === 0o600
+    (
+      await Promise.all(
+        Object.keys(expected.installedHashes)
+          .filter((name) => profileConfiguredFile(expected.component, name))
+          .map(
+            async (name) =>
+              ((await lstat(join(path, name))).mode & 0o777) === 0o600,
+          ),
+      )
+    ).every(Boolean)
   );
 }
 
@@ -498,7 +525,22 @@ export async function installAbletonIntegrations(options: {
         }
         const payload = payloads.find((item) => item.id === component);
         if (payload === undefined) throw new Error("Missing device payload");
-        const item = await prepareDevice(payload, target, options.storage);
+        const item = await prepareDevice(
+          payload,
+          target,
+          options.storage,
+          (raw, resources) =>
+            stage("freeze", component, async (progress) => {
+              check();
+              const frozen = freezeAmxd(raw, payload.deviceFile, resources);
+              progress({
+                embeddedFiles: resources.size + 1,
+                bytes: frozen.length,
+              });
+              check();
+              return frozen;
+            }),
+        );
         await ownedDevice(target, component);
         prepared.set(component, item);
       });
@@ -670,7 +712,7 @@ export async function installAbletonIntegrations(options: {
           await mkdir(staging, { mode: 0o700 });
           for (const [name, bytes] of item.files) {
             await writeFile(join(staging, name), bytes, {
-              mode: name === configName ? 0o600 : 0o644,
+              mode: profileConfiguredFile(component, name) ? 0o600 : 0o644,
               flag: "wx",
             });
           }

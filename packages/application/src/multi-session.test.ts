@@ -3077,6 +3077,96 @@ describe("CopilotAgentService managed sessions", () => {
     await service.stop();
   });
 
+  it("captures each approval's actual SDK turn trace at the permission boundary", async () => {
+    const events = new InMemoryEventPublisher();
+    const received: AppEvent[] = [];
+    const runtimeEvents: AgentRuntimeEvent[] = [];
+    events.subscribe((event) => received.push(event));
+    const requestToolApproval = vi.fn<
+      NonNullable<CopilotAgentServiceOptions["requestToolApproval"]>
+    >(async () => true);
+    let sessions = 0;
+    let permission: SessionConfig["onPermissionRequest"];
+    const service = new CopilotAgentService(
+      baseOptions({
+        events,
+        requestToolApproval,
+        runtimeObserver: { enqueue: (event) => runtimeEvents.push(event) },
+        clientFactory: () => ({
+          createSession: vi.fn(async (config: SessionConfig) => {
+            const sessionId = `session-${++sessions}`;
+            if (sessions === 2) permission = config.onPermissionRequest;
+            return createFakeSession(sessionId, {
+              onSend: async () => {
+                await config.onPermissionRequest?.(
+                  {
+                    kind: "custom-tool",
+                    toolName: "ableton_tracks",
+                    toolDescription: "Create track",
+                    args: { action: "create", kind: "midi" },
+                  },
+                  { sessionId },
+                );
+                return { data: { content: "done" } };
+              },
+            });
+          }),
+          resumeSession: vi.fn(async () => {
+            throw new Error("resume not expected");
+          }),
+          stop: vi.fn(async () => undefined),
+        }),
+      }),
+    );
+    try {
+      await service.start();
+      await service.createManagedAgent(configuration("managed-agent"));
+      await service.sendToManagedAgent("managed-agent", "First");
+      await service.sendToManagedAgent("managed-agent", "Second");
+      const started = received.filter(
+        (event) =>
+          event.type === "agent.working_update" &&
+          event.update.kind === "started",
+      );
+      const permissions = runtimeEvents.filter(
+        (event) => event.type === "agent.permission.requested",
+      );
+      expect(requestToolApproval).toHaveBeenCalledTimes(2);
+      for (const [index, call] of requestToolApproval.mock.calls.entries()) {
+        expect(call[0]).toMatchObject({
+          agentInstanceId: "managed-agent",
+          sdkSessionId: "session-2",
+          trace: {
+            traceId:
+              started[index]?.type === "agent.working_update"
+                ? started[index].update.activityId
+                : undefined,
+            correlationId:
+              started[index]?.type === "agent.working_update"
+                ? started[index].update.activityId
+                : undefined,
+            causationId: permissions[index]?.data.permissionId,
+          },
+        });
+      }
+      expect(
+        requestToolApproval.mock.calls[0]?.[0].trace?.correlationId,
+      ).not.toBe(requestToolApproval.mock.calls[1]?.[0].trace?.correlationId);
+      await permission?.(
+        {
+          kind: "custom-tool",
+          toolName: "ableton_tracks",
+          toolDescription: "Create track",
+          args: { action: "create", kind: "midi" },
+        },
+        { sessionId: "session-2" },
+      );
+      expect(requestToolApproval.mock.calls[2]?.[0].trace).toBeUndefined();
+    } finally {
+      await service.stop();
+    }
+  });
+
   it("attributes managed-agent approval requests to the originating instance and SDK session", async () => {
     const configs: SessionConfig[] = [];
     const requestToolApproval = vi.fn(async () => true);

@@ -56,8 +56,22 @@ vi.mock("@ableton-agent/shared/m4l-devices", async (original) => ({
 }));
 
 const roots: string[] = [];
-const hash = (bytes: string) =>
+const hash = (bytes: string | Uint8Array) =>
   createHash("sha256").update(bytes).digest("hex");
+const deviceBytes = (marker = "device-one") =>
+  encodeAmxd(
+    {
+      prefix: Buffer.from(
+        "616d706604000000616161616d657461040000000100000070746368",
+        "hex",
+      ),
+      suffix: Buffer.alloc(0),
+    },
+    { patcher: { boxes: [], lines: [], marker } },
+  );
+const deviceMarker = async (path: string) =>
+  (decodeAmxd(await readFile(path)).document as { patcher: { marker: string } })
+    .patcher.marker;
 async function fixture() {
   const root = join(
     process.cwd(),
@@ -75,13 +89,17 @@ async function fixture() {
   ] as const) {
     const sourceDirectory = join(root, "resources", id);
     await mkdir(sourceDirectory);
-    await writeFile(join(sourceDirectory, deviceFile), "device-one");
+    await writeFile(join(sourceDirectory, deviceFile), deviceBytes());
     await writeFile(
       join(sourceDirectory, "agent_signal_client.js"),
       "client-one",
     );
     const files = [
-      { name: deviceFile, sha256: hash("device-one"), bytes: 10 },
+      {
+        name: deviceFile,
+        sha256: hash(deviceBytes()),
+        bytes: deviceBytes().length,
+      },
       {
         name: "agent_signal_client.js",
         sha256: hash("client-one"),
@@ -184,6 +202,37 @@ describe("typed Ableton integration installation", () => {
           nativeAbiVersion: 3,
         });
       if (payload.id === "machine-listening") {
+        const installedDevice = await readFile(
+          join(target, payload.deviceFile),
+        );
+        const files = decodeAmxd(installedDevice).frozenFiles;
+        expect(
+          files,
+          "installed listener must contain its complete frozen bundle",
+        ).toBeDefined();
+        expect(files!.map((file) => file.name).sort()).toEqual(
+          [
+            ...payload.files
+              .map((file) => file.name)
+              .filter((name) => name !== "audio-listener-manifest.json"),
+            "agent_signal_storage.js",
+          ].sort(),
+        );
+        expect(files![0]).toMatchObject({
+          name: payload.deviceFile,
+          flags: 17,
+          type: "JSON",
+        });
+        expect(
+          files!.find((file) => file.name === "audio_listener_native_v5_max.js")
+            ?.flags,
+        ).toBe(8);
+        for (const file of files!.slice(1)) {
+          expect(file.data).toEqual(await readFile(join(target, file.name)));
+          expect(file.flags).toBe(
+            /\.(?:[cm]?js|json)$/u.test(file.name) ? 8 : 0,
+          );
+        }
         const portableManifest = await readFile(
           join(payload.sourceDirectory, "audio-listener-manifest.json"),
         );
@@ -191,6 +240,7 @@ describe("typed Ableton integration installation", () => {
           join(target, "audio-listener-manifest.json"),
         );
         const discovery = JSON.parse(installedManifest.toString("utf8")) as {
+          deviceSha256: string;
           discoveryConfigured: boolean;
           resources: {
             name: string;
@@ -203,6 +253,12 @@ describe("typed Ableton integration installation", () => {
           join(target, "agent_signal_storage.js"),
         );
         expect(discovery.discoveryConfigured).toBe(true);
+        expect(discovery.deviceSha256).toBe(
+          createHash("sha256").update(installedDevice).digest("hex"),
+        );
+        expect(
+          (await lstat(join(target, payload.deviceFile))).mode & 0o777,
+        ).toBe(0o600);
         expect(discovery.resources.at(-1)).toEqual({
           name: "agent_signal_storage.js",
           sha256: createHash("sha256").update(configuration).digest("hex"),
@@ -237,6 +293,44 @@ describe("typed Ableton integration installation", () => {
           ["scripts/audio-listener-device.mjs", "check-artifact", target],
           { cwd: process.cwd() },
         );
+        const container = decodeAmxd(installedDevice);
+        const tampered = encodeAmxd(
+          {
+            ...container,
+            frozenFiles: container.frozenFiles!.map((file) =>
+              file.name === "audio_listener_guard.js"
+                ? {
+                    ...file,
+                    data: Buffer.from("// tampered embedded dependency"),
+                  }
+                : file,
+            ),
+          },
+          container.document,
+        );
+        await writeFile(join(target, payload.deviceFile), tampered);
+        await writeFile(
+          join(target, "audio-listener-manifest.json"),
+          JSON.stringify({
+            ...discovery,
+            deviceSha256: hash(tampered),
+          }),
+        );
+        try {
+          await expect(
+            promisify(execFile)(
+              process.execPath,
+              ["scripts/audio-listener-device.mjs", "check-artifact", target],
+              { cwd: process.cwd() },
+            ),
+          ).rejects.toThrow("embedded resources mismatch");
+        } finally {
+          await writeFile(join(target, payload.deviceFile), installedDevice);
+          await writeFile(
+            join(target, "audio-listener-manifest.json"),
+            installedManifest,
+          );
+        }
         expect(
           await readFile(
             join(payload.sourceDirectory, "audio-listener-manifest.json"),
@@ -398,12 +492,12 @@ describe("typed Ableton integration installation", () => {
     const payload = payloads[0]!;
     await writeFile(
       join(payload.sourceDirectory, payload.deviceFile),
-      "device-two",
+      deviceBytes("device-two"),
     );
     payload.files[0] = {
       name: payload.deviceFile,
-      sha256: hash("device-two"),
-      bytes: 10,
+      sha256: hash(deviceBytes("device-two")),
+      bytes: deviceBytes("device-two").length,
     };
     const outdated = await inspectAbletonIntegrations({
       ...options,
@@ -731,12 +825,12 @@ describe("typed Ableton integration installation", () => {
     const machine = payloads[0]!;
     await writeFile(
       join(machine.sourceDirectory, machine.deviceFile),
-      "device-two",
+      deviceBytes("device-two"),
     );
     machine.files[0] = {
       name: machine.deviceFile,
-      sha256: hash("device-two"),
-      bytes: 10,
+      sha256: hash(deviceBytes("device-two")),
+      bytes: deviceBytes("device-two").length,
     };
     const second = await installAbletonIntegrations({
       ...options,
@@ -749,9 +843,8 @@ describe("typed Ableton integration installation", () => {
       second.components.slice(1).every((item) => item.status === "installed"),
     ).toBe(true);
     expect(
-      await readFile(
+      await deviceMarker(
         join(initial.components[1]!.destination, machine.deviceFile),
-        "utf8",
       ),
     ).toBe("device-two");
     const metadata = JSON.parse(
@@ -860,12 +953,12 @@ describe("typed Ableton integration installation", () => {
     const machine = payloads[0]!;
     await writeFile(
       join(machine.sourceDirectory, machine.deviceFile),
-      "device-two",
+      deviceBytes("device-two"),
     );
     machine.files[0] = {
       name: machine.deviceFile,
-      sha256: hash("device-two"),
-      bytes: 10,
+      sha256: hash(deviceBytes("device-two")),
+      bytes: deviceBytes("device-two").length,
     };
     const abort = new AbortController();
     await expect(
@@ -883,7 +976,7 @@ describe("typed Ableton integration installation", () => {
       }),
     ).rejects.toMatchObject({ cancelled: true });
     const target = first.components[1]!.destination;
-    expect(await readFile(join(target, machine.deviceFile), "utf8")).toBe(
+    expect(await deviceMarker(join(target, machine.deviceFile))).toBe(
       "device-one",
     );
     expect(
@@ -1004,12 +1097,12 @@ describe("typed Ableton integration installation", () => {
       const device = payloads[0]!;
       await writeFile(
         join(device.sourceDirectory, device.deviceFile),
-        "device-two",
+        deviceBytes("device-two"),
       );
       device.files[0] = {
         name: device.deviceFile,
-        sha256: hash("device-two"),
-        bytes: 10,
+        sha256: hash(deviceBytes("device-two")),
+        bytes: deviceBytes("device-two").length,
       };
       fileFaults[kind].mockImplementation((path: string) => {
         if (path.includes(".ableton-agent-stage-")) {
@@ -1034,9 +1127,8 @@ describe("typed Ableton integration installation", () => {
         committed: false,
       });
       expect(
-        await readFile(
+        await deviceMarker(
           join(first.components[1]!.destination, device.deviceFile),
-          "utf8",
         ),
       ).toBe("device-one");
       expect(
@@ -1053,12 +1145,12 @@ describe("typed Ableton integration installation", () => {
     const device = payloads[0]!;
     await writeFile(
       join(device.sourceDirectory, device.deviceFile),
-      "device-two",
+      deviceBytes("device-two"),
     );
     device.files[0] = {
       name: device.deviceFile,
-      sha256: hash("device-two"),
-      bytes: 10,
+      sha256: hash(deviceBytes("device-two")),
+      bytes: deviceBytes("device-two").length,
     };
     fileFaults.rename.mockImplementation((path: string) => {
       if (
@@ -1121,6 +1213,7 @@ describe("typed Ableton integration installation", () => {
     );
     for (const name of [
       "validation",
+      "freeze",
       "staging",
       "publication",
       "verification",
@@ -1146,8 +1239,95 @@ describe("typed Ableton integration installation", () => {
         event.name === "integrations.verification" && event.stage === "started",
     );
     expect(verification).toBeGreaterThan(publication);
+    const frozen = machine.filter(
+      (event) => event.name === "integrations.freeze",
+    );
+    expect(frozen.map((event) => event.stage)).toEqual([
+      "queued",
+      "started",
+      "progress",
+      "completed",
+    ]);
+    expect(frozen[2]?.attributes).toMatchObject({
+      embeddedFiles: 3,
+    });
+    expect(frozen[2]?.attributes?.bytes).toBeGreaterThan(0);
+    expect(machine.indexOf(frozen.at(-1)!)).toBeLessThan(
+      machine.findIndex((event) => event.name === "integrations.staging"),
+    );
     expect(
       Math.max(...events.map((event) => JSON.stringify(event).length)),
     ).toBeLessThan(1024);
+  });
+
+  it.each(["started", "progress"] as const)(
+    "cancels freezing at %s without publishing or changing a prior install",
+    async (at) => {
+      const { options, events, payloads } = await fixture();
+      const first = await installAbletonIntegrations(options);
+      const path = join(
+        first.components[1]!.destination,
+        payloads[0]!.deviceFile,
+      );
+      const before = await readFile(path);
+      events.length = 0;
+      const abort = new AbortController();
+      await expect(
+        installAbletonIntegrations({
+          ...options,
+          signal: abort.signal,
+          onEvent: (event) => {
+            options.onEvent(event);
+            if (event.name === "integrations.freeze" && event.stage === at)
+              abort.abort();
+          },
+        }),
+      ).rejects.toMatchObject({ cancelled: true });
+      expect(
+        events
+          .filter((event) => event.name === "integrations.freeze")
+          .map((event) => event.stage),
+      ).toEqual(
+        at === "started"
+          ? ["queued", "started", "cancelled"]
+          : ["queued", "started", "progress", "cancelled"],
+      );
+      expect(
+        events.some((event) => event.name === "integrations.publication"),
+      ).toBe(false);
+      expect(await readFile(path)).toEqual(before);
+      expect(await readdir(options.userLibraryPath)).not.toContain(
+        ".ableton-agent-integrations.lock",
+      );
+    },
+  );
+
+  it("reports invalid source freeze failure before creating the Library, without falling back to sidecars", async () => {
+    const { options, events, payloads } = await fixture();
+    const payload = payloads[0]!;
+    const bytes = Buffer.from("not an AMXD");
+    await writeFile(join(payload.sourceDirectory, payload.deviceFile), bytes);
+    payload.files[0] = {
+      name: payload.deviceFile,
+      sha256: hash(bytes),
+      bytes: bytes.length,
+    };
+    await expect(installAbletonIntegrations(options)).rejects.toMatchObject({
+      cancelled: false,
+    });
+    expect(
+      events
+        .filter((event) => event.name === "integrations.freeze")
+        .map((event) => event.stage),
+    ).toEqual(["queued", "started", "failed"]);
+    expect(
+      events.some((event) => event.name === "integrations.publication"),
+    ).toBe(false);
+    await expect(lstat(options.userLibraryPath)).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+    expect(JSON.stringify(events)).not.toContain(
+      options.storage.signalIngressSecretPath,
+    );
   });
 });

@@ -1,6 +1,9 @@
 import { isAbsolute } from "node:path";
 
-import { sendAutomationMessage } from "@ableton-agent/debug-control";
+import {
+  automationTargetIdentitySchema,
+  sendAutomationMessage,
+} from "@ableton-agent/debug-control";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
@@ -33,13 +36,15 @@ export function createDebugMcpServer(descriptorPath: string): McpServer {
         "Send a plain user message to the currently selected agent in the running visible Ableton Agent desktop app.",
       inputSchema: {
         message: z.string().trim().min(1).max(16_000),
+        expectedTarget: automationTargetIdentitySchema.optional(),
       },
     },
-    async ({ message }) => {
+    async ({ message, expectedTarget }) => {
       try {
         const result = await sendAutomationMessage({
           descriptorPath,
           message,
+          ...(expectedTarget === undefined ? {} : { expectedTarget }),
         });
         return {
           content: [
@@ -51,6 +56,7 @@ export function createDebugMcpServer(descriptorPath: string): McpServer {
           structuredContent: {
             accepted: true,
             messageId: result.messageId,
+            ...(result.turn === undefined ? {} : { turn: result.turn }),
             traceId: result.trace.traceId,
             correlationId: result.trace.correlationId,
           },

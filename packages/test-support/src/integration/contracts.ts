@@ -1,0 +1,292 @@
+export type Scalar = string | number | boolean | null;
+export type Facts = Readonly<Record<string, Scalar>>;
+export interface AssertionReference {
+  readonly name: string;
+  readonly parameters: Facts;
+}
+export interface FixtureResource {
+  readonly path: string;
+  readonly target: string;
+  readonly sha256: string;
+  readonly bytes: number;
+}
+export interface DependencyInventory {
+  readonly schemaVersion: 1;
+  /** Production candidate resources; synthetic drivers use explicitly controlled inputs. */
+  readonly candidateRoot: string;
+  readonly resources: readonly (FixtureResource & { readonly id: string })[];
+  /** Bounded provider-generated configuration, never represented as candidate bytes. */
+  readonly generatedConfigurations?: readonly {
+    readonly id: string;
+    readonly target: string;
+    readonly sha256: string;
+    readonly bytes: number;
+  }[];
+  readonly frozenDevices?: readonly {
+    readonly id: string;
+    readonly sourceTarget: string;
+    readonly target: string;
+    readonly sha256: string;
+    readonly bytes: number;
+  }[];
+  readonly preparedProject?: {
+    readonly target: "prepared.als";
+    readonly sha256: string;
+    readonly bytes: number;
+  };
+}
+export interface ListenerBinding {
+  /** Exact saved XML identity; no matching by device display name. */
+  readonly slot: string;
+  readonly sourcePath: string;
+  readonly dependency: "machine-listening";
+  readonly trackIndex: number;
+  readonly deviceIndex: number;
+}
+export interface FixtureManifest {
+  readonly schemaVersion: 1;
+  readonly id: string;
+  readonly qualification: "synthetic-only" | "reviewed-live";
+  readonly provenance: {
+    readonly ownership: "authored" | "redistributable" | "user-authorized";
+    readonly description: string;
+  };
+  readonly resources: readonly FixtureResource[];
+  readonly dependencies: readonly string[];
+  readonly listenerBindings?: readonly ListenerBinding[];
+  /** Existing licensed Live Builtin content; verified in place, never redistributed. */
+  readonly builtinResources?: readonly {
+    readonly path: string;
+    readonly sha256: string;
+    readonly bytes: number;
+  }[];
+  readonly baseline: Facts;
+}
+export interface ScenarioStep {
+  readonly id: string;
+  readonly message: string;
+  readonly timeoutMs: number;
+  readonly expectedStatus?: "completed" | "refused";
+  readonly assertions: readonly AssertionReference[];
+}
+export interface ScenarioPermission {
+  readonly tool: string;
+  readonly action: string;
+  readonly risk: "low" | "medium";
+  readonly maxUses: number;
+  readonly arguments: Facts;
+}
+export interface ScenarioManifest {
+  readonly schemaVersion: 1;
+  readonly id: string;
+  readonly fixtureId: string;
+  readonly requiredCapabilities: readonly string[];
+  readonly permissions: readonly ScenarioPermission[];
+  readonly budget: {
+    readonly runMs: number;
+    readonly cleanupMs: number;
+    readonly persistenceMs: number;
+  };
+  readonly steps: readonly ScenarioStep[];
+  readonly assertions: readonly AssertionReference[];
+}
+export interface SessionIdentity {
+  readonly appSessionId: string;
+  readonly conversationId: string;
+  readonly agentId: string;
+}
+export interface Submission extends SessionIdentity {
+  readonly userMessageId: string;
+  readonly operationId: string;
+}
+export interface SourceIdentity {
+  readonly trackId: string;
+  readonly clipId: string;
+  readonly slotIndex: number;
+  readonly mediaSha256: string;
+}
+export interface CaptureEvidence {
+  readonly passId: string;
+  readonly operationId: string;
+  readonly source: SourceIdentity;
+  readonly listenerId: string;
+  readonly complete: boolean;
+  readonly nonSilent: boolean;
+  readonly truncated: boolean;
+  readonly missingRecords: number;
+  readonly metricFamilies: readonly string[];
+  readonly sampleRate: number;
+  readonly startSample: number;
+  readonly endSample: number;
+  readonly cleanupComplete: boolean;
+  readonly failure: string | null;
+}
+export interface ContextEvidence {
+  readonly contextId: string;
+  readonly passId: string;
+  readonly source: SourceIdentity;
+  readonly contentSha256: string;
+  readonly readable: boolean;
+  readonly afterOwnedRestart: boolean;
+}
+export interface BaselineEvidence {
+  readonly schemaVersion: 1;
+  readonly loadedMediaPath?: string;
+  readonly facts: Facts;
+  readonly source?: SourceIdentity;
+  readonly listenerId?: string;
+  readonly dependencyHashes: Readonly<Record<string, string>>;
+}
+export interface AudioBaselineEvidence extends BaselineEvidence {
+  readonly loadedMediaPath: string;
+  readonly source: SourceIdentity;
+  readonly listenerId: string;
+}
+export interface TurnEvidence extends Submission {
+  readonly schemaVersion: 1;
+  readonly assistantMessageId: string;
+  readonly terminal: true;
+  readonly status: "completed" | "refused" | "failed" | "cancelled";
+  readonly assistantText: string;
+  readonly captures: readonly CaptureEvidence[];
+  readonly contexts: readonly ContextEvidence[];
+  readonly facts: Facts;
+}
+export interface RunEvidence {
+  readonly schemaVersion: 1;
+  readonly recoveries?: readonly string[];
+  /** Complete run-scoped pass inventory, including owned restart observation. */
+  readonly capturePassIds?: readonly string[];
+  readonly facts: Facts;
+  readonly contexts: readonly ContextEvidence[];
+  readonly unchanged: readonly {
+    readonly scope: string;
+    readonly beforeSha256: string;
+    readonly afterSha256: string;
+  }[];
+}
+export interface StagedFixture {
+  readonly projectPath: string;
+  readonly workingDirectory: string;
+  readonly resources: readonly FixtureResource[];
+  verifySourceUnchanged(): Promise<void>;
+}
+export interface DriverContext {
+  readonly runId: string;
+  readonly traceId: string;
+  readonly correlationId: string;
+  readonly causationId: string;
+  readonly signal: AbortSignal;
+  readonly deadlineAt: number;
+  readonly scenario: ScenarioManifest;
+  readonly fixture: FixtureManifest;
+  readonly stagedFixture?: StagedFixture;
+  readonly dependencyInventory?: DependencyInventory;
+  readonly identity?: SessionIdentity;
+}
+export interface TurnSubscription {
+  /** Resolve only after the attributable terminal response and its owned jobs settle. */
+  waitForTurn(
+    submission: Submission,
+    context: DriverContext,
+  ): Promise<TurnEvidence>;
+  close(context: DriverContext): Promise<void>;
+}
+/** All operations must honor signal; cleanup must reclaim partially launched resources. */
+export interface AcceptanceDriver {
+  readonly schemaVersion: 1;
+  readonly capabilities: readonly string[];
+  launch(context: DriverContext): Promise<void>;
+  ready(context: DriverContext): Promise<SessionIdentity>;
+  subscribe(context: DriverContext): Promise<TurnSubscription>;
+  readBaseline(context: DriverContext): Promise<BaselineEvidence>;
+  submit(step: ScenarioStep, context: DriverContext): Promise<Submission>;
+  collect(context: DriverContext): Promise<RunEvidence>;
+  cleanup(context: DriverContext): Promise<void>;
+}
+export interface AssertionInput {
+  readonly fixture: FixtureManifest;
+  readonly baseline: BaselineEvidence;
+  readonly turns: readonly TurnEvidence[];
+  readonly turn?: TurnEvidence;
+  readonly evidence?: RunEvidence;
+}
+export interface AssertionResult {
+  readonly name: string;
+  readonly passed: boolean;
+  readonly code: string;
+  readonly detail: string;
+}
+export type Assertion = (
+  input: AssertionInput,
+  parameters: Facts,
+) => Omit<AssertionResult, "name">;
+export type RunStatus =
+  | "passed"
+  | "expected-refusal"
+  | "recovered"
+  | "blocked"
+  | "failed"
+  | "cancelled"
+  | "finalization-failed";
+export interface RunFailure {
+  readonly stage: string;
+  readonly message: string;
+}
+export interface RunResult {
+  readonly schemaVersion: 1;
+  readonly runId: string;
+  readonly traceId: string;
+  readonly scenarioId: string;
+  readonly fixtureId: string;
+  readonly status: RunStatus;
+  readonly startedAt: number;
+  readonly completedAt: number;
+  readonly durationMs: number;
+  readonly selected: readonly string[];
+  readonly executed: readonly string[];
+  readonly unrun: readonly string[];
+  readonly assertions: readonly AssertionResult[];
+  readonly turns: readonly TurnEvidence[];
+  readonly baseline?: BaselineEvidence;
+  readonly dependencyInventory?: DependencyInventory;
+  readonly evidence?: RunEvidence;
+  readonly primaryFailure?: RunFailure;
+  readonly finalizationFailures: readonly RunFailure[];
+  readonly cleanupComplete: boolean;
+  readonly persisted: boolean;
+}
+export interface LifecycleEvent {
+  readonly schemaVersion: 1;
+  readonly runId: string;
+  readonly traceId: string;
+  readonly correlationId: string;
+  readonly causationId: string;
+  readonly stage: string;
+  readonly phase:
+    "queued" | "started" | "progress" | "completed" | "failed" | "cancelled";
+  readonly timestamp: number;
+  readonly durationMs: number;
+}
+
+/** Expected loaded state, not instructions to repair a project. */
+export const SUPPORTED_AUDIO_BASELINE: Facts = Object.freeze({
+  globalQuantization: "none",
+  clipLaunchQuantization: "global",
+  transportPlaying: false,
+  currentSongTime: 0,
+  playingSessionClips: 0,
+  queuedSessionClips: 0,
+  recording: false,
+  signatureNumerator: 4,
+  signatureDenominator: 4,
+  clipWarped: true,
+  clipStart: 0,
+  loopStart: 0,
+  loopEnd: 4,
+  activeLengthBeats: 4,
+  launchMode: "trigger",
+  legato: false,
+  followActionsEnabled: false,
+  listenerBoundToSource: true,
+});

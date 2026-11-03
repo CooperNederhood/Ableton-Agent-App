@@ -1,0 +1,113 @@
+{
+  "fixture": {
+    "schemaVersion": 1,
+    "id": "session-clip-example",
+    "qualification": "synthetic-only",
+    "provenance": {
+      "ownership": "authored",
+      "description": "NON-RUNNABLE authoring template. Jointly review the Set, sample, permissions, source names, sample rate, byte counts and hashes before registration."
+    },
+    "resources": [
+      {
+        "path": "project.als",
+        "target": "project.als",
+        "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+        "bytes": 1
+      },
+      {
+        "path": "media/resource-001.wav",
+        "target": "media/resource-001.wav",
+        "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+        "bytes": 1
+      }
+    ],
+    "dependencies": ["machine-listening"],
+    "listenerBindings": [],
+    "baseline": {
+      "trackName": "audio-track",
+      "clipName": "clip-1",
+      "sceneIndex": 0,
+      "globalQuantization": "none",
+      "clipLaunchQuantization": "global",
+      "transportPlaying": false,
+      "currentSongTime": 0,
+      "playingSessionClips": 0,
+      "queuedSessionClips": 0,
+      "clipWarped": true,
+      "clipStart": 0,
+      "loopStart": 0,
+      "loopEnd": 4,
+      "activeLengthBeats": 4,
+      "launchMode": "trigger",
+      "legato": false,
+      "followActionsEnabled": false,
+      "listenerBoundToSource": true,
+      "recording": false,
+      "signatureNumerator": 4,
+      "signatureDenominator": 4,
+      "tempo": 128
+    }
+  },
+  "scenario": {
+    "schemaVersion": 1,
+    "id": "session-clip-identify-example",
+    "fixtureId": "session-clip-example",
+    "requiredCapabilities": ["automation", "session-audio", "persistence"],
+    "permissions": [],
+    "budget": {
+      "runMs": 300000,
+      "cleanupMs": 30000,
+      "persistenceMs": 30000
+    },
+    "steps": [
+      {
+        "id": "listen",
+        "message": "Listen to the first Session clip on track audio-track.",
+        "timeoutMs": 120000,
+        "assertions": [
+          {
+            "name": "capture",
+            "parameters": {
+              "sampleRate": 48000,
+              "expectedFrames": 90000,
+              "metricFamilies": "level,spectral-centroid,attacks"
+            }
+          },
+          {
+            "name": "context",
+            "parameters": { "afterRestart": false }
+          }
+        ]
+      },
+      {
+        "id": "identify",
+        "message": "What does the clip you listened to do? Pick from (A) hihat (B) kick drum (C) synth lead (D) snare. Reply in the form '({Letter})', nothing else.",
+        "timeoutMs": 60000,
+        "assertions": [
+          {
+            "name": "choice",
+            "parameters": { "expected": "B" }
+          },
+          {
+            "name": "no-capture",
+            "parameters": {}
+          },
+          {
+            "name": "context",
+            "parameters": { "afterRestart": false }
+          }
+        ]
+      }
+    ],
+    "assertions": [
+      { "name": "capture-count", "parameters": { "expected": 1 } },
+      { "name": "context", "parameters": { "afterRestart": true } },
+      {
+        "name": "unchanged",
+        "parameters": {
+          "scopes": "session-structure,source-settings,fixture-media,unrelated-playback"
+        }
+      }
+    ]
+  }
+}

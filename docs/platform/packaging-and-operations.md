@@ -152,12 +152,38 @@ payloads are refused. Building an absent payload is not real-Live qualification.
 Use the manifest's device and resource hashes and the integration inventory's
 source identity to bind qualification to the actual bundle, not just v5 version
 metadata. Positive Live fixtures must load this production payload, without a
-test-local generated replacement. Installation preserves listening AMXD/runtime/
-DSP bytes and adds only profile discovery configuration, its manifest entry and
-managed installation metadata. Verify installed immutable hashes against the
-qualified portable bundle. A different source identity is a different candidate.
+test-local generated replacement. Installation preserves the listening graph and
+runtime/DSP resource bytes, adds resolver-owned profile discovery configuration,
+then headlessly freezes the complete listener into an `mx@c` AMXD collective.
+The main patcher includes Max project metadata; Node entrypoints, CommonJS
+dependencies, package JSON and configuration all have disk-extraction flags.
+Max 8.5.8 does not extract unflagged files for `require()`, even when they are
+present in the archive. Max/Gen patchers remain embedded archive resources.
+The sidecar manifest is excluded to avoid a self-hash cycle. Its device hash and
+the managed receipt identify the resulting frozen bytes; embedded resource bytes
+must match the validated portable bundle, except the generated profile config.
+The portable source remains unconfigured and unchanged.
+
+Freezing is deterministic (sorted resources and fixed 1970 file timestamps),
+bounded to 512 flat ASCII filenames and 64 MiB, and rejects missing Node
+entrypoints, duplicate names and malformed archives. Frozen re-encoding retains
+embedded dependencies rather than silently unfreezing. `check-artifact` verifies
+the frozen graph and embedded inventory against the canonical graph and hashed
+sidecars. Dry-run/detection prepare the same frozen bytes without writing;
+publication remains atomic and failure/cancellation never falls back to an
+unfrozen device. `integrations.freeze` reports queued, started, progress,
+completed, failed or cancelled with component attribution and timing through the
+existing trace/redaction journal. No Max GUI is needed for installation.
+
+The frozen device and standalone profile configuration are owner-readable only.
+The embedded configuration contains descriptor/secret **paths**, never credential
+bodies; collection does not make those paths portable to another user/profile.
+Reinstall and replace the device when changing machines or profile.
+A different source identity is a different candidate.
 Actual normal-profile discovery and capture remain distinct acceptance gates;
-app authentication and successful copying do not certify listening.
+archive inspection, app authentication and successful copying do not certify
+Live loading, Collect All and Save/reopen behavior, or listening. Those real-host
+checks remain pending for the newly frozen candidate.
 
 The corrected production payload is physically qualified on Live 11.3.43:
 MIDI/audio one-beat captures, repeated captures, MIDI/audio/MIDI switching and

@@ -12,6 +12,8 @@ import {
   type AutomationErrorCode,
   type AutomationResponse,
   type AutomationTrace,
+  type AutomationTargetIdentity,
+  type AutomationAcceptance,
 } from "./contracts.js";
 
 export class AutomationControlError extends Error {
@@ -29,11 +31,12 @@ export interface SendAutomationMessageOptions {
   message: string;
   timeoutMs?: number;
   trace?: AutomationTrace;
+  expectedTarget?: AutomationTargetIdentity;
 }
 
 export async function sendAutomationMessage(
   options: SendAutomationMessageOptions,
-): Promise<{ accepted: true; messageId: string; trace: AutomationTrace }> {
+): Promise<AutomationAcceptance & { trace: AutomationTrace }> {
   const timeoutMs = options.timeoutMs ?? DEFAULT_AUTOMATION_REQUEST_TIMEOUT_MS;
   const descriptor = automationDiscoveryDescriptorSchema.parse(
     JSON.parse(await readFile(options.descriptorPath, "utf8")),
@@ -52,18 +55,37 @@ export async function sendAutomationMessage(
     secret,
     method: "send_user_message",
     trace,
-    params: { message: options.message },
+    params: {
+      message: options.message,
+      ...(options.expectedTarget === undefined
+        ? {}
+        : { expectedTarget: options.expectedTarget }),
+    },
   });
   const response = await exchange(
     descriptor.host,
     descriptor.port,
     `${JSON.stringify(request)}\n`,
     timeoutMs,
+    request.id,
   );
   if (!response.ok) {
     throw new AutomationControlError(
       response.error.message,
       response.error.code,
+    );
+  }
+  const expected = options.expectedTarget;
+  const actual = response.result.turn?.target;
+  if (
+    expected !== undefined &&
+    (actual?.appSessionId !== expected.appSessionId ||
+      actual.agentInstanceId !== expected.agentInstanceId ||
+      actual.sdkSessionId !== expected.sdkSessionId)
+  ) {
+    throw new AutomationControlError(
+      "Desktop automation acknowledgement did not match the expected target",
+      "protocol",
     );
   }
   return { ...response.result, trace };
@@ -74,6 +96,7 @@ function exchange(
   port: number,
   frame: string,
   timeoutMs: number,
+  requestId: string,
 ): Promise<AutomationResponse> {
   return new Promise((resolve, reject) => {
     const socket = connect({ host, port });
@@ -112,13 +135,20 @@ function exchange(
         const response = automationResponseSchema.parse(
           JSON.parse(buffer.subarray(0, newline).toString("utf8")),
         );
+        if (response.id !== requestId) {
+          finish(
+            new AutomationControlError(
+              "Desktop automation response did not match the request ID",
+              "protocol",
+            ),
+          );
+          return;
+        }
         finish(undefined, response);
-      } catch (error) {
+      } catch {
         finish(
           new AutomationControlError(
-            `Desktop automation response was invalid: ${
-              error instanceof Error ? error.message : String(error)
-            }`,
+            "Desktop automation response was invalid",
             "protocol",
           ),
         );

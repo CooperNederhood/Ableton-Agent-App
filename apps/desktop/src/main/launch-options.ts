@@ -15,10 +15,8 @@ export interface DesktopLaunchOptions {
 export function desktopMetricListenersEnabled(
   options: DesktopLaunchOptions,
 ): boolean {
-  return (
-    options.automation === undefined ||
-    options.automation.independentMetricListeners === true
-  );
+  // Automation only adds ingress; the legacy opt-in flag remains accepted.
+  return options.automation?.independentMetricListeners ?? true;
 }
 
 export function parseDesktopLaunchOptions(

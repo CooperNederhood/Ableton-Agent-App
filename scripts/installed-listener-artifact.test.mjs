@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
   mkdir,
   mkdtemp,
@@ -17,6 +18,7 @@ import { resolveLiveAgentStorage } from "../packages/storage/src/index.ts";
 import { installAbletonIntegrations } from "../apps/desktop/src/main/ableton-integrations-install.ts";
 import { checkArtifact } from "./audio-listener-device.mjs";
 import { buildAbletonIntegrations } from "./build-ableton-integrations.mjs";
+import { decodeAmxd } from "../packages/shared/src/max-device.ts";
 
 it("retains the native artifact contract after installed profile configuration is added", async () => {
   const root = await realpath(
@@ -83,13 +85,31 @@ it("retains the native artifact contract after installed profile configuration i
       supportedModes: ["arrangement", "session"],
       modeNegotiation: "explicit-per-pass",
     });
-    for (const name of [
-      original.deviceFile,
-      ...original.resources.map((resource) => resource.name),
-    ])
+    for (const name of original.resources.map((resource) => resource.name))
       expect(await readFile(join(installedDirectory, name))).toEqual(
         await readFile(join(portableDirectory, name)),
       );
+    const frozenBytes = await readFile(
+      join(installedDirectory, original.deviceFile),
+    );
+    const frozen = decodeAmxd(frozenBytes);
+    expect(frozen.frozenFiles.map((file) => file.name).sort()).toEqual(
+      [
+        original.deviceFile,
+        ...original.resources.map((resource) => resource.name),
+        "agent_signal_storage.js",
+      ].sort(),
+    );
+    for (const file of frozen.frozenFiles.slice(1))
+      expect(file.data).toEqual(
+        await readFile(join(installedDirectory, file.name)),
+      );
+    const graph = JSON.parse(JSON.stringify(frozen.document));
+    delete graph.patcher.project;
+    expect(graph).toEqual(
+      decodeAmxd(await readFile(join(portableDirectory, original.deviceFile)))
+        .document,
+    );
     const metadata = JSON.parse(
       await readFile(
         join(installedDirectory, ".ableton-agent-device-install.json"),
@@ -97,8 +117,12 @@ it("retains the native artifact contract after installed profile configuration i
       ),
     );
     expect(metadata.installedHashes[original.deviceFile]).toBe(
-      original.deviceSha256,
+      createHash("sha256").update(frozenBytes).digest("hex"),
     );
+    expect(installed.deviceSha256).toBe(
+      metadata.installedHashes[original.deviceFile],
+    );
+    expect(installed.deviceSha256).not.toBe(original.deviceSha256);
     for (const graph of [
       "audio_listener_native_clock.maxpat",
       "audio_listener_native_analysis.maxpat",
@@ -130,9 +154,17 @@ it("retains the native artifact contract after installed profile configuration i
     ).toBe("installed");
     await checkArtifact(installedDirectory);
     expect(await readFile(portableManifest, "utf8")).toBe(originalManifest);
-    expect(
-      await readFile(join(installedDirectory, original.deviceFile)),
-    ).toEqual(await readFile(join(portableDirectory, original.deviceFile)));
+    const reconfiguredBytes = await readFile(
+      join(installedDirectory, original.deviceFile),
+    );
+    expect(reconfiguredBytes).not.toEqual(frozenBytes);
+    const embeddedConfiguration = decodeAmxd(
+      reconfiguredBytes,
+    ).frozenFiles.find((file) => file.name === "agent_signal_storage.js");
+    expect(embeddedConfiguration.data).toEqual(
+      await readFile(join(installedDirectory, "agent_signal_storage.js")),
+    );
+    expect(embeddedConfiguration.data.toString()).toContain("another-profile");
     await writeFile(
       join(portableDirectory, "audio_listener_native_v5_max.js"),
       "invalid replacement",

@@ -1,5 +1,4 @@
-import { mkdtemp, readFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 
 import { describe, expect, it, vi } from "vitest";
@@ -12,8 +11,43 @@ import { sendAutomationMessage } from "./client.js";
 import { AutomationControlServer } from "./server.js";
 
 describe("automation control", () => {
+  it("records only failure when the submission result violates the response contract", async () => {
+    const root = await mkdtemp(
+      join(process.cwd(), ".ableton-agent-automation-"),
+    );
+    const descriptorPath = join(root, "endpoint.json");
+    const lifecycleEvents: AutomationLifecycleEvent[] = [];
+    const server = new AutomationControlServer({
+      descriptorPath,
+      sendUserMessage: async () => ({
+        accepted: true,
+        messageId: "not-an-id",
+      }),
+      onLifecycle: (event) => lifecycleEvents.push(event),
+    });
+    await server.start();
+    try {
+      await expect(
+        sendAutomationMessage({
+          descriptorPath,
+          message: "Only once",
+        }),
+      ).rejects.toMatchObject({ code: "internal_error" });
+      expect(lifecycleEvents.map(({ stage }) => stage)).toEqual([
+        "queued",
+        "started",
+        "failed",
+      ]);
+    } finally {
+      await server.stop();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("discovers, authenticates, and sends one bounded user message", async () => {
-    const root = await mkdtemp(join(tmpdir(), "ableton-agent-automation-"));
+    const root = await mkdtemp(
+      join(process.cwd(), ".ableton-agent-automation-"),
+    );
     const descriptorPath = join(root, "endpoint.json");
     const sendUserMessage = vi.fn(async () => ({
       accepted: true as const,
@@ -59,5 +93,6 @@ describe("automation control", () => {
     await expect(readFile(descriptorPath, "utf8")).rejects.toMatchObject({
       code: "ENOENT",
     });
+    await rm(root, { recursive: true, force: true });
   });
 });

@@ -9,6 +9,10 @@ import type {
 import type { DesktopSessionContextTransitionHandler } from "./desktop-session-context.js";
 import type { ListeningJob } from "@ableton-agent/application";
 import type {
+  InspectSessionListeningSourceParams,
+  InspectSessionListeningSourceResult,
+} from "@ableton-agent/protocol";
+import type {
   DesktopListeningCancellationOptions,
   DesktopListeningListRequest,
   DesktopListeningPage,
@@ -58,6 +62,8 @@ import type {
   RootTraceQuery,
   DesktopPreferences,
   DesktopLiveSetSnapshot,
+  DesktopRecordingInspection,
+  DesktopSessionListeningPreflight,
   LiveSetTransitionDecision,
   DesktopOutputAssignment,
   DesktopOutputsState,
@@ -181,6 +187,13 @@ export interface DesktopService {
   getStatus(): Promise<DesktopConnectionStatus>;
   getCapabilities(): Promise<string[]>;
   getSnapshot(): Promise<DesktopLiveSetSnapshot>;
+  inspectSessionListeningSource(
+    params: InspectSessionListeningSourceParams,
+  ): Promise<InspectSessionListeningSourceResult>;
+  inspectRecording(): Promise<DesktopRecordingInspection>;
+  inspectSessionListeningPreflight(
+    params: InspectSessionListeningSourceParams,
+  ): Promise<DesktopSessionListeningPreflight>;
   getDiagnostics(): Promise<DiagnosticCheck[]>;
   resolveApproval(id: string, decision: ApprovalDecision): Promise<boolean>;
   getPreferences(): Promise<DesktopPreferences>;

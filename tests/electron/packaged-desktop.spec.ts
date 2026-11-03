@@ -13,19 +13,28 @@ import { dirname, join, resolve } from "node:path";
 import { promisify } from "node:util";
 
 import { _electron as electron, expect, test } from "@playwright/test";
+import { sendAutomationMessage } from "@ableton-agent/debug-control";
 import { resolveLiveAgentStorage } from "../../packages/storage/src/index.js";
-import { readIntegrationDevicePayloads } from "../../packages/shared/src/m4l-devices.js";
+import {
+  decodeAmxd,
+  readIntegrationDevicePayloads,
+} from "../../packages/shared/src/m4l-devices.js";
 import {
   preferencesSchema,
   type DesktopApi,
+  type DesktopAppEvent,
 } from "../../apps/desktop/src/contracts.js";
 import { bridgeTokenKey } from "../../apps/desktop/src/main/bridge-credentials.js";
 import {
   closeOwnedPackagedApplication,
   withPackagedFixtureCleanup,
 } from "./packaged-cleanup.js";
+import {
+  packagedExecutable,
+  packagedResources,
+  finderLikeEnvironment,
+} from "./packaged-paths.js";
 
-const releaseRoot = resolve("release");
 const syntheticBridgeToken = "a".repeat(64);
 
 function integrationReceipt(raw: string) {
@@ -56,69 +65,10 @@ interface PackagedDesktopWindow {
   desktop: Pick<DesktopApi, "lifecycle" | "agents" | "eventHistory">;
 }
 
-function packagedResources(directory: string): string {
-  const explicit = process.env.ABLETON_AGENT_PACKAGED_EXECUTABLE?.trim();
-  if (explicit) return join(dirname(dirname(explicit)), "Resources");
-  return join(
-    releaseRoot,
-    directory,
-    "Ableton Agent.app",
-    "Contents",
-    "Resources",
-  );
-}
-
-async function packagedExecutable(): Promise<string> {
-  const explicit = process.env.ABLETON_AGENT_PACKAGED_EXECUTABLE?.trim();
-  if (explicit) {
-    await access(explicit);
-    return explicit;
-  }
-  const directories =
-    process.arch === "arm64" ? ["mac-arm64", "mac"] : ["mac", "mac-x64"];
-  for (const directory of directories) {
-    const executable = join(
-      releaseRoot,
-      directory,
-      "Ableton Agent.app",
-      "Contents",
-      "MacOS",
-      "Ableton Agent",
-    );
-    try {
-      await access(executable);
-      return executable;
-    } catch {
-      // Try the next electron-builder output directory for this architecture.
-    }
-  }
-  throw new Error(
-    `No packaged Ableton Agent executable for ${process.arch} was found under ${releaseRoot}. Run 'pnpm desktop:dist' first.`,
-  );
-}
-
-function finderLikeEnvironment(
-  overrides: NodeJS.ProcessEnv = {},
-): Record<string, string> {
-  const environment: Record<string, string> = {};
-  for (const [name, value] of Object.entries({
-    ...process.env,
-    ...overrides,
-  })) {
-    if (value !== undefined) environment[name] = value;
-  }
-  environment.PATH = "/usr/bin:/bin:/usr/sbin:/sbin";
-  for (const name of [
-    "COPILOT_GITHUB_TOKEN",
-    "COPILOT_HMAC_KEY",
-    "GH_TOKEN",
-    "GITHUB_TOKEN",
-    "GITHUB_COPILOT_API_TOKEN",
-  ]) {
-    delete environment[name];
-  }
-  return environment;
-}
+type AutomationTestWindow = typeof globalThis.window & {
+  desktop: DesktopApi;
+  automationEvents: DesktopAppEvent[];
+};
 
 test("bundles native runtime packages for both macOS architectures", async () => {
   for (const [directory, architecture] of [
@@ -297,13 +247,40 @@ test("installs both canonical Max bundles and Remote Script from packaged resour
         await expect(
           access(join(installed, file.name)),
         ).resolves.toBeUndefined();
-      if (device.id === "machine-listening")
+      if (device.id === "machine-listening") {
+        const frozen = decodeAmxd(
+          await readFile(join(installed, device.deviceFile)),
+        );
+        expect(frozen.frozenFiles?.map((file) => file.name).sort()).toEqual(
+          [
+            ...device.files
+              .map((file) => file.name)
+              .filter((name) => name !== "audio-listener-manifest.json"),
+            "agent_signal_storage.js",
+          ].sort(),
+        );
+        for (const file of frozen.frozenFiles!.slice(1)) {
+          expect(file.data).toEqual(await readFile(join(installed, file.name)));
+          expect(file.flags).toBe(
+            /\.(?:[cm]?js|json)$/u.test(file.name) ? 8 : 0,
+          );
+        }
+        expect(
+          frozen.frozenFiles!.find(
+            (file) => file.name === "audio_listener_native_v5_max.js",
+          )?.flags,
+        ).toBe(8);
         for (const file of device.files) {
-          if (file.name === "audio-listener-manifest.json") continue;
+          if (
+            file.name === "audio-listener-manifest.json" ||
+            file.name === device.deviceFile
+          )
+            continue;
           expect(await readFile(join(installed, file.name))).toEqual(
             await readFile(join(device.sourceDirectory, file.name)),
           );
         }
+      }
     }
     const second = await promisify(execFile)(executable, args, {
       cwd: root,
@@ -403,6 +380,205 @@ test("authenticates the installed production application", async () => {
     expect(models.length).toBeGreaterThan(0);
   } finally {
     await application.close();
+    await rm(profile, { recursive: true, force: true });
+  }
+});
+
+test("completes two pinned automation turns with the packaged Default agent", async () => {
+  test.skip(
+    process.env.ABLETON_AGENT_AUTH_SMOKE !== "1",
+    "Requires an authenticated local GitHub CLI and Copilot entitlement",
+  );
+  test.setTimeout(180_000);
+  const profile = await mkdtemp(
+    join(process.cwd(), "ableton-agent-packaged-conversation-"),
+  );
+  const descriptorPath = join(profile, "automation-endpoint.json");
+  let application: Awaited<ReturnType<typeof electron.launch>> | undefined;
+  try {
+    application = await electron.launch({
+      executablePath: await packagedExecutable(),
+      args: [
+        "--automation",
+        "--automation-profile",
+        profile,
+        "--automation-descriptor",
+        descriptorPath,
+        "--automation-agent",
+        "default",
+      ],
+      cwd: process.cwd(),
+      env: finderLikeEnvironment({
+        ABLETON_AGENT_TOKEN: syntheticBridgeToken,
+        NODE_ENV: "production",
+      }),
+    });
+    const window = await application.firstWindow();
+    await window.waitForLoadState("domcontentloaded");
+    await expect
+      .poll(
+        async () => {
+          try {
+            const descriptor: unknown = JSON.parse(
+              await readFile(descriptorPath, "utf8"),
+            );
+            return descriptor !== null &&
+              typeof descriptor === "object" &&
+              "processId" in descriptor
+              ? descriptor.processId
+              : null;
+          } catch (error) {
+            if (
+              error instanceof Error &&
+              "code" in error &&
+              error.code === "ENOENT"
+            )
+              return null;
+            throw error;
+          }
+        },
+        { timeout: 60_000 },
+      )
+      .toBe(application.process().pid);
+    await expect
+      .poll(
+        async () =>
+          window.evaluate(async () => {
+            const desktop = (globalThis.window as AutomationTestWindow).desktop;
+            const [agents, sessions, outputs] = await Promise.all([
+              desktop.agents.listActive(),
+              desktop.agent.getSessions(),
+              desktop.outputs.list(),
+            ]);
+            const session = sessions.find(
+              ({ id }) => id === outputs.activeSessionId,
+            );
+            return agents.find(
+              ({ id }) => id === session?.selectedAgentInstanceId,
+            )?.lifecycle;
+          }),
+        { timeout: 60_000 },
+      )
+      .toBe("ready");
+    const target = await window.evaluate(async () => {
+      const desktop = (globalThis.window as AutomationTestWindow).desktop;
+      const outputs = await desktop.outputs.list();
+      const session = (await desktop.agent.getSessions()).find(
+        ({ id }) => id === outputs.activeSessionId,
+      );
+      const agent = (await desktop.agents.listActive()).find(
+        ({ id }) => id === session?.selectedAgentInstanceId,
+      );
+      if (
+        !session ||
+        !agent?.sdkSessionId ||
+        agent.definitionName !== "default" ||
+        agent.modified ||
+        agent.autoApprove ||
+        agent.mode === "plan"
+      )
+        throw new Error(
+          "Expected unmodified Default agent with normal approvals",
+        );
+      return {
+        appSessionId: session.id,
+        agentInstanceId: agent.id,
+        sdkSessionId: agent.sdkSessionId,
+      };
+    });
+    const descriptor: unknown = JSON.parse(
+      await readFile(descriptorPath, "utf8"),
+    );
+    expect(descriptor).toMatchObject({ processId: application.process().pid });
+    await window.evaluate(() => {
+      const state = globalThis.window as AutomationTestWindow;
+      state.automationEvents = [];
+      state.desktop.events.subscribe((event) => {
+        if (state.automationEvents.length >= 1000)
+          throw new Error("Automation smoke event bound exceeded");
+        state.automationEvents.push(event);
+      });
+    });
+    const operationIds = new Set<string>();
+    for (const [message, response] of [
+      [
+        "Remember the codeword violet for this conversation. Reply exactly READY. Do not use any tools.",
+        "READY",
+      ],
+      [
+        "What codeword did I ask you to remember? Reply with only that word. Do not use any tools.",
+        "violet",
+      ],
+    ]) {
+      const accepted = await sendAutomationMessage({
+        descriptorPath,
+        message: message!,
+        expectedTarget: target,
+      });
+      expect(accepted.turn?.target).toEqual(target);
+      expect(accepted.turn?.assistantMessageId).toBeTruthy();
+      expect(operationIds.has(accepted.messageId)).toBe(false);
+      operationIds.add(accepted.messageId);
+      const assistantMessageId = accepted.turn!.assistantMessageId;
+      await expect
+        .poll(
+          async () =>
+            window.evaluate(
+              ({ operationId, assistantMessageId, target }) => {
+                const events = (
+                  globalThis.window as AutomationTestWindow
+                ).automationEvents.filter(
+                  (event) =>
+                    "agentInstanceId" in event &&
+                    event.agentInstanceId === target.agentInstanceId &&
+                    "sdkSessionId" in event &&
+                    event.sdkSessionId === target.sdkSessionId,
+                );
+                const completion = events.find(
+                  (event) =>
+                    event.type === "agent.message_complete" &&
+                    event.messageId === assistantMessageId,
+                );
+                const operation = events
+                  .filter(
+                    (event) =>
+                      event.type === "operation.changed" &&
+                      event.operation.id === operationId,
+                  )
+                  .at(-1);
+                return {
+                  text:
+                    completion?.type === "agent.message_complete"
+                      ? completion.content.trim()
+                      : null,
+                  status:
+                    operation?.type === "operation.changed"
+                      ? operation.operation.status
+                      : null,
+                  approvals: events.filter(
+                    (event) => event.type === "approval.requested",
+                  ).length,
+                };
+              },
+              { operationId: accepted.messageId, assistantMessageId, target },
+            ),
+          { timeout: 60_000 },
+        )
+        .toEqual({
+          text: response,
+          status: "completed",
+          approvals: 0,
+        });
+      await expect(window.getByText(message!, { exact: true })).toHaveCount(1);
+    }
+  } finally {
+    if (application) {
+      const cleanup = await closeOwnedPackagedApplication(application);
+      expect(
+        cleanup.successful,
+        "Owned Desktop shutdown must precede profile removal",
+      ).toBe(true);
+    }
     await rm(profile, { recursive: true, force: true });
   }
 });

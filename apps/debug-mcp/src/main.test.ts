@@ -1,11 +1,10 @@
-import { mkdtemp } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 
 import { AutomationControlServer } from "@ableton-agent/debug-control";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { createDebugMcpServer, descriptorPathFromArgs } from "./main.js";
 
@@ -25,14 +24,25 @@ describe("debug MCP arguments", () => {
   });
 
   it("registers and calls the bounded send_user_message tool", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "debug-mcp-"));
+    const directory = await mkdtemp(join(process.cwd(), ".debug-mcp-"));
     const descriptorPath = join(directory, "endpoint.json");
+    const target = {
+      appSessionId: "00000000-0000-4000-8000-000000000032",
+      agentInstanceId: "00000000-0000-4000-8000-000000000033",
+      sdkSessionId: "sdk-conversation-1",
+    };
+    const turn = {
+      assistantMessageId: "00000000-0000-4000-8000-000000000034",
+      target,
+    };
+    const sendUserMessage = vi.fn(async () => ({
+      accepted: true as const,
+      messageId: "00000000-0000-4000-8000-000000000031",
+      turn,
+    }));
     const control = new AutomationControlServer({
       descriptorPath,
-      sendUserMessage: async () => ({
-        accepted: true,
-        messageId: "00000000-0000-4000-8000-000000000031",
-      }),
+      sendUserMessage,
     });
     await control.start();
     const server = createDebugMcpServer(descriptorPath);
@@ -49,18 +59,31 @@ describe("debug MCP arguments", () => {
       });
       const result = await client.callTool({
         name: "send_user_message",
-        arguments: { message: "Inspect the visible app" },
+        arguments: {
+          message: "Inspect the visible app",
+          expectedTarget: target,
+        },
       });
       expect(result).toMatchObject({
         structuredContent: {
           accepted: true,
           messageId: "00000000-0000-4000-8000-000000000031",
+          turn,
         },
       });
+      expect(sendUserMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          params: {
+            message: "Inspect the visible app",
+            expectedTarget: target,
+          },
+        }),
+      );
     } finally {
       await client.close();
       await server.close();
       await control.stop();
+      await rm(directory, { recursive: true, force: true });
     }
   });
 });

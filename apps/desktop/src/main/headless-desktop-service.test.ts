@@ -45,9 +45,16 @@ import {
 } from "@ableton-agent/storage";
 import { SESSION_CONTEXT_STORE_REFERENCE } from "@ableton-agent/project-state";
 import { randomUUID } from "node:crypto";
+import { currentCorrelationContext } from "@ableton-agent/correlation";
+import {
+  recordingInspectionFixture,
+  sessionListeningPreflightFixture,
+  sessionListeningSourceFixture,
+} from "../renderer/test-fixtures/session-listening-source.js";
 import { listeningFailureFixture } from "../renderer/test-fixtures/listening-failure.js";
 
 import {
+  appEventSchema,
   desktopAgentCatalogSchema,
   desktopSessionContextStoreReferenceSchema,
   preferencesSchema,
@@ -3907,6 +3914,183 @@ describe("desktop adapter over the shared application", () => {
     await service.stop();
   });
 
+  it.each(["appSessionId", "agentInstanceId", "sdkSessionId"] as const)(
+    "rejects automation with a stale %s before starting a turn",
+    async (field) => {
+      const { service, agent, events } = await harness();
+      await service.start();
+      const session = (await service.getSessions())[0]!;
+      const selected = (await service.listActiveAgents())[0]!;
+      const expectedTarget = {
+        appSessionId: session.id,
+        agentInstanceId: selected.id,
+        sdkSessionId: selected.sdkSessionId!,
+        [field]: randomUUID(),
+      };
+      await expect(
+        service.send("Do not dispatch", [], {
+          origin: "automation",
+          requestId: randomUUID(),
+          trace: {
+            traceId: randomUUID(),
+            spanId: randomUUID(),
+            correlationId: randomUUID(),
+          },
+          expectedTarget,
+        }),
+      ).rejects.toThrow("Automation target changed");
+      expect(agent.prompts).toEqual([]);
+      expect(
+        events.some((event) => event.type === "agent.user_message_submitted"),
+      ).toBe(false);
+      await service.stop();
+    },
+  );
+
+  it("links accepted automation to its complete assistant response and terminal operation", async () => {
+    const { service, events } = await harness({
+      agent: { deltas: ["(A)"], reply: "(B)" },
+    });
+    await service.start();
+    const session = (await service.getSessions())[0]!;
+    const selected = (await service.listActiveAgents())[0]!;
+    const expectedTarget = {
+      appSessionId: session.id,
+      agentInstanceId: selected.id,
+      sdkSessionId: selected.sdkSessionId!,
+    };
+    const accepted = await service.send("Choose", [], {
+      origin: "automation",
+      requestId: randomUUID(),
+      expectedTarget,
+      trace: {
+        traceId: randomUUID(),
+        spanId: randomUUID(),
+        correlationId: randomUUID(),
+      },
+    });
+    await settle();
+    expect(accepted).toMatchObject({ turn: { target: expectedTarget } });
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "agent.user_message_submitted",
+        messageId: accepted.messageId,
+        turn: accepted.turn,
+      }),
+    );
+    expect(
+      appEventSchema.parse(
+        events.find(
+          (event) =>
+            event.type === "agent.user_message_submitted" &&
+            event.messageId === accepted.messageId,
+        ),
+      ),
+    ).toMatchObject({ turn: accepted.turn });
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "agent.message_complete",
+        messageId: accepted.turn?.assistantMessageId,
+        content: "(B)",
+        agentInstanceId: selected.id,
+        sdkSessionId: selected.sdkSessionId,
+      }),
+    );
+    expect(
+      events.find(
+        (event) =>
+          event.type === "operation.changed" &&
+          event.operation.id === accepted.messageId &&
+          event.operation.status === "completed",
+      ),
+    ).toMatchObject({
+      type: "operation.changed",
+      operation: { id: accepted.messageId, status: "completed" },
+    });
+    await service.stop();
+  });
+
+  it("rechecks pinned automation identity after a concurrent target selection", async () => {
+    const { service, agent } = await harness();
+    await service.start();
+    const first = (await service.listActiveAgents())[0]!;
+    const second = await service.createActiveAgent("default");
+    await service.selectActiveAgent(first.id);
+    const submission = service.send(
+      "Do not dispatch to a switched target",
+      [],
+      {
+        origin: "automation",
+        requestId: randomUUID(),
+        trace: {
+          traceId: randomUUID(),
+          spanId: randomUUID(),
+          correlationId: randomUUID(),
+        },
+        expectedTarget: {
+          appSessionId: service.activeSessionId!,
+          agentInstanceId: first.id,
+          sdkSessionId: first.sdkSessionId!,
+        },
+      },
+    );
+    const rejection = expect(submission).rejects.toThrow(
+      "Automation target changed",
+    );
+    await service.selectActiveAgent(second.id);
+    await rejection;
+    expect(agent.prompts).toEqual([]);
+    await service.stop();
+  });
+
+  it.each(["failed", "cancelled"] as const)(
+    "keeps the accepted operation identity when automation is %s",
+    async (status) => {
+      const { service, agent, events } = await harness({
+        agent: { block: true },
+      });
+      await service.start();
+      const accepted = await service.send("Long automation turn", [], {
+        origin: "automation",
+        requestId: randomUUID(),
+        trace: {
+          traceId: randomUUID(),
+          spanId: randomUUID(),
+          correlationId: randomUUID(),
+        },
+      });
+      await settle();
+      if (status === "cancelled") await service.cancel();
+      else {
+        agent.setBehavior({ failWith: new Error("model unavailable") });
+        agent.release();
+      }
+      await settle();
+      expect(accepted.turn?.assistantMessageId).toBeDefined();
+      expect(
+        events.find(
+          (event) =>
+            event.type === "operation.changed" &&
+            event.operation.id === accepted.messageId &&
+            event.operation.status === status,
+        ),
+      ).toMatchObject({
+        type: "operation.changed",
+        operation: { id: accepted.messageId, status },
+        agentInstanceId: accepted.turn?.target.agentInstanceId,
+        sdkSessionId: accepted.turn?.target.sdkSessionId,
+      });
+      expect(
+        events.some(
+          (event) =>
+            event.type === "agent.message_complete" &&
+            event.messageId === accepted.turn?.assistantMessageId,
+        ),
+      ).toBe(false);
+      await service.stop();
+    },
+  );
+
   it("keeps automatic response stream IDs stable and isolated by agent session", async () => {
     const { service, events, sharedEvents } = await harness();
     await service.start();
@@ -6728,6 +6912,212 @@ describe("desktop adapter over the shared application", () => {
     await service.stop();
   });
 
+  it("preserves independently loaded media in attributed compound preflight without mutation", async () => {
+    const { service, application, ableton } = await harness();
+    const { params, result } = sessionListeningPreflightFixture();
+    const inspect = vi
+      .spyOn(application, "inspectSessionListeningPreflight")
+      .mockImplementation(async (request) => {
+        expect(request).toEqual(params);
+        expect(currentCorrelationContext()).toMatchObject({
+          traceId: params.queryId,
+          correlationId: params.queryId,
+          sessionId: service.activeSessionId,
+        });
+        return result;
+      });
+    await expect(
+      service.inspectSessionListeningPreflight(params),
+    ).rejects.toThrow("not accepting");
+    await service.start();
+    const before = structuredClone(ableton.state);
+    await expect(
+      service.inspectSessionListeningPreflight(params),
+    ).resolves.toEqual(result);
+    expect(ableton.state).toEqual(before);
+    inspect.mockRejectedValueOnce(new Error("loaded media read cancelled"));
+    await expect(
+      service.inspectSessionListeningPreflight(params),
+    ).rejects.toThrow("loaded media read cancelled");
+    await service.stop();
+    await expect(
+      service.inspectSessionListeningPreflight(params),
+    ).rejects.toThrow("not accepting");
+    expect(inspect).toHaveBeenCalledTimes(2);
+  });
+
+  it("reads global recording with trace attribution without changing recording state", async () => {
+    const { service, application, ableton } = await harness();
+    const result = recordingInspectionFixture();
+    const inspect = vi
+      .spyOn(application, "inspectRecording")
+      .mockImplementation(async () => {
+        const trace = currentCorrelationContext();
+        expect(trace?.correlationId).toBeDefined();
+        expect(trace?.traceId).toBe(trace?.correlationId);
+        expect(trace?.sessionId).toBe(service.activeSessionId);
+        return result;
+      });
+    await expect(service.inspectRecording()).rejects.toThrow("not accepting");
+    await service.start();
+    const before = structuredClone(ableton.state);
+    await expect(service.inspectRecording()).resolves.toEqual(result);
+    expect(ableton.state).toEqual(before);
+    inspect.mockRejectedValueOnce(new Error("recording read cancelled"));
+    await expect(service.inspectRecording()).rejects.toThrow(
+      "recording read cancelled",
+    );
+    await service.stop();
+    await expect(service.inspectRecording()).rejects.toThrow("not accepting");
+    expect(inspect).toHaveBeenCalledTimes(2);
+  });
+
+  it("reads exact Session source settings with query attribution and no product-state changes", async () => {
+    const { service, application, ableton } = await harness();
+    const { params, result } = sessionListeningSourceFixture();
+    const inspect = vi
+      .spyOn(application, "inspectSessionListeningSource")
+      .mockImplementation(async (request) => {
+        expect(request).toEqual(params);
+        expect(currentCorrelationContext()).toMatchObject({
+          traceId: params.queryId,
+          correlationId: params.queryId,
+          sessionId: service.activeSessionId,
+        });
+        return result;
+      });
+    await expect(service.inspectSessionListeningSource(params)).rejects.toThrow(
+      "not accepting",
+    );
+    expect(inspect).not.toHaveBeenCalled();
+    await service.start();
+    const before = structuredClone(ableton.state);
+    await expect(
+      service.inspectSessionListeningSource(params),
+    ).resolves.toEqual(result);
+    expect(ableton.state).toEqual(before);
+    expect(currentCorrelationContext()).toBeUndefined();
+    inspect.mockRejectedValueOnce(new Error("bridge read cancelled"));
+    await expect(service.inspectSessionListeningSource(params)).rejects.toThrow(
+      "bridge read cancelled",
+    );
+    expect(ableton.state).toEqual(before);
+    await service.stop();
+    await expect(service.inspectSessionListeningSource(params)).rejects.toThrow(
+      "not accepting",
+    );
+    expect(inspect).toHaveBeenCalledTimes(2);
+  });
+
+  it("attributes approvals only to the matching active operation and SDK session", async () => {
+    const { service, approvals, events, sharedEvents } = await harness({
+      agent: { block: true },
+    });
+    await service.start();
+    const selected = (await service.listActiveAgents())[0]!;
+    const accepted = await service.send("Hold this turn", []);
+    await settle();
+    const trace = {
+      traceId: randomUUID(),
+      correlationId: randomUUID(),
+      causationId: randomUUID(),
+    };
+    sharedEvents.publish({
+      type: "agent.working_update",
+      agentInstanceId: selected.id,
+      sdkSessionId: selected.sdkSessionId!,
+      update: {
+        kind: "started",
+        activityId: trace.correlationId,
+        occurredAt: new Date().toISOString(),
+      },
+    });
+    const laterSdkTurn = randomUUID();
+    sharedEvents.publish({
+      type: "agent.working_update",
+      agentInstanceId: selected.id,
+      sdkSessionId: selected.sdkSessionId!,
+      update: {
+        kind: "started",
+        activityId: laterSdkTurn,
+        occurredAt: new Date().toISOString(),
+      },
+    });
+    const request = {
+      metadata: {
+        name: "ableton_tracks" as const,
+        title: "Delete track",
+        risk: "destructive" as const,
+        duration: "short" as const,
+        mutationTarget: "track" as const,
+        operationId: "tracks.delete",
+        action: "delete",
+      },
+      arguments: { action: "delete", index: 2 },
+      agentInstanceId: selected.id,
+      sdkSessionId: selected.sdkSessionId!,
+      trace,
+    };
+    try {
+      const current = approvals.request(request);
+      const foreign = approvals.request({
+        ...request,
+        sdkSessionId: "foreign-sdk",
+      });
+      const missingSession = approvals.request({
+        metadata: request.metadata,
+        arguments: request.arguments,
+        agentInstanceId: selected.id,
+      });
+      const foreignTrace = { ...trace, correlationId: laterSdkTurn };
+      const wrongTurn = approvals.request({ ...request, trace: foreignTrace });
+      const requests = events.filter(
+        (event) => event.type === "approval.requested",
+      );
+      const currentEvent = requests.find(
+        (event) => event.sdkSessionId === selected.sdkSessionId,
+      )!;
+      const foreignEvent = requests.find(
+        (event) => event.sdkSessionId === "foreign-sdk",
+      )!;
+      expect(currentEvent.operationId).toBe(accepted.messageId);
+      expect(currentEvent.appSessionId).toBe(service.activeSessionId);
+      expect(currentEvent.trace).toEqual(trace);
+      expect(appEventSchema.parse(currentEvent)).toMatchObject({
+        operationId: accepted.messageId,
+        trace,
+      });
+      expect(foreignEvent.operationId).toBeUndefined();
+      expect(
+        requests.find(
+          (event) => event.trace?.correlationId === foreignTrace.correlationId,
+        )?.operationId,
+      ).toBeUndefined();
+      expect(
+        requests.find((event) => event.sdkSessionId === undefined)?.operationId,
+      ).toBeUndefined();
+      approvals.denyAll();
+      await expect(current).resolves.toBe(false);
+      await expect(foreign).resolves.toBe(false);
+      await expect(missingSession).resolves.toBe(false);
+      await expect(wrongTurn).resolves.toBe(false);
+      await service.cancel();
+      await settle();
+      const idle = approvals.request(request);
+      const idleEvent = events
+        .filter((event) => event.type === "approval.requested")
+        .at(-1)!;
+      expect(idleEvent.operationId).toBeUndefined();
+      approvals.denyAll();
+      await expect(idle).resolves.toBe(false);
+    } finally {
+      approvals.denyAll();
+      await service.cancel();
+      await settle();
+      await service.stop();
+    }
+  });
+
   it("routes tool approvals to the renderer and back to the agent", async () => {
     const { service, approvals, events } = await harness();
     await service.start();
@@ -6748,7 +7138,17 @@ describe("desktop adapter over the shared application", () => {
       (event) => event.type === "approval.requested",
     );
     expect(requested).toMatchObject({
-      approval: { risk: "high", destructive: true, title: "Delete track" },
+      approval: {
+        risk: "high",
+        destructive: true,
+        title: "Delete track",
+        tool: {
+          name: "ableton_tracks",
+          action: "delete",
+          arguments: { action: "delete", index: 2 },
+          argumentsComplete: true,
+        },
+      },
     });
     const id =
       requested?.type === "approval.requested" ? requested.approval.id : "";
@@ -6794,10 +7194,12 @@ describe("desktop adapter over the shared application", () => {
         expect.objectContaining({
           agentInstanceId: first!.id,
           sdkSessionId: first!.sdkSessionId,
+          appSessionId: service.activeSessionId,
         }),
         expect.objectContaining({
           agentInstanceId: second.id,
           sdkSessionId: second.sdkSessionId,
+          appSessionId: service.activeSessionId,
         }),
       ]),
     );

@@ -93,11 +93,35 @@ Companion specification: [Test Strategy](test-strategy.md)
   and the final full quality gate pass (194 Vitest files / 3728 tests,
   819 Max tests, 286 Python tests). Finalization preserves phase ordering and
   redaction without changing capture behavior.
-- [ ] Implement the separate future packaged MCP acceptance runner and send-once
-  readiness boundary; the existing visible-message Electron test only proves
-  direct automation-client ingress/rendering and descriptor assertions. Parts
-  2–4 (packaged scenario, reusable scenario-driven development, and realistic
-  Session launching) remain deferred outside this phase.
+- [x] Complete the shared packaged automation acceptance foundation and
+  send-once readiness boundary; MCP is optional, and the existing runtime/CLI
+  suite remains separate. Framework tests do not establish physical acceptance.
+  Complete dependency bundles and generated configuration use one canonical
+  inventory digest; loaded media identity comes from verified actual bytes.
+  A packaged two-message Default-agent smoke test checks pinned attribution,
+  terminal responses, conversation memory, single visible submissions, ordinary
+  approval policy and confirmed shutdown before profile removal.
+- [x] Add the human-reviewed `author-integration-test` development skill,
+  persistent fixture/scenario workflow, exact first-case review example, and
+  [authoring guide](acceptance-authoring.md). Keep oracle data out of the product
+  agent and distinguish valid red tests from invalid/blocked setup.
+- [x] Align integration/UX guidance with default automation metric-listener
+  parity and the accepted legacy flag; retain ordinary approval requirements.
+  Document separate journal-backed capture/source cleanup evidence rather than
+  inferring cleanup from completed listening-job status.
+- [x] Stop after Stage A validation, then jointly onboard the first portable
+  fixture with the user through the skill. Verify Global None, clip Global,
+  stopped-zero/all-clips-stopped and existing source/launch guards before
+  registering the real `session-clip-identify` case.
+- [x] Qualify the packaged two-turn scenario, independently verifying capture,
+  source, complete metrics, strict `(B)`, no extra capture, context persistence
+  across owned Desktop restart, mutation scope, and terminal cleanup. No
+  historical/private fixture or upstream evidence substitutes for this run.
+  Fresh terminal passes: `run-c27nOv` and `run-jTIy7p`, Live 11.3.43,
+  2026-11-02; earlier failures remain preserved. See the authoring guide for
+  receipt/candidate provenance and the persistence-versus-recapture boundary.
+- [ ] Deliver a real UI acceptance adapter and migrate appropriate existing
+  runtime cases in a later phase; controlled adapters only demonstrate reuse.
 - [x] Select and configure TypeScript and Python test runners.
 - [x] Add shared fixture, fake clock, fake ID, and log-capture utilities.
 - [x] Build fake LOM object library.

@@ -9,6 +9,15 @@
     "desktop.spec.ts",
     "packaged-desktop.spec.ts",
     "packaged-cleanup.ts",
+    "packaged-paths.ts",
+    "acceptance-source.ts",
+    "acceptance-events.ts",
+    "acceptance-evidence.ts",
+    "acceptance-approvals.ts",
+    "acceptance-dependencies.ts",
+    "acceptance-project.ts",
+    "acceptance-driver.ts",
+    "../../scripts/lib/acceptance-cli.ts",
     "listening-context-fixture.ts",
     "../../apps/desktop/src/renderer/global.d.ts"
   ]

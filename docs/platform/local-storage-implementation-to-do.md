@@ -4,6 +4,24 @@ Companion specification: [Local Storage Layout](local-storage.md)
 
 ## Canonical layout
 
+- [x] Embed shared-resolver producer discovery paths (not credential bodies) in
+  the installed frozen listener; keep both the AMXD and standalone configuration
+  owner-only. Preserve existing deployed-host ownership and journal locations;
+  document that collection is not profile migration.
+
+- [x] Keep basic draft-intake copies and shared redacted reports in explicitly
+  selected authoring artifact storage, with file/count/byte limits and no app
+  profile or external-reference traversal. Retain interrupted copies for review.
+- [x] Keep packaged acceptance profiles on the shared resolver-backed automation
+  layout; export only bounded, redacted typed evidence to repository test
+  artifacts. Bound retained run admission, preserve allowlisted projects after
+  successful or failed attempts, and refuse pruning while owned process shutdown
+  is unconfirmed. Keep credential-bearing profiles out of ordinary preserved
+  artifacts and remove them only after both owned applications stop.
+- [ ] Qualify the acceptance storage/cleanup contract with the jointly reviewed
+  real fixture; controlled lifecycle and CLI tests do not establish physical
+  host qualification.
+
 - [x] Admit protocol-approved 2 MiB native5 metric observations with a separate
   16 KiB serialized entry-metadata budget and a 17.125 MiB atomic eight-listener
   publication ceiling (eight metric entries plus 1 MiB pass/subject/link framing).

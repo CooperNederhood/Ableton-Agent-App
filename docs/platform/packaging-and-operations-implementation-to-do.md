@@ -4,6 +4,22 @@ Companion specification: [Packaging and Operations](packaging-and-operations.md)
 
 ## Current branch checkpoint
 
+- [x] Freeze the complete configured machine-listening bundle headlessly before
+  atomic install, retaining source identity and updating installed device hashes.
+  Bound/validate archive contents, preserve resources on re-encode, and regress
+  embedded byte equality, tampering, cancellation, failure, idempotence and
+  attributed/redacted freeze lifecycle events.
+- [x] Deliver the corrected frozen candidate through the full macOS installer,
+  verify packaged/installed archives and Node extraction flags, and authenticate
+  the installed app. All 4,050 TypeScript tests and normal installation gates pass.
+- [ ] Qualify the user's Collect All and Save/reopen workflow and capture;
+  standalone frozen loading is not proof of that full interaction.
+- [x] Correct Node extraction after a real Max 8.5.8 failure: mark CommonJS,
+  package and profile-configuration files for disk extraction, not merely the
+  Node entrypoint. A flag-filtered Node loader regression fails without the fix.
+  Standalone production-device discovery and extracted-byte attribution now
+  pass on owned Live 11.3.43; original failed attempts remain recorded.
+
 - [x] Check canonical MIDI companions and portable AMXD bytes during shared
   payload reuse, not only manifest integrity/current listening sources.
   Source-change and cancellation regressions preserve the old payload and

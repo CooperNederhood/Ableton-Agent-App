@@ -204,6 +204,11 @@ export function createDesktopApi(transport: PreloadTransport): DesktopApi {
       getStatus: () => invoke("ableton:status", {}),
       getCapabilities: () => invoke("ableton:capabilities", {}),
       requestSnapshot: () => invoke("ableton:snapshot", {}),
+      inspectSessionListeningSource: (params) =>
+        invoke("ableton:inspect-session-listening-source", params),
+      inspectRecording: () => invoke("ableton:inspect-recording", {}),
+      inspectSessionListeningPreflight: (params) =>
+        invoke("ableton:inspect-session-listening-preflight", params),
     },
     approvals: {
       resolve: async (id, decision) =>

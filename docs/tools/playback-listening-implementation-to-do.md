@@ -50,6 +50,31 @@ not open publication-fix acceptance items.
 - Repeat reliability remains unresolved: the later owning run failed before
   playback on repetition three with `metric_spectrum_shared_failure`, while
   an isolated repeat-three rerun passed. Preserve both receipts.
+- #78 has a reviewed six-capture A/A/A/A/B/A schedule with explicit transition
+  turns, approved/registered two-source assets, source-aware packaged admission,
+  scoped approvals, native freshness and release checks. Regressions reject pass
+  reuse and stale, missing, or rewritten contexts. First run `run-5VpmX3` stopped
+  at the spectral oracle: A 95.09 Hz is below the frozen 100 Hz minimum; independent
+  PCM analysis diagnoses the authoring weighting mismatch. The user approved
+  correcting only A's minimum to 50 Hz. The bounded schedule now passes in
+  `run-QSnsCe`: all 17 turns, six captures and 60 assertions, with terminal cleanup.
+  Original identification passed on the same candidate (`run-YaPYyO`), and both
+  runs confirmed terminal cleanup. Neither resolves historical repeat failure.
+  On the final candidate the original case passed again (`run-1VAnU1`).
+  The user accepted this bounded passing scope for #78 on 2026-11-03 and
+  deferred the native investigation and additional visual qualification;
+  neither follow-up is a merge gate for this PR or claimed resolved.
+- Preserve intervening failures: `run-VECZgw` partial spectral coverage,
+  `run-QHbXBo` omitted track stop (fixed scoped guidance), and `run-Z5awFn`
+  aggregate History capacity (fixed bounded multi-turn retention). The native
+  immutable-slot cause remains unresolved; added bounded readback diagnostics
+  are not a fix or relaxed admission. The separate attended UX attempt was
+  blocked before submission; cleanup confirmed, visual coverage still open.
+  Further diagnostic attempt `run-gcP1xA` failed at launch, and the fresh
+  `issue-78-stop-02` visual attempt encountered Live's recovery prompt before
+  submission. Approval to decline recovery is still required. Preserve the
+  observer/host cleanup errors and supplemental exact-PID/profile cleanup;
+  no recovery data was discarded and neither open gap is qualified.
 - Corrected rhythm interpretation guidance passes unit/real-capture coverage;
   corrected assistant prose is not visually qualified. Do not infer musical
   interpretation correctness from complete numeric coverage.

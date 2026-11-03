@@ -54,6 +54,13 @@ export interface FixtureManifest {
   readonly resources: readonly FixtureResource[];
   readonly dependencies: readonly string[];
   readonly listenerBindings?: readonly ListenerBinding[];
+  readonly sources?: readonly {
+    readonly id: string;
+    readonly trackName: string;
+    readonly clipName: string;
+    readonly sceneIndex: number;
+    readonly mediaTarget: string;
+  }[];
   /** Existing licensed Live Builtin content; verified in place, never redistributed. */
   readonly builtinResources?: readonly {
     readonly path: string;
@@ -67,6 +74,7 @@ export interface ScenarioStep {
   readonly message: string;
   readonly timeoutMs: number;
   readonly expectedStatus?: "completed" | "refused";
+  readonly sourceId?: string;
   readonly assertions: readonly AssertionReference[];
 }
 export interface ScenarioPermission {
@@ -75,6 +83,7 @@ export interface ScenarioPermission {
   readonly risk: "low" | "medium";
   readonly maxUses: number;
   readonly arguments: Facts;
+  readonly stepIds?: readonly string[];
 }
 export interface ScenarioManifest {
   readonly schemaVersion: 1;
@@ -120,6 +129,13 @@ export interface CaptureEvidence {
   readonly endSample: number;
   readonly cleanupComplete: boolean;
   readonly failure: string | null;
+  readonly native?: {
+    readonly generation: string;
+    readonly nativeEpoch: number;
+    readonly connectionId: string;
+    readonly connectionEpoch: string;
+  };
+  readonly spectralCentroidHz?: number;
 }
 export interface ContextEvidence {
   readonly contextId: string;
@@ -131,16 +147,18 @@ export interface ContextEvidence {
 }
 export interface BaselineEvidence {
   readonly schemaVersion: 1;
-  readonly loadedMediaPath?: string;
   readonly facts: Facts;
-  readonly source?: SourceIdentity;
-  readonly listenerId?: string;
+  readonly sources?: Readonly<Record<string, AudioSourceEvidence>>;
   readonly dependencyHashes: Readonly<Record<string, string>>;
 }
-export interface AudioBaselineEvidence extends BaselineEvidence {
+export interface AudioSourceEvidence {
   readonly loadedMediaPath: string;
   readonly source: SourceIdentity;
   readonly listenerId: string;
+  readonly facts: Facts;
+}
+export interface AudioBaselineEvidence extends BaselineEvidence {
+  readonly sources: Readonly<Record<string, AudioSourceEvidence>>;
 }
 export interface TurnEvidence extends Submission {
   readonly schemaVersion: 1;

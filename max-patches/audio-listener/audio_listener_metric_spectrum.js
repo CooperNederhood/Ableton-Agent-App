@@ -572,6 +572,30 @@ function createMetricSpectrumHandoff(config, options) {
       reason === "unread_capacity_overflow"
         ? "quota_overflow"
         : "analyzer_failed",
+      reason === "immutable_slot_changed"
+        ? decoded.readerReadbacks
+            .at(-1)
+            ?.cells.slice(0, WIDTH + 14)
+            .map((value, index) => {
+              const prior = decoded.readerReadbacks.at(-2)?.cells[index];
+              const observed = (cell) =>
+                cell === undefined
+                  ? { state: "unavailable", reason: "not-reported" }
+                  : {
+                      state: "observed",
+                      value:
+                        typeof cell === "number" &&
+                        Math.abs(cell) <= Number.MAX_SAFE_INTEGER
+                          ? cell
+                          : String(cell),
+                    };
+              return {
+                field: `spectrum.retention.cell.${index}`,
+                actual: observed(value),
+                expected: observed(prior),
+              };
+            })
+        : undefined,
     );
   }
   function spectrum(values) {

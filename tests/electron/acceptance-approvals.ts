@@ -3,7 +3,7 @@ import {
   validatePermission,
   type Facts,
   type ScenarioPermission,
-  type SourceIdentity,
+  type AudioSourceEvidence,
 } from "@ableton-agent/test-support/integration";
 
 export type ScopedPermission = ScenarioPermission;
@@ -77,6 +77,7 @@ function flatten(value: unknown): Facts {
 
 export class ScopedApprovalPolicy {
   readonly #uses = new Map<number, number>();
+  readonly #usedSteps = new Set<string>();
   constructor(private readonly permissions: readonly ScopedPermission[]) {
     permissions.forEach(validatePermission);
   }
@@ -84,7 +85,8 @@ export class ScopedApprovalPolicy {
   decide(
     request: ScopedApproval,
     owner: ApprovalOwner,
-    source?: SourceIdentity,
+    source?: AudioSourceEvidence,
+    stepId?: string,
   ): boolean {
     if (
       request.destructive ||
@@ -97,6 +99,8 @@ export class ScopedApprovalPolicy {
     const actual = flatten(request.arguments);
     const matches = this.permissions.flatMap((rule, index) => {
       if (
+        (rule.stepIds !== undefined &&
+          (!stepId || !rule.stepIds.includes(stepId))) ||
         rule.tool !== request.tool ||
         rule.action !== request.action ||
         rule.risk !== request.risk ||
@@ -120,9 +124,13 @@ export class ScopedApprovalPolicy {
     });
     if (matches.length !== 1) return false;
     const index = matches[0]!;
+    const stepKey = `${index}:${stepId}`;
+    if (this.permissions[index]!.stepIds && this.#usedSteps.has(stepKey))
+      return false;
     const count = this.#uses.get(index) ?? 0;
     if (count >= this.permissions[index]!.maxUses) return false;
     this.#uses.set(index, count + 1);
+    if (this.permissions[index]!.stepIds) this.#usedSteps.add(stepKey);
     return true;
   }
 }

@@ -1000,8 +1000,7 @@ Select only needed columns; filter narrowly by Live Set, time range, and IDs usi
       ),
   });
   const tracksTool = defineTool("ableton_tracks", {
-    description:
-      "Lists, inspects, creates, renames, and performs supported Live 11 track actions with exact identity checks. It does not provide arbitrary track reordering.",
+    description: tracksDescription(true),
     parameters: abletonTracksParamsSchema,
     handler: async (params) => {
       switch (params.action) {
@@ -1447,9 +1446,20 @@ export interface ScopeAbletonToolsOptions {
   readonly capabilities?: Readonly<Record<string, boolean>>;
 }
 
+function tracksDescription(canStopClips: boolean): string {
+  return [
+    "Performs the available Live 11 track actions with exact identity checks. It does not provide arbitrary track reordering.",
+    ...(canStopClips
+      ? [
+          'Stop Session clips on an explicitly requested regular track with action: "stop-clips" and its exact target. Use quantized: false for an immediate stop without quantization. Do not change global quantization. When asked to stop clips and transport, stop those clips before stopping transport; stopping transport alone leaves them selected for playback. Never stop unrelated tracks or repair playback state without the user requesting it.',
+        ]
+      : []),
+  ].join(" ");
+}
+
 const transportActionGuidance = {
   "set-playing":
-    'Stop playback with action: "set-playing", isPlaying: false; start playback with action: "set-playing", isPlaying: true.',
+    'Stop playback with action: "set-playing", isPlaying: false; start playback with action: "set-playing", isPlaying: true. Stopping transport does not stop or deselect Session clips and is not a substitute for an explicitly requested track clip-stop action. Verify each requested change rather than reporting all clips stopped from transport state alone.',
   "set-tempo": 'Set tempo in BPM with action: "set-tempo" and tempo.',
   "set-arrangement-loop":
     'Control Arrangement looping with action: "set-arrangement-loop" and the loop fields to change.',
@@ -1535,7 +1545,16 @@ export function scopeAbletonTools(
                 selected.map((descriptor) => descriptor.action),
               ),
             }
-          : tool;
+          : tool.name === "ableton_tracks"
+            ? {
+                ...tool,
+                description: tracksDescription(
+                  selected.some(
+                    (descriptor) => descriptor.action === "stop-clips",
+                  ),
+                ),
+              }
+            : tool;
     if (selected.length === descriptors.length) return [scopedTool];
     const parameters =
       selected.length === 1

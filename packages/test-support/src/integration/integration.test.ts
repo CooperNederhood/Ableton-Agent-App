@@ -22,6 +22,7 @@ import {
   validateSupportedAudioBaseline,
   validateAudioBaselineEvidence,
   validatePermission,
+  validateTurn,
   resolvePermissionArguments,
   dependencyInventoryHashes,
   validateDependencyInventory,
@@ -121,6 +122,15 @@ const fixture: FixtureManifest = {
     },
   ],
   dependencies: ["production-listener"],
+  sources: [
+    {
+      id: "a",
+      trackName: "Source 1",
+      clipName: "Clip 1",
+      sceneIndex: 0,
+      mediaTarget: "media/resource-001.wav",
+    },
+  ],
   baseline: SUPPORTED_AUDIO_BASELINE,
 };
 const scenario: ScenarioManifest = {
@@ -147,6 +157,7 @@ const scenario: ScenarioManifest = {
         {
           name: "capture",
           parameters: {
+            sourceId: "a",
             metricFamilies: "peak,rms",
             sampleRate: 48_000,
             expectedFrames: 96_000,
@@ -184,10 +195,15 @@ class ControlledDriver implements AcceptanceDriver {
   readonly submissions: Submission[] = [];
   baseline: AudioBaselineEvidence = {
     schemaVersion: 1,
-    loadedMediaPath: "unbound",
     facts: { ...SUPPORTED_AUDIO_BASELINE },
-    source,
-    listenerId: "listener-1",
+    sources: {
+      a: {
+        loadedMediaPath: "unbound",
+        facts: { ...SUPPORTED_AUDIO_BASELINE },
+        source,
+        listenerId: "listener-1",
+      },
+    },
     dependencyHashes: dependencyInventoryHashes(baseCandidateInventory),
   };
   answer = "(B)";
@@ -226,10 +242,15 @@ class ControlledDriver implements AcceptanceDriver {
     this.note("launch", ctx);
     this.baseline = {
       ...this.baseline,
-      loadedMediaPath: join(
-        ctx.stagedFixture!.workingDirectory,
-        "media/resource-001.wav",
-      ),
+      sources: {
+        a: {
+          ...this.baseline.sources.a!,
+          loadedMediaPath: join(
+            ctx.stagedFixture!.workingDirectory,
+            "media/resource-001.wav",
+          ),
+        },
+      },
     };
     if (this.failLaunch) throw new Error("launch failure");
   }
@@ -284,8 +305,8 @@ class ControlledDriver implements AcceptanceDriver {
     validateAudioBaselineEvidence(this.baseline);
     await verifyStagedMedia(
       ctx.stagedFixture!,
-      this.baseline.loadedMediaPath,
-      this.baseline.source.mediaSha256,
+      this.baseline.sources.a!.loadedMediaPath,
+      this.baseline.sources.a!.source.mediaSha256,
       ctx.signal,
     );
     return this.baseline;
@@ -397,20 +418,28 @@ describe("driver-neutral acceptance foundation (synthetic only)", () => {
     const baseline = {
       schemaVersion: 1,
       facts: SUPPORTED_AUDIO_BASELINE,
-      loadedMediaPath: "/owned/media/resource-001.wav",
-      source,
+      sources: {
+        a: {
+          facts: SUPPORTED_AUDIO_BASELINE,
+          loadedMediaPath: "/owned/media/resource-001.wav",
+          source,
+          listenerId:
+            "ableton-audio-listener:path:0ab15d6e26745d97a552b223ab10d013",
+        },
+      },
       dependencyHashes: {},
-      listenerId:
-        "ableton-audio-listener:path:0ab15d6e26745d97a552b223ab10d013",
     };
     expect(() => validateAudioBaselineEvidence(baseline)).not.toThrow();
     expect(() =>
-      validateAudioBaselineEvidence({ ...baseline, listenerId: "" }),
+      validateAudioBaselineEvidence({
+        ...baseline,
+        sources: { a: { ...baseline.sources.a, listenerId: "" } },
+      }),
     ).toThrow();
     expect(() =>
       validateAudioBaselineEvidence({
         ...baseline,
-        listenerId: "a".repeat(129),
+        sources: { a: { ...baseline.sources.a, listenerId: "a".repeat(129) } },
       }),
     ).toThrow();
   });
@@ -717,6 +746,10 @@ describe("driver-neutral acceptance foundation (synthetic only)", () => {
       const staged = await stageFixture({
         fixture: {
           ...fixture,
+          sources: fixture.sources!.map((source) => ({
+            ...source,
+            mediaTarget,
+          })),
           resources: fixture.resources.map((resource) => ({
             ...resource,
             target: resource.target.startsWith("media/")
@@ -1168,7 +1201,12 @@ describe("driver-neutral acceptance foundation (synthetic only)", () => {
     const driver = new ControlledDriver();
     driver.readBaseline = async () => ({
       ...driver.baseline,
-      loadedMediaPath: join(catalogRoot, "input.wav"),
+      sources: {
+        a: {
+          ...driver.baseline.sources.a!,
+          loadedMediaPath: join(catalogRoot, "input.wav"),
+        },
+      },
     });
     const result = await execute(driver);
     expect(result.status).toBe("blocked");
@@ -1182,10 +1220,10 @@ describe("driver-neutral acceptance foundation (synthetic only)", () => {
     const launch = driver.launch.bind(driver);
     driver.launch = async (ctx) => {
       await launch(ctx);
-      await rm(driver.baseline.loadedMediaPath);
+      await rm(driver.baseline.sources.a!.loadedMediaPath);
       await symlink(
         join(catalogRoot, "input.wav"),
-        driver.baseline.loadedMediaPath,
+        driver.baseline.sources.a!.loadedMediaPath,
       );
     };
     const result = await execute(driver);
@@ -1346,7 +1384,12 @@ describe("driver-neutral acceptance foundation (synthetic only)", () => {
     const driver = new ControlledDriver();
     driver.baseline = {
       ...driver.baseline,
-      listenerId: `ghp_${"a".repeat(30)}`,
+      sources: {
+        a: {
+          ...driver.baseline.sources.a!,
+          listenerId: `ghp_${"a".repeat(30)}`,
+        },
+      },
     };
     const result = await execute(driver);
     expect(result.status).toBe("blocked");
@@ -1430,7 +1473,9 @@ describe("driver-neutral acceptance foundation (synthetic only)", () => {
           ? new FactOnlyDriver()
           : new AsynchronousFactOnlyDriver();
       const genericFixture: FixtureManifest = {
-        ...fixture,
+        schemaVersion: 1,
+        provenance: fixture.provenance,
+        qualification: "synthetic-only",
         id: "facts-only",
         dependencies: [],
         resources: [fixture.resources[0]!],
@@ -1484,9 +1529,7 @@ describe("driver-neutral acceptance foundation (synthetic only)", () => {
         },
       });
       expect(result.status).toBe("passed");
-      expect(result.baseline?.source).toBeUndefined();
-      expect(result.baseline?.loadedMediaPath).toBeUndefined();
-      expect(result.baseline?.listenerId).toBeUndefined();
+      expect(result.baseline?.sources).toBeUndefined();
       expect(result.turns[0]?.captures).toEqual([]);
       expect(result.turns[0]?.contexts).toEqual([]);
       expect(result.evidence?.contexts).toEqual([]);
@@ -1504,6 +1547,7 @@ describe("driver-neutral acceptance foundation (synthetic only)", () => {
       {
         name: "capture",
         parameters: {
+          sourceId: "a",
           metricFamilies: "peak,rms",
           sampleRate: 48_000,
           expectedFrames: 96_000,
@@ -1578,10 +1622,15 @@ describe("driver-neutral acceptance foundation (synthetic only)", () => {
     };
     validatePermission(permission);
     const actual = {
-      ...source,
-      trackId: "observed-track",
-      clipId: "observed-clip",
-      slotIndex: 2,
+      source: {
+        ...source,
+        trackId: "observed-track",
+        clipId: "observed-clip",
+        slotIndex: 2,
+      },
+      listenerId: "listener",
+      loadedMediaPath: "/owned/source.wav",
+      facts: {},
     };
     const resolved = resolvePermissionArguments(permission, actual);
     expect(resolved).toEqual({
@@ -1601,6 +1650,105 @@ describe("driver-neutral acceptance foundation (synthetic only)", () => {
     expect(
       resolvePermissionArguments({ ...permission, arguments: { label: "*" } }),
     ).toEqual({ label: "*" });
+  });
+  it("bounds and binds source inventories and per-step permission references", () => {
+    const declared = fixture.sources![0]!;
+    validateFixture(fixture);
+    for (const sources of [
+      [],
+      [declared, declared],
+      [declared, { ...declared, id: "b" }],
+      [{ ...declared, mediaTarget: "media/resource-002.wav" }],
+      [{ ...declared, sceneIndex: -1 }],
+      [{ ...declared, unexpected: true }],
+      Array.from({ length: 17 }, (_, index) => ({
+        ...declared,
+        id: `source-${index}`,
+        sceneIndex: index,
+      })),
+    ])
+      expect(() => validateFixture({ ...fixture, sources })).toThrow();
+    const scoped = {
+      ...scenario,
+      steps: scenario.steps.map((step) => ({ ...step, sourceId: "a" })),
+      permissions: [{ ...scenario.permissions[0]!, stepIds: ["first"] }],
+    };
+    validateScenario(scoped, fixture);
+    for (const stepIds of [[], ["first", "first"], ["absent"]])
+      expect(() =>
+        validateScenario(
+          {
+            ...scoped,
+            permissions: [{ ...scoped.permissions[0]!, stepIds }],
+          },
+          fixture,
+        ),
+      ).toThrow();
+    expect(() =>
+      validateScenario(
+        {
+          ...scoped,
+          steps: [{ ...scoped.steps[0]!, sourceId: "absent" }],
+        },
+        fixture,
+      ),
+    ).toThrow("Unknown step source");
+    const permission = {
+      ...scenario.permissions[0]!,
+      arguments: { listenerId: "$source.listenerId" },
+    };
+    expect(
+      resolvePermissionArguments(permission, {
+        source,
+        listenerId: "listener:b",
+        loadedMediaPath: "/owned/b.wav",
+        facts: {},
+      }),
+    ).toEqual({ listenerId: "listener:b" });
+  });
+  it("rejects malformed or unbounded native ownership and measured content", () => {
+    const native = {
+      generation: randomUUID(),
+      connectionId: randomUUID(),
+      connectionEpoch: randomUUID(),
+      nativeEpoch: 1,
+    };
+    const turn = {
+      schemaVersion: 1,
+      ...identity,
+      userMessageId: "message-1",
+      operationId: capture.operationId,
+      assistantMessageId: "assistant-1",
+      terminal: true,
+      status: "completed",
+      assistantText: "Observed.",
+      facts: {},
+      contexts: [contextEvidence],
+      captures: [{ ...capture, native, spectralCentroidHz: 500 }],
+    };
+    validateTurn(turn);
+    for (const patch of [
+      { generation: "invalid" },
+      { connectionId: "" },
+      { connectionEpoch: "x".repeat(37) },
+      { nativeEpoch: 0 },
+      { nativeEpoch: 1.5 },
+      { nativeEpoch: 1_000_001 },
+      { extra: true },
+    ])
+      expect(() =>
+        validateTurn({
+          ...turn,
+          captures: [{ ...capture, native: { ...native, ...patch } }],
+        }),
+      ).toThrow();
+    for (const spectralCentroidHz of [-1, Infinity, NaN, 384_001, "500"])
+      expect(() =>
+        validateTurn({
+          ...turn,
+          captures: [{ ...capture, native, spectralCentroidHz }],
+        }),
+      ).toThrow("Invalid measured spectral centroid");
   });
   it.each([
     { risk: "high" },

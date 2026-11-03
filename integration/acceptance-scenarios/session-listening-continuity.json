@@ -1,0 +1,373 @@
+{
+  "schemaVersion": 1,
+  "id": "session-listening-continuity",
+  "fixtureId": "session-listening-continuity",
+  "requiredCapabilities": ["automation", "session-audio"],
+  "permissions": [
+    {
+      "tool": "ableton_listening",
+      "action": "play-session-and-listen",
+      "risk": "medium",
+      "maxUses": 5,
+      "stepIds": ["listen-1", "listen-2", "listen-3", "listen-4", "listen-6"],
+      "arguments": {
+        "action": "play-session-and-listen",
+        "target.view": "session",
+        "target.track.kind": "regular",
+        "target.track.index": 0,
+        "target.track.expectedReference": "$source.trackId",
+        "target.track.expectedName": "audio-track",
+        "target.sceneIndex": "$source.slotIndex",
+        "target.expectedClipReference": "$source.clipId",
+        "target.expectedClipName": "clip-1",
+        "listenerIds.0": "$source.listenerId"
+      }
+    },
+    {
+      "tool": "ableton_listening",
+      "action": "play-session-and-listen",
+      "risk": "medium",
+      "maxUses": 1,
+      "stepIds": ["listen-5"],
+      "arguments": {
+        "action": "play-session-and-listen",
+        "target.view": "session",
+        "target.track.kind": "regular",
+        "target.track.index": 1,
+        "target.track.expectedReference": "$source.trackId",
+        "target.track.expectedName": "audio-track-2",
+        "target.sceneIndex": "$source.slotIndex",
+        "target.expectedClipReference": "$source.clipId",
+        "target.expectedClipName": "clip-2",
+        "listenerIds.0": "$source.listenerId"
+      }
+    },
+    {
+      "tool": "ableton_tracks",
+      "action": "stop-clips",
+      "risk": "medium",
+      "maxUses": 4,
+      "stepIds": ["reset-1", "reset-2", "reset-3", "reset-4"],
+      "arguments": {
+        "action": "stop-clips",
+        "target.kind": "regular",
+        "target.index": 0,
+        "target.expectedReference": "$source.trackId",
+        "target.expectedName": "audio-track",
+        "quantized": false
+      }
+    },
+    {
+      "tool": "ableton_tracks",
+      "action": "stop-clips",
+      "risk": "medium",
+      "maxUses": 1,
+      "stepIds": ["reset-5"],
+      "arguments": {
+        "action": "stop-clips",
+        "target.kind": "regular",
+        "target.index": 1,
+        "target.expectedReference": "$source.trackId",
+        "target.expectedName": "audio-track-2",
+        "quantized": false
+      }
+    },
+    {
+      "tool": "ableton_transport",
+      "action": "set-playing",
+      "risk": "medium",
+      "maxUses": 5,
+      "stepIds": ["reset-1", "reset-2", "reset-3", "reset-4", "reset-5"],
+      "arguments": { "action": "set-playing", "isPlaying": false }
+    },
+    {
+      "tool": "ableton_transport",
+      "action": "seek",
+      "risk": "medium",
+      "maxUses": 5,
+      "stepIds": ["reset-1", "reset-2", "reset-3", "reset-4", "reset-5"],
+      "arguments": { "action": "seek", "time": 0 }
+    }
+  ],
+  "budget": { "runMs": 1500000, "cleanupMs": 30000, "persistenceMs": 30000 },
+  "steps": [
+    {
+      "id": "listen-1",
+      "sourceId": "a",
+      "timeoutMs": 120000,
+      "message": "Listen to the first Session clip on track audio-track. Make one new listening capture; do not reuse an earlier capture. If it fails, stop and report the failure without retrying.",
+      "assertions": [
+        {
+          "name": "capture",
+          "parameters": {
+            "sourceId": "a",
+            "sampleRate": 48000,
+            "expectedFrames": 90000,
+            "metricFamilies": "level,spectral-centroid,attacks"
+          }
+        },
+        { "name": "context", "parameters": { "afterRestart": false } },
+        { "name": "native-freshness", "parameters": {} },
+        {
+          "name": "spectral-range",
+          "parameters": { "minHz": 50, "maxHz": 3000 }
+        }
+      ]
+    },
+    {
+      "id": "identify-1",
+      "timeoutMs": 60000,
+      "message": "Without listening again, what does the clip you just listened to do? Pick from (A) hihat (B) kick drum (C) synth lead (D) snare. Reply in the form '({Letter})', nothing else.",
+      "assertions": [
+        { "name": "choice", "parameters": { "expected": "B" } },
+        { "name": "no-capture", "parameters": {} },
+        { "name": "context", "parameters": { "afterRestart": false } }
+      ]
+    },
+    {
+      "id": "reset-1",
+      "sourceId": "a",
+      "timeoutMs": 60000,
+      "message": "Stop the Session clips on track audio-track immediately without quantization, stop transport, and return the song position to beat zero. Do not listen, launch another clip, or change any other settings. If any action fails, stop without retrying.",
+      "assertions": [
+        { "name": "no-capture", "parameters": {} },
+        {
+          "name": "fact-equals",
+          "parameters": { "key": "stoppedZero", "expected": true }
+        },
+        { "name": "context", "parameters": { "afterRestart": false } }
+      ]
+    },
+    {
+      "id": "listen-2",
+      "sourceId": "a",
+      "timeoutMs": 120000,
+      "message": "Listen again to the first Session clip on track audio-track. Make one new listening capture; do not reuse an earlier capture. If it fails, stop and report the failure without retrying.",
+      "assertions": [
+        {
+          "name": "capture",
+          "parameters": {
+            "sourceId": "a",
+            "sampleRate": 48000,
+            "expectedFrames": 90000,
+            "metricFamilies": "level,spectral-centroid,attacks"
+          }
+        },
+        { "name": "context", "parameters": { "afterRestart": false } },
+        { "name": "native-freshness", "parameters": {} },
+        {
+          "name": "spectral-range",
+          "parameters": { "minHz": 50, "maxHz": 3000 }
+        }
+      ]
+    },
+    {
+      "id": "identify-2",
+      "timeoutMs": 60000,
+      "message": "Without listening again, what does the clip you just listened to do? Pick from (A) hihat (B) kick drum (C) synth lead (D) snare. Reply in the form '({Letter})', nothing else.",
+      "assertions": [
+        { "name": "choice", "parameters": { "expected": "B" } },
+        { "name": "no-capture", "parameters": {} },
+        { "name": "context", "parameters": { "afterRestart": false } }
+      ]
+    },
+    {
+      "id": "reset-2",
+      "sourceId": "a",
+      "timeoutMs": 60000,
+      "message": "Stop the Session clips on track audio-track immediately without quantization, stop transport, and return the song position to beat zero. Do not listen, launch another clip, or change any other settings. If any action fails, stop without retrying.",
+      "assertions": [
+        { "name": "no-capture", "parameters": {} },
+        {
+          "name": "fact-equals",
+          "parameters": { "key": "stoppedZero", "expected": true }
+        },
+        { "name": "context", "parameters": { "afterRestart": false } }
+      ]
+    },
+    {
+      "id": "listen-3",
+      "sourceId": "a",
+      "timeoutMs": 120000,
+      "message": "Listen again to the first Session clip on track audio-track. Make one new listening capture; do not reuse an earlier capture. If it fails, stop and report the failure without retrying.",
+      "assertions": [
+        {
+          "name": "capture",
+          "parameters": {
+            "sourceId": "a",
+            "sampleRate": 48000,
+            "expectedFrames": 90000,
+            "metricFamilies": "level,spectral-centroid,attacks"
+          }
+        },
+        { "name": "context", "parameters": { "afterRestart": false } },
+        { "name": "native-freshness", "parameters": {} },
+        {
+          "name": "spectral-range",
+          "parameters": { "minHz": 50, "maxHz": 3000 }
+        }
+      ]
+    },
+    {
+      "id": "identify-3",
+      "timeoutMs": 60000,
+      "message": "Without listening again, what does the clip you just listened to do? Pick from (A) hihat (B) kick drum (C) synth lead (D) snare. Reply in the form '({Letter})', nothing else.",
+      "assertions": [
+        { "name": "choice", "parameters": { "expected": "B" } },
+        { "name": "no-capture", "parameters": {} },
+        { "name": "context", "parameters": { "afterRestart": false } }
+      ]
+    },
+    {
+      "id": "reset-3",
+      "sourceId": "a",
+      "timeoutMs": 60000,
+      "message": "Stop the Session clips on track audio-track immediately without quantization, stop transport, and return the song position to beat zero. Do not listen, launch another clip, or change any other settings. If any action fails, stop without retrying.",
+      "assertions": [
+        { "name": "no-capture", "parameters": {} },
+        {
+          "name": "fact-equals",
+          "parameters": { "key": "stoppedZero", "expected": true }
+        },
+        { "name": "context", "parameters": { "afterRestart": false } }
+      ]
+    },
+    {
+      "id": "listen-4",
+      "sourceId": "a",
+      "timeoutMs": 120000,
+      "message": "Listen again to the first Session clip on track audio-track. Make one new listening capture; do not reuse an earlier capture. If it fails, stop and report the failure without retrying.",
+      "assertions": [
+        {
+          "name": "capture",
+          "parameters": {
+            "sourceId": "a",
+            "sampleRate": 48000,
+            "expectedFrames": 90000,
+            "metricFamilies": "level,spectral-centroid,attacks"
+          }
+        },
+        { "name": "context", "parameters": { "afterRestart": false } },
+        { "name": "native-freshness", "parameters": {} },
+        {
+          "name": "spectral-range",
+          "parameters": { "minHz": 50, "maxHz": 3000 }
+        }
+      ]
+    },
+    {
+      "id": "identify-4",
+      "timeoutMs": 60000,
+      "message": "Without listening again, what does the clip you just listened to do? Pick from (A) hihat (B) kick drum (C) synth lead (D) snare. Reply in the form '({Letter})', nothing else.",
+      "assertions": [
+        { "name": "choice", "parameters": { "expected": "B" } },
+        { "name": "no-capture", "parameters": {} },
+        { "name": "context", "parameters": { "afterRestart": false } }
+      ]
+    },
+    {
+      "id": "reset-4",
+      "sourceId": "a",
+      "timeoutMs": 60000,
+      "message": "Stop the Session clips on track audio-track immediately without quantization, stop transport, and return the song position to beat zero. Do not listen, launch another clip, or change any other settings. If any action fails, stop without retrying.",
+      "assertions": [
+        { "name": "no-capture", "parameters": {} },
+        {
+          "name": "fact-equals",
+          "parameters": { "key": "stoppedZero", "expected": true }
+        },
+        { "name": "context", "parameters": { "afterRestart": false } }
+      ]
+    },
+    {
+      "id": "listen-5",
+      "sourceId": "b",
+      "timeoutMs": 120000,
+      "message": "Listen to the first Session clip on track audio-track-2. Make one new listening capture; do not reuse an earlier capture. If it fails, stop and report the failure without retrying.",
+      "assertions": [
+        {
+          "name": "capture",
+          "parameters": {
+            "sourceId": "b",
+            "sampleRate": 48000,
+            "expectedFrames": 90000,
+            "metricFamilies": "level,spectral-centroid,attacks"
+          }
+        },
+        { "name": "context", "parameters": { "afterRestart": false } },
+        { "name": "native-freshness", "parameters": {} },
+        {
+          "name": "spectral-range",
+          "parameters": { "minHz": 6000, "maxHz": 22000 }
+        }
+      ]
+    },
+    {
+      "id": "identify-5",
+      "timeoutMs": 60000,
+      "message": "Without listening again, what does the clip you just listened to do? Pick from (A) hihat (B) kick drum (C) synth lead (D) snare. Reply in the form '({Letter})', nothing else.",
+      "assertions": [
+        { "name": "choice", "parameters": { "expected": "A" } },
+        { "name": "no-capture", "parameters": {} },
+        { "name": "context", "parameters": { "afterRestart": false } }
+      ]
+    },
+    {
+      "id": "reset-5",
+      "sourceId": "b",
+      "timeoutMs": 60000,
+      "message": "Stop the Session clips on track audio-track-2 immediately without quantization, stop transport, and return the song position to beat zero. Do not listen, launch another clip, or change any other settings. If any action fails, stop without retrying.",
+      "assertions": [
+        { "name": "no-capture", "parameters": {} },
+        {
+          "name": "fact-equals",
+          "parameters": { "key": "stoppedZero", "expected": true }
+        },
+        { "name": "context", "parameters": { "afterRestart": false } }
+      ]
+    },
+    {
+      "id": "listen-6",
+      "sourceId": "a",
+      "timeoutMs": 120000,
+      "message": "Listen again to the first Session clip on track audio-track. Make one new listening capture; do not reuse an earlier capture. If it fails, stop and report the failure without retrying.",
+      "assertions": [
+        {
+          "name": "capture",
+          "parameters": {
+            "sourceId": "a",
+            "sampleRate": 48000,
+            "expectedFrames": 90000,
+            "metricFamilies": "level,spectral-centroid,attacks"
+          }
+        },
+        { "name": "context", "parameters": { "afterRestart": false } },
+        { "name": "native-freshness", "parameters": {} },
+        {
+          "name": "spectral-range",
+          "parameters": { "minHz": 50, "maxHz": 3000 }
+        }
+      ]
+    },
+    {
+      "id": "identify-6",
+      "timeoutMs": 60000,
+      "message": "Without listening again, what does the clip you just listened to do? Pick from (A) hihat (B) kick drum (C) synth lead (D) snare. Reply in the form '({Letter})', nothing else.",
+      "assertions": [
+        { "name": "choice", "parameters": { "expected": "B" } },
+        { "name": "no-capture", "parameters": {} },
+        { "name": "context", "parameters": { "afterRestart": false } }
+      ]
+    }
+  ],
+  "assertions": [
+    { "name": "capture-count", "parameters": { "expected": 6 } },
+    { "name": "native-freshness", "parameters": {} },
+    {
+      "name": "unchanged",
+      "parameters": {
+        "scopes": "session-structure,source-settings,fixture-media,unrelated-playback,project-file"
+      }
+    }
+  ]
+}

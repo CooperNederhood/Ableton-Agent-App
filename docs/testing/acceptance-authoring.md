@@ -71,7 +71,8 @@ production candidate, not an old binary hidden in the fixture.
 
 The catalog/CLI implementation and
 [packaged Desktop adapter](../../tests/electron/acceptance-driver.ts) exist.
-The first reviewed fixture and `session-clip-identify` scenario are registered.
+The reviewed `session-clip-identify` and `session-listening-continuity` scenarios
+are registered.
 Registration does not establish real-host qualification; inspect terminal run
 receipts for execution and assertion outcomes.
 
@@ -106,7 +107,8 @@ The [reviewed template](../../integration/acceptance-scenarios/templates/session
 contains separate `fixture` and `scenario` objects. Template validation is
 explicitly schema-only and reports `runnable: false`; it does not admit missing
 assets. An empty catalog reports `awaiting-joint-fixture-onboarding`; the current
-catalog contains `session-clip-identify`. Neither listing nor offline validation
+catalog contains `session-clip-identify` and `session-listening-continuity`.
+Neither listing nor offline validation
 is a successful acceptance run.
 No import/generate command or UI driver is implied.
 
@@ -152,17 +154,188 @@ sample rate, and verify the loaded baseline before running. Never copy observed
 result counters into the expected values.
 
 Named assertions come from the shared registry: `choice`, `capture`,
-`capture-count`, `context`, `no-capture`, `unchanged`, and `fact-equals`. The
+`capture-count`, `context`, `native-freshness`, `spectral-range`, `no-capture`,
+`unchanged`, and `fact-equals`. The
 template illustrates their actual parameter shapes; consult
 [`ScenarioManifest` and `FixtureManifest`](../../packages/test-support/src/integration/contracts.ts)
 and the registry validators when generating definitions. Do not invent JSON
 fields, silently drop a required check, or turn a missing read into an
 assistant-prose assertion.
+For repeated listening, `capture-count` requires distinct pass IDs in both the
+attributable turns and the complete run inventory. `context` requires exactly one
+distinct readable context for **every** capture so far, matched to the original
+context from that capture's own turn. Later reads must preserve each pass's source,
+context ID and content hash, including after an explicitly requested owned
+restart. An earlier context cannot substitute for a new capture, and evidence
+first appearing in a later turn cannot retroactively establish publication.
+`native-freshness` requires unique pass/generation identities and increasing
+native epochs per listener on unchanged connections. `spectral-range` checks an
+energy-weighted centroid from complete retained spectral records against frozen
+source-specific bounds, not a clip name or assistant classification.
+Registration and these controlled checks do not qualify real-host continuity.
 The generic fixture baseline is a declared scalar fact map, not an obligatory
 listening baseline. Audio source/listener/path evidence and the supported audio
 baseline belong to the Desktop audio driver and audio assertions; non-listening
 cases need not invent them. Strict manifest and built-in assertion validators
 reject unknown fields, so consult the current schemas instead of guessing.
+
+Session-audio fixtures declare a bounded `sources` array: each entry has `id`,
+`trackName`, `clipName`, `sceneIndex`, and an exact declared `mediaTarget`.
+Baseline evidence retains each source's actual media path/hash, runtime clip and
+track identities, listener, and observed facts separately. Capture steps name
+their `sourceId`; the `capture` assertion independently names the same expected
+source. Never copy a primary source's media hash onto another context.
+
+### Same-process continuity schedule
+
+`session-listening-continuity` uses the user-saved two-track derivative of the
+original fixture, preserving the original Set/media. The user auditioned and
+approved both assets and the revised spectral ranges: A 50-3,000 Hz, B
+6,000-22,000 Hz (original A minimum and revision history below).
+A is the original kick; B is original procedural hi-hat-like
+audio. The oracle stays outside the staged project.
+
+The frozen schedule has **six captures A/A/A/A/B/A**, six identification
+follow-ups with no new capture, and five explicit stop/seek turns: 17 messages.
+Each capture covers one four-beat loop at 128 BPM, independently requiring
+90,000 frames at the reviewed 48-kHz host rate and all three metric families.
+Transitions explicitly stop only the previous source track without quantization,
+stop transport, and seek to zero. Read-only preconditions require both sources
+stopped/unqueued and recording off before the next capture; the driver never
+repairs them. Both source-read brackets must agree on stopped beat zero, known
+false playing/triggered/recording flags, `firedSlotIndex: -1`, and a Live-supported
+inactive `playingSlotIndex` of either `-2` or `-1`. Unknown flags, queued slots,
+and inconsistent brackets fail closed. Scoped approvals permit each declared action once per listed step
+and enforce the total use budget.
+
+Desktop, Live, the loaded listeners/connections, and the conversation remain
+unchanged. This scenario deliberately omits `persistence`: there is no collection
+restart. Every turn re-reads protected source settings, media, Set structure and
+unrelated playback; prior context identities/hashes remain intact. Query IDs are
+retained with turn facts and typed History evidence. Native cleanup records must
+match the actual generation, epoch, connection and pass, not just listener name.
+The original identification scenario separately retains its fresh-process and
+persistence-only restart scope. Neither registry validation nor fixture authoring
+is a passing physical run; require terminal receipts and owned cleanup.
+
+#### First continuity attempt: red oracle, not continuity qualification
+
+On 2026-11-03 (UTC), `run-5VpmX3` admitted both independently hashed sources and
+the candidate-supplied listeners on Live Suite **11.3.43**. Only `listen-1`
+executed; the other 16 messages remain unrun. The first capture passed source,
+90,000-frame coverage, all three metric families, native identity, context and
+release checks, but its energy-weighted centroid **95.08665294248082 Hz** failed
+the frozen A minimum of **100 Hz**. The runner stopped without retries,
+restarts, repairs, or changes to the musical oracle. Terminal owned cleanup
+succeeded. Receipt:
+`.test-artifacts/acceptance/run-5VpmX3/receipt.json`
+(SHA-256 `84892cc82d1ef0455c004904928c1195fb6b1a6a0789334759cd2860a5a8c124`).
+
+Diagnosis: the authoring reference reported a **magnitude-weighted** centroid
+of 691 Hz for A, but the acceptance assertion measures **energy-weighted**
+centroid. An independent post-failure PCM analysis using stereo pooled power,
+2048-point periodic Hann FFT, 2048-sample hop and four predetermined phases
+gives A **84.39-90.99 Hz** and B **16,823-16,920 Hz**. These unwarped-file
+diagnostics explain why the proposed minimum was unsuitable; they do not prove
+exact warped Live DSP output or qualify subsequent passes. Diagnostic report:
+`.test-artifacts/fixture-authoring/independent-energy-reference.json`.
+No runtime/native defect is established by this threshold failure.
+
+The user subsequently approved correcting A to **50-3,000 Hz**. The registered
+case now uses that reviewed range; B, all 17 turns, permissions, deadlines and
+other assertions are unchanged. The original failed receipt remains immutable.
+Qualification requires a fresh full-schedule run, not skipping the failed
+assertion or continuing the original conversation. Attended cross-app continuity
+UX is separate and remains unqualified.
+
+The original `session-clip-identify` passed all eight assertions in fresh owned
+processes on the same candidate, including no recapture, typed contexts after
+the explicit persistence restart, and terminal cleanup:
+`.test-artifacts/acceptance/run-YaPYyO/receipt.json`
+(SHA-256 `8a0a06d292b60feb325397f4229bf1237c7c1dbf90d4a05707d5850bfe93edcc`).
+Both runs used app archive SHA-256
+`286f16e9df27fdc71c45090cf2c4331320aac2b8c90102427697a8561e58ff63`;
+active frozen-device hashes are respectively
+`1ea35d3d789fdf41b7c40f782704e98df3e1276103acec003eb65b99780d5ac3` and
+`3ccfbb566a7b29994ce62de093c3afc923095a4b1adc442aa0b8c25ebaed9cec`.
+The app-directory packaging target succeeded; DMG/ZIP packaging separately
+failed in electron-builder updater metadata (`null.provider`). No distribution
+success or same-process repetition success follows from the original case.
+
+#### Final bounded qualification
+
+On 2026-11-03 the user accepted the passing reviewed schedule as sufficient for
+#78 and requested a merge-ready PR. Investigation of the earlier intermittent
+native failure and additional attended visual qualification are deferred
+follow-ups, not additional acceptance gates for this bounded scope. Their
+unresolved status and unsuccessful attempts remain recorded below.
+
+The reviewed revised contract **passed all 60 assertions** on Live Suite
+**11.3.43** in `run-QSnsCe` (2026-11-03 UTC): all 17 messages executed, six fresh
+captures in A/A/A/A/B/A order, no unrun turns or hidden captures, six stable
+contexts, one App session/Default agent/conversation, unchanged listener
+connections, complete native coverage and per-pass release, five verified
+stopped-zero transitions, and terminal owned cleanup. A's native epochs were
+1/2/3/4/5; B's separate listener had epoch 1. Measured centroids in capture order
+were 100.35, 91.24, 100.35, 109.30, 16,882.23, and 95.15 Hz. Identical musical
+values do not establish freshness: pass/generation identities and native epochs
+are checked separately.
+
+Final receipt: `.test-artifacts/acceptance/run-QSnsCe/receipt.json`, SHA-256
+`dc932e96a1de61744f64b9ee820069c2650ee3a80420f860e2950bd61d661a9c`.
+The original identification case also passed all eight assertions on the same
+final candidate in `.test-artifacts/acceptance/run-1VAnU1/receipt.json`, SHA-256
+`6142b428500028b6073c8c9635c072aac83d3ab432f8f21d48e2e6af903c5cfe`.
+Both used app archive
+`14da7322062d931cc4bcd80d083d9323fd24b29ec35c66aeae8caa2b65aff3b9`
+and spectral handoff JS
+`ef9ceeb819dc1479be15a27bbd46556151ad100b017689171b9047ea1fce1598`.
+Continuity's active frozen-device hash is
+`64e3684edb0a89747a18ffc7444e32612f733bd20100e0f5fdacc89cf2293dea`;
+the original case's separately configured device hash is
+`7699d812440af7f91fb822300b7f0a7700ab5e3850f59c7aa8f18827f9781c6f`.
+
+All intervening attempts remain failed, not rewritten as recovered passes:
+
+| Receipt directory | First failure and disposition |
+| --- | --- |
+| `run-VECZgw` | First capture partial: spectral 36/43 records, `upstream_immutable_slot_changed`; level 16/16 and attacks 19/19. Cleanup confirmed. Added bounded rejection-readback diagnostics, not a bypass of immutable-slot validation. The intermittent native cause remains unresolved. |
+| `run-QHbXBo` | Agent stopped transport and sought zero but omitted the requested track clip-stop. The independent transition assertion failed. Added scoped tool guidance distinguishing Session selection from transport state; no scenario prompt or permission changes. Cleanup confirmed. |
+| `run-Z5awFn` | All 17 turns passed their assertions, but collection exceeded the single-case 10,000-event aggregate limit. Cleanup also reported that evidence failure, although owned PIDs were subsequently confirmed absent. Not a qualification pass. |
+| `run-gcP1xA` | Additional diagnostic attempt failed during launch: Live never exposed Remote Script port 8765. No turns or captures executed; cleanup confirmed. This does not reproduce or resolve the retained-slot fault. |
+
+History collection now retains up to 10,000 records **per trace**, permits an
+aggregate count of 10,000 per declared turn (at most 32 turns), and keeps the
+unchanged **32 MiB aggregate byte ceiling**. It deduplicates by event ID without
+dropping required traces. Successful collection is not redundantly repeated
+during cleanup; failed collection still attempts bounded diagnostic retrieval.
+The final continuity receipt retains 10,807 typed History events. Count/byte
+overflow, redaction, complete multi-turn retention and owned shutdown have
+controlled regressions; no deadline, completeness or source guard was loosened.
+These are runner evidence limits, not application storage-layout changes.
+
+Separate attended UX attempt `.test-artifacts/desktop-ux/issue-78-stop/receipt.json`
+was **blocked before message submission**: the scratch observer checked
+automation discovery before its descriptor was published. It is not a product
+capture failure or visual pass. Desktop/profile cleanup and the exact owned Live
+PID's termination are recorded in the sibling `cleanup.json`. This bounded
+automation qualification does not resolve that separate visual coverage gap,
+the intermittent native fault, or historical unrestricted repeat reliability.
+
+The observer now waits boundedly for descriptor publication and checks its exact
+Desktop PID, but the fresh `issue-78-stop-02` attempt was also **blocked before
+submission**. Computer-use exposed Live's recovery prompt for the earlier
+disposable `Untitled` Set; Desktop visibly reported connection refused, no Live
+Set, and waiting for snapshot. Approval to decline recovery was requested but
+not received, so recovery data was left untouched. Desktop was closed through
+its UI; the scratch observer's cleanup then encountered Playwright's disposed
+process handle. The UX host's stop signal did not cancel its readiness wait,
+so only the independently recorded owned Live PID was terminated. Host and
+Desktop cleanup errors remain failures, with supplemental evidence in
+`.test-artifacts/desktop-ux/issue-78-stop-02/cleanup.json`: all three exact
+owned PIDs were subsequently absent and the isolated profile was removed.
+Neither this blocked inspection nor the earlier passing automation run closes
+the native-cause or attended-workflow coverage gaps.
 
 ## Current-candidate listener binding
 
@@ -266,8 +439,10 @@ session ID when attributable; absence does not authorize inference. These
 surfaces do not broaden approval policy.
 Scenario permission declarations require `tool`, `action`, `risk` (`low` or
 `medium`), `maxUses` (1–16), and scalar `arguments`. Dotted argument leaf keys may
-bind only `$source.trackId`, `$source.clipId`, and `$source.slotIndex` from the
-independently observed source; unresolved/unknown references fail closed. There
+bind only `$source.trackId`, `$source.clipId`, `$source.slotIndex`, and
+`$source.listenerId` from the step's independently observed source;
+unresolved/unknown references fail closed. Optional `stepIds` limits a rule to
+those named turns, at most once per turn as well as within `maxUses`. There
 is no wildcard expansion. The adapter must enforce complete exact actual
 arguments with no extras, actual metadata/risk, ownership and pending operation,
 and consume the declared usage budget. Declarations cannot override high,

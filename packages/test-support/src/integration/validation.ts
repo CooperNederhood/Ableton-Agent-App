@@ -3,6 +3,7 @@ import type {
   AcceptanceDriver,
   AssertionResult,
   AudioBaselineEvidence,
+  AudioSourceEvidence,
   BaselineEvidence,
   DependencyInventory,
   Facts,
@@ -14,7 +15,6 @@ import type {
   ScenarioPermission,
   SessionIdentity,
   Submission,
-  SourceIdentity,
   TurnEvidence,
 } from "./contracts.js";
 
@@ -169,9 +169,15 @@ export function validateAudioBaselineEvidence(
 ): asserts value is AudioBaselineEvidence {
   object(value);
   validateBaseline(value);
-  text(value.loadedMediaPath, 4096);
-  source(value.source);
-  listenerIdentifier(value.listenerId);
+  object(value.sources);
+  requireCondition(
+    Object.keys(value.sources).length > 0,
+    "Missing audio sources",
+  );
+  for (const entry of Object.values(value.sources)) {
+    object(entry);
+    validateSupportedAudioBaseline(entry.facts);
+  }
   validateSupportedAudioBaseline(value.facts);
 }
 export function isFixtureMediaTarget(path: string): boolean {
@@ -192,6 +198,7 @@ export function validateFixture(
     "resources",
     "dependencies",
     "listenerBindings",
+    "sources",
     "builtinResources",
     "baseline",
   ]);
@@ -266,6 +273,36 @@ export function validateFixture(
     unique(slots);
   }
   validateFacts(value.baseline);
+  if (value.sources !== undefined) {
+    list(value.sources, 16);
+    requireCondition(value.sources.length > 0, "Empty source inventory");
+    const ids: string[] = [];
+    const selectors: string[] = [];
+    for (const entry of value.sources) {
+      object(entry);
+      rejectUnknownFields(entry, [
+        "id",
+        "trackName",
+        "clipName",
+        "sceneIndex",
+        "mediaTarget",
+      ]);
+      identifier(entry.id);
+      text(entry.trackName);
+      text(entry.clipName);
+      integer(entry.sceneIndex, 0, 100_000);
+      safeRelativePath(entry.mediaTarget);
+      requireCondition(
+        isFixtureMediaTarget(entry.mediaTarget) &&
+          resources.some((resource) => resource.target === entry.mediaTarget),
+        "Source references undeclared media",
+      );
+      ids.push(entry.id);
+      selectors.push(JSON.stringify([entry.trackName, entry.sceneIndex]));
+    }
+    unique(ids);
+    unique(selectors);
+  }
   if (value.builtinResources !== undefined) {
     list(value.builtinResources, 32);
     let total = 0;
@@ -296,6 +333,7 @@ export function validatePermission(
     "risk",
     "maxUses",
     "arguments",
+    "stepIds",
   ]);
   identifier(value.tool);
   identifier(value.action);
@@ -305,6 +343,10 @@ export function validatePermission(
   );
   integer(value.maxUses, 1, 16);
   validateFacts(value.arguments);
+  if (value.stepIds !== undefined) {
+    identifiers(value.stepIds, 32);
+    requireCondition(value.stepIds.length > 0, "Empty permission step scope");
+  }
   const keys = Object.keys(value.arguments);
   for (const [key, argument] of Object.entries(value.arguments)) {
     requireCondition(
@@ -323,16 +365,19 @@ export function validatePermission(
     );
     if (typeof argument === "string" && argument.startsWith("$source"))
       requireCondition(
-        ["$source.trackId", "$source.clipId", "$source.slotIndex"].includes(
-          argument,
-        ),
+        [
+          "$source.trackId",
+          "$source.clipId",
+          "$source.slotIndex",
+          "$source.listenerId",
+        ].includes(argument),
         "Unknown source permission reference",
       );
   }
 }
 export function resolvePermissionArguments(
   permission: ScenarioPermission,
-  actualSource?: SourceIdentity,
+  actualSource?: AudioSourceEvidence,
 ): Facts {
   validatePermission(permission);
   const resolved: Record<string, Facts[string]> = {};
@@ -342,10 +387,15 @@ export function resolvePermissionArguments(
         actualSource,
         "Source permission reference has no actual source binding",
       );
-      source(actualSource);
-      if (value === "$source.trackId") resolved[key] = actualSource.trackId;
-      else if (value === "$source.clipId") resolved[key] = actualSource.clipId;
-      else resolved[key] = actualSource.slotIndex;
+      source(actualSource.source);
+      listenerIdentifier(actualSource.listenerId);
+      if (value === "$source.trackId")
+        resolved[key] = actualSource.source.trackId;
+      else if (value === "$source.clipId")
+        resolved[key] = actualSource.source.clipId;
+      else if (value === "$source.listenerId")
+        resolved[key] = actualSource.listenerId;
+      else resolved[key] = actualSource.source.slotIndex;
     } else resolved[key] = value;
   }
   return Object.freeze(resolved);
@@ -411,9 +461,17 @@ export function validateScenario(
       "message",
       "timeoutMs",
       "expectedStatus",
+      "sourceId",
       "assertions",
     ]);
     identifier(step.id);
+    if (step.sourceId !== undefined) {
+      identifier(step.sourceId);
+      requireCondition(
+        fixture.sources?.some((source) => source.id === step.sourceId),
+        "Unknown step source",
+      );
+    }
     stepIds.push(step.id);
     text(step.message, 16_384);
     requireCondition(step.message.trim().length > 0, "Empty message");
@@ -434,6 +492,11 @@ export function validateScenario(
       );
   }
   unique(stepIds);
+  for (const permission of value.permissions) {
+    validatePermission(permission);
+    for (const id of permission.stepIds ?? [])
+      requireCondition(stepIds.includes(id), "Unknown permission step");
+  }
   list(value.assertions);
   assertions(value.assertions, names);
   requireCondition(
@@ -483,10 +546,28 @@ export function validateBaseline(
 ): asserts value is BaselineEvidence {
   object(value);
   requireCondition(value.schemaVersion === 1, "Unsupported baseline version");
-  if (value.loadedMediaPath !== undefined) text(value.loadedMediaPath, 4096);
   validateFacts(value.facts);
-  if (value.source !== undefined) source(value.source);
-  if (value.listenerId !== undefined) listenerIdentifier(value.listenerId);
+  if (value.sources !== undefined) {
+    object(value.sources);
+    requireCondition(
+      Object.keys(value.sources).length <= 16,
+      "Too many sources",
+    );
+    for (const [id, entry] of Object.entries(value.sources)) {
+      identifier(id);
+      object(entry);
+      rejectUnknownFields(entry, [
+        "source",
+        "listenerId",
+        "loadedMediaPath",
+        "facts",
+      ]);
+      source(entry.source);
+      listenerIdentifier(entry.listenerId);
+      text(entry.loadedMediaPath, 4096);
+      validateFacts(entry.facts);
+    }
+  }
   object(value.dependencyHashes);
   requireCondition(
     Object.keys(value.dependencyHashes).length <= 32,
@@ -523,6 +604,33 @@ export function validateTurn(value: unknown): asserts value is TurnEvidence {
     identifier(capture.operationId);
     listenerIdentifier(capture.listenerId);
     source(capture.source);
+    if (capture.native !== undefined) {
+      object(capture.native);
+      rejectUnknownFields(capture.native, [
+        "generation",
+        "nativeEpoch",
+        "connectionId",
+        "connectionEpoch",
+      ]);
+      for (const key of ["generation", "connectionId", "connectionEpoch"]) {
+        text(capture.native[key], 36);
+        requireCondition(
+          /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/iu.test(
+            String(capture.native[key]),
+          ),
+          "Invalid native ownership UUID",
+        );
+      }
+      integer(capture.native.nativeEpoch, 1, 1_000_000);
+    }
+    if (capture.spectralCentroidHz !== undefined)
+      requireCondition(
+        typeof capture.spectralCentroidHz === "number" &&
+          Number.isFinite(capture.spectralCentroidHz) &&
+          capture.spectralCentroidHz >= 0 &&
+          capture.spectralCentroidHz <= 384_000,
+        "Invalid measured spectral centroid",
+      );
     for (const key of ["complete", "nonSilent", "truncated", "cleanupComplete"])
       requireCondition(
         typeof capture[key] === "boolean",

@@ -88,6 +88,56 @@ then failed before playback on the third same-source repetition with
 `metric_spectrum_shared_failure`. Its isolated repeat-three rerun passed
 (`metric-repeat-isolated.json`), so repeat reliability remains unresolved;
 the earlier positive repeat/switch receipts do not erase that failure.
+Packaged follow-up #78 has registered a jointly reviewed two-source fixture and
+six-capture A/A/A/A/B/A schedule in one conversation, with explicit stop/return-to-
+zero turns rather than hidden harness resets. Shared acceptance assertions now
+reject reused pass IDs and require every capture's original source/context
+identity/content on later reads, fresh native generations/epochs on unchanged
+listener connections, and matching per-pass release ownership. The first
+Live 11.3.43 attempt, `run-5VpmX3` (2026-11-03 UTC), stopped after one complete
+capture: A measured 95.09 Hz against its frozen 100 Hz minimum. Independent PCM
+analysis diagnoses an authoring magnitude-versus-energy weighting mismatch
+(energy-weighted A is 84-91 Hz), not an established native capture defect.
+The user subsequently approved correcting A's minimum to 50 Hz; B and every
+other requirement remain unchanged. The remaining 16 turns in that first run
+are unrun; a fresh complete schedule is required. Original identification passed on the
+same app candidate in `run-YaPYyO`; both terminal receipts confirm owned cleanup.
+See [acceptance authoring](../testing/acceptance-authoring.md#first-continuity-attempt-red-oracle-not-continuity-qualification)
+for receipt hashes, candidate pins, and the reviewed correction.
+These results do not resolve the historical third-repetition failure.
+The final bounded #78 schedule subsequently **passed** in `run-QSnsCe`:
+17 turns, six captures A/A/A/A/B/A, 60 assertions, stable contexts/connections,
+native A epochs 1-5 and B epoch 1, all metric families and per-pass releases,
+and terminal owned cleanup. The original case also passed on that final
+candidate (`run-1VAnU1`). On 2026-11-03 the user accepted this passing bounded
+schedule as sufficient for #78, deferring intermittent-failure investigation
+and additional visual qualification rather than expanding this PR's scope.
+Those follow-ups remain unresolved; this is not an unrestricted reliability
+claim. App archive:
+`14da7322062d931cc4bcd80d083d9323fd24b29ec35c66aeae8caa2b65aff3b9`.
+An intervening reset omission was fixed with scoped track/transport tool
+guidance; a runner History capacity failure was fixed without dropping evidence
+or changing the 32 MiB aggregate byte limit. Preserve their failed receipts
+`run-QHbXBo` and `run-Z5awFn`.
+
+The earlier partial run `run-VECZgw` is also retained: only 36/43 spectral
+records survived `upstream_immutable_slot_changed`. Its intermittent native
+cause remains unresolved. Rejection diagnostics now expose at most 20 immutable
+readback cells with current and previous values through bounded typed facts;
+the previous snapshot is diagnostic comparison evidence, not repaired audio or
+a substituted expected measurement. Native validation and cleanup remain strict.
+The separate attended UX check was blocked before submission by its scratch
+observer's descriptor-readiness race; owned cleanup was confirmed. Thus the
+bounded automation schedule passes, not unrestricted repeat reliability or
+attended cross-app UX. An additional diagnostic attempt (`run-gcP1xA`) failed
+before capture at Remote Script readiness. After adding a bounded descriptor
+wait, the fresh visual attempt (`issue-78-stop-02`) exposed Live's recovery
+prompt and Desktop's connection-refused state, still before submission.
+Approval to decline recovery was unavailable; recovery data remains untouched.
+Supplemental exact-PID/profile cleanup was verified after the observer and host
+reported cleanup errors. Further native reproduction and visual qualification
+remain blocked, not passed. Full attempt ledger and pins:
+[final bounded qualification](../testing/acceptance-authoring.md#final-bounded-qualification).
 An additional MCP visual run was cancelled when scope was frozen. Its cleanup
 receipt reported an owned-Live identity mismatch; both recorded Agent/Live PIDs
 were independently confirmed absent. Do not count that run as a pass.

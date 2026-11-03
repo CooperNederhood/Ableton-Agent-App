@@ -95,3 +95,48 @@ Companion specification: [Acceptance test authoring](acceptance-authoring.md).
       819 Max tests, 286 Python tests and all build/lint/type/docs gates.
 - [ ] Deliver a real UI acceptance adapter in a later phase; do not infer it from
       alternate controlled drivers.
+
+## Same-session listening continuity (#78)
+
+- [x] Reject duplicate pass inventories and require every capture's original
+      source/context identity/content on subsequent reads. Controlled regressions
+      expose first-context substitution, wrong-source joins, changed prior
+      contexts, missing original publication, incomplete captures, and pass reuse.
+- [x] Complete joint authoring and approval of the two-source derivative fixture.
+      Keep the original identification Set/media unchanged.
+- [x] Extend source-aware packaged admission, permissions, native freshness,
+      explicit transition verification, and per-pass release evidence.
+- [x] Register the reviewed six-capture A/A/A/A/B/A conversation,
+      with five explicit stopped-zero transition turns and six non-listening
+      follow-ups. Require both Live source-read brackets and accept only the two
+      supported inactive slot sentinels (-2/-1), with red/green adapter coverage.
+- [x] Preserve first attempt `run-5VpmX3`: complete first capture but frozen
+      spectral-range assertion fails (95.09 Hz versus minimum 100 Hz).
+      Independent PCM analysis diagnoses the authoring magnitude/energy weighting
+      mismatch; it does not authorize changing the expected bound.
+- [x] Qualify the original identification case on the same candidate:
+      `run-YaPYyO`, all eight assertions pass, terminal cleanup confirmed.
+- [x] Review the incorrect source-A minimum with the user and apply the approved
+      50 Hz minimum; leave B and every other contract requirement unchanged.
+- [x] Qualify all 17 turns in one conversation without intermediate
+      resets/reloads. Preserve the red attempt and historical
+      repetition failure; first-capture success is not continuity evidence.
+      `run-QSnsCe`: 60 assertions pass, six captures/contexts, terminal cleanup.
+      Final-candidate original case `run-1VAnU1`: eight assertions pass.
+- [x] Fix explicit Session stop guidance and multi-turn History capacity with
+      red/green regressions; retain per-trace/count/byte limits and redaction.
+      Preserve `run-QHbXBo` and `run-Z5awFn` as failed attempts.
+- [x] Preserve partial spectral attempt `run-VECZgw` and add bounded immutable
+      readback failure facts without relaxing native validation.
+- [ ] Deferred follow-up (outside the user-accepted #78 scope): resolve the
+      intermittent native `upstream_immutable_slot_changed` cause;
+      later complete captures do not erase the partial run. Additional diagnostic
+      attempt `run-gcP1xA` failed before any capture at Remote Script readiness.
+- [ ] Deferred follow-up (outside the user-accepted #78 scope): complete attended
+      cross-app stop-workflow inspection. The separate scratch
+      UX attempt stopped before submission at descriptor-publication readiness;
+      owned cleanup was confirmed, but no visual pass is claimed. A bounded
+      descriptor wait was added; `issue-78-stop-02` instead encountered Live's
+      recovery prompt before submission. Declining recovery still requires
+      approval. Preserve observer/host cleanup errors and the supplemental
+      exact-PID/profile cleanup evidence; recovery data remains untouched.

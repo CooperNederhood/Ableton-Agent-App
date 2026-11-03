@@ -272,12 +272,15 @@ afterEach(async () => {
   await rm(directory, { recursive: true, force: true });
 });
 
-async function audioBaseline(target = "media/resource-001.wav") {
+async function audioBaseline(
+  target = "media/resource-001.wav",
+  content = "synthetic adapter bytes, not a listening fixture",
+) {
   const trackId = randomUUID(),
     clipId = randomUUID();
   const mediaPath = join(directory, target);
   await mkdir(dirname(mediaPath), { recursive: true });
-  const bytes = Buffer.from("synthetic adapter bytes, not a listening fixture");
+  const bytes = Buffer.from(content);
   await writeFile(mediaPath, bytes);
   const mediaSha256 = createHash("sha256").update(bytes).digest("hex");
   const resource = {
@@ -295,11 +298,17 @@ async function audioBaseline(target = "media/resource-001.wav") {
     fixture: {
       ...context.fixture,
       resources: [resource],
+      sources: [
+        {
+          id: "a",
+          trackName: "Source 1",
+          clipName: "Clip 1",
+          sceneIndex: 0,
+          mediaTarget: target,
+        },
+      ],
       baseline: {
         ...SUPPORTED_AUDIO_BASELINE,
-        trackName: "Source 1",
-        clipName: "Clip 1",
-        sceneIndex: 0,
       },
     },
     stagedFixture: { ...context.stagedFixture!, resources: [resource] },
@@ -433,7 +442,253 @@ async function audioBaseline(target = "media/resource-001.wav") {
   };
 }
 
+async function twoSources() {
+  const a = await audioBaseline();
+  const aContext = context;
+  const aSnapshot = liveSetSnapshotSchema.parse(
+    await api.ableton.requestSnapshot(),
+  );
+  const aRead =
+    api.ableton.inspectSessionListeningPreflight.getMockImplementation()!;
+  const b = await audioBaseline(
+    "media/resource-002.wav",
+    "different reviewed source",
+  );
+  b.audio.name = "Clip 2";
+  const bSnapshot = liveSetSnapshotSchema.parse(
+    await api.ableton.requestSnapshot(),
+  );
+  const bRead =
+    api.ableton.inspectSessionListeningPreflight.getMockImplementation()!;
+  const sources = [
+    { ...aContext.fixture.sources![0]!, id: "a" },
+    {
+      ...context.fixture.sources![0]!,
+      id: "b",
+      trackName: "Source 2",
+      clipName: "Clip 2",
+    },
+  ];
+  context = {
+    ...context,
+    fixture: {
+      ...context.fixture,
+      resources: [...aContext.fixture.resources, ...context.fixture.resources],
+      sources,
+    },
+    stagedFixture: {
+      ...context.stagedFixture!,
+      resources: [
+        ...aContext.stagedFixture!.resources,
+        ...context.stagedFixture!.resources,
+      ],
+    },
+  };
+  api.ableton.requestSnapshot.mockResolvedValue(
+    liveSetSnapshotSchema.parse({
+      ...aSnapshot,
+      tracks: [
+        ...aSnapshot.tracks,
+        { ...bSnapshot.tracks[0], index: 1, name: "Source 2" },
+      ],
+      sessionClips: [
+        ...aSnapshot.sessionClips!,
+        { ...bSnapshot.sessionClips![0], trackIndex: 1, name: "Clip 2" },
+      ],
+    }),
+  );
+  const connections = [a, b].map((source, index) => ({
+    producerId: `listener-${index}`,
+    connectionId: `connection-${index}`,
+    instanceId: `instance-${index}`,
+    signalKind: "audio",
+    state: "connected",
+    track: { id: source.trackId },
+  }));
+  api.outputs.list.mockResolvedValue({
+    activeSessionId: identity.appSessionId,
+    connections,
+  });
+  api.ableton.inspectSessionListeningPreflight.mockImplementation(
+    async (request) => {
+      const observed = await (request.target.track.index === 0 ? aRead : bRead)(
+        request,
+      );
+      return {
+        ...observed,
+        audio: { ...observed.audio, name: request.target.expectedClipName },
+      };
+    },
+  );
+  return { a, b, connections };
+}
+
 describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
+  it.each(["single-trace-count", "combined-count", "bytes"] as const)(
+    "still fails closed on History %s overflow and closes its owned hosts",
+    async (overflow) => {
+      await twoSources();
+      await driver.launch(context);
+      await driver.ready(context);
+      await driver.readBaseline(context);
+      api.eventHistory.trace.mockImplementation(async (traceId) => ({
+        items: Array.from(
+          {
+            length:
+              overflow === "single-trace-count"
+                ? 10001
+                : overflow === "combined-count"
+                  ? 2501
+                  : 1,
+          },
+          (_, index) => ({
+            id: `${traceId}-${index}`,
+            sequence: index,
+            name: "controlled.event",
+            attributes:
+              overflow === "bytes"
+                ? { text: "x".repeat(32 * 1024 * 1024) }
+                : {},
+          }),
+        ),
+      }));
+      await expect(driver.collect(context)).rejects.toThrow("evidence bound");
+      api.eventHistory.trace.mockResolvedValue({ items: [] });
+      await driver.cleanup(context);
+      expect(mocks.stop).toHaveBeenCalledOnce();
+      expect(mocks.liveStop).toHaveBeenCalledOnce();
+    },
+  );
+
+  it("retains complete multi-turn History beyond a single-trace inventory without rereading it in cleanup", async () => {
+    await twoSources();
+    context = {
+      ...context,
+      scenario: {
+        ...context.scenario,
+        steps: ["one", "two"].map((id) => ({
+          id,
+          message: "Inspect",
+          timeoutMs: 1000,
+          assertions: [],
+        })),
+      },
+    };
+    await driver.launch(context);
+    await driver.ready(context);
+    await driver.readBaseline(context);
+    api.eventHistory.trace.mockImplementation(async (traceId) => ({
+      items: Array.from({ length: 2501 }, (_, index) => ({
+        id: `${traceId}-${index}`,
+        sequence: index,
+        name: "controlled.event",
+        attributes: { token: "ghp_should_be_redacted123456789012345678901234" },
+      })),
+    }));
+    await driver.collect(context);
+    const reads = api.eventHistory.trace.mock.calls.length;
+    await driver.cleanup(context);
+    expect(api.eventHistory.trace).toHaveBeenCalledTimes(reads);
+    const text = await readFile(
+      join(directory, "product-evidence.json"),
+      "utf8",
+    );
+    const evidence = JSON.parse(text) as { history: { id: string }[] };
+    expect(evidence.history).toHaveLength(12505);
+    expect(
+      new Set(evidence.history.map((event: { id: string }) => event.id)).size,
+    ).toBe(12505);
+    expect(text).not.toContain("ghp_should_be_redacted");
+    expect(mocks.stop).toHaveBeenCalledOnce();
+    expect(mocks.liveStop).toHaveBeenCalledOnce();
+  });
+
+  it("admits independently hashed sources and selects B without borrowing A's identity", async () => {
+    const { a, b } = await twoSources();
+    await driver.launch(context);
+    await driver.ready(context);
+    const baseline = await driver.readBaseline(context);
+    expect(baseline.sources).toMatchObject({
+      a: {
+        source: {
+          trackId: a.trackId,
+          clipId: a.clipId,
+          mediaSha256: a.mediaSha256,
+        },
+        listenerId: "listener-0",
+      },
+      b: {
+        source: {
+          trackId: b.trackId,
+          clipId: b.clipId,
+          mediaSha256: b.mediaSha256,
+        },
+        listenerId: "listener-1",
+      },
+    });
+    expect(a.mediaSha256).not.toBe(b.mediaSha256);
+    a.sourceState.playingSlotIndex = -2;
+    b.sourceState.playingSlotIndex = -2;
+    await driver.submit(
+      {
+        id: "listen-b",
+        sourceId: "b",
+        message: "Listen to Source 2.",
+        timeoutMs: 1000,
+        assertions: [{ name: "capture", parameters: {} }],
+      },
+      context,
+    );
+    expect(mocks.send).toHaveBeenCalledTimes(1);
+    await driver.cleanup(context);
+  });
+  it.each([
+    "playing",
+    "queued",
+    "nonzero",
+    "listener-replaced",
+    "media-changed",
+    "cancelled",
+  ])(
+    "never repairs or submits a capture when the between-pass state is %s",
+    async (kind) => {
+      const { b, connections } = await twoSources();
+      await driver.launch(context);
+      await driver.ready(context);
+      await driver.readBaseline(context);
+      if (kind === "playing") b.sourceState.transportPlaying = true;
+      if (kind === "queued") b.sourceState.targetTriggered = true;
+      if (kind === "nonzero") b.sourceState.globalBeat = 4;
+      if (kind === "media-changed") await writeFile(b.mediaPath, "changed");
+      if (kind === "listener-replaced") {
+        api.outputs.list.mockResolvedValue({
+          activeSessionId: identity.appSessionId,
+          connections: connections.map((connection, index) => ({
+            ...connection,
+            instanceId: index === 1 ? "replacement" : connection.instanceId,
+          })),
+        });
+      }
+      await expect(
+        driver.submit(
+          {
+            id: "listen-b",
+            sourceId: "b",
+            message: "Listen to Source 2.",
+            timeoutMs: 1000,
+            assertions: [{ name: "capture", parameters: {} }],
+          },
+          kind === "cancelled"
+            ? { ...context, signal: AbortSignal.abort() }
+            : context,
+        ),
+      ).rejects.toThrow();
+      expect(mocks.send).not.toHaveBeenCalled();
+      await driver.cleanup(context);
+      expect(mocks.stop).toHaveBeenCalled();
+      expect(mocks.liveStop).toHaveBeenCalled();
+    },
+  );
   it.each(["false", "true", "missing"])(
     "uses exact saved follow-action evidence when Live 11 reports unknown: %s",
     async (value) => {
@@ -639,9 +894,9 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
     await driver.launch(context);
     await driver.ready(context);
     const baseline = await driver.readBaseline(context);
-    expect(baseline.source?.trackId).toBe(track.id);
-    expect(baseline.source?.trackId).not.toBe("2141");
-    expect(baseline.listenerId).toBe("listener-1");
+    expect(baseline.sources?.a?.source.trackId).toBe(track.id);
+    expect(baseline.sources?.a?.source.trackId).not.toBe("2141");
+    expect(baseline.sources?.a?.listenerId).toBe("listener-1");
     expect(baseline.facts.activeCandidateVerified).toBe(true);
     await driver.cleanup(context);
   });
@@ -821,11 +1076,15 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
       await driver.launch(context);
       await driver.ready(context);
       expect(await driver.readBaseline(context)).toMatchObject({
-        loadedMediaPath: source.mediaPath,
-        source: {
-          trackId: source.trackId,
-          clipId: source.clipId,
-          mediaSha256: source.mediaSha256,
+        sources: {
+          a: {
+            loadedMediaPath: source.mediaPath,
+            source: {
+              trackId: source.trackId,
+              clipId: source.clipId,
+              mediaSha256: source.mediaSha256,
+            },
+          },
         },
         facts: { recording: false, mediaSampleRate: 48000 },
       });
@@ -849,7 +1108,7 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
       await driver.launch(context);
       await driver.ready(context);
       await expect(driver.readBaseline(context)).rejects.toThrow(
-        "Unsupported audio baseline: recording",
+        "Blocked source precondition: a.recording",
       );
       await driver.cleanup(context);
     },

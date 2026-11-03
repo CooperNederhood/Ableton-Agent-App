@@ -1,5 +1,41 @@
 import type { TelemetryEventPage } from "../../apps/desktop/src/contracts.js";
-import type { CaptureEvidence } from "@ableton-agent/test-support/integration";
+import type {
+  CaptureEvidence,
+  SessionSourceEvidence,
+} from "@ableton-agent/test-support/integration";
+import type { MetricAudioObservation } from "@ableton-agent/protocol";
+
+/** Persisted observations must select an admitted kind and location, not invent content identity. */
+export function observedSessionSource(
+  observed: MetricAudioObservation["source"],
+  listenerId: string,
+  sources: Readonly<Record<string, SessionSourceEvidence>>,
+): SessionSourceEvidence {
+  if (
+    observed.view !== "session" ||
+    (observed.kind !== "midi" && observed.kind !== "warped-audio")
+  )
+    throw new Error("Expected persisted Session source evidence");
+  const matches = Object.values(sources).filter(
+    (candidate) =>
+      ("midi" in candidate
+        ? observed.kind === "midi"
+        : observed.kind === "warped-audio") &&
+      candidate.source.trackId === observed.target.track.expectedReference &&
+      candidate.source.clipId === observed.clipReference &&
+      candidate.source.clipId === observed.target.expectedClipReference &&
+      candidate.source.slotIndex === observed.target.sceneIndex &&
+      candidate.facts.trackName === observed.target.track.expectedName &&
+      candidate.facts.trackIndex === observed.target.track.index &&
+      candidate.facts.clipName === observed.target.expectedClipName &&
+      candidate.listenerId === listenerId,
+  );
+  if (matches.length !== 1)
+    throw new Error(
+      "Context belongs to an unadmitted or ambiguous source or listener",
+    );
+  return matches[0]!;
+}
 
 type EvidenceEvent = Pick<
   TelemetryEventPage["items"][number],

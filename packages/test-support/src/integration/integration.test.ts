@@ -245,6 +245,11 @@ class ControlledDriver implements AcceptanceDriver {
       sources: {
         a: {
           ...this.baseline.sources.a!,
+          facts: {
+            ...this.baseline.sources.a!.facts,
+            trackName: "Source 1",
+            clipName: "Clip 1",
+          },
           loadedMediaPath: join(
             ctx.stagedFixture!.workingDirectory,
             "media/resource-001.wav",
@@ -852,10 +857,103 @@ describe("driver-neutral acceptance foundation (synthetic only)", () => {
     expect(() =>
       validateSupportedAudioBaseline({
         ...fixture.baseline,
-        globalQuantization: "bar",
+        globalQuantization: "half",
       }),
     ).toThrow("Unsupported audio baseline");
   });
+  it.each([
+    ["none", 0],
+    ["bar", 0],
+    ["none", 5.5],
+    ["bar", 5.5],
+  ])(
+    "admits declared stopped %s quantization at beat %s without claiming capture support",
+    async (globalQuantization, currentSongTime) => {
+      const facts = {
+        ...SUPPORTED_AUDIO_BASELINE,
+        globalQuantization,
+        currentSongTime,
+      };
+      expect(() => validateSupportedAudioBaseline(facts)).not.toThrow();
+      const driver = new ControlledDriver();
+      driver.baseline = {
+        ...driver.baseline,
+        facts,
+        sources: {
+          a: { ...driver.baseline.sources.a!, facts },
+        },
+      };
+      const result = await execute(driver, {
+        fixture: { ...fixture, baseline: facts },
+      });
+      expect(result.status).toBe("passed");
+      expect(driver.calls).toContain("cleanup");
+      expect(result.persisted).toBe(true);
+    },
+  );
+  it.each([
+    { currentSongTime: -1 },
+    { currentSongTime: 1_576_801 },
+    { currentSongTime: Infinity },
+    { currentSongTime: NaN },
+    { currentSongTime: null },
+    { currentSongTime: "5.5" },
+    { globalQuantization: null },
+    { globalQuantization: 4 },
+    { globalQuantization: "half" },
+    { clipLaunchQuantization: "bar" },
+    { transportPlaying: true },
+    { recording: true },
+    { playingSessionClips: 1 },
+    { queuedSessionClips: 1 },
+    { signatureNumerator: 3 },
+    { clipWarped: false },
+    { loopStart: 1 },
+    { activeLengthBeats: 8 },
+    { launchMode: "gate" },
+    { legato: true },
+    { followActionsEnabled: true },
+    { listenerBoundToSource: false },
+  ])("keeps unsupported audio baseline fields denied: %j", (patch) => {
+    expect(() =>
+      validateSupportedAudioBaseline({
+        ...SUPPORTED_AUDIO_BASELINE,
+        globalQuantization: "bar",
+        currentSongTime: 5.5,
+        ...patch,
+      }),
+    ).toThrow();
+  });
+  it.each([
+    { globalQuantization: "none", currentSongTime: 5.5 },
+    { globalQuantization: "bar", currentSongTime: 0 },
+  ])(
+    "blocks a supported but undeclared starting state without submission: %j",
+    async (state) => {
+      const driver = new ControlledDriver();
+      const facts = { ...SUPPORTED_AUDIO_BASELINE, ...state };
+      driver.baseline = {
+        ...driver.baseline,
+        facts,
+        sources: { a: { ...driver.baseline.sources.a!, facts } },
+      };
+      const result = await execute(driver, {
+        fixture: {
+          ...fixture,
+          baseline: {
+            ...SUPPORTED_AUDIO_BASELINE,
+            globalQuantization: "bar",
+            currentSongTime: 5.5,
+          },
+        },
+      });
+      expect(result.status).toBe("blocked");
+      expect(driver.submissions).toEqual([]);
+      expect(result.unrun).toEqual(["first", "second"]);
+      expect(driver.calls).toContain("cleanup");
+      expect(result.persisted).toBe(true);
+    },
+  );
   it.each([
     "globalQuantization",
     "clipLaunchQuantization",

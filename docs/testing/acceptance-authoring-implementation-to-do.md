@@ -2,6 +2,76 @@
 
 Companion specification: [Acceptance test authoring](acceptance-authoring.md).
 
+## Stopped quantized launches (#81)
+
+- [x] Record the simplified user-directed scope: one supplied combined Set,
+      global One Bar, stopped nonzero transport, both Session clips remembered
+      active. Independent fresh-copy audio-track/clip-1 and midi-track/clip-2
+      cases; sine-wave Operator quarter notes and unchanged audio. No four
+      variants, eight-case matrix, repetition campaign or hidden reset/repair.
+      Keep the original identification test unchanged; running transport is deferred.
+- [x] Extend audio runner admission to declared None/One Bar and bounded
+      nonnegative stopped positions. Require exact fixture agreement and both
+      source-read brackets, with no reset/repair and unchanged continuity
+      stopped-zero checks. Add failing-before/passing-after controlled
+      regressions for newly admitted states and unsafe/inconsistent brackets.
+- [x] Support per-source clip quantization declarations with exact loaded
+      protocol-enum comparison and no global-only assumption. Preserve full
+      transport precision and test mismatched/unknown values, cleanup, and
+      coordinator overrides. Never map saved XML ordinals directly to expectations.
+- [x] Preserve observed Session playing flags for stopped remembered slots:
+      require `playingSessionClips: 2` for the
+      supplied Set, with stopped transport and zero queued clips. Do not mask
+      the observed count to zero or admit inactive targets as remembered slots.
+      Optional `rememberedSessionClips` must agree when declared.
+- [x] Admit the unchanged mixed fixture with common clip kind/quantization facts
+      omitted: validate each actual source kind and supported loaded quantization,
+      preserve exact observations in the protected-settings fingerprint, and keep
+      all explicitly declared expectations exact. Preserve the setup failure and
+      fail-before/pass-after omission regression; do not normalize the supplied Set.
+- [x] Confirm the supplied Set's loaded named clip-quantization enum and
+      exact stopped position; independently pin its pitch-60, duration-0.25
+      quarter-note content and exposed Operator state. Saved CurrentTime is
+      2.0593777777777778; loaded position is 2.059377861721612. Audio uses
+      Global; MIDI uses One Bar. Canonical content hashes are pinned in the fixture.
+- [x] Record explicit source-intake and new-test red-then-green authorization.
+      Success is usable completed target listening, not musical classification.
+      Reuse exact-frame/complete-metric/source/context/preservation/cleanup
+      assertions without quizzes, spectral-classification thresholds or repetitions.
+- [x] Admit `session-midi` in both packaged catalog and template capability
+      whitelists; retain unsupported-capability rejection and offline CLI coverage.
+- [x] Extend shared application/main/preload preflight with complete bounded
+      MIDI notes and exact identity checks, independent recording reads and
+      no audio placeholders. Verify real Electron IPC and typed History using
+      an owned simulator; keep this distinct from instrument/rendered proof.
+- [x] Read complete bounded flat-device inventories and exposed parameters in
+      MIDI preflight, rejecting foreign/changed/partial/nested evidence.
+- [x] Extend parent-owned saved follow-action inspection to exact matching
+      AudioTrack/AudioClip and MidiTrack/MidiClip paths. Retain the MIDI
+      failing-before report and parameterized missing/malformed flag regressions;
+      never substitute false for unavailable Live 11 follow-action evidence.
+- [x] Extend the existing runner with typed audio/MIDI declarations and evidence,
+      independent reference-neutral note/instrument hashes, exact source and
+      listener placement, remembered stopped-slot admission, coordinator matching,
+      capture/context selection, and initial/world/final preservation checks.
+      Preserve multiplicity and all note/parameter identity fields; exclude only
+      verified listener runtime threshold values. Add malformed, wrong-kind,
+      content, topology, listener, cleanup and cancellation regressions.
+- [x] Complete independent launch/native-alignment assertions, including
+      wrong-source/timing/stale negative controls; admission is not timing proof.
+- [x] Bind decimal native listener IDs through the unique reviewed snapshot
+      slot without equating them to Remote Script UUIDs; reject unknown IDs,
+      duplicate same-name slots and mismatched UUIDs.
+- [x] Register the two reviewed fresh-copy cases and preserve valid packaged old-product reds.
+      Missing authoring inputs or setup failures are not product reds.
+- [x] Implement product launch support and qualify the two selected stopped cases
+      on the final immutable candidate. Runner admission alone is not support.
+      Audio `run-6ToPzM` and MIDI `run-DYmu3b` pass on Live 11.3.43 with
+      terminal cleanup. Preserve old-product reds `run-5pZilH`/`run-ykOZt9`
+      and intermediate failures; full candidate pins are in Playback Listening.
+
+## Authoring foundation
+
 - [x] Add the development-agent-only human-in-the-loop authoring skill and concise
       review checklist, preserving the original project and requiring explicit
       human contract approval.
@@ -32,6 +102,12 @@ Companion specification: [Acceptance test authoring](acceptance-authoring.md).
       extraction checks, count/placement/identity guards and bounded provenance.
       Reject stale bindings, rehashed repairs, duplicate resource names and
       unsupported placement. Keep failed attempts and scoped cleanup.
+- [x] Admit saved reference types 3/6 only at exact reviewed listener slots,
+      without following User Library paths. Always derive candidate-local
+      type-3 references while preserving the original Set and musical content.
+      Parent-owned binding regression fails before the fix; retain the initial
+      pre-host #81 setup-failure receipt and retry on `physical-inspection-2`.
+      Do not count setup failure or a retry launch as physical listening evidence.
 - [x] Include the declared derived Set in CLI retention after success, failure
       and cancellation; keep undeclared outputs denied and profiles excluded.
       Red/green finalization regressions preserve outcome and traced retention.

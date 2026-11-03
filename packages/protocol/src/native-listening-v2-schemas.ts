@@ -356,6 +356,7 @@ export function assertNativeCheckedTransportSourceCoverage(input: {
     hostOffsetSamples: number;
   };
   additionalClocks?: ClockRow[];
+  stoppedBeat?: number;
   errorPrefix: "native_v2" | "native_metric";
 }) {
   const { geometry, coordinates, launchedHost, policy, errorPrefix } = input;
@@ -409,7 +410,7 @@ export function assertNativeCheckedTransportSourceCoverage(input: {
       !coherent(row) ||
       row[4] < firstCounter ||
       row[4] > last[4] ||
-      (row[0] === 0 && row[1] !== geometry.startBeat)
+      (row[0] === 0 && row[1] !== (input.stoppedBeat ?? geometry.startBeat))
     ) {
       throw new Error(`${errorPrefix}_timing_witness_mismatch`);
     }
@@ -423,7 +424,13 @@ export function assertNativeCheckedTransportSourceCoverage(input: {
     if (
       previousClock &&
       ((policy.mode === "strict" && row[2] < previousClock[2]) ||
-        row[1] < previousClock[1] ||
+        (row[1] < previousClock[1] &&
+          !(
+            input.stoppedBeat !== undefined &&
+            geometry.startBeat === 0 &&
+            previousClock[0] === 0 &&
+            row[0] === 1
+          )) ||
         (previousClock[0] === 1 && row[0] === 0))
     ) {
       throw new Error(`${errorPrefix}_transport_regression`);

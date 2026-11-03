@@ -230,6 +230,7 @@ function fixture(
     ...(observation.source.view === "session"
       ? {
           mode: "session",
+          stoppedBeat: 0,
           sourceEvidence: "expected-context-only",
           source: {
             mode: "session",

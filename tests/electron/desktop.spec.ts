@@ -3,9 +3,12 @@ import { spawn } from "node:child_process";
 import { createServer, type Server } from "node:net";
 import { join, resolve } from "node:path";
 import { createInterface } from "node:readline";
+import { randomUUID } from "node:crypto";
 
 import { _electron as electron, expect, test } from "@playwright/test";
 import { sendAutomationMessage } from "../../packages/debug-control/src/client.js";
+import { AbletonBridgeService } from "../../packages/bridge/src/index.js";
+import { InMemoryEventPublisher } from "../../packages/shared/src/index.js";
 import { resolveLiveAgentStorage } from "../../packages/storage/src/index.js";
 import { resolveAbletonToolMetadata } from "../../packages/tools/src/index.js";
 import { summarizeMetricListeningResult } from "../../packages/protocol/src/index.js";
@@ -32,6 +35,8 @@ import {
 const desktopPath = resolve("apps/desktop");
 
 interface ElectronTestDesktopApi {
+  lifecycle: DesktopApi["lifecycle"];
+  eventHistory: DesktopApi["eventHistory"];
   agent: DesktopApi["agent"];
   ableton: DesktopApi["ableton"];
   entityContext: DesktopEntityContextApi;
@@ -279,6 +284,247 @@ test("binds first-connected Live ownership through production main/preload and r
       await exited;
     }
     await rm(profile, { recursive: true, force: true });
+  }
+});
+
+test("reads complete MIDI preflight through production main and preload without audio or mutation", async () => {
+  const token = "synthetic-midi-preflight-protocol-test-only";
+  const simulator = spawn(
+    "python3",
+    [
+      "remote-script/simulator.py",
+      "--port",
+      "0",
+      "--token",
+      token,
+      "--connections",
+      "10",
+      "--saved-live-set",
+    ],
+    { cwd: process.cwd(), stdio: ["ignore", "pipe", "pipe"] },
+  );
+  let seed: AbletonBridgeService | undefined;
+  let launched: Awaited<ReturnType<typeof launchIsolatedDesktop>> | undefined;
+  try {
+    const lines = createInterface({ input: simulator.stdout });
+    const port = await new Promise<number>((resolve, reject) => {
+      const finish = (error?: Error, port?: number) => {
+        clearTimeout(timer);
+        lines.close();
+        simulator.off("error", failed);
+        simulator.off("exit", exited);
+        if (error) reject(error);
+        else if (port !== undefined) resolve(port);
+      };
+      const failed = (error: Error) => finish(error);
+      const exited = (code: number | null) =>
+        finish(new Error(`MIDI simulator exited before readiness: ${code}`));
+      const timer = setTimeout(
+        () => finish(new Error("MIDI simulator readiness timed out")),
+        5000,
+      );
+      simulator.once("error", failed);
+      simulator.once("exit", exited);
+      lines.once("line", (line) => {
+        try {
+          const ready: unknown = JSON.parse(line);
+          if (
+            ready === null ||
+            typeof ready !== "object" ||
+            !("port" in ready) ||
+            typeof ready.port !== "number" ||
+            !Number.isInteger(ready.port) ||
+            ready.port <= 0 ||
+            ready.port > 65535
+          )
+            throw new Error("Invalid MIDI simulator readiness");
+          finish(undefined, ready.port);
+        } catch (error) {
+          finish(error instanceof Error ? error : new Error(String(error)));
+        }
+      });
+    });
+    seed = new AbletonBridgeService({
+      authenticationToken: token,
+      events: new InMemoryEventPublisher(),
+      port,
+    });
+    await seed.start();
+    const snapshot = await seed.inspectSession();
+    const track = snapshot.tracks[1]!;
+    const target = {
+      index: track.index,
+      expectedReference: track.reference,
+      expectedName: track.name,
+    };
+    const { clip } = await seed.createMidiClip({
+      ...target,
+      sceneIndex: 0,
+      length: 4,
+      name: "Preflight source",
+    });
+    const notes = [
+      { pitch: 69, startTime: 0, duration: 0.25, velocity: 100, mute: false },
+    ];
+    await seed.replaceMidiNotes({
+      ...target,
+      sceneIndex: 0,
+      expectedClipReference: clip.reference,
+      allowPerNoteExpressionLoss: false,
+      notes,
+    });
+    const inventory = await seed.inspectDevices({
+      ...target,
+      offset: 0,
+      limit: 8,
+    });
+    const instrument = inventory.devices[0]!;
+    const parameters = await seed.inspectDeviceParameters({
+      ...target,
+      deviceIndex: instrument.index,
+      expectedDeviceReference: instrument.reference,
+      expectedDeviceName: instrument.name,
+      offset: 0,
+      limit: 256,
+    });
+    await seed.stop();
+    seed = undefined;
+
+    launched = await launchIsolatedDesktop({
+      ABLETON_AGENT_PORT: String(port),
+      ABLETON_AGENT_TOKEN: token,
+    });
+    const window = await launched.application.firstWindow();
+    await expect
+      .poll(() =>
+        window.evaluate(() =>
+          (
+            globalThis.window as unknown as { desktop: ElectronTestDesktopApi }
+          ).desktop.ableton.getStatus(),
+        ),
+      )
+      .toMatchObject({ state: "connected" });
+    await expect
+      .poll(
+        () =>
+          window.evaluate(() =>
+            (
+              globalThis.window as unknown as {
+                desktop: ElectronTestDesktopApi;
+              }
+            ).desktop.lifecycle.get(),
+          ),
+        { timeout: 30_000 },
+      )
+      .toMatch(/^(ready|degraded)$/u);
+    const request = {
+      schemaVersion: 1 as const,
+      queryId: randomUUID(),
+      target: {
+        view: "session" as const,
+        track: { kind: "regular" as const, ...target },
+        sceneIndex: 0,
+        expectedClipReference: clip.reference,
+        expectedClipName: clip.name,
+      },
+    };
+    const preflight = await window.evaluate(
+      (request) =>
+        (
+          globalThis.window as unknown as { desktop: ElectronTestDesktopApi }
+        ).desktop.ableton.inspectSessionListeningPreflight(request),
+      request,
+    );
+    expect(preflight).not.toHaveProperty("audio");
+    expect(preflight).toMatchObject({
+      source: {
+        queryId: request.queryId,
+        target: request.target,
+        sourceKind: "midi",
+        nativeAlignment: "unverified",
+        before: { transportPlaying: false, targetPlaying: false },
+        after: { transportPlaying: false, targetPlaying: false },
+      },
+      midi: {
+        notes,
+        totalNotes: 1,
+        offset: 0,
+        truncated: false,
+      },
+      instrumentChain: {
+        before: inventory,
+        devices: [parameters],
+        after: inventory,
+      },
+    });
+    const readTrace = () =>
+      window.evaluate(
+        (queryId) =>
+          (
+            globalThis.window as unknown as { desktop: ElectronTestDesktopApi }
+          ).desktop.eventHistory.trace(queryId, { limit: 100, order: "asc" }),
+        request.queryId,
+      );
+    await expect
+      .poll(async () =>
+        (await readTrace()).items
+          .filter((event) => event.name === "bridge.request.completed")
+          .map((event) => event.attributes.command),
+      )
+      .toEqual([
+        "listening.inspect_session_source",
+        "clips.inspect_notes",
+        "devices.inspect",
+        "devices.inspect_parameters",
+        "devices.inspect",
+        "recording.inspect",
+      ]);
+    const trace = await readTrace();
+    const requests = trace.items
+      .filter((event) => event.name === "bridge.request.completed")
+      .map((event) => event.attributes.requestId);
+    expect(new Set(requests).size).toBe(6);
+    for (const requestId of requests) {
+      const events = trace.items.filter(
+        (event) => event.attributes.requestId === requestId,
+      );
+      expect(events.map((event) => event.name)).toEqual([
+        "bridge.request.queued",
+        "bridge.request.dispatched",
+        "bridge.request.completed",
+      ]);
+      for (const event of events) {
+        expect(event.trace?.traceId).toBe(request.queryId);
+        expect(event.correlationId).toBe(request.queryId);
+      }
+      expect(events.at(-1)?.durationMs).toBeGreaterThanOrEqual(0);
+    }
+    const repeated = await window.evaluate(
+      (request) =>
+        (
+          globalThis.window as unknown as { desktop: ElectronTestDesktopApi }
+        ).desktop.ableton.inspectSessionListeningPreflight(request),
+      { ...request, queryId: randomUUID() },
+    );
+    expect(repeated).toEqual({
+      ...preflight,
+      source: { ...preflight.source, queryId: repeated.source.queryId },
+    });
+  } finally {
+    await seed?.stop();
+    try {
+      await launched?.application.close();
+    } finally {
+      if (simulator.exitCode === null && simulator.signalCode === null) {
+        const exited = new Promise<void>((resolve) =>
+          simulator.once("exit", () => resolve()),
+        );
+        simulator.kill();
+        await exited;
+      }
+      if (launched)
+        await rm(launched.profile, { recursive: true, force: true });
+    }
   }
 });
 

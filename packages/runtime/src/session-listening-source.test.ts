@@ -155,15 +155,14 @@ describe("Session source admission and independent transport join", () => {
       "false|unknown",
     ],
     [
-      "qualified anchor",
+      "unsupported quantization",
       {
-        before: { ...source().before, globalBeat: 1 },
-        after: { ...source().after, globalBeat: 1 },
+        settings: { ...source().settings, globalQuantization: 8 },
       },
-      "session_launch_case_unqualified",
-      "source.startBeat",
-      1,
-      0,
+      "unsupported_session_launch_settings",
+      "source.settings.globalQuantization",
+      8,
+      "0|4",
     ],
     [
       "first iteration",
@@ -195,6 +194,89 @@ describe("Session source admission and independent transport join", () => {
           expected: { state: "observed", value: expected },
         }),
       );
+    },
+  );
+
+  it.each(["midi", "warped-audio"] as const)(
+    "admits the supplied stopped nonzero One Bar %s source without editing state",
+    (kind) => {
+      const snapshot = source();
+      const anchor = 2.0593777777777778;
+      snapshot.sourceKind = kind;
+      snapshot.settings.tempoBpm = 128;
+      snapshot.settings.globalQuantization = 4;
+      snapshot.settings.launchQuantization = kind === "midi" ? 5 : 0;
+      snapshot.settings.loopEnd = snapshot.settings.endMarker = 4;
+      snapshot.before.globalBeat = snapshot.after.globalBeat = anchor;
+      for (const state of [snapshot.before, snapshot.after]) {
+        state.targetPlaying = true;
+        state.playingSlotIndex = target.sceneIndex;
+        state.selectedClipReference = target.expectedClipReference;
+      }
+      const before = structuredClone(snapshot);
+      const expected = freezeSessionSourceExpectation(snapshot, target, 4);
+      expect(snapshot).toEqual(before);
+      expect(expected).toMatchObject({
+        stoppedBeat: anchor,
+        startBeat: 0,
+        endBeat: 4,
+        durationBeats: 4,
+      });
+      expect(() =>
+        assertSessionFirstIterationCoverage(
+          expected,
+          createMetricListeningGeometry({
+            sampleRate: 48_000,
+            vectorSize: 64,
+            tempoBpm: 128,
+            startBeat: 0,
+            endBeat: 4,
+            startSample: 0,
+          }),
+        ),
+      ).not.toThrow();
+      expect(() =>
+        assertTransportCoupledSessionOrigin(expected, {
+          ...origin,
+          clipStartTimeBeats: 0,
+          observedAtGlobalBeat: 0.1,
+        }),
+      ).not.toThrow();
+      expect(() =>
+        assertTransportCoupledSessionOrigin(expected, {
+          ...origin,
+          clipStartTimeBeats: 4,
+          observedAtGlobalBeat: 4.1,
+        }),
+      ).toThrow("session_native_origin_mismatch");
+    },
+  );
+
+  it.each([
+    ["moving transport", { transportPlaying: true }],
+    ["stale remembered slot", { playingSlotIndex: 1 }],
+    ["unknown remembered identity", { selectedClipReference: null }],
+    ["unknown playing state", { targetPlaying: null }],
+    ["queued launch", { targetTriggered: true }],
+    ["recording", { targetRecording: true }],
+    ["remembered state changed between reads", { targetPlaying: false }],
+  ] as const)(
+    "rejects %s without launching or editing the source",
+    (_name, changes) => {
+      const snapshot = source();
+      snapshot.settings.globalQuantization = 4;
+      for (const state of [snapshot.before, snapshot.after]) {
+        state.globalBeat = 2.059377861721612;
+        state.targetPlaying = true;
+        state.playingSlotIndex = target.sceneIndex;
+        state.selectedClipReference = target.expectedClipReference;
+      }
+      Object.assign(snapshot.after, changes);
+      const before = structuredClone(snapshot);
+      expect(() => freezeSessionSourceExpectation(snapshot, target, 4)).toThrow(
+        "session_launch_state_unknown_or_active",
+      );
+      expect(snapshot).toEqual(before);
     },
   );
 
@@ -401,7 +483,7 @@ describe("Session source admission and independent transport join", () => {
     { after: { ...source().after, transportPlaying: true } },
     { before: { ...source().before, firedSlotIndex: 0 } },
     { after: { ...source().after, targetTriggered: true } },
-    { settings: { ...source().settings, launchQuantization: 5 } },
+    { settings: { ...source().settings, launchQuantization: 2 } },
     { settings: { ...source().settings, globalQuantization: 8 } },
     { settings: { ...source().settings, launchMode: 1 } },
     { settings: { ...source().settings, legato: true } },
@@ -418,10 +500,6 @@ describe("Session source admission and independent transport join", () => {
     { settings: { ...source().settings, loopEnd: 3 } },
     { settings: { ...source().settings, tempoBpm: null } },
     { settings: { ...source().settings, signatureNumerator: 3 } },
-    {
-      before: { ...source().before, globalBeat: 12.2 },
-      after: { ...source().after, globalBeat: 12.2 },
-    },
     { after: { ...source().after, globalBeat: 16 } },
     { target: { ...target, expectedClipName: "Replacement" } },
   ])("refuses unsupported or unknown admission metadata: %j", (change) => {
@@ -438,13 +516,17 @@ describe("Session source admission and independent transport join", () => {
     [12, 4],
     [12.25, 4],
   ])(
-    "refuses the unqualified stopped anchor %s with global quantization %s",
+    "admits stopped anchor %s with supported global quantization %s without seeking",
     (globalBeat, globalQuantization) => {
       const snapshot = source();
       snapshot.before.globalBeat = snapshot.after.globalBeat = globalBeat;
       snapshot.settings.globalQuantization = globalQuantization;
-      expect(() => freezeSessionSourceExpectation(snapshot, target, 4)).toThrow(
-        "session_launch_case_unqualified",
+      expect(freezeSessionSourceExpectation(snapshot, target, 4)).toMatchObject(
+        {
+          stoppedBeat: globalBeat,
+          startBeat: 0,
+          endBeat: 4,
+        },
       );
     },
   );

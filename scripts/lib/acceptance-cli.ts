@@ -154,6 +154,7 @@ async function definition(
   validateScenario(scenario, fixture, assertions.names, [
     "automation",
     "session-audio",
+    "session-midi",
     "persistence",
   ]);
   if (scenario.id !== selected || fixture.id !== scenario.fixtureId)
@@ -506,6 +507,7 @@ export async function acceptanceCli(
       validateScenario(template.scenario, template.fixture, assertions.names, [
         "automation",
         "session-audio",
+        "session-midi",
         "persistence",
       ]);
       for (const reference of [

@@ -249,6 +249,31 @@ cannot establish Global. This does not alter Song's separate
 `globalQuantization` semantics (None `0`, 1 Bar `4`) or relax admission's
 requirement for canonical clip Global `0`.
 
+The application-owned compound preflight uses
+`sessionListeningPreflightResultSchema` across main/preload. Its strict result
+contains source and independent recording evidence plus either `audio` or
+`midi`, never fabricated audio metadata for a MIDI source. MIDI reuses the
+existing `clips.inspect_notes` command with offset zero and limit 2,048. The
+returned clip UUID/name, track UUID/index and scene index must match the source;
+the note array, total count and clip note count must agree, with no truncation
+or nonzero offset. Larger clips are rejected by this bounded preflight rather
+than represented by a partial first page.
+
+MIDI also returns `instrumentChain`: complete top-level device inventories
+before and after reading every device's exposed parameter page. This uses
+existing `devices.inspect` and `devices.inspect_parameters` reads, limited to
+eight flat devices and 256 parameters per device. Partial pages, duplicate
+references, noncontiguous indexes, foreign track/device identities, changed
+inventory metadata, racks and drum-pad hierarchies fail closed. Empty chains
+remain observable for diagnostics, not proof of an audible instrument.
+
+This adds no Remote Script command or native timing authority. The bracketed
+inventory and parameter reads are message-rate, not an atomic snapshot or an
+opaque preset/plugin-state dump. They do not prove rendered audio timing,
+source onset, or a successful capture. The existing per-command bridge
+queued/dispatched/completed/failed lifecycle and timing remain attributed to
+the compound query through typed Desktop History.
+
 ### Guarded Session source pass
 
 `SessionListeningPassParams` and `SessionListeningPassResult` are canonical
@@ -281,9 +306,22 @@ launch settings and tempo, global None/1 Bar in 4/4, and
 `durationBeats <= (looping ? loopEnd : endMarker)`. The tool may omit duration
 to select that active region, but the prepared wire request always resolves a
 number. Exact natural-end/wrap equality is supported; no silent range trimming
-is allowed. The application still admits only stopped beat-zero/Global None;
-native configuration retains the thirty-second/300-window envelope.
+is allowed. Admission accepts nonnegative stopped positions, global None/One Bar,
+and clip Global/One Bar. A remembered active target is safe only when both read
+brackets agree on its exact slot/reference and stopped, unqueued, recording-off
+state. Running transport remains refused. Native configuration retains the
+thirty-second/300-window envelope.
 Release additionally requires `reason:"completed"|"cancelled"`.
+
+Session native metric configuration requires `stoppedBeat`, distinct from capture
+geometry. Ready and arm clock rows must match this pinned stopped position.
+Live 11's owned `Clip.fire()` can restart the timeline at zero without an App
+seek; runtime expects zero-origin capture and validates the actual source epoch
+against that geometry. Native clock coverage permits only the initial
+stopped-to-playing reset for Session, preserving later-regression/stop guards.
+The source monitor retains the original preparation anchor and tracks the
+observed launch reset separately. Message-rate evidence cannot waive the native
+origin check or certify a delayed source as a zero-origin capture.
 
 The shared result echoes owner/pass and carries `status` (`prepared`,
 `accepted`, `queued`, `playing`, `covered`, `unverified`, `invalidated`, `released`,

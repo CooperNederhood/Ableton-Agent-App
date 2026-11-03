@@ -142,6 +142,7 @@ class _Pass(object):
         self.last_dynamic = None
         self.transition_counts = {}
         self.launch_deadline = None
+        self.launch_anchor = params["timingAnchor"]["globalBeat"]
         self.pending_launch = None
         self.monitor_ticks = 0
         self.track = _resolve_track(context, params["target"]["track"], bounded=True)
@@ -192,13 +193,23 @@ class _Pass(object):
             _fail("Session pass project revision changed")
         evidence = self.common_guards()
         settings, state = evidence["settings"], evidence["after"]
-        if state["transportPlaying"] is not False:
-            _fail("Session pass requires known stopped transport")
-        if (state["targetPlaying"] is not False or state["targetTriggered"] is not False
-                or state["targetRecording"] is not False):
-            _fail("Session target must be known stopped, unqueued and recording-off")
-        if state["globalBeat"] != self.params["timingAnchor"]["globalBeat"]:
-            _fail("Session pass stopped timing anchor changed")
+        for sample in (evidence["before"], state):
+            if sample["transportPlaying"] is not False:
+                _fail("Session pass requires known stopped transport")
+            remembered = (
+                sample["targetPlaying"] is True
+                and sample["playingSlotIndex"] == self.params["target"]["sceneIndex"]
+                and sample["selectedClipReference"] == self.params["target"]["expectedClipReference"]
+            )
+            if ((sample["targetPlaying"] is not False and not remembered)
+                    or sample["targetTriggered"] is not False
+                    or sample["targetRecording"] is not False):
+                _fail("Session target must be stopped or consistently remembered, unqueued and recording-off")
+            if sample["globalBeat"] != self.params["timingAnchor"]["globalBeat"]:
+                _fail("Session pass stopped timing anchor changed")
+        if any(evidence["before"][field] != state[field] for field in (
+                "targetPlaying", "playingSlotIndex", "selectedClipReference")):
+            _fail("Session remembered state changed during admission")
         # No Arrangement-selection, insert-marker or Session-override guards.
         for track in _placement_collection(self.context.song, "tracks", 256):
             if _safe_lom_getattr(track, "fired_slot_index") != -1:
@@ -219,7 +230,7 @@ class _Pass(object):
         if not (
             settings["signatureNumerator"] == settings["signatureDenominator"] == 4
             and settings["globalQuantization"] in (0, 4)
-            and settings["launchQuantization"] == settings["launchMode"] == 0
+            and settings["launchQuantization"] in (0, 5) and settings["launchMode"] == 0
             and settings["legato"] is False and settings["followActionEnabled"] is not True
             and settings["startMarker"] == settings["loopStart"] == 0
             and self.params["durationBeats"] * 60 / settings["tempoBpm"] <= 30
@@ -339,8 +350,17 @@ class _Pass(object):
                         "targetPlaying", "targetTriggered", "playingSlotIndex", "firedSlotIndex")
             if any(state[field] is None for field in required):
                 _fail("Required Session state became unknown")
-            if self.last_dynamic is not None and state["globalBeat"] < self.last_dynamic["globalBeat"]:
-                _fail("Session transport moved backwards during pass")
+            owned_start = (
+                self.mutation != "not-attempted" and self.epoch is None
+                and self.last_dynamic["transportPlaying"] is False
+                and state["transportPlaying"] is True
+            )
+            if owned_start and state["globalBeat"] < self.launch_anchor:
+                self.launch_anchor = 0
+            if (self.last_dynamic is not None and state["globalBeat"] < self.last_dynamic["globalBeat"]
+                    and not owned_start):
+                _fail("Session transport moved backwards during pass: {0} -> {1}; source origin {2}".format(
+                    self.last_dynamic["globalBeat"], state["globalBeat"], state["startTimeBeats"]))
             if self.mutation == "not-attempted":
                 if state != self.baseline["after"]:
                     _fail("Session source changed before the one owned launch")
@@ -390,8 +410,11 @@ class _Pass(object):
                     and state["playingSlotIndex"] == scene and state["firedSlotIndex"] == -1
                     and state["selectedClipReference"] == self.params["target"]["expectedClipReference"]):
                 origin = state["startTimeBeats"]
-                anchor = self.params["timingAnchor"]["globalBeat"]
-                quantized = self.baseline["settings"]["globalQuantization"] == 4
+                anchor = self.launch_anchor
+                quantized = (
+                    self.baseline["settings"]["launchQuantization"] == 5
+                    or self.baseline["settings"]["globalQuantization"] == 4
+                )
                 # Public reads/callbacks need not become visible atomically.
                 # A stale start_time never becomes an epoch by acceptance time;
                 # wait boundedly for the actual independently readable origin.

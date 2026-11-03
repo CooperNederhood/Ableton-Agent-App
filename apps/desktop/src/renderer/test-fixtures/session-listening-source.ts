@@ -3,7 +3,48 @@ import type {
   InspectSessionListeningSourceResult,
   RecordingOperationResult,
   AudioClipsOperationResult,
+  InspectMidiNotesResult,
 } from "@ableton-agent/protocol";
+
+export function sessionListeningMidiPreflightFixture() {
+  const { params, result } = sessionListeningSourceFixture();
+  const source: InspectSessionListeningSourceResult = {
+    ...result,
+    sourceKind: "midi",
+    positionUnit: "beats",
+  };
+  const midi: InspectMidiNotesResult = {
+    clip: {
+      reference: params.target.expectedClipReference,
+      trackReference: params.target.track.expectedReference,
+      trackIndex: params.target.track.index,
+      sceneIndex: params.target.sceneIndex,
+      name: params.target.expectedClipName,
+      length: 4,
+      noteCount: 1,
+    },
+    notes: [
+      { pitch: 69, startTime: 0, duration: 0.25, velocity: 100, mute: false },
+    ],
+    totalNotes: 1,
+    offset: 0,
+    limit: 2048,
+    truncated: false,
+  };
+  return {
+    params,
+    result: {
+      source,
+      midi,
+      instrumentChain: {
+        before: { devices: [], total: 0, offset: 0, limit: 8 },
+        devices: [],
+        after: { devices: [], total: 0, offset: 0, limit: 8 },
+      },
+      recording: recordingInspectionFixture(),
+    },
+  };
+}
 
 export function sessionListeningPreflightFixture() {
   const { params, result: source } = sessionListeningSourceFixture();

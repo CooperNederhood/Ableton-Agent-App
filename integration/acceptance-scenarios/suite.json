@@ -1,4 +1,9 @@
 {
   "schemaVersion": 1,
-  "scenarios": ["session-clip-identify", "session-listening-continuity"]
+  "scenarios": [
+    "session-clip-identify",
+    "session-listening-continuity",
+    "session-stopped-quantized-audio",
+    "session-stopped-quantized-midi"
+  ]
 }

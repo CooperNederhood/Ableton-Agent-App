@@ -15,6 +15,19 @@ uses the same visible desktop service and selected agent as the renderer; it
 does not start another application composition. Ordinary launches expose no
 endpoint.
 
+The targeted Session listening preflight IPC supports both loaded audio
+metadata and complete bounded MIDI note content through the shared application
+schema. Main/preload preserve the distinct result shapes, exact source
+identities and independent recording read; they do not supply a fake audio
+path or sample rate for MIDI. An owned-simulator Electron test verifies the
+production IPC path, unchanged source state, and each read request's
+ordered lifecycle, timing and query attribution in typed History. MIDI adds
+bracketed flat-device inventories and complete exposed parameter pages through
+the existing read-only bridge commands; no generic renderer command dispatcher
+is exposed. This bounded evidence is not opaque instrument state, rendered-audio
+or native-onset proof. The
+packaged acceptance driver's full MIDI fixture admission remains separate work.
+
 ## Technology stack
 
 - Electron

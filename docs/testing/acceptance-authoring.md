@@ -179,12 +179,145 @@ baseline belong to the Desktop audio driver and audio assertions; non-listening
 cases need not invent them. Strict manifest and built-in assertion validators
 reject unknown fields, so consult the current schemas instead of guessing.
 
+### Stopped launch-state admission for #81
+
+The existing packaged acceptance driver can admit declared global quantization `none` or
+`bar` (One Bar), with independently declared clip quantization, and a stopped
+`currentSongTime` from zero through 1,576,800 beats. Each fixture must declare
+its exact position and quantization; accepting these values does not relax
+comparison against the loaded Set. Both source-read brackets must agree on
+the declared stopped position, known false transport/triggered/recording flags,
+and no fired slot. Original fixtures require an inactive playing slot and a
+false target-playing flag. A fixture explicitly declaring a nonzero stopped
+Session playing count
+may instead retain a stable active target slot in both brackets while transport
+is stopped. This is remembered Session selection, not running transport.
+The snapshot's remembered clip count must match the declaration exactly;
+`playingSessionClips` retains the observed Session playing flags, including
+remembered stopped selection; it is not forced to zero. With transport stopped,
+it must equal `rememberedSessionClips` when that additional fact is declared;
+otherwise the explicitly declared stopped `playingSessionClips` count also
+defines the remembered count. For the
+supplied Set both counts are 2, while `transportPlaying` is false and
+`queuedSessionClips` is 0. Running transport and queued clips remain denied.
+A mismatch blocks submission,
+without stopping, seeking, or changing settings. The existing continuity
+scenario still explicitly requires stopped beat zero between its captures.
+
+This is **runner admission only**, not product support or a successful
+real-host test. Product/native timing qualification remains independent.
+The simplified user-reviewed #81 scope is **one supplied combined Set**, global
+**One Bar**, stopped at its declared nonzero position, both Session clips
+remembered active (Space resumes both). Run two independent fresh-copy tests:
+`audio-track` / `clip-1` and `midi-track` / `clip-2`. MIDI is sine-wave Operator
+quarter notes; the existing audio is unchanged. There are no four saved variants,
+eight-case matrix, or repetition campaign. Already-running transport
+is deferred and remains denied; there is no automatic stop-first fallback.
+No hidden stop, seek, or quantization edits are permitted. Independent
+source/native launch alignment still requires product and real-host evidence.
+Both registered cases now have that bounded qualification; see the receipts
+and candidate pins in [Playback Listening](../tools/playback-listening.md).
+
+Success for these two cases is a usable, completed listening result for the
+requested target, not a musical-classification quiz. Reuse the shared `capture`,
+`capture-count`, `context` and `unchanged` assertions: exact frame count/sample
+rate, complete non-silent metrics, correct source/listener attribution, retained
+usable context, no hidden mutations, and independently confirmed owned cleanup.
+Do not add a choice assertion, spectral-classification threshold, repetition
+schedule, or extra starting-state variants. The user's explicit red-then-green
+request authorizes source intake; physical evidence remains required rather
+than another authoring-approval round.
+
+Each source may declare `clipLaunchQuantization: "global" | "none" | "bar"`,
+overriding the fixture baseline default for that source only. The driver and
+coordinator compare every source against its own declaration; the top-level
+baseline facts describe the first declared source. Omitted source declarations
+retain the fixture default, preserving the original audio cases. Unknown or
+mismatched loaded values block admission. Mapping uses the normalized protocol
+enum (`0=Global`, `1=None`, `5=One Bar`), **not saved XML ordinals**.
+For the combined Set, the common baseline may omit both `clipWarped` and
+`clipLaunchQuantization`. Optional individual declarations can pin audio
+`"global"` / MIDI `"bar"` explicitly. When neither source nor common baseline
+declares clip quantization, admission still requires a supported, known loaded
+protocol value for each source and the correct audio/MIDI kind. The exact
+observed settings are retained and protected by the source-settings fingerprint,
+alongside the immutable supplied Set hash; no default Global setting is
+substituted into observed evidence. Existing explicit expectations remain exact.
+
+The supplied Set intake reports saved `Transport/CurrentTime` as
+`2.0593777777777778`, not a rounded UI position. Its MIDI notes are pitch 60 at
+beats 0, 1, 2, 3, duration 0.25, velocity 100, unmuted; both clips loop 0..4.
+Audio track/index 0 has listener device 0; MIDI track/index 1 has Operator
+device 0 and listener device 1. Saved XML track/device IDs are distinct from
+these indices. MIDI XML `LaunchQuantisation=5` and audio `=0` are intake facts,
+not loaded enum evidence. Independent physical reads confirmed stopped position
+`2.059377861721612`, audio Global and MIDI One Bar using the public protocol enum.
+The fixture pins the reviewed complete note and exposed Operator hashes; the
+original supplied project remains untouched.
+
+The typed compound preflight now reads complete MIDI notes through the
+existing bridge command, with matching clip/track/slot identity and a 2,048-note
+ceiling. It rejects partial pages rather than borrowing audio metadata. This
+read is covered through production Electron IPC and attributed History using
+an owned simulator; it is not rendered-content or native timing proof. The
+driver rejects wrong-kind results for either audio- or MIDI-declared fixtures.
+Preflight also brackets a complete flat-device inventory around exact
+device-parameter reads: at most eight devices and 256 parameters per device,
+with no racks or drum-pad hierarchies. These are exposed message-rate values,
+not an atomic or opaque plugin-state dump. MIDI source declarations independently
+pin canonical note content and exposed instrument-chain hashes, and the runner
+checks those expectations at baseline, between capture turns and during final
+collection. Physical completion, exact capture coverage and native timing
+evidence remain independent requirements; content hashes do not replace them.
+
+The user approved the proposed Operator fixture and preparation contract on
+2026-11-03; a copied audio Set and generated listener kit were supplied without
+operating Live. Subsequent authorized copy-only intake, independent loaded reads
+and red/green execution registered `session-stopped-quantized-audio` and
+`session-stopped-quantized-midi`. Both pass unchanged on Live 11.3.43, including
+exact source/context/coverage checks and terminal cleanup. Preserve the
+existing `session-clip-identify` as a separate unchanged regression. Controlled
+runner failures are lower-layer regression evidence, not the packaged product
+red receipts required before changing launch support.
+
 Session-audio fixtures declare a bounded `sources` array: each entry has `id`,
 `trackName`, `clipName`, `sceneIndex`, and an exact declared `mediaTarget`.
 Baseline evidence retains each source's actual media path/hash, runtime clip and
 track identities, listener, and observed facts separately. Capture steps name
 their `sourceId`; the `capture` assertion independently names the same expected
 source. Never copy a primary source's media hash onto another context.
+
+MIDI entries use the same `id`, `trackName`, `clipName`, and `sceneIndex`, plus
+an exact `trackIndex`, `listenerBindingSlot`, and
+`midi: { notesSha256, instrumentChainSha256 }`, **instead of** `mediaTarget`.
+Declare the expected hashes from reviewed note/instrument specifications before
+running; never promote the first observed baseline to an expectation. The shared
+`midiContentIdentity` helper validates complete protocol evidence before hashing.
+It sorts note tuples without deduplication, preserving pitch, beat position,
+duration, velocity and mute. Device/parameter order, indices, names, classes,
+enabled state, ranges, and exposed values are retained; session-specific UUIDs,
+query IDs and paging metadata are not hash inputs.
+
+Only the exact verified enabled listener slot can exclude its known runtime
+`Attack rise dB` / `Attack gap ms` values and normalized values. Their indices,
+names and parameter metadata remain hashed; other listener parameter values
+remain protected. Identically named parameters on instruments are never excluded.
+The driver requires the listener's reviewed slot to match the snapshot and
+complete preflight device inventory. Producer UUIDs must match exactly. Decimal
+native Max IDs are not Remote Script UUIDs: their binding instead requires the
+reviewed saved slot and exactly one same-name `MxDeviceAudioEffect` on that
+track, at the pinned index. Unknown IDs, ambiguous duplicates and mismatched
+UUIDs are rejected. A name match alone is insufficient.
+Set topology and the listener connection/instance identity remain independently
+protected. The chain hash is **not** a frozen plug-in state or a sound identity.
+
+MIDI baseline evidence retains full bounded preflight and listener placement,
+with `midiNotesSha256` / `instrumentChainSha256` in the source identity; it has no
+audio path or fake `mediaSha256`. Capture and persisted-context source selection
+must match the admitted kind, track, clip, slot and listener. For a combined
+fixture, omit the audio-only `clipWarped` baseline fact; admission still requires
+warped audio for audio declarations and MIDI for MIDI declarations. The original
+audio manifests and `session-clip-identify` retain their existing contract.
 
 ### Same-process continuity schedule
 
@@ -340,7 +473,7 @@ the native-cause or attended-workflow coverage gaps.
 ## Current-candidate listener binding
 
 Machine-listening fixtures must declare `listenerBindings`, identifying each
-saved instance by its exact slot, original project-relative `sourcePath`,
+saved instance by its exact slot, original saved `sourcePath`,
 `dependency: "machine-listening"`, and zero-based `trackIndex`/`deviceIndex`.
 For example, a slot can be
 `AudioTrack:175/DeviceChain/DeviceChain/Devices/MxDeviceAudioEffect:0`.
@@ -349,14 +482,30 @@ slots are supported; rack, return and Master placement is rejected, not inferred
 Missing, duplicated, stale and additional known listener references block
 preparation. Unrelated devices are not replaced.
 
+For an exactly reviewed listener slot, the original reference may have
+`RelativePathType=3` (project-local) or `6` (User Library). This does **not**
+authorize opening, following, or copying the external User Library reference:
+the immutable input Set hash, saved slot, source path and placement remain
+pinned. Replacement always writes `RelativePathType=3` and the declared frozen
+candidate's project-local relative and owned absolute paths. Other reference
+types remain rejected; this is candidate rebinding, not a musical source repair.
+
 Provisioning preserves the immutable `project.als` and portable candidate files.
 After generating isolated-profile discovery configuration, it freezes a separate
 complete device at `dependencies/machine-listening/frozen/<device>.amxd`, using
 the same freezer as installation. It derives `prepared.als` by changing only the
-declared listener reference paths. Saved musical/device settings and media are
+declared listener reference paths and their project-local reference type. Saved musical/device settings and media are
 not repaired. The dependency inventory records `frozenDevices` and
 `preparedProject` identities; admission independently reconstructs both from
 verified sources. Rehashing a modified Set or embedded runtime cannot admit it.
+
+For the supplied #81 Set, the first authoring inspection stopped during
+provisioning on the MIDI listener's User Library reference, before any host
+launched. Its setup-failure receipt is retained at
+`.test-artifacts/issue-81-fixture-intake/physical-inspection/inspection.json`.
+The parent added a failing-before binding regression and is retrying on the
+fresh `physical-inspection-2` copy. This records a setup correction, not a
+packaged listening red, a successful inspection, or physical launch proof.
 
 The driver opens only that derived Set, waits for the owned Remote Script before
 starting Desktop, then waits for Desktop/service readiness. Before messaging, it
@@ -402,8 +551,9 @@ addition to target recording being off. Missing or malformed recording evidence
 rejects admission; never substitute false or infer global state from
 `targetRecording`. This read reuses existing schemas and bridge lifecycle.
 The compound `window.desktop.ableton.inspectSessionListeningPreflight(params)`
-returns `{ source, audio, recording }` using the existing source, audio inspection,
-and recording reads. Actual Live audio file path, sample rate, and sample length
+returns the strict audio `{ source, audio, recording }` or MIDI
+`{ source, midi, recording, instrumentChain }` union using existing typed reads.
+Actual Live audio file path, sample rate, and sample length
 come from `audio_clips.inspect`, not fixture metadata. `audio.sampleRate` is the
 loaded media rate, **not** the host capture/audio-engine rate; independently
 establish the latter for capture-coverage expectations. The driver verifies the
@@ -414,7 +564,11 @@ Source reference/name mismatches reject; null path or sample rate must fail
 closed in the driver.
 For Live 11's unavailable public follow-action property, the driver independently
 reads the explicit flag from the exact saved Session slot in the verified
-prepared Set. It records `followActionEvidence` with the Set hash, never defaults
+prepared Set. The saved path must match its kind: `AudioTrack` / `AudioClip` or
+`MidiTrack` / `MidiClip`; a mismatched kind is not interchangeable evidence.
+Parent-owned Audio/MIDI regressions cover explicit true/false flags and
+missing/malformed evidence, with the original MIDI failure retained.
+It records `followActionEvidence` with the Set hash, never defaults
 unknown to false, and rejects enabled, missing or ambiguous flags. Other source
 properties still use the live preflight. This is initial-state evidence, not a
 claim of continuously monitoring an unavailable property.
@@ -451,8 +605,10 @@ destructive, or unknown runtime metadata.
 Review the mutation oracle's actual extent. `session-structure` hashes public
 snapshot track/clip/device identities and exposed mixer/routing fields, with
 scenes/Arrangement/cues when present; it does not enumerate every plug-in/device
-parameter. `source-settings` hashes exact source launch/audio settings plus
-recording and file identity from the typed source read. The registry checks
+parameter. `source-settings` hashes exact source launch settings plus
+recording and either audio file identity/settings or canonical complete MIDI
+notes and exposed flat instrument-chain state from the typed source read.
+The registry checks
 explicitly named, observed scopes. Additional protected parameters require
 additional independent evidence, not an “all state unchanged” claim.
 

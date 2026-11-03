@@ -619,6 +619,12 @@ describe("acceptance catalog admission", () => {
   it("validates reviewed resources offline and removes only its validation copy", async () => {
     await fixture(async (root, output, errors) => {
       await register(root);
+      const path = join(root, "integration/acceptance-scenarios/example.json");
+      const scenario = JSON.parse(await readFile(path, "utf8")) as {
+        requiredCapabilities: string[];
+      };
+      scenario.requiredCapabilities = ["session-audio", "session-midi"];
+      await writeFile(path, JSON.stringify(scenario));
       const fake = fakeBoundary();
       expect(
         await acceptanceCli(["validate", "--scenario", "example"], {

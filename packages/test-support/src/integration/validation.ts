@@ -1,9 +1,11 @@
 import { SUPPORTED_AUDIO_BASELINE } from "./contracts.js";
+import { midiContentIdentity } from "./sources.js";
 import type {
   AcceptanceDriver,
   AssertionResult,
   AudioBaselineEvidence,
-  AudioSourceEvidence,
+  SessionSourceEvidence,
+  ListenerPlacement,
   BaselineEvidence,
   DependencyInventory,
   Facts,
@@ -158,11 +160,50 @@ export function validateSupportedAudioBaseline(
   value: unknown,
 ): asserts value is Facts {
   validateFacts(value);
-  for (const [key, expected] of Object.entries(SUPPORTED_AUDIO_BASELINE))
+  for (const [key, expected] of Object.entries(SUPPORTED_AUDIO_BASELINE)) {
+    const actual = value[key];
+    const supported =
+      key === "globalQuantization"
+        ? actual === "none" || actual === "bar"
+        : key === "currentSongTime"
+          ? typeof actual === "number" && actual >= 0 && actual <= 1_576_800
+          : key === "playingSessionClips"
+            ? actual === (value.rememberedSessionClips ?? 0)
+            : actual === expected;
+    requireCondition(supported, `Unsupported audio baseline: ${key}`);
+  }
+  if (value.rememberedSessionClips !== undefined)
+    integer(value.rememberedSessionClips, 0, 100_000);
+}
+export function validateSupportedSessionBaseline(
+  value: unknown,
+  kind: "audio" | "midi",
+): asserts value is Facts {
+  validateFacts(value);
+  if (value.clipLaunchQuantization !== undefined)
     requireCondition(
-      value[key] === expected,
-      `Unsupported audio baseline: ${key}`,
+      ["global", "none", "bar"].includes(String(value.clipLaunchQuantization)),
+      `Unsupported ${kind} baseline: clipLaunchQuantization`,
     );
+  const remembered =
+    value.rememberedSessionClips === undefined
+      ? value.playingSessionClips
+      : value.rememberedSessionClips;
+  const common = {
+    ...value,
+    clipLaunchQuantization: "global",
+    ...(remembered === undefined ? {} : { rememberedSessionClips: remembered }),
+  };
+  if (kind === "audio")
+    return validateSupportedAudioBaseline({
+      ...common,
+      clipWarped: value.clipWarped === undefined ? true : value.clipWarped,
+    });
+  requireCondition(
+    value.clipWarped === undefined || value.clipWarped === false,
+    "MIDI cannot be warped audio",
+  );
+  validateSupportedAudioBaseline({ ...common, clipWarped: true });
 }
 export function validateAudioBaselineEvidence(
   value: unknown,
@@ -176,6 +217,7 @@ export function validateAudioBaselineEvidence(
   );
   for (const entry of Object.values(value.sources)) {
     object(entry);
+    requireCondition("loadedMediaPath" in entry, "Expected audio source");
     validateSupportedAudioBaseline(entry.facts);
   }
   validateSupportedAudioBaseline(value.facts);
@@ -285,18 +327,60 @@ export function validateFixture(
         "trackName",
         "clipName",
         "sceneIndex",
+        "clipLaunchQuantization",
         "mediaTarget",
+        "trackIndex",
+        "listenerBindingSlot",
+        "midi",
       ]);
       identifier(entry.id);
       text(entry.trackName);
       text(entry.clipName);
       integer(entry.sceneIndex, 0, 100_000);
-      safeRelativePath(entry.mediaTarget);
-      requireCondition(
-        isFixtureMediaTarget(entry.mediaTarget) &&
-          resources.some((resource) => resource.target === entry.mediaTarget),
-        "Source references undeclared media",
-      );
+      if (entry.clipLaunchQuantization !== undefined)
+        requireCondition(
+          typeof entry.clipLaunchQuantization === "string" &&
+            ["global", "none", "bar"].includes(entry.clipLaunchQuantization),
+          "Unsupported declared clip quantization",
+        );
+      if ("mediaTarget" in entry) {
+        requireCondition(
+          !("midi" in entry) &&
+            !("listenerBindingSlot" in entry) &&
+            !("trackIndex" in entry),
+          "Mixed source kinds",
+        );
+        safeRelativePath(entry.mediaTarget);
+        requireCondition(
+          isFixtureMediaTarget(entry.mediaTarget) &&
+            resources.some((resource) => resource.target === entry.mediaTarget),
+          "Source references undeclared media",
+        );
+      } else {
+        integer(entry.trackIndex, 0, 255);
+        integer(entry.sceneIndex, 0, 255);
+        text(entry.listenerBindingSlot);
+        object(entry.midi);
+        rejectUnknownFields(entry.midi, [
+          "notesSha256",
+          "instrumentChainSha256",
+        ]);
+        hash(entry.midi.notesSha256);
+        hash(entry.midi.instrumentChainSha256);
+        requireCondition(
+          Array.isArray(value.listenerBindings) &&
+            value.listenerBindings.some((binding: unknown) => {
+              object(binding);
+              return (
+                binding.slot === entry.listenerBindingSlot &&
+                binding.trackIndex === entry.trackIndex &&
+                typeof binding.deviceIndex === "number" &&
+                binding.deviceIndex < 8
+              );
+            }),
+          "MIDI source requires an exact declared listener binding",
+        );
+      }
       ids.push(entry.id);
       selectors.push(JSON.stringify([entry.trackName, entry.sceneIndex]));
     }
@@ -377,7 +461,7 @@ export function validatePermission(
 }
 export function resolvePermissionArguments(
   permission: ScenarioPermission,
-  actualSource?: AudioSourceEvidence,
+  actualSource?: SessionSourceEvidence,
 ): Facts {
   validatePermission(permission);
   const resolved: Record<string, Facts[string]> = {};
@@ -521,10 +605,27 @@ export function validateSubmission(
 }
 function source(value: unknown): void {
   object(value);
+  rejectUnknownFields(value, [
+    "trackId",
+    "clipId",
+    "slotIndex",
+    "mediaSha256",
+    "midiNotesSha256",
+    "instrumentChainSha256",
+  ]);
   identifier(value.trackId);
   identifier(value.clipId);
   integer(value.slotIndex, 0, 100_000);
-  hash(value.mediaSha256);
+  if ("mediaSha256" in value) {
+    requireCondition(
+      !("midiNotesSha256" in value) && !("instrumentChainSha256" in value),
+      "Mixed source identity",
+    );
+    hash(value.mediaSha256);
+  } else {
+    hash(value.midiNotesSha256);
+    hash(value.instrumentChainSha256);
+  }
 }
 function contexts(value: unknown): void {
   list(value, 128);
@@ -561,10 +662,43 @@ export function validateBaseline(
         "listenerId",
         "loadedMediaPath",
         "facts",
+        "midi",
+        "listenerPlacement",
       ]);
       source(entry.source);
       listenerIdentifier(entry.listenerId);
-      text(entry.loadedMediaPath, 4096);
+      object(entry.source);
+      if ("mediaSha256" in entry.source) {
+        requireCondition(
+          !("midi" in entry) && !("listenerPlacement" in entry),
+          "Mixed source evidence",
+        );
+        text(entry.loadedMediaPath, 4096);
+      } else {
+        requireCondition(
+          !("loadedMediaPath" in entry),
+          "MIDI source cannot declare an audio path",
+        );
+        object(entry.listenerPlacement);
+        rejectUnknownFields(entry.listenerPlacement, [
+          "trackIndex",
+          "deviceIndex",
+          "deviceReference",
+        ]);
+        integer(entry.listenerPlacement.trackIndex, 0, 255);
+        integer(entry.listenerPlacement.deviceIndex, 0, 7);
+        identifier(entry.listenerPlacement.deviceReference);
+        const content = midiContentIdentity(
+          entry.midi,
+          entry.listenerPlacement as unknown as ListenerPlacement,
+        );
+        requireCondition(
+          content.midiNotesSha256 === entry.source.midiNotesSha256 &&
+            content.instrumentChainSha256 ===
+              entry.source.instrumentChainSha256,
+          "MIDI evidence content hashes differ",
+        );
+      }
       validateFacts(entry.facts);
     }
   }

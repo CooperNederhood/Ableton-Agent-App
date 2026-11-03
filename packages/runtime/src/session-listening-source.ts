@@ -113,6 +113,7 @@ export function attributeSessionRejection(
 export interface SessionSourceExpectation {
   readonly source: Readonly<Source>;
   readonly startBeat: number;
+  readonly stoppedBeat: number;
   readonly endBeat: number;
   readonly durationBeats: number;
   readonly firstIterationEndBeat: number;
@@ -285,14 +286,20 @@ export function freezeSessionSourceExpectation(
     [before, after].some(
       (state) =>
         state.transportPlaying !== false ||
-        state.targetPlaying !== false ||
+        (state.targetPlaying !== false &&
+          (state.targetPlaying !== true ||
+            state.playingSlotIndex !== target.sceneIndex ||
+            state.selectedClipReference !== target.expectedClipReference)) ||
         state.targetTriggered !== false ||
         state.targetRecording !== false ||
         state.firedSlotIndex !== -1 ||
         state.playingSlotIndex === null ||
         state.globalBeat === null ||
         state.globalBeat < 0,
-    )
+    ) ||
+    (
+      ["targetPlaying", "playingSlotIndex", "selectedClipReference"] as const
+    ).some((key) => before[key] !== after[key])
   )
     deny(
       "session_launch_state_unknown_or_active",
@@ -301,14 +308,14 @@ export function freezeSessionSourceExpectation(
         const state = source[phase];
         return [
           ...(
-            [
-              "transportPlaying",
-              "targetPlaying",
-              "targetTriggered",
-              "targetRecording",
-            ] as const
+            ["transportPlaying", "targetTriggered", "targetRecording"] as const
           ).map((key) =>
             failureFact(`source.${phase}.${key}`, state[key], false),
+          ),
+          failureFact(
+            `source.${phase}.targetPlaying`,
+            state.targetPlaying,
+            "false|consistent remembered target",
           ),
           failureFact(
             `source.${phase}.firedSlotIndex`,
@@ -318,7 +325,12 @@ export function freezeSessionSourceExpectation(
           failureFact(
             `source.${phase}.playingSlotIndex`,
             state.playingSlotIndex,
-            "known",
+            state.targetPlaying ? target.sceneIndex : "known",
+          ),
+          failureFact(
+            `source.${phase}.selectedClipReference`,
+            state.selectedClipReference,
+            state.targetPlaying ? target.expectedClipReference : "unchanged",
           ),
           failureFact(`source.${phase}.globalBeat`, state.globalBeat, 0, {
             comparison: "at-least",
@@ -336,14 +348,15 @@ export function freezeSessionSourceExpectation(
         { unit: "beats" },
       ),
     ]);
-  const startBeat = after.globalBeat!;
+  const stoppedBeat = after.globalBeat!;
+  const startBeat = 0;
   if (
     settings.tempoBpm === null ||
     settings.signatureNumerator !== 4 ||
     settings.signatureDenominator !== 4 ||
     settings.launchMode !== 0 ||
     settings.legato !== false ||
-    settings.launchQuantization !== 0 ||
+    (settings.launchQuantization !== 0 && settings.launchQuantization !== 5) ||
     (settings.globalQuantization !== 0 && settings.globalQuantization !== 4) ||
     settings.startMarker !== 0 ||
     settings.loopStart !== 0 ||
@@ -353,20 +366,20 @@ export function freezeSessionSourceExpectation(
   )
     deny(
       "unsupported_session_launch_settings",
-      "Requires Trigger mode, legato off, clip Global quantization, a qualified global launch case in 4/4, and zero start/loop offsets. No settings were changed.",
+      "Requires Trigger mode, legato off, clip Global or One Bar quantization, global None or One Bar in 4/4, and zero start/loop offsets. No settings were changed.",
       [
         failureFact("source.settings.tempoBpm", settings.tempoBpm, "known"),
         ...(["signatureNumerator", "signatureDenominator"] as const).map(
           (key) => failureFact(`source.settings.${key}`, settings[key], 4),
         ),
-        ...(
-          [
-            "launchMode",
-            "launchQuantization",
-            "startMarker",
-            "loopStart",
-          ] as const
-        ).map((key) => failureFact(`source.settings.${key}`, settings[key], 0)),
+        ...(["launchMode", "startMarker", "loopStart"] as const).map((key) =>
+          failureFact(`source.settings.${key}`, settings[key], 0),
+        ),
+        failureFact(
+          "source.settings.launchQuantization",
+          settings.launchQuantization,
+          "0|5",
+        ),
         failureFact("source.settings.legato", settings.legato, false),
         failureFact(
           "source.settings.globalQuantization",
@@ -387,19 +400,6 @@ export function freezeSessionSourceExpectation(
           "source.settings.followActionEnabled",
           settings.followActionEnabled,
           "false|unknown",
-        ),
-      ],
-    );
-  if (startBeat !== 0 || settings.globalQuantization !== 0)
-    deny(
-      "session_launch_case_unqualified",
-      "Only global None from stopped beat zero has real-host Session qualification. One-bar and nonzero stopped anchors are refused; the App does not seek or change launch settings.",
-      [
-        failureFact("source.startBeat", startBeat, 0, { unit: "beats" }),
-        failureFact(
-          "source.settings.globalQuantization",
-          settings.globalQuantization,
-          0,
         ),
       ],
     );
@@ -448,6 +448,7 @@ export function freezeSessionSourceExpectation(
   return Object.freeze({
     source,
     startBeat,
+    stoppedBeat,
     endBeat: startBeat + durationBeats,
     durationBeats,
     firstIterationEndBeat,

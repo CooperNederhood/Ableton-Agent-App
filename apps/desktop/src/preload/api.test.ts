@@ -6,10 +6,59 @@ import type { DesktopListeningPage } from "../listening-contracts.js";
 import {
   recordingInspectionFixture,
   sessionListeningPreflightFixture,
+  sessionListeningMidiPreflightFixture,
   sessionListeningSourceFixture,
 } from "../renderer/test-fixtures/session-listening-source.js";
 
 describe("preload API", () => {
+  it("preserves complete MIDI content without fabricated audio metadata", async () => {
+    const { params, result } = sessionListeningMidiPreflightFixture();
+    const responses: Record<string, unknown> = {
+      "ableton:inspect-session-listening-preflight": result,
+    };
+    const transport = transportFor(responses);
+    const api = createDesktopApi(transport);
+    const observed = await api.ableton.inspectSessionListeningPreflight(params);
+    expect(observed).toEqual(result);
+    expect(observed).not.toHaveProperty("audio");
+    expect(transport.invoke).toHaveBeenCalledExactlyOnceWith(
+      "ableton:inspect-session-listening-preflight",
+      params,
+    );
+    for (const patch of [
+      { totalNotes: 2 },
+      { offset: 1 },
+      { truncated: true },
+      { notes: [] },
+      { clip: { ...result.midi.clip, sceneIndex: 1 } },
+      { clip: { ...result.midi.clip, noteCount: 2 } },
+    ]) {
+      responses["ableton:inspect-session-listening-preflight"] = {
+        ...result,
+        midi: { ...result.midi, ...patch },
+      };
+      await expect(
+        api.ableton.inspectSessionListeningPreflight(params),
+      ).rejects.toThrow();
+    }
+    for (const instrumentChain of [
+      undefined,
+      {
+        ...result.instrumentChain,
+        after: { ...result.instrumentChain.after, total: 1 },
+      },
+      { ...result.instrumentChain, devices: [{ rawDeviceState: "untyped" }] },
+    ]) {
+      responses["ableton:inspect-session-listening-preflight"] = {
+        ...result,
+        instrumentChain,
+      };
+      await expect(
+        api.ableton.inspectSessionListeningPreflight(params),
+      ).rejects.toThrow();
+    }
+  });
+
   it("preserves independently observed loaded audio paths and rates in compound preflight", async () => {
     const { params, result } = sessionListeningPreflightFixture();
     const responses: Record<string, unknown> = {

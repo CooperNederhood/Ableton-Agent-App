@@ -56,12 +56,27 @@ async function fixture(
   partial = false,
   completeOnLaunch = true,
   enabled = true,
+  stopped?: { anchor: number; clipQuantization: number; remembered: boolean },
 ) {
-  const data = createSyntheticMetricWireFixture("session", partial);
+  const data = createSyntheticMetricWireFixture(
+    "session",
+    partial,
+    stopped
+      ? {
+          tempoBpm: 128,
+          startBeat: 0,
+          stoppedBeat: stopped.anchor,
+          endBeat: 4,
+        }
+      : false,
+  );
   const log: string[] = [];
   const jobs: ListeningJob[] = [];
   let playing = false;
-  const durationBeats = data.config.geometry.endBeat;
+  const anchor = stopped?.anchor ?? 0;
+  const durationBeats =
+    data.config.geometry.endBeat - data.config.geometry.startBeat;
+  const tempo = data.config.geometry.tempoBpm;
   const listener: ListenerDescriptor = {
     connectionId: data.wire.connectionId,
     producer: {
@@ -94,13 +109,13 @@ async function fixture(
   const service = { ...peer.service, requestListenerControl };
   const sourceState = (): InspectSessionListeningSourceResult["after"] => ({
     transportPlaying: playing,
-    globalBeat: playing ? 0.2 : 0,
-    startTimeBeats: playing ? 0 : null,
+    globalBeat: playing ? 0.2 : anchor,
+    startTimeBeats: playing ? 0 : stopped?.remembered ? 0 : null,
     playingPosition: playing ? 0.2 : 0,
-    targetPlaying: playing,
+    targetPlaying: playing || stopped?.remembered === true,
     targetTriggered: false,
     targetRecording: false,
-    playingSlotIndex: playing ? 0 : -1,
+    playingSlotIndex: playing || stopped?.remembered === true ? 0 : -1,
     firedSlotIndex: -1,
     selectedClipReference: target.expectedClipReference,
   });
@@ -119,11 +134,11 @@ async function fixture(
         before: sourceState(),
         after: sourceState(),
         settings: {
-          tempoBpm: 120,
+          tempoBpm: tempo,
           signatureNumerator: 4,
           signatureDenominator: 4,
-          globalQuantization: 0,
-          launchQuantization: 0,
+          globalQuantization: stopped ? 4 : 0,
+          launchQuantization: stopped?.clipQuantization ?? 0,
           launchMode: 0,
           legato: false,
           followActionEnabled: null,
@@ -146,8 +161,8 @@ async function fixture(
       projectRevision: 1,
       transport: {
         playing,
-        currentBeat: 0,
-        tempo: 120,
+        currentBeat: anchor,
+        tempo,
         safeToStart: !playing,
         recording: {
           recordMode: false,
@@ -351,6 +366,71 @@ async function fixture(
 }
 
 describe("production v5 Session host with synthetic native peer", () => {
+  it.each(["midi", "warped-audio"] as const)(
+    "publishes the supplied nonzero One Bar %s case without stopping or seeking",
+    async (kind) => {
+      const anchor = 2.059377861721612;
+      const f = await fixture(kind, false, true, true, {
+        anchor,
+        clipQuantization: kind === "midi" ? 5 : 0,
+        remembered: true,
+      });
+      const job = await f.run();
+      expect(job.stage, JSON.stringify({ job, log: f.log })).toBe("completed");
+      expect(f.log.indexOf("native:arm")).toBeLessThan(
+        f.log.indexOf("session:launch"),
+      );
+      expect(
+        f.sessionListeningPass.mock.calls.filter(
+          ([p]) => p.action === "launch",
+        ),
+      ).toHaveLength(1);
+      expect(f.appendPass).toHaveBeenCalledOnce();
+      const publication = f.appendPass.mock.calls[0]![0];
+      expect(publication.pass.actualRange).toEqual({
+        startBeat: 0,
+        endBeat: 4,
+      });
+      expect(publication.links).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            coverage: {
+              coordinate: "clip-local-beats",
+              iteration: 0,
+              startBeat: 0,
+              endBeat: 4,
+            },
+          }),
+          expect.objectContaining({
+            coverage: {
+              coordinate: "transport-beats",
+              startBeat: 0,
+              endBeat: 4,
+            },
+          }),
+        ]),
+      );
+      expect(
+        (await f.repository.getEntry(f.jobs.at(-1)!.contextIds[0]!))?.payload,
+      ).toMatchObject({
+        source: {
+          coordinate: { startBeat: 0, endBeat: 4 },
+          transport: { startBeat: 0, endBeat: 4 },
+          clipStartTimeBeats: 0,
+        },
+        geometry: {
+          startBeat: 0,
+          endBeat: 4,
+          totalSamples: 90_000,
+        },
+      });
+      expect(f.log).toContain("session:release");
+      expect(f.peer.subscribers.size).toBe(0);
+      expect(f.stopTransport).not.toHaveBeenCalled();
+      expect(f.positionListeningPlayback).not.toHaveBeenCalled();
+      expect(f.startListeningPlayback).not.toHaveBeenCalled();
+    },
+  );
   it.each([
     ["midi", false],
     ["midi", true],

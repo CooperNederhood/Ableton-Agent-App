@@ -3,7 +3,7 @@ import {
   validatePermission,
   type Facts,
   type ScenarioPermission,
-  type AudioSourceEvidence,
+  type SessionSourceEvidence,
 } from "@ableton-agent/test-support/integration";
 
 export type ScopedPermission = ScenarioPermission;
@@ -85,7 +85,7 @@ export class ScopedApprovalPolicy {
   decide(
     request: ScopedApproval,
     owner: ApprovalOwner,
-    source?: AudioSourceEvidence,
+    source?: SessionSourceEvidence,
     stepId?: string,
   ): boolean {
     if (

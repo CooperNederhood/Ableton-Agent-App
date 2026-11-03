@@ -6,24 +6,52 @@ import {
 } from "@ableton-agent/protocol";
 import type { DesktopLiveSetSnapshot } from "../../apps/desktop/src/contracts.js";
 
-export interface SessionSourceSelector {
+export type SessionSourceSelector = {
   readonly trackName: string;
   readonly sceneIndex: number;
   readonly clipName: string;
-}
+} & (
+  | { readonly kind?: "audio"; readonly trackIndex?: number }
+  | { readonly kind: "midi"; readonly trackIndex: number }
+);
 
 export function sourceStoppedAtZero(
   source: Pick<InspectSessionListeningSourceResult, "before" | "after">,
 ): boolean {
-  return [source.before, source.after].every(
-    (state) =>
-      state.transportPlaying === false &&
-      state.globalBeat === 0 &&
-      state.targetPlaying === false &&
-      state.targetTriggered === false &&
-      state.targetRecording === false &&
-      (state.playingSlotIndex === -1 || state.playingSlotIndex === -2) &&
-      state.firedSlotIndex === -1,
+  return sourceStoppedAtPosition(source, 0);
+}
+
+export function sourceStoppedAtPosition(
+  source: Pick<InspectSessionListeningSourceResult, "before" | "after">,
+  expectedBeat: number,
+  rememberedTargetSlot?: number,
+): boolean {
+  const remembered =
+    Number.isInteger(rememberedTargetSlot) &&
+    rememberedTargetSlot! >= 0 &&
+    rememberedTargetSlot! <= 255 &&
+    [source.before, source.after].every(
+      (state) =>
+        state.targetPlaying === true &&
+        state.playingSlotIndex === rememberedTargetSlot,
+    );
+  if (rememberedTargetSlot !== undefined && !remembered) return false;
+  return (
+    Number.isFinite(expectedBeat) &&
+    expectedBeat >= 0 &&
+    expectedBeat <= 1_576_800 &&
+    [source.before, source.after].every(
+      (state) =>
+        state.transportPlaying === false &&
+        state.globalBeat === expectedBeat &&
+        (remembered || state.targetPlaying === false) &&
+        state.targetTriggered === false &&
+        state.targetRecording === false &&
+        (remembered ||
+          state.playingSlotIndex === -1 ||
+          state.playingSlotIndex === -2) &&
+        state.firedSlotIndex === -1,
+    )
   );
 }
 
@@ -32,10 +60,14 @@ export function resolveSessionSource(
   selector: SessionSourceSelector,
 ): InspectSessionListeningSourceParams {
   const tracks = snapshot.tracks.filter(
-    (track) => track.name === selector.trackName && track.kind === "audio",
+    (track) =>
+      track.name === selector.trackName &&
+      track.kind === (selector.kind ?? "audio") &&
+      (selector.trackIndex === undefined ||
+        track.index === selector.trackIndex),
   );
   if (tracks.length !== 1)
-    throw new Error("Fixture requires exactly one matching audio track");
+    throw new Error("Fixture requires exactly one matching source track");
   if (
     snapshot.sessionClips === undefined ||
     (snapshot.completeness?.truncatedDomains.length ?? 0) > 0
@@ -48,10 +80,13 @@ export function resolveSessionSource(
       clip.trackId === track.id &&
       clip.sceneIndex === selector.sceneIndex &&
       clip.name === selector.clipName &&
-      clip.kind === "audio",
+      clip.kind === (selector.kind ?? "audio") &&
+      clip.trackIndex === track.index,
   );
   if (clips.length !== 1)
-    throw new Error("Fixture requires exactly one matching Session audio clip");
+    throw new Error(
+      "Fixture requires exactly one matching Session source clip",
+    );
   const clip = clips[0]!;
   return inspectSessionListeningSourceParamsSchema.parse({
     schemaVersion: 1,

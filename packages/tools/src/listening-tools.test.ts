@@ -512,9 +512,18 @@ describe("optional listening tool contracts", () => {
       "A locally unavailable analyzer does not block healthy metrics",
     );
     expect(tool.description).not.toContain("wire3 or wire4");
-    expect(tool.description).toContain("stopped beat zero and global None");
+    expect(tool.description).toContain(
+      "stopped transport at a nonnegative position",
+    );
     expect(listeningOperationParamsSchema.options[1].description).toContain(
-      "stopped beat zero and global None",
+      "stopped transport at a nonnegative position",
+    );
+    expect(tool.description).toContain("clip Global or One Bar quantization");
+    expect(tool.description).toContain(
+      "remembered active clips while transport is stopped",
+    );
+    expect(tool.description).not.toContain(
+      "one-bar and nonzero stopped anchors are not qualified",
     );
     expect(tool.description).toContain(
       "unknown follow-action settings remain explicit",

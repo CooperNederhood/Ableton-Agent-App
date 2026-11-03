@@ -49,6 +49,7 @@ import { currentCorrelationContext } from "@ableton-agent/correlation";
 import {
   recordingInspectionFixture,
   sessionListeningPreflightFixture,
+  sessionListeningMidiPreflightFixture,
   sessionListeningSourceFixture,
 } from "../renderer/test-fixtures/session-listening-source.js";
 import { listeningFailureFixture } from "../renderer/test-fixtures/listening-failure.js";
@@ -6912,39 +6913,45 @@ describe("desktop adapter over the shared application", () => {
     await service.stop();
   });
 
-  it("preserves independently loaded media in attributed compound preflight without mutation", async () => {
-    const { service, application, ableton } = await harness();
-    const { params, result } = sessionListeningPreflightFixture();
-    const inspect = vi
-      .spyOn(application, "inspectSessionListeningPreflight")
-      .mockImplementation(async (request) => {
-        expect(request).toEqual(params);
-        expect(currentCorrelationContext()).toMatchObject({
-          traceId: params.queryId,
-          correlationId: params.queryId,
-          sessionId: service.activeSessionId,
+  it.each([
+    sessionListeningPreflightFixture,
+    sessionListeningMidiPreflightFixture,
+  ])(
+    "preserves independently loaded content in attributed compound preflight without mutation: %s",
+    async (fixture) => {
+      const { service, application, ableton } = await harness();
+      const { params, result } = fixture();
+      const inspect = vi
+        .spyOn(application, "inspectSessionListeningPreflight")
+        .mockImplementation(async (request) => {
+          expect(request).toEqual(params);
+          expect(currentCorrelationContext()).toMatchObject({
+            traceId: params.queryId,
+            correlationId: params.queryId,
+            sessionId: service.activeSessionId,
+          });
+          return result;
         });
-        return result;
-      });
-    await expect(
-      service.inspectSessionListeningPreflight(params),
-    ).rejects.toThrow("not accepting");
-    await service.start();
-    const before = structuredClone(ableton.state);
-    await expect(
-      service.inspectSessionListeningPreflight(params),
-    ).resolves.toEqual(result);
-    expect(ableton.state).toEqual(before);
-    inspect.mockRejectedValueOnce(new Error("loaded media read cancelled"));
-    await expect(
-      service.inspectSessionListeningPreflight(params),
-    ).rejects.toThrow("loaded media read cancelled");
-    await service.stop();
-    await expect(
-      service.inspectSessionListeningPreflight(params),
-    ).rejects.toThrow("not accepting");
-    expect(inspect).toHaveBeenCalledTimes(2);
-  });
+      await expect(
+        service.inspectSessionListeningPreflight(params),
+      ).rejects.toThrow("not accepting");
+      await service.start();
+      const before = structuredClone(ableton.state);
+      await expect(
+        service.inspectSessionListeningPreflight(params),
+      ).resolves.toEqual(result);
+      expect(ableton.state).toEqual(before);
+      inspect.mockRejectedValueOnce(new Error("loaded media read cancelled"));
+      await expect(
+        service.inspectSessionListeningPreflight(params),
+      ).rejects.toThrow("loaded media read cancelled");
+      await service.stop();
+      await expect(
+        service.inspectSessionListeningPreflight(params),
+      ).rejects.toThrow("not accepting");
+      expect(inspect).toHaveBeenCalledTimes(2);
+    },
+  );
 
   it("reads global recording with trace attribution without changing recording state", async () => {
     const { service, application, ableton } = await harness();

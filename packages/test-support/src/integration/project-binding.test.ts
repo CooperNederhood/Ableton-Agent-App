@@ -54,6 +54,20 @@ describe("declared saved listener bindings", () => {
     );
     expect(result.match(/RelativePath Value="dependencies/g)).toHaveLength(2);
   });
+  it("rebinds an exact reviewed User Library slot without following its external file", () => {
+    const original = set()
+      .replace('RelativePathType Value="3"', 'RelativePathType Value="6"')
+      .replace("/original/", "/unavailable-user-library/");
+    const input = gzipSync(original);
+    const result = text(
+      bindFixtureProject(input, [binding], [device], "/owned"),
+    );
+    expect(text(input)).toBe(original);
+    expect(result).toContain('RelativePathType Value="3"');
+    expect(result).toContain(`RelativePath Value="${device.target}"`);
+    expect(result).toContain(`Path Value="/owned/${device.target}"`);
+    expect(result).not.toContain("/unavailable-user-library/");
+  });
   it.each([
     { ...binding, trackIndex: 1 },
     { ...binding, deviceIndex: 1 },
@@ -89,7 +103,7 @@ describe("declared saved listener bindings", () => {
         gzipSync(
           set().replace(
             'RelativePathType Value="3"',
-            'RelativePathType Value="6"',
+            'RelativePathType Value="2"',
           ),
         ),
         [binding],

@@ -32,6 +32,7 @@ export function createMetricCaptureBinding(input: {
   readonly descriptor: ListenerDescriptor;
   readonly source: MetricAudioObservation["source"];
   readonly tempoBpm: number;
+  readonly stoppedBeat?: number;
   readonly timingPolicy: ListeningTimingPolicy;
   readonly requestedMetrics?: Readonly<
     NativeMetricListeningConfig["requestedMetrics"]
@@ -110,6 +111,7 @@ export function createMetricCaptureBinding(input: {
       ? {
           ...shared,
           mode: "session",
+          stoppedBeat: input.stoppedBeat ?? input.source.transport.startBeat,
           sourceEvidence: "expected-context-only",
           source: {
             mode: "session",

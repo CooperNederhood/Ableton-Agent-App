@@ -456,15 +456,14 @@ export const metricAudioObservationSchema = body.superRefine((value, ctx) => {
   }
   if (source.view === "session") {
     if (
-      geometry.startBeat !== 0 ||
-      source.transport.startBeat !== 0 ||
+      source.transport.startBeat !== geometry.startBeat ||
+      source.transport.endBeat !== geometry.endBeat ||
       source.clipReference !== source.target.expectedClipReference ||
-      source.coordinate.endBeat !== geometry.endBeat ||
       source.clipStartTimeBeats !== source.transport.startBeat ||
       Math.abs(
         source.transport.endBeat -
           source.transport.startBeat -
-          geometry.endBeat,
+          source.coordinate.endBeat,
       ) > 1e-8
     ) {
       issue("Session clip-local coordinates and transport origin must agree");

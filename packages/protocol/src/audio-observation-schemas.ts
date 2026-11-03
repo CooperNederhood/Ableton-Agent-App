@@ -290,7 +290,12 @@ export function storedObservationCoordinates(
   readonly startBeat: number;
   readonly endBeat: number;
 } {
-  return observation.schema === "metric-audio-observation/v1"
-    ? observation.geometry
-    : observation;
+  if (observation.schema !== "metric-audio-observation/v1") return observation;
+  return observation.source.view === "session"
+    ? {
+        ...observation.geometry,
+        startBeat: observation.source.coordinate.startBeat,
+        endBeat: observation.source.coordinate.endBeat,
+      }
+    : observation.geometry;
 }

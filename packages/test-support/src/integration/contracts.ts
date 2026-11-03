@@ -1,3 +1,5 @@
+import type { SessionListeningPreflightResult } from "@ableton-agent/protocol";
+
 export type Scalar = string | number | boolean | null;
 export type Facts = Readonly<Record<string, Scalar>>;
 export interface AssertionReference {
@@ -43,6 +45,24 @@ export interface ListenerBinding {
   readonly trackIndex: number;
   readonly deviceIndex: number;
 }
+export type ClipLaunchQuantization = "global" | "none" | "bar";
+export type FixtureSource = {
+  readonly id: string;
+  readonly trackName: string;
+  readonly clipName: string;
+  readonly sceneIndex: number;
+  readonly clipLaunchQuantization?: ClipLaunchQuantization;
+} & (
+  | { readonly mediaTarget: string }
+  | {
+      readonly trackIndex: number;
+      readonly listenerBindingSlot: string;
+      readonly midi: {
+        readonly notesSha256: string;
+        readonly instrumentChainSha256: string;
+      };
+    }
+);
 export interface FixtureManifest {
   readonly schemaVersion: 1;
   readonly id: string;
@@ -54,13 +74,7 @@ export interface FixtureManifest {
   readonly resources: readonly FixtureResource[];
   readonly dependencies: readonly string[];
   readonly listenerBindings?: readonly ListenerBinding[];
-  readonly sources?: readonly {
-    readonly id: string;
-    readonly trackName: string;
-    readonly clipName: string;
-    readonly sceneIndex: number;
-    readonly mediaTarget: string;
-  }[];
+  readonly sources?: readonly FixtureSource[];
   /** Existing licensed Live Builtin content; verified in place, never redistributed. */
   readonly builtinResources?: readonly {
     readonly path: string;
@@ -108,12 +122,17 @@ export interface Submission extends SessionIdentity {
   readonly userMessageId: string;
   readonly operationId: string;
 }
-export interface SourceIdentity {
+interface SourceLocation {
   readonly trackId: string;
   readonly clipId: string;
   readonly slotIndex: number;
-  readonly mediaSha256: string;
 }
+export interface MidiContentIdentity {
+  readonly midiNotesSha256: string;
+  readonly instrumentChainSha256: string;
+}
+export type SourceIdentity = SourceLocation &
+  ({ readonly mediaSha256: string } | MidiContentIdentity);
 export interface CaptureEvidence {
   readonly passId: string;
   readonly operationId: string;
@@ -148,15 +167,28 @@ export interface ContextEvidence {
 export interface BaselineEvidence {
   readonly schemaVersion: 1;
   readonly facts: Facts;
-  readonly sources?: Readonly<Record<string, AudioSourceEvidence>>;
+  readonly sources?: Readonly<Record<string, SessionSourceEvidence>>;
   readonly dependencyHashes: Readonly<Record<string, string>>;
 }
 export interface AudioSourceEvidence {
   readonly loadedMediaPath: string;
-  readonly source: SourceIdentity;
+  readonly source: SourceLocation & { readonly mediaSha256: string };
   readonly listenerId: string;
   readonly facts: Facts;
 }
+export interface ListenerPlacement {
+  readonly trackIndex: number;
+  readonly deviceIndex: number;
+  readonly deviceReference: string;
+}
+export interface MidiSourceEvidence {
+  readonly source: SourceLocation & MidiContentIdentity;
+  readonly listenerId: string;
+  readonly facts: Facts;
+  readonly midi: Extract<SessionListeningPreflightResult, { midi: unknown }>;
+  readonly listenerPlacement: ListenerPlacement;
+}
+export type SessionSourceEvidence = AudioSourceEvidence | MidiSourceEvidence;
 export interface AudioBaselineEvidence extends BaselineEvidence {
   readonly sources: Readonly<Record<string, AudioSourceEvidence>>;
 }
@@ -287,7 +319,7 @@ export interface LifecycleEvent {
   readonly durationMs: number;
 }
 
-/** Expected loaded state, not instructions to repair a project. */
+/** Original stopped-zero/None fixture defaults, not product capability evidence. */
 export const SUPPORTED_AUDIO_BASELINE: Facts = Object.freeze({
   globalQuantization: "none",
   clipLaunchQuantization: "global",

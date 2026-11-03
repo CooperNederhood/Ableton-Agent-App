@@ -78,7 +78,11 @@ export function sameSource(
     left.trackId === right.trackId &&
     left.clipId === right.clipId &&
     left.slotIndex === right.slotIndex &&
-    left.mediaSha256 === right.mediaSha256
+    ("mediaSha256" in left
+      ? "mediaSha256" in right && left.mediaSha256 === right.mediaSha256
+      : "midiNotesSha256" in right &&
+        left.midiNotesSha256 === right.midiNotesSha256 &&
+        left.instrumentChainSha256 === right.instrumentChainSha256)
   );
 }
 export function parseParenthesizedChoice(

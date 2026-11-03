@@ -106,7 +106,7 @@ export function bindFixtureProject(
           binding.trackIndex !== trackIndex ||
           binding.deviceIndex !== deviceIndex ||
           binding.sourcePath !== source ||
-          field(block, "RelativePathType") !== "3"
+          !["3", "6"].includes(field(block, "RelativePathType"))
         )
           throw new Error(
             "Saved listener placement or source differs from reviewed binding",
@@ -116,6 +116,7 @@ export function bindFixtureProject(
           throw new Error("Missing frozen candidate for listener binding");
         let changed = block;
         for (const [name, value] of [
+          ["RelativePathType", "3"],
           ["RelativePath", device.target],
           ["Path", join(workingDirectory, device.target)],
         ] as const)

@@ -16,10 +16,10 @@ import {
 import {
   DEFAULT_LISTENING_TIMING_POLICY,
   audioObservationKindSchema,
-  audioClipSummarySchema,
   inspectEventSelectionResultSchema,
   inspectSessionListeningSourceParamsSchema,
   inspectSessionListeningSourceResultSchema,
+  sessionListeningPreflightResultSchema,
   recordingOperationResultSchema,
   type InspectSessionListeningSourceParams,
   type InspectSessionListeningSourceResult,
@@ -739,18 +739,8 @@ export const desktopRecordingInspectionSchema =
 export type DesktopRecordingInspection = z.infer<
   typeof desktopRecordingInspectionSchema
 >;
-export const desktopSessionListeningPreflightSchema = z
-  .strictObject({
-    source: inspectSessionListeningSourceResultSchema,
-    audio: audioClipSummarySchema,
-    recording: desktopRecordingInspectionSchema,
-  })
-  .refine(
-    ({ source, audio }) =>
-      audio.reference === source.target.expectedClipReference &&
-      audio.name === source.target.expectedClipName,
-    "Audio inspection must belong to the inspected Session clip",
-  );
+export const desktopSessionListeningPreflightSchema =
+  sessionListeningPreflightResultSchema;
 export type DesktopSessionListeningPreflight = z.infer<
   typeof desktopSessionListeningPreflightSchema
 >;

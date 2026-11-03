@@ -292,12 +292,12 @@ export function createSessionListeningServices(
         request.target,
         request.durationBeats,
       );
-      if (current.startBeat !== expected.startBeat)
+      if (current.stoppedBeat !== expected.stoppedBeat)
         deny("session_transport_changed", undefined, [
           failureFact(
             "source.startBeat",
-            current.startBeat,
-            expected.startBeat,
+            current.stoppedBeat,
+            expected.stoppedBeat,
             { unit: "beats" },
           ),
         ]);
@@ -378,7 +378,7 @@ export function createSessionListeningServices(
         ) ||
         binding.inspection.transport.tempo !==
           expected.source.settings.tempoBpm ||
-        binding.inspection.transport.currentBeat !== expected.startBeat
+        binding.inspection.transport.currentBeat !== expected.stoppedBeat
       )
         deny("session_transport_or_recording_unsafe", undefined, [
           failureFact(
@@ -413,7 +413,7 @@ export function createSessionListeningServices(
           failureFact(
             "transport.currentBeat",
             binding.inspection.transport.currentBeat,
-            expected.startBeat,
+            expected.stoppedBeat,
             { unit: "beats" },
           ),
         ]);
@@ -440,6 +440,7 @@ export function createSessionListeningServices(
             : {}),
           descriptor,
           tempoBpm: binding.inspection.transport.tempo!,
+          stoppedBeat: expected.stoppedBeat,
           timingPolicy: policy,
           source: {
             view: "session",
@@ -553,7 +554,7 @@ export function createSessionListeningServices(
               ...cached.inspection.listeners[0]!.binding,
               track: cached.request.target!.track,
             },
-            startBeat: cached.expected.startBeat,
+            startBeat: cached.expected.stoppedBeat,
           }),
         (lease) => lease.release(),
       );

@@ -18,9 +18,12 @@ import {
   type DesktopSessionListeningPreflight,
 } from "../../apps/desktop/src/contracts.js";
 import { SUPPORTED_AUDIO_BASELINE } from "../../packages/test-support/src/integration/contracts.js";
+import { midiContentIdentity } from "../../packages/test-support/src/integration/sources.js";
+import { observedSessionSource } from "../../tests/electron/acceptance-evidence.js";
 import type {
   InspectSessionListeningSourceParams,
   InspectSessionListeningSourceResult,
+  MetricAudioObservation,
 } from "@ableton-agent/protocol";
 
 const mocks = vi.hoisted(() => ({
@@ -379,7 +382,10 @@ async function audioBaseline(
     punchIn: false,
     punchOut: false,
   };
-  const audio: DesktopSessionListeningPreflight["audio"] = {
+  const audio: Extract<
+    DesktopSessionListeningPreflight,
+    { audio: unknown }
+  >["audio"] = {
     reference: clipId,
     name: "Clip 1",
     length: 4,
@@ -399,6 +405,21 @@ async function audioBaseline(
     sampleLength: 96000,
     sampleRate: 48000,
   };
+  const settings: InspectSessionListeningSourceResult["settings"] = {
+    tempoBpm: 120,
+    signatureNumerator: 4,
+    signatureDenominator: 4,
+    globalQuantization: 0,
+    launchQuantization: 0,
+    launchMode: 0,
+    legato: false,
+    followActionEnabled: false,
+    startMarker: 0,
+    endMarker: 4,
+    loopStart: 0,
+    loopEnd: 4,
+    looping: true,
+  };
   api.ableton.inspectSessionListeningPreflight.mockImplementation(
     async (request) =>
       desktopSessionListeningPreflightSchema.parse({
@@ -411,21 +432,7 @@ async function audioBaseline(
           positionUnit: "beats",
           before: sourceState,
           after: sourceState,
-          settings: {
-            tempoBpm: 120,
-            signatureNumerator: 4,
-            signatureDenominator: 4,
-            globalQuantization: 0,
-            launchQuantization: 0,
-            launchMode: 0,
-            legato: false,
-            followActionEnabled: false,
-            startMarker: 0,
-            endMarker: 4,
-            loopStart: 0,
-            loopEnd: 4,
-            looping: true,
-          },
+          settings,
         },
         audio,
         recording: { action: "inspect", state: recording },
@@ -433,6 +440,7 @@ async function audioBaseline(
   );
   return {
     audio,
+    settings,
     recording,
     sourceState,
     mediaSha256,
@@ -514,6 +522,7 @@ async function twoSources() {
       const observed = await (request.target.track.index === 0 ? aRead : bRead)(
         request,
       );
+      if (!("audio" in observed)) throw new Error("Expected audio test source");
       return {
         ...observed,
         audio: { ...observed.audio, name: request.target.expectedClipName },
@@ -523,7 +532,505 @@ async function twoSources() {
   return { a, b, connections };
 }
 
+async function midiBaseline() {
+  const audio = await audioBaseline();
+  const snapshot = liveSetSnapshotSchema.parse(
+    await api.ableton.requestSnapshot(),
+  );
+  snapshot.tracks[0]!.kind = "midi";
+  snapshot.sessionClips![0]!.kind = "midi";
+  snapshot.sessionClips![0]!.noteCount = 4;
+  snapshot.sessionClips![0]!.status = "playing";
+  const devices = ["Operator", "Listener"].map((name, index) => ({
+    reference: randomUUID(),
+    trackReference: audio.trackId,
+    trackIndex: 0,
+    index,
+    name,
+    className: index === 0 ? "Operator" : "MxDeviceAudioEffect",
+    classDisplayName: name,
+    enabled: true,
+    parameterCount: 1,
+    canHaveChains: false as const,
+    canHaveDrumPads: false as const,
+  }));
+  snapshot.devices = devices.map(
+    ({ reference, trackReference, ...device }) => ({
+      ...device,
+      id: reference,
+      trackId: trackReference,
+    }),
+  );
+  const listener = { ...listenerBinding, deviceIndex: 1 };
+  const placement = {
+    trackIndex: 0,
+    deviceIndex: 1,
+    deviceReference: devices[1]!.reference,
+  };
+  const target: InspectSessionListeningSourceParams = {
+    schemaVersion: 1,
+    queryId: randomUUID(),
+    target: {
+      view: "session",
+      track: {
+        kind: "regular",
+        index: 0,
+        expectedReference: audio.trackId,
+        expectedName: "Source 1",
+      },
+      sceneIndex: 0,
+      expectedClipReference: audio.clipId,
+      expectedClipName: "Clip 1",
+    },
+  };
+  const base = await api.ableton.inspectSessionListeningPreflight(target);
+  const inventory = { devices, total: 2, offset: 0, limit: 8 };
+  const state = {
+    ...audio.sourceState,
+    globalBeat: 5.5,
+    targetPlaying: true,
+    playingSlotIndex: 0,
+  };
+  const parsed = desktopSessionListeningPreflightSchema.parse({
+    source: {
+      ...base.source,
+      sourceKind: "midi",
+      before: state,
+      after: state,
+      settings: { ...audio.settings, globalQuantization: 4 },
+    },
+    recording: base.recording,
+    midi: {
+      clip: {
+        reference: audio.clipId,
+        name: "Clip 1",
+        trackReference: audio.trackId,
+        trackIndex: 0,
+        sceneIndex: 0,
+        length: 4,
+        noteCount: 4,
+      },
+      notes: [0, 1, 2, 3].map((startTime) => ({
+        pitch: 60,
+        startTime,
+        duration: 0.25,
+        velocity: 100,
+        mute: false,
+      })),
+      offset: 0,
+      limit: 2048,
+      totalNotes: 4,
+      truncated: false,
+    },
+    instrumentChain: {
+      before: inventory,
+      after: structuredClone(inventory),
+      devices: devices.map((device) => ({
+        device,
+        total: 1,
+        offset: 0,
+        limit: 256,
+        parameters: [
+          {
+            reference: randomUUID(),
+            deviceReference: device.reference,
+            index: 0,
+            name: device.index === 1 ? "Attack rise dB" : "Level",
+            value: 0.5,
+            normalizedValue: 0.5,
+            min: 0,
+            max: 1,
+            isQuantized: false,
+            isEnabled: true,
+            valueItemCount: 0,
+          },
+        ],
+      })),
+    },
+  });
+  if (!("midi" in parsed)) throw new Error("Expected MIDI fixture");
+  const expected = midiContentIdentity(parsed, placement);
+  context = {
+    ...context,
+    scenario: {
+      ...context.scenario,
+      requiredCapabilities: ["automation", "session-midi"],
+    },
+    fixture: {
+      ...context.fixture,
+      listenerBindings: [listener],
+      sources: [
+        {
+          id: "midi",
+          trackName: "Source 1",
+          clipName: "Clip 1",
+          sceneIndex: 0,
+          trackIndex: 0,
+          listenerBindingSlot: listener.slot,
+          midi: {
+            notesSha256: expected.midiNotesSha256,
+            instrumentChainSha256: expected.instrumentChainSha256,
+          },
+        },
+      ],
+      baseline: {
+        ...SUPPORTED_AUDIO_BASELINE,
+        clipWarped: false,
+        globalQuantization: "bar",
+        currentSongTime: 5.5,
+        rememberedSessionClips: 1,
+        playingSessionClips: 1,
+      },
+    },
+  };
+  api.ableton.requestSnapshot.mockResolvedValue(snapshot);
+  const connection = {
+    producerId: "listener",
+    connectionId: "connection",
+    instanceId: "instance",
+    signalKind: "audio",
+    state: "connected",
+    track: { id: String(audio.trackId), index: 0, name: "Source 1" },
+    device: { id: String(devices[1]!.reference), name: "Listener" },
+  };
+  api.outputs.list.mockResolvedValue({
+    activeSessionId: identity.appSessionId,
+    connections: [connection],
+  });
+  api.ableton.inspectSessionListeningPreflight.mockImplementation(
+    async (request) => ({
+      ...parsed,
+      source: { ...parsed.source, ...request },
+    }),
+  );
+  return { preflight: parsed, snapshot, connection, expected };
+}
+
 describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
+  it("admits a source with omitted common kind and quantization facts and an explicit stopped playing count", async () => {
+    const { preflight } = await midiBaseline();
+    preflight.source.settings.launchQuantization = 5;
+    context = {
+      ...context,
+      fixture: {
+        ...context.fixture,
+        baseline: Object.fromEntries(
+          Object.entries(context.fixture.baseline).filter(
+            ([key]) =>
+              ![
+                "clipWarped",
+                "clipLaunchQuantization",
+                "rememberedSessionClips",
+              ].includes(key),
+          ),
+        ),
+      },
+    };
+    await driver.launch(context);
+    await driver.ready(context);
+    const baseline = await driver.readBaseline(context);
+    expect(baseline.sources?.midi?.facts).toMatchObject({
+      clipLaunchQuantization: "bar",
+      clipWarped: false,
+      playingSessionClips: 1,
+      rememberedSessionClips: 1,
+      transportPlaying: false,
+      queuedSessionClips: 0,
+    });
+    preflight.source.settings.launchQuantization = 0;
+    await expect(
+      driver.submit(
+        {
+          id: "listen",
+          sourceId: "midi",
+          message: "Listen",
+          timeoutMs: 1000,
+          assertions: [{ name: "capture", parameters: {} }],
+        },
+        context,
+      ),
+    ).rejects.toThrow("Protected source settings changed");
+    await driver.cleanup(context);
+    expect(mocks.send).not.toHaveBeenCalled();
+  });
+  it("preserves two observed playing Session flags as remembered selection while transport is stopped", async () => {
+    const { a, b } = await twoSources();
+    const beat = 2.059377861721612;
+    for (const observed of [a, b]) {
+      Object.assign(observed.sourceState, {
+        globalBeat: beat,
+        targetPlaying: true,
+        playingSlotIndex: 0,
+      });
+      observed.settings.globalQuantization = 4;
+    }
+    const snapshot = liveSetSnapshotSchema.parse(
+      await api.ableton.requestSnapshot(),
+    );
+    snapshot.sessionClips!.forEach((clip) => {
+      clip.status = "playing";
+    });
+    api.ableton.requestSnapshot.mockResolvedValue(snapshot);
+    context = {
+      ...context,
+      fixture: {
+        ...context.fixture,
+        baseline: {
+          ...context.fixture.baseline,
+          currentSongTime: beat,
+          globalQuantization: "bar",
+          playingSessionClips: 2,
+          rememberedSessionClips: 2,
+        },
+      },
+    };
+    await driver.launch(context);
+    await driver.ready(context);
+    const baseline = await driver.readBaseline(context);
+    for (const source of Object.values(baseline.sources!))
+      expect(source.facts).toMatchObject({
+        transportPlaying: false,
+        playingSessionClips: 2,
+        rememberedSessionClips: 2,
+        queuedSessionClips: 0,
+      });
+    await driver.cleanup(context);
+    expect(mocks.send).not.toHaveBeenCalled();
+    expect(mocks.liveStop).toHaveBeenCalledOnce();
+  });
+  it("binds MIDI native Max IDs through the unique reviewed listener slot, not the UUID namespace", async () => {
+    const { connection, expected } = await midiBaseline();
+    connection.track.id = "2141";
+    connection.device.id = "2140";
+    await driver.launch(context);
+    await driver.ready(context);
+    const baseline = await driver.readBaseline(context);
+    expect(baseline.sources?.midi?.source).toMatchObject(expected);
+    expect(baseline.sources?.midi?.listenerId).toBe("listener");
+    await driver.cleanup(context);
+  });
+
+  it.each([
+    ["global", 0],
+    ["none", 1],
+    ["bar", 5],
+  ] as const)(
+    "admits independently declared source quantization %s from the protocol enum",
+    async (expected, canonical) => {
+      const { preflight } = await midiBaseline();
+      const beat = 2.0593777777777778;
+      preflight.source.before.globalBeat = beat;
+      preflight.source.after.globalBeat = beat;
+      preflight.source.settings.launchQuantization = canonical;
+      context = {
+        ...context,
+        fixture: {
+          ...context.fixture,
+          baseline: { ...context.fixture.baseline, currentSongTime: beat },
+          sources: context.fixture.sources!.map((source) => ({
+            ...source,
+            clipLaunchQuantization: expected,
+          })),
+        },
+      };
+      await driver.launch(context);
+      await driver.ready(context);
+      const baseline = await driver.readBaseline(context);
+      expect(baseline.sources?.midi?.facts).toMatchObject({
+        currentSongTime: beat,
+        clipLaunchQuantization: expected,
+      });
+      await driver.cleanup(context);
+      expect(mocks.send).not.toHaveBeenCalled();
+    },
+  );
+  it.each([0, null, 4])(
+    "rejects observed canonical %s for a source declared One Bar without repair",
+    async (observed) => {
+      const { preflight } = await midiBaseline();
+      preflight.source.settings.launchQuantization = observed;
+      context = {
+        ...context,
+        fixture: {
+          ...context.fixture,
+          sources: context.fixture.sources!.map((source) => ({
+            ...source,
+            clipLaunchQuantization: "bar",
+          })),
+        },
+      };
+      await driver.launch(context);
+      await driver.ready(context);
+      await expect(driver.readBaseline(context)).rejects.toThrow();
+      await driver.cleanup(context);
+      expect(mocks.send).not.toHaveBeenCalled();
+      expect(mocks.liveStop).toHaveBeenCalledOnce();
+    },
+  );
+  it("admits declared MIDI content with a stopped remembered slot and retains typed final evidence", async () => {
+    const { expected, preflight } = await midiBaseline();
+    await driver.launch(context);
+    await driver.ready(context);
+    const baseline = await driver.readBaseline(context);
+    expect(baseline.sources?.midi).toMatchObject({
+      source: expected,
+      facts: {
+        transportPlaying: false,
+        currentSongTime: 5.5,
+        rememberedSessionClips: 1,
+        playingSessionClips: 1,
+      },
+      midi: { midi: { totalNotes: 4 } },
+    });
+    expect(baseline.sources?.midi).not.toHaveProperty("loadedMediaPath");
+    expect(baseline.sources?.midi?.source).not.toHaveProperty("mediaSha256");
+    const observed: Extract<
+      MetricAudioObservation["source"],
+      { view: "session" }
+    > = {
+      view: "session",
+      kind: "midi",
+      target: preflight.source.target,
+      clipReference: preflight.source.target.expectedClipReference,
+      coordinate: { unit: "beats", iteration: 0, startBeat: 0, endBeat: 4 },
+      transport: { startBeat: 5.5, endBeat: 12 },
+      clipStartTimeBeats: 8,
+      synchronization: "transport-coupled-first-iteration",
+    };
+    expect(
+      observedSessionSource(observed, "listener", baseline.sources!),
+    ).toEqual(baseline.sources!.midi);
+    for (const patch of [
+      { kind: "warped-audio" as const },
+      { clipReference: randomUUID() },
+      { target: { ...observed.target, sceneIndex: 1 } },
+      { target: { ...observed.target, expectedClipName: "Other" } },
+      {
+        target: {
+          ...observed.target,
+          track: { ...observed.target.track, index: 1 },
+        },
+      },
+    ])
+      expect(() =>
+        observedSessionSource(
+          { ...observed, ...patch },
+          "listener",
+          baseline.sources!,
+        ),
+      ).toThrow();
+    expect(() =>
+      observedSessionSource(observed, "other-listener", baseline.sources!),
+    ).toThrow();
+    expect(() =>
+      observedSessionSource(observed, "listener", {
+        ...baseline.sources,
+        duplicate: baseline.sources!.midi!,
+      }),
+    ).toThrow();
+    await driver.submit(
+      {
+        id: "listen",
+        sourceId: "midi",
+        message: "Listen",
+        timeoutMs: 1000,
+        assertions: [{ name: "capture", parameters: {} }],
+      },
+      context,
+    );
+    expect(mocks.send).toHaveBeenCalledOnce();
+    preflight.instrumentChain.devices[1]!.parameters[0]!.value = 0.75;
+    const evidence = await driver.collect(context);
+    const preserved = evidence.unchanged.find(
+      (entry) => entry.scope === "source-settings",
+    )!;
+    expect(preserved.afterSha256).toBe(preserved.beforeSha256);
+    await driver.cleanup(context);
+    expect(mocks.stop).toHaveBeenCalledOnce();
+    expect(mocks.liveStop).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    "notes",
+    "instrument",
+    "listener",
+    "native-id",
+    "native-ambiguous",
+    "partial",
+    "recording",
+    "running",
+    "queued",
+    "slot",
+    "kind",
+    "selector",
+  ] as const)(
+    "blocks MIDI %s preconditions without submission and cleans owned hosts",
+    async (change) => {
+      const { preflight, connection, snapshot } = await midiBaseline();
+      if (change === "notes") preflight.midi.notes[0]!.pitch++;
+      if (change === "instrument")
+        preflight.instrumentChain.devices[0]!.parameters[0]!.value = 0.7;
+      if (change === "listener") connection.device.id = randomUUID();
+      if (change === "native-id") connection.device.id = "unknown";
+      if (change === "native-ambiguous") {
+        connection.device.id = "2140";
+        const listener = snapshot.devices![1]!;
+        snapshot.devices!.push({ ...listener, id: randomUUID(), index: 2 });
+      }
+      if (change === "partial") preflight.midi.truncated = true;
+      if (change === "recording")
+        preflight.recording.state.sessionRecord = true;
+      if (change === "running") preflight.source.after.transportPlaying = true;
+      if (change === "queued") preflight.source.after.targetTriggered = true;
+      if (change === "slot") preflight.source.after.playingSlotIndex = 1;
+      if (change === "kind") snapshot.sessionClips![0]!.kind = "audio";
+      if (change === "selector") preflight.midi.clip.name = "Other clip";
+      await driver.launch(context);
+      await driver.ready(context);
+      await expect(driver.readBaseline(context)).rejects.toThrow();
+      await driver.cleanup(context);
+      expect(mocks.send).not.toHaveBeenCalled();
+      expect(mocks.stop).toHaveBeenCalledOnce();
+      expect(mocks.liveStop).toHaveBeenCalledOnce();
+    },
+  );
+  it.each(["notes", "instrument", "topology"] as const)(
+    "detects protected MIDI %s mutations before subsequent submission and final collection",
+    async (change) => {
+      const { preflight, snapshot } = await midiBaseline();
+      await driver.launch(context);
+      await driver.ready(context);
+      await driver.readBaseline(context);
+      if (change === "notes") preflight.midi.notes[0]!.velocity--;
+      if (change === "instrument")
+        preflight.instrumentChain.devices[0]!.parameters[0]!.value = 0.6;
+      if (change === "topology") snapshot.devices![0]!.id = randomUUID();
+      await expect(
+        driver.submit(
+          {
+            id: "midi",
+            message: "Listen",
+            sourceId: "midi",
+            timeoutMs: 1000,
+            assertions: [{ name: "capture", parameters: {} }],
+          },
+          context,
+        ),
+      ).rejects.toThrow();
+      if (change !== "topology")
+        await expect(driver.collect(context)).rejects.toThrow();
+      else {
+        const evidence = await driver.collect(context);
+        expect(
+          evidence.unchanged.some(
+            (entry) => entry.beforeSha256 !== entry.afterSha256,
+          ),
+        ).toBe(true);
+      }
+      await driver.cleanup(context);
+      expect(mocks.send).not.toHaveBeenCalled();
+    },
+  );
   it.each(["single-trace-count", "combined-count", "bytes"] as const)(
     "still fails closed on History %s overflow and closes its owned hosts",
     async (overflow) => {
@@ -1111,6 +1618,89 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
         "Blocked source precondition: a.recording",
       );
       await driver.cleanup(context);
+    },
+  );
+
+  it.each([
+    ["none", 0, 0],
+    ["bar", 4, 0],
+    ["none", 0, 5.5],
+    ["bar", 4, 5.5],
+  ] as const)(
+    "independently admits stopped %s (%s) at beat %s without repairing state",
+    async (globalQuantization, wireQuantization, currentSongTime) => {
+      const source = await audioBaseline();
+      source.settings.globalQuantization = wireQuantization;
+      source.sourceState.globalBeat = currentSongTime;
+      context = {
+        ...context,
+        fixture: {
+          ...context.fixture,
+          baseline: {
+            ...context.fixture.baseline,
+            globalQuantization,
+            currentSongTime,
+          },
+        },
+      };
+      await driver.launch(context);
+      await driver.ready(context);
+      const baseline = await driver.readBaseline(context);
+      expect(baseline.facts).toMatchObject({
+        globalQuantization,
+        currentSongTime,
+        transportPlaying: false,
+      });
+      expect(baseline.sources?.a?.facts).toMatchObject({
+        globalQuantization,
+        currentSongTime,
+      });
+      expect(source.settings.globalQuantization).toBe(wireQuantization);
+      expect(source.sourceState.globalBeat).toBe(currentSongTime);
+      expect(mocks.send).not.toHaveBeenCalled();
+      await driver.cleanup(context);
+      expect(mocks.stop).toHaveBeenCalledOnce();
+      expect(mocks.liveStop).toHaveBeenCalledOnce();
+    },
+  );
+
+  it.each([
+    { globalBeat: 5.5 },
+    { globalBeat: null },
+    { transportPlaying: true },
+    { targetPlaying: true },
+    { targetTriggered: true },
+    { targetRecording: true },
+    { playingSlotIndex: 0 },
+    { firedSlotIndex: 0 },
+    { firedSlotIndex: null },
+  ])(
+    "blocks inconsistent or unsafe initial source brackets: %j",
+    async (patch) => {
+      await audioBaseline();
+      const read =
+        api.ableton.inspectSessionListeningPreflight.getMockImplementation()!;
+      api.ableton.inspectSessionListeningPreflight.mockImplementation(
+        async (request) => {
+          const value = await read(request);
+          return {
+            ...value,
+            source: {
+              ...value.source,
+              before: { ...value.source.before, ...patch },
+            },
+          };
+        },
+      );
+      await driver.launch(context);
+      await driver.ready(context);
+      await expect(driver.readBaseline(context)).rejects.toThrow(
+        "Blocked source precondition",
+      );
+      expect(mocks.send).not.toHaveBeenCalled();
+      await driver.cleanup(context);
+      expect(mocks.stop).toHaveBeenCalledOnce();
+      expect(mocks.liveStop).toHaveBeenCalledOnce();
     },
   );
 

@@ -2,6 +2,33 @@
 
 Companion specification: [Playback Listening](playback-listening.md).
 
+## Quantized stopped-launch scope (#81)
+
+- [x] Replace the earlier eight-case matrix with the user's one supplied Set
+      and two independent audio/MIDI listens; defer already-running support.
+- [x] Add runner-only audio admission for declared None/One Bar and nonzero
+      stopped positions, retaining exact baseline and two-bracket checks.
+- [x] Copy and physically inspect the supplied fixture without editing its
+      original; register both immutable scenarios and independent source hashes.
+- [x] Reproduce and correct runtime remembered-state admission, native global
+      geometry versus local duration, persisted clip/track coordinate boundaries,
+      and stale tool guidance with lower-layer regressions.
+- [x] Complete typed MIDI runner admission and preserve valid packaged
+      product-red runs (setup rejection is not product failure).
+      Audio `run-5pZilH` and MIDI `run-ykOZt9` both reached the old runtime refusal.
+- [x] Complete Remote Script launch support while retaining actual source/native
+      origin alignment, recording, identity, timing and cleanup guards.
+- [x] Separate the pinned pre-launch `stoppedBeat` from Live's actual zero-origin
+      Session launch. Validate ready/arm clocks against the former and native
+      coverage against the latter; retain later-regression and origin guards.
+- [x] Pass both unchanged supplied scenarios with exact context/coverage and
+      terminal cleanup; retain every prior failed attempt and candidate pins.
+      Live 11.3.43: audio `run-6ToPzM`, MIDI `run-DYmu3b`; full candidate hashes
+      and intermediate failures are recorded in the companion specification.
+- [x] Complete lower-layer and production Electron regression coverage.
+      Separate attended visual qualification remains unperformed because the
+      registered debug message adapter is unavailable; no visual pass is claimed.
+
 ## Original publication-fix scope: complete
 
 JavaScript is authoritative, AMXD is generated build output, and the same

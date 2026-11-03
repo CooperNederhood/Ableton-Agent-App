@@ -348,12 +348,25 @@ function createMetricController(options) {
       return;
     }
     requireValue(
-      !previous || (row[4] > previous[4] && row[1] >= previous[1]),
+      !previous ||
+        (row[4] > previous[4] &&
+          (row[1] >= previous[1] ||
+            (p.armProof &&
+              p.config.mode === "session" &&
+              p.config.geometry.startBeat === 0 &&
+              previous[0] === 0 &&
+              row[0] === 1))),
       "metric_source_clock_regressed",
     );
     if (!p.armProof && row[0] !== 0)
       throw new Error("metric_transport_not_stopped");
-    if (!p.armProof && row[1] !== p.config.geometry.startBeat)
+    if (
+      !p.armProof &&
+      row[1] !==
+        (p.config.mode === "session"
+          ? p.config.stoppedBeat
+          : p.config.geometry.startBeat)
+    )
       throw new Error("metric_source_position_mismatch");
     p.lastClock = row;
     p.clockHistory.push(row);

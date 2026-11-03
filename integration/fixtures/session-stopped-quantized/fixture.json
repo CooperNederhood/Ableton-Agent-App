@@ -1,0 +1,92 @@
+{
+  "schemaVersion": 1,
+  "id": "session-stopped-quantized",
+  "qualification": "reviewed-live",
+  "provenance": {
+    "ownership": "user-authorized",
+    "description": "User-supplied combined Set approved 2026-11-03 for two independent listens from its saved stopped nonzero state with global One Bar. Original Set bytes retained unchanged. Read-only owned Live 11.3.43 inspection established currentSongTime 2.059377861721612, both remembered active Session slots, audio clip Global and MIDI clip One Bar, four-beat loops, recording off, and complete MIDI/Operator parameter evidence before any product capture. MIDI note 60 at beats 0,1,2,3, duration 0.25, velocity 100, unmuted. Listener references are rebound only to the production candidate; factory IRs are verified in the licensed installation, not redistributed. No four-variant matrix or classification quiz."
+  },
+  "resources": [
+    {
+      "path": "project.als",
+      "target": "project.als",
+      "sha256": "f23140b0bc6a84ebfa6df685989c337554ad4e7f915b399b109c691c04454490",
+      "bytes": 28560
+    },
+    {
+      "path": "Samples/Imported/resource-001.wav",
+      "target": "Samples/Imported/resource-001.wav",
+      "sha256": "26e25dd0dfa741e92754cedc47205f75d92dd57bcd4e7a59532236874120daa1",
+      "bytes": 384044
+    }
+  ],
+  "dependencies": ["machine-listening"],
+  "sources": [
+    {
+      "id": "a",
+      "trackName": "audio-track",
+      "clipName": "clip-1",
+      "sceneIndex": 0,
+      "mediaTarget": "Samples/Imported/resource-001.wav"
+    },
+    {
+      "id": "b",
+      "trackName": "midi-track",
+      "clipName": "clip-2",
+      "sceneIndex": 0,
+      "trackIndex": 1,
+      "listenerBindingSlot": "MidiTrack:176/DeviceChain/DeviceChain/Devices/MxDeviceAudioEffect:2",
+      "midi": {
+        "notesSha256": "6d715c4936a2966be17444f640591e08fc0979df255a584d20ecc9cd48796f54",
+        "instrumentChainSha256": "3f84d172fdd2d3360b70990c51293762f70c148fb8481ee049749e7cc4eacc56"
+      }
+    }
+  ],
+  "listenerBindings": [
+    {
+      "slot": "AudioTrack:175/DeviceChain/DeviceChain/Devices/MxDeviceAudioEffect:0",
+      "sourcePath": "Presets/Audio Effects/Max Audio Effect/Machine-Listening-Development/Machine-Listening-Development.amxd",
+      "dependency": "machine-listening",
+      "trackIndex": 0,
+      "deviceIndex": 0
+    },
+    {
+      "slot": "MidiTrack:176/DeviceChain/DeviceChain/Devices/MxDeviceAudioEffect:2",
+      "sourcePath": "Presets/Audio Effects/Max Audio Effect/Machine-Listening-Development/Machine-Listening-Development.amxd",
+      "dependency": "machine-listening",
+      "trackIndex": 1,
+      "deviceIndex": 1
+    }
+  ],
+  "builtinResources": [
+    {
+      "path": "Samples/Hybrid/ImpulseResponses/Hybrid_Made_for_Drums_Live Studio Room L.wav",
+      "bytes": 146336,
+      "sha256": "1ebc0e8ea6699f8c06d50732722243b299efe2b14f4ccb8434cee983e9886b2b"
+    },
+    {
+      "path": "Samples/Hybrid/ImpulseResponses/Hybrid_Made_for_Drums_Live Studio Room R.wav",
+      "bytes": 146336,
+      "sha256": "2dd792207dc2a816abb46a5a6e28dee953bb245b6127592047673b5c8987bc84"
+    }
+  ],
+  "baseline": {
+    "tempo": 128,
+    "globalQuantization": "bar",
+    "transportPlaying": false,
+    "currentSongTime": 2.059377861721612,
+    "playingSessionClips": 2,
+    "queuedSessionClips": 0,
+    "recording": false,
+    "signatureNumerator": 4,
+    "signatureDenominator": 4,
+    "clipStart": 0,
+    "loopStart": 0,
+    "loopEnd": 4,
+    "activeLengthBeats": 4,
+    "launchMode": "trigger",
+    "legato": false,
+    "followActionsEnabled": false,
+    "listenerBoundToSource": true
+  }
+}

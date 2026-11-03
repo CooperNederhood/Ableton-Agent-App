@@ -26,7 +26,14 @@ export type NativeHostClockRow = z.infer<typeof nativeHostClockRowSchema>;
 export function createSyntheticMetricWireFixture(
   mode: "arrangement" | "session" = "arrangement",
   partial = false,
-  large: boolean | { tempoBpm: number; endBeat: number } = false,
+  large:
+    | boolean
+    | {
+        tempoBpm: number;
+        startBeat?: number;
+        stoppedBeat?: number;
+        endBeat: number;
+      } = false,
 ) {
   const observation = (
     partial
@@ -35,7 +42,13 @@ export function createSyntheticMetricWireFixture(
   )({
     startSample: 200_000,
     ...(typeof large === "object"
-      ? large
+      ? {
+          tempoBpm: large.tempoBpm,
+          endBeat: large.endBeat,
+          ...(large.startBeat === undefined
+            ? {}
+            : { startBeat: large.startBeat }),
+        }
       : large
         ? { tempoBpm: 999, endBeat: 80 }
         : {}),
@@ -98,6 +111,10 @@ export function createSyntheticMetricWireFixture(
     ...(mode === "session"
       ? {
           mode,
+          stoppedBeat:
+            typeof large === "object"
+              ? (large.stoppedBeat ?? observation.geometry.startBeat)
+              : observation.geometry.startBeat,
           sourceEvidence: "expected-context-only",
           source: {
             mode,
@@ -117,10 +134,13 @@ export function createSyntheticMetricWireFixture(
         unit: "beats",
         iteration: 0,
         startBeat: 0,
+        endBeat: observation.geometry.endBeat - observation.geometry.startBeat,
+      },
+      transport: {
+        startBeat: observation.geometry.startBeat,
         endBeat: observation.geometry.endBeat,
       },
-      transport: { startBeat: 0, endBeat: observation.geometry.endBeat },
-      clipStartTimeBeats: 0,
+      clipStartTimeBeats: observation.geometry.startBeat,
       synchronization: "transport-coupled-first-iteration",
     };
   const owner = {
@@ -136,8 +156,10 @@ export function createSyntheticMetricWireFixture(
   const armCounter = origin - 1_000;
   const row = (counter: number, playing: boolean): NativeHostClockRow => {
     const beat = playing
-      ? ((counter - origin) * g.tempoBpm) / (g.sampleRate * 60)
-      : 0;
+      ? g.startBeat + ((counter - origin) * g.tempoBpm) / (g.sampleRate * 60)
+      : config.mode === "session"
+        ? config.stoppedBeat
+        : g.startBeat;
     return [
       Number(playing) as 0 | 1,
       beat,
@@ -164,10 +186,10 @@ export function createSyntheticMetricWireFixture(
     g.totalSamples,
     g.sampleRate / 10,
     g.tempoBpm,
-    0,
+    g.startBeat - Math.floor(g.startBeat),
     g.vectorSize,
     1,
-    0,
+    g.startBeat,
     g.endBeat,
     g.rows.length,
     owner.nativeEpoch,
@@ -199,7 +221,7 @@ export function createSyntheticMetricWireFixture(
         : best,
     );
   const beatOrigin = (r: NativeHostClockRow) =>
-    r[2] - Math.round((r[1] * g.sampleRate * 60) / g.tempoBpm);
+    r[2] - Math.round(((r[1] - g.startBeat) * g.sampleRate * 60) / g.tempoBpm);
   const phase = (r: NativeHostClockRow) =>
     Math.abs(
       Math.round((r[5] * g.sampleRate * 60) / g.tempoBpm) -

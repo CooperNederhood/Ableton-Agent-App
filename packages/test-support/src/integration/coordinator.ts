@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { resolve } from "node:path";
 import {
   AUDIO_OMITTED_VALUE,
   BINARY_OMITTED_VALUE,
@@ -7,6 +8,10 @@ import {
   sanitizeTelemetryAttributes,
 } from "@ableton-agent/observability";
 import { createDefaultAssertions } from "./assertions.js";
+import {
+  validateFixtureSourceEvidence,
+  validateMidiSourcePreconditions,
+} from "./sources.js";
 import {
   dependencyInventoryHashes,
   verifyDependencyInventory,
@@ -406,6 +411,7 @@ export async function runAcceptance(
         ensureReportBudget({ baseline: admitted });
         baseline = admitted;
         for (const source of Object.values(baseline.sources ?? {})) {
+          if (!("loadedMediaPath" in source)) continue;
           await verifyStagedMedia(
             stagedFixture!,
             source.loadedMediaPath,
@@ -421,10 +427,27 @@ export async function runAcceptance(
               (fixture.sources?.length ?? 0),
           "Observed source inventory differs from fixture",
         );
+        for (const definition of fixture.sources ?? []) {
+          const observed = admitted.sources![definition.id]!;
+          validateFixtureSourceEvidence(fixture, definition, observed);
+          validateMidiSourcePreconditions(fixture, observed);
+          if ("mediaTarget" in definition && "loadedMediaPath" in observed)
+            requireCondition(
+              resolve(observed.loadedMediaPath) ===
+                resolve(
+                  stagedFixture!.workingDirectory,
+                  definition.mediaTarget,
+                ),
+              "Observed media path differs from source declaration",
+            );
+        }
         for (const [key, expected] of Object.entries(fixture.baseline))
           requireCondition(
             Object.hasOwn(baseline.facts, key) &&
-              baseline.facts[key] === expected,
+              baseline.facts[key] ===
+                (key === "clipLaunchQuantization"
+                  ? (fixture.sources?.[0]?.clipLaunchQuantization ?? expected)
+                  : expected),
             `Blocked precondition: ${key}`,
           );
         const bundleHashes: Readonly<Record<string, string>> =

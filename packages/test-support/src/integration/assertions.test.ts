@@ -88,7 +88,10 @@ function scenario(sources = [0, 0, 0]): AssertionInput {
         [0, 1].map((index) => [
           String(index),
           {
-            source: capture(0, index).source,
+            source: {
+              ...capture(0, index).source,
+              mediaSha256: String(index).repeat(64),
+            },
             listenerId: `listener-${index}`,
             loadedMediaPath: `/owned/resource-${index}.wav`,
             facts: {},

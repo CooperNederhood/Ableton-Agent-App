@@ -25,30 +25,33 @@ function document(relative: string, kind = "3") {
 }
 
 describe("saved fixture dependency admission", () => {
-  it("reads only the exact saved Session follow-action flag and never substitutes false for missing evidence", () => {
-    const clip = (value: string) =>
-      `<ClipSlot><ClipSlot><Value><AudioClip><FollowAction><FollowActionEnabled Value="${value}"/></FollowAction></AudioClip></Value></ClipSlot></ClipSlot>`;
-    const xml = `<Ableton Version="11"><LiveSet><Tracks><AudioTrack><DeviceChain><MainSequencer><ClipSlotList>${clip("true")}${clip("false")}</ClipSlotList></MainSequencer></DeviceChain></AudioTrack></Tracks></LiveSet></Ableton>`;
-    const bytes = gzipSync(xml);
-    expect(readSavedFollowAction(bytes, 0, 0)).toBe(true);
-    expect(readSavedFollowAction(bytes, 0, 1)).toBe(false);
-    expect(() => readSavedFollowAction(bytes, 1, 0)).toThrow("Missing");
-    expect(() => readSavedFollowAction(bytes, 0, 2)).toThrow("Missing");
-    expect(() =>
-      readSavedFollowAction(
-        gzipSync(xml.replace('Value="false"', 'Value="unknown"')),
-        0,
-        1,
-      ),
-    ).toThrow("Missing");
-    expect(() =>
-      readSavedFollowAction(
-        gzipSync(xml.replace("<FollowActionEnabled", "<Unknown")),
-        0,
-        0,
-      ),
-    ).toThrow("Missing");
-  });
+  it.each(["Audio", "Midi"])(
+    "reads the exact saved %s Session follow-action flag without substituting missing evidence",
+    (kind) => {
+      const clip = (value: string) =>
+        `<ClipSlot><ClipSlot><Value><${kind}Clip><FollowAction><FollowActionEnabled Value="${value}"/></FollowAction></${kind}Clip></Value></ClipSlot></ClipSlot>`;
+      const xml = `<Ableton Version="11"><LiveSet><Tracks><${kind}Track><DeviceChain><MainSequencer><ClipSlotList>${clip("true")}${clip("false")}</ClipSlotList></MainSequencer></DeviceChain></${kind}Track></Tracks></LiveSet></Ableton>`;
+      const bytes = gzipSync(xml);
+      expect(readSavedFollowAction(bytes, 0, 0)).toBe(true);
+      expect(readSavedFollowAction(bytes, 0, 1)).toBe(false);
+      expect(() => readSavedFollowAction(bytes, 1, 0)).toThrow("Missing");
+      expect(() => readSavedFollowAction(bytes, 0, 2)).toThrow("Missing");
+      expect(() =>
+        readSavedFollowAction(
+          gzipSync(xml.replace('Value="false"', 'Value="unknown"')),
+          0,
+          1,
+        ),
+      ).toThrow("Missing");
+      expect(() =>
+        readSavedFollowAction(
+          gzipSync(xml.replace("<FollowActionEnabled", "<Unknown")),
+          0,
+          0,
+        ),
+      ).toThrow("Missing");
+    },
+  );
   it("excludes last-preset provenance but still requires declared active Builtin media", () => {
     const ref =
       '<FileRef><RelativePathType Value="7"/><RelativePath Value="Samples/IR.wav"/><Path Value="/installed/IR.wav"/></FileRef>';

@@ -212,7 +212,7 @@ export function readSavedFollowAction(
       track === expectedTrack &&
       slot === expectedSlot &&
       name === "FollowActionEnabled" &&
-      /^Ableton\/LiveSet\/Tracks\/(?:Audio|Midi)Track\/DeviceChain\/MainSequencer\/ClipSlotList\/ClipSlot\/ClipSlot\/Value\/AudioClip\/FollowAction$/u.test(
+      /^Ableton\/LiveSet\/Tracks\/(Audio|Midi)Track\/DeviceChain\/MainSequencer\/ClipSlotList\/ClipSlot\/ClipSlot\/Value\/\1Clip\/FollowAction$/u.test(
         stack.join("/"),
       )
     )

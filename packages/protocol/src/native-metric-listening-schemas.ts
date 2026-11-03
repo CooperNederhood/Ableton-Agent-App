@@ -72,7 +72,7 @@ const config = {
  * One sample..30s; unlike legacy native geometry, no artificial100ms minimum.
  * Request sample coordinates are capture-local0..total. Persisted metric grids
  * and supports use the verified native source origin, never host/song samples.
- * Session source is expected context only; GlobalNone/source/ownership admission
+ * Session source is expected context only; launch/source/ownership admission
  * and exact clip identity remain independently enforced by application guards.
  */
 export const nativeMetricListeningConfigSchema = z
@@ -85,6 +85,7 @@ export const nativeMetricListeningConfigSchema = z
     z.strictObject({
       ...config,
       mode: z.literal("session"),
+      stoppedBeat: beat,
       sourceEvidence: z.literal("expected-context-only"),
       source: sessionNativeSourceSchema,
     }),
@@ -98,7 +99,10 @@ export const nativeMetricListeningConfigSchema = z
         source.transport.endBeat !== value.geometry.endBeat ||
         (value.mode === "session" &&
           source.view === "session" &&
-          (source.coordinate.endBeat !== value.geometry.endBeat ||
+          (Math.abs(
+            source.coordinate.endBeat -
+              (value.geometry.endBeat - value.geometry.startBeat),
+          ) > 1e-8 ||
             source.clipReference !==
               value.source.target.expectedClipReference ||
             JSON.stringify(source.target) !==
@@ -126,7 +130,6 @@ export const nativeMetricListeningConfigSchema = z
       Math.round(((position - g.startBeat) * g.sampleRate * 60) / g.tempoBpm);
     if (
       g.startSample !== 0 ||
-      (value.mode === "session" && g.startBeat !== 0) ||
       g.totalSamples !== dspSample(g.endBeat) ||
       g.rows.some(
         (row) =>
@@ -299,7 +302,13 @@ export const nativeMetricReadyProofSchema = z
     if (
       value.before.dsp[1] !== g.sampleRate ||
       value.before.dsp[2] !== g.vectorSize ||
-      value.before.frames.some((row) => row[1] !== g.startBeat) ||
+      value.before.frames.some(
+        (row) =>
+          row[1] !==
+          (value.config.mode === "session"
+            ? value.config.stoppedBeat
+            : g.startBeat),
+      ) ||
       (value.config.timingPolicy.mode === "strict" &&
         value.before.frames.some(
           (row) => row[2] - row[4] !== value.before.frames[0]![2] - first,
@@ -372,7 +381,13 @@ export const nativeMetricArmProofSchema = z
         Math.ceil(g.totalSamples / (g.sampleRate / 10)) * (g.sampleRate / 10) +
         g.vectorSize >=
         LIMIT ||
-      value.before.frames.some((row) => row[1] !== g.startBeat) ||
+      value.before.frames.some(
+        (row) =>
+          row[1] !==
+          (value.config.mode === "session"
+            ? value.config.stoppedBeat
+            : g.startBeat),
+      ) ||
       (value.config.timingPolicy.mode === "strict" &&
         value.before.frames.some(
           (row) => row[2] - row[4] !== first[2] - first[4],
@@ -767,6 +782,9 @@ export function assertNativeMetricSourceCoverage(
   const checked = assertNativeCheckedTransportSourceCoverage({
     policy: armed.config.timingPolicy,
     geometry: armed.config.geometry,
+    ...(armed.config.mode === "session"
+      ? { stoppedBeat: armed.config.stoppedBeat }
+      : {}),
     before: armed.before,
     after: proof.after,
     timingWitnesses: proof.timingWitnesses,

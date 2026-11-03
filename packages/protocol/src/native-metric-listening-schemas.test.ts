@@ -43,6 +43,7 @@ function fixture(
     vector?: number;
     total?: number;
     startBeat?: number;
+    stoppedBeat?: number;
     session?: boolean;
     completedLaunch?: boolean;
     strict?: boolean;
@@ -83,6 +84,7 @@ function fixture(
     ...(options.session
       ? {
           mode: "session",
+          stoppedBeat: options.stoppedBeat ?? startBeat,
           sourceEvidence: "expected-context-only",
           source: {
             mode: "session",
@@ -123,7 +125,7 @@ function fixture(
   const row = (counter: number, playing: boolean, shift = 0): Row => {
     const beat = playing
       ? startBeat + (counter - origin) / samplesPerBeat
-      : startBeat;
+      : (options.stoppedBeat ?? startBeat);
     const sample = counter + offset + shift;
     return [
       Number(playing) as 0 | 1,
@@ -339,10 +341,10 @@ function observationFixture(
         unit: "beats",
         iteration: 0,
         startBeat: 0,
-        endBeat: g.endBeat,
+        endBeat: g.endBeat - g.startBeat,
       },
-      transport: { startBeat: 0, endBeat: g.endBeat },
-      clipStartTimeBeats: 0,
+      transport: { startBeat: g.startBeat, endBeat: g.endBeat },
+      clipStartTimeBeats: g.startBeat,
       synchronization: "transport-coupled-first-iteration",
     };
   return { ...f, observation };
@@ -1576,9 +1578,81 @@ describe("frozen metric configuration and expected ownership", () => {
       false,
     );
   });
-  it("keeps Session stopped beat0 admission distinct from Arrangement", () => {
-    expect(() => fixture({ session: true, startBeat: 5.13 })).toThrow();
+  it("pins the nonzero stopped clock separately from Live's zero Session launch origin", () => {
+    const f = fixture({
+      session: true,
+      startBeat: 0,
+      stoppedBeat: 2.059377861721612,
+    });
+    expect(() =>
+      assertNativeMetricSourceCoverage(f.proof, f.expected),
+    ).not.toThrow();
+    const changed = structuredClone(f.proof);
+    if (changed.armed.config.mode !== "session")
+      throw new Error("Expected Session");
+    changed.armed.config.stoppedBeat = 0;
+    expect(() =>
+      assertNativeMetricSourceCoverage(changed, f.expected),
+    ).toThrow();
+    const regressed = structuredClone(f.proof);
+    regressed.after.frames[1]![1] = regressed.after.frames[0]![1] - 0.1;
+    regressed.after.frames[1]![8] = regressed.after.frames[1]![1];
+    expect(() =>
+      assertNativeMetricSourceCoverage(regressed, f.expected),
+    ).toThrow();
+  });
+
+  it("supports nonzero host origins without substituting Arrangement mode", () => {
+    expect(
+      fixture({ session: true, startBeat: 5.13 }).expected.config.mode,
+    ).toBe("session");
     expect(() => fixture({ session: false, startBeat: 5.13 })).not.toThrow();
+  });
+  it.each([2.0593777777777778, 5.13])(
+    "verifies native Session proofs at the nonzero stopped anchor %s",
+    (startBeat) => {
+      const f = fixture({ session: true, startBeat });
+      expect(() =>
+        assertNativeMetricSourceCoverage(f.proof, f.expected),
+      ).not.toThrow();
+      expect(f.expected.config.geometry.startBeat).toBe(startBeat);
+      expect(f.expected.config.geometry.startSample).toBe(0);
+    },
+  );
+  it("keeps clip-local duration separate from the nonzero global/native grid", () => {
+    const f = observationFixture({
+      session: true,
+      startBeat: 2.059377861721612,
+      total: 90_000,
+    });
+    const config = nativeMetricListeningConfigSchema.parse({
+      ...f.expected.config,
+      sourceContext: f.observation.source,
+    });
+    expect(config.geometry.totalSamples).toBe(90_000);
+    expect(
+      metricAudioObservationSchema.parse(f.observation).source,
+    ).toMatchObject({
+      coordinate: { startBeat: 0, endBeat: 4 },
+      transport: { startBeat: 2.059377861721612, endBeat: 6.059377861721612 },
+      clipStartTimeBeats: 2.059377861721612,
+    });
+    const source = structuredClone(f.observation.source);
+    if (source.view !== "session")
+      throw new Error("Session test source expected");
+    source.coordinate.endBeat = config.geometry.endBeat;
+    expect(() =>
+      nativeMetricListeningConfigSchema.parse({
+        ...config,
+        sourceContext: source,
+      }),
+    ).toThrow();
+    expect(
+      metricAudioObservationSchema.safeParse({
+        ...f.observation,
+        source,
+      }).success,
+    ).toBe(false);
   });
   it("does not weaken the existing legacy source verifier or its100ms minimum", () => {
     const legacy = createSyntheticNativeListeningFixtureV2();

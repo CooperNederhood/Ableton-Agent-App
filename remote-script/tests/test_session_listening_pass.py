@@ -182,6 +182,66 @@ class SessionListeningPassTest(unittest.TestCase):
                 self.assertTrue(self.song.is_playing)
                 self.assert_no_monitors()
 
+    def test_stopped_remembered_clip_one_bar_launch_keeps_nonzero_transport(self):
+        for clip_quantization in (0, 5):
+            with self.subTest(clip_quantization=clip_quantization):
+                self.setUp()
+                anchor = 2.059377861721612
+                self.song.current_song_time = anchor
+                self.params["timingAnchor"]["globalBeat"] = anchor
+                self.clip.launch_quantization = clip_quantization
+                self.clip.is_playing = True
+                self.clip.start_time = 0.0
+                self.track.playing_slot_index = 0
+                self.assertEqual(self.call()["status"], "prepared")
+                self.assertEqual(self.song.current_song_time, anchor)
+                self.assertEqual(self.clip.launch_quantization, clip_quantization)
+                # The host resets its timeline as part of the one Clip.fire.
+                def start_from_zero():
+                    self.fires += 1
+                    self.song.current_song_time = 0
+                    self.song.change("is_playing", True)
+                self.clip.fire = start_from_zero
+                self.launch()
+                self.tick()
+                self.assertEqual(self.errors, [])
+                self.assertEqual(self.fires, 1)
+                self.assertEqual(self.results[0]["sourceEpoch"]["startTimeBeats"], 0)
+                self.call("release", reason="completed")
+                self.assertTrue(self.song.is_playing)
+                self.assertEqual(self.song.clip_trigger_quantization, 4)
+                self.assertEqual(self.clip.launch_quantization, clip_quantization)
+                self.assert_no_monitors()
+
+    def test_remembered_clip_requires_matching_slot_and_stable_read_brackets(self):
+        self.clip.is_playing = True
+        self.assert_denied()
+        self.setUp()
+        self.clip.is_playing = True
+        self.track.playing_slot_index = 0
+
+        def changed_bracket(context, params):
+            evidence = source_module.inspect_session_listening_source(context, params)
+            evidence["before"]["targetPlaying"] = False
+            return evidence
+
+        with patch("AbletonAgent.session_listening_pass.inspect_session_listening_source",
+                   side_effect=changed_bracket):
+            self.assert_denied()
+
+    def test_explicit_one_bar_uses_its_own_quantization_without_changing_global_none(self):
+        self.song.clip_trigger_quantization = 0
+        self.clip.launch_quantization = 5
+        self.call()
+        self.launch()
+        self.activate()
+        self.tick()
+        self.assertEqual(self.results[0]["sourceEpoch"]["startTimeBeats"], 16)
+        self.assertEqual(self.song.clip_trigger_quantization, 0)
+        self.assertEqual(self.clip.launch_quantization, 5)
+        self.call("release", reason="completed")
+        self.assert_no_monitors()
+
     def test_denies_unsafe_or_unknown_settings_without_fire(self):
         for obj, field, value in (
             ("song", "is_playing", True), ("song", "record_mode", True),
@@ -190,7 +250,7 @@ class SessionListeningPassTest(unittest.TestCase):
             ("song", "tempo", None), ("song", "tempo", 1.0),
             ("song", "current_song_time", None), ("song", "signature_denominator", None),
             ("song", "signature_numerator", 3), ("song", "clip_trigger_quantization", 5),
-            ("clip", "launch_quantization", 4), ("clip", "launch_quantization", 5),
+            ("clip", "launch_quantization", 4), ("clip", "launch_quantization", 2),
             ("clip", "legato", True),
             ("clip", "start_marker", 1), ("clip", "loop_start", 1),
             ("clip", "loop_end", 3),
@@ -689,7 +749,7 @@ class SessionListeningPassTest(unittest.TestCase):
         self.clip.start_time = None
         self.assert_denied()
 
-    def test_public_global_enum_admits_shifted_native_value_but_raw_one_bar_does_not(self):
+    def test_public_global_and_one_bar_enums_admit_shifted_native_values(self):
         enum = source_fixtures.native_launch_enum(q_global=5, q_bar=0)
         with patch.object(source_module, "ClipLaunchQuantization", enum):
             self.clip.launch_quantization = 5
@@ -698,7 +758,8 @@ class SessionListeningPassTest(unittest.TestCase):
         self.setUp()
         with patch.object(source_module, "ClipLaunchQuantization", enum):
             self.clip.launch_quantization = 0
-            self.assert_denied()
+            self.assertEqual(self.call()["status"], "prepared")
+            self.call("release", reason="cancelled")
         self.setUp()
         with patch.object(source_module, "ClipLaunchQuantization", None):
             self.assert_denied()

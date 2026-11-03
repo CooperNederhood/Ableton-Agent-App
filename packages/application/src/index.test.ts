@@ -1137,6 +1137,206 @@ describe("HeadlessApplication", () => {
     await expect(
       compound.inspectSessionListeningPreflight(params),
     ).rejects.toThrow("recording unavailable");
+
+    const midiSource = inspectSessionListeningSourceResultSchema.parse({
+      ...result,
+      sourceKind: "midi",
+      positionUnit: "beats",
+    });
+    inspectSessionListeningSource.mockResolvedValue(midiSource);
+    const midi = {
+      clip: {
+        reference: params.target.expectedClipReference,
+        trackReference: params.target.track.expectedReference,
+        trackIndex: params.target.track.index,
+        sceneIndex: params.target.sceneIndex,
+        name: params.target.expectedClipName,
+        length: 4,
+        noteCount: 1,
+      },
+      notes: [
+        { pitch: 69, startTime: 0, duration: 0.25, velocity: 100, mute: false },
+      ],
+      totalNotes: 1,
+      offset: 0,
+      limit: 2048,
+      truncated: false,
+    };
+    const inspectMidiNotes = vi
+      .fn<AbletonService["inspectMidiNotes"]>()
+      .mockResolvedValue(midi);
+    const device = {
+      reference: "00000000-0000-4000-8000-000000000054",
+      trackReference: params.target.track.expectedReference,
+      trackIndex: params.target.track.index,
+      index: 0,
+      name: "Instrument",
+      className: "Operator",
+      classDisplayName: "Operator",
+      enabled: true,
+      parameterCount: 1,
+      canHaveChains: false,
+      canHaveDrumPads: false,
+    };
+    const inventory = { devices: [device], total: 1, offset: 0, limit: 8 };
+    const parameterInspection = {
+      device,
+      parameters: [
+        {
+          reference: "00000000-0000-4000-8000-000000000055",
+          deviceReference: device.reference,
+          index: 0,
+          name: "Level",
+          value: 0.5,
+          normalizedValue: 0.5,
+          min: 0,
+          max: 1,
+          isEnabled: true,
+          isQuantized: false,
+          valueItemCount: 0,
+        },
+      ],
+      offset: 0,
+      limit: 256,
+      total: 1,
+    };
+    const inspectDevices = vi
+      .fn<AbletonService["inspectDevices"]>()
+      .mockResolvedValue(inventory);
+    const inspectDeviceParameters = vi
+      .fn<AbletonService["inspectDeviceParameters"]>()
+      .mockResolvedValue(parameterInspection);
+    const midiApp = new HeadlessApplication({
+      ...deps,
+      ableton: {
+        ...withoutAudio,
+        inspectSessionListeningSource,
+        inspectMidiNotes,
+        inspectDevices,
+        inspectDeviceParameters,
+        executeRecordingOperation,
+      },
+    });
+    await expect(
+      midiApp.inspectSessionListeningPreflight(params),
+    ).resolves.toEqual({
+      source: midiSource,
+      midi,
+      recording,
+      instrumentChain: {
+        before: inventory,
+        devices: [parameterInspection],
+        after: inventory,
+      },
+    });
+    expect(inspectDevices).toHaveBeenCalledTimes(2);
+    expect(inspectDevices).toHaveBeenCalledWith({
+      index: params.target.track.index,
+      expectedReference: params.target.track.expectedReference,
+      expectedName: params.target.track.expectedName,
+      offset: 0,
+      limit: 8,
+    });
+    expect(inspectDeviceParameters).toHaveBeenCalledExactlyOnceWith({
+      index: params.target.track.index,
+      expectedReference: params.target.track.expectedReference,
+      expectedName: params.target.track.expectedName,
+      deviceIndex: 0,
+      expectedDeviceReference: device.reference,
+      expectedDeviceName: device.name,
+      offset: 0,
+      limit: 256,
+    });
+    expect(inspectMidiNotes).toHaveBeenCalledExactlyOnceWith({
+      index: params.target.track.index,
+      expectedReference: params.target.track.expectedReference,
+      expectedName: params.target.track.expectedName,
+      sceneIndex: params.target.sceneIndex,
+      expectedClipReference: params.target.expectedClipReference,
+      offset: 0,
+      limit: 2048,
+    });
+    for (const patch of [
+      { reference: "00000000-0000-4000-8000-000000000099" },
+      { trackReference: "00000000-0000-4000-8000-000000000099" },
+      { trackIndex: 1 },
+      { sceneIndex: 1 },
+      { name: "Other clip" },
+      { noteCount: 2 },
+    ]) {
+      inspectMidiNotes.mockResolvedValueOnce({
+        ...midi,
+        clip: { ...midi.clip, ...patch },
+      });
+      await expect(
+        midiApp.inspectSessionListeningPreflight(params),
+      ).rejects.toThrow();
+    }
+    for (const patch of [
+      { truncated: true },
+      { offset: 1 },
+      { totalNotes: 2 },
+      { notes: [] },
+    ]) {
+      inspectMidiNotes.mockResolvedValueOnce({ ...midi, ...patch });
+      await expect(
+        midiApp.inspectSessionListeningPreflight(params),
+      ).rejects.toThrow();
+    }
+    const recordingReads = executeRecordingOperation.mock.calls.length;
+    inspectMidiNotes.mockRejectedValueOnce(new Error("MIDI read cancelled"));
+    await expect(
+      midiApp.inspectSessionListeningPreflight(params),
+    ).rejects.toThrow("MIDI read cancelled");
+    expect(executeRecordingOperation).toHaveBeenCalledTimes(recordingReads);
+    expect(executeAudioClipsOperation).toHaveBeenCalledTimes(audioReads + 1);
+    for (const change of [
+      { total: 2 },
+      { offset: 1 },
+      { devices: [{ ...device, trackIndex: 1 }] },
+      { devices: [{ ...device, canHaveChains: true }] },
+      { devices: [{ ...device, parameterCount: 257 }] },
+    ]) {
+      const parameterReads = inspectDeviceParameters.mock.calls.length;
+      inspectDevices.mockResolvedValueOnce({ ...inventory, ...change });
+      await expect(
+        midiApp.inspectSessionListeningPreflight(params),
+      ).rejects.toThrow();
+      expect(inspectDeviceParameters).toHaveBeenCalledTimes(parameterReads);
+    }
+    inspectDeviceParameters.mockResolvedValueOnce({
+      ...parameterInspection,
+      parameters: [],
+    });
+    await expect(
+      midiApp.inspectSessionListeningPreflight(params),
+    ).rejects.toThrow("complete parameters");
+    inspectDevices.mockResolvedValueOnce(inventory).mockResolvedValueOnce({
+      ...inventory,
+      devices: [{ ...device, enabled: false }],
+    });
+    await expect(
+      midiApp.inspectSessionListeningPreflight(params),
+    ).rejects.toThrow("inventory changed");
+    const deviceReads = inspectDevices.mock.calls.length;
+    const recordingReadsBeforeCancellation =
+      executeRecordingOperation.mock.calls.length;
+    inspectDeviceParameters.mockRejectedValueOnce(
+      new Error("device parameter read cancelled"),
+    );
+    await expect(
+      midiApp.inspectSessionListeningPreflight(params),
+    ).rejects.toThrow("device parameter read cancelled");
+    expect(inspectDevices).toHaveBeenCalledTimes(deviceReads + 1);
+    expect(executeRecordingOperation).toHaveBeenCalledTimes(
+      recordingReadsBeforeCancellation,
+    );
+    inspectDevices.mockRejectedValueOnce(
+      new Error("device inventory unavailable"),
+    );
+    await expect(
+      midiApp.inspectSessionListeningPreflight(params),
+    ).rejects.toThrow("device inventory unavailable");
   });
 
   it("starts services and publishes lifecycle in order", async () => {

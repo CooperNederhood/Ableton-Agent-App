@@ -1,5 +1,17 @@
 # Desktop Application Implementation To-Do
 
+- [x] Carry MIDI flat-device inventories and complete exposed parameter pages
+      through the existing preflight IPC; verify rejection and real
+      Electron/simulator per-request History ordering and correlation.
+
+- [x] Support complete bounded MIDI note content in the existing targeted
+      listening preflight IPC, without a generic command dispatcher or audio
+      placeholders. Cover application rejection/cancellation, trusted main
+      routing, preload validation and session trace attribution. Exercise the
+      production Electron/main/preload/bridge path against an owned simulator,
+      requiring unchanged source state and ordered typed History evidence.
+      Instrument-chain and real capture qualification remain pending for #81.
+
 Companion specification: [Desktop Application](desktop-application.md)
 
 ## Electron shell

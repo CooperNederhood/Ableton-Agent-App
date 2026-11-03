@@ -1,5 +1,22 @@
 # IPC Protocol Implementation To-Do
 
+- [x] Require Session native `stoppedBeat` independently of capture geometry;
+      pin ready/arm clocks and permit only the initial host-owned zero-origin
+      launch reset. Cover mismatched pins and subsequent regression, preserve
+      actual source/native origin matching, and qualify the supplied audio/MIDI
+      stopped-One-Bar cases on Live 11.3.43 with terminal cleanup.
+
+- [x] Add bounded flat-device/parameter evidence to MIDI preflight with
+      before/after inventories, exact track/device ownership, complete pages,
+      unique references and contiguous indexes. Reject oversized/nested chains
+      without inventing parameter, preset-state or native-timing authority.
+
+- [x] Add shared typed audio/MIDI Session preflight results for #81, using
+      existing source, MIDI-note and recording reads. Reject foreign targets,
+      incomplete note pages, count mismatches and mixed/invented evidence;
+      preserve message-rate/native-unverified limitations and traced reads.
+      This does not qualify MIDI rendering or quantized launch support.
+
 Companion specification: [IPC Protocol](ipc-protocol.md)
 
 ## Schema design

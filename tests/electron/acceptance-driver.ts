@@ -12,12 +12,15 @@ import { automationDiscoveryDescriptorSchema } from "@ableton-agent/debug-contro
 import { resolveLiveAgentStorage } from "@ableton-agent/storage";
 import {
   metricAudioObservationSchema,
+  sessionListeningPreflightResultSchema,
   type InspectSessionListeningSourceParams,
   type MetricAudioObservation,
 } from "@ableton-agent/protocol";
 import type {
   AcceptanceDriver,
-  AudioSourceEvidence,
+  SessionSourceEvidence,
+  ListenerPlacement,
+  SourceIdentity,
   BaselineEvidence,
   CaptureEvidence,
   ContextEvidence,
@@ -33,8 +36,13 @@ import type {
   TurnSubscription,
 } from "@ableton-agent/test-support/integration";
 import {
-  validateSupportedAudioBaseline,
-  validateAudioBaselineEvidence,
+  validateSupportedSessionBaseline,
+  declaredSourceBaseline,
+  sessionClipQuantizationName,
+  validateBaseline,
+  validateFixtureSourceEvidence,
+  validateMidiSourcePreconditions,
+  midiContentIdentity,
   verifyStagedMedia,
   isFixtureMediaTarget,
 } from "@ableton-agent/test-support/integration";
@@ -68,8 +76,12 @@ import {
   sessionStructureFingerprint,
   unrelatedPlaybackFingerprint,
   sourceStoppedAtZero,
+  sourceStoppedAtPosition,
 } from "./acceptance-source.js";
-import { captureCleanupConfirmed } from "./acceptance-evidence.js";
+import {
+  captureCleanupConfirmed,
+  observedSessionSource,
+} from "./acceptance-evidence.js";
 import { ScopedApprovalPolicy } from "./acceptance-approvals.js";
 
 function hash(value: unknown): string {
@@ -77,10 +89,19 @@ function hash(value: unknown): string {
 }
 function sourceFingerprint(
   preflight: DesktopSessionListeningPreflight,
+  listener?: ListenerPlacement,
 ): string {
   return hash({
+    sourceKind: preflight.source.sourceKind,
+    positionUnit: preflight.source.positionUnit,
     settings: preflight.source.settings,
-    audio: preflight.audio,
+    content:
+      "audio" in preflight
+        ? preflight.audio
+        : midiContentIdentity(
+            preflight,
+            required(listener, "MIDI listener placement"),
+          ),
     recording: preflight.recording.state,
     targetRecording: preflight.source.after.targetRecording,
   });
@@ -141,6 +162,7 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
   readonly capabilities = [
     "automation",
     "session-audio",
+    "session-midi",
     "persistence",
   ] as const;
   readonly #live = new LiveProcessController();
@@ -172,7 +194,7 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
   #ownedRunId: string | undefined;
   #approvalPolicy: ScopedApprovalPolicy | undefined;
   #identity: SessionIdentity | undefined;
-  #sources: Record<string, AudioSourceEvidence> = {};
+  #sources: Record<string, SessionSourceEvidence> = {};
   #targets = new Map<string, InspectSessionListeningSourceParams>();
   #snapshot: DesktopLiveSetSnapshot | undefined;
   #sourceSettingsHashes = new Map<string, string>();
@@ -297,8 +319,24 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
     this.#approvalPolicy = new ScopedApprovalPolicy(
       context.scenario.permissions,
     );
-    if (context.scenario.requiredCapabilities.includes("session-audio"))
-      validateSupportedAudioBaseline(context.fixture.baseline);
+    if (
+      context.scenario.requiredCapabilities.some(
+        (kind) => kind === "session-audio" || kind === "session-midi",
+      )
+    ) {
+      if (!context.fixture.sources?.length)
+        validateSupportedSessionBaseline(
+          context.fixture.baseline,
+          context.scenario.requiredCapabilities.includes("session-midi")
+            ? "midi"
+            : "audio",
+        );
+      for (const definition of context.fixture.sources ?? [])
+        validateSupportedSessionBaseline(
+          declaredSourceBaseline(context.fixture, definition),
+          "mediaTarget" in definition ? "audio" : "midi",
+        );
+    }
     await this.#live.assertNoPreExistingLive();
     this.#executable = await packagedExecutable(
       this.options.executablePath
@@ -589,7 +627,7 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
     const snapshot = await this.#getPage().evaluate(() =>
       window.desktop.ableton.requestSnapshot(),
     );
-    this.#snapshot = snapshot;
+    this.#snapshot = structuredClone(snapshot);
     if (context.fixture.listenerBindings?.length) {
       for (const binding of context.fixture.listenerBindings) {
         const device = snapshot.devices?.find(
@@ -618,7 +656,11 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
       throw new Error(
         "Fresh acceptance profile contains an unexpected listening pass",
       );
-    if (!context.scenario.requiredCapabilities.includes("session-audio")) {
+    if (
+      !context.scenario.requiredCapabilities.some(
+        (kind) => kind === "session-audio" || kind === "session-midi",
+      )
+    ) {
       return {
         schemaVersion: 1,
         facts: {
@@ -630,7 +672,8 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
       };
     }
     if (!context.fixture.sources?.length)
-      throw new Error("Session audio fixture requires declared sources");
+      throw new Error("Session fixture requires declared sources");
+    sessionStructureFingerprint(snapshot);
     for (const definition of context.fixture.sources)
       this.#sources[definition.id] = await this.#admitSource(
         context,
@@ -643,7 +686,7 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
       sources: this.#sources,
       dependencyHashes: this.#dependencies,
     };
-    validateAudioBaselineEvidence(evidence);
+    validateBaseline(evidence);
     return evidence;
   }
 
@@ -651,21 +694,52 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
     context: DriverContext,
     snapshot: DesktopLiveSetSnapshot,
     definition: NonNullable<FixtureManifest["sources"]>[number],
-  ): Promise<AudioSourceEvidence> {
-    const target = resolveSessionSource(snapshot, definition);
-    this.#preflightTraces.add(target.queryId);
-    const preflight = await this.#getPage().evaluate(
-      (request) =>
-        window.desktop.ableton.inspectSessionListeningPreflight(request),
-      target,
+  ): Promise<SessionSourceEvidence> {
+    const target = resolveSessionSource(
+      snapshot,
+      "mediaTarget" in definition
+        ? { ...definition, kind: "audio" }
+        : { ...definition, kind: "midi" },
     );
-    const { source, audio, recording } = preflight;
+    this.#preflightTraces.add(target.queryId);
+    const preflight = sessionListeningPreflightResultSchema.parse(
+      await this.#getPage().evaluate(
+        (request) =>
+          window.desktop.ableton.inspectSessionListeningPreflight(request),
+        target,
+      ),
+    );
     if (
-      !audio.filePath ||
-      audio.sampleRate === null ||
-      audio.sampleRate <= 0 ||
-      audio.sampleLength === null ||
-      audio.sampleLength <= 0
+      preflight.source.queryId !== target.queryId ||
+      "mediaTarget" in definition !== "audio" in preflight ||
+      hash(preflight.source.target) !== hash(target.target)
+    )
+      throw new Error("Fixture source kind or target differs from preflight");
+    const { source, recording } = preflight;
+    const expectedBeat = context.fixture.baseline.currentSongTime;
+    const expectedRemembered =
+      context.fixture.baseline.rememberedSessionClips ??
+      context.fixture.baseline.playingSessionClips;
+    if (
+      typeof expectedBeat !== "number" ||
+      !sourceStoppedAtPosition(
+        source,
+        expectedBeat,
+        typeof expectedRemembered === "number" && expectedRemembered > 0
+          ? target.target.sceneIndex
+          : undefined,
+      )
+    )
+      throw new Error(
+        `Blocked source precondition: ${definition.id}.stoppedPosition`,
+      );
+    if (
+      "audio" in preflight &&
+      (!preflight.audio.filePath ||
+        preflight.audio.sampleRate === null ||
+        preflight.audio.sampleRate <= 0 ||
+        preflight.audio.sampleLength === null ||
+        preflight.audio.sampleLength <= 0)
     )
       throw new Error("Loaded audio path and sample metadata are required");
     if (
@@ -704,30 +778,85 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
       throw new Error(
         "Fixture requires one independently bound audio listener",
       );
-    const media = context.fixture.resources.find(
-      (resource) =>
-        resource.target === definition.mediaTarget &&
-        isFixtureMediaTarget(resource.target),
-    );
-    if (!media) throw new Error("Session source requires declared media");
-    if (
-      resolve(audio.filePath) !==
-      resolve(
-        required(context.stagedFixture, "staged fixture").workingDirectory,
-        definition.mediaTarget,
-      )
-    )
-      throw new Error(
-        "Loaded source path differs from its declared media target",
+    let identity: SourceIdentity;
+    let listenerPlacement: ListenerPlacement | undefined;
+    if ("mediaTarget" in definition && "audio" in preflight) {
+      const audio = preflight.audio;
+      const media = context.fixture.resources.find(
+        (resource) =>
+          resource.target === definition.mediaTarget &&
+          isFixtureMediaTarget(resource.target),
       );
+      if (!media) throw new Error("Session source requires declared media");
+      if (
+        resolve(required(audio.filePath ?? undefined, "audio path")) !==
+        resolve(
+          required(context.stagedFixture, "staged fixture").workingDirectory,
+          definition.mediaTarget,
+        )
+      )
+        throw new Error(
+          "Loaded source path differs from its declared media target",
+        );
+      const mediaSha256 = await verifyStagedMedia(
+        required(context.stagedFixture, "staged fixture"),
+        required(audio.filePath ?? undefined, "audio path"),
+        media.sha256,
+        context.signal,
+      );
+      identity = {
+        trackId: target.target.track.expectedReference,
+        clipId: target.target.expectedClipReference,
+        slotIndex: target.target.sceneIndex,
+        mediaSha256,
+      };
+    } else if ("midi" in definition && "midi" in preflight) {
+      const binding = context.fixture.listenerBindings?.find(
+        (entry) => entry.slot === definition.listenerBindingSlot,
+      );
+      const device = snapshot.devices?.find(
+        (entry) =>
+          entry.trackIndex === binding?.trackIndex &&
+          entry.index === binding?.deviceIndex,
+      );
+      const producerDevice = listeners[0]!.device;
+      const nativeSlotMatches = snapshot.devices?.filter(
+        (entry) =>
+          entry.trackIndex === binding?.trackIndex &&
+          entry.className === "MxDeviceAudioEffect" &&
+          entry.name === producerDevice?.name,
+      );
+      // Max IDs and Remote Script UUIDs are distinct namespaces. A native ID
+      // uses the same reviewed-slot binding as audio, with unique placement.
+      const nativeSlotBound =
+        /^[1-9][0-9]{0,15}$/u.test(producerDevice?.id ?? "") &&
+        nativeSlotMatches?.length === 1 &&
+        nativeSlotMatches[0]!.id === device?.id;
+      if (
+        !binding ||
+        !device ||
+        (producerDevice?.id !== device.id && !nativeSlotBound)
+      )
+        throw new Error(
+          "MIDI listener requires exact independently observed device identity",
+        );
+      listenerPlacement = {
+        trackIndex: binding.trackIndex,
+        deviceIndex: binding.deviceIndex,
+        deviceReference: device.id,
+      };
+      identity = {
+        trackId: target.target.track.expectedReference,
+        clipId: target.target.expectedClipReference,
+        slotIndex: target.target.sceneIndex,
+        ...midiContentIdentity(preflight, listenerPlacement),
+      };
+    } else throw new Error("Fixture source kind mismatch");
     this.#targets.set(definition.id, target);
-    const mediaSha256 = await verifyStagedMedia(
-      required(context.stagedFixture, "staged fixture"),
-      audio.filePath,
-      media.sha256,
-      context.signal,
+    this.#sourceSettingsHashes.set(
+      definition.id,
+      sourceFingerprint(preflight, listenerPlacement),
     );
-    this.#sourceSettingsHashes.set(definition.id, sourceFingerprint(preflight));
     const listener = listeners[0]!;
     this.#listenerIdentities.set(
       definition.id,
@@ -739,12 +868,6 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
         device: listener.device,
       }),
     );
-    const identity = {
-      trackId: target.target.track.expectedReference,
-      clipId: target.target.expectedClipReference,
-      slotIndex: target.target.sceneIndex,
-      mediaSha256,
-    };
     let followActionsEnabled = source.settings.followActionEnabled;
     let followActionEvidence = "live-api";
     if (followActionsEnabled === null) {
@@ -761,18 +884,28 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
     const observed: Facts = {
       ...this.#provenance,
       trackName: target.target.track.expectedName,
+      trackIndex: target.target.track.index,
       clipName: target.target.expectedClipName,
       sceneIndex: target.target.sceneIndex,
       tempo: source.settings.tempoBpm,
       globalQuantization:
-        source.settings.globalQuantization === 0 ? "none" : "unsupported",
-      clipLaunchQuantization:
-        source.settings.launchQuantization === 0 ? "global" : "unsupported",
+        source.settings.globalQuantization === 0
+          ? "none"
+          : source.settings.globalQuantization === 4
+            ? "bar"
+            : "unsupported",
+      clipLaunchQuantization: sessionClipQuantizationName(
+        source.settings.launchQuantization,
+      ),
       transportPlaying: source.after.transportPlaying,
       currentSongTime: source.after.globalBeat,
       playingSessionClips: snapshot.sessionClips!.filter(
         (clip) => clip.status === "playing",
       ).length,
+      rememberedSessionClips: source.after.transportPlaying
+        ? 0
+        : snapshot.sessionClips!.filter((clip) => clip.status === "playing")
+            .length,
       queuedSessionClips: snapshot.sessionClips!.filter(
         (clip) => clip.status === "queued",
       ).length,
@@ -782,8 +915,12 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
         recording.state.sessionRecord,
       arrangementRecord: recording.state.arrangementRecord,
       sessionRecord: recording.state.sessionRecord,
-      mediaSampleRate: audio.sampleRate,
-      mediaFrames: audio.sampleLength,
+      ...("audio" in preflight
+        ? {
+            mediaSampleRate: preflight.audio.sampleRate,
+            mediaFrames: preflight.audio.sampleLength,
+          }
+        : {}),
       sourceQueryId: target.queryId,
       signatureNumerator: source.settings.signatureNumerator,
       signatureDenominator: source.settings.signatureDenominator,
@@ -800,15 +937,91 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
       followActionEvidence,
       listenerBoundToSource: true,
     };
-    for (const [key, expected] of Object.entries(context.fixture.baseline))
+    for (const [key, expected] of Object.entries(
+      declaredSourceBaseline(context.fixture, definition),
+    ))
       if (!Object.hasOwn(observed, key) || observed[key] !== expected)
         throw new Error(`Blocked source precondition: ${definition.id}.${key}`);
-    return {
-      loadedMediaPath: audio.filePath,
-      facts: observed,
-      source: identity,
-      listenerId: listener.producerId,
-    };
+    if (observed.rememberedSessionClips !== expectedRemembered)
+      throw new Error(
+        "Blocked source precondition: undeclared remembered Session clips",
+      );
+    validateSupportedSessionBaseline(
+      observed,
+      "audio" in preflight ? "audio" : "midi",
+    );
+    const evidence: SessionSourceEvidence =
+      "audio" in preflight && "mediaSha256" in identity
+        ? {
+            loadedMediaPath: required(
+              preflight.audio.filePath ?? undefined,
+              "audio path",
+            ),
+            facts: observed,
+            source: identity,
+            listenerId: listener.producerId,
+          }
+        : "midi" in preflight && "midiNotesSha256" in identity
+          ? {
+              midi: preflight,
+              listenerPlacement: required(
+                listenerPlacement,
+                "MIDI listener placement",
+              ),
+              facts: observed,
+              source: identity,
+              listenerId: listener.producerId,
+            }
+          : (() => {
+              throw new Error("Source evidence kind mismatch");
+            })();
+    validateFixtureSourceEvidence(context.fixture, definition, evidence);
+    validateMidiSourcePreconditions(context.fixture, evidence);
+    return evidence;
+  }
+
+  async #verifySourceContent(
+    context: DriverContext,
+    id: string,
+    input: DesktopSessionListeningPreflight,
+    queryId: string,
+  ): Promise<string> {
+    const preflight = sessionListeningPreflightResultSchema.parse(input);
+    const evidence = required(this.#sources[id], "source");
+    const target = required(this.#targets.get(id), "source target");
+    if (
+      preflight.source.queryId !== queryId ||
+      hash(preflight.source.target) !== hash(target.target)
+    )
+      throw new Error("Protected source target changed");
+    if ("loadedMediaPath" in evidence) {
+      if (
+        !("audio" in preflight) ||
+        preflight.audio.filePath !== evidence.loadedMediaPath
+      )
+        throw new Error("Loaded source media path or kind changed");
+      await verifyStagedMedia(
+        required(context.stagedFixture, "staged fixture"),
+        evidence.loadedMediaPath,
+        evidence.source.mediaSha256,
+        context.signal,
+      );
+    } else {
+      if (!("midi" in preflight))
+        throw new Error("MIDI fixture source kind changed");
+      validateFixtureSourceEvidence(
+        context.fixture,
+        required(
+          context.fixture.sources?.find((entry) => entry.id === id),
+          "source declaration",
+        ),
+        { ...evidence, midi: preflight },
+      );
+    }
+    return sourceFingerprint(
+      preflight,
+      "midi" in evidence ? evidence.listenerPlacement : undefined,
+    );
   }
 
   async subscribe(): Promise<TurnSubscription> {
@@ -856,6 +1069,13 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
     let stoppedZero = snapshot.sessionClips!.every(
       (clip) => clip.status !== "playing" && clip.status !== "queued",
     );
+    const remembered =
+      context.fixture.baseline.rememberedSessionClips ??
+      context.fixture.baseline.playingSessionClips;
+    let stoppedDeclared =
+      snapshot.sessionClips!.filter((clip) => clip.status === "playing")
+        .length === remembered &&
+      snapshot.sessionClips!.every((clip) => clip.status !== "queued");
     for (const [id, source] of Object.entries(this.#sources)) {
       const connections = outputs.connections.filter(
         (connection) =>
@@ -886,25 +1106,33 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
           window.desktop.ableton.inspectSessionListeningPreflight(request),
         request,
       );
-      if (preflight.audio.filePath !== source.loadedMediaPath)
-        throw new Error("Loaded source media path changed");
-      if (sourceFingerprint(preflight) !== this.#sourceSettingsHashes.get(id))
+      if (
+        (await this.#verifySourceContent(
+          context,
+          id,
+          preflight,
+          request.queryId,
+        )) !== this.#sourceSettingsHashes.get(id)
+      )
         throw new Error("Protected source settings changed");
-      if (!preflight.audio.filePath)
-        throw new Error("Loaded media path disappeared");
-      await verifyStagedMedia(
-        required(context.stagedFixture, "staged fixture"),
-        preflight.audio.filePath,
-        source.source.mediaSha256,
-        context.signal,
-      );
       stoppedZero &&=
         sourceStoppedAtZero(preflight.source) &&
         preflight.recording.state.arrangementRecord === false &&
         preflight.recording.state.sessionRecord === false;
+      stoppedDeclared &&=
+        typeof context.fixture.baseline.currentSongTime === "number" &&
+        sourceStoppedAtPosition(
+          preflight.source,
+          context.fixture.baseline.currentSongTime,
+          typeof remembered === "number" && remembered > 0
+            ? request.target.sceneIndex
+            : undefined,
+        ) &&
+        preflight.recording.state.arrangementRecord === false &&
+        preflight.recording.state.sessionRecord === false;
     }
     context.signal.throwIfAborted();
-    return { ...facts, stoppedZero };
+    return { ...facts, stoppedZero, stoppedDeclared };
   }
 
   async submit(
@@ -916,9 +1144,17 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
       if (!step.sourceId || !this.#sources[step.sourceId])
         throw new Error("Capture turn requires an admitted source");
       const state = await this.#verifyWorld(context);
-      if (state.stoppedZero !== true)
+      const originalBaseline =
+        context.fixture.baseline.currentSongTime === 0 &&
+        (context.fixture.baseline.rememberedSessionClips ??
+          context.fixture.baseline.playingSessionClips) === 0;
+      if (
+        (originalBaseline ? state.stoppedZero : state.stoppedDeclared) !== true
+      )
         throw new Error(
-          "Capture requires the explicit stopped-zero transition",
+          originalBaseline
+            ? "Capture requires the explicit stopped-zero transition"
+            : "Capture requires the declared stopped transport and remembered clip state",
         );
     }
     const identity = required(this.#identity, "session identity");
@@ -991,7 +1227,8 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
     const observation = metricAudioObservationSchema.parse(detail.observation);
     if (
       observation.source.view !== "session" ||
-      observation.source.kind !== "warped-audio"
+      (observation.source.kind !== "warped-audio" &&
+        observation.source.kind !== "midi")
     )
       throw new Error("Expected persisted Session source evidence");
     if (
@@ -1001,17 +1238,11 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
       observation.ownership.correlationId !== trace.correlationId
     )
       throw new Error("Context entry and observation ownership differ");
-    const observedSource = observation.source;
-    const source = Object.values(this.#sources).find(
-      (candidate) =>
-        candidate.source.trackId ===
-          observedSource.target.track.expectedReference &&
-        candidate.source.clipId === observedSource.clipReference &&
-        candidate.source.slotIndex === observedSource.target.sceneIndex &&
-        candidate.listenerId === observation.ownership.listenerId,
+    const source = observedSessionSource(
+      observation.source,
+      observation.ownership.listenerId,
+      this.#sources,
     );
-    if (!source)
-      throw new Error("Context belongs to an unadmitted source or listener");
     return {
       contextId: detail.entry.contextId,
       passId: detail.entry.passId,
@@ -1359,18 +1590,17 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
           window.desktop.ableton.inspectSessionListeningPreflight(request),
         request,
       );
-      if (!preflight.audio.filePath)
-        throw new Error("Loaded media path disappeared");
-      await verifyStagedMedia(
-        required(context.stagedFixture, "staged fixture"),
-        preflight.audio.filePath,
-        required(this.#sources[id], "source").source.mediaSha256,
-        context.signal,
-      );
       beforeSources.push(
         required(this.#sourceSettingsHashes.get(id), "source settings"),
       );
-      afterSources.push(sourceFingerprint(preflight));
+      afterSources.push(
+        await this.#verifySourceContent(
+          context,
+          id,
+          preflight,
+          request.queryId,
+        ),
+      );
     }
     if (beforeSources.length)
       unchanged.push({

@@ -5,6 +5,7 @@ import {
   sessionStructureFingerprint,
   unrelatedPlaybackFingerprint,
   sourceStoppedAtZero,
+  sourceStoppedAtPosition,
 } from "../../tests/electron/acceptance-source.js";
 import type { InspectSessionListeningSourceResult } from "@ableton-agent/protocol";
 
@@ -64,6 +65,28 @@ describe("independent Desktop source evidence", () => {
       expect(sourceStoppedAtZero({ before: stopped, after: stopped })).toBe(
         true,
       );
+      const offset = { ...stopped, globalBeat: 5.5 };
+      expect(
+        sourceStoppedAtPosition({ before: offset, after: offset }, 5.5),
+      ).toBe(true);
+      expect(sourceStoppedAtZero({ before: offset, after: offset })).toBe(
+        false,
+      );
+      for (const expected of [0, -1, 1_576_801, Infinity, NaN])
+        expect(
+          sourceStoppedAtPosition({ before: offset, after: offset }, expected),
+        ).toBe(false);
+      for (const bracket of ["before", "after"])
+        expect(
+          sourceStoppedAtPosition(
+            {
+              before: offset,
+              after: offset,
+              [bracket]: { ...offset, globalBeat: 5.5001 },
+            },
+            5.5,
+          ),
+        ).toBe(false);
     }
     for (const patch of [
       { transportPlaying: true },
@@ -117,6 +140,58 @@ describe("independent Desktop source evidence", () => {
       expectedClipReference: state.sessionClips![0]!.id,
       track: { expectedReference: state.tracks[0]!.id, index: 0 },
     });
+  });
+  it("selects only the explicitly declared MIDI track, clip kind and index", () => {
+    const state = snapshot();
+    state.tracks[0]!.kind = "midi";
+    state.sessionClips![0]!.kind = "midi";
+    const midi = { ...selector, kind: "midi" as const, trackIndex: 0 };
+    expect(resolveSessionSource(state, midi).target.track.index).toBe(0);
+    expect(() => resolveSessionSource(state, selector)).toThrow();
+    expect(() =>
+      resolveSessionSource(state, { ...midi, trackIndex: 1 }),
+    ).toThrow();
+    state.sessionClips![0]!.kind = "audio";
+    expect(() => resolveSessionSource(state, midi)).toThrow();
+  });
+  it("admits a stable remembered target slot only when explicitly selected and stopped", () => {
+    const state: InspectSessionListeningSourceResult["after"] = {
+      transportPlaying: false,
+      globalBeat: 5.5,
+      targetPlaying: true,
+      targetTriggered: false,
+      targetRecording: false,
+      playingSlotIndex: 1,
+      firedSlotIndex: -1,
+      selectedClipReference: null,
+      startTimeBeats: 0,
+      playingPosition: 0,
+    };
+    expect(
+      sourceStoppedAtPosition({ before: state, after: state }, 5.5, 1),
+    ).toBe(true);
+    expect(sourceStoppedAtPosition({ before: state, after: state }, 5.5)).toBe(
+      false,
+    );
+    const inactive = { ...state, targetPlaying: false, playingSlotIndex: -1 };
+    expect(
+      sourceStoppedAtPosition({ before: inactive, after: inactive }, 5.5, 1),
+    ).toBe(false);
+    for (const patch of [
+      { transportPlaying: true },
+      { targetTriggered: true },
+      { targetRecording: true },
+      { firedSlotIndex: 1 },
+      { playingSlotIndex: 0 },
+      { targetPlaying: false },
+    ])
+      expect(
+        sourceStoppedAtPosition(
+          { before: state, after: { ...state, ...patch } },
+          5.5,
+          1,
+        ),
+      ).toBe(false);
   });
   it("rejects ambiguous, missing and truncated evidence", () => {
     const state = snapshot();

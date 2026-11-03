@@ -144,6 +144,11 @@ import {
   recordingOperationResultSchema,
   audioClipsOperationResultSchema,
   inspectSessionListeningSourceParamsSchema,
+  sessionListeningPreflightResultSchema,
+  SESSION_PREFLIGHT_DEVICE_LIMIT,
+  sessionPreflightDeviceInventorySchema,
+  sessionPreflightDeviceParametersSchema,
+  type SessionListeningPreflightResult,
   specializedDeviceCommandParamsSchema,
   specializedDeviceOperationParamsSchema,
   workflowJobCommandParamsSchema,
@@ -6595,16 +6600,69 @@ export class HeadlessApplication {
 
   public async inspectSessionListeningPreflight(
     params: InspectSessionListeningSourceParams,
-  ): Promise<{
-    source: InspectSessionListeningSourceResult;
-    audio: Extract<AudioClipsOperationResult, { action: "inspect" }>["clip"];
-    recording: Extract<RecordingOperationResult, { action: "inspect" }>;
-  }> {
+  ): Promise<SessionListeningPreflightResult> {
     const request = inspectSessionListeningSourceParamsSchema.parse(params);
+    const source = await this.inspectSessionListeningSource(request);
+    if (source.sourceKind === "midi") {
+      const { track, sceneIndex, expectedClipReference } = request.target;
+      const midi = await this.inspectMidiNotes({
+        index: track.index,
+        expectedReference: track.expectedReference,
+        expectedName: track.expectedName,
+        sceneIndex,
+        expectedClipReference,
+        offset: 0,
+        limit: 2048,
+      });
+      const deviceTarget = {
+        index: track.index,
+        expectedReference: track.expectedReference,
+        expectedName: track.expectedName,
+        offset: 0,
+        limit: SESSION_PREFLIGHT_DEVICE_LIMIT,
+      };
+      const before = sessionPreflightDeviceInventorySchema.parse(
+        await this.inspectDevices(deviceTarget),
+      );
+      const devices = [];
+      for (const device of before.devices) {
+        if (
+          device.trackReference !== track.expectedReference ||
+          device.trackIndex !== track.index
+        ) {
+          throw new Error(
+            "MIDI device inventory did not match the source track",
+          );
+        }
+        devices.push(
+          sessionPreflightDeviceParametersSchema.parse(
+            await this.inspectDeviceParameters({
+              index: track.index,
+              expectedReference: track.expectedReference,
+              expectedName: track.expectedName,
+              deviceIndex: device.index,
+              expectedDeviceReference: device.reference,
+              expectedDeviceName: device.name,
+              offset: 0,
+              limit: 256,
+            }),
+          ),
+        );
+      }
+      const after = sessionPreflightDeviceInventorySchema.parse(
+        await this.inspectDevices(deviceTarget),
+      );
+      const recording = await this.inspectRecording();
+      return sessionListeningPreflightResultSchema.parse({
+        source,
+        midi,
+        instrumentChain: { before, devices, after },
+        recording,
+      });
+    }
     if (this.services.ableton.executeAudioClipsOperation === undefined) {
       throw new Error("Audio clip inspection is unavailable");
     }
-    const source = await this.inspectSessionListeningSource(request);
     const { clip: audio } = audioClipsOperationResultSchema.options[0].parse(
       await this.services.ableton.executeAudioClipsOperation({
         action: "inspect",
@@ -6620,7 +6678,11 @@ export class HeadlessApplication {
       );
     }
     const recording = await this.inspectRecording();
-    return { source, audio, recording };
+    return sessionListeningPreflightResultSchema.parse({
+      source,
+      audio,
+      recording,
+    });
   }
 
   public inspectBrowserRoots(): Promise<InspectBrowserRootsResult> {

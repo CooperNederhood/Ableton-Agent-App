@@ -4,6 +4,7 @@ import {
   audioObservationV2Schema,
   legacyStoredAudioObservationSchema,
   storedAudioObservationSchema,
+  storedObservationCoordinates,
 } from "./audio-observation-schemas.js";
 import { MAX_METRIC_OBSERVATION_BYTES } from "./audio-observation-limits.js";
 import { createSyntheticMetricListeningObservation } from "./testing.js";
@@ -694,41 +695,50 @@ describe("independent metric audio observation v1", () => {
     }
   });
 
-  it("validates Session clip-local first-iteration origin using the existing target shape", () => {
-    const value = fixture();
-    value.source = {
-      view: "session",
-      target: {
+  it.each([0, 2.059377861721612])(
+    "validates and stores Session clip-local coordinates at global anchor %s",
+    (anchor) => {
+      const value = fixture({ startBeat: anchor, endBeat: anchor + 1 });
+      value.source = {
         view: "session",
-        track: {
-          kind: "regular",
-          index: 0,
-          expectedReference: uuid,
-          expectedName: "Track",
+        target: {
+          view: "session",
+          track: {
+            kind: "regular",
+            index: 0,
+            expectedReference: uuid,
+            expectedName: "Track",
+          },
+          sceneIndex: 0,
+          expectedClipReference: uuid,
+          expectedClipName: "Clip",
         },
-        sceneIndex: 0,
-        expectedClipReference: uuid,
-        expectedClipName: "Clip",
-      },
-      clipReference: uuid,
-      kind: "warped-audio",
-      coordinate: { unit: "beats", iteration: 0, startBeat: 0, endBeat: 1 },
-      transport: { startBeat: 0, endBeat: 1 },
-      clipStartTimeBeats: 0,
-      synchronization: "transport-coupled-first-iteration",
-    };
-    expect(metricAudioObservationSchema.parse(value).source.view).toBe(
-      "session",
-    );
-    value.source.clipStartTimeBeats = 0.1;
-    expectInvalid(value);
-    value.source.clipStartTimeBeats = 0;
-    value.source.coordinate.endBeat = 2;
-    expectInvalid(value);
-    value.source.coordinate.endBeat = 1;
-    value.source.clipReference = "00000000-0000-4000-8000-000000000002";
-    expectInvalid(value);
-  });
+        clipReference: uuid,
+        kind: "warped-audio",
+        coordinate: { unit: "beats", iteration: 0, startBeat: 0, endBeat: 1 },
+        transport: { startBeat: anchor, endBeat: anchor + 1 },
+        clipStartTimeBeats: anchor,
+        synchronization: "transport-coupled-first-iteration",
+      };
+      expect(metricAudioObservationSchema.parse(value).source.view).toBe(
+        "session",
+      );
+      expect(storedObservationCoordinates(value)).toMatchObject({
+        startBeat: 0,
+        endBeat: 1,
+        startSample: value.geometry.startSample,
+        endSample: value.geometry.endSample,
+      });
+      value.source.clipStartTimeBeats = anchor + 0.1;
+      expectInvalid(value);
+      value.source.clipStartTimeBeats = anchor;
+      value.source.coordinate.endBeat = 2;
+      expectInvalid(value);
+      value.source.coordinate.endBeat = 1;
+      value.source.clipReference = "00000000-0000-4000-8000-000000000002";
+      expectInvalid(value);
+    },
+  );
 
   it.each([
     (v: MetricAudioObservation) => {

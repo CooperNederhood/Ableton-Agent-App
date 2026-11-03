@@ -1,5 +1,68 @@
 # Playback Listening and Entity Context
 
+## Quantized stopped-launch work (#81)
+
+The user supplied one combined Set and replaced the earlier matrix with two
+independent fresh-copy cases: `session-stopped-quantized-audio` listens to
+`audio-track` / `clip-1`; `session-stopped-quantized-midi` listens to `midi-track` /
+`clip-2`. Both begin stopped at the independently read Live position
+2.059377861721612 with global One Bar and two remembered active clips. The audio
+clip uses Global; the MIDI clip uses explicit One Bar. Remembered active flags
+do not mean transport is moving. No stop, seek, quantization edit, classification
+quiz or repetition campaign is authorized. Already-running support is deferred.
+
+The immutable `session-stopped-quantized` fixture preserves the supplied notes,
+Operator parameters, media and saved settings. Independent read-only preflight
+includes complete MIDI notes and bounded flat-device parameter inventories.
+Each four-beat listen requires 90,000 frames at 48 kHz/128 BPM, attributable
+persisted context, unchanged source/settings/media, and terminal owned cleanup.
+
+Runtime admission now distinguishes a consistent remembered target from moving,
+queued, unknown or recording state. It accepts nonnegative stopped anchors,
+global None/One Bar and clip Global/One Bar without settings repair. Live 11's
+own `Clip.fire()` restarts the timeline at zero from this stopped state. The
+application does not issue a seek: `stoppedBeat` pins the independently read
+pre-launch position, while native capture geometry starts at the actual launch
+origin zero. Ready/arm proofs validate the stopped coordinate; source/native
+coverage permits only the initial stopped-to-playing reset, not later regression.
+Native geometry/report rows retain global beats, while Session context/pass ranges and
+primary clip links retain clip-local first-iteration duration; contributing
+track links retain transport beats. Actual source origin must still match the
+independently frozen native anchor; a delayed source cannot publish an earlier
+capture. Existing arm-before-launch, traced stages and leave-running cleanup
+remain unchanged.
+
+Both unchanged packaged cases now pass on **Live Suite 11.3.43**, with one
+90,000-frame capture, all three metric families, retained context, protected
+source/settings/media and confirmed terminal cleanup. Receipts under
+`.test-artifacts/acceptance/`:
+
+| Case | Valid old-product failure | Passing candidate |
+| --- | --- | --- |
+| Audio | `run-5pZilH/receipt.json` | `run-6ToPzM/receipt.json` |
+| MIDI | `run-ykOZt9/receipt.json` | `run-DYmu3b/receipt.json` |
+
+Old packaged ASAR SHA-256:
+`d0e2d35cfba046aafe5344c5d7d0bc1ddf14025b40f8ccd38eb7b2fa9bf3359a`.
+Passing packaged ASAR SHA-256:
+`074b5ebf13428888e7267e219b35eb6891df185698c68b7a39095d0d0261ab37`.
+Both old runs admitted the fixture and reached
+`session_launch_state_unknown_or_active`; neither was merely a setup rejection.
+Preserve setup failures `run-9Pxf3v`/`run-aojMl7`, stale-script failure
+`run-H7JUzk`, and origin failures `run-sWU1vj`/`run-FJGj8U`. The last established
+the actual transition `2.059377861721612 -> 0.0196`, source origin zero.
+
+The acceptance runner does not update the installed Remote Script. Install the
+candidate script with the canonical installer while Live is closed, then launch
+fresh owned processes; rebuilding Desktop alone does not refresh Live's Python.
+Lower-layer regressions cover admission, origin matching, post-launch regression,
+failure/cancellation and cleanup. Production Electron IPC coverage passes.
+Separate attended visual qualification was not performed: this session has no
+registered debug `send_user_message` adapter. These passes qualify the two
+requested listens, not arbitrary running states, repetition reliability or
+musical interpretation. Earlier beat-zero/None-only restrictions below describe
+historical qualification.
+
 ## Current qualified installation
 
 The original Max patch publishing/deployment scope is complete: JavaScript is

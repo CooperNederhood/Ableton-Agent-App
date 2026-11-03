@@ -33,12 +33,13 @@ async function controllerHarness({
   unavailableSpectrum = false,
   suppressSpectrumCleanup = false,
   engineeringRuntime = false,
+  session = false,
 } = {}) {
   const codec = await loadCodec();
   const sampleRate = 48000,
     vectorSize = 64,
     tempoBpm = 128;
-  const startBeat = 5.13,
+  const startBeat = session ? 0 : 5.13,
     totalSamples = 9000;
   const endBeat = startBeat + (totalSamples * tempoBpm) / (sampleRate * 60);
   const geometry = codec.createMetricListeningGeometry({
@@ -72,11 +73,43 @@ async function controllerHarness({
       transport: { startBeat, endBeat },
     },
   };
+  if (session) {
+    const target = {
+      view: "session",
+      track: {
+        kind: "regular",
+        index: 0,
+        expectedReference: GENERATION,
+        expectedName: "Track",
+      },
+      sceneIndex: 0,
+      expectedClipReference: GENERATION,
+      expectedClipName: "Clip",
+    };
+    config.mode = "session";
+    config.stoppedBeat = 2.059377861721612;
+    config.sourceEvidence = "expected-context-only";
+    config.source = {
+      mode: "session",
+      synchronization: "transport-coupled-first-iteration",
+      target,
+    };
+    config.sourceContext = {
+      view: "session",
+      target,
+      clipReference: GENERATION,
+      kind: "midi",
+      coordinate: { unit: "beats", iteration: 0, startBeat: 0, endBeat },
+      transport: { startBeat, endBeat },
+      clipStartTimeBeats: 0,
+      synchronization: "transport-coupled-first-iteration",
+    };
+  }
   const command = {
     type: "listener.control",
     protocolVersion: 1,
     listenerVersion: 5,
-    mode: "arrangement",
+    mode: config.mode,
     listenerId: GENERATION,
     connectionId: GENERATION,
     connectionEpoch: GENERATION,
@@ -264,7 +297,9 @@ async function controllerHarness({
     const playing = playingOrigin !== null;
     const beat = playing
       ? startBeat + ((counter - playingOrigin) * tempoBpm) / (sampleRate * 60)
-      : startBeat;
+      : session
+        ? config.stoppedBeat
+        : startBeat;
     const phase = playing ? beat % 1 : 0.618;
     sourceClock = clockModel.step();
     assert.equal(sourceClock[1], counter);
@@ -381,39 +416,45 @@ async function untilAsync(h, predicate) {
   assert.ok(predicate(), JSON.stringify(h.controller.snapshot()));
 }
 
-test("actual retained FFT -> source phase -> independent controller -> complete three-metric report and executed cleanup", async () => {
-  const f = await controllerHarness({
-    spectrumEnabled: true,
-    requestedMetrics: ["level", "spectral-centroid", "attacks"],
-  });
-  f.launch();
-  f.until(() =>
-    f.results.some((r) =>
+for (const session of [false, true])
+  test(`actual retained FFT -> controller -> complete metrics and cleanup, Session reset=${session}`, async () => {
+    const f = await controllerHarness({
+      spectrumEnabled: true,
+      session,
+      requestedMetrics: ["level", "spectral-centroid", "attacks"],
+    });
+    f.launch();
+    f.until(() =>
+      f.results.some((r) =>
+        ["completed", "partial", "failed"].includes(r.payload.status),
+      ),
+    );
+    const result = f.results.find((r) =>
       ["completed", "partial", "failed"].includes(r.payload.status),
-    ),
-  );
-  const result = f.results.find((r) =>
-    ["completed", "partial", "failed"].includes(r.payload.status),
-  ).payload;
-  assert.equal(
-    result.status,
-    "completed",
-    JSON.stringify({ result, snapshot: f.controller.snapshot() }),
-  );
-  const spectrum = result.observation.metrics["spectral-centroid"];
-  assert.equal(spectrum.status, "complete");
-  assert.equal(spectrum.records.length, spectrum.expectedRecords);
-  assert(spectrum.records.length > 0);
-  assert(spectrum.records.some((record) => record.spectralEnergy > 0));
-  assert(result.nativeSourceCoverage.spectrumPhase);
-  assert.equal(result.nativeSourceCoverage.spectrumCleanup.status, "completed");
-  assert.equal(f.spectrumIO.generation, null);
-  assert.equal(
-    f.spectrumControls.filter((c) => c[0] === "measurementEpoch" && c[1] === 0)
-      .length,
-    1,
-  );
-});
+    ).payload;
+    assert.equal(
+      result.status,
+      "completed",
+      JSON.stringify({ result, snapshot: f.controller.snapshot() }),
+    );
+    const spectrum = result.observation.metrics["spectral-centroid"];
+    assert.equal(spectrum.status, "complete");
+    assert.equal(spectrum.records.length, spectrum.expectedRecords);
+    assert(spectrum.records.length > 0);
+    assert(spectrum.records.some((record) => record.spectralEnergy > 0));
+    assert(result.nativeSourceCoverage.spectrumPhase);
+    assert.equal(
+      result.nativeSourceCoverage.spectrumCleanup.status,
+      "completed",
+    );
+    assert.equal(f.spectrumIO.generation, null);
+    assert.equal(
+      f.spectrumControls.filter(
+        (c) => c[0] === "measurementEpoch" && c[1] === 0,
+      ).length,
+      1,
+    );
+  });
 
 test("unavailable FFT declaration remains a local partial result with genuine FFT cleanup", async () => {
   const f = await controllerHarness({

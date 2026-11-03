@@ -10,53 +10,60 @@ import type { DesktopListeningPage } from "../listening-contracts.js";
 import {
   recordingInspectionFixture,
   sessionListeningPreflightFixture,
+  sessionListeningMidiPreflightFixture,
   sessionListeningSourceFixture,
 } from "../renderer/test-fixtures/session-listening-source.js";
 
 describe("desktop IPC", () => {
-  it("guards the narrowly targeted compound listening preflight without a generic command dispatcher", async () => {
-    const { params, result } = sessionListeningPreflightFixture();
-    const registered = new Map<
-      string,
-      (event: never, payload: unknown) => Promise<unknown>
-    >();
-    const inspectSessionListeningPreflight = vi.fn(async () => result);
-    let trusted = false;
-    const ipcMain = {
-      handle: (
-        channel: string,
-        handler: (event: never, payload: unknown) => Promise<unknown>,
-      ) => registered.set(channel, handler),
-      removeHandler: vi.fn(),
-    };
-    const unregister = registerIpc(
-      ipcMain,
-      { inspectSessionListeningPreflight } as unknown as DesktopService,
-      {} as DiagnosticsActions,
-      () => trusted,
-    );
-    const inspect = registered.get(
-      "ableton:inspect-session-listening-preflight",
-    )!;
-    await expect(inspect({} as never, params)).rejects.toThrow("Untrusted");
-    trusted = true;
-    await expect(
-      inspect({} as never, { ...params, action: "set-gain" }),
-    ).rejects.toThrow();
-    expect(inspectSessionListeningPreflight).not.toHaveBeenCalled();
-    await expect(inspect({} as never, params)).resolves.toEqual(result);
-    expect(inspectSessionListeningPreflight).toHaveBeenCalledExactlyOnceWith(
-      params,
-    );
-    inspectSessionListeningPreflight.mockRejectedValueOnce(
-      new Error("loaded media unavailable"),
-    );
-    await expect(inspect({} as never, params)).rejects.toThrow("unavailable");
-    unregister();
-    expect(ipcMain.removeHandler).toHaveBeenCalledWith(
-      "ableton:inspect-session-listening-preflight",
-    );
-  });
+  it.each([
+    sessionListeningPreflightFixture,
+    sessionListeningMidiPreflightFixture,
+  ])(
+    "guards the narrowly targeted compound listening preflight without a generic command dispatcher: %s",
+    async (fixture) => {
+      const { params, result } = fixture();
+      const registered = new Map<
+        string,
+        (event: never, payload: unknown) => Promise<unknown>
+      >();
+      const inspectSessionListeningPreflight = vi.fn(async () => result);
+      let trusted = false;
+      const ipcMain = {
+        handle: (
+          channel: string,
+          handler: (event: never, payload: unknown) => Promise<unknown>,
+        ) => registered.set(channel, handler),
+        removeHandler: vi.fn(),
+      };
+      const unregister = registerIpc(
+        ipcMain,
+        { inspectSessionListeningPreflight } as unknown as DesktopService,
+        {} as DiagnosticsActions,
+        () => trusted,
+      );
+      const inspect = registered.get(
+        "ableton:inspect-session-listening-preflight",
+      )!;
+      await expect(inspect({} as never, params)).rejects.toThrow("Untrusted");
+      trusted = true;
+      await expect(
+        inspect({} as never, { ...params, action: "set-gain" }),
+      ).rejects.toThrow();
+      expect(inspectSessionListeningPreflight).not.toHaveBeenCalled();
+      await expect(inspect({} as never, params)).resolves.toEqual(result);
+      expect(inspectSessionListeningPreflight).toHaveBeenCalledExactlyOnceWith(
+        params,
+      );
+      inspectSessionListeningPreflight.mockRejectedValueOnce(
+        new Error("loaded media unavailable"),
+      );
+      await expect(inspect({} as never, params)).rejects.toThrow("unavailable");
+      unregister();
+      expect(ipcMain.removeHandler).toHaveBeenCalledWith(
+        "ableton:inspect-session-listening-preflight",
+      );
+    },
+  );
 
   it("exposes recording inspection without allowing a recording mutation action", async () => {
     const result = recordingInspectionFixture();

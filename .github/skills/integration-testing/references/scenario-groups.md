@@ -3,8 +3,10 @@
 This is selection guidance for the existing runtime smoke suite, not a packaged
 MCP workflow catalog. `integration/live-scenarios/suite.json` and each reviewed
 manifest own ordering, budgets and guards. Start with `--scenario <id>`, then
-`--group <id>`, then remaining selected coverage. Explicit IDs excluded by a
-group/resume intersection must be rejected before setup, not silently omitted.
+use `--group <id>` or broader coverage only for an explicit request or a concrete
+regression risk under the skill's scope rule, not as automatic escalation.
+Explicit IDs excluded by a group/resume intersection must be rejected before
+setup, not silently omitted.
 Skipped, blocked or unrun selected IDs prevent successful exit.
 
 Current source supports full-active-loop/default and guarded exact-end Session
@@ -112,7 +114,7 @@ reviewed policy. Engineering/bootstrap fixtures cannot qualify production bytes.
   cleanup. Refusal, denial, missing calls, timeout and prose-only success fail
   without an automatic actor retry.
 
-Run the scenario alone, then its group and the remaining runnable suite.
+Run the scenario alone; select broader coverage only under the skill's scope rule.
 Description/SDK and synthetic harness regressions do not establish real-agent
 acceptance. A pre-existing user Live process blocks execution; never control it.
 
@@ -280,9 +282,9 @@ the private staging script (not the original wire4 provisioned input):
 pnpm live:agent-smoke --skip-install --scenario native-metric-session-midi-repeat-3 --native-v5-fixture-input "$NATIVE_V5_INPUT" --output .test-artifacts/independent-metric-listening/repeated-native5-evidence.json
 ```
 
-Run the new case, then its metric group and the remaining runnable suite only
-under runner-owned Live11+isolated storage. Record the actual full Live
-version. Unit/harness regressions are not real-Live, acoustic, or timing
+Run the selected case under runner-owned Live11+isolated storage. Select broader
+metric-group or suite coverage only under the skill's scope rule. Record the
+actual full Live version. Unit/harness regressions are not real-Live, acoustic, or timing
 qualification; real execution is a separate parent-owned acceptance step.
 
 ### Native5 fixed MIDI/audio/MIDI switching
@@ -340,9 +342,10 @@ pins and both enabled native5 producer resources.
 pnpm live:agent-smoke --skip-install --scenario native-metric-session-midi-audio-midi --native-v5-fixture-input "$NATIVE_V5_INPUT" --output .test-artifacts/independent-metric-listening/midi-audio-midi-native5-evidence.json
 ```
 
-Run the new case, then its metric group and remaining runnable suite with
-compatible version-specific inputs. Synthetic safety/lifecycle and runtime
-regressions are not physical qualification; real execution remains parent-owned.
+Run the selected case with compatible version-specific inputs. Select broader
+metric-group or suite coverage only under the skill's scope rule. Synthetic
+safety/lifecycle and runtime regressions are not physical qualification;
+real execution remains parent-owned.
 
 ### Native5 fractional Arrangement qualification
 
@@ -393,9 +396,10 @@ no pre-existing Live:
 pnpm live:agent-smoke --skip-install --scenario native-metric-arrangement-audio-fractional-spectrum --native-v5-fixture-input "$NATIVE_V5_INPUT" --output .test-artifacts/independent-metric-listening/fractional-arrangement-native5-evidence.json
 ```
 
-Run the new case, then its metric group and remaining runnable suite with
-compatible version-specific inputs. Synthetic host/guard/verifier regressions
-are not real-Live qualification. Existing Session/repeated cases are unchanged.
+Run the selected case with compatible version-specific inputs. Select broader
+metric-group or suite coverage only under the skill's scope rule. Synthetic
+host/guard/verifier regressions are not real-Live qualification. Existing
+Session/repeated cases are unchanged.
 
 ### Explicit unavailable-spectrum engineering qualification
 
@@ -459,8 +463,9 @@ launch, joined to native receipts/proof, and verified through one atomic
 Session clip/track context, typed historical reopening and unchanged content
 with playback left running and capture resources idle.
 
-Run the new scenario alone, then this group and the remaining suite only when
-the normal user Live is closed and explicit immutable v3 pins are supplied.
+Run the selected scenario only when the normal user Live is closed and explicit
+immutable v3 pins are supplied. Select broader group or suite coverage only
+under the skill's scope rule.
 Synthetic composition tests do not qualify actual Live launch/source alignment
 or physical timing. A pre-existing user Live/desktop process blocks physical
 execution; never control it or install integrations to bypass ownership.
@@ -599,8 +604,10 @@ cancellation. No binary/audio body is journaled.
 
 `--out` must not exist; its parent must already exist. Set `NATIVE_V5_LONG_INPUT`
 to preparation's emitted `inputPath`. **Parent runs the following only after the
-user confirms closing their normal Live process**, beginning with one scenario,
-then the separately pinned owning group. Record the actual full Live11 version:
+user confirms closing their normal Live process**, beginning with one scenario.
+The separately pinned owning group is an alternative for explicitly selected
+broader coverage under the skill's scope rule. Record the actual full Live11
+version:
 
 ```bash
 pnpm live:agent-smoke --skip-install --scenario native-metric-session-midi-eight-bars --native-v5-fixture-input "$NATIVE_V5_LONG_INPUT" --output .test-artifacts/independent-metric-listening/long-midi-eight-bars-evidence.json

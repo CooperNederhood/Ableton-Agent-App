@@ -46,19 +46,23 @@
   input, or mutation serialization behavior.
 - Add tool/workflow tests with controlled failures and exact postconditions when
   agent tools, safety policy, workflows, rollback, or verification change.
-- Add or expand a reviewed `integration/live-scenarios/` manifest and its
-  deterministic verifier when a user-facing natural-language workflow changes
-  what the agent is allowed or expected to do in real Ableton Live. Do not add
-  a real-Live scenario for presentation-only changes with no Live behavior.
+- When adding a new user-facing agent capability, ask the user once per
+  capability whether they want to use the human-in-the-loop
+  `author-integration-test` workflow to create or extend a durable fixture-backed
+  test for test-driven development. Offer it early, before implementation when
+  practical, and reuse an existing suitable case rather than duplicating it.
+  Honor an answer already given in the task; an explicit authoring request is
+  already an opt-in. If the user declines or is unavailable, defer fixture
+  authoring without repeatedly asking or blocking ordinary implementation and
+  deterministic regression tests. Opting into authoring is not blanket
+  approval to launch Live or expand real-host coverage.
 - After changing Electron UI, desktop interactions, approvals, progress/error
   presentation, or visible Ableton Agent/Ableton workflows, invoke the
   `desktop-ux-testing` skill. Follow its full implement, build, launch, message,
   wait, inspect, close, fix, and repeat loop.
-- After changing agent prompts, tools, workflows, bridge behavior, protocol
-  handling, or exact Live mutations, invoke the `integration-testing` skill for
-  the runner-owned deterministic workflow smoke suite.
-- When a change affects both exact Live behavior and visible UX, run
-  `integration-testing` first, then `desktop-ux-testing`.
+- When both deterministic real-Live validation and visual UX inspection are
+  selected for the task, run the exact-state validation before visual
+  inspection. Selecting one does not automatically require the other.
 - Never treat an accepted MCP message, assistant prose, or a screenshot alone
   as proof of exact Live state. Use deterministic postcondition reads when the
   requirement depends on counts, identities, ordering, MIDI content, rollback,
@@ -69,6 +73,8 @@
 - A change is not complete until the new regression tests fail without the fix,
   pass with the fix, and the smallest relevant suites have been escalated to
   their broader owning suite.
+  This lower-layer regression requirement does not automatically expand
+  real-Live coverage beyond the agreed scenarios.
 
 # Background About Ableton
 

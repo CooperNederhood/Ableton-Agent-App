@@ -1,12 +1,14 @@
 ---
 name: integration-testing
-description: Use for running and diagnosing deterministic natural-language agent/Live tests with reviewed scenarios and independent postconditions. Distinguish the existing pnpm live:agent-smoke runtime/CLI suite from fixture-backed packaged automation acceptance. Use author-integration-test to author reviewed fixture/scenario contracts, and desktop-ux-testing for visual cross-app UX.
+description: Execute or diagnose reviewed real-Ableton scenarios when the user requests real-host validation or an agreed task requires Live postconditions that lower-layer tests cannot establish. Select the runtime smoke or packaged acceptance runner and stay within the agreed coverage. Do not activate merely because prompts, tools, workflows, bridge code, or protocols changed, or automatically expand into broader suites, reliability investigations, fixture authoring, or visual UX testing.
 ---
 
 # Ableton agent integration testing
 
-Use this skill when validating natural-language Ableton workflows against real
-Live. The deterministic harness, scenario manifests, traces, and bridge reads
+Use this skill for selected real-Live validation, not as a blanket step after
+editing agent-related code. Start with lower-layer deterministic regressions;
+use real Live for an explicit request or a concrete evidence gap in the agreed
+task. The deterministic harness, scenario manifests, traces, and bridge reads
 are the source of truth; assistant prose is diagnostic evidence only.
 Choose the evidence layer explicitly. The existing runtime/CLI suite is separate
 from packaged Default-agent automation acceptance; MCP stdio is not required for
@@ -15,9 +17,28 @@ either. See the canonical
 boundaries and [acceptance authoring](../../../docs/testing/acceptance-authoring.md)
 for command availability and qualification status.
 
+## Scope and stopping rule
+
+- Select the smallest relevant registered scenario and state the coverage and
+  completion criteria before execution. An existing user-approved contract
+  needs no repeated scope confirmation.
+- Expand to a group or remaining suite only for an explicit request or a
+  concrete regression risk in the changed behavior. Explain that risk and the
+  additional coverage; obtain agreement if it materially expands the task.
+  A passing scenario alone is not a reason to run more scenarios.
+- Once the agreed scenarios and terminal cleanup checks pass, report the
+  bounded result and stop. Preserve earlier failures and distinguish recovered
+  outcomes; do not claim unrestricted reliability. Historical failures or
+  optional investigations do not automatically become new acceptance gates.
+- A failed, blocked, or unrun selected scenario remains unsuccessful. Diagnose
+  it at the narrowest owning layer or report the blocker; do not drop it,
+  weaken assertions, or silently retry to obtain a pass.
+- Fixture authoring and attended visual UX are separate selections, not
+  automatic follow-ons. Honor the user's decision to defer them.
+
 ## Choose the workflow
 
-- **Author or revise a persistent fixture-backed case:** invoke
+- **User opts into authoring or revising a persistent fixture-backed case:** invoke
   `author-integration-test` with the developer. That skill owns copy-only
   inspection, human contract review, portable assets, and registration. Never
   inject it or runner-only oracle data into the product agent.
@@ -63,7 +84,8 @@ List/schema validation alone is not fixture admission or real-host success.
 6. Fix the root cause and add a regression test.
 7. If `remote-script/AbletonAgent/` changed, let the harness reinstall it and
    launch a fresh runner-owned Live process. Do not reuse stale Python modules.
-8. Rerun the failed scenario, then its group, then the remaining suite.
+8. Rerun the failed scenario after the fix. Expand coverage only under the
+   scope rule above, not automatically to its group or the remaining suite.
    Independent attempts start fresh processes; intentional same-instance
    repeated passes, source changes and fixture-owned resets inside a reviewed
    scenario must retain that stateful contract. Do not reset or repair it ad hoc.
@@ -106,11 +128,12 @@ List/schema validation alone is not fixture admission or real-host success.
 
 ## Expanding runtime/CLI deterministic coverage
 
-Do not treat `pnpm live:agent-smoke` only as a fixed suite to rerun. Add or
-expand a reviewed scenario when a change introduces or alters a user-facing
-natural-language workflow whose success depends on real Live behavior.
-For the new reusable fixture-backed acceptance catalog, use
-`author-integration-test` instead of copying this older manifest format.
+When new real-Live coverage is selected, add or expand the smallest reviewed
+scenario for the changed workflow. New capabilities do not automatically
+require authoring a real-Live case: follow the one-time opt-in reminder in
+the repository instructions. For user-approved reusable fixture-backed
+authoring, use `author-integration-test` instead of copying this older
+manifest format.
 
 1. Add the narrowest unit, protocol, bridge, tool, and workflow regression tests
    first. The real-Live scenario is not a substitute for deterministic lower
@@ -130,7 +153,8 @@ For the new reusable fixture-backed acceptance catalog, use
    condition relevant to the capability at a lower deterministic layer. Add a
    real-Live failure scenario only when simulator or fake coverage cannot prove
    the behavior.
-6. Run the new scenario alone, then its group, then the full remaining suite.
+6. Run the new scenario alone. Expand to its group or remaining suite only
+   under the scope rule above.
 
 Do not add a real-Live scenario for renderer-only layout, styling, copy, or
 presentation changes. Those require component, Electron Playwright, and visual

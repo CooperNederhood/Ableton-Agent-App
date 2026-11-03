@@ -98,8 +98,18 @@ Tests must catch:
 | `pnpm live:ux-host` plus visible Desktop/MCP inspection | Attended cross-app workflows with correlated retained evidence | A continuously enforced packaged acceptance suite |
 
 Run the narrowest owning regression first, then its broader owning suite.
-Real-Live changes use the existing integration-testing skill before the
-desktop-ux-testing skill when both exact state and visible UX change.
+This lower-layer regression rule does not automatically expand real-Live
+coverage. Use `integration-testing` for explicitly requested real-host validation
+or a concrete Live-postcondition evidence gap in the agreed task, not merely
+because prompts, tools, workflows, bridge code, or protocols changed. Start with
+the smallest relevant registered scenario. Broaden real-host coverage only for
+an explicit request or a concrete regression risk; agree on material scope
+expansion rather than automatically running a group and the remaining suite.
+When the agreed scenarios and terminal cleanup pass, report the bounded result
+and stop, preserving earlier failures without claiming unrestricted reliability.
+Unsuccessful selected scenarios cannot be dropped or relabeled as passes.
+If both exact-state and visual UX validation are selected, run the deterministic
+validation before `desktop-ux-testing`; neither selects the other automatically.
 `pnpm check` builds then runs quality checks; `pnpm check:quality` includes
 format/lint/docs/ownership/version/contracts/typecheck and all three test runners.
 No hosted job launches real Live. The new packaged multi-turn acceptance lane
@@ -129,6 +139,14 @@ conditions/actions/mutation scope/assertions, and obtain human review before
 freezing portable licensed assets and a registered scenario. Keep oracle data
 out of the ordinary Default agent's prompts, skills, context, and project paths.
 Do not introduce a bespoke runner for each new case.
+
+When adding a new user-facing agent capability, offer this human-in-the-loop
+workflow once per capability, early enough to support fixture-backed test-driven
+development when practical. Reuse an existing suitable case, and honor a prior
+answer or explicit authoring request rather than asking again. If the user
+declines or is unavailable, defer authoring and continue ordinary implementation
+and deterministic regression coverage. Authoring opt-in is not blanket
+authorization to launch Live or expand real-host testing.
 
 The shared foundation lives at `@ableton-agent/test-support/integration`, with
 `integration/fixtures/` and `integration/acceptance-scenarios/` catalogs.

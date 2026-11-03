@@ -4,6 +4,14 @@ Companion specification: [Test Strategy](test-strategy.md)
 
 ## Test infrastructure
 
+- [x] Scope integration-testing activation to selected real-host validation or
+  concrete Live-postcondition evidence gaps. Remove blanket code-change
+  triggers and automatic scenario/group/full-suite escalation; stop at agreed
+  terminal results while preserving failures and qualification limits.
+- [x] Offer human-in-the-loop durable fixture authoring once per new user-facing
+  agent capability, early enough for test-driven development. Honor prior
+  decisions; decline/unavailability defers authoring without blocking ordinary
+  implementation or lower-layer regressions.
 - [x] Document current command discovery and separate runtime, unpackaged Electron,
   packaged smoke and attended MCP/UX evidence. Preserve packaged installer
   coverage and keep the future multi-turn packaged runner out of part 1.

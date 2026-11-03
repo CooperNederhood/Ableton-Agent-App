@@ -1,0 +1,69 @@
+{
+  "schemaVersion": 1,
+  "id": "session-clip-identify",
+  "fixtureId": "session-clip-identify",
+  "requiredCapabilities": ["automation", "session-audio", "persistence"],
+  "permissions": [
+    {
+      "tool": "ableton_listening",
+      "action": "play-session-and-listen",
+      "risk": "medium",
+      "maxUses": 1,
+      "arguments": {
+        "action": "play-session-and-listen",
+        "target.view": "session",
+        "target.track.kind": "regular",
+        "target.track.index": 0,
+        "target.track.expectedReference": "$source.trackId",
+        "target.track.expectedName": "audio-track",
+        "target.sceneIndex": "$source.slotIndex",
+        "target.expectedClipReference": "$source.clipId",
+        "target.expectedClipName": "clip-1",
+        "listenerIds.0": "ableton-audio-listener:path:0ab15d6e26745d97a552b223ab10d013"
+      }
+    }
+  ],
+  "budget": {
+    "runMs": 300000,
+    "cleanupMs": 30000,
+    "persistenceMs": 30000
+  },
+  "steps": [
+    {
+      "id": "listen",
+      "message": "Listen to the first Session clip on track audio-track.",
+      "timeoutMs": 120000,
+      "assertions": [
+        {
+          "name": "capture",
+          "parameters": {
+            "sampleRate": 48000,
+            "expectedFrames": 90000,
+            "metricFamilies": "level,spectral-centroid,attacks"
+          }
+        },
+        { "name": "context", "parameters": { "afterRestart": false } }
+      ]
+    },
+    {
+      "id": "identify",
+      "message": "What does the clip you listened to do? Pick from (A) hihat (B) kick drum (C) synth lead (D) snare. Reply in the form '({Letter})', nothing else.",
+      "timeoutMs": 60000,
+      "assertions": [
+        { "name": "choice", "parameters": { "expected": "B" } },
+        { "name": "no-capture", "parameters": {} },
+        { "name": "context", "parameters": { "afterRestart": false } }
+      ]
+    }
+  ],
+  "assertions": [
+    { "name": "capture-count", "parameters": { "expected": 1 } },
+    { "name": "context", "parameters": { "afterRestart": true } },
+    {
+      "name": "unchanged",
+      "parameters": {
+        "scopes": "session-structure,source-settings,fixture-media,unrelated-playback"
+      }
+    }
+  ]
+}

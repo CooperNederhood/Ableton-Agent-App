@@ -1,0 +1,69 @@
+{
+  "schemaVersion": 1,
+  "id": "session-clip-identify",
+  "qualification": "reviewed-live",
+  "provenance": {
+    "ownership": "user-authorized",
+    "description": "User-supplied Set and generated four-hit reference audio, approved 2026-11-02 with audio-track/clip-1, 128 BPM and existing processing. Owned Live 11.3.43 preflight verified warped four-beat loop, zero offsets, stopped-zero transport, Global/None quantization and recording off. Saved FollowActionEnabled=false; Live 11 public property unavailable. Owned startup log independently recorded 48000 Hz. Factory impulse responses are verified in the licensed Live Builtin installation, not redistributed. Original Set SHA-256 is retained unchanged."
+  },
+  "resources": [
+    {
+      "path": "project.als",
+      "target": "project.als",
+      "sha256": "1047c79b4a092645cf5eefaf9555b5271b679c9628a7f2f1f8d499a7e774d59c",
+      "bytes": 19762
+    },
+    {
+      "path": "Samples/Imported/resource-001.wav",
+      "target": "Samples/Imported/resource-001.wav",
+      "sha256": "26e25dd0dfa741e92754cedc47205f75d92dd57bcd4e7a59532236874120daa1",
+      "bytes": 384044
+    }
+  ],
+  "dependencies": ["machine-listening"],
+  "listenerBindings": [
+    {
+      "slot": "AudioTrack:175/DeviceChain/DeviceChain/Devices/MxDeviceAudioEffect:0",
+      "sourcePath": "Presets/Audio Effects/Max Audio Effect/Machine-Listening-Development/Machine-Listening-Development.amxd",
+      "dependency": "machine-listening",
+      "trackIndex": 0,
+      "deviceIndex": 0
+    }
+  ],
+  "builtinResources": [
+    {
+      "path": "Samples/Hybrid/ImpulseResponses/Hybrid_Made_for_Drums_Live Studio Room L.wav",
+      "bytes": 146336,
+      "sha256": "1ebc0e8ea6699f8c06d50732722243b299efe2b14f4ccb8434cee983e9886b2b"
+    },
+    {
+      "path": "Samples/Hybrid/ImpulseResponses/Hybrid_Made_for_Drums_Live Studio Room R.wav",
+      "bytes": 146336,
+      "sha256": "2dd792207dc2a816abb46a5a6e28dee953bb245b6127592047673b5c8987bc84"
+    }
+  ],
+  "baseline": {
+    "trackName": "audio-track",
+    "clipName": "clip-1",
+    "sceneIndex": 0,
+    "tempo": 128,
+    "globalQuantization": "none",
+    "clipLaunchQuantization": "global",
+    "transportPlaying": false,
+    "currentSongTime": 0,
+    "playingSessionClips": 0,
+    "queuedSessionClips": 0,
+    "recording": false,
+    "signatureNumerator": 4,
+    "signatureDenominator": 4,
+    "clipWarped": true,
+    "clipStart": 0,
+    "loopStart": 0,
+    "loopEnd": 4,
+    "activeLengthBeats": 4,
+    "launchMode": "trigger",
+    "legato": false,
+    "followActionsEnabled": false,
+    "listenerBoundToSource": true
+  }
+}

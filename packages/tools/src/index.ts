@@ -450,6 +450,11 @@ export interface ToolApprovalRequest {
   arguments: Readonly<Record<string, unknown>>;
   agentInstanceId?: string;
   sdkSessionId?: string;
+  trace?: {
+    readonly traceId: string;
+    readonly correlationId: string;
+    readonly causationId: string;
+  };
 }
 
 export type ToolApprovalRequester = (

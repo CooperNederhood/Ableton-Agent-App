@@ -1,5 +1,36 @@
 # Scenario groups
 
+This is selection guidance for the existing runtime smoke suite, not a packaged
+MCP workflow catalog. `integration/live-scenarios/suite.json` and each reviewed
+manifest own ordering, budgets and guards. Start with `--scenario <id>`, then
+`--group <id>`, then remaining selected coverage. Explicit IDs excluded by a
+group/resume intersection must be rejected before setup, not silently omitted.
+Skipped, blocked or unrun selected IDs prevent successful exit.
+
+Current source supports full-active-loop/default and guarded exact-end Session
+capture up to thirty seconds, not a universal four-beat limit. Wire4 is per-pass
+dual-mode; wire5 provides independent level/spectral/attack timelines and
+`metric-audio-observation/v1`. Version-specific historical scenarios below keep
+their own exact durations and pins. Descriptive disagreement is advisory, not
+strict timing qualification. Existing stopped-beat-zero/None-quantization guards
+are unchanged.
+
+The merged production bundle has bounded Session and installed-startup
+qualification with matched payloads. The corrected managed
+`native-metric-session-audio-silent-tail` scenario and owning group pass.
+A later same-source repetition failed before playback; its isolated rerun passed
+but does not establish reliable repetition. Incorrect offbeat interpretation
+also remains unqualified. Refer to the canonical
+[listening checkpoint](../../../../docs/tools/playback-listening.md) for candidate
+pins, positive and negative evidence, and exact qualified scope. These upstream
+results do not qualify changes to the runner itself.
+
+Private `.test-artifacts/` source paths and staging tools mentioned below are
+local evidence references, not committed portable fixtures. Obtain explicit
+reviewed version-specific inputs; missing inputs block execution. Native staging
+preserves source bytes; offline saved-Set migration/provisioning is a separate
+reviewed policy. Engineering/bootstrap fixtures cannot qualify production bytes.
+
 ## Implemented baseline
 
 `inspection`
@@ -112,7 +143,7 @@ acceptance. A pre-existing user Live process blocks execution; never control it.
   selection/view state, global history availability, and workflow-job list
   without mutation.
 
-Each group starts in a fresh runner-owned default Set. Every scenario also uses
+General groups start in a fresh runner-owned default Set. Every actor scenario uses
 a fresh Copilot session so prior prompts and tool calls cannot contaminate its
 reviewed action contract. Live artifacts never carry across group restarts.
 
@@ -157,8 +188,8 @@ Each scenario creates its own artifact namespace and fresh exact-PID owned Live
 process. The first process must finish shutdown and fixture cleanup before the
 next starts, even when they share immutable source pins. Native admission
 rejects missing/wrong-version inputs, installation, approve-all, and external
-computer-use startup before build/setup. Full native selection requires both
-version-specific inputs; no substitution or silent fallback.
+computer-use startup before build/setup. Full native selection requires all selected groups' version-specific inputs,
+including native3/native4/native5 where selected; no substitution or silent fallback.
 
 The production v2 host owns guarded nonzero positioning before arming. The runner
 never seeks, repairs an insert marker, retries playback, or stops transport as

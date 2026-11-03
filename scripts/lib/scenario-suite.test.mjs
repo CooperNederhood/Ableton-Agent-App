@@ -42,4 +42,28 @@ describe("scenario suite selection", () => {
       }),
     ).toThrow("outside the selected group");
   });
+
+  it("rejects explicitly requested scenarios excluded by group or resume filters", () => {
+    expect(() =>
+      selectScenarioGroups(suite, {
+        group: "inspection",
+        scenarios: ["browser", "track-life"],
+      }),
+    ).toThrow("track-life");
+    expect(() =>
+      selectScenarioGroups(suite, {
+        scenarios: ["connection", "browser"],
+        resumeFrom: "browser",
+      }),
+    ).toThrow("connection");
+    expect(
+      selectScenarioGroups(suite, {
+        scenarios: ["browser", "track-life"],
+        resumeFrom: "browser",
+      }),
+    ).toEqual([
+      { id: "inspection", scenarios: ["browser"] },
+      { id: "tracks", scenarios: ["track-life"] },
+    ]);
+  });
 });

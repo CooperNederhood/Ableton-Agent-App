@@ -2,6 +2,7 @@
 export {
   decodeAmxd,
   encodeAmxd,
+  freezeAmxd,
   renderPortableDevice,
   renderInstalledDevice,
   publishResources,

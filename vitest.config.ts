@@ -18,6 +18,12 @@ export default defineConfig({
   },
   resolve: {
     alias: {
+      "@ableton-agent/test-support/integration": source(
+        "./packages/test-support/src/integration/index.ts",
+      ),
+      "@ableton-agent/debug-control/contracts": source(
+        "./packages/debug-control/src/contracts.ts",
+      ),
       "@ableton-agent/protocol/testing": source(
         "./packages/protocol/src/testing.ts",
       ),

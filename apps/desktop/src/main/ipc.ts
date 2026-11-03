@@ -96,6 +96,11 @@ export function createIpcHandlers(
 ): IpcHandlers {
   return {
     "listening:list": (request) => service.listListeningJobs(request),
+    "ableton:inspect-session-listening-source": (request) =>
+      service.inspectSessionListeningSource(request),
+    "ableton:inspect-recording": () => service.inspectRecording(),
+    "ableton:inspect-session-listening-preflight": (request) =>
+      service.inspectSessionListeningPreflight(request),
     "entity-context:list": (request) => context.list(request),
     "entity-context:get": (request) => context.get(request),
     "app:lifecycle": async () => ({

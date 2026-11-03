@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { access, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import * as application from "@ableton-agent/application";
 import * as runtime from "@ableton-agent/runtime";
 import * as observability from "@ableton-agent/observability";
@@ -12,12 +12,20 @@ import { JsonSessionStore } from "../../apps/desktop/src/main/desktop-service.ts
 import { createDesktopSessionContextManager } from "../../apps/desktop/src/main/desktop-session-context.ts";
 import { sessionSchema } from "../../apps/desktop/src/contracts.ts";
 import { publishSignalSecrets } from "../../apps/desktop/src/main/signal-credentials.ts";
-import { nativeFixtureInput } from "./native-listening-fixture.test.mjs";
-import { sessionEvidence } from "./native-listening-verification.test.mjs";
+import {
+  disposeNativeFixtureRoots,
+  nativeFixtureInput as createNativeFixtureInput,
+} from "./native-listening-fixture-test-support.mjs";
+import { sessionEvidence } from "./native-listening-evidence-test-support.mjs";
 import {
   createNativeListeningRunner,
   inspectNativeCandidateAdmission,
 } from "./native-listening-runner.mjs";
+
+const roots = [];
+const nativeFixtureInput = (options) =>
+  createNativeFixtureInput(roots, options);
+afterEach(() => disposeNativeFixtureRoots(roots));
 
 // Synthetic actor/capture/source receipts; production publication, storage and reopen.
 async function fixture({

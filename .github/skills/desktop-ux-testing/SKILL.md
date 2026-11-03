@@ -8,6 +8,9 @@ description: Use after implementing or changing Electron UI, desktop interaction
 Use this skill after implementing a feature whose correctness depends on the
 real Electron renderer, the embedded production agent, visible application
 state, or the interaction between Ableton Agent and Ableton Live.
+This attended loop is not the deterministic runtime smoke suite or an automated
+packaged multi-turn acceptance runner. See the canonical
+[test strategy](../../../docs/testing/test-strategy.md) for evidence boundaries.
 
 ## Required loop
 
@@ -24,7 +27,9 @@ experience:
    integration harness. Never reuse or take control of a user's pre-existing
    Live process.
 4. **Launch the app** in automation mode with an isolated profile and the agent
-   definition and approval policy appropriate to the scenario.
+   definition and approval policy appropriate to the scenario. Use ordinary
+   approvals for production-like qualification; automatic approval is a
+   separately labeled diagnostic mode.
 5. **Message** the visible app through `send_user_message`.
 6. **Wait** for the accepted turn to visibly leave its busy/running state. MCP
    success means only that Desktop accepted the message.
@@ -34,8 +39,10 @@ experience:
    Handle save/discard prompts explicitly; never silently discard user work.
 9. **Fix** the root cause and add or refine regression coverage when the
    observed behavior is wrong.
-10. **Repeat** from the build step with fresh processes. Do not trust stale
-    Electron main, preload, Remote Script, or embedded Python modules.
+10. **Repeat** independent attempts from the build step with fresh processes.
+    Preserve intentionally stateful steps/restarts inside a reviewed scenario.
+    Do not trust stale Electron main, preload, Remote Script, or embedded Python
+    modules.
 
 ## Launch commands
 
@@ -71,25 +78,37 @@ retains exact process ownership, waits up to 600 seconds for Remote Script
 readiness, and does not automatically discard recovery. Obtain approval before
 declining recovery. Ordinary host readiness remains bounded to 120 seconds.
 
-Use a fresh absolute profile for each run, but publish automation discovery at
-the stable descriptor path registered with the MCP adapter:
+Use a fresh absolute automation profile for each run. Desktop passes its isolated
+`live-agent` root and `automation` profile to `@ableton-agent/storage`; do not
+manually invent journal/context locations. Follow the canonical
+[storage contract](../../../docs/platform/local-storage.md).
+Publish automation discovery at a stable, explicit descriptor path shared with
+the MCP adapter. This CLI discovery file is not a new application-state root.
+For example, from the checkout used for this validation:
 
 ```bash
-PROFILE="$(mktemp -d "${TMPDIR:-/tmp}/ableton-agent-ux-XXXXXX")"
-DESCRIPTOR="$HOME/.ableton-agent/ux-test-profile/automation-endpoint.json"
+PROFILE="$PWD/.test-artifacts/desktop-ux/run-$(node -e 'console.log(crypto.randomUUID())')"
+DESCRIPTOR="$PWD/.test-artifacts/desktop-ux/automation-endpoint.json"
 mkdir -p "$(dirname "$DESCRIPTOR")"
 pnpm desktop:dev -- \
   --automation \
   --automation-profile "$PROFILE" \
   --automation-descriptor "$DESCRIPTOR" \
-  --automation-agent default \
-  --automation-yolo
+  --automation-agent default
 ```
 
 Replace `default` with the definition that owns the behavior under test. Record
 the fresh profile path and remove it only after closing the validation app.
 Never launch an arbitrary profile without the registered stable descriptor;
 the MCP process reads that descriptor on each tool call.
+
+Add `--automation-yolo` only for an explicitly automatic-approval diagnostic;
+label that evidence and do not present it as normal approval qualification.
+Metric listeners are enabled by default in automation, matching normal
+installed startup; the legacy `--automation-metric-listeners` flag remains
+accepted but is no longer required. Enabling the automation endpoint does not
+change ordinary approval requirements. Unpackaged isolation is still not the
+packaged Finder-like PATH/token environment tested by `electron-packaged`.
 
 The registered local stdio MCP server must use the stable descriptor:
 
@@ -133,8 +152,8 @@ identity errors.
 ## Inspection procedure
 
 1. Inspect the pinned Agent window and confirm startup completed, Ableton is
-   connected, the requested agent is selected, and the expected YOLO or
-   approval state is visible.
+   connected, the requested agent is selected, and ordinary approval state is
+   visible (or explicitly record the automatic-approval diagnostic exception).
 2. Send one representative bounded user request through `send_user_message`.
    Preserve the returned message, trace, and correlation IDs.
 3. Observe the submitted user turn, streaming response, operation rows,
@@ -161,6 +180,18 @@ Classify the result explicitly:
   precondition prevented execution.
 - **Inconclusive:** Agent or Live resembles the expected result, but the
   available evidence cannot attribute it to the submitted request.
+
+Keep the first attempt and any subsequent recovery separately visible. Skipped,
+blocked or unrun requested coverage is not successful qualification. For native
+captures, an execution checkpoint is provisional until capture and final
+process/fixture cleanup are verified. The merged v5 bundle has bounded installed
+Session qualification with matching production/package/install inventories.
+Corrected silent-tail results do not erase historical failures, and a later
+repetition failure and incorrect offbeat interpretation remain unresolved.
+Neither upstream success nor a passing isolated rerun qualifies unrestricted
+repetition or changes to this runner.
+Consult the current [listening checkpoint](../../../docs/tools/playback-listening.md)
+before selecting candidate inputs, and label bootstrap/engineering-only evidence.
 
 ## Visual success criteria
 

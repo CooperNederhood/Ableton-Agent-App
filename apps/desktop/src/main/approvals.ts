@@ -1,16 +1,23 @@
 import { randomUUID } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
 
 import type { ToolApprovalRequest } from "@ableton-agent/tools";
+import {
+  sanitizePersistedText,
+  sanitizeTelemetryAttributes,
+} from "@ableton-agent/observability";
 
-import type {
-  ApprovalDecision,
-  ApprovalRequest,
-  DesktopPreferences,
+import {
+  approvalToolSchema,
+  type ApprovalDecision,
+  type ApprovalRequest,
+  type DesktopPreferences,
 } from "../contracts.js";
 
 export interface ApprovalAttribution {
   readonly agentInstanceId?: string;
   readonly sdkSessionId?: string;
+  readonly trace?: NonNullable<ToolApprovalRequest["trace"]>;
 }
 
 export type AutoApprovedAgentInstanceIds =
@@ -38,17 +45,43 @@ export function toDesktopApproval(
   const sessionLaunch =
     request.metadata.name === "ableton_listening" &&
     request.arguments.action === "play-session-and-listen";
+  const args = sanitizeTelemetryAttributes(request.arguments, {
+    maxBytes: 16_384,
+    maxStringCharacters: 2_048,
+    maxArrayItems: 128,
+    maxObjectFields: 128,
+    maxDepth: 8,
+  });
+  const name = sanitizePersistedText(request.metadata.name).slice(0, 128);
+  const originalAction = request.arguments.action;
+  const action =
+    typeof originalAction === "string"
+      ? sanitizePersistedText(originalAction).slice(0, 128)
+      : undefined;
+  const tool = approvalToolSchema.parse({
+    name,
+    ...(action === undefined || action.length === 0 ? {} : { action }),
+    arguments: args,
+    argumentsComplete: false,
+  });
+  tool.argumentsComplete =
+    isDeepStrictEqual(tool.arguments, request.arguments) &&
+    name === request.metadata.name &&
+    (typeof originalAction !== "string" || action === originalAction);
   return {
     id,
-    title: request.metadata.title,
+    title: sanitizePersistedText(request.metadata.title).slice(0, 256),
     risk,
     summary: sessionLaunch
       ? "Launches the selected Session clip and starts transport. Playback stays running after completion, failure or cancellation; other selected Session sources may resume. Cancel stops capture only and cannot retract an accepted launch."
-      : `The agent requested ${request.metadata.title} (${request.metadata.risk}, ${request.metadata.duration} operation).`,
-    changes: Object.entries(request.arguments).map(
-      ([name, value]) => `${name}: ${JSON.stringify(value) ?? "undefined"}`,
+      : sanitizePersistedText(
+          `The agent requested ${request.metadata.title} (${request.metadata.risk}, ${request.metadata.duration} operation).`,
+        ).slice(0, 512),
+    changes: Object.entries(args).map(([name, value]) =>
+      `${name}: ${JSON.stringify(value)}`.slice(0, 4_096),
     ),
     destructive: request.metadata.risk === "destructive",
+    tool,
   };
 }
 
@@ -98,7 +131,28 @@ export class ApprovalCoordinator {
         : { agentInstanceId: request.agentInstanceId }),
       ...(request.sdkSessionId === undefined
         ? {}
-        : { sdkSessionId: request.sdkSessionId }),
+        : {
+            sdkSessionId: sanitizePersistedText(request.sdkSessionId).slice(
+              0,
+              256,
+            ),
+          }),
+      ...(request.trace === undefined
+        ? {}
+        : {
+            trace: {
+              traceId: sanitizePersistedText(request.trace.traceId).slice(
+                0,
+                256,
+              ),
+              correlationId: sanitizePersistedText(
+                request.trace.correlationId,
+              ).slice(0, 256),
+              causationId: sanitizePersistedText(
+                request.trace.causationId,
+              ).slice(0, 256),
+            },
+          }),
     };
     if (!publish(approval, attribution)) {
       return Promise.resolve(false);

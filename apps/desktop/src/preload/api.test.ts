@@ -3,8 +3,105 @@ import { describe, expect, it, vi } from "vitest";
 import { createDesktopApi, type PreloadTransport } from "./api.js";
 import { listeningFailureFixture } from "../renderer/test-fixtures/listening-failure.js";
 import type { DesktopListeningPage } from "../listening-contracts.js";
+import {
+  recordingInspectionFixture,
+  sessionListeningPreflightFixture,
+  sessionListeningSourceFixture,
+} from "../renderer/test-fixtures/session-listening-source.js";
 
 describe("preload API", () => {
+  it("preserves independently observed loaded audio paths and rates in compound preflight", async () => {
+    const { params, result } = sessionListeningPreflightFixture();
+    const responses: Record<string, unknown> = {
+      "ableton:inspect-session-listening-preflight": result,
+    };
+    const transport = transportFor(responses);
+    const api = createDesktopApi(transport);
+    await expect(
+      api.ableton.inspectSessionListeningPreflight(params),
+    ).resolves.toEqual(result);
+    expect(transport.invoke).toHaveBeenCalledExactlyOnceWith(
+      "ableton:inspect-session-listening-preflight",
+      params,
+    );
+    responses["ableton:inspect-session-listening-preflight"] = {
+      ...result,
+      audio: { ...result.audio, filePath: null, sampleRate: null },
+    };
+    await expect(
+      api.ableton.inspectSessionListeningPreflight(params),
+    ).resolves.toMatchObject({
+      audio: { filePath: null, sampleRate: null },
+    });
+    responses["ableton:inspect-session-listening-preflight"] = {
+      ...result,
+      audio: {
+        ...result.audio,
+        reference: "00000000-0000-4000-8000-000000000099",
+      },
+    };
+    await expect(
+      api.ableton.inspectSessionListeningPreflight(params),
+    ).rejects.toThrow();
+  });
+
+  it("reads global recording independently and rejects absent recording evidence", async () => {
+    const result = recordingInspectionFixture();
+    const source = sessionListeningSourceFixture();
+    const responses: Record<string, unknown> = {
+      "ableton:inspect-recording": result,
+      "ableton:inspect-session-listening-source": source.result,
+    };
+    const transport = transportFor(responses);
+    const api = createDesktopApi(transport);
+    expect(
+      (await api.ableton.inspectSessionListeningSource(source.params)).after
+        .targetRecording,
+    ).toBe(false);
+    await expect(api.ableton.inspectRecording()).resolves.toEqual(result);
+    expect(transport.invoke).toHaveBeenCalledWith(
+      "ableton:inspect-recording",
+      {},
+    );
+    expect(result.state.arrangementRecord).toBe(true);
+    expect(result.state.sessionRecord).toBe(true);
+    responses["ableton:inspect-recording"] = {
+      action: "inspect",
+      state: { targetRecording: false },
+    };
+    await expect(api.ableton.inspectRecording()).rejects.toThrow();
+  });
+
+  it("exposes only the typed read-only Session source inspection and rejects malformed wire payloads", async () => {
+    const { params, result } = sessionListeningSourceFixture();
+    const responses: Record<string, unknown> = {
+      "ableton:inspect-session-listening-source": result,
+    };
+    const transport = transportFor(responses);
+    const api = createDesktopApi(transport);
+    await expect(
+      api.ableton.inspectSessionListeningSource(params),
+    ).resolves.toEqual(result);
+    expect(transport.invoke).toHaveBeenCalledExactlyOnceWith(
+      "ableton:inspect-session-listening-source",
+      params,
+    );
+    await expect(
+      api.ableton.inspectSessionListeningSource({
+        ...params,
+        queryId: "invalid",
+      }),
+    ).rejects.toThrow();
+    expect(transport.invoke).toHaveBeenCalledTimes(1);
+    responses["ableton:inspect-session-listening-source"] = {
+      ...result,
+      settings: { ...result.settings, globalQuantization: 99 },
+    };
+    await expect(
+      api.ableton.inspectSessionListeningSource(params),
+    ).rejects.toThrow();
+  });
+
   it("preserves shared failure evidence in typed inventory/events and filters foreign or raw diagnostic payloads", async () => {
     const agentId = "00000000-0000-4000-8000-000000000001";
     const page: DesktopListeningPage = {

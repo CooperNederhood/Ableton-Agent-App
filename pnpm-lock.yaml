@@ -389,6 +389,9 @@ importers:
       '@ableton-agent/application':
         specifier: workspace:*
         version: link:../application
+      '@ableton-agent/observability':
+        specifier: workspace:*
+        version: link:../observability
       '@ableton-agent/protocol':
         specifier: workspace:*
         version: link:../protocol

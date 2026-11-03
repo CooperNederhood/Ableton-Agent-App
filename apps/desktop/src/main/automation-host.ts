@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import {
   AutomationControlServer,
+  type AutomationAcceptance,
   type AutomationLifecycleEvent,
   type SendUserMessageRequest,
 } from "@ableton-agent/debug-control";
@@ -46,7 +47,7 @@ export function createDesktopAutomationServer(options: {
 async function sendUserMessage(
   service: HeadlessDesktopService,
   request: SendUserMessageRequest,
-): Promise<{ accepted: true; messageId: string }> {
+): Promise<AutomationAcceptance> {
   registerCorrelationContext({
     correlationId: request.trace.correlationId,
     traceId: request.trace.traceId,
@@ -59,6 +60,9 @@ async function sendUserMessage(
         origin: "automation",
         trace: request.trace,
         requestId: request.id,
+        ...(request.params.expectedTarget === undefined
+          ? {}
+          : { expectedTarget: request.params.expectedTarget }),
       }),
     );
   } finally {
@@ -89,6 +93,12 @@ function recordAutomationLifecycle(
     ...(event.durationMs === undefined ? {} : { durationMs: event.durationMs }),
     correlationId: event.trace.correlationId,
     causationId: event.requestId,
+    ...(event.turn === undefined
+      ? {}
+      : {
+          sessionId: event.turn.target.appSessionId,
+          activeAgentId: event.turn.target.agentInstanceId,
+        }),
     trace: {
       traceId: event.trace.traceId,
       spanId: randomUUID(),
@@ -98,6 +108,14 @@ function recordAutomationLifecycle(
       request_id: event.requestId,
       message_characters: event.messageCharacters,
       ...(event.messageId === undefined ? {} : { message_id: event.messageId }),
+      ...(event.turn === undefined
+        ? {}
+        : {
+            assistant_message_id: event.turn.assistantMessageId,
+            app_session_id: event.turn.target.appSessionId,
+            agent_instance_id: event.turn.target.agentInstanceId,
+            sdk_session_id: event.turn.target.sdkSessionId,
+          }),
       ...(event.errorCode === undefined ? {} : { error_code: event.errorCode }),
     },
   });

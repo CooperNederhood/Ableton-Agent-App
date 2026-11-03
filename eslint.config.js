@@ -17,6 +17,7 @@ export default tseslint.config(
   {
     files: [
       "scripts/**/*.mjs",
+      ".github/skills/*/scripts/*.mjs",
       "apps/*/scripts/**/*.mjs",
       "packages/*/{bin,scripts}/**/*.mjs",
     ],

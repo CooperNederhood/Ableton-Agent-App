@@ -12,7 +12,7 @@ describe("desktop launch options", () => {
     expect(normal.automation).toBeUndefined();
   });
 
-  it("requires explicit metric admission for isolated automation", () => {
+  it("keeps normal listening enabled in automation and accepts the legacy flag", () => {
     expect(() =>
       parseDesktopLaunchOptions(["--automation-metric-listeners"]),
     ).toThrow("require --automation");
@@ -39,7 +39,7 @@ describe("desktop launch options", () => {
           "/tmp/ableton-agent-metric-profile",
         ]),
       ),
-    ).toBe(false);
+    ).toBe(true);
     expect(
       desktopMetricListenersEnabled(
         parseDesktopLaunchOptions([

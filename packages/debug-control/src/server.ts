@@ -7,9 +7,11 @@ import {
   AUTOMATION_HOST,
   AUTOMATION_PROTOCOL_VERSION,
   MAX_AUTOMATION_FRAME_BYTES,
+  automationAcceptanceSchema,
   automationResponseSchema,
   sendUserMessageRequestSchema,
   type AutomationErrorCode,
+  type AutomationAcceptance,
   type AutomationLifecycleEvent,
   type AutomationResponse,
   type SendUserMessageRequest,
@@ -19,7 +21,7 @@ export interface AutomationControlServerOptions {
   descriptorPath: string;
   sendUserMessage(
     request: SendUserMessageRequest,
-  ): Promise<{ accepted: true; messageId: string }>;
+  ): Promise<AutomationAcceptance>;
   onLifecycle?: (event: AutomationLifecycleEvent) => void;
   now?: () => number;
 }
@@ -187,13 +189,16 @@ export class AutomationControlServer {
       messageCharacters: request.params.message.length,
     });
     try {
-      const result = await this.options.sendUserMessage(request);
+      const result = automationAcceptanceSchema.parse(
+        await this.options.sendUserMessage(request),
+      );
       this.options.onLifecycle?.({
         stage: "completed",
         requestId: request.id,
         trace: request.trace,
         messageCharacters: request.params.message.length,
         messageId: result.messageId,
+        ...(result.turn === undefined ? {} : { turn: result.turn }),
         durationMs: this.#now() - startedAt,
       });
       await this.#respond(socket, {
@@ -264,6 +269,9 @@ function classifyError(error: unknown): {
   message: string;
 } {
   const message = error instanceof Error ? error.message : String(error);
+  if (message === "Automation target changed before submission") {
+    return { code: "target_mismatch", message };
+  }
   if (/already|busy|in progress/iu.test(message)) {
     return { code: "busy", message };
   }

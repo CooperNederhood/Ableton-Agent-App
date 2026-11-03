@@ -7,8 +7,10 @@ const f = vi.hoisted(() => ({
   runProcess: vi.fn(),
   owned: { pid: 1234, runId: "11111111-1111-4111-8111-111111111111" },
   cleanupError: false,
+  gracefulError: false,
   active: false,
   failCheckpoint: false,
+  allowUnsupported: false,
 }));
 
 vi.mock("node:fs/promises", async (original) => {
@@ -16,11 +18,17 @@ vi.mock("node:fs/promises", async (original) => {
   return {
     ...actual,
     mkdir: vi.fn(async () => undefined),
-    readFile: vi.fn(async (path, ...args) =>
-      String(path).endsWith(".ableton-agent-token")
-        ? "runner-secret-token-with-at-least-32-characters"
-        : actual.readFile(path, ...args),
-    ),
+    readFile: vi.fn(async (path, ...args) => {
+      if (String(path).endsWith(".ableton-agent-token"))
+        return "runner-secret-token-with-at-least-32-characters";
+      const value = await actual.readFile(path, ...args);
+      return f.allowUnsupported && String(path).endsWith("transport-stop.json")
+        ? JSON.stringify({
+            ...JSON.parse(value),
+            unsupportedCapabilities: ["session.snapshot"],
+          })
+        : value;
+    }),
     writeFile: vi.fn(async (path, text) => {
       f.sequence.push("evidence");
       const json = JSON.parse(text);
@@ -30,6 +38,7 @@ vi.mock("node:fs/promises", async (original) => {
       }
       f.writes.push({ path, json });
     }),
+    rename: vi.fn(async () => undefined),
   };
 });
 vi.mock("./live-process-controller.mjs", () => ({
@@ -49,6 +58,7 @@ vi.mock("./live-process-controller.mjs", () => ({
     }
     async gracefulStop() {
       f.sequence.push("graceful");
+      if (f.gracefulError) throw new Error("graceful cleanup failed");
       f.active = false;
     }
     async discardAfterFailure() {
@@ -81,6 +91,7 @@ describe("transport stop runner ownership and failure cleanup", () => {
     f.sequence.length = 0;
     f.writes.length = 0;
     f.cleanupError = false;
+    f.gracefulError = false;
     f.active = false;
     f.failCheckpoint = false;
     f.runProcess.mockReset();
@@ -105,18 +116,24 @@ describe("transport stop runner ownership and failure cleanup", () => {
   });
 
   async function run(mode) {
+    f.allowUnsupported = mode === "unsupported";
     f.runProcess.mockImplementation(async (_command, args, options) => {
+      if (_command === "git")
+        return { status: 0, stdout: `${"a".repeat(40)}\n`, stderr: "" };
       const command = args[1];
       if (command === "status")
         return { status: 0, stdout: '{"healthy":true}', stderr: "" };
-      if (command === "session-new")
+      if (command === "session-new") {
+        if (mode === "session-failure") throw new Error("session setup failed");
         return {
           status: 0,
           stdout: '{"sessionId":"fresh-session"}',
           stderr: "",
         };
+      }
       if (command !== "run") throw new Error(`Unexpected command ${command}`);
       f.sequence.push("actor");
+      if (mode === "execution-failure") throw new Error("actor process failed");
       expect(options.env.ABLETON_AGENT_SCENARIO_LIVE_PID).toBe(
         String(f.owned.pid),
       );
@@ -129,11 +146,25 @@ describe("transport stop runner ownership and failure cleanup", () => {
         signal: mode === "cancelled" ? "SIGTERM" : undefined,
         stdout: JSON.stringify({
           ok: success,
-          traceState: success || mode === "refusal" ? "completed" : "failed",
+          traceState:
+            success || ["refusal", "unsupported"].includes(mode)
+              ? "completed"
+              : "failed",
           scenarioId: "transport-stop",
           operations: [],
-          operationFailures: [],
-          assertions: [{ assertion: "transport-stopped", passed: success }],
+          operationFailures:
+            mode === "unsupported"
+              ? [
+                  {
+                    code: "unsupported_capability",
+                    details: { capability: "session.snapshot" },
+                  },
+                ]
+              : [],
+          assertions:
+            mode === "unsupported"
+              ? []
+              : [{ assertion: "transport-stopped", passed: success }],
           scenarioEvidence: {
             transportStop: {
               playing: { isPlaying: true },
@@ -190,6 +221,33 @@ describe("transport stop runner ownership and failure cleanup", () => {
         .isPlaying,
     ).toBe(false);
     expect(evidence.cleanup.at(-1).outcome).toBe("success");
+    expect(evidence).toMatchObject({
+      formatVersion: 2,
+      outcome: "passed",
+      coverage: { selected: 1, executed: 1, passed: 1, cleanPasses: 1 },
+    });
+    expect(evidence.scenarios[0]).toMatchObject({
+      passed: true,
+      finalization: "final",
+      executionClassification: "pass",
+      cleanup: { status: "completed" },
+    });
+  });
+
+  it("does not erase failed graceful cleanup when subsequent disposal succeeds", async () => {
+    f.gracefulError = true;
+    const evidence = await run("success");
+    expect(f.active).toBe(false);
+    expect(evidence.passed).toBe(false);
+    expect(evidence.groups[0].passed).toBe(false);
+    expect(evidence.scenarios[0]).toMatchObject({
+      passed: false,
+      classification: "fail",
+      executionClassification: "pass",
+      cleanup: { status: "failed" },
+      result: { ok: true },
+    });
+    expect(process.exitCode).toBe(1);
   });
 
   it("retains cleanup failures without converting actor failure into success", async () => {
@@ -230,4 +288,39 @@ describe("transport stop runner ownership and failure cleanup", () => {
     expect(evidence.passed).toBe(false);
     expect(evidence.error).toContain("ordinary guarded approvals");
   });
+
+  it("exits nonzero for reviewed unsupported selection even after successful cleanup", async () => {
+    const evidence = await run("unsupported");
+    expect(evidence).toMatchObject({
+      passed: false,
+      outcome: "incomplete",
+      coverage: { selected: 1, executed: 1, passed: 0, skipped: 1 },
+    });
+    expect(evidence.groups[0].passed).toBe(false);
+    expect(evidence.scenarios[0].classification).toBe("unsupported-skip");
+    expect(process.exitCode).toBe(1);
+    expect(f.active).toBe(false);
+  });
+
+  it.each([
+    ["session-failure", "blocked", 0],
+    ["execution-failure", "fail", 1],
+  ])(
+    "retains %s attribution instead of silently losing the active scenario",
+    async (mode, classification, executed) => {
+      const evidence = await run(mode);
+      expect(evidence).toMatchObject({
+        passed: false,
+        coverage: { selected: 1, executed, passed: 0, unrun: 0 },
+      });
+      expect(evidence.scenarios[0]).toMatchObject({
+        id: "transport-stop",
+        classification,
+        finalization: "final",
+        cleanup: { status: "completed" },
+      });
+      expect(f.active).toBe(false);
+      expect(process.exitCode).toBe(1);
+    },
+  );
 });

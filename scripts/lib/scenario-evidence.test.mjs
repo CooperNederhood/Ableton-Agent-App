@@ -136,12 +136,60 @@ describe("scenario evidence", () => {
     }
   });
   it("classifies ordinary passes and failures", () => {
-    expect(classifyScenario({}, { status: 0, json: { ok: true } })).toBe(
-      "pass",
-    );
+    expect(
+      classifyScenario(
+        {},
+        {
+          status: 0,
+          json: {
+            ok: true,
+            assertions: [{ passed: true }],
+          },
+        },
+      ),
+    ).toBe("pass");
     expect(classifyScenario({}, { status: 5, json: { ok: false } })).toBe(
       "fail",
     );
+  });
+
+  it("requires independent assertions and the selected CLI scenario identity", () => {
+    for (const assertions of [undefined, []])
+      expect(
+        classifyScenario({}, { status: 0, json: { ok: true, assertions } }),
+      ).toBe("fail");
+    for (const flags of [
+      {},
+      { scenarioId: "wrong", traceState: "completed" },
+      { scenarioId: "selected" },
+    ])
+      expect(
+        classifyScenario(
+          { id: "selected" },
+          {
+            status: 0,
+            json: {
+              ok: true,
+              assertions: [{ passed: true }],
+              ...flags,
+            },
+          },
+        ),
+      ).toBe("fail");
+    expect(
+      classifyScenario(
+        { id: "selected" },
+        {
+          status: 0,
+          json: {
+            ok: true,
+            assertions: [{ passed: true }],
+            scenarioId: "selected",
+            traceState: "completed",
+          },
+        },
+      ),
+    ).toBe("pass");
   });
 
   it("classifies reviewed denials and unsupported skips", () => {
@@ -171,7 +219,7 @@ describe("scenario evidence", () => {
             operationFailures: [
               {
                 code: "unsupported_capability",
-                capability: "arrangement.create_midi_clip",
+                details: { capability: "arrangement.create_midi_clip" },
               },
             ],
           },
@@ -223,6 +271,85 @@ describe("scenario evidence", () => {
         },
       ),
     ).toBe("fail");
+  });
+
+  it("does not let success-shaped output hide explicit failures", () => {
+    for (const flags of [
+      { assertions: [{ passed: false }] },
+      { operationFailures: [{ code: "bridge_timeout" }] },
+      { policyViolations: ["unsafe mutation"] },
+    ]) {
+      expect(
+        classifyScenario({}, { status: 0, json: { ok: true, ...flags } }),
+      ).toBe("fail");
+    }
+  });
+
+  it("requires nonempty verified assertions for an expected denial", () => {
+    for (const assertions of [undefined, []]) {
+      expect(
+        classifyScenario(
+          { expectedOutcome: "expected-denial" },
+          {
+            status: 5,
+            json: {
+              approvals: [{ approved: false }],
+              assertions,
+              operationFailures: [],
+              policyViolations: [],
+            },
+          },
+        ),
+      ).toBe("fail");
+    }
+  });
+
+  it("matches structured unsupported capability facts, never incidental text", () => {
+    const capability = "arrangement.create_midi_clip";
+    const manifest = { unsupportedCapabilities: [capability] };
+    const failure = {
+      code: "unsupported_capability",
+      details: { capability },
+    };
+    expect(
+      classifyScenario(manifest, {
+        status: 4,
+        json: { operationFailures: [failure] },
+      }),
+    ).toBe("unsupported-skip");
+    for (const flags of [
+      { operationFailures: [failure, { code: "bridge_timeout" }] },
+      { operationFailures: [failure], assertions: [{ passed: false }] },
+      { operationFailures: [failure], policyViolations: ["unsafe mutation"] },
+      {
+        operationFailures: [
+          {
+            code: "tool_failed",
+            message: `unsupported_capability ${capability}`,
+          },
+        ],
+      },
+      {
+        operationFailures: [
+          { code: "unsupported_capability", message: capability },
+        ],
+      },
+      {
+        operationFailures: [{ code: "unsupported_capability", capability }],
+      },
+      {
+        operationFailures: [
+          {
+            code: "unsupported_capability",
+            details: { capability: `${capability}.other` },
+          },
+        ],
+      },
+    ]) {
+      expect(classifyScenario(manifest, { status: 4, json: flags })).toBe(
+        "fail",
+      );
+    }
   });
 
   it("collects unique started tool names", () => {

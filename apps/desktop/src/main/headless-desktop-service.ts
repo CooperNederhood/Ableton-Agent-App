@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { performance } from "node:perf_hooks";
+import { withCorrelation } from "@ableton-agent/correlation";
 import {
   contextTraceSchema,
   type SessionContextPublicationRequest,
@@ -25,6 +26,8 @@ import type {
   InspectEventSelectionResult,
   InspectDeviceParametersResult,
   InspectDevicesResult,
+  InspectSessionListeningSourceParams,
+  InspectSessionListeningSourceResult,
   SessionSnapshot,
 } from "@ableton-agent/protocol";
 import {
@@ -60,7 +63,11 @@ import {
   type RootTraceQuery,
   type LocalObservabilityJournal,
 } from "@ableton-agent/observability";
-import type { AutomationTrace } from "@ableton-agent/debug-control";
+import type {
+  AutomationAcceptance,
+  AutomationTargetIdentity,
+  AutomationTrace,
+} from "@ableton-agent/debug-control";
 
 import {
   desktopActiveAgentSchema,
@@ -99,6 +106,8 @@ import {
   type DesktopPlanArtifactSnapshot,
   type DesktopPreferences,
   type DesktopLiveSetSnapshot,
+  type DesktopRecordingInspection,
+  type DesktopSessionListeningPreflight,
   type DesktopLiveSetIdentity,
   type DesktopSession,
   type PlanSection,
@@ -304,6 +313,8 @@ interface ActiveTurn {
   messageId: string;
   assistantMessageId: string;
   cancelRequested: boolean;
+  sdkSessionId?: string;
+  sdkTurnId?: string;
 }
 
 interface ActiveAgentTarget {
@@ -399,9 +410,36 @@ export class HeadlessDesktopService implements DesktopService {
     this.#unsubscribeApprovals = this.#approvals.setPublisher(
       (approval, attribution) => {
         if (this.#listeners.size === 0) return false;
+        const owner =
+          attribution.agentInstanceId === undefined
+            ? undefined
+            : this.#sessions.find((session) =>
+                session.activeAgents.some(
+                  ({ id }) => id === attribution.agentInstanceId,
+                ),
+              );
+        const instance = owner?.activeAgents.find(
+          ({ id }) => id === attribution.agentInstanceId,
+        );
+        const turn =
+          attribution.agentInstanceId !== undefined &&
+          attribution.sdkSessionId !== undefined &&
+          owner?.id === this.#activeAppSessionId &&
+          instance?.sdkSessionId === attribution.sdkSessionId
+            ? this.#managedTurns.get(attribution.agentInstanceId)
+            : undefined;
+        const boundTurn =
+          attribution.trace !== undefined &&
+          turn?.sdkTurnId === attribution.trace.correlationId
+            ? turn
+            : undefined;
         this.emit({
           type: "approval.requested",
           approval,
+          ...(boundTurn === undefined
+            ? {}
+            : { operationId: boundTurn.messageId }),
+          ...(owner === undefined ? {} : { appSessionId: owner.id }),
           ...attribution,
         });
         return true;
@@ -589,8 +627,9 @@ export class HeadlessDesktopService implements DesktopService {
       origin: "automation";
       trace: AutomationTrace;
       requestId: string;
+      expectedTarget?: AutomationTargetIdentity;
     },
-  ): Promise<{ accepted: true; messageId: string }> {
+  ): Promise<AutomationAcceptance> {
     this.#assertAccepting();
     if (this.#turn) {
       throw new Error("An agent operation is already in progress");
@@ -612,6 +651,7 @@ export class HeadlessDesktopService implements DesktopService {
       async () => {
         const selection = this.#withPinnedContext(context);
         const session = this.#requireExpectedActiveSession(expectedSessionId);
+        this.#assertAutomationTarget(options?.expectedTarget, session);
         if (this.options.agentCatalog === undefined) {
           return { managedTarget: undefined, selection };
         }
@@ -639,17 +679,25 @@ export class HeadlessDesktopService implements DesktopService {
     });
     if (this.options.agentCatalog !== undefined) {
       if (managedTarget !== undefined) {
-        const accepted = await this.#beginManagedTurn(managedTarget, () =>
-          this.#application.sendToManagedAgent(
-            managedTarget.agentInstanceId,
-            composeAgentPrompt(message, selection),
-            managedTarget.agentMode,
-          ),
+        const accepted = await this.#beginManagedTurn(
+          managedTarget,
+          () =>
+            this.#application.sendToManagedAgent(
+              managedTarget.agentInstanceId,
+              composeAgentPrompt(message, selection),
+              managedTarget.agentMode,
+            ),
+          () =>
+            this.#assertAutomationTarget(
+              options?.expectedTarget,
+              this.#requireActiveSession(),
+            ),
         );
         if (options?.origin === "automation") {
           this.emit({
             type: "agent.user_message_submitted",
             messageId: accepted.messageId,
+            ...(accepted.turn === undefined ? {} : { turn: accepted.turn }),
             content: message,
             agentInstanceId: managedTarget.agentInstanceId,
             agentMode: managedTarget.agentMode,
@@ -697,6 +745,21 @@ export class HeadlessDesktopService implements DesktopService {
       });
     }
     return { accepted: true, messageId };
+  }
+
+  #assertAutomationTarget(
+    expected: AutomationTargetIdentity | undefined,
+    session: DesktopSession,
+  ): void {
+    if (expected === undefined) return;
+    const selected = this.#selectedAgent(session);
+    if (
+      session.id !== expected.appSessionId ||
+      selected?.id !== expected.agentInstanceId ||
+      selected.sdkSessionId !== expected.sdkSessionId
+    ) {
+      throw new Error("Automation target changed before submission");
+    }
   }
 
   /** Pinned context first, then the caller's selection, deduplicated by id. */
@@ -2888,6 +2951,53 @@ export class HeadlessDesktopService implements DesktopService {
     return toDesktopCapabilities(capabilities.capabilities);
   }
 
+  public async inspectSessionListeningSource(
+    params: InspectSessionListeningSourceParams,
+  ): Promise<InspectSessionListeningSourceResult> {
+    this.#assertAccepting();
+    return withCorrelation(
+      {
+        correlationId: params.queryId,
+        traceId: params.queryId,
+        ...(this.#activeAppSessionId === undefined
+          ? {}
+          : { sessionId: this.#activeAppSessionId }),
+      },
+      () => this.#application.inspectSessionListeningSource(params),
+    );
+  }
+
+  public async inspectRecording(): Promise<DesktopRecordingInspection> {
+    this.#assertAccepting();
+    const queryId = randomUUID();
+    return withCorrelation(
+      {
+        correlationId: queryId,
+        traceId: queryId,
+        ...(this.#activeAppSessionId === undefined
+          ? {}
+          : { sessionId: this.#activeAppSessionId }),
+      },
+      () => this.#application.inspectRecording(),
+    );
+  }
+
+  public async inspectSessionListeningPreflight(
+    params: InspectSessionListeningSourceParams,
+  ): Promise<DesktopSessionListeningPreflight> {
+    this.#assertAccepting();
+    return withCorrelation(
+      {
+        correlationId: params.queryId,
+        traceId: params.queryId,
+        ...(this.#activeAppSessionId === undefined
+          ? {}
+          : { sessionId: this.#activeAppSessionId }),
+      },
+      () => this.#application.inspectSessionListeningPreflight(params),
+    );
+  }
+
   /**
    * Publishes the deterministic core snapshot before optional device reads,
    * while resolving callers with the final enriched snapshot on full success.
@@ -3858,6 +3968,21 @@ export class HeadlessDesktopService implements DesktopService {
 
       this.#pendingActionableLifecycle = undefined;
       this.#lifecycle = event.state;
+    }
+    if (
+      event.type === "agent.working_update" &&
+      event.update.kind === "started" &&
+      event.agentInstanceId !== undefined
+    ) {
+      const turn = this.#managedTurns.get(event.agentInstanceId);
+      if (
+        turn !== undefined &&
+        turn.sdkTurnId === undefined &&
+        turn.sdkSessionId !== undefined &&
+        turn.sdkSessionId === event.sdkSessionId
+      ) {
+        turn.sdkTurnId = event.update.activityId;
+      }
     }
     const normalized = normalizeSharedEvent(event, () =>
       this.#messageIdForSharedEvent(event),
@@ -6061,7 +6186,7 @@ export class HeadlessDesktopService implements DesktopService {
     run: () => Promise<string>,
     validate?: (instance: DesktopActiveAgent) => void,
     messageId = randomUUID(),
-  ): Promise<{ accepted: true; messageId: string }> {
+  ): Promise<AutomationAcceptance> {
     const turn: ActiveTurn = {
       messageId,
       assistantMessageId: randomUUID(),
@@ -6094,6 +6219,8 @@ export class HeadlessDesktopService implements DesktopService {
             agentInstanceId: target.agentInstanceId,
             sdkSessionId: instance.sdkSessionId,
           };
+    if (instance.sdkSessionId !== undefined)
+      turn.sdkSessionId = instance.sdkSessionId;
     this.emit({
       type: "operation.changed",
       operation: {
@@ -6161,7 +6288,22 @@ export class HeadlessDesktopService implements DesktopService {
         }
       }
     })();
-    return { accepted: true, messageId };
+    return {
+      accepted: true,
+      messageId,
+      ...(instance.sdkSessionId === undefined
+        ? {}
+        : {
+            turn: {
+              assistantMessageId: turn.assistantMessageId,
+              target: {
+                appSessionId: target.productionSessionId,
+                agentInstanceId: target.agentInstanceId,
+                sdkSessionId: instance.sdkSessionId,
+              },
+            },
+          }),
+    };
   }
 
   #selectedAgent(

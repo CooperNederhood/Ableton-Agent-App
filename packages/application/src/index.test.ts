@@ -3,6 +3,8 @@ import type { SessionConfig, SessionEvent } from "@github/copilot-sdk";
 import type { SkillInvocation } from "@ableton-agent/agent-config";
 import {
   PROTOCOL_VERSION,
+  inspectSessionListeningSourceResultSchema,
+  audioClipSummarySchema,
   recordingCommandParamsSchema,
 } from "@ableton-agent/protocol";
 import {
@@ -910,6 +912,233 @@ function services(status: Awaited<ReturnType<AbletonService["getStatus"]>>) {
 }
 
 describe("HeadlessApplication", () => {
+  it("requires independent global recording evidence and only dispatches inspect", async () => {
+    const deps = services({ state: "disconnected" });
+    await expect(
+      new HeadlessApplication(deps).inspectRecording(),
+    ).rejects.toThrow("unavailable");
+    const result = {
+      action: "inspect" as const,
+      state: {
+        arrangementRecord: true,
+        sessionRecord: true,
+        overdub: false,
+        sessionAutomationRecord: false,
+        punchIn: false,
+        punchOut: false,
+      },
+    };
+    const executeRecordingOperation = vi
+      .fn<NonNullable<AbletonService["executeRecordingOperation"]>>()
+      .mockResolvedValue(result);
+    const app = new HeadlessApplication({
+      ...deps,
+      ableton: { ...deps.ableton, executeRecordingOperation },
+    });
+    await expect(app.inspectRecording()).resolves.toEqual(result);
+    expect(executeRecordingOperation).toHaveBeenCalledExactlyOnceWith({
+      action: "inspect",
+    });
+    executeRecordingOperation.mockResolvedValueOnce({
+      action: "inspect",
+      state: { targetRecording: false },
+    } as never);
+    await expect(app.inspectRecording()).rejects.toThrow();
+    executeRecordingOperation.mockRejectedValueOnce(
+      new Error("global recording unavailable"),
+    );
+    await expect(app.inspectRecording()).rejects.toThrow(
+      "global recording unavailable",
+    );
+  });
+
+  it("forwards the read-only Session source inspection and fails closed when unavailable", async () => {
+    const params = {
+      schemaVersion: 1 as const,
+      queryId: "00000000-0000-4000-8000-000000000051",
+      target: {
+        view: "session" as const,
+        track: {
+          kind: "regular" as const,
+          index: 0,
+          expectedReference: "00000000-0000-4000-8000-000000000052",
+          expectedName: "Source 1",
+        },
+        sceneIndex: 0,
+        expectedClipReference: "00000000-0000-4000-8000-000000000053",
+        expectedClipName: "Clip 1",
+      },
+    };
+    const state = {
+      transportPlaying: null,
+      globalBeat: null,
+      startTimeBeats: null,
+      playingPosition: null,
+      targetPlaying: null,
+      targetTriggered: null,
+      targetRecording: null,
+      playingSlotIndex: null,
+      firedSlotIndex: null,
+      selectedClipReference: null,
+    };
+    const result = inspectSessionListeningSourceResultSchema.parse({
+      ...params,
+      projectRevision: 7,
+      evidence: "message-rate-only",
+      nativeAlignment: "unverified",
+      sourceKind: "unknown",
+      positionUnit: null,
+      before: state,
+      after: state,
+      settings: {
+        tempoBpm: null,
+        signatureNumerator: null,
+        signatureDenominator: null,
+        globalQuantization: null,
+        launchQuantization: null,
+        launchMode: null,
+        legato: null,
+        followActionEnabled: null,
+        startMarker: null,
+        endMarker: null,
+        loopStart: null,
+        loopEnd: null,
+        looping: null,
+      },
+    });
+    const deps = services({ state: "disconnected" });
+    await expect(
+      new HeadlessApplication(deps).inspectSessionListeningSource(params),
+    ).rejects.toThrow("unavailable");
+    const inspectSessionListeningSource = vi.fn(async () => result);
+    const app = new HeadlessApplication({
+      ...deps,
+      ableton: { ...deps.ableton, inspectSessionListeningSource },
+    });
+    await expect(app.inspectSessionListeningSource(params)).resolves.toEqual(
+      result,
+    );
+    expect(inspectSessionListeningSource).toHaveBeenCalledExactlyOnceWith(
+      params,
+    );
+    inspectSessionListeningSource.mockRejectedValueOnce(
+      new Error("bridge unavailable"),
+    );
+    await expect(app.inspectSessionListeningSource(params)).rejects.toThrow(
+      "bridge unavailable",
+    );
+    const withoutAudio: AbletonService = { ...deps.ableton };
+    delete withoutAudio.executeAudioClipsOperation;
+    await expect(
+      new HeadlessApplication({
+        ...deps,
+        ableton: withoutAudio,
+      }).inspectSessionListeningPreflight(params),
+    ).rejects.toThrow("unavailable");
+    const audio = audioClipSummarySchema.parse({
+      reference: params.target.expectedClipReference,
+      name: params.target.expectedClipName,
+      length: 4,
+      gain: 1,
+      pitchCoarse: 0,
+      pitchFine: 0,
+      warping: true,
+      warpMode: 0,
+      availableWarpModes: [0],
+      startMarker: 0,
+      endMarker: 4,
+      loopStart: 0,
+      loopEnd: 4,
+      looping: true,
+      ramMode: false,
+      filePath: "/loaded/actual.wav",
+      sampleLength: 88_200,
+      sampleRate: 44_100,
+    });
+    const recording = {
+      action: "inspect" as const,
+      state: {
+        arrangementRecord: false,
+        sessionRecord: false,
+        overdub: false,
+        sessionAutomationRecord: false,
+        punchIn: false,
+        punchOut: false,
+      },
+    };
+    const executeAudioClipsOperation = vi
+      .fn<NonNullable<AbletonService["executeAudioClipsOperation"]>>()
+      .mockResolvedValue({ action: "inspect", clip: audio });
+    const executeRecordingOperation = vi
+      .fn<NonNullable<AbletonService["executeRecordingOperation"]>>()
+      .mockResolvedValue(recording);
+    const compound = new HeadlessApplication({
+      ...deps,
+      ableton: {
+        ...deps.ableton,
+        inspectSessionListeningSource,
+        executeAudioClipsOperation,
+        executeRecordingOperation,
+      },
+    });
+    await expect(
+      compound.inspectSessionListeningPreflight(params),
+    ).resolves.toEqual({
+      source: result,
+      audio,
+      recording,
+    });
+    expect(executeAudioClipsOperation).toHaveBeenCalledExactlyOnceWith({
+      action: "inspect",
+      target: params.target,
+    });
+    expect(executeRecordingOperation).toHaveBeenCalledExactlyOnceWith({
+      action: "inspect",
+    });
+    executeAudioClipsOperation.mockResolvedValueOnce({
+      action: "inspect",
+      clip: { ...audio, filePath: null, sampleRate: null },
+    });
+    await expect(
+      compound.inspectSessionListeningPreflight(params),
+    ).resolves.toMatchObject({
+      audio: { filePath: null, sampleRate: null },
+    });
+    for (const foreign of [
+      { ...audio, reference: "00000000-0000-4000-8000-000000000099" },
+      { ...audio, name: "Other clip" },
+    ]) {
+      executeAudioClipsOperation.mockResolvedValueOnce({
+        action: "inspect",
+        clip: foreign,
+      });
+      await expect(
+        compound.inspectSessionListeningPreflight(params),
+      ).rejects.toThrow("did not match");
+    }
+    executeAudioClipsOperation.mockRejectedValueOnce(
+      new Error("audio inspection cancelled"),
+    );
+    await expect(
+      compound.inspectSessionListeningPreflight(params),
+    ).rejects.toThrow("audio inspection cancelled");
+    expect(executeRecordingOperation).toHaveBeenCalledTimes(2);
+    const audioReads = executeAudioClipsOperation.mock.calls.length;
+    inspectSessionListeningSource.mockRejectedValueOnce(
+      new Error("source unavailable"),
+    );
+    await expect(
+      compound.inspectSessionListeningPreflight(params),
+    ).rejects.toThrow("source unavailable");
+    expect(executeAudioClipsOperation).toHaveBeenCalledTimes(audioReads);
+    executeRecordingOperation.mockRejectedValueOnce(
+      new Error("recording unavailable"),
+    );
+    await expect(
+      compound.inspectSessionListeningPreflight(params),
+    ).rejects.toThrow("recording unavailable");
+  });
+
   it("starts services and publishes lifecycle in order", async () => {
     const deps = services({ state: "disconnected" });
     const events: AppEvent[] = [];

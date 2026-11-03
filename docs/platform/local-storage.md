@@ -398,12 +398,58 @@ journal and typed History; no new journal location or upload path is introduced.
   in their dedicated preset folders in the selected Ableton User Library.
   These are deployed host assets, not another application-state root. Portable
   packaged copies contain no profile configuration or credentials.
+  Machine-listening installation also embeds that configuration in an owner-only
+  frozen AMXD. It contains only shared-resolver descriptor/secret paths, never
+  secret contents, and introduces no new runtime storage location. Collected
+  copies therefore retain profile-specific paths; use an installation/replacement
+  for the destination profile rather than treating collection as profile migration.
+  Max extracts flagged Node resources into its own temporary host cache while
+  loading a frozen device. This host-managed cache is not application persistence
+  or a replacement journal/profile root.
 - User-selected exports and support bundles are written only to the explicit
   destination selected by the user.
 - Build, test, and release artifacts remain in their repository-defined or
   temporary locations and are not runtime application state.
 - Operating-system keychain material used by Electron `safeStorage` remains
   operating-system managed.
+
+### Packaged acceptance isolation
+
+The acceptance runner stages disposable projects and bounded evidence under
+`.test-artifacts/acceptance/`. Each run passes its private `profile/` directory
+through the existing `--automation-profile` option. Desktop still resolves
+application data through `@ableton-agent/storage`, under that directory's
+`live-agent/profiles/automation/`; this does not introduce another application
+storage format.
+
+Only typed Desktop queries supply exported history and context evidence.
+Receipts use the shared bounded, redacted atomic writer; neither the renderer nor
+the runner gains raw application-database access or an upload path. Packaged
+producer discovery contains isolated descriptor/secret **paths**, not credential
+bodies.
+
+After confirmed owned Desktop and Live shutdown, the runner removes the
+credential-bearing profile before preserving allowlisted project assets and
+diagnostic receipts. If shutdown is unconfirmed, it reports failed cleanup and
+does not prune resources still potentially in use. Such a private run directory
+is not an exportable support bundle. Successful and failed allowlisted project
+copies are retained under bounded admission, not silently expired or deleted.
+Admission requires fewer than 16 existing top-level entries, at most 8,192
+recursive entries, and at most 1.75 GiB of existing data (256 MiB headroom below
+2 GiB). A retained working copy is limited to 256 MiB, 8,192 entries, and 256
+allowlisted paths. These are admission and preservation limits, not permission
+to delete old runs. Allocation uses an atomic admission lock; a stale lock
+requires explicit inspection.
+The [acceptance authoring guide](../testing/acceptance-authoring.md) defines the
+explicit operator cleanup procedure. Test evidence is not a second
+authoritative application history store.
+
+Draft intake is separate from a running acceptance case. The skill-local helper
+copies at most 128 referenced files (64 MiB per file, 128 MiB total) into a fresh
+directory under an explicitly selected existing authoring output, conventionally
+`.test-artifacts/fixture-authoring/`. Its adjacent reports use the same bounded,
+redacted receipt writer. It creates no app profile, reads no external referenced
+locations, and retains failed/cancelled copies for explicit operator cleanup.
 
 ## Security and durability invariants
 

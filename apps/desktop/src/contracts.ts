@@ -16,7 +16,13 @@ import {
 import {
   DEFAULT_LISTENING_TIMING_POLICY,
   audioObservationKindSchema,
+  audioClipSummarySchema,
   inspectEventSelectionResultSchema,
+  inspectSessionListeningSourceParamsSchema,
+  inspectSessionListeningSourceResultSchema,
+  recordingOperationResultSchema,
+  type InspectSessionListeningSourceParams,
+  type InspectSessionListeningSourceResult,
   listeningTimingPolicySchema,
 } from "@ableton-agent/protocol";
 import type {
@@ -30,6 +36,7 @@ import type {
   TelemetryEventPage,
 } from "@ableton-agent/observability";
 import { z } from "zod";
+import { automationTurnLinkSchema } from "@ableton-agent/debug-control/contracts";
 import {
   desktopListeningListRequestSchema,
   desktopListeningPageSchema,
@@ -714,6 +721,40 @@ export const planSectionSchema = z.object({
 });
 export type PlanSection = z.infer<typeof planSectionSchema>;
 
+const approvalArgumentsSchema: z.ZodType<Record<string, unknown>> = z
+  .record(z.string().max(256), z.json())
+  .refine(
+    (value) => JSON.stringify(value).length <= 16_384,
+    "Approval arguments must fit the bounded disclosure",
+  );
+export const approvalToolSchema = z.strictObject({
+  name: z.string().min(1).max(128),
+  action: z.string().min(1).max(128).optional(),
+  arguments: approvalArgumentsSchema,
+  argumentsComplete: z.boolean(),
+});
+
+export const desktopRecordingInspectionSchema =
+  recordingOperationResultSchema.options[0];
+export type DesktopRecordingInspection = z.infer<
+  typeof desktopRecordingInspectionSchema
+>;
+export const desktopSessionListeningPreflightSchema = z
+  .strictObject({
+    source: inspectSessionListeningSourceResultSchema,
+    audio: audioClipSummarySchema,
+    recording: desktopRecordingInspectionSchema,
+  })
+  .refine(
+    ({ source, audio }) =>
+      audio.reference === source.target.expectedClipReference &&
+      audio.name === source.target.expectedClipName,
+    "Audio inspection must belong to the inspected Session clip",
+  );
+export type DesktopSessionListeningPreflight = z.infer<
+  typeof desktopSessionListeningPreflightSchema
+>;
+
 export const approvalSchema = z.object({
   id: z.string(),
   title: z.string(),
@@ -721,6 +762,7 @@ export const approvalSchema = z.object({
   summary: z.string(),
   changes: z.array(z.string()),
   destructive: z.boolean(),
+  tool: approvalToolSchema.optional(),
 });
 export type ApprovalRequest = z.infer<typeof approvalSchema>;
 
@@ -1613,6 +1655,7 @@ export const appEventSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("agent.user_message_submitted"),
     messageId: z.string().uuid(),
+    turn: automationTurnLinkSchema.optional(),
     content: z.string().min(1).max(16_000),
     agentInstanceId: z.string().uuid().optional(),
     agentMode: agentModeSchema,
@@ -1704,8 +1747,17 @@ export const appEventSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("approval.requested"),
     approval: approvalSchema,
+    trace: z
+      .strictObject({
+        traceId: z.string().min(1).max(256),
+        correlationId: z.string().min(1).max(256),
+        causationId: z.string().min(1).max(256),
+      })
+      .optional(),
+    operationId: z.string().uuid().optional(),
+    appSessionId: z.string().uuid().optional(),
     agentInstanceId: z.string().uuid().optional(),
-    sdkSessionId: z.string().min(1).optional(),
+    sdkSessionId: z.string().min(1).max(256).optional(),
   }),
   z.object({
     type: z.literal("live_set.snapshot_changed"),
@@ -2104,6 +2156,18 @@ export const ipcSchemas = {
   "ableton:snapshot": {
     request: z.object({}),
     response: liveSetSnapshotSchema,
+  },
+  "ableton:inspect-session-listening-source": {
+    request: inspectSessionListeningSourceParamsSchema,
+    response: inspectSessionListeningSourceResultSchema,
+  },
+  "ableton:inspect-recording": {
+    request: z.strictObject({}),
+    response: desktopRecordingInspectionSchema,
+  },
+  "ableton:inspect-session-listening-preflight": {
+    request: inspectSessionListeningSourceParamsSchema,
+    response: desktopSessionListeningPreflightSchema,
   },
   "diagnostics:get": {
     request: z.object({}),
@@ -2544,6 +2608,13 @@ export interface DesktopApi {
     getStatus(): Promise<DesktopConnectionStatus>;
     getCapabilities(): Promise<string[]>;
     requestSnapshot(): Promise<DesktopLiveSetSnapshot>;
+    inspectSessionListeningSource(
+      params: InspectSessionListeningSourceParams,
+    ): Promise<InspectSessionListeningSourceResult>;
+    inspectRecording(): Promise<DesktopRecordingInspection>;
+    inspectSessionListeningPreflight(
+      params: InspectSessionListeningSourceParams,
+    ): Promise<DesktopSessionListeningPreflight>;
   };
   approvals: {
     resolve(id: string, decision: ApprovalDecision): Promise<boolean>;

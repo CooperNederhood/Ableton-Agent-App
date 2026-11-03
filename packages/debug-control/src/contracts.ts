@@ -16,6 +16,34 @@ export const automationTraceSchema = z
   .strict();
 export type AutomationTrace = z.infer<typeof automationTraceSchema>;
 
+export const automationTargetIdentitySchema = z
+  .object({
+    appSessionId: z.string().uuid(),
+    agentInstanceId: z.string().uuid(),
+    sdkSessionId: z.string().min(1).max(256),
+  })
+  .strict();
+export type AutomationTargetIdentity = z.infer<
+  typeof automationTargetIdentitySchema
+>;
+
+export const automationTurnLinkSchema = z
+  .object({
+    assistantMessageId: z.string().uuid(),
+    target: automationTargetIdentitySchema,
+  })
+  .strict();
+export type AutomationTurnLink = z.infer<typeof automationTurnLinkSchema>;
+
+export const automationAcceptanceSchema = z
+  .object({
+    accepted: z.literal(true),
+    messageId: z.string().uuid(),
+    turn: automationTurnLinkSchema.optional(),
+  })
+  .strict();
+export type AutomationAcceptance = z.infer<typeof automationAcceptanceSchema>;
+
 export const automationDiscoveryDescriptorSchema = z
   .object({
     version: z.literal(AUTOMATION_PROTOCOL_VERSION),
@@ -44,6 +72,7 @@ export const sendUserMessageRequestSchema = z
           .trim()
           .min(1)
           .max(MAX_AUTOMATION_MESSAGE_CHARACTERS),
+        expectedTarget: automationTargetIdentitySchema.optional(),
       })
       .strict(),
   })
@@ -59,6 +88,7 @@ export const automationErrorCodeSchema = z.enum([
   "unavailable",
   "timeout",
   "internal_error",
+  "target_mismatch",
 ]);
 export type AutomationErrorCode = z.infer<typeof automationErrorCodeSchema>;
 
@@ -68,12 +98,7 @@ export const automationResponseSchema = z.discriminatedUnion("ok", [
       version: z.literal(AUTOMATION_PROTOCOL_VERSION),
       id: z.string().uuid(),
       ok: z.literal(true),
-      result: z
-        .object({
-          accepted: z.literal(true),
-          messageId: z.string().uuid(),
-        })
-        .strict(),
+      result: automationAcceptanceSchema,
     })
     .strict(),
   z
@@ -98,6 +123,7 @@ export interface AutomationLifecycleEvent {
   readonly trace: AutomationTrace;
   readonly messageCharacters: number;
   readonly messageId?: string;
+  readonly turn?: AutomationTurnLink;
   readonly errorCode?: AutomationErrorCode;
   readonly durationMs?: number;
 }

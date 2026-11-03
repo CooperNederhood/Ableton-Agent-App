@@ -1319,6 +1319,29 @@ describe("Ableton tools", () => {
     expect(ports.getConnectionStatus).not.toHaveBeenCalled();
   });
 
+  it("distinguishes stopping Session clips from stopping transport without repairing settings", () => {
+    const tools = createAbletonTools(services());
+    const tracks = toolByName(tools, "ableton_tracks");
+    const transport = toolByName(tools, "ableton_transport");
+    expect(tracks.description).toContain('action: "stop-clips"');
+    expect(tracks.description).toContain("quantized: false");
+    expect(tracks.description).toContain("Do not change global quantization");
+    expect(transport.description).toContain(
+      "Stopping transport does not stop or deselect Session clips",
+    );
+    expect(transport.description).toContain("not a substitute");
+    const [readOnly] = scopeAbletonTools(tools, {
+      allowedToolNames: ["ableton_tracks"],
+      allowedOperationIds: ["tracks.get"],
+    });
+    expect(readOnly?.description).not.toContain("stop-clips");
+    const [stopOnly] = scopeAbletonTools(tools, {
+      allowedToolNames: ["ableton_tracks"],
+      allowedOperationIds: ["tracks.stop_clips"],
+    });
+    expect(stopOnly?.description).toContain("quantized: false");
+  });
+
   it("exposes strict root action schemas for every canonical tool", () => {
     const toolSet = createAbletonTools(services());
     const expectedActions = {

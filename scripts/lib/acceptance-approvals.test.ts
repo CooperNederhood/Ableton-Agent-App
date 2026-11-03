@@ -11,10 +11,15 @@ const owner = {
   conversationId: "conversation",
 };
 const source = {
-  trackId: "track",
-  clipId: "clip",
-  slotIndex: 0,
-  mediaSha256: "0".repeat(64),
+  source: {
+    trackId: "track",
+    clipId: "clip",
+    slotIndex: 0,
+    mediaSha256: "0".repeat(64),
+  },
+  listenerId: "listener",
+  loadedMediaPath: "/owned/source.wav",
+  facts: {},
 };
 const rule: ScopedPermission = {
   tool: "listen",
@@ -36,6 +41,42 @@ const request: ScopedApproval = {
   arguments: { target: { track: "track", clip: "clip" }, beats: 4 },
 };
 describe("reviewed scoped approvals", () => {
+  it("binds the selected listener and permits each reviewed step only once", () => {
+    const policy = new ScopedApprovalPolicy([
+      {
+        ...rule,
+        maxUses: 2,
+        stepIds: ["listen-a", "listen-a-again"],
+        arguments: { ...rule.arguments, "listenerIds.0": "$source.listenerId" },
+      },
+    ]);
+    const listening = {
+      ...request,
+      arguments: {
+        target: { track: "track", clip: "clip" },
+        beats: 4,
+        listenerIds: ["listener"],
+      },
+    };
+    expect(policy.decide(listening, owner, source, "identify")).toBe(false);
+    expect(policy.decide(listening, owner, source)).toBe(false);
+    expect(policy.decide(listening, owner, source, "listen-a")).toBe(true);
+    expect(policy.decide(listening, owner, source, "listen-a")).toBe(false);
+    expect(
+      policy.decide(
+        listening,
+        owner,
+        {
+          ...source,
+          listenerId: "other-listener",
+        },
+        "listen-a-again",
+      ),
+    ).toBe(false);
+    expect(policy.decide(listening, owner, source, "listen-a-again")).toBe(
+      true,
+    );
+  });
   it("binds exact structured arguments and consumes a finite rule budget", () => {
     const policy = new ScopedApprovalPolicy([rule]);
     expect(policy.decide(request, owner, source)).toBe(true);

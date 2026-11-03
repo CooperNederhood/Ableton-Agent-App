@@ -572,7 +572,8 @@ describe("acceptance catalog admission", () => {
     expect(template).toMatchObject({
       fixture: {
         qualification: "synthetic-only",
-        baseline: { trackName: "audio-track", clipName: "clip-1", tempo: 128 },
+        baseline: { tempo: 128 },
+        sources: [{ id: "a", trackName: "audio-track", clipName: "clip-1" }],
       },
       scenario: {
         steps: [

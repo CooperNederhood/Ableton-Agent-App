@@ -156,7 +156,8 @@ export function createDefaultAssertions(): AssertionRegistry {
     .register(
       "capture",
       ({ turn, baseline }, parameters) => {
-        if (!baseline.source || !baseline.listenerId)
+        const expected = baseline.sources?.[String(parameters.sourceId)];
+        if (!expected)
           return result(
             false,
             "missing-source",
@@ -166,8 +167,8 @@ export function createDefaultAssertions(): AssertionRegistry {
         if (!turn || turn.captures.length !== 1 || !capture)
           return result(false, "capture-count", "Exactly one capture required");
         if (
-          !sameSource(capture.source, baseline.source) ||
-          capture.listenerId !== baseline.listenerId ||
+          !sameSource(capture.source, expected.source) ||
+          capture.listenerId !== expected.listenerId ||
           capture.operationId !== turn.operationId
         )
           return result(
@@ -198,8 +199,10 @@ export function createDefaultAssertions(): AssertionRegistry {
           "metricFamilies",
           "sampleRate",
           "expectedFrames",
+          "sourceId",
         ]);
-        requiredStrings(parameters, ["metricFamilies"]);
+        requiredStrings(parameters, ["metricFamilies", "sourceId"]);
+        identifier(parameters.sourceId);
         for (const key of ["sampleRate", "expectedFrames"])
           requireCondition(
             typeof parameters[key] === "number" &&
@@ -211,19 +214,89 @@ export function createDefaultAssertions(): AssertionRegistry {
       },
     )
     .register(
+      "native-freshness",
+      ({ turns }) => {
+        const captures = turns.flatMap((turn) => turn.captures);
+        const generations = new Set<string>();
+        const passes = new Set<string>();
+        const listeners = new Map<
+          string,
+          NonNullable<(typeof captures)[number]["native"]>
+        >();
+        const fresh =
+          captures.length > 0 &&
+          captures.every((capture) => {
+            const native = capture.native;
+            if (
+              !native ||
+              generations.has(native.generation) ||
+              passes.has(capture.passId)
+            )
+              return false;
+            generations.add(native.generation);
+            passes.add(capture.passId);
+            const prior = listeners.get(capture.listenerId);
+            listeners.set(capture.listenerId, native);
+            return (
+              capture.complete &&
+              capture.cleanupComplete &&
+              (!prior ||
+                (native.connectionId === prior.connectionId &&
+                  native.connectionEpoch === prior.connectionEpoch &&
+                  native.nativeEpoch > prior.nativeEpoch))
+            );
+          });
+        return result(
+          fresh,
+          "stale-native-capture",
+          "Passes require unique generations and increasing epochs on unchanged listener connections",
+        );
+      },
+      (parameters) => rejectUnknownFields(parameters, []),
+    )
+    .register(
+      "spectral-range",
+      ({ turn }, parameters) => {
+        const centroid = turn?.captures[0]?.spectralCentroidHz;
+        return result(
+          turn?.captures.length === 1 &&
+            centroid !== undefined &&
+            centroid >= Number(parameters.minHz) &&
+            centroid <= Number(parameters.maxHz),
+          "source-content-mismatch",
+          "Measured spectral content must fall within the independently reviewed source range",
+        );
+      },
+      (parameters) => {
+        rejectUnknownFields(parameters, ["minHz", "maxHz"]);
+        requireCondition(
+          typeof parameters.minHz === "number" &&
+            typeof parameters.maxHz === "number" &&
+            parameters.minHz >= 0 &&
+            parameters.maxHz > parameters.minHz &&
+            parameters.maxHz <= 24_000,
+          "Invalid spectral range",
+        );
+      },
+    )
+    .register(
       "capture-count",
       ({ evidence, turns }, parameters) => {
         const recorded = turns.flatMap((turn) =>
           turn.captures.map((entry) => entry.passId),
         );
         const complete = evidence?.capturePassIds;
+        const recordedIds = new Set(recorded);
+        const completeIds = new Set(complete);
         return result(
           complete !== undefined &&
             complete.length === parameters.expected &&
             recorded.length === complete.length &&
-            recorded.every((passId) => complete.includes(passId)),
+            recordedIds.size === recorded.length &&
+            completeIds.size === complete.length &&
+            recorded.every((passId) => completeIds.has(passId)),
           "capture-count",
-          "Complete run inventory must match attributable passes without hidden recapture",
+          "Complete run inventory must match distinct attributable passes without reuse or hidden recapture",
         );
       },
       (parameters) => {
@@ -249,47 +322,71 @@ export function createDefaultAssertions(): AssertionRegistry {
     .register(
       "context",
       ({ turn, turns, evidence, baseline }, parameters) => {
-        if (!baseline.source || !baseline.listenerId)
+        if (!baseline.sources || Object.keys(baseline.sources).length === 0)
           return result(
             false,
             "missing-source",
             "Context requires independently read source and listener evidence",
           );
-        const capture = turns
-          .flatMap((entry) => entry.captures)
-          .find((entry) => entry.complete);
+        const captures = turns.flatMap((owner) =>
+          owner.captures.map((capture) => ({ capture, owner })),
+        );
         const candidates =
           parameters.afterRestart === true
             ? evidence?.contexts
             : turn?.contexts;
-        if (!capture || !candidates?.length)
+        if (!captures.length || !candidates?.length)
           return result(
             false,
             "missing-context",
             "Capture and public readable context required",
           );
-        const original = turns
-          .flatMap((entry) => entry.contexts)
-          .find(
-            (entry) =>
-              entry.passId === capture.passId &&
-              entry.readable &&
-              sameSource(entry.source, capture.source),
+        if (
+          candidates.length !== captures.length ||
+          new Set(captures.map(({ capture }) => capture.passId)).size !==
+            captures.length ||
+          new Set(candidates.map((entry) => entry.contextId)).size !==
+            candidates.length ||
+          new Set(candidates.map((entry) => entry.passId)).size !==
+            candidates.length
+        )
+          return result(
+            false,
+            "context-mismatch",
+            "Every distinct capture requires exactly one distinct context",
           );
-        const matching = candidates.find(
-          (entry) =>
-            entry.passId === capture.passId &&
-            entry.readable &&
-            sameSource(entry.source, capture.source) &&
-            (parameters.afterRestart !== true ||
-              (entry.afterOwnedRestart &&
-                original?.contextId === entry.contextId &&
-                original.contentSha256 === entry.contentSha256)),
-        );
+        const matching = captures.every(({ capture, owner }) => {
+          const originals = owner.contexts.filter(
+            (entry) => entry.passId === capture.passId,
+          );
+          const original = originals[0];
+          const retained = candidates.find(
+            (entry) => entry.passId === capture.passId,
+          );
+          return (
+            capture.complete &&
+            Object.values(baseline.sources!).some(
+              (source) =>
+                sameSource(capture.source, source.source) &&
+                capture.listenerId === source.listenerId,
+            ) &&
+            capture.operationId === owner.operationId &&
+            originals.length === 1 &&
+            original !== undefined &&
+            original.readable &&
+            sameSource(original.source, capture.source) &&
+            retained !== undefined &&
+            retained.readable &&
+            sameSource(retained.source, capture.source) &&
+            retained.contextId === original.contextId &&
+            retained.contentSha256 === original.contentSha256 &&
+            (parameters.afterRestart !== true || retained.afterOwnedRestart)
+          );
+        });
         return result(
-          !!matching,
+          matching,
           "context-mismatch",
-          "Context must retain pass, source, identity and content",
+          "Every capture must retain its original pass, source, context identity and content",
         );
       },
       (parameters) => {

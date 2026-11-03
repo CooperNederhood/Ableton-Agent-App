@@ -405,18 +405,22 @@ export async function runAcceptance(
         const admitted = safeCopy(read, validateBaseline);
         ensureReportBudget({ baseline: admitted });
         baseline = admitted;
-        if (baseline.source) {
-          requireCondition(
-            baseline.loadedMediaPath,
-            "Source evidence requires its actual loaded media path",
-          );
+        for (const source of Object.values(baseline.sources ?? {})) {
           await verifyStagedMedia(
             stagedFixture!,
-            baseline.loadedMediaPath,
-            baseline.source.mediaSha256,
+            source.loadedMediaPath,
+            source.source.mediaSha256,
             ctx.signal,
           );
         }
+        requireCondition(
+          (fixture.sources ?? []).every((source) =>
+            Object.hasOwn(admitted.sources ?? {}, source.id),
+          ) &&
+            Object.keys(baseline.sources ?? {}).length ===
+              (fixture.sources?.length ?? 0),
+          "Observed source inventory differs from fixture",
+        );
         for (const [key, expected] of Object.entries(fixture.baseline))
           requireCondition(
             Object.hasOwn(baseline.facts, key) &&

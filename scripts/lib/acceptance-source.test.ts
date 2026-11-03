@@ -4,7 +4,9 @@ import {
   resolveSessionSource,
   sessionStructureFingerprint,
   unrelatedPlaybackFingerprint,
+  sourceStoppedAtZero,
 } from "../../tests/electron/acceptance-source.js";
+import type { InspectSessionListeningSourceResult } from "@ableton-agent/protocol";
 
 function snapshot() {
   return liveSetSnapshotSchema.parse({
@@ -44,13 +46,60 @@ function snapshot() {
 const selector = { trackName: "Source 1", sceneIndex: 0, clipName: "Clip 1" };
 
 describe("independent Desktop source evidence", () => {
+  it("accepts both Live stopped-slot sentinels and requires both observation brackets", () => {
+    const state: InspectSessionListeningSourceResult["after"] = {
+      transportPlaying: false,
+      globalBeat: 0,
+      targetPlaying: false,
+      targetTriggered: false,
+      targetRecording: false,
+      playingSlotIndex: -2,
+      firedSlotIndex: -1,
+      selectedClipReference: null,
+      startTimeBeats: null,
+      playingPosition: null,
+    };
+    for (const playingSlotIndex of [-2, -1]) {
+      const stopped = { ...state, playingSlotIndex };
+      expect(sourceStoppedAtZero({ before: stopped, after: stopped })).toBe(
+        true,
+      );
+    }
+    for (const patch of [
+      { transportPlaying: true },
+      { globalBeat: 1 },
+      { targetPlaying: true },
+      { targetTriggered: true },
+      { targetRecording: true },
+      { playingSlotIndex: 0 },
+      { playingSlotIndex: null },
+      { playingSlotIndex: -3 },
+      { playingSlotIndex: -1.5 },
+      { firedSlotIndex: -2 },
+      { firedSlotIndex: 0 },
+      { firedSlotIndex: null },
+      { targetRecording: null },
+      { targetTriggered: null },
+      { targetPlaying: null },
+      { transportPlaying: null },
+      { globalBeat: null },
+    ])
+      for (const bracket of ["before", "after"])
+        expect(
+          sourceStoppedAtZero({
+            before: state,
+            after: state,
+            [bracket]: { ...state, ...patch },
+          }),
+        ).toBe(false);
+  });
   it("allows only the declared source playback, not unrelated launches", () => {
     const before = snapshot(),
       after = snapshot();
     const sourceId = before.sessionClips![0]!.id;
     after.sessionClips![0]!.status = "playing";
-    expect(unrelatedPlaybackFingerprint(before, sourceId)).toBe(
-      unrelatedPlaybackFingerprint(after, sourceId),
+    expect(unrelatedPlaybackFingerprint(before, [sourceId])).toBe(
+      unrelatedPlaybackFingerprint(after, [sourceId]),
     );
     before.sessionClips!.push({
       ...before.sessionClips![0]!,
@@ -58,8 +107,8 @@ describe("independent Desktop source evidence", () => {
       sceneIndex: 1,
     });
     after.sessionClips!.push({ ...before.sessionClips![1]!, status: "queued" });
-    expect(unrelatedPlaybackFingerprint(before, sourceId)).not.toBe(
-      unrelatedPlaybackFingerprint(after, sourceId),
+    expect(unrelatedPlaybackFingerprint(before, [sourceId])).not.toBe(
+      unrelatedPlaybackFingerprint(after, [sourceId]),
     );
   });
   it("binds the reviewed selector to actual host references", () => {

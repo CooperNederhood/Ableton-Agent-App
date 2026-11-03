@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import {
   inspectSessionListeningSourceParamsSchema,
   type InspectSessionListeningSourceParams,
+  type InspectSessionListeningSourceResult,
 } from "@ableton-agent/protocol";
 import type { DesktopLiveSetSnapshot } from "../../apps/desktop/src/contracts.js";
 
@@ -9,6 +10,21 @@ export interface SessionSourceSelector {
   readonly trackName: string;
   readonly sceneIndex: number;
   readonly clipName: string;
+}
+
+export function sourceStoppedAtZero(
+  source: Pick<InspectSessionListeningSourceResult, "before" | "after">,
+): boolean {
+  return [source.before, source.after].every(
+    (state) =>
+      state.transportPlaying === false &&
+      state.globalBeat === 0 &&
+      state.targetPlaying === false &&
+      state.targetTriggered === false &&
+      state.targetRecording === false &&
+      (state.playingSlotIndex === -1 || state.playingSlotIndex === -2) &&
+      state.firedSlotIndex === -1,
+  );
 }
 
 export function resolveSessionSource(
@@ -107,7 +123,7 @@ export function sessionStructureFingerprint(
 
 export function unrelatedPlaybackFingerprint(
   snapshot: DesktopLiveSetSnapshot,
-  allowedClipId?: string,
+  allowedClipIds: readonly string[] = [],
 ): string {
   if (
     !snapshot.sessionClips ||
@@ -120,7 +136,7 @@ export function unrelatedPlaybackFingerprint(
     .update(
       JSON.stringify(
         snapshot.sessionClips
-          .filter((clip) => clip.id !== allowedClipId)
+          .filter((clip) => !allowedClipIds.includes(clip.id))
           .map(({ id, status }) => ({ id, status }))
           .sort((a, b) => a.id.localeCompare(b.id)),
       ),

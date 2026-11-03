@@ -21,6 +21,15 @@
     }
   ],
   "dependencies": ["machine-listening"],
+  "sources": [
+    {
+      "id": "a",
+      "trackName": "audio-track",
+      "clipName": "clip-1",
+      "sceneIndex": 0,
+      "mediaTarget": "Samples/Imported/resource-001.wav"
+    }
+  ],
   "listenerBindings": [
     {
       "slot": "AudioTrack:175/DeviceChain/DeviceChain/Devices/MxDeviceAudioEffect:0",
@@ -43,9 +52,6 @@
     }
   ],
   "baseline": {
-    "trackName": "audio-track",
-    "clipName": "clip-1",
-    "sceneIndex": 0,
     "tempo": 128,
     "globalQuantization": "none",
     "clipLaunchQuantization": "global",

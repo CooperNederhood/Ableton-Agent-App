@@ -13,19 +13,21 @@ import { resolveLiveAgentStorage } from "@ableton-agent/storage";
 import {
   metricAudioObservationSchema,
   type InspectSessionListeningSourceParams,
+  type MetricAudioObservation,
 } from "@ableton-agent/protocol";
 import type {
   AcceptanceDriver,
+  AudioSourceEvidence,
   BaselineEvidence,
   CaptureEvidence,
   ContextEvidence,
   DriverContext,
   DependencyInventory,
   Facts,
+  FixtureManifest,
   RunEvidence,
   ScenarioStep,
   SessionIdentity,
-  SourceIdentity,
   Submission,
   TurnEvidence,
   TurnSubscription,
@@ -65,6 +67,7 @@ import {
   resolveSessionSource,
   sessionStructureFingerprint,
   unrelatedPlaybackFingerprint,
+  sourceStoppedAtZero,
 } from "./acceptance-source.js";
 import { captureCleanupConfirmed } from "./acceptance-evidence.js";
 import { ScopedApprovalPolicy } from "./acceptance-approvals.js";
@@ -86,11 +89,17 @@ function required<T>(value: T | undefined, label: string): T {
   if (value === undefined) throw new Error(`Missing acceptance ${label}`);
   return value;
 }
-function stringFact(facts: Facts, key: string): string {
-  const value = facts[key];
-  if (typeof value !== "string" || value.length === 0)
-    throw new Error(`Missing fixture baseline ${key}`);
-  return value;
+function measuredCentroid(observation: MetricAudioObservation): {
+  spectralCentroidHz?: number;
+} {
+  let energy = 0;
+  let weighted = 0;
+  for (const record of observation.metrics["spectral-centroid"].records) {
+    if (record.centroidHz === null) continue;
+    energy += record.spectralEnergy;
+    weighted += record.centroidHz * record.spectralEnergy;
+  }
+  return energy > 0 ? { spectralCentroidHz: weighted / energy } : {};
 }
 async function pause(context: DriverContext): Promise<void> {
   context.signal.throwIfAborted();
@@ -143,6 +152,7 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
       eventOffset: number;
       priorPasses: ReadonlySet<string>;
       message: string;
+      step: ScenarioStep;
     }
   >();
   readonly #contexts = new Map<string, ContextEvidence>();
@@ -162,11 +172,11 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
   #ownedRunId: string | undefined;
   #approvalPolicy: ScopedApprovalPolicy | undefined;
   #identity: SessionIdentity | undefined;
-  #source: SourceIdentity | undefined;
-  #target: InspectSessionListeningSourceParams | undefined;
+  #sources: Record<string, AudioSourceEvidence> = {};
+  #targets = new Map<string, InspectSessionListeningSourceParams>();
   #snapshot: DesktopLiveSetSnapshot | undefined;
-  #sourceSettingsHash: string | undefined;
-  #listenerId: string | undefined;
+  #sourceSettingsHashes = new Map<string, string>();
+  #listenerIdentities = new Map<string, string>();
   #dependencies: Readonly<Record<string, string>> = {};
   #preparedProject: string | undefined;
   #candidateInventory: DependencyInventory | undefined;
@@ -174,6 +184,7 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
   #profile: string | undefined;
   #preservationPaths = new Set<string>();
   #traceEvents: TelemetryEventPage["items"] = [];
+  #historyCollected = false;
   #provenance: Facts = {};
 
   constructor(private readonly options: PackagedAcceptanceOptions) {}
@@ -562,7 +573,8 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
     const merged = new Map(this.#traceEvents.map((event) => [event.id, event]));
     for (const event of items) merged.set(event.id, event);
     if (
-      merged.size > 10_000 ||
+      merged.size >
+        10_000 * Math.max(1, Math.min(32, context.scenario.steps.length)) ||
       Buffer.byteLength(JSON.stringify([...merged.values()]), "utf8") >
         32 * 1024 * 1024
     )
@@ -574,7 +586,6 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
   }
 
   async readBaseline(context: DriverContext): Promise<BaselineEvidence> {
-    const facts = context.fixture.baseline;
     const snapshot = await this.#getPage().evaluate(() =>
       window.desktop.ableton.requestSnapshot(),
     );
@@ -618,16 +629,30 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
         dependencyHashes: this.#dependencies,
       };
     }
-    if (
-      typeof facts.sceneIndex !== "number" ||
-      !Number.isInteger(facts.sceneIndex)
-    )
-      throw new Error("Fixture baseline requires a sceneIndex");
-    const target = resolveSessionSource(snapshot, {
-      trackName: stringFact(facts, "trackName"),
-      clipName: stringFact(facts, "clipName"),
-      sceneIndex: facts.sceneIndex,
-    });
+    if (!context.fixture.sources?.length)
+      throw new Error("Session audio fixture requires declared sources");
+    for (const definition of context.fixture.sources)
+      this.#sources[definition.id] = await this.#admitSource(
+        context,
+        snapshot,
+        definition,
+      );
+    const evidence = {
+      schemaVersion: 1 as const,
+      facts: required(Object.values(this.#sources)[0], "source baseline").facts,
+      sources: this.#sources,
+      dependencyHashes: this.#dependencies,
+    };
+    validateAudioBaselineEvidence(evidence);
+    return evidence;
+  }
+
+  async #admitSource(
+    context: DriverContext,
+    snapshot: DesktopLiveSetSnapshot,
+    definition: NonNullable<FixtureManifest["sources"]>[number],
+  ): Promise<AudioSourceEvidence> {
+    const target = resolveSessionSource(snapshot, definition);
     this.#preflightTraces.add(target.queryId);
     const preflight = await this.#getPage().evaluate(
       (request) =>
@@ -679,24 +704,42 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
       throw new Error(
         "Fixture requires one independently bound audio listener",
       );
-    const media = context.fixture.resources.filter((resource) =>
-      isFixtureMediaTarget(resource.target),
+    const media = context.fixture.resources.find(
+      (resource) =>
+        resource.target === definition.mediaTarget &&
+        isFixtureMediaTarget(resource.target),
     );
-    if (media.length !== 1)
+    if (!media) throw new Error("Session source requires declared media");
+    if (
+      resolve(audio.filePath) !==
+      resolve(
+        required(context.stagedFixture, "staged fixture").workingDirectory,
+        definition.mediaTarget,
+      )
+    )
       throw new Error(
-        "Session audio driver requires one declared source media asset",
+        "Loaded source path differs from its declared media target",
       );
-    this.#target = target;
-    this.#snapshot = snapshot;
+    this.#targets.set(definition.id, target);
     const mediaSha256 = await verifyStagedMedia(
       required(context.stagedFixture, "staged fixture"),
       audio.filePath,
-      media[0]!.sha256,
+      media.sha256,
       context.signal,
     );
-    this.#sourceSettingsHash = sourceFingerprint(preflight);
-    this.#listenerId = listeners[0]!.producerId;
-    this.#source = {
+    this.#sourceSettingsHashes.set(definition.id, sourceFingerprint(preflight));
+    const listener = listeners[0]!;
+    this.#listenerIdentities.set(
+      definition.id,
+      hash({
+        connectionId: listener.connectionId,
+        instanceId: listener.instanceId,
+        producerId: listener.producerId,
+        track: listener.track,
+        device: listener.device,
+      }),
+    );
+    const identity = {
       trackId: target.target.track.expectedReference,
       clipId: target.target.expectedClipReference,
       slotIndex: target.target.sceneIndex,
@@ -757,16 +800,15 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
       followActionEvidence,
       listenerBoundToSource: true,
     };
-    const evidence = {
-      schemaVersion: 1,
+    for (const [key, expected] of Object.entries(context.fixture.baseline))
+      if (!Object.hasOwn(observed, key) || observed[key] !== expected)
+        throw new Error(`Blocked source precondition: ${definition.id}.${key}`);
+    return {
       loadedMediaPath: audio.filePath,
       facts: observed,
-      source: this.#source,
-      listenerId: this.#listenerId,
-      dependencyHashes: this.#dependencies,
+      source: identity,
+      listenerId: listener.producerId,
     };
-    validateAudioBaselineEvidence(evidence);
-    return evidence;
   }
 
   async subscribe(): Promise<TurnSubscription> {
@@ -781,11 +823,104 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
     };
   }
 
+  async #verifyWorld(context: DriverContext): Promise<Facts> {
+    if (!Object.keys(this.#sources).length) return {};
+    context.signal.throwIfAborted();
+    const facts: Record<string, string | boolean> = {};
+    const snapshot = await this.#getPage().evaluate(() =>
+      window.desktop.ableton.requestSnapshot(),
+    );
+    if (
+      sessionStructureFingerprint(snapshot) !==
+      sessionStructureFingerprint(required(this.#snapshot, "baseline"))
+    )
+      throw new Error(
+        "Protected Session structure changed during the conversation",
+      );
+    const allowed = Object.values(this.#sources).map(
+      (source) => source.source.clipId,
+    );
+    if (
+      unrelatedPlaybackFingerprint(snapshot, allowed) !==
+      unrelatedPlaybackFingerprint(
+        required(this.#snapshot, "baseline"),
+        allowed,
+      )
+    )
+      throw new Error("Unrelated playback changed during the conversation");
+    const outputs = await this.#getPage().evaluate(() =>
+      window.desktop.outputs.list(),
+    );
+    if (outputs.activeSessionId !== this.#identity?.appSessionId)
+      throw new Error("Active application session changed");
+    let stoppedZero = snapshot.sessionClips!.every(
+      (clip) => clip.status !== "playing" && clip.status !== "queued",
+    );
+    for (const [id, source] of Object.entries(this.#sources)) {
+      const connections = outputs.connections.filter(
+        (connection) =>
+          connection.producerId === source.listenerId &&
+          connection.state === "connected",
+      );
+      const listener = connections[0];
+      if (
+        connections.length !== 1 ||
+        !listener ||
+        hash({
+          connectionId: listener.connectionId,
+          instanceId: listener.instanceId,
+          producerId: listener.producerId,
+          track: listener.track,
+          device: listener.device,
+        }) !== this.#listenerIdentities.get(id)
+      )
+        throw new Error("Listener instance or connection changed");
+      const request = {
+        ...required(this.#targets.get(id), "source target"),
+        queryId: randomUUID(),
+      };
+      this.#preflightTraces.add(request.queryId);
+      facts[`source.${id}.queryId`] = request.queryId;
+      const preflight = await this.#getPage().evaluate(
+        (request) =>
+          window.desktop.ableton.inspectSessionListeningPreflight(request),
+        request,
+      );
+      if (preflight.audio.filePath !== source.loadedMediaPath)
+        throw new Error("Loaded source media path changed");
+      if (sourceFingerprint(preflight) !== this.#sourceSettingsHashes.get(id))
+        throw new Error("Protected source settings changed");
+      if (!preflight.audio.filePath)
+        throw new Error("Loaded media path disappeared");
+      await verifyStagedMedia(
+        required(context.stagedFixture, "staged fixture"),
+        preflight.audio.filePath,
+        source.source.mediaSha256,
+        context.signal,
+      );
+      stoppedZero &&=
+        sourceStoppedAtZero(preflight.source) &&
+        preflight.recording.state.arrangementRecord === false &&
+        preflight.recording.state.sessionRecord === false;
+    }
+    context.signal.throwIfAborted();
+    return { ...facts, stoppedZero };
+  }
+
   async submit(
     step: ScenarioStep,
     context: DriverContext,
   ): Promise<Submission> {
     context.signal.throwIfAborted();
+    if (step.assertions.some((assertion) => assertion.name === "capture")) {
+      if (!step.sourceId || !this.#sources[step.sourceId])
+        throw new Error("Capture turn requires an admitted source");
+      const state = await this.#verifyWorld(context);
+      if (state.stoppedZero !== true)
+        throw new Error(
+          "Capture requires the explicit stopped-zero transition",
+        );
+    }
     const identity = required(this.#identity, "session identity");
     const priorPasses = new Set(
       (await this.#jobs(context)).map(({ passId }) => passId),
@@ -816,6 +951,7 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
       eventOffset,
       priorPasses,
       message: step.message,
+      step,
     });
     return {
       ...identity,
@@ -865,11 +1001,22 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
       observation.ownership.correlationId !== trace.correlationId
     )
       throw new Error("Context entry and observation ownership differ");
+    const observedSource = observation.source;
+    const source = Object.values(this.#sources).find(
+      (candidate) =>
+        candidate.source.trackId ===
+          observedSource.target.track.expectedReference &&
+        candidate.source.clipId === observedSource.clipReference &&
+        candidate.source.slotIndex === observedSource.target.sceneIndex &&
+        candidate.listenerId === observation.ownership.listenerId,
+    );
+    if (!source)
+      throw new Error("Context belongs to an unadmitted source or listener");
     return {
       contextId: detail.entry.contextId,
       passId: detail.entry.passId,
       source: {
-        ...required(this.#source, "source"),
+        ...source.source,
         trackId: observation.source.target.track.expectedReference,
         clipId: observation.source.clipReference,
         slotIndex: observation.source.target.sceneIndex,
@@ -1035,6 +1182,7 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
             listenerId: observed.ownership.listenerId,
             sessionId: submission.appSessionId,
             agentId: submission.agentId,
+            native: observed.ownership,
           });
           if (!cleanupComplete) {
             await pause(context);
@@ -1065,6 +1213,13 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
             endSample: observed.sourceCoverage.endSample,
             cleanupComplete,
             failure: job.error ?? null,
+            native: {
+              generation: observed.ownership.generation,
+              nativeEpoch: observed.ownership.nativeEpoch,
+              connectionId: observed.ownership.connectionId,
+              connectionEpoch: observed.ownership.connectionEpoch,
+            },
+            ...measuredCentroid(observed),
           });
         }
         for (const contextId of this.#contexts.keys())
@@ -1089,7 +1244,7 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
           assistantText: completed.content,
           captures,
           contexts,
-          facts: { sdkTurnId },
+          facts: { sdkTurnId, ...(await this.#verifyWorld(context)) },
         };
       }
       await pause(context);
@@ -1140,7 +1295,11 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
               destructive: event.approval.destructive,
             },
             owner,
-            this.#source,
+            this.#sources[
+              this.#submissions.get(submission.userMessageId)?.step.sourceId ??
+                ""
+            ],
+            this.#submissions.get(submission.userMessageId)?.step.id,
           );
         } catch (error) {
           invalidArguments =
@@ -1182,16 +1341,18 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
         scope: "unrelated-playback",
         beforeSha256: unrelatedPlaybackFingerprint(
           required(this.#snapshot, "baseline"),
-          this.#source?.clipId,
+          Object.values(this.#sources).map((source) => source.source.clipId),
         ),
         afterSha256: unrelatedPlaybackFingerprint(
           snapshot,
-          this.#source?.clipId,
+          Object.values(this.#sources).map((source) => source.source.clipId),
         ),
       },
     ];
-    if (this.#target) {
-      const request = { ...this.#target, queryId: randomUUID() };
+    const beforeSources: string[] = [];
+    const afterSources: string[] = [];
+    for (const [id, target] of this.#targets) {
+      const request = { ...target, queryId: randomUUID() };
       this.#preflightTraces.add(request.queryId);
       const preflight = await this.#getPage().evaluate(
         (request) =>
@@ -1203,15 +1364,20 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
       await verifyStagedMedia(
         required(context.stagedFixture, "staged fixture"),
         preflight.audio.filePath,
-        required(this.#source, "source").mediaSha256,
+        required(this.#sources[id], "source").source.mediaSha256,
         context.signal,
       );
+      beforeSources.push(
+        required(this.#sourceSettingsHashes.get(id), "source settings"),
+      );
+      afterSources.push(sourceFingerprint(preflight));
+    }
+    if (beforeSources.length)
       unchanged.push({
         scope: "source-settings",
-        beforeSha256: required(this.#sourceSettingsHash, "source settings"),
-        afterSha256: sourceFingerprint(preflight),
+        beforeSha256: hash(beforeSources),
+        afterSha256: hash(afterSources),
       });
-    }
     const mediaBefore: { target: string; sha256: string }[] = [];
     const mediaAfter: { target: string; sha256: string }[] = [];
     for (const resource of context.stagedFixture!.resources) {
@@ -1263,6 +1429,7 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
       await this.#readTrace(context, traceId);
     for (const traceId of this.#preflightTraces)
       await this.#readTrace(context, traceId);
+    this.#historyCollected = true;
     return {
       schemaVersion: 1,
       capturePassIds: [...capturePassIds],
@@ -1295,7 +1462,12 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
 
   async cleanup(context: DriverContext): Promise<void> {
     const failures: unknown[] = [];
-    if (this.#identity && this.#page && !this.#page.isClosed()) {
+    if (
+      !this.#historyCollected &&
+      this.#identity &&
+      this.#page &&
+      !this.#page.isClosed()
+    ) {
       const signal = AbortSignal.any([
         context.signal,
         AbortSignal.timeout(5_000),

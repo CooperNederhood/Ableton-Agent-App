@@ -1,4 +1,5 @@
 import type { TelemetryEventPage } from "../../apps/desktop/src/contracts.js";
+import type { CaptureEvidence } from "@ableton-agent/test-support/integration";
 
 type EvidenceEvent = Pick<
   TelemetryEventPage["items"][number],
@@ -22,6 +23,7 @@ export function captureCleanupConfirmed(
     listenerId: string;
     sessionId: string;
     agentId: string;
+    native: NonNullable<CaptureEvidence["native"]>;
   },
 ): boolean {
   const owned = events.filter(
@@ -56,7 +58,19 @@ export function captureCleanupConfirmed(
           typeof listener === "object" &&
           !Array.isArray(listener) &&
           "listenerId" in listener &&
-          listener.listenerId === owner.listenerId,
+          listener.listenerId === owner.listenerId &&
+          (
+            [
+              "generation",
+              "nativeEpoch",
+              "connectionId",
+              "connectionEpoch",
+            ] as const
+          ).every(
+            (key) =>
+              Object.hasOwn(listener, key) &&
+              Reflect.get(listener, key) === owner.native[key],
+          ),
       ),
   );
   const actions = new Set(nativeEvents.map((event) => event.attributes.action));

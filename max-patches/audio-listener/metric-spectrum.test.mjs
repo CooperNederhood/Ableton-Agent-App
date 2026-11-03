@@ -1,6 +1,7 @@
 import "./native-protocol-test-loader.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
+import { Buffer } from "node:buffer";
 import { createRequire } from "node:module";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath, URL } from "node:url";
@@ -858,6 +859,18 @@ test("actual immutable retained-slot mutation fails FFT only and never ACKs the 
   const { delivery, result } = f.finish();
   assert.equal(delivery.reason, "upstream_immutable_slot_changed");
   assert.equal(result.status, "partial");
+  const failure = f.events.find(
+    (event) => event.reason === "upstream_immutable_slot_changed",
+  );
+  assert.equal(failure.facts.length, 20);
+  assert.equal(failure.facts[12].field, "spectrum.retention.cell.12");
+  assert.equal(
+    failure.facts[12].actual.value,
+    failure.facts[12].expected.value + 1,
+  );
+  assert(failure.facts.every((fact) => fact.actual.state === "observed"));
+  for (const fact of failure.facts) listeningFailureFactSchema.parse(fact);
+  assert(Buffer.byteLength(JSON.stringify(failure.facts)) < 8192);
   assert.deepEqual(
     f.controls
       .filter((control) => control[0] === "measurementAcknowledged")

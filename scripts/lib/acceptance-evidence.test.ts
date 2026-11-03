@@ -8,6 +8,12 @@ const owner = {
   listenerId: "listener",
   sessionId: "session",
   agentId: "agent",
+  native: {
+    generation: "generation",
+    nativeEpoch: 1,
+    connectionId: "connection",
+    connectionEpoch: "connection-epoch",
+  },
 };
 const base = {
   trace: { traceId: "trace", spanId: "span" },
@@ -21,7 +27,7 @@ const native = {
   attributes: {
     passId: "pass",
     action: "cleanup",
-    listeners: [{ listenerId: "listener" }],
+    listeners: [{ listenerId: "listener", ...owner.native }],
   },
 };
 const source = {
@@ -33,6 +39,27 @@ const source = {
 };
 
 describe("independent capture cleanup evidence", () => {
+  it.each([
+    "generation",
+    "nativeEpoch",
+    "connectionId",
+    "connectionEpoch",
+  ] as const)("rejects a cleanup receipt from a different native %s", (key) => {
+    const observed = {
+      ...native,
+      attributes: {
+        ...native.attributes,
+        listeners: [
+          {
+            listenerId: "listener",
+            ...owner.native,
+            [key]: key === "nativeEpoch" ? 2 : "other",
+          },
+        ],
+      },
+    };
+    expect(captureCleanupConfirmed([observed, source], owner)).toBe(false);
+  });
   it("recognizes the successful sealed-capture release/finalization path, not release alone", () => {
     const release = {
       ...native,

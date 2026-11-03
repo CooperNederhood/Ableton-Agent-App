@@ -23,10 +23,16 @@
     ],
     "dependencies": ["machine-listening"],
     "listenerBindings": [],
+    "sources": [
+      {
+        "id": "a",
+        "trackName": "audio-track",
+        "clipName": "clip-1",
+        "sceneIndex": 0,
+        "mediaTarget": "media/resource-001.wav"
+      }
+    ],
     "baseline": {
-      "trackName": "audio-track",
-      "clipName": "clip-1",
-      "sceneIndex": 0,
       "globalQuantization": "none",
       "clipLaunchQuantization": "global",
       "transportPlaying": false,
@@ -62,12 +68,14 @@
     "steps": [
       {
         "id": "listen",
+        "sourceId": "a",
         "message": "Listen to the first Session clip on track audio-track.",
         "timeoutMs": 120000,
         "assertions": [
           {
             "name": "capture",
             "parameters": {
+              "sourceId": "a",
               "sampleRate": 48000,
               "expectedFrames": 90000,
               "metricFamilies": "level,spectral-centroid,attacks"

@@ -9,6 +9,7 @@
       "action": "play-session-and-listen",
       "risk": "medium",
       "maxUses": 1,
+      "stepIds": ["listen"],
       "arguments": {
         "action": "play-session-and-listen",
         "target.view": "session",
@@ -19,7 +20,7 @@
         "target.sceneIndex": "$source.slotIndex",
         "target.expectedClipReference": "$source.clipId",
         "target.expectedClipName": "clip-1",
-        "listenerIds.0": "ableton-audio-listener:path:0ab15d6e26745d97a552b223ab10d013"
+        "listenerIds.0": "$source.listenerId"
       }
     }
   ],
@@ -31,12 +32,14 @@
   "steps": [
     {
       "id": "listen",
+      "sourceId": "a",
       "message": "Listen to the first Session clip on track audio-track.",
       "timeoutMs": 120000,
       "assertions": [
         {
           "name": "capture",
           "parameters": {
+            "sourceId": "a",
             "sampleRate": 48000,
             "expectedFrames": 90000,
             "metricFamilies": "level,spectral-centroid,attacks"

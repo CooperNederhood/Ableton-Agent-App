@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import {
+  chmod,
   lstat,
   cp,
   mkdir,
@@ -732,6 +733,7 @@ export async function installAbletonIntegrations(options: {
                 : (dependency?.mode ?? 0o644),
               flag: "wx",
             });
+            if (dependency) await chmod(join(staging, name), dependency.mode);
           }
           await writeFile(
             join(staging, metadataName),

@@ -30,6 +30,7 @@ import {
   type IntegrationInstallEvent,
 } from "./ableton-integrations-install.js";
 import * as hostProcess from "./ableton-host-process.js";
+import { runRestrictiveUmaskChild } from "../../../../scripts/lib/umask-child-test-support.js";
 
 const payloadReader = vi.hoisted(() => vi.fn());
 const fileFaults = vi.hoisted(() => ({
@@ -166,6 +167,32 @@ afterEach(async () => {
 });
 
 describe("typed Ableton integration installation", () => {
+  it("preserves pinned modes under restrictive umask in an isolated installer process", async () => {
+    const { root, options } = await fixture();
+    const payloadDirectory = join(root, "umask-payload");
+    const stdout = await runRestrictiveUmaskChild(`
+        import assert from "node:assert/strict";
+        import { stat } from "node:fs/promises";
+        import { join } from "node:path";
+        import { buildAbletonIntegrations } from "./scripts/build-ableton-integrations.mjs";
+        import { installAbletonIntegrations } from "./apps/desktop/src/main/ableton-integrations-install.ts";
+        import { FLUCOMA_DEPENDENCY_FILES, validateFlucomaDependency } from "@ableton-agent/shared/m4l-devices";
+        assert.equal(process.umask(), 0o077);
+        await buildAbletonIntegrations(${JSON.stringify(payloadDirectory)});
+        const options = ${JSON.stringify({ ...options, payloadDirectory, components: ["machine-listening"] })};
+        options.assertHostStopped = async () => {};
+        const result = await installAbletonIntegrations(options);
+        const target = result.components.find(item => item.component === "machine-listening").destination;
+        await validateFlucomaDependency(target);
+        for (const pin of FLUCOMA_DEPENDENCY_FILES)
+          assert.equal((await stat(join(target, pin.name))).mode & 0o777, pin.mode, pin.name);
+        assert.equal((await stat(join(target, "agent_signal_storage.js"))).mode & 0o777, 0o600);
+        assert.equal((await installAbletonIntegrations(options)).components.find(item => item.component === "machine-listening").status, "current");
+        console.log("umask-verified");
+      `);
+    expect(stdout.trim()).toBe("umask-verified");
+  });
+
   it("rechecks pinned dependency bytes after payload validation and denies self-rehashed replacements", async () => {
     const { options, payloads, events } = await fixture();
     const payload = payloads.find((item) => item.id === "machine-listening")!;

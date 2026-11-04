@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { Buffer } from "node:buffer";
 import {
+  chmod,
   lstat,
   mkdir,
   readFile,
@@ -21,7 +22,7 @@ import {
   isFlucomaDependencyResource,
   readFlucomaDependencyFile,
   validateFlucomaDependency,
-} from "@ableton-agent/shared/m4l-devices";
+} from "../../packages/shared/dist/m4l-devices.js";
 
 const sha256 = (bytes) => createHash("sha256").update(bytes).digest("hex");
 const hashPattern = /^[a-f0-9]{64}$/;
@@ -395,6 +396,7 @@ export async function stageNativeListeningFixture({
           flag: "wx",
           mode: dependency?.mode ?? 0o600,
         });
+        if (dependency) await chmod(join(candidate, name), dependency.mode);
       }
       // Only the copied discovery file changes; code/device hashes remain pinned.
       await writeProducerDiscoveryConfiguration(candidate, storage);

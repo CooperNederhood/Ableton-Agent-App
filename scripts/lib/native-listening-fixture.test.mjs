@@ -38,6 +38,7 @@ import {
   stageNativeListeningFixture,
 } from "./native-listening-fixture.mjs";
 import { createNativeListeningRunner } from "./native-listening-runner.mjs";
+import { runRestrictiveUmaskChild } from "./umask-child-test-support.js";
 import {
   disposeNativeFixtureRoots,
   nativeFixtureInput as createNativeFixtureInput,
@@ -132,6 +133,37 @@ async function addFixtureAudio(
 }
 
 describe("native listening fixture staging", () => {
+  it("preserves pinned modes under restrictive umask in an isolated native stager process", async () => {
+    const f = await pinnedNativeFixture();
+    const options = {
+      input: f.input,
+      destination: f.destination,
+      storage: f.storage,
+      nativeVersion: f.nativeVersion,
+    };
+    const stdout = await runRestrictiveUmaskChild(`
+        import assert from "node:assert/strict";
+        import { stat } from "node:fs/promises";
+        import { join } from "node:path";
+        import { stageNativeListeningFixture } from "./scripts/lib/native-listening-fixture.mjs";
+        import { FLUCOMA_DEPENDENCY_FILES, validateFlucomaDependency } from "@ableton-agent/shared/m4l-devices";
+        assert.equal(process.umask(), 0o077);
+        const options = ${JSON.stringify(options)};
+        const staged = await stageNativeListeningFixture(options);
+        try {
+          const target = join(options.destination, "Native-Listener-Candidate");
+          await validateFlucomaDependency(target);
+          for (const pin of FLUCOMA_DEPENDENCY_FILES)
+            assert.equal((await stat(join(target, pin.name))).mode & 0o777, pin.mode, pin.name);
+          assert.equal((await stat(join(target, "agent_signal_storage.js"))).mode & 0o777, 0o600);
+          await staged.verifyImmutableInputs();
+          console.log("umask-verified");
+        } finally { await staged.cleanup(); }
+      `);
+    expect(stdout.trim()).toBe("umask-verified");
+    await expect(access(f.destination)).rejects.toThrow();
+  });
+
   it("preserves pinned nested FluCoMa v5 resources and executable mode", async () => {
     const f = await pinnedNativeFixture();
     const staged = await stageNativeListeningFixture(f);

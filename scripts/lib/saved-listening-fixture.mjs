@@ -2,6 +2,7 @@ import { constants } from "node:fs";
 import { createHash } from "node:crypto";
 import { Buffer } from "node:buffer";
 import {
+  chmod,
   lstat,
   mkdir,
   open,
@@ -22,7 +23,7 @@ import {
   isFlucomaDependencyResource,
   readFlucomaDependencyFile,
   validateFlucomaDependency,
-} from "@ableton-agent/shared/m4l-devices";
+} from "../../packages/shared/dist/m4l-devices.js";
 
 const NAMESPACE = resolve(".test-artifacts/independent-metric-listening");
 const MAX_FILE = 8 * 1024 * 1024;
@@ -664,6 +665,7 @@ async function writeOwned(
     flag: "wx",
     mode: dependency?.mode ?? 0o600,
   });
+  if (dependency) await chmod(join(root, name), dependency.mode);
   generated.set(name, hash(bytes));
 }
 

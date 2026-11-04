@@ -25,6 +25,12 @@
   reject missing binding inputs and self-rehashed wrong-root artifacts.
   Offline binding/freezer/installer/stager suites pass 314 tests; this does
   not qualify actual Max object loading.
+- [x] Apply pinned modes explicitly after installer and fixture-stager writes.
+  Isolated child-process `umask 077` regressions cover Desktop, packaged
+  acceptance, native and saved fixture outputs without changing test-worker
+  masks or weakening executable validation.
+- [x] Verify native/saved fixture imports and denied smoke admission through raw
+  Node, using the explicit built shared entry rather than test-only aliases.
 - [x] Run the focused `session-flucoma-flatness-smoke` case using the unchanged
   identification fixture. Terminal `run-fOkqoI` passes on Live 11.3.43 with
   21 finite deliveries/channel, verified mapped binary, healthy native metrics,

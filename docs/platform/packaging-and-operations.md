@@ -245,6 +245,14 @@ dependencies. Builds, portable payload validation and installed artifact checks
 reject missing, extra, stale, self-rehashed, or symlinked dependency files.
 Publication preserves executable permissions and the upstream signature; native
 bundle files are not encoded as `TEXT` collective entries.
+The publisher, Desktop installer and both packaged/runtime fixture stagers
+explicitly apply pinned file modes after writing: `0755` for the Mach-O
+executable and `0644` for its other pinned resources. They do not rely on
+`writeFile` creation modes, which a restrictive `umask` can reduce. Profile
+configuration remains `0600`; the executable-mode validator stays strict.
+The standalone native/saved fixture scripts import the built shared Node entry
+by its explicit repository-relative path, so raw Node admission does not depend
+on Vitest aliases or a workspace-root package link.
 
 Installation/freezing requires the **final device directory** when these signed
 resources are present. A shared binding helper derives the project's sole

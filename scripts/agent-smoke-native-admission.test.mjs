@@ -7,6 +7,27 @@ import { expect, it } from "vitest";
 import { admitNativeScenarios } from "./lib/native-listening-runner.mjs";
 
 it.each([
+  ["native-listening-fixture", "stageNativeListeningFixture"],
+  ["saved-listening-fixture", "stageSavedListeningFixture"],
+])("loads %s using raw Node without workspace-root aliases", (name, entry) => {
+  const child = spawnSync(
+    process.execPath,
+    [
+      "--input-type=module",
+      "-e",
+      `import assert from "node:assert/strict";
+       const module = await import(${JSON.stringify(`./scripts/lib/${name}.mjs`)});
+       assert.equal(typeof module[${JSON.stringify(entry)}], "function");
+       console.log("loaded");`,
+    ],
+    { cwd: process.cwd(), encoding: "utf8", timeout: 10_000 },
+  );
+  expect(child.error).toBeUndefined();
+  expect(child.status, child.stderr).toBe(0);
+  expect(child.stdout.trim()).toBe("loaded");
+});
+
+it.each([
   {
     id: "native-metric-session-midi-spectrum",
     group: "native-listening-metric",

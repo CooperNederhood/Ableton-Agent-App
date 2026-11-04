@@ -26,6 +26,7 @@ import {
   planSavedListeningFixture,
   stageSavedListeningFixture,
 } from "./saved-listening-fixture.mjs";
+import { runRestrictiveUmaskChild } from "./umask-child-test-support.js";
 
 const namespace = resolve(".test-artifacts/independent-metric-listening");
 const roots = [];
@@ -231,6 +232,37 @@ async function pinnedSavedFixture() {
 }
 
 describe("reviewed saved Set offline preparation", () => {
+  it("preserves pinned modes under restrictive umask in an isolated saved stager process", async () => {
+    const f = await pinnedSavedFixture();
+    const options = {
+      input: f.input,
+      destination: f.destination,
+      bundle: f.bundle,
+      storage: f.storage,
+    };
+    const stdout = await runRestrictiveUmaskChild(`
+        import assert from "node:assert/strict";
+        import { stat } from "node:fs/promises";
+        import { join } from "node:path";
+        import { stageSavedListeningFixture } from "./scripts/lib/saved-listening-fixture.mjs";
+        import { FLUCOMA_DEPENDENCY_FILES, validateFlucomaDependency } from "@ableton-agent/shared/m4l-devices";
+        assert.equal(process.umask(), 0o077);
+        const options = ${JSON.stringify(options)};
+        const staged = await stageSavedListeningFixture(options);
+        try {
+          const target = join(options.destination, "Native-Listener-Candidate");
+          await validateFlucomaDependency(target);
+          for (const pin of FLUCOMA_DEPENDENCY_FILES)
+            assert.equal((await stat(join(target, pin.name))).mode & 0o777, pin.mode, pin.name);
+          assert.equal((await stat(join(target, "agent_signal_storage.js"))).mode & 0o777, 0o600);
+          await staged.verifyImmutableInputs();
+          console.log("umask-verified");
+        } finally { await staged.cleanup(); }
+      `);
+    expect(stdout.trim()).toBe("umask-verified");
+    await expect(access(f.destination)).rejects.toThrow();
+  });
+
   it("preserves pinned nested FluCoMa saved-bundle resources and executable mode", async () => {
     const f = await pinnedSavedFixture();
     const staged = await stageSavedListeningFixture(f);

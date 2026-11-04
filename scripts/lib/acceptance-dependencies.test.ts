@@ -32,6 +32,7 @@ import {
   verifyStagedFixture,
 } from "../../packages/test-support/src/integration/staging.js";
 import type { FixtureManifest } from "../../packages/test-support/src/integration/contracts.js";
+import { runRestrictiveUmaskChild } from "./umask-child-test-support.js";
 
 let root: string;
 beforeEach(async () => {
@@ -97,6 +98,40 @@ async function setup(includeFlucoma = false) {
   };
 }
 describe("packaged dependency staging", () => {
+  it("preserves pinned modes under restrictive umask in an isolated acceptance process", async () => {
+    const workingDirectory = join(root, "restricted-working");
+    await mkdir(workingDirectory);
+    const options = {
+      resourcesPath: root,
+      workingDirectory,
+      dependencies: ["machine-listening"],
+      storage: {
+        signalIngressDescriptorPath: join(root, "isolated/descriptor.json"),
+        signalIngressSecretPath: join(root, "isolated/secret"),
+      },
+    };
+    const stdout = await runRestrictiveUmaskChild(`
+        import assert from "node:assert/strict";
+        import { stat } from "node:fs/promises";
+        import { dirname, join } from "node:path";
+        import { buildAbletonIntegrations } from "./scripts/build-ableton-integrations.mjs";
+        import { provisionPackagedDependencies } from "./tests/electron/acceptance-dependencies.ts";
+        import { FLUCOMA_DEPENDENCY_FILES, validateFlucomaDependency } from "@ableton-agent/shared/m4l-devices";
+        assert.equal(process.umask(), 0o077);
+        await buildAbletonIntegrations(${JSON.stringify(join(root, "ableton-integrations"))});
+        const options = ${JSON.stringify(options)};
+        options.signal = new AbortController().signal;
+        const result = await provisionPackagedDependencies(options);
+        const target = join(options.workingDirectory, dirname(result.inventory.frozenDevices[0].target));
+        await validateFlucomaDependency(target);
+        for (const pin of FLUCOMA_DEPENDENCY_FILES)
+          assert.equal((await stat(join(target, pin.name))).mode & 0o777, pin.mode, pin.name);
+        assert.equal((await stat(join(target, "../agent_signal_storage.js"))).mode & 0o777, 0o600);
+        console.log("umask-verified");
+      `);
+    expect(stdout.trim()).toBe("umask-verified");
+  });
+
   it("preserves pinned nested signed resources adjacent to the frozen device and independently verifies their identity and modes", async () => {
     const options = await setup(true);
     const result = await provisionPackagedDependencies(options);

@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { lstat, mkdir, readFile, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdir, readFile, writeFile } from "node:fs/promises";
 import { join, relative, sep } from "node:path";
 import {
   dependencyInventoryHashes,
@@ -89,14 +89,16 @@ export async function provisionPackagedDependencies(options: {
       if (createHash("sha256").update(bytes).digest("hex") !== file.sha256)
         throw new Error("Packaged dependency hash mismatch");
       const target = resourceDestination(file.name);
+      const dependency = FLUCOMA_DEPENDENCY_FILES.find(
+        (pin) => pin.name === file.name,
+      );
       await assertResourceParents(target, true);
       options.signal.throwIfAborted();
       await writeFile(target, bytes, {
         flag: "wx",
-        mode:
-          FLUCOMA_DEPENDENCY_FILES.find((pin) => pin.name === file.name)
-            ?.mode ?? 0o600,
+        mode: dependency?.mode ?? 0o600,
       });
+      if (dependency) await chmod(target, dependency.mode);
       resources.push({
         id: payload.id,
         path: relative(candidateRoot, source).split(sep).join("/"),

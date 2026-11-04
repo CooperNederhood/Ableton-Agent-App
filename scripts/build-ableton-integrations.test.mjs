@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { Buffer } from "node:buffer";
-import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -53,7 +53,9 @@ async function snapshot(directory) {
 }
 
 beforeAll(async () => {
-  directory = await mkdtemp(join(tmpdir(), "ableton-integrations-reuse-"));
+  directory = await realpath(
+    await mkdtemp(join(tmpdir(), "ableton-integrations-reuse-")),
+  );
   payload = join(directory, "payload");
   await buildAbletonIntegrations(payload);
 }, 30_000);

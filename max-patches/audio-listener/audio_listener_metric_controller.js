@@ -1238,9 +1238,15 @@ function createMetricController(options) {
     if (p.released) return !(p.deliveries || p.queryDeliveries) || !!p.failure;
     p.cleanupDeadline ??= Math.min(p.deadline, time() + 2000);
     const spectrumClean = cleanupSpectrum(p);
-    const diagnosticsClean = options.beforeCleanup
-      ? options.beforeCleanup(p.control, !!p.cancelControl)
-      : true;
+    let diagnosticsClean = true;
+    try {
+      diagnosticsClean = options.beforeCleanup
+        ? options.beforeCleanup(p.control, !!p.cancelControl)
+        : true;
+    } catch {
+      diagnosticsClean = false;
+      abort(p, "metric_diagnostic_cleanup_failed");
+    }
     if (time() >= p.cleanupDeadline || p.evidence?.cleanup === "failed") {
       p.failure = "metric_cleanup_unconfirmed";
       p.cleanupFailed = true;

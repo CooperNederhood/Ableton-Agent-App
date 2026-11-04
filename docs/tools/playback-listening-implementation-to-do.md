@@ -9,6 +9,9 @@
   Flatness is not yet a registered frame-qualified observation/report metric.
 - [x] Add local no-output/malformed failure, cancellation, foreign/late packet,
   progress-bound, causal lifecycle and gate-cleanup regressions.
+- [x] Keep physical stop and cleanup deadlines independent of diagnostic
+  emission; cover actual SDK cancellation/disconnection rejection and retain
+  explicit failure when diagnostic delivery breaks outside cancellation.
 - [x] Enforce classic Max ES5 syntax and expose actual analyzer classes with an
   explicit unresolved-external failure, distinct from absent callbacks.
 - [x] Normalize only positive roundoff up to `1e-9` dB at the theoretical

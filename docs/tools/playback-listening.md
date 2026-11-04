@@ -71,6 +71,12 @@ under `flatness.rejected.*`, never arbitrary incoming objects or strings.
 Foreign/late ownership packets, diagnostic
 delivery failure and unconfirmed gate cleanup prevent successful publication.
 Cancellation clears the same owned gate without relabeling it no-output.
+Gate stop is attempted even when diagnostic emission fails, and a throwing
+cleanup hook cannot prevent native stop or its two-second cleanup deadline.
+The SDK continues rejecting progress-envelope diagnostics during cancellation:
+the probe records that delivery gap while physical cleanup and the separate
+terminal cancellation result proceed. Outside cancellation, diagnostic rejection
+remains an explicit failure even when subsequent physical cleanup succeeds.
 
 The smoke requires actual finite left/right diagnostics linked to its one
 owned pass, healthy native evidence and confirmed cleanup. It does not claim

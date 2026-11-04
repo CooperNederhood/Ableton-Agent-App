@@ -208,10 +208,39 @@ test("diagnostic delivery errors are surfaced, not successful fallback", () => {
     sendControl: () => {},
     emit: () => false,
   });
+
   assert.throws(
     () => probe.start(control, 1, "cause"),
     /diagnostic_delivery_failed/,
   );
+});
+
+test("diagnostic rejection cannot prevent the owned gate stop or its acknowledgement", () => {
+  let accepting = true;
+  const controls = [];
+  const probe = createFlatnessProbe({
+    now: () => 0,
+    sendControl: (...atoms) => controls.push(atoms),
+    emit: () => accepting,
+  });
+  probe.start(control, 1, "cause");
+  probe.receive([
+    generation,
+    1,
+    "started",
+    "fluid.spectralshape~",
+    "fluid.spectralshape~",
+  ]);
+  accepting = false;
+  assert.throws(() => probe.stop(control), /diagnostic_delivery_failed/);
+  assert.deepEqual(controls.at(-1), ["stop", generation, 1]);
+  assert.equal(probe.snapshot().cleanup, "pending");
+  assert.throws(
+    () => probe.receive([generation, 1, "stopped"]),
+    /diagnostic_delivery_failed/,
+  );
+  assert.equal(probe.stop(control), true);
+  assert.equal(probe.snapshot().diagnosticDeliveryFailed, true);
 });
 
 test("classic Max gate parses in the host's ES5 engine", () => {

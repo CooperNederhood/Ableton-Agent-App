@@ -995,6 +995,7 @@ test("unconfirmed flatness message-gate cleanup blocks otherwise healthy native 
       return false;
     },
   });
+
   h.launch();
   h.until(() => h.controller.snapshot().state === "failed");
   assert.ok(attempts > 0);
@@ -1004,6 +1005,60 @@ test("unconfirmed flatness message-gate cleanup blocks otherwise healthy native 
     h.results.filter((r) => ["completed", "partial"].includes(r.payload.status))
       .length,
     0,
+  );
+});
+
+test("throwing diagnostic cleanup cannot bypass native stop or the cleanup deadline", async () => {
+  let firstAttempt;
+  const h = await controllerHarness({
+    beforeCleanup: () => {
+      firstAttempt ??= h.now;
+      throw new Error("flatness_diagnostic_delivery_failed");
+    },
+  });
+  h.launch();
+  h.until(() => h.controller.snapshot().state === "failed");
+  assert.equal(h.controller.snapshot().reason, "metric_cleanup_unconfirmed");
+  assert.equal(h.controller.snapshot().cleanup, "failed");
+  assert.ok(h.now - firstAttempt >= 2000);
+  assert.ok(h.now - firstAttempt < 2002);
+  assert.equal(
+    h.controls.some((c) => c.selector === "stop"),
+    true,
+  );
+  assert.equal(
+    h.controls.some((c) => c.selector === "release"),
+    false,
+  );
+  assert.equal(
+    h.results.some((r) => ["completed", "partial"].includes(r.payload.status)),
+    false,
+  );
+});
+
+test("a diagnostic rejection stays failed even when physical cleanup subsequently succeeds", async () => {
+  let attempts = 0;
+  const h = await controllerHarness({
+    beforeCleanup: () => {
+      if (++attempts === 1)
+        throw new Error("flatness_diagnostic_delivery_failed");
+      return true;
+    },
+  });
+  h.launch();
+  h.until(() => h.controller.snapshot().state === "failed");
+  assert.equal(
+    h.controller.snapshot().reason,
+    "metric_diagnostic_cleanup_failed",
+  );
+  assert.equal(h.controller.snapshot().cleanup, "completed");
+  assert.equal(
+    h.controls.some((c) => c.selector === "stop"),
+    true,
+  );
+  assert.equal(
+    h.controls.some((c) => c.selector === "release"),
+    true,
   );
 });
 

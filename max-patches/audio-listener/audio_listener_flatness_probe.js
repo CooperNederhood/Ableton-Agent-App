@@ -68,8 +68,13 @@ function createFlatnessProbe({ now, sendControl, emit }) {
       facts,
     };
     pass.lastEvent = lifecycle.eventId;
-    if (emit(pass.control, lifecycle) !== true)
-      throw new Error("flatness_diagnostic_delivery_failed");
+    if (emit(pass.control, lifecycle) !== true) {
+      pass.diagnosticDeliveryFailed = true;
+      // The SDK rejects progress-envelope diagnostics during cancellation.
+      // Its rejection remains observable; physical cleanup must still finish.
+      if (!pass.cancelled)
+        throw new Error("flatness_diagnostic_delivery_failed");
+    }
   }
   return Object.freeze({
     start(control, epoch, causationId, passElapsedAtStart = 0) {
@@ -90,6 +95,7 @@ function createFlatnessProbe({ now, sendControl, emit }) {
         rejected: null,
         failure: null,
         cancelled: false,
+        diagnosticDeliveryFailed: false,
         lastProgressAt: -Infinity,
       };
       event("queued", "flatness_smoke_capture");
@@ -193,18 +199,24 @@ function createFlatnessProbe({ now, sendControl, emit }) {
         throw new Error("flatness_cleanup_owner_mismatch");
       if (pass.cleanup === "not-started") {
         pass.cancelled = cancelled;
-        if (!cancelled && pass.counts.some((count) => count === 0))
-          fail("flatness_no_output");
-        if (!pass.failure)
-          event(
-            cancelled ? "cancelled" : "completed",
-            "flatness_smoke_capture",
-          );
-        pass.cleanup = "pending";
-        pass.stageStartedAt = now();
-        event("queued", "flatness_smoke_cleanup");
-        event("started", "flatness_smoke_cleanup");
-        sendControl("stop", control.generation, pass.epoch);
+        try {
+          if (!cancelled && pass.counts.some((count) => count === 0))
+            fail("flatness_no_output");
+          if (!pass.failure)
+            event(
+              cancelled ? "cancelled" : "completed",
+              "flatness_smoke_capture",
+            );
+        } finally {
+          pass.cleanup = "pending";
+          pass.stageStartedAt = now();
+          try {
+            event("queued", "flatness_smoke_cleanup");
+            event("started", "flatness_smoke_cleanup");
+          } finally {
+            sendControl("stop", control.generation, pass.epoch);
+          }
+        }
       }
       return pass.cleanup === "completed";
     },
@@ -214,6 +226,7 @@ function createFlatnessProbe({ now, sendControl, emit }) {
             generation: pass.control.generation,
             cleanup: pass.cleanup,
             failure: pass.failure,
+            diagnosticDeliveryFailed: pass.diagnosticDeliveryFailed,
             deliveries: [...pass.counts],
           }
         : { cleanup: "not-started" };

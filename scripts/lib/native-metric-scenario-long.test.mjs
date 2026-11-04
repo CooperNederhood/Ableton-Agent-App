@@ -523,6 +523,7 @@ it.each(manifests)(
       runNativeScenarioGroup({
         manifests: [manifest],
         controller: {
+          close: vi.fn(),
           assertNoPreExistingLive: vi.fn(),
           launch,
           publicRecord: () => undefined,

@@ -23,6 +23,20 @@ describe("Live UX host fixture selection", () => {
 });
 
 describe("Live UX host readiness", () => {
+  it("cancels readiness without further dialog interaction", async () => {
+    const cancellation = new globalThis.AbortController();
+    cancellation.abort();
+    const dismissKnownStartupDialogs = vi.fn();
+    await expect(
+      waitForRunnerOwnedLiveReady(
+        { dismissKnownStartupDialogs },
+        {
+          signal: cancellation.signal,
+        },
+      ),
+    ).rejects.toThrow();
+    expect(dismissKnownStartupDialogs).not.toHaveBeenCalled();
+  });
   it("dismisses known dialogs until the Remote Script is ready", async () => {
     const dismissKnownStartupDialogs = vi
       .fn()

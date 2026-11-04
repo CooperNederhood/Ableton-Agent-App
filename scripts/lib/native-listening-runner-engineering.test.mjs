@@ -137,6 +137,7 @@ it("rejects repaired defaults for deliberate partial, without artifact checking 
     runNativeScenarioGroup({
       manifests: [await partial()],
       controller: {
+        close: vi.fn(),
         publicRecord: () => undefined,
         assertNoPreExistingLive: vi.fn(),
         launch,

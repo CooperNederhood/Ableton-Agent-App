@@ -28,13 +28,34 @@ export function listLiveProcesses(): Promise<
   }[]
 >;
 export class LiveProcessController {
-  constructor();
+  constructor(options?: {
+    hostLease?: LiveHostLease;
+    acquireHostLease?: () => Promise<LiveHostLease>;
+    listProcesses?: typeof listLiveProcesses;
+    run?: typeof runProcess;
+    kill?: typeof process.kill;
+    sleep?: (milliseconds: number) => Promise<void>;
+    randomUUID?: () => string;
+    requestQuit?: (
+      owned: Pick<OwnedLiveRecord, "pid" | "startedAt" | "command">,
+    ) => Promise<void>;
+    handleStartupDialogs?: (options: {
+      discardRecovery?: boolean;
+      launchedAt: string;
+      pid: number;
+    }) => Promise<string>;
+    requestLaunch?: (
+      applicationPath: string,
+      options?: { fixturePath?: string },
+    ) => Promise<void>;
+  });
   publicRecord(): OwnedLiveRecord | undefined;
+  close(): Promise<void>;
   assertNoPreExistingLive(): Promise<void>;
   launch(
     applicationPath: string,
     timeoutMs?: number,
-    options?: { fixturePath?: string },
+    options?: { fixturePath?: string; signal?: AbortSignal },
   ): Promise<OwnedLiveRecord>;
   validateOwnership(): Promise<{
     pid: number;
@@ -47,3 +68,8 @@ export class LiveProcessController {
   gracefulStop(timeoutMs?: number): Promise<void>;
   discardAfterFailure(timeoutMs?: number): Promise<void>;
 }
+
+export function createComputerUseLiveController(options?: {
+  hostLease?: LiveHostLease;
+}): LiveProcessController;
+import type { LiveHostLease } from "./live-host-lease.mjs";

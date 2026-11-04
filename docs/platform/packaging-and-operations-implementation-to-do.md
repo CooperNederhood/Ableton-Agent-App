@@ -2,6 +2,17 @@
 
 Companion specification: [Packaging and Operations](packaging-and-operations.md)
 
+## Local candidate qualification (#82)
+
+- [x] Document clean-checkout candidate build, tracked fixtures, licensed
+      resources, actual Live version and real authentication prerequisites.
+- [x] Bind the local all-registered suite to the complete candidate and reject
+      changed source, package or registry evidence before release qualification.
+- [x] Preserve failures and require a recorded human exception for uncovered
+      release scope; exceptions never manufacture a successful suite receipt.
+- [ ] Demonstrate the lane once on the dedicated licensed host, retaining
+      whatever passing, failed or blocked outcome actually occurs.
+
 ## Current branch checkpoint
 
 - [x] Freeze the complete configured machine-listening bundle headlessly before

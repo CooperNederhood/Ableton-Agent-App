@@ -6,6 +6,12 @@ import { homedir } from "node:os";
 import { join, relative, resolve, sep } from "node:path";
 import { clearTimeout } from "node:timers";
 
+import {
+  acquireLiveHostLease,
+  reserveLiveHostLease,
+  unreserveLiveHostLease,
+} from "./live-host-lease.mjs";
+
 const LIVE_EXECUTABLE_SUFFIX = ".app/Contents/MacOS/Live";
 
 export async function listLiveProcesses() {
@@ -47,6 +53,13 @@ export class LiveProcessController {
   #requestQuit;
   #handleStartupDialogs;
   #requestLaunch;
+  #hostLease;
+  #borrowedLease;
+  #acquireHostLease;
+  #leasePromise;
+  #reserved = false;
+  #launchRequested = false;
+  #launching = false;
 
   constructor({
     listProcesses = listLiveProcesses,
@@ -57,6 +70,8 @@ export class LiveProcessController {
     requestQuit = requestLiveQuit,
     handleStartupDialogs = dismissKnownLiveStartupDialogs,
     requestLaunch,
+    hostLease,
+    acquireHostLease = acquireLiveHostLease,
   } = {}) {
     this.#listProcesses = listProcesses;
     this.#run = run;
@@ -66,6 +81,9 @@ export class LiveProcessController {
     this.#requestQuit = requestQuit;
     this.#handleStartupDialogs = handleStartupDialogs;
     this.#requestLaunch = requestLaunch;
+    this.#hostLease = hostLease;
+    this.#borrowedLease = hostLease !== undefined;
+    this.#acquireHostLease = acquireHostLease;
   }
 
   publicRecord() {
@@ -73,18 +91,77 @@ export class LiveProcessController {
   }
 
   async assertNoPreExistingLive() {
-    const existing = await this.#listProcesses();
-    if (existing.length > 0) {
-      throw new Error(
-        `Ableton Live is already running (PID${existing.length === 1 ? "" : "s"} ${existing.map(({ pid }) => pid).join(", ")}). Close it before starting mutation smoke tests.`,
-      );
+    await this.#ensureLease();
+    try {
+      const existing = await this.#listProcesses();
+      if (existing.length > 0) {
+        throw new Error(
+          `Ableton Live is already running (PID${existing.length === 1 ? "" : "s"} ${existing.map(({ pid }) => pid).join(", ")}). Close it before starting mutation smoke tests.`,
+        );
+      }
+    } catch (error) {
+      if (!this.#launchRequested) await this.close();
+      throw error;
+    }
+  }
+
+  async #ensureLease() {
+    if (this.#leasePromise !== undefined) return this.#leasePromise;
+    this.#leasePromise = (async () => {
+      this.#hostLease ??= await this.#acquireHostLease();
+      await reserveLiveHostLease(this.#hostLease, this);
+      this.#reserved = true;
+    })();
+    try {
+      await this.#leasePromise;
+    } finally {
+      this.#leasePromise = undefined;
+    }
+  }
+
+  /** Release a preflight-only reservation; never abandon uncertain launched processes. */
+  async close() {
+    if (!this.#reserved) return;
+    if (this.#owned !== undefined || this.#launchRequested) {
+      this.#hostLease.retain();
+      throw new Error("Live cleanup is uncertain; retaining host lease");
+    }
+    await this.#hostLease.assertOwned();
+    unreserveLiveHostLease(this.#hostLease, this);
+    this.#reserved = false;
+    if (!this.#borrowedLease) {
+      await this.#hostLease.release();
+      this.#hostLease = undefined;
     }
   }
 
   async launch(
     applicationPath,
     timeoutMs = this.#requestLaunch === undefined ? 90_000 : 600_000,
-    { fixturePath } = {},
+    options = {},
+  ) {
+    if (this.#launching || this.#owned !== undefined || this.#launchRequested) {
+      throw new Error(
+        "This controller already owns or is launching a Live process",
+      );
+    }
+    this.#launching = true;
+    try {
+      options.signal?.throwIfAborted();
+      return await this.#launchUnderLease(applicationPath, timeoutMs, options);
+    } catch (error) {
+      if (this.#launchRequested) this.#hostLease.retain();
+      else await this.close();
+      throw error;
+    } finally {
+      this.#launching = false;
+    }
+  }
+
+  async #launchUnderLease(
+    applicationPath,
+    timeoutMs,
+    { fixturePath, signal } = {},
   ) {
     if (this.#owned !== undefined) {
       throw new Error("This controller already owns a Live process");
@@ -107,7 +184,10 @@ export class LiveProcessController {
         throw new Error("Startup fixture must be a bounded runner-owned Set");
       fixturePath = path;
     }
-    const before = new Set((await this.#listProcesses()).map(({ pid }) => pid));
+    await this.assertNoPreExistingLive();
+    await this.#hostLease.assertOwned();
+    signal?.throwIfAborted();
+    this.#launchRequested = true;
     if (this.#requestLaunch !== undefined) {
       if (fixturePath === undefined) await this.#requestLaunch(applicationPath);
       else await this.#requestLaunch(applicationPath, { fixturePath });
@@ -130,9 +210,9 @@ export class LiveProcessController {
     }
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
-      const candidates = (await this.#listProcesses()).filter(
-        ({ pid }) => !before.has(pid),
-      );
+      signal?.throwIfAborted();
+      await this.#hostLease.assertOwned();
+      const candidates = await this.#listProcesses();
       if (candidates.length === 1) {
         if (
           candidates[0].command !== `${applicationPath}/Contents/MacOS/Live`
@@ -164,6 +244,7 @@ export class LiveProcessController {
     if (this.#owned === undefined) {
       throw new Error("No runner-owned Live process is recorded");
     }
+    await this.#hostLease.assertOwned();
     const current = (await this.#listProcesses()).find(
       ({ pid }) => pid === this.#owned.pid,
     );
@@ -197,6 +278,8 @@ export class LiveProcessController {
       );
     }
     this.#owned = undefined;
+    this.#launchRequested = false;
+    await this.close();
   }
 
   async discardAfterFailure(timeoutMs = 5_000) {
@@ -218,6 +301,8 @@ export class LiveProcessController {
       }
     }
     this.#owned = undefined;
+    this.#launchRequested = false;
+    await this.close();
   }
 
   async #signalOwnedIfRunning(pid, signal) {
@@ -250,8 +335,9 @@ export class LiveProcessController {
   }
 }
 
-export function createComputerUseLiveController() {
+export function createComputerUseLiveController({ hostLease } = {}) {
   return new LiveProcessController({
+    hostLease,
     requestLaunch: async (applicationPath) => {
       console.log(
         JSON.stringify({
@@ -269,16 +355,17 @@ export function createComputerUseLiveController() {
   });
 }
 
-async function requestLiveQuit() {
+async function requestLiveQuit(owned) {
   const script = `
-ignoring application responses
-  tell application id "com.ableton.live" to quit
-end ignoring
+use framework "AppKit"
+set liveApplication to current application's NSRunningApplication's runningApplicationWithProcessIdentifier:${owned.pid}
+if liveApplication is missing value then return
+liveApplication's terminate()
 delay 1
 try
   tell application "System Events"
-    if exists process "Live" then
-      tell process "Live"
+    if exists (first process whose unix id is ${owned.pid}) then
+      tell (first process whose unix id is ${owned.pid})
         set handled to false
         repeat 20 times
           if exists sheet 1 of window 1 then
@@ -347,8 +434,8 @@ liveApplication's activateWithOptions:3
 delay 0.25
 
 tell application "System Events"
-  if not (exists process "Live") then return "none"
-  tell process "Live"
+  if not (exists (first process whose unix id is ${pid})) then return "none"
+  tell (first process whose unix id is ${pid})
     if ${recoveryAvailable ? "true" : "false"} then
       set frontmost to true
       delay 0.25

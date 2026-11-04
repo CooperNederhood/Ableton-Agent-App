@@ -24,6 +24,7 @@ import {
   writeScenarioReceipt,
 } from "./scenario-receipts.mjs";
 import { FLUCOMA_DEPENDENCY_RESOURCE_NAMES } from "../../packages/shared/src/flucoma-dependency.js";
+import type { LiveHostLease } from "./live-host-lease.mjs";
 
 function object(value: unknown): asserts value is Record<string, unknown> {
   if (value === null || typeof value !== "object" || Array.isArray(value))
@@ -79,7 +80,16 @@ async function ownedDirectory(path: string): Promise<void> {
   if (!(await lstat(path)).isDirectory())
     throw new Error("Artifact root must be a directory");
 }
-async function json(path: string): Promise<unknown> {
+export async function readAcceptanceJson(
+  path: string,
+  maximumBytes = 1_048_576,
+): Promise<unknown> {
+  if (
+    !Number.isSafeInteger(maximumBytes) ||
+    maximumBytes < 1 ||
+    maximumBytes > 64 * 1024 * 1024
+  )
+    throw new Error("Invalid acceptance JSON bound");
   await noSymlinks(path);
   const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
   try {
@@ -88,7 +98,7 @@ async function json(path: string): Promise<unknown> {
       !info.isFile() ||
       info.nlink !== 1 ||
       info.size === 0 ||
-      info.size > 1_048_576
+      info.size > maximumBytes
     )
       throw new Error("Manifest must be a bounded singly-owned regular file");
     const bytes = Buffer.alloc(info.size + 1);
@@ -115,8 +125,10 @@ async function json(path: string): Promise<unknown> {
     await file.close();
   }
 }
-async function catalog(root: string): Promise<readonly string[]> {
-  const value = await json(
+export async function acceptanceCatalog(
+  root: string,
+): Promise<readonly string[]> {
+  const value = await readAcceptanceJson(
     join(root, "integration/acceptance-scenarios/suite.json"),
   );
   object(value);
@@ -138,7 +150,7 @@ async function catalog(root: string): Promise<readonly string[]> {
     throw new Error("Duplicate scenario registration");
   return entries;
 }
-async function definition(
+export async function acceptanceDefinition(
   root: string,
   selected: string,
 ): Promise<{
@@ -147,15 +159,15 @@ async function definition(
   fixtureRoot: string;
 }> {
   id(selected);
-  if (!(await catalog(root)).includes(selected))
+  if (!(await acceptanceCatalog(root)).includes(selected))
     throw new Error(`Scenario is not registered: ${selected}`);
-  const scenario = await json(
+  const scenario = await readAcceptanceJson(
     join(root, "integration/acceptance-scenarios", `${selected}.json`),
   );
   object(scenario);
   id(scenario.fixtureId);
   const fixtureRoot = join(root, "integration/fixtures", scenario.fixtureId);
-  const fixture = await json(join(fixtureRoot, "fixture.json"));
+  const fixture = await readAcceptanceJson(join(fixtureRoot, "fixture.json"));
   validateFixture(fixture);
   const assertions = createDefaultAssertions();
   validateScenario(scenario, fixture, assertions.names, [
@@ -256,7 +268,11 @@ async function inventory(directory: string, maximumBytes: number) {
   await visit(directory);
   return { files, directories, bytes };
 }
-async function allocateRun(root: string, prefix: string): Promise<string> {
+export async function allocateAcceptanceRun(
+  root: string,
+  prefix: string,
+  reservedBytes = retention.reservedRunBytes,
+): Promise<string> {
   const parent = join(root, ".test-artifacts", "acceptance");
   await ownedDirectory(parent);
   const lock = join(parent, ".admission-lock");
@@ -275,7 +291,15 @@ async function allocateRun(root: string, prefix: string): Promise<string> {
       throw new Error(
         "Artifact directory retention limit reached; review retained evidence manually",
       );
-    await inventory(parent, retention.totalBytes - retention.reservedRunBytes);
+    if (
+      !Number.isSafeInteger(reservedBytes) ||
+      reservedBytes < 1 ||
+      reservedBytes >= retention.totalBytes
+    )
+      throw new Error(
+        "Selected suite exceeds bounded acceptance evidence capacity",
+      );
+    await inventory(parent, retention.totalBytes - reservedBytes);
     return await mkdtemp(join(parent, prefix));
   } finally {
     await rm(lock, { recursive: true });
@@ -361,6 +385,13 @@ export interface AcceptanceCliEnvironment {
   output?: (value: string) => void;
   error?: (value: string) => void;
   signal?: AbortSignal;
+  /** Suite-owned execution context; never accepted from command-line input. */
+  execution?: {
+    runDirectory: string;
+    runId: string;
+    traceId: string;
+    hostLease?: LiveHostLease;
+  };
   /** Offline test seams; never exposed as command-line options. */
   dependencies?: {
     createDriver?: (options: {
@@ -368,6 +399,7 @@ export interface AcceptanceCliEnvironment {
       executablePath?: string;
       liveApplicationPath?: string;
       bridgeReadMinimumMs?: number;
+      hostLease?: LiveHostLease;
     }) => AcceptanceCliDriver | Promise<AcceptanceCliDriver>;
     run?: typeof runAcceptance;
     stage?: typeof stageFixture;
@@ -486,7 +518,7 @@ export async function acceptanceCli(
   try {
     const { command, options } = argumentsFor(argv);
     if (command === "list") {
-      const entries = await catalog(root);
+      const entries = await acceptanceCatalog(root);
       output(
         JSON.stringify({
           kind: "acceptance-catalog",
@@ -510,7 +542,7 @@ export async function acceptanceCli(
         throw new Error(
           "Template must be inside the acceptance template directory without traversal",
         );
-      const template = await json(path);
+      const template = await readAcceptanceJson(path);
       object(template);
       if (
         Object.keys(template).some(
@@ -545,13 +577,13 @@ export async function acceptanceCli(
     if (command === "validate") {
       const entries = options.has("--scenario")
         ? [options.get("--scenario")!]
-        : await catalog(root);
+        : await acceptanceCatalog(root);
       for (const selected of entries) {
-        const { scenario, fixture, fixtureRoot } = await definition(
+        const { scenario, fixture, fixtureRoot } = await acceptanceDefinition(
           root,
           selected,
         );
-        const workingRoot = await allocateRun(root, "validation-");
+        const workingRoot = await allocateAcceptanceRun(root, "validation-");
         try {
           const copy = await stage({
             fixture,
@@ -585,9 +617,15 @@ export async function acceptanceCli(
       return 0;
     }
     selected = options.get("--scenario")!;
-    const runDirectory = await allocateRun(root, "run-");
+    const runDirectory =
+      environment.execution?.runDirectory ??
+      (await allocateAcceptanceRun(root, "run-"));
+    await ownedDirectory(runDirectory);
     receiptPath = join(runDirectory, "receipt.json");
-    const { scenario, fixture, fixtureRoot } = await definition(root, selected);
+    const { scenario, fixture, fixtureRoot } = await acceptanceDefinition(
+      root,
+      selected,
+    );
     const createDriver =
       environment.dependencies?.createDriver ??
       (async (options) => {
@@ -597,6 +635,9 @@ export async function acceptanceCli(
       });
     const driver = await createDriver({
       runDirectory,
+      ...(environment.execution?.hostLease
+        ? { hostLease: environment.execution.hostLease }
+        : {}),
       ...(options.has("--executable")
         ? { executablePath: resolve(options.get("--executable")!) }
         : {}),
@@ -629,6 +670,12 @@ export async function acceptanceCli(
     runInvoked = true;
     failureStage = "coordinator";
     result = await (environment.dependencies?.run ?? runAcceptance)({
+      ...(environment.execution
+        ? {
+            runId: environment.execution.runId,
+            traceId: environment.execution.traceId,
+          }
+        : {}),
       scenario,
       fixture,
       driver,

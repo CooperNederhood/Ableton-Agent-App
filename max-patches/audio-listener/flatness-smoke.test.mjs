@@ -354,6 +354,72 @@ test("generated stereo analyzer is a passive tap with explicit configuration and
   );
 });
 
+test("runtime admits cancellation synchronously during capture and pending gate cleanup", () => {
+  for (const alreadyStopping of [false, true]) {
+    let cancelling = false;
+    let disposed = 0;
+    const h = metricRuntimeHarness({
+      controller: {
+        cancel: () => true,
+        dispose: () => {
+          disposed++;
+        },
+      },
+      sendListenerDiagnostic: () => !cancelling,
+    });
+    h.controllerOptions.onEvent({
+      control,
+      phase: "launch",
+      nativeLifecycle: {
+        stage: "completed",
+        nativeEpoch: 1,
+        eventId: "launch",
+      },
+    });
+    h.handlers.flatness_smoke(
+      generation,
+      1,
+      "started",
+      "fluid.spectralshape~",
+      "fluid.spectralshape~",
+    );
+    h.handlers.flatness_smoke(generation, 1, "value", 0, 1, -10);
+    h.handlers.flatness_smoke(generation, 1, "value", 1, 1, -5);
+    if (alreadyStopping) h.controllerOptions.beforeCleanup(control, false);
+    cancelling = true;
+    h.clientOptions.onListenerControl({ ...control, action: "cancel" });
+    assert.deepEqual(h.output.at(-1), [
+      "flatness_smoke_control",
+      "stop",
+      generation,
+      1,
+    ]);
+    h.handlers.flatness_smoke(generation, 1, "value", 0, 2, -10);
+    h.handlers.flatness_smoke(generation, 1, "stopped");
+    assert.equal(h.controllerOptions.beforeCleanup(control, true), true);
+    assert.equal(disposed, 0);
+    assert.deepEqual(h.stops, []);
+    cancelling = false;
+    h.controllerOptions.onEvent({
+      control,
+      phase: "launch",
+      nativeLifecycle: {
+        stage: "completed",
+        nativeEpoch: 2,
+        eventId: "next-launch",
+      },
+    });
+    h.handlers.flatness_smoke(
+      generation,
+      2,
+      "started",
+      "fluid.spectralshape~",
+      "fluid.spectralshape~",
+    );
+    assert.equal(disposed, 0);
+  }
+});
+
 test("runtime starts diagnostics only after launch and requires owned cleanup", () => {
   const h = metricRuntimeHarness();
   const event = {

@@ -197,8 +197,8 @@ function createFlatnessProbe({ now, sendControl, emit }) {
       if (pass.cleanup === "completed") return true;
       if (pass.control.generation !== control.generation)
         throw new Error("flatness_cleanup_owner_mismatch");
+      pass.cancelled ||= cancelled;
       if (pass.cleanup === "not-started") {
-        pass.cancelled = cancelled;
         try {
           if (!cancelled && pass.counts.some((count) => count === 0))
             fail("flatness_no_output");

@@ -77,6 +77,9 @@ The SDK continues rejecting progress-envelope diagnostics during cancellation:
 the probe records that delivery gap while physical cleanup and the separate
 terminal cancellation result proceed. Outside cancellation, diagnostic rejection
 remains an explicit failure even when subsequent physical cleanup succeeds.
+Cancellation admission synchronously marks and stops the owned gate, including
+an already pending stop; in-flight callbacks before the next controller tick
+cannot turn an expected cancellation rejection into a runtime reload requirement.
 
 The smoke requires actual finite left/right diagnostics linked to its one
 owned pass, healthy native evidence and confirmed cleanup. It does not claim

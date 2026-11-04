@@ -347,7 +347,7 @@ function createMetricRuntime({
             control.config.geometry.sampleRate,
           );
         } else if (control.action === "arm") controller.arm(control);
-        else controller.cancel(control);
+        else if (controller.cancel(control)) flatness.stop(control, true);
       },
       onListenerFailure: () =>
         invalidate("sdk_publication_failed_requires_reload"),

@@ -21,8 +21,6 @@ const preflightDeviceSchema = deviceSummarySchema.extend({
   className: z.string().max(512),
   classDisplayName: z.string().max(512),
   parameterCount: z.number().int().min(0).max(256),
-  canHaveChains: z.literal(false),
-  canHaveDrumPads: z.literal(false),
 });
 
 export const sessionPreflightDeviceInventorySchema = inspectDevicesResultSchema
@@ -83,7 +81,37 @@ const instrumentChainSchema = z
           JSON.stringify(device) === JSON.stringify(before.devices[index]),
       ),
     "MIDI device inventory changed during preflight",
-  );
+  )
+  .refine(({ before, after }) => {
+    const required = before.devices.some(
+      (device) => device.canHaveChains || device.canHaveDrumPads,
+    );
+    if (!required && !before.instrumentTree && !after.instrumentTree)
+      return true;
+    if (
+      !before.instrumentTree ||
+      !after.instrumentTree ||
+      JSON.stringify(before.instrumentTree) !==
+        JSON.stringify(after.instrumentTree)
+    )
+      return false;
+    const roots = before.instrumentTree.filter(
+      (node) => !node.path.includes("/"),
+    );
+    return (
+      roots.length === before.devices.length &&
+      roots.every(
+        (node, index) =>
+          node.path === String(index) &&
+          JSON.stringify(node.device) === JSON.stringify(before.devices[index]),
+      ) &&
+      before.instrumentTree.every(
+        (node) =>
+          node.device.trackReference === before.devices[0]?.trackReference &&
+          node.device.trackIndex === before.devices[0]?.trackIndex,
+      )
+    );
+  }, "MIDI rack preflight requires a complete stable instrument tree");
 
 export const sessionListeningPreflightResultSchema = z.union([
   z

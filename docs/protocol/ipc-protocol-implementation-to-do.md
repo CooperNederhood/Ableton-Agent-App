@@ -8,8 +8,11 @@
 
 - [x] Add bounded flat-device/parameter evidence to MIDI preflight with
       before/after inventories, exact track/device ownership, complete pages,
-      unique references and contiguous indexes. Reject oversized/nested chains
+      unique references and contiguous indexes. Reject oversized chains
       without inventing parameter, preset-state or native-timing authority.
+- [x] Extend the existing device inspection read with bounded complete recursive
+      instrument trees; pin nested parameters and drum-pad ownership/state in
+      MIDI preflight and source identity without widening mutation selectors.
 
 - [x] Add shared typed audio/MIDI Session preflight results for #81, using
       existing source, MIDI-note and recording reads. Reject foreign targets,
@@ -21,6 +24,9 @@ Companion specification: [IPC Protocol](ipc-protocol.md)
 
 ## Schema design
 
+- [x] Negotiate protocol 9 for recursive `devices.inspect` instrument evidence;
+  regenerate shared TypeScript/Python constants and wire fixtures, reject a
+  protocol-8 handshake, and verify compatibility against the main-branch contract.
 - [x] Negotiate protocol 8 for the Session pass `covered` output enum; regenerate
   canonical TypeScript/Python version constants and contracts, and explicitly
   reject a protocol-7 handshake. Resolve optional tool duration before wire

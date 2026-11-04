@@ -98,6 +98,7 @@ function sampleFromSchema(schema) {
 
 function sampleCommandParams(name, schema) {
   const sample = sampleFromSchema(z.toJSONSchema(schema));
+  if (name === "devices.inspect") sample.includeInstrumentTree = true;
   if (name === "special_devices.set_simpler_markers") {
     sample.end = 1;
   }
@@ -124,6 +125,11 @@ function sampleCommandParams(name, schema) {
 
 function sampleCommandResult(name, schema) {
   const sample = sampleFromSchema(z.toJSONSchema(schema));
+  if (name === "devices.inspect") {
+    sample.instrumentTree[0].path = "0";
+    sample.devices = [sample.instrumentTree[0].device];
+    sample.total = 1;
+  }
   if (name === "listening.stop_playback") sample.stopped = true;
   if (name === "listening.inspect_context") {
     for (const listener of sample.listeners) {

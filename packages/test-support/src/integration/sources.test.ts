@@ -213,6 +213,92 @@ function admitted() {
 }
 
 describe("bounded independently declared MIDI source identity", () => {
+  it("pins nested instrument parameters and pad assignments without pinning runtime IDs", () => {
+    const flat = fixture();
+    const rack = flat.instrumentChain.devices[0]!.device;
+    rack.canHaveChains = rack.canHaveDrumPads = true;
+    const child = {
+      ...rack,
+      reference: ref(40),
+      canHaveChains: false,
+      canHaveDrumPads: false,
+    };
+    const instrumentTree = [
+      ...flat.instrumentChain.devices.map((entry, index) => ({
+        path: String(index),
+        device: entry.device,
+        parameters: entry.parameters,
+        chains:
+          index === 0 ? [{ path: "0/c0", name: "Kick", deviceCount: 1 }] : [],
+        pads:
+          index === 0
+            ? [
+                {
+                  note: 36,
+                  name: "Kick",
+                  mute: false,
+                  solo: false,
+                  chainPaths: ["0/c0"],
+                },
+              ]
+            : [],
+      })),
+      {
+        path: "0/c0/0",
+        device: child,
+        parameters: [
+          {
+            ...flat.instrumentChain.devices[0]!.parameters[0]!,
+            reference: ref(41),
+            deviceReference: child.reference,
+          },
+        ],
+        chains: [],
+        pads: [],
+      },
+    ];
+    const inventory = { ...flat.instrumentChain.before, instrumentTree };
+    const value = {
+      ...flat,
+      instrumentChain: {
+        ...flat.instrumentChain,
+        before: inventory,
+        after: structuredClone(inventory),
+      },
+    };
+    const expected = midiContentIdentity(value, placement);
+    for (const mutate of [
+      (nodes: typeof instrumentTree) => {
+        nodes[2]!.parameters[0]!.value = 0.75;
+      },
+      (nodes: typeof instrumentTree) => {
+        nodes[0]!.pads[0]!.mute = true;
+      },
+      (nodes: typeof instrumentTree) => {
+        nodes[0]!.chains[0]!.name = "Snare";
+      },
+    ]) {
+      const changed = structuredClone(value);
+      mutate(changed.instrumentChain.before.instrumentTree);
+      changed.instrumentChain.after = structuredClone(
+        changed.instrumentChain.before,
+      );
+      const actual = midiContentIdentity(changed, placement);
+      expect(actual.midiNotesSha256).toBe(expected.midiNotesSha256);
+      expect(actual.instrumentChainSha256).not.toBe(
+        expected.instrumentChainSha256,
+      );
+    }
+    const renamed = structuredClone(value);
+    const node = renamed.instrumentChain.before.instrumentTree[2]!;
+    node.device.reference = ref(42);
+    node.parameters[0]!.deviceReference = ref(42);
+    node.parameters[0]!.reference = ref(43);
+    renamed.instrumentChain.after = structuredClone(
+      renamed.instrumentChain.before,
+    );
+    expect(midiContentIdentity(renamed, placement)).toEqual(expected);
+  });
   it("supports one combined fixture with common type-specific baseline facts omitted", () => {
     const { manifest, definition } = admitted();
     const common = Object.fromEntries(
@@ -297,6 +383,8 @@ describe("bounded independently declared MIDI source identity", () => {
   it.each([
     "success",
     "source-quantization",
+    "nested-tree",
+    "oversized-tree",
     "wrong-notes",
     "wrong-instrument",
     "partial",
@@ -307,7 +395,65 @@ describe("bounded independently declared MIDI source identity", () => {
     "runs MIDI admission through the existing coordinator with cleanup and lifecycle: %s",
     async (mode) => {
       const { manifest, definition, evidence } = admitted();
-      const success = mode === "success" || mode === "source-quantization";
+      const success =
+        mode === "success" ||
+        mode === "source-quantization" ||
+        mode === "nested-tree";
+      if (mode === "nested-tree" || mode === "oversized-tree") {
+        const chain = evidence.midi.instrumentChain;
+        const rack = chain.before.devices[0]!;
+        rack.canHaveChains = true;
+        chain.devices[0]!.device = rack;
+        const count = mode === "oversized-tree" ? 15 : 10;
+        const parameterCount = mode === "oversized-tree" ? 256 : 128;
+        const children = Array.from({ length: count }, (_, index) => {
+          const device = {
+            ...rack,
+            reference: ref(100 + index),
+            canHaveChains: false,
+            index,
+            parameterCount,
+          };
+          return {
+            path: `0/c0/${index}`,
+            device,
+            parameters: Array.from({ length: parameterCount }, (_, pindex) => ({
+              ...chain.devices[0]!.parameters[0]!,
+              reference: ref(1000 + index * 256 + pindex),
+              deviceReference: device.reference,
+              index: pindex,
+              name:
+                mode === "oversized-tree"
+                  ? "p".repeat(512)
+                  : `Parameter ${pindex}`,
+            })),
+            chains: [],
+            pads: [],
+          };
+        });
+        chain.before.instrumentTree = [
+          ...chain.devices.map((entry, index) => ({
+            path: String(index),
+            device: entry.device,
+            parameters: entry.parameters,
+            chains:
+              index === 0
+                ? [{ path: "0/c0", name: "Chain", deviceCount: count }]
+                : [],
+            pads: [],
+          })),
+          ...children,
+        ];
+        chain.after = structuredClone(chain.before);
+        const hashes = midiContentIdentity(evidence.midi, placement);
+        Object.assign(evidence.source, hashes);
+        Object.assign(definition.midi, {
+          instrumentChainSha256: hashes.instrumentChainSha256,
+        });
+        expect(Buffer.byteLength(JSON.stringify(evidence))).toBeGreaterThan(
+          524_288,
+        );
+      }
       if (mode === "source-quantization") {
         evidence.midi.source.settings.launchQuantization = 5;
         Object.assign(evidence.facts, { clipLaunchQuantization: "bar" });

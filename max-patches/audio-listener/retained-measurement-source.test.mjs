@@ -1,7 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { createRequire } from "node:module";
 import { retainedMeasurementSource } from "./retained-measurement-source.mjs";
 import { genModel } from "./gen-model.mjs";
+const measurements = createRequire(import.meta.url)(
+  "./audio_listener_measurements.js",
+);
 
 function fixture({ width = 2, capacity = 4, rate = 48000 } = {}) {
   const source = retainedMeasurementSource({
@@ -102,6 +106,69 @@ test("a consumer cannot acknowledge an unread batch in one jump", () => {
   const rejected = model.step();
   assert.equal(rejected[8], 0);
   assert.equal(rejected[9], 2);
+});
+
+test("delayed DSP ACK application cannot make the real reader skip a Gen acknowledgement", () => {
+  const { model } = fixture();
+  for (let sequence = 1; sequence <= 3; sequence++)
+    model.step(1, (sequence - 1) * 2048, sequence * 2048, sequence);
+  const records = [];
+  const reader = measurements.createReader({
+    declaration: {
+      version: 1,
+      kind: "scalar",
+      algorithmVersion: "v1",
+      sampleRate: 48000,
+      hopSamples: 2048,
+      windowSamples: 2048,
+      width: 2,
+      capacity: 4,
+      fields: [
+        { name: "a", unit: "linear" },
+        { name: "b", unit: "linear" },
+      ],
+    },
+    epoch: 1,
+    consume(record) {
+      records.push(record);
+      return true;
+    },
+  });
+  reader.begin();
+  reader.poll(model.step());
+  assert.equal(reader.poll(model.step()).status, "accepted");
+  model.configure({ measurementReadSequence: 2 });
+  const unacknowledged = model.step();
+  assert.equal(unacknowledged[8], 0);
+  reader.poll(unacknowledged);
+  const pending = reader.poll(unacknowledged);
+  for (const action of pending.actions)
+    model.configure({
+      [action.type === "request"
+        ? "measurementReadSequence"
+        : "measurementAcknowledged"]: action.sequence,
+    });
+  assert.equal(
+    model.step()[9],
+    0,
+    "a second ACK must not overwrite the still-unexecuted first ACK",
+  );
+  assert.equal(pending.status, "waiting");
+  model.configure({ measurementAcknowledged: 1 });
+  const committed = model.step();
+  const next = reader.poll(committed);
+  assert.equal(next.status, "accepted");
+  for (const action of next.actions)
+    model.configure({
+      [action.type === "request"
+        ? "measurementReadSequence"
+        : "measurementAcknowledged"]: action.sequence,
+    });
+  assert.equal(model.step()[9], 0);
+  assert.deepEqual(
+    records.map((record) => record.sequence),
+    [1, 2],
+  );
 });
 
 test("new capture ownership invalidates old slots without storing or clearing audio", () => {

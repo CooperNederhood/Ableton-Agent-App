@@ -262,9 +262,13 @@ than represented by a partial first page.
 MIDI also returns `instrumentChain`: complete top-level device inventories
 before and after reading every device's exposed parameter page. This uses
 existing `devices.inspect` and `devices.inspect_parameters` reads, limited to
-eight flat devices and 256 parameters per device. Partial pages, duplicate
+eight top-level devices and 256 parameters per device. With
+`includeInstrumentTree: true`, `devices.inspect` additionally returns complete
+path-addressed nested device/parameter, regular/return chain and drum-pad
+inventories, bounded to 64 devices, four nested levels and 4,096 parameters.
+Rack preflight requires matching before/after trees. Partial pages, duplicate
 references, noncontiguous indexes, foreign track/device identities, changed
-inventory metadata, racks and drum-pad hierarchies fail closed. Empty chains
+inventory metadata, missing children and out-of-bound hierarchies fail closed. Empty chains
 remain observable for diagnostics, not proof of an audible instrument.
 
 This adds no Remote Script command or native timing authority. The bracketed
@@ -517,6 +521,11 @@ See [the capability ledger](live-11-workflow-capability-ledger.md) for exact
 Live 11 support and deliberate omissions.
 
 ## Compatibility rules
+
+Protocol 9 versions the extended `devices.inspect` recursive instrument
+inspection contract. Both application and Remote Script use the generated
+version constants and reject protocol-8 peers during handshake rather than
+assuming that an older peer can supply complete nested instrument evidence.
 
 - `system.hello` selects the highest version present in both the client's
   `supportedProtocolVersions` and the Remote Script's available versions. No

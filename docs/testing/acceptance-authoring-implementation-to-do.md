@@ -2,6 +2,45 @@
 
 Companion specification: [Acceptance test authoring](acceptance-authoring.md).
 
+## Supplied Drum Rack listening regression
+
+- [x] Intake the user-supplied `failing-listening-drum-rack-non-quant` project
+      without editing the original. Preserve its saved state and source hash;
+      the intake copy is authoring evidence, not a qualified fixture.
+- [x] Retain up to 512 reference blocks including inactive preset history while
+      keeping active dependency admission bounded at 128. Preserve the failing
+      230-reference intake regression and its passing fix.
+- [x] Verify declared licensed Core Library samples in place, separately from
+      Builtin resources, without redistributing sample files or accepting
+      arbitrary external paths.
+- [x] Add bounded recursive instrument evidence, reference-neutral fingerprints
+      and a separate 4 MiB tree-evidence allowance without changing other report
+      bounds. Support read-only loaded review without placeholder hashes.
+- [x] Complete owned loaded-baseline inspection and pin exact MIDI/instrument
+      fingerprints, transport state, quantization and resource prerequisites.
+      Owned review `drum-rack-review-BWtxSz` used Live 11.3.43; cleanup confirmed.
+- [x] Register the exact one-turn `listen to clip-1` scenario. Preserve
+      `run-quAx7U` as setup-blocked and `run-6JQUIX` as successful capture with
+      a misconfigured restart assertion, not the requested spectrum red.
+- [x] Require the persistence capability for packaged restart assertions during
+      offline admission; correct the new scenario's omitted capability.
+- [x] Add explicit bounded real-byte bridge pacing, owned-profile preference
+      routing, a no-traffic submission guard, and diagnostic receipt labels.
+      Preserve invalid timing run `run-3sPqTz`; corrected `run-MmE4iY` exercised
+      50 paced reads and passed without a spectrum change. Longer post-arm
+      waiting alone at the selected setting did not reproduce the defect.
+- [x] Demonstrate real spectrum overflow under the explicit 30 ms native polling
+      condition (`run-EeD9MI`) and pass the unchanged condition after paired
+      acquisitions (`run-c0ybSQ`). Preserve this as a controlled scheduling
+      reproduction, not proof of the historical process's exact timer cadence.
+- [x] Add executed-ACK ordering protection and bounded comparable native
+      backlog/control evidence. Retain the graph-linked adverse-schedule
+      regression and distinguish native scheduling from bridge-response pacing.
+- [x] Restore the production 10 ms timer and pass the unchanged Drum Rack case
+      (`run-Amnyfh`) and related stopped-quantized MIDI case (`run-YcdEAB`).
+      Both use actual Live authentication via the existing Remote Script token
+      environment source, not mock authentication; Keychain startup is separate.
+
 ## Stopped quantized launches (#81)
 
 - [x] Record the simplified user-directed scope: one supplied combined Set,

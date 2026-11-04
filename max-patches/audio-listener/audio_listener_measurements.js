@@ -580,6 +580,12 @@ var AudioListenerMeasurements = (function () {
         consecutive = true;
         return result("settling");
       }
+      // Request and ACK Params can execute in different DSP blocks. Do not
+      // overwrite an unexecuted ACK with the next one: Gen rejects that jump.
+      if (row[8] !== expected - 1) {
+        increment("waiting");
+        return result("waiting");
+      }
       if (expected === COUNTER_MAX) return fail("sequence_exhausted");
       var accepted;
       try {

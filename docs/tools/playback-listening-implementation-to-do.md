@@ -2,6 +2,32 @@
 
 Companion specification: [Playback Listening](playback-listening.md).
 
+## Drum Rack spectrum scheduling
+
+- [x] Preserve the supplied-Set real-message scenario and prior ordinary green
+      results without mislabeling them as a reproduction.
+- [x] Reproduce native overflow in real Live with an explicit 30 ms spectrum
+      polling condition (`run-EeD9MI`); preserve partial outcome and cleanup.
+- [x] Pair actual counter-bookended acquisitions per timer tick, preserving
+      two-read settlement and all integrity guards; pass the unchanged real
+      scenario under the same diagnostic condition (`run-c0ybSQ`).
+- [x] Demonstrate invalid DSP control when ACK updates overtake unexecuted
+      predecessors; wait for executed ACK readback without relaxing Gen guards.
+- [x] Persist bounded comparable success/failure retention evidence through
+      the existing traced lifecycle, including delivery-failure cleanup tests.
+- [x] Restore the production timer to 10 ms; keep the 30 ms/six-second
+      adverse-schedule regression tied to the generated production graph.
+- [x] Complete final 10 ms candidate validation for the Drum Rack
+      (`run-Amnyfh`) and directly related stopped-quantized MIDI case
+      (`run-YcdEAB`), each with all three metrics, 90,000 samples and cleanup.
+- [x] Fresh-install the production-cadence app and integrations; record passing
+      installed-path authentication smoke and user confirmation on 2026-11-04.
+- [ ] Automate the adverse native polling condition in a registered real-message
+      scenario; ordinary scenario runs do not enforce the controlled 30 ms replay.
+- [ ] Qualify ephemeral rebuilt-candidate Keychain startup separately; supported
+      environment-token replays and later installed-path success do not qualify
+      that earlier candidate startup path.
+
 ## Quantized stopped-launch scope (#81)
 
 - [x] Replace the earlier eight-case matrix with the user's one supplied Set

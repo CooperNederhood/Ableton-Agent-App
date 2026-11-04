@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "protocolVersion": 8,
+  "protocolVersion": 9,
   "envelopes": {
     "message": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -8,7 +8,7 @@
         {
           "type": "object",
           "properties": {
-            "protocolVersion": { "type": "number", "const": 8 },
+            "protocolVersion": { "type": "number", "const": 9 },
             "kind": { "type": "string", "const": "request" },
             "requestId": {
               "type": "string",
@@ -39,7 +39,7 @@
         {
           "type": "object",
           "properties": {
-            "protocolVersion": { "type": "number", "const": 8 },
+            "protocolVersion": { "type": "number", "const": 9 },
             "kind": { "type": "string", "const": "response" },
             "requestId": {
               "type": "string",
@@ -72,7 +72,7 @@
         {
           "type": "object",
           "properties": {
-            "protocolVersion": { "type": "number", "const": 8 },
+            "protocolVersion": { "type": "number", "const": 9 },
             "kind": { "type": "string", "const": "response" },
             "requestId": {
               "type": "string",
@@ -122,7 +122,7 @@
         {
           "type": "object",
           "properties": {
-            "protocolVersion": { "type": "number", "const": 8 },
+            "protocolVersion": { "type": "number", "const": 9 },
             "kind": { "type": "string", "const": "event" },
             "event": { "type": "string", "minLength": 1 },
             "sequence": {
@@ -152,7 +152,7 @@
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "type": "object",
       "properties": {
-        "protocolVersion": { "type": "number", "const": 8 },
+        "protocolVersion": { "type": "number", "const": 9 },
         "kind": { "type": "string", "const": "request" },
         "requestId": {
           "type": "string",
@@ -178,7 +178,7 @@
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "type": "object",
       "properties": {
-        "protocolVersion": { "type": "number", "const": 8 },
+        "protocolVersion": { "type": "number", "const": 9 },
         "kind": { "type": "string", "const": "response" },
         "requestId": {
           "type": "string",
@@ -212,7 +212,7 @@
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "type": "object",
       "properties": {
-        "protocolVersion": { "type": "number", "const": 8 },
+        "protocolVersion": { "type": "number", "const": 9 },
         "kind": { "type": "string", "const": "response" },
         "requestId": {
           "type": "string",
@@ -263,7 +263,7 @@
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "type": "object",
       "properties": {
-        "protocolVersion": { "type": "number", "const": 8 },
+        "protocolVersion": { "type": "number", "const": 9 },
         "kind": { "type": "string", "const": "event" },
         "event": { "type": "string", "minLength": 1 },
         "sequence": {
@@ -285,7 +285,7 @@
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "type": "object",
       "properties": {
-        "protocolVersion": { "type": "number", "const": 8 },
+        "protocolVersion": { "type": "number", "const": 9 },
         "kind": { "type": "string", "const": "event" },
         "event": { "type": "string", "const": "live_set.save_observed" },
         "sequence": {
@@ -402,7 +402,7 @@
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
         "properties": {
-          "selectedProtocolVersion": { "type": "number", "const": 8 },
+          "selectedProtocolVersion": { "type": "number", "const": 9 },
           "liveVersion": { "type": "string", "minLength": 1 },
           "remoteScriptVersion": { "type": "string", "minLength": 1 },
           "liveSetId": { "type": "string", "minLength": 1 },
@@ -26214,7 +26214,8 @@
             "type": "integer",
             "minimum": 1,
             "maximum": 128
-          }
+          },
+          "includeInstrumentTree": { "type": "boolean" }
         },
         "required": [
           "index",
@@ -26295,7 +26296,176 @@
             "minimum": 0,
             "maximum": 9007199254740991
           },
-          "limit": { "type": "integer", "minimum": 1, "maximum": 128 }
+          "limit": { "type": "integer", "minimum": 1, "maximum": 128 },
+          "instrumentTree": {
+            "minItems": 1,
+            "maxItems": 64,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "maxLength": 128,
+                  "pattern": "^\\d+(?:\\/[cr]\\d+\\/\\d+){0,4}$"
+                },
+                "device": {
+                  "type": "object",
+                  "properties": {
+                    "reference": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "trackReference": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "trackIndex": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "index": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "name": { "type": "string", "maxLength": 512 },
+                    "className": { "type": "string", "maxLength": 512 },
+                    "classDisplayName": { "type": "string", "maxLength": 512 },
+                    "enabled": {
+                      "anyOf": [{ "type": "boolean" }, { "type": "null" }]
+                    },
+                    "parameterCount": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 256
+                    },
+                    "canHaveChains": { "default": false, "type": "boolean" },
+                    "canHaveDrumPads": { "default": false, "type": "boolean" }
+                  },
+                  "required": [
+                    "reference",
+                    "trackReference",
+                    "trackIndex",
+                    "index",
+                    "name",
+                    "className",
+                    "classDisplayName",
+                    "enabled",
+                    "parameterCount",
+                    "canHaveChains",
+                    "canHaveDrumPads"
+                  ],
+                  "additionalProperties": false
+                },
+                "parameters": {
+                  "maxItems": 256,
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "reference": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      },
+                      "deviceReference": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      },
+                      "index": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      "name": { "type": "string", "maxLength": 512 },
+                      "value": { "type": "number" },
+                      "normalizedValue": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1
+                      },
+                      "min": { "type": "number" },
+                      "max": { "type": "number" },
+                      "isQuantized": { "type": "boolean" },
+                      "isEnabled": { "type": "boolean" },
+                      "valueItemCount": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      }
+                    },
+                    "required": [
+                      "reference",
+                      "deviceReference",
+                      "index",
+                      "name",
+                      "value",
+                      "normalizedValue",
+                      "min",
+                      "max",
+                      "isQuantized",
+                      "isEnabled",
+                      "valueItemCount"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "chains": {
+                  "maxItems": 64,
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "path": {
+                        "type": "string",
+                        "maxLength": 128,
+                        "pattern": "^\\d+(?:\\/[cr]\\d+\\/\\d+){0,4}\\/[cr]\\d+$"
+                      },
+                      "name": { "type": "string", "maxLength": 512 },
+                      "deviceCount": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 64
+                      }
+                    },
+                    "required": ["path", "name", "deviceCount"],
+                    "additionalProperties": false
+                  }
+                },
+                "pads": {
+                  "maxItems": 128,
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "note": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 127
+                      },
+                      "name": { "type": "string", "maxLength": 512 },
+                      "mute": { "type": "boolean" },
+                      "solo": { "type": "boolean" },
+                      "chainPaths": {
+                        "maxItems": 64,
+                        "type": "array",
+                        "items": { "type": "string", "maxLength": 128 }
+                      }
+                    },
+                    "required": ["note", "name", "mute", "solo", "chainPaths"],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": ["path", "device", "parameters", "chains", "pads"],
+              "additionalProperties": false
+            }
+          }
         },
         "required": ["devices", "total", "offset", "limit"],
         "additionalProperties": false

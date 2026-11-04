@@ -2108,6 +2108,50 @@ class ExecutorTests(unittest.TestCase):
         self.assertEqual(responses[0]["error"]["code"], "lom_error")
         self.assertEqual(parameter.value, 0.25)
 
+    def test_bounded_instrument_tree_is_recursive_stable_and_read_only(self):
+        scheduled = []
+        responses = []
+        context = FakeContext()
+        rack = FakeDevice("Drum Rack")
+        rack.chains[0].devices = [FakeDevice("Instrument Rack")]
+        rack.return_chains = [FakeChain("Return", [FakeDevice("Reverb")])]
+        context.song.tracks[0].devices = [rack]
+        reference = "00000000-0000-4000-8000-000000000001"
+        context._track_references = [(context.song.tracks[0], reference)]
+        registry = CommandRegistry()
+        register_system_commands(registry)
+        executor = MainThreadExecutor(lambda _delay, callback: scheduled.append(callback), registry, context)
+        params = dict(index=0, expectedReference=reference, expectedName="Drums", offset=0, limit=8)
+
+        def execute(extra):
+            executor.submit(request("devices.inspect", dict(params, **extra)), responses.append)
+            scheduled.pop()()
+            return responses[-1]
+
+        first = execute(dict(includeInstrumentTree=True))
+        self.assertTrue(first["ok"], first)
+        nodes = first["result"]["instrumentTree"]
+        self.assertEqual([node["path"] for node in nodes], [
+            "0", "0/c0/0", "0/c0/0/c0/0", "0/c1/0", "0/r0/0"
+        ])
+        self.assertEqual(nodes[0]["pads"][36]["chainPaths"], ["0/c0"])
+        self.assertEqual(len(nodes[2]["parameters"]), 3)
+        self.assertNotIn("instrumentTree", execute({})["result"])
+        self.assertEqual(first["result"], execute(dict(includeInstrumentTree=True))["result"])
+        self.assertEqual(rack.chains[0].devices[0].chains[0].devices[0].parameters[1].value, 0.25)
+        for extra in (dict(includeInstrumentTree="yes"), dict(includeInstrumentTree=True, offset=1)):
+            self.assertFalse(execute(extra)["ok"])
+        rack.chains[0].devices = [rack]
+        self.assertFalse(execute(dict(includeInstrumentTree=True))["ok"])
+        rack.chains[0].devices = [FakeDevice("Simpler") for _ in range(65)]
+        self.assertFalse(execute(dict(includeInstrumentTree=True))["ok"])
+        rack.chains[0].devices = [FakeDevice("Simpler")]
+        rack.chains[0].devices[0].parameters = [FakeParameter(0.5) for _ in range(257)]
+        self.assertFalse(execute(dict(includeInstrumentTree=True))["ok"])
+        rack.chains[0].devices[0].parameters = []
+        rack.drum_pads[36].chains = [FakeChain("Foreign")]
+        self.assertFalse(execute(dict(includeInstrumentTree=True))["ok"])
+
     def test_live_eleven_device_moves_and_chain_edits_are_exact_and_verified(self):
         scheduled = []
         responses = []
@@ -5155,6 +5199,9 @@ class ServerTests(unittest.TestCase):
 
     def test_rejects_protocol_seven_before_session_covered_semantics(self):
         self.assert_unsupported_version(7)
+
+    def test_rejects_protocol_eight_before_recursive_instrument_inspection(self):
+        self.assert_unsupported_version(8)
 
     def assert_unsupported_version(self, version):
         response = self.exchange(

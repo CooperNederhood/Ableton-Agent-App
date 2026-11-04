@@ -197,6 +197,86 @@ describe("bounded Session listening preflight", () => {
         instrumentChain: chain,
       }),
     ).toMatchObject({ instrumentChain: chain });
+    const rack = { ...device, canHaveChains: true, canHaveDrumPads: true };
+    const child = {
+      ...device,
+      reference: "10000000-0000-4000-8000-000000000006",
+    };
+    const instrumentTree = [
+      {
+        path: "0",
+        device: rack,
+        parameters: [parameter],
+        chains: [{ path: "0/c0", name: "Kick", deviceCount: 1 }],
+        pads: [
+          {
+            note: 36,
+            name: "Kick",
+            mute: false,
+            solo: false,
+            chainPaths: ["0/c0"],
+          },
+        ],
+      },
+      {
+        path: "0/c0/0",
+        device: child,
+        parameters: [
+          {
+            ...parameter,
+            reference: "10000000-0000-4000-8000-000000000007",
+            deviceReference: child.reference,
+          },
+        ],
+        chains: [],
+        pads: [],
+      },
+    ];
+    const rackInventory = { ...inventory, devices: [rack], instrumentTree };
+    const rackValue = {
+      ...value,
+      instrumentChain: {
+        before: rackInventory,
+        devices: [{ ...inspection, device: rack }],
+        after: structuredClone(rackInventory),
+      },
+    };
+    expect(sessionListeningPreflightResultSchema.parse(rackValue)).toEqual(
+      rackValue,
+    );
+    for (const mutate of [
+      (nodes: typeof instrumentTree) => nodes.pop(),
+      (nodes: typeof instrumentTree) => nodes.push(nodes[1]!),
+      (nodes: typeof instrumentTree) => {
+        nodes[1]!.path = "0/c9/0";
+      },
+      (nodes: typeof instrumentTree) => {
+        nodes[1]!.parameters = [];
+      },
+      (nodes: typeof instrumentTree) => {
+        nodes[1]!.device.trackIndex = 1;
+      },
+      (nodes: typeof instrumentTree) => {
+        nodes[0]!.chains[0]!.deviceCount = 2;
+      },
+      (nodes: typeof instrumentTree) => {
+        nodes[0]!.pads[0]!.chainPaths = ["0/c9"];
+      },
+    ]) {
+      const changed = structuredClone(rackValue);
+      mutate(changed.instrumentChain.before.instrumentTree);
+      changed.instrumentChain.after = structuredClone(
+        changed.instrumentChain.before,
+      );
+      expect(
+        sessionListeningPreflightResultSchema.safeParse(changed).success,
+      ).toBe(false);
+    }
+    const drift = structuredClone(rackValue);
+    drift.instrumentChain.after.instrumentTree[1]!.parameters[0]!.value = 0.75;
+    expect(sessionListeningPreflightResultSchema.safeParse(drift).success).toBe(
+      false,
+    );
     for (const patch of [
       { instrumentChain: undefined },
       { instrumentChain: { ...chain, devices: [] } },

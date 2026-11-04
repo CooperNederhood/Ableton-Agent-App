@@ -254,6 +254,8 @@ function metricAnalysisGraph(analysis, resource) {
   box(analysis, "metricPoll").maxclass = "message";
   add(analysis, "metricPollRoute", "route poll_frames spectrum_poll", 1, 3);
   add(analysis, "metricSpectrumPoll", "qmetro 10 @active 0", 2, 1);
+  // Settle using two real acquisitions without waiting for another scheduler tick.
+  add(analysis, "metricSpectrumReadPair", "trigger b b", 1, 2);
   add(analysis, "metricSpectrumMessages", "route native_spectrum_poll", 1, 2);
   analysis.patcher.lines = analysis.patcher.lines.filter(
     ({ patchline }) =>
@@ -289,7 +291,9 @@ function metricAnalysisGraph(analysis, resource) {
     wire("collector", 2, "metricPollRoute"),
     wire("metricPollRoute", 0, "pollOrder"),
     wire("metricPollRoute", 1, "metricSpectrumPoll"),
-    wire("metricSpectrumPoll", 0, "fft", 4),
+    wire("metricSpectrumPoll", 0, "metricSpectrumReadPair"),
+    wire("metricSpectrumReadPair", 1, "fft", 4),
+    wire("metricSpectrumReadPair", 0, "fft", 4),
     wire("fft", 0, "metricSpectrumMessages"),
     wire("metricSpectrumMessages", 0, "metricSpectrumPoll"),
     wire("metricSpectrumMessages", 1, "nativeMessages"),

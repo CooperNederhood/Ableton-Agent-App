@@ -14,7 +14,7 @@ import { describe, expect, it } from "vitest";
 import {
   inspectAcceptanceProject,
   readAcceptanceProjectReferences,
-  verifyBuiltinResources,
+  verifyInstalledLiveResources,
   readSavedFollowAction,
 } from "../../tests/electron/acceptance-project.js";
 
@@ -25,6 +25,25 @@ function document(relative: string, kind = "3") {
 }
 
 describe("saved fixture dependency admission", () => {
+  it("retains bounded Drum Rack preset history during intake without enlarging active dependency admission", () => {
+    const ref =
+      '<FileRef><RelativePathType Value="5"/><RelativePath Value="Samples/kick.wav"/><Path Value="/installed/kick.wav"/></FileRef>';
+    const source = (count: number) =>
+      gzipSync(
+        `<Ableton Version="11"><SourceContext>${ref.repeat(count)}</SourceContext>${ref}</Ableton>`,
+      );
+    expect(readAcceptanceProjectReferences(source(229))).toHaveLength(230);
+    expect(readAcceptanceProjectReferences(source(229), true)).toHaveLength(1);
+    expect(() => readAcceptanceProjectReferences(source(512))).toThrow(
+      "reference count",
+    );
+    expect(() =>
+      readAcceptanceProjectReferences(
+        gzipSync(`<Ableton Version="11">${ref.repeat(129)}</Ableton>`),
+        true,
+      ),
+    ).toThrow("reference count");
+  });
   it.each(["Audio", "Midi"])(
     "reads the exact saved %s Session follow-action flag without substituting missing evidence",
     (kind) => {
@@ -86,54 +105,93 @@ describe("saved fixture dependency admission", () => {
       ),
     ).toThrow("Unbalanced");
   });
-  it("verifies licensed Builtin files in place and rejects drift, symlinks, missing files and cancellation", async () => {
-    const root = await realpath(
-      await mkdtemp(join(tmpdir(), "acceptance-builtin-")),
-    );
-    const path = "Samples/IR.wav";
-    const parent = join(root, "Contents/App-Resources/Builtin/Samples");
-    const bytes = Buffer.from("controlled impulse response");
-    const resources = [
-      {
-        path,
-        bytes: bytes.length,
-        sha256: createHash("sha256").update(bytes).digest("hex"),
-      },
+  it("admits only explicitly pinned Core Library references, independently of Builtin declarations", () => {
+    const bytes = document("Samples/kick.wav", "5");
+    const declared = [
+      { path: "Samples/kick.wav", bytes: 3, sha256: "a".repeat(64) },
     ];
-    const signal = new AbortController().signal;
-    try {
-      await mkdir(parent, { recursive: true });
-      await writeFile(join(parent, "IR.wav"), bytes);
-      expect(await verifyBuiltinResources(resources, root, signal)).toMatch(
-        /^[a-f0-9]{64}$/u,
-      );
-      await expect(
-        verifyBuiltinResources(resources, root, AbortSignal.abort()),
-      ).rejects.toThrow();
-      await writeFile(join(parent, "IR.wav"), Buffer.alloc(bytes.length));
-      await expect(
-        verifyBuiltinResources(resources, root, signal),
-      ).rejects.toThrow("hash mismatch");
-      await rm(join(parent, "IR.wav"));
-      await expect(
-        verifyBuiltinResources(resources, root, signal),
-      ).rejects.toThrow("ENOENT");
-      await writeFile(join(root, "outside"), bytes);
-      await symlink(join(root, "outside"), join(parent, "IR.wav"));
-      await expect(
-        verifyBuiltinResources(resources, root, signal),
-      ).rejects.toThrow("symlink");
-      await expect(
-        verifyBuiltinResources(
-          [{ ...resources[0]!, path: "../outside" }],
-          root,
-          signal,
-        ),
-      ).rejects.toThrow("Unsafe");
-    } finally {
-      await rm(root, { recursive: true, force: true });
-    }
+    expect(
+      inspectAcceptanceProject(bytes, new Set(), false, [], declared),
+    ).toEqual([]);
+    expect(() =>
+      inspectAcceptanceProject(bytes, new Set(), false, declared),
+    ).toThrow("dependency");
+    expect(() =>
+      inspectAcceptanceProject(
+        document("Samples/kick.wav", "0"),
+        new Set(),
+        false,
+        [],
+        declared,
+      ),
+    ).toThrow("dependency");
+    expect(() =>
+      inspectAcceptanceProject(
+        document("../kick.wav", "5"),
+        new Set(),
+        false,
+        [],
+        [{ ...declared[0]!, path: "../kick.wav" }],
+      ),
+    ).toThrow("Unsafe");
   });
+  it.each(["Builtin", "Core Library"] as const)(
+    "verifies licensed %s files in place and rejects drift, symlinks, missing files and cancellation",
+    async (library) => {
+      const root = await realpath(
+        await mkdtemp(join(tmpdir(), "acceptance-builtin-")),
+      );
+      const path = "Samples/IR.wav";
+      const parent = join(root, "Contents/App-Resources", library, "Samples");
+      const bytes = Buffer.from("controlled impulse response");
+      const resources = [
+        {
+          path,
+          bytes: bytes.length,
+          sha256: createHash("sha256").update(bytes).digest("hex"),
+        },
+      ];
+      const signal = new AbortController().signal;
+      try {
+        await mkdir(parent, { recursive: true });
+        await writeFile(join(parent, "IR.wav"), bytes);
+        expect(
+          await verifyInstalledLiveResources(resources, root, signal, library),
+        ).toMatch(/^[a-f0-9]{64}$/u);
+        await expect(
+          verifyInstalledLiveResources(
+            resources,
+            root,
+            AbortSignal.abort(),
+            library,
+          ),
+        ).rejects.toThrow();
+        await writeFile(join(parent, "IR.wav"), Buffer.alloc(bytes.length));
+        await expect(
+          verifyInstalledLiveResources(resources, root, signal, library),
+        ).rejects.toThrow("hash mismatch");
+        await rm(join(parent, "IR.wav"));
+        await expect(
+          verifyInstalledLiveResources(resources, root, signal, library),
+        ).rejects.toThrow("ENOENT");
+        await writeFile(join(root, "outside"), bytes);
+        await symlink(join(root, "outside"), join(parent, "IR.wav"));
+        await expect(
+          verifyInstalledLiveResources(resources, root, signal, library),
+        ).rejects.toThrow("symlink");
+        await expect(
+          verifyInstalledLiveResources(
+            [{ ...resources[0]!, path: "../outside" }],
+            root,
+            signal,
+            library,
+          ),
+        ).rejects.toThrow("Unsafe");
+      } finally {
+        await rm(root, { recursive: true, force: true });
+      }
+    },
+  );
   it("distinguishes inactive source history from active resource dependencies without changing intake reports", () => {
     const ref =
       '<FileRef><RelativePathType Value="6"/><RelativePath Value="historic.amxd"/><Path Value="/library/historic.amxd"/></FileRef>';

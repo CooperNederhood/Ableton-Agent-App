@@ -1337,6 +1337,44 @@ describe("HeadlessApplication", () => {
     await expect(
       midiApp.inspectSessionListeningPreflight(params),
     ).rejects.toThrow("device inventory unavailable");
+    const rack = { ...device, canHaveChains: true };
+    const rackInventory = {
+      ...inventory,
+      devices: [rack],
+      instrumentTree: [
+        {
+          path: "0",
+          device: rack,
+          parameters: parameterInspection.parameters,
+          chains: [],
+          pads: [],
+        },
+      ],
+    };
+    inspectDevices.mockResolvedValue(rackInventory);
+    inspectDeviceParameters.mockResolvedValue({
+      ...parameterInspection,
+      device: rack,
+    });
+    await expect(
+      midiApp.inspectSessionListeningPreflight(params),
+    ).resolves.toMatchObject({
+      instrumentChain: { before: rackInventory, after: rackInventory },
+    });
+    expect(inspectDevices).toHaveBeenLastCalledWith(
+      expect.objectContaining({ includeInstrumentTree: true }),
+    );
+    const readsBeforeTreeCancellation =
+      inspectDeviceParameters.mock.calls.length;
+    inspectDevices
+      .mockResolvedValueOnce(rackInventory)
+      .mockRejectedValueOnce(new Error("tree read cancelled"));
+    await expect(
+      midiApp.inspectSessionListeningPreflight(params),
+    ).rejects.toThrow("tree read cancelled");
+    expect(inspectDeviceParameters).toHaveBeenCalledTimes(
+      readsBeforeTreeCancellation,
+    );
   });
 
   it("starts services and publishes lifecycle in order", async () => {

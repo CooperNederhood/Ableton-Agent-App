@@ -302,6 +302,27 @@ function fakeBoundary(mode: Mode = "passed") {
 }
 
 describe("acceptance catalog admission", () => {
+  it("passes bounded timing diagnostics explicitly to the shared real driver", async () => {
+    await fixture(async (root, output, errors) => {
+      await register(root);
+      const fake = fakeBoundary();
+      expect(
+        await acceptanceCli(
+          ["run", "--scenario", "example", "--bridge-read-min-ms", "550"],
+          {
+            ...environment(root, output, errors),
+            dependencies: fake.dependencies,
+          },
+        ),
+      ).toBe(0);
+      expect(fake.dependencies.createDriver).toHaveBeenCalledWith(
+        expect.objectContaining({ bridgeReadMinimumMs: 550 }),
+      );
+      expect((await receipt(root)).value).toMatchObject({
+        diagnostic: { kind: "real-bridge-read-pacing", minimumReadMs: 550 },
+      });
+    });
+  });
   it("resolves the actual Node entrypoint's dynamic driver aliases before rejecting absent assets", async () => {
     await fixture(async (root) => {
       await register(root, "reviewed-live", []);
@@ -428,6 +449,13 @@ describe("acceptance catalog admission", () => {
       "integration/acceptance-scenarios/templates/../templates/x.json",
     ],
     ["run", "--scenario", "x", "--executable", "x\0y"],
+    ...["0", "1001", "0.5", "NaN", "0500"].map((minimum) => [
+      "run",
+      "--scenario",
+      "x",
+      "--bridge-read-min-ms",
+      minimum,
+    ]),
   ])("rejects unsafe or ambiguous arguments %j", async (...args) => {
     await fixture(async (root, output, errors) => {
       expect(await acceptanceCli(args, environment(root, output, errors))).toBe(

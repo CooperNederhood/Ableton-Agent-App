@@ -464,6 +464,54 @@ function createMetricController(options) {
     p.spectrum.failure ||= reason;
     if (p.collector) p.collector.failMetric("spectrum", "analyzer_failed");
   }
+  function reportSpectrumRetention(p, row, status, force = false) {
+    const now = time();
+    if (!force && now - (p.spectrum.retentionEvidenceAt ?? -Infinity) < 1000)
+      return;
+    p.spectrum.retentionEvidenceAt = now;
+    const observed = (value) =>
+      typeof value === "number" && Number.isFinite(value)
+        ? { state: "observed", value }
+        : { state: "unavailable", reason: "not-reported" };
+    const facts = [
+      "abi",
+      "nativeEpoch",
+      "requestedSequence",
+      "slotEpoch",
+      "slotSequence",
+      "startSample",
+      "endSample",
+      "produced",
+      "acknowledged",
+      "fault",
+    ].map((field, index) => ({
+      field: `capture.spectrum.retention.${field}`,
+      actual: observed(row?.[index]),
+    }));
+    facts.push(
+      {
+        field: "capture.spectrum.retention.backlog",
+        actual: observed(
+          Number.isFinite(row?.[7]) && Number.isFinite(row?.[8])
+            ? row[7] - row[8]
+            : undefined,
+        ),
+      },
+      {
+        field: "capture.spectrum.retention.readerStatus",
+        actual: { state: "observed", value: status },
+      },
+    );
+    emit(
+      p,
+      p.coordinates ? "capture" : "preflight",
+      "progress",
+      "spectrum",
+      "native_spectrum_retention_evidence",
+      undefined,
+      facts,
+    );
+  }
   function receiveSpectrum(p, packet) {
     const s = p.spectrum;
     requireValue(s.started, "metric_unowned_spectrum_packet");
@@ -491,6 +539,20 @@ function createMetricController(options) {
     );
     const kind = packet[2],
       values = packet.slice(3);
+    const retentionRejection =
+      kind === "retention-rejection" ? decodeRetentionRejection(values) : null;
+    if (kind === "retention-rejection") {
+      requireValue(
+        retentionRejection && retentionRejection.nativeEpoch === p.epoch,
+        "metric_invalid_spectrum_rejection",
+      );
+      reportSpectrumRetention(
+        p,
+        retentionRejection.readerReadbacks.at(-1)?.cells,
+        retentionRejection.readerReason,
+        true,
+      );
+    }
     if (
       s.handoff &&
       ["io-rejection", "retention-rejection", "ioError"].includes(kind)
@@ -573,11 +635,6 @@ function createMetricController(options) {
         failSpectrum(p);
       else abort(p, "metric_spectrum_shared_failure");
     } else if (kind === "retention-rejection") {
-      const decoded = decodeRetentionRejection(values);
-      requireValue(
-        decoded && decoded.nativeEpoch === p.epoch,
-        "metric_invalid_spectrum_rejection",
-      );
       if (
         [
           "invalid_numeric",
@@ -585,7 +642,7 @@ function createMetricController(options) {
           "unread_capacity_overflow",
           "consumer_failed",
           "consumer_rejected",
-        ].includes(decoded.readerReason)
+        ].includes(retentionRejection.readerReason)
       )
         failSpectrum(p);
       else abort(p, "metric_spectrum_shared_failure");
@@ -601,6 +658,7 @@ function createMetricController(options) {
       const row = decoded.readbacks.at(-1)?.cells;
       if (row?.length === 20)
         s.lastHeader = copy([row[0], row[1], row[7], row[9]]);
+      reportSpectrumRetention(p, row, decoded.status);
     } else if (kind === "spectrum-input-rejection") {
       requireValue(
         values.length === 3 &&

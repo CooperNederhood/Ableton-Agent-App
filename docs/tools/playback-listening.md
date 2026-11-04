@@ -1,5 +1,60 @@
 # Playback Listening and Entity Context
 
+## Drum Rack spectrum scheduling regression
+
+The registered `session-drum-rack-listening` case preserves the supplied Set and
+sends exactly `listen to clip-1` through the packaged Default agent. Its ordinary
+fresh-process runs passed before a spectrum fix: this was missing execution
+condition coverage, not an oracle that accepted missing spectra.
+
+The retained reader previously spread its two-read settlement over separate
+low-priority timer ticks. A controlled **real-Max 30 ms polling** replay reproduced
+pre-playback overflow: `run-EeD9MI` observed backlog 0, 12, 22, then 32 and native
+fault 1; the message produced a partial pass and failed acceptance with cleanup.
+At the same 30 ms condition, `run-c0ybSQ` passed every unchanged assertion after
+pairing two actual counter-bookended acquisitions in each timer callback.
+Its sampled backlog stayed at 1. This demonstrates the scheduling-sensitive
+failure mechanism; 30 ms is an explicit diagnostic condition, not a measured
+constant from the original human session.
+
+Production retains its **10 ms timer**. Each tick requests two separate Max
+acquisitions, not two copies of a cached JavaScript row. The existing coherent
+counter brackets, two-read immutable-slot settlement, ownership and overflow
+guards remain mandatory. No buffer was enlarged. The reader also waits for the
+previous ACK to appear in DSP readback before consuming another settled slot.
+Otherwise asynchronous Param updates can replace an unexecuted ACK with the
+next ACK and trigger Gen's invalid-control guard. Actual generated Gen plus
+reader regression coverage demonstrates that fault before the barrier.
+
+Successful and failed captures now publish twelve bounded retention facts
+(epoch, selected slot/request, produced/acknowledged counts, backlog, fault and
+reader status) through the existing traced native lifecycle. Normal sampling is
+limited to once per second; a rejection forces its actual fault row before
+failure classification. Diagnostic delivery failure remains explicit and
+requires owned cleanup. These facts are observation, never coverage or permission
+to advance an ACK. The first observed readback in `run-VKcIuz` was epoch zero,
+produced zero, backlog zero, followed by owned epoch-one production: this fresh
+instance did not carry opening-time accumulation into its first request.
+
+The real replays used the existing Remote Script token through the supported
+environment credential source because the rebuilt app blocked in macOS Keychain
+before creating a window. They exercised real authenticated Live, normal agent
+approvals and context restart, but do not qualify Keychain startup. See the
+[authoring evidence ledger](../testing/acceptance-authoring.md) for all receipts,
+including failed setup attempts.
+
+The routine registered scenario does **not** impose the adverse native polling
+condition; it can pass with the old implementation under healthy scheduling.
+Automated adverse-schedule protection currently lives in the graph-linked native
+controller regression. The real 30 ms red/green runs remain controlled diagnostic
+evidence, not an automatically enforced scenario-level timing regression.
+
+A subsequent fresh installation on 2026-11-04 updated the normal installed app,
+Remote Script and listener resources. Installed-path authentication smoke passed,
+and the user confirmed that the installed fix works. This does not retroactively
+qualify the earlier ephemeral candidate's Keychain startup or extend the
+registered scenario's timing coverage.
+
 ## Quantized stopped-launch work (#81)
 
 The user supplied one combined Set and replaced the earlier matrix with two

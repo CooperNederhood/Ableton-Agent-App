@@ -4,6 +4,7 @@
     "session-clip-identify",
     "session-listening-continuity",
     "session-stopped-quantized-audio",
-    "session-stopped-quantized-midi"
+    "session-stopped-quantized-midi",
+    "session-drum-rack-listening"
   ]
 }

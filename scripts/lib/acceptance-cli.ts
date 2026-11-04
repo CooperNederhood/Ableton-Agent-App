@@ -172,12 +172,12 @@ function argumentsFor(argv: readonly string[]) {
   const [command, ...args] = argv;
   if (!["list", "validate", "run"].includes(command ?? ""))
     throw new Error(
-      "Usage: acceptance.mjs list | validate [--scenario ID | --template PATH] | run --scenario ID [--executable PATH] [--live-app PATH]",
+      "Usage: acceptance.mjs list | validate [--scenario ID | --template PATH] | run --scenario ID [--executable PATH] [--live-app PATH] [--bridge-read-min-ms 1..1000]",
     );
   const options = new Map<string, string>();
   const allowed =
     command === "run"
-      ? ["--scenario", "--executable", "--live-app"]
+      ? ["--scenario", "--executable", "--live-app", "--bridge-read-min-ms"]
       : command === "validate"
         ? ["--scenario", "--template"]
         : [];
@@ -203,6 +203,12 @@ function argumentsFor(argv: readonly string[]) {
       "Real acceptance requires an explicitly selected registered scenario",
     );
   if (options.has("--scenario")) id(options.get("--scenario"));
+  const minimum = options.get("--bridge-read-min-ms");
+  if (
+    minimum !== undefined &&
+    (!/^[1-9][0-9]{0,3}$/.test(minimum) || Number(minimum) > 1000)
+  )
+    throw new Error("Bridge read minimum must be an integer from 1 to 1000 ms");
   return { command, options };
 }
 
@@ -352,6 +358,7 @@ export interface AcceptanceCliEnvironment {
       runDirectory: string;
       executablePath?: string;
       liveApplicationPath?: string;
+      bridgeReadMinimumMs?: number;
     }) => AcceptanceCliDriver | Promise<AcceptanceCliDriver>;
     run?: typeof runAcceptance;
     stage?: typeof stageFixture;
@@ -587,7 +594,18 @@ export async function acceptanceCli(
       ...(options.has("--live-app")
         ? { liveApplicationPath: resolve(options.get("--live-app")!) }
         : {}),
+      ...(options.has("--bridge-read-min-ms")
+        ? { bridgeReadMinimumMs: Number(options.get("--bridge-read-min-ms")) }
+        : {}),
     });
+    const diagnostic = options.has("--bridge-read-min-ms")
+      ? {
+          diagnostic: {
+            kind: "real-bridge-read-pacing",
+            minimumReadMs: Number(options.get("--bridge-read-min-ms")),
+          },
+        }
+      : {};
     if (fixture.dependencies.length && typeof driver.provision !== "function")
       throw new Error(
         "Declared dependencies require explicit candidate provisioning",
@@ -637,6 +655,7 @@ export async function acceptanceCli(
         await writeReceipt(join(runDirectory, "checkpoint.json"), {
           schema: "acceptance-run/v1",
           ...receiptOwnership,
+          ...diagnostic,
           finalization: "checkpoint",
           finalReceiptRequired: true,
           result: { ...candidate, persisted: false },
@@ -726,6 +745,7 @@ export async function acceptanceCli(
     await writeReceipt(receiptPath, {
       schema: "acceptance-run/v1",
       ...receiptOwnership,
+      ...diagnostic,
       finalization: "final",
       result,
       events,
@@ -743,6 +763,7 @@ export async function acceptanceCli(
     output(
       JSON.stringify({
         status: result.status,
+        ...diagnostic,
         receiptPath,
         cleanupComplete: result.cleanupComplete,
         selected: result.selected,

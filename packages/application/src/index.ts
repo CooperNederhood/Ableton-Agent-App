@@ -6621,9 +6621,23 @@ export class HeadlessApplication {
         offset: 0,
         limit: SESSION_PREFLIGHT_DEVICE_LIMIT,
       };
-      const before = sessionPreflightDeviceInventorySchema.parse(
+      let before = sessionPreflightDeviceInventorySchema.parse(
         await this.inspectDevices(deviceTarget),
       );
+      const includeInstrumentTree = before.devices.some(
+        (device) => device.canHaveChains || device.canHaveDrumPads,
+      );
+      if (includeInstrumentTree)
+        before = sessionPreflightDeviceInventorySchema.parse(
+          await this.inspectDevices({
+            ...deviceTarget,
+            includeInstrumentTree: true,
+          }),
+        );
+      if (includeInstrumentTree && !before.instrumentTree)
+        throw new Error(
+          "MIDI rack preflight requires a complete instrument tree",
+        );
       const devices = [];
       for (const device of before.devices) {
         if (
@@ -6650,7 +6664,10 @@ export class HeadlessApplication {
         );
       }
       const after = sessionPreflightDeviceInventorySchema.parse(
-        await this.inspectDevices(deviceTarget),
+        await this.inspectDevices({
+          ...deviceTarget,
+          ...(includeInstrumentTree ? { includeInstrumentTree: true } : {}),
+        }),
       );
       const recording = await this.inspectRecording();
       return sessionListeningPreflightResultSchema.parse({

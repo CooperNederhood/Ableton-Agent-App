@@ -11,6 +11,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { gzipSync } from "node:zlib";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { resolveLiveAgentStorage } from "@ableton-agent/storage";
 import type { DriverContext } from "../../packages/test-support/src/integration/contracts.js";
 import {
   liveSetSnapshotSchema,
@@ -38,6 +39,10 @@ const mocks = vi.hoisted(() => ({
   provision: vi.fn(),
   project: vi.fn(),
   loading: vi.fn(),
+  bridgeOptions: vi.fn(),
+  bridgeStart: vi.fn(),
+  bridgeClose: vi.fn(),
+  bridgeSnapshot: vi.fn(),
   subscriber: vi.fn<(handler: (event: unknown) => void) => () => void>(),
 }));
 vi.mock("@playwright/test", () => ({ _electron: { launch: mocks.launch } }));
@@ -57,7 +62,17 @@ vi.mock("../../tests/electron/acceptance-loading.js", () => ({
 vi.mock("../../tests/electron/packaged-paths.js", () => ({
   packagedExecutable: async () => "/candidate/Contents/MacOS/Agent",
   packagedCandidateHash: async () => "0".repeat(64),
-  finderLikeEnvironment: () => ({}),
+  finderLikeEnvironment: (overrides: Record<string, string>) => overrides,
+}));
+vi.mock("../../tests/electron/acceptance-bridge-timing.js", () => ({
+  AcceptanceBridgeTimingProxy: class {
+    constructor(options: unknown) {
+      mocks.bridgeOptions(options);
+    }
+    start = mocks.bridgeStart;
+    close = mocks.bridgeClose;
+    snapshot = mocks.bridgeSnapshot;
+  },
 }));
 vi.mock("../../tests/electron/packaged-cleanup.js", () => ({
   closeOwnedPackagedApplication: mocks.stop,
@@ -143,6 +158,8 @@ const application = {
 
 beforeEach(async () => {
   vi.resetAllMocks();
+  mocks.bridgeStart.mockResolvedValue(54321);
+  mocks.bridgeSnapshot.mockReturnValue({ records: [] });
   vi.stubGlobal("window", { desktop: api });
   directory = await realpath(
     await mkdtemp(join(tmpdir(), "acceptance-adapter-")),
@@ -707,6 +724,42 @@ async function midiBaseline() {
 }
 
 describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
+  it("reviews owned MIDI evidence without invented expected hashes or a user-message submission", async () => {
+    const { preflight, expected } = await midiBaseline();
+    const source = context.fixture.sources![0]!;
+    if (!("midi" in source)) throw new Error("Expected MIDI definition");
+    const review = {
+      id: source.id,
+      trackName: source.trackName,
+      clipName: source.clipName,
+      sceneIndex: source.sceneIndex,
+      trackIndex: source.trackIndex,
+      listenerBindingSlot: source.listenerBindingSlot,
+    };
+    const assets = { ...context.fixture };
+    delete assets.sources;
+    context = {
+      ...context,
+      scenario: { ...context.scenario, requiredCapabilities: ["automation"] },
+      fixture: { ...assets, baseline: {} },
+    };
+    await driver.launch(context);
+    await driver.ready(context);
+    const observed = await driver.reviewMidiSources(context, [review]);
+    expect(observed.sources?.midi?.source).toMatchObject(expected);
+    expect(observed.sources?.midi?.facts.currentSongTime).toBe(5.5);
+    expect(mocks.send).not.toHaveBeenCalled();
+    await expect(driver.reviewMidiSources(context, [])).rejects.toThrow(
+      "distinct sources",
+    );
+    preflight.source.after.transportPlaying = true;
+    await expect(driver.reviewMidiSources(context, [review])).rejects.toThrow(
+      "stoppedPosition",
+    );
+    await driver.cleanup(context);
+    expect(mocks.stop).toHaveBeenCalled();
+    expect(mocks.liveStop).toHaveBeenCalled();
+  });
   it("admits a source with omitted common kind and quantization facts and an explicit stopped playing count", async () => {
     const { preflight } = await midiBaseline();
     preflight.source.settings.launchQuantization = 5;
@@ -1259,6 +1312,82 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
     );
     await driver.cleanup(context);
   });
+  it("paces only an explicitly selected owned bridge and retains diagnostic provenance", async () => {
+    driver = new PackagedAcceptanceDriver({
+      runDirectory: directory,
+      bridgeReadMinimumMs: 550,
+    });
+    await driver.launch(context);
+    expect(mocks.bridgeOptions).toHaveBeenCalledWith({ minimumReadMs: 550 });
+    expect(mocks.liveReady.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.bridgeStart.mock.invocationCallOrder[0]!,
+    );
+    expect(mocks.bridgeStart.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.launch.mock.invocationCallOrder[0]!,
+    );
+    const storage = resolveLiveAgentStorage({
+      environment: {
+        LIVE_AGENT_HOME: join(directory, "profile/live-agent"),
+        LIVE_AGENT_PROFILE: "automation",
+      },
+    });
+    const preferences: unknown = JSON.parse(
+      await readFile(storage.preferencesPath, "utf8"),
+    );
+    expect(preferences).toMatchObject({ abletonPort: 54321 });
+    await driver.cleanup(context);
+    expect(mocks.bridgeClose).toHaveBeenCalledOnce();
+    const receipt: unknown = JSON.parse(
+      await readFile(join(directory, "product-evidence.json"), "utf8"),
+    );
+    expect(receipt).toMatchObject({
+      provenance: {
+        bridgeReadMinimumMs: 550,
+        bridgeTimingMode: "read-response-minimum",
+      },
+      bridgeTiming: { records: [] },
+    });
+  });
+  it("rejects an unused timing proxy before submitting the user message", async () => {
+    driver = new PackagedAcceptanceDriver({
+      runDirectory: directory,
+      bridgeReadMinimumMs: 550,
+    });
+    await driver.launch(context);
+    await expect(
+      driver.submit(
+        {
+          id: "turn",
+          message: "listen to clip-1",
+          timeoutMs: 1000,
+          assertions: [],
+        },
+        context,
+      ),
+    ).rejects.toThrow("no completed paced read");
+    expect(mocks.send).not.toHaveBeenCalled();
+    await driver.cleanup(context);
+  });
+  it("fails closed on timing-proxy errors while still closing both owned applications", async () => {
+    driver = new PackagedAcceptanceDriver({
+      runDirectory: directory,
+      bridgeReadMinimumMs: 550,
+    });
+    await driver.launch(context);
+    mocks.bridgeSnapshot.mockReturnValue({
+      failure: "bounded queue exceeded",
+      records: [],
+    });
+    await expect(driver.readBaseline(context)).rejects.toThrow(
+      "Bridge timing diagnostic failed",
+    );
+    await expect(driver.cleanup(context)).rejects.toThrow(
+      "Acceptance cleanup failed",
+    );
+    expect(mocks.bridgeClose).toHaveBeenCalled();
+    expect(mocks.stop).toHaveBeenCalled();
+    expect(mocks.liveStop).toHaveBeenCalled();
+  });
   it("does not launch Desktop when the owned Remote Script never becomes ready", async () => {
     mocks.liveReady.mockRejectedValue(new Error("bridge readiness timeout"));
     await expect(driver.launch(context)).rejects.toThrow("bridge readiness");
@@ -1726,6 +1855,49 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
       await driver.ready(context);
       await expect(driver.readBaseline(context)).rejects.toThrow();
       expect(mocks.send).not.toHaveBeenCalled();
+      await driver.cleanup(context);
+    },
+  );
+  it.each(["valid", "changed", "missing"] as const)(
+    "checks declared Core Library bytes before provisioning or launch: %s",
+    async (state) => {
+      const live = join(directory, "Live.app");
+      const path = "Samples/kick.wav";
+      const data = Buffer.from("licensed test sample");
+      const declared = [
+        {
+          path,
+          bytes: data.length,
+          sha256: createHash("sha256").update(data).digest("hex"),
+        },
+      ];
+      const samples = join(live, "Contents/App-Resources/Core Library/Samples");
+      await mkdir(samples, { recursive: true });
+      if (state !== "missing")
+        await writeFile(
+          join(samples, "kick.wav"),
+          state === "valid" ? data : Buffer.alloc(data.length),
+        );
+      context = {
+        ...context,
+        fixture: { ...context.fixture, coreLibraryResources: declared },
+      };
+      driver = new PackagedAcceptanceDriver({
+        runDirectory: directory,
+        liveApplicationPath: live,
+      });
+      if (state === "valid") {
+        await driver.provision(context);
+        expect(mocks.project.mock.calls[0]?.[4]).toEqual(declared);
+        expect(mocks.provision).toHaveBeenCalledOnce();
+      } else {
+        await expect(driver.provision(context)).rejects.toThrow(
+          state === "changed" ? "hash mismatch" : "ENOENT",
+        );
+        expect(mocks.provision).not.toHaveBeenCalled();
+      }
+      expect(mocks.launch).not.toHaveBeenCalled();
+      expect(mocks.liveLaunch).not.toHaveBeenCalled();
       await driver.cleanup(context);
     },
   );

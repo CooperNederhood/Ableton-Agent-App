@@ -5200,6 +5200,9 @@ class ServerTests(unittest.TestCase):
     def test_rejects_protocol_seven_before_session_covered_semantics(self):
         self.assert_unsupported_version(7)
 
+    def test_rejects_protocol_eight_before_recursive_instrument_inspection(self):
+        self.assert_unsupported_version(8)
+
     def assert_unsupported_version(self, version):
         response = self.exchange(
             request(

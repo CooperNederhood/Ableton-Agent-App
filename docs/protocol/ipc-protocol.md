@@ -522,6 +522,11 @@ Live 11 support and deliberate omissions.
 
 ## Compatibility rules
 
+Protocol 9 versions the extended `devices.inspect` recursive instrument
+inspection contract. Both application and Remote Script use the generated
+version constants and reject protocol-8 peers during handshake rather than
+assuming that an older peer can supply complete nested instrument evidence.
+
 - `system.hello` selects the highest version present in both the client's
   `supportedProtocolVersions` and the Remote Script's available versions. No
   overlap returns `protocol_version_unsupported` and the connection is not

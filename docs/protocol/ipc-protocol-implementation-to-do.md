@@ -24,6 +24,9 @@ Companion specification: [IPC Protocol](ipc-protocol.md)
 
 ## Schema design
 
+- [x] Negotiate protocol 9 for recursive `devices.inspect` instrument evidence;
+  regenerate shared TypeScript/Python constants and wire fixtures, reject a
+  protocol-8 handshake, and verify compatibility against the main-branch contract.
 - [x] Negotiate protocol 8 for the Session pass `covered` output enum; regenerate
   canonical TypeScript/Python version constants and contracts, and explicitly
   reject a protocol-7 handshake. Resolve optional tool duration before wire

@@ -57,6 +57,7 @@ import type {
 } from "../../apps/desktop/src/contracts.js";
 import { writeScenarioReceipt } from "../../scripts/lib/scenario-receipts.mjs";
 import { LiveProcessController } from "../../scripts/lib/live-process-controller.mjs";
+import type { LiveHostLease } from "../../scripts/lib/live-host-lease.mjs";
 import { waitForRunnerOwnedLiveReady } from "../../scripts/lib/live-ux-host.mjs";
 import { closeOwnedPackagedApplication } from "./packaged-cleanup.js";
 import {
@@ -157,6 +158,7 @@ export interface PackagedAcceptanceOptions {
   readonly executablePath?: string;
   readonly liveApplicationPath?: string;
   readonly bridgeReadMinimumMs?: number;
+  readonly hostLease?: LiveHostLease;
 }
 
 export type MidiSourceReview = Omit<
@@ -173,7 +175,7 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
     "session-midi",
     "persistence",
   ] as const;
-  readonly #live = new LiveProcessController();
+  readonly #live: LiveProcessController;
   readonly #events = new AcceptanceEvents();
   readonly #submissions = new Map<
     string,
@@ -220,6 +222,9 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
   #bridgePort: number | undefined;
 
   constructor(private readonly options: PackagedAcceptanceOptions) {
+    this.#live = new LiveProcessController(
+      options.hostLease ? { hostLease: options.hostLease } : {},
+    );
     if (options.bridgeReadMinimumMs !== undefined)
       this.#bridgeTiming = new AcceptanceBridgeTimingProxy({
         minimumReadMs: options.bridgeReadMinimumMs,
@@ -467,7 +472,10 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
       this.options.liveApplicationPath ??
         "/Applications/Ableton Live 11 Suite.app",
       30_000,
-      { fixturePath: required(this.#preparedProject, "prepared project") },
+      {
+        fixturePath: required(this.#preparedProject, "prepared project"),
+        signal: context.signal,
+      },
     );
     context.signal.throwIfAborted();
     await waitForRunnerOwnedLiveReady(this.#live, {
@@ -1855,6 +1863,8 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
         join(this.options.runDirectory, "product-evidence.json"),
         {
           schema: "acceptance-product-evidence/v1",
+          runId: context.runId,
+          scenarioId: context.scenario.id,
           traceId: context.traceId,
           provenance: this.#provenance,
           dependencyHashes: this.#dependencies,
@@ -1884,6 +1894,12 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
         liveStopped = false;
         failures.push(error);
       }
+    }
+    try {
+      await this.#live.close();
+    } catch (error) {
+      liveStopped = false;
+      failures.push(error);
     }
     if (!this.#application && liveStopped && this.#profile) {
       try {

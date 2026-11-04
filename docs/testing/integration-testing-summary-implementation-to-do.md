@@ -1,5 +1,12 @@
 # Integration Testing Summary Implementation To-Do
 
+## Local suite qualification (#82)
+
+- [x] Reuse the packaged acceptance coordinator for registry-wide sequential
+      execution with a single attempt per case and bounded aggregate evidence.
+- [x] Connect exact-candidate offline verification to the local release
+      checklist without claiming hosted CI runs Ableton.
+
 The [summary](integration-testing-summary.md) is a human-facing reference, not a
 separate implementation specification. Runtime and test-infrastructure work
 remains in the [test-strategy checklist](test-strategy-implementation-to-do.md).

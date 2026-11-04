@@ -84,6 +84,28 @@ export interface ResolveLiveAgentStorageOptions {
   readonly development?: boolean;
 }
 
+export interface LiveHostAutomationStorage {
+  readonly directory: string;
+  readonly leaseDirectory: string;
+}
+
+/** Host coordination deliberately ignores per-run root and profile overrides. */
+export function resolveLiveHostAutomationStorage({
+  homeDirectory = homedir(),
+}: { readonly homeDirectory?: string } = {}): LiveHostAutomationStorage {
+  if (!isAbsolute(homeDirectory)) {
+    throw new Error("Host automation home directory must be absolute");
+  }
+  const directory = join(
+    resolve(homeDirectory),
+    ".live-agent",
+    "profiles",
+    "automation",
+    "host",
+  );
+  return { directory, leaseDirectory: join(directory, "live-host.lease") };
+}
+
 export interface AppSessionStoragePaths {
   readonly sessionDirectory: string;
   readonly contextDirectory: string;

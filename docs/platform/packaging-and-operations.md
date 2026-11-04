@@ -51,6 +51,53 @@ installation. The installer deliberately uses the validated host `dir` path.
 
 ## Distribution
 
+### Local real-Live release check
+
+Hosted CI and packaging do not run licensed Ableton. A successful build artifact
+is not evidence of completed musical workflows. Before describing a candidate
+as qualified, use the local packaged acceptance suite:
+
+1. Use a clean committed checkout, the repository's Node/pnpm versions and
+   `pnpm install --frozen-lockfile`. Run the ordinary production checks.
+2. Build one host-architecture candidate with `pnpm build`,
+   `node scripts/build-ableton-integrations.mjs`, and
+   `pnpm --filter @ableton-agent/desktop dist --mac --dir --arm64` on the current
+   Apple Silicon host. Use the matching architecture on another supported host.
+   This unpacked development candidate does not establish signing/notarization.
+3. Provision a licensed dedicated single-operator Mac with Live 11 and Max for
+   Live. Record the actual full version; a different Live 11 patch is not by
+   itself a reason to downgrade. Install/select the matching Remote Script
+   through the existing integration setup. Establish real bridge authentication
+   and Copilot access through supported credential sources before testing.
+   Never copy tokens into fixtures, command-line arguments or evidence.
+4. Obtain fixtures from the same checkout's tracked `integration/fixtures/`
+   assets, not private ignored input files. Run
+   `pnpm test:acceptance:validate`. The driver checks declared Builtin/Core
+   Library resources in the licensed installation against manifest hashes;
+   acquire missing licensed resources through the normal Live installation,
+   never substitute media or redistribute those libraries.
+5. Close normal Live yourself. Invoke `pnpm live:acceptance:suite` with the
+   exact packaged executable (and `--live-app` when needed). This explicitly
+   authorizes the documented owned test launches, not broad approvals or
+   dismissal of credential prompts. All registered cases execute once.
+6. Run `pnpm live:acceptance:verify --receipt <suite.json> --executable
+   <same-executable>` before marking this candidate qualified. Preserve the
+   receipt location, candidate hash and uncovered scope in the release/merge
+   checklist. Changed source, package bytes or test registration require new
+   qualification; an earlier candidate's green result is not transferable.
+
+Missing auth, assets or licensed resources are setup blockers, not product
+passes. Product failures are retained separately. Failed cleanup, missing
+terminal evidence or persistence errors cannot be green. If the host lease is
+left blocked after uncertain cleanup, inspect its owner and recorded processes;
+never remove it just because it is old or kill a user's process.
+
+An explicit human release exception must record the decision owner, exact
+candidate, failed/unrun scope, reason and follow-up on the release or PR.
+An exception is not a successful suite, does not rewrite evidence and cannot
+make the local verifier pass. Do not upload private History, credentials, project
+payloads or raw journals to satisfy the checklist.
+
 Ship a signed desktop application for macOS and Windows. The installer should:
 
 - Install the desktop app.

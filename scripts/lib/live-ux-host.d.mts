@@ -8,5 +8,6 @@ export function waitForRunnerOwnedLiveReady(
     host?: string;
     port?: number;
     timeoutMs?: number;
+    signal?: AbortSignal;
   },
 ): Promise<{ dismissedDialogs: string[] }>;

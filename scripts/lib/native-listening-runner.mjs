@@ -643,6 +643,7 @@ export async function runNativeScenarioGroup({
   controller,
   applicationPath,
   createRunner,
+  signal,
   onCheckpoint = async () => {},
   onResult = async () => {},
 }) {
@@ -663,7 +664,6 @@ export async function runNativeScenarioGroup({
       controller.publicRecord() === undefined,
       "Previous native process is still owned",
     );
-    await controller.assertNoPreExistingLive();
     const scenarioRunId = randomUUID();
     let runner;
     let result;
@@ -686,10 +686,13 @@ export async function runNativeScenarioGroup({
             });
     };
     try {
+      signal?.throwIfAborted();
+      await controller.assertNoPreExistingLive();
       runner = await createRunner(manifest, scenarioRunId);
       await runner.stage("process-launch", () =>
         controller.launch(applicationPath, 90000, {
           fixturePath: runner.fixture.setPath,
+          ...(signal === undefined ? {} : { signal }),
         }),
       );
       liveProcess = controller.publicRecord();
@@ -741,9 +744,24 @@ export async function runNativeScenarioGroup({
       } catch (error) {
         retainFailure(error, "process-shutdown");
       }
+      let processStopped = false;
+      try {
+        let closeAttempted = false;
+        try {
+          await runner?.stage("host-lease-release", () => {
+            closeAttempted = true;
+            return controller.close();
+          });
+        } finally {
+          if (!closeAttempted) await controller.close();
+        }
+        processStopped = controller.publicRecord() === undefined;
+      } catch (error) {
+        retainFailure(error, "host-lease-release");
+      }
       try {
         await runner?.close({
-          processStopped: controller.publicRecord() === undefined,
+          processStopped,
         });
       } catch (error) {
         retainFailure(error, "runner-close");
@@ -757,7 +775,9 @@ export async function runNativeScenarioGroup({
           ? "cancelled"
           : "fail");
     const cleanupErrors = errors.filter((error) =>
-      ["process-shutdown", "runner-close"].includes(error.phase),
+      ["process-shutdown", "host-lease-release", "runner-close"].includes(
+        error.phase,
+      ),
     );
     const persistenceError = errors.find(
       (error) => error.phase === "checkpoint-persistence",

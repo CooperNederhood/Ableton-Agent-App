@@ -1,9 +1,11 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { LiveProcessController } from "./live-process-controller.mjs";
+import { acquireLiveHostLease } from "./live-host-lease.mjs";
+import { resolveLiveHostAutomationStorage } from "../../packages/storage/dist/index.js";
+import { LiveProcessController as ProductionLiveProcessController } from "./live-process-controller.mjs";
 
 const owned = {
   pid: 4242,
@@ -11,6 +13,19 @@ const owned = {
   command: "/Applications/Ableton Live 11 Suite.app/Contents/MacOS/Live",
 };
 const roots = [];
+class LiveProcessController extends ProductionLiveProcessController {
+  constructor(options) {
+    const homeDirectory = resolve(
+      ".test-artifacts",
+      `controller-unit-${randomUUID()}`,
+    );
+    roots.push(homeDirectory);
+    super({
+      acquireHostLease: () => acquireLiveHostLease({ homeDirectory }),
+      ...options,
+    });
+  }
+}
 afterEach(async () => {
   await Promise.all(
     roots.splice(0).map((root) => rm(root, { recursive: true, force: true })),
@@ -18,6 +33,163 @@ afterEach(async () => {
 });
 
 describe("LiveProcessController", () => {
+  it("holds one suite lease across sequential controllers and rejects overlapping controllers", async () => {
+    const homeDirectory = resolve(
+      ".test-artifacts",
+      `suite-lease-${randomUUID()}`,
+    );
+    roots.push(homeDirectory);
+    const hostLease = await acquireLiveHostLease({ homeDirectory });
+    const first = new LiveProcessController({
+      hostLease,
+      listProcesses: async () => [],
+    });
+    const second = new LiveProcessController({
+      hostLease,
+      listProcesses: async () => [],
+    });
+    await first.assertNoPreExistingLive();
+    await expect(second.assertNoPreExistingLive()).rejects.toThrow(
+      "active controller",
+    );
+    await expect(hostLease.release()).rejects.toThrow("still reserved");
+    await first.close();
+    await expect(acquireLiveHostLease({ homeDirectory })).rejects.toThrow(
+      "already held",
+    );
+    await second.assertNoPreExistingLive();
+    await second.close();
+    await hostLease.release();
+  });
+
+  it("closes the parallel-runner preflight-to-launch gap", async () => {
+    const homeDirectory = resolve(
+      ".test-artifacts",
+      `parallel-lease-${randomUUID()}`,
+    );
+    roots.push(homeDirectory);
+    const acquireHostLease = () => acquireLiveHostLease({ homeDirectory });
+    const first = new LiveProcessController({
+      acquireHostLease,
+      listProcesses: async () => [],
+    });
+    const inspect = vi.fn(async () => []);
+    const second = new LiveProcessController({
+      acquireHostLease,
+      listProcesses: inspect,
+    });
+    await first.assertNoPreExistingLive();
+    await expect(second.assertNoPreExistingLive()).rejects.toThrow(
+      "already held",
+    );
+    expect(inspect).not.toHaveBeenCalled();
+    await first.close();
+    await second.assertNoPreExistingLive();
+    await second.close();
+  });
+
+  it("rechecks pre-existing processes immediately before requesting launch", async () => {
+    const lists = [[], [owned]];
+    const requestLaunch = vi.fn();
+    const controller = new LiveProcessController({
+      listProcesses: async () => lists.shift() ?? [],
+      requestLaunch,
+    });
+    await expect(
+      controller.launch("/Applications/Ableton Live 11 Suite.app"),
+    ).rejects.toThrow("already running");
+    expect(requestLaunch).not.toHaveBeenCalled();
+    await expect(controller.close()).resolves.toBeUndefined();
+  });
+
+  it("releases cancelled prelaunch reservations but retains cancellation after launch request", async () => {
+    const homeDirectory = resolve(
+      ".test-artifacts",
+      `cancel-lease-${randomUUID()}`,
+    );
+    roots.push(homeDirectory);
+    const acquireHostLease = () => acquireLiveHostLease({ homeDirectory });
+    const before = new globalThis.AbortController();
+    const controller = new LiveProcessController({
+      acquireHostLease,
+      listProcesses: async () => [],
+    });
+    await controller.assertNoPreExistingLive();
+    before.abort();
+    await expect(
+      controller.launch("unused", 1000, { signal: before.signal }),
+    ).rejects.toThrow();
+    const after = new globalThis.AbortController();
+    const next = new LiveProcessController({
+      acquireHostLease,
+      listProcesses: async () => [],
+      requestLaunch: async () => after.abort(),
+    });
+    await expect(
+      next.launch("unused", 1000, { signal: after.signal }),
+    ).rejects.toThrow();
+    await expect(next.close()).rejects.toThrow("uncertain");
+    await expect(acquireHostLease()).rejects.toThrow("already held");
+  });
+
+  it("releases a standalone lease only after confirmed process exit", async () => {
+    const homeDirectory = resolve(
+      ".test-artifacts",
+      `stop-lease-${randomUUID()}`,
+    );
+    roots.push(homeDirectory);
+    const acquireHostLease = () => acquireLiveHostLease({ homeDirectory });
+    const lists = [[], [], [owned], [owned]];
+    let exited = false;
+    const controller = new LiveProcessController({
+      acquireHostLease,
+      listProcesses: async () => lists.shift() ?? [owned],
+      requestLaunch: async () => undefined,
+      requestQuit: async () => undefined,
+      kill: () => {
+        if (exited) throw Object.assign(new Error("gone"), { code: "ESRCH" });
+        return true;
+      },
+    });
+    await controller.launch("/Applications/Ableton Live 11 Suite.app");
+    await expect(controller.gracefulStop(0)).rejects.toThrow(
+      "manual intervention",
+    );
+    await expect(acquireHostLease()).rejects.toThrow("already held");
+    exited = true;
+    await controller.gracefulStop(0);
+    const next = await acquireHostLease();
+    await next.release();
+  });
+
+  it("refuses process control after its host lease is replaced", async () => {
+    const homeDirectory = resolve(
+      ".test-artifacts",
+      `foreign-lease-${randomUUID()}`,
+    );
+    roots.push(homeDirectory);
+    const hostLease = await acquireLiveHostLease({ homeDirectory });
+    const lists = [[], [], [owned]];
+    const requestQuit = vi.fn();
+    const kill = vi.fn();
+    const controller = new LiveProcessController({
+      hostLease,
+      listProcesses: async () => lists.shift() ?? [owned],
+      requestLaunch: async () => undefined,
+      requestQuit,
+      kill,
+    });
+    await controller.launch("/Applications/Ableton Live 11 Suite.app");
+    const { leaseDirectory } = resolveLiveHostAutomationStorage({
+      homeDirectory,
+    });
+    await rename(leaseDirectory, `${leaseDirectory}.old`);
+    await mkdir(leaseDirectory);
+    await expect(controller.discardAfterFailure(0)).rejects.toThrow();
+    expect(requestQuit).not.toHaveBeenCalled();
+    expect(kill).not.toHaveBeenCalled();
+    await expect(hostLease.release()).rejects.toThrow("reserved");
+  });
   it("opens only a bounded copied Set during a fresh exact-PID startup", async () => {
     const root = resolve(".test-artifacts", `startup-unit-${randomUUID()}`);
     roots.push(root);

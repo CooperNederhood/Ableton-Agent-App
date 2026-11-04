@@ -4,6 +4,17 @@ Companion specification: [Local Storage Layout](local-storage.md)
 
 ## Canonical layout
 
+- [x] Reserve resolver-owned `profiles/automation/host/live-host.lease/` under
+  the canonical operator home, independent of per-run root/profile overrides
+  and worktrees. Admit one owner atomically, persist bounded PID/start/hashed
+  command identity and a random token with private permissions, share only an
+  internal suite capability, and retain uncertain/interrupted ownership.
+  Regress concurrent roots, replaced/foreign/stale records, cancellation,
+  identity validation, and owned-only release without age-based reclamation.
+  Close standalone/native preflight reservations on safe setup failures; retain
+  fixture staging as well as ownership when an unrecorded launch is uncertain,
+  and propagate cancellation through UX startup/readiness and native launches.
+
 - [x] Embed shared-resolver producer discovery paths (not credential bodies) in
   the installed frozen listener; keep both the AMXD and standalone configuration
   owner-only. Preserve existing deployed-host ownership and journal locations;

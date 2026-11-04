@@ -83,6 +83,50 @@ production candidate, not an old binary hidden in the fixture.
 
 ## Common command workflow
 
+### Run every registered packaged test locally
+
+After building one candidate and closing your normal Live process:
+
+```bash
+pnpm live:acceptance:suite --executable "/absolute/path/Ableton Agent.app/Contents/MacOS/Ableton Agent"
+pnpm live:acceptance:verify --receipt "/absolute/path/suite.json" \
+  --executable "/absolute/path/Ableton Agent.app/Contents/MacOS/Ableton Agent"
+```
+
+The suite discovers **all** IDs in `integration/acceptance-scenarios/suite.json`
+in registry order and executes each once. New registrations join automatically;
+templates, unregistered files and the separate runtime smoke catalog do not.
+There are no automatic retries or suite repetitions. Scenario-internal captures,
+conversation continuity and owned restarts retain their reviewed contracts.
+Individual `live:acceptance --scenario` runs remain useful diagnostics but do
+not qualify the whole suite.
+
+The command is explicit operator approval for dedicated test-owned launches,
+not permission to attach to a user's running Live or accept OS authentication.
+A shared local host lease prevents overlapping runners across worktrees and
+isolated profiles. Each case gets fresh owned apps, profile and project.
+Ordinary failures remain recorded and later cases run only after safe cleanup.
+Cancellation, uncertain ownership, changed inputs, failed cleanup or failed
+evidence persistence stops execution; remaining and unknown work is visible.
+
+The aggregate `suite.json` under `.test-artifacts/acceptance/suite-*/` identifies
+the selected cases, every attempt, assertions, first failure, candidate/source/
+fixture hashes, actual Live versions and terminal cleanup. Case receipts and
+product evidence remain beside it. A checkpoint is not a final verdict.
+Product evidence carries the individual case run ID and scenario ID as well as
+the shared suite trace; another case on that trace cannot substitute for it.
+Cancellation during terminal persistence revokes provisional success rather
+than leaving a passing receipt. Unknown acquisition/cleanup remains distinct
+from cases known not to have run.
+The verifier rejects changed candidates, changed registrations/fixtures,
+incomplete cases and mismatched terminal evidence. A clean committed checkout
+is required for qualification. A red or blocked suite is not retried until green;
+preserve it and explicitly agree on any subsequent real-host investigation.
+
+See [Packaging and Operations](../platform/packaging-and-operations.md#local-real-live-release-check)
+for clean-checkout prerequisites and the release checklist. This local lane is
+not run by ordinary hosted CI.
+
 The catalog/CLI implementation and
 [packaged Desktop adapter](../../tests/electron/acceptance-driver.ts) exist.
 The reviewed `session-clip-identify` and `session-listening-continuity` scenarios

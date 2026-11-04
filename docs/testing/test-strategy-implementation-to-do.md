@@ -1,5 +1,16 @@
 # Test Strategy Implementation To-Do
 
+## Local suite qualification (#82)
+
+- [x] Cover discovery, one-attempt execution, blocked/unrun cases, cancellation,
+      safe continuation and ambiguous ownership with deterministic regressions.
+- [x] Reject stale candidate/catalog evidence, malformed terminal receipts,
+      missing assertions, failed cleanup and failed persistence.
+- [x] Validate lifecycle timing, trace attribution, bounded redaction and host
+      serialization; keep hosted CI free of licensed Live launches.
+- [ ] Record one complete discovered real-host suite result without automatic
+      retries; product qualification remains separate from infrastructure checks.
+
 Companion specification: [Test Strategy](test-strategy.md)
 
 ## Test infrastructure

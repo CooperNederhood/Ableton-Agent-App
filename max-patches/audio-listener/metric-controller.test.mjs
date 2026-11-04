@@ -26,6 +26,7 @@ const GENERATION = "11111111-1111-4111-8111-111111111111";
 async function controllerHarness({
   suppressDetector = false,
   suppressCleanup = false,
+  beforeCleanup,
   terminalThrow = false,
   onEvent,
   asyncControlResult,
@@ -228,6 +229,7 @@ async function controllerHarness({
     : null;
   controller = createMetricController({
     codec,
+    ...(beforeCleanup ? { beforeCleanup } : {}),
     spectrumEnabled: runtimeHarness
       ? runtimeHarness.controllerOptions.spectrumEnabled
       : spectrumEnabled,
@@ -978,6 +980,26 @@ test("controller never publishes when a stop setter executes but its genuine cle
     h.controls.some((c) => c.selector === "release"),
     false,
   );
+  assert.equal(
+    h.results.filter((r) => ["completed", "partial"].includes(r.payload.status))
+      .length,
+    0,
+  );
+});
+
+test("unconfirmed flatness message-gate cleanup blocks otherwise healthy native publication", async () => {
+  let attempts = 0;
+  const h = await controllerHarness({
+    beforeCleanup: () => {
+      attempts++;
+      return false;
+    },
+  });
+  h.launch();
+  h.until(() => h.controller.snapshot().state === "failed");
+  assert.ok(attempts > 0);
+  assert.equal(h.controller.snapshot().reason, "metric_cleanup_unconfirmed");
+  assert.equal(h.controller.snapshot().cleanup, "failed");
   assert.equal(
     h.results.filter((r) => ["completed", "partial"].includes(r.payload.status))
       .length,

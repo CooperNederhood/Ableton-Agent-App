@@ -162,6 +162,35 @@ export interface CaptureEvidence {
   };
   readonly spectralCentroidHz?: number;
 }
+/** Diagnostic outlet snapshots only: delivery counts are not FFT frame support. */
+export interface FlatnessSmokeEvidence {
+  readonly traceId: string;
+  readonly correlationId: string;
+  readonly passId: string;
+  readonly listenerId: string;
+  readonly native: NonNullable<CaptureEvidence["native"]>;
+  readonly launchEventId: string;
+  readonly launchSequence: number;
+  readonly afterOwnedRestart: boolean;
+  readonly events: readonly {
+    readonly eventId: string;
+    readonly causationId: string;
+    readonly sequence: number;
+    readonly stage:
+      "queued" | "started" | "progress" | "completed" | "failed" | "cancelled";
+    readonly phase: "capture" | "drain";
+    readonly elapsedMs: number;
+    readonly durationMs: number;
+    readonly reason: string;
+    readonly facts: Readonly<
+      Record<
+        string,
+        | { readonly state: "observed"; readonly value: number | string }
+        | { readonly state: "unavailable"; readonly reason: "not-reported" }
+      >
+    >;
+  }[];
+}
 export interface ContextEvidence {
   readonly contextId: string;
   readonly passId: string;
@@ -206,6 +235,7 @@ export interface TurnEvidence extends Submission {
   readonly assistantText: string;
   readonly captures: readonly CaptureEvidence[];
   readonly contexts: readonly ContextEvidence[];
+  readonly flatnessSmoke?: readonly FlatnessSmokeEvidence[];
   readonly facts: Facts;
 }
 export interface RunEvidence {
@@ -215,6 +245,7 @@ export interface RunEvidence {
   readonly capturePassIds?: readonly string[];
   readonly facts: Facts;
   readonly contexts: readonly ContextEvidence[];
+  readonly flatnessSmoke?: readonly FlatnessSmokeEvidence[];
   readonly unchanged: readonly {
     readonly scope: string;
     readonly beforeSha256: string;

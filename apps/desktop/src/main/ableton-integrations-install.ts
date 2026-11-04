@@ -17,6 +17,10 @@ import {
   encodeAmxd,
   freezeAmxd,
   renderInstalledDevice,
+  assertDeviceResourceInventory,
+  FLUCOMA_DEPENDENCY_FILES,
+  isFlucomaDependencyResource,
+  readFlucomaDependencyFile,
   type IntegrationDevicePayload,
 } from "@ableton-agent/shared/m4l-devices";
 import type { LiveAgentStorageLayout } from "@ableton-agent/storage";
@@ -188,11 +192,13 @@ async function prepareDevice(
     raw: Buffer,
     resources: ReadonlyMap<string, Uint8Array>,
   ) => Promise<Buffer> = async (raw, resources) =>
-    freezeAmxd(raw, payload.deviceFile, resources),
+    freezeAmxd(raw, payload.deviceFile, resources, { deviceDirectory: target }),
 ): Promise<PreparedDevice> {
   const files = new Map<string, Uint8Array>();
   for (const file of payload.files) {
-    const bytes = await readFile(join(payload.sourceDirectory, file.name));
+    const bytes = isFlucomaDependencyResource(file.name)
+      ? await readFlucomaDependencyFile(payload.sourceDirectory, file.name)
+      : await readFile(join(payload.sourceDirectory, file.name));
     if (digest(bytes) !== file.sha256 || bytes.length !== file.bytes)
       throw new Error("Payload changed during validation");
     files.set(file.name, bytes);
@@ -328,21 +334,19 @@ async function ownedDevice(
   ) {
     throw new Error("Unmanaged device destination");
   }
-  const names = await readdir(path);
-  if (
-    names.some(
-      (name) =>
-        name !== metadataName && !Object.hasOwn(metadata.installedHashes, name),
-    ) ||
-    Object.keys(metadata.installedHashes).some(
-      (name) =>
-        !names.includes(name) || name.includes("/") || name.includes("\\"),
-    )
-  ) {
+  try {
+    await assertDeviceResourceInventory(path, [
+      metadataName,
+      ...Object.keys(metadata.installedHashes),
+    ]);
+  } catch {
     throw new Error("Device destination contains unrelated files");
   }
   for (const [name, hash] of Object.entries(metadata.installedHashes)) {
-    if (digest(await readFile(join(path, name))) !== hash)
+    const raw = isFlucomaDependencyResource(name)
+      ? await readFlucomaDependencyFile(path, name)
+      : await readFile(join(path, name));
+    if (digest(raw) !== hash)
       throw new Error("Device destination has modified files");
   }
   return metadata;
@@ -532,9 +536,15 @@ export async function installAbletonIntegrations(options: {
           (raw, resources) =>
             stage("freeze", component, async (progress) => {
               check();
-              const frozen = freezeAmxd(raw, payload.deviceFile, resources);
+              const frozen = freezeAmxd(raw, payload.deviceFile, resources, {
+                deviceDirectory: target,
+              });
+              const adjacentDependencyFiles = [...resources.keys()].filter(
+                isFlucomaDependencyResource,
+              ).length;
               progress({
-                embeddedFiles: resources.size + 1,
+                embeddedFiles: resources.size - adjacentDependencyFiles + 1,
+                ...(adjacentDependencyFiles ? { adjacentDependencyFiles } : {}),
                 bytes: frozen.length,
               });
               check();
@@ -711,8 +721,15 @@ export async function installAbletonIntegrations(options: {
           await mkdir(dirname(target), { recursive: true });
           await mkdir(staging, { mode: 0o700 });
           for (const [name, bytes] of item.files) {
+            const dependency = FLUCOMA_DEPENDENCY_FILES.find(
+              (file) => file.name === name,
+            );
+            if (dependency)
+              await mkdir(dirname(join(staging, name)), { recursive: true });
             await writeFile(join(staging, name), bytes, {
-              mode: profileConfiguredFile(component, name) ? 0o600 : 0o644,
+              mode: profileConfiguredFile(component, name)
+                ? 0o600
+                : (dependency?.mode ?? 0o644),
               flag: "wx",
             });
           }

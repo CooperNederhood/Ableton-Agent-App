@@ -2,6 +2,7 @@
   "schemaVersion": 1,
   "scenarios": [
     "session-clip-identify",
+    "session-flucoma-flatness-smoke",
     "session-listening-continuity",
     "session-stopped-quantized-audio",
     "session-stopped-quantized-midi",

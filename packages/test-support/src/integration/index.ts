@@ -5,3 +5,4 @@ export * from "./assertions.js";
 export * from "./staging.js";
 export * from "./coordinator.js";
 export * from "./sources.js";
+export * from "./flatness-smoke.js";

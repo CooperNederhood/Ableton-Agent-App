@@ -3,6 +3,7 @@ export {
   decodeAmxd,
   encodeAmxd,
   freezeAmxd,
+  bindFlucomaDependencyPaths,
   renderPortableDevice,
   renderInstalledDevice,
   publishResources,

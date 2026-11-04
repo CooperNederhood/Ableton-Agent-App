@@ -1,5 +1,37 @@
 # Playback Listening Implementation To-Do
 
+## F1 smoke-first milestone (#92)
+
+- [x] Add a passive stereo `fluid.spectralshape~` diagnostic branch and bounded
+  launch-owned message gate without replacing native measurement algorithms.
+- [x] Carry finite descriptor snapshots, explicitly unqualified support/validity,
+  per-channel delivery counts and owned cleanup through typed native History.
+  Flatness is not yet a registered frame-qualified observation/report metric.
+- [x] Add local no-output/malformed failure, cancellation, foreign/late packet,
+  progress-bound, causal lifecycle and gate-cleanup regressions.
+- [x] Enforce classic Max ES5 syntax and expose actual analyzer classes with an
+  explicit unresolved-external failure, distinct from absent callbacks.
+- [x] Normalize only positive roundoff up to `1e-9` dB at the theoretical
+  zero-dB bound; preserve rejection just beyond the threshold and all non-finite
+  guards. `run-7rXerC` preserves the pre-fix rejection of `7.62e-13` dB.
+- [x] Derive an absolute project-local FluCoMa bootpath from the final device
+  directory in Desktop, packaged acceptance and runtime fixture staging.
+  Preserve signed adjacent files and original-versus-derived provenance;
+  reject missing binding inputs and self-rehashed wrong-root artifacts.
+  Offline binding/freezer/installer/stager suites pass 314 tests; this does
+  not qualify actual Max object loading.
+- [x] Run the focused `session-flucoma-flatness-smoke` case using the unchanged
+  identification fixture. Terminal `run-fOkqoI` passes on Live 11.3.43 with
+  21 finite deliveries/channel, verified mapped binary, healthy native metrics,
+  owned-restart History/context checks and cleanup. All seven earlier failed
+  receipts remain preserved; this bounded rerun does not establish numerical
+  qualification or unrestricted reliability.
+- [ ] Review smoke evidence, then qualify independent frame identity, numerical
+  definition, same-window silence/floor validity and complete/partial budgets.
+- [ ] Finish authoritative trajectories, summaries, context/report/Desktop
+  detail and both Session/Arrangement exact-value qualification. Reconfirm the
+  deferred custom fixtures before authoring them; do not expand the smoke run.
+
 Companion specification: [Playback Listening](playback-listening.md).
 
 ## Drum Rack spectrum scheduling

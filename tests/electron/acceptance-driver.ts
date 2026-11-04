@@ -24,6 +24,7 @@ import type {
   SourceIdentity,
   BaselineEvidence,
   CaptureEvidence,
+  FlatnessSmokeEvidence,
   ContextEvidence,
   DriverContext,
   DependencyInventory,
@@ -46,6 +47,7 @@ import {
   midiContentIdentity,
   verifyStagedMedia,
   isFixtureMediaTarget,
+  projectFlatnessSmoke,
 } from "@ableton-agent/test-support/integration";
 import type { DesktopListeningJob } from "../../apps/desktop/src/listening-contracts.js";
 import type { DesktopContextDetail } from "../../apps/desktop/src/context-contracts.js";
@@ -66,6 +68,7 @@ import {
 } from "./packaged-paths.js";
 import { provisionPackagedDependencies } from "./acceptance-dependencies.js";
 import { verifyActiveFrozenCandidate } from "./acceptance-loading.js";
+import { verifyLoadedFlatnessBinary } from "./acceptance-flatness-loading.js";
 import {
   inspectAcceptanceProject,
   verifyInstalledLiveResources,
@@ -82,6 +85,7 @@ import {
 import {
   captureCleanupConfirmed,
   observedSessionSource,
+  restoreFlatnessSmoke,
 } from "./acceptance-evidence.js";
 import { ScopedApprovalPolicy } from "./acceptance-approvals.js";
 import { AcceptanceBridgeTimingProxy } from "./acceptance-bridge-timing.js";
@@ -214,6 +218,7 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
   #profile: string | undefined;
   #preservationPaths = new Set<string>();
   #traceEvents: TelemetryEventPage["items"] = [];
+  #flatnessSmoke = new Map<string, FlatnessSmokeEvidence>();
   #historyCollected = false;
   #provenance: Facts = {};
   readonly #bridgeTiming: AcceptanceBridgeTimingProxy | undefined;
@@ -696,6 +701,55 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
     return this.#readBaseline(context);
   }
 
+  async #verifyFlatnessBinary(
+    context: DriverContext,
+    phase: "baseline" | "capture-completed",
+  ): Promise<void> {
+    if (context.scenario.id !== "session-flucoma-flatness-smoke") return;
+    const started = performance.now();
+    this.#provenance = {
+      ...this.#provenance,
+      flatnessLoadedBinaryState: "started",
+      flatnessLoadedBinaryVerified: false,
+      flatnessLoadedBinaryPhase: phase,
+    };
+    try {
+      const activeNodePids = this.#provenance.activeNodePids;
+      if (typeof activeNodePids !== "string")
+        throw new Error("Missing independently verified owned Node identities");
+      const proof = await verifyLoadedFlatnessBinary({
+        live: required(this.#live.publicRecord(), "owned Live"),
+        activeNodePids,
+        workingDirectory: required(context.stagedFixture, "staged fixture")
+          .workingDirectory,
+        inventory: required(this.#candidateInventory, "candidate inventory"),
+        signal: context.signal,
+      });
+      this.#provenance = {
+        ...this.#provenance,
+        ...proof,
+        flatnessLoadedBinaryState: "completed",
+      };
+    } catch (error) {
+      this.#provenance = {
+        ...this.#provenance,
+        flatnessLoadedBinaryState:
+          context.signal.aborted ||
+          (error instanceof Error && error.name === "AbortError")
+            ? "cancelled"
+            : "failed",
+        flatnessLoadedBinaryError:
+          "owned-loader-proof-unavailable-or-mismatched",
+      };
+      throw error;
+    } finally {
+      this.#provenance = {
+        ...this.#provenance,
+        flatnessLoadedBinaryDurationMs: performance.now() - started,
+      };
+    }
+  }
+
   async reviewMidiSources(
     context: DriverContext,
     sources: readonly MidiSourceReview[],
@@ -744,6 +798,7 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
         })),
       };
     }
+    await this.#verifyFlatnessBinary(context, "baseline");
     if ((await this.#jobs(context)).length !== 0)
       throw new Error(
         "Fresh acceptance profile contains an unexpected listening pass",
@@ -1496,6 +1551,7 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
           continue;
         }
         const captures: CaptureEvidence[] = [];
+        const flatnessSmoke: FlatnessSmokeEvidence[] = [];
         const contexts: ContextEvidence[] = [];
         const trace = jobs.length
           ? await this.#readTrace(context, sdkTurnId)
@@ -1534,6 +1590,28 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
           if (!cleanupComplete) {
             await pause(context);
             continue turnLoop;
+          }
+          await this.#verifyFlatnessBinary(context, "capture-completed");
+          if (
+            context.scenario.steps.some((step) =>
+              step.assertions.some(
+                (assertion) => assertion.name === "flatness-smoke",
+              ),
+            )
+          ) {
+            const smoke = projectFlatnessSmoke(trace, {
+              ...sdkTrace,
+              passId: job.passId,
+              listenerId: observed.ownership.listenerId,
+              native: {
+                generation: observed.ownership.generation,
+                nativeEpoch: observed.ownership.nativeEpoch,
+                connectionId: observed.ownership.connectionId,
+                connectionEpoch: observed.ownership.connectionEpoch,
+              },
+            });
+            flatnessSmoke.push(smoke);
+            this.#flatnessSmoke.set(job.passId, smoke);
           }
           this.#contexts.set(persisted.contextId, persisted);
           this.#contextTraces.set(persisted.contextId, sdkTrace);
@@ -1590,6 +1668,7 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
                 : "failed",
           assistantText: completed.content,
           captures,
+          ...(flatnessSmoke.length ? { flatnessSmoke } : {}),
           contexts,
           facts: { sdkTurnId, ...(await this.#verifyWorld(context)) },
         };
@@ -1772,8 +1851,14 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
       );
     for (const job of await this.#jobs(context)) capturePassIds.add(job.passId);
     await this.#readTrace(context);
+    const flatnessSmoke = await restoreFlatnessSmoke(
+      [...this.#flatnessSmoke.values()],
+      afterRestart,
+      (traceId) => this.#readTrace(context, traceId),
+    );
     for (const traceId of new Set(this.#sdkTurns.values()))
-      await this.#readTrace(context, traceId);
+      if (!flatnessSmoke.some((entry) => entry.traceId === traceId))
+        await this.#readTrace(context, traceId);
     for (const traceId of this.#preflightTraces)
       await this.#readTrace(context, traceId);
     this.#historyCollected = true;
@@ -1783,6 +1868,7 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
       capturePassIds: [...capturePassIds],
       facts: { ...this.#provenance, persistedContexts: contexts.length },
       contexts,
+      ...(flatnessSmoke.length ? { flatnessSmoke } : {}),
       unchanged,
     };
   }

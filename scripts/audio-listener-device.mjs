@@ -5,6 +5,7 @@ import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { tsImport } from "tsx/esm/api";
 import {
+  bindFlucomaDependencyPaths,
   decodeAmxd,
   encodeAmxd,
   freezeAmxd,
@@ -29,6 +30,12 @@ import {
 } from "./lib/native-metric-protocol-bundle.mjs";
 import { createNativeRunnerLifecycle } from "./lib/native-listening-lifecycle.mjs";
 import { sanitizeTelemetryAttributes } from "../packages/observability/dist/sanitizer.js";
+import {
+  FLUCOMA_DEPENDENCY_RESOURCE_NAMES,
+  isFlucomaDependencyResource,
+  readFlucomaDependencyFile,
+  validateFlucomaDependency,
+} from "../packages/shared/dist/flucoma-dependency.js";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 export const SOURCE_DIRECTORY = join(root, "max-patches", "audio-listener");
@@ -47,6 +54,8 @@ export const SHARED_RESOURCES = [
 export const ALL_RESOURCES = [...LOCAL_RESOURCES, ...SHARED_RESOURCES];
 export const NATIVE_CANDIDATE_RESOURCES = [
   "audio_listener_native_v5_max.js",
+  "audio_listener_flatness_smoke.js",
+  "audio_listener_flatness_probe.js",
   "audio_listener_metric_runtime.js",
   "audio_listener_metric_controller.js",
   "audio_listener_metric_spectrum.js",
@@ -285,6 +294,8 @@ export async function checkSource() {
     JSON.stringify(manifest.resources) !== JSON.stringify(ALL_RESOURCES) ||
     JSON.stringify(manifest.nativeResources) !==
       JSON.stringify(NATIVE_CANDIDATE_RESOURCES) ||
+    JSON.stringify(manifest.dependencyResources) !==
+      JSON.stringify(FLUCOMA_DEPENDENCY_RESOURCE_NAMES) ||
     manifest.optionalProfileConfiguration !== PROFILE_CONFIGURATION ||
     manifest.realLiveValidated !== false ||
     manifest.nativeVersion !== 5 ||
@@ -295,6 +306,7 @@ export async function checkSource() {
   ) {
     throw new Error("canonical resource manifest mismatch");
   }
+  await validateFlucomaDependency(SOURCE_DIRECTORY);
   const documents = sourceDocuments();
   for (const [name, value] of Object.entries(documents)) {
     validateDocument(value);
@@ -408,7 +420,15 @@ async function buildPackage(outDirectory, options = {}) {
   const destination = resolve(outDirectory);
   if (destination === SOURCE_DIRECTORY)
     throw new Error("build must not overwrite canonical sources");
-  await checkSource();
+  await publicationOptions.stage(
+    "flucoma-dependency-check",
+    async () => {
+      checkPackageCancellation(publicationOptions.signal);
+      await checkSource();
+      checkPackageCancellation(publicationOptions.signal);
+    },
+    { dependency: "flucoma-spectralshape", version: "1.0.10" },
+  );
   const rawTemplate = await readFile(
     join(SOURCE_DIRECTORY, "audio-effect-template.amxd"),
   );
@@ -477,6 +497,17 @@ async function buildPackage(outDirectory, options = {}) {
       sha256: hash(raw),
       bytes: raw.length,
       scope: "audio",
+    });
+  }
+  for (const name of FLUCOMA_DEPENDENCY_RESOURCE_NAMES) {
+    checkPackageCancellation(publicationOptions.signal);
+    const raw = await readFlucomaDependencyFile(SOURCE_DIRECTORY, name);
+    publication.push({ fileName: name, source: join(SOURCE_DIRECTORY, name) });
+    resources.push({
+      name,
+      sha256: hash(raw),
+      bytes: raw.length,
+      scope: "dependency",
     });
   }
   await publishResources({
@@ -600,6 +631,7 @@ export async function checkArtifact(directory) {
   const expectedResources = [
     ...ALL_RESOURCES,
     ...native.resources,
+    ...FLUCOMA_DEPENDENCY_RESOURCE_NAMES,
     ...(manifest.discoveryConfigured === true ? [PROFILE_CONFIGURATION] : []),
   ];
   const validPackagingFlags =
@@ -662,16 +694,30 @@ export async function checkArtifact(directory) {
   const { document } = container;
   if (hash(device) !== manifest.deviceSha256)
     throw new Error("device hash mismatch");
-  validateAuthoredDocument(document, {
-    keepMcpBridge: manifest.externalAuthoringBridge,
-  });
   const expectedDocument = appendNativeRuntimeGraph(
     prepareAuthoredDevice(generatedListeningParent()),
     { runtimeEntry: native.runtimeEntry, nativeVersion: 5 },
   );
+  validateAuthoredDocument(expectedDocument, {
+    keepMcpBridge: manifest.externalAuthoringBridge,
+  });
+  let expectedUnfrozen = expectedDocument;
+  if (Object.hasOwn(manifest, "dependencyBinding")) {
+    if (
+      manifest.dependencyBinding?.schema !== "flucoma-device-path-binding/v1" ||
+      Object.keys(manifest.dependencyBinding).sort().join(",") !==
+        "schema,sourceDeviceSha256" ||
+      manifest.dependencyBinding.sourceDeviceSha256 !==
+        hash(encodeAmxd(container, expectedDocument))
+    )
+      throw new Error("invalid dependency path binding provenance");
+    expectedUnfrozen = bindFlucomaDependencyPaths(expectedDocument, {
+      deviceDirectory: resolve(directory),
+    });
+  }
   if (
     !container.frozenFiles &&
-    JSON.stringify(document) !== JSON.stringify(expectedDocument)
+    JSON.stringify(document) !== JSON.stringify(expectedUnfrozen)
   )
     throw new Error("generated listening graph mismatch");
   if (manifest.nativeMode === true) {
@@ -694,9 +740,13 @@ export async function checkArtifact(directory) {
   }
   validatePassThrough(document);
   const resources = new Map();
+  await validateFlucomaDependency(directory);
   for (const { name, sha256, bytes } of manifest.resources) {
-    if (basename(name) !== name) throw new Error("unsafe resource name");
-    const raw = await readFile(join(directory, name));
+    if (basename(name) !== name && !isFlucomaDependencyResource(name))
+      throw new Error("unsafe resource name");
+    const raw = isFlucomaDependencyResource(name)
+      ? await readFlucomaDependencyFile(directory, name)
+      : await readFile(join(directory, name));
     if (hash(raw) !== sha256 || raw.length !== bytes)
       throw new Error(`resource hash mismatch: ${name}`);
     resources.set(name, raw);
@@ -709,6 +759,7 @@ export async function checkArtifact(directory) {
       ),
       manifest.deviceFile,
       resources,
+      { deviceDirectory: resolve(directory) },
     );
     if (!expected.equals(device))
       throw new Error("frozen listening graph or embedded resources mismatch");

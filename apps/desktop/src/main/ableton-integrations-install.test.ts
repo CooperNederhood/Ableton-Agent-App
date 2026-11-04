@@ -13,7 +13,12 @@ import {
 import { join } from "node:path";
 import { promisify } from "node:util";
 
-import { decodeAmxd, encodeAmxd } from "@ableton-agent/shared/m4l-devices";
+import {
+  decodeAmxd,
+  encodeAmxd,
+  FLUCOMA_DEPENDENCY_FILES,
+  isFlucomaDependencyResource,
+} from "@ableton-agent/shared/m4l-devices";
 import type * as Shared from "@ableton-agent/shared/m4l-devices";
 import { resolveLiveAgentStorage } from "@ableton-agent/storage";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -161,6 +166,32 @@ afterEach(async () => {
 });
 
 describe("typed Ableton integration installation", () => {
+  it("rechecks pinned dependency bytes after payload validation and denies self-rehashed replacements", async () => {
+    const { options, payloads, events } = await fixture();
+    const payload = payloads.find((item) => item.id === "machine-listening")!;
+    const pin = FLUCOMA_DEPENDENCY_FILES.find((file) => file.mode === 0o755)!;
+    const raw = Buffer.alloc(pin.bytes, 1);
+    const file = join(payload.sourceDirectory, pin.name);
+    await mkdir(join(file, ".."), { recursive: true });
+    await writeFile(file, raw, { mode: pin.mode });
+    payload.files.push({
+      name: pin.name,
+      bytes: raw.length,
+      sha256: hash(raw),
+    });
+    await expect(
+      installAbletonIntegrations({
+        ...options,
+        components: ["machine-listening"],
+      }),
+    ).rejects.toThrow();
+    expect(events.some((event) => event.name === "publication")).toBe(false);
+    expect(events.some((event) => event.stage === "failed")).toBe(true);
+    await expect(
+      lstat(join(options.userLibraryPath, "Presets")),
+    ).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
   it("installs and verifies real generated canonical native5/ABI3 and portable MIDI resources through the production validator", async () => {
     const { root, options } = await fixture();
     const generated = join(root, "generated-integrations");
@@ -185,7 +216,7 @@ describe("typed Ableton integration installation", () => {
       const names = await readdir(target);
       expect(names.sort()).toEqual(
         [
-          ...payload.files.map((file) => file.name),
+          ...new Set(payload.files.map((file) => file.name.split("/")[0]!)),
           "agent_signal_storage.js",
           ".ableton-agent-device-install.json",
         ].sort(),
@@ -206,6 +237,23 @@ describe("typed Ableton integration installation", () => {
           join(target, payload.deviceFile),
         );
         const files = decodeAmxd(installedDevice).frozenFiles;
+        expect(decodeAmxd(installedDevice).document).toMatchObject({
+          patcher: {
+            project: {
+              searchpath: {
+                "0": {
+                  bootpath: join(target, "dependencies/flucoma"),
+                  enabled: 1,
+                  recursive: 0,
+                  includeincollective: 0,
+                },
+              },
+            },
+          },
+        });
+        expect(
+          JSON.stringify(decodeAmxd(installedDevice).document),
+        ).not.toMatch(/projectrelativepath|\.ableton-agent-stage-/);
         expect(
           files,
           "installed listener must contain its complete frozen bundle",
@@ -214,10 +262,19 @@ describe("typed Ableton integration installation", () => {
           [
             ...payload.files
               .map((file) => file.name)
-              .filter((name) => name !== "audio-listener-manifest.json"),
+              .filter(
+                (name) =>
+                  name !== "audio-listener-manifest.json" &&
+                  !isFlucomaDependencyResource(name),
+              ),
             "agent_signal_storage.js",
           ].sort(),
         );
+        for (const dependency of FLUCOMA_DEPENDENCY_FILES) {
+          const path = join(target, dependency.name);
+          expect(hash(await readFile(path))).toBe(dependency.sha256);
+          expect((await lstat(path)).mode & 0o777).toBe(dependency.mode);
+        }
         expect(files![0]).toMatchObject({
           name: payload.deviceFile,
           flags: 17,

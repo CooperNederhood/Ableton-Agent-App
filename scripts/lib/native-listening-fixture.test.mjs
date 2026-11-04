@@ -3,6 +3,9 @@ import { Buffer } from "node:buffer";
 import { existsSync, symlinkSync, writeFileSync } from "node:fs";
 import {
   access,
+  chmod,
+  cp,
+  lstat,
   mkdir,
   readFile,
   readdir,
@@ -24,6 +27,11 @@ import { JsonSessionStore } from "../../apps/desktop/src/main/desktop-service.ts
 import { createDesktopSessionContextManager } from "../../apps/desktop/src/main/desktop-session-context.ts";
 import { sessionSchema } from "../../apps/desktop/src/contracts.ts";
 import { publishSignalSecrets } from "../../apps/desktop/src/main/signal-credentials.ts";
+import {
+  decodeAmxd,
+  encodeAmxd,
+  FLUCOMA_DEPENDENCY_FILES,
+} from "@ableton-agent/shared/m4l-devices";
 
 import {
   inspectNativeFixtureSet,
@@ -40,6 +48,64 @@ const hash = (value) => createHash("sha256").update(value).digest("hex");
 const nativeFixtureInput = (options) =>
   createNativeFixtureInput(roots, options);
 afterEach(() => disposeNativeFixtureRoots(roots));
+
+async function pinnedNativeFixture() {
+  const f = await nativeFixtureInput({ nativeVersion: 4 });
+  f.nativeVersion = f.input.nativeVersion = 5;
+  const path = join(f.input.candidateDirectory, "audio-listener-manifest.json");
+  const manifest = JSON.parse(await readFile(path, "utf8"));
+  Object.assign(manifest, {
+    nativeVersion: 5,
+    nativeAbiVersion: 3,
+    nativeScope: "independent-metric-timelines/v1",
+    algorithmVersion: "3.0.0",
+    observationSchema: "metric-audio-observation/v1",
+    providerLimits: { durationMs: 30000, maxWindows: 2000 },
+  });
+  const device = encodeAmxd(
+    decodeAmxd(
+      await readFile(
+        resolve("max-patches/audio-listener/audio-effect-template.amxd"),
+      ),
+    ),
+    {
+      patcher: {
+        boxes: [],
+        lines: [],
+        project: {
+          searchpath: {
+            0: {
+              bootpath: "./dependencies/flucoma",
+              projectrelativepath: "./dependencies/flucoma",
+            },
+          },
+        },
+      },
+    },
+  );
+  await writeFile(join(f.input.candidateDirectory, f.input.deviceFile), device);
+  f.input.deviceSha256 = manifest.deviceSha256 = hash(device);
+  await cp(
+    resolve("max-patches/audio-listener/dependencies"),
+    join(f.input.candidateDirectory, "dependencies"),
+    { recursive: true },
+  );
+  manifest.resources.push(
+    ...FLUCOMA_DEPENDENCY_FILES.map(({ name, bytes, sha256 }) => ({
+      name,
+      bytes,
+      sha256,
+    })),
+  );
+  f.saveManifest = async () => {
+    const bytes = JSON.stringify(manifest);
+    await writeFile(path, bytes);
+    f.input.candidateManifestSha256 = hash(bytes);
+  };
+  f.manifest = manifest;
+  await f.saveManifest();
+  return f;
+}
 
 async function addFixtureAudio(
   f,
@@ -66,6 +132,145 @@ async function addFixtureAudio(
 }
 
 describe("native listening fixture staging", () => {
+  it("preserves pinned nested FluCoMa v5 resources and executable mode", async () => {
+    const f = await pinnedNativeFixture();
+    const staged = await stageNativeListeningFixture(f);
+    const candidate = join(f.destination, "Native-Listener-Candidate");
+    const bound = await readFile(join(candidate, f.input.deviceFile));
+    expect(decodeAmxd(bound).document).toMatchObject({
+      patcher: {
+        project: {
+          searchpath: {
+            0: { bootpath: join(candidate, "dependencies/flucoma") },
+          },
+        },
+      },
+    });
+    expect(JSON.stringify(decodeAmxd(bound).document)).not.toContain(
+      "projectrelativepath",
+    );
+    expect(staged.sourceDeviceSha256).toBe(f.input.deviceSha256);
+    expect(staged.deviceSha256).toBe(hash(bound));
+    expect(staged.deviceSha256).not.toBe(f.input.deviceSha256);
+    expect(
+      hash(
+        await readFile(join(f.input.candidateDirectory, f.input.deviceFile)),
+      ),
+    ).toBe(f.input.deviceSha256);
+    for (const pin of FLUCOMA_DEPENDENCY_FILES) {
+      expect(hash(await readFile(join(candidate, pin.name)))).toBe(pin.sha256);
+      expect((await lstat(join(candidate, pin.name))).mode & 0o777).toBe(
+        pin.mode,
+      );
+    }
+    await expect(staged.verifyImmutableInputs()).resolves.toMatchObject({
+      verified: true,
+    });
+    await staged.cleanup();
+    await expect(access(f.destination)).rejects.toThrow();
+  });
+  it.each([
+    "missing",
+    "self-rehashed",
+    "nonexec",
+    "file-link",
+    "parent-link",
+    "unlisted",
+    "arbitrary-path",
+  ])(
+    "denies %s nested native dependency before creating a candidate",
+    async (fault) => {
+      const f = await pinnedNativeFixture();
+      const pin = FLUCOMA_DEPENDENCY_FILES.find((file) => file.mode === 0o755);
+      const path = join(f.input.candidateDirectory, pin.name);
+      if (fault === "missing") await rm(path);
+      if (fault === "nonexec") await chmod(path, 0o600);
+      if (fault === "self-rehashed") {
+        const bytes = await readFile(path);
+        bytes[100] ^= 1;
+        await writeFile(path, bytes);
+        f.manifest.resources.find((file) => file.name === pin.name).sha256 =
+          hash(bytes);
+      }
+      if (fault === "file-link") {
+        await rm(path);
+        await symlink(resolve("max-patches/audio-listener", pin.name), path);
+      }
+      if (fault === "parent-link") {
+        await rm(dirname(path), { recursive: true });
+        await symlink(
+          dirname(resolve("max-patches/audio-listener", pin.name)),
+          dirname(path),
+        );
+      }
+      if (fault === "unlisted")
+        f.manifest.resources = f.manifest.resources.filter(
+          (file) => file.name !== pin.name,
+        );
+      if (fault === "arbitrary-path") {
+        const name = "arbitrary/unreviewed.js";
+        await mkdir(dirname(join(f.input.candidateDirectory, name)));
+        await writeFile(join(f.input.candidateDirectory, name), "test");
+        f.manifest.resources.push({ name, bytes: 4, sha256: hash("test") });
+      }
+      await f.saveManifest();
+      await expect(stageNativeListeningFixture(f)).rejects.toThrow();
+      await expect(access(f.destination)).rejects.toThrow();
+    },
+  );
+  it.each([
+    "original-bytes",
+    "staged-bytes",
+    "original-mode",
+    "staged-mode",
+    "staged-extra",
+  ])(
+    "verifies nested native dependency immutability after %s changes",
+    async (fault) => {
+      const f = await pinnedNativeFixture();
+      const staged = await stageNativeListeningFixture(f);
+      const pin = FLUCOMA_DEPENDENCY_FILES.find((file) => file.mode === 0o755);
+      const root = fault.startsWith("original")
+        ? f.input.candidateDirectory
+        : join(f.destination, "Native-Listener-Candidate");
+      const path = join(root, pin.name);
+      if (fault.endsWith("mode")) await chmod(path, 0o600);
+      else if (fault === "staged-extra")
+        await writeFile(join(dirname(path), "unexpected"), "test");
+      else {
+        const bytes = await readFile(path);
+        bytes[100] ^= 1;
+        await writeFile(path, bytes);
+      }
+      await expect(staged.verifyImmutableInputs()).rejects.toThrow();
+      await staged.cleanup();
+      await expect(access(f.destination)).rejects.toThrow();
+    },
+  );
+  it("cleans nested native dependency output when cancelled during copying", async () => {
+    const f = await pinnedNativeFixture();
+    const pin = FLUCOMA_DEPENDENCY_FILES.find((file) => file.mode === 0o755);
+    const target = join(f.destination, "Native-Listener-Candidate", pin.name);
+    await expect(
+      stageNativeListeningFixture({
+        ...f,
+        signal: {
+          throwIfAborted() {
+            if (existsSync(target)) {
+              const error = new Error("cancelled after nested copy");
+              error.name = "AbortError";
+              throw error;
+            }
+          },
+        },
+      }),
+    ).rejects.toThrow("cancelled after nested copy");
+    await expect(access(f.destination)).rejects.toThrow();
+    expect(
+      hash(await readFile(join(f.input.candidateDirectory, pin.name))),
+    ).toBe(pin.sha256);
+  });
+
   it("stages explicit wire3 ABI2 raw-v2 resources without relabeling the immutable Set", async () => {
     const f = await nativeFixtureInput({ nativeVersion: 3 });
     const staged = await stageNativeListeningFixture(f);

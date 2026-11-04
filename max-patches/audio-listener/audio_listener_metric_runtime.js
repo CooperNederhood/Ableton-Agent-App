@@ -43,6 +43,13 @@ function createMetricRuntime({
   let clockLease = null;
   let heartbeatEnabled = true;
   const output = (...atoms) => maxApi.outlet(...atoms);
+  const flatness =
+    require("./audio_listener_flatness_probe.js").createFlatnessProbe({
+      now,
+      sendControl: (...atoms) => output("flatness_smoke_control", ...atoms),
+      emit: (control, lifecycle) =>
+        client.sendListenerDiagnostic(control, lifecycle),
+    });
 
   function invalidate(reason) {
     if (blocked) return;
@@ -100,7 +107,19 @@ function createMetricRuntime({
         client.sendListenerReply(control, payload),
       sendListenerResult: (control, payload) =>
         client.sendListenerResult(control, payload),
+      beforeCleanup: (control, cancelled) => flatness.stop(control, cancelled),
       onEvent: (event) => {
+        if (
+          event.phase === "launch" &&
+          event.nativeLifecycle.stage === "completed" &&
+          !event.nativeLifecycle.metric
+        )
+          flatness.start(
+            event.control,
+            event.nativeLifecycle.nativeEpoch,
+            event.nativeLifecycle.eventId,
+            event.nativeLifecycle.elapsedMs,
+          );
         if (
           event.nativeLifecycle.stage !== "failed" ||
           (event.nativeLifecycle.metric &&
@@ -388,6 +407,15 @@ function createMetricRuntime({
   maxApi.addHandler("native", (generation, type, ...values) =>
     controller?.receiveNative("clock", ["native", generation, type, ...values]),
   );
+  maxApi.addHandler("flatness_smoke", (...packet) => {
+    try {
+      flatness.receive(packet);
+    } catch (error) {
+      invalidate(
+        error instanceof Error ? error.message : "flatness_packet_failed",
+      );
+    }
+  });
   maxApi.addHandler("native_spectrum", (...packet) => {
     if (packet[2] === "spectrum") {
       invalidate("invalid_metric_packet");

@@ -12,6 +12,7 @@ import {
   requireCondition,
   validateFacts,
 } from "./validation.js";
+import { validateFlatnessSmoke } from "./flatness-smoke.js";
 
 export class AssertionRegistry {
   private readonly entries = new Map<
@@ -105,6 +106,77 @@ function requiredStrings(parameters: Facts, keys: readonly string[]): void {
 }
 export function createDefaultAssertions(): AssertionRegistry {
   return new AssertionRegistry()
+    .register(
+      "flatness-smoke",
+      ({ turn, turns, evidence, baseline }, parameters) => {
+        const afterRestart = parameters.afterRestart === true;
+        const captures = (turn ? [turn] : turns).flatMap(
+          (entry) => entry.captures,
+        );
+        const selected =
+          turn ?? turns.find((entry) => entry.captures.length > 0);
+        const smoke = afterRestart
+          ? evidence?.flatnessSmoke
+          : selected?.flatnessSmoke;
+        const capture = captures[0];
+        const source = baseline.sources?.[String(parameters.sourceId)];
+        const entry = smoke?.[0];
+        if (
+          !selected ||
+          captures.length !== 1 ||
+          !capture ||
+          !capture.native ||
+          !source ||
+          !sameSource(capture.source, source.source) ||
+          capture.listenerId !== source.listenerId ||
+          capture.operationId !== selected.operationId ||
+          smoke?.length !== 1 ||
+          !entry
+        )
+          return result(
+            false,
+            "flatness-owner",
+            "Smoke requires one independently owned capture and source",
+          );
+        try {
+          validateFlatnessSmoke(entry);
+          const original = selected.flatnessSmoke?.[0];
+          const matches =
+            entry.traceId === selected.facts.sdkTurnId &&
+            entry.correlationId === selected.facts.sdkTurnId &&
+            entry.passId === capture.passId &&
+            entry.listenerId === capture.listenerId &&
+            Object.entries(capture.native).every(
+              ([key, value]) => Reflect.get(entry.native, key) === value,
+            ) &&
+            entry.afterOwnedRestart === afterRestart &&
+            (!afterRestart ||
+              (!!original &&
+                JSON.stringify({ ...original, afterOwnedRestart: true }) ===
+                  JSON.stringify(entry)));
+          return result(
+            matches,
+            "flatness-owner",
+            "Unqualified stereo diagnostics and cleanup must retain exact ownership after restart",
+          );
+        } catch {
+          return result(
+            false,
+            "flatness-lifecycle",
+            "Smoke requires fresh bounded stereo deliveries, ordered lifecycle and successful cleanup",
+          );
+        }
+      },
+      (parameters) => {
+        rejectUnknownFields(parameters, ["sourceId", "afterRestart"]);
+        requiredStrings(parameters, ["sourceId"]);
+        identifier(parameters.sourceId);
+        requireCondition(
+          typeof parameters.afterRestart === "boolean",
+          "Missing smoke restart requirement",
+        );
+      },
+    )
     .register(
       "choice",
       ({ turn }, parameters) => {

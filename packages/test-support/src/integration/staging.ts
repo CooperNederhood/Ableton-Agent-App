@@ -2,7 +2,12 @@ import { createHash } from "node:crypto";
 import { constants } from "node:fs";
 import { lstat, mkdir, open, realpath, rm } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
-import { freezeAmxd } from "@ableton-agent/shared/m4l-devices";
+import {
+  freezeAmxd,
+  isSafeDeviceResourceName,
+  isFlucomaDependencyResource,
+  readFlucomaDependencyFile,
+} from "@ableton-agent/shared/m4l-devices";
 import { bindFixtureProject } from "./project-binding.js";
 import type {
   DependencyInventory,
@@ -146,7 +151,27 @@ export async function verifyDependencyInventory(
         entry.target !== frozen.sourceTarget &&
         !entry.path.endsWith("/audio-listener-manifest.json"),
     )) {
-      const name = entry.path.split("/").at(-1)!;
+      const name = relative(dirname(source.path), entry.path)
+        .split(sep)
+        .join("/");
+      requireCondition(
+        isSafeDeviceResourceName(name),
+        "Unsupported frozen resource path",
+      );
+      if (isFlucomaDependencyResource(name)) {
+        requireCondition(
+          entry.target === `${dirname(frozen.target)}/${name}`,
+          "Pinned dependency must be adjacent to frozen device",
+        );
+        await readFlucomaDependencyFile(
+          join(candidateRoot, dirname(source.path)),
+          name,
+        );
+        await readFlucomaDependencyFile(
+          join(staged.workingDirectory, dirname(frozen.target)),
+          name,
+        );
+      }
       requireCondition(!resources.has(name), "Duplicate frozen resource");
       resources.set(
         name,
@@ -156,7 +181,13 @@ export async function verifyDependencyInventory(
     for (const entry of inventory.generatedConfigurations?.filter(
       (entry) => entry.id === frozen.id,
     ) ?? []) {
-      const name = entry.target.split("/").at(-1)!;
+      const name = relative(dirname(source.target), entry.target)
+        .split(sep)
+        .join("/");
+      requireCondition(
+        isSafeDeviceResourceName(name),
+        "Unsupported frozen configuration path",
+      );
       requireCondition(!resources.has(name), "Duplicate frozen resource");
       resources.set(
         name,
@@ -173,6 +204,9 @@ export async function verifyDependencyInventory(
       payload.bytes,
       source.path.split("/").at(-1)!,
       resources,
+      {
+        deviceDirectory: join(staged.workingDirectory, dirname(frozen.target)),
+      },
     );
     const actual = await readVerified(
       staged.workingDirectory,

@@ -17,6 +17,8 @@
   ],
   "nativeResources": [
     "audio_listener_native_v5_max.js",
+    "audio_listener_flatness_smoke.js",
+    "audio_listener_flatness_probe.js",
     "audio_listener_metric_runtime.js",
     "audio_listener_metric_controller.js",
     "audio_listener_metric_spectrum.js",
@@ -32,6 +34,16 @@
     "audio_listener_native_clock.maxpat",
     "audio_listener_native_fft.maxpat",
     "audio_listener_native_analysis.maxpat"
+  ],
+  "dependencyResources": [
+    "dependencies/flucoma/LICENSE.md",
+    "dependencies/flucoma/package-info.json",
+    "dependencies/flucoma/docs/fluid.spectralshape~.maxref.xml",
+    "dependencies/flucoma/fluid.spectralshape~.mxo/Contents/MacOS/fluid.spectralshape~",
+    "dependencies/flucoma/fluid.spectralshape~.mxo/Contents/_CodeSignature/CodeResources",
+    "dependencies/flucoma/fluid.spectralshape~.mxo/Contents/CodeResources",
+    "dependencies/flucoma/fluid.spectralshape~.mxo/Contents/Info.plist",
+    "dependencies/flucoma/README.md"
   ],
   "sharedResources": {
     "agent_signal_client_common.js": "../shared/agent_signal_client.js",

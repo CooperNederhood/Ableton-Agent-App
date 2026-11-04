@@ -1,5 +1,83 @@
 # Playback Listening and Entity Context
 
+## F1 FluCoMa flatness: initial diagnostic smoke
+
+The first #92 milestone reuses the unchanged `session-clip-identify` audio Set
+through a separate `session-flucoma-flatness-smoke` acceptance case. It does not
+require the deferred custom numerical fixtures or the identification question.
+The bounded smoke passed on **Live 11.3.43** in terminal receipt
+`run-fOkqoI` on 2026-11-04: one 90,000-sample capture at 48 kHz, healthy native
+level/centroid/attacks, 21 finite deliveries per channel, exact diagnostic/context
+retention after owned Desktop restart, unchanged fixture scopes, and terminal
+cleanup. The mapped binary's staged path, device/inode and pinned bytes were
+verified at baseline and capture completion. No normal installation was changed.
+This is a successful rerun after preserved failures, not a first-attempt or
+unrestricted reliability claim.
+
+Evidence is retained under `.test-artifacts/acceptance/run-fOkqoI/`.
+The application candidate SHA-256 is
+`be300068f8309838b720715c5969532cf9041bfb0b4c83673b5b9d2da0b5b83a`;
+its separately versioned machine-listening dependency identity is
+`88ea38513585cfecff57c6958656400cbdf78a98b9e803d1883f88bdfb3a48e6`.
+Earlier receipts remain unchanged: `run-MwQ1f3` (gate syntax and retention),
+`run-RTxtSt`, `run-gYKFH7`, `run-YmQ3s1` (loading),
+`run-zsVb0U` (descriptor rejection and native reader failure),
+`run-aLbLsJ` (History projection), and `run-7rXerC` (positive roundoff).
+The earlier native reader failure is not explained or erased by the final pass.
+
+The generated v5 parent taps left and right audio independently into the pinned
+`fluid.spectralshape~` external with `@select flatness`, magnitude mode and
+explicit 2,048-sample window/hop/FFT settings. Stereo audio still travels directly
+from `plugin~` to `plugout~`; the existing native measurement algorithms are
+unchanged. The diagnostic message gate opens after the native launch witness
+and closes during owned cleanup. Its acknowledgement confirms that its timer
+and queued values were cleared, not that an FFT acquired a particular frame.
+The passive analyzers remain part of the device's DSP graph outside the gate.
+
+This is **descriptor delivery evidence, not a new authoritative metric
+observation**. The stock Max wrapper exposes latest descriptors through a
+scheduled callback; delivery count and time cannot certify FFT identity or
+input support. Diagnostic values use FluCoMa's native dB convention and
+independent channel labels. `flatness.support` and `flatness.valueValidity`
+are explicitly `unqualified`; lifecycle `frames` remains zero. Silence and
+below-floor discrimination, exact numerical values and complete frame coverage
+are deferred, so a finite value must not be interpreted as valid audible texture
+or proof of a noise source.
+
+At the theoretical zero-dB upper boundary, positive double-precision roundoff
+of at most `1e-9` dB is normalized to zero. Larger positive values, values below
+`-320` dB and non-finite values remain explicit malformed-output failures.
+This narrow numeric normalization does not establish same-window silence
+validity or numerical qualification; the smoke's finite nonpositive-value
+assertions remain unchanged.
+
+At most ten fresh outlet snapshots per second per channel cross the Max-to-Node
+gate, and progress is further bounded to two events per second. These are not
+retained FFT trajectories. Values, delivery counters and cleanup status travel
+through the existing traced, bounded and redacted native diagnostic lifecycle
+under `spectral-flatness`, visible via typed History. The registered observation
+metrics and report schemas remain level, spectral-centroid and attacks; no
+unqualified flatness is inserted into their immutable contexts.
+
+No-output and malformed-output diagnostics fail locally while the native
+measurements remain usable. The gate reports bounded actual Max class names as
+`flatness.leftClass` and `flatness.rightClass`; an unresolved object (including
+Max's `jbogus`) fails explicitly with `flatness_external_unavailable`. Class
+identity alone is not loaded-binary provenance. No-output after a valid class
+acknowledgement does not establish why descriptor callbacks were absent.
+Dependency inventory validation supplies separate missing/stale/tampered
+artifact evidence. Malformed packets retain bounded numeric/type descriptions
+under `flatness.rejected.*`, never arbitrary incoming objects or strings.
+Foreign/late ownership packets, diagnostic
+delivery failure and unconfirmed gate cleanup prevent successful publication.
+Cancellation clears the same owned gate without relabeling it no-output.
+
+The smoke requires actual finite left/right diagnostics linked to its one
+owned pass, healthy native evidence and confirmed cleanup. It does not claim
+sample alignment or numerical qualification, and cannot close #92 by itself.
+If stock delivery cannot support the later exact-frame contract, an
+instrumented-adapter proposal requires review rather than fabricated coverage.
+
 ## Drum Rack spectrum scheduling regression
 
 The registered `session-drum-rack-listening` case preserves the supplied Set and

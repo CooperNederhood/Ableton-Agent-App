@@ -8,9 +8,10 @@ import {
   rm,
   symlink,
   writeFile,
+  chmod,
+  stat,
 } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { gzipSync, gunzipSync } from "node:zlib";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -23,6 +24,8 @@ import { provisionPackagedDependencies } from "../../tests/electron/acceptance-d
 import {
   decodeAmxd,
   encodeAmxd,
+  FLUCOMA_DEPENDENCY_FILES,
+  readFlucomaDependencyFile,
 } from "../../packages/shared/src/m4l-devices.js";
 import {
   verifyDependencyInventory,
@@ -32,16 +35,16 @@ import type { FixtureManifest } from "../../packages/test-support/src/integratio
 
 let root: string;
 beforeEach(async () => {
-  root = await realpath(
-    await mkdtemp(join(tmpdir(), "acceptance-dependencies-")),
-  );
+  const scratch = resolve(".test-artifacts/acceptance-dependencies");
+  await mkdir(scratch, { recursive: true });
+  root = await realpath(await mkdtemp(join(scratch, "run-")));
   vi.resetAllMocks();
 });
 afterEach(async () => {
   await rm(root, { recursive: true, force: true });
 });
 
-async function setup() {
+async function setup(includeFlucoma = false) {
   const sourceDirectory = join(root, "ableton-integrations/machine-listening");
   const workingDirectory = join(root, "working");
   await mkdir(sourceDirectory, { recursive: true });
@@ -59,12 +62,27 @@ async function setup() {
     sha256: createHash("sha256").update(bytes).digest("hex"),
   };
   await writeFile(join(sourceDirectory, file.name), bytes);
+  if (includeFlucoma)
+    for (const pin of FLUCOMA_DEPENDENCY_FILES) {
+      const target = join(sourceDirectory, pin.name);
+      await mkdir(dirname(target), { recursive: true });
+      await writeFile(
+        target,
+        await readFile(
+          new URL(
+            `../../max-patches/audio-listener/${pin.name}`,
+            import.meta.url,
+          ),
+        ),
+        { mode: pin.mode },
+      );
+    }
   payloads.mockResolvedValue([
     {
       id: "machine-listening",
       sourceDirectory,
       deviceFile: file.name,
-      files: [file],
+      files: [file, ...(includeFlucoma ? FLUCOMA_DEPENDENCY_FILES : [])],
     },
   ]);
   return {
@@ -79,6 +97,139 @@ async function setup() {
   };
 }
 describe("packaged dependency staging", () => {
+  it("preserves pinned nested signed resources adjacent to the frozen device and independently verifies their identity and modes", async () => {
+    const options = await setup(true);
+    const result = await provisionPackagedDependencies(options);
+    const frozen = result.inventory.frozenDevices![0]!;
+    const frozenRoot = join(options.workingDirectory, dirname(frozen.target));
+    for (const pin of FLUCOMA_DEPENDENCY_FILES) {
+      expect(
+        await readFlucomaDependencyFile(frozenRoot, pin.name),
+      ).toHaveLength(pin.bytes);
+      expect(
+        result.inventory.resources.find((entry) =>
+          entry.path.endsWith(pin.name),
+        )?.target,
+      ).toBe(`${dirname(frozen.target)}/${pin.name}`);
+      if (pin.mode === 0o755)
+        expect((await stat(join(frozenRoot, pin.name))).mode & 0o111).toBe(
+          0o111,
+        );
+    }
+    const container = decodeAmxd(
+      await readFile(join(options.workingDirectory, frozen.target)),
+    );
+    expect(container.document).toMatchObject({
+      patcher: {
+        project: {
+          searchpath: {
+            "0": {
+              bootpath: join(frozenRoot, "dependencies/flucoma"),
+              enabled: 1,
+              recursive: 0,
+              includeincollective: 0,
+            },
+          },
+        },
+      },
+    });
+    expect(JSON.stringify(container.document)).not.toContain(
+      "projectrelativepath",
+    );
+    expect(
+      container.frozenFiles?.some((file) =>
+        file.name.startsWith("dependencies/"),
+      ),
+    ).toBe(false);
+    const fixture: FixtureManifest = {
+      schemaVersion: 1,
+      id: "controlled-pinned",
+      qualification: "synthetic-only",
+      provenance: {
+        ownership: "authored",
+        description: "Controlled adjacent bundle staging",
+      },
+      resources: [
+        {
+          path: "project.als",
+          target: "project.als",
+          bytes: 1,
+          sha256: createHash("sha256").update("x").digest("hex"),
+        },
+      ],
+      dependencies: ["machine-listening"],
+      baseline: {},
+    };
+    const staged = {
+      workingDirectory: options.workingDirectory,
+      projectPath: join(options.workingDirectory, "project.als"),
+      resources: fixture.resources,
+      verifySourceUnchanged: async () => {},
+    };
+    await verifyDependencyInventory(staged, fixture, result.inventory);
+    const devicePath = join(options.workingDirectory, frozen.target);
+    const originalFrozen = await readFile(devicePath);
+    const changed = decodeAmxd(originalFrozen);
+    const document = changed.document as {
+      patcher: {
+        project: { searchpath: Record<string, { bootpath: string }> };
+      };
+    };
+    document.patcher.project.searchpath["0"]!.bootpath = join(
+      options.workingDirectory,
+      "wrong-root",
+    );
+    const rebound = encodeAmxd(changed, changed.document);
+    await writeFile(devicePath, rebound);
+    await expect(
+      verifyDependencyInventory(staged, fixture, {
+        ...result.inventory,
+        frozenDevices: [
+          {
+            ...frozen,
+            sha256: createHash("sha256").update(rebound).digest("hex"),
+            bytes: rebound.length,
+          },
+        ],
+      }),
+    ).rejects.toThrow("Frozen dependency does not derive");
+    await writeFile(devicePath, originalFrozen);
+    const executable = FLUCOMA_DEPENDENCY_FILES.find(
+      (pin) => pin.mode === 0o755,
+    )!;
+    await chmod(join(frozenRoot, executable.name), 0o600);
+    await expect(
+      verifyDependencyInventory(staged, fixture, result.inventory),
+    ).rejects.toThrow("Pinned FluCoMa dependency");
+  });
+  it.each(["corrupted", "linked-parent", "non-executable", "missing"])(
+    "rejects invalid pinned source resources before mounting: %s",
+    async (fault) => {
+      const options = await setup(true);
+      const source = join(root, "ableton-integrations/machine-listening");
+      const executable = FLUCOMA_DEPENDENCY_FILES.find(
+        (pin) => pin.mode === 0o755,
+      )!;
+      if (fault === "missing")
+        await rm(join(source, "dependencies/flucoma"), { recursive: true });
+      if (fault === "corrupted")
+        await writeFile(
+          join(source, executable.name),
+          Buffer.alloc(executable.bytes),
+        );
+      if (fault === "non-executable")
+        await chmod(join(source, executable.name), 0o600);
+      if (fault === "linked-parent") {
+        const pin = FLUCOMA_DEPENDENCY_FILES.find((entry) =>
+          entry.name.includes("/docs/"),
+        )!;
+        const directory = dirname(join(source, pin.name));
+        await rm(directory, { recursive: true });
+        await symlink(source, directory);
+      }
+      await expect(provisionPackagedDependencies(options)).rejects.toThrow();
+    },
+  );
   it("derives a separate Set and frozen device, independently rejects rehashed repairs and embedded tampering", async () => {
     const options = await setup();
     const original = gzipSync(
@@ -150,7 +301,7 @@ describe("packaged dependency staging", () => {
         ...result.inventory,
         resources: [...result.inventory.resources, shadowResource],
       }),
-    ).rejects.toThrow("Duplicate frozen resource");
+    ).rejects.toThrow("Unsupported frozen resource path");
     const target = join(options.workingDirectory, "prepared.als");
     const prepared = await readFile(target);
     const repaired = gzipSync(

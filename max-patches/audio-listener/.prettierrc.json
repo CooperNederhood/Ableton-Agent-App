@@ -4,6 +4,7 @@
       "files": [
         "hosted_calibration_probe.js",
         "audio_listener_native_io.js",
+        "audio_listener_flatness_smoke.js",
         "audio_listener_measurements.js"
       ],
       "options": {

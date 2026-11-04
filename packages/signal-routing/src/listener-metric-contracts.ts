@@ -218,7 +218,10 @@ export const nativeMetricLifecycleSchema = z.strictObject({
   durationMs: z.number().finite().min(0).max(120_000).optional(),
   facts: z.array(listeningFailureFactSchema).max(24).optional(),
   scope: z.literal(LISTENER_METRIC_SCOPE),
-  metric: metricObservationMetricSchema.optional(),
+  // Flatness is a smoke-only diagnostic scope, not a registered observation.
+  metric: z
+    .enum([...metricObservationMetricSchema.options, "spectral-flatness"])
+    .optional(),
   generation: z.string().uuid(),
   nativeEpoch: z.number().int().min(1).max(1_000_000),
   frames: z.number().int().min(0).max(2_000),

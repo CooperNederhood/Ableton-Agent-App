@@ -222,6 +222,13 @@ native failure. Exact event-ID deduplication has one wire5 writer, separate
 from the legacy lifecycle projection. This adds no database, directory,
 retention exception, raw-audio body or upload path.
 
+The F1 flatness smoke uses this same journal for bounded per-channel descriptor
+diagnostics (`flucoma-flatness-smoke/v1` facts under the `spectral-flatness`
+lifecycle scope). Its support and value validity are explicitly unqualified;
+delivery counts are not FFT frame counts. These diagnostic numbers do not add
+flatness to stored metric observations or change entity-context schemas, paths,
+quotas or retention. Native contexts remain separately qualified evidence.
+
 Session descriptor/sample/attack beats cover clip-local first iteration zero,
 starting at zero with a resolved full-active-region or explicit shorter/equal
 duration. The legacy native envelope remains thirty seconds/300 windows; the

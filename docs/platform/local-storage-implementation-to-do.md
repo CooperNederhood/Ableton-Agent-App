@@ -4,6 +4,11 @@ Companion specification: [Local Storage Layout](local-storage.md)
 
 ## Canonical layout
 
+- [x] Keep initial FluCoMa flatness snapshots in the existing bounded/redacted
+  metric lifecycle journal, with explicitly unqualified support and validity.
+  Reuse typed History and existing ownership/retention; do not insert diagnostic
+  values into frame-qualified entity contexts or invent a new storage path.
+
 - [x] Embed shared-resolver producer discovery paths (not credential bodies) in
   the installed frozen listener; keep both the AMXD and standalone configuration
   owner-only. Preserve existing deployed-host ownership and journal locations;

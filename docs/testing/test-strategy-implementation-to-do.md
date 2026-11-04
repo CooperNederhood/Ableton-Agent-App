@@ -128,6 +128,30 @@ Companion specification: [Test Strategy](test-strategy.md)
   Fresh terminal passes: `run-c27nOv` and `run-jTIy7p`, Live 11.3.43,
   2026-11-02; earlier failures remain preserved. See the authoring guide for
   receipt/candidate provenance and the persistence-versus-recapture boundary.
+- [x] Register #92's single-turn `session-flucoma-flatness-smoke` sibling using
+  the unchanged identification fixture, scoped permission, and budgets. Add a
+  bounded typed History diagnostic projection, strict stereo delivery/ownership/
+  lifecycle/cleanup assertions, and owned-restart re-read checks. Flatness remains
+  unqualified diagnostic evidence, not frame-supported numerical measurement.
+  Acceptance staging retains pinned signed nested files adjacent to the frozen
+  device, verifies source/staged bytes and executable mode, and rejects symlinks.
+  Smoke fixtures are parsed against the canonical ingress lifecycle schema,
+  including `not-reported` unavailable facts and `flatness_no_output` failure.
+  The authentic ingress-shaped projection regression retains both actual Max
+  class witnesses and enforces their queued/started transition without relaxing
+  stereo values, ownership, cleanup or failure rejection.
+  Artifact retention uses exact shared pin paths for nested signed FluCoMa files,
+  preserving failure evidence without weakening ordinary path or link guards.
+  The smoke-only loader witness verifies the staged pinned Mach-O's mapped path,
+  device/inode and bytes in owned Live/Max ancestry at baseline and capture
+  completion; missing or global mappings fail closed with bounded provenance.
+  Native/saved runtime fixture regressions also cover pinned nested dependency
+  staging, executable permissions, integrity guards and cancellation cleanup.
+- [x] Execute the reviewed flatness smoke on the explicitly approved owned host:
+  `run-fOkqoI`, Live 11.3.43, 2026-11-04. One capture, 21 finite deliveries per
+  channel, loaded-binary identity, restart persistence, unchanged scopes and
+  terminal cleanup pass. Earlier failed receipts are preserved; this is bounded
+  delivery qualification, not exact numerical or general reliability evidence.
 - [ ] Deliver a real UI acceptance adapter and migrate appropriate existing
   runtime cases in a later phase; controlled adapters only demonstrate reuse.
 - [x] Select and configure TypeScript and Python test runners.

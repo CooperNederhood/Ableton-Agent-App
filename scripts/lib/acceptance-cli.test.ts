@@ -359,6 +359,7 @@ describe("acceptance catalog admission", () => {
       );
       expect(await readdir(directory)).toEqual([
         "checkpoint.json",
+        "cleanup-evidence.json",
         "product-evidence.json",
         "receipt.json",
       ]);

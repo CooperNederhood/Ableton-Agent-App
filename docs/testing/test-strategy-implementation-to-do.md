@@ -2,6 +2,9 @@
 
 ## Local suite qualification (#82)
 
+- [x] Regress nested cleanup-cause preservation, evidence/resource failure
+      separation, and lease release only with case-bound reclamation proof.
+
 - [x] Cover discovery, one-attempt execution, blocked/unrun cases, cancellation,
       safe continuation and ambiguous ownership with deterministic regressions.
 - [x] Reject stale candidate/catalog evidence, malformed terminal receipts,

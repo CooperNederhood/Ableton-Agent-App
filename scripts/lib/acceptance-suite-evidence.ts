@@ -79,7 +79,42 @@ export async function readSuiteAttempt(options: {
       evidenceHash(scenario.steps.map(({ id }) => id))
   )
     throw new Error("Case receipt does not match the frozen scenario contract");
-  if (result.cleanupComplete) {
+  let checkpointSha256: string | undefined;
+  let productEvidenceSha256: string | undefined;
+  let cleanupEvidenceSha256: string | undefined;
+  let resourcesReclaimed: boolean | undefined;
+  let cleanupFailureCount: number | undefined;
+  try {
+    const cleanup = await readAcceptanceJson(
+      join(options.directory, "cleanup-evidence.json"),
+    );
+    record(cleanup);
+    record(cleanup.resources);
+    const resources = cleanup.resources;
+    const resourceKeys = [
+      "desktopStopped",
+      "liveStopped",
+      "hostReservationClosed",
+      "profileRemoved",
+    ];
+    if (
+      cleanup.schema !== "acceptance-cleanup/v1" ||
+      cleanup.runId !== result.runId ||
+      cleanup.scenarioId !== result.scenarioId ||
+      cleanup.traceId !== result.traceId ||
+      !Array.isArray(cleanup.failures) ||
+      resourceKeys.some((key) => typeof resources[key] !== "boolean")
+    )
+      throw new Error(
+        "Case cleanup evidence is incomplete or belongs to another execution",
+      );
+    resourcesReclaimed = resourceKeys.every((key) => resources[key] === true);
+    cleanupFailureCount = cleanup.failures.length;
+    cleanupEvidenceSha256 = evidenceHash(cleanup);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
+  if (result.cleanupComplete || resourcesReclaimed) {
     try {
       await lstat(join(options.directory, "profile"));
       throw new Error("Case left its isolated credential profile behind");
@@ -87,8 +122,6 @@ export async function readSuiteAttempt(options: {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     }
   }
-  let checkpointSha256: string | undefined;
-  let productEvidenceSha256: string | undefined;
   if (result.status === "passed") {
     if (options.exitCode !== undefined && options.exitCode !== 0)
       throw new Error("Case exit status disagrees with its passing receipt");
@@ -161,6 +194,10 @@ export async function readSuiteAttempt(options: {
         "Product evidence candidate/version attribution mismatch",
       );
     productEvidenceSha256 = evidenceHash(product);
+    if (!resourcesReclaimed || cleanupFailureCount !== 0)
+      throw new Error(
+        "Passing case lacks complete clean resource reclamation evidence",
+      );
   }
   return {
     scenarioId: result.scenarioId,
@@ -168,6 +205,7 @@ export async function readSuiteAttempt(options: {
     status: result.status,
     executed: result.executed.length > 0,
     cleanupComplete: result.cleanupComplete,
+    ...(resourcesReclaimed !== undefined ? { resourcesReclaimed } : {}),
     persisted: result.persisted,
     receiptPath: relative(options.suiteDirectory, path),
     receiptSha256: evidenceHash(value),
@@ -182,6 +220,7 @@ export async function readSuiteAttempt(options: {
       : {}),
     ...(checkpointSha256 ? { checkpointSha256 } : {}),
     ...(productEvidenceSha256 ? { productEvidenceSha256 } : {}),
+    ...(cleanupEvidenceSha256 ? { cleanupEvidenceSha256 } : {}),
   };
 }
 
@@ -197,6 +236,7 @@ export async function verifyAcceptanceSuite(options: {
     value.finalization !== "final" ||
     value.status !== "passed" ||
     value.cleanupComplete !== true ||
+    value.resourcesReclaimed !== true ||
     options.inputs.dirty ||
     !Array.isArray(value.failures) ||
     value.failures.length ||

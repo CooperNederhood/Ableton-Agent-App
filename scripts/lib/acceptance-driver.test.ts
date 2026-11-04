@@ -2040,6 +2040,7 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
       successful: false,
       events: [],
     });
+
     await expect(driver.cleanup(context)).rejects.toThrow(
       "Acceptance cleanup failed",
     );
@@ -2050,6 +2051,47 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
       ),
     ).toContain("98765");
     expect(mocks.liveStop).toHaveBeenCalledOnce();
+  });
+
+  it("persists the specific teardown failure and separately confirms resource reclamation", async () => {
+    await driver.launch(context);
+    mocks.stop.mockResolvedValue({
+      stopped: true,
+      successful: false,
+      events: [
+        {
+          stage: "close",
+          status: "timed-out",
+          at: 10,
+          durationMs: 3000,
+          reason: "deadline",
+        },
+      ],
+    });
+    await expect(driver.cleanup(context)).rejects.toThrow(
+      "desktop-stop: Desktop cleanup failed: Owned Desktop shutdown failed: close timed-out (deadline)",
+    );
+    const evidence: unknown = JSON.parse(
+      await readFile(join(directory, "cleanup-evidence.json"), "utf8"),
+    );
+    expect(evidence).toMatchObject({
+      schema: "acceptance-cleanup/v1",
+      runId: context.runId,
+      scenarioId: context.scenario.id,
+      resources: {
+        desktopStopped: true,
+        liveStopped: true,
+        hostReservationClosed: true,
+        profileRemoved: true,
+      },
+      failures: [
+        {
+          stage: "desktop-stop",
+          message:
+            "Desktop cleanup failed: Owned Desktop shutdown failed: close timed-out (deadline)",
+        },
+      ],
+    });
   });
 
   it("never submits an already-cancelled turn", async () => {

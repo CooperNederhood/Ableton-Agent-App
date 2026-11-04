@@ -113,6 +113,16 @@ The aggregate `suite.json` under `.test-artifacts/acceptance/suite-*/` identifie
 the selected cases, every attempt, assertions, first failure, candidate/source/
 fixture hashes, actual Live versions and terminal cleanup. Case receipts and
 product evidence remain beside it. A checkpoint is not a final verdict.
+Each case also writes `cleanup-evidence.json`, with separately attributed
+History, Desktop shutdown, acquisition settlement, Live shutdown, host
+reservation, profile removal and evidence-persistence stages. Nested failure
+causes and the bounded packaged shutdown receipt are retained rather than
+collapsed into a generic `AggregateError` message.
+`resourcesReclaimed` is distinct from `cleanupComplete`: verified process,
+reservation and profile reclamation permits releasing the host lease even when
+History collection or graceful shutdown failed. Such a case still fails
+qualification and stops later suite cases; reclaimed resources never turn a red
+test green. Missing or mismatched resource proof remains fail-closed.
 Product evidence carries the individual case run ID and scenario ID as well as
 the shared suite trace; another case on that trace cannot substitute for it.
 Cancellation during terminal persistence revokes provisional success rather

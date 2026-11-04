@@ -56,6 +56,50 @@ async function readReceipt(
 }
 
 describe("discovered acceptance suite", () => {
+  it("releases verified reclaimed resources without treating evidence cleanup failure as a pass or running later cases", async () => {
+    await fixture(async (directory) => {
+      const release = vi.fn(async () => {});
+      const retain = vi.fn();
+      const execute = vi.fn(
+        async ({
+          scenarioId,
+          runId,
+        }: {
+          scenarioId: string;
+          runId: string;
+        }) => ({
+          scenarioId,
+          runId,
+          status: "failed" as const,
+          executed: true,
+          cleanupComplete: false,
+          resourcesReclaimed: true,
+          persisted: true,
+          receiptPath: "case-1/receipt.json",
+          receiptSha256: "f".repeat(64),
+          assertions: [],
+          failure: "history: read deadline",
+        }),
+      );
+      const result = await runAcceptanceSuite(
+        { directory },
+        {
+          inspect: async () => inputs,
+          acquire: async () => ({ release, retain }),
+          execute,
+        },
+      );
+      expect(result).toMatchObject({
+        status: "failed",
+        cleanupComplete: false,
+        resourcesReclaimed: true,
+        unrun: ["second"],
+      });
+      expect(execute).toHaveBeenCalledOnce();
+      expect(release).toHaveBeenCalledOnce();
+      expect(retain).not.toHaveBeenCalled();
+    });
+  });
   it("retains an unknown thrown execution, leaves later cases unrun, and does not release an unsafe lease", async () => {
     await fixture(async (directory) => {
       const release = vi.fn(async () => {});

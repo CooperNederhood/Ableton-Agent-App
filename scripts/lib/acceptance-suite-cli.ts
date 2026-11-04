@@ -272,6 +272,7 @@ export async function acceptanceSuiteCli(
         unknown: result.unknown,
         firstFailure: result.firstFailure,
         cleanupComplete: result.cleanupComplete,
+        resourcesReclaimed: result.resourcesReclaimed,
         finalizationEvent: result.events.at(-1),
       }),
     );

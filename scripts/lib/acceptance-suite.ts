@@ -36,12 +36,14 @@ export interface SuiteAttempt {
   status: RunStatus;
   executed: boolean | null;
   cleanupComplete: boolean;
+  resourcesReclaimed?: boolean;
   persisted: boolean;
   receiptPath: string;
   receiptSha256: string;
   assertions: readonly AssertionResult[];
   checkpointSha256?: string;
   productEvidenceSha256?: string;
+  cleanupEvidenceSha256?: string;
   liveVersion?: string;
   failure?: string;
 }
@@ -65,6 +67,7 @@ export interface SuiteReceipt {
   firstFailure?: { scenarioId?: string; message: string };
   failures: string[];
   cleanupComplete: boolean;
+  resourcesReclaimed: boolean;
   startedAt: number;
   completedAt: number;
   durationMs: number;
@@ -155,6 +158,7 @@ export async function runAcceptanceSuite(
     status: "blocked",
     failures: [],
     cleanupComplete: false,
+    resourcesReclaimed: false,
     startedAt: began,
     completedAt: began,
     durationMs: 0,
@@ -302,7 +306,7 @@ export async function runAcceptanceSuite(
       if (attempt.scenarioId !== scenarioId || attempt.runId !== runId)
         throw new Error("Case returned foreign execution identity");
       receipt.attempts.push(attempt);
-      safeToRelease = attempt.cleanupComplete;
+      safeToRelease = attempt.resourcesReclaimed ?? attempt.cleanupComplete;
       event(
         "suite.case",
         attempt.status === "passed"
@@ -340,12 +344,17 @@ export async function runAcceptanceSuite(
     if (lease && safeToRelease) {
       try {
         await stage("suite.host-release", () => lease!.release());
-        receipt.cleanupComplete = true;
+        receipt.resourcesReclaimed = true;
+        receipt.cleanupComplete = receipt.attempts.every(
+          (attempt) => attempt.cleanupComplete,
+        );
       } catch (error) {
         fail(error);
       }
-    } else if (!lease) receipt.cleanupComplete = !acquisitionUncertain;
-    else lease.retain?.();
+    } else if (!lease) {
+      receipt.cleanupComplete = !acquisitionUncertain;
+      receipt.resourcesReclaimed = !acquisitionUncertain;
+    } else lease.retain?.();
   }
   update();
   receipt.status = signal.aborted

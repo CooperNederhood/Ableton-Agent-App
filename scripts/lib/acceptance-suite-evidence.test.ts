@@ -128,9 +128,100 @@ async function writeCase(
       liveVersion: "11.3.43",
     },
   });
+  await writeScenarioReceipt(join(directory, "cleanup-evidence.json"), {
+    schema: "acceptance-cleanup/v1",
+    runId,
+    scenarioId: scenario.id,
+    traceId,
+    failures: [],
+    resources: {
+      desktopStopped: true,
+      liveStopped: true,
+      hostReservationClosed: true,
+      profileRemoved: true,
+    },
+  });
 }
 
 describe("local acceptance qualification verifier", () => {
+  it.each([true, false])(
+    "checks profile absence before accepting resource reclamation after failed cleanup (profile exists: %s)",
+    async (profileExists) => {
+      await fixture(async (directory) => {
+        const runId = randomUUID(),
+          traceId = randomUUID();
+        await writeCase(directory, runId, traceId, (receipt, result) => {
+          receipt.result = {
+            ...result,
+            status: "failed",
+            cleanupComplete: false,
+            finalizationFailures: [
+              { stage: "cleanup", message: "History collection failed" },
+            ],
+          };
+        });
+        if (profileExists) await mkdir(join(directory, "profile"));
+        const attempt = readSuiteAttempt({
+          root: process.cwd(),
+          suiteDirectory: directory,
+          directory,
+          runId,
+          traceId,
+          scenarioId: inputs.selected[0]!,
+          inputs,
+          exitCode: 1,
+        });
+        if (profileExists)
+          await expect(attempt).rejects.toThrow(
+            "Case left its isolated credential profile behind",
+          );
+        else
+          await expect(attempt).resolves.toMatchObject({
+            status: "failed",
+            cleanupComplete: false,
+            resourcesReclaimed: true,
+          });
+      });
+    },
+  );
+  it.each(["missing", "foreign", "unsafe"])(
+    "rejects %s cleanup proof despite a passing scenario receipt",
+    async (kind) => {
+      await fixture(async (directory) => {
+        const runId = randomUUID(),
+          traceId = randomUUID();
+        await writeCase(directory, runId, traceId);
+        const path = join(directory, "cleanup-evidence.json");
+        if (kind === "missing") await rm(path);
+        else
+          await writeScenarioReceipt(path, {
+            schema: "acceptance-cleanup/v1",
+            runId: kind === "foreign" ? randomUUID() : runId,
+            scenarioId: inputs.selected[0],
+            traceId,
+            failures: [],
+            resources: {
+              desktopStopped: true,
+              liveStopped: kind !== "unsafe",
+              hostReservationClosed: true,
+              profileRemoved: true,
+            },
+          });
+        await expect(
+          readSuiteAttempt({
+            root: process.cwd(),
+            suiteDirectory: directory,
+            directory,
+            runId,
+            traceId,
+            scenarioId: inputs.selected[0]!,
+            inputs,
+            exitCode: 0,
+          }),
+        ).rejects.toThrow();
+      });
+    },
+  );
   it("rejects product evidence belonging to another case on the same suite trace", async () => {
     await fixture(async (directory) => {
       const runId = randomUUID(),

@@ -31,6 +31,12 @@ coverage. Bug fixes must include a regression test at the narrowest owning
 boundary. Vitest runs with default ten-second test/hook deadlines and zero retries;
 flaky tests are fixed or explicitly quarantined rather than silently retried.
 
+Packaged acceptance teardown retains attributed nested failures and separate
+resource-reclamation evidence. A diagnostic/History failure still fails the case,
+but must not be mistaken for a surviving process when exact owned shutdown,
+reservation closure and profile removal are independently confirmed. Missing
+proof never authorizes lease release or qualification.
+
 Retained-listener delivery failures require renderer and Electron preload/event
 coverage: the failed pass has no new context references, prior completed-pass
 references remain visible, and capture cancellation is disabled without

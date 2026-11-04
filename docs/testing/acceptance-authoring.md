@@ -42,6 +42,9 @@ node .github/skills/author-integration-test/scripts/intake-project.mjs \
   directory, preserving relative paths; verifies source/copy hashes.
 - Reports external references without reading or copying those locations. Some
   references describe preset history, not required runtime files.
+- Intake permits up to 512 reference blocks including preset history; active
+  dependency admission remains capped at 128. This admits the supplied 808
+  Drum Rack's 230 reference blocks without discarding provenance.
 - Writes a bounded redacted inventory/report beside the copy and emits traced
   intake lifecycle events. Failed or cancelled partial copies remain for review.
 - Does not launch Live, check musical correctness, infer device companions,
@@ -50,6 +53,17 @@ node .github/skills/author-integration-test/scripts/intake-project.mjs \
 Registered fixtures support neutral `resource-NNN.wav`/AIFF filenames under
 `media/` or Live's `Samples/` directory hierarchy, including `Samples/Imported/`.
 Staging preserves those references and retains the same ownership/hash guards.
+
+Fixtures may pin licensed installation resources in `builtinResources` (up to
+32 files) and `coreLibraryResources` (up to 128 files). They are verified in the
+selected Live application's `Contents/App-Resources/Builtin` and
+`Contents/App-Resources/Core Library`, respectively, and never copied into
+fixture assets. Each declaration requires a safe relative path, exact byte size
+and SHA256; each library has a 64 MiB total and 16 MiB per-file bound. Saved
+reference type 7 is admitted only by a matching Builtin declaration; type 5 only
+by a matching Core Library declaration. Absolute fallback, undeclared samples,
+symlinks, missing files and changed hashes remain failures. The provisioning
+receipt records each checked library's inventory hash.
 
 ## Persistent outputs
 
@@ -261,9 +275,12 @@ ceiling. It rejects partial pages rather than borrowing audio metadata. This
 read is covered through production Electron IPC and attributed History using
 an owned simulator; it is not rendered-content or native timing proof. The
 driver rejects wrong-kind results for either audio- or MIDI-declared fixtures.
-Preflight also brackets a complete flat-device inventory around exact
-device-parameter reads: at most eight devices and 256 parameters per device,
-with no racks or drum-pad hierarchies. These are exposed message-rate values,
+Preflight brackets the complete top-level inventory around exact parameter
+reads: at most eight top-level devices and 256 parameters per device. Racks
+add a complete `devices.inspect` instrument tree, capped at 64 devices, four
+nested chain levels and 4,096 parameters. Regular/return chain ownership and
+drum-pad chain assignments, mute and solo are included in the reference-neutral
+fingerprint; both tree reads must agree. These are exposed message-rate values,
 not an atomic or opaque plugin-state dump. MIDI source declarations independently
 pin canonical note content and exposed instrument-chain hashes, and the runner
 checks those expectations at baseline, between capture turns and during final
@@ -607,7 +624,7 @@ snapshot track/clip/device identities and exposed mixer/routing fields, with
 scenes/Arrangement/cues when present; it does not enumerate every plug-in/device
 parameter. `source-settings` hashes exact source launch settings plus
 recording and either audio file identity/settings or canonical complete MIDI
-notes and exposed flat instrument-chain state from the typed source read.
+notes and exposed instrument-chain state from the typed source read.
 The registry checks
 explicitly named, observed scopes. Additional protected parameters require
 additional independent evidence, not an “all state unchanged” claim.
@@ -621,6 +638,19 @@ private scenario runner or a weaker oracle.
 
 ## Authoring versus execution
 
+For an approved MIDI intake, `PackagedAcceptanceDriver.reviewMidiSources`
+provides the separate read-only loaded review without invented expected
+instrument hashes. It uses the same owned processes, candidate binding and
+typed preflight as execution, submits no message, requires stopped transport,
+and returns observations for review. It does not qualify a scenario or weaken
+`readBaseline`'s execution-time comparison with independently frozen expectations.
+
+Bounded recursive instrument trees have a separate aggregate 4 MiB allowance
+in baseline evidence and the final receipt. Only the actual tree bytes receive
+this allowance; ordinary evidence, turn history and combined non-tree report
+limits remain unchanged. Oversized trees fail before submission rather than
+being truncated or represented by an unverifiable fingerprint alone.
+
 Authoring can prepare the owned copy as agreed and freeze reviewed assets.
 Execution only verifies the frozen baseline; it must not regenerate assets,
 seek transport, change quantization, repair sources, or revise expectations to
@@ -633,6 +663,199 @@ blocked test setup**, not product correctness evidence. Incomplete evidence,
 cleanup failures, and receipt persistence failures cannot be clean success.
 Preserve the first failure. Changing the oracle after a result requires renewed
 human review, not tuning to match the output.
+
+### Supplied Drum Rack: reproduction status and environment gap
+
+The registered `session-drum-rack-listening` case uses the user's unchanged Set
+and exact `listen to clip-1` prompt. Owned review
+`drum-rack-review-BWtxSz` on Live 11.3.43 confirmed 42 devices / 1,244 parameters,
+the four-beat MIDI content, One Bar quantization and saved nonzero stopped
+position before any agent capture.
+
+`run-quAx7U` was blocked before submission by the old 512 KiB baseline report
+cap: complete evidence was 681,620 bytes, including 669,410 bytes of bracketed
+instrument trees. That was a harness capacity error, not the reported spectrum
+failure. The separate bounded tree allowance preserves the complete evidence.
+
+`run-6JQUIX` executed one real Default-agent turn and completed all metrics:
+level 16/16, spectrum 43/43, attacks 19/19, 90,000 frames, no gaps, readable
+context and confirmed cleanup. Its final restart-context assertion failed
+because the scenario omitted the `persistence` capability, so no restart was
+requested. The manifest is corrected and offline validation now rejects this
+misconfiguration. This run is neither a spectrum reproduction nor a clean
+whole-scenario pass.
+
+After correcting that capability, `run-97pAoc` passed all five assertions,
+including the real owned restart, unchanged scopes and terminal cleanup. It
+again used the unchanged spectrum implementation and a shorter post-arm
+inspection (3,295.4 ms). This qualifies the fresh-copy contract only; it does not
+resolve the historical failure.
+
+The historical first failure and this successful capture used identical
+non-identity listener configurations except for stopped beat (0 versus
+37.36462209665335). The installed reader, native I/O, metric controller,
+spectrum collector and runtime JavaScript match the candidate byte-for-byte.
+The rebuilt codec differs in the new inspection schemas, not capture logic.
+Disk identity does not retroactively prove which companions Max had loaded
+in the historical process.
+
+| Observed interval | Historical first failure | Fresh-process successful capture |
+| --- | ---: | ---: |
+| Spectrum phase binding | 206 ms | 101 ms |
+| Post-arm source reinspection | 5,649.8 ms | 3,380.7 ms |
+| Session launch command | 1,259.2 ms | 916.5 ms |
+
+Both agents used the same listening operation and repeated `get-pass` reads.
+The slower historical interval includes longer real bridge requests and queue
+waits, including one additional background identity query. Its failure
+diagnostic proves retention overflow: 178 produced records, 146 forwarded,
+capacity 32, fault 1, with no source-window spectral records accepted. The
+second historical pass instead reports invalid DSP control, not just overflow.
+
+The fresh-process test currently verifies musical state and results, not
+equivalent scheduler timing, backlog, or request/acknowledgement interleavings.
+Successful runs do not retain the same detailed reader counters as failures.
+Shorter prelaunch exposure is a concrete candidate explanation, not a proven
+causal reproduction; neither repeated green runs nor a larger ring establishes
+the missing guarantee. A production-timing replay and bounded reader-state
+evidence are needed before claiming the original native defect fixed.
+
+For a bounded timing-only diagnostic, the same registered case accepts
+`--bridge-read-min-ms 550`. An owned loopback proxy forwards the real Live
+protocol bytes unchanged and imposes a minimum request-to-response duration
+only on source/pass/context/identity inspection reads. It does not synthesize
+responses, alter capture configuration, stress the CPU, or change the prompt,
+permissions or oracle. Authentication and mutation requests are not selected
+for pacing; downstream frame ordering is preserved.
+
+The option is explicit, limited to 1-1,000 ms and recorded as a diagnostic in
+the checkpoint, terminal receipt and CLI output. Bounded timing/lifecycle
+records are retained in `product-evidence.json` without arguments, tokens or
+response bodies. Proxy faults invalidate the run; cleanup closes its owned
+sockets and timers as well as the applications. A timed result qualifies only
+that recorded condition, not ordinary execution or arbitrary scheduler load.
+
+Timing diagnostic evidence:
+
+- `run-3sPqTz` passed the musical assertions but did **not** exercise pacing:
+  the proxy recorded zero tunnels/requests. The initial adapter supplied a
+  CLI-only environment variable, while Desktop reads its bridge port from
+  preferences. Preserve this receipt as an invalid timing experiment, not
+  evidence against a scheduling defect. The adapter now seeds only its owned
+  profile through the shared storage resolver and refuses submission without
+  a completed paced read.
+- Corrected `run-MmE4iY` on Live 11.3.43 recorded 50 paced reads, delivered
+  roundtrips 550.29-604.99 ms, and a 5.271-second post-arm inspection interval
+  (versus 3.30-3.38 seconds unpaced and 5.650 seconds in the historical failure).
+  All five unchanged assertions passed: complete three-metric capture over
+  90,000 samples, exactly one pass, retained context including owned restart,
+  and preserved source scopes. Proxy sockets, pending frames and pending bytes
+  were all zero after confirmed cleanup.
+- These runs used candidate `app.asar`
+  `7e1cbd38cbbf590f03a9eea25fe7a42a1e21b2c5e3665b8473ee18a57434ecf8`;
+  no spectrum fix was applied. All installed/candidate native DSP `.gendsp`
+  and `.maxpat` files match byte-for-byte; the canonical denoised top-level
+  AMXD graphs also match. This is disk evidence, not retrospective proof of
+  what the historical Max process had loaded.
+
+Pacing alone at this measured setting did not reproduce the native failure.
+It delays real responses without reproducing Max scheduler starvation or stale
+instance state, so neither is ruled out. The intended retained queue activates
+at arm, while the DSP clock can run from Set opening. No direct idle queue
+observation was captured in the historical instance: opening-time accumulation
+or startup/reset state must not be dismissed solely from intended code.
+
+Final-source rebuild status: workspace build, full typechecks and the 1,181-test
+owning sweep passed. Rebuilt candidate `app.asar`
+`3d58c6baecf356eabfebee47babfed728017dffcc27d634d5328bf440842b340`
+then hit a pre-submission Desktop `firstWindow` timeout in `run-kpxm8W`.
+Its terminal cleanup verdict is failed and remains failed; subsequent process
+inspection found neither its recorded Live PID nor its candidate Desktop
+process running, and its isolated profile had been removed. No listening
+message was submitted. The owning packaged-only launch diagnostic passed on
+that same binary, without Live or a listening message; it does not requalify
+the failed acceptance run. The related stopped-quantized MIDI case was not
+executed because the selected sequence stopped at this failure. Earlier
+successful captures remain evidence for their recorded candidate, not a
+red-to-green fix or qualification of this final-source rebuild.
+
+### Demonstrated native mechanisms and controlled real red/green
+
+The next investigation separated bridge response latency from **Max's own
+descriptor polling cadence**. The former had not reproduced failure. The latter
+did: with an explicitly diagnostic 30 ms spectrum timer, the unchanged
+`session-drum-rack-listening` scenario failed in `run-EeD9MI`. Its actual Max
+readbacks progressed from backlog 0 to 12 to 22 to 32 and fault 1 during
+post-arm inspection, before playback. The agent obtained a partial result;
+acceptance rejected it and confirmed cleanup. No response, audio, model turn,
+metric expectation or permission was mocked or changed.
+
+Two separate real counter-bookended reads now execute within each spectrum
+timer callback, rather than requiring another low-priority timer turn to settle
+one descriptor. The same 30 ms condition passed in `run-c0ybSQ`: all three
+metrics complete, 90,000 samples, exactly one pass, original context after
+restart, unchanged scopes, and terminal cleanup. Sampled backlog remained 1.
+This is a controlled reproduction of the historical overflow mechanism, not
+proof that the historical process had an exact 30 ms cadence. Production's
+10 ms timer is restored; only the paired real acquisitions remain.
+
+The paired runs used identical controller and reader bytes:
+
+| Resource | SHA256 |
+| --- | --- |
+| Controller | `e853eed41888366c89689347b57113c962ee91c135b0994aa24b8465daf61d48` |
+| Reader | `a4a33aef64281e35b44a193738261d17f928c93438fd773d84e71ebde13f4f82` |
+| Red analysis graph | `ba16858d0a097700e061b05410e454ba9634fa504227e93cc7f8de33fd36d1c2` |
+| Green analysis graph | `8a9c277374191c0e42773d425c0f796d6d4fb731afc9e59d0376337ee4481bfd` |
+
+The reader pin includes an independently demonstrated ACK-ordering fix. Before
+that fix, the reader could consume a settled next slot while the prior ACK was
+still unapplied in DSP, then issue an ACK that skipped the last executed value.
+The actual generated Gen program rejects that sequence with fault 2. The reader
+now waits for executed ACK readback, retaining immutable-slot, cancellation and
+sequence guards. This matches a possible mechanism for the historical second
+failure; the historical rejected request/ACK tuple was not retained, so exact
+retrospective attribution remains unavailable.
+
+The automatic coverage gap was execution-condition coverage: ordinary
+fresh-process scenarios exercised the real Default agent and real Max at a
+healthy cadence, but did not deliberately exercise delayed native settlement.
+Their completeness oracle was correct. The new source fixture and a
+production-graph-linked six-second/30 ms controller regression retain the
+coverage; the physical adverse-condition receipts preserve the real-host proof.
+The ordinary fresh-process fixture alone is not a deterministic reproduction of
+scheduler jitter. The temporary 30 ms device-build variant is diagnostic and is
+not the production default or a separate registered scenario.
+
+Native lifecycle evidence now includes bounded success-path retention counters
+once per second and the immediate rejected row on failure. `run-VKcIuz` observed
+an initial zero-owner/zero-backlog row and then fresh epoch-one production,
+despite the Set already having been open: opening-time accumulation was not
+carried into that first capture.
+
+Keychain qualification is separate. `run-7Tr4X5` also failed before submission;
+the existing packaged OS-vault diagnostic isolated its main-thread block to
+`SecKeychainFindGenericPassword`/SecurityServer decryption. Its owned process was
+terminated by the existing cleanup policy. No OS authorization or mock keychain
+was supplied. The later listening replays used the existing, real Remote Script
+token through the supported environment credential source, never persisted in
+receipts. They prove authenticated listening, not successful vault startup.
+
+Final production-cadence validation on Live 11.3.43:
+
+| Scenario | Receipt | Result |
+| --- | --- | --- |
+| `session-drum-rack-listening` | `run-Amnyfh` | Five assertions passed; one complete three-metric capture, 90,000 samples, original context after owned restart, unchanged scopes and cleanup. |
+| `session-stopped-quantized-midi` | `run-YcdEAB` | Four assertions passed; one complete three-metric capture, 90,000 samples, retained context, unchanged scopes and cleanup. |
+
+Both used packaged analysis graph
+`b5aaf07307836f8c721d45b586545fe72aaaa75bb41d11061aecf012de5eb075`
+with the restored `qmetro 10 @active 0`, controller/reader pins above, and
+`app.asar` `3d58c6baecf356eabfebee47babfed728017dffcc27d634d5328bf440842b340`.
+The full native owning suite passed 731 tests after restoration; the acceptance,
+protocol, application and integration owning sweep passed 1,181 tests, with full
+workspace typechecks/build and changed-code lint. The user's installed
+application/listener was not replaced by these candidates.
 
 The retention contract keeps successful and failed allowlisted project
 resources: declared fixture resources, `prepared.als` when listener bindings are

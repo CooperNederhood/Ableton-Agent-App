@@ -29,6 +29,21 @@ const connected = (doc, source, outlet, target, inlet = 0) =>
       JSON.stringify(p.destination) === JSON.stringify([target, inlet]),
   );
 
+test("one spectrum timer tick requests two real counter-bookended acquisitions", () => {
+  const analysis = nativeRuntimeDocuments({ nativeVersion: 5 })[
+    "audio_listener_native_analysis.maxpat"
+  ];
+  const pair = boxes(analysis).get("metricSpectrumReadPair");
+  assert.equal(pair?.text, "trigger b b");
+  assert.equal(pair.numoutlets, 2);
+  assert(
+    connected(analysis, "metricSpectrumPoll", 0, "metricSpectrumReadPair"),
+  );
+  for (const outlet of [0, 1])
+    assert(connected(analysis, "metricSpectrumReadPair", outlet, "fft", 4));
+  assert(!connected(analysis, "metricSpectrumPoll", 0, "fft", 4));
+});
+
 const obsoleteParentIds = new Set([
   "threshold",
   "thresholdMsg",
@@ -126,7 +141,11 @@ test("FFT ownership controls exactly one parent scheduler and preserves cleanup 
     connected(analysis, "metricSpectrumMessages", 0, "metricSpectrumPoll"),
   );
   assert(connected(analysis, "metricSpectrumMessages", 1, "nativeMessages"));
-  assert(connected(analysis, "metricSpectrumPoll", 0, "fft", 4));
+  assert(
+    connected(analysis, "metricSpectrumPoll", 0, "metricSpectrumReadPair"),
+  );
+  assert(connected(analysis, "metricSpectrumReadPair", 0, "fft", 4));
+  assert(connected(analysis, "metricSpectrumReadPair", 1, "fft", 4));
   for (const { patchline } of analysis.patcher.lines) {
     if (
       patchline.source[0] === "metricEmergency" &&
@@ -357,7 +376,9 @@ test("v5 preserves retained FFT computation with coherent silence and a counter 
   assert(connected(graph, "collector", 2, "metricPollRoute"));
   assert(connected(graph, "metricPollRoute", 0, "pollOrder"));
   assert(connected(graph, "metricPollRoute", 1, "metricSpectrumPoll"));
-  assert(connected(graph, "metricSpectrumPoll", 0, "fft", 4));
+  assert(connected(graph, "metricSpectrumPoll", 0, "metricSpectrumReadPair"));
+  assert(connected(graph, "metricSpectrumReadPair", 0, "fft", 4));
+  assert(connected(graph, "metricSpectrumReadPair", 1, "fft", 4));
   assert.equal(b.get("metricSpectrumPoll").text, "qmetro 10 @active 0");
   for (const { patchline: p } of graph.patcher.lines) {
     assert(b.has(p.source[0]), p.source[0]);

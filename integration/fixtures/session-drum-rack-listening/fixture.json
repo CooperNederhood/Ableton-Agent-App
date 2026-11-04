@@ -1,0 +1,423 @@
+{
+  "schemaVersion": 1,
+  "id": "session-drum-rack-listening",
+  "qualification": "reviewed-live",
+  "provenance": {
+    "ownership": "user-authorized",
+    "description": "User-supplied failing Drum Rack Set approved for unchanged copy-only intake and exact one-turn 'listen to clip-1' regression. Source SHA256 0f5103e1a8879eaa0a15c177db0830cd7944e067e9d5d270870ddae8718ad318. Separate read-only owned Live 11.3.43 review 3f35019d-f779-4d55-84a0-3e363666b3f6 established stopped beat 37.36462209665335, One Bar global and clip quantization, remembered target slot, recording off, 42 instrument-tree devices and 1244 parameters before any agent capture. Saved/loaded MIDI agrees: pitch 36 at beats 0,1,2,3, duration 0.25, velocity 100, unmuted. Factory Core Library samples and Builtin IRs remain licensed installation prerequisites, never redistributed. Original return tracks, including Eventide Blackhole, are retained. Listener binding alone is replaced with the production candidate. Registration is not product qualification."
+  },
+  "resources": [
+    {
+      "path": "project.als",
+      "target": "project.als",
+      "bytes": 152875,
+      "sha256": "0f5103e1a8879eaa0a15c177db0830cd7944e067e9d5d270870ddae8718ad318"
+    }
+  ],
+  "dependencies": ["machine-listening"],
+  "listenerBindings": [
+    {
+      "slot": "MidiTrack:175/DeviceChain/DeviceChain/Devices/MxDeviceAudioEffect:1",
+      "sourcePath": "Presets/Audio Effects/Max Audio Effect/Machine-Listening-Development/Machine-Listening-Development.amxd",
+      "dependency": "machine-listening",
+      "trackIndex": 0,
+      "deviceIndex": 1
+    }
+  ],
+  "builtinResources": [
+    {
+      "path": "Samples/Hybrid/ImpulseResponses/Hybrid_Made_for_Drums_Live Studio Room L.wav",
+      "bytes": 146336,
+      "sha256": "1ebc0e8ea6699f8c06d50732722243b299efe2b14f4ccb8434cee983e9886b2b"
+    },
+    {
+      "path": "Samples/Hybrid/ImpulseResponses/Hybrid_Made_for_Drums_Live Studio Room R.wav",
+      "bytes": 146336,
+      "sha256": "2dd792207dc2a816abb46a5a6e28dee953bb245b6127592047673b5c8987bc84"
+    }
+  ],
+  "coreLibraryResources": [
+    {
+      "path": "Samples/Multisamples/Drum Machines/808/Kick 808 Tone1.wav",
+      "bytes": 57132,
+      "sha256": "96ed22a0e6a2113e5245f4bb7b75cb53a9861ff74f70fa7a4c91ed40f16005b4"
+    },
+    {
+      "path": "Samples/Multisamples/Drum Machines/808/Kick 808 Tone1 f.wav",
+      "bytes": 149828,
+      "sha256": "67526f9fd62b0f340fd5bb9d63e34db2832b37d2bbc5067e05e9ab29022886c9"
+    },
+    {
+      "path": "Samples/Multisamples/Drum Machines/808/Kick 808 Tone1 k.wav",
+      "bytes": 326528,
+      "sha256": "90b83d0c1937d71329a0e1f665d64bfc5e95eee458fd39845f2d414096f4054c"
+    },
+    {
+      "path": "Samples/Multisamples/Drum Machines/808/Kick 808 Tone1 p.wav",
+      "bytes": 579180,
+      "sha256": "0d1793d514608a242cb9e3ff5706e84baddd7d8b20bf2d85f3465e0136337808"
+    },
+    {
+      "path": "Samples/Multisamples/Drum Machines/808/Kick 808 Tone1 t.wav",
+      "bytes": 825452,
+      "sha256": "5d235d813f153437cd905e4a78676d06ea56a23d4a9de5bc0762837957ba85f6"
+    },
+    {
+      "path": "Samples/Multisamples/Drum Machines/808/Kick 808 Tone5.wav",
+      "bytes": 58256,
+      "sha256": "f80ceb7b0cf3006d49e4d9a70df07b7d9e74ae333c278176a33b41bd52ba38fb"
+    },
+    {
+      "path": "Samples/Multisamples/Drum Machines/808/Kick 808 Tone5 f.wav",
+      "bytes": 176516,
+      "sha256": "bf4b22c023cf078b8cc00c8fcd682507f66f73443c5a508e21686eef8745eed9"
+    },
+    {
+      "path": "Samples/Multisamples/Drum Machines/808/Kick 808 Tone5 k.wav",
+      "bytes": 385296,
+      "sha256": "2344428afbc51b081cfbf28777c645a7687efeb22fbec1e05218a02775ea6ec8"
+    },
+    {
+      "path": "Samples/Multisamples/Drum Machines/808/Kick 808 Tone5 p.wav",
+      "bytes": 651254,
+      "sha256": "7f7fa96587fcc689cf8c042e0bc39b15a77d6013aff39e5297b0f6a296b7237d"
+    },
+    {
+      "path": "Samples/Multisamples/Drum Machines/808/Kick 808 Tone5 t.wav",
+      "bytes": 498818,
+      "sha256": "88eb36c7f82f71255950b65b4604cad9afa300dfadd07fa793663a5ee74e90bf"
+    },
+    {
+      "path": "Samples/Multisamples/Drum Machines/808/Kick 808 Tone8.wav",
+      "bytes": 65898,
+      "sha256": "0b73b37d149a4d9f1ed8c860ecf5afbdc7ec1702a5e4e0b275382e6604fa9747"
+    },
+    {
+      "path": "Samples/Multisamples/Drum Machines/808/Kick 808 Tone8 f.wav",
+      "bytes": 168248,
+      "sha256": "e5d0cd859b55e0ae270822617bdf3370aafc11d27c6f0b6a325e025d42319092"
+    },
+    {
+      "path": "Samples/Multisamples/Drum Machines/808/Kick 808 Tone8 k.wav",
+      "bytes": 345110,
+      "sha256": "96a5132120113bb70accbfa941ddcda344b28f930f629b91a93ebeacba5157fe"
+    },
+    {
+      "path": "Samples/Multisamples/Drum Machines/808/Kick 808 Tone8 p.wav",
+      "bytes": 612834,
+      "sha256": "5fd527f950655efa3e6da0cdee1efc679c028c60db6288673dcdb26458a81d0f"
+    },
+    {
+      "path": "Samples/Multisamples/Drum Machines/808/Kick 808 Tone8 t.wav",
+      "bytes": 752276,
+      "sha256": "5863997718768d5f6238e18b30db82c43b62f8965282d4926b4134aa6f064258"
+    },
+    {
+      "path": "Samples/Multisamples/Drum Machines/808/Kick 808 Tone11.wav",
+      "bytes": 204390,
+      "sha256": "b1196313b4a07af6a1e37848b1f17cecaf1ccb499cc4e6c531c038edbd603bc5"
+    },
+    {
+      "path": "Samples/Multisamples/Drum Machines/808/Kick 808 Tone11 f.wav",
+      "bytes": 158208,
+      "sha256": "7e1a1d19eb0747daedace79a0a0f46deb0454f27dbd90df1bc10582b8264580d"
+    },
+    {
+      "path": "Samples/Multisamples/Drum Machines/808/Kick 808 Tone11 k.wav",
+      "bytes": 379242,
+      "sha256": "9f6449676ba8fa312acb2060c217ad2bbaf04db07857d8aba4602ffca37f3ad2"
+    },
+    {
+      "path": "Samples/Multisamples/Drum Machines/808/Kick 808 Tone11 p.wav",
+      "bytes": 594408,
+      "sha256": "8e84eb3b93158831d40d01e1eb0ecb637c5dad3c9e426144674e3bc8c890b368"
+    },
+    {
+      "path": "Samples/Multisamples/Drum Machines/808/Kick 808 Tone11 t.wav",
+      "bytes": 743154,
+      "sha256": "c2dab02eb2302e770cc74efeee9a280c084544e9530cb98be41b32e22fd38095"
+    },
+    {
+      "path": "Samples/One Shots/Drums/Rim/Rim 808.aif",
+      "bytes": 7551,
+      "sha256": "fc1bdee6f494713a6c80b80780c7b985fd046a05f3b7d498446825c59f77bd06"
+    },
+    {
+      "path": "Samples/Multisamples/Drum Machines/808/Snare 808 Tone1.wav",
+      "bytes": 82508,
+      "sha256": "0e64666de7b2deb1647df857a1b4023ac03f72df6518826bf5c0db920f4b5246"
+    },
+    {
+      "path": "Samples/Multisamples/Drum Machines/808/Snare 808 Tone1 f.wav",
+      "bytes": 82236,
+      "sha256": "68a3cdc8a0d66c06c94951f739b2d9e6bea2d461fa6d1f543aa3b448a2c33d24"
+    },
+    {
+      "path": "Samples/Multisamples/Drum Machines/808/Snare 808 Tone1 k.wav",
+      "bytes": 85184,
+      "sha256": "b81d7a1602bca89d101492f93e105b7e76d538cace099befa7602ceb650e6801"
+    },
+    {
+      "path": "Samples/Multisamples/Drum Machines/808/Snare 808 Tone1 p.wav",
+      "bytes": 86934,
+      "sha256": "065629c6fd9860279c922f80935e44136cb900d407eacb0f41613667c9a5c73f"
+    },
+    {
+      "path": "Samples/Multisamples/Drum Machines/808/Snare 808 Tone1 u.wav",
+      "bytes": 65202,
+      "sha256": "eec4f0d3c42786fe8438b5020c45501e5fb8d82f80619b805e52de35cbdb28a5"
+    },
+    {
+      "path": "Samples/Multisamples/Drum Machines/808/Snare 808 Tone5.wav",
+      "bytes": 73778,
+      "sha256": "d476a85be61f9f8c30d43a7651e1f78ee86ad00cf7527693472c230242120082"
+    },
+    {
+      "path": "Samples/Multisamples/Drum Machines/808/Snare 808 Tone5 f.wav",
+      "bytes": 74354,
+      "sha256": "87f551ec1a945f6547aeab74bc84a889e8b8c3b0c0a60e5c68c00369ea64b6dd"
+    },
+    {
+      "path": "Samples/Multisamples/Drum Machines/808/Snare 808 Tone5 k.wav",
+      "bytes": 64128,
+      "sha256": "ac367825241367b3fbeaff530a7e2b9d7c8a5e4dc02fe33dfa7171dd96112115"
+    },
+    {
+      "path": "Samples/Multisamples/Drum Machines/808/Snare 808 Tone5 p.wav",
+      "bytes": 56240,
+      "sha256": "b273c120d9ab6f60bc24beaebb2572bb43fc8c4763a960d21f9b32a9e1283492"
+    },
+    {
+      "path": "Samples/Multisamples/Drum Machines/808/Snare 808 Tone5 u.wav",
+      "bytes": 56292,
+      "sha256": "85c82b6e58ca817dffe26a531aa466a1552da0501170ef9821b39bc44b25e11b"
+    },
+    {
+      "path": "Samples/Multisamples/Drum Machines/808/Snare 808 Tone8.wav",
+      "bytes": 64940,
+      "sha256": "35ef95c91e62e9f2ede548a7ff7046adc3ce350f257f41a8c615b07117a3bca4"
+    },
+    {
+      "path": "Samples/Multisamples/Drum Machines/808/Snare 808 Tone8 f.wav",
+      "bytes": 51398,
+      "sha256": "95b38b6f728d9a80446aec74b9571f6dac542b895db71bceab101007bd44ed7e"
+    },
+    {
+      "path": "Samples/Multisamples/Drum Machines/808/Snare 808 Tone8 k.wav",
+      "bytes": 51914,
+      "sha256": "1fb8cab8f56b9f94035a7c31ea7c55dd1e30d7437536bbd30cf258a34fadb29c"
+    },
+    {
+      "path": "Samples/Multisamples/Drum Machines/808/Snare 808 Tone8 p.wav",
+      "bytes": 54954,
+      "sha256": "05d04d8889a2d8a1d81483970e0f1a4695cc5cd95b37075b09dc97bd13491c13"
+    },
+    {
+      "path": "Samples/Multisamples/Drum Machines/808/Snare 808 Tone8 u.wav",
+      "bytes": 56972,
+      "sha256": "ca6ce3d8a0a31a487f69ec11490ac9cf156aea4f566c67871e5b03eef6532cf5"
+    },
+    {
+      "path": "Samples/Multisamples/Drum Machines/808/Snare 808 Tone11.wav",
+      "bytes": 91064,
+      "sha256": "1778e62ec734b8e01d6b32af152966829b806c8dcbc204c628786fb379607e27"
+    },
+    {
+      "path": "Samples/Multisamples/Drum Machines/808/Snare 808 Tone11 f.wav",
+      "bytes": 54978,
+      "sha256": "96ae0efdae7f7ac30d3f245e25afc7e258c41488df707d0ebe6459c30d1e22af"
+    },
+    {
+      "path": "Samples/Multisamples/Drum Machines/808/Snare 808 Tone11 k.wav",
+      "bytes": 48990,
+      "sha256": "98eec911d85df9b7adbd1ebd4f0250fa2ef5246a81c3268b967fdd60e649dea4"
+    },
+    {
+      "path": "Samples/Multisamples/Drum Machines/808/Snare 808 Tone11 p.wav",
+      "bytes": 55602,
+      "sha256": "4fecbd71c27418d8e48985bd24b5507fde90f1ca55fbbf9cf3467dd89547101d"
+    },
+    {
+      "path": "Samples/Multisamples/Drum Machines/808/Snare 808 Tone11 u.wav",
+      "bytes": 41222,
+      "sha256": "1e2fa892c6fbfc1ed14fd62349e3b09350456a8ba55dade87c3d83e5f5b7a3f6"
+    },
+    {
+      "path": "Samples/One Shots/Drums/Clap/Clap 808.aif",
+      "bytes": 66520,
+      "sha256": "adb4082d6595f3fbe529ca22008196d5889f6dbaf24380c342021ef3727d735d"
+    },
+    {
+      "path": "Samples/One Shots/Drums/Conga/Conga 808 Low.aif",
+      "bytes": 114678,
+      "sha256": "96ee6c7dd47ad309811af5aebd6088ae354e8a1b13a4157641b712e4097b78f7"
+    },
+    {
+      "path": "Samples/One Shots/Drums/Conga/Conga 808 Mid.aif",
+      "bytes": 66768,
+      "sha256": "4365cc52d65da0af1f7801a78785feabaeb7c6554758d51dd119782fd202524d"
+    },
+    {
+      "path": "Samples/One Shots/Drums/Hihat/Hihat Closed 808.aif",
+      "bytes": 50694,
+      "sha256": "53368a775514f8360675291d4107fa922b1d5e68f757f481b137f3d9c1f6763a"
+    },
+    {
+      "path": "Samples/One Shots/Drums/Conga/Conga 808 Hi.aif",
+      "bytes": 62666,
+      "sha256": "f73037f2939cba19db1e7e18126ccfab5622d622d9f35a54a050a71a6a232a71"
+    },
+    {
+      "path": "Samples/One Shots/Drums/Shaker/Maracas 808.wav",
+      "bytes": 25832,
+      "sha256": "e3c7983b384d7788cb65dd3d67e45110c43e0f9ca851abdded2c646c5764b04e"
+    },
+    {
+      "path": "Samples/One Shots/Drums/Tom/Tom 808 Low.aif",
+      "bytes": 225186,
+      "sha256": "3ecfbe7631ddabbee81002f14c83cb9adf6fbbf0b22436eedaea24f329d5c82d"
+    },
+    {
+      "path": "Samples/One Shots/Drums/Hihat/Hihat Open 808.aif",
+      "bytes": 234472,
+      "sha256": "b0901963a663851b3fa0b58bdbde8b7081bd21d68405c80f343a875dfeaed20e"
+    },
+    {
+      "path": "Samples/One Shots/Drums/Tom/Tom 808 Mid.aif",
+      "bytes": 106236,
+      "sha256": "cb25a1346a063d919cc1d22644571875462f530d2b6a769b17e8d94685460cff"
+    },
+    {
+      "path": "Samples/One Shots/Drums/Tom/Tom 808 Hi.aif",
+      "bytes": 94226,
+      "sha256": "49000f082984dca0e913fc29f825b922ea6294f565732530cd0d3182e957c12b"
+    },
+    {
+      "path": "Samples/Multisamples/Drum Machines/808/Cymbal 808 Tone1.wav",
+      "bytes": 270980,
+      "sha256": "330ac2f9e9352ad63c6891b203d44fef118a216b09d94b09556a77a800d1409b"
+    },
+    {
+      "path": "Samples/Multisamples/Drum Machines/808/Cymbal 808 Tone1 e.wav",
+      "bytes": 620258,
+      "sha256": "cc0016c2f61144e73b2d8bd710be03c4ae64e91e538e7b19ef965ba7604b3cff"
+    },
+    {
+      "path": "Samples/Multisamples/Drum Machines/808/Cymbal 808 Tone1 h.wav",
+      "bytes": 1032134,
+      "sha256": "eb0a7302e6e863289f6a3a1e6047e631698a3562b9c5848b60ce3b283f116ed1"
+    },
+    {
+      "path": "Samples/Multisamples/Drum Machines/808/Cymbal 808 Tone1 k.wav",
+      "bytes": 1208408,
+      "sha256": "964249d63d26f6639ec60d91d5f18d787134414dcc1998828ad23b14b1559ac2"
+    },
+    {
+      "path": "Samples/Multisamples/Drum Machines/808/Cymbal 808 Tone5.wav",
+      "bytes": 306462,
+      "sha256": "e216cad507f506b67eb74ccc512c76a6a29094a7ff40610bf499575d723abd8a"
+    },
+    {
+      "path": "Samples/Multisamples/Drum Machines/808/Cymbal 808 Tone5 e.wav",
+      "bytes": 646602,
+      "sha256": "48ab945da00add846aabb16505db12f0503df784a81ac4c4e62fa64f8872bf7d"
+    },
+    {
+      "path": "Samples/Multisamples/Drum Machines/808/Cymbal 808 Tone5 h.wav",
+      "bytes": 1001384,
+      "sha256": "35e486e783fb14d1106e50c8eda02941d7f3059a44ed11da42c887e971532d44"
+    },
+    {
+      "path": "Samples/Multisamples/Drum Machines/808/Cymbal 808 Tone5 k.wav",
+      "bytes": 1124042,
+      "sha256": "9301848fe8a9939c46de763bf154cecf73b06d4a0309fe8efa2afa4730797ba3"
+    },
+    {
+      "path": "Samples/Multisamples/Drum Machines/808/Cymbal 808 Tone8.wav",
+      "bytes": 603054,
+      "sha256": "586f8b90058ebf4170d779408f4d196326f440c44507e87f47b25bb0fa81da4a"
+    },
+    {
+      "path": "Samples/Multisamples/Drum Machines/808/Cymbal 808 Tone8 e.wav",
+      "bytes": 829164,
+      "sha256": "2021fc7e4d6ab0e460152ab09d1a170b6a4df62902bc2caaf83ce910034568f0"
+    },
+    {
+      "path": "Samples/Multisamples/Drum Machines/808/Cymbal 808 Tone8 h.wav",
+      "bytes": 1130798,
+      "sha256": "46de12b79bff9b5d887db7974958346e6fb4ff5db5fa05e54943fcbd29676318"
+    },
+    {
+      "path": "Samples/Multisamples/Drum Machines/808/Cymbal 808 Tone8 k.wav",
+      "bytes": 1361162,
+      "sha256": "ac3e15b1bac5304380da328c2fd1f6116009f17ca0bd228694dd1f2f4ca5eb4e"
+    },
+    {
+      "path": "Samples/Multisamples/Drum Machines/808/Cymbal 808 Tone11.wav",
+      "bytes": 488300,
+      "sha256": "c54d14f322fe4c5d5380c753e7f67b001c0d828cac98517dbff1a094cef5a0ec"
+    },
+    {
+      "path": "Samples/Multisamples/Drum Machines/808/Cymbal 808 Tone11 e.wav",
+      "bytes": 802844,
+      "sha256": "9dd5ae5c88ee24083915aa1ce6cc72a53a5c60c63038a296b6a38d306006525e"
+    },
+    {
+      "path": "Samples/Multisamples/Drum Machines/808/Cymbal 808 Tone11 h.wav",
+      "bytes": 1042082,
+      "sha256": "c4bb5e8b59cbbd2771e4830abcd2dede04356013223d7dc3c56fccd958de0ec1"
+    },
+    {
+      "path": "Samples/Multisamples/Drum Machines/808/Cymbal 808 Tone11 k.wav",
+      "bytes": 1258442,
+      "sha256": "1f2896f86ac568f4bbc9f1c8c0108b2d389b3c73f24d15d89bbc8494324a48c8"
+    },
+    {
+      "path": "Samples/One Shots/Drums/Bell/Cowbell 808.aif",
+      "bytes": 97084,
+      "sha256": "362d0826208551f67a2e14671eb43c8a9acb0299eb3f62b1fe11948c06b114ec"
+    },
+    {
+      "path": "Samples/One Shots/Drums/Wood/Clave 808.aif",
+      "bytes": 28234,
+      "sha256": "109ced767d9e16b0a3ccfdca645663700256329d7feb680adeffa2315d9d1b65"
+    }
+  ],
+  "sources": [
+    {
+      "id": "a",
+      "trackName": "1-808 Core Kit",
+      "trackIndex": 0,
+      "clipName": "clip-1",
+      "sceneIndex": 0,
+      "listenerBindingSlot": "MidiTrack:175/DeviceChain/DeviceChain/Devices/MxDeviceAudioEffect:1",
+      "midi": {
+        "notesSha256": "22d3ac8361280eb205896874ededa8a2caea84cc804c04fa7db3432b561aae94",
+        "instrumentChainSha256": "a52ee81b67e438a538ee90817b1fc2bf1fea8e6ee0812423e08d9d9cbbc78af4"
+      }
+    }
+  ],
+  "baseline": {
+    "tempo": 128,
+    "globalQuantization": "bar",
+    "clipLaunchQuantization": "bar",
+    "transportPlaying": false,
+    "currentSongTime": 37.36462209665335,
+    "playingSessionClips": 1,
+    "rememberedSessionClips": 1,
+    "queuedSessionClips": 0,
+    "recording": false,
+    "arrangementRecord": false,
+    "sessionRecord": false,
+    "signatureNumerator": 4,
+    "signatureDenominator": 4,
+    "clipStart": 0,
+    "loopStart": 0,
+    "loopEnd": 4,
+    "activeLengthBeats": 4,
+    "launchMode": "trigger",
+    "legato": false,
+    "followActionsEnabled": false,
+    "listenerBoundToSource": true
+  }
+}

@@ -216,11 +216,11 @@ def _device_enabled(device):
 
 
 def _device_summary(
-    context, track_reference, track_index, device_index, device
+    context, track_reference, track_index, device_index, device, reference=None
 ):
     parameters = getattr(device, "parameters", ())
     return {
-        "reference": _device_reference(context, device),
+        "reference": reference if reference is not None else _device_reference(context, device),
         "trackReference": track_reference,
         "trackIndex": track_index,
         "index": device_index,
@@ -320,12 +320,91 @@ def _validate_page(params, maximum):
 def _inspect_devices_params(params):
     from .system_commands import _validate_track_target
 
-    message = _validate_track_target(params, ["offset", "limit"])
+    message = _validate_track_target(params, ["offset", "limit", "includeInstrumentTree"])
     if message:
         return message
     if not _validate_page(params, DEVICE_PAGE_LIMIT):
         return "offset and limit must describe a bounded device page"
+    if "includeInstrumentTree" in params and not isinstance(params["includeInstrumentTree"], bool):
+        return "includeInstrumentTree must be a boolean"
+    if params.get("includeInstrumentTree") and params.get("offset", 0) != 0:
+        return "Instrument tree requires the complete top-level inventory"
     return None
+
+
+def _instrument_tree(context, track, track_index, devices):
+    nodes = []
+    visited = []
+    parameter_count = [0]
+    track_reference = _track_reference(context, track)
+
+    def visit(device, path, index, depth):
+        if depth > 4 or len(nodes) >= 64 or any(
+            _same_lom_object(device, old) for old in visited
+        ):
+            raise ProtocolFailure("conflict", "Instrument tree exceeds depth/count or repeats a device")
+        visited.append(device)
+        parameters = list(getattr(device, "parameters", ()))
+        parameter_count[0] += len(parameters)
+        if len(parameters) > 256 or parameter_count[0] > 4096:
+            raise ProtocolFailure("conflict", "Instrument tree parameter bound exceeded")
+        reference = (
+            _device_reference(context, device) if depth == 0 else
+            _runtime_reference(context, "_instrument_tree_device_references", device, None)
+        )
+        parameter_references = _runtime_references(
+            context, "_instrument_tree_parameter_references", parameters, None
+        )
+        chains = []
+        if bool(getattr(device, "can_have_chains", False)):
+            for kind, attribute in (("c", "chains"), ("r", "return_chains")):
+                for chain_index, chain in enumerate(getattr(device, attribute, ())):
+                    chains.append((path + "/" + kind + str(chain_index), chain))
+        if len(chains) > 64:
+            raise ProtocolFailure("conflict", "Instrument tree chain bound exceeded")
+        pads = []
+        if bool(getattr(device, "can_have_drum_pads", False)):
+            source_pads = list(getattr(device, "drum_pads", ()))
+            if len(source_pads) > 128:
+                raise ProtocolFailure("conflict", "Instrument tree pad bound exceeded")
+            for pad in source_pads:
+                pad_chains = list(getattr(pad, "chains", ()))
+                chain_paths = []
+                for pad_chain in pad_chains:
+                    matching = [key for key, chain in chains if _same_lom_object(chain, pad_chain)]
+                    if len(matching) != 1:
+                        raise ProtocolFailure("conflict", "Drum pad chain does not belong to rack inventory")
+                    chain_paths.append(matching[0])
+                pads.append({
+                    "note": getattr(pad, "note", None),
+                    "name": getattr(pad, "name", "") or "",
+                    "mute": bool(getattr(pad, "mute", False)),
+                    "solo": bool(getattr(pad, "solo", False)),
+                    "chainPaths": chain_paths,
+                })
+        children = [(key, chain, list(getattr(chain, "devices", ()))) for key, chain in chains]
+        if any(len(items) > 64 for _key, _chain, items in children):
+            raise ProtocolFailure("conflict", "Instrument tree child inventory bound exceeded")
+        nodes.append({
+            "path": path,
+            "device": _device_summary(context, track_reference, track_index, index, device, reference),
+            "parameters": [
+                _parameter_summary(context, reference, pindex, parameter, pref)
+                for pindex, (parameter, pref) in enumerate(zip(parameters, parameter_references))
+            ],
+            "chains": [
+                {"path": key, "name": getattr(chain, "name", "") or "", "deviceCount": len(items)}
+                for key, chain, items in children
+            ],
+            "pads": pads,
+        })
+        for key, _chain, items in children:
+            for child_index, child in enumerate(items):
+                visit(child, key + "/" + str(child_index), child_index, depth + 1)
+
+    for index, device in enumerate(devices):
+        visit(device, str(index), index, 0)
+    return nodes
 
 
 def inspect_devices(context, params):
@@ -334,7 +413,7 @@ def inspect_devices(context, params):
     track_reference = _track_reference(context, track)
     offset = params["offset"]
     limit = params["limit"]
-    return {
+    result = {
         "devices": [
             _device_summary(
                 context,
@@ -351,6 +430,11 @@ def inspect_devices(context, params):
         "offset": offset,
         "limit": limit,
     }
+    if params.get("includeInstrumentTree"):
+        if offset != 0 or len(devices) > limit:
+            raise ProtocolFailure("conflict", "Instrument tree requires the complete top-level inventory")
+        result["instrumentTree"] = _instrument_tree(context, track, params["index"], devices)
+    return result
 
 
 def _validate_device_target(params, extra_keys=None):

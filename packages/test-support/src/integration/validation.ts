@@ -242,6 +242,7 @@ export function validateFixture(
     "listenerBindings",
     "sources",
     "builtinResources",
+    "coreLibraryResources",
     "baseline",
   ]);
   requireCondition(value.schemaVersion === 1, "Unsupported fixture version");
@@ -387,11 +388,13 @@ export function validateFixture(
     unique(ids);
     unique(selectors);
   }
-  if (value.builtinResources !== undefined) {
-    list(value.builtinResources, 32);
+  for (const library of ["builtinResources", "coreLibraryResources"] as const) {
+    const resources = value[library];
+    if (resources === undefined) continue;
+    list(resources, library === "builtinResources" ? 32 : 128);
     let total = 0;
     const paths: string[] = [];
-    for (const entry of value.builtinResources) {
+    for (const entry of resources) {
       object(entry);
       rejectUnknownFields(entry, ["path", "sha256", "bytes"]);
       safeRelativePath(entry.path);
@@ -403,7 +406,7 @@ export function validateFixture(
     unique(paths);
     requireCondition(
       total <= 64 * 1024 * 1024,
-      "Builtin resources exceed byte budget",
+      "Installed Live resources exceed byte budget",
     );
   }
 }
@@ -583,6 +586,27 @@ export function validateScenario(
   }
   list(value.assertions);
   assertions(value.assertions, names);
+  if (value.requiredCapabilities.includes("automation")) {
+    const requiresRestart = [
+      ...value.assertions,
+      ...value.steps.flatMap((step) => {
+        object(step);
+        list(step.assertions);
+        return step.assertions;
+      }),
+    ].some((assertion) => {
+      object(assertion);
+      object(assertion.parameters);
+      return (
+        assertion.name === "context" &&
+        assertion.parameters.afterRestart === true
+      );
+    });
+    requireCondition(
+      !requiresRestart || value.requiredCapabilities.includes("persistence"),
+      "Automation restart assertions require the persistence capability",
+    );
+  }
   requireCondition(
     value.assertions.length + assertionCount > 0,
     "No assertions",

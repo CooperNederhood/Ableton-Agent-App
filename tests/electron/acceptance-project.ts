@@ -77,7 +77,8 @@ export function readAcceptanceProjectReferences(
   const blocks = [
     ...xml.matchAll(/<FileRef(?:\s[^>]*)?>([\s\S]*?)<\/FileRef>/gu),
   ];
-  if (blocks.length > 128) throw new Error("Fixture reference count exceeded");
+  if (blocks.length > (activeOnly ? 128 : 512))
+    throw new Error("Fixture reference count exceeded");
   const resources: SavedProjectReference[] = [];
   for (const [, block] of blocks) {
     const path = attribute(block!, "Path");
@@ -98,14 +99,19 @@ export function inspectAcceptanceProject(
   allowedResources: ReadonlySet<string>,
   requireResource = true,
   builtinResources: NonNullable<FixtureManifest["builtinResources"]> = [],
+  coreLibraryResources: NonNullable<
+    FixtureManifest["coreLibraryResources"]
+  > = [],
 ): readonly string[] {
   const references = readAcceptanceProjectReferences(bytes, true);
   const resources: string[] = [];
   for (const reference of references) {
     const relative = reference.relativePath;
     if (
-      reference.relativePathType === "7" &&
-      builtinResources.some((entry) => entry.path === relative)
+      (reference.relativePathType === "7" &&
+        builtinResources.some((entry) => entry.path === relative)) ||
+      (reference.relativePathType === "5" &&
+        coreLibraryResources.some((entry) => entry.path === relative))
     ) {
       safeRelativePath(relative);
       continue;
@@ -130,10 +136,11 @@ export function inspectAcceptanceProject(
   return Object.freeze(resources);
 }
 
-export async function verifyBuiltinResources(
+export async function verifyInstalledLiveResources(
   resources: NonNullable<FixtureManifest["builtinResources"]>,
   liveApplicationPath: string,
   signal: AbortSignal,
+  library: "Builtin" | "Core Library" = "Builtin",
 ): Promise<string> {
   const hashes: string[] = [];
   for (const resource of resources) {
@@ -141,11 +148,12 @@ export async function verifyBuiltinResources(
     safeRelativePath(resource.path);
     const path = resolve(
       liveApplicationPath,
-      "Contents/App-Resources/Builtin",
+      "Contents/App-Resources",
+      library,
       resource.path,
     );
     if ((await realpath(path)) !== path)
-      throw new Error("Builtin resource traverses a symlink");
+      throw new Error("Installed Live resource traverses a symlink");
     const handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
     try {
       const before = await handle.stat();
@@ -154,7 +162,7 @@ export async function verifyBuiltinResources(
         before.size !== resource.bytes ||
         before.size > 16 * 1024 * 1024
       )
-        throw new Error("Builtin resource size mismatch");
+        throw new Error("Installed Live resource size mismatch");
       const bytes = await handle.readFile({ signal });
       const after = await handle.stat();
       const sha256 = createHash("sha256").update(bytes).digest("hex");
@@ -163,7 +171,7 @@ export async function verifyBuiltinResources(
         before.ctimeMs !== after.ctimeMs ||
         sha256 !== resource.sha256
       )
-        throw new Error("Builtin resource hash mismatch");
+        throw new Error("Installed Live resource hash mismatch");
       hashes.push(`${resource.path}:${sha256}`);
     } finally {
       await handle.close();

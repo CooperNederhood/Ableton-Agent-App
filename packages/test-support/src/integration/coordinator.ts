@@ -156,6 +156,23 @@ function safeCopy<T extends object>(
   validate(sanitized);
   return immutableCopy(sanitized);
 }
+function instrumentTreeBytes(baseline?: BaselineEvidence): number {
+  let bytes = 0;
+  for (const source of Object.values(baseline?.sources ?? {})) {
+    if (!("midi" in source)) continue;
+    for (const inventory of [
+      source.midi.instrumentChain.before,
+      source.midi.instrumentChain.after,
+    ])
+      if (inventory.instrumentTree)
+        bytes += Buffer.byteLength(JSON.stringify(inventory.instrumentTree));
+  }
+  requireCondition(
+    bytes <= 4 * 1024 * 1024,
+    "Instrument tree evidence exceeds report budget",
+  );
+  return bytes;
+}
 export async function runAcceptance(
   options: RunAcceptanceOptions,
 ): Promise<RunResult> {
@@ -218,7 +235,8 @@ export async function runAcceptance(
           evidence,
           ...replacement,
         }),
-      ) <= 1_500_000,
+      ) <=
+        1_500_000 + instrumentTreeBytes(replacement.baseline ?? baseline),
       "Combined evidence exceeds report budget",
     );
   };
@@ -407,7 +425,11 @@ export async function runAcceptance(
       async (ctx) => {
         const read = await options.driver.readBaseline(ctx);
         validateBaseline(read);
-        const admitted = safeCopy(read, validateBaseline);
+        const admitted = safeCopy(
+          read,
+          validateBaseline,
+          524_288 + instrumentTreeBytes(read),
+        );
         ensureReportBudget({ baseline: admitted });
         baseline = admitted;
         for (const source of Object.values(baseline.sources ?? {})) {
@@ -701,7 +723,7 @@ export async function runAcceptance(
         persisted,
       },
       validateResult,
-      1_900_000,
+      1_900_000 + instrumentTreeBytes(baseline),
     );
     validateResult(result);
     return result;

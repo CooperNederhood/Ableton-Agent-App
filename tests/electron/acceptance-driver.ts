@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { lstat, mkdir, readFile, rm } from "node:fs/promises";
+import { lstat, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import {
@@ -10,6 +10,7 @@ import {
 import { sendAutomationMessage } from "@ableton-agent/debug-control";
 import { automationDiscoveryDescriptorSchema } from "@ableton-agent/debug-control/contracts";
 import { resolveLiveAgentStorage } from "@ableton-agent/storage";
+import { preferencesSchema } from "../../apps/desktop/src/contracts.js";
 import {
   metricAudioObservationSchema,
   sessionListeningPreflightResultSchema,
@@ -67,7 +68,7 @@ import { provisionPackagedDependencies } from "./acceptance-dependencies.js";
 import { verifyActiveFrozenCandidate } from "./acceptance-loading.js";
 import {
   inspectAcceptanceProject,
-  verifyBuiltinResources,
+  verifyInstalledLiveResources,
   readSavedFollowAction,
 } from "./acceptance-project.js";
 import { AcceptanceEvents } from "./acceptance-events.js";
@@ -83,6 +84,7 @@ import {
   observedSessionSource,
 } from "./acceptance-evidence.js";
 import { ScopedApprovalPolicy } from "./acceptance-approvals.js";
+import { AcceptanceBridgeTimingProxy } from "./acceptance-bridge-timing.js";
 
 function hash(value: unknown): string {
   return createHash("sha256").update(JSON.stringify(value)).digest("hex");
@@ -154,7 +156,13 @@ export interface PackagedAcceptanceOptions {
   readonly runDirectory: string;
   readonly executablePath?: string;
   readonly liveApplicationPath?: string;
+  readonly bridgeReadMinimumMs?: number;
 }
+
+export type MidiSourceReview = Omit<
+  Extract<NonNullable<FixtureManifest["sources"]>[number], { midi: unknown }>,
+  "midi"
+>;
 
 /** Real Desktop ingress only; no runtime construction or model substitution. */
 export class PackagedAcceptanceDriver implements AcceptanceDriver {
@@ -208,8 +216,36 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
   #traceEvents: TelemetryEventPage["items"] = [];
   #historyCollected = false;
   #provenance: Facts = {};
+  readonly #bridgeTiming: AcceptanceBridgeTimingProxy | undefined;
+  #bridgePort: number | undefined;
 
-  constructor(private readonly options: PackagedAcceptanceOptions) {}
+  constructor(private readonly options: PackagedAcceptanceOptions) {
+    if (options.bridgeReadMinimumMs !== undefined)
+      this.#bridgeTiming = new AcceptanceBridgeTimingProxy({
+        minimumReadMs: options.bridgeReadMinimumMs,
+      });
+  }
+
+  #assertBridgeTimingHealthy(requireRead = false): void {
+    const snapshot = this.#bridgeTiming?.snapshot();
+    if (snapshot?.failure)
+      throw new Error(`Bridge timing diagnostic failed: ${snapshot.failure}`);
+    if (
+      snapshot &&
+      requireRead &&
+      !snapshot.records.some(
+        (record) =>
+          record.stage === "request" &&
+          record.state === "completed" &&
+          record.command !== "[other]" &&
+          record.deliveredRoundTripMs !== undefined &&
+          record.deliveredRoundTripMs >= snapshot.minimumReadMs,
+      )
+    )
+      throw new Error(
+        "Bridge timing diagnostic failed: no completed paced read",
+      );
+  }
 
   preservationPaths(): ReadonlySet<string> {
     return this.#preservationPaths;
@@ -220,6 +256,15 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
   }
   #descriptor(): string {
     return join(required(this.#profile, "profile"), "automation-endpoint.json");
+  }
+
+  #storage() {
+    return resolveLiveAgentStorage({
+      environment: {
+        LIVE_AGENT_HOME: join(required(this.#profile, "profile"), "live-agent"),
+        LIVE_AGENT_PROFILE: "automation",
+      },
+    });
   }
 
   async #launchDesktop(context: DriverContext): Promise<void> {
@@ -352,21 +397,27 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
     if (context.fixture.builtinResources?.length)
       this.#provenance = {
         ...this.#provenance,
-        builtinResourcesSha256: await verifyBuiltinResources(
+        builtinResourcesSha256: await verifyInstalledLiveResources(
           context.fixture.builtinResources,
           this.options.liveApplicationPath ??
             "/Applications/Ableton Live 11 Suite.app",
           context.signal,
         ),
       };
+    if (context.fixture.coreLibraryResources?.length)
+      this.#provenance = {
+        ...this.#provenance,
+        coreLibraryResourcesSha256: await verifyInstalledLiveResources(
+          context.fixture.coreLibraryResources,
+          this.options.liveApplicationPath ??
+            "/Applications/Ableton Live 11 Suite.app",
+          context.signal,
+          "Core Library",
+        ),
+      };
     this.#profile = join(this.options.runDirectory, "profile");
     await mkdir(this.#profile, { mode: 0o700 });
-    const storage = resolveLiveAgentStorage({
-      environment: {
-        LIVE_AGENT_HOME: join(this.#profile, "live-agent"),
-        LIVE_AGENT_PROFILE: "automation",
-      },
-    });
+    const storage = this.#storage();
     this.#preservationPaths = new Set(
       staged.resources.map(({ target }) => target),
     );
@@ -402,6 +453,7 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
       this.#preservationPaths,
       context.scenario.requiredCapabilities.includes("session-audio"),
       context.fixture.builtinResources,
+      context.fixture.coreLibraryResources,
     );
     context.signal.throwIfAborted();
     return provisioned.inventory;
@@ -423,6 +475,23 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
       discardRecovery: false,
     });
     context.signal.throwIfAborted();
+    if (this.#bridgeTiming) {
+      this.#bridgePort = await this.#bridgeTiming.start();
+      const storage = this.#storage();
+      await mkdir(dirname(storage.preferencesPath), { recursive: true });
+      await writeFile(
+        storage.preferencesPath,
+        JSON.stringify(
+          preferencesSchema.parse({ abletonPort: this.#bridgePort }),
+        ),
+        { flag: "wx", mode: 0o600 },
+      );
+      this.#provenance = {
+        ...this.#provenance,
+        bridgeTimingMode: "read-response-minimum",
+        bridgeReadMinimumMs: this.options.bridgeReadMinimumMs!,
+      };
+    }
     await this.#launchDesktop(context);
   }
 
@@ -624,6 +693,29 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
   }
 
   async readBaseline(context: DriverContext): Promise<BaselineEvidence> {
+    return this.#readBaseline(context);
+  }
+
+  async reviewMidiSources(
+    context: DriverContext,
+    sources: readonly MidiSourceReview[],
+  ): Promise<BaselineEvidence> {
+    if (
+      !sources.length ||
+      sources.length > 8 ||
+      new Set(sources.map((source) => source.id)).size !== sources.length
+    )
+      throw new Error(
+        "Authoring review requires one to eight distinct sources",
+      );
+    return this.#readBaseline(context, sources);
+  }
+
+  async #readBaseline(
+    context: DriverContext,
+    review?: readonly MidiSourceReview[],
+  ): Promise<BaselineEvidence> {
+    this.#assertBridgeTimingHealthy();
     const snapshot = await this.#getPage().evaluate(() =>
       window.desktop.ableton.requestSnapshot(),
     );
@@ -657,6 +749,7 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
         "Fresh acceptance profile contains an unexpected listening pass",
       );
     if (
+      !review &&
       !context.scenario.requiredCapabilities.some(
         (kind) => kind === "session-audio" || kind === "session-midi",
       )
@@ -671,14 +764,16 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
         dependencyHashes: this.#dependencies,
       };
     }
-    if (!context.fixture.sources?.length)
+    const definitions = review ?? context.fixture.sources;
+    if (!definitions?.length)
       throw new Error("Session fixture requires declared sources");
     sessionStructureFingerprint(snapshot);
-    for (const definition of context.fixture.sources)
+    for (const definition of definitions)
       this.#sources[definition.id] = await this.#admitSource(
         context,
         snapshot,
         definition,
+        review !== undefined,
       );
     const evidence = {
       schemaVersion: 1 as const,
@@ -693,7 +788,9 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
   async #admitSource(
     context: DriverContext,
     snapshot: DesktopLiveSetSnapshot,
-    definition: NonNullable<FixtureManifest["sources"]>[number],
+    definition:
+      NonNullable<FixtureManifest["sources"]>[number] | MidiSourceReview,
+    review = false,
   ): Promise<SessionSourceEvidence> {
     const target = resolveSessionSource(
       snapshot,
@@ -716,10 +813,14 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
     )
       throw new Error("Fixture source kind or target differs from preflight");
     const { source, recording } = preflight;
-    const expectedBeat = context.fixture.baseline.currentSongTime;
-    const expectedRemembered =
-      context.fixture.baseline.rememberedSessionClips ??
-      context.fixture.baseline.playingSessionClips;
+    const expectedBeat = review
+      ? source.after.globalBeat
+      : context.fixture.baseline.currentSongTime;
+    const expectedRemembered = review
+      ? snapshot.sessionClips!.filter((clip) => clip.status === "playing")
+          .length
+      : (context.fixture.baseline.rememberedSessionClips ??
+        context.fixture.baseline.playingSessionClips);
     if (
       typeof expectedBeat !== "number" ||
       !sourceStoppedAtPosition(
@@ -810,7 +911,7 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
         slotIndex: target.target.sceneIndex,
         mediaSha256,
       };
-    } else if ("midi" in definition && "midi" in preflight) {
+    } else if (!("mediaTarget" in definition) && "midi" in preflight) {
       const binding = context.fixture.listenerBindings?.find(
         (entry) => entry.slot === definition.listenerBindingSlot,
       );
@@ -937,19 +1038,27 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
       followActionEvidence,
       listenerBoundToSource: true,
     };
-    for (const [key, expected] of Object.entries(
-      declaredSourceBaseline(context.fixture, definition),
-    ))
-      if (!Object.hasOwn(observed, key) || observed[key] !== expected)
-        throw new Error(`Blocked source precondition: ${definition.id}.${key}`);
-    if (observed.rememberedSessionClips !== expectedRemembered)
-      throw new Error(
-        "Blocked source precondition: undeclared remembered Session clips",
+    if (!review) {
+      if (!("midi" in definition) && !("mediaTarget" in definition))
+        throw new Error(
+          "Execution requires independently declared source hashes",
+        );
+      for (const [key, expected] of Object.entries(
+        declaredSourceBaseline(context.fixture, definition),
+      ))
+        if (!Object.hasOwn(observed, key) || observed[key] !== expected)
+          throw new Error(
+            `Blocked source precondition: ${definition.id}.${key}`,
+          );
+      if (observed.rememberedSessionClips !== expectedRemembered)
+        throw new Error(
+          "Blocked source precondition: undeclared remembered Session clips",
+        );
+      validateSupportedSessionBaseline(
+        observed,
+        "audio" in preflight ? "audio" : "midi",
       );
-    validateSupportedSessionBaseline(
-      observed,
-      "audio" in preflight ? "audio" : "midi",
-    );
+    }
     const evidence: SessionSourceEvidence =
       "audio" in preflight && "mediaSha256" in identity
         ? {
@@ -975,8 +1084,14 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
           : (() => {
               throw new Error("Source evidence kind mismatch");
             })();
-    validateFixtureSourceEvidence(context.fixture, definition, evidence);
-    validateMidiSourcePreconditions(context.fixture, evidence);
+    if (!review) {
+      if (!("midi" in definition) && !("mediaTarget" in definition))
+        throw new Error(
+          "Execution requires independently declared source hashes",
+        );
+      validateFixtureSourceEvidence(context.fixture, definition, evidence);
+      validateMidiSourcePreconditions(context.fixture, evidence);
+    }
     return evidence;
   }
 
@@ -1139,6 +1254,7 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
     step: ScenarioStep,
     context: DriverContext,
   ): Promise<Submission> {
+    this.#assertBridgeTimingHealthy(true);
     context.signal.throwIfAborted();
     if (step.assertions.some((assertion) => assertion.name === "capture")) {
       if (!step.sourceId || !this.#sources[step.sourceId])
@@ -1554,6 +1670,7 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
   }
 
   async collect(context: DriverContext): Promise<RunEvidence> {
+    this.#assertBridgeTimingHealthy();
     const capturePassIds = new Set(
       (await this.#jobs(context)).map(({ passId }) => passId),
     );
@@ -1660,6 +1777,7 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
     for (const traceId of this.#preflightTraces)
       await this.#readTrace(context, traceId);
     this.#historyCollected = true;
+    this.#assertBridgeTimingHealthy();
     return {
       schemaVersion: 1,
       capturePassIds: [...capturePassIds],
@@ -1724,6 +1842,14 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
     if (this.#desktopLaunching)
       await this.#desktopLaunching.catch(() => undefined);
     if (this.#provisioning) await this.#provisioning.catch(() => undefined);
+    if (this.#bridgeTiming) {
+      try {
+        await this.#bridgeTiming.close();
+        this.#assertBridgeTimingHealthy();
+      } catch (error) {
+        failures.push(error);
+      }
+    }
     try {
       await writeScenarioReceipt(
         join(this.options.runDirectory, "product-evidence.json"),
@@ -1735,6 +1861,9 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
           liveProcess: this.#live.publicRecord(),
           desktop: this.#events.diagnostics(),
           history: this.#traceEvents,
+          ...(this.#bridgeTiming
+            ? { bridgeTiming: this.#bridgeTiming.snapshot() }
+            : {}),
         },
       );
     } catch (error) {

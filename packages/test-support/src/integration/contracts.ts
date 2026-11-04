@@ -81,6 +81,12 @@ export interface FixtureManifest {
     readonly sha256: string;
     readonly bytes: number;
   }[];
+  /** Licensed Core Library samples verified in the selected Live installation. */
+  readonly coreLibraryResources?: readonly {
+    readonly path: string;
+    readonly sha256: string;
+    readonly bytes: number;
+  }[];
   readonly baseline: Facts;
 }
 export interface ScenarioStep {

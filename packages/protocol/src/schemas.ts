@@ -921,6 +921,7 @@ export const deviceSummarySchema = z.object({
 export const inspectDevicesParamsSchema = trackTargetSchema.extend({
   offset: z.number().int().nonnegative().default(0),
   limit: z.number().int().min(1).max(128).default(32),
+  includeInstrumentTree: z.boolean().optional(),
 });
 
 export const inspectDevicesResultSchema = z.object({
@@ -928,6 +929,7 @@ export const inspectDevicesResultSchema = z.object({
   total: z.number().int().nonnegative(),
   offset: z.number().int().nonnegative(),
   limit: z.number().int().min(1).max(128),
+  instrumentTree: z.lazy(() => instrumentDeviceTreeSchema).optional(),
 });
 
 export const deviceParameterSummarySchema = z.object({
@@ -943,6 +945,109 @@ export const deviceParameterSummarySchema = z.object({
   isEnabled: z.boolean(),
   valueItemCount: z.number().int().nonnegative(),
 });
+
+export const instrumentDeviceTreeSchema = z
+  .array(
+    z.strictObject({
+      path: z
+        .string()
+        .max(128)
+        .regex(/^\d+(?:\/[cr]\d+\/\d+){0,4}$/),
+      device: deviceSummarySchema.extend({
+        name: z.string().max(512),
+        className: z.string().max(512),
+        classDisplayName: z.string().max(512),
+        parameterCount: z.number().int().min(0).max(256),
+      }),
+      parameters: z
+        .array(
+          deviceParameterSummarySchema.extend({
+            name: z.string().max(512),
+          }),
+        )
+        .max(256),
+      chains: z
+        .array(
+          z.strictObject({
+            path: z
+              .string()
+              .max(128)
+              .regex(/^\d+(?:\/[cr]\d+\/\d+){0,4}\/[cr]\d+$/),
+            name: z.string().max(512),
+            deviceCount: z.number().int().min(0).max(64),
+          }),
+        )
+        .max(64),
+      pads: z
+        .array(
+          z.strictObject({
+            note: z.number().int().min(0).max(127),
+            name: z.string().max(512),
+            mute: z.boolean(),
+            solo: z.boolean(),
+            chainPaths: z.array(z.string().max(128)).max(64),
+          }),
+        )
+        .max(128),
+    }),
+  )
+  .min(1)
+  .max(64)
+  .refine((nodes) => {
+    const paths = new Set(nodes.map((node) => node.path));
+    const references = new Set(nodes.map((node) => node.device.reference));
+    if (
+      paths.size !== nodes.length ||
+      references.size !== nodes.length ||
+      nodes.reduce((count, node) => count + node.parameters.length, 0) > 4096
+    )
+      return false;
+    const chains = nodes.flatMap((node) => node.chains);
+    if (new Set(chains.map((chain) => chain.path)).size !== chains.length)
+      return false;
+    return nodes.every(
+      (node) =>
+        node.parameters.length === node.device.parameterCount &&
+        new Set(node.parameters.map((parameter) => parameter.reference))
+          .size === node.parameters.length &&
+        node.parameters.every(
+          (parameter, index) =>
+            parameter.index === index &&
+            parameter.deviceReference === node.device.reference,
+        ) &&
+        Number(node.path.split("/").at(-1)) === node.device.index &&
+        (node.device.canHaveChains || node.chains.length === 0) &&
+        (node.device.canHaveDrumPads || node.pads.length === 0) &&
+        new Set(node.pads.map((pad) => pad.note)).size === node.pads.length &&
+        node.pads.every((pad) =>
+          pad.chainPaths.every((path) =>
+            node.chains.some((chain) => chain.path === path),
+          ),
+        ) &&
+        (!node.path.includes("/") ||
+          chains.some(
+            (chain) =>
+              node.path.startsWith(`${chain.path}/`) &&
+              node.path.slice(chain.path.length + 1).match(/^\d+$/),
+          )) &&
+        node.chains.every((chain) => {
+          if (
+            !chain.path.startsWith(`${node.path}/`) ||
+            !/^[cr]\d+$/.test(chain.path.slice(node.path.length + 1))
+          )
+            return false;
+          const children = nodes.filter(
+            (child) =>
+              child.path.startsWith(`${chain.path}/`) &&
+              /^\d+$/.test(child.path.slice(chain.path.length + 1)),
+          );
+          return (
+            children.length === chain.deviceCount &&
+            children.every((child, index) => child.device.index === index)
+          );
+        }),
+    );
+  }, "Instrument tree requires complete bounded owned inventories and parameters");
 
 export const inspectDeviceParametersParamsSchema = deviceTargetSchema.extend({
   offset: z.number().int().nonnegative().default(0),

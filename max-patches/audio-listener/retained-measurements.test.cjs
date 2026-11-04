@@ -127,6 +127,48 @@ test("delayed acknowledgement readback can advance while the selected immutable 
   assert.equal(reader.poll(row(d, 3, 4, 0)).reason, "invalid_sequence_order");
 });
 
+test("a settled next slot cannot advance ACK until the previous ACK executes in DSP", () => {
+  const { reader, records, d } = setup();
+  reader.poll(row(d, 1, 3, 0));
+  assert.equal(reader.poll(row(d, 1, 3, 0)).status, "accepted");
+  assert.equal(reader.poll(row(d, 2, 3, 0)).status, "settling");
+  for (let attempt = 0; attempt < 8; attempt++) {
+    const pending = reader.poll(row(d, 2, 3, 0));
+    assert.equal(pending.status, "waiting");
+    assert.deepEqual(pending.actions, []);
+    assert.equal(records.length, 1);
+  }
+  const accepted = reader.poll(row(d, 2, 3, 1));
+  assert.equal(accepted.status, "accepted");
+  assert.deepEqual(accepted.actions, [
+    { type: "request", sequence: 3 },
+    { type: "acknowledge", sequence: 2 },
+  ]);
+  assert.deepEqual(
+    records.map((record) => record.sequence),
+    [1, 2],
+  );
+});
+
+test("ACK waiting preserves immutable-slot guards and cancellation", () => {
+  for (const action of ["mutate", "cancel"]) {
+    const { reader, d } = setup();
+    reader.poll(row(d, 1, 3, 0));
+    reader.poll(row(d, 1, 3, 0));
+    reader.poll(row(d, 2, 3, 0));
+    assert.equal(reader.poll(row(d, 2, 3, 0)).status, "waiting");
+    if (action === "cancel") {
+      reader.cancel();
+      assert.equal(reader.poll(row(d, 2, 3, 1)).status, "cancelled");
+    } else {
+      const changed = row(d, 2, 3, 1);
+      changed[10]++;
+      assert.equal(reader.poll(changed).reason, "immutable_slot_changed");
+    }
+    assert.equal(reader.stats().accepted, 1);
+  }
+});
+
 test("independent asynchronous producers are fair at mixed rates and dimensions", () => {
   const a = setup(declaration(1, 44100));
   const b = setup(declaration(13, 48000));

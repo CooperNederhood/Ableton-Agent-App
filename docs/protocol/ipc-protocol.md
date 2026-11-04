@@ -262,9 +262,13 @@ than represented by a partial first page.
 MIDI also returns `instrumentChain`: complete top-level device inventories
 before and after reading every device's exposed parameter page. This uses
 existing `devices.inspect` and `devices.inspect_parameters` reads, limited to
-eight flat devices and 256 parameters per device. Partial pages, duplicate
+eight top-level devices and 256 parameters per device. With
+`includeInstrumentTree: true`, `devices.inspect` additionally returns complete
+path-addressed nested device/parameter, regular/return chain and drum-pad
+inventories, bounded to 64 devices, four nested levels and 4,096 parameters.
+Rack preflight requires matching before/after trees. Partial pages, duplicate
 references, noncontiguous indexes, foreign track/device identities, changed
-inventory metadata, racks and drum-pad hierarchies fail closed. Empty chains
+inventory metadata, missing children and out-of-bound hierarchies fail closed. Empty chains
 remain observable for diagnostics, not proof of an audible instrument.
 
 This adds no Remote Script command or native timing authority. The bracketed

@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { createRequire, Module } from "node:module";
 import { compileNativeMetricProtocol } from "../../scripts/lib/native-metric-protocol-bundle.mjs";
 import { genModel } from "./gen-model.mjs";
+import { nativeRuntimeDocuments } from "./native-runtime-source.mjs";
 import {
   retainedNativeSpectrumSource,
   retainedMusicalEnvelopeSource,
@@ -30,6 +31,8 @@ async function controllerHarness({
   asyncControlResult,
   requestedMetrics = ["level", "attacks"],
   spectrumEnabled = false,
+  spectrumPollMs = 10,
+  spectrumReadsPerTick = 2,
   unavailableSpectrum = false,
   suppressSpectrumCleanup = false,
   engineeringRuntime = false,
@@ -330,16 +333,21 @@ async function controllerHarness({
           );
         }
       }
-      if (spectrumPolling && spectrumOutput && counter % 480 === 0) {
+      if (
+        spectrumPolling &&
+        spectrumOutput &&
+        counter % (48 * spectrumPollMs) === 0
+      ) {
         spectrumIO.packet("fftInfo", [2048, 2048, 2048, 1]);
         spectrumIO.packet("abi-spectrum", [
           unavailableSpectrum ? 0 : spectrumOutput[10],
         ]);
-        spectrumIO.retainedSpectrumFrame(GENERATION, 7, [
-          spectrumOutput[31],
-          ...spectrumOutput.slice(11, 31),
-          spectrumOutput[31],
-        ]);
+        for (let read = 0; read < spectrumReadsPerTick; read++)
+          spectrumIO.retainedSpectrumFrame(GENERATION, 7, [
+            spectrumOutput[31],
+            ...spectrumOutput.slice(11, 31),
+            spectrumOutput[31],
+          ]);
       }
     }
     if (counter % 16 === 0 && polling) adapter.dispatch("metric_poll", []);
@@ -416,6 +424,40 @@ async function untilAsync(h, predicate) {
   assert.ok(predicate(), JSON.stringify(h.controller.snapshot()));
 }
 
+test("production spectrum polling survives 30 ms scheduling and six seconds of post-arm inspection", async () => {
+  const analysis = nativeRuntimeDocuments({ nativeVersion: 5 })[
+    "audio_listener_native_analysis.maxpat"
+  ];
+  const readPair = analysis.patcher.boxes.find(
+    ({ box }) => box.id === "metricSpectrumReadPair",
+  )?.box;
+  const f = await controllerHarness({
+    spectrumEnabled: true,
+    spectrumPollMs: 30,
+    spectrumReadsPerTick: readPair?.numoutlets ?? 1,
+    requestedMetrics: ["level", "spectral-centroid", "attacks"],
+  });
+  f.until(() => f.replies.some((reply) => reply.payload.status === "ready"));
+  f.controller.arm(f.arm);
+  f.until(() => f.replies.some((reply) => reply.payload.status === "armed"));
+  for (let sample = 0; sample < 6 * 48000; sample++) f.step();
+  f.startPlayback();
+  f.until(() =>
+    f.results.some((result) =>
+      ["completed", "partial", "failed"].includes(result.payload.status),
+    ),
+  );
+  const result = f.results.find((result) =>
+    ["completed", "partial", "failed"].includes(result.payload.status),
+  ).payload;
+  assert.equal(result.status, "completed");
+  assert.equal(
+    result.observation.metrics["spectral-centroid"].status,
+    "complete",
+  );
+  assert.equal(result.nativeSourceCoverage.spectrumCleanup.status, "completed");
+});
+
 for (const session of [false, true])
   test(`actual retained FFT -> controller -> complete metrics and cleanup, Session reset=${session}`, async () => {
     const f = await controllerHarness({
@@ -442,6 +484,26 @@ for (const session of [false, true])
     assert.equal(spectrum.records.length, spectrum.expectedRecords);
     assert(spectrum.records.length > 0);
     assert(spectrum.records.some((record) => record.spectralEnergy > 0));
+    const retention = f.events.filter(
+      (event) =>
+        event.nativeLifecycle.reason === "native_spectrum_retention_evidence",
+    );
+    assert(
+      retention.length > 0,
+      "successful captures must retain comparable reader evidence",
+    );
+    for (const event of retention) {
+      assert.equal(event.traceId, f.prepare.traceId);
+      assert.equal(event.correlationId, f.prepare.correlationId);
+      assert.equal(event.nativeLifecycle.generation, f.prepare.generation);
+      assert.equal(event.nativeLifecycle.stage, "progress");
+      assert.equal(event.nativeLifecycle.facts.length, 12);
+      const facts = Object.fromEntries(
+        event.nativeLifecycle.facts.map((fact) => [fact.field, fact.actual]),
+      );
+      assert.equal(facts["capture.spectrum.retention.fault"].value, 0);
+      assert(facts["capture.spectrum.retention.backlog"].value >= 0);
+    }
     assert(result.nativeSourceCoverage.spectrumPhase);
     assert.equal(
       result.nativeSourceCoverage.spectrumCleanup.status,
@@ -455,6 +517,23 @@ for (const session of [false, true])
       1,
     );
   });
+
+test("retention diagnostic delivery failure remains an explicit failure with owned cleanup", async () => {
+  const f = await controllerHarness({
+    spectrumEnabled: true,
+    requestedMetrics: ["level", "spectral-centroid", "attacks"],
+    onEvent(event) {
+      if (event.nativeLifecycle.reason === "native_spectrum_retention_evidence")
+        throw new Error("controlled diagnostic rejection");
+    },
+  });
+  f.until(() => f.replies.some((reply) => reply.payload.status === "ready"));
+  f.controller.arm(f.arm);
+  f.until(() => f.replies.some((reply) => reply.payload.status === "failed"));
+  assert.equal(f.controller.snapshot().reason, "metric_event_delivery_failed");
+  assert.equal(f.controller.snapshot().cleanup, "completed");
+  assert.equal(f.spectrumIO.generation, null);
+});
 
 test("unavailable FFT declaration remains a local partial result with genuine FFT cleanup", async () => {
   const f = await controllerHarness({

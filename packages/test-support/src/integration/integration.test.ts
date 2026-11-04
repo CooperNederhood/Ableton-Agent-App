@@ -186,6 +186,34 @@ const scenario: ScenarioManifest = {
   ],
 };
 
+it("rejects packaged restart assertions that never request a Desktop restart", () => {
+  expect(() =>
+    validateScenario(
+      { ...scenario, requiredCapabilities: ["automation"] },
+      fixture,
+    ),
+  ).toThrow("persistence capability");
+  expect(() =>
+    validateScenario(
+      {
+        ...scenario,
+        requiredCapabilities: ["automation", "persistence"],
+      },
+      fixture,
+    ),
+  ).not.toThrow();
+  expect(() =>
+    validateScenario(
+      {
+        ...scenario,
+        requiredCapabilities: ["automation"],
+        assertions: [{ name: "context", parameters: { afterRestart: false } }],
+      },
+      fixture,
+    ),
+  ).not.toThrow();
+});
+
 /** Two deliberately non-Live transports: buffered terminal result and asynchronous delivery. */
 class ControlledDriver implements AcceptanceDriver {
   readonly schemaVersion = 1;
@@ -398,27 +426,46 @@ class AsynchronousFactOnlyDriver extends FactOnlyDriver {
 }
 
 describe("driver-neutral acceptance foundation (synthetic only)", () => {
-  it("bounds and pins licensed Builtin prerequisites without admitting external paths", () => {
-    const builtin = { path: "Samples/IR.wav", bytes: 42, sha256: digest("IR") };
-    validateFixture({ ...fixture, builtinResources: [builtin] });
-    for (const patch of [
-      { path: "../outside" },
-      { path: "/outside" },
-      { sha256: "wrong" },
-      { bytes: 0 },
-      { bytes: 16 * 1024 * 1024 + 1 },
-      { unknown: true },
-    ])
+  it.each(["builtinResources", "coreLibraryResources"] as const)(
+    "bounds and pins licensed %s prerequisites without admitting external paths",
+    (library) => {
+      const builtin = {
+        path: "Samples/IR.wav",
+        bytes: 42,
+        sha256: digest("IR"),
+      };
+      validateFixture({ ...fixture, [library]: [builtin] });
+      for (const patch of [
+        { path: "../outside" },
+        { path: "/outside" },
+        { sha256: "wrong" },
+        { bytes: 0 },
+        { bytes: 16 * 1024 * 1024 + 1 },
+        { unknown: true },
+      ])
+        expect(() =>
+          validateFixture({
+            ...fixture,
+            [library]: [{ ...builtin, ...patch }],
+          }),
+        ).toThrow();
+      expect(() =>
+        validateFixture({ ...fixture, [library]: [builtin, builtin] }),
+      ).toThrow();
+      const count = library === "builtinResources" ? 32 : 128;
+      const resources = Array.from({ length: count }, (_, index) => ({
+        ...builtin,
+        path: `Samples/resource-${index}.wav`,
+      }));
+      validateFixture({ ...fixture, [library]: resources });
       expect(() =>
         validateFixture({
           ...fixture,
-          builtinResources: [{ ...builtin, ...patch }],
+          [library]: [...resources, { ...builtin, path: "Samples/extra.wav" }],
         }),
       ).toThrow();
-    expect(() =>
-      validateFixture({ ...fixture, builtinResources: [builtin, builtin] }),
-    ).toThrow();
-  });
+    },
+  );
   it("accepts bounded protocol listener identities without treating them as filesystem identifiers", () => {
     const baseline = {
       schemaVersion: 1,

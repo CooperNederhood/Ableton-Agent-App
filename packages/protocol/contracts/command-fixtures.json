@@ -4365,7 +4365,8 @@
           "expectedReference": "00000000-0000-4000-8000-000000000099",
           "expectedName": "x",
           "offset": 0,
-          "limit": 32
+          "limit": 32,
+          "includeInstrumentTree": true
         }
       },
       "success": {
@@ -4373,7 +4374,47 @@
         "kind": "response",
         "requestId": "00000000-0000-4000-8000-000000001088",
         "ok": true,
-        "result": { "devices": [], "total": 0, "offset": 0, "limit": 1 },
+        "result": {
+          "devices": [
+            {
+              "reference": "00000000-0000-4000-8000-000000000099",
+              "trackReference": "00000000-0000-4000-8000-000000000099",
+              "trackIndex": 0,
+              "index": 0,
+              "name": "x",
+              "className": "x",
+              "classDisplayName": "x",
+              "enabled": false,
+              "parameterCount": 0,
+              "canHaveChains": false,
+              "canHaveDrumPads": false
+            }
+          ],
+          "total": 1,
+          "offset": 0,
+          "limit": 1,
+          "instrumentTree": [
+            {
+              "path": "0",
+              "device": {
+                "reference": "00000000-0000-4000-8000-000000000099",
+                "trackReference": "00000000-0000-4000-8000-000000000099",
+                "trackIndex": 0,
+                "index": 0,
+                "name": "x",
+                "className": "x",
+                "classDisplayName": "x",
+                "enabled": false,
+                "parameterCount": 0,
+                "canHaveChains": false,
+                "canHaveDrumPads": false
+              },
+              "parameters": [],
+              "chains": [],
+              "pads": []
+            }
+          ]
+        },
         "warnings": []
       },
       "failure": {

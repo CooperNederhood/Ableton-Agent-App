@@ -8,8 +8,11 @@
 
 - [x] Add bounded flat-device/parameter evidence to MIDI preflight with
       before/after inventories, exact track/device ownership, complete pages,
-      unique references and contiguous indexes. Reject oversized/nested chains
+      unique references and contiguous indexes. Reject oversized chains
       without inventing parameter, preset-state or native-timing authority.
+- [x] Extend the existing device inspection read with bounded complete recursive
+      instrument trees; pin nested parameters and drum-pad ownership/state in
+      MIDI preflight and source identity without widening mutation selectors.
 
 - [x] Add shared typed audio/MIDI Session preflight results for #81, using
       existing source, MIDI-note and recording reads. Reject foreign targets,

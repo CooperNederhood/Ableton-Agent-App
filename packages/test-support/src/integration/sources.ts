@@ -70,48 +70,70 @@ export function midiContentIdentity(
         a[3] - b[3] ||
         Number(a[4]) - Number(b[4]),
     );
-  const devices = parsed.instrumentChain.devices.map(
-    ({ device, parameters }) => ({
-      index: device.index,
-      name: device.name,
-      className: device.className,
-      classDisplayName: device.classDisplayName,
-      enabled: device.enabled,
-      parameterCount: device.parameterCount,
-      canHaveChains: device.canHaveChains,
-      canHaveDrumPads: device.canHaveDrumPads,
-      parameters: parameters.map(
-        ({
-          index,
-          name,
-          value,
-          normalizedValue,
-          min,
-          max,
-          isQuantized,
-          isEnabled,
-          valueItemCount,
-        }) => ({
-          index,
-          name,
-          min,
-          max,
-          isQuantized,
-          isEnabled,
-          valueItemCount,
-          ...(device.index === listener.deviceIndex &&
-          listenerRuntimeParameters.has(name)
-            ? {}
-            : { value, normalizedValue }),
-        }),
-      ),
-    }),
+  const describeDevice = (
+    {
+      device,
+      parameters,
+    }: Pick<
+      (typeof parsed.instrumentChain.devices)[number],
+      "device" | "parameters"
+    >,
+    isListener: boolean,
+  ) => ({
+    index: device.index,
+    name: device.name,
+    className: device.className,
+    classDisplayName: device.classDisplayName,
+    enabled: device.enabled,
+    parameterCount: device.parameterCount,
+    canHaveChains: device.canHaveChains,
+    canHaveDrumPads: device.canHaveDrumPads,
+    parameters: parameters.map(
+      ({
+        index,
+        name,
+        value,
+        normalizedValue,
+        min,
+        max,
+        isQuantized,
+        isEnabled,
+        valueItemCount,
+      }) => ({
+        index,
+        name,
+        min,
+        max,
+        isQuantized,
+        isEnabled,
+        valueItemCount,
+        ...(isListener && listenerRuntimeParameters.has(name)
+          ? {}
+          : { value, normalizedValue }),
+      }),
+    ),
+  });
+  const devices = parsed.instrumentChain.devices.map((entry) =>
+    describeDevice(entry, entry.device.index === listener.deviceIndex),
   );
   return {
     midiNotesSha256: hash(notes),
     instrumentChainSha256: hash({
       listenerIndex: listener.deviceIndex,
       devices,
+      ...(parsed.instrumentChain.before.instrumentTree
+        ? {
+            tree: parsed.instrumentChain.before.instrumentTree.map((node) => ({
+              path: node.path,
+              device: describeDevice(
+                node,
+                node.path === String(listener.deviceIndex),
+              ),
+              chains: node.chains,
+              pads: node.pads,
+            })),
+          }
+        : {}),
     }),
   };
 }

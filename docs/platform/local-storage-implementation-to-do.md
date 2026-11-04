@@ -4,6 +4,11 @@ Companion specification: [Local Storage Layout](local-storage.md)
 
 ## Canonical layout
 
+- [x] Keep initial FluCoMa flatness snapshots in the existing bounded/redacted
+  metric lifecycle journal, with explicitly unqualified support and validity.
+  Reuse typed History and existing ownership/retention; do not insert diagnostic
+  values into frame-qualified entity contexts or invent a new storage path.
+
 - [x] Reserve resolver-owned `profiles/automation/host/live-host.lease/` under
   the canonical operator home, independent of per-run root/profile overrides
   and worktrees. Admit one owner atomically, persist bounded PID/start/hashed

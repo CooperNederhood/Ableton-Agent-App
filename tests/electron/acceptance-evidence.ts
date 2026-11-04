@@ -1,9 +1,40 @@
 import type { TelemetryEventPage } from "../../apps/desktop/src/contracts.js";
 import type {
   CaptureEvidence,
+  FlatnessSmokeEvidence,
   SessionSourceEvidence,
 } from "@ableton-agent/test-support/integration";
+import { projectFlatnessSmoke } from "@ableton-agent/test-support/integration";
 import type { MetricAudioObservation } from "@ableton-agent/protocol";
+
+/** Re-read the typed History boundary; a pre-restart cached projection is not proof. */
+export async function restoreFlatnessSmoke(
+  original: readonly FlatnessSmokeEvidence[],
+  afterOwnedRestart: boolean,
+  readTrace: (traceId: string) => Promise<TelemetryEventPage["items"]>,
+): Promise<FlatnessSmokeEvidence[]> {
+  const result: FlatnessSmokeEvidence[] = [];
+  for (const traceId of new Set(original.map((entry) => entry.traceId))) {
+    const history = await readTrace(traceId);
+    for (const entry of original.filter(
+      (candidate) => candidate.traceId === traceId,
+    ))
+      result.push(
+        projectFlatnessSmoke(
+          history,
+          {
+            traceId: entry.traceId,
+            correlationId: entry.correlationId,
+            passId: entry.passId,
+            listenerId: entry.listenerId,
+            native: entry.native,
+          },
+          afterOwnedRestart,
+        ),
+      );
+  }
+  return result;
+}
 
 /** Persisted observations must select an admitted kind and location, not invent content identity. */
 export function observedSessionSource(

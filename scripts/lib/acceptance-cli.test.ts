@@ -27,6 +27,7 @@ import {
   type AcceptanceCliEnvironment,
 } from "./acceptance-cli.js";
 import { writeScenarioReceipt } from "./scenario-receipts.mjs";
+import { FLUCOMA_DEPENDENCY_RESOURCE_NAMES } from "../../packages/shared/src/m4l-devices.js";
 
 async function fixture(
   test: (root: string, output: string[], errors: string[]) => Promise<void>,
@@ -1515,7 +1516,125 @@ describe("acceptance CLI finalization (injected offline boundary)", () => {
     },
   );
 
-  it.each(["../profile/credential.txt", "prepared.als"])(
+  it.each(["passed", "failed", "cancelled"] as const)(
+    "retains exact pinned nested FluCoMa evidence after %s without masking the primary result",
+    async (mode) => {
+      await fixture(async (root, output, errors) => {
+        await register(root);
+        const fake = fakeBoundary(mode);
+        const paths = FLUCOMA_DEPENDENCY_RESOURCE_NAMES.map(
+          (name) => `dependencies/machine-listening/frozen/${name}`,
+        );
+        fake.driver.preservationPaths = () =>
+          new Set(["dependencies/machine-listening/device.amxd", ...paths]);
+        const stage = fake.dependencies.stage;
+        expect(
+          await acceptanceCli(["run", "--scenario", "example"], {
+            ...environment(root, output, errors),
+            dependencies: {
+              ...fake.dependencies,
+              stage: async (options) => {
+                const staged = await stage(options);
+                for (const path of paths) {
+                  const target = join(staged.workingDirectory, path);
+                  await mkdir(join(target, ".."), { recursive: true });
+                  // Retention preserves diagnostic bytes, not just valid candidates.
+                  await writeFile(target, `controlled evidence:${path}`);
+                }
+                return staged;
+              },
+            },
+          }),
+        ).toBe(mode === "passed" ? 0 : 1);
+        const { directory, value } = await receipt(root);
+        expect(value.result.status).toBe(mode);
+        expect(value.result.finalizationFailures).toEqual([]);
+        if (mode === "failed")
+          expect(value.result.primaryFailure).toEqual({
+            stage: "submit.first",
+            message: "Denied",
+          });
+        expect(value.retention.pruned).toBe(true);
+        for (const path of paths)
+          expect(
+            await readFile(join(directory, "case-offline", path), "utf8"),
+          ).toBe(`controlled evidence:${path}`);
+        expect(await readdir(directory)).not.toContain("profile");
+        const events = value.finalizationEvents.filter(
+          (event) => event.stage === "artifact-retention",
+        );
+        expect(events.map((event) => event.phase)).toEqual([
+          "queued",
+          "started",
+          "completed",
+        ]);
+        expect(
+          events.every((event) => event.traceId === value.result.traceId),
+        ).toBe(true);
+      });
+    },
+  );
+
+  it.each(["symlink", "hardlink"] as const)(
+    "does not bypass ownership checks for a pinned FluCoMa %s",
+    async (kind) => {
+      await fixture(async (root, output, errors) => {
+        await register(root);
+        const fake = fakeBoundary("failed");
+        const path = `dependencies/machine-listening/frozen/${FLUCOMA_DEPENDENCY_RESOURCE_NAMES[0]!}`;
+        fake.driver.preservationPaths = () => new Set([path]);
+        const source = join(root, "outside-working-evidence.txt");
+        await writeFile(source, "must remain untouched");
+        const stage = fake.dependencies.stage;
+        expect(
+          await acceptanceCli(["run", "--scenario", "example"], {
+            ...environment(root, output, errors),
+            dependencies: {
+              ...fake.dependencies,
+              stage: async (options) => {
+                const staged = await stage(options);
+                const target = join(staged.workingDirectory, path);
+                await mkdir(join(target, ".."), { recursive: true });
+                if (kind === "symlink") await symlink(source, target);
+                else await link(source, target);
+                return staged;
+              },
+            },
+          }),
+        ).toBe(1);
+        const { directory, value } = await receipt(root);
+        expect(value.result.primaryFailure).toEqual({
+          stage: "submit.first",
+          message: "Denied",
+        });
+        expect(value.result.finalizationFailures).toEqual([
+          {
+            stage: "artifact-retention",
+            message: "Artifact contains a symlink or non-owned regular file",
+          },
+        ]);
+        expect(value.retention.pruned).toBe(false);
+        expect(await readFile(source, "utf8")).toBe("must remain untouched");
+        expect(await readdir(join(directory, "case-offline"))).toContain(
+          "unreviewed.txt",
+        );
+      });
+    },
+  );
+
+  it.each([
+    "../profile/credential.txt",
+    "prepared.als",
+    "dependencies/undeclared/frozen/dependencies/flucoma/LICENSE.md",
+    "dependencies/machine-listening/frozen/dependencies/flucoma/extra.txt",
+    "dependencies/machine-listening/frozen/dependencies/flucoma/fluid.spectralshape~.mxo/Contents/extra.txt",
+    "dependencies/machine-listening/frozen/dependencies/flucoma/other.mxo/Contents/_CodeSignature/CodeResources",
+    "dependencies/machine-listening/dependencies/flucoma/LICENSE.md",
+    "dependencies/machine-listening/frozen/dependencies/flucoma/../LICENSE.md",
+    "dependencies/machine-listening/frozen/dependencies/flucoma\\LICENSE.md",
+    "dependencies/machine-listening/other~.js",
+    "dependencies/machine-listening/_private/credential.txt",
+  ])(
     "rejects undeclared preservation of %s without pruning the working copy",
     async (path) => {
       await fixture(async (root, output, errors) => {

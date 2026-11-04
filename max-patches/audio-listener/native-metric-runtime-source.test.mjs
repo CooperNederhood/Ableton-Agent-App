@@ -92,6 +92,7 @@ test("v5 sends only implemented messages to its Node runtime, including preview-
       "dspPack",
       "scoped-native-clock",
       "scoped-native-analysis",
+      "flatness-smoke-output",
     ]);
     for (const { patchline } of result.patcher.lines) {
       if (patchline.destination[0] === node.id)
@@ -106,6 +107,11 @@ test("v5 sends only implemented messages to its Node runtime, including preview-
       assert.ok(!obsoleteParentIds.has(box.id));
     assert.ok(connected(result, "identity", 0, node.id));
     assert.ok(connected(result, "dspPack", 0, node.id));
+    assert.equal(
+      boxes(result).get("flatness-smoke-output").text,
+      "prepend flatness_smoke",
+    );
+    assert.ok(connected(result, "flatness-smoke-output", 0, node.id));
     assert.ok(connected(result, "input", 0, "output", 0));
     assert.ok(connected(result, "input", 1, "output", 1));
     if (boxes(result).has("ml_adapter_init")) {

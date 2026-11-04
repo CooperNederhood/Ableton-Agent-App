@@ -1,5 +1,171 @@
-import { describe, expect, it } from "vitest";
-import { captureCleanupConfirmed } from "../../tests/electron/acceptance-evidence.js";
+import { describe, expect, it, vi } from "vitest";
+import {
+  captureCleanupConfirmed,
+  restoreFlatnessSmoke,
+} from "../../tests/electron/acceptance-evidence.js";
+import { projectFlatnessSmoke } from "../../packages/test-support/src/integration/flatness-smoke.js";
+import {
+  flatnessHistory,
+  flatnessOwner,
+  recordedFlatnessHistory,
+} from "../../packages/test-support/src/integration/flatness-smoke-test-support.js";
+import { nativeMetricLifecycleSchema } from "../../packages/signal-routing/src/listener-metric-contracts.js";
+
+describe("flatness diagnostic typed History restoration seam", () => {
+  it("projects the authentic fifteen-fact ingress shape with class witnesses and independent cleanup timing", () => {
+    const history = recordedFlatnessHistory();
+    for (const event of history)
+      nativeMetricLifecycleSchema.parse(event.attributes.lifecycle);
+    const projected = projectFlatnessSmoke(history, flatnessOwner);
+    expect(projected.events).toHaveLength(10);
+    expect(projected.events.at(-1)?.facts).toMatchObject({
+      "flatness.leftClass": {
+        state: "observed",
+        value: "fluid.spectralshape~",
+      },
+      "flatness.rightClass": {
+        state: "observed",
+        value: "fluid.spectralshape~",
+      },
+      "flatness.leftDeliveries": { state: "observed", value: 20 },
+      "flatness.rightDeliveries": { state: "observed", value: 20 },
+      "flatness.cleanup": { state: "observed", value: "completed" },
+    });
+  });
+  it.each(["failed", "cancelled"] as const)(
+    "never admits authentic %s events with bounded rejected-value diagnostics",
+    (stage) => {
+      const history = recordedFlatnessHistory();
+      const event = history.find((item) =>
+        item.name.endsWith("spectral-flatness.progress"),
+      )!;
+      const lifecycle = nativeMetricLifecycleSchema.parse(
+        event.attributes.lifecycle,
+      );
+      event.attributes.lifecycle = nativeMetricLifecycleSchema.parse({
+        ...lifecycle,
+        stage,
+        reason:
+          stage === "failed"
+            ? "flatness_malformed_output"
+            : "flatness_smoke_capture",
+        facts: [
+          ...lifecycle.facts!,
+          ...["channel", "sequence", "db"].map((key) => ({
+            field: `flatness.rejected.${key}`,
+            actual: { state: "observed", value: "invalid" },
+          })),
+        ],
+      });
+      event.name = `output.listener.native.metric.spectral-flatness.${stage}`;
+      event.outcome = stage === "failed" ? "failure" : "cancelled";
+      expect(() => projectFlatnessSmoke(history, flatnessOwner)).toThrow();
+    },
+  );
+  it.each(["missing", "wrong", "premature", "rejected-on-success"] as const)(
+    "rejects %s class/diagnostic facts in the authentic ingress shape",
+    (fault) => {
+      const history = recordedFlatnessHistory();
+      const event = history.find((item) =>
+        item.name.endsWith(
+          fault === "premature"
+            ? "spectral-flatness.queued"
+            : "spectral-flatness.started",
+        ),
+      )!;
+      const lifecycle = nativeMetricLifecycleSchema.parse(
+        event.attributes.lifecycle,
+      );
+      const facts = lifecycle.facts!.filter(
+        (fact) => !(fault === "missing" && fact.field === "flatness.leftClass"),
+      );
+      if (fault === "wrong" || fault === "premature")
+        facts.find((fact) => fact.field === "flatness.leftClass")!.actual = {
+          state: "observed",
+          value: fault === "wrong" ? "jbogus" : "fluid.spectralshape~",
+        };
+      if (fault === "rejected-on-success")
+        facts.push({
+          field: "flatness.rejected.db",
+          actual: { state: "observed", value: "invalid" },
+        });
+      event.attributes.lifecycle = nativeMetricLifecycleSchema.parse({
+        ...lifecycle,
+        facts,
+      });
+      expect(() => projectFlatnessSmoke(history, flatnessOwner)).toThrow();
+    },
+  );
+  it("admits every smoke fixture lifecycle through the canonical ingress schema", () => {
+    for (const event of flatnessHistory().slice(1)) {
+      const lifecycle = nativeMetricLifecycleSchema.parse(
+        event.attributes.lifecycle,
+      );
+      expect(lifecycle.metric).toBe("spectral-flatness");
+      expect(lifecycle.facts).toHaveLength(15);
+      expect(lifecycle).toEqual(event.attributes.lifecycle);
+    }
+  });
+  it("uses canonical unavailable facts without renaming the smoke failure code", () => {
+    const lifecycle = nativeMetricLifecycleSchema.parse(
+      flatnessHistory()[1]!.attributes.lifecycle,
+    );
+    expect(
+      lifecycle.facts?.find((fact) => fact.field === "flatness.leftDb")?.actual,
+    ).toEqual({ state: "unavailable", reason: "not-reported" });
+    expect(
+      nativeMetricLifecycleSchema.parse({
+        ...lifecycle,
+        stage: "failed",
+        reason: "flatness_no_output",
+      }).reason,
+    ).toBe("flatness_no_output");
+    expect(
+      nativeMetricLifecycleSchema.safeParse({
+        ...lifecycle,
+        facts: [
+          {
+            field: "flatness.leftDb",
+            actual: { state: "unavailable", reason: "no-output" },
+          },
+        ],
+      }).success,
+    ).toBe(false);
+  });
+  it("re-reads owned trace after restart and retains both actual diagnostic values", async () => {
+    const original = projectFlatnessSmoke(flatnessHistory(), flatnessOwner);
+    const read = vi.fn().mockResolvedValue(flatnessHistory());
+    expect(await restoreFlatnessSmoke([original], true, read)).toEqual([
+      { ...original, afterOwnedRestart: true },
+    ]);
+    expect(read).toHaveBeenCalledExactlyOnceWith(flatnessOwner.traceId);
+  });
+  it("does not let the original successful projection mask missing or corrupt persisted diagnostics", async () => {
+    const original = projectFlatnessSmoke(flatnessHistory(), flatnessOwner);
+    for (const history of [[], flatnessHistory().slice(0, -1)]) {
+      await expect(
+        restoreFlatnessSmoke([original], true, async () => history),
+      ).rejects.toThrow();
+    }
+  });
+  it("propagates typed History failure and cancellation without falling back to cached evidence", async () => {
+    const original = projectFlatnessSmoke(flatnessHistory(), flatnessOwner);
+    for (const failure of [
+      new Error("History unavailable"),
+      new DOMException("Aborted", "AbortError"),
+    ])
+      await expect(
+        restoreFlatnessSmoke([original], true, async () => {
+          throw failure;
+        }),
+      ).rejects.toBe(failure);
+  });
+  it("leaves original scenarios without smoke diagnostics unchanged", async () => {
+    const read = vi.fn();
+    expect(await restoreFlatnessSmoke([], true, read)).toEqual([]);
+    expect(read).not.toHaveBeenCalled();
+  });
+});
 
 const owner = {
   traceId: "trace",

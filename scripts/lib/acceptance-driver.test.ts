@@ -40,6 +40,7 @@ const mocks = vi.hoisted(() => ({
   provision: vi.fn(),
   project: vi.fn(),
   loading: vi.fn(),
+  flatnessLoading: vi.fn(),
   bridgeOptions: vi.fn(),
   bridgeStart: vi.fn(),
   bridgeClose: vi.fn(),
@@ -59,6 +60,9 @@ vi.mock("../../tests/electron/acceptance-project.js", async (original) => ({
 }));
 vi.mock("../../tests/electron/acceptance-loading.js", () => ({
   verifyActiveFrozenCandidate: mocks.loading,
+}));
+vi.mock("../../tests/electron/acceptance-flatness-loading.js", () => ({
+  verifyLoadedFlatnessBinary: mocks.flatnessLoading,
 }));
 vi.mock("../../tests/electron/packaged-paths.js", () => ({
   packagedExecutable: async () => "/candidate/Contents/MacOS/Agent",
@@ -1473,74 +1477,135 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
     expect(mocks.liveStop).toHaveBeenCalled();
     expect(mocks.stop).toHaveBeenCalled();
   });
-  it("binds raw Max identities to reviewed slots without equating them to application UUIDs", async () => {
-    await audioBaseline();
-    const snapshot = liveSetSnapshotSchema.parse(
-      await api.ableton.requestSnapshot(),
-    );
-    const track = snapshot.tracks[0]!;
-    api.ableton.requestSnapshot.mockResolvedValue(
-      liveSetSnapshotSchema.parse({
-        ...snapshot,
-        devices: [
-          {
-            id: randomUUID(),
-            trackId: track.id,
-            trackIndex: 0,
-            index: 0,
-            name: "Listener",
-            className: "MxDeviceAudioEffect",
-            classDisplayName: "Max Audio Effect",
-            enabled: true,
-            parameterCount: 1,
-            canHaveChains: false,
-            canHaveDrumPads: false,
-          },
-        ],
-      }),
-    );
-    context = {
-      ...context,
-      fixture: {
-        ...context.fixture,
-        dependencies: ["machine-listening"],
-        listenerBindings: [
-          {
-            slot: "AudioTrack:175/DeviceChain/DeviceChain/Devices/MxDeviceAudioEffect:0",
-            sourcePath: "Presets/Listener.amxd",
-            dependency: "machine-listening",
-            trackIndex: 0,
-            deviceIndex: 0,
-          },
-        ],
-      },
-    };
-    api.outputs.list.mockResolvedValue({
-      activeSessionId: identity.appSessionId,
-      connections: [
-        {
-          state: "connected",
-          signalKind: "audio",
-          producerId: "listener-1",
-          track: { id: "2141", index: 0, name: track.name },
-          device: { id: "2140", name: "Listener" },
+  it.each(["baseline", "flatness", "flatness-denied", "flatness-cancelled"])(
+    "binds raw Max identities and limits loaded-binary proof to flatness: %s",
+    async (mode) => {
+      await audioBaseline();
+      const snapshot = liveSetSnapshotSchema.parse(
+        await api.ableton.requestSnapshot(),
+      );
+      const track = snapshot.tracks[0]!;
+      api.ableton.requestSnapshot.mockResolvedValue(
+        liveSetSnapshotSchema.parse({
+          ...snapshot,
+          devices: [
+            {
+              id: randomUUID(),
+              trackId: track.id,
+              trackIndex: 0,
+              index: 0,
+              name: "Listener",
+              className: "MxDeviceAudioEffect",
+              classDisplayName: "Max Audio Effect",
+              enabled: true,
+              parameterCount: 1,
+              canHaveChains: false,
+              canHaveDrumPads: false,
+            },
+          ],
+        }),
+      );
+      context = {
+        ...context,
+        scenario: {
+          ...context.scenario,
+          id:
+            mode === "baseline"
+              ? context.scenario.id
+              : "session-flucoma-flatness-smoke",
         },
-      ],
-    });
-    mocks.loading.mockResolvedValue({
-      activeCandidateVerified: true,
-      activeNodePids: "1234",
-      activeFrozenSha256: "c".repeat(64),
-    });
-    await driver.launch(context);
-    await driver.ready(context);
-    const baseline = await driver.readBaseline(context);
-    expect(baseline.sources?.a?.source.trackId).toBe(track.id);
-    expect(baseline.sources?.a?.source.trackId).not.toBe("2141");
-    expect(baseline.sources?.a?.listenerId).toBe("listener-1");
-    expect(baseline.facts.activeCandidateVerified).toBe(true);
-    await driver.cleanup(context);
-  });
+        fixture: {
+          ...context.fixture,
+          dependencies: ["machine-listening"],
+          listenerBindings: [
+            {
+              slot: "AudioTrack:175/DeviceChain/DeviceChain/Devices/MxDeviceAudioEffect:0",
+              sourcePath: "Presets/Listener.amxd",
+              dependency: "machine-listening",
+              trackIndex: 0,
+              deviceIndex: 0,
+            },
+          ],
+        },
+      };
+      api.outputs.list.mockResolvedValue({
+        activeSessionId: identity.appSessionId,
+        connections: [
+          {
+            state: "connected",
+            signalKind: "audio",
+            producerId: "listener-1",
+            track: { id: "2141", index: 0, name: track.name },
+            device: { id: "2140", name: "Listener" },
+          },
+        ],
+      });
+      mocks.loading.mockResolvedValue({
+        activeCandidateVerified: true,
+        activeNodePids: "1234",
+        activeFrozenSha256: "c".repeat(64),
+      });
+      mocks.flatnessLoading.mockResolvedValue({
+        flatnessLoadedBinaryVerified: true,
+        flatnessLoadedBinarySchema: "owned-mapped-flucoma/v1",
+        flatnessLoadedBinaryPath:
+          "/owned/frozen/dependencies/flucoma/fluid.spectralshape~.mxo/Contents/MacOS/fluid.spectralshape~",
+        flatnessLoadedBinarySha256: "d".repeat(64),
+        flatnessLoadedBinaryPids: "98766",
+        flatnessLoadedBinaryInode: "123",
+        flatnessLoadedBinaryDevice: "456",
+      });
+      if (mode === "flatness-denied")
+        mocks.flatnessLoading.mockRejectedValue(
+          new Error("Mapped flatness binary is not the pinned staged identity"),
+        );
+      if (mode === "flatness-cancelled")
+        mocks.flatnessLoading.mockRejectedValue(
+          new DOMException("Aborted", "AbortError"),
+        );
+      await driver.launch(context);
+      await driver.ready(context);
+      if (mode === "flatness-denied" || mode === "flatness-cancelled") {
+        await expect(driver.readBaseline(context)).rejects.toThrow();
+        expect(mocks.send).not.toHaveBeenCalled();
+        await driver.cleanup(context);
+        const evidence: unknown = JSON.parse(
+          await readFile(join(directory, "product-evidence.json"), "utf8"),
+        );
+        expect(evidence).toMatchObject({
+          provenance: {
+            flatnessLoadedBinaryVerified: false,
+            flatnessLoadedBinaryState:
+              mode === "flatness-denied" ? "failed" : "cancelled",
+            flatnessLoadedBinaryError:
+              "owned-loader-proof-unavailable-or-mismatched",
+            flatnessLoadedBinaryDurationMs: expect.any(Number) as unknown,
+          },
+        });
+        expect(mocks.liveStop).toHaveBeenCalled();
+        return;
+      }
+      const baseline = await driver.readBaseline(context);
+      expect(baseline.sources?.a?.source.trackId).toBe(track.id);
+      expect(baseline.sources?.a?.source.trackId).not.toBe("2141");
+      expect(baseline.sources?.a?.listenerId).toBe("listener-1");
+      expect(baseline.facts.activeCandidateVerified).toBe(true);
+      if (mode === "flatness") {
+        expect(mocks.flatnessLoading).toHaveBeenCalledExactlyOnceWith(
+          expect.objectContaining({
+            live: { pid: 98766, owned: true },
+            activeNodePids: "1234",
+            workingDirectory: context.stagedFixture!.workingDirectory,
+          }),
+        );
+        expect(baseline.facts).toMatchObject({
+          flatnessLoadedBinaryVerified: true,
+          flatnessLoadedBinaryState: "completed",
+        });
+      } else expect(mocks.flatnessLoading).not.toHaveBeenCalled();
+      await driver.cleanup(context);
+    },
+  );
   it("requires reviewed listener bindings before provisioning or launching", async () => {
     context = {
       ...context,

@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { lstat, mkdir, readFile, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdir, readFile, writeFile } from "node:fs/promises";
 import { join, relative, sep } from "node:path";
 import {
   dependencyInventoryHashes,
@@ -10,6 +10,11 @@ import {
 import {
   freezeAmxd,
   readIntegrationDevicePayloads,
+  isFlucomaDependencyResource,
+  isSafeDeviceResourceName,
+  readFlucomaDependencyFile,
+  assertResourceParents,
+  FLUCOMA_DEPENDENCY_FILES,
 } from "../../packages/shared/src/m4l-devices.js";
 import { writeProducerDiscoveryConfiguration } from "../../scripts/m4l-producer-companions.mjs";
 
@@ -61,23 +66,43 @@ export async function provisionPackagedDependencies(options: {
   for (const payload of selected) {
     const destination = join(root, payload.id);
     await mkdir(destination, { mode: 0o700 });
+    const resourceDestination = (name: string) =>
+      join(
+        destination,
+        ...(payload.id === "machine-listening" &&
+        isFlucomaDependencyResource(name)
+          ? ["frozen"]
+          : []),
+        name,
+      );
     for (const file of payload.files) {
       options.signal.throwIfAborted();
+      if (!isSafeDeviceResourceName(file.name))
+        throw new Error("Unsafe packaged dependency resource name");
       const source = join(payload.sourceDirectory, file.name);
       const info = await lstat(source);
       if (!info.isFile() || info.isSymbolicLink() || info.size !== file.bytes)
         throw new Error("Packaged dependency changed after verification");
-      const bytes = await readFile(source);
+      const bytes = isFlucomaDependencyResource(file.name)
+        ? await readFlucomaDependencyFile(payload.sourceDirectory, file.name)
+        : await readFile(source);
       if (createHash("sha256").update(bytes).digest("hex") !== file.sha256)
         throw new Error("Packaged dependency hash mismatch");
-      await writeFile(join(destination, file.name), bytes, {
+      const target = resourceDestination(file.name);
+      const dependency = FLUCOMA_DEPENDENCY_FILES.find(
+        (pin) => pin.name === file.name,
+      );
+      await assertResourceParents(target, true);
+      options.signal.throwIfAborted();
+      await writeFile(target, bytes, {
         flag: "wx",
-        mode: 0o600,
+        mode: dependency?.mode ?? 0o600,
       });
+      if (dependency) await chmod(target, dependency.mode);
       resources.push({
         id: payload.id,
         path: relative(candidateRoot, source).split(sep).join("/"),
-        target: `dependencies/${payload.id}/${file.name}`,
+        target: relative(options.workingDirectory, target).split(sep).join("/"),
         sha256: file.sha256,
         bytes: file.bytes,
       });
@@ -100,15 +125,22 @@ export async function provisionPackagedDependencies(options: {
           file.name !== payload.deviceFile &&
           file.name !== "audio-listener-manifest.json"
         )
-          embedded.set(file.name, await readFile(join(destination, file.name)));
+          embedded.set(
+            file.name,
+            await readFile(resourceDestination(file.name)),
+          );
       embedded.set("agent_signal_storage.js", configuration);
       const frozen = freezeAmxd(
         await readFile(join(destination, payload.deviceFile)),
         payload.deviceFile,
         embedded,
+        { deviceDirectory: join(destination, "frozen") },
       );
       options.signal.throwIfAborted();
-      await mkdir(join(destination, "frozen"), { mode: 0o700 });
+      await assertResourceParents(
+        join(destination, "frozen", payload.deviceFile),
+        true,
+      );
       await writeFile(join(destination, "frozen", payload.deviceFile), frozen, {
         flag: "wx",
         mode: 0o600,

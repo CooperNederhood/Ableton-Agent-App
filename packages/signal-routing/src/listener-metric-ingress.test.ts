@@ -1013,59 +1013,64 @@ describe("opt-in authenticated independent metric ingress", () => {
     });
   });
 
-  it("records metric failure separately while healthy capture continues, preserving causal identity and redaction", async () => {
-    const s = await session("arrangement", true);
-    await s.ready();
-    await s.arm();
-    const eventId = randomUUID();
-    const secret = `ghp_${"a".repeat(36)}`;
-    const nativeLifecycle = {
-      scope: "independent-metric-timelines/v1",
-      metric: "spectral-centroid",
-      eventId,
-      causationId: randomUUID(),
-      generation: s.prepare.generation,
-      nativeEpoch: s.bound.proof.armed.ownership.nativeEpoch,
-      stage: "failed",
-      phase: "capture",
-      reason: secret,
-      elapsedMs: 100,
-      durationMs: 37,
-      frames: 1,
-    };
-    expect(
-      (await s.result({ status: "progress", nativeLifecycle })).acknowledgement,
-    ).toMatchObject({ type: "producer.ack" });
-    expect(
-      (await s.result({ status: "progress", nativeLifecycle })).acknowledgement,
-    ).toMatchObject({ type: "producer.ack" });
-    const native = s.events.filter((event) => event.id === eventId);
-    expect(native).toHaveLength(1);
-    expect(native[0]).toMatchObject({
-      name: "output.listener.native.metric.spectral-centroid.failed",
-      outcome: "failure",
-      durationMs: 37,
-      trace: { traceId: s.prepare.traceId, spanId: eventId },
-      correlationId: s.prepare.correlationId,
-      causationId: nativeLifecycle.causationId,
-    });
-    expect(JSON.stringify(native)).not.toContain(secret);
-    expect(
-      s.events.filter(
-        (event) => event.name === "output.listener.native.failed",
-      ),
-    ).toEqual([]);
-    expect(s.server.inspectListeners()[0]?.phase).toBe("armed");
-    expect(
-      (
-        await s.result({
-          status: "partial",
-          observation: s.bound.observation,
-          nativeSourceCoverage: s.bound.proof,
-        })
-      ).acknowledgement,
-    ).toMatchObject({ type: "producer.ack" });
-  });
+  it.each(["spectral-centroid", "spectral-flatness"])(
+    "records %s failure separately while healthy capture continues, preserving causal identity and redaction",
+    async (metric) => {
+      const s = await session("arrangement", true);
+      await s.ready();
+      await s.arm();
+      const eventId = randomUUID();
+      const secret = `ghp_${"a".repeat(36)}`;
+      const nativeLifecycle = {
+        scope: "independent-metric-timelines/v1",
+        metric,
+        eventId,
+        causationId: randomUUID(),
+        generation: s.prepare.generation,
+        nativeEpoch: s.bound.proof.armed.ownership.nativeEpoch,
+        stage: "failed",
+        phase: "capture",
+        reason: secret,
+        elapsedMs: 100,
+        durationMs: 37,
+        frames: 1,
+      };
+      expect(
+        (await s.result({ status: "progress", nativeLifecycle }))
+          .acknowledgement,
+      ).toMatchObject({ type: "producer.ack" });
+      expect(
+        (await s.result({ status: "progress", nativeLifecycle }))
+          .acknowledgement,
+      ).toMatchObject({ type: "producer.ack" });
+      const native = s.events.filter((event) => event.id === eventId);
+      expect(native).toHaveLength(1);
+      expect(native[0]).toMatchObject({
+        name: `output.listener.native.metric.${metric}.failed`,
+        outcome: "failure",
+        durationMs: 37,
+        trace: { traceId: s.prepare.traceId, spanId: eventId },
+        correlationId: s.prepare.correlationId,
+        causationId: nativeLifecycle.causationId,
+      });
+      expect(JSON.stringify(native)).not.toContain(secret);
+      expect(
+        s.events.filter(
+          (event) => event.name === "output.listener.native.failed",
+        ),
+      ).toEqual([]);
+      expect(s.server.inspectListeners()[0]?.phase).toBe("armed");
+      expect(
+        (
+          await s.result({
+            status: "partial",
+            observation: s.bound.observation,
+            nativeSourceCoverage: s.bound.proof,
+          })
+        ).acknowledgement,
+      ).toMatchObject({ type: "producer.ack" });
+    },
+  );
 
   it.each([
     ["queued", "unknown"],
@@ -1285,94 +1290,104 @@ describe("opt-in authenticated independent metric ingress", () => {
     ).toMatchObject({ lifecycle: { facts: nativeLifecycle.facts } });
   });
 
-  it("persists native stage causation, duration, redaction and deduplication through typed journal reads", async () => {
-    const { journal, recorder, failures } =
-      await createIngressJournalFixture(resources);
-    const s = await session("arrangement", true, { telemetry: recorder });
-    await s.ready();
-    await s.arm();
-    const secret = `ghp_${"a".repeat(36)}`;
-    const queued = lifecycle(s, { stage: "queued", phase: "capture" });
-    const started = lifecycle(s, {
-      stage: "started",
-      causationId: queued.eventId,
-    });
-    const failed = lifecycle(s, {
-      stage: "failed",
-      causationId: started.eventId,
-      reason: secret,
-      durationMs: 17,
-      facts: [
-        {
-          field: "spectrum.accepted",
-          actual: { state: "observed", value: 1 },
-          expected: {
-            state: "observed",
-            value:
-              s.bound.observation.metrics["spectral-centroid"].expectedRecords,
-          },
-          comparison: "equal",
-          unit: "count",
-        },
-      ],
-    });
-    for (const nativeLifecycle of [queued, started, failed, failed])
-      expect(
-        (await s.result({ status: "progress", nativeLifecycle }))
-          .acknowledgement,
-      ).toMatchObject({ type: "producer.ack" });
-    expect(
-      (
-        await s.result({
-          status: "partial",
-          observation: s.bound.observation,
-          nativeSourceCoverage: s.bound.proof,
-        })
-      ).acknowledgement,
-    ).toMatchObject({ type: "producer.ack" });
-    const read = async () =>
-      (
-        await journal.readEvents({
-          traceId: s.prepare.traceId,
-          limit: 100,
-        })
-      ).items.filter((event) =>
-        event.name.startsWith("output.listener.native.metric."),
-      );
-    await expect.poll(async () => (await read()).length).toBe(3);
-    const saved = await read();
-    for (const original of [queued, started, failed]) {
-      const event = saved.find(
-        (candidate) => candidate.id === original.eventId,
-      );
-      expect(event).toMatchObject({
-        causationId: original.causationId,
-        correlationId: s.prepare.correlationId,
-        trace: { traceId: s.prepare.traceId, spanId: original.eventId },
+  it.each(["spectral-centroid", "spectral-flatness"] as const)(
+    "persists %s stage causation, duration, redaction and deduplication through typed journal reads",
+    async (metric) => {
+      const { journal, recorder, failures } =
+        await createIngressJournalFixture(resources);
+      const s = await session("arrangement", true, { telemetry: recorder });
+      await s.ready();
+      await s.arm();
+      const secret = `ghp_${"a".repeat(36)}`;
+      const queued = lifecycle(s, {
+        metric,
+        stage: "queued",
+        phase: "capture",
       });
-      expect(event?.attributes.generation).toBe(s.prepare.generation);
-      expect(event?.attributes.passId).toBe(s.prepare.passId);
-      expect(event?.attributes.instanceId).toBe(
-        s.descriptor.producer.instanceId,
-      );
-      expect(event?.attributes.producerId).toBe(
-        s.descriptor.producer.producerId,
-      );
-    }
-    expect(saved.find((event) => event.id === failed.eventId)?.durationMs).toBe(
-      17,
-    );
-    expect(
-      saved.find((event) => event.id === failed.eventId)?.attributes,
-    ).toMatchObject({
-      lifecycle: { facts: failed.facts },
-    });
-    expect(
-      saved.find((event) => event.id === started.eventId),
-    ).not.toHaveProperty("durationMs");
-    expect(JSON.stringify(saved)).not.toContain(secret);
-    expect(failures).toEqual([]);
-  });
+      const started = lifecycle(s, {
+        metric,
+        stage: "started",
+        causationId: queued.eventId,
+      });
+      const failed = lifecycle(s, {
+        metric,
+        stage: "failed",
+        causationId: started.eventId,
+        reason: secret,
+        durationMs: 17,
+        facts: [
+          {
+            field: `${metric}.deliveries`,
+            actual: { state: "observed", value: 1 },
+            expected: {
+              state: "observed",
+              value:
+                s.bound.observation.metrics["spectral-centroid"]
+                  .expectedRecords,
+            },
+            comparison: "equal",
+            unit: "count",
+          },
+        ],
+      });
+      for (const nativeLifecycle of [queued, started, failed, failed])
+        expect(
+          (await s.result({ status: "progress", nativeLifecycle }))
+            .acknowledgement,
+        ).toMatchObject({ type: "producer.ack" });
+      expect(
+        (
+          await s.result({
+            status: "partial",
+            observation: s.bound.observation,
+            nativeSourceCoverage: s.bound.proof,
+          })
+        ).acknowledgement,
+      ).toMatchObject({ type: "producer.ack" });
+      const read = async () =>
+        (
+          await journal.readEvents({
+            traceId: s.prepare.traceId,
+            limit: 100,
+          })
+        ).items.filter((event) =>
+          event.name.startsWith("output.listener.native.metric."),
+        );
+      await expect.poll(async () => (await read()).length).toBe(3);
+      const saved = await read();
+      for (const original of [queued, started, failed]) {
+        const event = saved.find(
+          (candidate) => candidate.id === original.eventId,
+        );
+        expect(event).toMatchObject({
+          causationId: original.causationId,
+          correlationId: s.prepare.correlationId,
+          trace: { traceId: s.prepare.traceId, spanId: original.eventId },
+        });
+        expect(event?.attributes.generation).toBe(s.prepare.generation);
+        expect(event?.attributes.passId).toBe(s.prepare.passId);
+        expect(event?.attributes.instanceId).toBe(
+          s.descriptor.producer.instanceId,
+        );
+        expect(event?.attributes.producerId).toBe(
+          s.descriptor.producer.producerId,
+        );
+      }
+      expect(
+        saved.find((event) => event.id === failed.eventId)?.durationMs,
+      ).toBe(17);
+      expect(
+        saved.find((event) => event.id === failed.eventId)?.attributes,
+      ).toMatchObject({
+        lifecycle: { facts: failed.facts },
+      });
+      expect(
+        saved.find((event) => event.id === started.eventId),
+      ).not.toHaveProperty("durationMs");
+      expect(JSON.stringify(saved)).not.toContain(secret);
+      expect(failures).toEqual([]);
+    },
+  );
 
   it("treats authenticated transport backpressure as a shared failure rather than a partial result", async () => {
     const s = await session("arrangement", false, {

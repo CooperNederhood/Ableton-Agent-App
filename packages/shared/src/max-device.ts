@@ -1,12 +1,30 @@
 import { Buffer } from "node:buffer";
-import { copyFile, stat, mkdir, rename, rm } from "node:fs/promises";
+import {
+  chmod,
+  copyFile,
+  lstat,
+  readFile,
+  stat,
+  mkdir,
+  rename,
+  rm,
+} from "node:fs/promises";
 import { randomUUID } from "node:crypto";
-import { basename, join, normalize, resolve } from "node:path";
+import { isAbsolute, join, normalize, parse, resolve } from "node:path";
 import {
   decodeMaxCollective,
   encodeMaxCollective,
   type FrozenMaxFile,
 } from "./max-collective.js";
+import {
+  assertResourceParents,
+  FLUCOMA_DEPENDENCY_FILES,
+  FLUCOMA_DEPENDENCY_DIRECTORY,
+  isFlucomaDependencyResource,
+  isSafeDeviceResourceName,
+  readFlucomaDependencyFile,
+  validateFlucomaDependencyBytes,
+} from "./flucoma-dependency.js";
 
 export type MaxValue =
   string | number | boolean | null | MaxValue[] | { [key: string]: MaxValue };
@@ -15,6 +33,82 @@ export interface AmxdContainer {
   readonly prefix: Buffer;
   readonly suffix: Buffer;
   readonly frozenFiles?: readonly FrozenMaxFile[];
+}
+
+export interface DeviceDependencyBinding {
+  /** Actual final device directory, never a publication staging directory. */
+  readonly deviceDirectory?: string;
+}
+
+function dependencyBindingRequired(
+  resources: ReadonlyMap<string, Uint8Array>,
+): boolean {
+  const names = [...resources.keys()].filter(isFlucomaDependencyResource);
+  if (!names.length) return false;
+  if (names.length !== FLUCOMA_DEPENDENCY_FILES.length)
+    throw new Error("Missing pinned adjacent FluCoMa dependency resources");
+  for (const name of names)
+    validateFlucomaDependencyBytes(name, resources.get(name)!);
+  return true;
+}
+
+/** Bind only the project-local dependency search; never edit Max global paths. */
+export function bindFlucomaDependencyPaths(
+  document: MaxValue,
+  options: DeviceDependencyBinding,
+): MaxValue {
+  const directory = options.deviceDirectory;
+  if (
+    typeof directory !== "string" ||
+    directory.length > 4096 ||
+    !isAbsolute(directory) ||
+    resolve(directory) !== directory ||
+    directory === parse(directory).root ||
+    /[\0\r\n]/u.test(directory)
+  )
+    throw new Error(
+      "Explicit final device directory required for pinned FluCoMa resources",
+    );
+  const root = object(document);
+  const patcher = object(root?.patcher);
+  if (!root || !patcher) throw new Error("Missing device patcher");
+  return {
+    ...root,
+    patcher: {
+      ...patcher,
+      project: {
+        ...object(patcher.project),
+        searchpath: {
+          "0": {
+            bootpath: join(directory, FLUCOMA_DEPENDENCY_DIRECTORY).replaceAll(
+              "\\",
+              "/",
+            ),
+            label: "Bundled FluCoMa",
+            recursive: 0,
+            enabled: 1,
+            includeincollective: 0,
+          },
+        },
+      },
+    },
+  };
+}
+
+/** Derive an unfrozen device while leaving its portable source untouched. */
+export function bindAmxdDependencyPaths(
+  raw: Buffer,
+  resources: ReadonlyMap<string, Uint8Array>,
+  options: DeviceDependencyBinding = {},
+): Buffer {
+  if (!dependencyBindingRequired(resources)) return raw;
+  const container = decodeAmxd(raw);
+  if (container.frozenFiles)
+    throw new Error("Dependency binding requires an unfrozen source device");
+  return encodeAmxd(
+    container,
+    bindFlucomaDependencyPaths(container.document, options),
+  );
 }
 
 export function decodeAmxd(raw: Buffer): AmxdContainer {
@@ -66,6 +160,7 @@ export function freezeAmxd(
   raw: Buffer,
   deviceFile: string,
   resources: ReadonlyMap<string, Uint8Array>,
+  options: DeviceDependencyBinding = {},
 ): Buffer {
   if (
     resources.size >= 512 ||
@@ -85,7 +180,11 @@ export function freezeAmxd(
     !["aaaa", "mmmm", "iiii"].includes(raw.toString("ascii", 8, 12))
   )
     throw new Error("Unsupported AMXD wrapper for freezing");
-  const root = object(container.document);
+  const hasDependencies = dependencyBindingRequired(resources);
+  const boundDocument = hasDependencies
+    ? bindFlucomaDependencyPaths(container.document, options)
+    : container.document;
+  const root = object(boundDocument);
   const patcher = object(root?.patcher);
   if (!root || !patcher) throw new Error("Missing device patcher");
   const nodeScripts = new Set<string>();
@@ -94,6 +193,12 @@ export function freezeAmxd(
     const value = pending.pop()!;
     if (Array.isArray(value)) pending.push(...value);
     else if (value && typeof value === "object") {
+      if (
+        typeof value.text === "string" &&
+        /^fluid\.spectralshape~(?:\s|$)/u.test(value.text) &&
+        !hasDependencies
+      )
+        throw new Error("Missing pinned adjacent FluCoMa dependency resources");
       if (
         typeof value.text === "string" &&
         value.text.startsWith("node.script ")
@@ -107,7 +212,9 @@ export function freezeAmxd(
       pending.push(...Object.values(value));
     }
   }
+  // Native signed bundles remain explicit adjacent files, not TEXT entries.
   const files: FrozenMaxFile[] = [...resources]
+    .filter(([name]) => !isFlucomaDependencyResource(name))
     .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
     .map(([name, bytes]) => ({
       name,
@@ -375,16 +482,26 @@ export async function publishResources(
         typeof resource.fileName !== "string" ||
         !resource.fileName ||
         resource.fileName.length > 256 ||
-        basename(resource.fileName) !== resource.fileName ||
-        [".", ".."].includes(resource.fileName) ||
-        resource.fileName.includes("\\") ||
+        !isSafeDeviceResourceName(resource.fileName) ||
         names.has(resource.fileName) ||
         typeof resource.source !== "string" ||
         !resource.source ||
         resource.source.length > 4096
       )
-        throw new Error("Resource names must be unique bounded basenames");
+        throw new Error(
+          "Resource names must be unique bounded basenames or pinned dependency paths",
+        );
       names.add(resource.fileName);
+      if (isFlucomaDependencyResource(resource.fileName)) {
+        const suffix = resource.fileName;
+        const source = resolve(resource.source).replaceAll("\\", "/");
+        if (!source.endsWith(`/${suffix}`))
+          throw new Error("Pinned dependency source path mismatch");
+        await readFlucomaDependencyFile(
+          source.slice(0, -suffix.length),
+          resource.fileName,
+        );
+      }
       const metadata = await stat(resource.source);
       if (!metadata.isFile() || metadata.size > 8 * 1024 * 1024)
         throw new Error("Resources must be regular files no larger than 8 MiB");
@@ -395,12 +512,32 @@ export async function publishResources(
     for (const resource of publication) {
       cancelled();
       const destination = join(destinationDirectory, resource.fileName);
+      if (isFlucomaDependencyResource(resource.fileName)) {
+        await assertResourceParents(destination, true);
+        try {
+          const metadata = await lstat(destination);
+          if (!metadata.isFile() || metadata.isSymbolicLink())
+            throw new Error("Dependency destination must be a regular file");
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+        }
+      }
       if (resolve(resource.source) !== resolve(destination)) {
         const staged = `${destination}.staged-${randomUUID()}`;
         try {
           await copyFile(resource.source, staged);
           if ((await stat(staged)).size > 8 * 1024 * 1024)
             throw new Error("Resource changed beyond publication size bounds");
+          const pin = FLUCOMA_DEPENDENCY_FILES.find(
+            (file) => file.name === resource.fileName,
+          );
+          if (pin) {
+            validateFlucomaDependencyBytes(
+              resource.fileName,
+              await readFile(staged),
+            );
+            await chmod(staged, pin.mode);
+          }
           cancelled();
           await rename(staged, destination);
         } finally {

@@ -3,6 +3,12 @@ import { lstat, open, readdir } from "node:fs/promises";
 import { constants } from "node:fs";
 import { join, resolve } from "node:path";
 import { decodeAmxd } from "./max-device.js";
+import {
+  assertDeviceResourceInventory,
+  FLUCOMA_DEPENDENCY_RESOURCE_NAMES,
+  isFlucomaDependencyResource,
+  readFlucomaDependencyFile,
+} from "./flucoma-dependency.js";
 
 export type IntegrationDeviceId = "machine-listening" | "midi-capture";
 export interface IntegrationDevicePayload {
@@ -53,6 +59,8 @@ export const INTEGRATION_DEVICE_INVENTORY = {
       "agent_signal_client_common.js",
       "producer_identity_common.js",
       "audio_listener_native_v5_max.js",
+      "audio_listener_flatness_smoke.js",
+      "audio_listener_flatness_probe.js",
       "audio_listener_metric_runtime.js",
       "audio_listener_metric_controller.js",
       "audio_listener_metric_spectrum.js",
@@ -68,6 +76,7 @@ export const INTEGRATION_DEVICE_INVENTORY = {
       "audio_listener_native_clock.maxpat",
       "audio_listener_native_fft.maxpat",
       "audio_listener_native_analysis.maxpat",
+      ...FLUCOMA_DEPENDENCY_RESOURCE_NAMES,
     ],
   },
   "midi-capture": {
@@ -344,6 +353,9 @@ function validateWiring(raw: Buffer, id: IntegrationDeviceId): void {
     const dspPack = uniqueObject("pack dsp 0 0. 0");
     const adapter = uniqueObject("route adapter-started");
     const startup = uniqueObject("trigger b");
+    const flatnessOutput = uniqueObject("prepend flatness_smoke");
+    if (!connected(flatnessOutput, 0, runtime, 0))
+      throw new Error("Missing flatness diagnostic runtime wiring");
     for (const [from, outlet, to, inlet] of [
       [init, 0, identity, 0],
       [identity, 0, runtime, 0],
@@ -362,6 +374,7 @@ function validateWiring(raw: Buffer, id: IntegrationDeviceId): void {
       dspPack,
       byName("ml_scoped_native_clock"),
       byName("ml_scoped_native_analysis"),
+      flatnessOutput,
     ]);
     for (const entry of patcher.lines) {
       const line = record(record(entry).patchline);
@@ -483,7 +496,7 @@ export async function readIntegrationDevicePayloads(
     )
       throw new Error("Integration MIDI placeholder mismatch");
     const sourceDirectory = join(root, id);
-    await directory(sourceDirectory, expected.files);
+    await assertDeviceResourceInventory(sourceDirectory, expected.files);
     const files: { name: string; sha256: string; bytes: number }[] = [];
     const contents = new Map<string, Buffer>();
     for (const item of entry.files) {
@@ -500,7 +513,9 @@ export async function readIntegrationDevicePayloads(
         file.bytes > 8 * 1024 * 1024
       )
         throw new Error("Invalid integration file inventory");
-      const raw = await boundedFile(join(sourceDirectory, file.name));
+      const raw = isFlucomaDependencyResource(file.name)
+        ? await readFlucomaDependencyFile(sourceDirectory, file.name)
+        : await boundedFile(join(sourceDirectory, file.name));
       if (
         raw.length !== file.bytes ||
         createHash("sha256").update(raw).digest("hex") !== file.sha256

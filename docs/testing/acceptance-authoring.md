@@ -221,8 +221,44 @@ derive expected frames from fixture duration and independently established host
 sample rate, and verify the loaded baseline before running. Never copy observed
 result counters into the expected values.
 
+The `session-flucoma-flatness-smoke` sibling reuses the unchanged
+`session-clip-identify` fixture, permission, and budgets with one turn:
+“Listen to the first Session clip on track audio-track, including spectral
+flatness.” There is no classification turn. Its `flatness-smoke` assertion
+requires attributable native lifecycle diagnostics for both independent stereo
+channels, bounded finite dB values and positive delivery counts, exact native
+ownership, causal stage ordering, and successful smoke cleanup without local
+failure/cancellation. It re-reads those diagnostics through typed Desktop
+History after the owned restart and compares the projection with the original.
+Pre-output facts use the canonical unavailable reason `not-reported`; a missing
+channel at completion still fails with lifecycle reason `flatness_no_output`.
+The successful projection retains exactly fifteen facts, including both actual
+Max class witnesses: unavailable before start, then exactly
+`fluid.spectralshape~` from started through cleanup. Optional rejected-value
+diagnostics remain failure evidence in History; they cannot qualify a success.
+Only this smoke scenario additionally requires `owned-mapped-flucoma/v1`
+loaded-binary provenance before baseline admission and after successful capture.
+The existing owned Live/Node ancestry proof selects Live/Max ancestor PIDs for
+bounded, read-only `lsof` text-mapping reads; unrelated Max processes are never
+queried. The mapped path, device/inode and pinned binary bytes must identify the
+staged frozen dependency, not an identically named global Max external.
+Missing mappings, ambiguous ownership, global fallback, changed process/file
+identity, inspection failure or cancellation fail closed with bounded product
+provenance. These controlled checks do not establish a new real-host result.
+The baseline capture, publication, source cleanup, context, and unchanged-world
+checks remain intact. `flucoma-flatness-smoke/v1` explicitly marks support and
+value validity **unqualified**: coalesced outlet deliveries are not FFT frames,
+sample-support evidence, or proof of numerical accuracy. Offline admission and
+controlled regression tests do not establish real-host acceptance.
+Acceptance provisioning retains pinned signed FluCoMa files as a nested
+`dependencies/flucoma` bundle adjacent to the derived frozen device rather than
+embedding its Mach-O binary into the collective. Inventory verification preserves
+relative resource names, validates pinned bytes and executable permissions on
+both candidate and staged copies, and rejects linked parents. Candidate hashes
+still refer to immutable packaged bytes; no additional fixture assets are used.
+
 Named assertions come from the shared registry: `choice`, `capture`,
-`capture-count`, `context`, `native-freshness`, `spectral-range`, `no-capture`,
+`capture-count`, `context`, `native-freshness`, `spectral-range`, `flatness-smoke`, `no-capture`,
 `unchanged`, and `fact-equals`. The
 template illustrates their actual parameter shapes; consult
 [`ScenarioManifest` and `FixtureManifest`](../../packages/test-support/src/integration/contracts.ts)
@@ -917,6 +953,13 @@ declared, and the driver's explicit dependency
 preservation paths under `dependencies/<declared-dependency>/`, not arbitrary
 working files. Failed preparation output is retained for diagnosis, not treated
 as admitted or verified merely because it was preserved.
+Nested signed FluCoMa resources are retained only at the exact pinned
+`dependencies/machine-listening/frozen/dependencies/flucoma/` file paths.
+The shared pin inventory admits their `~` and `_CodeSignature` names without
+relaxing ordinary dependency-name guards or allowing arbitrary nested bundles.
+Retention preserves diagnostic bytes even after a failed run; it does not
+re-admit their contents. Linked files/parents and unknown paths still fail before
+any pruning, and primary capture failure/cancellation remains independent.
 The driver must remove its isolated credential-bearing profile;
 never archive it. Require a durable checkpoint before pruning, confirmed cleanup
 before pruning/deletion, and a

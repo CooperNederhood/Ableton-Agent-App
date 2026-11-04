@@ -74,6 +74,10 @@ async function staging(configured, action) {
       join(directory, "audio_listener_metric_runtime.js"),
     );
     await copyFile(
+      join(SOURCE_DIRECTORY, "audio_listener_flatness_probe.js"),
+      join(directory, "audio_listener_flatness_probe.js"),
+    );
+    await copyFile(
       join(SOURCE_DIRECTORY, "../shared/agent_signal_client.js"),
       join(directory, "agent_signal_client_common.js"),
     );

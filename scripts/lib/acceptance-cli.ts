@@ -23,6 +23,7 @@ import {
   serializeScenarioReceipt,
   writeScenarioReceipt,
 } from "./scenario-receipts.mjs";
+import { FLUCOMA_DEPENDENCY_RESOURCE_NAMES } from "../../packages/shared/src/flucoma-dependency.js";
 import type { LiveHostLease } from "./live-host-lease.mjs";
 
 function object(value: unknown): asserts value is Record<string, unknown> {
@@ -44,6 +45,12 @@ const receiptOwnership = Object.freeze({
   eventsScope: "coordinator",
   coordinatorEventsDoNotDetermineVerdict: true,
 });
+// Preserve even failed candidate bytes, but only at the exact pinned mount paths.
+const pinnedPreservationPaths = new Set(
+  FLUCOMA_DEPENDENCY_RESOURCE_NAMES.map(
+    (name) => `dependencies/machine-listening/frozen/${name}`,
+  ),
+);
 interface ArtifactOmission {
   path: string;
   kind: "file" | "empty-directory";
@@ -327,12 +334,14 @@ async function retainReviewedFiles(
       parts.length < 3 ||
       parts[0] !== "dependencies" ||
       !fixture.dependencies.includes(parts[1]!) ||
-      parts.some(
-        (part) =>
-          !/^[a-zA-Z0-9][a-zA-Z0-9._ -]*$/u.test(part) ||
-          part === "." ||
-          part === "..",
-      )
+      (!pinnedPreservationPaths.has(path) &&
+        (parts.slice(2).includes("dependencies") ||
+          parts.some(
+            (part) =>
+              !/^[a-zA-Z0-9][a-zA-Z0-9._ -]*$/u.test(part) ||
+              part === "." ||
+              part === "..",
+          )))
     )
       throw new Error("Driver preservation path is not a declared dependency");
     allowed.add(path);

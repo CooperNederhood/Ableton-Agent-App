@@ -343,6 +343,20 @@ describe("optional listening tool contracts", () => {
       "corroborate placement with native support and level-row intervals",
     );
   });
+  it("keeps flatness smoke diagnostics distinct from qualified context and forbids invented arguments", () => {
+    expect(LISTENING_AGENT_GUIDANCE).toContain(
+      "not an extra capture or invented requestedMetrics argument",
+    );
+    expect(LISTENING_AGENT_GUIDANCE).toContain(
+      "typed Desktop History, not the metric context/report",
+    );
+    expect(LISTENING_AGENT_GUIDANCE).toContain(
+      "unqualified frame support and silence validity",
+    );
+    expect(LISTENING_AGENT_GUIDANCE).toContain(
+      "do not invent flatness report values",
+    );
+  });
   it("returns partial as a published outcome rather than a failure or full success", () => {
     const job = {
       passId: "pass",

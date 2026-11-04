@@ -1,7 +1,15 @@
 /* global AbortController */
 import { createRequire } from "node:module";
 import { createHash } from "node:crypto";
-import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  cp,
+  mkdtemp,
+  mkdir,
+  readFile,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { afterEach, expect, it } from "vitest";
 import { nativeRuntimeDocuments } from "../../max-patches/audio-listener/native-runtime-source.mjs";
@@ -16,6 +24,8 @@ import {
 import { decodeAmxd, encodeAmxd } from "../max-device-publisher.mjs";
 import { createNativeRunnerLifecycle } from "./native-listening-lifecycle.mjs";
 import { sanitizeTelemetryAttributes } from "@ableton-agent/observability";
+import { FLUCOMA_DEPENDENCY_FILES } from "../../packages/shared/dist/flucoma-dependency.js";
+import { bindAmxdDependencyPaths } from "../../packages/shared/dist/max-device.js";
 
 const directories = [];
 const fixture = {
@@ -53,6 +63,141 @@ async function packageHarness() {
   return { root, source, output, lifecycle };
 }
 
+it("checks destination-bound unfrozen devices against source pins and their actual final directory", async () => {
+  const { root, output, lifecycle } = await packageHarness();
+  const manifest = await build(output, { stage: lifecycle.stage });
+  const destination = join(root, "bound");
+  await cp(output, destination, { recursive: true });
+  const original = await readFile(join(output, manifest.deviceFile));
+  const resources = new Map(
+    await Promise.all(
+      manifest.resources.map(async ({ name }) => [
+        name,
+        await readFile(join(output, name)),
+      ]),
+    ),
+  );
+  const bound = bindAmxdDependencyPaths(original, resources, {
+    deviceDirectory: destination,
+  });
+  await writeFile(join(destination, manifest.deviceFile), bound);
+  const derived = {
+    ...manifest,
+    deviceSha256: hash(bound),
+    dependencyBinding: {
+      schema: "flucoma-device-path-binding/v1",
+      sourceDeviceSha256: manifest.deviceSha256,
+    },
+  };
+  await writeFile(
+    join(destination, "audio-listener-manifest.json"),
+    JSON.stringify(derived),
+  );
+  await expect(checkArtifact(destination)).resolves.toMatchObject({
+    deviceSha256: hash(bound),
+    dependencyBinding: derived.dependencyBinding,
+  });
+  expect(await readFile(join(output, manifest.deviceFile))).toEqual(original);
+  const changed = decodeAmxd(bound);
+  changed.document.patcher.project.searchpath["0"].bootpath = join(
+    root,
+    "wrong/dependencies/flucoma",
+  );
+  const wrong = encodeAmxd(changed, changed.document);
+  await writeFile(join(destination, manifest.deviceFile), wrong);
+  await writeFile(
+    join(destination, "audio-listener-manifest.json"),
+    JSON.stringify({
+      ...derived,
+      deviceSha256: hash(wrong),
+    }),
+  );
+  await expect(checkArtifact(destination)).rejects.toThrow(
+    "generated listening graph mismatch",
+  );
+});
+
+it("pins packaged FluCoMa resources independently of editable artifact hashes", async () => {
+  const { root, output, lifecycle } = await packageHarness();
+  const manifest = await build(output, { stage: lifecycle.stage });
+  for (const name of [
+    "audio_listener_flatness_smoke.js",
+    "audio_listener_flatness_probe.js",
+  ]) {
+    expect(manifest.resources.find((file) => file.name === name)).toMatchObject(
+      {
+        sha256: hash(await readFile(join(SOURCE_DIRECTORY, name))),
+        scope: "audio",
+      },
+    );
+    expect(await readFile(join(output, name))).toEqual(
+      await readFile(join(SOURCE_DIRECTORY, name)),
+    );
+  }
+  const graph = decodeAmxd(
+    await readFile(join(output, manifest.deviceFile)),
+  ).document;
+  expect(
+    graph.patcher.boxes.find(({ box }) => box.id === "flatness-smoke")?.box
+      .patcher,
+  ).toBeDefined();
+  const pin = FLUCOMA_DEPENDENCY_FILES.find((file) => file.mode === 0o755);
+  expect(
+    manifest.resources.find((file) => file.name === pin.name),
+  ).toMatchObject({
+    sha256: pin.sha256,
+    bytes: pin.bytes,
+    scope: "dependency",
+  });
+  const dependencyEvents = lifecycle.events.filter((event) =>
+    event.name.includes(".flucoma-dependency-check."),
+  );
+  expect(dependencyEvents.map((event) => event.stage)).toEqual([
+    "queued",
+    "started",
+    "progress",
+    "completed",
+  ]);
+  for (const [index, event] of dependencyEvents.entries()) {
+    expect(event.attributes).toEqual({
+      dependency: "flucoma-spectralshape",
+      version: "1.0.10",
+    });
+    expect(event.trace.traceId).toBe("00000000-0000-4000-8000-000000000001");
+    expect(event.correlationId).toBe("metric-package");
+    expect(event.causationId).toBe(
+      index ? dependencyEvents[index - 1].id : "caller",
+    );
+    expect(event.durationMs).toBeGreaterThanOrEqual(0);
+  }
+  for (const failure of ["missing", "tampered", "linked", "manifest-path"]) {
+    const candidate = join(root, failure);
+    await cp(output, candidate, { recursive: true });
+    const path = join(candidate, pin.name);
+    if (failure === "missing") await rm(path);
+    if (failure === "linked") {
+      await rm(path);
+      await symlink(join(output, pin.name), path);
+    }
+    const changed = JSON.parse(JSON.stringify(manifest));
+    if (failure === "tampered") {
+      const raw = await readFile(path);
+      raw[100] ^= 1;
+      await writeFile(path, raw);
+      changed.resources.find((file) => file.name === pin.name).sha256 =
+        hash(raw);
+    }
+    if (failure === "manifest-path")
+      changed.resources.find((file) => file.name === pin.name).name =
+        "../escape";
+    await writeFile(
+      join(candidate, "audio-listener-manifest.json"),
+      JSON.stringify(changed),
+    );
+    await expect(checkArtifact(candidate)).rejects.toThrow();
+  }
+});
+
 it("packages a matched v5 executable, actual controller and fresh same-folder codec", async () => {
   const { source, output, lifecycle } = await packageHarness();
   const manifest = await build(output, {
@@ -79,7 +224,7 @@ it("packages a matched v5 executable, actual controller and fresh same-folder co
     manifest.resources.find(
       (r) => r.name === "audio_listener_metric_runtime.js",
     ).sha256,
-  ).toBe("d9919fb011538d0f2aae9f1db78def5fa1aa9f2af5ac85043516c484319a08f4");
+  ).toBe("a8f75c5fdbdc53b011e1d5456b8b8614ba0fb015dcc9f779c41e736ce1e61c4c");
   const defaultDevice = decodeAmxd(
     await readFile(join(output, manifest.deviceFile)),
   );
@@ -223,6 +368,7 @@ it("canonical default authored package is v5 and rejects retired CLI selectors w
     .map(({ patchline }) => patchline.source[0]);
   expect(incoming.sort()).toEqual([
     "dspPack",
+    "flatness-smoke-output",
     "identity",
     "scoped-native-analysis",
     "scoped-native-clock",

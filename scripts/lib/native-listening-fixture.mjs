@@ -1,5 +1,7 @@
 import { createHash } from "node:crypto";
+import { Buffer } from "node:buffer";
 import {
+  chmod,
   lstat,
   mkdir,
   readFile,
@@ -12,6 +14,15 @@ import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import { gunzipSync } from "node:zlib";
 
 import { writeProducerDiscoveryConfiguration } from "../m4l-producer-companions.mjs";
+import {
+  assertDeviceResourceInventory,
+  assertResourceParents,
+  bindAmxdDependencyPaths,
+  FLUCOMA_DEPENDENCY_FILES,
+  isFlucomaDependencyResource,
+  readFlucomaDependencyFile,
+  validateFlucomaDependency,
+} from "../../packages/shared/dist/m4l-devices.js";
 
 const sha256 = (bytes) => createHash("sha256").update(bytes).digest("hex");
 const hashPattern = /^[a-f0-9]{64}$/;
@@ -38,6 +49,11 @@ async function boundedFile(path, limit) {
     throw new Error("Fixture input changed while reading");
   return bytes;
 }
+
+const candidateResource = (root, name) =>
+  isFlucomaDependencyResource(name)
+    ? readFlucomaDependencyFile(root, name)
+    : boundedFile(join(root, name), 2 * 1024 * 1024);
 
 function within(root, path) {
   const suffix = relative(root, path);
@@ -210,8 +226,9 @@ export async function stageNativeListeningFixture({
     const info = await lstat(directory);
     if (!info.isDirectory() || info.isSymbolicLink())
       throw new Error("Unsafe candidate directory");
-    const names = (await readdir(directory)).sort();
-    if (names.length > 64) throw new Error("Candidate resource quota exceeded");
+    const rootNames = (await readdir(directory)).sort();
+    if (rootNames.length > 64)
+      throw new Error("Candidate resource quota exceeded");
     const manifestBytes = await boundedFile(
       join(directory, "audio-listener-manifest.json"),
       64 * 1024,
@@ -257,12 +274,29 @@ export async function stageNativeListeningFixture({
     );
     if (resources.size !== manifest.resources.length || resources.size > 60)
       throw new Error("Invalid candidate resource manifest");
+    const allowed = (name) =>
+      typeof name === "string" &&
+      ((basename(name) === name && /^[A-Za-z0-9_.-]+$/.test(name)) ||
+        (nativeVersion === 5 && isFlucomaDependencyResource(name)));
+    if ([...resources.keys()].some((name) => !allowed(name)))
+      throw new Error("Unsafe candidate resource name");
+    const dependencies = [...resources.keys()].filter(
+      isFlucomaDependencyResource,
+    );
+    const names = [
+      ...rootNames.filter(
+        (name) => name !== "dependencies" || dependencies.length === 0,
+      ),
+      ...dependencies,
+    ].sort();
+    if (names.length > 64) throw new Error("Candidate resource quota exceeded");
+    await assertDeviceResourceInventory(directory, names);
+    if (dependencies.length) await validateFlucomaDependency(directory);
     const snapshots = new Map();
     for (const name of names) {
       signal?.throwIfAborted();
-      if (basename(name) !== name || !/^[A-Za-z0-9_.-]+$/.test(name))
-        throw new Error("Unsafe candidate resource name");
-      const bytes = await boundedFile(join(directory, name), 2 * 1024 * 1024);
+      if (!allowed(name)) throw new Error("Unsafe candidate resource name");
+      const bytes = await candidateResource(directory, name);
       const expected =
         name === input.deviceFile
           ? input.deviceSha256
@@ -327,12 +361,42 @@ export async function stageNativeListeningFixture({
       await mkdir(join(root, "Ableton Project Info"), { mode: 0o700 });
       const candidate = join(root, basename(directory));
       await mkdir(candidate, { mode: 0o700 });
-      for (const [name, bytes] of snapshots) {
+      const stagedSnapshots = new Map(snapshots);
+      if (dependencies.length) {
+        const bound = bindAmxdDependencyPaths(
+          snapshots.get(input.deviceFile),
+          snapshots,
+          {
+            deviceDirectory: candidate,
+          },
+        );
+        stagedSnapshots.set(input.deviceFile, bound);
+        stagedSnapshots.set(
+          "audio-listener-manifest.json",
+          Buffer.from(
+            JSON.stringify({
+              ...manifest,
+              deviceSha256: sha256(bound),
+              dependencyBinding: {
+                schema: "flucoma-device-path-binding/v1",
+                sourceDeviceSha256: input.deviceSha256,
+              },
+            }),
+          ),
+        );
+      }
+      for (const [name, bytes] of stagedSnapshots) {
         signal?.throwIfAborted();
+        const dependency = FLUCOMA_DEPENDENCY_FILES.find(
+          (file) => file.name === name,
+        );
+        if (dependency)
+          await assertResourceParents(join(candidate, name), true);
         await writeFile(join(candidate, name), bytes, {
           flag: "wx",
-          mode: 0o600,
+          mode: dependency?.mode ?? 0o600,
         });
+        if (dependency) await chmod(join(candidate, name), dependency.mode);
       }
       // Only the copied discovery file changes; code/device hashes remain pinned.
       await writeProducerDiscoveryConfiguration(candidate, storage);
@@ -355,7 +419,10 @@ export async function stageNativeListeningFixture({
         nativeVersion,
         setPath,
         sourceSetSha256: sha256(source),
-        deviceSha256: input.deviceSha256,
+        deviceSha256: sha256(stagedSnapshots.get(input.deviceFile)),
+        ...(dependencies.length
+          ? { sourceDeviceSha256: input.deviceSha256 }
+          : {}),
         discoverySha256: sha256(discovery),
         resourceCount: snapshots.size,
         audioResourceCount: audioSnapshots.length,
@@ -381,24 +448,23 @@ export async function stageNativeListeningFixture({
             const stagedNames = [
               ...new Set([...names, "agent_signal_storage.js"]),
             ].sort();
-            if (
-              JSON.stringify((await readdir(directory)).sort()) !==
-                JSON.stringify(names) ||
-              JSON.stringify((await readdir(candidate)).sort()) !==
-                JSON.stringify(stagedNames)
-            )
+            try {
+              await assertDeviceResourceInventory(directory, names);
+              await assertDeviceResourceInventory(candidate, stagedNames);
+            } catch {
               throw new Error(
                 "Immutable fixture resource inventory changed after staging",
               );
+            }
             for (const [name, bytes] of snapshots) {
               signal?.throwIfAborted();
               if (
-                !(
-                  await boundedFile(join(directory, name), 2 * 1024 * 1024)
-                ).equals(bytes) ||
-                !(
-                  await boundedFile(join(candidate, name), 2 * 1024 * 1024)
-                ).equals(name === "agent_signal_storage.js" ? discovery : bytes)
+                !(await candidateResource(directory, name)).equals(bytes) ||
+                !(await candidateResource(candidate, name)).equals(
+                  name === "agent_signal_storage.js"
+                    ? discovery
+                    : stagedSnapshots.get(name),
+                )
               )
                 throw new Error(
                   "Immutable fixture candidate resource changed after staging",

@@ -1,5 +1,6 @@
 import { SUPPORTED_AUDIO_BASELINE } from "./contracts.js";
 import { midiContentIdentity } from "./sources.js";
+import { validateFlatnessSmoke } from "./flatness-smoke.js";
 import type {
   AcceptanceDriver,
   AssertionResult,
@@ -131,7 +132,7 @@ export function safeRelativePath(value: unknown): asserts value is string {
         .split("/")
         .every(
           (part) =>
-            /^[a-zA-Z0-9_][a-zA-Z0-9._ -]*$/.test(part) &&
+            /^[a-zA-Z0-9_][a-zA-Z0-9._ ~-]*$/.test(part) &&
             part !== "." &&
             part !== "..",
         ),
@@ -736,6 +737,11 @@ export function validateBaseline(
     hash(digest);
   }
 }
+function flatnessSmoke(value: unknown): void {
+  if (value === undefined) return;
+  list(value, 32);
+  value.forEach(validateFlatnessSmoke);
+}
 export function validateTurn(value: unknown): asserts value is TurnEvidence {
   object(value);
   validateSubmission(value);
@@ -755,6 +761,7 @@ export function validateTurn(value: unknown): asserts value is TurnEvidence {
   );
   validateFacts(record.facts);
   contexts(record.contexts);
+  flatnessSmoke(record.flatnessSmoke);
   list(record.captures, 32);
   for (const capture of record.captures) {
     object(capture);
@@ -826,6 +833,7 @@ export function validateEvidence(value: unknown): asserts value is RunEvidence {
   }
   validateFacts(value.facts);
   contexts(value.contexts);
+  flatnessSmoke(value.flatnessSmoke);
   list(value.unchanged);
   const scopes = value.unchanged.map((scope) => {
     object(scope);

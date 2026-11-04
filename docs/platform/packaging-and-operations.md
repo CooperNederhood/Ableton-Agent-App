@@ -201,7 +201,8 @@ source identity to bind qualification to the actual bundle, not just v5 version
 metadata. Positive Live fixtures must load this production payload, without a
 test-local generated replacement. Installation preserves the listening graph and
 runtime/DSP resource bytes, adds resolver-owned profile discovery configuration,
-then headlessly freezes the complete listener into an `mx@c` AMXD collective.
+then headlessly freezes the ordinary listener resources into an `mx@c` AMXD
+collective. The pinned native FluCoMa bundle described below remains adjacent.
 The main patcher includes Max project metadata; Node entrypoints, CommonJS
 dependencies, package JSON and configuration all have disk-extraction flags.
 Max 8.5.8 does not extract unflagged files for `require()`, even when they are
@@ -231,6 +232,82 @@ Actual normal-profile discovery and capture remain distinct acceptance gates;
 archive inspection, app authentication and successful copying do not certify
 Live loading, Collect All and Save/reopen behavior, or listening. Those real-host
 checks remain pending for the newly frozen candidate.
+
+### Pinned FluCoMa smoke dependency
+
+The #92 smoke packages only the stock macOS `fluid.spectralshape~.mxo` from
+FluCoMa Max 1.0.10, its upstream notices/reference metadata and a provenance
+README. Its signed bundle lives at
+`dependencies/flucoma/fluid.spectralshape~.mxo`, adjacent to the AMXD. Exact
+file/size/SHA-256 pins and the nested-path allowlist are application-owned in
+`packages/shared/src/flucoma-dependency.ts`. Ordinary builds never download
+dependencies. Builds, portable payload validation and installed artifact checks
+reject missing, extra, stale, self-rehashed, or symlinked dependency files.
+Publication preserves executable permissions and the upstream signature; native
+bundle files are not encoded as `TEXT` collective entries.
+The publisher, Desktop installer and both packaged/runtime fixture stagers
+explicitly apply pinned file modes after writing: `0755` for the Mach-O
+executable and `0644` for its other pinned resources. They do not rely on
+`writeFile` creation modes, which a restrictive `umask` can reduce. Profile
+configuration remains `0600`; the executable-mode validator stays strict.
+The standalone native/saved fixture scripts import the built shared Node entry
+by its explicit repository-relative path, so raw Node admission does not depend
+on Vitest aliases or a workspace-root package link.
+
+Installation/freezing requires the **final device directory** when these signed
+resources are present. A shared binding helper derives the project's sole
+FluCoMa search entry with an absolute `bootpath` ending in
+`dependencies/flucoma`, `recursive: 0`, `enabled: 1` and
+`includeincollective: 0`. It removes `projectrelativepath` rather than retaining a
+relative alternative. Desktop uses the final installation directory, not its
+atomic staging directory. Packaged acceptance uses the actual `frozen/`
+directory containing the loaded device. No Max global search paths are changed.
+An omitted/invalid binding directory or incomplete pinned resource map is an
+error, not a request to fall back to relative lookup.
+
+Portable source devices remain unchanged. Installed/frozen identities are
+derived from the source, destination binding and existing profile configuration;
+verification reconstructs the expected device for its actual final directory.
+Runtime fixture stagers likewise retain original source pins and separately
+record derived device/manifest bytes. Copying a bound device to a different
+directory requires rebinding, not rehashing an old absolute path. All existing
+regular-file, ancestor, inventory and signed-file checks still apply before
+publication and verification. A prospective installation path may not exist
+during pure artifact derivation; its pinned adjacent files must be staged and
+verified before any device load.
+
+Packaged acceptance and native/saved runtime fixture staging use the same pinned
+resource contract: retain nested paths and executable modes, reject linked or
+unapproved resources, and verify the staged dependency bytes. Cancellation
+cleans up partial fixture output; staging does not qualify host loading.
+
+The production inventory also includes `audio_listener_flatness_smoke.js` and
+`audio_listener_flatness_probe.js`; the generated smoke subpatch is embedded in
+the canonical parent graph. This adds diagnostics transport, not a new
+authoritative observation schema or independently attested FFT frames.
+
+**Loading remains a separate qualification gate.** Max 8 documents current
+patcher-folder lookup before global search paths, but this is not proof that a
+basename object resolves a bundle nested in `dependencies/flucoma`. Max project
+local dependencies take priority, yet the documented behavior explicitly falls
+back to global files when the local version cannot be found. Therefore basename
+lookup, a `dependency_cache` entry, or a successful package hash check alone
+must not be treated as exclusive executable identity. The graph uses the
+registered `fluid.spectralshape~` class name, not a relative bundle pathname.
+The absolute binding addresses frozen project-root ambiguity. The smoke checks
+actual mapped Mach-O files using only verified owned Live/Max ancestry, requiring
+the staged canonical path, device/inode and pinned bytes at baseline and capture
+completion. Absent mappings, global fallback, ownership changes and inspection
+errors fail closed. This witness is separate from finite descriptor delivery,
+native measurement validity and terminal cleanup.
+Do not add global search paths or silently use a user-installed external.
+
+References: [Max 8 search path](https://docs.cycling74.com/legacy/max8/vignettes/search_path),
+[project-local search and fallback](https://docs.cycling74.com/userguide/projects/#project-search-paths).
+The exact release/build/license and static architecture/signature evidence are
+retained in `max-patches/audio-listener/dependencies/flucoma/README.md`.
+
+### Prior native-only qualification
 
 The corrected production payload is physically qualified on Live 11.3.43:
 MIDI/audio one-beat captures, repeated captures, MIDI/audio/MIDI switching and

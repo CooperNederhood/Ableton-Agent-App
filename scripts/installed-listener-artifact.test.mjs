@@ -9,7 +9,6 @@ import {
   stat,
   writeFile,
 } from "node:fs/promises";
-import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
 import { expect, it } from "vitest";
@@ -19,11 +18,12 @@ import { installAbletonIntegrations } from "../apps/desktop/src/main/ableton-int
 import { checkArtifact } from "./audio-listener-device.mjs";
 import { buildAbletonIntegrations } from "./build-ableton-integrations.mjs";
 import { decodeAmxd } from "../packages/shared/src/max-device.ts";
+import { isFlucomaDependencyResource } from "../packages/shared/src/flucoma-dependency.ts";
 
 it("retains the native artifact contract after installed profile configuration is added", async () => {
-  const root = await realpath(
-    await mkdtemp(join(tmpdir(), "installed-listener-artifact-")),
-  );
+  const scratch = resolve(".test-artifacts/installed-listener-artifact");
+  await mkdir(scratch, { recursive: true });
+  const root = await realpath(await mkdtemp(join(scratch, "run-")));
   try {
     const payload = join(root, "payload");
     execFileSync(
@@ -96,7 +96,9 @@ it("retains the native artifact contract after installed profile configuration i
     expect(frozen.frozenFiles.map((file) => file.name).sort()).toEqual(
       [
         original.deviceFile,
-        ...original.resources.map((resource) => resource.name),
+        ...original.resources
+          .map((resource) => resource.name)
+          .filter((name) => !isFlucomaDependencyResource(name)),
         "agent_signal_storage.js",
       ].sort(),
     );
@@ -105,11 +107,24 @@ it("retains the native artifact contract after installed profile configuration i
         await readFile(join(installedDirectory, file.name)),
       );
     const graph = JSON.parse(JSON.stringify(frozen.document));
+    expect(graph.patcher.project.searchpath).toEqual({
+      0: {
+        bootpath: join(installedDirectory, "dependencies/flucoma"),
+        label: "Bundled FluCoMa",
+        enabled: 1,
+        recursive: 0,
+        includeincollective: 0,
+      },
+    });
     delete graph.patcher.project;
-    expect(graph).toEqual(
-      decodeAmxd(await readFile(join(portableDirectory, original.deviceFile)))
-        .document,
+    const portableGraph = decodeAmxd(
+      await readFile(join(portableDirectory, original.deviceFile)),
+    ).document;
+    expect(portableGraph.patcher.project.searchpath["0"].bootpath).toBe(
+      "./dependencies/flucoma",
     );
+    delete portableGraph.patcher.project;
+    expect(graph).toEqual(portableGraph);
     const metadata = JSON.parse(
       await readFile(
         join(installedDirectory, ".ableton-agent-device-install.json"),

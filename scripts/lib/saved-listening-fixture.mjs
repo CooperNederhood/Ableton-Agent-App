@@ -1,6 +1,8 @@
 import { constants } from "node:fs";
 import { createHash } from "node:crypto";
+import { Buffer } from "node:buffer";
 import {
+  chmod,
   lstat,
   mkdir,
   open,
@@ -13,6 +15,15 @@ import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import { gunzipSync, gzipSync } from "node:zlib";
 import { TextDecoder } from "node:util";
 import { writeProducerDiscoveryConfiguration } from "../m4l-producer-companions.mjs";
+import {
+  assertDeviceResourceInventory,
+  assertResourceParents,
+  bindAmxdDependencyPaths,
+  FLUCOMA_DEPENDENCY_FILES,
+  isFlucomaDependencyResource,
+  readFlucomaDependencyFile,
+  validateFlucomaDependency,
+} from "../../packages/shared/dist/m4l-devices.js";
 
 const NAMESPACE = resolve(".test-artifacts/independent-metric-listening");
 const MAX_FILE = 8 * 1024 * 1024;
@@ -303,11 +314,12 @@ async function bundleSnapshot(bundle, read, signal) {
   for (const resource of manifest.resources) {
     signal?.throwIfAborted();
     const name = safeRelative(resource.name);
+    const dependency = isFlucomaDependencyResource(name);
     if (
-      basename(name) !== name ||
+      (!dependency &&
+        (basename(name) !== name || !/^[A-Za-z0-9_.-]+$/.test(name))) ||
       files.has(name) ||
       name === "agent_signal_storage.js" ||
-      !/^[A-Za-z0-9_.-]+$/.test(name) ||
       /native_v[1-4](?:_|[.])/i.test(name) ||
       !Number.isSafeInteger(resource.bytes) ||
       resource.bytes < 1 ||
@@ -322,6 +334,7 @@ async function bundleSnapshot(bundle, read, signal) {
       join(root, name),
       resource.sha256,
       2 * 1024 * 1024,
+      dependency ? { root, name } : undefined,
     );
     if (content.length !== resource.bytes)
       throw new Error("bundle_resource_size_mismatch");
@@ -329,12 +342,14 @@ async function bundleSnapshot(bundle, read, signal) {
     resource.roles.forEach((role) => foundRoles.add(role));
   }
   const names = [...files.keys()].sort();
+  await assertDeviceResourceInventory(root, names);
+  if (names.some(isFlucomaDependencyResource))
+    await validateFlucomaDependency(root);
   const companionNames = manifest.resources
     .filter((r) => r.name !== manifest.deviceFile)
     .map((r) => r.name)
     .sort();
   if (
-    JSON.stringify((await readdir(root)).sort()) !== JSON.stringify(names) ||
     roles.some((role) => !foundRoles.has(role)) ||
     JSON.stringify(bundle.requiredCompanions.map(safeRelative).sort()) !==
       JSON.stringify(companionNames) ||
@@ -386,13 +401,15 @@ async function plan({ input, destination, bundle, signal }) {
     throw new Error("saved_fixture_resource_quota");
   const pins = [];
   let total = 0;
-  const read = async (path, expected, limit = MAX_FILE) => {
+  const read = async (path, expected, limit = MAX_FILE, dependency) => {
     if (!HASH.test(expected)) throw new Error("resource_hash_pin_required");
-    const bytes = await regular(path, limit, signal);
+    const bytes = dependency
+      ? await readFlucomaDependencyFile(dependency.root, dependency.name)
+      : await regular(path, limit, signal);
     if (hash(bytes) !== expected) throw new Error("resource_hash_mismatch");
     total += bytes.length;
     if (total > MAX_TOTAL) throw new Error("saved_fixture_total_byte_quota");
-    pins.push({ path, sha256: expected, limit });
+    pins.push({ path, sha256: expected, limit, dependency });
     return bytes;
   };
   const source = await read(sourceSet, input.sourceSetSha256);
@@ -609,12 +626,26 @@ export async function planSavedListeningFixture(options) {
 
 async function verifyPins(pins, signal) {
   for (const pin of pins) {
-    if (hash(await regular(pin.path, pin.limit, signal)) !== pin.sha256)
+    signal?.throwIfAborted();
+    const bytes = pin.dependency
+      ? await readFlucomaDependencyFile(
+          pin.dependency.root,
+          pin.dependency.name,
+        )
+      : await regular(pin.path, pin.limit, signal);
+    if (hash(bytes) !== pin.sha256)
       throw new Error("immutable_fixture_input_changed");
   }
 }
 
-async function writeOwned(root, name, bytes, generated, signal) {
+async function writeOwned(
+  root,
+  name,
+  bytes,
+  generated,
+  signal,
+  dependencyName,
+) {
   safeRelative(name);
   let parent = root;
   for (const part of name.split("/").slice(0, -1)) {
@@ -626,7 +657,15 @@ async function writeOwned(root, name, bytes, generated, signal) {
     await directory(parent);
   }
   signal?.throwIfAborted();
-  await writeFile(join(root, name), bytes, { flag: "wx", mode: 0o600 });
+  const dependency = FLUCOMA_DEPENDENCY_FILES.find(
+    (file) => file.name === dependencyName,
+  );
+  if (dependency) await assertResourceParents(join(root, name));
+  await writeFile(join(root, name), bytes, {
+    flag: "wx",
+    mode: dependency?.mode ?? 0o600,
+  });
+  if (dependency) await chmod(join(root, name), dependency.mode);
   generated.set(name, hash(bytes));
 }
 
@@ -667,13 +706,42 @@ export async function stageSavedListeningFixture({
   const { root, candidate } = snapshot;
   await directory(NAMESPACE);
   signal?.throwIfAborted();
-  await mkdir(root, { mode: 0o700 });
   const generated = new Map();
+  const stagedFiles = new Map(candidate.files);
+  let dependencyBinding;
+  if ([...candidate.files.keys()].some(isFlucomaDependencyResource)) {
+    const deviceName = candidate.manifest.deviceFile;
+    const sourceBytes = candidate.files.get(deviceName);
+    const bound = bindAmxdDependencyPaths(sourceBytes, candidate.files, {
+      deviceDirectory: join(root, "Native-Listener-Candidate"),
+    });
+    dependencyBinding = {
+      schema: "flucoma-device-path-binding/v1",
+      sourceDeviceSha256: hash(sourceBytes),
+      deviceSha256: hash(bound),
+    };
+    stagedFiles.set(deviceName, bound);
+    stagedFiles.set(
+      candidate.manifestName,
+      Buffer.from(
+        JSON.stringify({
+          ...candidate.manifest,
+          resources: candidate.manifest.resources.map((resource) =>
+            resource.name === deviceName
+              ? { ...resource, bytes: bound.length, sha256: hash(bound) }
+              : resource,
+          ),
+          dependencyBinding,
+        }),
+      ),
+    );
+  }
   const removeOwned = async () => {
     await directory(NAMESPACE);
     await directory(root);
     await rm(root, { recursive: true, force: false });
   };
+  await mkdir(root, { mode: 0o700 });
   try {
     await stage("saved-fixture-copy", async () => {
       await mkdir(join(root, "Ableton Project Info"), { mode: 0o700 });
@@ -681,13 +749,14 @@ export async function stageSavedListeningFixture({
         if (name !== input.device.relativePath)
           await writeOwned(root, name, bytes, generated, signal);
       }
-      for (const [name, bytes] of candidate.files)
+      for (const [name, bytes] of stagedFiles)
         await writeOwned(
           root,
           `Native-Listener-Candidate/${name}`,
           bytes,
           generated,
           signal,
+          name,
         );
       signal?.throwIfAborted();
       const target = join(root, "Native-Listener-Candidate");
@@ -713,9 +782,16 @@ export async function stageSavedListeningFixture({
         await verifyPins(snapshot.pins, signal);
         await directory(root);
         for (const [name, expected] of generated) {
-          if (
-            hash(await regular(join(root, name), MAX_FILE, signal)) !== expected
-          )
+          const candidateName = name.startsWith("Native-Listener-Candidate/")
+            ? name.slice("Native-Listener-Candidate/".length)
+            : "";
+          const bytes = isFlucomaDependencyResource(candidateName)
+            ? await readFlucomaDependencyFile(
+                join(root, "Native-Listener-Candidate"),
+                candidateName,
+              )
+            : await regular(join(root, name), MAX_FILE, signal);
+          if (hash(bytes) !== expected)
             throw new Error("immutable_staged_resource_changed");
         }
         if (
@@ -735,6 +811,7 @@ export async function stageSavedListeningFixture({
       status: "prepared-offline",
       setPath: join(root, basename(input.sourceSet)),
       stagedSetSha256: hash(snapshot.stagedSet),
+      ...(dependencyBinding ? { dependencyBinding } : {}),
       generatedFiles: [...generated].map(([name, sha256]) => ({
         name,
         sha256,

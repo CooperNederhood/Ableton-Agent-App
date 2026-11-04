@@ -1194,6 +1194,7 @@ test("cancel blocks late/future positive results; stale owner cannot release a n
     generation: "11111111-1111-4111-8111-111111111111",
     passId: "next-pass"
   });
+
   f.client.handleListenerControl(next);
   const job = f.client.listenerJob;
   assert.equal(
@@ -1205,6 +1206,80 @@ test("cancel blocks late/future positive results; stale owner cannot release a n
   );
   assert.equal(f.client.listenerJob, job);
   assert.equal(f.client.metricPhase.ready, null);
+});
+
+test("flatness cancellation physically cleans up despite the SDK progress-rejection policy", () => {
+  const {
+    createFlatnessProbe
+  } = require("../audio-listener/audio_listener_flatness_probe.js");
+  const f = setup();
+  admitArm(f);
+  const epoch = f.native.ready.ownership.nativeEpoch;
+  const commands = [];
+  const probe = createFlatnessProbe({
+    now: () => 0,
+    sendControl: (...atoms) => commands.push(atoms),
+    emit: (control, lifecycle) =>
+      f.client.sendListenerDiagnostic(control, lifecycle)
+  });
+  probe.start(f.prepare, epoch, randomUUID());
+  probe.receive([
+    f.prepare.generation,
+    epoch,
+    "started",
+    "fluid.spectralshape~",
+    "fluid.spectralshape~"
+  ]);
+  const cancel = f.control("cancel");
+  f.client.handleListenerControl(cancel);
+  assert.equal(probe.stop(f.prepare, true), false);
+  assert.deepEqual(commands.at(-1), ["stop", f.prepare.generation, epoch]);
+  probe.receive([f.prepare.generation, epoch, "stopped"]);
+  assert.equal(probe.stop(f.prepare, true), true);
+  assert.equal(probe.snapshot().diagnosticDeliveryFailed, true);
+  assert.equal(probe.snapshot().failure, null);
+  assert(f.client.listenerJob);
+  assert.equal(
+    f.client.sendListenerResult(cancel, {
+      status: "cancelled",
+      reason: "cancelled"
+    }),
+    true
+  );
+  assert.equal(
+    f.client.sendListenerReply(cancel, {
+      status: "cancelled",
+      reason: "cancelled"
+    }),
+    true
+  );
+  assert.equal(f.client.listenerJob, null);
+});
+
+test("flatness stops its gate when the actual SDK loses its authenticated connection", () => {
+  const {
+    createFlatnessProbe
+  } = require("../audio-listener/audio_listener_flatness_probe.js");
+  const f = setup();
+  admitArm(f);
+  const epoch = f.native.ready.ownership.nativeEpoch;
+  const commands = [];
+  const probe = createFlatnessProbe({
+    now: () => 0,
+    sendControl: (...atoms) => commands.push(atoms),
+    emit: (control, lifecycle) =>
+      f.client.sendListenerDiagnostic(control, lifecycle)
+  });
+  probe.start(f.prepare, epoch, randomUUID());
+  f.client.authenticated = false;
+  assert.throws(() => probe.stop(f.prepare), /diagnostic_delivery_failed/);
+  assert.deepEqual(commands.at(-1), ["stop", f.prepare.generation, epoch]);
+  assert.throws(
+    () => probe.receive([f.prepare.generation, epoch, "stopped"]),
+    /diagnostic_delivery_failed/
+  );
+  assert.equal(probe.stop(f.prepare), true);
+  assert.equal(probe.snapshot().diagnosticDeliveryFailed, true);
 });
 
 test("cancelled result before cancel reply preserves only pending cancel completion authority", () => {

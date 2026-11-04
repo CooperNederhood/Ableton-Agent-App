@@ -19,6 +19,7 @@ import {
 } from "./integration-device-payloads.js";
 import { decodeAmxd, encodeAmxd, renderInstalledDevice } from "./max-device.js";
 import type { MaxValue } from "./max-device.js";
+import { FLUCOMA_DEPENDENCY_FILES } from "./flucoma-dependency.js";
 
 const scratch = resolve(".test-artifacts/integration-payloads", randomUUID());
 const generated = join(scratch, "generated");
@@ -75,6 +76,34 @@ async function rehash(
 }
 
 describe("canonical integration payloads", () => {
+  it.each(["missing", "tampered", "self-rehashed", "linked-parent", "extra"])(
+    "rejects %s FluCoMa dependency before installation",
+    async (failure) => {
+      const path = await fixture();
+      const pin = FLUCOMA_DEPENDENCY_FILES.find((file) => file.mode === 0o755)!;
+      const file = join(path, "machine-listening", pin.name);
+      if (failure === "missing") await rm(file);
+      if (failure === "tampered" || failure === "self-rehashed") {
+        const bytes = await readFile(file);
+        bytes[100] = bytes[100]! ^ 1;
+        if (failure === "self-rehashed")
+          await rehash(path, "machine-listening", pin.name, bytes);
+        else await writeFile(file, bytes);
+      }
+      if (failure === "linked-parent") {
+        const root = join(path, "machine-listening/dependencies");
+        await rm(root, { recursive: true });
+        await symlink(join(generated, "machine-listening/dependencies"), root);
+      }
+      if (failure === "extra")
+        await writeFile(
+          join(path, "machine-listening/dependencies/flucoma/unpinned.js"),
+          "not authorized",
+        );
+      await expect(readIntegrationDevicePayloads(path)).rejects.toThrow();
+    },
+  );
+
   it.each([
     ["live.thisdevice", "loadbang"],
     ["pack dsp 0 0. 0", "pack dsp 0 0 0"],
@@ -746,7 +775,11 @@ describe("canonical integration payloads", () => {
         failed: boolean;
       };
       const compiler = result.events.filter(
-        ({ operation }) => operation === "m4l.integrations.stage",
+        ({ operation, name }) =>
+          operation === "m4l.integrations.stage" &&
+          name?.startsWith(
+            "integration.native_listening.native-metric-protocol-compile.",
+          ),
       );
       expect(compiler.map(({ stage }) => stage)).toEqual([
         "queued",
@@ -755,6 +788,25 @@ describe("canonical integration payloads", () => {
         outcome === "cancelled" ? "cancelled" : "completed",
       ]);
       expect(result.failed).toBe(outcome === "cancelled");
+      const dependency = result.events.filter(
+        ({ operation, name }) =>
+          operation === "m4l.integrations.stage" &&
+          name?.startsWith(
+            "integration.native_listening.flucoma-dependency-check.",
+          ),
+      );
+      expect(dependency.map(({ stage }) => stage)).toEqual(
+        outcome === "cancelled"
+          ? []
+          : ["queued", "started", "progress", "completed"],
+      );
+      for (const event of dependency) {
+        expect(event.attributes).toEqual({
+          dependency: "flucoma-spectralshape",
+          version: "1.0.10",
+        });
+        expect(event.trace?.traceId).toMatch(/^[0-9a-f-]{36}$/);
+      }
       for (const event of compiler) {
         expect(event.name).toMatch(
           /^integration\.native_listening\.native-metric-protocol-compile\./,

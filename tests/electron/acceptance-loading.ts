@@ -6,10 +6,64 @@ import type { DependencyInventory } from "@ableton-agent/test-support/integratio
 import { decodeAmxd } from "../../packages/shared/src/m4l-devices.js";
 import { runProcess } from "../../scripts/lib/live-process-controller.mjs";
 
+interface OwnedLiveIdentity {
+  pid: number;
+  startedAt: string;
+  command?: string;
+}
+export async function readOwnedLiveProcessTree(
+  live: OwnedLiveIdentity,
+  signal: AbortSignal,
+  run = runProcess,
+) {
+  signal.throwIfAborted();
+  const result = await run("ps", ["-axo", "pid=,ppid=,lstart=,command="], {
+    timeoutMs: 10_000,
+  });
+  signal.throwIfAborted();
+  if (
+    result.status !== 0 ||
+    result.timedOut ||
+    result.stdout.length >= 2_000_000
+  )
+    throw new Error("Unable to inspect bounded owned processes");
+  const rows = result.stdout.split("\n").flatMap((line) => {
+    const match =
+      /^\s*(\d+)\s+(\d+)\s+(\w{3}\s+\w{3}\s+\d+\s+\d+:\d+:\d+\s+\d{4})\s+(.+)$/u.exec(
+        line,
+      );
+    return match
+      ? [
+          {
+            pid: Number(match[1]),
+            parent: Number(match[2]),
+            startedAt: match[3]!.replace(/\s+/gu, " "),
+            command: match[4]!,
+          },
+        ]
+      : [];
+  });
+  if (
+    !rows.some(
+      (row) =>
+        row.pid === live.pid &&
+        row.startedAt === live.startedAt.replace(/\s+/gu, " ") &&
+        row.command.endsWith(".app/Contents/MacOS/Live") &&
+        (live.command === undefined || row.command === live.command),
+    )
+  )
+    throw new Error("Owned Live identity changed during loading proof");
+  const descendants = new Set([live.pid]);
+  for (let depth = 0; depth < 16; depth++)
+    for (const row of rows)
+      if (descendants.has(row.parent)) descendants.add(row.pid);
+  return rows.filter((row) => descendants.has(row.pid));
+}
+
 /** Establish bytes in the actual owned Node process, not merely the staged bundle. */
 export async function verifyActiveFrozenCandidate(
   options: {
-    live: { pid: number; startedAt: string };
+    live: OwnedLiveIdentity;
     workingDirectory: string;
     inventory: DependencyInventory;
     instances: number;
@@ -36,48 +90,13 @@ export async function verifyActiveFrozenCandidate(
   if (!files?.some((entry) => entry.name === "audio_listener_native_v5_max.js"))
     throw new Error("Missing production Node runtime");
   const snapshot = async () => {
-    const result = await run("ps", ["-axo", "pid=,ppid=,lstart=,command="], {
-      timeoutMs: 10_000,
-    });
-    if (
-      result.status !== 0 ||
-      result.timedOut ||
-      result.stdout.length >= 2_000_000
-    )
-      throw new Error("Unable to inspect bounded owned processes");
-    const rows = result.stdout.split("\n").flatMap((line) => {
-      const match =
-        /^\s*(\d+)\s+(\d+)\s+(\w{3}\s+\w{3}\s+\d+\s+\d+:\d+:\d+\s+\d{4})\s+(.+)$/u.exec(
-          line,
-        );
-      return match
-        ? [
-            {
-              pid: Number(match[1]),
-              parent: Number(match[2]),
-              startedAt: match[3]!.replace(/\s+/gu, " "),
-              command: match[4]!,
-            },
-          ]
-        : [];
-    });
-    if (
-      !rows.some(
-        (row) =>
-          row.pid === options.live.pid &&
-          row.startedAt === options.live.startedAt.replace(/\s+/gu, " ") &&
-          row.command.endsWith(".app/Contents/MacOS/Live"),
-      )
-    )
-      throw new Error("Owned Live identity changed during loading proof");
-    const descendants = new Set([options.live.pid]);
-    for (let depth = 0; depth < 16; depth++)
-      for (const row of rows)
-        if (descendants.has(row.parent)) descendants.add(row.pid);
-    return rows.filter(
-      (row) =>
-        descendants.has(row.pid) &&
-        row.command.includes("/Node for Max/source/lib/nsRunner.js"),
+    const rows = await readOwnedLiveProcessTree(
+      options.live,
+      options.signal,
+      run,
+    );
+    return rows.filter((row) =>
+      row.command.includes("/Node for Max/source/lib/nsRunner.js"),
     );
   };
   const nodes = await snapshot();

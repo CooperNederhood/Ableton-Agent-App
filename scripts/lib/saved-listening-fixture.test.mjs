@@ -1,7 +1,11 @@
 import { createHash, randomUUID } from "node:crypto";
 import { Buffer } from "node:buffer";
+import { existsSync } from "node:fs";
 import {
   access,
+  chmod,
+  cp,
+  lstat,
   mkdir,
   readFile,
   readdir,
@@ -9,14 +13,20 @@ import {
   symlink,
   writeFile,
 } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { gzipSync, gunzipSync } from "node:zlib";
 import { afterEach, describe, expect, it } from "vitest";
 import { resolveLiveAgentStorage } from "@ableton-agent/storage";
 import {
+  decodeAmxd,
+  encodeAmxd,
+  FLUCOMA_DEPENDENCY_FILES,
+} from "@ableton-agent/shared/m4l-devices";
+import {
   planSavedListeningFixture,
   stageSavedListeningFixture,
 } from "./saved-listening-fixture.mjs";
+import { runRestrictiveUmaskChild } from "./umask-child-test-support.js";
 
 const namespace = resolve(".test-artifacts/independent-metric-listening");
 const roots = [];
@@ -177,7 +187,234 @@ ${ref("5", "Presets/Factory.adg", join(factory, "Presets/Factory.adg"))}
   };
 }
 
+async function pinnedSavedFixture() {
+  const f = await fixture();
+  const device = encodeAmxd(
+    decodeAmxd(
+      await readFile(
+        resolve("max-patches/audio-listener/audio-effect-template.amxd"),
+      ),
+    ),
+    {
+      patcher: {
+        boxes: [],
+        lines: [],
+        project: {
+          searchpath: {
+            0: {
+              bootpath: "./dependencies/flucoma",
+              projectrelativepath: "./dependencies/flucoma",
+            },
+          },
+        },
+      },
+    },
+  );
+  await writeFile(join(f.bundle.directory, f.manifest.deviceFile), device);
+  Object.assign(
+    f.manifest.resources.find((file) => file.name === f.manifest.deviceFile),
+    {
+      sha256: hash(device),
+      bytes: device.length,
+    },
+  );
+  await cp(
+    resolve("max-patches/audio-listener/dependencies"),
+    join(f.bundle.directory, "dependencies"),
+    { recursive: true },
+  );
+  for (const { name, bytes, sha256 } of FLUCOMA_DEPENDENCY_FILES) {
+    f.manifest.resources.push({ name, bytes, sha256, roles: ["companion"] });
+    f.bundle.requiredCompanions.push(name);
+  }
+  await f.saveManifest();
+  return f;
+}
+
 describe("reviewed saved Set offline preparation", () => {
+  it("preserves pinned modes under restrictive umask in an isolated saved stager process", async () => {
+    const f = await pinnedSavedFixture();
+    const options = {
+      input: f.input,
+      destination: f.destination,
+      bundle: f.bundle,
+      storage: f.storage,
+    };
+    const stdout = await runRestrictiveUmaskChild(`
+        import assert from "node:assert/strict";
+        import { stat } from "node:fs/promises";
+        import { join } from "node:path";
+        import { stageSavedListeningFixture } from "./scripts/lib/saved-listening-fixture.mjs";
+        import { FLUCOMA_DEPENDENCY_FILES, validateFlucomaDependency } from "@ableton-agent/shared/m4l-devices";
+        assert.equal(process.umask(), 0o077);
+        const options = ${JSON.stringify(options)};
+        const staged = await stageSavedListeningFixture(options);
+        try {
+          const target = join(options.destination, "Native-Listener-Candidate");
+          await validateFlucomaDependency(target);
+          for (const pin of FLUCOMA_DEPENDENCY_FILES)
+            assert.equal((await stat(join(target, pin.name))).mode & 0o777, pin.mode, pin.name);
+          assert.equal((await stat(join(target, "agent_signal_storage.js"))).mode & 0o777, 0o600);
+          await staged.verifyImmutableInputs();
+          console.log("umask-verified");
+        } finally { await staged.cleanup(); }
+      `);
+    expect(stdout.trim()).toBe("umask-verified");
+    await expect(access(f.destination)).rejects.toThrow();
+  });
+
+  it("preserves pinned nested FluCoMa saved-bundle resources and executable mode", async () => {
+    const f = await pinnedSavedFixture();
+    const staged = await stageSavedListeningFixture(f);
+    const candidate = join(f.destination, "Native-Listener-Candidate");
+    const bound = await readFile(join(candidate, f.manifest.deviceFile));
+    expect(decodeAmxd(bound).document).toMatchObject({
+      patcher: {
+        project: {
+          searchpath: {
+            0: { bootpath: join(candidate, "dependencies/flucoma") },
+          },
+        },
+      },
+    });
+    expect(JSON.stringify(decodeAmxd(bound).document)).not.toContain(
+      "projectrelativepath",
+    );
+    const sourceHash = f.manifest.resources.find(
+      (file) => file.name === f.manifest.deviceFile,
+    ).sha256;
+    expect(staged.dependencyBinding).toMatchObject({
+      sourceDeviceSha256: sourceHash,
+      deviceSha256: hash(bound),
+    });
+    expect(hash(bound)).not.toBe(sourceHash);
+    expect(
+      hash(await readFile(join(f.bundle.directory, f.manifest.deviceFile))),
+    ).toBe(sourceHash);
+    for (const pin of FLUCOMA_DEPENDENCY_FILES) {
+      expect(hash(await readFile(join(candidate, pin.name)))).toBe(pin.sha256);
+      expect((await lstat(join(candidate, pin.name))).mode & 0o777).toBe(
+        pin.mode,
+      );
+    }
+    await expect(staged.verifyImmutableInputs()).resolves.toMatchObject({
+      verified: true,
+    });
+    await staged.cleanup();
+    await expect(access(f.destination)).rejects.toThrow();
+  });
+  it.each([
+    "missing",
+    "self-rehashed",
+    "nonexec",
+    "file-link",
+    "parent-link",
+    "unlisted",
+    "arbitrary-path",
+  ])(
+    "denies %s nested saved-bundle dependency before creating a candidate",
+    async (fault) => {
+      const f = await pinnedSavedFixture();
+      const pin = FLUCOMA_DEPENDENCY_FILES.find((file) => file.mode === 0o755);
+      const path = join(f.bundle.directory, pin.name);
+      if (fault === "missing") await rm(path);
+      if (fault === "nonexec") await chmod(path, 0o600);
+      if (fault === "self-rehashed") {
+        const bytes = await readFile(path);
+        bytes[100] ^= 1;
+        await writeFile(path, bytes);
+        f.manifest.resources.find((file) => file.name === pin.name).sha256 =
+          hash(bytes);
+      }
+      if (fault === "file-link") {
+        await rm(path);
+        await symlink(resolve("max-patches/audio-listener", pin.name), path);
+      }
+      if (fault === "parent-link") {
+        await rm(dirname(path), { recursive: true });
+        await symlink(
+          dirname(resolve("max-patches/audio-listener", pin.name)),
+          dirname(path),
+        );
+      }
+      if (fault === "unlisted") {
+        f.manifest.resources = f.manifest.resources.filter(
+          (file) => file.name !== pin.name,
+        );
+        f.bundle.requiredCompanions = f.bundle.requiredCompanions.filter(
+          (name) => name !== pin.name,
+        );
+      }
+      if (fault === "arbitrary-path") {
+        const name = "arbitrary/unreviewed.js";
+        await mkdir(dirname(join(f.bundle.directory, name)));
+        await writeFile(join(f.bundle.directory, name), "test");
+        f.manifest.resources.push({
+          name,
+          bytes: 4,
+          sha256: hash("test"),
+          roles: ["companion"],
+        });
+        f.bundle.requiredCompanions.push(name);
+      }
+      await f.saveManifest();
+      await expect(stageSavedListeningFixture(f)).rejects.toThrow();
+      await expect(access(f.destination)).rejects.toThrow();
+    },
+  );
+  it.each([
+    "original-bytes",
+    "staged-bytes",
+    "original-mode",
+    "staged-mode",
+    "staged-extra",
+  ])(
+    "verifies nested saved-bundle immutability after %s changes",
+    async (fault) => {
+      const f = await pinnedSavedFixture();
+      const staged = await stageSavedListeningFixture(f);
+      const pin = FLUCOMA_DEPENDENCY_FILES.find((file) => file.mode === 0o755);
+      const root = fault.startsWith("original")
+        ? f.bundle.directory
+        : join(f.destination, "Native-Listener-Candidate");
+      const path = join(root, pin.name);
+      if (fault.endsWith("mode")) await chmod(path, 0o600);
+      else if (fault === "staged-extra")
+        await writeFile(join(dirname(path), "unexpected"), "test");
+      else {
+        const bytes = await readFile(path);
+        bytes[100] ^= 1;
+        await writeFile(path, bytes);
+      }
+      await expect(staged.verifyImmutableInputs()).rejects.toThrow();
+      await staged.cleanup();
+      await expect(access(f.destination)).rejects.toThrow();
+    },
+  );
+  it("cleans nested saved-bundle output when cancelled during copying", async () => {
+    const f = await pinnedSavedFixture();
+    const pin = FLUCOMA_DEPENDENCY_FILES.find((file) => file.mode === 0o755);
+    const target = join(f.destination, "Native-Listener-Candidate", pin.name);
+    await expect(
+      stageSavedListeningFixture({
+        ...f,
+        signal: {
+          throwIfAborted() {
+            if (existsSync(target)) {
+              const error = new Error("cancelled after nested copy");
+              error.name = "AbortError";
+              throw error;
+            }
+          },
+        },
+      }),
+    ).rejects.toThrow("cancelled after nested copy");
+    await expect(access(f.destination)).rejects.toThrow();
+    expect(hash(await readFile(join(f.bundle.directory, pin.name)))).toBe(
+      pin.sha256,
+    );
+  });
+
   it("replaces both library-origin and active project-collected references to the same pinned device", async () => {
     const f = await fixture();
     f.input.expected.fileReferences = 6;

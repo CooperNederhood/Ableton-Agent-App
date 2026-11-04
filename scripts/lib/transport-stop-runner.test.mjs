@@ -11,6 +11,8 @@ const f = vi.hoisted(() => ({
   active: false,
   failCheckpoint: false,
   allowUnsupported: false,
+  closeError: false,
+  invalidToken: false,
 }));
 
 vi.mock("node:fs/promises", async (original) => {
@@ -20,7 +22,9 @@ vi.mock("node:fs/promises", async (original) => {
     mkdir: vi.fn(async () => undefined),
     readFile: vi.fn(async (path, ...args) => {
       if (String(path).endsWith(".ableton-agent-token"))
-        return "runner-secret-token-with-at-least-32-characters";
+        return f.invalidToken
+          ? "short"
+          : "runner-secret-token-with-at-least-32-characters";
       const value = await actual.readFile(path, ...args);
       return f.allowUnsupported && String(path).endsWith("transport-stop.json")
         ? JSON.stringify({
@@ -43,6 +47,10 @@ vi.mock("node:fs/promises", async (original) => {
 });
 vi.mock("./live-process-controller.mjs", () => ({
   LiveProcessController: class {
+    async close() {
+      f.sequence.push("close");
+      if (f.closeError) throw new Error("uncertain host ownership");
+    }
     async assertNoPreExistingLive() {
       f.sequence.push("admit");
     }
@@ -94,6 +102,8 @@ describe("transport stop runner ownership and failure cleanup", () => {
     f.gracefulError = false;
     f.active = false;
     f.failCheckpoint = false;
+    f.closeError = false;
+    f.invalidToken = false;
     f.runProcess.mockReset();
     argv = process.argv;
     exitCode = process.exitCode;
@@ -216,6 +226,9 @@ describe("transport stop runner ownership and failure cleanup", () => {
     expect(evidence.passed).toBe(true);
     expect(f.sequence).toContain("graceful");
     expect(f.sequence).not.toContain("discard");
+    expect(f.sequence.indexOf("close")).toBeGreaterThan(
+      f.sequence.indexOf("graceful"),
+    );
     expect(
       evidence.scenarios[0].result.scenarioEvidence.transportStop.final
         .isPlaying,
@@ -226,6 +239,7 @@ describe("transport stop runner ownership and failure cleanup", () => {
       outcome: "passed",
       coverage: { selected: 1, executed: 1, passed: 1, cleanPasses: 1 },
     });
+
     expect(evidence.scenarios[0]).toMatchObject({
       passed: true,
       finalization: "final",
@@ -247,6 +261,25 @@ describe("transport stop runner ownership and failure cleanup", () => {
       cleanup: { status: "failed" },
       result: { ok: true },
     });
+
+    expect(process.exitCode).toBe(1);
+  });
+
+  it("releases preflight ownership after an ordinary token admission failure", async () => {
+    f.invalidToken = true;
+    const evidence = await run("success");
+    expect(f.sequence).toContain("admit");
+    expect(f.sequence).toContain("close");
+    expect(f.sequence).not.toContain("launch");
+    expect(evidence.passed).toBe(false);
+    expect(evidence.cleanupError).toBeUndefined();
+  });
+
+  it("reports failed lease cleanup instead of promoting a completed actor to success", async () => {
+    f.closeError = true;
+    const evidence = await run("success");
+    expect(evidence.passed).toBe(false);
+    expect(evidence.cleanupError).toBe("uncertain host ownership");
     expect(process.exitCode).toBe(1);
   });
 

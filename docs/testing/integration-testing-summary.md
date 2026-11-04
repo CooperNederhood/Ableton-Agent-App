@@ -1,5 +1,14 @@
 # Integration testing summary
 
+The local `pnpm live:acceptance:suite` command discovers every registered packaged
+acceptance scenario and runs each once, sequentially, using the existing driver.
+It adds host ownership and aggregate candidate qualification, not a second
+musical-test harness. `pnpm live:acceptance:verify` checks retained terminal
+evidence against the exact candidate and current registry. See
+[acceptance authoring](acceptance-authoring.md#run-every-registered-packaged-test-locally)
+for execution and [packaging operations](../platform/packaging-and-operations.md#local-real-live-release-check)
+for the release checklist. Ordinary hosted CI never launches Live.
+
 This is the high-level guide to how our system fits together, which parts each
 integration suite exercises, and how fixtures should be shared. Features such as
 machine listening, MIDI editing, device control, and transport belong within

@@ -57,8 +57,13 @@ import type {
 } from "../../apps/desktop/src/contracts.js";
 import { writeScenarioReceipt } from "../../scripts/lib/scenario-receipts.mjs";
 import { LiveProcessController } from "../../scripts/lib/live-process-controller.mjs";
+import type { LiveHostLease } from "../../scripts/lib/live-host-lease.mjs";
 import { waitForRunnerOwnedLiveReady } from "../../scripts/lib/live-ux-host.mjs";
-import { closeOwnedPackagedApplication } from "./packaged-cleanup.js";
+import {
+  closeOwnedPackagedApplication,
+  type PackagedCleanupReceipt,
+} from "./packaged-cleanup.js";
+import { AcceptanceCleanup } from "./acceptance-cleanup.js";
 import {
   packagedExecutable,
   packagedCandidateHash,
@@ -157,6 +162,7 @@ export interface PackagedAcceptanceOptions {
   readonly executablePath?: string;
   readonly liveApplicationPath?: string;
   readonly bridgeReadMinimumMs?: number;
+  readonly hostLease?: LiveHostLease;
 }
 
 export type MidiSourceReview = Omit<
@@ -173,7 +179,7 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
     "session-midi",
     "persistence",
   ] as const;
-  readonly #live = new LiveProcessController();
+  readonly #live: LiveProcessController;
   readonly #events = new AcceptanceEvents();
   readonly #submissions = new Map<
     string,
@@ -215,11 +221,16 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
   #preservationPaths = new Set<string>();
   #traceEvents: TelemetryEventPage["items"] = [];
   #historyCollected = false;
+  #desktopCleanupReceipts: PackagedCleanupReceipt[] = [];
+  #omittedDesktopCleanupReceipts = 0;
   #provenance: Facts = {};
   readonly #bridgeTiming: AcceptanceBridgeTimingProxy | undefined;
   #bridgePort: number | undefined;
 
   constructor(private readonly options: PackagedAcceptanceOptions) {
+    this.#live = new LiveProcessController(
+      options.hostLease ? { hostLease: options.hostLease } : {},
+    );
     if (options.bridgeReadMinimumMs !== undefined)
       this.#bridgeTiming = new AcceptanceBridgeTimingProxy({
         minimumReadMs: options.bridgeReadMinimumMs,
@@ -467,7 +478,10 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
       this.options.liveApplicationPath ??
         "/Applications/Ableton Live 11 Suite.app",
       30_000,
-      { fixturePath: required(this.#preparedProject, "prepared project") },
+      {
+        fixturePath: required(this.#preparedProject, "prepared project"),
+        signal: context.signal,
+      },
     );
     context.signal.throwIfAborted();
     await waitForRunnerOwnedLiveReady(this.#live, {
@@ -1797,8 +1811,27 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
     this.#unsubscribe = undefined;
     if (this.#application) {
       const result = await closeOwnedPackagedApplication(this.#application);
+      this.#desktopCleanupReceipts.push(result);
+      if (this.#desktopCleanupReceipts.length > 16) {
+        this.#desktopCleanupReceipts.shift();
+        this.#omittedDesktopCleanupReceipts++;
+      }
       if (!result.successful)
-        failures.push(new Error("Owned Desktop shutdown failed"));
+        failures.push(
+          new Error(
+            `Owned Desktop shutdown failed: ${
+              result.events
+                .filter((event) =>
+                  ["failed", "timed-out", "cancelled"].includes(event.status),
+                )
+                .map(
+                  (event) =>
+                    `${event.stage} ${event.status} (${event.reason ?? "unspecified"})`,
+                )
+                .join("; ") || "unconfirmed process exit"
+            }`,
+          ),
+        );
       if (result.stopped) {
         this.#application = undefined;
         this.#page = undefined;
@@ -1809,7 +1842,7 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
   }
 
   async cleanup(context: DriverContext): Promise<void> {
-    const failures: unknown[] = [];
+    const cleanup = new AcceptanceCleanup(context);
     if (
       !this.#historyCollected &&
       this.#identity &&
@@ -1820,7 +1853,7 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
         context.signal,
         AbortSignal.timeout(5_000),
       ]);
-      try {
+      await cleanup.attempt("history", async () => {
         await observe(async () => {
           await this.#readTrace({ ...context, signal });
           for (const traceId of new Set(this.#sdkTurns.values()))
@@ -1828,33 +1861,29 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
           for (const traceId of this.#preflightTraces)
             await this.#readTrace({ ...context, signal }, traceId);
         }, signal);
-      } catch (error) {
-        failures.push(error);
-      }
+      });
     }
     // Closing a known process releases blocked page calls before awaiting a late launch.
-    try {
-      await this.#closeDesktop();
-    } catch (error) {
-      failures.push(error);
-    }
-    if (this.#launching) await this.#launching.catch(() => undefined);
-    if (this.#desktopLaunching)
-      await this.#desktopLaunching.catch(() => undefined);
-    if (this.#provisioning) await this.#provisioning.catch(() => undefined);
+    await cleanup.attempt("desktop-stop", () => this.#closeDesktop());
+    await cleanup.attempt("settle-acquisitions", async () => {
+      if (this.#launching) await this.#launching.catch(() => undefined);
+      if (this.#desktopLaunching)
+        await this.#desktopLaunching.catch(() => undefined);
+      if (this.#provisioning) await this.#provisioning.catch(() => undefined);
+    });
     if (this.#bridgeTiming) {
-      try {
-        await this.#bridgeTiming.close();
+      await cleanup.attempt("bridge-proxy", async () => {
+        await this.#bridgeTiming!.close();
         this.#assertBridgeTimingHealthy();
-      } catch (error) {
-        failures.push(error);
-      }
+      });
     }
-    try {
+    await cleanup.attempt("product-evidence", async () => {
       await writeScenarioReceipt(
         join(this.options.runDirectory, "product-evidence.json"),
         {
           schema: "acceptance-product-evidence/v1",
+          runId: context.runId,
+          scenarioId: context.scenario.id,
           traceId: context.traceId,
           provenance: this.#provenance,
           dependencyHashes: this.#dependencies,
@@ -1866,33 +1895,51 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
             : {}),
         },
       );
-    } catch (error) {
-      failures.push(error);
-    }
+    });
     if (this.#application) {
-      try {
-        await this.#closeDesktop();
-      } catch (error) {
-        failures.push(error);
-      }
+      await cleanup.attempt("desktop-stop-after-settle", () =>
+        this.#closeDesktop(),
+      );
     }
     let liveStopped = true;
     if (this.#live.publicRecord()) {
-      try {
-        await this.#live.discardAfterFailure();
-      } catch (error) {
-        liveStopped = false;
-        failures.push(error);
-      }
+      liveStopped = await cleanup.attempt("live-stop", () =>
+        this.#live.discardAfterFailure(),
+      );
     }
+    const hostReservationClosed = await cleanup.attempt(
+      "host-reservation",
+      () => this.#live.close(),
+    );
+    if (!hostReservationClosed) liveStopped = false;
+    let profileRemoved = this.#profile === undefined;
     if (!this.#application && liveStopped && this.#profile) {
-      try {
-        await rm(this.#profile, { recursive: true, force: true });
-      } catch (error) {
-        failures.push(error);
-      }
+      const profile = this.#profile;
+      profileRemoved = await cleanup.attempt("profile", () =>
+        rm(profile, { recursive: true, force: true }),
+      );
     }
-    if (failures.length)
-      throw new AggregateError(failures, "Acceptance cleanup failed");
+    await cleanup.attempt("cleanup-evidence", async () => {
+      await writeScenarioReceipt(
+        join(this.options.runDirectory, "cleanup-evidence.json"),
+        {
+          schema: "acceptance-cleanup/v1",
+          runId: context.runId,
+          scenarioId: context.scenario.id,
+          traceId: context.traceId,
+          resources: {
+            desktopStopped: this.#application === undefined,
+            liveStopped,
+            hostReservationClosed,
+            profileRemoved,
+          },
+          desktop: this.#desktopCleanupReceipts,
+          omittedDesktopReceipts: this.#omittedDesktopCleanupReceipts,
+          events: cleanup.events,
+          failures: cleanup.failures,
+        },
+      );
+    });
+    cleanup.throwIfFailed();
   }
 }

@@ -6,6 +6,12 @@ on:
     paths:
       - "apps/desktop/**"
       - "tests/electron/**"
+      - "scripts/acceptance.mjs"
+      - "scripts/lib/acceptance-*.ts"
+      - "scripts/lib/live-host-lease.*"
+      - "scripts/lib/live-process-controller.*"
+      - "integration/acceptance-scenarios/**"
+      - "integration/fixtures/**"
       - "playwright.config.ts"
       - "tsconfig.base.json"
       - "pnpm-workspace.yaml"
@@ -41,6 +47,8 @@ on:
 
 jobs:
   package:
+    # Artifact construction is not licensed real-Live qualification.
+    # Use the local acceptance suite and candidate-bound verifier before release.
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v4

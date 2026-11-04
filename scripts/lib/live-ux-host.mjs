@@ -27,18 +27,22 @@ export async function waitForRunnerOwnedLiveReady(
     sleep = (milliseconds) =>
       new Promise((resolve) => setTimeout(resolve, milliseconds)),
     now = Date.now,
+    signal,
   } = {},
 ) {
   const deadline = now() + timeoutMs;
   const dismissedDialogs = [];
   while (now() < deadline) {
+    signal?.throwIfAborted();
     const dismissed = await controller.dismissKnownStartupDialogs({
       discardRecovery,
     });
     if (dismissed !== "none" && !dismissedDialogs.includes(dismissed)) {
       dismissedDialogs.push(dismissed);
     }
-    if (await isReady()) return { dismissedDialogs };
+    const ready = await isReady();
+    signal?.throwIfAborted();
+    if (ready) return { dismissedDialogs };
     await sleep(1_000);
   }
   throw new Error(

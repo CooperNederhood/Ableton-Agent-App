@@ -16,10 +16,15 @@ const controller = coordinatedStartup
   ? createComputerUseLiveController()
   : new LiveProcessController();
 let launched = false;
-let stopRequested;
+const cancellation = new globalThis.AbortController();
+let resolveStopped;
 const stopped = new Promise((resolve) => {
-  stopRequested = resolve;
+  resolveStopped = resolve;
 });
+const stopRequested = () => {
+  cancellation.abort();
+  resolveStopped();
+};
 const keepAlive = setInterval(() => undefined, 60_000);
 
 process.once("SIGINT", stopRequested);
@@ -28,6 +33,7 @@ process.once("SIGTERM", stopRequested);
 try {
   const fixturePath = liveUxFixturePath(process.argv);
   const liveProcess = await controller.launch(applicationPath, undefined, {
+    signal: cancellation.signal,
     ...(fixturePath === undefined ? {} : { fixturePath }),
   });
   launched = true;
@@ -35,6 +41,7 @@ try {
   const readiness = await waitForRunnerOwnedLiveReady(controller, {
     coordinatedStartup,
     discardRecovery: !coordinatedStartup,
+    signal: cancellation.signal,
   });
   console.log(
     JSON.stringify({
@@ -61,4 +68,12 @@ try {
   process.exitCode = 1;
 } finally {
   clearInterval(keepAlive);
+  process.removeListener("SIGINT", stopRequested);
+  process.removeListener("SIGTERM", stopRequested);
+  try {
+    await controller.close();
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exitCode = 1;
+  }
 }

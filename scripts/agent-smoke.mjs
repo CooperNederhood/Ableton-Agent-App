@@ -448,6 +448,12 @@ try {
     }
   }
 } finally {
+  try {
+    await controller.close();
+  } catch (error) {
+    failed = true;
+    evidence.cleanupError ??= describeError(error);
+  }
   evidence.finishedAt = new Date().toISOString();
   Object.assign(
     evidence,

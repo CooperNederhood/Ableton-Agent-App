@@ -38,6 +38,8 @@
     "live:validate": "pnpm build && node scripts/live-validation.mjs",
     "live:agent-smoke": "node scripts/agent-smoke.mjs",
     "live:acceptance": "node scripts/acceptance.mjs run",
+    "live:acceptance:suite": "node scripts/acceptance.mjs suite",
+    "live:acceptance:verify": "node scripts/acceptance.mjs verify",
     "live:ux-host": "node scripts/live-ux-host.mjs",
     "live:copilot-plan-exit": "pnpm --filter @ableton-agent/application smoke:copilot-plan-exit",
     "midi-capture:check": "node scripts/midi-capture-device.mjs check",

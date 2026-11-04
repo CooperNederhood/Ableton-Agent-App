@@ -502,6 +502,9 @@ describe("sequential fresh native process orchestration (mock process controller
     callbackFailure = false,
     resultCallbackFailure = false,
     setupFailure = false,
+    closeFailure = false,
+    closeEventFailure = false,
+    signal,
     runFailure,
     returnedError,
     expectedRefusal = false,
@@ -514,6 +517,9 @@ describe("sequential fresh native process orchestration (mock process controller
     let owned;
     const manifests = await Promise.all(scenarioIds.map(load));
     const controller = {
+      close: vi.fn(async () => {
+        if (closeFailure) throw new Error("uncertain host ownership");
+      }),
       publicRecord: () => owned,
       assertNoPreExistingLive: vi.fn(async () => {
         expect(owned).toBeUndefined();
@@ -558,6 +564,9 @@ describe("sequential fresh native process orchestration (mock process controller
         fixture,
         stage: async (name, operation) => {
           stages.push(name);
+          if (closeEventFailure && name === "host-lease-release") {
+            throw new Error("lease event persistence failed");
+          }
           return operation();
         },
         run: async (validate) => {
@@ -592,6 +601,7 @@ describe("sequential fresh native process orchestration (mock process controller
       manifests,
       controller,
       applicationPath: "test-only",
+      signal,
       createRunner,
       onCheckpoint: async (_manifest, result) => {
         log.push("evidence");
@@ -655,6 +665,44 @@ describe("sequential fresh native process orchestration (mock process controller
     });
     expect(JSON.stringify(f.finalized)).not.toContain("private-value");
     expect(f.controller.launch).not.toHaveBeenCalled();
+    expect(f.controller.close).toHaveBeenCalledOnce();
+  });
+
+  it("retains fixture staging if a launch has uncertain ownership without a public process record", async () => {
+    const f = await group({ launchFailure: true, closeFailure: true });
+    await expect(f.work).rejects.toThrow("startup failed");
+    const runner = await f.createRunner.mock.results[0].value;
+    expect(runner.close).toHaveBeenCalledWith({ processStopped: false });
+    expect(runner.fixture.cleanup).not.toHaveBeenCalled();
+    expect(f.finalized[0].cleanup.status).toBe("failed");
+  });
+
+  it("closes inherited preflight ownership on cancellation before staging", async () => {
+    const cancellation = new globalThis.AbortController();
+    cancellation.abort();
+    const f = await group({ signal: cancellation.signal });
+    await expect(f.work).rejects.toThrow();
+    expect(f.controller.close).toHaveBeenCalledOnce();
+    expect(f.createRunner).not.toHaveBeenCalled();
+  });
+
+  it("forwards cancellation to every native process launch", async () => {
+    const cancellation = new globalThis.AbortController();
+    const f = await group({ signal: cancellation.signal });
+    await f.work;
+    expect(
+      f.controller.launch.mock.calls.every(
+        (call) => call[2].signal === cancellation.signal,
+      ),
+    ).toBe(true);
+    expect(f.controller.close).toHaveBeenCalledTimes(ids.length);
+  });
+
+  it("still closes safe ownership when lease lifecycle persistence fails", async () => {
+    const f = await group({ closeEventFailure: true });
+    await expect(f.work).rejects.toThrow("lease event persistence failed");
+    expect(f.controller.close).toHaveBeenCalledOnce();
+    expect(f.finalized[0].cleanup.status).toBe("failed");
   });
   it("retains cancellation and its cleanup without reporting an ordinary execution failure", async () => {
     const abort = new Error("actor cancelled", { cause: "test cancellation" });
@@ -750,7 +798,11 @@ describe("sequential fresh native process orchestration (mock process controller
       "discard",
       "cleanup:true",
     ]);
-    expect(f.stages).toEqual(["process-launch", "process-shutdown"]);
+    expect(f.stages).toEqual([
+      "process-launch",
+      "process-shutdown",
+      "host-lease-release",
+    ]);
     expect(f.controller.publicRecord()).toBeUndefined();
     const runner = await f.createRunner.mock.results[0].value;
     expect(runner.fixture.cleanup).toHaveBeenCalledOnce();
@@ -851,7 +903,11 @@ describe("sequential fresh native process orchestration (mock process controller
     const result = await f.work;
     expect(result).toHaveLength(ids.length);
     expect(f.stages).toEqual(
-      ids.flatMap(() => ["process-launch", "process-shutdown"]),
+      ids.flatMap(() => [
+        "process-launch",
+        "process-shutdown",
+        "host-lease-release",
+      ]),
     );
     expect(
       result.every(

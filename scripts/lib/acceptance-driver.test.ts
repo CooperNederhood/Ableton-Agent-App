@@ -32,6 +32,7 @@ const mocks = vi.hoisted(() => ({
   stop: vi.fn(),
   liveLaunch: vi.fn(),
   liveStop: vi.fn(),
+  liveClose: vi.fn(),
   preexisting: vi.fn(),
   liveRecord: vi.fn(),
   liveReady: vi.fn(),
@@ -86,6 +87,7 @@ vi.mock("../../scripts/lib/live-process-controller.mjs", () => ({
     launch = mocks.liveLaunch;
     publicRecord = mocks.liveRecord;
     discardAfterFailure = mocks.liveStop;
+    close = mocks.liveClose;
   },
 }));
 import { PackagedAcceptanceDriver } from "../../tests/electron/acceptance-driver.js";
@@ -1341,6 +1343,9 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
       await readFile(join(directory, "product-evidence.json"), "utf8"),
     );
     expect(receipt).toMatchObject({
+      runId: context.runId,
+      scenarioId: context.scenario.id,
+      traceId: context.traceId,
       provenance: {
         bridgeReadMinimumMs: 550,
         bridgeTimingMode: "read-response-minimum",
@@ -1610,7 +1615,7 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
     expect(mocks.liveLaunch).toHaveBeenCalledWith(
       "/Applications/Ableton Live 11 Suite.app",
       30000,
-      { fixturePath: join(directory, "prepared.als") },
+      { fixturePath: join(directory, "prepared.als"), signal: context.signal },
     );
     await expect(driver.readBaseline(context)).rejects.toThrow(
       "active runtime mismatch",
@@ -2035,6 +2040,7 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
       successful: false,
       events: [],
     });
+
     await expect(driver.cleanup(context)).rejects.toThrow(
       "Acceptance cleanup failed",
     );
@@ -2045,6 +2051,47 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
       ),
     ).toContain("98765");
     expect(mocks.liveStop).toHaveBeenCalledOnce();
+  });
+
+  it("persists the specific teardown failure and separately confirms resource reclamation", async () => {
+    await driver.launch(context);
+    mocks.stop.mockResolvedValue({
+      stopped: true,
+      successful: false,
+      events: [
+        {
+          stage: "close",
+          status: "timed-out",
+          at: 10,
+          durationMs: 3000,
+          reason: "deadline",
+        },
+      ],
+    });
+    await expect(driver.cleanup(context)).rejects.toThrow(
+      "desktop-stop: Desktop cleanup failed: Owned Desktop shutdown failed: close timed-out (deadline)",
+    );
+    const evidence: unknown = JSON.parse(
+      await readFile(join(directory, "cleanup-evidence.json"), "utf8"),
+    );
+    expect(evidence).toMatchObject({
+      schema: "acceptance-cleanup/v1",
+      runId: context.runId,
+      scenarioId: context.scenario.id,
+      resources: {
+        desktopStopped: true,
+        liveStopped: true,
+        hostReservationClosed: true,
+        profileRemoved: true,
+      },
+      failures: [
+        {
+          stage: "desktop-stop",
+          message:
+            "Desktop cleanup failed: Owned Desktop shutdown failed: close timed-out (deadline)",
+        },
+      ],
+    });
   });
 
   it("never submits an already-cancelled turn", async () => {
@@ -2074,6 +2121,27 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
         "utf8",
       ),
     ).toContain("98765");
+  });
+
+  it("closes a preflight-only host reservation after failed provisioning", async () => {
+    mocks.provision.mockRejectedValue(
+      new Error("candidate dependency missing"),
+    );
+    await expect(driver.provision(context)).rejects.toThrow();
+    mocks.liveRecord.mockReturnValue(undefined);
+    await driver.cleanup(context);
+    expect(mocks.liveClose).toHaveBeenCalledOnce();
+  });
+
+  it("treats uncertain preflight reservation closure as unsafe cleanup", async () => {
+    await driver.launch(context);
+    mocks.liveClose.mockRejectedValue(new Error("uncertain host acquisition"));
+    await expect(driver.cleanup(context)).rejects.toThrow(
+      "Acceptance cleanup failed",
+    );
+    await expect(
+      readFile(join(directory, "profile/automation-endpoint.json"), "utf8"),
+    ).resolves.toContain("98765");
   });
 
   it("does not retry a possibly accepted request after a missing acknowledgement", async () => {

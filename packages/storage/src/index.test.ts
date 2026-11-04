@@ -28,6 +28,7 @@ import {
   resolveProjectStorage,
   resolveNestedSessionStorage,
   resolveLiveAgentStorage,
+  resolveLiveHostAutomationStorage,
   selectProfile,
   writeArtifactTombstones,
   writeLiveProjectsRegistry,
@@ -51,6 +52,41 @@ afterEach(async () => {
 });
 
 describe("live agent storage", () => {
+  it("reserves canonical operator-wide host automation outside per-run roots and profiles", async () => {
+    const homeDirectory = await temporaryRoot();
+    const first = resolveLiveAgentStorage({
+      homeDirectory,
+      environment: {
+        LIVE_AGENT_HOME: join(homeDirectory, "run-a"),
+        LIVE_AGENT_PROFILE: "a",
+      },
+    });
+    const second = resolveLiveAgentStorage({
+      homeDirectory,
+      environment: {
+        LIVE_AGENT_HOME: join(homeDirectory, "run-b"),
+        LIVE_AGENT_PROFILE: "b",
+      },
+    });
+    expect(first.profileRoot).not.toBe(second.profileRoot);
+    const host = resolveLiveHostAutomationStorage({ homeDirectory });
+    expect(host.leaseDirectory).toBe(
+      join(
+        homeDirectory,
+        ".live-agent",
+        "profiles",
+        "automation",
+        "host",
+        "live-host.lease",
+      ),
+    );
+    await expect(stat(host.directory)).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+    expect(() =>
+      resolveLiveHostAutomationStorage({ homeDirectory: "relative" }),
+    ).toThrow("absolute");
+  });
   it("exposes historical producer defaults only for explicit compatibility, without provisioning legacy resources", async () => {
     const home = await temporaryRoot();
     const configuredRoot = join(home, "isolated-canonical-root");

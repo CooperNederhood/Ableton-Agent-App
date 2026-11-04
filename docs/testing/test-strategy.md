@@ -31,6 +31,12 @@ coverage. Bug fixes must include a regression test at the narrowest owning
 boundary. Vitest runs with default ten-second test/hook deadlines and zero retries;
 flaky tests are fixed or explicitly quarantined rather than silently retried.
 
+Packaged acceptance teardown retains attributed nested failures and separate
+resource-reclamation evidence. A diagnostic/History failure still fails the case,
+but must not be mistaken for a surviving process when exact owned shutdown,
+reservation closure and profile removal are independently confirmed. Missing
+proof never authorizes lease release or qualification.
+
 Retained-listener delivery failures require renderer and Electron preload/event
 coverage: the failed pass has no new context references, prior completed-pass
 references remain visible, and capture cancellation is disabled without
@@ -92,6 +98,7 @@ Tests must catch:
 | `pnpm test:max-patches` | Max source/generation contracts and synthetic publisher/readback regressions | Physical compilation, listening or acoustic quality |
 | `pnpm test:acceptance:list` / `pnpm test:acceptance:validate` | Offline acceptance catalog/schema and registered-fixture validation | An empty catalog or schema-only template is not an executed acceptance case |
 | `pnpm live:acceptance --scenario <registered-id>` | Packaged Automation Endpoint driver for reviewed fixture-backed conversations; `session-clip-identify` registered, qualification determined by terminal receipts | Desktop UI submission, migrated runtime/CLI coverage, or qualification from framework tests |
+| `pnpm live:acceptance:suite` / `pnpm live:acceptance:verify` | Local sequential discovery of every registered packaged case, one attempt each, exact-candidate aggregate evidence and offline release verification | Hosted Live CI, automatic retries, broader compatibility or a passing release from incomplete/stale evidence |
 | `pnpm live:agent-smoke --scenario <id>` / `--group <id>` | Reviewed runtime/CLI actions and independently checked Live outcomes | Uncoached packaged Default-agent UX or MCP stdio |
 | `pnpm test:electron` | Main/preload/renderer integration with explicit fake or injected dependencies | Live outcomes from synthetic context/results |
 | `pnpm test:electron:packaged` (after distribution build) | Packaged resources, startup, native modules, bundled installer and explicitly executed authentication checks | Completed musical workflows or actual Live loading of delivered devices |

@@ -125,6 +125,35 @@ Lock and temporary files created beside an owned file are implementation
 details. They must remain within the owning component directory and be cleaned
 up or recovered atomically.
 
+### Dedicated local Live host coordination
+
+`resolveLiveHostAutomationStorage()` reserves
+`~/.live-agent/profiles/automation/host/live-host.lease/` for exclusive Live
+automation ownership on a dedicated, single-operator host. Unlike per-run
+profiles, this path deliberately ignores `LIVE_AGENT_HOME`,
+`LIVE_AGENT_PROFILE`, and worktree locations. Its `homeDirectory` argument is
+an explicit deterministic-test seam, never a run-environment override. This
+coordinates one OS account; it is not a multi-user or network lock.
+
+The runner atomically creates the owner-only lease directory and an owner-only
+`owner-{random-token}.json` record containing bounded PID, process start time,
+and SHA-256 command identity (never the command line or credentials). Suite
+controllers borrow an in-process capability, reserve it one controller at a
+time, and keep the outer lease across cases. Standalone controllers acquire the
+same lease before preflight and keep it through confirmed shutdown.
+Standalone entrypoints and native scenario orchestration close preflight-only
+reservations in their cleanup paths, including safe setup failures before
+launch. An uncertain launch without a recorded PID does not establish shutdown:
+retain both the host lease and native fixture staging. UX-host stop signals
+cancel startup/readiness before cleanup, rather than abandoning reservations.
+Release validates directory identity and the exact owner record, removes only
+its token-specific entry, and removes only an empty directory. Foreign,
+replaced, malformed, and interrupted leases fail closed. No age or stale-PID
+reclamation is permitted: orphaned Live or Desktop children may remain alive.
+Uncertain cleanup retains the lease for operator recovery only after all
+runner-owned applications are independently confirmed stopped. There is no
+environment-variable bypass, renderer access, or network upload path.
+
 ## Ownership by directory
 
 | Path | Owner | Contents and rules |

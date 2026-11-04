@@ -2,6 +2,24 @@
 
 Companion specification: [Acceptance test authoring](acceptance-authoring.md).
 
+## Discovered local suite (#82)
+
+- [x] Preserve stage-specific teardown causes and packaged shutdown receipts;
+      independently record process/reservation/profile reclamation. Release a
+      proven-reclaimed host without relabeling failed cleanup as a pass.
+- [x] Require case-bound cleanup proof in passing suite verification and cover
+      missing, foreign, unsafe and evidence-only-failed cleanup.
+
+- [x] Discover all registered packaged cases automatically and run each once;
+      preserve scenario-internal continuity and never retry automatically.
+- [x] Freeze candidate/fixture contracts, serialize owned host use, and retain
+      exact selected/executed/unrun/unknown accounting and every first failure.
+- [x] Verify aggregate terminal receipts, cleanup, persistence and actual Live
+      version against the candidate, with regression coverage for stale evidence.
+- [ ] Demonstrate the complete discovered suite once on the licensed host.
+      Record the immutable source/candidate and outcome in issue #82 evidence
+      without modifying the qualified checkout after execution.
+
 ## Supplied Drum Rack listening regression
 
 - [x] Intake the user-supplied `failing-listening-drum-rack-non-quant` project

@@ -1718,7 +1718,10 @@ test("normal startup advertises metric listening and keeps producer credentials 
       port: signalAddress.port,
       maxFrameBytes: 2 * 1024 * 1024,
       listenerVersions: [5],
-      listenerCapabilities: ["audio-listener/independent-metric-timelines-v1"],
+      listenerCapabilities: [
+        "audio-listener/independent-metric-timelines-v1",
+        "audio-listener/mel-band-timelines-v1",
+      ],
     });
     expect(JSON.stringify(descriptor)).not.toContain(token);
     await expect(window.locator("body")).not.toContainText(token);
@@ -2198,6 +2201,7 @@ test("accepts an MCP-style user message in the visible desktop session", async (
         listenerVersions: [5],
         listenerCapabilities: [
           "audio-listener/independent-metric-timelines-v1",
+          "audio-listener/mel-band-timelines-v1",
         ],
       });
     await expect

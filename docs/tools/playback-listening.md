@@ -102,7 +102,7 @@ owned rolloff chain: pass `294f91d5-2351-4de7-8322-b959763abf45`, 21 deliveries
 per channel and completed physical capture cleanup. Bounded evidence is retained
 in that run's `visual-evidence.json`.
 
-**Visual teardown is blocked, not passed:** Live's quit modal was unreadable
+**Visual teardown required user-assisted recovery:** Live's quit modal was unreadable
 through both accessibility and screenshot inspection. User-assisted closure was
 requested but unavailable. At the checkpoint, owned Live PID `61833`, UX host PID
 `61781`, its reservation and isolated profile remain retained pending explicit
@@ -111,6 +111,15 @@ disposable `prepared [case-ea64b57b2b30fdc69c47d996ca8197e7]`, not a user projec
 Do not launch another host campaign or remove its profile until exact-owned
 process absence and reservation release are confirmed. This does not invalidate
 the earlier packaged acceptance receipt's independently complete teardown.
+
+The user subsequently closed the disposable Live window. At
+`2026-11-05T04:55:22.444Z`, all three owned processes were independently confirmed
+absent, the exact host-owner lease was recovered, and only this run's isolated
+profile was removed. The visual evidence retains the original blocked checkpoint
+alongside the completed user-assisted cleanup. The UX host exited with code 1:
+its controller correctly refused process control after Live was already gone
+and retained the lease until explicit recovery. This closes the visual cleanup
+blocker, not an unattended teardown qualification.
 No full-suite, numerical or Arrangement qualification is claimed.
 
 ## F2a spectral-spread diagnostic smoke (#98)

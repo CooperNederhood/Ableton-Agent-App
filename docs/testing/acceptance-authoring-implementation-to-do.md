@@ -25,8 +25,10 @@ Companion specification: [Acceptance test authoring](acceptance-authoring.md).
       sanitization at typed-record boundaries, without relaxing redaction,
       per-record depth or aggregate byte limits. Reproduce the second host
       attempt's evidence-depth failure offline; 996 owning tests pass.
-- [ ] Real-host qualification remains deferred; offline synthetic evidence is
-      neither an acoustic oracle nor Arrangement qualification.
+- [x] Qualify the selected packaged Session smoke on Live 11.3.43:
+      `run-zpCSaM` passes all 14 assertions plus persisted single-case
+      re-verification and owned cleanup. Preserve the three preceding failures.
+      This is neither an acoustic oracle nor Arrangement/full-suite qualification.
 
 ## Agent listening result consumption (#98)
 

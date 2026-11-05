@@ -19,11 +19,12 @@
   contracts, including explicit unmeasured trailing support. All 63 new
   regressions and the expanded 769-test protocol suite pass; false-complete
   and wrong-support mutations fail. Structural parsing is not DSP qualification.
-- [ ] Implement and qualify frame-aware acquisition, matched dependencies and
+- [x] Implement frame-aware acquisition, matched dependencies and
   actual DSP origin/reset, sequence, support, loss and cleanup receipts.
 - [x] Build the pinned-core frame-aware native engine and verify its retained
   samples against independent reference calculations and capture Gen models.
-  Actual generated Max graph, bundled loading and real-host proof remain open.
+  The selected Session smoke now exercises the actual generated Max graph and
+  mapped bundled binaries; broader numerical/Arrangement qualification is deferred.
 - [x] Include mel in ordinary requests; require an explicit new producer
   capability at ingress and application binding, denying stale producers.
 - [x] Integrate controller readiness, independent source support, prefix/gap
@@ -50,12 +51,16 @@
 - [x] Complete red/green regressions and broader owning-suite gates at every
   affected application boundary.
   Pre-host TypeScript suite: 5,119 passing tests; post-fix Max suite: 932.
-- [ ] Register and execute the authorized single existing-fixture packaged
+- [x] Register and execute the authorized single existing-fixture packaged
   smoke; require vectors/ratios independently of healthy baseline evidence,
   mapped binaries, same-agent report use, restart persistence and cleanup.
   The first attempt failed arming; the second completed capture but failed
   evidence sanitization. Both receipts remain preserved. The user authorized
   same-scenario fix/retry work without further approval requests.
+  Third attempt failed on SDK report spilling. Fourth attempt `run-zpCSaM`
+  passed all 14 assertions on Live 11.3.43, including same-agent report use,
+  restart, unchanged state and physical/final cleanup. Saved artifacts passed
+  independent single-case re-verification. Preserve all three earlier failures.
 - [ ] Complete applicable separately scoped visual validation after the
   deterministic smoke. Do not equate this slice with the original numerical
   Session/Arrangement qualification requirements.

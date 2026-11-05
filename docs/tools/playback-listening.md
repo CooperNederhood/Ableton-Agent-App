@@ -1,14 +1,26 @@
 # Playback Listening and Entity Context
 
-## F3 mel-band implementation in progress (#105)
+## F3 mel-band implementation and bounded smoke (#105)
 
 The selected delivery keeps the full mel-band/ratio feature in scope but limits
 real-Live validation to one packaged smoke using the unchanged
 `session-clip-identify` fixture. It does not select a numerical fixture campaign,
 Arrangement host validation or an automatic full-suite run. The working-tree
 configuration includes mel bands during ordinary listening, without a second
-capture. The candidate still awaits the selected real-Live and visual
-qualification; the user's normal installed integration has not been changed.
+capture. The selected packaged smoke now passes; attended visual validation
+remains unrun. The user's normal installed integration has not been changed.
+
+The fourth attempt, `.test-artifacts/acceptance/run-zpCSaM/receipt.json`, passed
+all **14 assertions** on **Live 11.3.43** with candidate source `f1be7bc6`.
+It verifies exactly one complete 90,000-sample capture at 48 kHz, all four metric
+families, 43 independent-stereo 24-band mel frames, ratios, actual mapped native
+identities, same-agent report consumption, persistence after an owned Desktop
+restart and unchanged protected state. Capture cleanup and final
+Desktop/Live/lease/profile cleanup are independently complete. The saved receipt,
+checkpoint, product evidence and cleanup evidence also passed the existing
+single-case persisted verifier without launching another host.
+This is a recovered, bounded Session smoke result, not first-attempt success,
+numerical acoustic qualification, Arrangement coverage or a full-suite pass.
 
 The first packaged attempt on Live **11.3.43**, preserved in
 `.test-artifacts/acceptance/run-BFVQNT/`, failed during arming with
@@ -87,8 +99,9 @@ actual DSP analysis boundary before authoritative vectors enter reports.
 The application-owned `listener.mel~` adapter now builds against pinned FluCoMa
 core and has compiled-engine/reference and capture-Gen-model coverage. It uses
 actual full-frame support, a bounded retained FIFO and a consumed physical
-terminal receipt. These offline checks are not yet an actual Max-graph or
-Live-host qualification.
+terminal receipt. Offline checks alone are not Max-graph or Live-host
+qualification; the bounded physical checkpoint above supplies that evidence
+only for the selected Session case.
 
 The controller waits for executed mel readiness before allowing playback,
 binds frame supports to the independently verified capture origin, and waits

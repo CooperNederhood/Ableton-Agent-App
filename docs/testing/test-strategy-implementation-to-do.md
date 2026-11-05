@@ -16,9 +16,12 @@
   checks. Producer/reducer ownership: 120 passing tests; runtime: 263.
 - [x] Cover typed vectors/ratios, complete/partial budgets, lifecycle,
   cancellation, cleanup, report paging/reopening and affected Desktop boundaries.
-- [ ] Register and execute the separately approved single packaged case on the
+- [x] Register and execute the separately approved single packaged case on the
   unchanged `session-clip-identify` fixture; preserve terminal receipt and
   actual matched candidate/dependency/Live identities.
+  Fourth attempt `run-zpCSaM` passes 14 assertions on Live 11.3.43; persisted
+  single-case verification and all owned cleanup pass. The first three
+  attempts remain failed, not overwritten or counted as first-attempt success.
 - [x] Register and admit `session-flucoma-melbands-smoke` offline on the unchanged
   fixture. Require separate mapped-adapter proof, native terminal-consumption
   facts, intact vectors/ratios/pages, actual agent consumption and restart

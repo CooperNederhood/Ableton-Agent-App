@@ -34,6 +34,7 @@ async function controllerHarness({
   terminalThrow = false,
   onEvent,
   asyncControlResult,
+  controllerTickSamples,
   requestedMetrics = ["level", "attacks"],
   spectrumEnabled = false,
   spectrumPollMs = 10,
@@ -294,7 +295,7 @@ async function controllerHarness({
             melTerminalClock,
           ]);
         } else assert.fail(selector);
-        return true;
+        return asyncControlResult ? asyncControlResult(selector) : true;
       }
       if (target === "metric_spectrum") {
         controls.push({ selector, args, counter, target });
@@ -488,8 +489,9 @@ async function controllerHarness({
         sourceClock[7],
       ]);
       clockIO.anchorPost(tuple);
-      controller.tick();
     }
+    if (counter % (controllerTickSamples ?? vectorSize) === 0)
+      controller.tick();
   }
   function until(predicate, budget = 160000) {
     for (let n = 0; n < budget && !predicate(); n++) step();
@@ -543,9 +545,9 @@ async function controllerHarness({
   };
 }
 
-async function untilAsync(h, predicate) {
+async function untilAsync(h, predicate, samplesPerYield = 64) {
   for (let block = 0; block < 2500 && !predicate(); block++) {
-    for (let sample = 0; sample < 64; sample++) h.step();
+    for (let sample = 0; sample < samplesPerYield; sample++) h.step();
     await Promise.resolve();
   }
   assert.ok(predicate(), JSON.stringify(h.controller.snapshot()));
@@ -665,6 +667,99 @@ test("maximum-duration four-metric capture preserves all mel frames within admis
   for (const event of h.events)
     h.codec.nativeMetricLifecycleSchema.parse(event.nativeLifecycle);
 });
+
+test("asynchronous mel drain cannot starve native arm or cleanup queries at the production cadence", async () => {
+  const h = await controllerHarness({
+    melEnabled: true,
+    spectrumEnabled: true,
+    requestedMetrics: ["level", "spectral-centroid", "attacks", "mel-bands"],
+    asyncControlResult: () => Promise.resolve(true),
+    controllerTickSamples: 1200,
+  });
+  await untilAsync(
+    h,
+    () => h.replies.some((r) => r.payload.status === "ready"),
+    1200,
+  );
+  h.controller.arm(h.arm);
+  await untilAsync(
+    h,
+    () => ["armed", "failed"].includes(h.controller.snapshot().state),
+    1200,
+  );
+  assert.equal(
+    h.controller.snapshot().state,
+    "armed",
+    JSON.stringify(h.controller.snapshot()),
+  );
+  h.startPlayback();
+  await untilAsync(
+    h,
+    () =>
+      ["completed", "partial", "failed"].includes(
+        h.controller.snapshot().state,
+      ),
+    1200,
+  );
+  assert.equal(
+    h.controller.snapshot().state,
+    "completed",
+    JSON.stringify(h.controller.snapshot()),
+  );
+  assert.equal(h.controller.snapshot().cleanup, "completed");
+  assert.equal(h.controller.snapshot().mel.completed, true);
+});
+
+for (const outcome of ["cancelled", "rejected", "denied"]) {
+  test(`asynchronous mel ${outcome} delivery preserves physical cleanup without publication`, async () => {
+    let failDrain = false;
+    const h = await controllerHarness({
+      melEnabled: true,
+      spectrumEnabled: true,
+      requestedMetrics: ["level", "spectral-centroid", "attacks", "mel-bands"],
+      controllerTickSamples: 1200,
+      asyncControlResult: (selector) => {
+        if (selector === "drain" && failDrain) {
+          failDrain = false;
+          return outcome === "rejected"
+            ? Promise.reject(new Error("mel drain delivery rejected"))
+            : Promise.resolve(false);
+        }
+        return Promise.resolve(true);
+      },
+    });
+    await untilAsync(
+      h,
+      () => h.replies.some((r) => r.payload.status === "ready"),
+      1200,
+    );
+    h.controller.arm(h.arm);
+    await untilAsync(
+      h,
+      () => h.replies.some((r) => r.payload.status === "armed"),
+      1200,
+    );
+    if (outcome === "cancelled") h.controller.cancel(h.cancel);
+    else failDrain = true;
+    const terminalState = outcome === "cancelled" ? "cancelled" : "failed";
+    await untilAsync(
+      h,
+      () => h.controller.snapshot().state === terminalState,
+      1200,
+    );
+    assert.equal(h.controller.snapshot().cleanup, "completed");
+    assert.equal(h.controller.snapshot().mel.completed, true);
+    if (outcome !== "cancelled")
+      assert.equal(
+        h.controller.snapshot().inputFailureReason,
+        "metric_control_delivery_failed",
+      );
+    assert.equal(
+      h.results.some((r) => r.payload.observation),
+      false,
+    );
+  });
+}
 
 test("mel-only capture does not invent requested baseline metrics", async () => {
   const h = await controllerHarness({

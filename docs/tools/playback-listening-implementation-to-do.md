@@ -38,11 +38,22 @@
   bounded actual terminal-consumption/support/clock facts through typed History.
 - [x] Verify Desktop frame navigation, dimensions, ratio reasons and context
   reopening with component/IPC tests; two Electron persistence tests pass.
-- [ ] Complete red/green regressions and broader owning-suite gates at every
+- [x] Preserve the first packaged smoke failure on Live 11.3.43
+  (`run-BFVQNT`): mapped native identities and mel readiness verified, then
+  `metric_arm_receipt_timeout`; no completed context or smoke assertions.
+  Final runner process/lease/profile cleanup succeeded independently of the
+  runtime's unconfirmed capture-cleanup error.
+- [x] Reproduce asynchronous mel-query starvation at the production 25 ms
+  controller cadence and batch mel/native polling together without weakening
+  timeouts or cleanup guards. Cover success, cancellation and rejected/denied
+  delivery; the controller/handoff owning tests pass.
+- [x] Complete red/green regressions and broader owning-suite gates at every
   affected application boundary.
+  Pre-host TypeScript suite: 5,119 passing tests; post-fix Max suite: 932.
 - [ ] Register and execute the authorized single existing-fixture packaged
   smoke; require vectors/ratios independently of healthy baseline evidence,
   mapped binaries, same-agent report use, restart persistence and cleanup.
+  The first attempt failed; a successful authorized retry remains outstanding.
 - [ ] Complete applicable separately scoped visual validation after the
   deterministic smoke. Do not equate this slice with the original numerical
   Session/Arrangement qualification requirements.

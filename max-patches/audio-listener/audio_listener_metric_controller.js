@@ -1487,7 +1487,6 @@ function createMetricController(options) {
   }
   function drive(p) {
     const now = time();
-    p.mel?.tick();
     if (now >= p.deadline) abort(p, "metric_deadline_exceeded");
     if (p.state === "preflight" && now - p.started >= 2000 && !p.wantCleanup)
       abort(p, "metric_preflight_timeout");
@@ -1521,6 +1520,7 @@ function createMetricController(options) {
       io(p, "begin", [p.epoch, p.deadline]);
     }
     if (!p.ioStarted) return;
+    // Admit all query producers together so async mel drains cannot starve native receipts.
     if (now - p.lastPoll >= 10 && !p.queryDeliveries) {
       p.lastPoll = now;
       io(p, "metric_evidence");
@@ -1530,6 +1530,7 @@ function createMetricController(options) {
         spectrumControl(p, "spectrum_cleanup_tick");
         spectrumControl(p, "spectrum_cleanup_evidence");
       }
+      p.mel?.tick();
     }
     if (p.wantCleanup) {
       if (cleanup(p)) finish(p);

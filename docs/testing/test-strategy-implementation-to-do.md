@@ -14,7 +14,7 @@
 - [x] Add controller red/green mel-only and independent partial-result tests,
   physical cleanup/readiness guards, and stored default-four-metric runtime
   checks. Producer/reducer ownership: 120 passing tests; runtime: 263.
-- [ ] Cover typed vectors/ratios, complete/partial budgets, lifecycle,
+- [x] Cover typed vectors/ratios, complete/partial budgets, lifecycle,
   cancellation, cleanup, report paging/reopening and affected Desktop boundaries.
 - [ ] Register and execute the separately approved single packaged case on the
   unchanged `session-clip-identify` fixture; preserve terminal receipt and
@@ -23,6 +23,13 @@
   fixture. Require separate mapped-adapter proof, native terminal-consumption
   facts, intact vectors/ratios/pages, actual agent consumption and restart
   persistence; registration does not establish a real-host pass.
+- [x] Preserve first-run failure and successful runner teardown separately:
+  Live 11.3.43, `run-BFVQNT`, native binaries mapped, mel ready, then native arm
+  receipt timeout and runtime capture-cleanup error. No smoke pass is claimed.
+- [x] Reproduce the timeout offline using asynchronous mel outlet delivery and
+  the actual 25 ms controller cadence, rather than DSP-vector-rate ticking.
+  Batch query producers fairly and cover publication, cancellation, rejection
+  and denial with physical cleanup. Obtain approval before another host attempt.
 - [ ] Complete the separately scoped applicable visual gate after exact-state
   validation. Leave broader numerical and Arrangement qualification deferred.
 

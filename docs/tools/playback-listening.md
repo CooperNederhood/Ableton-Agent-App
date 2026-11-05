@@ -10,6 +10,25 @@ configuration includes mel bands during ordinary listening, without a second
 capture. The candidate still awaits the selected real-Live and visual
 qualification; the user's normal installed integration has not been changed.
 
+The first packaged attempt on Live **11.3.43**, preserved in
+`.test-artifacts/acceptance/run-BFVQNT/`, failed during arming with
+`metric_arm_receipt_timeout`. Baseline evidence verified both exact mapped native
+binaries, and mel readiness was observed, but no complete context or successful
+smoke assertion followed. The runtime subsequently reported unconfirmed capture
+cleanup. The final runner receipt independently confirms Desktop/Live shutdown,
+lease closure and isolated-profile removal; that teardown does not establish
+successful capture cleanup or qualification.
+
+An offline regression reproduced the arm timeout with asynchronous Max outlet
+delivery at the production **25 ms** controller cadence. Mel draining previously
+occupied the shared query counter before native polling could run, starving
+native arm receipts. Native, spectrum-cleanup and mel queries now share one
+bounded polling batch, with the existing delivery, deadline and physical-cleanup
+guards unchanged. Regression coverage includes successful publication,
+cancellation, rejected delivery and denied delivery. This is an offline fix,
+not a successful host retry. Another host attempt requires separate approval;
+the visual gate remains unrun behind the failed exact-state smoke.
+
 The fixed profile is 24 independent-channel bands spanning 20-20,000 Hz,
 2048-sample periodic-Hann window/hop/FFT, linear FFT magnitudes and normalization
 disabled. Bands use 26 equally mel-spaced edges and overlapping triangular

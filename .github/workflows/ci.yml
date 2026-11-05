@@ -16,7 +16,7 @@ jobs:
   # Real-Live qualification is an operator-triggered local suite, not hosted CI.
   validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4

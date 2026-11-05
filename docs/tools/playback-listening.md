@@ -26,8 +26,17 @@ native arm receipts. Native, spectrum-cleanup and mel queries now share one
 bounded polling batch, with the existing delivery, deadline and physical-cleanup
 guards unchanged. Regression coverage includes successful publication,
 cancellation, rejected delivery and denied delivery. This is an offline fix,
-not a successful host retry. Another host attempt requires separate approval;
-the visual gate remains unrun behind the failed exact-state smoke.
+not a successful host retry. The user subsequently authorized fixing and
+rerunning this same smoke without further approval requests; broader coverage
+remains excluded.
+
+The second attempt (`run-lKGVXu`, Live 11.3.43) completed capture and context
+publication but failed receipt collection: nesting the typed agent report in
+the turn envelope exceeded the generic sanitizer's depth bound. Final runner
+cleanup succeeded. An offline reproduction now passes with sanitization at
+typed history-record boundaries, retaining all ratio fields, credential
+redaction, per-record limits and unchanged aggregate byte budgets. No failed
+attempt is relabeled as a pass; the visual gate still follows exact-state smoke.
 
 The fixed profile is 24 independent-channel bands spanning 20-20,000 Hz,
 2048-sample periodic-Hann window/hop/FFT, linear FFT magnitudes and normalization

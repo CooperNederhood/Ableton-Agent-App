@@ -21,6 +21,10 @@ Companion specification: [Acceptance test authoring](acceptance-authoring.md).
       and require stable identity plus original proof after the read-only restart.
 - [x] Add offline missing/stale/foreign/truncated/cleanup/denial/cancellation
       regressions, controlled packaged-driver wiring and journal roundtrips.
+- [x] Preserve nested mel tool reports through turn, restart and final-receipt
+      sanitization at typed-record boundaries, without relaxing redaction,
+      per-record depth or aggregate byte limits. Reproduce the second host
+      attempt's evidence-depth failure offline; 996 owning tests pass.
 - [ ] Real-host qualification remains deferred; offline synthetic evidence is
       neither an acoustic oracle nor Arrangement qualification.
 

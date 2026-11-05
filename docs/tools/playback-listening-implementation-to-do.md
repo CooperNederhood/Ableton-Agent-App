@@ -53,7 +53,9 @@
 - [ ] Register and execute the authorized single existing-fixture packaged
   smoke; require vectors/ratios independently of healthy baseline evidence,
   mapped binaries, same-agent report use, restart persistence and cleanup.
-  The first attempt failed; a successful authorized retry remains outstanding.
+  The first attempt failed arming; the second completed capture but failed
+  evidence sanitization. Both receipts remain preserved. The user authorized
+  same-scenario fix/retry work without further approval requests.
 - [ ] Complete applicable separately scoped visual validation after the
   deterministic smoke. Do not equate this slice with the original numerical
   Session/Arrangement qualification requirements.

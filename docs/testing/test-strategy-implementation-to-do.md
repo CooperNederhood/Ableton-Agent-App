@@ -29,7 +29,12 @@
 - [x] Reproduce the timeout offline using asynchronous mel outlet delivery and
   the actual 25 ms controller cadence, rather than DSP-vector-rate ticking.
   Batch query producers fairly and cover publication, cancellation, rejection
-  and denial with physical cleanup. Obtain approval before another host attempt.
+  and denial with physical cleanup. Subsequent user approval covers fixing and
+  rerunning this same smoke without repeated approval requests.
+- [x] Reproduce the second attempt's nested-report sanitization failure
+  (`run-lKGVXu`) and retain full ratios at typed-record boundaries without
+  weakening payload or aggregate limits. Capture completed; runner cleanup
+  succeeded. The failed receipt remains preserved.
 - [ ] Complete the separately scoped applicable visual gate after exact-state
   validation. Leave broader numerical and Arrangement qualification deferred.
 

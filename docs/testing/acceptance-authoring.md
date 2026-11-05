@@ -397,6 +397,11 @@ when supplied by a typed query and persists structured evidence, so the receipt'
 16384-character string bound cannot silently clip a measurement.
 Credentials remain redacted; omitted audio/binary or
 truncation markers cannot satisfy the contract.
+Receipt sanitization applies the existing depth limit to each typed history
+record independently, and sanitizes turn/run metadata separately. Wrapping a
+valid report in turn, restart and final-receipt envelopes must not consume its
+payload depth allowance or truncate nested mel ratios. Structural equality,
+record schemas and unchanged aggregate byte limits still gate persistence.
 
 The original evidence is retained in `TurnEvidence.agentListening` and product
 evidence. After the already-owned Desktop restart the driver re-reads the same

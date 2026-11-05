@@ -67,10 +67,50 @@ regressions cover strict packaging and redacted attributed History. The Max owni
 suite passed 865 tests and acceptance ownership passed 858 tests; workspace build
 and typecheck, owning ingress/tools/shared tests, lint, documentation and matched
 production-payload checks passed. Offline registration admitted the new case
-with `executed: false`. These checks are not a real-host receipt. The focused packaged
-Live 11 run and separate subsequent visual gate require execution approval and
-remain pending. Execution approval was initially unavailable; the user subsequently
-approved the focused real-host run and subsequent visual check on 2026-11-04.
+with `executed: false`. These checks alone are not a real-host receipt.
+
+The separately approved focused packaged run **passed on Live 11.3.43** on
+2026-11-04. Terminal receipt
+`.test-artifacts/acceptance/run-EY3ZdZ/receipt.json` records all **12 assertions**
+passing, one complete 90000-sample capture at 48 kHz, and **21 finite rolloff
+deliveries per channel**. Flatness/spread and all three native metrics remained
+healthy. Actual mapped bundled SpectralShape identity was verified at baseline
+and capture completion. The same agent received its terminal result and read
+the native report; it explicitly distinguished rolloff History diagnostics from
+authoritative report values. All three diagnostics and native context survived
+the owned Desktop restart. Protected scopes remained unchanged, and the terminal
+cleanup receipt confirms Desktop/Live stopped, host reservation released and
+isolated profile removed. No retry or broader suite was run.
+
+Implementation candidate commit: `e49c778b`. Packaged candidate SHA-256:
+`03c34b499da6d78eb9a2268b31b5cccca4a8c975249b5d37d11eb77a831de69f`.
+Machine-listening dependency identity:
+`a65bf85efd02e4cd56ad01e24a289ad6f1734b1764dca92d89eca0cce3de7e91`.
+Mapped FluCoMa Max 1.0.10 external SHA-256:
+`2df23d68d1f04ed5506824b508f566da7bcce670b7ac738acbaded7374857b11`.
+The installed bridge token was supplied through the supported environment source,
+not copied into test evidence; this is not Keychain startup qualification.
+The host did not independently expose its Max version in this receipt.
+
+The separate visual run `run-acdff046-f6cd-43de-856a-e0563282460f` used the same
+packaged candidate and a fresh fixture/profile after deterministic acceptance.
+The exact prompt appeared once, ordinary approval and running/Stop state were
+observed, the original start and report completed, and Live showed the intended
+Session clip playing. The final answer did not fabricate rolloff report values.
+After normal Desktop shutdown, typed journal reads independently projected the
+owned rolloff chain: pass `294f91d5-2351-4de7-8322-b959763abf45`, 21 deliveries
+per channel and completed physical capture cleanup. Bounded evidence is retained
+in that run's `visual-evidence.json`.
+
+**Visual teardown is blocked, not passed:** Live's quit modal was unreadable
+through both accessibility and screenshot inspection. User-assisted closure was
+requested but unavailable. At the checkpoint, owned Live PID `61833`, UX host PID
+`61781`, its reservation and isolated profile remain retained pending explicit
+closure/recovery; Desktop PID `62054` has exited. The retained Set is the
+disposable `prepared [case-ea64b57b2b30fdc69c47d996ca8197e7]`, not a user project.
+Do not launch another host campaign or remove its profile until exact-owned
+process absence and reservation release are confirmed. This does not invalidate
+the earlier packaged acceptance receipt's independently complete teardown.
 No full-suite, numerical or Arrangement qualification is claimed.
 
 ## F2a spectral-spread diagnostic smoke (#98)

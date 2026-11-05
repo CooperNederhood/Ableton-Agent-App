@@ -18,11 +18,17 @@
   Max owning suite: 865 passing tests; acceptance ownership: 858 passing tests.
   Build/typecheck, ingress/tools/shared packaging, lint, documentation, generated
   payload integrity and offline fixture admission passed (`executed: false`).
-- [ ] Obtain separate approval for the focused packaged real-Live run; record
+- [x] Obtain separate approval for the focused packaged real-Live run; record
   actual host/candidate identity, terminal assertions and cleanup.
-  The user approved the focused run and subsequent visual check on 2026-11-04;
-  results remain pending.
+  `run-EY3ZdZ` passed all 12 assertions on Live 11.3.43, with one native capture,
+  21 rolloff deliveries/channel, sibling health, mapped binary proof, restart
+  persistence, same-agent report consumption and confirmed terminal cleanup.
 - [ ] Complete the separately scoped visual gate after exact-state validation.
+  `run-acdff046-f6cd-43de-856a-e0563282460f` showed ordinary approval,
+  running/completed UX and the intended clip playing; persisted typed History
+  confirms one completed rolloff chain. Desktop closed normally. Live closure
+  is blocked on an unreadable quit dialog; user assistance was unavailable.
+  Retain exact-owned host/process/profile state until cleanup is confirmed.
 - [ ] Qualify numerical definitions, weighting, floor/silence validity, independent
   frame support, trajectories, summaries, full/partial budgets and authoritative
   Session/Arrangement publication in follow-up. Smoke does not close #93/#91.

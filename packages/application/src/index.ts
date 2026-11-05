@@ -266,6 +266,7 @@ export {
   formatAgentIdentityContext,
   retryGuidance,
   structuredErrorCode,
+  VERIFIED_TOOL_RESULT_GUIDANCE,
   type AgentIdentityContext,
 } from "./agent-policy.js";
 export {

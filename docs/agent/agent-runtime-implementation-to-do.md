@@ -17,6 +17,10 @@ Companion specification: [Agent Runtime](agent-runtime.md)
   early result delivery or another capture.
 - [ ] Qualify agent-side result/context consumption in the strengthened Session
   spread smoke and the separately owned visual workflow.
+- [x] Reproduce the actual SDK post-tool guidance suffix without Live, decode
+  only that exact application-owned frame, and cover application-to-journal
+  persistence plus fail-closed malformed/truncated/foreign frames. Preserve
+  failed receipt `run-wz3Mp8` separately from the authorized one-case retry.
 
 - [x] Compose optional listening hosts against the same bridge and authenticated
   ingress, preserving caller ownership, deferred trace and terminal-pass leases.

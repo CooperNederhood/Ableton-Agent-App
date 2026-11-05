@@ -39,6 +39,57 @@ function context(action: "get" | "report") {
 }
 
 describe("typed listening SDK result History projection", () => {
+  const guidance =
+    "Use the verified tool result as observed state. Re-inspect before any dependent mutation when the project may have changed.";
+  const suffix = (toolName: string) =>
+    `\n\nTool "${toolName}" succeeded. Additional guidance from postToolUse hooks:\n${guidance}`;
+  it.each(["ableton_listening", "ableton_context"])(
+    "decodes the observed SDK post-tool hook frame for %s",
+    (toolName) => {
+      const body =
+        toolName === "ableton_context"
+          ? context("report")
+          : { action: "inspect-listeners", listeners: [], truncated: false };
+      expect(
+        listeningHistoryResult(toolName, {
+          content: JSON.stringify(body) + suffix(toolName),
+        }),
+      ).toEqual({ result: { content: body } });
+    },
+  );
+  it.each([
+    (json: string) => json + suffix("ableton_listening"),
+    (json: string) =>
+      json + suffix("ableton_context") + "\nUnexpected guidance",
+    (json: string) =>
+      json + suffix("ableton_context") + suffix("ableton_context"),
+    (json: string) => json.slice(0, -1) + suffix("ableton_context"),
+  ])(
+    "rejects foreign, altered, duplicate or truncated hook-framed JSON",
+    (frame) => {
+      expect(
+        listeningHistoryResult("ableton_context", {
+          content: frame(JSON.stringify(context("get"))),
+        }),
+      ).toEqual({
+        result: {
+          content: {
+            error: "history_projection_unavailable",
+            reason: "malformed_json",
+          },
+        },
+      });
+    },
+  );
+  it("does not interpret hook-like text within a valid JSON field", () => {
+    const body = context("get");
+    body.entry.summary = suffix("ableton_context");
+    expect(
+      listeningHistoryResult("ableton_context", {
+        content: JSON.stringify(body) + suffix("ableton_context"),
+      }),
+    ).toEqual({ result: { content: body } });
+  });
   it("parses bounded JSON even beyond the generic journal string limit without retaining that string", () => {
     const body = context("get");
     const content = `${" ".repeat(256 * 1024)}${JSON.stringify(body)}`;
@@ -90,11 +141,13 @@ describe("typed listening SDK result History projection", () => {
             : {}),
         },
       };
-      expect(
-        listeningHistoryResult("ableton_listening", {
-          content: JSON.stringify(body),
-        }),
-      ).toEqual({ result: { content: body } });
+      for (const tail of ["", suffix("ableton_listening")]) {
+        expect(
+          listeningHistoryResult("ableton_listening", {
+            content: JSON.stringify(body) + tail,
+          }),
+        ).toEqual({ result: { content: body } });
+      }
     },
   );
   it.each([

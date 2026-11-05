@@ -66,6 +66,17 @@ cancelled passes return tool failures rather than queued success. SDK result
 delivery is distinct from application lifecycle completion and is recorded in
 typed, redacted tool-call/result History.
 
+The SDK appends the application's post-tool guidance to successful JSON tool
+content. Listening/context History removes only the exact matching-tool SDK
+suffix containing that shared guidance before JSON/schema validation and
+redaction. The original byte bound includes the suffix; altered, foreign,
+duplicated or truncated frames remain explicitly unavailable evidence. Parsing
+happens before generic string clipping, with no duplicate raw payload retained.
+The first strengthened Session attempt (`run-wz3Mp8`) failed because the
+projector treated this suffix as malformed JSON, despite successful tool
+operations. That receipt remains failed; a corrected-candidate retry and visual
+qualification are pending.
+
 `createListeningRuntimeHost` assembles the concrete listening ports from these
 same dependencies and explicit invoking-owner/repository resolvers. It retains
 canonical-path binding, pass quota reservation, prepare-before-start ordering,

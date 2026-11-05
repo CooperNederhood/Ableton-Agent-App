@@ -62,7 +62,8 @@ describe("unqualified spread smoke evidence", () => {
     );
     expect(
       smoke.steps[0]!.assertions.filter(
-        (entry) => entry.name !== "spread-smoke",
+        (entry) =>
+          !["spread-smoke", "agent-listening-result"].includes(entry.name),
       ),
     ).toEqual(original.steps[0]!.assertions);
     expect(

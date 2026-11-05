@@ -348,6 +348,7 @@ export function createIpcHandlers(
         ...(preparedContext === undefined ? {} : { preparedContext }),
       }),
     "event-history:search": (request) => service.searchEventHistory(request),
+    "event-history:agent": (request) => service.readAgentHistory(request),
     "event-history:trace": ({ traceId, cursor, limit, order }) =>
       service.getEventTrace(traceId, {
         limit,

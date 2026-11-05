@@ -1,4 +1,5 @@
 import type { SessionListeningPreflightResult } from "@ableton-agent/protocol";
+import type { AgentListeningEvidence } from "./agent-listening-result.js";
 
 export type Scalar = string | number | boolean | null;
 export type Facts = Readonly<Record<string, Scalar>>;
@@ -230,6 +231,7 @@ export interface AudioBaselineEvidence extends BaselineEvidence {
   readonly sources: Readonly<Record<string, AudioSourceEvidence>>;
 }
 export interface TurnEvidence extends Submission {
+  readonly agentListening?: AgentListeningEvidence;
   readonly schemaVersion: 1;
   readonly assistantMessageId: string;
   readonly terminal: true;
@@ -242,6 +244,7 @@ export interface TurnEvidence extends Submission {
   readonly facts: Facts;
 }
 export interface RunEvidence {
+  readonly agentListening?: readonly AgentListeningEvidence[];
   readonly schemaVersion: 1;
   readonly recoveries?: readonly string[];
   /** Complete run-scoped pass inventory, including owned restart observation. */

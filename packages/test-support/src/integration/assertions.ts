@@ -14,6 +14,10 @@ import {
 } from "./validation.js";
 import { validateFlatnessSmoke } from "./flatness-smoke.js";
 import { validateSpreadSmoke } from "./spread-smoke.js";
+import {
+  verifyAgentListeningResult,
+  verifyRestoredAgentListeningEvidence,
+} from "./agent-listening-result.js";
 
 export class AssertionRegistry {
   private readonly entries = new Map<
@@ -185,6 +189,37 @@ function registerSmokeAssertions(
 }
 export function createDefaultAssertions(): AssertionRegistry {
   return registerSmokeAssertions(new AssertionRegistry())
+    .register(
+      "agent-listening-result",
+      (input, parameters) => {
+        try {
+          verifyAgentListeningResult(input, String(parameters.sourceId));
+          if (!input.turn)
+            verifyRestoredAgentListeningEvidence(
+              input.turns,
+              input.evidence?.agentListening ?? [],
+            );
+          return result(
+            true,
+            "ok",
+            "Original start delivered the matching completed pass and the same agent read its measurement context before answering",
+          );
+        } catch (error) {
+          return result(
+            false,
+            "agent-listening-result",
+            error instanceof Error
+              ? error.message
+              : "Invalid agent listening evidence",
+          );
+        }
+      },
+      (parameters) => {
+        rejectUnknownFields(parameters, ["sourceId"]);
+        requiredStrings(parameters, ["sourceId"]);
+        identifier(parameters.sourceId);
+      },
+    )
     .register(
       "choice",
       ({ turn }, parameters) => {

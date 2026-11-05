@@ -21,6 +21,10 @@ import {
 import { SUPPORTED_AUDIO_BASELINE } from "../../packages/test-support/src/integration/contracts.js";
 import { midiContentIdentity } from "../../packages/test-support/src/integration/sources.js";
 import { observedSessionSource } from "../../tests/electron/acceptance-evidence.js";
+import {
+  agentHistoryPage,
+  agentListeningFixture,
+} from "../../packages/test-support/src/integration/agent-listening-test-support.js";
 import type {
   InspectSessionListeningSourceParams,
   InspectSessionListeningSourceResult,
@@ -146,7 +150,7 @@ const api = {
   outputs: { list: vi.fn() },
   listening: { list: vi.fn() },
   approvals: { resolve: vi.fn() },
-  eventHistory: { trace: vi.fn() },
+  eventHistory: { trace: vi.fn(), agent: vi.fn() },
   events: { subscribe: mocks.subscriber },
 };
 const page = {
@@ -2234,21 +2238,69 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
     await driver.cleanup(context);
   });
 
-  it.each(["present", "missing", "duplicate"])(
+  it.each([
+    "present",
+    "missing",
+    "duplicate",
+    "typed",
+    "history-failed",
+    "history-cancelled",
+  ])(
     "joins exact ingress, assistant and SDK activity (%s), not global idle",
     async (activity) => {
+      const typed = ["typed", "history-failed", "history-cancelled"].includes(
+        activity,
+      );
+      if (typed)
+        context = {
+          ...context,
+          scenario: {
+            ...context.scenario,
+            requiredCapabilities: ["automation", "persistence"],
+          },
+        };
       await driver.launch(context);
       await driver.ready(context);
+      if (typed) await driver.readBaseline(context);
       const subscription = await driver.subscribe();
       const step = {
         id: "turn",
         message: "Say hello",
         timeoutMs: 1000,
-        assertions: [],
+        assertions: typed
+          ? [{ name: "agent-listening-result", parameters: { sourceId: "a" } }]
+          : [],
       };
       const submission = await driver.submit(step, context);
       const emit = mocks.subscriber.mock.calls[0]![0];
       const sdkTurnId = randomUUID();
+      if (typed) {
+        const f = agentListeningFixture();
+        for (const record of f.records) {
+          record.appSessionId = identity.appSessionId;
+          record.agentSessionId = identity.conversationId;
+          record.activeAgentId = identity.agentId;
+          if ("turnId" in record) record.turnId = sdkTurnId;
+          record.traceId = sdkTurnId;
+          if (record.kind === "tool_call" || record.kind === "tool_result")
+            record.causationId = sdkTurnId;
+          else record.correlationId = sdkTurnId;
+          if (record.kind === "message") record.content = "Hello";
+        }
+        api.eventHistory.agent.mockResolvedValue(agentHistoryPage(f.records));
+        if (activity === "history-failed")
+          api.eventHistory.agent.mockRejectedValue(
+            new Error("journal unavailable"),
+          );
+        if (activity === "history-cancelled") {
+          const cancellation = new AbortController();
+          context = { ...context, signal: cancellation.signal };
+          api.eventHistory.agent.mockImplementation(async () => {
+            cancellation.abort(new Error("cancelled history read"));
+            return agentHistoryPage(f.records);
+          });
+        }
+      }
       const emitActivity = (activityId: string) =>
         emit({
           type: "agent.working_update",
@@ -2308,7 +2360,7 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
       });
       if (activity !== "missing") emitActivity(sdkTurnId);
       if (activity === "duplicate") emitActivity(randomUUID());
-      if (activity === "present") {
+      if (activity === "present" || activity === "typed") {
         const result = await subscription.waitForTurn(submission, context);
         expect(result).toMatchObject({
           assistantMessageId,
@@ -2320,14 +2372,47 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
           facts: { sdkTurnId },
         });
         expect(sdkTurnId).not.toBe(context.traceId);
+        if (typed) {
+          expect(result.agentListening?.sdkTurnId).toBe(sdkTurnId);
+          expect(api.eventHistory.agent).toHaveBeenCalledExactlyOnceWith(
+            expect.objectContaining({
+              appSessionId: identity.appSessionId,
+              agentSessionId: identity.conversationId,
+              activeAgentId: identity.agentId,
+              turnId: sdkTurnId,
+            }),
+          );
+          const collected = await driver.collect(context);
+          expect(collected.agentListening).toEqual([
+            { ...result.agentListening, afterOwnedRestart: true },
+          ]);
+          expect(api.eventHistory.agent).toHaveBeenCalledTimes(2);
+        }
       } else
         await expect(
           subscription.waitForTurn(submission, context),
         ).rejects.toThrow(
-          activity === "missing" ? "no attributable SDK" : "More than one SDK",
+          activity === "missing"
+            ? "no attributable SDK"
+            : activity === "history-failed"
+              ? "journal unavailable"
+              : activity === "history-cancelled"
+                ? "cancelled history read"
+                : "More than one SDK",
         );
       await subscription.close(context);
-      await driver.cleanup(context);
+      if (activity === "history-cancelled")
+        await expect(driver.cleanup(context)).rejects.toThrow(
+          "cancelled history read",
+        );
+      else await driver.cleanup(context);
+      if (activity === "typed") {
+        const product = JSON.parse(
+          await readFile(join(directory, "product-evidence.json"), "utf8"),
+        ) as { agentListening: unknown[]; restoredAgentListening: unknown[] };
+        expect(product.agentListening).toHaveLength(1);
+        expect(product.restoredAgentListening).toHaveLength(1);
+      }
     },
   );
 

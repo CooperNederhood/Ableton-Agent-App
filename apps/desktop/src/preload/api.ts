@@ -323,6 +323,11 @@ export function createDesktopApi(transport: PreloadTransport): DesktopApi {
       },
     },
     eventHistory: {
+      agent: (query = {}) =>
+        invoke(
+          "event-history:agent",
+          ipcSchemas["event-history:agent"].request.parse(query),
+        ),
       search: (query = {}) =>
         invoke(
           "event-history:search",

@@ -37,6 +37,10 @@
       "timeoutMs": 120000,
       "assertions": [
         {
+          "name": "agent-listening-result",
+          "parameters": { "sourceId": "a" }
+        },
+        {
           "name": "capture",
           "parameters": {
             "sourceId": "a",

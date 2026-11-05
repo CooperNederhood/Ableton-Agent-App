@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { RunResult } from "../../packages/test-support/src/integration/index.js";
@@ -10,6 +10,7 @@ import {
 } from "./acceptance-suite-evidence.js";
 import { runAcceptanceSuite, type SuiteInputs } from "./acceptance-suite.js";
 import { writeScenarioReceipt } from "./scenario-receipts.mjs";
+import { agentListeningFixture } from "../../packages/test-support/src/integration/agent-listening-test-support.js";
 
 const inputs: SuiteInputs = {
   candidateSha256: "a".repeat(64),
@@ -35,10 +36,11 @@ async function writeCase(
   runId: string,
   traceId: string,
   mutation?: (receipt: Record<string, unknown>, result: RunResult) => void,
+  scenarioId = "session-clip-identify",
 ) {
   const { scenario, fixture } = await acceptanceDefinition(
     process.cwd(),
-    "session-clip-identify",
+    scenarioId,
   );
   const result: RunResult = {
     schemaVersion: 1,
@@ -127,6 +129,10 @@ async function writeCase(
       candidateSha256: inputs.appAsarSha256,
       liveVersion: "11.3.43",
     },
+    agentListening: result.turns.flatMap((turn) =>
+      turn.agentListening ? [turn.agentListening] : [],
+    ),
+    restoredAgentListening: result.evidence?.agentListening ?? [],
   });
   await writeScenarioReceipt(join(directory, "cleanup-evidence.json"), {
     schema: "acceptance-cleanup/v1",
@@ -144,6 +150,73 @@ async function writeCase(
 }
 
 describe("local acceptance qualification verifier", () => {
+  it.each([
+    "valid",
+    "missing",
+    "product-mismatch",
+    "cached",
+    "queued",
+    "missing-context",
+    "late-context",
+  ])(
+    "re-verifies persisted agent consumption rather than trusting passed flags (%s)",
+    async (fault) => {
+      await fixture(async (directory) => {
+        const runId = randomUUID(),
+          traceId = randomUUID();
+        const scenarioId = "session-flucoma-spread-smoke";
+        const f = agentListeningFixture();
+        if (fault === "queued") f.start.job.stage = "queued";
+        if (fault === "missing-context") f.records.splice(2, 2);
+        if (fault === "late-context")
+          f.records.find(
+            (r) => r.kind === "tool_result" && r.toolCallId === "context",
+          )!.occurredAt = "2026-11-05T00:00:07.000Z";
+        await writeCase(
+          directory,
+          runId,
+          traceId,
+          (_receipt, result) => {
+            Object.assign(result, {
+              turns: [f.turn],
+              baseline: f.input.baseline,
+              evidence: {
+                ...result.evidence,
+                agentListening: [
+                  {
+                    ...f.turn.agentListening,
+                    afterOwnedRestart: fault !== "cached",
+                  },
+                ],
+              },
+            });
+          },
+          scenarioId,
+        );
+        const path = join(directory, "product-evidence.json");
+        const product = JSON.parse(await readFile(path, "utf8")) as Record<
+          string,
+          unknown
+        >;
+        if (fault === "missing") delete product.agentListening;
+        if (fault === "product-mismatch") product.agentListening = [];
+        await writeScenarioReceipt(path, product);
+        const attempt = readSuiteAttempt({
+          root: process.cwd(),
+          suiteDirectory: directory,
+          directory,
+          scenarioId,
+          runId,
+          traceId,
+          inputs,
+          exitCode: 0,
+        });
+        if (fault === "valid")
+          await expect(attempt).resolves.toMatchObject({ status: "passed" });
+        else await expect(attempt).rejects.toThrow();
+      });
+    },
+  );
   it.each([true, false])(
     "checks profile absence before accepting resource reclamation after failed cleanup (profile exists: %s)",
     async (profileExists) => {

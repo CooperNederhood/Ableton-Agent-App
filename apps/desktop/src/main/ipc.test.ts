@@ -844,6 +844,9 @@ describe("desktop IPC", () => {
   });
 
   it("routes bounded history queries and destructive controls", async () => {
+    const readAgentHistory = vi
+      .fn()
+      .mockResolvedValue({ version: 1, items: [] });
     const searchEventHistory = vi
       .fn()
       .mockResolvedValue({ version: 2, items: [] });
@@ -860,6 +863,7 @@ describe("desktop IPC", () => {
     const handlers = createIpcHandlers(
       {
         searchEventHistory,
+        readAgentHistory,
         getEventTrace,
         deleteEventTrace,
         clearEventHistory,
@@ -867,6 +871,20 @@ describe("desktop IPC", () => {
       {} as DiagnosticsActions,
     );
     const traceId = "00000000-0000-4000-8000-000000000010";
+    const agentQuery = {
+      appSessionId: "app",
+      agentSessionId: "sdk",
+      turnId: "turn",
+      activeAgentId: "default",
+      limit: 100,
+      order: "asc" as const,
+    };
+    await handlers["event-history:agent"](agentQuery);
+    expect(readAgentHistory).toHaveBeenCalledExactlyOnceWith(agentQuery);
+    readAgentHistory.mockRejectedValueOnce(new Error("journal unavailable"));
+    await expect(handlers["event-history:agent"](agentQuery)).rejects.toThrow(
+      "journal unavailable",
+    );
 
     await handlers["event-history:search"]({
       sources: ["runtime"],

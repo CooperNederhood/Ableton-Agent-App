@@ -288,14 +288,62 @@ The original terminal receipt and product/cleanup evidence remain under
 without another submission. No retry or broader campaign occurred.
 
 The terminal assistant text reported permission denial and no publication,
-contrary to the independent completed-capture/context evidence. Preserve this
-response/status discrepancy as a separate follow-up; the approved smoke oracle
-does not grade assistant status prose. The run used the real installed bridge
+contrary to the independent completed-capture/context evidence. This was an
+agent result-delivery/consumption failure, not merely a prose discrepancy:
+the original start returned queued, subsequent wrong-ID polls were denied,
+and the agent never read the published context. The nine historical assertions
+did not cover consumption; preserve that receipt without relabeling it as
+passing the strengthened contract below. The run used the real installed bridge
 credential through the supported environment source, so no successful Keychain
 startup is claimed.
 
+### Agent listening result consumption
+
+The spread smoke now adds `agent-listening-result` with `sourceId: "a"`.
+It retains all nine independent backend assertions, the exact fixture and prompt,
+one scoped medium-risk permission, and run/turn/persistence/cleanup budgets
+300000/120000/30000/30000 ms. No second capture, oracle hint, prompt override,
+exact prose oracle or model grader is introduced.
+
+The assertion joins typed `tool_call`, `tool_result`, `message` and terminal
+`turn` records to the submitted Default agent's App session, SDK conversation,
+SDK turn and trace. Tool correlation IDs remain the SDK tool-call IDs, with the
+SDK turn as causation; they are not confused with listening-pass correlation.
+It requires exactly one original Session start returning `stage: completed`
+and the independently published pass/context IDs for source `a`. A successful
+`ableton_context` `get` or `report` must then return the matching typed measurement
+before the final assistant answer in that same normally completed turn.
+`get` additionally matches the independent observation digest; `report` must
+contain valid nonempty measurement rows and matching source/context identity.
+Partial publication is not full smoke success. Any failed/cancelled or
+success-shaped error listening/context call, additional start, missing or
+truncated records, foreign identity, or result delivered after the answer fails.
+Explicit successful `get-pass` inspection is allowed but cannot replace the
+original start result or context read.
+
+The packaged driver uses `window.desktop.eventHistory.agent`, a bounded typed
+query over the existing local journal. It does not expose SQL, files, raw audio,
+or a new storage location to the renderer. Queries page in batches of 100,
+cap each turn at 256 records / 8 MiB, and reject missing/repeated pages and
+changing totals. Existing aggregate runner/receipt bounds still apply.
+SDK JSON result text is decoded to structured, sanitized evidence before receipt
+serialization so the receipt's 16384-character string bound cannot silently
+clip a measurement. Credentials remain redacted; omitted audio/binary or
+truncation markers cannot satisfy the contract.
+
+The original evidence is retained in `TurnEvidence.agentListening` and product
+evidence. After the already-owned Desktop restart the driver re-reads the same
+typed records and requires exact equality (apart from restart provenance),
+retaining them in `RunEvidence.agentListening` and product evidence. Persisted
+verification re-evaluates the assertion and cross-checks both receipt and product
+copies; a stored `passed` flag alone is insufficient. Runner-owned context reads,
+generic telemetry, publication events and UI job completion cannot substitute
+for an SDK result. This proves tool-boundary delivery and consumption, not the
+model's internal understanding. Deterministic synthetic regressions cover the
+historical false-positive shape; they do not constitute a new real-Live run.
+
 Named assertions come from the shared registry: `choice`, `capture`,
-`capture-count`, `context`, `native-freshness`, `spectral-range`, `flatness-smoke`, `spread-smoke`, `no-capture`,
+`capture-count`, `context`, `native-freshness`, `spectral-range`, `flatness-smoke`, `spread-smoke`, `agent-listening-result`, `no-capture`,
 `unchanged`, and `fact-equals`. The
 template illustrates their actual parameter shapes; consult
 [`ScenarioManifest` and `FixtureManifest`](../../packages/test-support/src/integration/contracts.ts)

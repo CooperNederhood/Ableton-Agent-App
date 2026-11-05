@@ -13,6 +13,8 @@ import {
   LocalObservabilityJournal,
   sanitizeTelemetryAttributes,
   type AgentHistoryRecord,
+  type AgentHistoryQuery,
+  type AgentHistoryPage,
   type ConfigurationSnapshot,
   type ConfigurationSnapshotPage,
   type ConfigurationSnapshotQuery,
@@ -544,6 +546,12 @@ export class DesktopJournalHost implements DesktopEventJournal {
     query: RootTraceQuery = {},
   ): Promise<RootTracePage> {
     return (await this.#activeJournal()).readRootTraces(query);
+  }
+
+  public async readAgentHistory(
+    query: AgentHistoryQuery = {},
+  ): Promise<AgentHistoryPage> {
+    return (await this.#activeJournal()).readAgentHistory(query);
   }
 
   public async readTrace(

@@ -1,4 +1,17 @@
 import { describe, expect, it, vi } from "vitest";
+import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
+import { join, resolve } from "node:path";
+import {
+  LocalObservabilityJournal,
+  agentHistoryRecordSchema,
+} from "@ableton-agent/observability";
+import {
+  collectAgentListeningEvidence,
+  verifyAgentListeningResult,
+  verifyRestoredAgentListeningEvidence,
+} from "../../packages/test-support/src/integration/agent-listening-result.js";
+import { agentListeningFixture } from "../../packages/test-support/src/integration/agent-listening-test-support.js";
+import { writeScenarioReceipt } from "./scenario-receipts.mjs";
 import {
   captureCleanupConfirmed,
   restoreFlatnessSmoke,
@@ -13,6 +26,89 @@ import {
   recordedFlatnessHistory,
 } from "../../packages/test-support/src/integration/flatness-smoke-test-support.js";
 import { nativeMetricLifecycleSchema } from "../../packages/signal-routing/src/listener-metric-contracts.js";
+
+describe("agent consumption typed History persistence", () => {
+  it("reopens SDK JSON tool results and preserves complete structured measurements in redacted receipts", async () => {
+    const root = resolve(".test-artifacts/agent-history-evidence-unit");
+    await mkdir(root, { recursive: true });
+    const directory = await mkdtemp(join(root, "case-"));
+    let journal: LocalObservabilityJournal | undefined;
+    try {
+      const path = join(directory, "journal.sqlite");
+      const f = agentListeningFixture();
+      f.context.entry.summary = "Measured ".repeat(128);
+      journal = await LocalObservabilityJournal.open({ path });
+      for (const record of f.records) {
+        const stored = agentHistoryRecordSchema.parse(
+          Object.fromEntries(
+            Object.entries(record).filter(([key]) => key !== "recordedAt"),
+          ),
+        );
+        if (stored.kind === "tool_result") {
+          const envelope = stored.result?.result;
+          if (
+            !envelope ||
+            typeof envelope !== "object" ||
+            !("content" in envelope)
+          )
+            throw new Error("fixture");
+          stored.result = {
+            result: { content: JSON.stringify(envelope.content) },
+          };
+        }
+        await journal.appendAgentHistory(
+          agentHistoryRecordSchema.parse(stored),
+        );
+      }
+      const foreign = {
+        ...f.records[0]!,
+        id: "foreign",
+        appSessionId: "foreign",
+        agentSessionId: "foreign-sdk",
+        toolCallId: "foreign-call",
+      };
+      await journal.appendAgentHistory(
+        agentHistoryRecordSchema.parse(
+          Object.fromEntries(
+            Object.entries(foreign).filter(([key]) => key !== "recordedAt"),
+          ),
+        ),
+      );
+      const evidence = await collectAgentListeningEvidence(
+        f.owner,
+        false,
+        (query) => journal!.readAgentHistory(query),
+      );
+      const turn = { ...f.turn, agentListening: evidence };
+      verifyAgentListeningResult({ ...f.input, turn, turns: [turn] }, "a");
+      await journal.shutdown();
+      journal = await LocalObservabilityJournal.open({ path });
+      const restored = await collectAgentListeningEvidence(
+        f.owner,
+        true,
+        (query) => journal!.readAgentHistory(query),
+      );
+      verifyRestoredAgentListeningEvidence([turn], [restored]);
+      const receiptPath = join(directory, "evidence.json");
+      await writeScenarioReceipt(receiptPath, { turn, restored });
+      const saved = JSON.parse(await readFile(receiptPath, "utf8")) as {
+        turn: typeof turn;
+        restored: typeof restored;
+      };
+      verifyAgentListeningResult(
+        { ...f.input, turn: saved.turn, turns: [saved.turn] },
+        "a",
+      );
+      verifyRestoredAgentListeningEvidence([saved.turn], [saved.restored]);
+      expect(saved.turn.agentListening.records).toHaveLength(6);
+      expect(JSON.stringify(saved)).not.toContain("[truncated]");
+      expect(JSON.stringify(f.context).length).toBeGreaterThan(16_384);
+    } finally {
+      await journal?.shutdown();
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+});
 
 describe("flatness diagnostic typed History restoration seam", () => {
   it("projects the authentic fifteen-fact ingress shape with class witnesses and independent cleanup timing", () => {

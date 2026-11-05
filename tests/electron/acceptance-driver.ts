@@ -37,6 +37,7 @@ import type {
   Submission,
   TurnEvidence,
   TurnSubscription,
+  AgentListeningEvidence,
 } from "@ableton-agent/test-support/integration";
 import {
   validateSupportedSessionBaseline,
@@ -50,6 +51,8 @@ import {
   isFixtureMediaTarget,
   projectFlatnessSmoke,
   projectSpreadSmoke,
+  collectAgentListeningEvidence,
+  verifyRestoredAgentListeningEvidence,
 } from "@ableton-agent/test-support/integration";
 import type { DesktopListeningJob } from "../../apps/desktop/src/listening-contracts.js";
 import type { DesktopContextDetail } from "../../apps/desktop/src/context-contracts.js";
@@ -230,6 +233,8 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
   #flatnessSmoke = new Map<string, FlatnessSmokeEvidence>();
   #spreadSmoke = new Map<string, SpreadSmokeEvidence>();
   #historyCollected = false;
+  #agentListening: AgentListeningEvidence[] = [];
+  #restoredAgentListening: AgentListeningEvidence[] = [];
   #desktopCleanupReceipts: PackagedCleanupReceipt[] = [];
   #omittedDesktopCleanupReceipts = 0;
   #provenance: Facts = {};
@@ -713,6 +718,32 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
       (a, b) => a.sequence - b.sequence,
     );
     return items;
+  }
+
+  async #readAgentListening(
+    context: DriverContext,
+    owner: SessionIdentity & { sdkTurnId: string },
+    afterOwnedRestart: boolean,
+  ): Promise<AgentListeningEvidence> {
+    return collectAgentListeningEvidence(
+      owner,
+      afterOwnedRestart,
+      async (query) => {
+        context.signal.throwIfAborted();
+        if (Date.now() >= context.deadlineAt)
+          throw new Error("Agent History evidence deadline exceeded");
+        const page = await observe(
+          () =>
+            this.#getPage().evaluate(
+              (query) => window.desktop.eventHistory.agent(query),
+              query,
+            ),
+          context.signal,
+        );
+        context.signal.throwIfAborted();
+        return page;
+      },
+    );
   }
 
   async readBaseline(context: DriverContext): Promise<BaselineEvidence> {
@@ -1693,6 +1724,16 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
               required(this.#contextTraces.get(contextId), "context SDK trace"),
             ),
           );
+        const agentListening = link.step.assertions.some(
+          ({ name }) => name === "agent-listening-result",
+        )
+          ? await this.#readAgentListening(
+              context,
+              { ...submission, sdkTurnId },
+              false,
+            )
+          : undefined;
+        if (agentListening) this.#agentListening.push(agentListening);
         return {
           schemaVersion: 1,
           ...submission,
@@ -1709,6 +1750,7 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
           ...(flatnessSmoke.length ? { flatnessSmoke } : {}),
           ...(spreadSmoke.length ? { spreadSmoke } : {}),
           contexts,
+          ...(agentListening ? { agentListening } : {}),
           facts: { sdkTurnId, ...(await this.#verifyWorld(context)) },
         };
       }
@@ -1900,6 +1942,19 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
       afterRestart,
       (traceId) => this.#readTrace(context, traceId),
     );
+    for (const original of this.#agentListening) {
+      const restored = await this.#readAgentListening(
+        context,
+        original,
+        afterRestart,
+      );
+      this.#restoredAgentListening.push(restored);
+    }
+    if (this.#agentListening.length)
+      verifyRestoredAgentListeningEvidence(
+        this.#agentListening.map((agentListening) => ({ agentListening })),
+        this.#restoredAgentListening,
+      );
     for (const traceId of new Set(this.#sdkTurns.values()))
       if (
         ![...flatnessSmoke, ...spreadSmoke].some(
@@ -1916,6 +1971,9 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
       capturePassIds: [...capturePassIds],
       facts: { ...this.#provenance, persistedContexts: contexts.length },
       contexts,
+      ...(this.#restoredAgentListening.length
+        ? { agentListening: this.#restoredAgentListening }
+        : {}),
       ...(flatnessSmoke.length ? { flatnessSmoke } : {}),
       ...(spreadSmoke.length ? { spreadSmoke } : {}),
       unchanged,
@@ -2011,6 +2069,12 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
           liveProcess: this.#live.publicRecord(),
           desktop: this.#events.diagnostics(),
           history: this.#traceEvents,
+          ...(this.#agentListening.length
+            ? {
+                agentListening: this.#agentListening,
+                restoredAgentListening: this.#restoredAgentListening,
+              }
+            : {}),
           ...(this.#bridgeTiming
             ? { bridgeTiming: this.#bridgeTiming.snapshot() }
             : {}),

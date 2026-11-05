@@ -17,10 +17,13 @@ import {
   captureCleanupConfirmed,
   restoreFlatnessSmoke,
   restoreSpreadSmoke,
+  restoreRolloffSmoke,
 } from "../../tests/electron/acceptance-evidence.js";
 import { projectFlatnessSmoke } from "../../packages/test-support/src/integration/flatness-smoke.js";
 import { projectSpreadSmoke } from "../../packages/test-support/src/integration/spread-smoke.js";
 import { spreadHistory } from "../../packages/test-support/src/integration/spread-smoke-test-support.js";
+import { projectRolloffSmoke } from "../../packages/test-support/src/integration/rolloff-smoke.js";
+import { rolloffHistory } from "../../packages/test-support/src/integration/rolloff-smoke-test-support.js";
 import {
   flatnessHistory,
   flatnessOwner,
@@ -307,6 +310,87 @@ describe("spread diagnostic typed History restoration", () => {
       ).rejects.toBe(failure);
     const read = vi.fn();
     expect(await restoreSpreadSmoke([], true, read)).toEqual([]);
+    expect(read).not.toHaveBeenCalled();
+  });
+});
+
+describe("rolloff diagnostic typed History restoration", () => {
+  it("reprojects only persisted rolloff History, not cached values or healthy siblings", async () => {
+    const original = projectRolloffSmoke(rolloffHistory(), flatnessOwner);
+    const read = vi.fn().mockResolvedValue(rolloffHistory());
+    expect(await restoreRolloffSmoke([original], true, read)).toEqual([
+      { ...original, afterOwnedRestart: true },
+    ]);
+    expect(read).toHaveBeenCalledExactlyOnceWith(flatnessOwner.traceId);
+    for (const history of [
+      [],
+      [...flatnessHistory(), ...spreadHistory().slice(1)],
+      rolloffHistory().slice(0, -1),
+      rolloffHistory({ ...flatnessOwner, passId: "foreign" }),
+    ])
+      await expect(
+        restoreRolloffSmoke([original], true, async () => history),
+      ).rejects.toThrow();
+    const changed = rolloffHistory();
+    for (const event of changed.slice(1)) {
+      const lifecycle = event.attributes.lifecycle as {
+        facts: { field: string; actual: { state: string; value?: unknown } }[];
+      };
+      for (const fact of lifecycle.facts)
+        if (fact.field === "rolloff.leftHz" && fact.actual.state === "observed")
+          fact.actual.value = 7000;
+    }
+    const restored = await restoreRolloffSmoke(
+      [original],
+      true,
+      async () => changed,
+    );
+    expect(restored[0]!.events.at(-1)!.facts["rolloff.leftHz"]).toEqual({
+      state: "observed",
+      value: 7000,
+    });
+  });
+  it("admits exactly nineteen diagnostic facts with zero FFT support frames", () => {
+    for (const event of rolloffHistory().slice(1)) {
+      const lifecycle = nativeMetricLifecycleSchema.parse(
+        event.attributes.lifecycle,
+      );
+      expect(lifecycle.metric).toBe("spectral-rolloff");
+      expect(lifecycle.frames).toBe(0);
+      expect(lifecycle.facts).toHaveLength(19);
+    }
+  });
+  it.each(["failed", "cancelled"])(
+    "rejects persisted %s lifecycle with healthy siblings",
+    async (stage) => {
+      const original = projectRolloffSmoke(rolloffHistory(), flatnessOwner);
+      const history = rolloffHistory();
+      const event = history[3]!;
+      Object.assign(event.attributes.lifecycle!, { stage });
+      event.name = `output.listener.native.metric.spectral-rolloff.${stage}`;
+      event.outcome = stage === "failed" ? "failure" : "cancelled";
+      await expect(
+        restoreRolloffSmoke([original], true, async () => [
+          ...history,
+          ...flatnessHistory().slice(1),
+          ...spreadHistory().slice(1),
+        ]),
+      ).rejects.toThrow();
+    },
+  );
+  it("propagates read failure/cancellation and skips traces without owned captures", async () => {
+    const original = projectRolloffSmoke(rolloffHistory(), flatnessOwner);
+    for (const failure of [
+      new Error("History unavailable"),
+      new DOMException("Aborted", "AbortError"),
+    ])
+      await expect(
+        restoreRolloffSmoke([original], true, async () => {
+          throw failure;
+        }),
+      ).rejects.toBe(failure);
+    const read = vi.fn();
+    expect(await restoreRolloffSmoke([], true, read)).toEqual([]);
     expect(read).not.toHaveBeenCalled();
   });
 });

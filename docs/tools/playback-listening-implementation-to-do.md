@@ -1,5 +1,32 @@
 # Playback Listening Implementation To-Do
 
+## F2b smoke-only milestone (#93)
+
+- [x] Agree to smoke-only scope and the focused rolloff contract using the
+  unchanged reviewed `session-clip-identify` fixture, not a numerical fixture.
+- [x] Add rolloff to the same stereo SpectralShape analyzers in canonical
+  spread/rolloff/flatness order with explicit `@rolloffpercent 95`.
+- [x] Retain unqualified independent-channel Hz diagnostics through typed History,
+  isolated descriptor failures, bounded redacted causal lifecycle and shared
+  physical cleanup. Raise the three-stream attempt cap to 288 without widening
+  authoritative observation/report schemas or changing baseline measurements.
+- [x] Add producer, ingress, actual SDK cancellation/disconnection and strict
+  graph/packaging regressions; preserve sibling and native behavior.
+- [x] Finish focused acceptance registration, restart evidence and owning-suite
+  validation for `session-flucoma-rolloff-smoke`.
+  Producer and evidence regressions failed before implementation and pass after.
+  Max owning suite: 865 passing tests; acceptance ownership: 858 passing tests.
+  Build/typecheck, ingress/tools/shared packaging, lint, documentation, generated
+  payload integrity and offline fixture admission passed (`executed: false`).
+- [ ] Obtain separate approval for the focused packaged real-Live run; record
+  actual host/candidate identity, terminal assertions and cleanup.
+  The user approved the focused run and subsequent visual check on 2026-11-04;
+  results remain pending.
+- [ ] Complete the separately scoped visual gate after exact-state validation.
+- [ ] Qualify numerical definitions, weighting, floor/silence validity, independent
+  frame support, trajectories, summaries, full/partial budgets and authoritative
+  Session/Arrangement publication in follow-up. Smoke does not close #93/#91.
+
 ## F2a smoke-only milestone (#98)
 
 - [x] Agree to smoke-only scope and a new test contract using the unchanged

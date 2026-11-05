@@ -289,18 +289,18 @@ test("classic Max gate drains only new callbacks, clears state and stops its own
   );
   context.begin(generation, 1);
   context.inlet = 1;
-  context.list(1500, -40);
+  context.list(1500, 7000, -40);
   timer.callback();
   assert.equal(output.length, 1);
   clock = 200;
-  context.list(1500, -40);
+  context.list(1500, 7000, -40);
   context.inlet = 2;
-  context.list(3000, -4);
+  context.list(3000, 9000, -4);
   timer.callback();
   timer.callback();
   assert.deepEqual(output.slice(1), [
-    [generation, 1, "value", 0, 1, 1500, -40],
-    [generation, 1, "value", 1, 1, 3000, -4],
+    [generation, 1, "value", 0, 1, 1500, 7000, -40],
+    [generation, 1, "value", 1, 1, 3000, 9000, -4],
   ]);
   context.stop(generation, 1);
   assert.equal(timer.running, false);
@@ -318,7 +318,7 @@ test("classic Max gate drains only new callbacks, clears state and stops its own
   assert.equal(timer.running, false);
   context.begin(generation, 3);
   context.inlet = 1;
-  for (const width of [0, 1, 3])
+  for (const width of [0, 1, 2, 4])
     assert.throws(
       () => context.list(...Array(width).fill(10)),
       /descriptor_width/,
@@ -327,18 +327,27 @@ test("classic Max gate drains only new callbacks, clears state and stops its own
   assert.equal(output.at(-1)[2], "invalid-width");
   clock = 600;
   for (let sequence = 1; sequence <= 400; sequence++) {
-    context.list(100, -1);
+    context.list(100, 1000, -1);
     timer.callback();
   }
-  assert.deepEqual(output.at(-1), [generation, 3, "value", 0, 400, 100, -1]);
-  context.list(100, -1);
+  assert.deepEqual(output.at(-1), [
+    generation,
+    3,
+    "value",
+    0,
+    400,
+    100,
+    1000,
+    -1,
+  ]);
+  context.list(100, 1000, -1);
   assert.throws(() => timer.callback(), /delivery_limit/);
   assert.equal(timer.running, false);
   assert.equal(output.at(-1)[2], "delivery-limit");
   context.stop(generation, 3);
   context.begin(generation, 4);
   clock = 800;
-  context.list(200, -2);
+  context.list(200, 2000, -2);
   context.notifydeleted();
   timer.callback();
   assert.equal(output.at(-1)[2], "started");
@@ -367,7 +376,7 @@ test("generated stereo analyzer is a passive tap with explicit configuration and
   for (const { box } of shapes)
     assert.match(
       box.text,
-      /^fluid\.spectralshape~ @select spread flatness @fftsettings 2048 2048 2048 @unit 0 @power 0/,
+      /^fluid\.spectralshape~ @select spread rolloff flatness @fftsettings 2048 2048 2048 @unit 0 @power 0 @minfreq 0 @maxfreq -1 @rolloffpercent 95$/,
     );
   assert.ok(
     !document.patcher.lines.some(
@@ -409,8 +418,8 @@ test("runtime admits cancellation synchronously during capture and pending gate 
       "fluid.spectralshape~",
       "fluid.spectralshape~",
     );
-    h.handlers.flatness_smoke(generation, 1, "value", 0, 1, 1500, -10);
-    h.handlers.flatness_smoke(generation, 1, "value", 1, 1, 3000, -5);
+    h.handlers.flatness_smoke(generation, 1, "value", 0, 1, 1500, 1000, -10);
+    h.handlers.flatness_smoke(generation, 1, "value", 1, 1, 3000, 1000, -5);
     if (alreadyStopping) h.controllerOptions.beforeCleanup(control, false);
     cancelling = true;
     h.clientOptions.onListenerControl({ ...control, action: "cancel" });
@@ -420,7 +429,7 @@ test("runtime admits cancellation synchronously during capture and pending gate 
       generation,
       1,
     ]);
-    h.handlers.flatness_smoke(generation, 1, "value", 0, 2, 1500, -10);
+    h.handlers.flatness_smoke(generation, 1, "value", 0, 2, 1500, 1000, -10);
     h.handlers.flatness_smoke(generation, 1, "stopped");
     assert.equal(h.controllerOptions.beforeCleanup(control, true), true);
     assert.equal(disposed, 0);
@@ -467,8 +476,8 @@ test("runtime starts diagnostics only after launch and requires owned cleanup", 
     "fluid.spectralshape~",
     "fluid.spectralshape~",
   );
-  h.handlers.flatness_smoke(generation, 1, "value", 0, 1, 1500, -10);
-  h.handlers.flatness_smoke(generation, 1, "value", 1, 1, 3000, -5);
+  h.handlers.flatness_smoke(generation, 1, "value", 0, 1, 1500, 1000, -10);
+  h.handlers.flatness_smoke(generation, 1, "value", 1, 1, 3000, 1000, -5);
   assert.equal(h.controllerOptions.beforeCleanup(control, false), false);
   h.handlers.flatness_smoke(generation, 1, "stopped");
   assert.equal(h.controllerOptions.beforeCleanup(control, false), true);

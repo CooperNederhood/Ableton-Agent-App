@@ -3,6 +3,8 @@ import { createDefaultAssertions } from "./assertions.js";
 import { projectFlatnessSmoke } from "./flatness-smoke.js";
 import { projectSpreadSmoke } from "./spread-smoke.js";
 import { spreadHistory } from "./spread-smoke-test-support.js";
+import { projectRolloffSmoke } from "./rolloff-smoke.js";
+import { rolloffHistory } from "./rolloff-smoke-test-support.js";
 import { validateEvidence, validateTurn } from "./validation.js";
 import {
   flatnessHistory,
@@ -131,17 +133,19 @@ function checkContext(input: AssertionInput, afterRestart = false) {
   );
 }
 
-describe.each(["flatness", "spread"] as const)(
+describe.each(["flatness", "spread", "rolloff"] as const)(
   "%s smoke assertion ownership and persistence",
   (kind) => {
-    const key = kind === "flatness" ? "flatnessSmoke" : "spreadSmoke";
-    const valueKey = kind === "flatness" ? "flatness.leftDb" : "spread.leftHz";
+    const key = `${kind}Smoke` as const;
+    const valueKey = kind === "flatness" ? "flatness.leftDb" : `${kind}.leftHz`;
     function input(): AssertionInput {
       const base = scenario([0]);
       const smoke =
         kind === "flatness"
           ? projectFlatnessSmoke(flatnessHistory(), flatnessOwner)
-          : projectSpreadSmoke(spreadHistory(), flatnessOwner);
+          : kind === "spread"
+            ? projectSpreadSmoke(spreadHistory(), flatnessOwner)
+            : projectRolloffSmoke(rolloffHistory(), flatnessOwner);
       const turn = {
         ...base.turn!,
         facts: { sdkTurnId: flatnessOwner.traceId },

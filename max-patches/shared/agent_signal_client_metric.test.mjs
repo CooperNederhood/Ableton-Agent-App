@@ -1208,15 +1208,15 @@ test("cancel blocks late/future positive results; stale owner cannot release a n
   assert.equal(f.client.metricPhase.ready, null);
 });
 
-test("flatness cancellation physically cleans up despite the SDK progress-rejection policy", () => {
+test("all three SpectralShape diagnostics physically clean up despite the SDK progress-rejection policy", () => {
   const {
-    createFlatnessProbe
+    createSpectralShapeSmoke
   } = require("../audio-listener/audio_listener_flatness_probe.js");
   const f = setup();
   admitArm(f);
   const epoch = f.native.ready.ownership.nativeEpoch;
   const commands = [];
-  const probe = createFlatnessProbe({
+  const probe = createSpectralShapeSmoke({
     now: () => 0,
     sendControl: (...atoms) => commands.push(atoms),
     emit: (control, lifecycle) =>
@@ -1236,8 +1236,11 @@ test("flatness cancellation physically cleans up despite the SDK progress-reject
   assert.deepEqual(commands.at(-1), ["stop", f.prepare.generation, epoch]);
   probe.receive([f.prepare.generation, epoch, "stopped"]);
   assert.equal(probe.stop(f.prepare, true), true);
-  assert.equal(probe.snapshot().diagnosticDeliveryFailed, true);
-  assert.equal(probe.snapshot().failure, null);
+  for (const kind of ["flatness", "spread", "rolloff"]) {
+    assert.equal(probe.snapshot()[kind].diagnosticDeliveryFailed, true);
+    assert.equal(probe.snapshot()[kind].failure, null);
+    assert.equal(probe.snapshot()[kind].cleanup, "completed");
+  }
   assert(f.client.listenerJob);
   assert.equal(
     f.client.sendListenerResult(cancel, {
@@ -1256,15 +1259,15 @@ test("flatness cancellation physically cleans up despite the SDK progress-reject
   assert.equal(f.client.listenerJob, null);
 });
 
-test("flatness stops its gate when the actual SDK loses its authenticated connection", () => {
+test("all three SpectralShape diagnostics stop their shared gate when the SDK loses its authenticated connection", () => {
   const {
-    createFlatnessProbe
+    createSpectralShapeSmoke
   } = require("../audio-listener/audio_listener_flatness_probe.js");
   const f = setup();
   admitArm(f);
   const epoch = f.native.ready.ownership.nativeEpoch;
   const commands = [];
-  const probe = createFlatnessProbe({
+  const probe = createSpectralShapeSmoke({
     now: () => 0,
     sendControl: (...atoms) => commands.push(atoms),
     emit: (control, lifecycle) =>
@@ -1279,7 +1282,10 @@ test("flatness stops its gate when the actual SDK loses its authenticated connec
     /diagnostic_delivery_failed/
   );
   assert.equal(probe.stop(f.prepare), true);
-  assert.equal(probe.snapshot().diagnosticDeliveryFailed, true);
+  for (const kind of ["flatness", "spread", "rolloff"]) {
+    assert.equal(probe.snapshot()[kind].diagnosticDeliveryFailed, true);
+    assert.equal(probe.snapshot()[kind].cleanup, "completed");
+  }
 });
 
 test("cancelled result before cancel reply preserves only pending cancel completion authority", () => {

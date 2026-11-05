@@ -1,5 +1,78 @@
 # Playback Listening and Entity Context
 
+## F2b spectral-rolloff diagnostic smoke (#93)
+
+The user-reviewed delivery slice is **smoke only**, using the existing
+flatness/spread seam without waiting for #92's qualified frame acquisition.
+It does not complete #93's original authoritative measurement requirements or
+parent #91. Numerical accuracy, independently identified FFT frames, silence
+validity, trajectories and report summaries remain follow-up work.
+
+The same two passive independent-channel `fluid.spectralshape~` analyzers select
+`spread rolloff flatness`. The pinned FluCoMa Max 1.0.10 reference specifies this
+canonical output order regardless of selection spelling. There is one shared
+message gate, timer, per-channel delivery sequence, owner and stop handshake;
+no extra playback or analyzer. Existing native algorithms and direct audio
+pass-through remain unchanged.
+
+Rolloff is explicitly configured with `@rolloffpercent 95`, the default documented
+by the pinned reference, rather than assuming the 99% described in other learning
+material. Settings remain `@unit 0 @power 0 @minfreq 0 @maxfreq -1` and
+2048-sample window/hop/FFT. These are configuration facts, not an independently
+verified cumulative magnitude/power convention, endpoint policy, floor or exact
+numerical threshold. Rolloff describes upper spectral extent, not physical
+synth/filter cutoff or an automatic EQ prescription.
+
+`spectral-rolloff` lifecycle diagnostics carry `flucoma-rolloff-smoke/v1`,
+independent-channel nonnegative finite Hz values, delivery counts and nineteen
+ordinary facts, including `rolloff.rolloffpercent: 95`. Support and value validity
+remain `unqualified`, with lifecycle `frames: 0`. A finite zero is permitted
+without a silence interpretation; absent or invalid output is never fabricated
+as zero. Counts are callback snapshot deliveries, not FFT frames or coverage.
+Rolloff-local invalid values fail that diagnostic while independently healthy
+flatness/spread/native evidence survives. Shared malformed/foreign envelopes
+and unconfirmed physical cleanup remain fail-closed.
+
+The three streams retain the ten-snapshots/second/channel gate, 400-delivery
+channel cap and two-progress-events/second/descriptor limit (six combined).
+The aggregate limit is **288 emission attempts per capture**, with at most
+**8192 encoded bytes/event** before SDK emission. The full 400-delivery gate
+horizon at 100 ms yields 240 progress plus 18 ordinary lifecycle events, leaving
+bounded failure/terminal headroom. Exhaustion is explicit and cannot prevent the
+physical stop or its acknowledgement. Each descriptor retains its own causal
+queued/started/progress/completed/failed/cancelled chain and capture/drain timing.
+
+Ordinary listening includes all three diagnostic streams. Requests mentioning
+rolloff use the existing scoped listening action, not an invented
+`requestedMetrics` argument. Values persist through the existing bounded redacted
+journal and typed Desktop History, not metric contexts/reports or a new storage
+path. Existing flatness/spread diagnostic schemas and historical evidence are
+not reinterpreted.
+
+The approved `session-flucoma-rolloff-smoke` contract reuses the unchanged
+`session-clip-identify` fixture and sends one message:
+"Listen to the first Session clip on track audio-track, including spectral rolloff."
+It retains the existing permission scope and budgets and requires both-channel
+rolloff delivery and completion, healthy flatness/spread/native metrics, actual
+mapped bundled-binary identity, attributable SDK terminal result and same-agent
+context consumption, exactly one 90000-sample capture at 48 kHz, typed History
+and context persistence after an owned Desktop restart, protected state and
+terminal cleanup. Missing rolloff fails independently of healthy baseline data.
+There is no acoustic numerical oracle or expected rolloff FFT count.
+
+Producer and acceptance evidence regressions establish a red-before/green-after change, including
+canonical ordering, distinct channel values, no-output/invalid/foreign packets,
+quota limits, cancellation and cleanup. Production graph/codec and ingress
+regressions cover strict packaging and redacted attributed History. The Max owning
+suite passed 865 tests and acceptance ownership passed 858 tests; workspace build
+and typecheck, owning ingress/tools/shared tests, lint, documentation and matched
+production-payload checks passed. Offline registration admitted the new case
+with `executed: false`. These checks are not a real-host receipt. The focused packaged
+Live 11 run and separate subsequent visual gate require execution approval and
+remain pending. Execution approval was initially unavailable; the user subsequently
+approved the focused real-host run and subsequent visual check on 2026-11-04.
+No full-suite, numerical or Arrangement qualification is claimed.
+
 ## F2a spectral-spread diagnostic smoke (#98)
 
 The user-reviewed #98 delivery slice is **smoke only**, building on the existing
@@ -9,7 +82,7 @@ Authoritative trajectories, summaries, registration/configuration, report values
 exact input support, silence/floor validity and numerical comparisons remain
 deferred. No historical diagnostics are promoted to qualified observations.
 
-The same two passive stereo `fluid.spectralshape~` analyzers now select
+At the F2a milestone, the same two passive stereo `fluid.spectralshape~` analyzers selected
 `spread flatness`; there is no additional analyzer or playback. The pinned
 FluCoMa Max 1.0.10 reference defines canonical output order regardless of
 selection spelling: **spread first, flatness second**. Spread is a nonnegative
@@ -18,7 +91,7 @@ configured DC-to-Nyquist range and 2048-sample window/hop/FFT. These settings ar
 configuration, not independently established frame support or numerical accuracy.
 Spread describes spectral breadth, not physical filter bandwidth or source count.
 
-The shared gate carries fresh bounded descriptor snapshots with independent
+That two-descriptor gate carried fresh bounded descriptor snapshots with independent
 channel values and descriptor-local failures. It publishes at most ten snapshots
 per second per channel (400 per channel per capture); progress is capped at two
 events per second per descriptor, four combined. The shared lifecycle budget
@@ -33,7 +106,7 @@ source/clock ownership, audio pass-through and scoped cleanup remain unchanged.
 
 Diagnostics use the existing bounded redacted journal and typed Desktop History,
 not metric contexts/reports or a new storage path. Normal listening includes
-both smoke descriptors. Requests mentioning spread still use one existing
+the smoke descriptors (now including F2b rolloff above). Requests mentioning spread still use one existing
 listening action, with no new requested-metrics argument.
 
 The reviewed `session-flucoma-spread-smoke` contract reuses the unchanged

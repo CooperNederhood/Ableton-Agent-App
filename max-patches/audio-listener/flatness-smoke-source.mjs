@@ -31,7 +31,7 @@ export function appendFlatnessSmokeGraph(
     add(
       `shape-${name}`,
       "newobj",
-      "fluid.spectralshape~ @select spread flatness @fftsettings 2048 2048 2048 @unit 0 @power 0 @minfreq 0 @maxfreq -1",
+      "fluid.spectralshape~ @select spread rolloff flatness @fftsettings 2048 2048 2048 @unit 0 @power 0 @minfreq 0 @maxfreq -1 @rolloffpercent 95",
       10,
       60 + channel * 45,
       1,

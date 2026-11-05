@@ -146,8 +146,8 @@ it("pins packaged FluCoMa resources independently of editable artifact hashes", 
       .filter(({ box }) => box.text?.startsWith("fluid.spectralshape~"))
       .map(({ box }) => box.text),
   ).toEqual([
-    "fluid.spectralshape~ @select spread flatness @fftsettings 2048 2048 2048 @unit 0 @power 0 @minfreq 0 @maxfreq -1",
-    "fluid.spectralshape~ @select spread flatness @fftsettings 2048 2048 2048 @unit 0 @power 0 @minfreq 0 @maxfreq -1",
+    "fluid.spectralshape~ @select spread rolloff flatness @fftsettings 2048 2048 2048 @unit 0 @power 0 @minfreq 0 @maxfreq -1 @rolloffpercent 95",
+    "fluid.spectralshape~ @select spread rolloff flatness @fftsettings 2048 2048 2048 @unit 0 @power 0 @minfreq 0 @maxfreq -1 @rolloffpercent 95",
   ]);
   const pin = FLUCOMA_DEPENDENCY_FILES.find((file) => file.mode === 0o755);
   expect(

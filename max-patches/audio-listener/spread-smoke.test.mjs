@@ -15,7 +15,7 @@ const control = { generation };
 const facts = (event) =>
   Object.fromEntries(event.facts.map(({ field, actual }) => [field, actual]));
 
-test("the pinned reference fixes spread before flatness even when selection spelling is reversed", () => {
+test("the pinned reference fixes spread/rolloff/flatness order even when selection spelling is reversed", () => {
   const reference = readFileSync(
     new URL(
       "./dependencies/flucoma/docs/fluid.spectralshape~.maxref.xml",
@@ -28,12 +28,17 @@ test("the pinned reference fixes spread before flatness even when selection spel
     /Reordering the options in this argument will not reorder how the analyses are returned/,
   );
   assert.match(reference, /spectral spread \(2\) in Hertz/);
+  assert.match(reference, /rolloff \(5\) in Hertz/);
+  assert.match(reference, /The default is 95%/);
   assert.match(reference, /flatness \(6\) in dB/);
-  for (const selection of ["spread flatness", "flatness spread"]) {
+  for (const selection of [
+    "spread rolloff flatness",
+    "flatness rolloff spread",
+  ]) {
     const s = setup();
     s.start();
-    s.receive("value", 0, 1, 1200, -30);
-    s.receive("value", 1, 1, 2400, -5);
+    s.receive("value", 0, 1, 1200, 1000, -30);
+    s.receive("value", 1, 1, 2400, 1000, -5);
     const spread = s.events.find(
       ({ event }) => event.reason === "spread_smoke_output",
     ).event;
@@ -77,8 +82,8 @@ test("shared producer maps canonical spread/flatness outputs into independent bo
   const s = setup();
   s.start();
   s.advance(200);
-  s.receive("value", 0, 1, 1500, -40);
-  s.receive("value", 1, 1, 3000, -3);
+  s.receive("value", 0, 1, 1500, 1000, -40);
+  s.receive("value", 1, 1, 3000, 1000, -3);
   assert.equal(s.probe.stop(control), false);
   s.advance(50);
   s.receive("stopped");
@@ -89,6 +94,7 @@ test("shared producer maps canonical spread/flatness outputs into independent bo
   ]);
   for (const [metric, prefix, suffix, values] of [
     ["spectral-spread", "spread", "Hz", [1500, 3000]],
+    ["spectral-rolloff", "rolloff", "Hz", [1000, 1000]],
     ["spectral-flatness", "flatness", "Db", [-40, -3]],
   ]) {
     const events = s.events.filter(({ event }) => event.metric === metric);
@@ -141,9 +147,9 @@ test("descriptor-local invalid values preserve the healthy sibling", () => {
   ]) {
     const s = setup();
     s.start();
-    s.receive("value", 0, 1, spread, flatness);
-    s.receive("value", 1, 1, 200, -2);
-    s.receive("value", 0, 2, 100, -1);
+    s.receive("value", 0, 1, spread, 1000, flatness);
+    s.receive("value", 1, 1, 200, 1000, -2);
+    s.receive("value", 0, 2, 100, 1000, -1);
     s.probe.stop(control);
     s.receive("stopped");
     assert.ok(
@@ -177,11 +183,11 @@ test("descriptor-local invalid values preserve the healthy sibling", () => {
 test("malformed shared envelopes and sequence gaps are integrity errors, not descriptor-local failures", () => {
   for (const packet of [
     ["value", 0, 1, 1500],
-    ["value", 0, 1, 1500, -3, 10],
-    ["value", 2, 1, 1500, -3],
-    ["value", 0, 0, 1500, -3],
-    ["value", 0, 2, 1500, -3],
-    ["value", 0, 1.5, 1500, -3],
+    ["value", 0, 1, 1500, 1000, -3, 10],
+    ["value", 2, 1, 1500, 1000, -3],
+    ["value", 0, 0, 1500, 1000, -3],
+    ["value", 0, 2, 1500, 1000, -3],
+    ["value", 0, 1.5, 1500, 1000, -3],
     ["invalid-width"],
     ["delivery-limit"],
     ["stopped"],
@@ -200,36 +206,48 @@ test("malformed shared envelopes and sequence gaps are integrity errors, not des
 
 test("ownership remains strict before launch, during drain, and after cleanup", () => {
   const s = setup();
-  assert.throws(() => s.receive("value", 0, 1, 100, -1), /foreign_or_late/);
+  assert.throws(
+    () => s.receive("value", 0, 1, 100, 1000, -1),
+    /foreign_or_late/,
+  );
   assert.equal(s.probe.stop(control), true);
   assert.deepEqual(s.controls, []);
   s.start();
   assert.throws(() => s.probe.start(control, 2, "cause"), /still_owned/);
   assert.throws(
-    () => s.probe.receive(["foreign", 1, "value", 0, 1, 100, -1]),
+    () => s.probe.receive(["foreign", 1, "value", 0, 1, 100, 1000, -1]),
     /foreign_or_late/,
   );
   assert.throws(
-    () => s.probe.receive([generation, 2, "value", 0, 1, 100, -1]),
+    () => s.probe.receive([generation, 2, "value", 0, 1, 100, 1000, -1]),
     /foreign_or_late/,
   );
   assert.throws(
     () => s.probe.stop({ generation: "foreign" }),
     /owner_mismatch/,
   );
-  s.receive("value", 0, 1, 100, -1);
+  s.receive("value", 0, 1, 100, 1000, -1);
   s.probe.stop(control, true);
-  s.receive("value", 0, 2, 200, -2);
-  assert.throws(() => s.receive("value", 0, 2, 200, -2), /invalid_envelope/);
+  s.receive("value", 0, 2, 200, 1000, -2);
+  assert.throws(
+    () => s.receive("value", 0, 2, 200, 1000, -2),
+    /invalid_envelope/,
+  );
   assert.throws(() => s.receive("value", 1, 1, 200), /invalid_envelope/);
   assert.deepEqual(s.probe.snapshot().spread.deliveries, [1, 0]);
   s.receive("stopped");
-  assert.throws(() => s.receive("value", 0, 3, 100, -1), /foreign_or_late/);
+  assert.throws(
+    () => s.receive("value", 0, 3, 100, 1000, -1),
+    /foreign_or_late/,
+  );
   s.probe.start(control, 2, "cause");
   assert.deepEqual(s.probe.snapshot().spread.deliveries, [0, 0]);
   assert.deepEqual(s.probe.snapshot().flatness.deliveries, [0, 0]);
   assert.equal(
-    facts(s.events.at(-1).event)["spread.leftHz"].state,
+    facts(
+      s.events.findLast(({ event }) => event.metric === "spectral-spread")
+        .event,
+    )["spread.leftHz"].state,
     "unavailable",
   );
 });
@@ -241,10 +259,10 @@ test("zero spread is valid but absent channels and unavailable externals cannot 
       s.probe.start(control, 1, "cause");
       s.receive("started", "jbogus", "fluid.spectralshape~");
     } else s.start();
-    if (missing === "right") s.receive("value", 0, 1, 0, 7.62e-13);
+    if (missing === "right") s.receive("value", 0, 1, 0, 1000, 7.62e-13);
     s.probe.stop(control);
     s.receive("stopped");
-    for (const prefix of ["spread", "flatness"]) {
+    for (const prefix of ["spread", "rolloff", "flatness"]) {
       assert.equal(
         s.probe.snapshot()[prefix].failure,
         `${prefix}_${missing === "external" ? "external_unavailable" : "no_output"}`,
@@ -260,8 +278,8 @@ test("zero spread is valid but absent channels and unavailable externals cannot 
   }
   const s = setup();
   s.start();
-  s.receive("value", 0, 1, 0, 7.62e-13);
-  s.receive("value", 1, 1, 0, 1e-9);
+  s.receive("value", 0, 1, 0, 1000, 7.62e-13);
+  s.receive("value", 1, 1, 0, 1000, 1e-9);
   s.probe.stop(control);
   s.receive("stopped");
   assert.equal(s.probe.snapshot().spread.failure, null);
@@ -274,8 +292,8 @@ test("cancellation before a delivery and during pending stop drains the single g
     const s = setup(() => accepting);
     s.start();
     if (pending) {
-      s.receive("value", 0, 1, 100, -1);
-      s.receive("value", 1, 1, 200, -2);
+      s.receive("value", 0, 1, 100, 1000, -1);
+      s.receive("value", 1, 1, 200, 1000, -2);
       s.probe.stop(control);
     }
     accepting = false;
@@ -283,7 +301,7 @@ test("cancellation before a delivery and during pending stop drains the single g
     s.receive("stopped");
     assert.equal(s.probe.stop(control, true), true);
     assert.equal(s.controls.filter(([kind]) => kind === "stop").length, 1);
-    for (const prefix of ["flatness", "spread"]) {
+    for (const prefix of ["flatness", "spread", "rolloff"]) {
       assert.equal(s.probe.snapshot()[prefix].failure, null);
       assert.equal(s.probe.snapshot()[prefix].diagnosticDeliveryFailed, true);
       if (!pending)
@@ -298,7 +316,7 @@ test("cancellation before a delivery and during pending stop drains the single g
   }
 });
 
-test("watchdog acknowledgement cleans both probes even when diagnostic emission throws", () => {
+test("watchdog acknowledgement cleans all probes even when diagnostic emission throws", () => {
   let throwing = false;
   const s = setup(() => {
     if (throwing) throw new Error("observer_failed");
@@ -308,7 +326,7 @@ test("watchdog acknowledgement cleans both probes even when diagnostic emission 
   throwing = true;
   assert.throws(() => s.receive("watchdog-stopped"), /observer_failed/);
   assert.equal(s.probe.stop(control), true);
-  for (const prefix of ["flatness", "spread"]) {
+  for (const prefix of ["flatness", "spread", "rolloff"]) {
     assert.equal(s.probe.snapshot()[prefix].cleanup, "completed");
     assert.equal(
       s.probe.snapshot()[prefix].failure,
@@ -320,8 +338,8 @@ test("watchdog acknowledgement cleans both probes even when diagnostic emission 
   assert.deepEqual(s.probe.snapshot().spread.deliveries, [0, 0]);
 });
 
-test("throwing either descriptor observer never skips sibling cleanup or shared stop", () => {
-  for (const descriptor of ["flatness", "spread"]) {
+test("throwing any descriptor observer never skips sibling cleanup or shared stop", () => {
+  for (const descriptor of ["flatness", "spread", "rolloff"]) {
     for (const stage of ["queued", "started", "progress", "completed"]) {
       let throwing = false;
       const s = setup((_owner, event) => {
@@ -334,13 +352,13 @@ test("throwing either descriptor observer never skips sibling cleanup or shared 
         return true;
       });
       s.start();
-      s.receive("value", 0, 1, 100, -1);
-      s.receive("value", 1, 1, 200, -2);
+      s.receive("value", 0, 1, 100, 1000, -1);
+      s.receive("value", 1, 1, 200, 1000, -2);
       throwing = true;
       if (stage === "progress") {
         s.advance(500);
         assert.throws(
-          () => s.receive("value", 0, 2, 300, -3),
+          () => s.receive("value", 0, 2, 300, 1000, -3),
           /observer_failed/,
         );
       }
@@ -349,6 +367,7 @@ test("throwing either descriptor observer never skips sibling cleanup or shared 
       assert.deepEqual(s.controls.at(-1), ["stop", generation, 1]);
       assert.equal(s.probe.snapshot().flatness.cleanup, "pending");
       assert.equal(s.probe.snapshot().spread.cleanup, "pending");
+      assert.equal(s.probe.snapshot().rolloff.cleanup, "pending");
       throwing = false;
       s.receive("stopped");
       assert.equal(s.probe.stop(control), true);
@@ -360,24 +379,27 @@ test("throwing either descriptor observer never skips sibling cleanup or shared 
   }
 });
 
-test("shared output limits cover both descriptor progress chains and never serialize invalid bodies", () => {
+test("shared output limits cover all descriptor progress chains and never serialize invalid bodies", () => {
   const s = setup();
   s.start();
   for (let sequence = 1; sequence <= 400; sequence++) {
     s.advance(100);
-    s.receive("value", 0, sequence, sequence, -3);
-    s.receive("value", 1, sequence, sequence * 2, -6);
+    s.receive("value", 0, sequence, sequence, 1000, -3);
+    s.receive("value", 1, sequence, sequence * 2, 1000, -6);
   }
   const progress = s.events.filter(({ event }) => event.stage === "progress");
-  assert.equal(progress.length, 160);
-  assert.throws(() => s.receive("value", 0, 401, 100, -1), /invalid_envelope/);
+  assert.equal(progress.length, 240);
+  assert.throws(
+    () => s.receive("value", 0, 401, 100, 1000, -1),
+    /invalid_envelope/,
+  );
   s.probe.stop(control);
   s.receive("stopped");
   for (const { event } of s.events)
     assert.ok(Buffer.byteLength(JSON.stringify(event)) <= 8192);
   const invalid = setup();
   invalid.start();
-  invalid.receive("value", 0, 1, "secret=do-not-retain", -3);
+  invalid.receive("value", 0, 1, "secret=do-not-retain", 1000, -3);
   assert.ok(!JSON.stringify(invalid.events).includes("do-not-retain"));
   assert.equal(
     facts(invalid.events.at(-1).event)["spread.rejected.hz"].value,
@@ -402,16 +424,16 @@ test("aggregate diagnostic quotas reject before emission without blocking the sh
   assert.throws(() => {
     for (let sequence = 1; sequence <= 400; sequence++) {
       saturated.advance(1000);
-      saturated.receive("value", 0, sequence, 100, -1);
-      saturated.receive("value", 1, sequence, 200, -2);
+      saturated.receive("value", 0, sequence, 100, 1000, -1);
+      saturated.receive("value", 1, sequence, 200, 1000, -2);
     }
   }, /diagnostic_limit/);
-  assert.equal(saturated.events.length, 192);
+  assert.equal(saturated.events.length, 288);
   assert.throws(() => saturated.probe.stop(control, true), /diagnostic_limit/);
   assert.deepEqual(saturated.controls.at(-1), ["stop", generation, 1]);
   assert.throws(() => saturated.receive("stopped"), /diagnostic_limit/);
   assert.equal(saturated.probe.stop(control), true);
-  assert.equal(saturated.events.length, 192);
+  assert.equal(saturated.events.length, 288);
 });
 
 test("runtime preserves native publication on local descriptor failure and invalidates shared corruption", async () => {
@@ -447,13 +469,14 @@ test("runtime preserves native publication on local descriptor failure and inval
       0,
       malformed ? 2 : 1,
       -1,
+      1000,
       -3,
     );
     if (malformed) {
       assert.equal(disposed, 1);
       assert.deepEqual(h.stops, ["client"]);
     } else {
-      h.handlers.flatness_smoke(generation, 1, "value", 1, 1, 200, -2);
+      h.handlers.flatness_smoke(generation, 1, "value", 1, 1, 200, 1000, -2);
       assert.equal(disposed, 0);
       assert.deepEqual(h.stops, []);
       assert.equal(

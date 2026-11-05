@@ -26,6 +26,7 @@ import type {
   CaptureEvidence,
   FlatnessSmokeEvidence,
   SpreadSmokeEvidence,
+  RolloffSmokeEvidence,
   ContextEvidence,
   DriverContext,
   DependencyInventory,
@@ -51,6 +52,7 @@ import {
   isFixtureMediaTarget,
   projectFlatnessSmoke,
   projectSpreadSmoke,
+  projectRolloffSmoke,
   collectAgentListeningEvidence,
   verifyRestoredAgentListeningEvidence,
 } from "@ableton-agent/test-support/integration";
@@ -97,6 +99,7 @@ import {
   observedSessionSource,
   restoreFlatnessSmoke,
   restoreSpreadSmoke,
+  restoreRolloffSmoke,
 } from "./acceptance-evidence.js";
 import { ScopedApprovalPolicy } from "./acceptance-approvals.js";
 import { AcceptanceBridgeTimingProxy } from "./acceptance-bridge-timing.js";
@@ -232,6 +235,7 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
   #traceEvents: TelemetryEventPage["items"] = [];
   #flatnessSmoke = new Map<string, FlatnessSmokeEvidence>();
   #spreadSmoke = new Map<string, SpreadSmokeEvidence>();
+  #rolloffSmoke = new Map<string, RolloffSmokeEvidence>();
   #historyCollected = false;
   #agentListening: AgentListeningEvidence[] = [];
   #restoredAgentListening: AgentListeningEvidence[] = [];
@@ -758,6 +762,7 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
       ![
         "session-flucoma-flatness-smoke",
         "session-flucoma-spread-smoke",
+        "session-flucoma-rolloff-smoke",
       ].includes(context.scenario.id)
     )
       return;
@@ -1608,6 +1613,7 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
         const captures: CaptureEvidence[] = [];
         const flatnessSmoke: FlatnessSmokeEvidence[] = [];
         const spreadSmoke: SpreadSmokeEvidence[] = [];
+        const rolloffSmoke: RolloffSmokeEvidence[] = [];
         const contexts: ContextEvidence[] = [];
         const trace = jobs.length
           ? await this.#readTrace(context, sdkTurnId)
@@ -1660,6 +1666,12 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
               projectSpreadSmoke,
               spreadSmoke,
               this.#spreadSmoke,
+            ],
+            [
+              "rolloff-smoke",
+              projectRolloffSmoke,
+              rolloffSmoke,
+              this.#rolloffSmoke,
             ],
           ] as const) {
             if (
@@ -1749,6 +1761,7 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
           captures,
           ...(flatnessSmoke.length ? { flatnessSmoke } : {}),
           ...(spreadSmoke.length ? { spreadSmoke } : {}),
+          ...(rolloffSmoke.length ? { rolloffSmoke } : {}),
           contexts,
           ...(agentListening ? { agentListening } : {}),
           facts: { sdkTurnId, ...(await this.#verifyWorld(context)) },
@@ -1942,6 +1955,11 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
       afterRestart,
       (traceId) => this.#readTrace(context, traceId),
     );
+    const rolloffSmoke = await restoreRolloffSmoke(
+      [...this.#rolloffSmoke.values()],
+      afterRestart,
+      (traceId) => this.#readTrace(context, traceId),
+    );
     for (const original of this.#agentListening) {
       const restored = await this.#readAgentListening(
         context,
@@ -1957,7 +1975,7 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
       );
     for (const traceId of new Set(this.#sdkTurns.values()))
       if (
-        ![...flatnessSmoke, ...spreadSmoke].some(
+        ![...flatnessSmoke, ...spreadSmoke, ...rolloffSmoke].some(
           (entry) => entry.traceId === traceId,
         )
       )
@@ -1976,6 +1994,7 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
         : {}),
       ...(flatnessSmoke.length ? { flatnessSmoke } : {}),
       ...(spreadSmoke.length ? { spreadSmoke } : {}),
+      ...(rolloffSmoke.length ? { rolloffSmoke } : {}),
       unchanged,
     };
   }

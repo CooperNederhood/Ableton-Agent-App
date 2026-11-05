@@ -268,7 +268,7 @@ gate cleanup. The strict eighteen-fact projection uses `flucoma-spread-smoke/v1`
 with unqualified support/validity; missing or invalid spread cannot pass on
 flatness or native evidence alone. Restart re-reads typed History, never just a
 cached successful projection. Existing `flatnessLoadedBinary*` provenance fields
-identify the same shared SpectralShape binary for both cases; they do not imply
+identify the same shared SpectralShape binary for all three smoke cases; they do not imply
 a second analyzer or flatness-only loading proof.
 
 This is a delivery/completion contract, not numerical qualification. The existing
@@ -276,6 +276,34 @@ This is a delivery/completion contract, not numerical qualification. The existin
 The contract does not add custom spectra, an identification turn, exact spread
 delivery counts, or silence validity. Real-host execution requires separate
 approval; registration is not a successful run.
+
+The reviewed `session-flucoma-rolloff-smoke` case reuses that **unchanged**
+`session-clip-identify` fixture, spread scenario permissions and budgets. Its
+exact sole prompt is "Listen to the first Session clip on track audio-track,
+including spectral rolloff." It requires `agent-listening-result`, the baseline
+90000-sample/48-kHz capture and context, and all three `flatness-smoke`,
+`spread-smoke`, and `rolloff-smoke` assertions before and after the owned Desktop
+restart. Exactly one capture, unchanged protected scopes, and existing cleanup
+requirements remain mandatory; no fixture assets or extra turns are added.
+
+The fixed rolloff projection uses `flucoma-rolloff-smoke/v1`, metric
+`spectral-rolloff`, and nineteen facts: the eighteen spread fields renamed with
+the `rolloff.` prefix plus observed `rolloff.rolloffpercent: 95`. It requires
+independent stereo, window/hop 2048, power/unit/minfreq 0, maxfreq -1, finite
+nonnegative Hz snapshots (including actual zero), bounded positive deliveries,
+exact trace/pass/native attribution, ordered lifecycle/timing, and completed
+cleanup. Both support and value validity remain **unqualified**, with lifecycle
+frames 0. No numerical accuracy, silence validity, or FFT-support qualification
+is inferred. Existing flatness and spread schemas are unchanged.
+
+Production SpectralShape packets use the fixed order
+`[generation, epoch, "value", channel, sequence, spreadHz, rolloffHz, flatnessDb]`.
+Missing, malformed, foreign, failed, or cancelled rolloff never passes because
+its sibling metrics are healthy. Restart evidence is reprojected from freshly
+read typed, redacted History and compared with original ownership and facts,
+not replayed from cached successful values. The same loaded-binary identity
+verification applies to this scenario. Deterministic registration and transport
+tests are not real-host acceptance; no rolloff real-host result is claimed here.
 
 On 2026-11-04, the approved single run `run-GUn1Ho` passed all nine frozen
 assertions on Live 11.3.43. It recorded one complete 90000-sample capture at
@@ -361,7 +389,7 @@ Candidate pins and the separate attended visual outcome are recorded in the
 [listening checkpoint](../tools/playback-listening.md).
 
 Named assertions come from the shared registry: `choice`, `capture`,
-`capture-count`, `context`, `native-freshness`, `spectral-range`, `flatness-smoke`, `spread-smoke`, `agent-listening-result`, `no-capture`,
+`capture-count`, `context`, `native-freshness`, `spectral-range`, `flatness-smoke`, `spread-smoke`, `rolloff-smoke`, `agent-listening-result`, `no-capture`,
 `unchanged`, and `fact-equals`. The
 template illustrates their actual parameter shapes; consult
 [`ScenarioManifest` and `FixtureManifest`](../../packages/test-support/src/integration/contracts.ts)

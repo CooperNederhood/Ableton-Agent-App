@@ -3,11 +3,14 @@ import type {
   CaptureEvidence,
   FlatnessSmokeEvidence,
   SpreadSmokeEvidence,
+  RolloffSmokeEvidence,
+  SpectralShapeSmokeEvidence,
   SessionSourceEvidence,
 } from "@ableton-agent/test-support/integration";
 import {
   projectFlatnessSmoke,
   projectSpreadSmoke,
+  projectRolloffSmoke,
 } from "@ableton-agent/test-support/integration";
 import type { MetricAudioObservation } from "@ableton-agent/protocol";
 
@@ -38,13 +41,26 @@ export async function restoreSpreadSmoke(
   );
 }
 
+export async function restoreRolloffSmoke(
+  original: readonly RolloffSmokeEvidence[],
+  afterOwnedRestart: boolean,
+  readTrace: (traceId: string) => Promise<TelemetryEventPage["items"]>,
+): Promise<RolloffSmokeEvidence[]> {
+  return restoreSmoke(
+    original,
+    afterOwnedRestart,
+    readTrace,
+    projectRolloffSmoke,
+  );
+}
+
 async function restoreSmoke(
-  original: readonly FlatnessSmokeEvidence[],
+  original: readonly SpectralShapeSmokeEvidence[],
   afterOwnedRestart: boolean,
   readTrace: (traceId: string) => Promise<TelemetryEventPage["items"]>,
   project: typeof projectFlatnessSmoke,
-): Promise<FlatnessSmokeEvidence[]> {
-  const result: FlatnessSmokeEvidence[] = [];
+): Promise<SpectralShapeSmokeEvidence[]> {
+  const result: SpectralShapeSmokeEvidence[] = [];
   for (const traceId of new Set(original.map((entry) => entry.traceId))) {
     const history = await readTrace(traceId);
     for (const entry of original.filter(

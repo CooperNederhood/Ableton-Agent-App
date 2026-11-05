@@ -195,7 +195,7 @@ export function freezeAmxd(
     else if (value && typeof value === "object") {
       if (
         typeof value.text === "string" &&
-        /^fluid\.spectralshape~(?:\s|$)/u.test(value.text) &&
+        /^(?:fluid\.spectralshape|listener\.mel)~(?:\s|$)/u.test(value.text) &&
         !hasDependencies
       )
         throw new Error("Missing pinned adjacent FluCoMa dependency resources");
@@ -436,10 +436,18 @@ export async function publishResources(
     !destinationDirectory ||
     destinationDirectory.length > 4096 ||
     !Array.isArray(resources) ||
-    resources.length > 32
+    resources.length > 32 + FLUCOMA_DEPENDENCY_FILES.length ||
+    resources.filter(
+      (resource: unknown) =>
+        !resource ||
+        typeof resource !== "object" ||
+        !("fileName" in resource) ||
+        typeof resource.fileName !== "string" ||
+        !isFlucomaDependencyResource(resource.fileName),
+    ).length > 32
   )
     throw new Error(
-      "Resource publication requires a destination and at most 32 resources",
+      "Resource publication requires a destination and at most 32 flat resources plus pinned dependencies",
     );
   const startedAt = Date.now();
   const publication = resources as ResourcePublicationOptions["resources"];

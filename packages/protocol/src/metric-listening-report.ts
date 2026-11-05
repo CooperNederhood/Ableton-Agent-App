@@ -6,6 +6,13 @@ import {
   type MetricAudioObservation,
 } from "./metric-observation-schemas.js";
 import type { MetricReportingRow } from "./metric-listening-geometry.js";
+import { MEL_BAND_PROFILE, melBandProfileSchema } from "./mel-band-profile.js";
+import {
+  deriveMelBandTimelineMetadata,
+  melBandReportPayloadSchema,
+  melBandSupportSchema,
+  projectMelBandTimeline,
+} from "./mel-band-timeline.js";
 
 export const MAX_METRIC_REPORT_PAGE_ROWS = 32;
 export const MAX_METRIC_REPORT_PAGE_BYTES = 48 * 1_024;
@@ -61,6 +68,7 @@ const reportRowSchema = z.strictObject({
     supports: z.array(reportSupportSchema).max(300),
     gaps: z.array(reportGapSchema).max(300),
   }),
+  "mel-bands": melBandReportPayloadSchema.optional(),
 });
 
 export const metricListeningReportSchema = z
@@ -87,11 +95,21 @@ export const metricListeningReportSchema = z
       attacks: metricAudioObservationSchema.shape.metrics.shape.attacks
         .pick(metadataPick)
         .extend(metadataCounts),
+      "mel-bands": z
+        .strictObject({
+          profile: melBandProfileSchema,
+          expectedRecords: z.number().int().min(0).max(706),
+          retainedRecords: z.number().int().min(0).max(706),
+          missingRecords: z.number().int().min(0).max(706),
+          trailingSupport: melBandSupportSchema.nullable(),
+        })
+        .optional(),
     }),
     metricStatus: z.strictObject({
       level: metricObservationStatusSchema,
       "spectral-centroid": metricObservationStatusSchema,
       attacks: metricObservationStatusSchema,
+      "mel-bands": z.enum(["complete", "partial", "failed"]).optional(),
     }),
     reduction: metricAudioObservationSchema.shape.reduction,
     totalRows: z.number().int().min(0).max(2_000),
@@ -140,6 +158,66 @@ export const metricListeningReportSchema = z
           message: "Metric report acquisition metadata is inconsistent",
         });
     }
+    const mel = value.metricMetadata["mel-bands"];
+    const melStatus = value.metricStatus["mel-bands"];
+    const requestedMel = value.requestedMetrics.includes("mel-bands");
+    if (
+      new Set(value.requestedMetrics).size !== value.requestedMetrics.length ||
+      (value.observationOutcome === "complete") !==
+        value.requestedMetrics.every(
+          (metric) => value.metricStatus[metric] === "complete",
+        )
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        message:
+          "Report outcome must match every uniquely requested metric status",
+      });
+    }
+    if (
+      requestedMel !== (mel !== undefined) ||
+      requestedMel !== (melStatus !== undefined)
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        message:
+          "Mel-band metadata and status are present exactly when requested",
+      });
+    }
+    if (mel !== undefined) {
+      const expected = Math.floor(
+        (value.sourceCoverage.endSample - value.sourceCoverage.startSample) /
+          MEL_BAND_PROFILE.windowSamples,
+      );
+      const trailingStart =
+        value.sourceCoverage.startSample +
+        expected * MEL_BAND_PROFILE.windowSamples;
+      const trailing =
+        trailingStart < value.sourceCoverage.endSample
+          ? {
+              startSample: trailingStart,
+              endSample: value.sourceCoverage.endSample,
+            }
+          : null;
+      const status =
+        mel.missingRecords === 0
+          ? "complete"
+          : mel.retainedRecords === 0
+            ? "failed"
+            : "partial";
+      if (
+        mel.expectedRecords !== expected ||
+        mel.retainedRecords + mel.missingRecords !== expected ||
+        melStatus !== status ||
+        JSON.stringify(mel.trailingSupport) !== JSON.stringify(trailing)
+      ) {
+        ctx.addIssue({
+          code: "custom",
+          message:
+            "Mel-band report metadata must preserve exact capture coverage",
+        });
+      }
+    }
     for (const [index, row] of value.rows.entries()) {
       const previous = value.rows[index - 1];
       if (
@@ -167,6 +245,46 @@ export const metricListeningReportSchema = z
         )
       )
         ctx.addIssue({ code: "custom", message: "Invalid metric report row" });
+      const melRow = row["mel-bands"];
+      if (requestedMel !== (melRow !== undefined)) {
+        ctx.addIssue({
+          code: "custom",
+          message: "Mel-band rows are present exactly when requested",
+        });
+      }
+      if (mel !== undefined && melRow !== undefined) {
+        const owns = (endpoint: number) =>
+          endpointInRow(endpoint, row, value.sourceCoverage.endSample);
+        const start = value.sourceCoverage.startSample;
+        const hop = MEL_BAND_PROFILE.hopSamples;
+        const expectedSlots = Array.from(
+          { length: mel.expectedRecords },
+          (_, slot) => slot,
+        ).filter((slot) => owns(start + (slot + 1) * hop));
+        if (
+          melRow.expectedRecords !== expectedSlots.length ||
+          melRow.frames.some(
+            (frame) =>
+              !expectedSlots.includes(frame.index) ||
+              frame.support.startSample !== start + frame.index * hop ||
+              frame.support.endSample !== start + (frame.index + 1) * hop,
+          ) ||
+          melRow.gaps.some(
+            (gap) =>
+              !expectedSlots.includes(gap.firstIndex) ||
+              !expectedSlots.includes(gap.firstIndex + gap.count - 1) ||
+              gap.support.startSample !== start + gap.firstIndex * hop ||
+              gap.support.endSample !==
+                start + (gap.firstIndex + gap.count) * hop,
+          )
+        ) {
+          ctx.addIssue({
+            code: "custom",
+            message:
+              "Mel-band row slots and full supports must match endpoint ownership",
+          });
+        }
+      }
       const spectral = row["spectral-centroid"];
       if (
         spectral.frameCount !== spectral.supports.length ||
@@ -195,6 +313,31 @@ export const metricListeningReportSchema = z
             message: "Attack event belongs to a different musical row",
           });
     }
+    if (mel !== undefined) {
+      const retained = value.rows.reduce(
+        (sum, row) => sum + (row["mel-bands"]?.recordCount ?? 0),
+        0,
+      );
+      const missing = value.rows.reduce(
+        (sum, row) => sum + (row["mel-bands"]?.gapCount ?? 0),
+        0,
+      );
+      const wholeCapture =
+        value.reduction.mode === "none" &&
+        value.offset === 0 &&
+        value.rows.length === value.totalRows;
+      if (
+        retained > mel.retainedRecords ||
+        missing > mel.missingRecords ||
+        (wholeCapture &&
+          (retained !== mel.retainedRecords || missing !== mel.missingRecords))
+      ) {
+        ctx.addIssue({
+          code: "custom",
+          message: "Mel-band page counts must agree with capture metadata",
+        });
+      }
+    }
     if (encodedBytes(value) > MAX_METRIC_REPORT_PAGE_BYTES)
       ctx.addIssue({
         code: "custom",
@@ -214,8 +357,8 @@ export interface MetricListeningReportPage {
 }
 
 type MetricGap = MetricAudioObservation["metrics"]["level"]["gaps"][number];
-type MetricTimeline =
-  MetricAudioObservation["metrics"][keyof MetricAudioObservation["metrics"]];
+type MetricTimeline = MetricAudioObservation["metrics"][
+  "level" | "spectral-centroid" | "attacks"];
 
 function metricMetadata<T extends MetricTimeline>(
   metric: T,
@@ -288,6 +431,9 @@ export function projectMetricListeningReport(
 
   const observation = metricAudioObservationSchema.parse(input);
   const { geometry, metrics } = observation;
+  const mel = metrics["mel-bands"];
+  const melProjection =
+    mel === undefined ? undefined : projectMelBandTimeline(mel, geometry.rows);
   const rows = observation.rows
     .slice(offset, offset + limit)
     .map((references) => {
@@ -340,6 +486,7 @@ export function projectMetricListeningReport(
         }
         return false;
       });
+      const melRow = melProjection?.rows[references.index];
       return {
         index: references.index,
         ...row,
@@ -367,6 +514,19 @@ export function projectMetricListeningReport(
           supports: detectors.map((record) => record.support),
           gaps: reportGaps(metrics.attacks.gaps.filter(overlaps)),
         },
+        ...(melRow === undefined
+          ? {}
+          : {
+              "mel-bands": {
+                availability: references["mel-bands"]!.availability,
+                expectedRecords: melRow.expectedRecords,
+                recordCount: melRow.recordCount,
+                gapCount: melRow.gapCount,
+                frames: [...melRow.frames],
+                gaps: [...melRow.gaps],
+                aggregation: melRow.aggregation,
+              },
+            }),
       };
     });
   const report: MetricListeningReport = {
@@ -384,11 +544,24 @@ export function projectMetricListeningReport(
       level: metricMetadata(metrics.level),
       "spectral-centroid": metricMetadata(metrics["spectral-centroid"]),
       attacks: metricMetadata(metrics.attacks),
+      ...(mel === undefined
+        ? {}
+        : {
+            "mel-bands": {
+              profile: mel.profile,
+              expectedRecords: mel.expectedRecords,
+              retainedRecords: mel.frames.length,
+              missingRecords: mel.gaps.reduce((sum, gap) => sum + gap.count, 0),
+              trailingSupport:
+                deriveMelBandTimelineMetadata(mel).trailingSupport,
+            },
+          }),
     },
     metricStatus: {
       level: metrics.level.status,
       "spectral-centroid": metrics["spectral-centroid"].status,
       attacks: metrics.attacks.status,
+      ...(mel === undefined ? {} : { "mel-bands": mel.status }),
     },
     reduction: observation.reduction,
     totalRows: observation.rows.length,

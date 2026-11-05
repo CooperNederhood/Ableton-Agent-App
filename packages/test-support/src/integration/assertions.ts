@@ -15,6 +15,7 @@ import {
 import { validateFlatnessSmoke } from "./flatness-smoke.js";
 import { validateSpreadSmoke } from "./spread-smoke.js";
 import { validateRolloffSmoke } from "./rolloff-smoke.js";
+import { verifyMelSmoke } from "./mel-smoke.js";
 import {
   verifyAgentListeningResult,
   verifyRestoredAgentListeningEvidence,
@@ -191,6 +192,38 @@ function registerSmokeAssertions(
 }
 export function createDefaultAssertions(): AssertionRegistry {
   return registerSmokeAssertions(new AssertionRegistry())
+    .register(
+      "melbands-smoke",
+      (input, parameters) => {
+        try {
+          verifyMelSmoke(
+            input,
+            String(parameters.sourceId),
+            parameters.afterRestart === true,
+          );
+          return result(
+            true,
+            "ok",
+            "Complete stereo mel context, lossless projected reports and acquisition cleanup",
+          );
+        } catch {
+          return result(
+            false,
+            "melbands-evidence",
+            "Missing, foreign, truncated or changed mel evidence",
+          );
+        }
+      },
+      (parameters) => {
+        rejectUnknownFields(parameters, ["sourceId", "afterRestart"]);
+        requiredStrings(parameters, ["sourceId"]);
+        identifier(parameters.sourceId);
+        requireCondition(
+          typeof parameters.afterRestart === "boolean",
+          "Missing smoke restart requirement",
+        );
+      },
+    )
     .register(
       "agent-listening-result",
       (input, parameters) => {

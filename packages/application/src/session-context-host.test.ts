@@ -8,6 +8,7 @@ import {
   audioObservationSchema,
   createMetricObservationReportRows,
   metricAudioObservationSchema,
+  nativeMetricObservationMetricSchema,
   type MetricAudioObservation,
   type StoredAudioObservation,
 } from "@ableton-agent/protocol";
@@ -459,8 +460,10 @@ describe("typed App-session context host", () => {
     observation.limitations = Array.from({ length: 16 }, () =>
       "界".repeat(240),
     );
-    for (const metric of Object.values(observation.metrics)) {
-      metric.limitations = Array.from({ length: 8 }, () => "界".repeat(240));
+    for (const name of nativeMetricObservationMetricSchema.options) {
+      observation.metrics[name].limitations = Array.from({ length: 8 }, () =>
+        "界".repeat(240),
+      );
     }
     const { host } = await fixture(
       "Byte-limited report",

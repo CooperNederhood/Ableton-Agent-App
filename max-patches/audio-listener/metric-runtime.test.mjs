@@ -6,6 +6,37 @@ import { URL } from "node:url";
 import { metricRuntimeHarness } from "./metric-runtime-test-helpers.mjs";
 import { nativeMetricLifecycleSchema } from "../../packages/signal-routing/src/listener-metric-contracts.ts";
 
+test("runtime routes mel controls and native receipts without a second listener or capture", async () => {
+  const received = [];
+  const h = metricRuntimeHarness({
+    controller: {
+      receiveNative: (...args) => received.push(args),
+    },
+  });
+  assert.equal(h.controllerOptions.melEnabled, true);
+  h.controllerOptions.sendControl("metric_mel", "arm", [7]);
+  h.controllerOptions.sendControl("metric_mel", "drain", [12]);
+  h.controllerOptions.sendControl("metric_mel", "stop", [7]);
+  assert.deepEqual(
+    h.output.filter(([selector]) => selector === "mel_native_control"),
+    [
+      ["mel_native_control", "arm", 7],
+      ["mel_native_control", "drain", 12],
+      ["mel_native_control", "stop", 7],
+    ],
+  );
+  const packet = ["mel_drain", 2, 12, 7, 1, 0, 0, 0, 0, 0];
+  h.handlers.native_mel(...packet);
+  assert.deepEqual(received, [["metric_mel", packet]]);
+  assert.equal(
+    h.output.some(
+      (row) => row[0] === "native_control" && row[1] === "metric_mel",
+    ),
+    false,
+  );
+  await h.runtime.stop();
+});
+
 test("complete spectral failure snapshots preserve every fact within the lifecycle quota", async () => {
   let cleanup = "pending";
   const h = metricRuntimeHarness({

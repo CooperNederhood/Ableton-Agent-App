@@ -15,6 +15,7 @@ import {
 } from "@ableton-agent/protocol/testing";
 import {
   LISTENER_CAPABILITY_METRIC,
+  LISTENER_CAPABILITY_MEL,
   LISTENER_METRIC_SCOPE,
   listenerControlMetricSchema,
   type ListenerControlMetric,
@@ -307,7 +308,7 @@ export function createSyntheticMetricWireFixture(
     registration: {
       version: 5,
       connectionEpoch: ownership.connectionEpoch,
-      capabilities: [LISTENER_CAPABILITY_METRIC],
+      capabilities: [LISTENER_CAPABILITY_METRIC, LISTENER_CAPABILITY_MEL],
       algorithmVersion: "3.0.0",
       sampleRate: g.sampleRate,
       vectorSize: g.vectorSize,

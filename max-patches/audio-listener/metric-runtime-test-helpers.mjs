@@ -90,6 +90,9 @@ export function metricRuntimeHarness(options = {}) {
     protocol: {
       listenerRegistrationMetricSchema: { parse: (value) => value },
       LISTENER_METRIC_SCOPE: "independent-metric-timelines/v1",
+      LISTENER_CAPABILITY_METRIC:
+        "audio-listener/independent-metric-timelines-v1",
+      LISTENER_CAPABILITY_MEL: "audio-listener/mel-band-timelines-v1",
       LISTENER_METRIC_ALGORITHM_VERSION: "3.0.0",
       MAX_AUDIO_OBSERVATION_BYTES: 256 * 1024,
     },

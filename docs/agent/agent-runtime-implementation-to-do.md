@@ -73,6 +73,9 @@ Companion specification: [Agent Runtime](agent-runtime.md)
   network tools.
 - [x] Enable SDK `bash` only through a fail-closed command/path policy for
   bounded read-only inspection of profile-owned large-output spill files.
+  - [x] Keep bounded 48 KiB metric reports inline with a 64 KiB SDK threshold
+    including envelope/hook headroom. Preserve larger-output spill handling,
+    shell restrictions and journal limits; regress full tool-result byte size.
   - [x] Treat the application-owned command grammar and spill-path validation
     as authoritative when the SDK advisory `readOnly` classification is false.
   - [x] Validate parsed command segments and command-specific file operands

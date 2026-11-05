@@ -6,6 +6,7 @@ import type {
 import { createInMemorySessionContextStore } from "@ableton-agent/project-state";
 import {
   inspectListeningContextParamsSchema,
+  metricAudioObservationSchema,
   type InspectListeningContextParams,
   type InspectListeningContextResult,
 } from "@ableton-agent/protocol";
@@ -111,6 +112,7 @@ async function fixture(
   partial = false,
   enabled = true,
   completeOnStart = true,
+  provideMelBands = true,
 ) {
   const data = createSyntheticMetricWireFixture("arrangement", partial);
   const log: string[] = [];
@@ -138,8 +140,11 @@ async function fixture(
     }),
     phase: "idle",
   };
-  const peer = createSyntheticMetricListenerPeer(listener, data, (action) =>
-    log.push(`metric:${action}`),
+  const peer = createSyntheticMetricListenerPeer(
+    listener,
+    data,
+    (action) => log.push(`metric:${action}`),
+    { provideMelBands },
   );
   const requestListenerControl = vi.fn(
     peer.service.requestListenerControl.bind(peer.service),
@@ -265,10 +270,41 @@ describe("production v5 Arrangement listening host with synthetic native peer", 
       );
       expect((await f.repository.listEntries({})).items).toHaveLength(1);
       expect(f.jobs.at(-1)?.contextIds).toHaveLength(1);
+      const observed = metricAudioObservationSchema.parse(
+        (await f.repository.getEntry(job.contextIds[0]!))?.payload,
+      );
+      expect(observed).toMatchObject({
+        requestedMetrics: [
+          "level",
+          "spectral-centroid",
+          "attacks",
+          "mel-bands",
+        ],
+        metrics: {
+          "mel-bands": {
+            status: "complete",
+            profile: { bandCount: 24 },
+          },
+        },
+      });
+      expect(observed.metrics["mel-bands"]?.frames[0]?.magnitudes).toEqual([
+        Array(24).fill(0.5),
+        Array(24).fill(0.25),
+      ]);
       expect(f.peer.subscribers.size).toBe(0);
       expect(f.releaseReservation).toHaveBeenCalledOnce();
     },
   );
+
+  it("fails missing mel independently of healthy baseline evidence and releases ownership", async () => {
+    const f = await fixture(false, true, true, false);
+    const job = await f.run();
+    expect(job.stage).toBe("failed");
+    expect(f.startListeningPlayback).toHaveBeenCalledOnce();
+    expect(f.appendPass).not.toHaveBeenCalled();
+    expect(f.peer.subscribers.size).toBe(0);
+    expect(f.releaseReservation).toHaveBeenCalledOnce();
+  });
 
   it("denies disabled qualification before controls, playback or publication", async () => {
     const f = await fixture(false, false);

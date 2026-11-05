@@ -6,6 +6,7 @@ import {
   listeningPathSelectorSchema,
   listenerNativeMetricStatusSchema,
   NATIVE_METRIC_LISTENING_CAPABILITY,
+  NATIVE_MEL_BAND_LISTENING_CAPABILITY,
   NATIVE_METRIC_ALGORITHM_VERSION,
   type ListenerNativeMetricStatus,
   type InspectListeningContextResult,
@@ -17,7 +18,10 @@ export type ListenerBridgeTarget =
 
 const id = z.string().min(1).max(128);
 const metricMetadata = {
-  capabilities: z.tuple([z.literal(NATIVE_METRIC_LISTENING_CAPABILITY)]),
+  capabilities: z.tuple([
+    z.literal(NATIVE_METRIC_LISTENING_CAPABILITY),
+    z.literal(NATIVE_MEL_BAND_LISTENING_CAPABILITY),
+  ]),
   algorithmVersion: z.literal(NATIVE_METRIC_ALGORITHM_VERSION),
   sampleRate: z.number().int().min(8_000).max(384_000),
   vectorSize: z.number().int().min(1).max(65_536),

@@ -7,6 +7,7 @@ import {
   assertNativeMetricReadyProof,
   nativeMetricLaunchCoordinates,
   nativeMetricListeningConfigSchema,
+  nativeMetricObservationMetricSchema,
   readListeningFailureEvidence,
   snapshotNativeMetricListeningExpectation,
   type ListeningFailureEvidence,
@@ -861,9 +862,15 @@ class MetricCapture implements PreparedMetricListeningCapture {
           message.observation,
           item.expected,
         );
+        const mel = observation.metrics["mel-bands"];
         if (
-          !Object.values(observation.metrics).some(
-            (metric) => metric.records.length > 0,
+          !nativeMetricObservationMetricSchema.options.some(
+            (name) => observation.metrics[name].records.length > 0,
+          ) &&
+          !(
+            mel !== undefined &&
+            (mel.frames.length > 0 ||
+              (mel.status === "complete" && mel.expectedRecords === 0))
           )
         )
           this.#deny("metric-no-useful-data", item);

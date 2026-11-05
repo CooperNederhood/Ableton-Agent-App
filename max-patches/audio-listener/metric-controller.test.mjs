@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { Buffer } from "node:buffer";
 import { createRequire, Module } from "node:module";
 import { compileNativeMetricProtocol } from "../../scripts/lib/native-metric-protocol-bundle.mjs";
 import { genModel } from "./gen-model.mjs";
@@ -33,6 +34,7 @@ async function controllerHarness({
   terminalThrow = false,
   onEvent,
   asyncControlResult,
+  controllerTickSamples,
   requestedMetrics = ["level", "attacks"],
   spectrumEnabled = false,
   spectrumPollMs = 10,
@@ -41,13 +43,19 @@ async function controllerHarness({
   suppressSpectrumCleanup = false,
   engineeringRuntime = false,
   session = false,
+  melEnabled = false,
+  malformedMelFrame = false,
+  suppressMelTerminal = false,
+  suppressMelReady = false,
+  totalSamples = 9000,
+  deadlineMs = 10000,
+  maxObservationBytes = 512 * 1024,
 } = {}) {
   const codec = await loadCodec();
   const sampleRate = 48000,
     vectorSize = 64,
     tempoBpm = 128;
-  const startBeat = session ? 0 : 5.13,
-    totalSamples = 9000;
+  const startBeat = session ? 0 : 5.13;
   const endBeat = startBeat + (totalSamples * tempoBpm) / (sampleRate * 60);
   const geometry = codec.createMetricListeningGeometry({
     sampleRate,
@@ -156,6 +164,25 @@ async function controllerHarness({
   let polling = false,
     stoppedRequested = false,
     controller;
+  const melQueue = [];
+  let melArmCounter = null;
+  let melOrigin = null;
+  let melReady = false;
+  let melFrames = 0;
+  let melStopRequested = false;
+  let melStopped = false;
+  let melRecordsDrained = 0;
+  let melFramesDrained = 0;
+  let melTerminalConsumed = false;
+  let melTerminalClock = 0;
+  const melHeader = (
+    sequence,
+    start,
+    end,
+    lost = 0,
+    partial = 0,
+    reason = 0,
+  ) => [2, 7, 1, sequence, start, end, lost, partial, reason, sampleRate, 24];
   const spectrumModel = spectrumEnabled
     ? genModel(
         `${retainedNativeSpectrumSource().code}\nout32 = sourceClock;`,
@@ -232,12 +259,44 @@ async function controllerHarness({
     : null;
   controller = createMetricController({
     codec,
+    melEnabled,
     ...(beforeCleanup ? { beforeCleanup } : {}),
     spectrumEnabled: runtimeHarness
       ? runtimeHarness.controllerOptions.spectrumEnabled
       : spectrumEnabled,
     now: () => now,
     sendControl(target, selector, args) {
+      if (target === "metric_mel") {
+        controls.push({ target, selector, args, counter });
+        if (selector === "arm") {
+          assert.equal(args[0], 7);
+          melArmCounter = counter;
+        } else if (selector === "stop") {
+          assert.equal(args[0], 7);
+          melStopRequested = true;
+        } else if (selector === "drain") {
+          while (melQueue.length) {
+            const packet = melQueue.shift();
+            melRecordsDrained++;
+            if (packet[0] === "mel_frame") melFramesDrained++;
+            if (packet[0] === "mel_stopped") melTerminalConsumed = true;
+            controller.receiveNative("metric_mel", packet);
+          }
+          controller.receiveNative("metric_mel", [
+            "mel_drain",
+            2,
+            args[0],
+            7,
+            1,
+            melRecordsDrained,
+            melFramesDrained,
+            Number(melTerminalConsumed),
+            Number(melTerminalConsumed),
+            melTerminalClock,
+          ]);
+        } else assert.fail(selector);
+        return asyncControlResult ? asyncControlResult(selector) : true;
+      }
       if (target === "metric_spectrum") {
         controls.push({ selector, args, counter, target });
         let accepted;
@@ -291,8 +350,8 @@ async function controllerHarness({
   assert.equal(
     controller.prepare(prepare, {
       nativeEpoch: 7,
-      deadlineMs: 10000,
-      maxObservationBytes: 512 * 1024,
+      deadlineMs,
+      maxObservationBytes,
     }),
     true,
   );
@@ -318,6 +377,70 @@ async function controllerHarness({
       inCapture ? 0.125 : 0,
       sourceClock[1],
     );
+    if (melArmCounter !== null && !melStopped) {
+      // Controlled retained packets exercise the controller boundary, not the
+      // native engine's numerical or physical-source qualification.
+      if (
+        !suppressMelReady &&
+        !melReady &&
+        counter - melArmCounter >= 1025 &&
+        output[18] === 7
+      ) {
+        melReady = true;
+        melQueue.push(["mel_ready", ...melHeader(0, counter, counter)]);
+      }
+      if (melReady && melOrigin === null && output[6] >= 0) {
+        melOrigin = output[6];
+        melQueue.push([
+          "mel_started",
+          ...melHeader(0, melOrigin, melOrigin + totalSamples),
+        ]);
+      }
+      if (
+        melOrigin !== null &&
+        !melStopRequested &&
+        melFrames < Math.floor(totalSamples / 2048) &&
+        counter + 1 >= melOrigin + (melFrames + 1) * 2048
+      ) {
+        melFrames++;
+        const values = [...Array(24).fill(0.5), ...Array(24).fill(0.25)];
+        if (
+          malformedMelFrame &&
+          melFrames === (malformedMelFrame === true ? 2 : malformedMelFrame)
+        )
+          values[47] = NaN;
+        melQueue.push([
+          "mel_frame",
+          ...melHeader(
+            melFrames,
+            melOrigin + (melFrames - 1) * 2048,
+            melOrigin + melFrames * 2048,
+          ),
+          ...values,
+        ]);
+      }
+      if (
+        !suppressMelTerminal &&
+        (melStopRequested ||
+          (melOrigin !== null && counter + 1 >= melOrigin + totalSamples))
+      ) {
+        melStopped = true;
+        melTerminalClock = counter + 1;
+        melQueue.push([
+          "mel_stopped",
+          ...melHeader(
+            melFrames,
+            melOrigin === null ? 0 : melOrigin + melFrames * 2048,
+            melOrigin === null ? 0 : melOrigin + totalSamples,
+            melOrigin === null
+              ? 0
+              : Math.floor(totalSamples / 2048) - melFrames,
+            melOrigin === null ? 0 : totalSamples % 2048,
+            melStopRequested ? 1 : 10,
+          ),
+        ]);
+      }
+    }
     if (spectrumModel) {
       const bin = counter % 2048;
       pcmLeft[bin] = inCapture ? 0.25 : 0;
@@ -366,8 +489,9 @@ async function controllerHarness({
         sourceClock[7],
       ]);
       clockIO.anchorPost(tuple);
-      controller.tick();
     }
+    if (counter % (controllerTickSamples ?? vectorSize) === 0)
+      controller.tick();
   }
   function until(predicate, budget = 160000) {
     for (let n = 0; n < budget && !predicate(); n++) step();
@@ -421,13 +545,391 @@ async function controllerHarness({
   };
 }
 
-async function untilAsync(h, predicate) {
+async function untilAsync(h, predicate, samplesPerYield = 64) {
   for (let block = 0; block < 2500 && !predicate(); block++) {
-    for (let sample = 0; sample < 64; sample++) h.step();
+    for (let sample = 0; sample < samplesPerYield; sample++) h.step();
     await Promise.resolve();
   }
   assert.ok(predicate(), JSON.stringify(h.controller.snapshot()));
 }
+
+for (const session of [false, true])
+  test(`mel controller binds retained vectors, publishes four metrics and cleans up; Session=${session}`, async () => {
+    const h = await controllerHarness({
+      session,
+      melEnabled: true,
+      spectrumEnabled: true,
+      requestedMetrics: ["level", "spectral-centroid", "attacks", "mel-bands"],
+    });
+    h.launch();
+    h.until(() =>
+      ["completed", "partial", "failed"].includes(
+        h.controller.snapshot().state,
+      ),
+    );
+    const result = h.results.find(({ payload }) =>
+      ["completed", "partial", "failed"].includes(payload.status),
+    ).payload;
+    assert.equal(
+      result.status,
+      "completed",
+      JSON.stringify(h.controller.snapshot()),
+    );
+    assert.deepEqual(
+      result.observation.requestedMetrics,
+      h.config.requestedMetrics,
+    );
+    const mel = result.observation.metrics["mel-bands"];
+    assert.equal(mel.status, "complete");
+    assert.equal(mel.frames.length, 4);
+    assert.equal(mel.profile.bandCount, 24);
+    assert.deepEqual(mel.sourceSupport, result.observation.sourceCoverage);
+    assert.deepEqual(mel.frames[0].magnitudes[0], Array(24).fill(0.5));
+    assert.deepEqual(mel.frames[0].magnitudes[1], Array(24).fill(0.25));
+    assert.equal(h.controller.snapshot().cleanup, "completed");
+    assert.equal(h.controller.snapshot().mel.completed, true);
+    const ready = h.events.find(
+      (event) => event.nativeLifecycle.reason === "mel_native_ready",
+    );
+    const armed = h.events.find(
+      (event) =>
+        event.phase === "arm" &&
+        event.nativeLifecycle.stage === "completed" &&
+        !event.nativeLifecycle.metric,
+    );
+    assert.ok(h.events.indexOf(ready) < h.events.indexOf(armed));
+    const melEvents = h.events.filter(
+      (event) => event.nativeLifecycle.metric === "mel-bands",
+    );
+    assert.ok(
+      melEvents.some((event) => event.nativeLifecycle.stage === "progress"),
+    );
+    assert.ok(melEvents.every((event) => event.traceId === h.prepare.traceId));
+    assert.ok(
+      melEvents.every(
+        (event) => event.nativeLifecycle.generation === h.prepare.generation,
+      ),
+    );
+    assert.ok(
+      melEvents.every((event) => event.nativeLifecycle.nativeEpoch === 7),
+    );
+    for (const event of melEvents)
+      h.codec.nativeMetricLifecycleSchema.parse(event.nativeLifecycle);
+    const clean = h.events.find(
+      (event) => event.nativeLifecycle.reason === "mel_native_cleanup_complete",
+    );
+    const sharedCleanup = h.events.find(
+      (event) =>
+        event.phase === "cleanup" &&
+        event.nativeLifecycle.stage === "started" &&
+        !event.nativeLifecycle.metric,
+    );
+    assert.ok(h.events.indexOf(clean) < h.events.indexOf(sharedCleanup));
+  });
+
+test("maximum-duration four-metric capture preserves all mel frames within admission and lifecycle bounds", async () => {
+  const h = await controllerHarness({
+    melEnabled: true,
+    spectrumEnabled: true,
+    requestedMetrics: ["level", "spectral-centroid", "attacks", "mel-bands"],
+    totalSamples: 1440000,
+    deadlineMs: 40000,
+    maxObservationBytes: 2 * 1024 * 1024,
+  });
+  h.launch();
+  h.until(
+    () =>
+      ["completed", "partial", "failed"].includes(
+        h.controller.snapshot().state,
+      ),
+    1600000,
+  );
+  const result = h.results.find(({ payload }) =>
+    ["completed", "partial", "failed"].includes(payload.status),
+  ).payload;
+  assert.equal(
+    result.status,
+    "completed",
+    JSON.stringify(h.controller.snapshot()),
+  );
+  assert.equal(result.observation.metrics["mel-bands"].frames.length, 703);
+  assert.ok(
+    Buffer.byteLength(JSON.stringify(result.observation)) <= 2 * 1024 * 1024,
+  );
+  assert.ok(
+    h.events.filter(
+      (event) =>
+        event.nativeLifecycle.metric === "mel-bands" &&
+        event.nativeLifecycle.stage === "progress",
+    ).length <= 61,
+  );
+  assert.equal(h.controller.snapshot().cleanup, "completed");
+  for (const event of h.events)
+    h.codec.nativeMetricLifecycleSchema.parse(event.nativeLifecycle);
+});
+
+test("asynchronous mel drain cannot starve native arm or cleanup queries at the production cadence", async () => {
+  const h = await controllerHarness({
+    melEnabled: true,
+    spectrumEnabled: true,
+    requestedMetrics: ["level", "spectral-centroid", "attacks", "mel-bands"],
+    asyncControlResult: () => Promise.resolve(true),
+    controllerTickSamples: 1200,
+  });
+  await untilAsync(
+    h,
+    () => h.replies.some((r) => r.payload.status === "ready"),
+    1200,
+  );
+  h.controller.arm(h.arm);
+  await untilAsync(
+    h,
+    () => ["armed", "failed"].includes(h.controller.snapshot().state),
+    1200,
+  );
+  assert.equal(
+    h.controller.snapshot().state,
+    "armed",
+    JSON.stringify(h.controller.snapshot()),
+  );
+  h.startPlayback();
+  await untilAsync(
+    h,
+    () =>
+      ["completed", "partial", "failed"].includes(
+        h.controller.snapshot().state,
+      ),
+    1200,
+  );
+  assert.equal(
+    h.controller.snapshot().state,
+    "completed",
+    JSON.stringify(h.controller.snapshot()),
+  );
+  assert.equal(h.controller.snapshot().cleanup, "completed");
+  assert.equal(h.controller.snapshot().mel.completed, true);
+});
+
+for (const outcome of ["cancelled", "rejected", "denied"]) {
+  test(`asynchronous mel ${outcome} delivery preserves physical cleanup without publication`, async () => {
+    let failDrain = false;
+    const h = await controllerHarness({
+      melEnabled: true,
+      spectrumEnabled: true,
+      requestedMetrics: ["level", "spectral-centroid", "attacks", "mel-bands"],
+      controllerTickSamples: 1200,
+      asyncControlResult: (selector) => {
+        if (selector === "drain" && failDrain) {
+          failDrain = false;
+          return outcome === "rejected"
+            ? Promise.reject(new Error("mel drain delivery rejected"))
+            : Promise.resolve(false);
+        }
+        return Promise.resolve(true);
+      },
+    });
+    await untilAsync(
+      h,
+      () => h.replies.some((r) => r.payload.status === "ready"),
+      1200,
+    );
+    h.controller.arm(h.arm);
+    await untilAsync(
+      h,
+      () => h.replies.some((r) => r.payload.status === "armed"),
+      1200,
+    );
+    if (outcome === "cancelled") h.controller.cancel(h.cancel);
+    else failDrain = true;
+    const terminalState = outcome === "cancelled" ? "cancelled" : "failed";
+    await untilAsync(
+      h,
+      () => h.controller.snapshot().state === terminalState,
+      1200,
+    );
+    assert.equal(h.controller.snapshot().cleanup, "completed");
+    assert.equal(h.controller.snapshot().mel.completed, true);
+    if (outcome !== "cancelled")
+      assert.equal(
+        h.controller.snapshot().inputFailureReason,
+        "metric_control_delivery_failed",
+      );
+    assert.equal(
+      h.results.some((r) => r.payload.observation),
+      false,
+    );
+  });
+}
+
+test("mel-only capture does not invent requested baseline metrics", async () => {
+  const h = await controllerHarness({
+    melEnabled: true,
+    requestedMetrics: ["mel-bands"],
+  });
+  h.launch();
+  h.until(() =>
+    ["completed", "partial", "failed"].includes(h.controller.snapshot().state),
+  );
+  const result = h.results.find(({ payload }) =>
+    ["completed", "partial", "failed"].includes(payload.status),
+  ).payload;
+  assert.equal(
+    result.status,
+    "completed",
+    JSON.stringify(h.controller.snapshot()),
+  );
+  assert.deepEqual(result.observation.requestedMetrics, ["mel-bands"]);
+  assert.equal(result.observation.metrics["mel-bands"].frames.length, 4);
+  for (const metric of ["level", "spectral-centroid", "attacks"]) {
+    assert.equal(result.observation.metrics[metric].status, "not-requested");
+    assert.equal(result.observation.metrics[metric].records.length, 0);
+  }
+  assert.equal(h.controller.snapshot().cleanup, "completed");
+});
+
+test("valid mel survives unavailable native metrics as an honest partial observation", async () => {
+  const h = await controllerHarness({
+    melEnabled: true,
+    suppressDetector: true,
+    requestedMetrics: ["attacks", "mel-bands"],
+  });
+  h.launch();
+  h.until(() =>
+    ["completed", "partial", "failed"].includes(h.controller.snapshot().state),
+  );
+  const result = h.results.find(({ payload }) =>
+    ["completed", "partial", "failed"].includes(payload.status),
+  ).payload;
+  assert.equal(
+    result.status,
+    "partial",
+    JSON.stringify(h.controller.snapshot()),
+  );
+  assert.equal(result.observation.metrics["mel-bands"].frames.length, 4);
+  assert.equal(result.observation.metrics.attacks.records.length, 0);
+  assert.equal(h.controller.snapshot().cleanup, "completed");
+});
+
+test("mel-only malformed acquisition without useful frames never publishes", async () => {
+  const h = await controllerHarness({
+    melEnabled: true,
+    malformedMelFrame: 1,
+    requestedMetrics: ["mel-bands"],
+  });
+  h.launch();
+  h.until(() =>
+    ["completed", "partial", "failed"].includes(h.controller.snapshot().state),
+  );
+  assert.equal(h.controller.snapshot().state, "failed");
+  assert.equal(h.controller.snapshot().cleanup, "completed");
+  assert.ok(
+    h.results.every(({ payload }) => payload.observation === undefined),
+  );
+});
+
+test("mel-local malformed values publish explicit partial coverage with healthy native metrics", async () => {
+  const h = await controllerHarness({
+    melEnabled: true,
+    malformedMelFrame: true,
+    requestedMetrics: ["level", "attacks", "mel-bands"],
+  });
+  h.launch();
+  h.until(() => ["partial", "failed"].includes(h.controller.snapshot().state));
+  const result = h.results.find(({ payload }) =>
+    ["partial", "failed"].includes(payload.status),
+  ).payload;
+  assert.equal(
+    result.status,
+    "partial",
+    JSON.stringify(h.controller.snapshot()),
+  );
+  assert.equal(result.observation.metrics.level.status, "complete");
+  assert.equal(result.observation.metrics.attacks.status, "complete");
+  assert.equal(result.observation.metrics["mel-bands"].frames.length, 1);
+  assert.equal(result.observation.metrics["mel-bands"].gaps[0].count, 3);
+  assert.equal(
+    result.observation.metrics["mel-bands"].gaps[0].reason,
+    "malformed-record",
+  );
+  assert.equal(h.controller.snapshot().cleanup, "completed");
+});
+
+test("missing mel physical terminal denies publication even when native metrics finish", async () => {
+  const h = await controllerHarness({
+    melEnabled: true,
+    suppressMelTerminal: true,
+    requestedMetrics: ["level", "attacks", "mel-bands"],
+  });
+  h.launch();
+  h.until(() => h.controller.snapshot().state === "failed", 300000);
+  assert.equal(h.controller.snapshot().cleanup, "failed");
+  assert.equal(h.controller.snapshot().reason, "metric_cleanup_unconfirmed");
+  assert.ok(
+    h.results.every(({ payload }) => payload.observation === undefined),
+  );
+});
+
+test("missing actual mel readiness prevents armed reply and source launch", async () => {
+  const h = await controllerHarness({
+    melEnabled: true,
+    suppressMelReady: true,
+    requestedMetrics: ["level", "attacks", "mel-bands"],
+  });
+  h.until(() => h.replies.some(({ payload }) => payload.status === "ready"));
+  h.controller.arm(h.arm);
+  h.until(() => h.controller.snapshot().state === "failed", 300000);
+  assert.equal(
+    h.replies.some(({ payload }) => payload.status === "armed"),
+    false,
+  );
+  assert.ok(
+    h.results.every(({ payload }) => payload.observation === undefined),
+  );
+});
+
+test("mel lifecycle delivery failure preserves physical cleanup and cannot publish", async () => {
+  const h = await controllerHarness({
+    melEnabled: true,
+    requestedMetrics: ["level", "attacks", "mel-bands"],
+    onEvent(event) {
+      if (
+        event.nativeLifecycle.metric === "mel-bands" &&
+        event.nativeLifecycle.stage === "progress"
+      )
+        throw new Error("controlled_mel_journal_failure");
+    },
+  });
+  h.launch();
+  h.until(() => h.controller.snapshot().state === "failed");
+  assert.equal(h.controller.snapshot().reason, "metric_event_delivery_failed");
+  assert.equal(h.controller.snapshot().cleanup, "completed");
+  assert.equal(h.controller.snapshot().mel.completed, true);
+  assert.ok(
+    h.results.every(({ payload }) => payload.observation === undefined),
+  );
+});
+
+test("mel cancellation waits for physical termination and retains cancelled lifecycle", async () => {
+  const h = await controllerHarness({
+    melEnabled: true,
+    requestedMetrics: ["level", "attacks", "mel-bands"],
+  });
+  h.launch();
+  h.until(() => h.controller.snapshot().mel.frames === 1);
+  h.controller.cancel(h.cancel);
+  h.until(() => h.controller.snapshot().state === "cancelled");
+  assert.equal(h.controller.snapshot().cleanup, "completed");
+  assert.ok(
+    h.results.every(({ payload }) => payload.observation === undefined),
+  );
+  assert.ok(
+    h.events.some(
+      (event) =>
+        event.nativeLifecycle.metric === "mel-bands" &&
+        event.nativeLifecycle.stage === "cancelled",
+    ),
+  );
+});
 
 test("production spectrum polling survives 30 ms scheduling and six seconds of post-arm inspection", async () => {
   const analysis = nativeRuntimeDocuments({ nativeVersion: 5 })[

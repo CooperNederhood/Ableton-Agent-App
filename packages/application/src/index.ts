@@ -139,6 +139,7 @@ import type {
   WorkflowJobOperationResult,
 } from "@ableton-agent/protocol";
 import {
+  MAX_METRIC_REPORT_PAGE_BYTES,
   recordingCommandParamsSchema,
   recordingOperationParamsSchema,
   recordingOperationResultSchema,
@@ -3586,7 +3587,8 @@ export class CopilotAgentService implements AgentService {
       streaming: true,
       largeOutput: {
         enabled: true,
-        maxSizeBytes: 20 * 1024,
+        // Keep bounded reports plus their result envelope and hook guidance inline.
+        maxSizeBytes: MAX_METRIC_REPORT_PAGE_BYTES + 16 * 1024,
         outputDirectory: this.#largeOutputDirectory,
       },
       workingDirectory: this.#largeOutputDirectory,

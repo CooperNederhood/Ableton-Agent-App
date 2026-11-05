@@ -82,7 +82,12 @@ export function createMetricCaptureBinding(input: {
     startSample: 0,
   });
   const requestedMetrics = [
-    ...(input.requestedMetrics ?? ["level", "spectral-centroid", "attacks"]),
+    ...(input.requestedMetrics ?? [
+      "level",
+      "spectral-centroid",
+      "attacks",
+      "mel-bands",
+    ]),
   ];
   const shared = {
     scope: NATIVE_METRIC_LISTENING_SCOPE,

@@ -8,6 +8,7 @@ import {
   sanitizeTelemetryAttributes,
 } from "@ableton-agent/observability";
 import { createDefaultAssertions } from "./assertions.js";
+import type { AgentListeningEvidence } from "./agent-listening-result.js";
 import {
   validateFixtureSourceEvidence,
   validateMidiSourcePreconditions,
@@ -144,10 +145,10 @@ function safeCopy<T extends object>(
   value: T,
   validate: (value: unknown) => asserts value is T,
   budget = 524_288,
+  sanitize: (value: T) => Record<string, unknown> = (input) =>
+    sanitizeTelemetryAttributes(input as Record<string, unknown>),
 ): T {
-  const sanitized = sanitizeTelemetryAttributes(
-    value as Record<string, unknown>,
-  );
+  const sanitized = sanitize(value);
   assertSanitizedStructure(value, sanitized);
   requireCondition(
     Buffer.byteLength(JSON.stringify(sanitized)) <= budget,
@@ -155,6 +156,41 @@ function safeCopy<T extends object>(
   );
   validate(sanitized);
   return immutableCopy(sanitized);
+}
+// Apply payload limits at typed record boundaries, not at receipt-wrapper depth.
+// The complete assembled evidence still passes structural, schema and byte guards.
+function sanitizeAgentListening(value: AgentListeningEvidence) {
+  const { records, ...metadata } = value;
+  return {
+    ...sanitizeTelemetryAttributes(metadata),
+    records: records.map((record) => sanitizeTelemetryAttributes(record)),
+  };
+}
+function sanitizeTurn(value: TurnEvidence) {
+  const { agentListening, ...body } = value;
+  return {
+    ...sanitizeTelemetryAttributes(body),
+    ...(agentListening
+      ? { agentListening: sanitizeAgentListening(agentListening) }
+      : {}),
+  };
+}
+function sanitizeRunEvidence(value: RunEvidence) {
+  const { agentListening, ...body } = value;
+  return {
+    ...sanitizeTelemetryAttributes(body),
+    ...(agentListening
+      ? { agentListening: agentListening.map(sanitizeAgentListening) }
+      : {}),
+  };
+}
+function sanitizeResult(value: RunResult) {
+  const { turns, evidence, ...body } = value;
+  return {
+    ...sanitizeTelemetryAttributes(body),
+    turns: turns.map(sanitizeTurn),
+    ...(evidence ? { evidence: sanitizeRunEvidence(evidence) } : {}),
+  };
 }
 function instrumentTreeBytes(baseline?: BaselineEvidence): number {
   let bytes = 0;
@@ -528,7 +564,12 @@ export async function runAcceptance(
             "Turn attribution mismatch",
           );
           assistants.add(observed.assistantMessageId);
-          const retained = safeCopy(observed, validateTurn);
+          const retained = safeCopy(
+            observed,
+            validateTurn,
+            524_288,
+            sanitizeTurn,
+          );
           requireCondition(
             Buffer.byteLength(JSON.stringify([...turns, retained])) <= 524_288,
             "Turn history exceeds report budget",
@@ -579,7 +620,12 @@ export async function runAcceptance(
       async (ctx) => {
         const collected = await options.driver.collect(ctx);
         validateEvidence(collected);
-        const retained = safeCopy(collected, validateEvidence);
+        const retained = safeCopy(
+          collected,
+          validateEvidence,
+          524_288,
+          sanitizeRunEvidence,
+        );
         ensureReportBudget({ evidence: retained });
         return retained;
       },
@@ -724,6 +770,7 @@ export async function runAcceptance(
       },
       validateResult,
       1_900_000 + instrumentTreeBytes(baseline),
+      sanitizeResult,
     );
     validateResult(result);
     return result;

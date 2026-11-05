@@ -77,6 +77,108 @@ async function rehash(
 
 describe("canonical integration payloads", () => {
   it.each([
+    "channel",
+    "clock",
+    "epoch",
+    "control",
+    "stock",
+    "return",
+    "extra-edge",
+  ])(
+    "rejects self-rehashed native mel %s source/control substitutions",
+    async (failure) => {
+      const path = await fixture();
+      const name = "audio_listener_native_analysis.maxpat";
+      const doc = JSON.parse(
+        await readFile(join(path, "machine-listening", name), "utf8"),
+      ) as {
+        patcher: {
+          boxes: { box: { id: string; text: string } }[];
+          lines: {
+            patchline: {
+              source: [string, number];
+              destination: [string, number];
+            };
+          }[];
+        };
+      };
+      if (failure === "control")
+        doc.patcher.boxes.find(({ box }) => box.id === "melCommand")!.box.text =
+          "in 1";
+      else if (failure === "stock")
+        doc.patcher.boxes.find(({ box }) => box.id === "melEngine")!.box.text =
+          "fluid.melbands~";
+      else if (failure === "return")
+        doc.patcher.boxes.find(
+          ({ box }) => box.id === "melMessages",
+        )!.box.text = "prepend flatness_smoke";
+      else if (failure === "extra-edge")
+        doc.patcher.lines.push({
+          patchline: {
+            source: ["melCommand", 0],
+            destination: ["gen", 0],
+          },
+        });
+      else {
+        const inlet = failure === "channel" ? 0 : failure === "clock" ? 2 : 3;
+        const edge = doc.patcher.lines.find(
+          ({ patchline: p }) =>
+            p.destination[0] === "melEngine" &&
+            p.destination[1] === inlet &&
+            p.source[0] !== "melCommand",
+        )!.patchline;
+        edge.source =
+          failure === "channel"
+            ? ["right", 0]
+            : failure === "clock"
+              ? ["gen", 5]
+              : ["gen", 9];
+      }
+      await rehash(
+        path,
+        "machine-listening",
+        name,
+        Buffer.from(JSON.stringify(doc)),
+      );
+      await expect(readIntegrationDevicePayloads(path)).rejects.toThrow(
+        /native mel/i,
+      );
+    },
+  );
+
+  it.each([
+    "audio_listener_native_clock.gendsp",
+    "audio_listener_native_envelope.gendsp",
+  ])(
+    "rejects self-rehashed replacement of the actual mel source %s",
+    async (name) => {
+      const path = await fixture();
+      const raw = await readFile(join(path, "machine-listening", name));
+      await rehash(
+        path,
+        "machine-listening",
+        name,
+        Buffer.concat([raw, Buffer.from(" ")]),
+      );
+      await expect(readIntegrationDevicePayloads(path)).rejects.toThrow(
+        /executed-source document mismatch/,
+      );
+    },
+  );
+
+  it("rejects a self-rehashed substitute native mel executable", async () => {
+    const path = await fixture();
+    const name =
+      "dependencies/flucoma/listener.mel~.mxo/Contents/MacOS/listener.mel~";
+    const raw = await readFile(join(path, "machine-listening", name));
+    raw[100] = raw[100]! ^ 1;
+    await rehash(path, "machine-listening", name, raw);
+    await expect(readIntegrationDevicePayloads(path)).rejects.toThrow(
+      /Pinned FluCoMa dependency mismatch/,
+    );
+  });
+
+  it.each([
     "descriptor",
     "rolloff-selection",
     "rolloff-percent",

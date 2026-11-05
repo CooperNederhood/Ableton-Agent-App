@@ -3,7 +3,8 @@ import { MAX_METRIC_OBSERVATION_BYTES } from "./audio-observation-limits.js";
 import { METRIC_FFT_SAMPLES } from "./metric-listening-geometry.js";
 import {
   metricAudioObservationSchema,
-  metricObservationMetricSchema,
+  type metricObservationMetricSchema,
+  nativeMetricObservationMetricSchema,
   metricObservationSourceSchema,
 } from "./metric-observation-schemas.js";
 import {
@@ -11,6 +12,20 @@ import {
   nativeMetricOwnershipSchema,
   nativeMetricSourceCoverageProofSchema,
 } from "./native-metric-listening-schemas.js";
+import {
+  encodedJsonBytes as bytes,
+  jsonArrayByteBound as arrayBytes,
+  jsonObjectByteBound as objectBytes,
+  toBoundJsonSchema as jsonSchema,
+  jsonSchemaProperty as property,
+  jsonSchemaItem as item,
+  boundJsonSchemaBytes as bound,
+} from "./schema-byte-budget.js";
+import {
+  admitMelBandBudget,
+  MAX_MEL_BAND_TIMELINE_BYTES,
+} from "./mel-band-budget.js";
+import { MEL_BAND_PROFILE } from "./mel-band-profile.js";
 
 // The version 5 terminal listener.result contract has a 2 MiB ingress ceiling.
 // This module cannot import signal-routing, which itself imports protocol.
@@ -33,120 +48,11 @@ export type MetricListeningBudgetInput = z.input<
 >;
 type Snapshot = z.output<typeof metricListeningBudgetInputSchema>;
 type Immutable<T> = { readonly [K in keyof T]: Immutable<T[K]> };
-type Schema = z.core.JSONSchema.JSONSchema;
-type Override = (path: string) => number | undefined;
 type Outcome = "complete" | "partial";
 type Metric = z.infer<typeof metricObservationMetricSchema>;
 
-const encoder = new TextEncoder();
-const bytes = (value: unknown): number =>
-  encoder.encode(JSON.stringify(value)).byteLength;
-const arrayBytes = (count: number, itemBytes: number): number =>
-  2 + count * itemBytes + Math.max(0, count - 1);
-const objectBytes = (fields: Record<string, number>): number =>
-  2 +
-  Object.entries(fields).reduce(
-    (sum, [key, size]) => sum + bytes(key) + 1 + size,
-    0,
-  ) +
-  Math.max(0, Object.keys(fields).length - 1);
-const jsonSchema = (schema: z.ZodType): Schema =>
-  z.toJSONSchema(schema, { target: "draft-7", reused: "inline" });
 const observationSchema = jsonSchema(metricAudioObservationSchema);
 const proofSchema = jsonSchema(nativeMetricSourceCoverageProofSchema);
-
-function property(schema: Schema, name: string): Schema {
-  const result = schema.properties?.[name];
-  if (!result || typeof result === "boolean")
-    throw new Error(`metric_budget_missing_schema_property:${name}`);
-  return result;
-}
-
-function item(schema: Schema): Schema {
-  if (
-    !schema.items ||
-    typeof schema.items === "boolean" ||
-    Array.isArray(schema.items)
-  )
-    throw new Error("metric_budget_missing_array_item_schema");
-  return schema.items;
-}
-
-/**
- * Bounding, not validation. Canonical Zod schemas validate inputs; their JSON
- * schemas supply finite field/array/string bounds. Unknown constructs fail
- * explicitly rather than quietly underestimating a future protocol revision.
- */
-function bound(
-  schema: Schema | boolean,
-  path = "",
-  override: Override = () => undefined,
-): number {
-  const replacement = override(path);
-  if (replacement !== undefined) return replacement;
-  if (typeof schema === "boolean")
-    throw new Error(`metric_budget_unbounded_schema:${path}`);
-  if (Object.hasOwn(schema, "const")) return bytes(schema.const);
-  if (schema.enum) return Math.max(...schema.enum.map(bytes));
-  if (schema.anyOf)
-    return Math.max(...schema.anyOf.map((item) => bound(item, path, override)));
-  switch (schema.type) {
-    case "null":
-      return 4;
-    case "boolean":
-      return 5;
-    case "integer":
-      if (
-        typeof schema.minimum === "number" &&
-        typeof schema.maximum === "number" &&
-        Number.isSafeInteger(schema.minimum) &&
-        Number.isSafeInteger(schema.maximum)
-      )
-        return Math.max(bytes(schema.minimum), bytes(schema.maximum));
-      break;
-    case "number":
-      // Binary64 shortest-roundtrip has at most 17 significant digits. Fixed
-      // notation at 1e-6 needs 2+5+17=24 chars; scientific notation is shorter.
-      // Include a possible minus sign unless the canonical schema forbids it.
-      return typeof schema.minimum === "number" && schema.minimum >= 0
-        ? 24
-        : 25;
-    case "string":
-      if (schema.format === "uuid") return 38;
-      // JSON escapes each UTF-16 code unit using at most six ASCII bytes.
-      if (typeof schema.maxLength === "number") return 2 + 6 * schema.maxLength;
-      break;
-    case "array":
-      if (Array.isArray(schema.items))
-        return (
-          2 +
-          schema.items.reduce(
-            (sum, item, index) =>
-              sum + bound(item, `${path}.${index}`, override),
-            0,
-          ) +
-          Math.max(0, schema.items.length - 1)
-        );
-      if (schema.items && typeof schema.maxItems === "number")
-        return arrayBytes(
-          schema.maxItems,
-          bound(schema.items, `${path}[]`, override),
-        );
-      break;
-    case "object":
-      if (schema.additionalProperties === false && schema.properties)
-        return objectBytes(
-          Object.fromEntries(
-            Object.entries(schema.properties).map(([key, child]) => [
-              key,
-              bound(child, path ? `${path}.${key}` : key, override),
-            ]),
-          ),
-        );
-      break;
-  }
-  throw new Error(`metric_budget_unbounded_schema:${path}`);
-}
 
 function frozen<T>(value: T): Immutable<T> {
   if (value !== null && typeof value === "object") {
@@ -166,6 +72,7 @@ export interface MetricListeningBudgetOperands {
   readonly nativeSourceCoverageBytes: number;
   readonly wireHeaderBytes: number;
   readonly metricsBytes: Readonly<Record<Outcome, number>>;
+  readonly melTimelineBytes?: Readonly<Record<Outcome, number>>;
 }
 export interface MetricListeningBudgetBounds {
   readonly observationBytes: number;
@@ -230,7 +137,20 @@ export function admitMetricListeningBudget(
     attacks: requested.has("attacks")
       ? Math.ceil(geometry.totalSamples / Math.round(geometry.sampleRate / 10))
       : 0,
+    "mel-bands": requested.has("mel-bands")
+      ? Math.floor(geometry.totalSamples / MEL_BAND_PROFILE.windowSamples)
+      : 0,
   };
+  // The standalone estimator reserves 14-digit absolute supports even though
+  // the admitted request grid is capture-local and the physical origin is unknown.
+  const melBudget = requested.has("mel-bands")
+    ? admitMelBandBudget({
+        sampleRate: geometry.sampleRate,
+        sourceSupport: { startSample: 0, endSample: geometry.totalSamples },
+        profile: MEL_BAND_PROFILE,
+        byteLimit: MAX_MEL_BAND_TIMELINE_BYTES,
+      })
+    : undefined;
   const geometryBytes = bound(
     property(observationSchema, "geometry"),
     "",
@@ -261,7 +181,7 @@ export function admitMetricListeningBudget(
   const metricsBytes = { complete: 0, partial: 0 };
   for (const outcome of ["complete", "partial"] as const) {
     const sizes: Record<string, number> = {};
-    for (const metric of metricObservationMetricSchema.options) {
+    for (const metric of nativeMetricObservationMetricSchema.options) {
       const schema = property(metricSchemas, metric);
       if (!requested.has(metric)) {
         sizes[metric] = bytes({
@@ -302,11 +222,23 @@ export function admitMetricListeningBudget(
               ? recordBytes
               : Math.max(recordBytes, gapBytes)));
     }
+    if (melBudget !== undefined)
+      sizes["mel-bands"] = melBudget.upperBounds[outcome];
     metricsBytes[outcome] = objectBytes(sizes);
   }
   const rowSchema = item(property(observationSchema, "rows"));
+  const activeRowSchema = requested.has("mel-bands")
+    ? rowSchema
+    : {
+        ...rowSchema,
+        properties: Object.fromEntries(
+          Object.entries(rowSchema.properties ?? {}).filter(
+            ([key]) => key !== "mel-bands",
+          ),
+        ),
+      };
   const rowSizes = geometry.rows.map((row) =>
-    bound(rowSchema, "", (p) => {
+    bound(activeRowSchema, "", (p) => {
       if (!p.endsWith("recordIndices") && p !== "attacks.eventRecordIndices")
         return undefined;
       const metric = p.split(".")[0] as Metric;
@@ -420,6 +352,9 @@ export function admitMetricListeningBudget(
       nativeSourceCoverageBytes,
       wireHeaderBytes,
       metricsBytes,
+      ...(melBudget === undefined
+        ? {}
+        : { melTimelineBytes: melBudget.upperBounds }),
     },
     upperBounds,
     limits,

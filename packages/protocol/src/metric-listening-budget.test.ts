@@ -11,7 +11,7 @@ import {
   createMetricObservationReportRows,
   deriveMetricAttackEvents,
   metricAudioObservationSchema,
-  metricObservationMetricSchema,
+  nativeMetricObservationMetricSchema as metricObservationMetricSchema,
 } from "./metric-observation-schemas.js";
 import {
   createSyntheticMetricListeningObservation,
@@ -172,7 +172,7 @@ function fixture(
     }
   }
   observation.outcome = observation.requestedMetrics.every(
-    (metric) => observation.metrics[metric].status === "complete",
+    (metric) => observation.metrics[metric]?.status === "complete",
   )
     ? "complete"
     : "partial";

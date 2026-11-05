@@ -3,11 +3,13 @@ import { lstat, open, readdir } from "node:fs/promises";
 import { constants } from "node:fs";
 import { join, resolve } from "node:path";
 import { decodeAmxd } from "./max-device.js";
+import { validateNativeMelResources } from "./native-mel-wiring.js";
 import {
   assertDeviceResourceInventory,
   FLUCOMA_DEPENDENCY_RESOURCE_NAMES,
   isFlucomaDependencyResource,
   readFlucomaDependencyFile,
+  NATIVE_MEL_PRODUCER,
 } from "./flucoma-dependency.js";
 
 export type IntegrationDeviceId = "machine-listening" | "midi-capture";
@@ -66,6 +68,7 @@ export const INTEGRATION_DEVICE_INVENTORY = {
       "audio_listener_metric_spectrum.js",
       "audio_listener_metric_io.js",
       "audio_listener_metric_timelines.js",
+      "audio_listener_mel_handoff.js",
       "audio_listener_native_io.js",
       "audio_listener_measurements.js",
       "audio_listener_metric_protocol.js",
@@ -324,6 +327,7 @@ function validateWiring(raw: Buffer, id: IntegrationDeviceId): void {
     owned("ml_identity", "js producer_identity_common.js watch");
     owned("ml_guard", "js audio_listener_guard.js 5");
     owned("ml_scoped_native_control", "route native_control");
+    owned("ml_native_melControlRoute", "route mel_native_control");
     for (const text of [
       "plugin~",
       "plugout~",
@@ -348,6 +352,43 @@ function validateWiring(raw: Buffer, id: IntegrationDeviceId): void {
     };
     const identity = byName("ml_identity");
     const runtime = byName("ml_runtime");
+    const melRoute = uniqueObject("route mel_native_control");
+    const analysis = byName("ml_scoped_native_analysis");
+    if (boxes.find((box) => box.id === analysis)?.numinlets !== 5)
+      throw new Error("Missing dedicated native mel control inlet");
+    const melRouteEdges = [
+      [
+        [runtime, 0],
+        [melRoute, 0],
+      ],
+      [
+        [melRoute, 0],
+        [analysis, 4],
+      ],
+      [
+        [melRoute, 1],
+        [byName("ml_scoped_native_control"), 0],
+      ],
+    ];
+    const melLines = patcher.lines
+      .map((entry: unknown) => record(record(entry).patchline))
+      .filter((line) =>
+        [line.source, line.destination].some(
+          (endpoint) => Array.isArray(endpoint) && endpoint[0] === melRoute,
+        ),
+      );
+    if (
+      melLines.length !== melRouteEdges.length ||
+      melRouteEdges.some(
+        ([source, destination]) =>
+          melLines.filter(
+            (line) =>
+              JSON.stringify(line.source) === JSON.stringify(source) &&
+              JSON.stringify(line.destination) === JSON.stringify(destination),
+          ).length !== 1,
+      )
+    )
+      throw new Error("Invalid dedicated native mel control route");
     const init = uniqueObject("live.thisdevice");
     const dsp = uniqueObject("dspstate~");
     const dspPack = uniqueObject("pack dsp 0 0. 0");
@@ -472,7 +513,9 @@ function validateWiring(raw: Buffer, id: IntegrationDeviceId): void {
         throw new Error("Unsupported listening runtime input");
     }
     for (const [from, outlet, to, inlet] of [
-      ["ml_runtime", 0, "ml_scoped_native_control", 0],
+      ["ml_runtime", 0, "ml_native_melControlRoute", 0],
+      ["ml_native_melControlRoute", 1, "ml_scoped_native_control", 0],
+      ["ml_native_melControlRoute", 0, "ml_scoped_native_analysis", 4],
       ["ml_scoped_native_control", 0, "ml_scoped_native_clock", 0],
       ["ml_scoped_native_control", 0, "ml_scoped_native_analysis", 0],
       ["ml_scoped_native_clock", 0, "ml_scoped_native_analysis", 3],
@@ -612,6 +655,7 @@ export async function readIntegrationDevicePayloads(
     validateWiring(contents.get(expected.deviceFile)!, id);
     let metricProtocol: NativeMetricProtocolProvenance | undefined;
     if (id === "machine-listening") {
+      validateNativeMelResources(contents);
       const native = record(
         JSON.parse(
           contents.get("audio-listener-manifest.json")!.toString("utf8"),
@@ -620,6 +664,8 @@ export async function readIntegrationDevicePayloads(
       if (
         native.nativeVersion !== 5 ||
         native.nativeAbiVersion !== 3 ||
+        JSON.stringify(native.nativeMelProducer) !==
+          JSON.stringify(NATIVE_MEL_PRODUCER) ||
         native.measurementDelivery !== "independent-metric-timelines/v1" ||
         native.algorithmVersion !== "3.0.0" ||
         native.nativeMode !== true ||

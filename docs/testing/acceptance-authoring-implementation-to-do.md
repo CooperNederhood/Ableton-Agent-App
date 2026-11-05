@@ -2,6 +2,34 @@
 
 Companion specification: [Acceptance test authoring](acceptance-authoring.md).
 
+## F3 mel-band smoke (#105)
+
+- [x] Register exactly one approved Session mel-band smoke using the unchanged
+      identification fixture, scoped permission, budgets and protected state.
+- [x] Independently verify complete stereo mel context, canonical profile,
+      full report vectors/ratios/support, same-agent consumption, acquisition
+      cleanup and unchanged typed persistence after an owned Desktop restart.
+      Label runner report projections separately from actual agent tool calls.
+- [x] Require independently owned mel physical-drain completion and all sixteen
+      bounded native facts; compare counts/support/clock with the timeline,
+      preserve DSP-instance generation within each pass, and reread the exact
+      original receipts after restart. Reject missing/foreign/tampered receipts
+      even when baseline cleanup and parsed mel timelines remain healthy.
+- [x] Wire independent pinned mel executable mapping at baseline and capture
+      completion, alongside spectralshape proof. Persist bounded timing and
+      failed/cancelled states, join successful mapping to native pass ownership,
+      and require stable identity plus original proof after the read-only restart.
+- [x] Add offline missing/stale/foreign/truncated/cleanup/denial/cancellation
+      regressions, controlled packaged-driver wiring and journal roundtrips.
+- [x] Preserve nested mel tool reports through turn, restart and final-receipt
+      sanitization at typed-record boundaries, without relaxing redaction,
+      per-record depth or aggregate byte limits. Reproduce the second host
+      attempt's evidence-depth failure offline; 996 owning tests pass.
+- [x] Qualify the selected packaged Session smoke on Live 11.3.43:
+      `run-zpCSaM` passes all 14 assertions plus persisted single-case
+      re-verification and owned cleanup. Preserve the three preceding failures.
+      This is neither an acoustic oracle nor Arrangement/full-suite qualification.
+
 ## Agent listening result consumption (#98)
 
 - [x] Add a typed Desktop History query for existing agent records; preserve

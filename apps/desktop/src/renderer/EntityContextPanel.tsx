@@ -3,6 +3,10 @@ import {
   listeningDisagreementMilliseconds,
   storedObservationCoordinates,
   storedObservationIdentity,
+  deriveMelBandFrame,
+  deriveMelBandTimelineMetadata,
+  type MelBandTimeline,
+  type MelBandRatio,
   type MetricAudioObservation,
   type StoredAudioObservation,
 } from "@ableton-agent/protocol";
@@ -462,14 +466,163 @@ function MetricObservationDetail({
           </section>
         );
       })}
+      {value.metrics["mel-bands"] !== undefined && (
+        <MelBandDetail timeline={value.metrics["mel-bands"]} />
+      )}
       <PagedDetail
         label="Report rows"
         items={value.rows.map((row) => ({
           key: row.index,
-          text: `Row ${row.index}: beats [${value.geometry.rows[row.index]!.startBeat}, ${value.geometry.rows[row.index]!.endBeat}); ${sampleSupport(value.geometry.rows[row.index]!)}; ${(["level", "spectral-centroid", "attacks"] as const).map((name) => `${name}: ${row[name].availability}; record indices ${row[name].recordIndices.join(", ") || "none"}`).join("; ")}`,
+          text: `Row ${row.index}: beats [${value.geometry.rows[row.index]!.startBeat}, ${value.geometry.rows[row.index]!.endBeat}); ${sampleSupport(value.geometry.rows[row.index]!)}; ${(["level", "spectral-centroid", "attacks"] as const).map((name) => `${name}: ${row[name].availability}; record indices ${row[name].recordIndices.join(", ") || "none"}`).join("; ")}${row["mel-bands"] === undefined ? "" : `; mel-bands: ${row["mel-bands"].availability}; record indices ${row["mel-bands"].recordIndices.join(", ") || "none"}`}`,
         }))}
       />
     </div>
+  );
+}
+
+function melNumber(value: number): string {
+  return value === 0 ? "0" : value.toPrecision(8);
+}
+
+function melRatio(value: MelBandRatio): string {
+  return value.value === null
+    ? `Unavailable (${value.reason})`
+    : melNumber(value.value);
+}
+
+function MelBandDetail({ timeline }: { timeline: MelBandTimeline }) {
+  const [position, setPosition] = useState(0);
+  const frame = timeline.frames[position];
+  const analysis =
+    frame === undefined ? undefined : deriveMelBandFrame(frame.magnitudes);
+  const { trailingSupport } = deriveMelBandTimelineMetadata(timeline);
+  const missing = timeline.gaps.reduce((sum, gap) => sum + gap.count, 0);
+  return (
+    <section aria-label="mel-bands metric">
+      <h4>mel-bands: {timeline.status}</h4>
+      <p>
+        {timeline.frames.length}/{timeline.expectedRecords} retained frames;{" "}
+        {missing} missing slots.{" "}
+        {timeline.status === "complete"
+          ? "Valid retained frames at the declared cadence."
+          : "Missing support is not silence."}
+      </p>
+      <p>
+        Uncalibrated linear FFT magnitudes, not power or calibrated energy.{" "}
+        Profile {timeline.profile.schema}; {timeline.profile.bandCount} bands;{" "}
+        {timeline.profile.channelMode}; normalize {timeline.profile.normalize};
+        scale {timeline.profile.scale}. Window {timeline.profile.windowType};
+        window/hop/FFT {timeline.profile.windowSamples}/
+        {timeline.profile.hopSamples}/{timeline.profile.fftSamples} samples.
+      </p>
+      <p>
+        Source support: {sampleSupport(timeline.sourceSupport)} at{" "}
+        {timeline.sampleRate} Hz.
+      </p>
+      <p>
+        Unmeasured trailing support:{" "}
+        {trailingSupport === null ? "none" : sampleSupport(trailingSupport)}.
+      </p>
+      <p>
+        Ratios sum bands by center: low 20–250 Hz, mid 250–2000 Hz, high
+        2000–20000 Hz (upper edges exclusive except 20000 Hz). Denominator floor{" "}
+        {timeline.profile.denominatorFloor} in unnormalized linear units. Zero
+        and positive values at or below the floor are unavailable, not zero
+        ratios.
+      </p>
+      {frame === undefined || analysis === undefined ? (
+        <p>
+          {timeline.expectedRecords === 0
+            ? "No full analysis frame in this capture; no-frame is not silence."
+            : "No retained mel-band frames; missing support is not silence."}
+        </p>
+      ) : (
+        <>
+          <p role="status">
+            Frame {frame.index}; retained frame {position + 1} of{" "}
+            {timeline.frames.length}; {sampleSupport(frame.support)}.
+          </p>
+          <div>
+            <button
+              aria-label="Previous mel-band frame"
+              disabled={position === 0}
+              onClick={() => setPosition((value) => value - 1)}
+            >
+              Previous mel-band frame
+            </button>
+            <button
+              aria-label="Next mel-band frame"
+              disabled={position >= timeline.frames.length - 1}
+              onClick={() => setPosition((value) => value + 1)}
+            >
+              Next mel-band frame
+            </button>
+          </div>
+          <div style={{ overflowX: "auto" }}>
+            <table aria-label="Mel-band magnitudes">
+              <caption>
+                Frame {frame.index}: all 24 bands, uncalibrated linear
+                magnitudes
+              </caption>
+              <thead>
+                <tr>
+                  <th scope="col">Band index</th>
+                  <th scope="col">Lower Hz</th>
+                  <th scope="col">Center Hz</th>
+                  <th scope="col">Upper Hz</th>
+                  <th scope="col">Region</th>
+                  <th scope="col">Left magnitude</th>
+                  <th scope="col">Right magnitude</th>
+                </tr>
+              </thead>
+              <tbody>
+                {timeline.profile.bands.map((band) => (
+                  <tr key={band.index}>
+                    <th scope="row">{band.index}</th>
+                    <td>{band.lowerHz.toFixed(3)}</td>
+                    <td>{band.centerHz.toFixed(3)}</td>
+                    <td>{band.upperHz.toFixed(3)}</td>
+                    <td>{band.region}</td>
+                    <td data-channel="left">
+                      {melNumber(frame.magnitudes[0][band.index]!)}
+                    </td>
+                    <td data-channel="right">
+                      {melNumber(frame.magnitudes[1][band.index]!)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <table aria-label="Mel-band frame ratios">
+            <caption>Frame ratios from the same retained vectors</caption>
+            <thead>
+              <tr>
+                <th scope="col">Channel</th>
+                <th scope="col">Low / mid</th>
+                <th scope="col">High / mid</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(["Left", "Right"] as const).map((channel, index) => (
+                <tr key={channel}>
+                  <th scope="row">{channel}</th>
+                  <td>{melRatio(analysis.ratios[index]!.lowMid)}</td>
+                  <td>{melRatio(analysis.ratios[index]!.highMid)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </>
+      )}
+      <PagedDetail
+        label="mel-band gaps"
+        items={timeline.gaps.map((gap) => ({
+          key: gap.firstIndex,
+          text: `Frames ${gap.firstIndex}-${gap.firstIndex + gap.count - 1}; ${sampleSupport(gap.support)}; ${gap.reason}`,
+        }))}
+      />
+    </section>
   );
 }
 

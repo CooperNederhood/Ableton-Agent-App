@@ -538,8 +538,10 @@ describe("bounded stacked musical metric report", () => {
     observation.limitations = Array.from({ length: 16 }, () =>
       "界".repeat(240),
     );
-    for (const metric of Object.values(observation.metrics))
-      metric.limitations = Array.from({ length: 8 }, () => "界".repeat(240));
+    for (const metric of ["level", "spectral-centroid", "attacks"] as const)
+      observation.metrics[metric].limitations = Array.from({ length: 8 }, () =>
+        "界".repeat(240),
+      );
     metricAudioObservationSchema.parse(observation);
     const report = projectMetricListeningReport(observation, { limit: 1 });
     expect(report.rows).toHaveLength(1);

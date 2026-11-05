@@ -17,7 +17,10 @@ import {
   type MetricAudioObservation,
 } from "./metric-observation-schemas.js";
 
-type Metric = MetricAudioObservation["requestedMetrics"][number];
+type Metric = Exclude<
+  MetricAudioObservation["requestedMetrics"][number],
+  "mel-bands"
+>;
 const metricNames: Metric[] = ["level", "spectral-centroid", "attacks"];
 const uuid = "00000000-0000-4000-8000-000000000001";
 

@@ -4,6 +4,8 @@ import type {
   FlatnessSmokeEvidence,
   SpreadSmokeEvidence,
   RolloffSmokeEvidence,
+  MelSmokeEvidence,
+  SessionIdentity,
   SpectralShapeSmokeEvidence,
   SessionSourceEvidence,
 } from "@ableton-agent/test-support/integration";
@@ -11,8 +13,44 @@ import {
   projectFlatnessSmoke,
   projectSpreadSmoke,
   projectRolloffSmoke,
+  projectMelSmoke,
 } from "@ableton-agent/test-support/integration";
 import type { MetricAudioObservation } from "@ableton-agent/protocol";
+
+/** Re-read raw typed context and cleanup History, never reuse cached mel vectors. */
+export async function restoreMelSmoke(
+  originals: readonly MelSmokeEvidence[],
+  afterOwnedRestart: boolean,
+  identity: SessionIdentity,
+  readObservation: (contextId: string) => Promise<unknown>,
+  readTrace: (traceId: string) => Promise<readonly EvidenceEvent[]>,
+): Promise<MelSmokeEvidence[]> {
+  const result: MelSmokeEvidence[] = [];
+  for (const original of originals) {
+    const owner = original.observation.ownership;
+    const observation = await readObservation(original.contextId);
+    const history = await readTrace(owner.traceId);
+    const cleanupComplete = captureCleanupConfirmed(history, {
+      traceId: owner.traceId,
+      correlationId: owner.correlationId,
+      passId: owner.passId,
+      listenerId: owner.listenerId,
+      sessionId: identity.appSessionId,
+      agentId: identity.agentId,
+      native: owner,
+    });
+    result.push(
+      projectMelSmoke(
+        observation,
+        original.contextId,
+        cleanupComplete,
+        history,
+        afterOwnedRestart,
+      ),
+    );
+  }
+  return result;
+}
 
 /** Re-read the typed History boundary; a pre-restart cached projection is not proof. */
 export async function restoreFlatnessSmoke(

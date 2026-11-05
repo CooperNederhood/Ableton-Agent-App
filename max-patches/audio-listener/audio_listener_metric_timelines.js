@@ -508,9 +508,14 @@ function missingRanges(expected, records, supportAt, reason, lastSequence) {
 function createMetricTimelines(input, options = {}) {
   const grid = createMusicalGrid(input);
   const owner = ownerCopy(input.owner);
+  // The controller must merge independently settled mel evidence before parsing
+  // this empty native result; it is not publishable by itself.
+  const externalOnly =
+    input.externalOnly === "mel-bands" && input.requestedMetrics?.length === 0;
   invariant(
     Array.isArray(input.requestedMetrics) &&
-      input.requestedMetrics.length > 0 &&
+      (input.externalOnly === undefined || externalOnly) &&
+      (input.requestedMetrics.length > 0 || externalOnly) &&
       input.requestedMetrics.length <= METRICS.length &&
       new Set(input.requestedMetrics).size === input.requestedMetrics.length &&
       input.requestedMetrics.every((metric) => METRICS.includes(metric)),
@@ -1079,12 +1084,14 @@ function createMetricTimelines(input, options = {}) {
     const outcomes = Object.values(metrics);
     const status =
       forcedStatus ??
-      (outcomes.every((metric) => metric.status === "completed") &&
-      outcomes.some((metric) => metric.usable)
+      (externalOnly
         ? "completed"
-        : outcomes.some((metric) => metric.usable)
-          ? "partial"
-          : "failed");
+        : outcomes.every((metric) => metric.status === "completed") &&
+            outcomes.some((metric) => metric.usable)
+          ? "completed"
+          : outcomes.some((metric) => metric.usable)
+            ? "partial"
+            : "failed");
     sealed = freeze({
       schema: "metric-timeline-result/v1",
       status,
@@ -1423,7 +1430,10 @@ function adaptMetricTimelineObservation(result, context, contract) {
       "metric_adapter_fresh_result_required",
     );
     invariant(
-      result.status === "completed" || result.status === "partial",
+      result.status === "completed" ||
+        result.status === "partial" ||
+        (result.status === "failed" &&
+          context?.externalMetricAvailable === "mel-bands"),
       "metric_adapter_result_not_publishable",
     );
     invariant(
@@ -1513,7 +1523,7 @@ function adaptMetricTimelineObservation(result, context, contract) {
       observation.schema === candidate.schema,
       "metric_adapter_contract_version_mismatch",
     );
-    terminal = result.status;
+    terminal = observation.outcome === "complete" ? "completed" : "partial";
     return freeze(observation);
   } finally {
     // Observe and rethrow failures; never downgrade parser/ownership exceptions

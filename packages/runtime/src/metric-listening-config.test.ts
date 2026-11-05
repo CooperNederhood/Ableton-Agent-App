@@ -72,6 +72,7 @@ describe("application-owned metric capture configuration", () => {
         "level",
         "spectral-centroid",
         "attacks",
+        "mel-bands",
       ]);
       expect(binding.config.attacks).toEqual({
         thresholdDb: 6,
@@ -147,7 +148,10 @@ describe("metric observation publication binding", () => {
     ["session", true],
   ] as const)("retains honest %s partial=%s data", (mode, partial) => {
     const { input, data, pass } = fixture(mode, partial);
-    const binding = createMetricCaptureBinding(input);
+    const binding = createMetricCaptureBinding({
+      ...input,
+      requestedMetrics: data.config.requestedMetrics,
+    });
     const validated = validateMetricCaptureObservations(
       [data.observation],
       [binding],
@@ -156,6 +160,15 @@ describe("metric observation publication binding", () => {
     expect(validated).toEqual([data.observation]);
     expect(Object.isFrozen(validated)).toBe(true);
     expect(Object.isFrozen(validated[0]?.metrics.level.records)).toBe(true);
+  });
+
+  it("rejects baseline-only evidence for a default four-metric capture", () => {
+    const { input, data, pass } = fixture("session");
+    const binding = createMetricCaptureBinding(input);
+    expect(binding.config.requestedMetrics).toContain("mel-bands");
+    expect(() =>
+      validateMetricCaptureObservations([data.observation], [binding], pass),
+    ).toThrow("invalid_metric_capture_observation");
   });
 
   it.each([

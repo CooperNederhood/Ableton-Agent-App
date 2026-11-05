@@ -1,5 +1,46 @@
 # Test Strategy Implementation To-Do
 
+## F3 mel-band smoke scope (#105)
+
+- [x] Select full feature implementation with one existing-fixture packaged
+  smoke, not a broader numerical or Arrangement real-host campaign.
+- [x] Add independent bounded mel calculations and analytic periodic-Hann
+  tone/impulse, gain, zeros and malformed-input tests at 44.1/48 kHz.
+- [ ] Qualify actual analyzer frame/support and loss accounting independently
+  of message deliveries before enabling authoritative publication.
+- [x] Verify the compiled pinned-core engine against the independent numerical
+  oracle and modeled capture origin, including retrospective vector offsets.
+  This does not substitute for generated-graph or real-host evidence.
+- [x] Add controller red/green mel-only and independent partial-result tests,
+  physical cleanup/readiness guards, and stored default-four-metric runtime
+  checks. Producer/reducer ownership: 120 passing tests; runtime: 263.
+- [x] Cover typed vectors/ratios, complete/partial budgets, lifecycle,
+  cancellation, cleanup, report paging/reopening and affected Desktop boundaries.
+- [x] Register and execute the separately approved single packaged case on the
+  unchanged `session-clip-identify` fixture; preserve terminal receipt and
+  actual matched candidate/dependency/Live identities.
+  Fourth attempt `run-zpCSaM` passes 14 assertions on Live 11.3.43; persisted
+  single-case verification and all owned cleanup pass. The first three
+  attempts remain failed, not overwritten or counted as first-attempt success.
+- [x] Register and admit `session-flucoma-melbands-smoke` offline on the unchanged
+  fixture. Require separate mapped-adapter proof, native terminal-consumption
+  facts, intact vectors/ratios/pages, actual agent consumption and restart
+  persistence; registration does not establish a real-host pass.
+- [x] Preserve first-run failure and successful runner teardown separately:
+  Live 11.3.43, `run-BFVQNT`, native binaries mapped, mel ready, then native arm
+  receipt timeout and runtime capture-cleanup error. No smoke pass is claimed.
+- [x] Reproduce the timeout offline using asynchronous mel outlet delivery and
+  the actual 25 ms controller cadence, rather than DSP-vector-rate ticking.
+  Batch query producers fairly and cover publication, cancellation, rejection
+  and denial with physical cleanup. Subsequent user approval covers fixing and
+  rerunning this same smoke without repeated approval requests.
+- [x] Reproduce the second attempt's nested-report sanitization failure
+  (`run-lKGVXu`) and retain full ratios at typed-record boundaries without
+  weakening payload or aggregate limits. Capture completed; runner cleanup
+  succeeded. The failed receipt remains preserved.
+- [ ] Complete the separately scoped applicable visual gate after exact-state
+  validation. Leave broader numerical and Arrangement qualification deferred.
+
 ## Local suite qualification (#82)
 
 - [x] Regress nested cleanup-cause preservation, evidence/resource failure

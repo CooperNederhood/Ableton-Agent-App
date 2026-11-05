@@ -12,6 +12,8 @@ import {
   audioObservationV2Schema,
   createMetricObservationReportRows,
   metricAudioObservationSchema,
+  MEL_BAND_PROFILE,
+  melBandTimelineSchema,
   type MetricAudioObservation,
 } from "@ableton-agent/protocol";
 import { createSyntheticMetricListeningObservation } from "@ableton-agent/protocol/testing";
@@ -27,6 +29,52 @@ function metricDetail(value: MetricAudioObservation): DesktopContextDetail {
     entry: { ...entry, kind: value.schema },
     observation: metricAudioObservationSchema.parse(value),
   };
+}
+
+function melFixture(missing: "none" | "one" | "all" = "none", endBeat = 0.2) {
+  const value = metricFixture(endBeat);
+  const expectedRecords = Math.floor(value.geometry.totalSamples / 2_048);
+  const frames = Array.from({ length: expectedRecords }, (_, index) => ({
+    index,
+    support: {
+      startSample: value.geometry.startSample + index * 2_048,
+      endSample: value.geometry.startSample + (index + 1) * 2_048,
+    },
+    magnitudes: [
+      Array.from({ length: 24 }, (_, band) => (index === 0 ? band + 1 : 0)),
+      Array.from({ length: 24 }, (_, band) =>
+        index === 0 ? band + 101 : band === 2 ? 1e-12 : 1,
+      ),
+    ],
+  }));
+  const retained = (index: number) =>
+    missing === "none" || (missing === "one" && index !== 0);
+  value.requestedMetrics.push("mel-bands");
+  value.metrics["mel-bands"] = melBandTimelineSchema.parse({
+    schema: "mel-band-timeline/v1",
+    status:
+      expectedRecords === 0 || missing === "none"
+        ? "complete"
+        : missing === "all"
+          ? "failed"
+          : "partial",
+    sampleRate: value.geometry.sampleRate,
+    sourceSupport: value.sourceCoverage,
+    profile: MEL_BAND_PROFILE,
+    expectedRecords,
+    frames: frames.filter((frame) => retained(frame.index)),
+    gaps: frames
+      .filter((frame) => !retained(frame.index))
+      .map((frame) => ({
+        firstIndex: frame.index,
+        count: 1,
+        support: frame.support,
+        reason: "drain-timeout",
+      })),
+  });
+  value.outcome =
+    missing === "none" || expectedRecords === 0 ? "complete" : "partial";
+  return value;
 }
 
 const entry: DesktopContextPage["entries"][number] = {
@@ -127,6 +175,172 @@ async function click(text: string) {
 }
 
 describe("stored listening context presentation", () => {
+  it("renders all 24 independent mel bands, pinned units and actual source support", async () => {
+    const source = api();
+    source.get.mockResolvedValueOnce(metricDetail(melFixture()));
+    await render("session", source);
+    await click("View observation context");
+    const mel = container.querySelector('[aria-label="mel-bands metric"]');
+    expect(mel?.textContent).toContain("mel-bands: complete");
+    expect(mel?.textContent).toContain("Uncalibrated linear FFT magnitudes");
+    expect(mel?.textContent).toContain("independent-stereo");
+    expect(mel?.textContent).toContain("normalize 0; scale 0");
+    expect(mel?.textContent).toContain("2/2 retained frames");
+    expect(mel?.textContent).toContain("samples [10000, 14800)");
+    expect(mel?.textContent).toContain("samples [14096, 14800)");
+    const table = mel?.querySelector('[aria-label="Mel-band magnitudes"]');
+    expect(table?.querySelectorAll("tbody tr")).toHaveLength(24);
+    const last = table?.querySelector("tbody tr:last-child");
+    expect(last?.textContent).toContain("23");
+    expect(last?.textContent).toContain("20000");
+    expect(last?.querySelector('[data-channel="left"]')?.textContent).toBe(
+      "24.000000",
+    );
+    expect(last?.querySelector('[data-channel="right"]')?.textContent).toBe(
+      "124.00000",
+    );
+    expect(container.textContent).not.toContain("warmth");
+    expect(container.textContent).not.toContain("muddiness");
+  });
+
+  it("pages retained frames without dropping bands and distinguishes zero and below-floor ratios", async () => {
+    const value = melFixture();
+    const mel = value.metrics["mel-bands"]!;
+    value.metrics["mel-bands"] = melBandTimelineSchema.parse({
+      ...mel,
+      frames: mel.frames.map((frame) =>
+        frame.index === 0
+          ? frame
+          : {
+              ...frame,
+              magnitudes: [
+                Array<number>(24).fill(0),
+                Array.from({ length: 24 }, (_, band) =>
+                  band === 2 ? 1e-12 : band >= 2 && band < 9 ? 0 : 1,
+                ),
+              ],
+            },
+      ),
+    });
+    const source = api();
+    source.get.mockResolvedValueOnce(metricDetail(value));
+    await render("session", source);
+    await click("View observation context");
+    await click("Next mel-band frame");
+    const section = container.querySelector('[aria-label="mel-bands metric"]');
+    expect(section?.textContent).toContain("Frame 1");
+    expect(section?.textContent).toContain("samples [12048, 14096)");
+    expect(section?.textContent).toContain("Unavailable (zero-denominator)");
+    expect(section?.textContent).toContain("Unavailable (below-floor)");
+    expect(
+      section?.querySelectorAll('[aria-label="Mel-band magnitudes"] tbody tr'),
+    ).toHaveLength(24);
+    expect(
+      section?.querySelector<HTMLButtonElement>(
+        '[aria-label="Next mel-band frame"]',
+      )?.disabled,
+    ).toBe(true);
+    await click("Previous mel-band frame");
+    expect(section?.textContent).toContain("Frame 0");
+    expect(section?.textContent).not.toContain(
+      "Unavailable (zero-denominator)",
+    );
+  });
+
+  it.each(["one", "all"] as const)(
+    "shows %s missing mel frame coverage independently of healthy native metrics",
+    async (missing) => {
+      const source = api();
+      source.get.mockResolvedValueOnce(metricDetail(melFixture(missing)));
+      await render("session", source);
+      await click("View observation context");
+      const section = container.querySelector(
+        '[aria-label="mel-bands metric"]',
+      );
+      expect(section?.textContent).toContain(
+        missing === "one" ? "mel-bands: partial" : "mel-bands: failed",
+      );
+      expect(section?.textContent).toContain("drain-timeout");
+      expect(section?.textContent).toContain("not silence");
+      expect(
+        section?.querySelectorAll(
+          '[aria-label="Mel-band magnitudes"] tbody tr',
+        ),
+      ).toHaveLength(missing === "one" ? 24 : 0);
+      expect(container.textContent).toContain("level: complete");
+    },
+  );
+
+  it("shows a valid zero numerator ratio as zero with a healthy mid denominator", async () => {
+    const value = melFixture();
+    const mel = value.metrics["mel-bands"]!;
+    value.metrics["mel-bands"] = melBandTimelineSchema.parse({
+      ...mel,
+      frames: mel.frames.map((frame) => ({
+        ...frame,
+        magnitudes: Array.from({ length: 2 }, () =>
+          Array.from({ length: 24 }, (_, band) =>
+            band >= 2 && band < 9 ? 1 : 0,
+          ),
+        ),
+      })),
+    });
+    const source = api();
+    source.get.mockResolvedValueOnce(metricDetail(value));
+    await render("session", source);
+    await click("View observation context");
+    const ratios = container.querySelector(
+      '[aria-label="Mel-band frame ratios"]',
+    );
+    expect(
+      [...ratios!.querySelectorAll("tbody td")].map((cell) => cell.textContent),
+    ).toEqual(["0", "0", "0", "0"]);
+    expect(ratios?.textContent).not.toContain("Unavailable");
+  });
+
+  it("labels mel no-frame captures and omits the section when mel was not requested", async () => {
+    const source = api();
+    source.get.mockResolvedValueOnce(metricDetail(melFixture("none", 0.01)));
+    await render("session", source);
+    await click("View observation context");
+    const section = container.querySelector('[aria-label="mel-bands metric"]');
+    expect(section?.textContent).toContain("no-frame is not silence");
+    expect(section?.querySelector("table")).toBeNull();
+    source.get.mockResolvedValueOnce(metricDetail(metricFixture()));
+    await click("View observation context");
+    expect(
+      container.querySelector('[aria-label="mel-bands metric"]'),
+    ).toBeNull();
+  });
+
+  it("clears selected mel frame on context switching and rejects malformed typed detail", async () => {
+    const source = api();
+    source.list.mockResolvedValueOnce({
+      action: "list",
+      entries: [entry, { ...entry, contextId: "second" }],
+    });
+    source.get.mockResolvedValueOnce(metricDetail(melFixture()));
+    await render("session", source);
+    await click("View observation context");
+    await click("Next mel-band frame");
+    const second = metricDetail(melFixture());
+    second.entry.contextId = "second";
+    source.get.mockResolvedValueOnce(second);
+    await click("View observation second");
+    expect(
+      container.querySelector('[aria-label="mel-bands metric"]')?.textContent,
+    ).toContain("Frame 0");
+    const invalid = metricDetail(melFixture());
+    if (invalid.observation.schema !== "metric-audio-observation/v1")
+      throw new Error("Expected metric fixture");
+    invalid.observation.requestedMetrics.push("mel-bands");
+    source.get.mockResolvedValueOnce(invalid);
+    await click("View observation context");
+    expect(container.querySelector('[role="alert"]')).not.toBeNull();
+    expect(
+      container.querySelector('[aria-label="mel-bands metric"]'),
+    ).toBeNull();
+  });
   it("shows unknown spectral timing as unavailable, not no-frame or measured silence", async () => {
     const observation = metricFixture(1);
     observation.outcome = "partial";

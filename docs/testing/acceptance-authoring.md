@@ -144,6 +144,38 @@ are registered.
 Registration does not establish real-host qualification; inspect terminal run
 receipts for execution and assertion outcomes.
 
+The approved `session-flucoma-melbands-smoke` reuses the unchanged
+`session-clip-identify` fixture and rolloff smoke permissions/budgets. Its one
+turn requests mel bands and low/mid and high/mid ratios. `melbands-smoke`
+requires one 90,000-sample 48 kHz capture, the three baseline timelines plus
+43 complete independently stereo 24-band mel frames, canonical raw-magnitude
+profile, no gaps, explicit unmeasured trailing support and genuine acquisition
+cleanup. Flatness/spread/rolloff remain separate unqualified diagnostics.
+Mel cleanup additionally requires its own attributable native
+`mel_native_cleanup_complete` drain event: the bounded 16 numeric facts must
+match the complete timeline, terminal reason 10, consumed terminal, zero loss,
+frame count plus three readiness/start/terminal records physically drained,
+and an exclusive source clock at or beyond capture end. The positive numeric
+DSP-instance generation is distinct from the UUID pass generation and must
+remain stable within the pass. Fresh typed History after restart must preserve
+the original lifecycle receipts, not merely generic baseline cleanup.
+The packaged driver independently verifies the app-owned `listener.mel~`
+executable mapping at baseline and again after capture cleanup, in addition to
+the spectralshape mapping. Both reads require the immutable shared-package pin,
+owned Live/Max ancestry, installed resource path and matching file device/inode.
+Capture proof carries the exact native acquisition ownership; the assertion
+requires the same pinned identity across baseline and capture. Restart evidence
+retains that original acquisition proof—it does not claim a fresh mapping or
+new acquisition after the read-only Desktop restart. Missing, denied, cancelled,
+foreign or malformed mel mapping proof cannot borrow healthy spectralshape proof.
+The same Default agent must consume the matching typed context or report.
+The driver also projects all bounded report pages from typed Desktop context;
+`typed-desktop-context-projection` is explicitly **not** a claim that the agent
+requested every page. Full vectors, profile, ratios and support are compared
+against fresh typed reads after the owned Desktop restart. Offline synthetic
+tests establish contracts and wiring only, not an independent acoustic oracle,
+Arrangement qualification or a real-host pass.
+
 On 2026-11-02 the unchanged registered case passed twice in fresh owned
 Live 11.3.43 / packaged Desktop processes: terminal receipts
 `.test-artifacts/acceptance/run-c27nOv/receipt.json` and
@@ -365,6 +397,11 @@ when supplied by a typed query and persists structured evidence, so the receipt'
 16384-character string bound cannot silently clip a measurement.
 Credentials remain redacted; omitted audio/binary or
 truncation markers cannot satisfy the contract.
+Receipt sanitization applies the existing depth limit to each typed history
+record independently, and sanitizes turn/run metadata separately. Wrapping a
+valid report in turn, restart and final-receipt envelopes must not consume its
+payload depth allowance or truncate nested mel ratios. Structural equality,
+record schemas and unchanged aggregate byte limits still gate persistence.
 
 The original evidence is retained in `TurnEvidence.agentListening` and product
 evidence. After the already-owned Desktop restart the driver re-reads the same

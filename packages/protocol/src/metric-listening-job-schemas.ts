@@ -1,6 +1,7 @@
 import { z } from "zod";
 import {
   metricAudioObservationSchema,
+  metricObservationMetricSchema,
   type MetricAudioObservation,
 } from "./metric-observation-schemas.js";
 
@@ -16,7 +17,7 @@ const gapReasons = [
 
 const metricSummarySchema = z
   .strictObject({
-    metric: z.enum(metricIds),
+    metric: metricObservationMetricSchema,
     status: z.enum(["complete", "partial", "failed", "not-requested"]),
     expectedRecords: z.number().int().min(0).max(2_000),
     retainedRecords: z.number().int().min(0).max(2_000),
@@ -45,7 +46,10 @@ export const metricListeningResultSummarySchema = z
   .strictObject({
     listenerId: z.string().min(1).max(128),
     outcome: z.enum(["complete", "partial"]),
-    metrics: z.array(metricSummarySchema).length(metricIds.length),
+    metrics: z
+      .array(metricSummarySchema)
+      .min(metricIds.length)
+      .max(metricIds.length + 1),
   })
   .superRefine((value, ctx) => {
     const requested = value.metrics.filter(
@@ -53,8 +57,21 @@ export const metricListeningResultSummarySchema = z
     );
     if (
       new Set(value.metrics.map((metric) => metric.metric)).size !==
-        metricIds.length ||
-      !requested.some((metric) => metric.retainedRecords > 0) ||
+        value.metrics.length ||
+      !metricIds.every((id) =>
+        value.metrics.some((metric) => metric.metric === id),
+      ) ||
+      value.metrics.some(
+        (metric) =>
+          metric.metric === "mel-bands" && metric.status === "not-requested",
+      ) ||
+      !requested.some(
+        (metric) =>
+          metric.retainedRecords > 0 ||
+          (metric.metric === "mel-bands" &&
+            metric.status === "complete" &&
+            metric.expectedRecords === 0),
+      ) ||
       (value.outcome === "complete") !==
         requested.every((metric) => metric.status === "complete")
     )
@@ -110,19 +127,37 @@ export function validateMetricListeningJobOutcome(
 
 export function summarizeMetricListeningResult(input: MetricAudioObservation) {
   const observation = metricAudioObservationSchema.parse(input);
+  const mel = observation.metrics["mel-bands"];
   return metricListeningResultSummarySchema.parse({
     listenerId: observation.ownership.listenerId,
     outcome: observation.outcome,
-    metrics: metricIds.map((metric) => {
-      const timeline = observation.metrics[metric];
-      return {
-        metric,
-        status: timeline.status,
-        expectedRecords: timeline.expectedRecords,
-        retainedRecords: timeline.records.length,
-        missingRecords: timeline.gaps.reduce((sum, gap) => sum + gap.count, 0),
-        gapReasons: [...new Set(timeline.gaps.map((gap) => gap.reason))],
-      };
-    }),
+    metrics: [
+      ...metricIds.map((metric) => {
+        const timeline = observation.metrics[metric];
+        return {
+          metric,
+          status: timeline.status,
+          expectedRecords: timeline.expectedRecords,
+          retainedRecords: timeline.records.length,
+          missingRecords: timeline.gaps.reduce(
+            (sum, gap) => sum + gap.count,
+            0,
+          ),
+          gapReasons: [...new Set(timeline.gaps.map((gap) => gap.reason))],
+        };
+      }),
+      ...(mel === undefined
+        ? []
+        : [
+            {
+              metric: "mel-bands",
+              status: mel.status,
+              expectedRecords: mel.expectedRecords,
+              retainedRecords: mel.frames.length,
+              missingRecords: mel.gaps.reduce((sum, gap) => sum + gap.count, 0),
+              gapReasons: [...new Set(mel.gaps.map((gap) => gap.reason))],
+            },
+          ]),
+    ],
   });
 }

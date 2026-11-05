@@ -2,10 +2,27 @@ import { createHash } from "node:crypto";
 import { constants } from "node:fs";
 import { lstat, mkdir, open, readdir } from "node:fs/promises";
 import { dirname, join, parse, resolve, sep } from "node:path";
+import {
+  NATIVE_MEL_DEPENDENCY_PINS,
+  NATIVE_MEL_SOURCE_INPUTS,
+} from "./native-mel-pins.js";
 
 export const FLUCOMA_DEPENDENCY_DIRECTORY = "dependencies/flucoma";
 export const FLUCOMA_SPECTRALSHAPE_BUNDLE = `${FLUCOMA_DEPENDENCY_DIRECTORY}/fluid.spectralshape~.mxo`;
 export const FLUCOMA_PACKAGE_VERSION = "1.0.10+sha.a1f6f90.core.sha.f1551f70";
+export const NATIVE_MEL_BUNDLE = `${FLUCOMA_DEPENDENCY_DIRECTORY}/listener.mel~.mxo`;
+export const NATIVE_MEL_PRODUCER = Object.freeze({
+  schema: "listener-mel-native/v1",
+  abi: 2,
+  bundle: NATIVE_MEL_BUNDLE,
+  binarySha256: NATIVE_MEL_DEPENDENCY_PINS.find(
+    ([name]) => name === "listener.mel~.mxo/Contents/MacOS/listener.mel~",
+  )![2],
+  controlSelector: "mel_native_control",
+  returnSelector: "native_mel",
+  receiptSelector: "mel_drain",
+  hostQualified: false,
+});
 
 const pins = [
   [
@@ -48,6 +65,7 @@ const pins = [
     3316,
     "1cb8673fe14b09b1ebb1405b4494c6d1ddc0fc448c694100d1364ad7c8bd87fc",
   ],
+  ...NATIVE_MEL_DEPENDENCY_PINS,
 ] as const;
 
 export const FLUCOMA_DEPENDENCY_FILES = Object.freeze(
@@ -157,37 +175,72 @@ export async function assertDeviceResourceInventory(
 ): Promise<void> {
   if (names.some((name) => !isSafeDeviceResourceName(name)))
     throw new Error("Unsafe device resource inventory");
-  const visit = async (
-    path: string,
-    remaining: readonly string[],
-  ): Promise<void> => {
-    const metadata = await lstat(path);
-    if (!metadata.isDirectory() || metadata.isSymbolicLink())
-      throw new Error("Integration payload directory inventory mismatch");
-    const expected = [
-      ...new Set(remaining.map((name) => name.split("/")[0]!)),
-    ].sort();
-    const actual = (await readdir(path)).sort();
-    if (JSON.stringify(actual) !== JSON.stringify(expected))
-      throw new Error("Integration payload directory inventory mismatch");
-    for (const name of expected) {
-      const children = remaining
-        .filter((item) => item.startsWith(`${name}/`))
-        .map((item) => item.slice(name.length + 1));
-      if (children.length) await visit(join(path, name), children);
-    }
-  };
-  await visit(root, names);
+  await assertResourceTree(root, names);
+}
+
+async function assertResourceTree(
+  path: string,
+  remaining: readonly string[],
+): Promise<void> {
+  const metadata = await lstat(path);
+  if (!metadata.isDirectory() || metadata.isSymbolicLink())
+    throw new Error("Integration payload directory inventory mismatch");
+  const expected = [
+    ...new Set(remaining.map((name) => name.split("/")[0]!)),
+  ].sort();
+  const actual = (await readdir(path)).sort();
+  if (JSON.stringify(actual) !== JSON.stringify(expected))
+    throw new Error("Integration payload directory inventory mismatch");
+  for (const name of expected) {
+    const children = remaining
+      .filter((item) => item.startsWith(`${name}/`))
+      .map((item) => item.slice(name.length + 1));
+    if (children.length) await assertResourceTree(join(path, name), children);
+  }
 }
 
 export async function validateFlucomaDependency(root: string): Promise<void> {
   const dependencyRoot = join(root, FLUCOMA_DEPENDENCY_DIRECTORY);
   await assertResourceParents(join(dependencyRoot, "LICENSE.md"));
-  // Strip only this trusted prefix; the recursive walker receives the exact pins.
-  await assertDeviceResourceInventory(root, [
-    ...(await readdir(root)).filter((name) => name !== "dependencies"),
-    ...FLUCOMA_DEPENDENCY_RESOURCE_NAMES,
-  ]);
+  // Source files can change independently; only the pinned dependency tree
+  // belongs to this inventory check.
+  if (
+    FLUCOMA_DEPENDENCY_RESOURCE_NAMES.some(
+      (name) =>
+        !name.startsWith("dependencies/") || !isSafeDeviceResourceName(name),
+    )
+  )
+    throw new Error("Unsafe device resource inventory");
+  await assertResourceTree(
+    join(root, "dependencies"),
+    FLUCOMA_DEPENDENCY_RESOURCE_NAMES.map((name) =>
+      name.slice("dependencies/".length),
+    ),
+  );
   for (const name of FLUCOMA_DEPENDENCY_RESOURCE_NAMES)
     await readFlucomaDependencyFile(root, name);
+}
+
+/** Source-check only: ordinary app builds verify pins; they never fetch/build/repin. */
+export async function validateNativeMelSourceInputs(
+  repositoryRoot: string,
+): Promise<void> {
+  for (const pin of NATIVE_MEL_SOURCE_INPUTS) {
+    const path = join(repositoryRoot, pin.path);
+    await assertResourceParents(path);
+    const handle = await open(
+      path,
+      constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0),
+    );
+    try {
+      const metadata = await handle.stat();
+      if (!metadata.isFile() || metadata.size !== pin.bytes)
+        throw new Error(`Native mel source pin mismatch: ${pin.path}`);
+      const raw = await handle.readFile();
+      if (createHash("sha256").update(raw).digest("hex") !== pin.sha256)
+        throw new Error(`Native mel source pin mismatch: ${pin.path}`);
+    } finally {
+      await handle.close();
+    }
+  }
 }

@@ -99,6 +99,9 @@ describe("canonical native metric CommonJS protocol bundle", () => {
       process.stdout.write(JSON.stringify({
         version: codec.LISTENER_VERSION_METRIC,
         capability: codec.LISTENER_CAPABILITY_METRIC,
+        melCapability: codec.LISTENER_CAPABILITY_MEL,
+        melBandCount: codec.MEL_BAND_PROFILE.bandCount,
+        rejectsMissingMelTimeline: !codec.melBandTimelineSchema.safeParse({}).success,
         outcome: parsed.outcome,
         rejectsForgedEvent: !codec.metricAudioObservationSchema.safeParse(observation).success,
         rejectsLegacyControl: !codec.listenerControlMetricSchema.safeParse({listenerVersion:4}).success,
@@ -129,6 +132,9 @@ describe("canonical native metric CommonJS protocol bundle", () => {
     expect(JSON.parse(reply)).toEqual({
       version: 5,
       capability: "audio-listener/independent-metric-timelines-v1",
+      melCapability: "audio-listener/mel-band-timelines-v1",
+      melBandCount: 24,
+      rejectsMissingMelTimeline: true,
       outcome: "complete",
       rejectsForgedEvent: true,
       rejectsLegacyControl: true,

@@ -11,6 +11,7 @@ import {
 } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { melSmokeFixture } from "./mel-smoke-test-support.js";
 import {
   SUPPORTED_AUDIO_BASELINE,
   createDefaultAssertions,
@@ -1157,6 +1158,58 @@ describe("driver-neutral acceptance foundation (synthetic only)", () => {
     expect(driver.calls).toEqual(["launch", "cleanup", "persist"]);
     expect(result.unrun).toEqual(["first", "second"]);
   });
+  it("preserves complete mel tool reports through turn, restart and final receipt sanitization", async () => {
+    const driver = new ControlledDriver();
+    const mel = melSmokeFixture("report");
+    const agentListening = mel.turn.agentListening!;
+    driver.extraTurnFields = {
+      agentListening,
+      melSmoke: [mel.smoke],
+      facts: { note: "Authorization: Bearer acceptance-test-secret" },
+    };
+    const restored = { ...agentListening, afterOwnedRestart: true };
+    driver.collected = {
+      ...driver.collected,
+      agentListening: [restored],
+      melSmoke: [{ ...mel.smoke, afterOwnedRestart: true }],
+    };
+    const result = await execute(driver, {
+      scenario: { ...scenario, steps: scenario.steps.slice(0, 1) },
+    });
+    expect(result.primaryFailure).toBeUndefined();
+    expect(result.status).toBe("passed");
+    expect(result.turns[0]?.agentListening).toEqual(agentListening);
+    expect(result.turns[0]?.melSmoke).toEqual([mel.smoke]);
+    expect(result.evidence?.agentListening).toEqual([restored]);
+    expect(JSON.stringify(result)).not.toContain("acceptance-test-secret");
+    expect(result.persisted && result.cleanupComplete).toBe(true);
+  });
+
+  it.each(["depth", "credentials"] as const)(
+    "rejects invalid %s within separately bounded history records",
+    async (fault) => {
+      const driver = new ControlledDriver();
+      const mel = melSmokeFixture("report");
+      const record = mel.records[0]!;
+      if (record.kind !== "tool_call") throw new Error("Expected fixture call");
+      record.metadata =
+        fault === "credentials"
+          ? { authorization: "Bearer acceptance-test-secret" }
+          : {
+              nested: Array.from({ length: 17 }).reduce<object>(
+                (child) => ({ child }),
+                {},
+              ),
+            };
+      driver.extraTurnFields = { agentListening: mel.turn.agentListening };
+      const result = await execute(driver);
+      expect(result.status).toBe("failed");
+      expect(result.turns).toEqual([]);
+      expect(JSON.stringify(result)).not.toContain("acceptance-test-secret");
+      expect(result.persisted && result.cleanupComplete).toBe(true);
+    },
+  );
+
   it("redacts credentials from persisted and returned evidence", async () => {
     const driver = new ControlledDriver();
     driver.answer = "Bearer abcsecret";

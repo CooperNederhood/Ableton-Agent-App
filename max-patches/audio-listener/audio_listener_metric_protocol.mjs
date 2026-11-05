@@ -10,6 +10,9 @@ export {
   MAX_METRIC_OBSERVATION_BYTES,
   MAX_METRIC_RESULT_FRAME_BYTES,
   metricAudioObservationSchema,
+  MEL_BAND_PROFILE,
+  melBandStereoFrameSchema,
+  melBandTimelineSchema,
   nativeMetricArmProofSchema,
   nativeMetricIdleConfigurationReadbackSchema,
   nativeMetricIdleReceiptSchema,
@@ -26,6 +29,7 @@ export {
 } from "../../packages/protocol/src/index.ts";
 export {
   LISTENER_CAPABILITY_METRIC,
+  LISTENER_CAPABILITY_MEL,
   LISTENER_METRIC_ALGORITHM_VERSION,
   LISTENER_METRIC_PRODUCER_SCHEMA_VERSION,
   LISTENER_METRIC_SCOPE,

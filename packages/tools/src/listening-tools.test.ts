@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   summarizeMetricListeningResult,
   projectMetricListeningReport,
+  nativeMetricObservationMetricSchema,
 } from "@ableton-agent/protocol";
 import {
   createSyntheticPartialMetricListeningObservation,
@@ -41,6 +42,27 @@ const sessionInput = {
 };
 
 describe("optional listening tool contracts", () => {
+  it("directs mel reads to typed contexts without promoting SpectralShape diagnostics", () => {
+    expect(LISTENING_AGENT_GUIDANCE).toContain("all 24 bands");
+    expect(LISTENING_AGENT_GUIDANCE).toContain(
+      'metricMetadata["mel-bands"].profile',
+    );
+    expect(LISTENING_AGENT_GUIDANCE).toContain(
+      "uncalibrated linear FFT magnitudes",
+    );
+    expect(LISTENING_AGENT_GUIDANCE).toContain(
+      "zero-denominator and below-floor",
+    );
+    expect(LISTENING_AGENT_GUIDANCE).toContain(
+      "No-frame and missing support are not measured silence",
+    );
+    expect(LISTENING_AGENT_GUIDANCE).toContain(
+      "not SpectralShape smoke diagnostics",
+    );
+    expect(LISTENING_AGENT_GUIDANCE).toContain(
+      "These diagnostics are available through typed Desktop History, not the metric context/report",
+    );
+  });
   const reportEntry = {
     contextId: "context",
     passId: "pass",
@@ -60,8 +82,10 @@ describe("optional listening tool contracts", () => {
     observation.limitations = Array.from({ length: 16 }, () =>
       "界".repeat(240),
     );
-    for (const metric of Object.values(observation.metrics)) {
-      metric.limitations = Array.from({ length: 8 }, () => "界".repeat(240));
+    for (const name of nativeMetricObservationMetricSchema.options) {
+      observation.metrics[name].limitations = Array.from({ length: 8 }, () =>
+        "界".repeat(240),
+      );
     }
     const report = projectMetricListeningReport(observation, { limit: 32 });
     const valid = { action: "report", entry: reportEntry, report };

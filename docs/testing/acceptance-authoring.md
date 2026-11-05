@@ -236,7 +236,7 @@ The successful projection retains exactly fifteen facts, including both actual
 Max class witnesses: unavailable before start, then exactly
 `fluid.spectralshape~` from started through cleanup. Optional rejected-value
 diagnostics remain failure evidence in History; they cannot qualify a success.
-Only this smoke scenario additionally requires `owned-mapped-flucoma/v1`
+Both SpectralShape smoke scenarios additionally require `owned-mapped-flucoma/v1`
 loaded-binary provenance before baseline admission and after successful capture.
 The existing owned Live/Node ancestry proof selects Live/Max ancestor PIDs for
 bounded, read-only `lsof` text-mapping reads; unrelated Max processes are never
@@ -257,8 +257,45 @@ relative resource names, validates pinned bytes and executable permissions on
 both candidate and staged copies, and rejects linked parents. Candidate hashes
 still refer to immutable packaged bytes; no additional fixture assets are used.
 
+The reviewed `session-flucoma-spread-smoke` case also reuses the unchanged
+`session-clip-identify` fixture, scoped permission and finite budgets. Its sole
+message is "Listen to the first Session clip on track audio-track, including
+spectral spread." In addition to every flatness smoke/native/protected-state
+assertion, it requires `spread-smoke` before and after the owned Desktop restart:
+finite nonnegative Hz snapshots on both channels, positive bounded delivery
+counts, exact pass/native ownership, ordered capture completion and successful
+gate cleanup. The strict eighteen-fact projection uses `flucoma-spread-smoke/v1`
+with unqualified support/validity; missing or invalid spread cannot pass on
+flatness or native evidence alone. Restart re-reads typed History, never just a
+cached successful projection. Existing `flatnessLoadedBinary*` provenance fields
+identify the same shared SpectralShape binary for both cases; they do not imply
+a second analyzer or flatness-only loading proof.
+
+This is a delivery/completion contract, not numerical qualification. The existing
+90000-sample/48-kHz native capture assertion is not a spread FFT frame oracle.
+The contract does not add custom spectra, an identification turn, exact spread
+delivery counts, or silence validity. Real-host execution requires separate
+approval; registration is not a successful run.
+
+On 2026-11-04, the approved single run `run-GUn1Ho` passed all nine frozen
+assertions on Live 11.3.43. It recorded one complete 90000-sample capture at
+48 kHz, 20 spread deliveries per channel, healthy flatness/native outputs,
+exact retained diagnostic/context evidence after owned Desktop restart,
+unchanged protected scopes and terminal cleanup. Candidate SHA-256:
+`d6ecc4457cd39ebeade6d62cba8483cce050d0610ae0dc6d99c435e78eb9794f`.
+The original terminal receipt and product/cleanup evidence remain under
+`.test-artifacts/acceptance/run-GUn1Ho/`; the persisted assertions were revalidated
+without another submission. No retry or broader campaign occurred.
+
+The terminal assistant text reported permission denial and no publication,
+contrary to the independent completed-capture/context evidence. Preserve this
+response/status discrepancy as a separate follow-up; the approved smoke oracle
+does not grade assistant status prose. The run used the real installed bridge
+credential through the supported environment source, so no successful Keychain
+startup is claimed.
+
 Named assertions come from the shared registry: `choice`, `capture`,
-`capture-count`, `context`, `native-freshness`, `spectral-range`, `flatness-smoke`, `no-capture`,
+`capture-count`, `context`, `native-freshness`, `spectral-range`, `flatness-smoke`, `spread-smoke`, `no-capture`,
 `unchanged`, and `fact-equals`. The
 template illustrates their actual parameter shapes; consult
 [`ScenarioManifest` and `FixtureManifest`](../../packages/test-support/src/integration/contracts.ts)

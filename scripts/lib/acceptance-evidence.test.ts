@@ -2,8 +2,11 @@ import { describe, expect, it, vi } from "vitest";
 import {
   captureCleanupConfirmed,
   restoreFlatnessSmoke,
+  restoreSpreadSmoke,
 } from "../../tests/electron/acceptance-evidence.js";
 import { projectFlatnessSmoke } from "../../packages/test-support/src/integration/flatness-smoke.js";
+import { projectSpreadSmoke } from "../../packages/test-support/src/integration/spread-smoke.js";
+import { spreadHistory } from "../../packages/test-support/src/integration/spread-smoke-test-support.js";
 import {
   flatnessHistory,
   flatnessOwner,
@@ -163,6 +166,46 @@ describe("flatness diagnostic typed History restoration seam", () => {
   it("leaves original scenarios without smoke diagnostics unchanged", async () => {
     const read = vi.fn();
     expect(await restoreFlatnessSmoke([], true, read)).toEqual([]);
+    expect(read).not.toHaveBeenCalled();
+  });
+});
+
+describe("spread diagnostic typed History restoration", () => {
+  it("re-reads only persisted spread events rather than cached flatness or values", async () => {
+    const original = projectSpreadSmoke(spreadHistory(), flatnessOwner);
+    const read = vi.fn().mockResolvedValue(spreadHistory());
+    expect(await restoreSpreadSmoke([original], true, read)).toEqual([
+      { ...original, afterOwnedRestart: true },
+    ]);
+    expect(read).toHaveBeenCalledExactlyOnceWith(flatnessOwner.traceId);
+    for (const history of [[], flatnessHistory(), spreadHistory().slice(0, -1)])
+      await expect(
+        restoreSpreadSmoke([original], true, async () => history),
+      ).rejects.toThrow();
+  });
+  it("admits spread as a diagnostic only, never as supported FFT frames", () => {
+    for (const event of spreadHistory().slice(1)) {
+      const lifecycle = nativeMetricLifecycleSchema.parse(
+        event.attributes.lifecycle,
+      );
+      expect(lifecycle.metric).toBe("spectral-spread");
+      expect(lifecycle.frames).toBe(0);
+      expect(lifecycle.facts).toHaveLength(18);
+    }
+  });
+  it("propagates read failure/cancellation and does not read traces without captures", async () => {
+    const original = projectSpreadSmoke(spreadHistory(), flatnessOwner);
+    for (const failure of [
+      new Error("History unavailable"),
+      new DOMException("Aborted", "AbortError"),
+    ])
+      await expect(
+        restoreSpreadSmoke([original], true, async () => {
+          throw failure;
+        }),
+      ).rejects.toBe(failure);
+    const read = vi.fn();
+    expect(await restoreSpreadSmoke([], true, read)).toEqual([]);
     expect(read).not.toHaveBeenCalled();
   });
 });

@@ -1477,8 +1477,16 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
     expect(mocks.liveStop).toHaveBeenCalled();
     expect(mocks.stop).toHaveBeenCalled();
   });
-  it.each(["baseline", "flatness", "flatness-denied", "flatness-cancelled"])(
-    "binds raw Max identities and limits loaded-binary proof to flatness: %s",
+  it.each([
+    "baseline",
+    "flatness",
+    "flatness-denied",
+    "flatness-cancelled",
+    "spread",
+    "spread-denied",
+    "spread-cancelled",
+  ])(
+    "binds raw Max identities and requires loaded-binary proof for both smoke cases: %s",
     async (mode) => {
       await audioBaseline();
       const snapshot = liveSetSnapshotSchema.parse(
@@ -1512,7 +1520,9 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
           id:
             mode === "baseline"
               ? context.scenario.id
-              : "session-flucoma-flatness-smoke",
+              : mode.startsWith("spread")
+                ? "session-flucoma-spread-smoke"
+                : "session-flucoma-flatness-smoke",
         },
         fixture: {
           ...context.fixture,
@@ -1555,17 +1565,17 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
         flatnessLoadedBinaryInode: "123",
         flatnessLoadedBinaryDevice: "456",
       });
-      if (mode === "flatness-denied")
+      if (mode.endsWith("-denied"))
         mocks.flatnessLoading.mockRejectedValue(
           new Error("Mapped flatness binary is not the pinned staged identity"),
         );
-      if (mode === "flatness-cancelled")
+      if (mode.endsWith("-cancelled"))
         mocks.flatnessLoading.mockRejectedValue(
           new DOMException("Aborted", "AbortError"),
         );
       await driver.launch(context);
       await driver.ready(context);
-      if (mode === "flatness-denied" || mode === "flatness-cancelled") {
+      if (mode.endsWith("-denied") || mode.endsWith("-cancelled")) {
         await expect(driver.readBaseline(context)).rejects.toThrow();
         expect(mocks.send).not.toHaveBeenCalled();
         await driver.cleanup(context);
@@ -1575,8 +1585,9 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
         expect(evidence).toMatchObject({
           provenance: {
             flatnessLoadedBinaryVerified: false,
-            flatnessLoadedBinaryState:
-              mode === "flatness-denied" ? "failed" : "cancelled",
+            flatnessLoadedBinaryState: mode.endsWith("-denied")
+              ? "failed"
+              : "cancelled",
             flatnessLoadedBinaryError:
               "owned-loader-proof-unavailable-or-mismatched",
             flatnessLoadedBinaryDurationMs: expect.any(Number) as unknown,
@@ -1590,7 +1601,7 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
       expect(baseline.sources?.a?.source.trackId).not.toBe("2141");
       expect(baseline.sources?.a?.listenerId).toBe("listener-1");
       expect(baseline.facts.activeCandidateVerified).toBe(true);
-      if (mode === "flatness") {
+      if (mode === "flatness" || mode === "spread") {
         expect(mocks.flatnessLoading).toHaveBeenCalledExactlyOnceWith(
           expect.objectContaining({
             live: { pid: 98766, owned: true },

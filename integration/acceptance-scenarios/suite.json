@@ -3,6 +3,7 @@
   "scenarios": [
     "session-clip-identify",
     "session-flucoma-flatness-smoke",
+    "session-flucoma-spread-smoke",
     "session-listening-continuity",
     "session-stopped-quantized-audio",
     "session-stopped-quantized-midi",

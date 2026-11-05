@@ -1,5 +1,31 @@
 # Playback Listening Implementation To-Do
 
+## F2a smoke-only milestone (#98)
+
+- [x] Agree to smoke-only scope and a new test contract using the unchanged
+  reviewed `session-clip-identify` Set; no new numerical fixture.
+- [x] Select spread and flatness on the same stereo SpectralShape analyzers;
+  enforce canonical descriptor ordering without altering baseline measurements.
+- [x] Publish bounded independent spread Hz diagnostics through typed History,
+  with unqualified support/validity, lifecycle traces and owned shared cleanup.
+- [x] Register `session-flucoma-spread-smoke` with both-channel spread completion,
+  healthy flatness/native outputs, mapped binary proof, restart persistence,
+  protected state and cleanup; missing spread must fail independently.
+- [x] Finish before/after regressions and targeted-to-owning suite escalation,
+  strict schema/packaging checks and offline acceptance admission.
+- [x] Obtain separate approval and run the focused packaged real-Live scenario.
+  `run-GUn1Ho` passed all nine assertions on Live 11.3.43: 20 spread and flatness
+  deliveries/channel, one complete native capture, owned-restart persistence,
+  unchanged protected scopes and confirmed terminal cleanup. Candidate and
+  dependency pins are recorded in the companion specification.
+- [ ] Investigate the agent's final permission-denial/no-publication prose in
+  that run, which disagreed with the independently verified completed capture.
+  Do not reinterpret it as a failure of the passing measurement smoke contract
+  or claim that response/status behavior is qualified.
+- [ ] Qualify numerical definitions, floor/silence validity, independent frames,
+  trajectories, reports and Session/Arrangement coverage in follow-up work.
+  The smoke milestone does not close #91's full feature requirements.
+
 ## F1 smoke-first milestone (#92)
 
 - [x] Add a passive stereo `fluid.spectralshape~` diagnostic branch and bounded

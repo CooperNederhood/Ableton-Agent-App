@@ -1,5 +1,75 @@
 # Playback Listening and Entity Context
 
+## F2a spectral-spread diagnostic smoke (#98)
+
+The user-reviewed #98 delivery slice is **smoke only**, building on the existing
+flatness smoke rather than waiting for #92's qualified frame/numerical contract.
+It does not satisfy #91's full spectral-spread measurement definition of done.
+Authoritative trajectories, summaries, registration/configuration, report values,
+exact input support, silence/floor validity and numerical comparisons remain
+deferred. No historical diagnostics are promoted to qualified observations.
+
+The same two passive stereo `fluid.spectralshape~` analyzers now select
+`spread flatness`; there is no additional analyzer or playback. The pinned
+FluCoMa Max 1.0.10 reference defines canonical output order regardless of
+selection spelling: **spread first, flatness second**. Spread is a nonnegative
+Hz descriptor with linear frequency (`@unit 0`), magnitude weighting (`@power 0`),
+configured DC-to-Nyquist range and 2048-sample window/hop/FFT. These settings are
+configuration, not independently established frame support or numerical accuracy.
+Spread describes spectral breadth, not physical filter bandwidth or source count.
+
+The shared gate carries fresh bounded descriptor snapshots with independent
+channel values and descriptor-local failures. It publishes at most ten snapshots
+per second per channel (400 per channel per capture); progress is capped at two
+events per second per descriptor, four combined. The shared lifecycle budget
+admits at most 192 emission attempts per capture and 8192 encoded bytes per
+event before SDK delivery. Spread lifecycle facts use
+`flucoma-spread-smoke/v1` under `spectral-spread`; flatness retains its existing
+dB schema. Both explicitly retain `support` and `valueValidity` as `unqualified`
+and lifecycle `frames: 0`. Delivery counts are not FFT counts. Actual finite
+zero is permitted without a silence interpretation; absent/invalid output is
+never replaced by zero. The existing native level, centroid and attacks,
+source/clock ownership, audio pass-through and scoped cleanup remain unchanged.
+
+Diagnostics use the existing bounded redacted journal and typed Desktop History,
+not metric contexts/reports or a new storage path. Normal listening includes
+both smoke descriptors. Requests mentioning spread still use one existing
+listening action, with no new requested-metrics argument.
+
+The reviewed `session-flucoma-spread-smoke` contract reuses the unchanged
+`session-clip-identify` Set and one source-scoped listening turn. It requires
+finite spread deliveries on both channels and capture completion, healthy
+flatness/native evidence, actual mapped pinned-binary proof, retained diagnostics
+and native context after an owned Desktop restart, protected Set state and
+terminal cleanup. Native capture coverage remains 90000 samples at 48 kHz;
+there is no expected spread FFT count or numerical oracle. Missing spread fails
+even when baseline measurements pass.
+
+The approved focused packaged run **passed on Live 11.3.43** on 2026-11-04:
+terminal receipt `.test-artifacts/acceptance/run-GUn1Ho/receipt.json` records all
+nine assertions passing, one 90000-sample capture at 48 kHz, and 20 finite spread
+deliveries per channel. Flatness also retained 20 deliveries per channel, and
+all three native metrics completed without missing records. Both diagnostic
+streams and the native context survived the owned Desktop restart. Protected
+Set scopes remained unchanged, and Desktop/Live shutdown, host-reservation
+release and isolated-profile removal all completed.
+
+The application candidate SHA-256 is
+`d6ecc4457cd39ebeade6d62cba8483cce050d0610ae0dc6d99c435e78eb9794f`;
+the machine-listening dependency identity is
+`acf548c330e3e128d59ace852c1267f55b9e23c0f6ae600471a4b3e4b34c5f75`.
+Actual mapped pinned SpectralShape binary identity was verified at baseline and
+capture completion. The existing Remote Script credential was supplied through
+the supported environment source; this does not qualify Keychain startup.
+
+The agent's final prose incorrectly reported a permission denial and no
+publication, despite independently verified completed capture and persisted
+context. That response/status discrepancy remains a separate follow-up; this
+contract grades actual delivery/completion, not the assistant's status prose.
+No retry or broader Live campaign was run. This single smoke pass does not
+qualify numerical accuracy, independent FFT support, Arrangement coverage,
+visible UX or the full release suite.
+
 ## F1 FluCoMa flatness: initial diagnostic smoke
 
 The first #92 milestone reuses the unchanged `session-clip-identify` audio Set
@@ -25,9 +95,10 @@ Earlier receipts remain unchanged: `run-MwQ1f3` (gate syntax and retention),
 `run-aLbLsJ` (History projection), and `run-7rXerC` (positive roundoff).
 The earlier native reader failure is not explained or erased by the final pass.
 
-The generated v5 parent taps left and right audio independently into the pinned
+The original F1 generated v5 parent tapped left and right audio independently into the pinned
 `fluid.spectralshape~` external with `@select flatness`, magnitude mode and
-explicit 2,048-sample window/hop/FFT settings. Stereo audio still travels directly
+explicit 2,048-sample window/hop/FFT settings. F2a adds spread to that same
+selection as described above. Stereo audio still travels directly
 from `plugin~` to `plugout~`; the existing native measurement algorithms are
 unchanged. The diagnostic message gate opens after the native launch witness
 and closes during owned cleanup. Its acknowledgement confirms that its timer

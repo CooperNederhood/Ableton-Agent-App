@@ -2,6 +2,19 @@
 
 Companion specification: [Packaging and Operations](packaging-and-operations.md)
 
+## F2a shared SpectralShape smoke (#98)
+
+- [x] Reuse the pinned external and existing companions for the shared stereo
+  spread/flatness graph. Verify canonical descriptor selection/configuration,
+  signal/control/cleanup wiring and generated payload identity; reject a fully
+  rehashed graph missing spread.
+- [x] Require existing owned mapped-binary proof for the new spread smoke
+  scenario as well as flatness, including denial/cancellation before submission.
+- [x] Execute the focused packaged spread smoke after separate approval:
+  `run-GUn1Ho` passed on Live 11.3.43 with mapped pinned-binary proof,
+  restart persistence and complete owned cleanup. This is one candidate/case,
+  not full-suite release or Keychain startup qualification.
+
 ## Local candidate qualification (#82)
 
 - [x] Document clean-checkout candidate build, tracked fixtures, licensed

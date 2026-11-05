@@ -76,6 +76,89 @@ async function rehash(
 }
 
 describe("canonical integration payloads", () => {
+  it.each([
+    "descriptor",
+    "unit",
+    "extra-analyzer",
+    "channel",
+    "control",
+    "watchdog",
+  ])(
+    "rejects self-rehashed %s shared SpectralShape graph substitutions",
+    async (failure) => {
+      const path = await fixture();
+      const name = "Machine-Listening-Development.amxd";
+      const raw = await readFile(join(path, "machine-listening", name));
+      const container = decodeAmxd(raw);
+      const document = container.document as unknown as {
+        patcher: {
+          boxes: {
+            box: {
+              id: string;
+              patcher?: {
+                boxes: { box: { id: string; text?: string } }[];
+                lines: {
+                  patchline: {
+                    source: [string, number];
+                    destination: [string, number];
+                  };
+                }[];
+              };
+            };
+          }[];
+          lines: {
+            patchline: {
+              source: [string, number];
+              destination: [string, number];
+            };
+          }[];
+        };
+      };
+      const smoke = document.patcher.boxes.find(
+        ({ box }) => box.id === "flatness-smoke",
+      )!.box.patcher!;
+      const shape = smoke.boxes.find(({ box }) => box.id === "shape-left")!.box;
+      if (failure === "descriptor")
+        shape.text = shape.text!.replace(
+          "@select spread flatness",
+          "@select flatness",
+        );
+      if (failure === "unit")
+        shape.text = shape.text!.replace("@unit 0", "@unit 1");
+      if (failure === "extra-analyzer")
+        smoke.boxes.push({ box: { ...shape, id: "shape-extra" } });
+      if (failure === "channel")
+        smoke.lines.find(
+          ({ patchline }) => patchline.source[0] === "shape-left",
+        )!.patchline.destination[1] = 2;
+      if (failure === "control" || failure === "watchdog")
+        document.patcher.lines = document.patcher.lines.filter(
+          ({ patchline }) =>
+            patchline.source[0] !==
+            (failure === "control"
+              ? "flatness-smoke-control"
+              : "flatness-smoke-guard-stop"),
+        );
+      const changed = encodeAmxd(container, container.document);
+      const artifactName = "audio-listener-manifest.json";
+      const artifact = JSON.parse(
+        await readFile(join(path, "machine-listening", artifactName), "utf8"),
+      ) as { deviceSha256: string };
+      artifact.deviceSha256 = createHash("sha256")
+        .update(changed)
+        .digest("hex");
+      await rehash(
+        path,
+        "machine-listening",
+        artifactName,
+        Buffer.from(JSON.stringify(artifact)),
+      );
+      await rehash(path, "machine-listening", name, changed);
+      await expect(readIntegrationDevicePayloads(path)).rejects.toThrow(
+        /SpectralShape/,
+      );
+    },
+  );
   it.each(["missing", "tampered", "self-rehashed", "linked-parent", "extra"])(
     "rejects %s FluCoMa dependency before installation",
     async (failure) => {

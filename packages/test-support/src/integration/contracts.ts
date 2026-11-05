@@ -163,7 +163,7 @@ export interface CaptureEvidence {
   readonly spectralCentroidHz?: number;
 }
 /** Diagnostic outlet snapshots only: delivery counts are not FFT frame support. */
-export interface FlatnessSmokeEvidence {
+export interface SpectralShapeSmokeEvidence {
   readonly traceId: string;
   readonly correlationId: string;
   readonly passId: string;
@@ -191,6 +191,8 @@ export interface FlatnessSmokeEvidence {
     >;
   }[];
 }
+export type FlatnessSmokeEvidence = SpectralShapeSmokeEvidence;
+export type SpreadSmokeEvidence = SpectralShapeSmokeEvidence;
 export interface ContextEvidence {
   readonly contextId: string;
   readonly passId: string;
@@ -236,6 +238,7 @@ export interface TurnEvidence extends Submission {
   readonly captures: readonly CaptureEvidence[];
   readonly contexts: readonly ContextEvidence[];
   readonly flatnessSmoke?: readonly FlatnessSmokeEvidence[];
+  readonly spreadSmoke?: readonly SpreadSmokeEvidence[];
   readonly facts: Facts;
 }
 export interface RunEvidence {
@@ -246,6 +249,7 @@ export interface RunEvidence {
   readonly facts: Facts;
   readonly contexts: readonly ContextEvidence[];
   readonly flatnessSmoke?: readonly FlatnessSmokeEvidence[];
+  readonly spreadSmoke?: readonly SpreadSmokeEvidence[];
   readonly unchanged: readonly {
     readonly scope: string;
     readonly beforeSha256: string;

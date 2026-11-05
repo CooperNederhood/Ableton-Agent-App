@@ -356,6 +356,91 @@ function validateWiring(raw: Buffer, id: IntegrationDeviceId): void {
     const flatnessOutput = uniqueObject("prepend flatness_smoke");
     if (!connected(flatnessOutput, 0, runtime, 0))
       throw new Error("Missing flatness diagnostic runtime wiring");
+    const smoke = uniqueObject("p flatness-smoke");
+    const smokeControl = uniqueObject("route flatness_smoke_control");
+    const guardRoute = uniqueObject("route stop");
+    const guardStop = uniqueObject("prepend guardstop");
+    for (const [from, outlet, to, inlet] of [
+      [input, 0, smoke, 0],
+      [input, 1, smoke, 1],
+      [runtime, 0, smokeControl, 0],
+      [smokeControl, 0, smoke, 2],
+      [smoke, 0, flatnessOutput, 0],
+      [byName("ml_guard"), 2, guardRoute, 0],
+      [guardRoute, 0, guardStop, 0],
+      [guardStop, 0, smoke, 2],
+    ] as const)
+      if (!connected(from, outlet, to, inlet))
+        throw new Error("Missing shared SpectralShape smoke wiring");
+    const smokePatcher = record(boxes.find((box) => box.id === smoke)?.patcher);
+    if (
+      !Array.isArray(smokePatcher.boxes) ||
+      !Array.isArray(smokePatcher.lines)
+    )
+      throw new Error("Missing shared SpectralShape smoke graph");
+    const smokeBoxes = smokePatcher.boxes.map((entry: unknown) =>
+      record(record(entry).box),
+    );
+    const smokeSpecs = [
+      ["left", "inlet", undefined],
+      ["right", "inlet", undefined],
+      ["control", "inlet", undefined],
+      ...["shape-left", "shape-right"].map((id) => [
+        id,
+        "newobj",
+        "fluid.spectralshape~ @select spread flatness @fftsettings 2048 2048 2048 @unit 0 @power 0 @minfreq 0 @maxfreq -1",
+      ]),
+      ["gate", "newobj", "js audio_listener_flatness_smoke.js"],
+      ["out", "outlet", undefined],
+    ];
+    const smokeLines = [
+      [
+        ["left", 0],
+        ["shape-left", 0],
+      ],
+      [
+        ["shape-left", 0],
+        ["gate", 1],
+      ],
+      [
+        ["right", 0],
+        ["shape-right", 0],
+      ],
+      [
+        ["shape-right", 0],
+        ["gate", 2],
+      ],
+      [
+        ["control", 0],
+        ["gate", 0],
+      ],
+      [
+        ["gate", 0],
+        ["out", 0],
+      ],
+    ];
+    if (
+      smokeBoxes.length !== smokeSpecs.length ||
+      smokeSpecs.some(
+        ([id, maxclass, text]) =>
+          smokeBoxes.filter(
+            (box) =>
+              box.id === id && box.maxclass === maxclass && box.text === text,
+          ).length !== 1,
+      ) ||
+      smokePatcher.lines.length !== smokeLines.length ||
+      smokeLines.some(
+        ([source, destination]) =>
+          (smokePatcher.lines as unknown[]).filter((entry: unknown) => {
+            const line = record(record(entry).patchline);
+            return (
+              JSON.stringify(line.source) === JSON.stringify(source) &&
+              JSON.stringify(line.destination) === JSON.stringify(destination)
+            );
+          }).length !== 1,
+      )
+    )
+      throw new Error("Invalid shared SpectralShape smoke graph");
     for (const [from, outlet, to, inlet] of [
       [init, 0, identity, 0],
       [identity, 0, runtime, 0],

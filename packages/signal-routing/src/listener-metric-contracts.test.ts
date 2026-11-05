@@ -29,63 +29,80 @@ import { producerMessageSchema } from "./ingress-contracts.js";
 import { createSyntheticMetricWireFixture as fixture } from "./listener-metric-test-support.js";
 
 describe("wire5 independent metric contracts", () => {
-  it("registers flatness only as a bounded diagnostic, never as a frame-qualified metric observation", () => {
-    const f = fixture();
-    const lifecycle = {
-      scope: LISTENER_METRIC_SCOPE,
-      metric: "spectral-flatness",
-      eventId: f.wire.generation,
-      causationId: f.wire.causationId,
-      generation: f.wire.generation,
-      nativeEpoch: f.proof.armed.ownership.nativeEpoch,
-      stage: "progress",
-      phase: "capture",
-      elapsedMs: 200,
-      durationMs: 200,
-      frames: 0,
-      reason: "flatness_smoke_output",
-      facts: [
-        {
-          field: "flatness.support",
-          actual: { state: "observed", value: "unqualified" },
-        },
-        { field: "flatness.leftDb", actual: { state: "observed", value: -42 } },
-        { field: "flatness.rightDb", actual: { state: "observed", value: -7 } },
-      ],
-    };
-    expect(nativeMetricLifecycleSchema.safeParse(lifecycle).success).toBe(true);
-    expect(
-      listenerResultMetricSchema.safeParse({
-        ...f.wire,
-        type: "listener.result",
-        status: "progress",
-        nativeLifecycle: lifecycle,
-      }).success,
-    ).toBe(true);
-    expect(
-      nativeMetricLifecycleSchema.safeParse({
-        ...lifecycle,
-        metric: "unregistered",
-      }).success,
-    ).toBe(false);
-    expect(
-      listenerControlMetricSchema.safeParse({
-        ...f.wire,
-        type: "listener.control",
-        action: "prepare",
-        config: { ...f.config, requestedMetrics: ["spectral-flatness"] },
-      }).success,
-    ).toBe(false);
-    expect(
-      metricAudioObservationSchema.safeParse({
-        ...f.observation,
-        metrics: {
-          ...f.observation.metrics,
-          "spectral-flatness": { records: [] },
-        },
-      }).success,
-    ).toBe(false);
-  });
+  it.each(["flatness", "spread"])(
+    "registers %s only as a bounded diagnostic, never as a frame-qualified metric observation",
+    (descriptor) => {
+      const f = fixture();
+      const lifecycle = {
+        scope: LISTENER_METRIC_SCOPE,
+        metric: `spectral-${descriptor}`,
+        eventId: f.wire.generation,
+        causationId: f.wire.causationId,
+        generation: f.wire.generation,
+        nativeEpoch: f.proof.armed.ownership.nativeEpoch,
+        stage: "progress",
+        phase: "capture",
+        elapsedMs: 200,
+        durationMs: 200,
+        frames: 0,
+        reason: `${descriptor}_smoke_output`,
+        facts: [
+          {
+            field: `${descriptor}.support`,
+            actual: { state: "observed", value: "unqualified" },
+          },
+          {
+            field: `${descriptor}.left${descriptor === "spread" ? "Hz" : "Db"}`,
+            actual: {
+              state: "observed",
+              value: descriptor === "spread" ? 1500 : -42,
+            },
+          },
+          {
+            field: `${descriptor}.right${descriptor === "spread" ? "Hz" : "Db"}`,
+            actual: {
+              state: "observed",
+              value: descriptor === "spread" ? 3000 : -7,
+            },
+          },
+        ],
+      };
+      expect(nativeMetricLifecycleSchema.safeParse(lifecycle).success).toBe(
+        true,
+      );
+      expect(
+        listenerResultMetricSchema.safeParse({
+          ...f.wire,
+          type: "listener.result",
+          status: "progress",
+          nativeLifecycle: lifecycle,
+        }).success,
+      ).toBe(true);
+      expect(
+        nativeMetricLifecycleSchema.safeParse({
+          ...lifecycle,
+          metric: "unregistered",
+        }).success,
+      ).toBe(false);
+      expect(
+        listenerControlMetricSchema.safeParse({
+          ...f.wire,
+          type: "listener.control",
+          action: "prepare",
+          config: { ...f.config, requestedMetrics: [`spectral-${descriptor}`] },
+        }).success,
+      ).toBe(false);
+      expect(
+        metricAudioObservationSchema.safeParse({
+          ...f.observation,
+          metrics: {
+            ...f.observation.metrics,
+            [`spectral-${descriptor}`]: { records: [] },
+          },
+        }).success,
+      ).toBe(false);
+    },
+  );
   it.each(["arrangement", "session"] as const)(
     "requires counter-bound FFT phase and confirmed owned cleanup for complete/partial %s publications",
     (mode) => {

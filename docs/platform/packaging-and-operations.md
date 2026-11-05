@@ -285,6 +285,10 @@ The production inventory also includes `audio_listener_flatness_smoke.js` and
 `audio_listener_flatness_probe.js`; the generated smoke subpatch is embedded in
 the canonical parent graph. This adds diagnostics transport, not a new
 authoritative observation schema or independently attested FFT frames.
+F2a reuses these same companions and the two stereo analyzers for spread and
+flatness. Production graph admission checks the exact two-descriptor selection,
+canonical configuration, signal taps, shared gate and control/cleanup wiring;
+rehashing a graph that omits spread cannot make it a valid current candidate.
 
 **Loading remains a separate qualification gate.** Max 8 documents current
 patcher-folder lookup before global search paths, but this is not proof that a

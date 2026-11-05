@@ -25,6 +25,7 @@ import type {
   BaselineEvidence,
   CaptureEvidence,
   FlatnessSmokeEvidence,
+  SpreadSmokeEvidence,
   ContextEvidence,
   DriverContext,
   DependencyInventory,
@@ -48,6 +49,7 @@ import {
   verifyStagedMedia,
   isFixtureMediaTarget,
   projectFlatnessSmoke,
+  projectSpreadSmoke,
 } from "@ableton-agent/test-support/integration";
 import type { DesktopListeningJob } from "../../apps/desktop/src/listening-contracts.js";
 import type { DesktopContextDetail } from "../../apps/desktop/src/context-contracts.js";
@@ -91,6 +93,7 @@ import {
   captureCleanupConfirmed,
   observedSessionSource,
   restoreFlatnessSmoke,
+  restoreSpreadSmoke,
 } from "./acceptance-evidence.js";
 import { ScopedApprovalPolicy } from "./acceptance-approvals.js";
 import { AcceptanceBridgeTimingProxy } from "./acceptance-bridge-timing.js";
@@ -225,6 +228,7 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
   #preservationPaths = new Set<string>();
   #traceEvents: TelemetryEventPage["items"] = [];
   #flatnessSmoke = new Map<string, FlatnessSmokeEvidence>();
+  #spreadSmoke = new Map<string, SpreadSmokeEvidence>();
   #historyCollected = false;
   #desktopCleanupReceipts: PackagedCleanupReceipt[] = [];
   #omittedDesktopCleanupReceipts = 0;
@@ -719,7 +723,13 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
     context: DriverContext,
     phase: "baseline" | "capture-completed",
   ): Promise<void> {
-    if (context.scenario.id !== "session-flucoma-flatness-smoke") return;
+    if (
+      ![
+        "session-flucoma-flatness-smoke",
+        "session-flucoma-spread-smoke",
+      ].includes(context.scenario.id)
+    )
+      return;
     const started = performance.now();
     this.#provenance = {
       ...this.#provenance,
@@ -1566,6 +1576,7 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
         }
         const captures: CaptureEvidence[] = [];
         const flatnessSmoke: FlatnessSmokeEvidence[] = [];
+        const spreadSmoke: SpreadSmokeEvidence[] = [];
         const contexts: ContextEvidence[] = [];
         const trace = jobs.length
           ? await this.#readTrace(context, sdkTurnId)
@@ -1606,14 +1617,27 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
             continue turnLoop;
           }
           await this.#verifyFlatnessBinary(context, "capture-completed");
-          if (
-            context.scenario.steps.some((step) =>
-              step.assertions.some(
-                (assertion) => assertion.name === "flatness-smoke",
-              ),
+          for (const [name, project, entries, retained] of [
+            [
+              "flatness-smoke",
+              projectFlatnessSmoke,
+              flatnessSmoke,
+              this.#flatnessSmoke,
+            ],
+            [
+              "spread-smoke",
+              projectSpreadSmoke,
+              spreadSmoke,
+              this.#spreadSmoke,
+            ],
+          ] as const) {
+            if (
+              !context.scenario.steps.some((step) =>
+                step.assertions.some((assertion) => assertion.name === name),
+              )
             )
-          ) {
-            const smoke = projectFlatnessSmoke(trace, {
+              continue;
+            const smoke = project(trace, {
               ...sdkTrace,
               passId: job.passId,
               listenerId: observed.ownership.listenerId,
@@ -1624,8 +1648,8 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
                 connectionEpoch: observed.ownership.connectionEpoch,
               },
             });
-            flatnessSmoke.push(smoke);
-            this.#flatnessSmoke.set(job.passId, smoke);
+            entries.push(smoke);
+            retained.set(job.passId, smoke);
           }
           this.#contexts.set(persisted.contextId, persisted);
           this.#contextTraces.set(persisted.contextId, sdkTrace);
@@ -1683,6 +1707,7 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
           assistantText: completed.content,
           captures,
           ...(flatnessSmoke.length ? { flatnessSmoke } : {}),
+          ...(spreadSmoke.length ? { spreadSmoke } : {}),
           contexts,
           facts: { sdkTurnId, ...(await this.#verifyWorld(context)) },
         };
@@ -1870,8 +1895,17 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
       afterRestart,
       (traceId) => this.#readTrace(context, traceId),
     );
+    const spreadSmoke = await restoreSpreadSmoke(
+      [...this.#spreadSmoke.values()],
+      afterRestart,
+      (traceId) => this.#readTrace(context, traceId),
+    );
     for (const traceId of new Set(this.#sdkTurns.values()))
-      if (!flatnessSmoke.some((entry) => entry.traceId === traceId))
+      if (
+        ![...flatnessSmoke, ...spreadSmoke].some(
+          (entry) => entry.traceId === traceId,
+        )
+      )
         await this.#readTrace(context, traceId);
     for (const traceId of this.#preflightTraces)
       await this.#readTrace(context, traceId);
@@ -1883,6 +1917,7 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
       facts: { ...this.#provenance, persistedContexts: contexts.length },
       contexts,
       ...(flatnessSmoke.length ? { flatnessSmoke } : {}),
+      ...(spreadSmoke.length ? { spreadSmoke } : {}),
       unchanged,
     };
   }

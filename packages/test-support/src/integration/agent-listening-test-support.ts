@@ -63,7 +63,14 @@ export function agentListeningFixture(action: "get" | "report" = "get") {
   };
   const start = {
     action: "play-session-and-listen",
-    job: { passId, stage: "completed", contextIds: [contextId] },
+    job: {
+      passId,
+      stage: "completed",
+      contextIds: [contextId],
+      createdAt: "2026-11-05T00:00:01.000Z",
+      updatedAt: "2026-11-05T00:00:02.000Z",
+      durationMs: 1000,
+    },
   };
   const entry = {
     contextId,

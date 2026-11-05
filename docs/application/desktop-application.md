@@ -224,6 +224,19 @@ all its owned captures, including after SDK idle. Its expected App-session ID is
 revalidated before cancellation; no arbitrary renderer actor, direct bridge stop
 or transport-ownership token is introduced.
 
+While a Session or Arrangement listening start awaits terminal tool delivery,
+Workspace retains one running operation and its Stop control; Outputs continues
+to display capture/publication progress and owned cancellation. Cancellation
+acknowledgement is not terminal delivery. Completion, partial publication,
+failure and cancellation clear busy presentation only as their terminal
+operation/agent events arrive. Delayed agent lifecycle updates locate the
+agent's existing owning App session, not the currently selected session; a
+removed owner's stale update cannot insert that agent into another session.
+Only explicit agent creation may introduce a new instance into the selection.
+Synthetic component and Electron regressions hold delivery pending, exercise
+both cancel controls and session-switch attribution, and preserve structured
+failure detail. They do not prove SDK execution, measured audio or real-Live UX.
+
 Before ordinary approval, Session listening explicitly discloses the clip launch,
 transport start, leave-running behavior on all outcomes, possible resumption of
 other selected Session sources, and that cancellation cannot retract an accepted

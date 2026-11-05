@@ -1077,7 +1077,11 @@ function reduceAgentInstanceChanged(
     | "conversation-settings-changed"
     | "mode-changed",
 ): DesktopState {
-  const session = activeSession(state);
+  if (state.activeSessionId === undefined) return state;
+  const session =
+    state.sessions.find(({ activeAgents }) =>
+      activeAgents.some(({ id }) => id === instance.id),
+    ) ?? (change === "created" ? activeSession(state) : undefined);
   if (session === undefined) return state;
   const activeAgents =
     change === "deactivated"

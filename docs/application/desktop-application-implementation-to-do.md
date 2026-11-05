@@ -204,6 +204,16 @@ presentation state and say so; they are not applied to Live.
 - [x] Cover selected-agent/session/profile races, stale inventory, bounded
   ownership, redaction, traced UI reads and cleanup in deterministic tests.
 - [x] Verify isolated synthetic Electron listening lifecycle regression.
+- [x] Hold both listening start actions pending through synthetic capture and
+  publication in renderer interactions and real Electron preload/events. Cover
+  completed/partial/failed/cancelled delivery, one running operation, working
+  Stop/owned-capture controls and no terminal stuck-busy state.
+- [x] Route delayed agent lifecycle updates to their original App session after
+  selection changes; ignore removed owners rather than adopting them into the
+  selection. Reproduce the stale-busy/foreign-agent defect before the fix in
+  component and Electron regressions, retaining ordinary creation/startup guards.
+  Synthetic IPC handlers and held terminal promises do not qualify SDK or Live
+  execution; the separate real-Live and attended visual checks remain required.
 - [x] Isolate every primary Electron launch/restart from inherited credentials,
   home directories, SDK/renderer overrides and production bridge/signal ports;
   verify preference-selected endpoints without weakening UI postconditions.

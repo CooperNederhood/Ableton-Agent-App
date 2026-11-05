@@ -15,10 +15,21 @@ import { summarizeMetricListeningResult } from "../../packages/protocol/src/inde
 import { createSyntheticPartialMetricListeningObservation } from "../../packages/protocol/src/testing.js";
 import { toDesktopApproval } from "../../apps/desktop/src/main/approvals.js";
 import type { DesktopEntityContextApi } from "../../apps/desktop/src/context-contracts.js";
-import type { DesktopListeningPage } from "../../apps/desktop/src/listening-contracts.js";
+import type {
+  DesktopListeningJob,
+  DesktopListeningPage,
+} from "../../apps/desktop/src/listening-contracts.js";
 import { listeningFailureFixture } from "../../apps/desktop/src/renderer/test-fixtures/listening-failure.js";
+import {
+  pendingListeningFixture,
+  type ListeningStartAction,
+} from "../../apps/desktop/src/renderer/test-fixtures/pending-listening.js";
 import { preferencesSchema } from "../../apps/desktop/src/contracts.js";
-import type { DesktopApi } from "../../apps/desktop/src/contracts.js";
+import type {
+  DesktopApi,
+  DesktopAppEvent,
+  RequestOf,
+} from "../../apps/desktop/src/contracts.js";
 import {
   listeningFixturePassId,
   listeningFixtureSessionId,
@@ -44,6 +55,19 @@ interface ElectronTestDesktopApi {
     listActive(): Promise<Array<{ id: string }>>;
   };
 }
+
+interface PendingListeningUiCall {
+  page: DesktopListeningPage;
+  cancellationRequests: RequestOf<"agents:cancel">[];
+  result?: { action: ListeningStartAction; job: DesktopListeningJob };
+  finish(
+    result: { action: ListeningStartAction; job: DesktopListeningJob },
+    events: DesktopAppEvent[],
+  ): Promise<void>;
+}
+type ListeningFixtureMain = typeof globalThis & {
+  pendingListeningUiCall: PendingListeningUiCall;
+};
 
 test.setTimeout(60_000);
 const ownedRejectingBridges = new Set<Server>();
@@ -1004,6 +1028,284 @@ test("shows synthetic listening lifecycle through real preload events and read-o
       await rm(profile, { recursive: true, force: true });
   }
 });
+
+for (const action of [
+  "play-session-and-listen",
+  "play-arrangement-and-listen",
+] as const) {
+  for (const stage of [
+    "completed",
+    "partial",
+    "failed",
+    "cancelled",
+  ] as const) {
+    test(`keeps pending ${action} visible and owned until ${stage} terminal delivery`, async () => {
+      const { application, profile } = await launchIsolatedDesktop();
+      try {
+        const window = await application.firstWindow();
+        await expect(
+          window.getByLabel("Active Agent", { exact: true }),
+        ).toBeEnabled({ timeout: 30_000 });
+        const sessions = await window.evaluate(() =>
+          globalThis.window.desktop.agent.getSessions(),
+        );
+        const session = sessions[0]!;
+        const agent = session.activeAgents.find(
+          ({ id }) => id === session.selectedAgentInstanceId,
+        );
+        if (agent === undefined)
+          throw new Error("Missing isolated selected agent");
+        const owner = {
+          sessionId: session.id,
+          liveSetId: session.liveSetId,
+          agent,
+        };
+        const queued = pendingListeningFixture(owner, action, "queued", 100);
+        await application.evaluate(({ BrowserWindow, ipcMain }, initial) => {
+          const send = (events: DesktopAppEvent[]) => {
+            for (const target of BrowserWindow.getAllWindows())
+              for (const event of events)
+                target.webContents.send("app:event", event);
+          };
+          let resolve!: (value: {
+            result: NonNullable<PendingListeningUiCall["result"]>;
+            events: DesktopAppEvent[];
+          }) => void;
+          const pendingTool = new Promise<{
+            result: NonNullable<PendingListeningUiCall["result"]>;
+            events: DesktopAppEvent[];
+          }>((finish) => {
+            resolve = finish;
+          });
+          const delivered = pendingTool.then(({ result, events }) => {
+            fixture.result = result;
+            fixture.page = {
+              ...fixture.page,
+              revision: 104,
+              jobs: [result.job],
+            };
+            send(events);
+          });
+          const fixture: PendingListeningUiCall = {
+            page: initial.page,
+            cancellationRequests: [],
+            finish: async (result, events) => {
+              resolve({ result, events });
+              await delivered;
+            },
+          };
+          (globalThis as ListeningFixtureMain).pendingListeningUiCall = fixture;
+          // Owned-process seams only: real preload calls/events, no SDK or Live.
+          ipcMain.removeHandler("listening:list");
+          ipcMain.handle(
+            "listening:list",
+            (_event, request: RequestOf<"listening:list">) =>
+              request.sessionId === fixture.page.sessionId
+                ? fixture.page
+                : { sessionId: request.sessionId, revision: 0, jobs: [] },
+          );
+          ipcMain.removeHandler("agents:cancel");
+          ipcMain.handle(
+            "agents:cancel",
+            (_event, request: RequestOf<"agents:cancel">) => {
+              if (
+                request.instanceId !== initial.job.agentId ||
+                (request.sessionId !== undefined &&
+                  request.sessionId !== initial.job.sessionId)
+              )
+                throw new Error("Synthetic cancellation owner mismatch");
+              fixture.cancellationRequests.push(request);
+              return { cancelled: true };
+            },
+          );
+          send(initial.events);
+        }, queued);
+        const operation = window.locator("details.operation");
+        await expect(operation).toHaveCount(1);
+        await expect(operation).toHaveClass(/operation-running/u);
+        await operation.locator("summary").click();
+        await expect(operation).toContainText(action);
+        await expect(window.locator(".working-running")).toBeVisible();
+        await expect(
+          window.getByRole("button", { name: "Stop agent", exact: true }),
+        ).toBeEnabled();
+        await expect(
+          window.getByRole("button", { name: "Send message", exact: true }),
+        ).toHaveCount(0);
+
+        await window
+          .getByRole("button", { name: "Outputs", exact: true })
+          .click();
+        const cancel = window.getByRole("button", {
+          name: "Cancel owned capture (not transport)",
+          exact: true,
+        });
+        for (const [index, progress] of (
+          ["capturing", "persisting"] as const
+        ).entries()) {
+          const update = pendingListeningFixture(
+            owner,
+            action,
+            progress,
+            101 + index,
+          );
+          await application.evaluate(({ BrowserWindow }, update) => {
+            (globalThis as ListeningFixtureMain).pendingListeningUiCall.page =
+              update.page;
+            for (const target of BrowserWindow.getAllWindows())
+              for (const event of update.events)
+                target.webContents.send("app:event", event);
+          }, update);
+          await expect(window.locator("[data-listening-stage]")).toHaveCount(1);
+          await expect(
+            window.locator(`[data-listening-stage=${progress}]`),
+          ).toBeVisible();
+          await expect(cancel).toBeEnabled();
+          expect(
+            await application.evaluate(
+              () =>
+                (globalThis as ListeningFixtureMain).pendingListeningUiCall
+                  .result ?? null,
+            ),
+          ).toBeNull();
+          await window
+            .getByRole("button", { name: "Workspace", exact: true })
+            .click();
+          await expect(operation).toHaveCount(1);
+          await expect(operation).toHaveClass(/operation-running/u);
+          await expect(operation).toContainText(`Listening pass: ${progress}`);
+          await expect(
+            window.getByRole("button", { name: "Stop agent", exact: true }),
+          ).toBeEnabled();
+          await window
+            .getByRole("button", { name: "Outputs", exact: true })
+            .click();
+        }
+        if (stage === "cancelled") {
+          await cancel.click();
+          await expect(
+            window.getByText("Await terminal status", { exact: false }),
+          ).toBeVisible();
+          const requests = await application.evaluate(
+            () =>
+              (globalThis as ListeningFixtureMain).pendingListeningUiCall
+                .cancellationRequests,
+          );
+          expect(requests).toHaveLength(1);
+          expect(requests[0]).toMatchObject({
+            instanceId: agent.id,
+            sessionId: session.id,
+          });
+          expect(requests[0]?.trace).toMatchObject({
+            traceId: expect.any(String),
+            correlationId: expect.any(String),
+            causationId: expect.any(String),
+          });
+          expect(
+            await application.evaluate(
+              () =>
+                (globalThis as ListeningFixtureMain).pendingListeningUiCall
+                  .result ?? null,
+            ),
+          ).toBeNull();
+        }
+        // Switch only the selected UI session while the original invocation waits.
+        const otherSession = {
+          ...session,
+          id: "synthetic-other-session",
+          title: "Synthetic other session",
+          activeAgents: [],
+          selectedAgentInstanceId: undefined,
+        };
+        const switchSession = async (activeSessionId: string) => {
+          await application.evaluate(
+            ({ BrowserWindow }, event: DesktopAppEvent) => {
+              for (const target of BrowserWindow.getAllWindows())
+                target.webContents.send("app:event", event);
+            },
+            {
+              type: "sessions.changed" as const,
+              sessions: [session, otherSession],
+              activeSessionId,
+            },
+          );
+        };
+        await switchSession(otherSession.id);
+        await expect(window.locator("[data-listening-stage]")).toHaveCount(0);
+        const terminal = pendingListeningFixture(owner, action, stage, 104);
+        await application.evaluate(
+          async (_electron, terminal) => {
+            await (
+              globalThis as ListeningFixtureMain
+            ).pendingListeningUiCall.finish(
+              { action: terminal.action, job: terminal.job },
+              terminal.events,
+            );
+          },
+          { ...terminal, action },
+        );
+        await expect(window.locator("[data-listening-stage]")).toHaveCount(0);
+        await window
+          .getByRole("button", { name: "Workspace", exact: true })
+          .click();
+        await expect(operation).toHaveCount(0);
+        await expect(
+          window
+            .getByLabel("Active Agent", { exact: true })
+            .locator(`option[value="${agent.id}"]`),
+        ).toHaveCount(0);
+        await expect(
+          window.getByRole("button", { name: "Stop agent", exact: true }),
+        ).toHaveCount(0);
+        await switchSession(session.id);
+        const status = stage === "partial" ? "completed" : stage;
+        await expect(operation).toHaveCount(1);
+        await expect(operation).toHaveClass(
+          new RegExp(`operation-${status}`, "u"),
+        );
+        await expect(window.locator(`.working-${status}`)).toBeVisible();
+        await expect(
+          window.getByRole("button", { name: "Stop agent", exact: true }),
+        ).toHaveCount(0);
+        await window
+          .getByRole("textbox", { name: "Message the Ableton agent" })
+          .fill("Next request");
+        await expect(
+          window.getByRole("button", { name: "Send message", exact: true }),
+        ).toBeEnabled();
+        if (stage === "failed") {
+          await expect(operation).toContainText("stale_native_preflight");
+          await expect(operation).toContainText("Inspect the failure");
+        }
+        await window
+          .getByRole("button", { name: "Outputs", exact: true })
+          .click();
+        await expect(
+          window.locator(`[data-listening-stage=${stage}]`),
+        ).toBeVisible();
+        await expect(cancel).toBeDisabled();
+        if (stage === "failed") {
+          await expect(
+            window.getByRole("region", { name: "Listening failure evidence" }),
+          ).toContainText("preflight.accepted-clock-age");
+        }
+        const result = await application.evaluate(() => ({
+          result: (globalThis as ListeningFixtureMain).pendingListeningUiCall
+            .result,
+          cancellations: (globalThis as ListeningFixtureMain)
+            .pendingListeningUiCall.cancellationRequests.length,
+        }));
+        expect(result).toEqual({
+          result: { action, job: terminal.job },
+          cancellations: stage === "cancelled" ? 1 : 0,
+        });
+      } finally {
+        await application.close();
+        await rm(profile, { recursive: true, force: true });
+      }
+    });
+  }
+}
 
 test("restores typed v1/v2/Session context and approximate quality across Electron restarts without renderer filesystem access", async () => {
   const bridge = createServer((socket) => socket.destroy());

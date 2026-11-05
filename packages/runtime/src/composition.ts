@@ -67,6 +67,7 @@ import {
   type LiveSetSaveRuntimeOptions,
 } from "./live-set-save-runtime.js";
 import { PreparedProjectContextStore } from "./prepared-context.js";
+import { listeningHistoryResult } from "./listening-history.js";
 
 export const DEFAULT_ABLETON_PORT = 8765;
 export const TOKEN_ENVIRONMENT_VARIABLE = "ABLETON_AGENT_TOKEN";
@@ -485,9 +486,7 @@ function createRuntimeObserver(
           ...(duration === undefined ? {} : { durationMs: duration }),
           ...(success
             ? {
-                result: sanitizeTelemetryAttributes({
-                  result: event.data.result,
-                }),
+                result: listeningHistoryResult(toolName, event.data.result),
               }
             : {
                 error:

@@ -29,6 +29,7 @@ import {
   type CorrelationTraceContext,
 } from "@ableton-agent/correlation";
 import { stableTelemetryId } from "@ableton-agent/signal-routing";
+import { createSyntheticMetricListeningObservation } from "@ableton-agent/protocol/testing";
 
 import {
   createAbletonService,
@@ -52,6 +53,87 @@ type TestSession = Awaited<ReturnType<TestClient["createSession"]>>;
 type TestSessionEvent = Parameters<Parameters<TestSession["on"]>[0]>[0];
 
 describe("runtime configuration", () => {
+  it("journals actual SDK context JSON as typed content before string retention bounds", async () => {
+    const observation = createSyntheticMetricListeningObservation({
+      endBeat: 16,
+    });
+    const body = {
+      action: "get",
+      entry: {
+        contextId: "context",
+        passId: observation.ownership.passId,
+        listenerId: observation.ownership.listenerId,
+        subjectId: "subject",
+        kind: observation.schema,
+        createdAt: new Date().toISOString(),
+        freshness: "fresh",
+        summary: "Measured",
+      },
+      observation,
+    };
+    const content = JSON.stringify(body);
+    expect(content.length).toBeGreaterThan(16_384);
+    const occurredAt = new Date().toISOString();
+    const session = fakeSession("sdk-session", [
+      {
+        type: "tool.execution_start",
+        id: "start",
+        parentId: null,
+        timestamp: occurredAt,
+        data: {
+          toolCallId: "context-call",
+          toolName: "ableton_context",
+          arguments: { action: "get", contextId: "context" },
+        },
+      },
+      {
+        type: "tool.execution_complete",
+        id: "complete",
+        parentId: null,
+        timestamp: occurredAt,
+        data: {
+          toolCallId: "context-call",
+          success: true,
+          result: { content },
+        },
+      },
+    ]);
+    const records: AgentHistoryRecord[] = [];
+    const runtime = createAgentRuntime({
+      ableton: { port: 8765 },
+      agent: {
+        clientFactory: () => ({
+          createSession: async () => session,
+          resumeSession: async () => session,
+          stop: async () => [],
+        }),
+      },
+      currentAppSessionId: () => "app",
+      agentHistory: {
+        appendAgentHistory: async (record) => {
+          records.push(record);
+        },
+      },
+    });
+    try {
+      await runtime.application.start();
+      await runtime.application.send("Read the known measurement context.");
+      const result = records.find((record) => record.kind === "tool_result");
+      expect(result).toMatchObject({
+        kind: "tool_result",
+        appSessionId: "app",
+        agentSessionId: "sdk-session",
+        toolCallId: "context-call",
+        correlationId: "context-call",
+        outcome: "success",
+        result: { result: { content: body } },
+      });
+      expect(result?.causationId).toBe(result?.turnId);
+      expect(result?.turnId).toBeTypeOf("string");
+    } finally {
+      await runtime.application.stop();
+    }
+  });
   it("composes the listening factory with the same bridge and authenticated ingress", async () => {
     const shutdown = vi.fn(async () => {});
     const factory = vi.fn(() => ({
@@ -962,7 +1044,10 @@ describe("agent runtime composition", () => {
   });
 });
 
-function fakeSession(sessionId: string) {
+function fakeSession(
+  sessionId: string,
+  beforeAnswer: readonly TestSessionEvent[] = [],
+) {
   const listeners = new Set<(event: TestSessionEvent) => void>();
   const emit = (event: TestSessionEvent): void => {
     for (const listener of listeners) listener(event);
@@ -970,6 +1055,7 @@ function fakeSession(sessionId: string) {
   return {
     sessionId,
     send: async () => {
+      beforeAnswer.forEach(emit);
       emit({
         type: "assistant.message",
         id: "assistant",

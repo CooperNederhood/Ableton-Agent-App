@@ -13,6 +13,9 @@ Companion specification: [Acceptance test authoring](acceptance-authoring.md).
 - [x] Persist sanitized structured SDK results in receipts/product evidence,
       re-read after the existing owned restart, and independently re-evaluate
       consumption and cross-artifact equality during persisted verification.
+- [x] Decode/schema-validate actual SDK listening/context JSON before generic
+      journal string bounds; retain structured public results or explicit
+      unavailable evidence. Cover large get/report responses and runtime wiring.
 - [x] Add synthetic wrong-ID denial/no-read, queued/partial, wrong-owner,
       failure/cancellation, ordering, pagination, redaction/oversize and durable
       round-trip regressions. Historical `run-GUn1Ho` remains backend-only proof.

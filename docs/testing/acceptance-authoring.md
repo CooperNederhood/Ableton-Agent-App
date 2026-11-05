@@ -326,9 +326,16 @@ query over the existing local journal. It does not expose SQL, files, raw audio,
 or a new storage location to the renderer. Queries page in batches of 100,
 cap each turn at 256 records / 8 MiB, and reject missing/repeated pages and
 changing totals. Existing aggregate runner/receipt bounds still apply.
-SDK JSON result text is decoded to structured, sanitized evidence before receipt
-serialization so the receipt's 16384-character string bound cannot silently
-clip a measurement. Credentials remain redacted; omitted audio/binary or
+Runtime decodes listening/context SDK JSON against the public tool-result
+schemas **before** generic journal string sanitization (1 MiB input/output
+bound). The existing typed result record retains structured content instead of
+a duplicate raw JSON string. Invalid JSON, absent SDK content, invalid public
+results and oversize inputs retain explicit `history_projection_unavailable`
+evidence rather than success-shaped empty data. No application SDK event field
+or new transcript store is required. The collector also decodes SDK JSON text
+when supplied by a typed query and persists structured evidence, so the receipt's
+16384-character string bound cannot silently clip a measurement.
+Credentials remain redacted; omitted audio/binary or
 truncation markers cannot satisfy the contract.
 
 The original evidence is retained in `TurnEvidence.agentListening` and product

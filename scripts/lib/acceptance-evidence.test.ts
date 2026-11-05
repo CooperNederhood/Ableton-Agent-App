@@ -12,6 +12,7 @@ import {
 } from "../../packages/test-support/src/integration/agent-listening-result.js";
 import { agentListeningFixture } from "../../packages/test-support/src/integration/agent-listening-test-support.js";
 import { writeScenarioReceipt } from "./scenario-receipts.mjs";
+import { listeningHistoryResult } from "../../packages/runtime/src/listening-history.js";
 import {
   captureCleanupConfirmed,
   restoreFlatnessSmoke,
@@ -52,9 +53,13 @@ describe("agent consumption typed History persistence", () => {
             !("content" in envelope)
           )
             throw new Error("fixture");
-          stored.result = {
-            result: { content: JSON.stringify(envelope.content) },
-          };
+          stored.result = listeningHistoryResult(
+            String(stored.metadata.toolName),
+            { content: JSON.stringify(envelope.content) },
+          );
+          expect(stored.result.result).toMatchObject({
+            content: envelope.content,
+          });
         }
         await journal.appendAgentHistory(
           agentHistoryRecordSchema.parse(stored),

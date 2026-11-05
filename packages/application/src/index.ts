@@ -4064,10 +4064,21 @@ export class CopilotAgentService implements AgentService {
           sessionId: session.sessionId,
         });
       } else if (event.type === "abort") {
-        this.#recordRuntime(state, "agent.turn.aborted", sdkData, {
-          occurredAt: event.timestamp,
-          sessionId: session.sessionId,
-        });
+        this.#recordRuntime(
+          state,
+          "agent.turn.aborted",
+          {
+            ...sdkData,
+            queuedAt:
+              state.activeTurn === undefined
+                ? undefined
+                : new Date(state.activeTurn.queuedAt).toISOString(),
+          },
+          {
+            occurredAt: event.timestamp,
+            sessionId: session.sessionId,
+          },
+        );
       } else if (
         event.type === "session.mode_changed" ||
         event.type === "session.plan_changed" ||
@@ -5281,6 +5292,10 @@ export class CopilotAgentService implements AgentService {
       this.#recordRuntime(state, "agent.abort.completed", { reason: "user" });
       this.#recordRuntime(state, "agent.turn.cancelled", {
         reason: "user",
+        queuedAt:
+          state.activeTurn === undefined
+            ? undefined
+            : new Date(state.activeTurn.queuedAt).toISOString(),
         durationMs:
           state.activeTurn?.startedAt === undefined
             ? undefined
@@ -5331,6 +5346,10 @@ export class CopilotAgentService implements AgentService {
       this.#recordRuntime(state, "agent.abort.completed", { reason: "user" });
       this.#recordRuntime(state, "agent.turn.cancelled", {
         reason: "user",
+        queuedAt:
+          state.activeTurn === undefined
+            ? undefined
+            : new Date(state.activeTurn.queuedAt).toISOString(),
         durationMs:
           state.activeTurn?.startedAt === undefined
             ? undefined
@@ -5518,6 +5537,7 @@ export class CopilotAgentService implements AgentService {
         "agent.turn.failed",
         {
           origin: turn.origin,
+          queuedAt: new Date(turn.queuedAt).toISOString(),
           prompt: finalPrompt,
           kind,
           agentMode: requestedAgentMode,
@@ -5554,6 +5574,7 @@ export class CopilotAgentService implements AgentService {
         "agent.turn.failed",
         {
           origin: turn.origin,
+          queuedAt: new Date(turn.queuedAt).toISOString(),
           prompt: finalPrompt,
           kind,
           agentMode: requestedAgentMode,
@@ -5598,6 +5619,7 @@ export class CopilotAgentService implements AgentService {
       "agent.turn.completed",
       {
         origin: turn.origin,
+        queuedAt: new Date(turn.queuedAt).toISOString(),
         prompt: finalPrompt,
         kind,
         agentMode: requestedAgentMode,
@@ -5731,6 +5753,7 @@ export class CopilotAgentService implements AgentService {
             "agent.turn.failed",
             {
               origin: turn.origin,
+              queuedAt: new Date(turn.queuedAt).toISOString(),
               prompt: turn.prompt,
               queueDurationMs: Date.now() - turn.queuedAt,
               ...(turn.startedAt === undefined

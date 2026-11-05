@@ -4072,6 +4072,17 @@ it("bounds plan approval payloads and settles a pending managed request on cance
   expect(approval.request.planContent).toHaveLength(100_000);
 
   await expect(service.cancelManagedAgent("managed")).resolves.toBe(true);
+  const started = runtimeEvents.find(
+    (event) => event.type === "agent.turn.started",
+  );
+  expect(started?.data.queuedAt).toBeTypeOf("string");
+  expect(
+    runtimeEvents.find((event) => event.type === "agent.turn.cancelled"),
+  ).toMatchObject({
+    sessionId: started?.sessionId,
+    trace: { turnId: started?.trace?.turnId },
+    data: { queuedAt: started?.data.queuedAt },
+  });
   await expect(exitRequest).resolves.toEqual({ approved: false });
   expect(managedSession.abort).toHaveBeenCalledOnce();
   expect(received).toContainEqual({

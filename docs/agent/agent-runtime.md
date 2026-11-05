@@ -74,8 +74,12 @@ duplicated or truncated frames remain explicitly unavailable evidence. Parsing
 happens before generic string clipping, with no duplicate raw payload retained.
 The first strengthened Session attempt (`run-wz3Mp8`) failed because the
 projector treated this suffix as malformed JSON, despite successful tool
-operations. That receipt remains failed; a corrected-candidate retry and visual
-qualification are pending.
+operations. That receipt remains failed. The authorized retry (`run-CIeyEv`)
+retained the actual completed job and report, but failed the ordering assertion:
+terminal events omitted `queuedAt`, so History placed submission at completion.
+Terminal turn events now carry the original submission time separately from
+completion and duration, including failure and cancellation paths. Both receipts
+remain failed; further real-host and visual qualification are pending.
 
 `createListeningRuntimeHost` assembles the concrete listening ports from these
 same dependencies and explicit invoking-owner/repository resolvers. It retains

@@ -57,6 +57,8 @@ describe("runtime configuration", () => {
   it.each([false, true])(
     "journals SDK context content with post-tool guidance=%s before string retention bounds",
     async (withGuidance) => {
+      vi.useFakeTimers({ toFake: ["Date"] });
+      const submittedAt = new Date();
       const observation = createSyntheticMetricListeningObservation({
         endBeat: 16,
       });
@@ -125,6 +127,11 @@ describe("runtime configuration", () => {
           },
         },
       ]);
+      const deliver = session.send;
+      session.send = async () => {
+        vi.setSystemTime(submittedAt.getTime() + 2000);
+        return deliver();
+      };
       const directory = await mkdtemp(join(tmpdir(), "listening-sdk-history-"));
       const journal = await LocalObservabilityJournal.open({
         path: join(directory, "observability.sqlite"),
@@ -160,13 +167,74 @@ describe("runtime configuration", () => {
         });
         expect(result?.causationId).toBe(result?.turnId);
         expect(result?.turnId).toBeTypeOf("string");
+        expect(records.find((record) => record.kind === "turn")).toMatchObject({
+          occurredAt: submittedAt.toISOString(),
+          completedAt: new Date(submittedAt.getTime() + 2000).toISOString(),
+          durationMs: 2000,
+        });
+        expect(
+          records.find(
+            (record) => record.kind === "message" && record.role === "user",
+          ),
+        ).toMatchObject({
+          occurredAt: submittedAt.toISOString(),
+        });
       } finally {
         await runtime.application.stop();
         await journal.close();
         await rm(directory, { recursive: true, force: true });
+        vi.useRealTimers();
       }
     },
   );
+  it("preserves submission time in failed turn and user-message History", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const submittedAt = new Date();
+    const session = fakeSession("sdk-session");
+    session.send = async () => {
+      vi.setSystemTime(submittedAt.getTime() + 2000);
+      throw new Error("Synthetic turn failure");
+    };
+    const records: AgentHistoryRecord[] = [];
+    const runtime = createAgentRuntime({
+      ableton: { port: 8765 },
+      agent: {
+        clientFactory: () => ({
+          createSession: async () => session,
+          resumeSession: async () => session,
+          stop: async () => [],
+        }),
+      },
+      currentAppSessionId: () => "app",
+      agentHistory: {
+        appendAgentHistory: async (record) => {
+          records.push(record);
+        },
+      },
+    });
+    try {
+      await runtime.application.start();
+      await expect(
+        runtime.application.send("Read the known context."),
+      ).rejects.toThrow("Synthetic turn failure");
+      expect(records.find((record) => record.kind === "turn")).toMatchObject({
+        status: "failed",
+        occurredAt: submittedAt.toISOString(),
+        completedAt: new Date(submittedAt.getTime() + 2000).toISOString(),
+        durationMs: 2000,
+      });
+      expect(
+        records.find(
+          (record) => record.kind === "message" && record.role === "user",
+        ),
+      ).toMatchObject({
+        occurredAt: submittedAt.toISOString(),
+      });
+    } finally {
+      await runtime.application.stop();
+      vi.useRealTimers();
+    }
+  });
   it("composes the listening factory with the same bridge and authenticated ingress", async () => {
     const shutdown = vi.fn(async () => {});
     const factory = vi.fn(() => ({

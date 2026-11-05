@@ -21,6 +21,10 @@ Companion specification: [Agent Runtime](agent-runtime.md)
   only that exact application-owned frame, and cover application-to-journal
   persistence plus fail-closed malformed/truncated/foreign frames. Preserve
   failed receipt `run-wz3Mp8` separately from the authorized one-case retry.
+- [x] Preserve original `queuedAt` on terminal turn events so persisted turn and
+  user-message timestamps precede tool execution rather than using completion
+  time. Cover successful/failed journal projection and cancellation attribution.
+  Preserve the second failed receipt `run-CIeyEv`; no qualified pass yet.
 
 - [x] Compose optional listening hosts against the same bridge and authenticated
   ingress, preserving caller ownership, deferred trace and terminal-pass leases.

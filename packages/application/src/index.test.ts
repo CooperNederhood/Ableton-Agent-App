@@ -2205,6 +2205,22 @@ describe("CopilotAgentService", () => {
       runtimeEvents.find((event) => event.type === "agent.turn.completed")
         ?.data,
     ).toMatchObject({ response: "Ableton is connected." });
+    for (const event of runtimeEvents.filter((event) =>
+      [
+        "agent.turn.completed",
+        "agent.turn.failed",
+        "agent.turn.cancelled",
+        "agent.turn.aborted",
+      ].includes(event.type),
+    )) {
+      const start = runtimeEvents.find(
+        (candidate) =>
+          candidate.type === "agent.turn.started" &&
+          candidate.trace?.turnId === event.trace?.turnId,
+      );
+      expect(event.data.queuedAt).toBe(start?.data.queuedAt);
+      expect(event.data.queuedAt).toBeTypeOf("string");
+    }
     expect(runtimeEvents.map((event) => event.type)).toEqual(
       expect.arrayContaining([
         "agent.assistant.final",

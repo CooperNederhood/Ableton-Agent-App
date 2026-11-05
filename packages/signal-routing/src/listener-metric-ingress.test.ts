@@ -1013,7 +1013,12 @@ describe("opt-in authenticated independent metric ingress", () => {
     });
   });
 
-  it.each(["spectral-centroid", "spectral-flatness", "spectral-spread"])(
+  it.each([
+    "spectral-centroid",
+    "spectral-flatness",
+    "spectral-spread",
+    "spectral-rolloff",
+  ])(
     "records %s failure separately while healthy capture continues, preserving causal identity and redaction",
     async (metric) => {
       const s = await session("arrangement", true);
@@ -1294,6 +1299,7 @@ describe("opt-in authenticated independent metric ingress", () => {
     "spectral-centroid",
     "spectral-flatness",
     "spectral-spread",
+    "spectral-rolloff",
   ] as const)(
     "persists %s stage causation, duration, redaction and deduplication through typed journal reads",
     async (metric) => {

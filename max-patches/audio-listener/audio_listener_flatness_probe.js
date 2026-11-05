@@ -5,9 +5,9 @@ const { randomUUID } = require("node:crypto");
 const MAX_POSITIVE_ROUNDOFF_DB = 1e-9;
 
 // Outlet deliveries are diagnostic snapshots, never identified analysis frames.
-function createSmokeProbe({ now, sendControl, emit }, spread) {
+function createSmokeProbe({ now, sendControl, emit }, prefix) {
   let pass = null;
-  const prefix = spread ? "spread" : "flatness";
+  const frequency = prefix !== "flatness";
   const fail = (reason) => {
     if (!pass || pass.failure) return;
     pass.failure = reason.replace(/^flatness/, prefix);
@@ -19,7 +19,7 @@ function createSmokeProbe({ now, sendControl, emit }, spread) {
       ["flatness.schema", `flucoma-${prefix}-smoke/v1`],
       ["flatness.support", "unqualified"],
       ["flatness.valueValidity", "unqualified"],
-      ["flatness.units", spread ? "Hz" : "dB"],
+      ["flatness.units", frequency ? "Hz" : "dB"],
       ["flatness.channelPolicy", "independent-stereo"],
       ["flatness.windowSamples", 2048],
       ["flatness.hopSamples", 2048],
@@ -53,7 +53,7 @@ function createSmokeProbe({ now, sendControl, emit }, spread) {
           field: `flatness.rejected.${name}`,
           actual: { state: "observed", value },
         });
-    if (spread) {
+    if (frequency) {
       for (const [field, value] of [
         ["unit", 0],
         ["minfreq", 0],
@@ -65,9 +65,14 @@ function createSmokeProbe({ now, sendControl, emit }, spread) {
         });
       for (const fact of facts)
         fact.field = fact.field
-          .replace(/^flatness/, "spread")
+          .replace(/^flatness/, prefix)
           .replace(/Db$/, "Hz");
     }
+    if (prefix === "rolloff")
+      facts.push({
+        field: "rolloff.rolloffpercent",
+        actual: { state: "observed", value: 95 },
+      });
     const lifecycle = {
       scope: "independent-metric-timelines/v1",
       metric: `spectral-${prefix}`,
@@ -102,7 +107,7 @@ function createSmokeProbe({ now, sendControl, emit }, spread) {
   return Object.freeze({
     start(control, epoch, causationId, passElapsedAtStart = 0) {
       if (pass && pass.cleanup !== "completed")
-        throw new Error("flatness_probe_still_owned");
+        throw new Error(`${prefix}_probe_still_owned`);
       pass = {
         control,
         epoch,
@@ -133,7 +138,7 @@ function createSmokeProbe({ now, sendControl, emit }, spread) {
         packet[1] !== pass.epoch ||
         pass.cleanup === "completed"
       )
-        throw new Error("flatness_foreign_or_late_packet");
+        throw new Error(`${prefix}_foreign_or_late_packet`);
       const kind = packet[2];
       if (kind === "watchdog-stopped" && packet.length === 3) {
         try {
@@ -148,7 +153,7 @@ function createSmokeProbe({ now, sendControl, emit }, spread) {
         return;
       if (kind === "started" && packet.length === 5) {
         if (pass.acknowledged || pass.cleanup !== "not-started")
-          throw new Error("flatness_unexpected_start");
+          throw new Error(`${prefix}_unexpected_start`);
         if (
           packet
             .slice(3)
@@ -159,7 +164,7 @@ function createSmokeProbe({ now, sendControl, emit }, spread) {
                 value.length > 128,
             )
         )
-          throw new Error("flatness_invalid_class");
+          throw new Error(`${prefix}_invalid_class`);
         pass.classes = packet.slice(3);
         pass.acknowledged = true;
         event("started", "flatness_smoke_capture");
@@ -167,7 +172,7 @@ function createSmokeProbe({ now, sendControl, emit }, spread) {
           fail("flatness_external_unavailable");
       } else if (kind === "stopped" && packet.length === 3) {
         if (pass.cleanup !== "pending")
-          throw new Error("flatness_unexpected_stop");
+          throw new Error(`${prefix}_unexpected_stop`);
         pass.cleanup = "completed";
         if (
           !pass.failure &&
@@ -191,13 +196,13 @@ function createSmokeProbe({ now, sendControl, emit }, spread) {
           sequence > 400 ||
           typeof db !== "number" ||
           !Number.isFinite(db) ||
-          (spread ? db < 0 : db < -320 || db > MAX_POSITIVE_ROUNDOFF_DB)
+          (frequency ? db < 0 : db < -320 || db > MAX_POSITIVE_ROUNDOFF_DB)
         ) {
           pass.rejected = Object.fromEntries(
             Object.entries({
               channel,
               sequence,
-              [spread ? "hz" : "db"]: db,
+              [frequency ? "hz" : "db"]: db,
             }).map(([key, value]) => [
               key,
               typeof value === "number" ? String(value) : typeof value,
@@ -209,7 +214,7 @@ function createSmokeProbe({ now, sendControl, emit }, spread) {
         pass.counts[channel] = sequence;
         // The theoretical maximum is zero; double-precision accumulation can
         // overshoot it by sub-nanodecibel roundoff. Larger positives stay invalid.
-        pass.values[channel] = spread ? db : Math.min(0, db);
+        pass.values[channel] = frequency ? db : Math.min(0, db);
         if (
           now() - pass.lastProgressAt >= 500 &&
           pass.values.every((v) => v !== null)
@@ -218,14 +223,14 @@ function createSmokeProbe({ now, sendControl, emit }, spread) {
           event("progress", "flatness_smoke_output");
         }
       } else {
-        throw new Error("flatness_invalid_packet");
+        throw new Error(`${prefix}_invalid_packet`);
       }
     },
     stop(control, cancelled = false) {
       if (!pass) return true;
       if (pass.cleanup === "completed") return true;
       if (pass.control.generation !== control.generation)
-        throw new Error("flatness_cleanup_owner_mismatch");
+        throw new Error(`${prefix}_cleanup_owner_mismatch`);
       pass.cancelled ||= cancelled;
       if (pass.cleanup === "not-started") {
         try {
@@ -264,20 +269,20 @@ function createSmokeProbe({ now, sendControl, emit }, spread) {
 }
 
 function createFlatnessProbe(options) {
-  return createSmokeProbe(options, false);
+  return createSmokeProbe(options, "flatness");
 }
 
-// Fixed two-descriptor transport: one owner, timer, sequence and stop handshake.
+// Fixed three-descriptor transport: one owner, timer, sequence and stop handshake.
 // Validation of each descriptor remains local to its diagnostic probe.
 function createSpectralShapeSmoke({ now, sendControl, emit }) {
   let eventCount = 0;
   const options = {
     now,
     emit: (control, lifecycle) => {
-      // Two progress chains each publish at most twice/second. The total event
-      // and encoded-size caps also bound terminal/rejection bursts before SDK IO.
+      // Three chains: at most 240 progress + 18 lifecycle events across the
+      // 400-delivery/100ms gate horizon, with bounded failure/terminal headroom.
       if (
-        ++eventCount > 192 ||
+        ++eventCount > 288 ||
         Buffer.byteLength(JSON.stringify(lifecycle)) > 8192
       )
         throw new Error("spectralshape_diagnostic_limit");
@@ -286,15 +291,17 @@ function createSpectralShapeSmoke({ now, sendControl, emit }) {
     sendControl: () => {},
   };
   const flatness = createFlatnessProbe(options);
-  const spread = createSmokeProbe(options, true);
+  const spread = createSmokeProbe(options, "spread");
+  const rolloff = createSmokeProbe(options, "rolloff");
+  const probes = [spread, rolloff, flatness];
   let owner = null;
   let sequences = [0, 0];
   let stopping = false;
   let started = false;
   let cleaned = true;
-  function both(action) {
+  function eachProbe(action) {
     let failure;
-    for (const probe of [flatness, spread]) {
+    for (const probe of probes) {
       try {
         action(probe);
       } catch (error) {
@@ -313,7 +320,9 @@ function createSpectralShapeSmoke({ now, sendControl, emit }) {
       started = false;
       cleaned = false;
       try {
-        both((probe) => probe.start(control, epoch, causationId, elapsedMs));
+        eachProbe((probe) =>
+          probe.start(control, epoch, causationId, elapsedMs),
+        );
       } finally {
         // Establish the physical lease even if diagnostic delivery throws:
         // controller cleanup can then always stop the same owned gate.
@@ -335,7 +344,7 @@ function createSpectralShapeSmoke({ now, sendControl, emit }) {
         const channel = packet[3];
         const sequence = packet[4];
         if (
-          packet.length !== 7 ||
+          packet.length !== 8 ||
           !started ||
           ![0, 1].includes(channel) ||
           !Number.isSafeInteger(sequence) ||
@@ -345,10 +354,10 @@ function createSpectralShapeSmoke({ now, sendControl, emit }) {
           throw new Error("spectralshape_invalid_envelope");
         sequences[channel] = sequence;
         if (stopping) return;
-        both((probe) =>
+        eachProbe((probe) =>
           probe.receive([
             ...packet.slice(0, 5),
-            packet[probe === spread ? 5 : 6],
+            packet[5 + probes.indexOf(probe)],
           ]),
         );
         return;
@@ -374,7 +383,7 @@ function createSpectralShapeSmoke({ now, sendControl, emit }) {
       } else {
         throw new Error("spectralshape_invalid_envelope");
       }
-      both((probe) => probe.receive(packet));
+      eachProbe((probe) => probe.receive(packet));
     },
     stop(control, cancelled = false) {
       if (cleaned) return true;
@@ -383,14 +392,18 @@ function createSpectralShapeSmoke({ now, sendControl, emit }) {
       const send = !stopping;
       stopping = true;
       try {
-        both((probe) => probe.stop(control, cancelled));
+        eachProbe((probe) => probe.stop(control, cancelled));
       } finally {
         if (send) sendControl("stop", ...owner);
       }
       return cleaned;
     },
     snapshot() {
-      return { flatness: flatness.snapshot(), spread: spread.snapshot() };
+      return {
+        flatness: flatness.snapshot(),
+        spread: spread.snapshot(),
+        rolloff: rolloff.snapshot(),
+      };
     },
   });
 }

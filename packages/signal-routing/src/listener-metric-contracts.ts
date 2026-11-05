@@ -224,6 +224,7 @@ export const nativeMetricLifecycleSchema = z.strictObject({
       ...metricObservationMetricSchema.options,
       "spectral-flatness",
       "spectral-spread",
+      "spectral-rolloff",
     ])
     .optional(),
   generation: z.string().uuid(),

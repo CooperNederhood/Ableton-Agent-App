@@ -388,7 +388,7 @@ function validateWiring(raw: Buffer, id: IntegrationDeviceId): void {
       ...["shape-left", "shape-right"].map((id) => [
         id,
         "newobj",
-        "fluid.spectralshape~ @select spread flatness @fftsettings 2048 2048 2048 @unit 0 @power 0 @minfreq 0 @maxfreq -1",
+        "fluid.spectralshape~ @select spread rolloff flatness @fftsettings 2048 2048 2048 @unit 0 @power 0 @minfreq 0 @maxfreq -1 @rolloffpercent 95",
       ]),
       ["gate", "newobj", "js audio_listener_flatness_smoke.js"],
       ["out", "outlet", undefined],

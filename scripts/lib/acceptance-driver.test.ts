@@ -1489,8 +1489,11 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
     "spread",
     "spread-denied",
     "spread-cancelled",
+    "rolloff",
+    "rolloff-denied",
+    "rolloff-cancelled",
   ])(
-    "binds raw Max identities and requires loaded-binary proof for both smoke cases: %s",
+    "binds raw Max identities and requires loaded-binary proof for all smoke cases: %s",
     async (mode) => {
       await audioBaseline();
       const snapshot = liveSetSnapshotSchema.parse(
@@ -1524,9 +1527,7 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
           id:
             mode === "baseline"
               ? context.scenario.id
-              : mode.startsWith("spread")
-                ? "session-flucoma-spread-smoke"
-                : "session-flucoma-flatness-smoke",
+              : `session-flucoma-${mode.split("-")[0]}-smoke`,
         },
         fixture: {
           ...context.fixture,
@@ -1605,7 +1606,7 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
       expect(baseline.sources?.a?.source.trackId).not.toBe("2141");
       expect(baseline.sources?.a?.listenerId).toBe("listener-1");
       expect(baseline.facts.activeCandidateVerified).toBe(true);
-      if (mode === "flatness" || mode === "spread") {
+      if (mode === "flatness" || mode === "spread" || mode === "rolloff") {
         expect(mocks.flatnessLoading).toHaveBeenCalledExactlyOnceWith(
           expect.objectContaining({
             live: { pid: 98766, owned: true },

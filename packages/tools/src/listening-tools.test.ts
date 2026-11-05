@@ -343,7 +343,7 @@ describe("optional listening tool contracts", () => {
       "corroborate placement with native support and level-row intervals",
     );
   });
-  it("keeps shared flatness/spread smoke diagnostics distinct from qualified context and forbids invented arguments", () => {
+  it("keeps shared flatness/spread/rolloff smoke diagnostics distinct from qualified context and forbids invented arguments", () => {
     expect(LISTENING_AGENT_GUIDANCE).toContain(
       "not an extra capture or invented requestedMetrics argument",
     );
@@ -356,7 +356,15 @@ describe("optional listening tool contracts", () => {
     expect(LISTENING_AGENT_GUIDANCE).toContain(
       "do not invent flatness report values",
     );
-    expect(LISTENING_AGENT_GUIDANCE).toContain("or spread report values");
+    expect(LISTENING_AGENT_GUIDANCE).toContain(
+      "spread report values or rolloff report values",
+    );
+    expect(LISTENING_AGENT_GUIDANCE).toContain(
+      "Rolloff is explicitly configured at 95 percent",
+    );
+    expect(LISTENING_AGENT_GUIDANCE).toContain(
+      "not an actual synth/filter cutoff or an automatic EQ prescription",
+    );
     expect(LISTENING_AGENT_GUIDANCE).toContain("nonnegative Hz values");
     expect(LISTENING_AGENT_GUIDANCE).toContain(
       "Delivery counts are not FFT frame counts",

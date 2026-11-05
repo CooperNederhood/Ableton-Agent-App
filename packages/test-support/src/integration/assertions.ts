@@ -14,6 +14,7 @@ import {
 } from "./validation.js";
 import { validateFlatnessSmoke } from "./flatness-smoke.js";
 import { validateSpreadSmoke } from "./spread-smoke.js";
+import { validateRolloffSmoke } from "./rolloff-smoke.js";
 import {
   verifyAgentListeningResult,
   verifyRestoredAgentListeningEvidence,
@@ -112,8 +113,8 @@ function requiredStrings(parameters: Facts, keys: readonly string[]): void {
 function registerSmokeAssertions(
   registry: AssertionRegistry,
 ): AssertionRegistry {
-  for (const kind of ["flatness", "spread"] as const) {
-    const key = kind === "flatness" ? "flatnessSmoke" : "spreadSmoke";
+  for (const kind of ["flatness", "spread", "rolloff"] as const) {
+    const key = `${kind}Smoke` as const;
     registry.register(
       `${kind}-smoke`,
       ({ turn, turns, evidence, baseline }, parameters) => {
@@ -146,7 +147,8 @@ function registerSmokeAssertions(
           );
         try {
           if (kind === "flatness") validateFlatnessSmoke(entry);
-          else validateSpreadSmoke(entry);
+          else if (kind === "spread") validateSpreadSmoke(entry);
+          else validateRolloffSmoke(entry);
           const original = selected[key]?.[0];
           const matches =
             entry.traceId === selected.facts.sdkTurnId &&

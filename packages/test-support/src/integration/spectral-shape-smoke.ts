@@ -19,7 +19,7 @@ interface SmokeEvidenceContract {
   ): asserts value is SpectralShapeSmokeEvidence;
 }
 export function spectralShapeSmokeEvidence(
-  kind: "flatness" | "spread",
+  kind: "flatness" | "spread" | "rolloff",
 ): SmokeEvidenceContract {
   const prefix = `output.listener.native.metric.spectral-${kind}.`;
   const unit = kind === "flatness" ? "Db" : "Hz";
@@ -32,9 +32,10 @@ export function spectralShapeSmokeEvidence(
     [`${kind}.windowSamples`]: 2048,
     [`${kind}.hopSamples`]: 2048,
     [`${kind}.power`]: 0,
-    ...(kind === "spread"
-      ? { "spread.unit": 0, "spread.minfreq": 0, "spread.maxfreq": -1 }
+    ...(kind !== "flatness"
+      ? { [`${kind}.unit`]: 0, [`${kind}.minfreq`]: 0, [`${kind}.maxfreq`]: -1 }
       : {}),
+    ...(kind === "rolloff" ? { "rolloff.rolloffpercent": 95 } : {}),
   };
   const fields = [
     ...Object.keys(constants),

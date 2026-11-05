@@ -194,6 +194,7 @@ export interface SpectralShapeSmokeEvidence {
 }
 export type FlatnessSmokeEvidence = SpectralShapeSmokeEvidence;
 export type SpreadSmokeEvidence = SpectralShapeSmokeEvidence;
+export type RolloffSmokeEvidence = SpectralShapeSmokeEvidence;
 export interface ContextEvidence {
   readonly contextId: string;
   readonly passId: string;
@@ -241,6 +242,7 @@ export interface TurnEvidence extends Submission {
   readonly contexts: readonly ContextEvidence[];
   readonly flatnessSmoke?: readonly FlatnessSmokeEvidence[];
   readonly spreadSmoke?: readonly SpreadSmokeEvidence[];
+  readonly rolloffSmoke?: readonly RolloffSmokeEvidence[];
   readonly facts: Facts;
 }
 export interface RunEvidence {
@@ -253,6 +255,7 @@ export interface RunEvidence {
   readonly contexts: readonly ContextEvidence[];
   readonly flatnessSmoke?: readonly FlatnessSmokeEvidence[];
   readonly spreadSmoke?: readonly SpreadSmokeEvidence[];
+  readonly rolloffSmoke?: readonly RolloffSmokeEvidence[];
   readonly unchanged: readonly {
     readonly scope: string;
     readonly beforeSha256: string;

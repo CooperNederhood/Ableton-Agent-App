@@ -1,5 +1,127 @@
 # Playback Listening and Entity Context
 
+## F2b spectral-rolloff diagnostic smoke (#93)
+
+The user-reviewed delivery slice is **smoke only**, using the existing
+flatness/spread seam without waiting for #92's qualified frame acquisition.
+It does not complete #93's original authoritative measurement requirements or
+parent #91. Numerical accuracy, independently identified FFT frames, silence
+validity, trajectories and report summaries remain follow-up work.
+
+The same two passive independent-channel `fluid.spectralshape~` analyzers select
+`spread rolloff flatness`. The pinned FluCoMa Max 1.0.10 reference specifies this
+canonical output order regardless of selection spelling. There is one shared
+message gate, timer, per-channel delivery sequence, owner and stop handshake;
+no extra playback or analyzer. Existing native algorithms and direct audio
+pass-through remain unchanged.
+
+Rolloff is explicitly configured with `@rolloffpercent 95`, the default documented
+by the pinned reference, rather than assuming the 99% described in other learning
+material. Settings remain `@unit 0 @power 0 @minfreq 0 @maxfreq -1` and
+2048-sample window/hop/FFT. These are configuration facts, not an independently
+verified cumulative magnitude/power convention, endpoint policy, floor or exact
+numerical threshold. Rolloff describes upper spectral extent, not physical
+synth/filter cutoff or an automatic EQ prescription.
+
+`spectral-rolloff` lifecycle diagnostics carry `flucoma-rolloff-smoke/v1`,
+independent-channel nonnegative finite Hz values, delivery counts and nineteen
+ordinary facts, including `rolloff.rolloffpercent: 95`. Support and value validity
+remain `unqualified`, with lifecycle `frames: 0`. A finite zero is permitted
+without a silence interpretation; absent or invalid output is never fabricated
+as zero. Counts are callback snapshot deliveries, not FFT frames or coverage.
+Rolloff-local invalid values fail that diagnostic while independently healthy
+flatness/spread/native evidence survives. Shared malformed/foreign envelopes
+and unconfirmed physical cleanup remain fail-closed.
+
+The three streams retain the ten-snapshots/second/channel gate, 400-delivery
+channel cap and two-progress-events/second/descriptor limit (six combined).
+The aggregate limit is **288 emission attempts per capture**, with at most
+**8192 encoded bytes/event** before SDK emission. The full 400-delivery gate
+horizon at 100 ms yields 240 progress plus 18 ordinary lifecycle events, leaving
+bounded failure/terminal headroom. Exhaustion is explicit and cannot prevent the
+physical stop or its acknowledgement. Each descriptor retains its own causal
+queued/started/progress/completed/failed/cancelled chain and capture/drain timing.
+
+Ordinary listening includes all three diagnostic streams. Requests mentioning
+rolloff use the existing scoped listening action, not an invented
+`requestedMetrics` argument. Values persist through the existing bounded redacted
+journal and typed Desktop History, not metric contexts/reports or a new storage
+path. Existing flatness/spread diagnostic schemas and historical evidence are
+not reinterpreted.
+
+The approved `session-flucoma-rolloff-smoke` contract reuses the unchanged
+`session-clip-identify` fixture and sends one message:
+"Listen to the first Session clip on track audio-track, including spectral rolloff."
+It retains the existing permission scope and budgets and requires both-channel
+rolloff delivery and completion, healthy flatness/spread/native metrics, actual
+mapped bundled-binary identity, attributable SDK terminal result and same-agent
+context consumption, exactly one 90000-sample capture at 48 kHz, typed History
+and context persistence after an owned Desktop restart, protected state and
+terminal cleanup. Missing rolloff fails independently of healthy baseline data.
+There is no acoustic numerical oracle or expected rolloff FFT count.
+
+Producer and acceptance evidence regressions establish a red-before/green-after change, including
+canonical ordering, distinct channel values, no-output/invalid/foreign packets,
+quota limits, cancellation and cleanup. Production graph/codec and ingress
+regressions cover strict packaging and redacted attributed History. The Max owning
+suite passed 865 tests and acceptance ownership passed 858 tests; workspace build
+and typecheck, owning ingress/tools/shared tests, lint, documentation and matched
+production-payload checks passed. Offline registration admitted the new case
+with `executed: false`. These checks alone are not a real-host receipt.
+
+The separately approved focused packaged run **passed on Live 11.3.43** on
+2026-11-04. Terminal receipt
+`.test-artifacts/acceptance/run-EY3ZdZ/receipt.json` records all **12 assertions**
+passing, one complete 90000-sample capture at 48 kHz, and **21 finite rolloff
+deliveries per channel**. Flatness/spread and all three native metrics remained
+healthy. Actual mapped bundled SpectralShape identity was verified at baseline
+and capture completion. The same agent received its terminal result and read
+the native report; it explicitly distinguished rolloff History diagnostics from
+authoritative report values. All three diagnostics and native context survived
+the owned Desktop restart. Protected scopes remained unchanged, and the terminal
+cleanup receipt confirms Desktop/Live stopped, host reservation released and
+isolated profile removed. No retry or broader suite was run.
+
+Implementation candidate commit: `e49c778b`. Packaged candidate SHA-256:
+`03c34b499da6d78eb9a2268b31b5cccca4a8c975249b5d37d11eb77a831de69f`.
+Machine-listening dependency identity:
+`a65bf85efd02e4cd56ad01e24a289ad6f1734b1764dca92d89eca0cce3de7e91`.
+Mapped FluCoMa Max 1.0.10 external SHA-256:
+`2df23d68d1f04ed5506824b508f566da7bcce670b7ac738acbaded7374857b11`.
+The installed bridge token was supplied through the supported environment source,
+not copied into test evidence; this is not Keychain startup qualification.
+The host did not independently expose its Max version in this receipt.
+
+The separate visual run `run-acdff046-f6cd-43de-856a-e0563282460f` used the same
+packaged candidate and a fresh fixture/profile after deterministic acceptance.
+The exact prompt appeared once, ordinary approval and running/Stop state were
+observed, the original start and report completed, and Live showed the intended
+Session clip playing. The final answer did not fabricate rolloff report values.
+After normal Desktop shutdown, typed journal reads independently projected the
+owned rolloff chain: pass `294f91d5-2351-4de7-8322-b959763abf45`, 21 deliveries
+per channel and completed physical capture cleanup. Bounded evidence is retained
+in that run's `visual-evidence.json`.
+
+**Visual teardown required user-assisted recovery:** Live's quit modal was unreadable
+through both accessibility and screenshot inspection. User-assisted closure was
+requested but unavailable. At the checkpoint, owned Live PID `61833`, UX host PID
+`61781`, its reservation and isolated profile remain retained pending explicit
+closure/recovery; Desktop PID `62054` has exited. The retained Set is the
+disposable `prepared [case-ea64b57b2b30fdc69c47d996ca8197e7]`, not a user project.
+Do not launch another host campaign or remove its profile until exact-owned
+process absence and reservation release are confirmed. This does not invalidate
+the earlier packaged acceptance receipt's independently complete teardown.
+
+The user subsequently closed the disposable Live window. At
+`2026-11-05T04:55:22.444Z`, all three owned processes were independently confirmed
+absent, the exact host-owner lease was recovered, and only this run's isolated
+profile was removed. The visual evidence retains the original blocked checkpoint
+alongside the completed user-assisted cleanup. The UX host exited with code 1:
+its controller correctly refused process control after Live was already gone
+and retained the lease until explicit recovery. This closes the visual cleanup
+blocker, not an unattended teardown qualification.
+No full-suite, numerical or Arrangement qualification is claimed.
+
 ## F2a spectral-spread diagnostic smoke (#98)
 
 The user-reviewed #98 delivery slice is **smoke only**, building on the existing
@@ -9,7 +131,7 @@ Authoritative trajectories, summaries, registration/configuration, report values
 exact input support, silence/floor validity and numerical comparisons remain
 deferred. No historical diagnostics are promoted to qualified observations.
 
-The same two passive stereo `fluid.spectralshape~` analyzers now select
+At the F2a milestone, the same two passive stereo `fluid.spectralshape~` analyzers selected
 `spread flatness`; there is no additional analyzer or playback. The pinned
 FluCoMa Max 1.0.10 reference defines canonical output order regardless of
 selection spelling: **spread first, flatness second**. Spread is a nonnegative
@@ -18,7 +140,7 @@ configured DC-to-Nyquist range and 2048-sample window/hop/FFT. These settings ar
 configuration, not independently established frame support or numerical accuracy.
 Spread describes spectral breadth, not physical filter bandwidth or source count.
 
-The shared gate carries fresh bounded descriptor snapshots with independent
+That two-descriptor gate carried fresh bounded descriptor snapshots with independent
 channel values and descriptor-local failures. It publishes at most ten snapshots
 per second per channel (400 per channel per capture); progress is capped at two
 events per second per descriptor, four combined. The shared lifecycle budget
@@ -33,7 +155,7 @@ source/clock ownership, audio pass-through and scoped cleanup remain unchanged.
 
 Diagnostics use the existing bounded redacted journal and typed Desktop History,
 not metric contexts/reports or a new storage path. Normal listening includes
-both smoke descriptors. Requests mentioning spread still use one existing
+the smoke descriptors (now including F2b rolloff above). Requests mentioning spread still use one existing
 listening action, with no new requested-metrics argument.
 
 The reviewed `session-flucoma-spread-smoke` contract reuses the unchanged

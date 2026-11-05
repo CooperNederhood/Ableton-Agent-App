@@ -78,6 +78,8 @@ async function rehash(
 describe("canonical integration payloads", () => {
   it.each([
     "descriptor",
+    "rolloff-selection",
+    "rolloff-percent",
     "unit",
     "extra-analyzer",
     "channel",
@@ -120,11 +122,21 @@ describe("canonical integration payloads", () => {
       const shape = smoke.boxes.find(({ box }) => box.id === "shape-left")!.box;
       if (failure === "descriptor")
         shape.text = shape.text!.replace(
-          "@select spread flatness",
+          "@select spread rolloff flatness",
           "@select flatness",
         );
       if (failure === "unit")
         shape.text = shape.text!.replace("@unit 0", "@unit 1");
+      if (failure === "rolloff-selection")
+        shape.text = shape.text!.replace(
+          "@select spread rolloff flatness",
+          "@select spread flatness",
+        );
+      if (failure === "rolloff-percent")
+        shape.text = shape.text!.replace(
+          "@rolloffpercent 95",
+          "@rolloffpercent 99",
+        );
       if (failure === "extra-analyzer")
         smoke.boxes.push({ box: { ...shape, id: "shape-extra" } });
       if (failure === "channel")

@@ -1,5 +1,41 @@
 # Playback Listening Implementation To-Do
 
+## F2b smoke-only milestone (#93)
+
+- [x] Agree to smoke-only scope and the focused rolloff contract using the
+  unchanged reviewed `session-clip-identify` fixture, not a numerical fixture.
+- [x] Add rolloff to the same stereo SpectralShape analyzers in canonical
+  spread/rolloff/flatness order with explicit `@rolloffpercent 95`.
+- [x] Retain unqualified independent-channel Hz diagnostics through typed History,
+  isolated descriptor failures, bounded redacted causal lifecycle and shared
+  physical cleanup. Raise the three-stream attempt cap to 288 without widening
+  authoritative observation/report schemas or changing baseline measurements.
+- [x] Add producer, ingress, actual SDK cancellation/disconnection and strict
+  graph/packaging regressions; preserve sibling and native behavior.
+- [x] Finish focused acceptance registration, restart evidence and owning-suite
+  validation for `session-flucoma-rolloff-smoke`.
+  Producer and evidence regressions failed before implementation and pass after.
+  Max owning suite: 865 passing tests; acceptance ownership: 858 passing tests.
+  Build/typecheck, ingress/tools/shared packaging, lint, documentation, generated
+  payload integrity and offline fixture admission passed (`executed: false`).
+- [x] Obtain separate approval for the focused packaged real-Live run; record
+  actual host/candidate identity, terminal assertions and cleanup.
+  `run-EY3ZdZ` passed all 12 assertions on Live 11.3.43, with one native capture,
+  21 rolloff deliveries/channel, sibling health, mapped binary proof, restart
+  persistence, same-agent report consumption and confirmed terminal cleanup.
+- [x] Complete the separately scoped visual gate after exact-state validation.
+  `run-acdff046-f6cd-43de-856a-e0563282460f` showed ordinary approval,
+  running/completed UX and the intended clip playing; persisted typed History
+  confirms one completed rolloff chain. Desktop closed normally. Live closure
+  was initially blocked on an unreadable quit dialog. The user then closed Live;
+  all owned processes were verified absent, the exact-owner host lease recovered
+  and the isolated profile removed. Preserve the blocked checkpoint and host
+  exit code 1 alongside completed user-assisted cleanup; this is not unattended
+  teardown qualification.
+- [ ] Qualify numerical definitions, weighting, floor/silence validity, independent
+  frame support, trajectories, summaries, full/partial budgets and authoritative
+  Session/Arrangement publication in follow-up. Smoke does not close #93/#91.
+
 ## F2a smoke-only milestone (#98)
 
 - [x] Agree to smoke-only scope and a new test contract using the unchanged

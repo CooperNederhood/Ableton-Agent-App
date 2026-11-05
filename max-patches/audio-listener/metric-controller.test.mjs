@@ -1015,6 +1015,7 @@ test("production smoke coordination preserves native results and executes native
   for (const mode of [
     "healthy",
     "spread-invalid",
+    "rolloff-invalid",
     "flatness-invalid",
     "unconfirmed",
     "observer-throw",
@@ -1053,9 +1054,10 @@ test("production smoke coordination preserves native results and executes native
             0,
             1,
             mode === "spread-invalid" ? -1 : 1000,
+            mode === "rolloff-invalid" ? -1 : 7000,
             mode === "flatness-invalid" ? 1 : -40,
           ]);
-          smoke.receive([generation, epoch, "value", 1, 1, 3000, -3]);
+          smoke.receive([generation, epoch, "value", 1, 1, 3000, 9000, -3]);
         } else if (mode !== "unconfirmed")
           smoke.receive([generation, epoch, "stopped"]);
       },
@@ -1093,7 +1095,14 @@ test("production smoke coordination preserves native results and executes native
       mode,
     );
     const snapshot = h.controller.snapshot();
-    if (["healthy", "spread-invalid", "flatness-invalid"].includes(mode)) {
+    if (
+      [
+        "healthy",
+        "spread-invalid",
+        "rolloff-invalid",
+        "flatness-invalid",
+      ].includes(mode)
+    ) {
       assert.equal(snapshot.state, "completed", mode);
       const result = h.results.find(
         ({ payload }) => payload.status === "completed",

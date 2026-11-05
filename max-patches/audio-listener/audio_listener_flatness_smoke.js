@@ -80,11 +80,11 @@ function msg_int(value) {
 function list() {
   var args = arrayfromargs(arguments);
   if (!owner || inlet < 1 || inlet > 2) return;
-  if (args.length !== 2) {
+  if (args.length !== 3) {
     outlet(0, owner.concat(["invalid-width"]));
     throw new Error("spectralshape_unexpected_descriptor_width");
   }
-  // FluCoMa emits canonical descriptor order even for @select flatness spread.
+  // FluCoMa emits spread, rolloff, flatness regardless of selection spelling.
   accept(args);
 }
 function publish() {

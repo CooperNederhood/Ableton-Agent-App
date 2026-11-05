@@ -1,5 +1,6 @@
 import type { SessionListeningPreflightResult } from "@ableton-agent/protocol";
 import type { AgentListeningEvidence } from "./agent-listening-result.js";
+import type { MelSmokeEvidence } from "./mel-smoke.js";
 
 export type Scalar = string | number | boolean | null;
 export type Facts = Readonly<Record<string, Scalar>>;
@@ -232,6 +233,7 @@ export interface AudioBaselineEvidence extends BaselineEvidence {
   readonly sources: Readonly<Record<string, AudioSourceEvidence>>;
 }
 export interface TurnEvidence extends Submission {
+  readonly melSmoke?: readonly MelSmokeEvidence[];
   readonly agentListening?: AgentListeningEvidence;
   readonly schemaVersion: 1;
   readonly assistantMessageId: string;
@@ -246,6 +248,7 @@ export interface TurnEvidence extends Submission {
   readonly facts: Facts;
 }
 export interface RunEvidence {
+  readonly melSmoke?: readonly MelSmokeEvidence[];
   readonly agentListening?: readonly AgentListeningEvidence[];
   readonly schemaVersion: 1;
   readonly recoveries?: readonly string[];

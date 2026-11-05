@@ -45,7 +45,10 @@ const connected: ConnectedListenerBinding = {
   signalKind: "audio",
   schemaVersion: "metric-audio-observation/v1",
   status: "connected",
-  capabilities: ["audio-listener/independent-metric-timelines-v1"],
+  capabilities: [
+    "audio-listener/independent-metric-timelines-v1",
+    "audio-listener/mel-band-timelines-v1",
+  ],
   algorithmVersion: "3.0.0",
   sampleRate: 48_000,
   vectorSize: 64,
@@ -251,6 +254,9 @@ describe("authenticated v5 metric listener binding metadata", () => {
         "audio-listener/independent-metric-timelines-v1",
         "audio-listener/independent-metric-timelines-v1",
       ],
+    },
+    {
+      capabilities: ["audio-listener/independent-metric-timelines-v1"],
     },
     {
       capabilities: [

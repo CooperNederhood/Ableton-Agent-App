@@ -1,5 +1,54 @@
 # Playback Listening Implementation To-Do
 
+## F3 full implementation with smoke-level host scope (#105)
+
+- [x] Record the fixed stereo 24-band magnitude profile, selected low/mid and
+  high/mid ratios and intended ordinary-listening default. Reuse the existing
+  fixture; defer guided fixture authoring and broader numerical host cases.
+- [x] Inspect pinned upstream outlet semantics and identify why delivery counts
+  cannot establish independent mel frames, support or detectable losses.
+- [x] Add an independent bounded mathematical oracle with analytical tone and
+  impulse expectations, zeros, inter-band/mixed signals and gain coverage at
+  44.1/48 kHz. This is not qualification of an external or physical capture.
+- [x] Finish strict fixed profile/vector/ratio contracts and arithmetic tests,
+  including floors, malformed inputs and aggregation without local scaling.
+  The 25 targeted tests and 706-test protocol suite pass. Independent reference
+  and compiled-profile cross-checks pass in the 887-test Max owning suite;
+  zero-denominator, aggregation and magnitude/power mutations are rejected.
+- [x] Add standalone strict full-frame timeline, gap and report-projection
+  contracts, including explicit unmeasured trailing support. All 63 new
+  regressions and the expanded 769-test protocol suite pass; false-complete
+  and wrong-support mutations fail. Structural parsing is not DSP qualification.
+- [ ] Implement and qualify frame-aware acquisition, matched dependencies and
+  actual DSP origin/reset, sequence, support, loss and cleanup receipts.
+- [x] Build the pinned-core frame-aware native engine and verify its retained
+  samples against independent reference calculations and capture Gen models.
+  Actual generated Max graph, bundled loading and real-host proof remain open.
+- [x] Include mel in ordinary requests; require an explicit new producer
+  capability at ingress and application binding, denying stale producers.
+- [x] Integrate controller readiness, independent source support, prefix/gap
+  handling and physical cleanup ordering. Cover mel-only and surviving-mel
+  partial results without fabricating baseline evidence.
+- [x] Wire registered contracts, capabilities, default requests, complete/partial
+  budgets, collector, lifecycle, context/report paging and Desktop band detail.
+- [x] Package the pinned universal native adapter with strict inventory,
+  provenance and source checks, preserving ordinary offline builds and passive
+  audio routing. Add separate owned-process mapped-binary verification.
+- [x] Preserve shared-fault priority after local failure/cancellation and expose
+  bounded actual terminal-consumption/support/clock facts through typed History.
+- [x] Verify Desktop frame navigation, dimensions, ratio reasons and context
+  reopening with component/IPC tests; two Electron persistence tests pass.
+- [ ] Complete red/green regressions and broader owning-suite gates at every
+  affected application boundary.
+- [ ] Register and execute the authorized single existing-fixture packaged
+  smoke; require vectors/ratios independently of healthy baseline evidence,
+  mapped binaries, same-agent report use, restart persistence and cleanup.
+- [ ] Complete applicable separately scoped visual validation after the
+  deterministic smoke. Do not equate this slice with the original numerical
+  Session/Arrangement qualification requirements.
+  The user authorized unattended continuation and closing stuck test-owned
+  processes, not touching a pre-existing user Live process or expanding scope.
+
 ## F2b smoke-only milestone (#93)
 
 - [x] Agree to smoke-only scope and the focused rolloff contract using the

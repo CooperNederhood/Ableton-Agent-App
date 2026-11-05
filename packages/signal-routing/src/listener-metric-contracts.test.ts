@@ -5,6 +5,10 @@ import {
   MAX_AUDIO_OBSERVATION_BYTES,
   MAX_METRIC_RESULT_FRAME_BYTES,
   metricAudioObservationSchema,
+  nativeMetricObservationMetricSchema,
+  MEL_BAND_PROFILE,
+  melBandTimelineSchema,
+  createMetricObservationReportRows,
 } from "@ableton-agent/protocol";
 import { createSyntheticMetricListeningObservation } from "@ableton-agent/protocol/testing";
 import {
@@ -29,6 +33,71 @@ import { producerMessageSchema } from "./ingress-contracts.js";
 import { createSyntheticMetricWireFixture as fixture } from "./listener-metric-test-support.js";
 
 describe("wire5 independent metric contracts", () => {
+  it("rejects missing or malformed mel ingress independently of healthy native-three metrics", () => {
+    const f = fixture();
+    const observation = f.observation;
+    const nativeRecords = structuredClone(observation.metrics.level.records);
+    observation.requestedMetrics.push("mel-bands");
+    f.proof.armed.config.requestedMetrics.push("mel-bands");
+    const expectedRecords = Math.floor(
+      observation.geometry.totalSamples / 2_048,
+    );
+    observation.metrics["mel-bands"] = melBandTimelineSchema.parse({
+      schema: "mel-band-timeline/v1",
+      status: "complete",
+      profile: MEL_BAND_PROFILE,
+      sampleRate: observation.geometry.sampleRate,
+      sourceSupport: observation.sourceCoverage,
+      expectedRecords,
+      frames: Array.from({ length: expectedRecords }, (_, index) => ({
+        index,
+        support: {
+          startSample: observation.geometry.startSample + index * 2_048,
+          endSample: observation.geometry.startSample + (index + 1) * 2_048,
+        },
+        magnitudes: [Array<number>(24).fill(1), Array<number>(24).fill(2)],
+      })),
+      gaps: [],
+    });
+    observation.rows = createMetricObservationReportRows(observation);
+    const result = {
+      ...f.wire,
+      type: "listener.result",
+      status: "completed",
+      observation,
+      nativeSourceCoverage: f.proof,
+    };
+    expect(listenerResultMetricSchema.safeParse(result).success).toBe(true);
+    for (const mel of [
+      undefined,
+      { ...observation.metrics["mel-bands"], frames: [] },
+      {
+        ...observation.metrics["mel-bands"],
+        frames: observation.metrics["mel-bands"].frames.map((frame, index) =>
+          index
+            ? frame
+            : {
+                ...frame,
+                magnitudes: [
+                  Array<number>(23).fill(1),
+                  Array<number>(24).fill(2),
+                ],
+              },
+        ),
+      },
+    ]) {
+      expect(
+        listenerResultMetricSchema.safeParse({
+          ...result,
+          observation: {
+            ...observation,
+            metrics: { ...observation.metrics, "mel-bands": mel },
+          },
+        }).success,
+      ).toBe(false);
+    }
+    expect(observation.metrics.level.records).toEqual(nativeRecords);
+  });
   it.each(["flatness", "spread"])(
     "registers %s only as a bounded diagnostic, never as a frame-qualified metric observation",
     (descriptor) => {
@@ -681,7 +750,8 @@ describe("wire5 independent metric contracts", () => {
       }).success,
     ).toBe(false);
     const empty = structuredClone(f.observation);
-    for (const metric of Object.values(empty.metrics)) metric.records = [];
+    for (const name of nativeMetricObservationMetricSchema.options)
+      empty.metrics[name].records = [];
     expect(
       listenerResultMetricSchema.safeParse({ ...result, observation: empty })
         .success,

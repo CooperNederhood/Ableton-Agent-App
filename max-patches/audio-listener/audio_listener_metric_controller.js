@@ -9,6 +9,7 @@ const {
 const {
   createMetricSpectrumHandoff,
 } = require("./audio_listener_metric_spectrum.js");
+const { createMelBandHandoff } = require("./audio_listener_mel_handoff.js");
 const {
   decodeIORejection,
   decodeRetentionRejection,
@@ -71,6 +72,10 @@ function createMetricController(options) {
     options.spectrumEnabled === undefined ||
       typeof options.spectrumEnabled === "boolean",
     "invalid_metric_spectrum_option",
+  );
+  requireValue(
+    options.melEnabled === undefined || typeof options.melEnabled === "boolean",
+    "invalid_metric_mel_option",
   );
   for (const key of [
     "sendControl",
@@ -213,6 +218,7 @@ function createMetricController(options) {
           "callerTick",
           "spectrum_cleanup_tick",
           "spectrum_cleanup_evidence",
+          "drain",
         ].includes(selector)
           ? "queryDeliveries"
           : "deliveries";
@@ -764,6 +770,7 @@ function createMetricController(options) {
         now - s.startedAt,
       );
       if (
+        !p.mel &&
         !p.config.requestedMetrics.some(
           (metric) => metric === "level" || metric === "attacks",
         )
@@ -833,7 +840,10 @@ function createMetricController(options) {
         packet.length <= (target === "metric_spectrum" ? 191 : 64),
         "metric_native_packet_bound",
       );
-      if (target === "metric_spectrum") receiveSpectrum(p, packet);
+      if (target === "metric_mel") {
+        requireValue(p.mel, "metric_unrequested_mel_packet");
+        p.mel.receive(packet);
+      } else if (target === "metric_spectrum") receiveSpectrum(p, packet);
       else if (target === "clock") {
         requireValue(packet[0] === "native", "metric_clock_packet");
         if (packet[1] !== p.control.generation) {
@@ -1001,6 +1011,11 @@ function createMetricController(options) {
     requireValue(!disposed && (!pass || pass.done), "metric_controller_busy");
     const command = control(raw, "prepare");
     requireValue(
+      !command.config.requestedMetrics.includes("mel-bands") ||
+        options.melEnabled === true,
+      "metric_mel_adapter_unavailable",
+    );
+    requireValue(
       command.config.sourceContext,
       "metric_source_context_required",
     );
@@ -1090,10 +1105,34 @@ function createMetricController(options) {
         GROUPS.map((g) => [g, { timing: [], configuration: [] }]),
       ),
     };
+    if (command.config.requestedMetrics.includes("mel-bands")) {
+      const p = pass;
+      p.mel = createMelBandHandoff({
+        epoch: p.epoch,
+        sampleRate: p.config.geometry.sampleRate,
+        totalSamples: p.config.geometry.totalSamples,
+        codec,
+        now: time,
+        send: (selector, args) => send(p, selector, args, "metric_mel"),
+        emit: (event) => {
+          p.metricCounts["mel-bands"] = event.frames;
+          emit(
+            p,
+            event.phase,
+            event.stage,
+            "mel-bands",
+            event.reason,
+            event.durationMs,
+            event.facts,
+          );
+        },
+      });
+    }
     emit(pass, "preflight", "queued");
     emit(pass, "preflight", "started");
     if (
       !pass.spectrum.enabled &&
+      !pass.mel &&
       !pass.config.requestedMetrics.some(
         (metric) => metric === "level" || metric === "attacks",
       )
@@ -1146,9 +1185,14 @@ function createMetricController(options) {
         endBeat: g.endBeat,
         captureStartSample: p.coordinates.startSample,
         captureEndSample: p.coordinates.endSample,
-        requestedMetrics: p.config.requestedMetrics.map((metric) =>
-          metric === "spectral-centroid" ? "spectrum" : metric,
-        ),
+        ...(p.config.requestedMetrics.length === 1 && p.mel
+          ? { externalOnly: "mel-bands" }
+          : {}),
+        requestedMetrics: p.config.requestedMetrics
+          .filter((metric) => metric !== "mel-bands")
+          .map((metric) =>
+            metric === "spectral-centroid" ? "spectrum" : metric,
+          ),
         spectrum: {
           firstEndSample: p.spectrum.phase
             ? codec.nativeMetricFirstSpectrumEndpoint(
@@ -1180,7 +1224,7 @@ function createMetricController(options) {
       },
     );
     for (const metric of p.config.requestedMetrics.filter(
-      (metric) => metric !== "spectral-centroid",
+      (metric) => metric !== "spectral-centroid" && metric !== "mel-bands",
     ))
       p.families[metric === "attacks" ? "detector-level" : metric] = {
         next: 1,
@@ -1238,6 +1282,7 @@ function createMetricController(options) {
     if (p.released) return !(p.deliveries || p.queryDeliveries) || !!p.failure;
     p.cleanupDeadline ??= Math.min(p.deadline, time() + 2000);
     const spectrumClean = cleanupSpectrum(p);
+    const melClean = p.mel ? p.mel.stop(!!p.cancelControl) : true;
     let diagnosticsClean = true;
     try {
       diagnosticsClean = options.beforeCleanup
@@ -1256,6 +1301,7 @@ function createMetricController(options) {
     const idle = p.samples.idle;
     if (!p.armSent && (!idle.configuration.length || !idle.timing.length))
       return false;
+    if (!melClean) return false;
     if (!p.cleanupStarted) {
       p.cleanupStarted = time();
       p.cleanupCounter = Math.max(
@@ -1276,6 +1322,7 @@ function createMetricController(options) {
     if (
       p.evidence?.cleanup === "completed" &&
       spectrumClean &&
+      melClean &&
       diagnosticsClean &&
       c &&
       t &&
@@ -1368,8 +1415,14 @@ function createMetricController(options) {
       sourceEndSample: checked.endSample,
     });
     p.finalized = true;
+    const melTimeline = p.mel?.timeline();
+    const usefulMel =
+      melTimeline &&
+      (melTimeline.frames.length > 0 || melTimeline.expectedRecords === 0);
     requireValue(
-      result.status === "completed" || result.status === "partial",
+      (result.envelope.requestedMetrics.length > 0 &&
+        (result.status === "completed" || result.status === "partial")) ||
+        usefulMel,
       "metric_no_useful_data",
     );
     const observation = adaptMetricTimelineObservation(
@@ -1379,6 +1432,7 @@ function createMetricController(options) {
         ownership: p.ownership,
         source: p.config.sourceContext,
         sharedIntegrity: "validated",
+        ...(usefulMel ? { externalMetricAvailable: "mel-bands" } : {}),
         sourceCoverage: {
           startSample: checked.startSample,
           endSample: checked.endSample,
@@ -1387,7 +1441,23 @@ function createMetricController(options) {
       },
       {
         schemaVersion: "metric-audio-observation/v1",
-        parse: (value) => codec.metricAudioObservationSchema.parse(value),
+        parse: (value) => {
+          if (!melTimeline)
+            return codec.metricAudioObservationSchema.parse(value);
+          const extended = {
+            ...value,
+            requestedMetrics: p.config.requestedMetrics,
+            metrics: { ...value.metrics, "mel-bands": melTimeline },
+            outcome:
+              value.outcome === "complete" && melTimeline.status === "complete"
+                ? "complete"
+                : "partial",
+          };
+          return codec.metricAudioObservationSchema.parse({
+            ...extended,
+            rows: codec.createMetricObservationReportRows(extended),
+          });
+        },
         createReportRows: codec.createMetricObservationReportRows,
         now: time,
         onEvent: (event) => emit(p, "capture", event.stage),
@@ -1404,18 +1474,20 @@ function createMetricController(options) {
     );
     if (time() >= p.deadline) abort(p, "metric_deadline_exceeded");
     if (p.cancelControl || p.failure) return finish(p);
+    const outcome = accepted.outcome === "complete" ? "completed" : "partial";
     const sent = options.sendListenerResult(p.control, {
-      status: result.status,
+      status: outcome,
       observation: accepted,
       nativeSourceCoverage: p.sourceProof,
     });
     if (sent !== true && p.cancelControl && !p.failure) return finish(p);
     requireValue(sent === true, "metric_publication_rejected");
-    p.state = result.status;
+    p.state = outcome;
     p.done = true;
   }
   function drive(p) {
     const now = time();
+    p.mel?.tick();
     if (now >= p.deadline) abort(p, "metric_deadline_exceeded");
     if (p.state === "preflight" && now - p.started >= 2000 && !p.wantCleanup)
       abort(p, "metric_preflight_timeout");
@@ -1534,6 +1606,7 @@ function createMetricController(options) {
       p.state = "arming";
       emit(p, "arm", "started");
       io(p, "arm");
+      if (!p.wantCleanup) p.mel?.arm();
     } else if (p.state === "arming") {
       requireValue(now - p.armStarted < 1000, "metric_arm_receipt_timeout");
       const receipt = dspReceipt(
@@ -1551,6 +1624,7 @@ function createMetricController(options) {
         },
         p.expected,
       );
+      if (p.mel && !p.mel.snapshot().ready) return;
       requireValue(
         options.sendListenerReply(p.armControl, {
           status: "armed",
@@ -1597,6 +1671,10 @@ function createMetricController(options) {
         p.launch,
         p.expected,
       );
+      p.mel?.bind({
+        startSample: p.coordinates.startSample,
+        endSample: p.coordinates.endSample,
+      });
       requireValue(
         options.sendListenerResult(p.control, {
           status: "progress",
@@ -1657,6 +1735,7 @@ function createMetricController(options) {
         }
       }
       let drained = true;
+      if (p.mel && !p.mel.snapshot().completed) drained = false;
       if (
         p.spectrum.handoff &&
         !p.spectrum.failure &&
@@ -1785,6 +1864,7 @@ function createMetricController(options) {
         cleanup: pass.spectrum.cleanupEvidence?.status || "not-started",
         released: pass.spectrum.released,
       },
+      mel: pass.mel?.snapshot() || null,
       cleanup: pass.cleanupFailed
         ? "failed"
         : pass.released

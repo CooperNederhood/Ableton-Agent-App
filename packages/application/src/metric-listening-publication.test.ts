@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   createMetricObservationReportRows,
+  MEL_BAND_PROFILE,
+  melBandTimelineSchema,
   type MetricAudioObservation,
 } from "@ableton-agent/protocol";
 import { createSyntheticMetricListeningObservation } from "@ableton-agent/protocol/testing";
@@ -90,6 +92,83 @@ function fixture(partial = false): MetricListeningPublicationInput {
 }
 
 describe("explicit independent metric publication", () => {
+  it.each([false, true])(
+    "persists full mel vectors and explicit gaps: partial=%s",
+    async (partial) => {
+      const input = fixture();
+      const observation = input.observations[0]!;
+      const expectedRecords = Math.floor(
+        observation.geometry.totalSamples / 2_048,
+      );
+      const frames = Array.from({ length: expectedRecords }, (_, index) => ({
+        index,
+        support: {
+          startSample: observation.geometry.startSample + index * 2_048,
+          endSample: observation.geometry.startSample + (index + 1) * 2_048,
+        },
+        magnitudes: [Array<number>(24).fill(1), Array<number>(24).fill(2)],
+      }));
+      observation.requestedMetrics.push("mel-bands");
+      observation.metrics["mel-bands"] = melBandTimelineSchema.parse({
+        schema: "mel-band-timeline/v1",
+        status: partial ? "partial" : "complete",
+        profile: MEL_BAND_PROFILE,
+        sampleRate: observation.geometry.sampleRate,
+        sourceSupport: observation.sourceCoverage,
+        expectedRecords,
+        frames: partial ? frames.slice(1) : frames,
+        gaps: partial
+          ? [
+              {
+                firstIndex: 0,
+                count: 1,
+                support: frames[0]!.support,
+                reason: "malformed-record",
+              },
+            ]
+          : [],
+      });
+      observation.outcome = partial ? "partial" : "complete";
+      observation.rows = createMetricObservationReportRows(observation);
+      const store = await createInMemorySessionContextStore({
+        sessionId: input.owner.sessionId,
+        liveSetId: input.owner.liveSetId,
+      });
+      try {
+        const malformed = {
+          ...input,
+          observations: [
+            {
+              ...observation,
+              metrics: { ...observation.metrics, "mel-bands": undefined },
+            },
+          ],
+        };
+        await expect(
+          persistMetricListeningObservations(
+            store,
+            malformed,
+            new AbortController().signal,
+          ),
+        ).rejects.toThrow();
+        expect(
+          (await store.listEntries({ includeHistorical: true })).items,
+        ).toHaveLength(0);
+        const ids = await persistMetricListeningObservations(
+          store,
+          input,
+          new AbortController().signal,
+        );
+        expect((await store.getEntry(ids[0]!))?.payload).toEqual(observation);
+        expect(buildMetricListeningPublication(input).pass.status).toBe(
+          partial ? "partial" : "completed",
+        );
+        expect(observation.metrics.level.records.length).toBeGreaterThan(0);
+      } finally {
+        await store.close();
+      }
+    },
+  );
   it.each([false, true])(
     "publishes the truthful complete or partial outcome: partial=%s",
     (partial) => {

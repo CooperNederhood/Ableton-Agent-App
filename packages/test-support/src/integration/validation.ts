@@ -3,6 +3,7 @@ import { midiContentIdentity } from "./sources.js";
 import { validateFlatnessSmoke } from "./flatness-smoke.js";
 import { validateSpreadSmoke } from "./spread-smoke.js";
 import { validateRolloffSmoke } from "./rolloff-smoke.js";
+import { validateMelSmoke } from "./mel-smoke.js";
 import { validateAgentListeningEvidence } from "./agent-listening-result.js";
 import type {
   AcceptanceDriver,
@@ -756,6 +757,11 @@ function rolloffSmoke(value: unknown): void {
   list(value, 32);
   value.forEach(validateRolloffSmoke);
 }
+function melSmoke(value: unknown): void {
+  if (value === undefined) return;
+  list(value, 1);
+  value.forEach(validateMelSmoke);
+}
 export function validateTurn(value: unknown): asserts value is TurnEvidence {
   object(value);
   validateSubmission(value);
@@ -778,6 +784,7 @@ export function validateTurn(value: unknown): asserts value is TurnEvidence {
   flatnessSmoke(record.flatnessSmoke);
   spreadSmoke(record.spreadSmoke);
   rolloffSmoke(record.rolloffSmoke);
+  melSmoke(record.melSmoke);
   if (record.agentListening !== undefined)
     validateAgentListeningEvidence(record.agentListening);
   list(record.captures, 32);
@@ -854,6 +861,7 @@ export function validateEvidence(value: unknown): asserts value is RunEvidence {
   flatnessSmoke(value.flatnessSmoke);
   spreadSmoke(value.spreadSmoke);
   rolloffSmoke(value.rolloffSmoke);
+  melSmoke(value.melSmoke);
   if (value.agentListening !== undefined) {
     list(value.agentListening, 32);
     value.agentListening.forEach(validateAgentListeningEvidence);

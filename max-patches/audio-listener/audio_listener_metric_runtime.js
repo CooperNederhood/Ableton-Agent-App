@@ -95,14 +95,17 @@ function createMetricRuntime({
     controller = createController({
       codec: protocol,
       spectrumEnabled: true,
+      melEnabled: true,
       now,
       sendControl: (target, selector, args) =>
-        output(
-          "native_control",
-          selector === "epoch" ? "metric_parameter" : target,
-          selector,
-          ...args,
-        ),
+        target === "metric_mel"
+          ? output("mel_native_control", selector, ...args)
+          : output(
+              "native_control",
+              selector === "epoch" ? "metric_parameter" : target,
+              selector,
+              ...args,
+            ),
       sendListenerReply: (control, payload) =>
         client.sendListenerReply(control, payload),
       sendListenerResult: (control, payload) =>
@@ -293,7 +296,10 @@ function createMetricRuntime({
       listener: protocol.listenerRegistrationMetricSchema.parse({
         version: 5,
         connectionEpoch: require("node:crypto").randomUUID(),
-        capabilities: [protocol.LISTENER_CAPABILITY_METRIC],
+        capabilities: [
+          protocol.LISTENER_CAPABILITY_METRIC,
+          protocol.LISTENER_CAPABILITY_MEL,
+        ],
         deviceCanonicalPath: identity.canonicalPath,
         trackCanonicalPath: match[1],
         sampleRate: dsp.sampleRate,
@@ -415,6 +421,9 @@ function createMetricRuntime({
         error instanceof Error ? error.message : "spectralshape_packet_failed",
       );
     }
+  });
+  maxApi.addHandler("native_mel", (...packet) => {
+    controller?.receiveNative("metric_mel", packet);
   });
   maxApi.addHandler("native_spectrum", (...packet) => {
     if (packet[2] === "spectrum") {

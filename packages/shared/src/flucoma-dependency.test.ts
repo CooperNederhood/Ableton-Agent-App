@@ -19,7 +19,11 @@ import {
   isSafeDeviceResourceName,
   readFlucomaDependencyFile,
   validateFlucomaDependency,
+  validateNativeMelSourceInputs,
+  NATIVE_MEL_BUNDLE,
+  NATIVE_MEL_PRODUCER,
 } from "./flucoma-dependency.js";
+import { NATIVE_MEL_SOURCE_INPUTS } from "./native-mel-pins.js";
 import {
   publishResources,
   decodeAmxd,
@@ -46,12 +50,25 @@ async function fixture(): Promise<string> {
   return root;
 }
 
-it("pins only the stock universal external, upstream notices and packaging provenance", async () => {
+it.skipIf(process.platform === "win32" || process.getuid?.() === 0)(
+  "validates the exact dependency subtree without enumerating unrelated source files",
+  async () => {
+    const root = await fixture();
+    await chmod(root, 0o111);
+    try {
+      await validateFlucomaDependency(root);
+    } finally {
+      await chmod(root, 0o755);
+    }
+  },
+);
+
+it("preserves stock universal pins alongside the app-owned native mel dependency", async () => {
   await validateFlucomaDependency(source);
-  expect(FLUCOMA_DEPENDENCY_FILES).toHaveLength(8);
+  expect(FLUCOMA_DEPENDENCY_FILES).toHaveLength(17);
   expect(
     FLUCOMA_DEPENDENCY_FILES.reduce((total, file) => total + file.bytes, 0),
-  ).toBeLessThan(540_000);
+  ).toBeLessThan(1_000_000);
   const version = JSON.parse(
     (
       await readFlucomaDependencyFile(
@@ -88,7 +105,10 @@ it("publishes the exact nested bundle and executable mode with attributable life
   expect(events.map((event) => event.stage)).toEqual([
     "queued",
     "started",
-    ...Array.from({ length: 8 }, () => "progress"),
+    ...Array.from(
+      { length: FLUCOMA_DEPENDENCY_FILES.length },
+      () => "progress",
+    ),
     "completed",
   ]);
   for (const event of events) {
@@ -101,51 +121,135 @@ it("publishes the exact nested bundle and executable mode with attributable life
   }
 });
 
-it.each(["missing", "tampered", "extra", "file-link", "parent-link", "mode"])(
-  "rejects %s dependency input without publishing",
-  async (failure) => {
+it("pins the universal app-owned binary, ABI, notices, provenance and exact source inputs", async () => {
+  const name = `${NATIVE_MEL_BUNDLE}/Contents/MacOS/listener.mel~`;
+  const binary = await readFlucomaDependencyFile(source, name);
+  expect(binary.readUInt32BE(0)).toBe(0xcafebabe);
+  expect(binary.readUInt32BE(4)).toBe(2);
+  expect([binary.readUInt32BE(8), binary.readUInt32BE(28)].sort()).toEqual([
+    0x01000007, 0x0100000c,
+  ]);
+  expect(createHash("sha256").update(binary).digest("hex")).toBe(
+    NATIVE_MEL_PRODUCER.binarySha256,
+  );
+  const provenance = JSON.parse(
+    (
+      await readFlucomaDependencyFile(
+        source,
+        "dependencies/flucoma/listener-mel-build.json",
+      )
+    ).toString("utf8"),
+  ) as Record<string, unknown>;
+  expect(provenance).toMatchObject({
+    schema: "listener-mel-native-build/v1",
+    producerAbi: 2,
+    architectures: ["arm64", "x86_64"],
+    deploymentTarget: "11.0",
+    binarySha256: NATIVE_MEL_PRODUCER.binarySha256,
+    inputs: NATIVE_MEL_SOURCE_INPUTS,
+    hostQualified: false,
+  });
+  await validateNativeMelSourceInputs(resolve("."));
+  const copy = join(scratch, "source-copy");
+  for (const input of NATIVE_MEL_SOURCE_INPUTS) {
+    const target = join(copy, input.path);
+    await mkdir(dirname(target), { recursive: true });
+    await writeFile(target, await readFile(resolve(input.path)));
+  }
+  await validateNativeMelSourceInputs(copy);
+  await writeFile(
+    join(copy, NATIVE_MEL_SOURCE_INPUTS[0].path),
+    "changed source",
+  );
+  await expect(validateNativeMelSourceInputs(copy)).rejects.toThrow(
+    /source pin/,
+  );
+});
+
+it.each([
+  "listener.mel~.mxo/Contents/MacOS/listener.mel~",
+  "listener.mel~.mxo/Contents/Resources/licenses/source-pins.json",
+  "listener.mel~.mxo/Contents/Resources/licenses/Eigen-MPL2.txt",
+  "listener-mel-build.json",
+])(
+  "rejects altered native mel resource %s independently of a payload manifest",
+  async (relative) => {
     const root = await fixture();
-    const file = join(root, executable.name);
-    if (failure === "missing") await rm(file);
-    if (failure === "mode") await chmod(file, 0o644);
-    if (failure === "tampered") {
-      const bytes = await readFile(file);
-      bytes[100] = bytes[100]! ^ 1;
-      await writeFile(file, bytes);
-    }
-    if (failure === "extra")
-      await writeFile(
-        join(root, "dependencies/flucoma/unpinned.js"),
-        "unexpected",
-      );
-    if (failure === "file-link") {
-      await rm(file);
-      await symlink(join(source, executable.name), file);
-    }
-    if (failure === "parent-link") {
-      await rm(dirname(file), { recursive: true });
-      await symlink(dirname(join(source, executable.name)), dirname(file));
-    }
-    await expect(validateFlucomaDependency(root)).rejects.toThrow();
-    if (failure !== "extra") {
-      const events: ResourcePublicationEvent[] = [];
-      const target = join(scratch, "rejected");
-      await expect(
-        publishResources({
-          destinationDirectory: target,
-          resources: [{ fileName: executable.name, source: file }],
-          onEvent: (event) => events.push(event),
-        }),
-      ).rejects.toThrow();
-      expect(events.map((event) => event.stage)).toEqual([
-        "queued",
-        "started",
-        "failed",
-      ]);
-      await expect(lstat(target)).rejects.toMatchObject({ code: "ENOENT" });
-    }
+    const path = join(root, "dependencies/flucoma", relative);
+    const raw = await readFile(path);
+    raw[10] = raw[10]! ^ 1;
+    await writeFile(path, raw);
+    await expect(validateFlucomaDependency(root)).rejects.toThrow(/mismatch/);
   },
 );
+
+it("requires the pinned adjacent native bundle even without a stock analyzer", async () => {
+  const template = await readFile(join(source, "audio-effect-template.amxd"));
+  const raw = encodeAmxd(decodeAmxd(template), {
+    patcher: {
+      boxes: [{ box: { maxclass: "newobj", text: "listener.mel~" } }],
+      lines: [],
+    },
+  });
+  expect(() =>
+    freezeAmxd(raw, "Listener.amxd", new Map(), {
+      deviceDirectory: scratch,
+    }),
+  ).toThrow(/Missing pinned adjacent/);
+});
+
+it.each([
+  "missing",
+  "tampered",
+  "extra",
+  "sibling",
+  "file-link",
+  "parent-link",
+  "mode",
+])("rejects %s dependency input without publishing", async (failure) => {
+  const root = await fixture();
+  const file = join(root, executable.name);
+  if (failure === "missing") await rm(file);
+  if (failure === "mode") await chmod(file, 0o644);
+  if (failure === "tampered") {
+    const bytes = await readFile(file);
+    bytes[100] = bytes[100]! ^ 1;
+    await writeFile(file, bytes);
+  }
+  if (failure === "extra")
+    await writeFile(
+      join(root, "dependencies/flucoma/unpinned.js"),
+      "unexpected",
+    );
+  if (failure === "sibling")
+    await writeFile(join(root, "dependencies/unpinned.js"), "unexpected");
+  if (failure === "file-link") {
+    await rm(file);
+    await symlink(join(source, executable.name), file);
+  }
+  if (failure === "parent-link") {
+    await rm(dirname(file), { recursive: true });
+    await symlink(dirname(join(source, executable.name)), dirname(file));
+  }
+  await expect(validateFlucomaDependency(root)).rejects.toThrow();
+  if (failure !== "extra" && failure !== "sibling") {
+    const events: ResourcePublicationEvent[] = [];
+    const target = join(scratch, "rejected");
+    await expect(
+      publishResources({
+        destinationDirectory: target,
+        resources: [{ fileName: executable.name, source: file }],
+        onEvent: (event) => events.push(event),
+      }),
+    ).rejects.toThrow();
+    expect(events.map((event) => event.stage)).toEqual([
+      "queued",
+      "started",
+      "failed",
+    ]);
+    await expect(lstat(target)).rejects.toMatchObject({ code: "ENOENT" });
+  }
+});
 
 it.each([
   "../escape",

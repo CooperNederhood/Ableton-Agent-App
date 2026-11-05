@@ -1,5 +1,106 @@
 # Playback Listening and Entity Context
 
+## F3 mel-band implementation in progress (#105)
+
+The selected delivery keeps the full mel-band/ratio feature in scope but limits
+real-Live validation to one packaged smoke using the unchanged
+`session-clip-identify` fixture. It does not select a numerical fixture campaign,
+Arrangement host validation or an automatic full-suite run. The working-tree
+configuration includes mel bands during ordinary listening, without a second
+capture. The candidate still awaits the selected real-Live and visual
+qualification; the user's normal installed integration has not been changed.
+
+The fixed profile is 24 independent-channel bands spanning 20-20,000 Hz,
+2048-sample periodic-Hann window/hop/FFT, linear FFT magnitudes and normalization
+disabled. Bands use 26 equally mel-spaced edges and overlapping triangular
+weights. Low/mid and high/mid compare sums of bands grouped by center frequency
+at 250 Hz and 2 kHz, not brick-wall region energy. Zero or below-floor
+denominators are unavailable, never clamped ratios or fabricated zeros.
+No clip-local scaling, calibrated energy or objective warmth/muddiness claim is
+part of this profile.
+
+`mel-band-profile.ts` supplies strict fixed vectors and pure ratio derivation.
+It preserves a zero denominator separately from a positive denominator at or
+below `1e-12` in the declared linear units. This floor is a numerical guard,
+not an audibility threshold. Interval aggregation computes mean band
+magnitudes first, then ratios from the corresponding region sums; it does not
+average frame ratios. The empty-input result is explicitly `no-frames`.
+Magnitude, shape and frame-count limits bound arithmetic without silently
+clamping inputs. Profile metadata alone does not certify actual analyzer use.
+
+The standalone `mel-band-timeline.ts` contract retains complete 2048-sample
+windows starting at the declared capture origin. Every expected indexed slot
+must have either a validated stereo vector or an explicit ordered gap. Source
+ranges are bounded to 30 seconds; incomplete trailing support is exposed
+separately rather than padded into a measured frame. Endpoint-based report
+projection preserves whole frame supports, gap counts and the same arithmetic
+contract. These structural checks do not certify physical origin or acquisition.
+The registered fourth family uses the existing version-5 transport plus a
+required `audio-listener/mel-band-timelines-v1` capability. Registration and
+application binding reject stale producers without that capability. The original
+three native algorithms retain version `3.0.0`; this does not relabel old
+diagnostic snapshots as mel measurements.
+
+The pinned stock Max wrapper delivers snapshots of the current control vector,
+not independently identified FFT frames. Scheduling can repeat retained values
+or overwrite intermediate values. The existing diagnostic gate intentionally
+retains only its latest values; its counter cannot certify mel frame identity,
+support or losses. A frame-aware adapter must establish those facts at the
+actual DSP analysis boundary before authoritative vectors enter reports.
+The application-owned `listener.mel~` adapter now builds against pinned FluCoMa
+core and has compiled-engine/reference and capture-Gen-model coverage. It uses
+actual full-frame support, a bounded retained FIFO and a consumed physical
+terminal receipt. These offline checks are not yet an actual Max-graph or
+Live-host qualification.
+
+The controller waits for executed mel readiness before allowing playback,
+binds frame supports to the independently verified capture origin, and waits
+for physical mel termination before releasing the shared capture Gen. Malformed
+vectors preserve only the valid prefix and expose gaps; unknown source, clock or
+cleanup integrity fails closed. Native FIFO overflow and invalid computed bands
+are metric-local gaps. Shared faults remain latched even after malformed data or
+cancellation; a later physical drain receipt cannot make them publishable.
+Mel-only requests do not invent baseline data.
+Valid mel evidence can survive independently unavailable native metrics as an
+honest partial result. A capture with no useful requested evidence cannot publish.
+Configuration, acquisition and drain use the existing bounded attributed
+lifecycle; no second capture owner or raw audio persistence is added.
+
+`mel-band-reference.mjs` provides an independent, test-only mathematical oracle
+using the existing reference FFT. Analytical periodic-Hann tone and impulse
+expectations cover both supported sample rates, zero input, inter-band and
+mixed tones, linear gain, channel independence and malformed input. This
+oracle does not establish physical support, bundled-binary agreement or a
+real-host pass. Compiled-protocol cross-checks compare dimensions, regional sums
+and interval ratios with that independent oracle. The profile's 25 tests and
+706-test protocol owning suite passed; the 17-test reference and five
+cross-checks pass within the 887-test Max owning suite. Deliberate
+zero-denominator-to-zero, mean-of-ratios and magnitude-to-power mutations fail
+the corresponding regressions. Subsequent controller, handoff, runtime and
+reducer suites pass 120 tests, including red/green mel-only and independent
+partial-result regressions. The runtime owning suite passes 263 tests; stored
+four-metric payloads and missing-mel rejection are checked independently of
+healthy baseline data. These are implementation checkpoints, not completion or
+host qualification. Existing diagnostic qualification remains unchanged.
+
+The generated graph now includes the pinned universal arm64/x86_64 adapter and
+its notices/provenance; ordinary builds verify immutable source and resource
+pins without downloading or compiling native dependencies. The mapped-binary
+smoke verifier checks the owned process's exact path, inode/device and pinned
+bytes independently of SpectralShape. Dependency inventory checking is confined
+to the pinned dependency tree, not a changing snapshot of unrelated source
+files; unexpected dependency siblings, substitutions and symlinks remain denied.
+The Desktop detail exposes complete stereo vectors, frequencies, frame paging,
+ratio reasons and gaps through the existing typed context path.
+
+Latest offline checkpoints: 5,119 TypeScript tests across 237 files, 928 Max
+tests, workspace build/lint, and two Electron context-persistence tests pass.
+The scoped dependency-inventory regression failed before its fix and passes
+after it. Earlier parallel packaging timeout and transient inventory failure
+remain in session evidence; the timeout passed in isolation and the inventory
+check no longer enumerates unrelated source files. The focused smoke is
+registered and admitted offline (`executed: false`), not host-qualified.
+
 ## F2b spectral-rolloff diagnostic smoke (#93)
 
 The user-reviewed delivery slice is **smoke only**, using the existing

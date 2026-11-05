@@ -1,5 +1,31 @@
 # Test Strategy Implementation To-Do
 
+## F3 mel-band smoke scope (#105)
+
+- [x] Select full feature implementation with one existing-fixture packaged
+  smoke, not a broader numerical or Arrangement real-host campaign.
+- [x] Add independent bounded mel calculations and analytic periodic-Hann
+  tone/impulse, gain, zeros and malformed-input tests at 44.1/48 kHz.
+- [ ] Qualify actual analyzer frame/support and loss accounting independently
+  of message deliveries before enabling authoritative publication.
+- [x] Verify the compiled pinned-core engine against the independent numerical
+  oracle and modeled capture origin, including retrospective vector offsets.
+  This does not substitute for generated-graph or real-host evidence.
+- [x] Add controller red/green mel-only and independent partial-result tests,
+  physical cleanup/readiness guards, and stored default-four-metric runtime
+  checks. Producer/reducer ownership: 120 passing tests; runtime: 263.
+- [ ] Cover typed vectors/ratios, complete/partial budgets, lifecycle,
+  cancellation, cleanup, report paging/reopening and affected Desktop boundaries.
+- [ ] Register and execute the separately approved single packaged case on the
+  unchanged `session-clip-identify` fixture; preserve terminal receipt and
+  actual matched candidate/dependency/Live identities.
+- [x] Register and admit `session-flucoma-melbands-smoke` offline on the unchanged
+  fixture. Require separate mapped-adapter proof, native terminal-consumption
+  facts, intact vectors/ratios/pages, actual agent consumption and restart
+  persistence; registration does not establish a real-host pass.
+- [ ] Complete the separately scoped applicable visual gate after exact-state
+  validation. Leave broader numerical and Arrangement qualification deferred.
+
 ## Local suite qualification (#82)
 
 - [x] Regress nested cleanup-cause preservation, evidence/resource failure

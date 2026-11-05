@@ -25,6 +25,7 @@ import {
   PROTOCOL_VERSION,
   projectMetricListeningReport,
   summarizeMetricListeningResult,
+  nativeMetricObservationMetricSchema,
 } from "@ableton-agent/protocol";
 import {
   createSyntheticMetricListeningObservation,
@@ -2236,8 +2237,11 @@ describe("CopilotAgentService managed sessions", () => {
       byteHeavyObservation.limitations = Array.from({ length: 16 }, () =>
         "界".repeat(240),
       );
-      for (const metric of Object.values(byteHeavyObservation.metrics)) {
-        metric.limitations = Array.from({ length: 8 }, () => "界".repeat(240));
+      for (const name of nativeMetricObservationMetricSchema.options) {
+        byteHeavyObservation.metrics[name].limitations = Array.from(
+          { length: 8 },
+          () => "界".repeat(240),
+        );
       }
       const byteHeavyReport =
         projectMetricListeningReport(byteHeavyObservation);

@@ -1,0 +1,74 @@
+{
+  "schema": "listener-mel-native-build/v1",
+  "producerAbi": 2,
+  "profile": "24/20/20000/normalize0/scale0/2048/2048/2048/hann",
+  "architectures": [
+    "arm64",
+    "x86_64"
+  ],
+  "deploymentTarget": "11.0",
+  "compiler": "Apple clang version 17.0.0 (clang-1700.6.3.2)",
+  "sdk": "26.2",
+  "cmake": "3.31.6",
+  "dependencies": {
+    "core": {
+      "url": "https://github.com/flucoma/flucoma-core.git",
+      "commit": "f1551f7057bd0f14d2ca2b4a542715fe460354e0"
+    },
+    "hiss": {
+      "url": "https://github.com/AlexHarker/HISSTools_Library.git",
+      "commit": "f3292adbc978c09dc43bedbfe2faa6e791b87594"
+    },
+    "eigen": {
+      "url": "https://gitlab.com/libeigen/eigen.git",
+      "commit": "3147391d946bb4b6c68edd901f2add6ac1f31f8c"
+    },
+    "memory": {
+      "url": "https://github.com/foonathan/memory.git",
+      "commit": "0f0775770fd1c506fa9c5ad566bd6ba59659db66"
+    },
+    "max-sdk-base": {
+      "url": "https://github.com/Cycling74/max-sdk-base.git",
+      "commit": "c03a2922a2a8ff149165a1e2ea134e9321d6e202"
+    }
+  },
+  "inputs": [
+    {
+      "path": "max-patches/audio-listener/native-mel-adapter/CMakeLists.txt",
+      "bytes": 3518,
+      "sha256": "f8928f9a6e1bfd9955b28b8753fd9689ec984bf18614b730b722d05276cc4b1c"
+    },
+    {
+      "path": "max-patches/audio-listener/native-mel-adapter/Info.plist.in",
+      "bytes": 420,
+      "sha256": "277eb38fcc09678a71609ca8aa7a8e30c2906d181fb7515327a7fdabba970dec"
+    },
+    {
+      "path": "max-patches/audio-listener/native-mel-adapter/dependencies.json",
+      "bytes": 774,
+      "sha256": "92e1a7c01a45b48dbe868000de3a9b7e1b313405e2ee63ee90df3579528e89ae"
+    },
+    {
+      "path": "max-patches/audio-listener/native-mel-adapter/mel_engine.hpp",
+      "bytes": 13612,
+      "sha256": "ba31126ab06595233a01db7853c569ccb2d03e4d7019cc8be62cb108c805ba3d"
+    },
+    {
+      "path": "max-patches/audio-listener/native-mel-adapter/max_external.cpp",
+      "bytes": 5085,
+      "sha256": "13d928343b836e0c5d8d4e88ea0ef26bdef581de16dfe1e8076c48715dc8dba8"
+    },
+    {
+      "path": "max-patches/audio-listener/native-mel-adapter/build.py",
+      "bytes": 2792,
+      "sha256": "e459d09b33ad9cb19ea4ac7402c6f9f60749ce496428d64fa83d9956d8d84190"
+    },
+    {
+      "path": "max-patches/audio-listener/native-mel-adapter/publish.py",
+      "bytes": 4895,
+      "sha256": "f6def95d5a7b23331364f26783b86355f063ec24ff90fcb3e45d847d3c246935"
+    }
+  ],
+  "binarySha256": "9d0b5f38621daa2160b0c94cdbeebbff62d20288e89f4af42b6a772acc4b3aed",
+  "hostQualified": false
+}

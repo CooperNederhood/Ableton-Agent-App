@@ -1,0 +1,26 @@
+{
+  "schema": 1,
+  "cmake": "3.31.6",
+  "dependencies": {
+    "core": {
+      "url": "https://github.com/flucoma/flucoma-core.git",
+      "commit": "f1551f7057bd0f14d2ca2b4a542715fe460354e0"
+    },
+    "hiss": {
+      "url": "https://github.com/AlexHarker/HISSTools_Library.git",
+      "commit": "f3292adbc978c09dc43bedbfe2faa6e791b87594"
+    },
+    "eigen": {
+      "url": "https://gitlab.com/libeigen/eigen.git",
+      "commit": "3147391d946bb4b6c68edd901f2add6ac1f31f8c"
+    },
+    "memory": {
+      "url": "https://github.com/foonathan/memory.git",
+      "commit": "0f0775770fd1c506fa9c5ad566bd6ba59659db66"
+    },
+    "max-sdk-base": {
+      "url": "https://github.com/Cycling74/max-sdk-base.git",
+      "commit": "c03a2922a2a8ff149165a1e2ea134e9321d6e202"
+    }
+  }
+}

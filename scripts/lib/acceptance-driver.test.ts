@@ -25,6 +25,11 @@ import {
   agentHistoryPage,
   agentListeningFixture,
 } from "../../packages/test-support/src/integration/agent-listening-test-support.js";
+import {
+  melSmokeFixture,
+  melSmokeHistory,
+  melBinaryFacts,
+} from "../../packages/test-support/src/integration/mel-smoke-test-support.js";
 import type {
   InspectSessionListeningSourceParams,
   InspectSessionListeningSourceResult,
@@ -45,6 +50,7 @@ const mocks = vi.hoisted(() => ({
   project: vi.fn(),
   loading: vi.fn(),
   flatnessLoading: vi.fn(),
+  melLoading: vi.fn(),
   bridgeOptions: vi.fn(),
   bridgeStart: vi.fn(),
   bridgeClose: vi.fn(),
@@ -67,6 +73,7 @@ vi.mock("../../tests/electron/acceptance-loading.js", () => ({
 }));
 vi.mock("../../tests/electron/acceptance-flatness-loading.js", () => ({
   verifyLoadedFlatnessBinary: mocks.flatnessLoading,
+  verifyLoadedMelBinary: mocks.melLoading,
 }));
 vi.mock("../../tests/electron/packaged-paths.js", () => ({
   packagedExecutable: async () => "/candidate/Contents/MacOS/Agent",
@@ -149,6 +156,7 @@ const api = {
   agent: { getSessions: vi.fn() },
   outputs: { list: vi.fn() },
   listening: { list: vi.fn() },
+  entityContext: { get: vi.fn() },
   approvals: { resolve: vi.fn() },
   eventHistory: { trace: vi.fn(), agent: vi.fn() },
   events: { subscribe: mocks.subscriber },
@@ -168,6 +176,7 @@ const application = {
 
 beforeEach(async () => {
   vi.resetAllMocks();
+  mocks.melLoading.mockResolvedValue(melBinaryFacts("baseline"));
   mocks.bridgeStart.mockResolvedValue(54321);
   mocks.bridgeSnapshot.mockReturnValue({ records: [] });
   vi.stubGlobal("window", { desktop: api });
@@ -1492,6 +1501,12 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
     "rolloff",
     "rolloff-denied",
     "rolloff-cancelled",
+    "melbands",
+    "melbands-denied",
+    "melbands-cancelled",
+    "melbands-mel-denied",
+    "melbands-mel-cancelled",
+    "melbands-mel-incomplete-denied",
   ])(
     "binds raw Max identities and requires loaded-binary proof for all smoke cases: %s",
     async (mode) => {
@@ -1570,14 +1585,22 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
         flatnessLoadedBinaryInode: "123",
         flatnessLoadedBinaryDevice: "456",
       });
+      const selectedLoader = mode.includes("-mel-")
+        ? mocks.melLoading
+        : mocks.flatnessLoading;
       if (mode.endsWith("-denied"))
-        mocks.flatnessLoading.mockRejectedValue(
+        selectedLoader.mockRejectedValue(
           new Error("Mapped flatness binary is not the pinned staged identity"),
         );
       if (mode.endsWith("-cancelled"))
-        mocks.flatnessLoading.mockRejectedValue(
+        selectedLoader.mockRejectedValue(
           new DOMException("Aborted", "AbortError"),
         );
+      if (mode.includes("-incomplete-"))
+        mocks.melLoading.mockResolvedValue({
+          ...melBinaryFacts("baseline"),
+          melLoadedBinarySha256: undefined,
+        });
       await driver.launch(context);
       await driver.ready(context);
       if (mode.endsWith("-denied") || mode.endsWith("-cancelled")) {
@@ -1587,15 +1610,16 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
         const evidence: unknown = JSON.parse(
           await readFile(join(directory, "product-evidence.json"), "utf8"),
         );
+        const prefix = mode.includes("-mel-") ? "mel" : "flatness";
         expect(evidence).toMatchObject({
           provenance: {
-            flatnessLoadedBinaryVerified: false,
-            flatnessLoadedBinaryState: mode.endsWith("-denied")
+            [`${prefix}LoadedBinaryVerified`]: false,
+            [`${prefix}LoadedBinaryState`]: mode.endsWith("-denied")
               ? "failed"
               : "cancelled",
-            flatnessLoadedBinaryError:
+            [`${prefix}LoadedBinaryError`]:
               "owned-loader-proof-unavailable-or-mismatched",
-            flatnessLoadedBinaryDurationMs: expect.any(Number) as unknown,
+            [`${prefix}LoadedBinaryDurationMs`]: expect.any(Number) as unknown,
           },
         });
         expect(mocks.liveStop).toHaveBeenCalled();
@@ -1606,7 +1630,12 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
       expect(baseline.sources?.a?.source.trackId).not.toBe("2141");
       expect(baseline.sources?.a?.listenerId).toBe("listener-1");
       expect(baseline.facts.activeCandidateVerified).toBe(true);
-      if (mode === "flatness" || mode === "spread" || mode === "rolloff") {
+      if (
+        mode === "flatness" ||
+        mode === "spread" ||
+        mode === "rolloff" ||
+        mode === "melbands"
+      ) {
         expect(mocks.flatnessLoading).toHaveBeenCalledExactlyOnceWith(
           expect.objectContaining({
             live: { pid: 98766, owned: true },
@@ -1619,6 +1648,20 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
           flatnessLoadedBinaryState: "completed",
         });
       } else expect(mocks.flatnessLoading).not.toHaveBeenCalled();
+      if (mode === "melbands") {
+        expect(mocks.melLoading).toHaveBeenCalledExactlyOnceWith(
+          expect.objectContaining({
+            live: { pid: 98766, owned: true },
+            activeNodePids: "1234",
+          }),
+        );
+        expect(baseline.facts).toMatchObject({
+          melLoadedBinaryVerified: true,
+          melLoadedBinarySchema: "owned-mapped-listener-mel/v1",
+          melLoadedBinaryState: "completed",
+          melLoadedBinaryPhase: "baseline",
+        });
+      } else expect(mocks.melLoading).not.toHaveBeenCalled();
       await driver.cleanup(context);
     },
   );
@@ -2244,25 +2287,98 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
     "missing",
     "duplicate",
     "typed",
+    "mel-typed",
+    "mel-mapping-failed",
+    "mel-mapping-cancelled",
     "history-failed",
     "history-cancelled",
   ])(
     "joins exact ingress, assistant and SDK activity (%s), not global idle",
     async (activity) => {
-      const typed = ["typed", "history-failed", "history-cancelled"].includes(
-        activity,
-      );
+      const mel = activity.startsWith("mel-");
+      const typed =
+        ["typed", "mel-typed", "history-failed", "history-cancelled"].includes(
+          activity,
+        ) || mel;
+      if (mel) {
+        await audioBaseline();
+        const snapshot = liveSetSnapshotSchema.parse(
+          await api.ableton.requestSnapshot(),
+        );
+        const track = snapshot.tracks[0]!;
+        const deviceId = randomUUID();
+        api.ableton.requestSnapshot.mockResolvedValue(
+          liveSetSnapshotSchema.parse({
+            ...snapshot,
+            devices: [
+              {
+                id: deviceId,
+                trackId: track.id,
+                trackIndex: 0,
+                index: 0,
+                name: "Listener",
+                className: "MxDeviceAudioEffect",
+                classDisplayName: "Max Audio Effect",
+                enabled: true,
+                parameterCount: 1,
+                canHaveChains: false,
+                canHaveDrumPads: false,
+              },
+            ],
+          }),
+        );
+        api.outputs.list.mockResolvedValue({
+          activeSessionId: identity.appSessionId,
+          connections: [
+            {
+              producerId: "listener",
+              signalKind: "audio",
+              state: "connected",
+              track: { id: track.id, index: 0, name: track.name },
+              device: { id: deviceId, name: "Listener" },
+            },
+          ],
+        });
+        context = {
+          ...context,
+          scenario: {
+            ...context.scenario,
+            id: "session-flucoma-melbands-smoke",
+          },
+          fixture: {
+            ...context.fixture,
+            dependencies: ["machine-listening"],
+            listenerBindings: [listenerBinding],
+          },
+        };
+        mocks.loading.mockResolvedValue({
+          activeCandidateVerified: true,
+          activeNodePids: "1234",
+          activeFrozenSha256: "c".repeat(64),
+        });
+        mocks.flatnessLoading.mockResolvedValue({
+          flatnessLoadedBinaryVerified: true,
+        });
+      }
       if (typed)
         context = {
           ...context,
           scenario: {
             ...context.scenario,
-            requiredCapabilities: ["automation", "persistence"],
+            requiredCapabilities: mel
+              ? ["automation", "session-audio", "persistence"]
+              : ["automation", "persistence"],
           },
         };
       await driver.launch(context);
       await driver.ready(context);
-      if (typed) await driver.readBaseline(context);
+      const baseline = typed ? await driver.readBaseline(context) : undefined;
+      if (activity === "mel-mapping-failed")
+        mocks.melLoading.mockRejectedValue(new Error("capture mapping denied"));
+      if (activity === "mel-mapping-cancelled")
+        mocks.melLoading.mockRejectedValue(
+          new DOMException("capture mapping cancelled", "AbortError"),
+        );
       const subscription = await driver.subscribe();
       const step = {
         id: "turn",
@@ -2272,11 +2388,99 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
           ? [{ name: "agent-listening-result", parameters: { sourceId: "a" } }]
           : [],
       };
+      if (mel)
+        context = {
+          ...context,
+          scenario: {
+            ...context.scenario,
+            steps: [
+              {
+                ...step,
+                assertions: [
+                  {
+                    name: "melbands-smoke",
+                    parameters: { sourceId: "a", afterRestart: false },
+                  },
+                ],
+              },
+            ],
+          },
+        };
       const submission = await driver.submit(step, context);
       const emit = mocks.subscriber.mock.calls[0]![0];
       const sdkTurnId = randomUUID();
       if (typed) {
-        const f = agentListeningFixture();
+        const f = mel ? melSmokeFixture() : agentListeningFixture();
+        if (mel) {
+          if (!("observation" in f.context))
+            throw new Error("Missing synthetic context");
+          const observation = structuredClone(f.context.observation);
+          if (observation.source.view !== "session")
+            throw new Error("Missing synthetic Session source");
+          const source = baseline!.sources!.a!.source;
+          Object.assign(observation.ownership, {
+            traceId: sdkTurnId,
+            correlationId: sdkTurnId,
+          });
+          Object.assign(observation.source.target.track, {
+            expectedReference: source.trackId,
+            expectedName: "Source 1",
+          });
+          Object.assign(observation.source.target, {
+            expectedClipReference: source.clipId,
+            expectedClipName: "Clip 1",
+          });
+          Object.assign(observation.source, { clipReference: source.clipId });
+          Object.assign(f.context, { observation });
+          api.entityContext.get.mockResolvedValue(f.context);
+          api.listening.list.mockResolvedValue({
+            jobs: [
+              {
+                passId: observation.ownership.passId,
+                sessionId: identity.appSessionId,
+                agentId: identity.agentId,
+                stage: "completed",
+                contextIds: [f.contextId],
+                trace: {
+                  traceId: sdkTurnId,
+                  correlationId: sdkTurnId,
+                  causationId: observation.ownership.causationId,
+                },
+              },
+            ],
+          });
+          api.eventHistory.trace.mockResolvedValue({
+            items: [
+              ...melSmokeHistory(observation),
+              {
+                id: "native-cleanup",
+                sequence: 1,
+                name: "listening.metric-capture.completed",
+                trace: { traceId: sdkTurnId, spanId: "span" },
+                correlationId: sdkTurnId,
+                outcome: "success",
+                durationMs: 1,
+                attributes: {
+                  passId: observation.ownership.passId,
+                  action: "cleanup",
+                  listeners: [{ ...observation.ownership }],
+                },
+              },
+              {
+                id: "source-cleanup",
+                sequence: 2,
+                name: "listening.runtime.session-source-cleanup.completed",
+                trace: { traceId: sdkTurnId, spanId: "span" },
+                correlationId: sdkTurnId,
+                outcome: "success",
+                durationMs: 1,
+                sessionId: identity.appSessionId,
+                activeAgentId: identity.agentId,
+                attributes: { passId: observation.ownership.passId },
+              },
+            ],
+          });
+        }
         for (const record of f.records) {
           record.appSessionId = identity.appSessionId;
           record.agentSessionId = identity.conversationId;
@@ -2361,18 +2565,45 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
       });
       if (activity !== "missing") emitActivity(sdkTurnId);
       if (activity === "duplicate") emitActivity(randomUUID());
-      if (activity === "present" || activity === "typed") {
+      if (
+        activity === "present" ||
+        activity === "typed" ||
+        activity === "mel-typed"
+      ) {
         const result = await subscription.waitForTurn(submission, context);
         expect(result).toMatchObject({
           assistantMessageId,
           userMessageId,
           assistantText: "Hello",
           status: "completed",
-          captures: [],
-          contexts: [],
+          ...(activity === "mel-typed" ? {} : { captures: [], contexts: [] }),
           facts: { sdkTurnId },
         });
         expect(sdkTurnId).not.toBe(context.traceId);
+        if (activity === "mel-typed") {
+          expect(result.captures).toHaveLength(1);
+          expect(result.captures[0]!.metricFamilies).toEqual([
+            "level",
+            "spectral-centroid",
+            "attacks",
+            "mel-bands",
+          ]);
+          expect(result.melSmoke).toHaveLength(1);
+          expect(
+            result.melSmoke![0]!.observation.metrics["mel-bands"]!.frames,
+          ).toHaveLength(43);
+          expect(result.melSmoke![0]!.cleanupComplete).toBe(true);
+          expect(mocks.melLoading).toHaveBeenCalledTimes(2);
+          expect(mocks.flatnessLoading).toHaveBeenCalledTimes(2);
+          expect(baseline!.facts.melLoadedBinaryPhase).toBe("baseline");
+          expect(result.facts).toMatchObject({
+            melLoadedBinaryVerified: true,
+            melLoadedBinaryPhase: "capture-completed",
+            melLoadedBinaryTraceId: sdkTurnId,
+            melLoadedBinaryPassId: result.captures[0]!.passId,
+            melLoadedBinaryGeneration: result.captures[0]!.native!.generation,
+          });
+        }
         if (typed) {
           expect(result.agentListening?.sdkTurnId).toBe(sdkTurnId);
           expect(api.eventHistory.agent).toHaveBeenCalledExactlyOnceWith(
@@ -2388,6 +2619,22 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
             { ...result.agentListening, afterOwnedRestart: true },
           ]);
           expect(api.eventHistory.agent).toHaveBeenCalledTimes(2);
+          if (activity === "mel-typed") {
+            expect(collected.facts.melLoadedBinaryPassId).toBe(
+              result.captures[0]!.passId,
+            );
+            expect(mocks.melLoading).toHaveBeenCalledTimes(2);
+            expect(collected.melSmoke).toEqual(
+              result.melSmoke!.map((entry) => ({
+                ...entry,
+                afterOwnedRestart: true,
+              })),
+            );
+            expect(mocks.launch).toHaveBeenCalledTimes(2);
+            expect(
+              api.entityContext.get.mock.calls.length,
+            ).toBeGreaterThanOrEqual(4);
+          }
         }
       } else
         await expect(
@@ -2397,9 +2644,13 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
             ? "no attributable SDK"
             : activity === "history-failed"
               ? "journal unavailable"
-              : activity === "history-cancelled"
-                ? "cancelled history read"
-                : "More than one SDK",
+              : activity === "mel-mapping-failed"
+                ? "capture mapping denied"
+                : activity === "mel-mapping-cancelled"
+                  ? "capture mapping cancelled"
+                  : activity === "history-cancelled"
+                    ? "cancelled history read"
+                    : "More than one SDK",
         );
       await subscription.close(context);
       if (activity === "history-cancelled")
@@ -2407,6 +2658,20 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
           "cancelled history read",
         );
       else await driver.cleanup(context);
+      if (activity.startsWith("mel-mapping-")) {
+        const product = JSON.parse(
+          await readFile(join(directory, "product-evidence.json"), "utf8"),
+        ) as { provenance: Record<string, unknown> };
+        expect(product.provenance).toMatchObject({
+          flatnessLoadedBinaryVerified: true,
+          melLoadedBinaryVerified: false,
+          melLoadedBinaryPhase: "capture-completed",
+          melLoadedBinaryState:
+            activity === "mel-mapping-cancelled" ? "cancelled" : "failed",
+        });
+        expect(mocks.stop).toHaveBeenCalled();
+        expect(mocks.liveStop).toHaveBeenCalled();
+      }
       if (activity === "typed") {
         const product = JSON.parse(
           await readFile(join(directory, "product-evidence.json"), "utf8"),

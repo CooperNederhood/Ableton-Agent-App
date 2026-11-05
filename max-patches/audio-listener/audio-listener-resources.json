@@ -24,6 +24,7 @@
     "audio_listener_metric_spectrum.js",
     "audio_listener_metric_io.js",
     "audio_listener_metric_timelines.js",
+    "audio_listener_mel_handoff.js",
     "audio_listener_measurements.js",
     "audio_listener_native_io.js",
     "audio_listener_metric_protocol.js",
@@ -43,7 +44,16 @@
     "dependencies/flucoma/fluid.spectralshape~.mxo/Contents/_CodeSignature/CodeResources",
     "dependencies/flucoma/fluid.spectralshape~.mxo/Contents/CodeResources",
     "dependencies/flucoma/fluid.spectralshape~.mxo/Contents/Info.plist",
-    "dependencies/flucoma/README.md"
+    "dependencies/flucoma/README.md",
+    "dependencies/flucoma/listener-mel-build.json",
+    "dependencies/flucoma/listener.mel~.mxo/Contents/Info.plist",
+    "dependencies/flucoma/listener.mel~.mxo/Contents/MacOS/listener.mel~",
+    "dependencies/flucoma/listener.mel~.mxo/Contents/Resources/licenses/Eigen-MPL2.txt",
+    "dependencies/flucoma/listener.mel~.mxo/Contents/Resources/licenses/HISSTools-BSD3.txt",
+    "dependencies/flucoma/listener.mel~.mxo/Contents/Resources/licenses/Max-SDK-license.txt",
+    "dependencies/flucoma/listener.mel~.mxo/Contents/Resources/licenses/flucoma-BSD3.txt",
+    "dependencies/flucoma/listener.mel~.mxo/Contents/Resources/licenses/foonathan-zlib.txt",
+    "dependencies/flucoma/listener.mel~.mxo/Contents/Resources/licenses/source-pins.json"
   ],
   "sharedResources": {
     "agent_signal_client_common.js": "../shared/agent_signal_client.js",
@@ -51,5 +61,15 @@
   },
   "optionalProfileConfiguration": "agent_signal_storage.js",
   "realLiveValidated": false,
-  "captureReadinessDefault": "fresh_per_pass_native_validation_required"
+  "captureReadinessDefault": "fresh_per_pass_native_validation_required",
+  "nativeMelProducer": {
+    "schema": "listener-mel-native/v1",
+    "abi": 2,
+    "bundle": "dependencies/flucoma/listener.mel~.mxo",
+    "binarySha256": "9d0b5f38621daa2160b0c94cdbeebbff62d20288e89f4af42b6a772acc4b3aed",
+    "controlSelector": "mel_native_control",
+    "returnSelector": "native_mel",
+    "receiptSelector": "mel_drain",
+    "hostQualified": false
+  }
 }

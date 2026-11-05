@@ -6,6 +6,9 @@ import {
   MAX_METRIC_RESULT_FRAME_BYTES,
   metricAudioObservationSchema,
   nativeMetricListeningConfigSchema,
+  nativeMetricObservationMetricSchema,
+  MEL_BAND_PROFILE,
+  melBandTimelineSchema,
   readListeningFailureEvidence,
 } from "@ableton-agent/protocol";
 import type { TelemetryEventEnvelope } from "@ableton-agent/observability";
@@ -128,6 +131,58 @@ class Service extends SyntheticMetricListenerPeer {
 }
 
 describe("real version5 ListenerService orchestration", () => {
+  it.each([0.2, 0.01])(
+    "accepts explicit mel-only valid/no-frame evidence for %s beats without native-record assumptions",
+    async (endBeat) => {
+      const s = new Service("arrangement", false, { tempoBpm: 120, endBeat });
+      s.data.config.requestedMetrics = ["mel-bands"];
+      s.data.config.attacks = null;
+      s.data.ready.config = structuredClone(s.data.config);
+      s.data.proof.armed.config = structuredClone(s.data.config);
+      const observation = s.data.observation;
+      observation.requestedMetrics = ["mel-bands"];
+      for (const name of nativeMetricObservationMetricSchema.options) {
+        observation.metrics[name].status = "not-requested";
+        observation.metrics[name].algorithm = null;
+        observation.metrics[name].records = [];
+        observation.metrics[name].gaps = [];
+        observation.metrics[name].limitations = [];
+        observation.metrics[name].expectedRecords = 0;
+      }
+      const expectedRecords = Math.floor(
+        observation.geometry.totalSamples / 2_048,
+      );
+      observation.metrics["mel-bands"] = melBandTimelineSchema.parse({
+        schema: "mel-band-timeline/v1",
+        status: "complete",
+        profile: MEL_BAND_PROFILE,
+        sampleRate: observation.geometry.sampleRate,
+        sourceSupport: observation.sourceCoverage,
+        expectedRecords,
+        frames: Array.from({ length: expectedRecords }, (_, index) => ({
+          index,
+          support: {
+            startSample: observation.geometry.startSample + index * 2_048,
+            endSample: observation.geometry.startSample + (index + 1) * 2_048,
+          },
+          magnitudes: [Array<number>(24).fill(1), Array<number>(24).fill(2)],
+        })),
+        gaps: [],
+      });
+      observation.rows = createMetricObservationReportRows(observation);
+      const prepared = await prepareMetricListenerCapture(s, s.input);
+      s.launch();
+      await prepared.nativeLaunch;
+      s.complete();
+      const [result] = await prepared.result;
+      expect(result?.metrics["mel-bands"]?.expectedRecords).toBe(
+        expectedRecords,
+      );
+      expect(result?.metrics.level.status).toBe("not-requested");
+      await prepared.disarm();
+      expect(s.subscribers.size).toBe(0);
+    },
+  );
   it.each([false, true])(
     "retains thirty-second complete/partial results larger than the old frame ceiling (partial=%s)",
     async (partial) => {
@@ -728,8 +783,8 @@ describe("real version5 ListenerService orchestration", () => {
       nativeSourceCoverage: s.data.proof,
     });
     const empty = structuredClone(s.data.observation);
-    for (const metric of Object.values(empty.metrics))
-      metric.records.length = 0;
+    for (const name of nativeMetricObservationMetricSchema.options)
+      empty.metrics[name].records.length = 0;
     s.emit({ ...terminal, observation: empty });
     await expect(prepared.result).rejects.toBeInstanceOf(Error);
     await expect(prepared.disarm()).rejects.toBeInstanceOf(Error);

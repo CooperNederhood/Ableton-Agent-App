@@ -37,6 +37,8 @@ import {
   seedMixedListeningContext,
   descriptiveFixturePassId,
   sessionFixturePassId,
+  seedMelListeningContext,
+  melFixturePassId,
 } from "./listening-context-fixture.js";
 import {
   createDesktopTestEnvironment,
@@ -1306,6 +1308,141 @@ for (const action of [
     });
   }
 }
+
+test("renders and reopens persisted mel-band detail through typed IPC without starting Live", async () => {
+  const launched = await launchIsolatedDesktop(
+    {},
+    undefined,
+    seedMelListeningContext,
+  );
+  let application: Awaited<ReturnType<typeof electron.launch>> | undefined =
+    launched.application;
+  let savedId: string | undefined;
+  let savedPayload: string | undefined;
+  try {
+    for (let cycle = 0; cycle < 2; cycle++) {
+      application ??= await electron.launch({
+        args: [
+          desktopPath,
+          `--user-data-dir=${join(launched.profile, "electron")}`,
+        ],
+        cwd: process.cwd(),
+        env: launched.environment,
+      });
+      const window = await application.firstWindow();
+      await expect(
+        window.getByRole("combobox", { name: "Active Agent", exact: true }),
+      ).toBeEnabled({ timeout: 30_000 });
+      await window
+        .getByRole("button", { name: "Outputs", exact: true })
+        .click();
+      await window
+        .getByRole("button", { name: "Refresh Outputs", exact: true })
+        .click();
+      await expect(
+        window.getByRole("button", { name: "Refresh Outputs", exact: true }),
+      ).toBeEnabled();
+      const sessions = await window.evaluate(() =>
+        globalThis.window.desktop.agent.getSessions(),
+      );
+      // The persisted fixture intentionally has no live agent. Select its UI
+      // session using the existing typed event; list/get remain real IPC reads.
+      await application.evaluate(
+        ({ BrowserWindow }, event: DesktopAppEvent) => {
+          for (const target of BrowserWindow.getAllWindows())
+            target.webContents.send("app:event", event);
+        },
+        {
+          type: "sessions.changed",
+          sessions,
+          activeSessionId: listeningFixtureSessionId,
+        },
+      );
+      await window
+        .getByRole("checkbox", {
+          name: "Include historical context",
+          exact: true,
+        })
+        .check();
+      const details = await window.evaluate(async (sessionId) => {
+        const api = globalThis.window.desktop.entityContext;
+        const page = await api.list({
+          sessionId,
+          includeHistorical: true,
+          limit: 20,
+        });
+        const entry = page.entries.find(
+          (item) => item.kind === "metric-audio-observation/v1",
+        );
+        if (!entry) throw new Error("Missing persisted mel fixture");
+        return api.get({
+          sessionId,
+          contextId: entry.contextId,
+          includeHistorical: true,
+        });
+      }, listeningFixtureSessionId);
+      expect(details.entry.passId).toBe(melFixturePassId);
+      if (details.observation.schema !== "metric-audio-observation/v1")
+        throw new Error("Expected metric fixture");
+      expect(
+        details.observation.metrics["mel-bands"]?.frames[0]?.magnitudes[1][23],
+      ).toBe(124);
+      if (cycle === 0) {
+        savedId = details.entry.contextId;
+        savedPayload = JSON.stringify(details.observation);
+      } else {
+        expect(details.entry.contextId).toBe(savedId);
+        expect(JSON.stringify(details.observation)).toBe(savedPayload);
+      }
+      await expect(window.locator(".entity-context-panel")).toContainText(
+        details.entry.contextId,
+        { timeout: 5_000 },
+      );
+      await window
+        .getByRole("button", {
+          name: `View observation ${details.entry.contextId}`,
+          exact: true,
+        })
+        .click();
+      const mel = window.getByRole("region", {
+        name: "mel-bands metric",
+        exact: true,
+      });
+      await expect(mel).toContainText("Uncalibrated linear FFT magnitudes");
+      await expect(mel).toContainText("2/2 retained frames");
+      await expect(mel).toContainText("samples [14096, 14800)");
+      const table = mel.getByRole("table", {
+        name: "Mel-band magnitudes",
+        exact: true,
+      });
+      await expect(table.locator("tbody tr")).toHaveCount(24);
+      await expect(table.locator("tbody tr").last()).toContainText("124.00000");
+      await expect(
+        mel.getByRole("button", {
+          name: "Previous mel-band frame",
+          exact: true,
+        }),
+      ).toBeDisabled();
+      await mel
+        .getByRole("button", { name: "Next mel-band frame", exact: true })
+        .click();
+      await expect(mel.getByRole("status")).toContainText("Frame 1");
+      await expect(mel).toContainText("Unavailable (zero-denominator)");
+      await expect(mel).toContainText("Unavailable (below-floor)");
+      await expect(table.locator("tbody tr")).toHaveCount(24);
+      expect(
+        await window.evaluate(() =>
+          Object.keys(globalThis.window.desktop.entityContext),
+        ),
+      ).toEqual(["list", "get"]);
+      await application.close();
+      application = undefined;
+    }
+  } finally {
+    await application?.close();
+    await rm(launched.profile, { recursive: true, force: true });
+  }
+});
 
 test("restores typed v1/v2/Session context and approximate quality across Electron restarts without renderer filesystem access", async () => {
   const bridge = createServer((socket) => socket.destroy());

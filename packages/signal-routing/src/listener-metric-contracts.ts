@@ -16,6 +16,7 @@ import {
   nativeMetricSourceCoverageProofSchema,
   NATIVE_METRIC_LISTENING_SCOPE,
   NATIVE_METRIC_LISTENING_CAPABILITY,
+  NATIVE_MEL_BAND_LISTENING_CAPABILITY,
   NATIVE_METRIC_ALGORITHM_VERSION,
   MAX_METRIC_RESULT_FRAME_BYTES,
   type NativeMetricArmProof,
@@ -37,6 +38,7 @@ export {
 
 export const LISTENER_VERSION_METRIC = 5 as const;
 export const LISTENER_CAPABILITY_METRIC = NATIVE_METRIC_LISTENING_CAPABILITY;
+export const LISTENER_CAPABILITY_MEL = NATIVE_MEL_BAND_LISTENING_CAPABILITY;
 export const LISTENER_METRIC_SCOPE = NATIVE_METRIC_LISTENING_SCOPE;
 export const LISTENER_METRIC_ALGORITHM_VERSION =
   NATIVE_METRIC_ALGORITHM_VERSION;
@@ -81,7 +83,10 @@ export const listenerRegistrationMetricSchema = z
     ...listenerRegistrationBaseSchema.shape,
     version: z.literal(LISTENER_VERSION_METRIC),
     connectionEpoch: z.string().uuid(),
-    capabilities: z.tuple([z.literal(LISTENER_CAPABILITY_METRIC)]),
+    capabilities: z.tuple([
+      z.literal(LISTENER_CAPABILITY_METRIC),
+      z.literal(LISTENER_CAPABILITY_MEL),
+    ]),
     algorithmVersion: z.literal(LISTENER_METRIC_ALGORITHM_VERSION),
     vectorSize: z.number().int().min(1).max(65_536),
     nativeStatus: listenerNativeMetricStatusSchema,

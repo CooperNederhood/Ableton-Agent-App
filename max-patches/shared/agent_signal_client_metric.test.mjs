@@ -463,7 +463,10 @@ test("staged metric SDK authenticates fragmented TCP replies and preserves actua
               requestId: message.requestId,
               action: "hello",
               connectionId: owner.connectionId,
-              listenerCapabilities: [codec.LISTENER_CAPABILITY_METRIC]
+              listenerCapabilities: [
+                codec.LISTENER_CAPABILITY_METRIC,
+                codec.LISTENER_CAPABILITY_MEL
+              ]
             });
             socket.write(ack.slice(0, 17));
             socket.write(
@@ -507,7 +510,10 @@ test("staged metric SDK authenticates fragmented TCP replies and preserves actua
     protocolVersion: 1,
     maxFrameBytes: 128 * 1024,
     listenerVersions: [5],
-    listenerCapabilities: [codec.LISTENER_CAPABILITY_METRIC]
+    listenerCapabilities: [
+      codec.LISTENER_CAPABILITY_METRIC,
+      codec.LISTENER_CAPABILITY_MEL
+    ]
   };
   const f = setup("session", false, {
     descriptorPath: "/synthetic/profile/signal-ingress.json",
@@ -1592,12 +1598,16 @@ test("discovery and authenticated hello must explicitly acknowledge wire5 capabi
     protocolVersion: 1,
     maxFrameBytes: 128 * 1024,
     listenerVersions: [1, 2, 3, 4, 5],
-    listenerCapabilities: [codec.LISTENER_CAPABILITY_METRIC]
+    listenerCapabilities: [
+      codec.LISTENER_CAPABILITY_METRIC,
+      codec.LISTENER_CAPABILITY_MEL
+    ]
   };
   for (const patch of [
     { listenerVersions: [1, 2, 3, 4] },
     { listenerVersions: [] },
     { listenerCapabilities: [] },
+    { listenerCapabilities: [codec.LISTENER_CAPABILITY_METRIC] },
     { listenerVersions: undefined }
   ]) {
     f.client.readText = async () => JSON.stringify({ ...descriptor, ...patch });
@@ -1605,7 +1615,12 @@ test("discovery and authenticated hello must explicitly acknowledge wire5 capabi
   }
   f.client.readText = async () => JSON.stringify(descriptor);
   assert.equal((await f.client.loadDescriptor()).listenerVersions.at(-1), 5);
-  for (const capabilities of [undefined, [], ["audio-listener/dual-mode-v1"]]) {
+  for (const capabilities of [
+    undefined,
+    [],
+    ["audio-listener/dual-mode-v1"],
+    [codec.LISTENER_CAPABILITY_METRIC]
+  ]) {
     const bad = setup();
     bad.client.authenticated = false;
     bad.client.pending.set("hello-test", "hello");
@@ -1632,7 +1647,10 @@ test("discovery and authenticated hello must explicitly acknowledge wire5 capabi
       action: "hello",
       requestId: "invalid-identity-hello",
       connectionId: "not-a-canonical-connection-id",
-      listenerCapabilities: [codec.LISTENER_CAPABILITY_METRIC]
+      listenerCapabilities: [
+        codec.LISTENER_CAPABILITY_METRIC,
+        codec.LISTENER_CAPABILITY_MEL
+      ]
     })
   );
   assert.equal(invalidIdentity.client.authenticated, false);
@@ -1645,7 +1663,10 @@ test("discovery and authenticated hello must explicitly acknowledge wire5 capabi
       action: "hello",
       requestId: "hello-good",
       connectionId: f.client.connectionId,
-      listenerCapabilities: [codec.LISTENER_CAPABILITY_METRIC]
+      listenerCapabilities: [
+        codec.LISTENER_CAPABILITY_METRIC,
+        codec.LISTENER_CAPABILITY_MEL
+      ]
     })
   );
   assert.equal(f.client.authenticated, true);

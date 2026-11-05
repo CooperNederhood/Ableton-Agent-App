@@ -4,6 +4,7 @@ import type { DependencyInventory } from "@ableton-agent/test-support/integratio
 import {
   FLUCOMA_DEPENDENCY_FILES,
   FLUCOMA_SPECTRALSHAPE_BUNDLE,
+  NATIVE_MEL_BUNDLE,
   readFlucomaDependencyFile,
 } from "../../packages/shared/src/m4l-devices.js";
 import { runProcess } from "../../scripts/lib/live-process-controller.mjs";
@@ -18,22 +19,72 @@ export interface FlatnessBinaryIdentity {
   flatnessLoadedBinaryInode: string;
   flatnessLoadedBinaryDevice: string;
 }
-const binaryName = `${FLUCOMA_SPECTRALSHAPE_BUNDLE}/Contents/MacOS/fluid.spectralshape~`;
-const pin = FLUCOMA_DEPENDENCY_FILES.find(
-  (entry) => entry.name === binaryName,
-)!;
+export interface MelBinaryIdentity {
+  melLoadedBinaryVerified: true;
+  melLoadedBinarySchema: "owned-mapped-listener-mel/v1";
+  melLoadedBinaryPath: string;
+  melLoadedBinarySha256: string;
+  melLoadedBinaryPids: string;
+  melLoadedBinaryInode: string;
+  melLoadedBinaryDevice: string;
+}
+interface LoadedBinaryOptions {
+  live: { pid: number; startedAt: string; command: string };
+  activeNodePids: string;
+  workingDirectory: string;
+  inventory: DependencyInventory;
+  signal: AbortSignal;
+}
 
-/** Read mapping metadata only from verified Live/Max ancestors of owned Node runtimes. */
 export async function verifyLoadedFlatnessBinary(
-  options: {
-    live: { pid: number; startedAt: string; command: string };
-    activeNodePids: string;
-    workingDirectory: string;
-    inventory: DependencyInventory;
-    signal: AbortSignal;
-  },
+  options: LoadedBinaryOptions,
   run = runProcess,
 ): Promise<FlatnessBinaryIdentity> {
+  const identity = await verifyMappedBinary(options, "flatness", run);
+  return {
+    flatnessLoadedBinaryVerified: true,
+    flatnessLoadedBinarySchema: "owned-mapped-flucoma/v1",
+    flatnessLoadedBinaryPath: identity.path,
+    flatnessLoadedBinarySha256: identity.sha256,
+    flatnessLoadedBinaryPids: identity.pids,
+    flatnessLoadedBinaryInode: identity.inode,
+    flatnessLoadedBinaryDevice: identity.device,
+  };
+}
+
+/** Separate proof for the app-owned adapter; spectralshape cannot satisfy it. */
+export async function verifyLoadedMelBinary(
+  options: LoadedBinaryOptions,
+  run = runProcess,
+): Promise<MelBinaryIdentity> {
+  const identity = await verifyMappedBinary(options, "mel", run);
+  return {
+    melLoadedBinaryVerified: true,
+    melLoadedBinarySchema: "owned-mapped-listener-mel/v1",
+    melLoadedBinaryPath: identity.path,
+    melLoadedBinarySha256: identity.sha256,
+    melLoadedBinaryPids: identity.pids,
+    melLoadedBinaryInode: identity.inode,
+    melLoadedBinaryDevice: identity.device,
+  };
+}
+
+/** Only two immutable product identities, never a caller-selected binary or pin.
+ * Read mapping metadata only from verified Live/Max ancestors of owned Node runtimes.
+ */
+async function verifyMappedBinary(
+  options: LoadedBinaryOptions,
+  kind: "flatness" | "mel",
+  run: typeof runProcess,
+) {
+  const binaryName =
+    kind === "mel"
+      ? `${NATIVE_MEL_BUNDLE}/Contents/MacOS/listener.mel~`
+      : `${FLUCOMA_SPECTRALSHAPE_BUNDLE}/Contents/MacOS/fluid.spectralshape~`;
+  const pin = FLUCOMA_DEPENDENCY_FILES.find(
+    (entry) => entry.name === binaryName,
+  )!;
+  const mappingName = kind === "mel" ? "listener.mel" : "spectralshape";
   options.signal.throwIfAborted();
   const devices = options.inventory.frozenDevices?.filter(
     (entry) => entry.id === "machine-listening",
@@ -42,7 +93,7 @@ export async function verifyLoadedFlatnessBinary(
     devices?.length !== 1 ||
     !/^[1-9]\d*(?:,[1-9]\d*){0,31}$/u.test(options.activeNodePids)
   )
-    throw new Error("Missing owned flatness binary loading contract");
+    throw new Error(`Missing owned ${kind} binary loading contract`);
   const device = devices[0]!;
   const target = `${dirname(device.target)}/${binaryName}`;
   const resources = options.inventory.resources.filter(
@@ -56,7 +107,7 @@ export async function verifyLoadedFlatnessBinary(
     resources.length !== 1 ||
     dirname(device.target) !== "dependencies/machine-listening/frozen"
   )
-    throw new Error("Missing pinned staged flatness binary");
+    throw new Error(`Missing pinned staged ${kind} binary`);
   const root = await realpath(options.workingDirectory);
   const binaryRoot = join(root, dirname(device.target));
   await readFlucomaDependencyFile(binaryRoot, binaryName);
@@ -66,7 +117,7 @@ export async function verifyLoadedFlatnessBinary(
     path !== resolve(binaryRoot, binaryName) ||
     path.length > 4096
   )
-    throw new Error("Flatness binary escapes owned staged dependencies");
+    throw new Error(`${kind} binary escapes owned staged dependencies`);
   const before = await lstat(path, { bigint: true });
   const snapshot = async () => {
     const tree = await readOwnedLiveProcessTree(
@@ -79,7 +130,7 @@ export async function verifyLoadedFlatnessBinary(
     for (const pid of nodes) {
       let row = tree.find((candidate) => candidate.pid === pid);
       if (!row?.command.includes("/Node for Max/source/lib/nsRunner.js"))
-        throw new Error("Owned flatness Node identity is unavailable");
+        throw new Error(`Owned ${kind} Node identity is unavailable`);
       for (
         let depth = 0;
         row && row.pid !== options.live.pid && depth < 16;
@@ -90,7 +141,7 @@ export async function verifyLoadedFlatnessBinary(
       }
       if (row?.pid !== options.live.pid)
         throw new Error(
-          "Cannot attribute flatness loader ancestry to owned Live",
+          `Cannot attribute ${kind} loader ancestry to owned Live`,
         );
     }
     const owned = tree.filter((row) => ancestors.has(row.pid));
@@ -120,7 +171,7 @@ export async function verifyLoadedFlatnessBinary(
     let pid: number | undefined;
     let file: Record<string, string> = {};
     const finish = () => {
-      if (!file.n?.includes("spectralshape")) return;
+      if (!file.n?.includes(mappingName)) return;
       if (
         pid !== host.pid ||
         file.f !== "txt" ||
@@ -130,7 +181,7 @@ export async function verifyLoadedFlatnessBinary(
         BigInt(file.D!) !== BigInt(before.dev)
       )
         throw new Error(
-          "Mapped flatness binary is not the pinned staged identity",
+          `Mapped ${kind} binary is not the pinned staged identity`,
         );
       mapped.add(host.pid);
     };
@@ -158,12 +209,12 @@ export async function verifyLoadedFlatnessBinary(
   }
   if (mapped.size === 0)
     throw new Error(
-      "No mapped flatness binary in attributable owned Live/Max loaders",
+      `No mapped ${kind} binary in attributable owned Live/Max loaders`,
     );
   const afterOwnership = await snapshot();
   if (JSON.stringify(ownership) !== JSON.stringify(afterOwnership))
     throw new Error(
-      "Owned loader identity changed during flatness mapping proof",
+      `Owned loader identity changed during ${kind} mapping proof`,
     );
   await readFlucomaDependencyFile(binaryRoot, binaryName);
   const after = await lstat(path, { bigint: true });
@@ -174,14 +225,12 @@ export async function verifyLoadedFlatnessBinary(
     before.ctimeMs !== after.ctimeMs ||
     before.mtimeMs !== after.mtimeMs
   )
-    throw new Error("Pinned flatness binary changed during mapping proof");
+    throw new Error(`Pinned ${kind} binary changed during mapping proof`);
   return {
-    flatnessLoadedBinaryVerified: true,
-    flatnessLoadedBinarySchema: "owned-mapped-flucoma/v1",
-    flatnessLoadedBinaryPath: path,
-    flatnessLoadedBinarySha256: pin.sha256,
-    flatnessLoadedBinaryPids: [...mapped].sort((a, b) => a - b).join(","),
-    flatnessLoadedBinaryInode: String(before.ino),
-    flatnessLoadedBinaryDevice: String(before.dev),
+    path,
+    sha256: pin.sha256,
+    pids: [...mapped].sort((a, b) => a - b).join(","),
+    inode: String(before.ino),
+    device: String(before.dev),
   };
 }

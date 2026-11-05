@@ -7,6 +7,7 @@ import {
 import { outputProducerSchema, signalPayloadSchema } from "./contracts.js";
 import {
   LISTENER_CAPABILITY_METRIC,
+  LISTENER_CAPABILITY_MEL,
   LISTENER_METRIC_PRODUCER_SCHEMA_VERSION,
   listenerMetricProducerSchema,
   listenerRegistrationMetricSchema,
@@ -19,6 +20,7 @@ export const DEFAULT_SIGNAL_INGRESS_HOST = "127.0.0.1";
 export const DEFAULT_SIGNAL_INGRESS_PORT = 45_832;
 export const SUPPORTED_LISTENER_CAPABILITIES = [
   LISTENER_CAPABILITY_METRIC,
+  LISTENER_CAPABILITY_MEL,
 ] as const;
 export { DEFAULT_MAX_INGRESS_FRAME_BYTES } from "./contracts.js";
 

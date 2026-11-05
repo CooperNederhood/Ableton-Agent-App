@@ -624,6 +624,7 @@ it("shipping metric SDK actual socket write(false) callbacks reach authenticated
             listenerVersions: [5],
             listenerCapabilities: [
               "audio-listener/independent-metric-timelines-v1",
+              "audio-listener/mel-band-timelines-v1",
             ],
           }),
         createConnection: (address: { host: string; port: number }) => {

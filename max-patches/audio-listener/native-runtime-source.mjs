@@ -347,6 +347,31 @@ function metricAnalysisGraph(analysis, resource) {
     ["nativeMessages", 10, 355, 80],
   ])
     box(analysis, id).patching_rect = [x, y, width, 22];
+
+  // Dedicated inlet: mel arm/stop/drain must never reach Gen parameter routing.
+  // All timing metadata is a signal tap of this SAME executed capture Gen.
+  add(analysis, "melCommand", "in 5", 0, 1);
+  add(analysis, "melEngine", "listener.mel~", 10, 1);
+  add(analysis, "melMessages", "prepend native_mel", 1, 1);
+  box(analysis, "melEngine").patching_rect = [10, 260, 190, 22];
+  box(analysis, "melCommand").patching_rect = [220, 260, 70, 22];
+  box(analysis, "melMessages").patching_rect = [310, 260, 180, 22];
+  for (const [source, outlet, inlet] of [
+    ["left", 0, 0],
+    ["right", 0, 1],
+    ["clock", 0, 2],
+    ...[0, 2, 6, 7, 9, 13, 18].map((outlet, index) => [
+      "gen",
+      outlet,
+      index + 3,
+    ]),
+  ])
+    analysis.patcher.lines.push(wire(source, outlet, "melEngine", inlet));
+  analysis.patcher.lines.push(
+    wire("melCommand", 0, "melEngine"),
+    wire("melEngine", 0, "melMessages"),
+    wire("melMessages", 0, "nativeMessages"),
+  );
 }
 
 /** Pair with nativeRuntimeDocuments using the same explicitly selected version.
@@ -447,7 +472,7 @@ export function appendNativeRuntimeGraph(
     [
       "analysis",
       "poly~ audio_listener_native_analysis.maxpat 1 @parallel 0",
-      4,
+      nativeVersion === 5 ? 5 : 4,
       nativeVersion >= 2 ? 3 : 2,
     ],
     ["clock_sink", "snapshot~ 100", 1, 1],
@@ -504,6 +529,22 @@ export function appendNativeRuntimeGraph(
     patcher.rect[3] = Math.max(patcher.rect[3], bottom + 300);
   if (nativeVersion === 5)
     appendFlatnessSmokeGraph(result, input.id, runtime.id, guard.id);
+  if (nativeVersion === 5) {
+    add(result, "melControlRoute", "route mel_native_control", 1, 2);
+    box(result, "melControlRoute").patching_rect = [10, 350, 220, 22];
+    const control = patcher.lines.find(
+      ({ patchline }) =>
+        patchline.source[0] === runtime.id &&
+        patchline.source[1] === 0 &&
+        patchline.destination[0] === "scoped-native-control",
+    );
+    if (!control) throw new Error("missing_mel_native_control_parent");
+    control.patchline.source = ["melControlRoute", 1];
+    patcher.lines.push(
+      wire(runtime.id, 0, "melControlRoute"),
+      wire("melControlRoute", 0, "scoped-native-analysis", 4),
+    );
+  }
   return result;
 }
 

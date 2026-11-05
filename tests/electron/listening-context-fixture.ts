@@ -1,7 +1,10 @@
 import { JsonSessionStore } from "../../apps/desktop/src/main/desktop-service.js";
 import { join } from "node:path";
 import { sessionSchema } from "../../apps/desktop/src/contracts.js";
-import { buildListeningPublication } from "../../packages/application/src/listening-publication.js";
+import {
+  buildListeningPublication,
+  buildMetricListeningPublication,
+} from "../../packages/application/src/listening-publication.js";
 import {
   openSessionContextStore,
   SESSION_CONTEXT_STORE_REFERENCE,
@@ -11,18 +14,32 @@ import {
   resolveNestedSessionStorage,
 } from "../../packages/storage/src/index.js";
 import { createKnownListeningFixture } from "../../packages/test-support/src/listening-fixture.js";
-import { createSyntheticNativeListeningFixtureV2 } from "../../packages/protocol/src/testing.js";
-import { mapSessionAudioObservation } from "../../packages/protocol/src/index.js";
+import {
+  createSyntheticNativeListeningFixtureV2,
+  createSyntheticMetricListeningObservation,
+} from "../../packages/protocol/src/testing.js";
+import {
+  mapSessionAudioObservation,
+  MEL_BAND_PROFILE,
+  melBandTimelineSchema,
+  createMetricObservationReportRows,
+} from "../../packages/protocol/src/index.js";
 
 export const listeningFixtureSessionId = "electron-listening-context";
 export const listeningFixturePassId = "electron-listening-pass";
 export const descriptiveFixturePassId = "electron-descriptive-pass";
 export const sessionFixturePassId = "electron-session-pass";
+export const melFixturePassId = "electron-mel-pass";
+
+export async function seedMelListeningContext(profile: string): Promise<void> {
+  await seedListeningContext(profile, false, true);
+}
 
 /** Synthetic persistence/IPC fixture; never evidence of measured Max DSP. */
 export async function seedListeningContext(
   profile: string,
   includeDescriptive = false,
+  includeMel = false,
 ): Promise<void> {
   const layout = resolveLiveAgentStorage({
     environment: {
@@ -146,6 +163,95 @@ export async function seedListeningContext(
       }),
       { trace, activeAgentId: "fixture-agent" },
     );
+    if (includeMel) {
+      const observation = createSyntheticMetricListeningObservation({
+        endBeat: 0.2,
+      });
+      Object.assign(observation.ownership, trace, {
+        passId: melFixturePassId,
+        listenerId: "fixture-mel-listener",
+      });
+      observation.requestedMetrics.push("mel-bands");
+      observation.metrics["mel-bands"] = melBandTimelineSchema.parse({
+        schema: "mel-band-timeline/v1",
+        status: "complete",
+        profile: MEL_BAND_PROFILE,
+        sampleRate: observation.geometry.sampleRate,
+        sourceSupport: observation.sourceCoverage,
+        expectedRecords: 2,
+        frames: [0, 1].map((index) => ({
+          index,
+          support: {
+            startSample: observation.geometry.startSample + index * 2_048,
+            endSample: observation.geometry.startSample + (index + 1) * 2_048,
+          },
+          magnitudes: [
+            Array.from({ length: 24 }, (_, band) =>
+              index === 0 ? band + 1 : 0,
+            ),
+            Array.from({ length: 24 }, (_, band) =>
+              index === 0
+                ? band + 101
+                : band === 2
+                  ? 1e-12
+                  : band >= 2 && band < 9
+                    ? 0
+                    : 1,
+            ),
+          ],
+        })),
+        gaps: [],
+      });
+      observation.rows = createMetricObservationReportRows(observation);
+      observation.limitations = [
+        "Synthetic persistence/IPC fixture; not measured Max DSP",
+      ];
+      await repository.appendPass(
+        buildMetricListeningPublication({
+          passId: melFixturePassId,
+          owner: { ...ownership, agentId: "fixture-agent" },
+          trace,
+          requestedMode: "arrangement",
+          actualMode: "arrangement",
+          requestedRange: { startBeat: 0, endBeat: 0.2 },
+          createdAt: timestamp,
+          startedAt: timestamp,
+          endedAt: "2026-10-12T00:00:02.000Z",
+          observations: [observation],
+          bindings: [
+            {
+              listenerId: observation.ownership.listenerId,
+              deviceReference: "fixture-mel-device",
+              connectionEpoch: observation.ownership.connectionEpoch,
+              version: observation.schema,
+              attribution: "unknown",
+              contributors: [],
+              primary: {
+                id: "fixture-mel-subject",
+                ...ownership,
+                kind: "track",
+                trackId: "fixture-mel-track",
+                location: "track",
+                binding: {
+                  version: 1,
+                  semanticLocator: {
+                    name: "Synthetic mel-band persistence fixture",
+                    trackId: "fixture-mel-track",
+                  },
+                  sourceIdentity: "synthetic-fixture",
+                  playbackSettingsHash: "fixture-settings",
+                  upstreamProcessingHash: "fixture-chain",
+                  routingHash: "fixture-routing",
+                  dependencyScope: "unknown",
+                  previousRuntimeBindings: [observation.ownership.connectionId],
+                },
+              },
+            },
+          ],
+        }),
+        { trace, activeAgentId: "fixture-agent" },
+      );
+    }
     if (includeDescriptive) {
       const { observation } = createSyntheticNativeListeningFixtureV2({
         listenerId: "fixture-descriptive-listener",

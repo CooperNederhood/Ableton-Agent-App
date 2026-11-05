@@ -35,6 +35,8 @@ import {
   isFlucomaDependencyResource,
   readFlucomaDependencyFile,
   validateFlucomaDependency,
+  validateNativeMelSourceInputs,
+  NATIVE_MEL_PRODUCER,
 } from "../packages/shared/dist/flucoma-dependency.js";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -61,6 +63,7 @@ export const NATIVE_CANDIDATE_RESOURCES = [
   "audio_listener_metric_spectrum.js",
   "audio_listener_metric_io.js",
   "audio_listener_metric_timelines.js",
+  "audio_listener_mel_handoff.js",
   "audio_listener_measurements.js",
   "audio_listener_native_io.js",
   NATIVE_METRIC_PROTOCOL_FILE,
@@ -68,6 +71,32 @@ export const NATIVE_CANDIDATE_RESOURCES = [
 ];
 export const PROFILE_CONFIGURATION = "agent_signal_storage.js";
 const hash = (raw) => createHash("sha256").update(raw).digest("hex");
+
+export function sourceResourceManifest() {
+  return {
+    formatVersion: 2,
+    deviceType: "MxDeviceAudioEffect",
+    deviceFile: DEVICE_FILE_NAME,
+    canonicalSource: "native-source.mjs",
+    template: "audio-effect-template.amxd",
+    nativeVersion: 5,
+    nativeAbiVersion: 3,
+    nativeScope: "independent-metric-timelines/v1",
+    algorithmVersion: "3.0.0",
+    observationSchema: "metric-audio-observation/v1",
+    resources: ALL_RESOURCES,
+    nativeResources: NATIVE_CANDIDATE_RESOURCES,
+    dependencyResources: FLUCOMA_DEPENDENCY_RESOURCE_NAMES,
+    sharedResources: {
+      "agent_signal_client_common.js": "../shared/agent_signal_client.js",
+      "producer_identity_common.js": "../shared/producer_identity.js",
+    },
+    optionalProfileConfiguration: PROFILE_CONFIGURATION,
+    realLiveValidated: false,
+    captureReadinessDefault: "fresh_per_pass_native_validation_required",
+    nativeMelProducer: NATIVE_MEL_PRODUCER,
+  };
+}
 
 export function generatedListeningParent() {
   const document = sourceDocuments()["Audio-Listener.maxpat"];
@@ -288,6 +317,7 @@ export async function checkSource() {
     ),
   );
   if (
+    JSON.stringify(manifest) !== JSON.stringify(sourceResourceManifest()) ||
     manifest.formatVersion !== 2 ||
     manifest.deviceFile !== DEVICE_FILE_NAME ||
     manifest.canonicalSource !== "native-source.mjs" ||
@@ -307,6 +337,7 @@ export async function checkSource() {
     throw new Error("canonical resource manifest mismatch");
   }
   await validateFlucomaDependency(SOURCE_DIRECTORY);
+  await validateNativeMelSourceInputs(root);
   const documents = sourceDocuments();
   for (const [name, value] of Object.entries(documents)) {
     validateDocument(value);
@@ -571,6 +602,7 @@ async function buildPackage(outDirectory, options = {}) {
     nativeScope: native.scope,
     nativeVersion: 5,
     nativeAbiVersion: 3,
+    nativeMelProducer: NATIVE_MEL_PRODUCER,
     measurementDelivery: "independent-metric-timelines/v1",
     supportedModes: ["arrangement", "session"],
     modeNegotiation: "explicit-per-pass",
@@ -641,6 +673,8 @@ export async function checkArtifact(directory) {
     manifest.listenerResourcesPortable === true;
   if (
     manifest.nativeAbiVersion !== 3 ||
+    JSON.stringify(manifest.nativeMelProducer) !==
+      JSON.stringify(NATIVE_MEL_PRODUCER) ||
     manifest.measurementDelivery !== "independent-metric-timelines/v1" ||
     manifest.modeNegotiation !== "explicit-per-pass" ||
     JSON.stringify(manifest.supportedModes) !==
@@ -1032,6 +1066,13 @@ export async function main(argv = process.argv.slice(2)) {
   }
   if (argv[0] === "check" && argv.length === 1) {
     await checkCalibrationSource();
+    return;
+  }
+  if (argv[0] === "generate-source-manifest" && argv.length === 1) {
+    await writeFile(
+      join(SOURCE_DIRECTORY, "audio-listener-resources.json"),
+      `${JSON.stringify(sourceResourceManifest(), null, 2)}\n`,
+    );
     return;
   }
   if (

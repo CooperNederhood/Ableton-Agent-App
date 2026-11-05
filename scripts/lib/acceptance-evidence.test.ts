@@ -11,6 +11,8 @@ import {
   verifyRestoredAgentListeningEvidence,
 } from "../../packages/test-support/src/integration/agent-listening-result.js";
 import { agentListeningFixture } from "../../packages/test-support/src/integration/agent-listening-test-support.js";
+import { melSmokeFixture } from "../../packages/test-support/src/integration/mel-smoke-test-support.js";
+import { verifyMelSmoke } from "../../packages/test-support/src/integration/mel-smoke.js";
 import { writeScenarioReceipt } from "./scenario-receipts.mjs";
 import { listeningHistoryResult } from "../../packages/runtime/src/listening-history.js";
 import {
@@ -32,90 +34,99 @@ import {
 import { nativeMetricLifecycleSchema } from "../../packages/signal-routing/src/listener-metric-contracts.js";
 
 describe("agent consumption typed History persistence", () => {
-  it("reopens SDK JSON tool results and preserves complete structured measurements in redacted receipts", async () => {
-    const root = resolve(".test-artifacts/agent-history-evidence-unit");
-    await mkdir(root, { recursive: true });
-    const directory = await mkdtemp(join(root, "case-"));
-    let journal: LocalObservabilityJournal | undefined;
-    try {
-      const path = join(directory, "journal.sqlite");
-      const f = agentListeningFixture();
-      f.context.entry.summary = "Measured ".repeat(128);
-      journal = await LocalObservabilityJournal.open({ path });
-      for (const record of f.records) {
-        const stored = agentHistoryRecordSchema.parse(
-          Object.fromEntries(
-            Object.entries(record).filter(([key]) => key !== "recordedAt"),
-          ),
-        );
-        if (stored.kind === "tool_result") {
-          const envelope = stored.result?.result;
-          if (
-            !envelope ||
-            typeof envelope !== "object" ||
-            !("content" in envelope)
-          )
-            throw new Error("fixture");
-          stored.result = listeningHistoryResult(
-            String(stored.metadata.toolName),
-            { content: JSON.stringify(envelope.content) },
+  it.each(["baseline", "mel"] as const)(
+    "reopens SDK JSON %s tool results and preserves complete structured measurements in redacted receipts",
+    async (kind) => {
+      const root = resolve(".test-artifacts/agent-history-evidence-unit");
+      await mkdir(root, { recursive: true });
+      const directory = await mkdtemp(join(root, "case-"));
+      let journal: LocalObservabilityJournal | undefined;
+      try {
+        const path = join(directory, "journal.sqlite");
+        const f = kind === "mel" ? melSmokeFixture() : agentListeningFixture();
+        f.context.entry.summary = "Measured ".repeat(128);
+        journal = await LocalObservabilityJournal.open({ path });
+        for (const record of f.records) {
+          const stored = agentHistoryRecordSchema.parse(
+            Object.fromEntries(
+              Object.entries(record).filter(([key]) => key !== "recordedAt"),
+            ),
           );
-          expect(stored.result.result).toMatchObject({
-            content: envelope.content,
-          });
+          if (stored.kind === "tool_result") {
+            const envelope = stored.result?.result;
+            if (
+              !envelope ||
+              typeof envelope !== "object" ||
+              !("content" in envelope)
+            )
+              throw new Error("fixture");
+            stored.result = listeningHistoryResult(
+              String(stored.metadata.toolName),
+              { content: JSON.stringify(envelope.content) },
+            );
+            expect(stored.result.result).toMatchObject({
+              content: envelope.content,
+            });
+          }
+          await journal.appendAgentHistory(
+            agentHistoryRecordSchema.parse(stored),
+          );
         }
+        const foreign = {
+          ...f.records[0]!,
+          id: "foreign",
+          appSessionId: "foreign",
+          agentSessionId: "foreign-sdk",
+          toolCallId: "foreign-call",
+        };
         await journal.appendAgentHistory(
-          agentHistoryRecordSchema.parse(stored),
-        );
-      }
-      const foreign = {
-        ...f.records[0]!,
-        id: "foreign",
-        appSessionId: "foreign",
-        agentSessionId: "foreign-sdk",
-        toolCallId: "foreign-call",
-      };
-      await journal.appendAgentHistory(
-        agentHistoryRecordSchema.parse(
-          Object.fromEntries(
-            Object.entries(foreign).filter(([key]) => key !== "recordedAt"),
+          agentHistoryRecordSchema.parse(
+            Object.fromEntries(
+              Object.entries(foreign).filter(([key]) => key !== "recordedAt"),
+            ),
           ),
-        ),
-      );
-      const evidence = await collectAgentListeningEvidence(
-        f.owner,
-        false,
-        (query) => journal!.readAgentHistory(query),
-      );
-      const turn = { ...f.turn, agentListening: evidence };
-      verifyAgentListeningResult({ ...f.input, turn, turns: [turn] }, "a");
-      await journal.shutdown();
-      journal = await LocalObservabilityJournal.open({ path });
-      const restored = await collectAgentListeningEvidence(
-        f.owner,
-        true,
-        (query) => journal!.readAgentHistory(query),
-      );
-      verifyRestoredAgentListeningEvidence([turn], [restored]);
-      const receiptPath = join(directory, "evidence.json");
-      await writeScenarioReceipt(receiptPath, { turn, restored });
-      const saved = JSON.parse(await readFile(receiptPath, "utf8")) as {
-        turn: typeof turn;
-        restored: typeof restored;
-      };
-      verifyAgentListeningResult(
-        { ...f.input, turn: saved.turn, turns: [saved.turn] },
-        "a",
-      );
-      verifyRestoredAgentListeningEvidence([saved.turn], [saved.restored]);
-      expect(saved.turn.agentListening.records).toHaveLength(6);
-      expect(JSON.stringify(saved)).not.toContain("[truncated]");
-      expect(JSON.stringify(f.context).length).toBeGreaterThan(16_384);
-    } finally {
-      await journal?.shutdown();
-      await rm(directory, { recursive: true, force: true });
-    }
-  });
+        );
+        const evidence = await collectAgentListeningEvidence(
+          f.owner,
+          false,
+          (query) => journal!.readAgentHistory(query),
+        );
+        const turn = { ...f.turn, agentListening: evidence };
+        verifyAgentListeningResult({ ...f.input, turn, turns: [turn] }, "a");
+        await journal.shutdown();
+        journal = await LocalObservabilityJournal.open({ path });
+        const restored = await collectAgentListeningEvidence(
+          f.owner,
+          true,
+          (query) => journal!.readAgentHistory(query),
+        );
+        verifyRestoredAgentListeningEvidence([turn], [restored]);
+        const receiptPath = join(directory, "evidence.json");
+        await writeScenarioReceipt(receiptPath, { turn, restored });
+        const saved = JSON.parse(await readFile(receiptPath, "utf8")) as {
+          turn: typeof turn;
+          restored: typeof restored;
+        };
+        verifyAgentListeningResult(
+          { ...f.input, turn: saved.turn, turns: [saved.turn] },
+          "a",
+        );
+        verifyRestoredAgentListeningEvidence([saved.turn], [saved.restored]);
+        if (kind === "mel")
+          verifyMelSmoke(
+            { ...f.input, turn: saved.turn, turns: [saved.turn] },
+            "a",
+            false,
+          );
+        expect(saved.turn.agentListening.records).toHaveLength(6);
+        expect(JSON.stringify(saved)).not.toContain("[truncated]");
+        expect(JSON.stringify(f.context).length).toBeGreaterThan(16_384);
+      } finally {
+        await journal?.shutdown();
+        await rm(directory, { recursive: true, force: true });
+      }
+    },
+  );
 });
 
 describe("flatness diagnostic typed History restoration seam", () => {

@@ -3,6 +3,7 @@ import {
   metricAudioObservationSchema,
   metricAttackAlgorithmSchema,
   metricObservationSourceSchema,
+  metricObservationMetricSchema,
   type MetricAudioObservation,
 } from "./metric-observation-schemas.js";
 import {
@@ -27,6 +28,8 @@ export const NATIVE_METRIC_LISTENING_SCOPE =
   "independent-metric-timelines/v1" as const;
 export const NATIVE_METRIC_LISTENING_CAPABILITY =
   "audio-listener/independent-metric-timelines-v1" as const;
+export const NATIVE_MEL_BAND_LISTENING_CAPABILITY =
+  "audio-listener/mel-band-timelines-v1" as const;
 export const NATIVE_METRIC_ALGORITHM_VERSION = "3.0.0" as const;
 const LIMIT = 2 ** 44;
 const integer = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
@@ -60,9 +63,9 @@ const config = {
     coordinates: z.literal("capture-local"),
   }),
   requestedMetrics: z
-    .array(z.enum(["level", "spectral-centroid", "attacks"]))
+    .array(metricObservationMetricSchema)
     .min(1)
-    .max(3)
+    .max(4)
     .refine((metrics) => new Set(metrics).size === metrics.length),
   sourceContext: metricObservationSourceSchema.optional(),
   attacks: nativeMetricAttackSettingsSchema.nullable().optional(),

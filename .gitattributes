@@ -1,0 +1,2 @@
+# Preserve upstream license bytes covered by immutable native dependency pins.
+max-patches/audio-listener/dependencies/flucoma/listener.mel~.mxo/Contents/Resources/licenses/Eigen-MPL2.txt -whitespace

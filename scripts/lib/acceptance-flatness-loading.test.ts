@@ -7,22 +7,26 @@ import {
   lstat,
   chmod,
   symlink,
+  rename,
 } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { dirname, join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   FLUCOMA_DEPENDENCY_FILES,
   FLUCOMA_SPECTRALSHAPE_BUNDLE,
+  NATIVE_MEL_BUNDLE,
 } from "../../packages/shared/src/m4l-devices.js";
-import { verifyLoadedFlatnessBinary } from "../../tests/electron/acceptance-flatness-loading.js";
+import {
+  verifyLoadedFlatnessBinary,
+  verifyLoadedMelBinary,
+} from "../../tests/electron/acceptance-flatness-loading.js";
 import type { runProcess } from "./live-process-controller.mjs";
 import type { DependencyInventory } from "../../packages/test-support/src/integration/contracts.js";
 
 let root: string;
 const startedAt = "Wed Nov 4 00:00:00 2026";
 const command = "/Applications/Live.app/Contents/MacOS/Live";
-const name = `${FLUCOMA_SPECTRALSHAPE_BUNDLE}/Contents/MacOS/fluid.spectralshape~`;
-const pin = FLUCOMA_DEPENDENCY_FILES.find((entry) => entry.name === name)!;
 beforeEach(async () => {
   const parent = resolve(".test-artifacts/flatness-loader-unit");
   await mkdir(parent, { recursive: true });
@@ -32,7 +36,8 @@ afterEach(async () => {
   await rm(root, { recursive: true, force: true });
 });
 
-async function setup() {
+async function setup(name: string) {
+  const pin = FLUCOMA_DEPENDENCY_FILES.find((entry) => entry.name === name)!;
   const target = `dependencies/machine-listening/frozen/${name}`;
   const path = join(root, target);
   await mkdir(dirname(path), { recursive: true });
@@ -99,15 +104,29 @@ async function setup() {
     },
   };
 }
-describe("owned mapped flatness binary identity", () => {
+describe.each([
+  {
+    kind: "flatness",
+    name: `${FLUCOMA_SPECTRALSHAPE_BUNDLE}/Contents/MacOS/fluid.spectralshape~`,
+    verify: verifyLoadedFlatnessBinary,
+    schema: "owned-mapped-flucoma/v1",
+  },
+  {
+    kind: "mel",
+    name: `${NATIVE_MEL_BUNDLE}/Contents/MacOS/listener.mel~`,
+    verify: verifyLoadedMelBinary,
+    schema: "owned-mapped-listener-mel/v1",
+  },
+])("owned mapped $kind binary identity", ({ kind, name, verify, schema }) => {
+  const pin = FLUCOMA_DEPENDENCY_FILES.find((entry) => entry.name === name)!;
   it("attests actual mapped path, inode, device and pinned bytes without reading unrelated processes", async () => {
-    const { options, run, path } = await setup();
-    expect(await verifyLoadedFlatnessBinary(options, run)).toMatchObject({
-      flatnessLoadedBinaryVerified: true,
-      flatnessLoadedBinarySchema: "owned-mapped-flucoma/v1",
-      flatnessLoadedBinaryPath: path,
-      flatnessLoadedBinarySha256: pin.sha256,
-      flatnessLoadedBinaryPids: "11",
+    const { options, run, path } = await setup(name);
+    expect(await verify(options, run)).toMatchObject({
+      [`${kind}LoadedBinaryVerified`]: true,
+      [`${kind}LoadedBinarySchema`]: schema,
+      [`${kind}LoadedBinaryPath`]: path,
+      [`${kind}LoadedBinarySha256`]: pin.sha256,
+      [`${kind}LoadedBinaryPids`]: "11",
     });
     expect(
       run.mock.calls.filter(([cmd]) => cmd !== "ps").map(([, args]) => args),
@@ -120,6 +139,7 @@ describe("owned mapped flatness binary identity", () => {
     "absent",
     "global",
     "additional-global",
+    "other-producer-only",
     "wrong-inode",
     "wrong-device",
     "foreign-pid",
@@ -129,7 +149,7 @@ describe("owned mapped flatness binary identity", () => {
     "denied",
     "timeout",
   ])("fails closed on %s mapping evidence", async (fault) => {
-    const { options, run, ps, mapping, path } = await setup();
+    const { options, run, ps, mapping, path } = await setup(name);
     run.mockImplementation(async (cmd, args) => {
       let stdout =
         cmd === "ps"
@@ -137,13 +157,16 @@ describe("owned mapped flatness binary identity", () => {
           : mapping(Number(args[2]), args[2] === "11" ? path : command);
       if (cmd !== "ps" && args[2] === "11") {
         if (fault === "absent") stdout = mapping(11, command);
-        if (fault === "global")
+        if (fault === "global") stdout = mapping(11, `/Global/${name}`);
+        if (fault === "additional-global")
+          stdout += mapping(11, `/Global/${name}`);
+        if (fault === "other-producer-only")
           stdout = mapping(
             11,
-            "/Global/Max/Library/fluid.spectralshape~.mxo/Contents/MacOS/fluid.spectralshape~",
+            kind === "mel"
+              ? "/Global/fluid.spectralshape~"
+              : "/Global/listener.mel~",
           );
-        if (fault === "additional-global")
-          stdout += mapping(11, "/Global/fluid.spectralshape~");
         if (fault === "wrong-inode") stdout = mapping(11, path, "0");
         if (fault === "wrong-device")
           stdout = stdout.replace(/D0x[0-9a-f]+/u, "D0x0");
@@ -159,12 +182,12 @@ describe("owned mapped flatness binary identity", () => {
         timedOut: fault === "timeout" && cmd !== "ps",
       };
     });
-    await expect(verifyLoadedFlatnessBinary(options, run)).rejects.toThrow();
+    await expect(verify(options, run)).rejects.toThrow();
   });
   it.each(["reused-live", "reparented-node", "changed-loader"])(
     "rejects %s ownership without attaching to an unrelated process",
     async (fault) => {
-      const { options, run, ps, mapping } = await setup();
+      const { options, run, ps, mapping } = await setup(name);
       let reads = 0;
       run.mockImplementation(async (cmd, args) => {
         let output = ps;
@@ -184,16 +207,16 @@ describe("owned mapped flatness binary identity", () => {
           timedOut: false,
         };
       });
-      await expect(verifyLoadedFlatnessBinary(options, run)).rejects.toThrow();
+      await expect(verify(options, run)).rejects.toThrow();
       expect(run.mock.calls.some(([, args]) => args.includes("99"))).toBe(
         false,
       );
     },
   );
-  it.each(["bytes", "mode", "symlink", "inventory"])(
+  it.each(["bytes", "mode", "symlink", "inventory", "repinned-inventory"])(
     "rejects changed staged %s before mapping inspection",
     async (fault) => {
-      const { options, run, path } = await setup();
+      const { options, run, path } = await setup(name);
       if (fault === "bytes") await writeFile(path, Buffer.alloc(pin.bytes));
       if (fault === "mode") await chmod(path, 0o600);
       if (fault === "symlink") {
@@ -205,17 +228,25 @@ describe("owned mapped flatness binary identity", () => {
       }
       if (fault === "inventory")
         options.inventory = { ...options.inventory, resources: [] };
-      await expect(verifyLoadedFlatnessBinary(options, run)).rejects.toThrow();
+      if (fault === "repinned-inventory") {
+        const substituted = Buffer.alloc(pin.bytes);
+        await writeFile(path, substituted);
+        options.inventory = {
+          ...options.inventory,
+          resources: options.inventory.resources.map((resource) => ({
+            ...resource,
+            sha256: createHash("sha256").update(substituted).digest("hex"),
+          })),
+        };
+      }
+      await expect(verify(options, run)).rejects.toThrow();
       expect(run).not.toHaveBeenCalled();
     },
   );
   it("honors cancellation before and after bounded process reads", async () => {
-    const { options, run } = await setup();
+    const { options, run } = await setup(name);
     await expect(
-      verifyLoadedFlatnessBinary(
-        { ...options, signal: AbortSignal.abort() },
-        run,
-      ),
+      verify({ ...options, signal: AbortSignal.abort() }, run),
     ).rejects.toThrow();
     expect(run).not.toHaveBeenCalled();
     const abort = new AbortController();
@@ -224,24 +255,31 @@ describe("owned mapped flatness binary identity", () => {
       return { status: 0, stdout: "", stderr: "", timedOut: false };
     });
     await expect(
-      verifyLoadedFlatnessBinary({ ...options, signal: abort.signal }, run),
+      verify({ ...options, signal: abort.signal }, run),
     ).rejects.toThrow();
     expect(run).toHaveBeenCalledOnce();
   });
-  it("rejects a staged binary modified during the mapping read", async () => {
-    const { options, run, ps, mapping, path } = await setup();
-    run.mockImplementation(async (cmd, args) => {
-      if (cmd !== "ps" && args[2] === "11")
-        await writeFile(path, Buffer.alloc(pin.bytes));
-      return {
-        status: 0,
-        stdout: cmd === "ps" ? ps : mapping(Number(args[2])),
-        stderr: "",
-        timedOut: false,
-      };
-    });
-    await expect(verifyLoadedFlatnessBinary(options, run)).rejects.toThrow(
-      "Pinned FluCoMa dependency",
-    );
-  });
+  it.each(["bytes", "same-bytes-new-inode"])(
+    "rejects a staged binary changed during mapping (%s)",
+    async (fault) => {
+      const { options, run, ps, mapping, path } = await setup(name);
+      run.mockImplementation(async (cmd, args) => {
+        if (cmd !== "ps" && args[2] === "11") {
+          if (fault === "bytes") await writeFile(path, Buffer.alloc(pin.bytes));
+          else {
+            const replacement = join(root, "replacement");
+            await writeFile(replacement, await readFile(path), { mode: 0o755 });
+            await rename(replacement, path);
+          }
+        }
+        return {
+          status: 0,
+          stdout: cmd === "ps" ? ps : mapping(Number(args[2])),
+          stderr: "",
+          timedOut: false,
+        };
+      });
+      await expect(verify(options, run)).rejects.toThrow();
+    },
+  );
 });

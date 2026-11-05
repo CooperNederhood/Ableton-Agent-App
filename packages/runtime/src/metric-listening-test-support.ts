@@ -17,7 +17,12 @@ import {
   bindMetricFixtureToControl,
   type SyntheticMetricWireFixture,
 } from "@ableton-agent/signal-routing/testing";
-import type { ListeningFailureEvidence } from "@ableton-agent/protocol";
+import {
+  createMetricObservationReportRows,
+  MEL_BAND_PROFILE,
+  melBandTimelineSchema,
+  type ListeningFailureEvidence,
+} from "@ableton-agent/protocol";
 
 type MutableDescriptor = {
   -readonly [K in keyof ListenerDescriptor]: ListenerDescriptor[K];
@@ -25,6 +30,7 @@ type MutableDescriptor = {
 interface SyntheticMetricPeerOptions {
   readonly recordControl?: (action: string) => void;
   readonly cancelledResultBeforeReply?: boolean;
+  readonly provideMelBands?: boolean;
 }
 
 /** Bounded test peer with synthetic proofs, not native execution evidence. */
@@ -108,6 +114,37 @@ export class SyntheticMetricListenerPeer implements ListenerService {
       this.data.observation.source = structuredClone(
         control.config.sourceContext,
       );
+      this.data.observation.requestedMetrics = [
+        ...control.config.requestedMetrics,
+      ];
+      if (
+        control.config.requestedMetrics.includes("mel-bands") &&
+        this.options.provideMelBands !== false
+      ) {
+        const observation = this.data.observation;
+        const support = observation.sourceCoverage;
+        const expectedRecords = Math.floor(
+          (support.endSample - support.startSample) / 2048,
+        );
+        observation.metrics["mel-bands"] ??= melBandTimelineSchema.parse({
+          schema: "mel-band-timeline/v1",
+          status: "complete",
+          sampleRate: observation.geometry.sampleRate,
+          profile: MEL_BAND_PROFILE,
+          sourceSupport: support,
+          expectedRecords,
+          frames: Array.from({ length: expectedRecords }, (_, index) => ({
+            index,
+            support: {
+              startSample: support.startSample + index * 2048,
+              endSample: support.startSample + (index + 1) * 2048,
+            },
+            magnitudes: [Array(24).fill(0.5), Array(24).fill(0.25)],
+          })),
+          gaps: [],
+        });
+        observation.rows = createMetricObservationReportRows(observation);
+      }
       this.#current = control;
       this.descriptor.phase = "preparing";
       this.descriptor.jobId = input.jobId;
@@ -223,8 +260,10 @@ export function createSyntheticMetricListenerPeer(
   descriptor: ListenerDescriptor,
   data: SyntheticMetricWireFixture,
   recordControl: (action: string) => void,
+  options: Pick<SyntheticMetricPeerOptions, "provideMelBands"> = {},
 ) {
   const peer = new SyntheticMetricListenerPeer(descriptor, data, {
+    ...options,
     recordControl,
     cancelledResultBeforeReply: true,
   });

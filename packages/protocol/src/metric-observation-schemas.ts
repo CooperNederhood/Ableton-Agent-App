@@ -8,6 +8,7 @@ import {
 } from "./metric-listening-geometry.js";
 import { listeningAlignmentQualitySchema } from "./listening-timing-schemas.js";
 import { inspectSessionListeningSourceParamsSchema } from "./session-listening-source-schemas.js";
+import { melBandTimelineSchema } from "./mel-band-timeline.js";
 
 const sample = z
   .number()
@@ -35,10 +36,14 @@ const interval = z
   );
 type Interval = z.infer<typeof interval>;
 
-export const metricObservationMetricSchema = z.enum([
+export const nativeMetricObservationMetricSchema = z.enum([
   "level",
   "spectral-centroid",
   "attacks",
+]);
+export const metricObservationMetricSchema = z.enum([
+  ...nativeMetricObservationMetricSchema.options,
+  "mel-bands",
 ]);
 export const metricObservationStatusSchema = z.enum([
   "complete",
@@ -159,9 +164,10 @@ const metricsSchema = z.strictObject({
   level: levelMetric,
   "spectral-centroid": spectralMetric,
   attacks: attackMetric,
+  "mel-bands": melBandTimelineSchema.optional(),
 });
 type Metrics = z.infer<typeof metricsSchema>;
-type Metric = keyof Metrics;
+type Metric = z.infer<typeof nativeMetricObservationMetricSchema>;
 
 export type MetricAttackAlgorithm = z.infer<typeof metricAttackAlgorithmSchema>;
 export type MetricAttackInputRecord = Pick<
@@ -256,6 +262,12 @@ export const metricObservationReportRowSchema = z.strictObject({
     // These are event ownership only, never additional detector coverage.
     eventRecordIndices: z.array(count).max(300),
   }),
+  "mel-bands": z
+    .strictObject({
+      availability: z.enum(["available", "partial", "missing", "no-frame"]),
+      recordIndices: z.array(count.max(705)).max(706),
+    })
+    .optional(),
 });
 type ReportRow = z.infer<typeof metricObservationReportRowSchema>;
 
@@ -306,7 +318,7 @@ const body = z.strictObject({
   geometry: metricListeningGeometrySchema,
   sourceCoverage: interval,
   alignment: listeningAlignmentQualitySchema,
-  requestedMetrics: z.array(metricObservationMetricSchema).min(1).max(3),
+  requestedMetrics: z.array(metricObservationMetricSchema).min(1).max(4),
   metrics: metricsSchema,
   rows: z.array(metricObservationReportRowSchema).max(MAX_METRIC_REPORT_ROWS),
   reduction: z.strictObject({
@@ -373,13 +385,13 @@ export function createMetricObservationReportRows(
 ): ReportRow[] {
   const { geometry, metrics } = value;
   const expected = Object.fromEntries(
-    metricObservationMetricSchema.options.map((metric) => [
+    nativeMetricObservationMetricSchema.options.map((metric) => [
       metric,
       expectedSupports(geometry, metrics, metric),
     ]),
   ) as Record<Metric, Interval[]>;
   const retained = Object.fromEntries(
-    metricObservationMetricSchema.options.map((metric) => [
+    nativeMetricObservationMetricSchema.options.map((metric) => [
       metric,
       new Set(metrics[metric].records.map((record) => record.index)),
     ]),
@@ -419,6 +431,21 @@ export function createMetricObservationReportRows(
         recordIndices,
       };
     };
+    const mel = metrics["mel-bands"];
+    const melSlots =
+      mel === undefined
+        ? []
+        : Array.from({ length: mel.expectedRecords }, (_, slot) => slot).filter(
+            (slot) =>
+              ownsEndpoint(
+                mel.sourceSupport.startSample +
+                  (slot + 1) * mel.profile.hopSamples,
+              ),
+          );
+    const melIndices =
+      mel?.frames
+        .filter((frame) => ownsEndpoint(frame.support.endSample))
+        .map((frame) => frame.index) ?? [];
     return {
       index,
       level: projection("level"),
@@ -431,6 +458,21 @@ export function createMetricObservationReportRows(
           )
           .map((record) => record.index),
       },
+      ...(mel === undefined
+        ? {}
+        : {
+            "mel-bands": {
+              availability:
+                melSlots.length === 0
+                  ? ("no-frame" as const)
+                  : melIndices.length === melSlots.length
+                    ? ("available" as const)
+                    : melIndices.length === 0
+                      ? ("missing" as const)
+                      : ("partial" as const),
+              recordIndices: melIndices,
+            },
+          }),
     };
   });
 }
@@ -499,7 +541,7 @@ export const metricAudioObservationSchema = body.superRefine((value, ctx) => {
     issue("Attack cadence is independent of reporting rows");
   }
   let useful = false;
-  for (const metric of metricObservationMetricSchema.options) {
+  for (const metric of nativeMetricObservationMetricSchema.options) {
     const acquisition = metrics[metric];
     const requested = value.requestedMetrics.includes(metric);
     if (requested !== (acquisition.status !== "not-requested")) {
@@ -603,6 +645,25 @@ export const metricAudioObservationSchema = body.superRefine((value, ctx) => {
     }
     useful ||= some;
   }
+  const mel = metrics["mel-bands"];
+  if (value.requestedMetrics.includes("mel-bands") !== (mel !== undefined)) {
+    issue("mel-bands: a timeline is required exactly when requested");
+  }
+  if (mel !== undefined) {
+    if (
+      mel.sampleRate !== geometry.sampleRate ||
+      !sameSupport(mel.sourceSupport, value.sourceCoverage) ||
+      !sameSupport(mel.sourceSupport, geometry)
+    ) {
+      issue(
+        "mel-bands: source support and sample rate must match admitted geometry",
+      );
+    }
+    // A correctly bounded sub-window capture is explicitly no-frame, not silence.
+    useful ||=
+      mel.frames.length > 0 ||
+      (mel.status === "complete" && mel.expectedRecords === 0);
+  }
   for (const frame of metrics["spectral-centroid"].records) {
     if (
       frame.centroidHz !== null &&
@@ -649,7 +710,7 @@ export const metricAudioObservationSchema = body.superRefine((value, ctx) => {
   if (events > 512) issue("Attack event budget exceeded");
   if (!useful) issue("No trustworthy requested metric data is publishable");
   const complete = value.requestedMetrics.every(
-    (metric) => metrics[metric].status === "complete",
+    (metric) => metrics[metric]?.status === "complete",
   );
   if ((value.outcome === "complete") !== complete) {
     issue("Overall outcome must reflect every requested acquisition");

@@ -11,6 +11,18 @@ afterEach(async () => {
   await rm(scratch, { recursive: true, force: true });
 });
 
+it("does not generalize the flat-resource count allowance for native pins", async () => {
+  await expect(
+    publishResources({
+      destinationDirectory: join(scratch, "destination"),
+      resources: Array.from({ length: 33 }, (_, index) => ({
+        fileName: `unapproved-${index}.js`,
+        source: join(scratch, "unused.js"),
+      })),
+    }),
+  ).rejects.toThrow(/at most 32 flat resources/);
+});
+
 it("exposes runtime helpers only through the Node subpath, not the renderer-safe root", () => {
   expect(() =>
     execFileSync(

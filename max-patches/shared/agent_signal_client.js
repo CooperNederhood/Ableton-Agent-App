@@ -20,6 +20,7 @@ function loadMetricProtocol() {
     codec.MAX_METRIC_RESULT_FRAME_BYTES !== 2 * 1024 * 1024 ||
     codec.LISTENER_CAPABILITY_METRIC !==
       "audio-listener/independent-metric-timelines-v1" ||
+    codec.LISTENER_CAPABILITY_MEL !== "audio-listener/mel-band-timelines-v1" ||
     codec.LISTENER_METRIC_ALGORITHM_VERSION !== "3.0.0" ||
     codec.LISTENER_METRIC_PRODUCER_SCHEMA_VERSION !==
       "metric-audio-observation/v1" ||

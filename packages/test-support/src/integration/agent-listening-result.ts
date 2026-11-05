@@ -10,6 +10,7 @@ import {
 import {
   metricAudioObservationSchema,
   metricListeningReportSchema,
+  projectMetricListeningReport,
 } from "@ableton-agent/protocol";
 import type {
   AssertionInput,
@@ -348,6 +349,7 @@ export function verifyAgentListeningResult(
       ["get", "report"].includes(String(call.arguments.action)),
   );
   requireEvidence(reads.length > 0, "missing agent context consumption");
+  const melSmoke = turn.melSmoke?.[0];
   for (const read of reads) {
     const entry = object(read.data.entry);
     requireEvidence(
@@ -375,6 +377,11 @@ export function verifyAgentListeningResult(
       "measurement source mismatch",
     );
     if ("ownership" in measurement) {
+      if (melSmoke)
+        requireEvidence(
+          isDeepStrictEqual(measurement, melSmoke.observation),
+          "agent context did not consume matching mel vectors",
+        );
       requireEvidence(
         measurement.ownership.passId === capture.passId &&
           measurement.ownership.listenerId === capture.listenerId &&
@@ -402,6 +409,19 @@ export function verifyAgentListeningResult(
           ),
         "missing measurement report content",
       );
+      if (melSmoke)
+        requireEvidence(
+          isDeepStrictEqual(
+            measurement,
+            projectMetricListeningReport(melSmoke.observation, {
+              offset: measurement.offset,
+              limit: measurement.pageBudget.requestedRowLimit,
+            }),
+          ) &&
+            measurement.metricStatus["mel-bands"] === "complete" &&
+            measurement.rows.some((row) => row["mel-bands"]?.recordCount),
+          "agent report did not consume matching mel vectors and ratios",
+        );
     }
   }
 }

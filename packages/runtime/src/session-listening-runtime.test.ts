@@ -3,6 +3,7 @@ import type { ListeningJob } from "@ableton-agent/application";
 import { createInMemorySessionContextStore } from "@ableton-agent/project-state";
 import {
   PROTOCOL_VERSION,
+  metricAudioObservationSchema,
   type InspectListeningContextParams,
   type InspectListeningContextResult,
   type InspectSessionListeningSourceParams,
@@ -410,9 +411,23 @@ describe("production v5 Session host with synthetic native peer", () => {
           }),
         ]),
       );
-      expect(
+      const observed = metricAudioObservationSchema.parse(
         (await f.repository.getEntry(f.jobs.at(-1)!.contextIds[0]!))?.payload,
-      ).toMatchObject({
+      );
+      expect(observed).toMatchObject({
+        requestedMetrics: [
+          "level",
+          "spectral-centroid",
+          "attacks",
+          "mel-bands",
+        ],
+        metrics: {
+          "mel-bands": {
+            status: "complete",
+            profile: { bandCount: 24 },
+            expectedRecords: 43,
+          },
+        },
         source: {
           coordinate: { startBeat: 0, endBeat: 4 },
           transport: { startBeat: 0, endBeat: 4 },
@@ -424,6 +439,10 @@ describe("production v5 Session host with synthetic native peer", () => {
           totalSamples: 90_000,
         },
       });
+      expect(observed.metrics["mel-bands"]?.frames[0]?.magnitudes).toEqual([
+        Array(24).fill(0.5),
+        Array(24).fill(0.25),
+      ]);
       expect(f.log).toContain("session:release");
       expect(f.peer.subscribers.size).toBe(0);
       expect(f.stopTransport).not.toHaveBeenCalled();

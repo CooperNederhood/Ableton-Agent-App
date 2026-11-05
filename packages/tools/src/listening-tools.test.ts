@@ -467,7 +467,7 @@ describe("optional listening tool contracts", () => {
     );
   });
 
-  it("explains exact action arguments, queued status and known-context retrieval before a call", () => {
+  it("explains exact arguments, terminal delivery and known-context retrieval before a call", () => {
     const [listening, context] = createListeningTools({
       executeListeningOperation: async () => ({
         action: "inspect-listeners",
@@ -484,8 +484,10 @@ describe("optional listening tool contracts", () => {
       "Queued or arming is not completion or failure",
     );
     expect(listening.description).toContain(
-      "Use get-pass with the returned passId",
+      "Both listening start calls wait for terminal",
     );
+    expect(listening.description).toContain("No get-pass polling is needed");
+    expect(listening.description).toContain("before answering");
     expect(listening.description).toContain("Never use bash or sleep to wait");
     expect(listening.description).toContain(
       "Arrangement capture is not read-only",

@@ -62,11 +62,26 @@ Actual mapped pinned SpectralShape binary identity was verified at baseline and
 capture completion. The existing Remote Script credential was supplied through
 the supported environment source; this does not qualify Keychain startup.
 
-The agent's final prose incorrectly reported a permission denial and no
-publication, despite independently verified completed capture and persisted
-context. That response/status discrepancy remains a separate follow-up; this
-contract grades actual delivery/completion, not the assistant's status prose.
-No retry or broader Live campaign was run. This single smoke pass does not
+The agent-facing interaction failed: after four successful status queries the
+agent supplied two incorrect pass IDs, both rejected with `passExists=false`.
+Its final claim that the original ID had lost permission was incorrect. The
+real pass had published before the final bad query, but the agent never read
+its terminal result or context. The frozen nine-assertion contract checked
+backend completion, not agent consumption; the historical receipt remains
+unchanged and is not end-to-end agent qualification.
+
+Both agent-facing listening start calls now await the original owned terminal
+pass and return its public job/context IDs directly. The asynchronous host,
+progress and cancellation remain available; the model no longer needs repeated
+status polling. Completed and partial results require context retrieval before
+interpretation; a failed/denied/cancelled pass is not successful measurement.
+Ownership, cleanup, deadlines and one-capture permissions are unchanged.
+The strengthened smoke additionally requires attributable SDK terminal-result
+delivery and a successful matching context read before the final answer.
+Independent runner reads and application completion events cannot satisfy that
+new requirement. Real-host qualification of the fix is pending.
+
+No retry or broader Live campaign was run for the historical receipt. This single smoke pass does not
 qualify numerical accuracy, independent FFT support, Arrangement coverage,
 visible UX or the full release suite.
 
@@ -2615,12 +2630,14 @@ still corrected invalid calls; this is persistence evidence, not a clean turn.
 Agent-facing action schemas now distinguish zero-based `startBeat` and absolute
 `endBeat` from Session-only `durationBeats`. A known context ID goes directly
 to `get`; `list` is for discovering IDs and does not accept `contextId`. The
-listening tool and configured listening agent share guidance that queued/arming
-is nonterminal, status uses the existing `get-pass`, and shell waits or extra
-playback calls are not waiting mechanisms. Explicit user no-retry instructions
+listening tool and configured listening agent originally shared guidance that
+queued/arming is nonterminal and status uses `get-pass`; the terminal-result
+delivery fix above replaces that polling requirement for agent start calls.
+Shell waits or extra playback calls are not waiting mechanisms. Explicit user no-retry instructions
 also cover validation/permission errors; a `retryable` error is not permission
 to retry. These are agent-facing instructions, not an NLP-enforced mutation
-policy or a change to the asynchronous job contract.
+policy. The underlying application job contract remains asynchronous even though
+the agent-facing start adapter now awaits its terminal result.
 
 The reviewed v2 scenarios now fail on any actor `operation.failed`, even if
 the actor could correct the call and later capture successfully. A regression

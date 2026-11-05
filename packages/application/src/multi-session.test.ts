@@ -24,8 +24,12 @@ import type {
 import {
   PROTOCOL_VERSION,
   projectMetricListeningReport,
+  summarizeMetricListeningResult,
 } from "@ableton-agent/protocol";
-import { createSyntheticMetricListeningObservation } from "@ableton-agent/protocol/testing";
+import {
+  createSyntheticMetricListeningObservation,
+  createSyntheticPartialMetricListeningObservation,
+} from "@ableton-agent/protocol/testing";
 
 import {
   CopilotAgentService,
@@ -41,6 +45,7 @@ import {
 import { AUTOMATIC_LIVE_EVENT_IDENTITY_GUIDANCE } from "./agent-policy.js";
 import type { SignalTurnRequest } from "./signal-delivery.js";
 import type { LiveEventTurnRequest } from "./live-event-delivery.js";
+import { ListeningFailure } from "./listening-coordinator.js";
 
 const disconnected = { state: "disconnected" } as const;
 const trackAReference = "00000000-0000-4000-8000-000000000001";
@@ -2019,7 +2024,7 @@ describe("CopilotAgentService managed sessions", () => {
     ).toThrow("owned-pass completion boundary");
   });
 
-  it("guides listening agents through queued passes without shell waits and makes explicit no-retry requests override retryable tool errors", async () => {
+  it("guides listening agents through terminal results without polling and makes explicit no-retry requests override retryable tool errors", async () => {
     const configs: (SessionConfig | ResumeSessionConfig)[] = [];
     const service = new CopilotAgentService(
       baseOptions({
@@ -2067,7 +2072,10 @@ describe("CopilotAgentService managed sessions", () => {
         expect(prompt).toContain(
           "Queued or arming is not completion or failure",
         );
-        expect(prompt).toContain("Use get-pass with the returned passId");
+        expect(prompt).toContain(
+          "Both listening start calls wait for terminal",
+        );
+        expect(prompt).toContain("No get-pass polling is needed");
         expect(prompt).toContain("Never use bash or sleep to wait");
         expect(prompt).toContain("Arrangement capture is not read-only");
         expect(prompt).toContain(
@@ -2080,7 +2088,9 @@ describe("CopilotAgentService managed sessions", () => {
           "never repair source selection or retry automatically",
         );
         expect(prompt).toContain("endBeat, not durationBeats");
-        expect(prompt).toContain("known contextId goes to get, not list");
+        expect(prompt).toContain(
+          "known contextId goes to get or report, not list",
+        );
         expect(prompt).toContain(
           "An explicit user instruction to stop on any failure also covers argument-validation and permission failures",
         );
@@ -2386,19 +2396,34 @@ describe("CopilotAgentService managed sessions", () => {
     await service.stop();
   });
 
-  it.each(["completed", "partial", "failed", "cancelled"] as const)(
-    "retains the listening transport lease until %s and reports the terminal outcome",
-    async (stage) => {
+  it.each(
+    (
+      ["play-session-and-listen", "play-arrangement-and-listen"] as const
+    ).flatMap((action) => [
+      ...(
+        ["completed", "partial", "failed", "cancelled", "interrupted"] as const
+      ).map((stage) => ({ action, stage, fault: undefined })),
+      ...(["foreign-pass", "missing-context", "nonterminal"] as const).map(
+        (fault) => ({ action, stage: "completed" as const, fault }),
+      ),
+    ]),
+  )(
+    "$action delivers the terminal $stage result (fault=$fault) while retaining its transport lease",
+    async ({ action, stage, fault }) => {
       const configs: SessionConfig[] = [];
       const runtimeEvents: AgentRuntimeEvent[] = [];
-      const terminal = deferred<{
-        passId: string;
-        stage: typeof stage;
-      }>();
+      const terminal =
+        deferred<
+          Awaited<
+            ReturnType<
+              NonNullable<CopilotAgentServiceOptions["waitForListeningPass"]>
+            >
+          >
+        >();
       const executeListeningOperation = vi.fn<
         NonNullable<CopilotAgentServiceOptions["executeListeningOperation"]>
       >(async () => ({
-        action: "play-arrangement-and-listen",
+        action,
         job: {
           passId: "owned-pass",
           stage: "capturing",
@@ -2468,18 +2493,38 @@ describe("CopilotAgentService managed sessions", () => {
       )?.handler;
       expect(listen).toBeDefined();
       expect(create).toBeDefined();
-      const args = {
-        action: "play-arrangement-and-listen",
-        listenerIds: ["tap"],
-        startBeat: 0,
-        endBeat: 16,
-      };
-      await listen?.(args, {
-        sessionId: "session-2",
-        toolCallId: "listen-call",
-        toolName: "ableton_listening",
-        arguments: args,
+      const args =
+        action === "play-arrangement-and-listen"
+          ? { action, listenerIds: ["tap"], startBeat: 0, endBeat: 16 }
+          : {
+              action,
+              listenerIds: ["tap"],
+              target: {
+                view: "session",
+                track: {
+                  kind: "regular",
+                  index: 0,
+                  expectedReference: trackAReference,
+                  expectedName: "Track",
+                },
+                sceneIndex: 0,
+                expectedClipReference: trackBReference,
+                expectedClipName: "Clip",
+              },
+            };
+      let delivered = false;
+      const response = Promise.resolve(
+        listen?.(args, {
+          sessionId: "session-2",
+          toolCallId: "listen-call",
+          toolName: "ableton_listening",
+          arguments: args,
+        }),
+      ).then((result) => {
+        delivered = true;
+        return result;
       });
+      await flushMicrotasks();
       const queued = create?.(
         { action: "create", kind: "midi", name: "New" },
         {
@@ -2495,18 +2540,56 @@ describe("CopilotAgentService managed sessions", () => {
       expect(waitForListeningPass.mock.lastCall?.[1]).toEqual(
         executeListeningOperation.mock.lastCall?.[1],
       );
-      terminal.resolve({ passId: "owned-pass", stage });
+      const deliveredBeforeCompletion = delivered;
+      terminal.resolve({
+        passId: fault === "foreign-pass" ? "another-pass" : "owned-pass",
+        stage: fault === "nonterminal" ? "arming" : stage,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        durationMs: 42,
+        contextIds:
+          fault !== "missing-context" &&
+          (stage === "completed" || stage === "partial")
+            ? ["published-context"]
+            : [],
+        ...(stage === "partial"
+          ? {
+              metricResults: [
+                summarizeMetricListeningResult(
+                  createSyntheticPartialMetricListeningObservation(),
+                ),
+              ],
+            }
+          : {}),
+      });
+      const result = await response;
       await queued;
+      expect(deliveredBeforeCompletion).toBe(false);
+      const successful =
+        fault === undefined && (stage === "completed" || stage === "partial");
+      if (successful) {
+        expect(result).toMatchObject({
+          action,
+          job: {
+            passId: "owned-pass",
+            stage,
+            contextIds: ["published-context"],
+            durationMs: 42,
+          },
+        });
+      } else {
+        expect(result).toMatchObject({ resultType: "failure" });
+      }
+      expect(executeListeningOperation).toHaveBeenCalledOnce();
       expect(createTrack).toHaveBeenCalledOnce();
       const listeningEvents = runtimeEvents.filter(
         (event) => event.data.toolCallId === "listen-call",
       );
-      const terminalType =
-        stage === "completed" || stage === "partial"
-          ? "completed"
-          : stage === "cancelled"
-            ? "cancelled"
-            : "failed";
+      const terminalType = successful
+        ? "completed"
+        : stage === "cancelled"
+          ? "cancelled"
+          : "failed";
       expect(listeningEvents.at(-1)?.type).toBe(
         `agent.operation.${terminalType}`,
       );
@@ -2514,22 +2597,32 @@ describe("CopilotAgentService managed sessions", () => {
         listeningEvents.some(
           (event) => event.type === "agent.operation.completed",
         ),
-      ).toBe(stage === "completed" || stage === "partial");
+      ).toBe(successful);
       await service.stop();
     },
   );
 
-  it.each(["cancelled", "failed", "disconnect"] as const)(
-    "cancels an owned background listening pass after SDK idle and surfaces %s cleanup",
+  it.each([
+    "cancelled",
+    "failed",
+    "disconnect",
+    "timeout",
+    "shutdown",
+    "sdk-abort",
+  ] as const)(
+    "cancels an owned pending listening call and surfaces %s cleanup",
     async (scenario) => {
       const stage = scenario === "failed" ? "failed" : "cancelled";
       const configs: SessionConfig[] = [];
       const events: AgentRuntimeEvent[] = [];
-      const terminal = deferred<{
-        passId: string;
-        stage: typeof stage;
-        error?: string;
-      }>();
+      const terminal =
+        deferred<
+          Awaited<
+            ReturnType<
+              NonNullable<CopilotAgentServiceOptions["waitForListeningPass"]>
+            >
+          >
+        >();
       const job = (status: "capturing" | typeof stage) => ({
         passId: "owned-pass",
         stage: status,
@@ -2541,19 +2634,23 @@ describe("CopilotAgentService managed sessions", () => {
       });
       const execute = vi.fn<
         NonNullable<CopilotAgentServiceOptions["executeListeningOperation"]>
-      >(async (params) => {
+      >(async (params, context) => {
         if (params.action === "cancel") {
-          terminal.resolve({
-            passId: params.passId,
-            stage,
-            ...(stage === "failed" ? { error: "Listener disarm failed" } : {}),
-          });
+          terminal.resolve(job(stage));
           return { action: "cancel", job: job(stage) };
+        }
+        if (scenario === "sdk-abort") {
+          context.signal?.addEventListener(
+            "abort",
+            () => terminal.resolve(job("cancelled")),
+            { once: true },
+          );
         }
         return { action: "play-arrangement-and-listen", job: job("capturing") };
       });
       const service = new CopilotAgentService(
         baseOptions({
+          ...(scenario === "timeout" ? { turnTimeoutMs: 20 } : {}),
           executeListeningOperation: execute,
           getAbletonStatus: async () => ({
             state: "connected",
@@ -2568,7 +2665,16 @@ describe("CopilotAgentService managed sessions", () => {
           clientFactory: () => ({
             createSession: vi.fn(async (config: SessionConfig) => {
               configs.push(config);
-              return createFakeSession(`session-${configs.length}`);
+              return createFakeSession(`session-${configs.length}`, {
+                ...(scenario === "timeout"
+                  ? {
+                      onSend: async () => {
+                        await terminal.promise;
+                        return undefined;
+                      },
+                    }
+                  : {}),
+              });
             }),
             resumeSession: vi.fn(async () => {
               throw new Error("Unexpected resume");
@@ -2594,17 +2700,41 @@ describe("CopilotAgentService managed sessions", () => {
         startBeat: 0,
         endBeat: 4,
       };
-      await handler(args, {
+      const sdkAbort = new AbortController();
+      const response = handler(args, {
         sessionId: "session-2",
         toolCallId: "listen-cancel-call",
         toolName: "ableton_listening",
         arguments: args,
+        signal: sdkAbort.signal,
       });
+      await flushMicrotasks();
       const original = execute.mock.calls[0]?.[1];
       if (original === undefined) throw new Error("Missing invocation owner");
       await expect(service.cancelManagedAgent("other")).resolves.toBe(false);
       expect(original.signal?.aborted).toBe(false);
-      if (scenario === "disconnect") {
+      if (scenario === "sdk-abort") {
+        sdkAbort.abort();
+        await expect(response).resolves.toMatchObject({
+          resultType: "failure",
+        });
+        await flushMicrotasks();
+        expect(original.signal?.aborted).toBe(true);
+        expect(execute).toHaveBeenCalledOnce();
+        expect(
+          events
+            .filter((event) => event.data.toolCallId === "listen-cancel-call")
+            .at(-1)?.type,
+        ).toBe("agent.operation.cancelled");
+        await service.stop();
+        return;
+      } else if (scenario === "timeout") {
+        await expect(
+          service.sendToManagedAgent("listener", "Wait for listening"),
+        ).rejects.toThrow("timed out");
+      } else if (scenario === "shutdown") {
+        await service.stop();
+      } else if (scenario === "disconnect") {
         await service.deactivateManagedAgent("listener");
         expect(service.getManagedAgentSessionId("listener")).toBeUndefined();
       } else if (stage === "cancelled")
@@ -2636,7 +2766,110 @@ describe("CopilotAgentService managed sessions", () => {
         expect(event.data.toolCallId).toBe(original.trace.causationId);
         expect(event.data.appSessionId).toBe(original.sessionId);
       }
+      await expect(response).resolves.toMatchObject({ resultType: "failure" });
       await service.stop();
+    },
+  );
+
+  it.each(["denied", "cancel-before-admission"] as const)(
+    "reports $0 admission without waiting or starting another pass",
+    async (scenario) => {
+      const configs: SessionConfig[] = [];
+      const events: AgentRuntimeEvent[] = [];
+      const wait =
+        vi.fn<
+          NonNullable<CopilotAgentServiceOptions["waitForListeningPass"]>
+        >();
+      const execute = vi.fn<
+        NonNullable<CopilotAgentServiceOptions["executeListeningOperation"]>
+      >(async (_params, context) => {
+        if (scenario === "cancel-before-admission") {
+          const signal = context.signal;
+          if (!signal) throw new Error("Missing admission signal");
+          await new Promise<never>((_resolve, reject) => {
+            signal.addEventListener(
+              "abort",
+              () => {
+                const reason: unknown = signal.reason;
+                reject(
+                  reason instanceof Error
+                    ? reason
+                    : new Error("Admission cancelled"),
+                );
+              },
+              { once: true },
+            );
+          });
+        }
+        throw new ListeningFailure("permission_denied", "Source is not owned");
+      });
+      const service = new CopilotAgentService(
+        baseOptions({
+          getAbletonStatus: async () => ({
+            state: "connected",
+            liveVersion: "11.3.43",
+            remoteScriptVersion: "0.4.0",
+            liveSetId: "set",
+            liveSetName: "Test Set",
+            saved: true,
+          }),
+          executeListeningOperation: execute,
+          waitForListeningPass: wait,
+          runtimeObserver: { enqueue: (event) => events.push(event) },
+          clientFactory: () => ({
+            createSession: vi.fn(async (config: SessionConfig) => {
+              configs.push(config);
+              return createFakeSession("denial-session");
+            }),
+            resumeSession: vi.fn(async () => {
+              throw new Error("Unexpected resume");
+            }),
+            stop: vi.fn(async () => undefined),
+          }),
+        }),
+      );
+      try {
+        await service.start();
+        const handler = configs[0]?.tools?.find(
+          ({ name }) => name === "ableton_listening",
+        )?.handler;
+        if (!handler) throw new Error("Missing listening handler");
+        const args = {
+          action: "play-arrangement-and-listen",
+          listenerIds: ["tap"],
+          startBeat: 0,
+          endBeat: 4,
+        };
+        const response = handler(args, {
+          sessionId: "denial-session",
+          toolCallId: "denied-start",
+          toolName: "ableton_listening",
+          arguments: args,
+        });
+        await flushMicrotasks();
+        if (scenario === "cancel-before-admission") {
+          await expect(service.cancel()).resolves.toBe(true);
+        }
+        await expect(response).resolves.toMatchObject({
+          resultType: "failure",
+        });
+        await flushMicrotasks();
+        expect(execute).toHaveBeenCalledOnce();
+        expect(wait).not.toHaveBeenCalled();
+        const lifecycle = events.filter(
+          (event) => event.data.toolCallId === "denied-start",
+        );
+        expect(lifecycle.at(-1)?.type).toBe(
+          scenario === "denied"
+            ? "agent.operation.failed"
+            : "agent.operation.cancelled",
+        );
+        expect(
+          lifecycle.some((event) => event.type === "agent.operation.completed"),
+        ).toBe(false);
+      } finally {
+        await service.stop();
+      }
     },
   );
 

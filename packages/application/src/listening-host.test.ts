@@ -518,6 +518,57 @@ describe("owned listening tool host", () => {
     await f.host.shutdown();
   });
 
+  it("returns only the public terminal job and rejects corrupted IDs without revoking the real pass", async () => {
+    const passId = "1b295ab8-5018-4ce6-8966-8e6b4caf0454";
+    const f = fixture({ createId: () => passId });
+    try {
+      await complete(f);
+      const terminal = await f.host.waitForListeningPass(passId, context);
+      expect(terminal).toMatchObject({
+        passId,
+        stage: "completed",
+        contextIds: [`entry-${passId}`],
+      });
+      expect(terminal).not.toHaveProperty("owner");
+      expect(terminal).not.toHaveProperty("request");
+      for (const wrongId of [
+        "1b295ab8-5018-4ce6-8966-8e6b4CE4-6872-4ce6-8966-8e6b4CE4-6872",
+        "1b295ab8-5018-4ce6-8966-8e6b4ce40454",
+      ]) {
+        await expect(
+          f.host.executeListeningOperation(
+            { action: "get-pass", passId: wrongId },
+            context,
+          ),
+        ).rejects.toMatchObject({
+          code: "permission_denied",
+        });
+        const failure = f.enqueue.mock.calls
+          .map(([event]) => event)
+          .filter((event) => event.name === "listening.attempt.failed")
+          .at(-1);
+        expect(failure?.attributes.facts).toContainEqual({
+          field: "passExists",
+          actual: { state: "observed", value: false },
+          expected: { state: "observed", value: true },
+          comparison: "equal",
+        });
+      }
+      terminal.contextIds.length = 0;
+      expect(
+        await f.host.executeListeningOperation(
+          { action: "get-pass", passId },
+          context,
+        ),
+      ).toMatchObject({
+        job: { stage: "completed", contextIds: [`entry-${passId}`] },
+      });
+      expect(f.services.startPlayback).toHaveBeenCalledOnce();
+    } finally {
+      await f.host.shutdown();
+    }
+  });
+
   it("denies reads, waits and cancellation from other sessions or agents", async () => {
     const f = fixture();
     const passId = await complete(f);

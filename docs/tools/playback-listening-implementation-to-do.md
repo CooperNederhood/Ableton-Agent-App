@@ -18,10 +18,14 @@
   deliveries/channel, one complete native capture, owned-restart persistence,
   unchanged protected scopes and confirmed terminal cleanup. Candidate and
   dependency pins are recorded in the companion specification.
-- [ ] Investigate the agent's final permission-denial/no-publication prose in
-  that run, which disagreed with the independently verified completed capture.
-  Do not reinterpret it as a failure of the passing measurement smoke contract
-  or claim that response/status behavior is qualified.
+- [x] Diagnose the agent-facing failure in `run-GUn1Ho`: both denied queries
+  used incorrect pass IDs; the real pass completed, but the agent never read
+  its result. Preserve the historical backend-only smoke receipt.
+- [x] Make both agent-facing listening start actions await their original owned
+  terminal result instead of requiring model-issued ID polling; preserve
+  partial results, structured failures, cancellation and lease cleanup.
+- [ ] Qualify actual SDK result delivery and same-agent context consumption
+  with the strengthened Session smoke and separate isolated visual check.
 - [ ] Qualify numerical definitions, floor/silence validity, independent frames,
   trajectories, reports and Session/Arrangement coverage in follow-up work.
   The smoke milestone does not close #91's full feature requirements.

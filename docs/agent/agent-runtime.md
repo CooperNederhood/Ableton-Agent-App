@@ -9,10 +9,13 @@ arbitrary code inside Ableton.
 ## Optional playback listening host
 
 Managed agents that expose `ableton_listening` receive the same application-owned
-action/async-status guidance as the tool description. It distinguishes absolute
+action/result guidance as the tool description. It distinguishes absolute
 Arrangement end beats from Session duration, known-context `get` from discovery
-`list`, and queued status from completion. Waiting uses the owned `get-pass`
-within any explicit request limit, never a shell sleep or another playback call.
+`list`, and queued status from completion. Both listening start tools await the
+original owned pass through publication and cleanup, then return its sanitized
+terminal job and context IDs through that same SDK invocation. The agent reads
+that context before answering; `get-pass` remains explicit inspection, not a
+required polling loop. Waiting never uses shell sleep or another playback call.
 Explicit user stop-on-failure instructions include malformed calls and permission
 denials; technically retryable does not mean authorized to retry. The existing
 strict tool schemas, approvals, shell policy, asynchronous jobs and lifecycle
@@ -52,6 +55,16 @@ publisher and observability recorder. This keeps capture control on the same
 ingress as MIDI producers. A playback host must expose a terminal-pass wait
 boundary so the SDK retains the shared transport lease through capture,
 publication and cleanup. A factory does not bypass this requirement.
+
+The host still admits asynchronous jobs for application consumers. Only the
+agent-facing adapter waits before returning. Admission tracking remains separate
+from terminal settlement so cancellation can abort pending resolution and cancel
+accepted passes without waiting on the SDK handler first. A single terminal
+promise supplies both the public result and lease verification. Partial
+publication returns its explicit metric coverage; failed, interrupted and
+cancelled passes return tool failures rather than queued success. SDK result
+delivery is distinct from application lifecycle completion and is recorded in
+typed, redacted tool-call/result History.
 
 `createListeningRuntimeHost` assembles the concrete listening ports from these
 same dependencies and explicit invoking-owner/repository resolvers. It retains

@@ -193,18 +193,19 @@ import {
   type AbletonOperationLifecycleIdentity,
   SET_SQL_SEARCH_TOOL_NAME,
   LISTENING_AGENT_GUIDANCE,
+  listeningJobSchema,
   type AbletonMutationAuthorizationContext,
   type ContextOperationParams,
   type ContextOperationResult,
   type ListeningOperationParams,
   type ListeningOperationResult,
+  type ListeningJobView,
   type MutationTarget,
   type SetHistoryQueryService,
   type ToolApprovalRequester,
 } from "@ableton-agent/tools";
 import {
   ListeningFailure,
-  type ListeningJob,
   type ListeningTrace,
 } from "./listening-coordinator.js";
 import { resolveLiveAgentStorage } from "@ableton-agent/storage";
@@ -707,7 +708,7 @@ export interface CopilotAgentServiceOptions {
   waitForListeningPass?: (
     passId: string,
     context: ListeningExecutionContext,
-  ) => Promise<Pick<ListeningJob, "passId" | "stage" | "error">>;
+  ) => Promise<ListeningJobView>;
   getSessionContextInventory?: (
     appSessionId: string,
     context: ListeningExecutionContext,
@@ -1802,7 +1803,11 @@ export class CopilotAgentService implements AgentService {
   readonly #states = new Map<string, ManagedSessionState>();
   readonly #listeningCompletions = new WeakMap<
     ToolInvocation,
-    Promise<unknown>
+    Promise<{
+      job: ListeningJobView;
+      verified: true;
+      outcome?: "partial";
+    }>
   >();
   readonly #lifecycleTails = new Map<string, Promise<void>>();
   readonly #planArtifacts: FilePlanArtifactStore;
@@ -1858,6 +1863,26 @@ export class CopilotAgentService implements AgentService {
     state: ManagedSessionState,
     invocation: ToolInvocation,
   ): Promise<unknown> | undefined {
+    const tracked = this.#listeningCompletions.get(invocation);
+    if (tracked !== undefined) return tracked;
+    if (
+      invocation.toolName === "ableton_listening" &&
+      result !== null &&
+      typeof result === "object" &&
+      Reflect.get(result, "resultType") === "failure"
+    ) {
+      const serialized: unknown = Reflect.get(result, "error");
+      const failure =
+        typeof serialized === "string"
+          ? parseAbletonToolFailure(serialized)
+          : undefined;
+      const error = new ListeningFailure(
+        failure?.code ?? "tool_execution_failed",
+        failure?.message ?? "Listening start failed",
+      );
+      if (failure?.code === "cancelled") error.name = "AbortError";
+      return Promise.reject(error);
+    }
     if (
       result !== null &&
       typeof result === "object" &&
@@ -1866,8 +1891,6 @@ export class CopilotAgentService implements AgentService {
       ) &&
       this.options.waitForListeningPass !== undefined
     ) {
-      const tracked = this.#listeningCompletions.get(invocation);
-      if (tracked !== undefined) return tracked;
       const job: unknown = Reflect.get(result, "job");
       const passId: unknown =
         job !== null && typeof job === "object"
@@ -1879,22 +1902,42 @@ export class CopilotAgentService implements AgentService {
       const context = this.#listeningExecutionContext(state, invocation);
       const completion = this.options
         .waitForListeningPass(passId, context)
-        .then((terminalJob) => {
-          if (
-            terminalJob.passId !== passId ||
-            !["completed", "partial"].includes(terminalJob.stage)
-          ) {
-            const error = new Error(
+        .then((value) => {
+          const terminalJob = listeningJobSchema.parse(value);
+          if (terminalJob.passId !== passId) {
+            throw new ListeningFailure(
+              "invalid_result",
+              "Listening completion belongs to a different pass",
+            );
+          }
+          if (!["completed", "partial"].includes(terminalJob.stage)) {
+            const error = new ListeningFailure(
+              terminalJob.failureEvidence?.code ??
+                (["failed", "cancelled", "interrupted"].includes(
+                  terminalJob.stage,
+                )
+                  ? terminalJob.stage
+                  : "invalid_result"),
               terminalJob.error ??
                 `Listening pass ${passId} did not complete (${terminalJob.stage})`,
+              terminalJob.failureEvidence,
             );
             if (terminalJob.stage === "cancelled") error.name = "AbortError";
             throw error;
           }
+          if (terminalJob.contextIds.length === 0) {
+            throw new ListeningFailure(
+              "invalid_result",
+              "Listening completion did not identify a published context",
+            );
+          }
+          context.signal?.throwIfAborted();
           return {
-            passId,
-            verified: true,
-            ...(terminalJob.stage === "partial" ? { outcome: "partial" } : {}),
+            job: terminalJob,
+            verified: true as const,
+            ...(terminalJob.stage === "partial"
+              ? { outcome: "partial" as const }
+              : {}),
           };
         });
       state.listeningPasses.set(passId, {
@@ -1988,7 +2031,13 @@ export class CopilotAgentService implements AgentService {
     const context: ListeningExecutionContext = {
       sessionId,
       agentId: state.key,
-      signal: state.listeningAbortController.signal,
+      signal:
+        invocation.signal === undefined
+          ? state.listeningAbortController.signal
+          : AbortSignal.any([
+              state.listeningAbortController.signal,
+              invocation.signal,
+            ]),
       trace: {
         traceId: state.activeTurn?.trace.traceId ?? correlationId,
         correlationId,
@@ -2037,7 +2086,28 @@ export class CopilotAgentService implements AgentService {
                 };
                 void execution.then(clear, clear);
               }
-              return execution;
+              if (!starts) return execution;
+              return execution.then(async (result) => {
+                const completion = this.#listeningCompletions.get(invocation);
+                if (completion === undefined) {
+                  throw new ListeningFailure(
+                    "invalid_result",
+                    "Listening start did not register its terminal result",
+                  );
+                }
+                const terminal = await completion;
+                context.signal?.throwIfAborted();
+                if (
+                  result.action !== "play-session-and-listen" &&
+                  result.action !== "play-arrangement-and-listen"
+                ) {
+                  throw new ListeningFailure(
+                    "invalid_result",
+                    "Listening start returned a mismatched action",
+                  );
+                }
+                return { action: result.action, job: terminal.job };
+              });
             },
           }),
       ...(this.options.executeContextOperation === undefined

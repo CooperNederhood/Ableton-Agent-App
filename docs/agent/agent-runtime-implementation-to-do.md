@@ -4,11 +4,19 @@ Companion specification: [Agent Runtime](agent-runtime.md)
 
 ## Copilot integration
 
-- [x] Share action-specific listening and queued-pass/no-shell-wait guidance
+- [x] Share action-specific terminal-result/no-polling listening guidance
   between tool definitions and configured listening-agent prompts; preserve
   scoped schemas, argument denial and explicit user no-retry instructions.
 - [x] Cover actual serialized default/scoped argument guidance, rejected
   malformed playback/context calls and prompt omission for context-only agents.
+- [x] Return the owned sanitized terminal job through the original Session and
+  Arrangement SDK start call, preserving partial outcomes, failure evidence,
+  cancellation and transport ownership through publication/cleanup.
+- [x] Keep admission tracking separate from terminal settlement; cover
+  pending-call cancellation, timeout, disconnect and shutdown without deadlock,
+  early result delivery or another capture.
+- [ ] Qualify agent-side result/context consumption in the strengthened Session
+  spread smoke and the separately owned visual workflow.
 
 - [x] Compose optional listening hosts against the same bridge and authenticated
   ingress, preserving caller ownership, deferred trace and terminal-pass leases.

@@ -38,6 +38,15 @@ typed history-record boundaries, retaining all ratio fields, credential
 redaction, per-record limits and unchanged aggregate byte budgets. No failed
 attempt is relabeled as a pass; the visual gate still follows exact-state smoke.
 
+The third attempt (`run-ePPRbm`) retained one complete 90,000-sample capture,
+43 stereo mel frames and confirmed capture cleanup, but same-agent consumption
+failed because the SDK's 20 KiB spill threshold replaced two valid report pages
+with file notices. Those notices correctly failed typed JSON projection.
+The SDK threshold now accommodates the unchanged 48 KiB report ceiling plus
+16 KiB envelope/hook headroom; larger results still spill under the existing
+restricted policy. This does not substitute runner context reads for agent
+consumption. The third failed receipt and successful final teardown are retained.
+
 The fixed profile is 24 independent-channel bands spanning 20-20,000 Hz,
 2048-sample periodic-Hann window/hop/FFT, linear FFT magnitudes and normalization
 disabled. Bands use 26 equally mel-spaced edges and overlapping triangular

@@ -43,7 +43,10 @@ import {
   type AgentSessionConfiguration,
   type CopilotAgentServiceOptions,
 } from "./index.js";
-import { AUTOMATIC_LIVE_EVENT_IDENTITY_GUIDANCE } from "./agent-policy.js";
+import {
+  AUTOMATIC_LIVE_EVENT_IDENTITY_GUIDANCE,
+  VERIFIED_TOOL_RESULT_GUIDANCE,
+} from "./agent-policy.js";
 import type { SignalTurnRequest } from "./signal-delivery.js";
 import type { LiveEventTurnRequest } from "./live-event-delivery.js";
 import { ListeningFailure } from "./listening-coordinator.js";
@@ -2248,6 +2251,25 @@ describe("CopilotAgentService managed sessions", () => {
       expect(
         new TextEncoder().encode(JSON.stringify(byteHeavyReport)).byteLength,
       ).toBeLessThanOrEqual(48 * 1024);
+      executeContextOperation.mockResolvedValueOnce({
+        action: "report",
+        entry: reportEntry,
+        report: byteHeavyReport,
+      });
+      const boundedResult = await handler?.(args, {
+        sessionId: "session-2",
+        toolCallId: "report-inline-budget",
+        toolName: "ableton_context",
+        arguments: args,
+      });
+      const modelContent =
+        JSON.stringify(boundedResult) +
+        `\n\nTool "ableton_context" succeeded. Additional guidance from postToolUse hooks:\n${VERIFIED_TOOL_RESULT_GUIDANCE}`;
+      const modelBytes = Buffer.byteLength(modelContent);
+      expect(modelBytes).toBeGreaterThan(20 * 1024);
+      expect(modelBytes).toBeLessThanOrEqual(
+        configs[1]?.largeOutput?.maxSizeBytes ?? 0,
+      );
       const uncappedReport = projectMetricListeningReport(
         createSyntheticMetricListeningObservation({
           tempoBpm: 20,
@@ -4200,7 +4222,7 @@ it("always exposes bounded planning controls across empty and deduplicated agent
   expect(configs[2]?.customAgents?.[0]).not.toHaveProperty("tools");
   for (const config of configs) {
     expect(config.largeOutput?.enabled).toBe(true);
-    expect(config.largeOutput?.maxSizeBytes).toBe(20 * 1024);
+    expect(config.largeOutput?.maxSizeBytes).toBe(64 * 1024);
     expect(config.largeOutput?.outputDirectory).toContain("tool-output");
     expect(config.availableTools).toContain("builtin:ask_user");
     expect(config.availableTools).not.toContain("builtin:task");
@@ -4266,7 +4288,7 @@ it("configures profile-owned spill output and gates bash to read-only spill insp
     } satisfies Extract<PermissionRequest, { kind: "shell" }>;
     expect(configs[0]?.largeOutput).toEqual({
       enabled: true,
-      maxSizeBytes: 20 * 1024,
+      maxSizeBytes: 64 * 1024,
       outputDirectory: largeOutputDirectory,
     });
     expect(configs[0]?.workingDirectory).toBe(largeOutputDirectory);

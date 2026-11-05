@@ -129,7 +129,7 @@ The default session should:
 The app should prefer an empty or tightly restricted tool environment rather
 than inheriting the general Copilot CLI tool set.
 
-SDK large-output handling remains enabled with an explicit threshold and a
+SDK large-output handling remains enabled with an explicit 64 KiB threshold and a
 profile-owned transient output directory under `copilot/tool-output/`. When a
 tool result is externalized, the agent may use only `grep`, bounded
 `head`/`tail`, `wc`, restricted `jq`, and safe pipelines over the exact
@@ -137,7 +137,11 @@ application-owned spill file. Shell permission checks reject writes, arbitrary
 filesystem paths, network targets, command substitution, environment access,
 unsafe command flags, and sandbox escalation. Large files are inspected in
 bounded pieces or projected with `jq`; they are not copied wholesale back into
-model context. The application-owned executable, argument, syntax, and path
+model context. The inline threshold covers the existing 48 KiB metric-report
+page ceiling plus bounded result-envelope and post-tool guidance overhead, so
+valid report JSON is not replaced by a spill-file notice in the agent or typed
+History. Report, observation and journal byte limits remain unchanged.
+The application-owned executable, argument, syntax, and path
 checks are authoritative; the SDK's advisory command `readOnly` classification
 does not override an otherwise valid request because supported SDK versions may
 classify these approved readers conservatively. The SDK's aggregate

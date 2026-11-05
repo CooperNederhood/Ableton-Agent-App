@@ -79,7 +79,13 @@ retained the actual completed job and report, but failed the ordering assertion:
 terminal events omitted `queuedAt`, so History placed submission at completion.
 Terminal turn events now carry the original submission time separately from
 completion and duration, including failure and cancellation paths. Both receipts
-remain failed; further real-host and visual qualification are pending.
+remain failed. The separately authorized corrected attempt `run-lFeD5Y` passed
+all ten unchanged Session assertions on Live 11.3.43, including persisted
+agent-result re-verification after restart. A separate same-candidate visual
+Session check confirmed ordinary approval, progress, successful final reporting
+and return to ready state; Live shutdown required user assistance. See the
+[listening checkpoint](../tools/playback-listening.md) for candidate pins,
+failed-attempt provenance and cleanup limits.
 
 `createListeningRuntimeHost` assembles the concrete listening ports from these
 same dependencies and explicit invoking-owner/repository resolvers. It retains

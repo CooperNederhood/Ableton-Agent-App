@@ -79,11 +79,38 @@ Ownership, cleanup, deadlines and one-capture permissions are unchanged.
 The strengthened smoke additionally requires attributable SDK terminal-result
 delivery and a successful matching context read before the final answer.
 Independent runner reads and application completion events cannot satisfy that
-new requirement. Real-host qualification of the fix is pending.
+new requirement.
 
-No retry or broader Live campaign was run for the historical receipt. This single smoke pass does not
+The strengthened case passed all ten assertions in `run-lFeD5Y` on Live 11.3.43
+with candidate
+`19b7ad5291c5d9d3878de68073ea0cd20f51cdac77d9ce0b4a1c34bce2a96184`
+(implementation commit `aef125f2`). The original call delivered the completed
+pass and the same agent read its report before answering; one capture, native
+metrics, stereo diagnostics, protected state, owned-restart persistence and
+terminal cleanup all passed. All ten assertions and restored agent evidence
+were independently re-evaluated from the persisted single-case receipt.
+
+Two preceding strengthened attempts remain failed: `run-wz3Mp8` exposed the
+SDK's appended post-tool guidance in otherwise valid JSON, and `run-CIeyEv`
+exposed missing submission timestamps in terminal History. Both were fixed at
+their owning boundaries with failing-before/passing-after regressions, without
+changing the fixture, prompt, permissions, budgets or assertions. Each retry
+was separately authorized; neither failed receipt was rewritten.
+
+The separate visual run `run-c0a25d5d-c326-4af9-8f77-178579801900` used that same
+candidate and a fresh isolated fixture/profile. It showed one prompt, ordinary
+approval, running progress/Stop, completed start/report, a successful final
+summary without denial, and the expected clip still playing. Typed History
+confirmed one terminal pass and matching report. Desktop exited normally;
+Live required user-assisted closure of an unreadable quit dialog. Exact owned
+process absence was then verified, the retained exact-owner host lease was
+recovered, and the isolated profile removed. This is attended visual evidence,
+not fully automatic teardown qualification.
+
+No retry or broader Live campaign was run for the historical nine-assertion receipt. That smoke pass does not
 qualify numerical accuracy, independent FFT support, Arrangement coverage,
-visible UX or the full release suite.
+visible UX or the full release suite. The later scoped qualifications above do
+not expand into those numerical/Arrangement/release claims.
 
 ## F1 FluCoMa flatness: initial diagnostic smoke
 

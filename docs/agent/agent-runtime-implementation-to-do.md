@@ -15,8 +15,10 @@ Companion specification: [Agent Runtime](agent-runtime.md)
 - [x] Keep admission tracking separate from terminal settlement; cover
   pending-call cancellation, timeout, disconnect and shutdown without deadlock,
   early result delivery or another capture.
-- [ ] Qualify agent-side result/context consumption in the strengthened Session
-  spread smoke and the separately owned visual workflow.
+- [x] Qualify agent-side result/context consumption in `run-lFeD5Y` (all ten
+  Session assertions, persisted re-verification and cleanup) and the separate
+  same-candidate visual workflow. Record user-assisted Live closure; do not
+  imply Arrangement or fully automatic teardown qualification.
 - [x] Reproduce the actual SDK post-tool guidance suffix without Live, decode
   only that exact application-owned frame, and cover application-to-journal
   persistence plus fail-closed malformed/truncated/foreign frames. Preserve
@@ -24,7 +26,7 @@ Companion specification: [Agent Runtime](agent-runtime.md)
 - [x] Preserve original `queuedAt` on terminal turn events so persisted turn and
   user-message timestamps precede tool execution rather than using completion
   time. Cover successful/failed journal projection and cancellation attribution.
-  Preserve the second failed receipt `run-CIeyEv`; no qualified pass yet.
+  Preserve the second failed receipt `run-CIeyEv` alongside the later pass.
 
 - [x] Compose optional listening hosts against the same bridge and authenticated
   ingress, preserving caller ownership, deferred trace and terminal-pass leases.

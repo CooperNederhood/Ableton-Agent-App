@@ -19,9 +19,10 @@ Companion specification: [Acceptance test authoring](acceptance-authoring.md).
 - [x] Add synthetic wrong-ID denial/no-read, queued/partial, wrong-owner,
       failure/cancellation, ordering, pagination, redaction/oversize and durable
       round-trip regressions. Historical `run-GUn1Ho` remains backend-only proof.
-- [ ] Qualify the strengthened case separately on an approved immutable
-      candidate. This acceptance/evidence workstream does not launch Live,
-      prepare fixtures or claim a new real-host outcome.
+- [x] Qualify the strengthened case separately on the approved immutable
+      candidate: `run-lFeD5Y` passed ten assertions on Live 11.3.43, including
+      restart and cleanup. Independently re-evaluate persisted single-case
+      evidence; preserve both preceding failed attempts and their corrections.
 
 ## Discovered local suite (#82)
 

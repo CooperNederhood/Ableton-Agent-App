@@ -24,8 +24,13 @@
 - [x] Make both agent-facing listening start actions await their original owned
   terminal result instead of requiring model-issued ID polling; preserve
   partial results, structured failures, cancellation and lease cleanup.
-- [ ] Qualify actual SDK result delivery and same-agent context consumption
-  with the strengthened Session smoke and separate isolated visual check.
+- [x] Qualify actual SDK result delivery and same-agent context consumption:
+  `run-lFeD5Y` passed all ten assertions and independent persisted re-verification
+  on Live 11.3.43. Preserve failed attempts `run-wz3Mp8` and `run-CIeyEv`.
+- [x] Complete the separate isolated visual Session check on the same candidate:
+  ordinary approval, pending/terminal UX, matching report and no denial.
+  Record user-assisted Live closure, exact-owner lease recovery and final
+  process/profile cleanup; this is not fully automatic teardown qualification.
 - [ ] Qualify numerical definitions, floor/silence validity, independent frames,
   trajectories, reports and Session/Arrangement coverage in follow-up work.
   The smoke milestone does not close #91's full feature requirements.

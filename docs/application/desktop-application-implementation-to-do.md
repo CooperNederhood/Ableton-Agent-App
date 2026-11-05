@@ -213,7 +213,11 @@ presentation state and say so; they are not applied to Live.
   selection. Reproduce the stale-busy/foreign-agent defect before the fix in
   component and Electron regressions, retaining ordinary creation/startup guards.
   Synthetic IPC handlers and held terminal promises do not qualify SDK or Live
-  execution; the separate real-Live and attended visual checks remain required.
+  execution; those are qualified separately for the scoped Session case below.
+- [x] Complete strengthened Session acceptance `run-lFeD5Y` and the separate
+  same-candidate visual check: ordinary approval, pending/terminal presentation,
+  actual result/context receipt and no spurious denial. Record user-assisted
+  Live closure and verified exact-owner process/lease/profile cleanup.
 - [x] Isolate every primary Electron launch/restart from inherited credentials,
   home directories, SDK/renderer overrides and production bridge/signal ports;
   verify preference-selected endpoints without weakening UI postconditions.

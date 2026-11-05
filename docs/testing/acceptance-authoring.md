@@ -349,6 +349,17 @@ for an SDK result. This proves tool-boundary delivery and consumption, not the
 model's internal understanding. Deterministic synthetic regressions cover the
 historical false-positive shape; they do not constitute a new real-Live run.
 
+The separately authorized corrected attempt `run-lFeD5Y` passed all ten
+assertions on Live 11.3.43. Its retained single-case evidence independently
+passed assertion re-evaluation and original/reopened agent-history equality.
+Prior attempts `run-wz3Mp8` and `run-CIeyEv` remain failed; they exposed,
+respectively, appended SDK post-tool guidance and missing terminal-turn
+submission timestamps. The fixes preserve strict parsing and ordering rather
+than relaxing the assertion. This case is not a suite receipt:
+`live:acceptance:verify` is the suite verifier, not a single-case CLI verifier.
+Candidate pins and the separate attended visual outcome are recorded in the
+[listening checkpoint](../tools/playback-listening.md).
+
 Named assertions come from the shared registry: `choice`, `capture`,
 `capture-count`, `context`, `native-freshness`, `spectral-range`, `flatness-smoke`, `spread-smoke`, `agent-listening-result`, `no-capture`,
 `unchanged`, and `fact-equals`. The

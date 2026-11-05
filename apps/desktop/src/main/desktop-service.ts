@@ -1,7 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
-import { sanitizePersistedText } from "@ableton-agent/observability";
+import {
+  sanitizePersistedText,
+  type AgentHistoryQuery,
+  type AgentHistoryPage,
+} from "@ableton-agent/observability";
 import type {
   ContextOperationOptions,
   SessionContextPublicationRequest,
@@ -269,6 +273,7 @@ export interface DesktopService {
     >,
   ): Promise<DesktopAgentEventListener>;
   searchEventHistory(query?: RootTraceQuery): Promise<RootTracePage>;
+  readAgentHistory(query?: AgentHistoryQuery): Promise<AgentHistoryPage>;
   getEventTrace(
     traceId: string,
     options?: { cursor?: string; limit?: number; order?: "asc" | "desc" },

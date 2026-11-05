@@ -43,8 +43,8 @@ function createMetricRuntime({
   let clockLease = null;
   let heartbeatEnabled = true;
   const output = (...atoms) => maxApi.outlet(...atoms);
-  const flatness =
-    require("./audio_listener_flatness_probe.js").createFlatnessProbe({
+  const smoke =
+    require("./audio_listener_flatness_probe.js").createSpectralShapeSmoke({
       now,
       sendControl: (...atoms) => output("flatness_smoke_control", ...atoms),
       emit: (control, lifecycle) =>
@@ -107,14 +107,14 @@ function createMetricRuntime({
         client.sendListenerReply(control, payload),
       sendListenerResult: (control, payload) =>
         client.sendListenerResult(control, payload),
-      beforeCleanup: (control, cancelled) => flatness.stop(control, cancelled),
+      beforeCleanup: (control, cancelled) => smoke.stop(control, cancelled),
       onEvent: (event) => {
         if (
           event.phase === "launch" &&
           event.nativeLifecycle.stage === "completed" &&
           !event.nativeLifecycle.metric
         )
-          flatness.start(
+          smoke.start(
             event.control,
             event.nativeLifecycle.nativeEpoch,
             event.nativeLifecycle.eventId,
@@ -347,7 +347,7 @@ function createMetricRuntime({
             control.config.geometry.sampleRate,
           );
         } else if (control.action === "arm") controller.arm(control);
-        else if (controller.cancel(control)) flatness.stop(control, true);
+        else if (controller.cancel(control)) smoke.stop(control, true);
       },
       onListenerFailure: () =>
         invalidate("sdk_publication_failed_requires_reload"),
@@ -409,10 +409,10 @@ function createMetricRuntime({
   );
   maxApi.addHandler("flatness_smoke", (...packet) => {
     try {
-      flatness.receive(packet);
+      smoke.receive(packet);
     } catch (error) {
       invalidate(
-        error instanceof Error ? error.message : "flatness_packet_failed",
+        error instanceof Error ? error.message : "spectralshape_packet_failed",
       );
     }
   });

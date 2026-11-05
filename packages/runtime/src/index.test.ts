@@ -7,6 +7,7 @@ import { InMemoryEventPublisher } from "@ableton-agent/shared";
 import { describe, expect, it, vi } from "vitest";
 import {
   BASE_SYSTEM_MESSAGE,
+  createAgentHooks,
   type AgentSessionConfiguration,
   type CopilotAgentServiceOptions,
 } from "@ableton-agent/application";
@@ -29,6 +30,7 @@ import {
   type CorrelationTraceContext,
 } from "@ableton-agent/correlation";
 import { stableTelemetryId } from "@ableton-agent/signal-routing";
+import { createSyntheticMetricListeningObservation } from "@ableton-agent/protocol/testing";
 
 import {
   createAbletonService,
@@ -52,6 +54,187 @@ type TestSession = Awaited<ReturnType<TestClient["createSession"]>>;
 type TestSessionEvent = Parameters<Parameters<TestSession["on"]>[0]>[0];
 
 describe("runtime configuration", () => {
+  it.each([false, true])(
+    "journals SDK context content with post-tool guidance=%s before string retention bounds",
+    async (withGuidance) => {
+      vi.useFakeTimers({ toFake: ["Date"] });
+      const submittedAt = new Date();
+      const observation = createSyntheticMetricListeningObservation({
+        endBeat: 16,
+      });
+      const body = {
+        action: "get",
+        entry: {
+          contextId: "context",
+          passId: observation.ownership.passId,
+          listenerId: observation.ownership.listenerId,
+          subjectId: "subject",
+          kind: observation.schema,
+          createdAt: new Date().toISOString(),
+          freshness: "fresh",
+          summary: "Measured",
+        },
+        observation,
+      };
+      const hooks = createAgentHooks({
+        getAbletonStatus: async () => {
+          throw new Error("No Live access in this test");
+        },
+      });
+      const hook = await hooks.onPostToolUse?.(
+        {
+          sessionId: "sdk-session",
+          timestamp: new Date(),
+          workingDirectory: "/tmp",
+          toolName: "ableton_context",
+          toolArgs: { action: "get", contextId: "context" },
+          toolResult: {
+            resultType: "success",
+            textResultForLlm: JSON.stringify(body),
+          },
+        },
+        { sessionId: "sdk-session" },
+      );
+      expect(hook?.additionalContext).toBeTypeOf("string");
+      const content =
+        JSON.stringify(body) +
+        (withGuidance
+          ? `\n\nTool "ableton_context" succeeded. Additional guidance from postToolUse hooks:\n${hook!.additionalContext}`
+          : "");
+      expect(content.length).toBeGreaterThan(16_384);
+      const occurredAt = new Date().toISOString();
+      const session = fakeSession("sdk-session", [
+        {
+          type: "tool.execution_start",
+          id: "start",
+          parentId: null,
+          timestamp: occurredAt,
+          data: {
+            toolCallId: "context-call",
+            toolName: "ableton_context",
+            arguments: { action: "get", contextId: "context" },
+          },
+        },
+        {
+          type: "tool.execution_complete",
+          id: "complete",
+          parentId: null,
+          timestamp: occurredAt,
+          data: {
+            toolCallId: "context-call",
+            success: true,
+            result: { content },
+          },
+        },
+      ]);
+      const deliver = session.send;
+      session.send = async () => {
+        vi.setSystemTime(submittedAt.getTime() + 2000);
+        return deliver();
+      };
+      const directory = await mkdtemp(join(tmpdir(), "listening-sdk-history-"));
+      const journal = await LocalObservabilityJournal.open({
+        path: join(directory, "observability.sqlite"),
+      });
+      const runtime = createAgentRuntime({
+        ableton: { port: 8765 },
+        agent: {
+          clientFactory: () => ({
+            createSession: async () => session,
+            resumeSession: async () => session,
+            stop: async () => [],
+          }),
+        },
+        currentAppSessionId: () => "app",
+        agentHistory: journal,
+      });
+      try {
+        await runtime.application.start();
+        await runtime.application.send("Read the known measurement context.");
+        await journal.flush();
+        const { items: records } = await journal.readAgentHistory({
+          appSessionId: "app",
+        });
+        const result = records.find((record) => record.kind === "tool_result");
+        expect(result).toMatchObject({
+          kind: "tool_result",
+          appSessionId: "app",
+          agentSessionId: "sdk-session",
+          toolCallId: "context-call",
+          correlationId: "context-call",
+          outcome: "success",
+          result: { result: { content: body } },
+        });
+        expect(result?.causationId).toBe(result?.turnId);
+        expect(result?.turnId).toBeTypeOf("string");
+        expect(records.find((record) => record.kind === "turn")).toMatchObject({
+          occurredAt: submittedAt.toISOString(),
+          completedAt: new Date(submittedAt.getTime() + 2000).toISOString(),
+          durationMs: 2000,
+        });
+        expect(
+          records.find(
+            (record) => record.kind === "message" && record.role === "user",
+          ),
+        ).toMatchObject({
+          occurredAt: submittedAt.toISOString(),
+        });
+      } finally {
+        await runtime.application.stop();
+        await journal.close();
+        await rm(directory, { recursive: true, force: true });
+        vi.useRealTimers();
+      }
+    },
+  );
+  it("preserves submission time in failed turn and user-message History", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const submittedAt = new Date();
+    const session = fakeSession("sdk-session");
+    session.send = async () => {
+      vi.setSystemTime(submittedAt.getTime() + 2000);
+      throw new Error("Synthetic turn failure");
+    };
+    const records: AgentHistoryRecord[] = [];
+    const runtime = createAgentRuntime({
+      ableton: { port: 8765 },
+      agent: {
+        clientFactory: () => ({
+          createSession: async () => session,
+          resumeSession: async () => session,
+          stop: async () => [],
+        }),
+      },
+      currentAppSessionId: () => "app",
+      agentHistory: {
+        appendAgentHistory: async (record) => {
+          records.push(record);
+        },
+      },
+    });
+    try {
+      await runtime.application.start();
+      await expect(
+        runtime.application.send("Read the known context."),
+      ).rejects.toThrow("Synthetic turn failure");
+      expect(records.find((record) => record.kind === "turn")).toMatchObject({
+        status: "failed",
+        occurredAt: submittedAt.toISOString(),
+        completedAt: new Date(submittedAt.getTime() + 2000).toISOString(),
+        durationMs: 2000,
+      });
+      expect(
+        records.find(
+          (record) => record.kind === "message" && record.role === "user",
+        ),
+      ).toMatchObject({
+        occurredAt: submittedAt.toISOString(),
+      });
+    } finally {
+      await runtime.application.stop();
+      vi.useRealTimers();
+    }
+  });
   it("composes the listening factory with the same bridge and authenticated ingress", async () => {
     const shutdown = vi.fn(async () => {});
     const factory = vi.fn(() => ({
@@ -962,7 +1145,10 @@ describe("agent runtime composition", () => {
   });
 });
 
-function fakeSession(sessionId: string) {
+function fakeSession(
+  sessionId: string,
+  beforeAnswer: readonly TestSessionEvent[] = [],
+) {
   const listeners = new Set<(event: TestSessionEvent) => void>();
   const emit = (event: TestSessionEvent): void => {
     for (const listener of listeners) listener(event);
@@ -970,6 +1156,7 @@ function fakeSession(sessionId: string) {
   return {
     sessionId,
     send: async () => {
+      beforeAnswer.forEach(emit);
       emit({
         type: "assistant.message",
         id: "assistant",

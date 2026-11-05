@@ -1,5 +1,117 @@
 # Playback Listening and Entity Context
 
+## F2a spectral-spread diagnostic smoke (#98)
+
+The user-reviewed #98 delivery slice is **smoke only**, building on the existing
+flatness smoke rather than waiting for #92's qualified frame/numerical contract.
+It does not satisfy #91's full spectral-spread measurement definition of done.
+Authoritative trajectories, summaries, registration/configuration, report values,
+exact input support, silence/floor validity and numerical comparisons remain
+deferred. No historical diagnostics are promoted to qualified observations.
+
+The same two passive stereo `fluid.spectralshape~` analyzers now select
+`spread flatness`; there is no additional analyzer or playback. The pinned
+FluCoMa Max 1.0.10 reference defines canonical output order regardless of
+selection spelling: **spread first, flatness second**. Spread is a nonnegative
+Hz descriptor with linear frequency (`@unit 0`), magnitude weighting (`@power 0`),
+configured DC-to-Nyquist range and 2048-sample window/hop/FFT. These settings are
+configuration, not independently established frame support or numerical accuracy.
+Spread describes spectral breadth, not physical filter bandwidth or source count.
+
+The shared gate carries fresh bounded descriptor snapshots with independent
+channel values and descriptor-local failures. It publishes at most ten snapshots
+per second per channel (400 per channel per capture); progress is capped at two
+events per second per descriptor, four combined. The shared lifecycle budget
+admits at most 192 emission attempts per capture and 8192 encoded bytes per
+event before SDK delivery. Spread lifecycle facts use
+`flucoma-spread-smoke/v1` under `spectral-spread`; flatness retains its existing
+dB schema. Both explicitly retain `support` and `valueValidity` as `unqualified`
+and lifecycle `frames: 0`. Delivery counts are not FFT counts. Actual finite
+zero is permitted without a silence interpretation; absent/invalid output is
+never replaced by zero. The existing native level, centroid and attacks,
+source/clock ownership, audio pass-through and scoped cleanup remain unchanged.
+
+Diagnostics use the existing bounded redacted journal and typed Desktop History,
+not metric contexts/reports or a new storage path. Normal listening includes
+both smoke descriptors. Requests mentioning spread still use one existing
+listening action, with no new requested-metrics argument.
+
+The reviewed `session-flucoma-spread-smoke` contract reuses the unchanged
+`session-clip-identify` Set and one source-scoped listening turn. It requires
+finite spread deliveries on both channels and capture completion, healthy
+flatness/native evidence, actual mapped pinned-binary proof, retained diagnostics
+and native context after an owned Desktop restart, protected Set state and
+terminal cleanup. Native capture coverage remains 90000 samples at 48 kHz;
+there is no expected spread FFT count or numerical oracle. Missing spread fails
+even when baseline measurements pass.
+
+The approved focused packaged run **passed on Live 11.3.43** on 2026-11-04:
+terminal receipt `.test-artifacts/acceptance/run-GUn1Ho/receipt.json` records all
+nine assertions passing, one 90000-sample capture at 48 kHz, and 20 finite spread
+deliveries per channel. Flatness also retained 20 deliveries per channel, and
+all three native metrics completed without missing records. Both diagnostic
+streams and the native context survived the owned Desktop restart. Protected
+Set scopes remained unchanged, and Desktop/Live shutdown, host-reservation
+release and isolated-profile removal all completed.
+
+The application candidate SHA-256 is
+`d6ecc4457cd39ebeade6d62cba8483cce050d0610ae0dc6d99c435e78eb9794f`;
+the machine-listening dependency identity is
+`acf548c330e3e128d59ace852c1267f55b9e23c0f6ae600471a4b3e4b34c5f75`.
+Actual mapped pinned SpectralShape binary identity was verified at baseline and
+capture completion. The existing Remote Script credential was supplied through
+the supported environment source; this does not qualify Keychain startup.
+
+The agent-facing interaction failed: after four successful status queries the
+agent supplied two incorrect pass IDs, both rejected with `passExists=false`.
+Its final claim that the original ID had lost permission was incorrect. The
+real pass had published before the final bad query, but the agent never read
+its terminal result or context. The frozen nine-assertion contract checked
+backend completion, not agent consumption; the historical receipt remains
+unchanged and is not end-to-end agent qualification.
+
+Both agent-facing listening start calls now await the original owned terminal
+pass and return its public job/context IDs directly. The asynchronous host,
+progress and cancellation remain available; the model no longer needs repeated
+status polling. Completed and partial results require context retrieval before
+interpretation; a failed/denied/cancelled pass is not successful measurement.
+Ownership, cleanup, deadlines and one-capture permissions are unchanged.
+The strengthened smoke additionally requires attributable SDK terminal-result
+delivery and a successful matching context read before the final answer.
+Independent runner reads and application completion events cannot satisfy that
+new requirement.
+
+The strengthened case passed all ten assertions in `run-lFeD5Y` on Live 11.3.43
+with candidate
+`19b7ad5291c5d9d3878de68073ea0cd20f51cdac77d9ce0b4a1c34bce2a96184`
+(implementation commit `aef125f2`). The original call delivered the completed
+pass and the same agent read its report before answering; one capture, native
+metrics, stereo diagnostics, protected state, owned-restart persistence and
+terminal cleanup all passed. All ten assertions and restored agent evidence
+were independently re-evaluated from the persisted single-case receipt.
+
+Two preceding strengthened attempts remain failed: `run-wz3Mp8` exposed the
+SDK's appended post-tool guidance in otherwise valid JSON, and `run-CIeyEv`
+exposed missing submission timestamps in terminal History. Both were fixed at
+their owning boundaries with failing-before/passing-after regressions, without
+changing the fixture, prompt, permissions, budgets or assertions. Each retry
+was separately authorized; neither failed receipt was rewritten.
+
+The separate visual run `run-c0a25d5d-c326-4af9-8f77-178579801900` used that same
+candidate and a fresh isolated fixture/profile. It showed one prompt, ordinary
+approval, running progress/Stop, completed start/report, a successful final
+summary without denial, and the expected clip still playing. Typed History
+confirmed one terminal pass and matching report. Desktop exited normally;
+Live required user-assisted closure of an unreadable quit dialog. Exact owned
+process absence was then verified, the retained exact-owner host lease was
+recovered, and the isolated profile removed. This is attended visual evidence,
+not fully automatic teardown qualification.
+
+No retry or broader Live campaign was run for the historical nine-assertion receipt. That smoke pass does not
+qualify numerical accuracy, independent FFT support, Arrangement coverage,
+visible UX or the full release suite. The later scoped qualifications above do
+not expand into those numerical/Arrangement/release claims.
+
 ## F1 FluCoMa flatness: initial diagnostic smoke
 
 The first #92 milestone reuses the unchanged `session-clip-identify` audio Set
@@ -25,9 +137,10 @@ Earlier receipts remain unchanged: `run-MwQ1f3` (gate syntax and retention),
 `run-aLbLsJ` (History projection), and `run-7rXerC` (positive roundoff).
 The earlier native reader failure is not explained or erased by the final pass.
 
-The generated v5 parent taps left and right audio independently into the pinned
+The original F1 generated v5 parent tapped left and right audio independently into the pinned
 `fluid.spectralshape~` external with `@select flatness`, magnitude mode and
-explicit 2,048-sample window/hop/FFT settings. Stereo audio still travels directly
+explicit 2,048-sample window/hop/FFT settings. F2a adds spread to that same
+selection as described above. Stereo audio still travels directly
 from `plugin~` to `plugout~`; the existing native measurement algorithms are
 unchanged. The diagnostic message gate opens after the native launch witness
 and closes during owned cleanup. Its acknowledgement confirms that its timer
@@ -2544,12 +2657,14 @@ still corrected invalid calls; this is persistence evidence, not a clean turn.
 Agent-facing action schemas now distinguish zero-based `startBeat` and absolute
 `endBeat` from Session-only `durationBeats`. A known context ID goes directly
 to `get`; `list` is for discovering IDs and does not accept `contextId`. The
-listening tool and configured listening agent share guidance that queued/arming
-is nonterminal, status uses the existing `get-pass`, and shell waits or extra
-playback calls are not waiting mechanisms. Explicit user no-retry instructions
+listening tool and configured listening agent originally shared guidance that
+queued/arming is nonterminal and status uses `get-pass`; the terminal-result
+delivery fix above replaces that polling requirement for agent start calls.
+Shell waits or extra playback calls are not waiting mechanisms. Explicit user no-retry instructions
 also cover validation/permission errors; a `retryable` error is not permission
 to retry. These are agent-facing instructions, not an NLP-enforced mutation
-policy or a change to the asynchronous job contract.
+policy. The underlying application job contract remains asynchronous even though
+the agent-facing start adapter now awaits its terminal result.
 
 The reviewed v2 scenarios now fail on any actor `operation.failed`, even if
 the actor could correct the call and later capture successfully. A regression

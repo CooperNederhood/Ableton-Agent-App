@@ -21,6 +21,10 @@ import {
 import { SUPPORTED_AUDIO_BASELINE } from "../../packages/test-support/src/integration/contracts.js";
 import { midiContentIdentity } from "../../packages/test-support/src/integration/sources.js";
 import { observedSessionSource } from "../../tests/electron/acceptance-evidence.js";
+import {
+  agentHistoryPage,
+  agentListeningFixture,
+} from "../../packages/test-support/src/integration/agent-listening-test-support.js";
 import type {
   InspectSessionListeningSourceParams,
   InspectSessionListeningSourceResult,
@@ -146,7 +150,7 @@ const api = {
   outputs: { list: vi.fn() },
   listening: { list: vi.fn() },
   approvals: { resolve: vi.fn() },
-  eventHistory: { trace: vi.fn() },
+  eventHistory: { trace: vi.fn(), agent: vi.fn() },
   events: { subscribe: mocks.subscriber },
 };
 const page = {
@@ -1477,8 +1481,16 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
     expect(mocks.liveStop).toHaveBeenCalled();
     expect(mocks.stop).toHaveBeenCalled();
   });
-  it.each(["baseline", "flatness", "flatness-denied", "flatness-cancelled"])(
-    "binds raw Max identities and limits loaded-binary proof to flatness: %s",
+  it.each([
+    "baseline",
+    "flatness",
+    "flatness-denied",
+    "flatness-cancelled",
+    "spread",
+    "spread-denied",
+    "spread-cancelled",
+  ])(
+    "binds raw Max identities and requires loaded-binary proof for both smoke cases: %s",
     async (mode) => {
       await audioBaseline();
       const snapshot = liveSetSnapshotSchema.parse(
@@ -1512,7 +1524,9 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
           id:
             mode === "baseline"
               ? context.scenario.id
-              : "session-flucoma-flatness-smoke",
+              : mode.startsWith("spread")
+                ? "session-flucoma-spread-smoke"
+                : "session-flucoma-flatness-smoke",
         },
         fixture: {
           ...context.fixture,
@@ -1555,17 +1569,17 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
         flatnessLoadedBinaryInode: "123",
         flatnessLoadedBinaryDevice: "456",
       });
-      if (mode === "flatness-denied")
+      if (mode.endsWith("-denied"))
         mocks.flatnessLoading.mockRejectedValue(
           new Error("Mapped flatness binary is not the pinned staged identity"),
         );
-      if (mode === "flatness-cancelled")
+      if (mode.endsWith("-cancelled"))
         mocks.flatnessLoading.mockRejectedValue(
           new DOMException("Aborted", "AbortError"),
         );
       await driver.launch(context);
       await driver.ready(context);
-      if (mode === "flatness-denied" || mode === "flatness-cancelled") {
+      if (mode.endsWith("-denied") || mode.endsWith("-cancelled")) {
         await expect(driver.readBaseline(context)).rejects.toThrow();
         expect(mocks.send).not.toHaveBeenCalled();
         await driver.cleanup(context);
@@ -1575,8 +1589,9 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
         expect(evidence).toMatchObject({
           provenance: {
             flatnessLoadedBinaryVerified: false,
-            flatnessLoadedBinaryState:
-              mode === "flatness-denied" ? "failed" : "cancelled",
+            flatnessLoadedBinaryState: mode.endsWith("-denied")
+              ? "failed"
+              : "cancelled",
             flatnessLoadedBinaryError:
               "owned-loader-proof-unavailable-or-mismatched",
             flatnessLoadedBinaryDurationMs: expect.any(Number) as unknown,
@@ -1590,7 +1605,7 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
       expect(baseline.sources?.a?.source.trackId).not.toBe("2141");
       expect(baseline.sources?.a?.listenerId).toBe("listener-1");
       expect(baseline.facts.activeCandidateVerified).toBe(true);
-      if (mode === "flatness") {
+      if (mode === "flatness" || mode === "spread") {
         expect(mocks.flatnessLoading).toHaveBeenCalledExactlyOnceWith(
           expect.objectContaining({
             live: { pid: 98766, owned: true },
@@ -2223,21 +2238,69 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
     await driver.cleanup(context);
   });
 
-  it.each(["present", "missing", "duplicate"])(
+  it.each([
+    "present",
+    "missing",
+    "duplicate",
+    "typed",
+    "history-failed",
+    "history-cancelled",
+  ])(
     "joins exact ingress, assistant and SDK activity (%s), not global idle",
     async (activity) => {
+      const typed = ["typed", "history-failed", "history-cancelled"].includes(
+        activity,
+      );
+      if (typed)
+        context = {
+          ...context,
+          scenario: {
+            ...context.scenario,
+            requiredCapabilities: ["automation", "persistence"],
+          },
+        };
       await driver.launch(context);
       await driver.ready(context);
+      if (typed) await driver.readBaseline(context);
       const subscription = await driver.subscribe();
       const step = {
         id: "turn",
         message: "Say hello",
         timeoutMs: 1000,
-        assertions: [],
+        assertions: typed
+          ? [{ name: "agent-listening-result", parameters: { sourceId: "a" } }]
+          : [],
       };
       const submission = await driver.submit(step, context);
       const emit = mocks.subscriber.mock.calls[0]![0];
       const sdkTurnId = randomUUID();
+      if (typed) {
+        const f = agentListeningFixture();
+        for (const record of f.records) {
+          record.appSessionId = identity.appSessionId;
+          record.agentSessionId = identity.conversationId;
+          record.activeAgentId = identity.agentId;
+          if ("turnId" in record) record.turnId = sdkTurnId;
+          record.traceId = sdkTurnId;
+          if (record.kind === "tool_call" || record.kind === "tool_result")
+            record.causationId = sdkTurnId;
+          else record.correlationId = sdkTurnId;
+          if (record.kind === "message") record.content = "Hello";
+        }
+        api.eventHistory.agent.mockResolvedValue(agentHistoryPage(f.records));
+        if (activity === "history-failed")
+          api.eventHistory.agent.mockRejectedValue(
+            new Error("journal unavailable"),
+          );
+        if (activity === "history-cancelled") {
+          const cancellation = new AbortController();
+          context = { ...context, signal: cancellation.signal };
+          api.eventHistory.agent.mockImplementation(async () => {
+            cancellation.abort(new Error("cancelled history read"));
+            return agentHistoryPage(f.records);
+          });
+        }
+      }
       const emitActivity = (activityId: string) =>
         emit({
           type: "agent.working_update",
@@ -2297,7 +2360,7 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
       });
       if (activity !== "missing") emitActivity(sdkTurnId);
       if (activity === "duplicate") emitActivity(randomUUID());
-      if (activity === "present") {
+      if (activity === "present" || activity === "typed") {
         const result = await subscription.waitForTurn(submission, context);
         expect(result).toMatchObject({
           assistantMessageId,
@@ -2309,14 +2372,47 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
           facts: { sdkTurnId },
         });
         expect(sdkTurnId).not.toBe(context.traceId);
+        if (typed) {
+          expect(result.agentListening?.sdkTurnId).toBe(sdkTurnId);
+          expect(api.eventHistory.agent).toHaveBeenCalledExactlyOnceWith(
+            expect.objectContaining({
+              appSessionId: identity.appSessionId,
+              agentSessionId: identity.conversationId,
+              activeAgentId: identity.agentId,
+              turnId: sdkTurnId,
+            }),
+          );
+          const collected = await driver.collect(context);
+          expect(collected.agentListening).toEqual([
+            { ...result.agentListening, afterOwnedRestart: true },
+          ]);
+          expect(api.eventHistory.agent).toHaveBeenCalledTimes(2);
+        }
       } else
         await expect(
           subscription.waitForTurn(submission, context),
         ).rejects.toThrow(
-          activity === "missing" ? "no attributable SDK" : "More than one SDK",
+          activity === "missing"
+            ? "no attributable SDK"
+            : activity === "history-failed"
+              ? "journal unavailable"
+              : activity === "history-cancelled"
+                ? "cancelled history read"
+                : "More than one SDK",
         );
       await subscription.close(context);
-      await driver.cleanup(context);
+      if (activity === "history-cancelled")
+        await expect(driver.cleanup(context)).rejects.toThrow(
+          "cancelled history read",
+        );
+      else await driver.cleanup(context);
+      if (activity === "typed") {
+        const product = JSON.parse(
+          await readFile(join(directory, "product-evidence.json"), "utf8"),
+        ) as { agentListening: unknown[]; restoredAgentListening: unknown[] };
+        expect(product.agentListening).toHaveLength(1);
+        expect(product.restoredAgentListening).toHaveLength(1);
+      }
     },
   );
 

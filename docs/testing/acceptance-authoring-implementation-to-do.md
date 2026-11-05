@@ -2,6 +2,28 @@
 
 Companion specification: [Acceptance test authoring](acceptance-authoring.md).
 
+## Agent listening result consumption (#98)
+
+- [x] Add a typed Desktop History query for existing agent records; preserve
+      bounded schema validation and explicit journal failures without SQL or
+      filesystem renderer access, new storage or transcript duplication.
+- [x] Require one original completed start result followed by a successful
+      matching measurement context read before the final same-owner SDK answer.
+      Keep all nine backend assertions, fixture, prompt, permission and budgets.
+- [x] Persist sanitized structured SDK results in receipts/product evidence,
+      re-read after the existing owned restart, and independently re-evaluate
+      consumption and cross-artifact equality during persisted verification.
+- [x] Decode/schema-validate actual SDK listening/context JSON before generic
+      journal string bounds; retain structured public results or explicit
+      unavailable evidence. Cover large get/report responses and runtime wiring.
+- [x] Add synthetic wrong-ID denial/no-read, queued/partial, wrong-owner,
+      failure/cancellation, ordering, pagination, redaction/oversize and durable
+      round-trip regressions. Historical `run-GUn1Ho` remains backend-only proof.
+- [x] Qualify the strengthened case separately on the approved immutable
+      candidate: `run-lFeD5Y` passed ten assertions on Live 11.3.43, including
+      restart and cleanup. Independently re-evaluate persisted single-case
+      evidence; preserve both preceding failed attempts and their corrections.
+
 ## Discovered local suite (#82)
 
 - [x] Preserve stage-specific teardown causes and packaged shutdown receipts;

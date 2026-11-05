@@ -72,16 +72,20 @@ function accept(value) {
   pending[channel] = true;
 }
 function msg_float(value) {
-  accept(value);
+  list(value);
 }
 function msg_int(value) {
-  accept(value);
+  list(value);
 }
 function list() {
   var args = arrayfromargs(arguments);
-  if (args.length !== 1)
-    throw new Error("flatness_unexpected_descriptor_width");
-  accept(args[0]);
+  if (!owner || inlet < 1 || inlet > 2) return;
+  if (args.length !== 2) {
+    outlet(0, owner.concat(["invalid-width"]));
+    throw new Error("spectralshape_unexpected_descriptor_width");
+  }
+  // FluCoMa emits canonical descriptor order even for @select flatness spread.
+  accept(args);
 }
 function publish() {
   if (!owner) return;
@@ -89,17 +93,20 @@ function publish() {
     if (!pending[channel]) continue;
     if (counts[channel] >= 400) {
       timer.cancel();
+      outlet(0, owner.concat(["delivery-limit"]));
       throw new Error("flatness_delivery_limit");
     }
     counts[channel]++;
     pending[channel] = false;
     outlet(
       0,
-      owner.concat(["value", channel, counts[channel], values[channel]])
+      owner.concat(["value", channel, counts[channel]], values[channel])
     );
   }
 }
 function notifydeleted() {
   timer.cancel();
   owner = null;
+  values = [null, null];
+  pending = [false, false];
 }

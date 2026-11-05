@@ -18,6 +18,9 @@ export default defineConfig({
   },
   resolve: {
     alias: {
+      "@ableton-agent/observability/contracts": source(
+        "./packages/observability/src/contracts.ts",
+      ),
       "@ableton-agent/test-support/integration": source(
         "./packages/test-support/src/integration/index.ts",
       ),

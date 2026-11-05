@@ -1,6 +1,8 @@
 import { SUPPORTED_AUDIO_BASELINE } from "./contracts.js";
 import { midiContentIdentity } from "./sources.js";
 import { validateFlatnessSmoke } from "./flatness-smoke.js";
+import { validateSpreadSmoke } from "./spread-smoke.js";
+import { validateAgentListeningEvidence } from "./agent-listening-result.js";
 import type {
   AcceptanceDriver,
   AssertionResult,
@@ -599,8 +601,9 @@ export function validateScenario(
       object(assertion);
       object(assertion.parameters);
       return (
-        assertion.name === "context" &&
-        assertion.parameters.afterRestart === true
+        (assertion.name === "context" &&
+          assertion.parameters.afterRestart === true) ||
+        assertion.name === "agent-listening-result"
       );
     });
     requireCondition(
@@ -742,6 +745,11 @@ function flatnessSmoke(value: unknown): void {
   list(value, 32);
   value.forEach(validateFlatnessSmoke);
 }
+function spreadSmoke(value: unknown): void {
+  if (value === undefined) return;
+  list(value, 32);
+  value.forEach(validateSpreadSmoke);
+}
 export function validateTurn(value: unknown): asserts value is TurnEvidence {
   object(value);
   validateSubmission(value);
@@ -762,6 +770,9 @@ export function validateTurn(value: unknown): asserts value is TurnEvidence {
   validateFacts(record.facts);
   contexts(record.contexts);
   flatnessSmoke(record.flatnessSmoke);
+  spreadSmoke(record.spreadSmoke);
+  if (record.agentListening !== undefined)
+    validateAgentListeningEvidence(record.agentListening);
   list(record.captures, 32);
   for (const capture of record.captures) {
     object(capture);
@@ -834,6 +845,11 @@ export function validateEvidence(value: unknown): asserts value is RunEvidence {
   validateFacts(value.facts);
   contexts(value.contexts);
   flatnessSmoke(value.flatnessSmoke);
+  spreadSmoke(value.spreadSmoke);
+  if (value.agentListening !== undefined) {
+    list(value.agentListening, 32);
+    value.agentListening.forEach(validateAgentListeningEvidence);
+  }
   list(value.unchanged);
   const scopes = value.unchanged.map((scope) => {
     object(scope);

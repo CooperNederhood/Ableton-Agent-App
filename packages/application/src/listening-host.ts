@@ -3,8 +3,10 @@ import { sanitizePersistedText } from "@ableton-agent/observability";
 import {
   listeningOperationParamsSchema,
   listeningOperationResultSchema,
+  listeningJobSchema,
   type ListeningOperationParams,
   type ListeningOperationResult,
+  type ListeningJobView,
 } from "@ableton-agent/tools";
 import type {
   CopilotAgentServiceOptions,
@@ -133,7 +135,7 @@ export function createListeningHost(options: ListeningHostOptions): Required<
   waitForListeningPass(
     passId: string,
     context: ListeningExecutionContext,
-  ): Promise<ListeningJob>;
+  ): Promise<ListeningJobView>;
   shutdown(): Promise<void>;
 } {
   const jobs = new Map<string, ListeningJob>();
@@ -441,7 +443,9 @@ export function createListeningHost(options: ListeningHostOptions): Required<
       const startedAt = (options.now ?? Date.now)();
       try {
         const job = owned(passId, context);
-        return await coordinator.wait(passId, job.owner);
+        return listeningJobSchema.parse(
+          publicJob(await coordinator.wait(passId, job.owner)),
+        );
       } catch (error) {
         recordListeningAttemptFailure(
           options,

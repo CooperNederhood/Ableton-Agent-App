@@ -19,6 +19,9 @@ const {
 } = require("./audio_listener_metric_controller.js");
 const { createMaxAdapter } = require("./audio_listener_metric_io.js");
 const {
+  createSpectralShapeSmoke,
+} = require("./audio_listener_flatness_probe.js");
+const {
   createMetricTimelines,
 } = require("./audio_listener_metric_timelines.js");
 const GENERATION = "11111111-1111-4111-8111-111111111111";
@@ -987,7 +990,7 @@ test("controller never publishes when a stop setter executes but its genuine cle
   );
 });
 
-test("unconfirmed flatness message-gate cleanup blocks otherwise healthy native publication", async () => {
+test("unconfirmed shared SpectralShape message-gate cleanup blocks otherwise healthy native publication", async () => {
   let attempts = 0;
   const h = await controllerHarness({
     beforeCleanup: () => {
@@ -1006,6 +1009,133 @@ test("unconfirmed flatness message-gate cleanup blocks otherwise healthy native 
       .length,
     0,
   );
+});
+
+test("production smoke coordination preserves native results and executes native cleanup on every shared failure", async () => {
+  for (const mode of [
+    "healthy",
+    "spread-invalid",
+    "flatness-invalid",
+    "unconfirmed",
+    "observer-throw",
+    "cancel",
+    "dispose",
+  ]) {
+    let h;
+    const smokeControls = [];
+    const diagnostics = [];
+    const smoke = createSpectralShapeSmoke({
+      now: () => h?.now ?? 0,
+      emit(_owner, event) {
+        diagnostics.push(event);
+        if (
+          mode === "observer-throw" &&
+          event.reason === "spread_smoke_cleanup" &&
+          event.stage === "queued"
+        )
+          throw new Error("spread_diagnostic_delivery_failed");
+        return true;
+      },
+      sendControl(kind, generation, epoch) {
+        smokeControls.push(kind);
+        if (kind === "begin") {
+          smoke.receive([
+            generation,
+            epoch,
+            "started",
+            "fluid.spectralshape~",
+            "fluid.spectralshape~",
+          ]);
+          smoke.receive([
+            generation,
+            epoch,
+            "value",
+            0,
+            1,
+            mode === "spread-invalid" ? -1 : 1000,
+            mode === "flatness-invalid" ? 1 : -40,
+          ]);
+          smoke.receive([generation, epoch, "value", 1, 1, 3000, -3]);
+        } else if (mode !== "unconfirmed")
+          smoke.receive([generation, epoch, "stopped"]);
+      },
+    });
+    h = await controllerHarness({
+      spectrumEnabled: true,
+      requestedMetrics: ["level", "spectral-centroid", "attacks"],
+      beforeCleanup: (control, cancelled) => smoke.stop(control, cancelled),
+      onEvent(event) {
+        if (
+          event.phase === "launch" &&
+          event.nativeLifecycle.stage === "completed" &&
+          !event.nativeLifecycle.metric
+        )
+          smoke.start(
+            event.control,
+            event.nativeLifecycle.nativeEpoch,
+            event.nativeLifecycle.eventId,
+            event.nativeLifecycle.elapsedMs,
+          );
+      },
+    });
+    h.launch();
+    h.until(() => smokeControls.includes("begin"));
+    if (mode === "cancel") h.controller.cancel(h.cancel);
+    if (mode === "dispose") h.controller.dispose();
+    h.until(() =>
+      ["completed", "partial", "failed", "cancelled"].includes(
+        h.controller.snapshot().state,
+      ),
+    );
+    assert.deepEqual(smokeControls, ["begin", "stop"], mode);
+    assert.ok(
+      h.controls.some(({ selector }) => selector === "stop"),
+      mode,
+    );
+    const snapshot = h.controller.snapshot();
+    if (["healthy", "spread-invalid", "flatness-invalid"].includes(mode)) {
+      assert.equal(snapshot.state, "completed", mode);
+      const result = h.results.find(
+        ({ payload }) => payload.status === "completed",
+      );
+      assert.ok(result, mode);
+      assert.deepEqual(Object.keys(result.payload.observation.metrics).sort(), [
+        "attacks",
+        "level",
+        "spectral-centroid",
+      ]);
+      const healthy = mode === "flatness-invalid" ? "spread" : "flatness";
+      assert.ok(
+        diagnostics.some(
+          (event) =>
+            event.reason === `${healthy}_smoke_capture` &&
+            event.stage === "completed",
+        ),
+        mode,
+      );
+    } else {
+      assert.ok(
+        !h.results.some(({ payload }) =>
+          ["completed", "partial"].includes(payload.status),
+        ),
+        mode,
+      );
+      assert.equal(
+        snapshot.state,
+        mode === "cancel" ? "cancelled" : "failed",
+        mode,
+      );
+    }
+    assert.equal(
+      snapshot.cleanup,
+      mode === "unconfirmed" ? "failed" : "completed",
+      mode,
+    );
+    if (mode === "unconfirmed")
+      assert.equal(snapshot.reason, "metric_cleanup_unconfirmed");
+    if (mode === "observer-throw")
+      assert.equal(snapshot.reason, "metric_diagnostic_cleanup_failed");
+  }
 });
 
 test("throwing diagnostic cleanup cannot bypass native stop or the cleanup deadline", async () => {

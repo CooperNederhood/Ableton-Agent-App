@@ -224,6 +224,30 @@ all its owned captures, including after SDK idle. Its expected App-session ID is
 revalidated before cancellation; no arbitrary renderer actor, direct bridge stop
 or transport-ownership token is introduced.
 
+While a Session or Arrangement listening start awaits terminal tool delivery,
+Workspace retains one running operation and its Stop control; Outputs continues
+to display capture/publication progress and owned cancellation. Cancellation
+acknowledgement is not terminal delivery. Completion, partial publication,
+failure and cancellation clear busy presentation only as their terminal
+operation/agent events arrive. Delayed agent lifecycle updates locate the
+agent's existing owning App session, not the currently selected session; a
+removed owner's stale update cannot insert that agent into another session.
+Only explicit agent creation may introduce a new instance into the selection.
+Synthetic component and Electron regressions hold delivery pending, exercise
+both cancel controls and session-switch attribution, and preserve structured
+failure detail. They do not prove SDK execution, measured audio or real-Live UX.
+
+The separate attended Session check
+`run-c0a25d5d-c326-4af9-8f77-178579801900`, after successful deterministic
+`run-lFeD5Y`, showed the prompt once, ordinary approval, running progress/Stop,
+completed start/report and a successful final summary without denial. The
+composer returned to ready, and Live showed the expected clip still playing.
+Typed History linked that turn to one completed pass and matching report.
+Desktop closed normally; Live required user-assisted quit-dialog handling,
+followed by verified process absence, exact-owner lease recovery and isolated
+profile removal. This is scoped Session UX evidence, not real Arrangement or
+cancellation qualification.
+
 Before ordinary approval, Session listening explicitly discloses the clip launch,
 transport start, leave-running behavior on all outcomes, possible resumption of
 other selected Session sources, and that cancellation cannot retract an accepted

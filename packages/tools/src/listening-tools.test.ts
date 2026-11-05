@@ -343,7 +343,7 @@ describe("optional listening tool contracts", () => {
       "corroborate placement with native support and level-row intervals",
     );
   });
-  it("keeps flatness smoke diagnostics distinct from qualified context and forbids invented arguments", () => {
+  it("keeps shared flatness/spread smoke diagnostics distinct from qualified context and forbids invented arguments", () => {
     expect(LISTENING_AGENT_GUIDANCE).toContain(
       "not an extra capture or invented requestedMetrics argument",
     );
@@ -355,6 +355,14 @@ describe("optional listening tool contracts", () => {
     );
     expect(LISTENING_AGENT_GUIDANCE).toContain(
       "do not invent flatness report values",
+    );
+    expect(LISTENING_AGENT_GUIDANCE).toContain("or spread report values");
+    expect(LISTENING_AGENT_GUIDANCE).toContain("nonnegative Hz values");
+    expect(LISTENING_AGENT_GUIDANCE).toContain(
+      "Delivery counts are not FFT frame counts",
+    );
+    expect(LISTENING_AGENT_GUIDANCE).toContain(
+      "not physical filter bandwidth or source count",
     );
   });
   it("returns partial as a published outcome rather than a failure or full success", () => {
@@ -459,7 +467,7 @@ describe("optional listening tool contracts", () => {
     );
   });
 
-  it("explains exact action arguments, queued status and known-context retrieval before a call", () => {
+  it("explains exact arguments, terminal delivery and known-context retrieval before a call", () => {
     const [listening, context] = createListeningTools({
       executeListeningOperation: async () => ({
         action: "inspect-listeners",
@@ -476,8 +484,10 @@ describe("optional listening tool contracts", () => {
       "Queued or arming is not completion or failure",
     );
     expect(listening.description).toContain(
-      "Use get-pass with the returned passId",
+      "Both listening start calls wait for terminal",
     );
+    expect(listening.description).toContain("No get-pass polling is needed");
+    expect(listening.description).toContain("before answering");
     expect(listening.description).toContain("Never use bash or sleep to wait");
     expect(listening.description).toContain(
       "Arrangement capture is not read-only",

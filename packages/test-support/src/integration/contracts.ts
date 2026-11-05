@@ -1,4 +1,5 @@
 import type { SessionListeningPreflightResult } from "@ableton-agent/protocol";
+import type { AgentListeningEvidence } from "./agent-listening-result.js";
 
 export type Scalar = string | number | boolean | null;
 export type Facts = Readonly<Record<string, Scalar>>;
@@ -163,7 +164,7 @@ export interface CaptureEvidence {
   readonly spectralCentroidHz?: number;
 }
 /** Diagnostic outlet snapshots only: delivery counts are not FFT frame support. */
-export interface FlatnessSmokeEvidence {
+export interface SpectralShapeSmokeEvidence {
   readonly traceId: string;
   readonly correlationId: string;
   readonly passId: string;
@@ -191,6 +192,8 @@ export interface FlatnessSmokeEvidence {
     >;
   }[];
 }
+export type FlatnessSmokeEvidence = SpectralShapeSmokeEvidence;
+export type SpreadSmokeEvidence = SpectralShapeSmokeEvidence;
 export interface ContextEvidence {
   readonly contextId: string;
   readonly passId: string;
@@ -228,6 +231,7 @@ export interface AudioBaselineEvidence extends BaselineEvidence {
   readonly sources: Readonly<Record<string, AudioSourceEvidence>>;
 }
 export interface TurnEvidence extends Submission {
+  readonly agentListening?: AgentListeningEvidence;
   readonly schemaVersion: 1;
   readonly assistantMessageId: string;
   readonly terminal: true;
@@ -236,9 +240,11 @@ export interface TurnEvidence extends Submission {
   readonly captures: readonly CaptureEvidence[];
   readonly contexts: readonly ContextEvidence[];
   readonly flatnessSmoke?: readonly FlatnessSmokeEvidence[];
+  readonly spreadSmoke?: readonly SpreadSmokeEvidence[];
   readonly facts: Facts;
 }
 export interface RunEvidence {
+  readonly agentListening?: readonly AgentListeningEvidence[];
   readonly schemaVersion: 1;
   readonly recoveries?: readonly string[];
   /** Complete run-scoped pass inventory, including owned restart observation. */
@@ -246,6 +252,7 @@ export interface RunEvidence {
   readonly facts: Facts;
   readonly contexts: readonly ContextEvidence[];
   readonly flatnessSmoke?: readonly FlatnessSmokeEvidence[];
+  readonly spreadSmoke?: readonly SpreadSmokeEvidence[];
   readonly unchanged: readonly {
     readonly scope: string;
     readonly beforeSha256: string;

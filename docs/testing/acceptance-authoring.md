@@ -236,7 +236,7 @@ The successful projection retains exactly fifteen facts, including both actual
 Max class witnesses: unavailable before start, then exactly
 `fluid.spectralshape~` from started through cleanup. Optional rejected-value
 diagnostics remain failure evidence in History; they cannot qualify a success.
-Only this smoke scenario additionally requires `owned-mapped-flucoma/v1`
+Both SpectralShape smoke scenarios additionally require `owned-mapped-flucoma/v1`
 loaded-binary provenance before baseline admission and after successful capture.
 The existing owned Live/Node ancestry proof selects Live/Max ancestor PIDs for
 bounded, read-only `lsof` text-mapping reads; unrelated Max processes are never
@@ -257,8 +257,111 @@ relative resource names, validates pinned bytes and executable permissions on
 both candidate and staged copies, and rejects linked parents. Candidate hashes
 still refer to immutable packaged bytes; no additional fixture assets are used.
 
+The reviewed `session-flucoma-spread-smoke` case also reuses the unchanged
+`session-clip-identify` fixture, scoped permission and finite budgets. Its sole
+message is "Listen to the first Session clip on track audio-track, including
+spectral spread." In addition to every flatness smoke/native/protected-state
+assertion, it requires `spread-smoke` before and after the owned Desktop restart:
+finite nonnegative Hz snapshots on both channels, positive bounded delivery
+counts, exact pass/native ownership, ordered capture completion and successful
+gate cleanup. The strict eighteen-fact projection uses `flucoma-spread-smoke/v1`
+with unqualified support/validity; missing or invalid spread cannot pass on
+flatness or native evidence alone. Restart re-reads typed History, never just a
+cached successful projection. Existing `flatnessLoadedBinary*` provenance fields
+identify the same shared SpectralShape binary for both cases; they do not imply
+a second analyzer or flatness-only loading proof.
+
+This is a delivery/completion contract, not numerical qualification. The existing
+90000-sample/48-kHz native capture assertion is not a spread FFT frame oracle.
+The contract does not add custom spectra, an identification turn, exact spread
+delivery counts, or silence validity. Real-host execution requires separate
+approval; registration is not a successful run.
+
+On 2026-11-04, the approved single run `run-GUn1Ho` passed all nine frozen
+assertions on Live 11.3.43. It recorded one complete 90000-sample capture at
+48 kHz, 20 spread deliveries per channel, healthy flatness/native outputs,
+exact retained diagnostic/context evidence after owned Desktop restart,
+unchanged protected scopes and terminal cleanup. Candidate SHA-256:
+`d6ecc4457cd39ebeade6d62cba8483cce050d0610ae0dc6d99c435e78eb9794f`.
+The original terminal receipt and product/cleanup evidence remain under
+`.test-artifacts/acceptance/run-GUn1Ho/`; the persisted assertions were revalidated
+without another submission. No retry or broader campaign occurred.
+
+The terminal assistant text reported permission denial and no publication,
+contrary to the independent completed-capture/context evidence. This was an
+agent result-delivery/consumption failure, not merely a prose discrepancy:
+the original start returned queued, subsequent wrong-ID polls were denied,
+and the agent never read the published context. The nine historical assertions
+did not cover consumption; preserve that receipt without relabeling it as
+passing the strengthened contract below. The run used the real installed bridge
+credential through the supported environment source, so no successful Keychain
+startup is claimed.
+
+### Agent listening result consumption
+
+The spread smoke now adds `agent-listening-result` with `sourceId: "a"`.
+It retains all nine independent backend assertions, the exact fixture and prompt,
+one scoped medium-risk permission, and run/turn/persistence/cleanup budgets
+300000/120000/30000/30000 ms. No second capture, oracle hint, prompt override,
+exact prose oracle or model grader is introduced.
+
+The assertion joins typed `tool_call`, `tool_result`, `message` and terminal
+`turn` records to the submitted Default agent's App session, SDK conversation,
+SDK turn and trace. Tool correlation IDs remain the SDK tool-call IDs, with the
+SDK turn as causation; they are not confused with listening-pass correlation.
+It requires exactly one original Session start returning `stage: completed`
+and the independently published pass/context IDs for source `a`. A successful
+`ableton_context` `get` or `report` must then return the matching typed measurement
+before the final assistant answer in that same normally completed turn.
+`get` additionally matches the independent observation digest; `report` must
+contain valid nonempty measurement rows and matching source/context identity.
+Partial publication is not full smoke success. Any failed/cancelled or
+success-shaped error listening/context call, additional start, missing or
+truncated records, foreign identity, or result delivered after the answer fails.
+Explicit successful `get-pass` inspection is allowed but cannot replace the
+original start result or context read.
+
+The packaged driver uses `window.desktop.eventHistory.agent`, a bounded typed
+query over the existing local journal. It does not expose SQL, files, raw audio,
+or a new storage location to the renderer. Queries page in batches of 100,
+cap each turn at 256 records / 8 MiB, and reject missing/repeated pages and
+changing totals. Existing aggregate runner/receipt bounds still apply.
+Runtime decodes listening/context SDK JSON against the public tool-result
+schemas **before** generic journal string sanitization (1 MiB input/output
+bound). The existing typed result record retains structured content instead of
+a duplicate raw JSON string. Invalid JSON, absent SDK content, invalid public
+results and oversize inputs retain explicit `history_projection_unavailable`
+evidence rather than success-shaped empty data. No application SDK event field
+or new transcript store is required. The collector also decodes SDK JSON text
+when supplied by a typed query and persists structured evidence, so the receipt's
+16384-character string bound cannot silently clip a measurement.
+Credentials remain redacted; omitted audio/binary or
+truncation markers cannot satisfy the contract.
+
+The original evidence is retained in `TurnEvidence.agentListening` and product
+evidence. After the already-owned Desktop restart the driver re-reads the same
+typed records and requires exact equality (apart from restart provenance),
+retaining them in `RunEvidence.agentListening` and product evidence. Persisted
+verification re-evaluates the assertion and cross-checks both receipt and product
+copies; a stored `passed` flag alone is insufficient. Runner-owned context reads,
+generic telemetry, publication events and UI job completion cannot substitute
+for an SDK result. This proves tool-boundary delivery and consumption, not the
+model's internal understanding. Deterministic synthetic regressions cover the
+historical false-positive shape; they do not constitute a new real-Live run.
+
+The separately authorized corrected attempt `run-lFeD5Y` passed all ten
+assertions on Live 11.3.43. Its retained single-case evidence independently
+passed assertion re-evaluation and original/reopened agent-history equality.
+Prior attempts `run-wz3Mp8` and `run-CIeyEv` remain failed; they exposed,
+respectively, appended SDK post-tool guidance and missing terminal-turn
+submission timestamps. The fixes preserve strict parsing and ordering rather
+than relaxing the assertion. This case is not a suite receipt:
+`live:acceptance:verify` is the suite verifier, not a single-case CLI verifier.
+Candidate pins and the separate attended visual outcome are recorded in the
+[listening checkpoint](../tools/playback-listening.md).
+
 Named assertions come from the shared registry: `choice`, `capture`,
-`capture-count`, `context`, `native-freshness`, `spectral-range`, `flatness-smoke`, `no-capture`,
+`capture-count`, `context`, `native-freshness`, `spectral-range`, `flatness-smoke`, `spread-smoke`, `agent-listening-result`, `no-capture`,
 `unchanged`, and `fact-equals`. The
 template illustrates their actual parameter shapes; consult
 [`ScenarioManifest` and `FixtureManifest`](../../packages/test-support/src/integration/contracts.ts)

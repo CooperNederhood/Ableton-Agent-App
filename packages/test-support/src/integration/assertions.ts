@@ -13,6 +13,11 @@ import {
   validateFacts,
 } from "./validation.js";
 import { validateFlatnessSmoke } from "./flatness-smoke.js";
+import { validateSpreadSmoke } from "./spread-smoke.js";
+import {
+  verifyAgentListeningResult,
+  verifyRestoredAgentListeningEvidence,
+} from "./agent-listening-result.js";
 
 export class AssertionRegistry {
   private readonly entries = new Map<
@@ -104,10 +109,13 @@ function requiredStrings(parameters: Facts, keys: readonly string[]): void {
       `Missing assertion parameter: ${key}`,
     );
 }
-export function createDefaultAssertions(): AssertionRegistry {
-  return new AssertionRegistry()
-    .register(
-      "flatness-smoke",
+function registerSmokeAssertions(
+  registry: AssertionRegistry,
+): AssertionRegistry {
+  for (const kind of ["flatness", "spread"] as const) {
+    const key = kind === "flatness" ? "flatnessSmoke" : "spreadSmoke";
+    registry.register(
+      `${kind}-smoke`,
       ({ turn, turns, evidence, baseline }, parameters) => {
         const afterRestart = parameters.afterRestart === true;
         const captures = (turn ? [turn] : turns).flatMap(
@@ -115,9 +123,7 @@ export function createDefaultAssertions(): AssertionRegistry {
         );
         const selected =
           turn ?? turns.find((entry) => entry.captures.length > 0);
-        const smoke = afterRestart
-          ? evidence?.flatnessSmoke
-          : selected?.flatnessSmoke;
+        const smoke = afterRestart ? evidence?.[key] : selected?.[key];
         const capture = captures[0];
         const source = baseline.sources?.[String(parameters.sourceId)];
         const entry = smoke?.[0];
@@ -135,12 +141,13 @@ export function createDefaultAssertions(): AssertionRegistry {
         )
           return result(
             false,
-            "flatness-owner",
+            `${kind}-owner`,
             "Smoke requires one independently owned capture and source",
           );
         try {
-          validateFlatnessSmoke(entry);
-          const original = selected.flatnessSmoke?.[0];
+          if (kind === "flatness") validateFlatnessSmoke(entry);
+          else validateSpreadSmoke(entry);
+          const original = selected[key]?.[0];
           const matches =
             entry.traceId === selected.facts.sdkTurnId &&
             entry.correlationId === selected.facts.sdkTurnId &&
@@ -156,13 +163,13 @@ export function createDefaultAssertions(): AssertionRegistry {
                   JSON.stringify(entry)));
           return result(
             matches,
-            "flatness-owner",
+            `${kind}-owner`,
             "Unqualified stereo diagnostics and cleanup must retain exact ownership after restart",
           );
         } catch {
           return result(
             false,
-            "flatness-lifecycle",
+            `${kind}-lifecycle`,
             "Smoke requires fresh bounded stereo deliveries, ordered lifecycle and successful cleanup",
           );
         }
@@ -175,6 +182,42 @@ export function createDefaultAssertions(): AssertionRegistry {
           typeof parameters.afterRestart === "boolean",
           "Missing smoke restart requirement",
         );
+      },
+    );
+  }
+  return registry;
+}
+export function createDefaultAssertions(): AssertionRegistry {
+  return registerSmokeAssertions(new AssertionRegistry())
+    .register(
+      "agent-listening-result",
+      (input, parameters) => {
+        try {
+          verifyAgentListeningResult(input, String(parameters.sourceId));
+          if (!input.turn)
+            verifyRestoredAgentListeningEvidence(
+              input.turns,
+              input.evidence?.agentListening ?? [],
+            );
+          return result(
+            true,
+            "ok",
+            "Original start delivered the matching completed pass and the same agent read its measurement context before answering",
+          );
+        } catch (error) {
+          return result(
+            false,
+            "agent-listening-result",
+            error instanceof Error
+              ? error.message
+              : "Invalid agent listening evidence",
+          );
+        }
+      },
+      (parameters) => {
+        rejectUnknownFields(parameters, ["sourceId"]);
+        requiredStrings(parameters, ["sourceId"]);
+        identifier(parameters.sourceId);
       },
     )
     .register(

@@ -716,6 +716,18 @@ describe("desktop composition", () => {
       elapsedMs: 1,
     };
     journal.queryPublicHistory.mockResolvedValue(queryResult);
+    journal.readAgentHistory.mockResolvedValue({ items: [agentRecord] });
+    const agentQuery = {
+      appSessionId: "app-session",
+      agentSessionId: "sdk-session",
+      limit: 10,
+    };
+    await expect(host.readAgentHistory(agentQuery)).resolves.toEqual({
+      items: [agentRecord],
+    });
+    expect(journal.readAgentHistory).toHaveBeenCalledExactlyOnceWith(
+      agentQuery,
+    );
 
     await host.enqueue(telemetryEvent("00000000-0000-4000-8000-000000000010"));
     await host.appendAgentHistory(agentRecord);
@@ -970,6 +982,7 @@ describe("desktop composition", () => {
         this.closed = true;
       }),
       readRootTraces: vi.fn(),
+      readAgentHistory: vi.fn(),
       readTrace: vi.fn(),
       readConfigurationSnapshots: vi.fn(),
       getHealth: vi.fn(),

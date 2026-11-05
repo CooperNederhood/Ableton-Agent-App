@@ -2,9 +2,13 @@ import type { TelemetryEventPage } from "../../apps/desktop/src/contracts.js";
 import type {
   CaptureEvidence,
   FlatnessSmokeEvidence,
+  SpreadSmokeEvidence,
   SessionSourceEvidence,
 } from "@ableton-agent/test-support/integration";
-import { projectFlatnessSmoke } from "@ableton-agent/test-support/integration";
+import {
+  projectFlatnessSmoke,
+  projectSpreadSmoke,
+} from "@ableton-agent/test-support/integration";
 import type { MetricAudioObservation } from "@ableton-agent/protocol";
 
 /** Re-read the typed History boundary; a pre-restart cached projection is not proof. */
@@ -13,6 +17,33 @@ export async function restoreFlatnessSmoke(
   afterOwnedRestart: boolean,
   readTrace: (traceId: string) => Promise<TelemetryEventPage["items"]>,
 ): Promise<FlatnessSmokeEvidence[]> {
+  return restoreSmoke(
+    original,
+    afterOwnedRestart,
+    readTrace,
+    projectFlatnessSmoke,
+  );
+}
+
+export async function restoreSpreadSmoke(
+  original: readonly SpreadSmokeEvidence[],
+  afterOwnedRestart: boolean,
+  readTrace: (traceId: string) => Promise<TelemetryEventPage["items"]>,
+): Promise<SpreadSmokeEvidence[]> {
+  return restoreSmoke(
+    original,
+    afterOwnedRestart,
+    readTrace,
+    projectSpreadSmoke,
+  );
+}
+
+async function restoreSmoke(
+  original: readonly FlatnessSmokeEvidence[],
+  afterOwnedRestart: boolean,
+  readTrace: (traceId: string) => Promise<TelemetryEventPage["items"]>,
+  project: typeof projectFlatnessSmoke,
+): Promise<FlatnessSmokeEvidence[]> {
   const result: FlatnessSmokeEvidence[] = [];
   for (const traceId of new Set(original.map((entry) => entry.traceId))) {
     const history = await readTrace(traceId);
@@ -20,7 +51,7 @@ export async function restoreFlatnessSmoke(
       (candidate) => candidate.traceId === traceId,
     ))
       result.push(
-        projectFlatnessSmoke(
+        project(
           history,
           {
             traceId: entry.traceId,

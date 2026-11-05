@@ -11,6 +11,55 @@ import {
 } from "../renderer/test-fixtures/session-listening-source.js";
 
 describe("preload API", () => {
+  it("reads bounded typed agent History without SQL/path input and rejects malformed results", async () => {
+    const responses: Record<string, unknown> = {
+      "event-history:agent": {
+        version: 1,
+        items: [],
+        page: {
+          limit: 100,
+          returnedItems: 0,
+          totalItems: 0,
+          hasMore: false,
+          order: "asc",
+        },
+      },
+    };
+    const transport = transportFor(responses);
+    const api = createDesktopApi(transport);
+    const query = {
+      appSessionId: "app",
+      agentSessionId: "sdk",
+      activeAgentId: "default",
+      turnId: "turn",
+      limit: 100,
+      order: "asc" as const,
+    };
+    await expect(api.eventHistory.agent(query)).resolves.toEqual(
+      responses["event-history:agent"],
+    );
+    expect(transport.invoke).toHaveBeenLastCalledWith(
+      "event-history:agent",
+      query,
+    );
+    expect(() => api.eventHistory.agent({ ...query, limit: 10000 })).toThrow();
+    expect(() =>
+      api.eventHistory.agent({
+        ...query,
+        ...{ sql: "SELECT *", path: "/private" },
+      }),
+    ).toThrow();
+    responses["event-history:agent"] = {
+      items: [{ kind: "tool_result", result: "untyped" }],
+    };
+    await expect(api.eventHistory.agent(query)).rejects.toThrow();
+    vi.mocked(transport.invoke).mockRejectedValueOnce(
+      new Error("journal unavailable"),
+    );
+    await expect(api.eventHistory.agent(query)).rejects.toThrow(
+      "journal unavailable",
+    );
+  });
   it("preserves complete MIDI content without fabricated audio metadata", async () => {
     const { params, result } = sessionListeningMidiPreflightFixture();
     const responses: Record<string, unknown> = {

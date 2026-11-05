@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { createDefaultAssertions } from "./assertions.js";
 import { projectFlatnessSmoke } from "./flatness-smoke.js";
+import { projectSpreadSmoke } from "./spread-smoke.js";
+import { spreadHistory } from "./spread-smoke-test-support.js";
 import { validateEvidence, validateTurn } from "./validation.js";
 import {
   flatnessHistory,
@@ -129,121 +131,131 @@ function checkContext(input: AssertionInput, afterRestart = false) {
   );
 }
 
-describe("flatness smoke assertion ownership and persistence", () => {
-  function input(): AssertionInput {
-    const base = scenario([0]);
-    const smoke = projectFlatnessSmoke(flatnessHistory(), flatnessOwner);
-    const turn = {
-      ...base.turn!,
-      facts: { sdkTurnId: flatnessOwner.traceId },
-      flatnessSmoke: [smoke],
-    };
-    return {
-      ...base,
-      turn,
-      turns: [turn],
-      evidence: {
-        ...base.evidence!,
-        flatnessSmoke: [{ ...smoke, afterOwnedRestart: true }],
-      },
-    };
-  }
-  function check(value: AssertionInput, afterRestart = false) {
-    return createDefaultAssertions().evaluate(
-      {
-        name: "flatness-smoke",
-        parameters: { sourceId: "0", afterRestart },
-      },
-      value,
-    );
-  }
-  function run(value: AssertionInput): AssertionInput {
-    const result = { ...value };
-    Reflect.deleteProperty(result, "turn");
-    return result;
-  }
-  it("accepts one exact owned capture and unchanged diagnostic History after restart", () => {
-    expect(check(input()).passed).toBe(true);
-    expect(check(run(input()), true).passed).toBe(true);
-  });
-  it("validates bounded smoke payloads at turn and run evidence admission", () => {
-    const value = input();
-    expect(() => validateTurn(value.turn)).not.toThrow();
-    expect(() => validateEvidence(value.evidence)).not.toThrow();
-    const bad = structuredClone(value.turn!.flatnessSmoke![0]!);
-    Object.assign(bad.events[2]!.facts, {
-      "flatness.leftDb": { state: "observed", value: Infinity },
-    });
-    for (const flatnessSmoke of [
-      [bad],
-      Array.from({ length: 33 }, () => value.turn!.flatnessSmoke![0]!),
-    ]) {
-      expect(() => validateTurn({ ...value.turn!, flatnessSmoke })).toThrow();
-      expect(() =>
-        validateEvidence({ ...value.evidence!, flatnessSmoke }),
-      ).toThrow();
-    }
-  });
-  it.each(["traceId", "correlationId", "passId", "listenerId"] as const)(
-    "denies foreign projected %s",
-    (key) => {
-      const value = input();
+describe.each(["flatness", "spread"] as const)(
+  "%s smoke assertion ownership and persistence",
+  (kind) => {
+    const key = kind === "flatness" ? "flatnessSmoke" : "spreadSmoke";
+    const valueKey = kind === "flatness" ? "flatness.leftDb" : "spread.leftHz";
+    function input(): AssertionInput {
+      const base = scenario([0]);
+      const smoke =
+        kind === "flatness"
+          ? projectFlatnessSmoke(flatnessHistory(), flatnessOwner)
+          : projectSpreadSmoke(spreadHistory(), flatnessOwner);
       const turn = {
-        ...value.turn!,
-        flatnessSmoke: [
-          { ...value.turn!.flatnessSmoke![0]!, [key]: "foreign" },
-        ],
+        ...base.turn!,
+        facts: { sdkTurnId: flatnessOwner.traceId },
+        [key]: [smoke],
       };
-      expect(check({ ...value, turn, turns: [turn] }).passed).toBe(false);
-    },
-  );
-  it("denies missing baseline source, native ownership, evidence and multiple passes", () => {
-    const value = input();
-    const withoutNative = { ...value.turn!.captures[0]! };
-    Reflect.deleteProperty(withoutNative, "native");
-    expect(
-      check({ ...value, baseline: { ...value.baseline, sources: {} } }).passed,
-    ).toBe(false);
-    for (const captures of [
-      [],
-      [...value.turn!.captures, ...value.turn!.captures],
-      [withoutNative],
-    ]) {
-      const turn = { ...value.turn!, captures };
-      expect(check({ ...value, turn, turns: [turn] }).passed).toBe(false);
+      return {
+        ...base,
+        turn,
+        turns: [turn],
+        evidence: {
+          ...base.evidence!,
+          [key]: [{ ...smoke, afterOwnedRestart: true }],
+        },
+      };
     }
-    const turn = { ...value.turn!, flatnessSmoke: [] };
-    expect(check({ ...value, turn, turns: [turn] }).passed).toBe(false);
-  });
-  it("does not accept missing, stale, or changed diagnostic values after owned restart", () => {
-    const value = input();
-    for (const flatnessSmoke of [
-      [],
-      value.turn!.flatnessSmoke!,
-      [{ ...value.evidence!.flatnessSmoke![0]!, launchSequence: 0 }],
-    ]) {
+    function check(value: AssertionInput, afterRestart = false) {
+      return createDefaultAssertions().evaluate(
+        {
+          name: `${kind}-smoke`,
+          parameters: { sourceId: "0", afterRestart },
+        },
+        value,
+      );
+    }
+    function run(value: AssertionInput): AssertionInput {
+      const result = { ...value };
+      Reflect.deleteProperty(result, "turn");
+      return result;
+    }
+    it("accepts one exact owned capture and unchanged diagnostic History after restart", () => {
+      expect(check(input()).passed).toBe(true);
+      expect(check(run(input()), true).passed).toBe(true);
+    });
+    it("validates bounded smoke payloads at turn and run evidence admission", () => {
+      const value = input();
+      expect(() => validateTurn(value.turn)).not.toThrow();
+      expect(() => validateEvidence(value.evidence)).not.toThrow();
+      const bad = structuredClone(value.turn![key]![0]!);
+      Object.assign(bad.events[2]!.facts, {
+        [valueKey]: { state: "observed", value: Infinity },
+      });
+      for (const smoke of [
+        [bad],
+        Array.from({ length: 33 }, () => value.turn![key]![0]!),
+      ]) {
+        expect(() => validateTurn({ ...value.turn!, [key]: smoke })).toThrow();
+        expect(() =>
+          validateEvidence({ ...value.evidence!, [key]: smoke }),
+        ).toThrow();
+      }
+    });
+    it.each(["traceId", "correlationId", "passId", "listenerId"] as const)(
+      "denies foreign projected %s",
+      (ownerKey) => {
+        const value = input();
+        const turn = {
+          ...value.turn!,
+          [key]: [{ ...value.turn![key]![0]!, [ownerKey]: "foreign" }],
+        };
+        expect(check({ ...value, turn, turns: [turn] }).passed).toBe(false);
+      },
+    );
+    it("denies missing baseline source, native ownership, evidence and multiple passes", () => {
+      const value = input();
+      const withoutNative = { ...value.turn!.captures[0]! };
+      Reflect.deleteProperty(withoutNative, "native");
+      expect(
+        check({ ...value, baseline: { ...value.baseline, sources: {} } })
+          .passed,
+      ).toBe(false);
+      for (const captures of [
+        [],
+        [...value.turn!.captures, ...value.turn!.captures],
+        [withoutNative],
+      ]) {
+        const turn = { ...value.turn!, captures };
+        expect(check({ ...value, turn, turns: [turn] }).passed).toBe(false);
+      }
+      const turn = { ...value.turn!, [key]: [] };
+      expect(check({ ...value, turn, turns: [turn] }).passed).toBe(false);
+    });
+    it("does not accept missing, stale, or changed diagnostic values after owned restart", () => {
+      const value = input();
+      for (const smoke of [
+        [],
+        value.turn![key]!,
+        [{ ...value.evidence![key]![0]!, launchSequence: 0 }],
+      ]) {
+        expect(
+          check(
+            run({ ...value, evidence: { ...value.evidence!, [key]: smoke } }),
+            true,
+          ).passed,
+        ).toBe(false);
+      }
+      const altered = structuredClone(value.evidence![key]![0]!);
+      Object.assign(altered.events.at(-1)!.facts, {
+        [valueKey]: {
+          state: "observed",
+          value: kind === "flatness" ? -19 : 1900,
+        },
+      });
       expect(
         check(
-          run({ ...value, evidence: { ...value.evidence!, flatnessSmoke } }),
+          run({
+            ...value,
+            evidence: { ...value.evidence!, [key]: [altered] },
+          }),
           true,
         ).passed,
       ).toBe(false);
-    }
-    const altered = structuredClone(value.evidence!.flatnessSmoke![0]!);
-    Object.assign(altered.events.at(-1)!.facts, {
-      "flatness.leftDb": { state: "observed", value: -19 },
     });
-    expect(
-      check(
-        run({
-          ...value,
-          evidence: { ...value.evidence!, flatnessSmoke: [altered] },
-        }),
-        true,
-      ).passed,
-    ).toBe(false);
-  });
-});
+  },
+);
 
 function withCurrentContexts(
   input: AssertionInput,

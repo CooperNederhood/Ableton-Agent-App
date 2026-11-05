@@ -17,10 +17,12 @@ import {
   AgentsView,
   ApprovalPanel,
   ConnectionHeader,
+  Composer,
   DesktopComposer,
   EventsView,
   EventHistoryView,
   Inspector,
+  OperationCard,
   SkillsView,
   openListeningFailureHistory,
   slashCompletionsForState,
@@ -29,10 +31,15 @@ import {
   type WorkspaceSidebarWidths,
 } from "./App";
 import { listeningFailureFixture } from "./test-fixtures/listening-failure.js";
+import {
+  pendingListeningFixture,
+  type ListeningStartAction,
+} from "./test-fixtures/pending-listening.js";
 import type { DesktopListeningJob } from "../listening-contracts";
 import {
   desktopReducer,
   initialState,
+  selectedAgentWorkspace,
   type DesktopAction,
   type DesktopState,
 } from "./state";
@@ -526,6 +533,142 @@ describe("desktop component interactions", () => {
       }
     },
   );
+
+  describe.each<ListeningStartAction>([
+    "play-session-and-listen",
+    "play-arrangement-and-listen",
+  ])("pending %s terminal delivery", (action) => {
+    it.each(["completed", "partial", "failed", "cancelled"] as const)(
+      "retains one running operation, cancellation and original owner until %s",
+      async (stage) => {
+        const cancel = vi.fn().mockResolvedValue({ cancelled: true });
+        Object.defineProperty(window, "desktop", {
+          configurable: true,
+          value: desktopApi({ cancel }),
+        });
+        let state = rendererState();
+        const owner = {
+          sessionId,
+          liveSetId: "live-set-1",
+          agent: activeAgent(),
+        };
+        const otherAgentId = "00000000-0000-4000-8000-000000000002";
+        const otherSessionId = "other-listening-session";
+        state.sessions.push({
+          ...state.sessions[0]!,
+          id: otherSessionId,
+          activeAgents: [activeAgent({ id: otherAgentId })],
+          selectedAgentInstanceId: otherAgentId,
+        });
+        const composerRef = createRef<HTMLTextAreaElement>();
+        const render = async (events: DesktopAppEvent[] = []) => {
+          for (const event of events)
+            state = desktopReducer(state, { type: "event", event });
+          const workspace = selectedAgentWorkspace(state);
+          await act(async () =>
+            root.render(
+              <>
+                {workspace.operations.map((operation) => (
+                  <OperationCard key={operation.id} operation={operation} />
+                ))}
+                {workspace.messages.map((message) =>
+                  message.working === undefined ? null : (
+                    <WorkingDisclosure
+                      key={message.id}
+                      working={message.working}
+                    />
+                  ),
+                )}
+                <Composer
+                  state={state}
+                  value="Next request"
+                  busy={false}
+                  composerRef={composerRef}
+                  onChange={vi.fn()}
+                  onSubmit={vi.fn()}
+                  dispatch={vi.fn()}
+                />
+              </>,
+            ),
+          );
+        };
+        let deliver!: () => void;
+        const pending = new Promise<void>((resolve) => {
+          deliver = resolve;
+        });
+        let delivered = false;
+        const terminal = pending.then(async () => {
+          delivered = true;
+          await render(pendingListeningFixture(owner, action, stage, 4).events);
+        });
+        for (const [index, progress] of (
+          ["queued", "capturing", "persisting"] as const
+        ).entries()) {
+          await render(
+            pendingListeningFixture(owner, action, progress, index + 1).events,
+          );
+          expect(container.querySelectorAll(".operation")).toHaveLength(1);
+          expect(
+            container.querySelector(".operation-running")?.textContent,
+          ).toContain(`Listening pass: ${progress}`);
+          expect(container.querySelector(".working-running")).not.toBeNull();
+          expect(
+            container.querySelector('[aria-label="Stop agent"]'),
+          ).not.toBeNull();
+          expect(
+            container.querySelector('[aria-label="Send message"]'),
+          ).toBeNull();
+          expect(delivered).toBe(false);
+        }
+        if (stage === "cancelled") {
+          await clickAria(container, "Stop agent");
+          expect(cancel).toHaveBeenCalledExactlyOnceWith(agentId);
+          expect(delivered).toBe(false);
+          expect(container.querySelector(".operation-running")).not.toBeNull();
+        }
+        await render([
+          {
+            type: "sessions.changed",
+            sessions: state.sessions,
+            activeSessionId: otherSessionId,
+          },
+        ]);
+        expect(container.querySelectorAll(".operation")).toHaveLength(0);
+        expect(container.querySelector('[aria-label="Stop agent"]')).toBeNull();
+        deliver();
+        await terminal;
+        expect(container.querySelectorAll(".operation")).toHaveLength(0);
+        expect(
+          container.querySelector('[aria-label="Send message"]'),
+        ).not.toBeNull();
+        expect(state.agentWorkspaces[otherAgentId]?.operations ?? []).toEqual(
+          [],
+        );
+        await render([
+          {
+            type: "sessions.changed",
+            sessions: state.sessions,
+            activeSessionId: sessionId,
+          },
+        ]);
+        const status = stage === "partial" ? "completed" : stage;
+        expect(container.querySelectorAll(".operation")).toHaveLength(1);
+        expect(container.querySelector(`.operation-${status}`)).not.toBeNull();
+        expect(container.querySelector(`.working-${status}`)).not.toBeNull();
+        expect(container.querySelector('[aria-label="Stop agent"]')).toBeNull();
+        expect(
+          container.querySelector<HTMLButtonElement>(
+            '[aria-label="Send message"]',
+          )?.disabled,
+        ).toBe(false);
+        if (stage === "failed") {
+          expect(container.textContent).toContain("stale_native_preflight");
+          expect(container.textContent).toContain("Inspect the failure");
+        }
+        expect(cancel).toHaveBeenCalledTimes(stage === "cancelled" ? 1 : 0);
+      },
+    );
+  });
 
   it("keeps Working open while running and allows reopening after completion", async () => {
     const running = {

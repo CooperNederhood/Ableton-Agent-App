@@ -1,6 +1,11 @@
 import { lstat } from "node:fs/promises";
 import { dirname, join, relative } from "node:path";
-import { validateResult } from "../../packages/test-support/src/integration/index.js";
+import {
+  validateResult,
+  createDefaultAssertions,
+  verifyRestoredAgentListeningEvidence,
+  validateAgentListeningEvidence,
+} from "../../packages/test-support/src/integration/index.js";
 import { acceptanceDefinition, readAcceptanceJson } from "./acceptance-cli.js";
 import {
   evidenceHash,
@@ -194,6 +199,43 @@ export async function readSuiteAttempt(options: {
         "Product evidence candidate/version attribution mismatch",
       );
     productEvidenceSha256 = evidenceHash(product);
+    for (const [index, step] of scenario.steps.entries()) {
+      const contract = step.assertions.find(
+        ({ name }) => name === "agent-listening-result",
+      );
+      if (!contract) continue;
+      const turn = result.turns[index]!;
+      const assertion = createDefaultAssertions().evaluate(contract, {
+        fixture,
+        baseline: result.baseline,
+        turns: result.turns,
+        turn,
+        evidence: result.evidence,
+      });
+      if (!assertion.passed) throw new Error(assertion.detail);
+      if (
+        !Array.isArray(product.agentListening) ||
+        !Array.isArray(product.restoredAgentListening)
+      )
+        throw new Error("Missing persisted typed agent consumption evidence");
+      product.agentListening.forEach(validateAgentListeningEvidence);
+      product.restoredAgentListening.forEach(validateAgentListeningEvidence);
+      if (
+        evidenceHash(product.agentListening) !==
+          evidenceHash(
+            result.turns.flatMap((entry) =>
+              entry.agentListening ? [entry.agentListening] : [],
+            ),
+          ) ||
+        evidenceHash(product.restoredAgentListening) !==
+          evidenceHash(result.evidence.agentListening)
+      )
+        throw new Error("Receipt/product agent consumption evidence mismatch");
+      verifyRestoredAgentListeningEvidence(
+        result.turns,
+        result.evidence.agentListening ?? [],
+      );
+    }
     if (!resourcesReclaimed || cleanupFailureCount !== 0)
       throw new Error(
         "Passing case lacks complete clean resource reclamation evidence",

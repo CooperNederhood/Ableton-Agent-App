@@ -55,6 +55,8 @@ import {
   sanitizeTelemetryAttributes,
   sanitizePersistedText,
   type ConfigurationSnapshotPage,
+  type AgentHistoryQuery,
+  type AgentHistoryPage,
   type ConfigurationSnapshotQuery,
   type JournalHealth,
   type RetentionPolicy,
@@ -300,6 +302,7 @@ export type DesktopEventJournal = Pick<
   | "appendAgentHistory"
   | "appendSetHistory"
   | "readRootTraces"
+  | "readAgentHistory"
   | "readTrace"
   | "readConfigurationSnapshots"
   | "getHealth"
@@ -3776,6 +3779,12 @@ export class HeadlessDesktopService implements DesktopService {
     query: RootTraceQuery = {},
   ): Promise<RootTracePage> {
     return this.#requireEventJournal().readRootTraces(query);
+  }
+
+  public async readAgentHistory(
+    query: AgentHistoryQuery = {},
+  ): Promise<AgentHistoryPage> {
+    return this.#requireEventJournal().readAgentHistory(query);
   }
 
   public async getEventTrace(

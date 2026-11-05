@@ -4,11 +4,29 @@ Companion specification: [Agent Runtime](agent-runtime.md)
 
 ## Copilot integration
 
-- [x] Share action-specific listening and queued-pass/no-shell-wait guidance
+- [x] Share action-specific terminal-result/no-polling listening guidance
   between tool definitions and configured listening-agent prompts; preserve
   scoped schemas, argument denial and explicit user no-retry instructions.
 - [x] Cover actual serialized default/scoped argument guidance, rejected
   malformed playback/context calls and prompt omission for context-only agents.
+- [x] Return the owned sanitized terminal job through the original Session and
+  Arrangement SDK start call, preserving partial outcomes, failure evidence,
+  cancellation and transport ownership through publication/cleanup.
+- [x] Keep admission tracking separate from terminal settlement; cover
+  pending-call cancellation, timeout, disconnect and shutdown without deadlock,
+  early result delivery or another capture.
+- [x] Qualify agent-side result/context consumption in `run-lFeD5Y` (all ten
+  Session assertions, persisted re-verification and cleanup) and the separate
+  same-candidate visual workflow. Record user-assisted Live closure; do not
+  imply Arrangement or fully automatic teardown qualification.
+- [x] Reproduce the actual SDK post-tool guidance suffix without Live, decode
+  only that exact application-owned frame, and cover application-to-journal
+  persistence plus fail-closed malformed/truncated/foreign frames. Preserve
+  failed receipt `run-wz3Mp8` separately from the authorized one-case retry.
+- [x] Preserve original `queuedAt` on terminal turn events so persisted turn and
+  user-message timestamps precede tool execution rather than using completion
+  time. Cover successful/failed journal projection and cancellation attribution.
+  Preserve the second failed receipt `run-CIeyEv` alongside the later pass.
 
 - [x] Compose optional listening hosts against the same bridge and authenticated
   ingress, preserving caller ownership, deferred trace and terminal-pass leases.

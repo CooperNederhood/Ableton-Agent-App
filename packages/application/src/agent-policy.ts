@@ -29,6 +29,8 @@ const NON_RETRYABLE_CODES = new Set([
 ]);
 const projectContextTrackLimit = 16;
 const projectContextSessionClipLimit = 128;
+export const VERIFIED_TOOL_RESULT_GUIDANCE =
+  "Use the verified tool result as observed state. Re-inspect before any dependent mutation when the project may have changed.";
 export const AUTOMATIC_LIVE_EVENT_IDENTITY_GUIDANCE =
   "Automatic Listening Event identity policy: cached-context freshness describes mutable state age, not exact identity validity. When the required track and Session clip are present as one unambiguous exact-reference match, use those references directly with the tool's expected-reference guards. Do not inspect solely because freshness is stale or project revisions differ. Inspect only when a required identity is missing, ambiguous, unresolved, or truncated, or after a guarded tool rejects an identity as stale or ambiguous. Never retry unchanged rejected mutation arguments.";
 
@@ -359,7 +361,7 @@ export function createAgentPolicy(services: AgentPolicyServices): AgentPolicy {
       blockedAttempts.delete(attemptKey(input.toolName, input.toolArgs));
       return {
         additionalContext: [
-          "Use the verified tool result as observed state. Re-inspect before any dependent mutation when the project may have changed.",
+          VERIFIED_TOOL_RESULT_GUIDANCE,
           ...(input.toolName === "ableton_browser"
             ? [BROWSER_IDENTITY_GUIDANCE]
             : []),

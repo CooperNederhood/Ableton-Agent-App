@@ -7,7 +7,10 @@ export default defineConfig({
   workers: 1,
   reporter: [["list"]],
   projects: [
-    { name: "electron", testMatch: /(^|\/)desktop\.spec\.ts$/u },
+    {
+      name: "electron",
+      testMatch: /(^|\/)(desktop|agent-history)\.spec\.ts$/u,
+    },
     {
       name: "electron-packaged",
       testMatch: /(^|\/)packaged-desktop\.spec\.ts$/u,

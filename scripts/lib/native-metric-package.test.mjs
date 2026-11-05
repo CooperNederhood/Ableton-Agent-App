@@ -137,10 +137,18 @@ it("pins packaged FluCoMa resources independently of editable artifact hashes", 
   const graph = decodeAmxd(
     await readFile(join(output, manifest.deviceFile)),
   ).document;
+  const smoke = graph.patcher.boxes.find(
+    ({ box }) => box.id === "flatness-smoke",
+  )?.box.patcher;
+  expect(smoke).toBeDefined();
   expect(
-    graph.patcher.boxes.find(({ box }) => box.id === "flatness-smoke")?.box
-      .patcher,
-  ).toBeDefined();
+    smoke.boxes
+      .filter(({ box }) => box.text?.startsWith("fluid.spectralshape~"))
+      .map(({ box }) => box.text),
+  ).toEqual([
+    "fluid.spectralshape~ @select spread flatness @fftsettings 2048 2048 2048 @unit 0 @power 0 @minfreq 0 @maxfreq -1",
+    "fluid.spectralshape~ @select spread flatness @fftsettings 2048 2048 2048 @unit 0 @power 0 @minfreq 0 @maxfreq -1",
+  ]);
   const pin = FLUCOMA_DEPENDENCY_FILES.find((file) => file.mode === 0o755);
   expect(
     manifest.resources.find((file) => file.name === pin.name),
@@ -224,7 +232,13 @@ it("packages a matched v5 executable, actual controller and fresh same-folder co
     manifest.resources.find(
       (r) => r.name === "audio_listener_metric_runtime.js",
     ).sha256,
-  ).toBe("a8f75c5fdbdc53b011e1d5456b8b8614ba0fb015dcc9f779c41e736ce1e61c4c");
+  ).toBe(
+    hash(
+      await readFile(
+        join(SOURCE_DIRECTORY, "audio_listener_metric_runtime.js"),
+      ),
+    ),
+  );
   const defaultDevice = decodeAmxd(
     await readFile(join(output, manifest.deviceFile)),
   );

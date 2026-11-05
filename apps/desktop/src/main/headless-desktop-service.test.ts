@@ -1693,10 +1693,38 @@ describe("desktop adapter over the shared application", () => {
       limit: 10,
       order: "desc",
     });
+
     expect(readTrace).toHaveBeenCalledWith(traceId, {
       limit: 10,
       order: "asc",
     });
+  });
+
+  it("delegates typed agent History and surfaces unavailable journals", async () => {
+    const readAgentHistory = vi
+      .fn()
+      .mockResolvedValue({ version: 1, items: [] });
+    const { service } = await harness(
+      {},
+      {
+        eventJournal: { readAgentHistory } as unknown as DesktopEventJournal,
+      },
+    );
+    const query = {
+      appSessionId: "app",
+      agentSessionId: "sdk",
+      turnId: "turn",
+      limit: 100,
+    };
+    await expect(service.readAgentHistory(query)).resolves.toEqual({
+      version: 1,
+      items: [],
+    });
+    expect(readAgentHistory).toHaveBeenCalledExactlyOnceWith(query);
+    readAgentHistory.mockRejectedValueOnce(new Error("journal unavailable"));
+    await expect(service.readAgentHistory(query)).rejects.toThrow(
+      "journal unavailable",
+    );
   });
 
   it("keeps queries and shutdown bound to a recovered journal after retention fails", async () => {

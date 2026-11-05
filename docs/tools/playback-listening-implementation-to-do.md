@@ -1,5 +1,40 @@
 # Playback Listening Implementation To-Do
 
+## F2a smoke-only milestone (#98)
+
+- [x] Agree to smoke-only scope and a new test contract using the unchanged
+  reviewed `session-clip-identify` Set; no new numerical fixture.
+- [x] Select spread and flatness on the same stereo SpectralShape analyzers;
+  enforce canonical descriptor ordering without altering baseline measurements.
+- [x] Publish bounded independent spread Hz diagnostics through typed History,
+  with unqualified support/validity, lifecycle traces and owned shared cleanup.
+- [x] Register `session-flucoma-spread-smoke` with both-channel spread completion,
+  healthy flatness/native outputs, mapped binary proof, restart persistence,
+  protected state and cleanup; missing spread must fail independently.
+- [x] Finish before/after regressions and targeted-to-owning suite escalation,
+  strict schema/packaging checks and offline acceptance admission.
+- [x] Obtain separate approval and run the focused packaged real-Live scenario.
+  `run-GUn1Ho` passed all nine assertions on Live 11.3.43: 20 spread and flatness
+  deliveries/channel, one complete native capture, owned-restart persistence,
+  unchanged protected scopes and confirmed terminal cleanup. Candidate and
+  dependency pins are recorded in the companion specification.
+- [x] Diagnose the agent-facing failure in `run-GUn1Ho`: both denied queries
+  used incorrect pass IDs; the real pass completed, but the agent never read
+  its result. Preserve the historical backend-only smoke receipt.
+- [x] Make both agent-facing listening start actions await their original owned
+  terminal result instead of requiring model-issued ID polling; preserve
+  partial results, structured failures, cancellation and lease cleanup.
+- [x] Qualify actual SDK result delivery and same-agent context consumption:
+  `run-lFeD5Y` passed all ten assertions and independent persisted re-verification
+  on Live 11.3.43. Preserve failed attempts `run-wz3Mp8` and `run-CIeyEv`.
+- [x] Complete the separate isolated visual Session check on the same candidate:
+  ordinary approval, pending/terminal UX, matching report and no denial.
+  Record user-assisted Live closure, exact-owner lease recovery and final
+  process/profile cleanup; this is not fully automatic teardown qualification.
+- [ ] Qualify numerical definitions, floor/silence validity, independent frames,
+  trajectories, reports and Session/Arrangement coverage in follow-up work.
+  The smoke milestone does not close #91's full feature requirements.
+
 ## F1 smoke-first milestone (#92)
 
 - [x] Add a passive stereo `fluid.spectralshape~` diagnostic branch and bounded

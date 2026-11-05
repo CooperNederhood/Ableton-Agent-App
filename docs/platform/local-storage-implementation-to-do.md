@@ -8,6 +8,10 @@ Companion specification: [Local Storage Layout](local-storage.md)
   metric lifecycle journal, with explicitly unqualified support and validity.
   Reuse typed History and existing ownership/retention; do not insert diagnostic
   values into frame-qualified entity contexts or invent a new storage path.
+- [x] Extend that same journal/typed History boundary with F2a spread smoke
+  diagnostics, preserving flatness history, strict bounded facts and unqualified
+  support/validity. Cover producer-to-ingress projection and fresh restart reads
+  without adding storage locations, raw audio or authoritative observations.
 
 - [x] Reserve resolver-owned `profiles/automation/host/live-host.lease/` under
   the canonical operator home, independent of per-run root/profile overrides

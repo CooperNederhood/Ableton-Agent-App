@@ -62,6 +62,70 @@ function stateWithAgents(): DesktopState {
 }
 
 describe("desktop reducer", () => {
+  it.each(["ready", "failed", "busy"] as const)(
+    "routes delayed %s lifecycle updates to the original session after selection changes",
+    (lifecycle) => {
+      const state = stateWithAgents();
+      const owner = state.sessions[0]!;
+      const instance = owner.activeAgents[0]!;
+      owner.activeAgents[0] = { ...instance, lifecycle: "busy" };
+      const other = {
+        ...owner,
+        id: "other-session",
+        activeAgents: [owner.activeAgents[1]!],
+        selectedAgentInstanceId: secondAgentId,
+      };
+      owner.activeAgents = [owner.activeAgents[0]];
+      state.sessions.push(other);
+      state.activeSessionId = other.id;
+      const updated = desktopReducer(state, {
+        type: "event",
+        event: {
+          type: "agent.instance_changed",
+          instance: { ...instance, lifecycle },
+          change: "lifecycle",
+        },
+      });
+      expect(updated.activeSessionId).toBe(other.id);
+      expect(updated.sessions[1]).toBe(other);
+      expect(updated.sessions[0]?.activeAgents).toEqual([
+        { ...instance, lifecycle },
+      ]);
+      expect(updated.sessions[0]?.selectedAgentInstanceId).toBe(firstAgentId);
+      expect(selectedAgentInstance(updated)?.id).toBe(secondAgentId);
+    },
+  );
+
+  it("ignores a delayed lifecycle update after its owner is removed rather than adopting it", () => {
+    const state = stateWithAgents();
+    const instance = state.sessions[0]!.activeAgents[0]!;
+    state.sessions[0]!.activeAgents = [state.sessions[0]!.activeAgents[1]!];
+    expect(
+      desktopReducer(state, {
+        type: "event",
+        event: {
+          type: "agent.instance_changed",
+          instance,
+          change: "lifecycle",
+        },
+      }),
+    ).toBe(state);
+  });
+
+  it("still admits a newly created agent into the selected session", () => {
+    const state = stateWithAgents();
+    const instance = {
+      ...state.sessions[0]!.activeAgents[0]!,
+      id: "00000000-0000-4000-8000-000000000003",
+    };
+    const created = desktopReducer(state, {
+      type: "event",
+      event: { type: "agent.instance_changed", instance, change: "created" },
+    });
+    expect(created.sessions[0]?.activeAgents).toHaveLength(3);
+    expect(selectedAgentInstance(created)).toEqual(instance);
+  });
+
   it("stores and clears a plan approval for its owning agent", () => {
     const state = stateWithAgents();
     const requested = desktopReducer(state, {

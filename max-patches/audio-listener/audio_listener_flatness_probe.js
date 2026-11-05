@@ -1,24 +1,25 @@
-/* global require, module */
+/* global require, module, Buffer */
 "use strict";
 
 const { randomUUID } = require("node:crypto");
 const MAX_POSITIVE_ROUNDOFF_DB = 1e-9;
 
 // Outlet deliveries are diagnostic snapshots, never identified analysis frames.
-function createFlatnessProbe({ now, sendControl, emit }) {
+function createSmokeProbe({ now, sendControl, emit }, spread) {
   let pass = null;
+  const prefix = spread ? "spread" : "flatness";
   const fail = (reason) => {
     if (!pass || pass.failure) return;
-    pass.failure = reason;
-    event("failed", reason);
+    pass.failure = reason.replace(/^flatness/, prefix);
+    event("failed", pass.failure);
   };
   function event(stage, reason) {
     const elapsedMs = pass.passElapsedAtStart + now() - pass.startedAt;
     const facts = [
-      ["flatness.schema", "flucoma-flatness-smoke/v1"],
+      ["flatness.schema", `flucoma-${prefix}-smoke/v1`],
       ["flatness.support", "unqualified"],
       ["flatness.valueValidity", "unqualified"],
-      ["flatness.units", "dB"],
+      ["flatness.units", spread ? "Hz" : "dB"],
       ["flatness.channelPolicy", "independent-stereo"],
       ["flatness.windowSamples", 2048],
       ["flatness.hopSamples", 2048],
@@ -52,9 +53,24 @@ function createFlatnessProbe({ now, sendControl, emit }) {
           field: `flatness.rejected.${name}`,
           actual: { state: "observed", value },
         });
+    if (spread) {
+      for (const [field, value] of [
+        ["unit", 0],
+        ["minfreq", 0],
+        ["maxfreq", -1],
+      ])
+        facts.push({
+          field: `flatness.${field}`,
+          actual: { state: "observed", value },
+        });
+      for (const fact of facts)
+        fact.field = fact.field
+          .replace(/^flatness/, "spread")
+          .replace(/Db$/, "Hz");
+    }
     const lifecycle = {
       scope: "independent-metric-timelines/v1",
-      metric: "spectral-flatness",
+      metric: `spectral-${prefix}`,
       eventId: randomUUID(),
       causationId: pass.lastEvent,
       generation: pass.control.generation,
@@ -64,16 +80,23 @@ function createFlatnessProbe({ now, sendControl, emit }) {
       elapsedMs,
       durationMs: now() - pass.stageStartedAt,
       frames: 0,
-      reason,
+      reason: reason.replace(/^flatness/, prefix),
       facts,
     };
     pass.lastEvent = lifecycle.eventId;
-    if (emit(pass.control, lifecycle) !== true) {
+    let accepted;
+    try {
+      accepted = emit(pass.control, lifecycle);
+    } catch (error) {
+      pass.diagnosticDeliveryFailed = true;
+      throw error;
+    }
+    if (accepted !== true) {
       pass.diagnosticDeliveryFailed = true;
       // The SDK rejects progress-envelope diagnostics during cancellation.
       // Its rejection remains observable; physical cleanup must still finish.
       if (!pass.cancelled)
-        throw new Error("flatness_diagnostic_delivery_failed");
+        throw new Error(`${prefix}_diagnostic_delivery_failed`);
     }
   }
   return Object.freeze({
@@ -113,9 +136,12 @@ function createFlatnessProbe({ now, sendControl, emit }) {
         throw new Error("flatness_foreign_or_late_packet");
       const kind = packet[2];
       if (kind === "watchdog-stopped" && packet.length === 3) {
-        fail("flatness_watchdog_stopped");
-        pass.cleanup = "completed";
-        event("completed", "flatness_smoke_cleanup");
+        try {
+          fail("flatness_watchdog_stopped");
+        } finally {
+          pass.cleanup = "completed";
+          event("completed", "flatness_smoke_cleanup");
+        }
         return;
       }
       if (kind === "value" && packet.length === 6 && pass.cleanup === "pending")
@@ -156,6 +182,7 @@ function createFlatnessProbe({ now, sendControl, emit }) {
         pass.acknowledged &&
         pass.cleanup === "not-started"
       ) {
+        if (pass.failure) return;
         const [, , , channel, sequence, db] = packet;
         if (
           ![0, 1].includes(channel) ||
@@ -164,11 +191,14 @@ function createFlatnessProbe({ now, sendControl, emit }) {
           sequence > 400 ||
           typeof db !== "number" ||
           !Number.isFinite(db) ||
-          db < -320 ||
-          db > MAX_POSITIVE_ROUNDOFF_DB
+          (spread ? db < 0 : db < -320 || db > MAX_POSITIVE_ROUNDOFF_DB)
         ) {
           pass.rejected = Object.fromEntries(
-            Object.entries({ channel, sequence, db }).map(([key, value]) => [
+            Object.entries({
+              channel,
+              sequence,
+              [spread ? "hz" : "db"]: db,
+            }).map(([key, value]) => [
               key,
               typeof value === "number" ? String(value) : typeof value,
             ]),
@@ -176,11 +206,10 @@ function createFlatnessProbe({ now, sendControl, emit }) {
           fail("flatness_malformed_output");
           return;
         }
-        if (pass.failure) return;
         pass.counts[channel] = sequence;
         // The theoretical maximum is zero; double-precision accumulation can
         // overshoot it by sub-nanodecibel roundoff. Larger positives stay invalid.
-        pass.values[channel] = Math.min(0, db);
+        pass.values[channel] = spread ? db : Math.min(0, db);
         if (
           now() - pass.lastProgressAt >= 500 &&
           pass.values.every((v) => v !== null)
@@ -234,4 +263,136 @@ function createFlatnessProbe({ now, sendControl, emit }) {
   });
 }
 
-module.exports = { createFlatnessProbe };
+function createFlatnessProbe(options) {
+  return createSmokeProbe(options, false);
+}
+
+// Fixed two-descriptor transport: one owner, timer, sequence and stop handshake.
+// Validation of each descriptor remains local to its diagnostic probe.
+function createSpectralShapeSmoke({ now, sendControl, emit }) {
+  let eventCount = 0;
+  const options = {
+    now,
+    emit: (control, lifecycle) => {
+      // Two progress chains each publish at most twice/second. The total event
+      // and encoded-size caps also bound terminal/rejection bursts before SDK IO.
+      if (
+        ++eventCount > 192 ||
+        Buffer.byteLength(JSON.stringify(lifecycle)) > 8192
+      )
+        throw new Error("spectralshape_diagnostic_limit");
+      return emit(control, lifecycle);
+    },
+    sendControl: () => {},
+  };
+  const flatness = createFlatnessProbe(options);
+  const spread = createSmokeProbe(options, true);
+  let owner = null;
+  let sequences = [0, 0];
+  let stopping = false;
+  let started = false;
+  let cleaned = true;
+  function both(action) {
+    let failure;
+    for (const probe of [flatness, spread]) {
+      try {
+        action(probe);
+      } catch (error) {
+        failure ||= error;
+      }
+    }
+    if (failure) throw failure;
+  }
+  return Object.freeze({
+    start(control, epoch, causationId, elapsedMs = 0) {
+      if (!cleaned) throw new Error("spectralshape_probe_still_owned");
+      owner = [control.generation, epoch];
+      eventCount = 0;
+      sequences = [0, 0];
+      stopping = false;
+      started = false;
+      cleaned = false;
+      try {
+        both((probe) => probe.start(control, epoch, causationId, elapsedMs));
+      } finally {
+        // Establish the physical lease even if diagnostic delivery throws:
+        // controller cleanup can then always stop the same owned gate.
+        sendControl("begin", ...owner);
+      }
+    },
+    receive(packet) {
+      if (
+        !owner ||
+        cleaned ||
+        !Array.isArray(packet) ||
+        packet.length < 3 ||
+        packet[0] !== owner[0] ||
+        packet[1] !== owner[1]
+      )
+        throw new Error("spectralshape_foreign_or_late_packet");
+      const kind = packet[2];
+      if (kind === "value") {
+        const channel = packet[3];
+        const sequence = packet[4];
+        if (
+          packet.length !== 7 ||
+          !started ||
+          ![0, 1].includes(channel) ||
+          !Number.isSafeInteger(sequence) ||
+          sequence !== sequences[channel] + 1 ||
+          sequence > 400
+        )
+          throw new Error("spectralshape_invalid_envelope");
+        sequences[channel] = sequence;
+        if (stopping) return;
+        both((probe) =>
+          probe.receive([
+            ...packet.slice(0, 5),
+            packet[probe === spread ? 5 : 6],
+          ]),
+        );
+        return;
+      }
+      if (kind === "started" && packet.length === 5 && !started && !stopping) {
+        if (
+          packet
+            .slice(3)
+            .some(
+              (value) =>
+                typeof value !== "string" ||
+                value.length === 0 ||
+                value.length > 128,
+            )
+        )
+          throw new Error("spectralshape_invalid_class");
+        started = true;
+      } else if (
+        (kind === "stopped" && stopping && packet.length === 3) ||
+        (kind === "watchdog-stopped" && packet.length === 3)
+      ) {
+        cleaned = true;
+      } else {
+        throw new Error("spectralshape_invalid_envelope");
+      }
+      both((probe) => probe.receive(packet));
+    },
+    stop(control, cancelled = false) {
+      if (cleaned) return true;
+      if (owner[0] !== control.generation)
+        throw new Error("spectralshape_cleanup_owner_mismatch");
+      const send = !stopping;
+      stopping = true;
+      try {
+        both((probe) => probe.stop(control, cancelled));
+      } finally {
+        if (send) sendControl("stop", ...owner);
+      }
+      return cleaned;
+    },
+    snapshot() {
+      return { flatness: flatness.snapshot(), spread: spread.snapshot() };
+    },
+  });
+}
+
+module.exports = { createFlatnessProbe, createSpectralShapeSmoke };

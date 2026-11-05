@@ -26,6 +26,8 @@ import {
   listeningTimingPolicySchema,
 } from "@ableton-agent/protocol";
 import type {
+  AgentHistoryPage,
+  AgentHistoryQuery,
   ConfigurationSnapshotPage,
   ConfigurationSnapshotQuery,
   JournalHealth,
@@ -35,6 +37,10 @@ import type {
   RootTraceQuery,
   TelemetryEventPage,
 } from "@ableton-agent/observability";
+import {
+  agentHistoryPageSchema,
+  agentHistoryQuerySchema,
+} from "@ableton-agent/observability/contracts";
 import { z } from "zod";
 import { automationTurnLinkSchema } from "@ableton-agent/debug-control/contracts";
 import {
@@ -2366,6 +2372,10 @@ export const ipcSchemas = {
     request: telemetryQuerySchema,
     response: rootTracePageSchema,
   },
+  "event-history:agent": {
+    request: agentHistoryQuerySchema,
+    response: agentHistoryPageSchema,
+  },
   "event-history:trace": {
     request: z
       .object({
@@ -2699,6 +2709,7 @@ export interface DesktopApi {
     subscribe(handler: (event: DesktopAppEvent) => void): () => void;
   };
   eventHistory: {
+    agent(query?: AgentHistoryQuery): Promise<AgentHistoryPage>;
     search(query?: RootTraceQuery): Promise<RootTracePage>;
     trace(
       traceId: string,

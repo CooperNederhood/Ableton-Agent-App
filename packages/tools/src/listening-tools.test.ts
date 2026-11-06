@@ -62,6 +62,17 @@ describe("optional listening tool contracts", () => {
       }).success,
     ).toBe(false);
   });
+  it("directs pitch requests to bounded reports without searching deliberately absent diagnostics", () => {
+    expect(LISTENING_AGENT_GUIDANCE).toContain(
+      'For pitch requests, use ableton_context action "report"',
+    );
+    expect(LISTENING_AGENT_GUIDANCE).toContain(
+      "Pitch diagnostics are not exposed by the current agent tools",
+    );
+    expect(LISTENING_AGENT_GUIDANCE).toContain(
+      "Do not search tool-output files or use shell/filesystem commands to find pitch",
+    );
+  });
   it("directs mel reads to typed contexts without promoting SpectralShape diagnostics", () => {
     expect(LISTENING_AGENT_GUIDANCE).toContain("all 24 bands");
     expect(LISTENING_AGENT_GUIDANCE).toContain(

@@ -37,6 +37,19 @@ The user authorized diagnosis, fixes and same-case retries until this smoke
 passes, preserving failed receipts without expanding the fixture/host campaign.
 Host qualification and applicable visible validation are pending.
 
+The first packaged attempt, `run-fVUDqx` on Live 11.3.43, loaded the exact
+bundled pitch binary and retained 21 pitch/confidence deliveries per channel,
+including nine positive candidates per channel, followed by confirmed physical
+gate cleanup. Native/mel capture and context publication succeeded, but the
+agent searched the large context dump for intentionally absent pitch fields and
+made two denied shell calls. The unchanged `agent-listening-result` assertion
+correctly failed; final owned process/lease/profile cleanup succeeded. This
+receipt remains a failed attempt, not a completed smoke.
+Pitch guidance now directs the agent to bounded report pages and explicitly
+prohibits searching tool-output files or shell/filesystem paths for diagnostic
+data absent from its tool scope. The focused guidance regression fails before
+the correction. No permission, prompt, fixture or assertion was weakened.
+
 The production branch retains exactly 24 bounded diagnostic facts and a
 96-attempt/8,192-byte event ceiling, separate from the unchanged SpectralShape
 288-attempt ceiling. Pair values remain atomic per channel; local rejected

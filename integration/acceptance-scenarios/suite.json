@@ -6,6 +6,7 @@
     "session-flucoma-spread-smoke",
     "session-flucoma-rolloff-smoke",
     "session-flucoma-melbands-smoke",
+    "session-flucoma-pitch-smoke",
     "session-listening-continuity",
     "session-stopped-quantized-audio",
     "session-stopped-quantized-midi",

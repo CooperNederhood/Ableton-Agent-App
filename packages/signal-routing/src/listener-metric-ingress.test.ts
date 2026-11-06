@@ -1019,6 +1019,7 @@ describe("opt-in authenticated independent metric ingress", () => {
     "spectral-flatness",
     "spectral-spread",
     "spectral-rolloff",
+    "monophonic-pitch",
   ])(
     "records %s failure separately while healthy capture continues, preserving causal identity and redaction",
     async (metric) => {
@@ -1039,7 +1040,7 @@ describe("opt-in authenticated independent metric ingress", () => {
         reason: secret,
         elapsedMs: 100,
         durationMs: 37,
-        frames: 1,
+        frames: metric === "monophonic-pitch" ? 0 : 1,
       };
       expect(
         (await s.result({ status: "progress", nativeLifecycle }))
@@ -1111,6 +1112,63 @@ describe("opt-in authenticated independent metric ingress", () => {
       });
       expect(native).not.toHaveProperty("durationMs");
       expect(s.received.at(-1)?.result.status).toBe("progress");
+      expect(s.server.inspectListeners()[0]?.phase).toBe("armed");
+    },
+  );
+
+  it.each([
+    ["queued", "unknown"],
+    ["started", "unknown"],
+    ["progress", "unknown"],
+    ["completed", "success"],
+    ["failed", "failure"],
+    ["cancelled", "cancelled"],
+  ] as const)(
+    "retains pitch %s diagnostics without promoting them into measured frames",
+    async (stage, outcome) => {
+      const s = await session();
+      await s.ready();
+      await s.arm();
+      const nativeLifecycle = {
+        ...lifecycle(s, { stage }),
+        metric: "monophonic-pitch",
+        frames: 0,
+        durationMs: 12,
+        reason: "pitch_smoke_capture",
+        facts: [
+          {
+            field: "pitch.leftHz",
+            actual: { state: "observed", value: 0 },
+          },
+          {
+            field: "pitch.leftConfidence",
+            actual: { state: "observed", value: 0.1 },
+          },
+          {
+            field: "pitch.support",
+            actual: { state: "observed", value: "unqualified" },
+          },
+        ],
+      };
+      expect(
+        (await s.result({ status: "progress", nativeLifecycle }))
+          .acknowledgement,
+      ).toMatchObject({ type: "producer.ack" });
+      expect(
+        s.events.find((event) => event.id === nativeLifecycle.eventId),
+      ).toMatchObject({
+        name: `output.listener.native.metric.monophonic-pitch.${stage}`,
+        outcome,
+        durationMs: 12,
+        causationId: nativeLifecycle.causationId,
+        correlationId: s.prepare.correlationId,
+        trace: {
+          traceId: s.prepare.traceId,
+          spanId: nativeLifecycle.eventId,
+        },
+        attributes: { lifecycle: nativeLifecycle },
+      });
+      expect(s.received.at(-1)?.result).not.toHaveProperty("observation");
       expect(s.server.inspectListeners()[0]?.phase).toBe("armed");
     },
   );
@@ -1301,6 +1359,7 @@ describe("opt-in authenticated independent metric ingress", () => {
     "spectral-flatness",
     "spectral-spread",
     "spectral-rolloff",
+    "monophonic-pitch",
   ] as const)(
     "persists %s stage causation, duration, redaction and deduplication through typed journal reads",
     async (metric) => {
@@ -1310,37 +1369,46 @@ describe("opt-in authenticated independent metric ingress", () => {
       await s.ready();
       await s.arm();
       const secret = `ghp_${"a".repeat(36)}`;
-      const queued = lifecycle(s, {
+      const queued = {
+        ...lifecycle(s, {
+          stage: "queued",
+          phase: "capture",
+        }),
         metric,
-        stage: "queued",
-        phase: "capture",
-      });
-      const started = lifecycle(s, {
+        frames: 0,
+      };
+      const started = {
+        ...lifecycle(s, {
+          stage: "started",
+          causationId: queued.eventId,
+        }),
         metric,
-        stage: "started",
-        causationId: queued.eventId,
-      });
-      const failed = lifecycle(s, {
-        metric,
-        stage: "failed",
-        causationId: started.eventId,
-        reason: secret,
-        durationMs: 17,
-        facts: [
-          {
-            field: `${metric}.deliveries`,
-            actual: { state: "observed", value: 1 },
-            expected: {
-              state: "observed",
-              value:
-                s.bound.observation.metrics["spectral-centroid"]
-                  .expectedRecords,
+        frames: 0,
+      };
+      const failed = {
+        ...lifecycle(s, {
+          stage: "failed",
+          causationId: started.eventId,
+          reason: secret,
+          durationMs: 17,
+          facts: [
+            {
+              field: `${metric}.deliveries`,
+              actual: { state: "observed", value: 1 },
+              expected: {
+                state: "observed",
+                value:
+                  s.bound.observation.metrics["spectral-centroid"]
+                    .expectedRecords,
+              },
+              comparison: "equal",
+              unit: "count",
             },
-            comparison: "equal",
-            unit: "count",
-          },
-        ],
-      });
+          ],
+        }),
+        metric,
+        frames: 0,
+      };
       for (const nativeLifecycle of [queued, started, failed, failed])
         expect(
           (await s.result({ status: "progress", nativeLifecycle }))

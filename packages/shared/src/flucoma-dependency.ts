@@ -9,6 +9,7 @@ import {
 
 export const FLUCOMA_DEPENDENCY_DIRECTORY = "dependencies/flucoma";
 export const FLUCOMA_SPECTRALSHAPE_BUNDLE = `${FLUCOMA_DEPENDENCY_DIRECTORY}/fluid.spectralshape~.mxo`;
+export const FLUCOMA_PITCH_BUNDLE = `${FLUCOMA_DEPENDENCY_DIRECTORY}/fluid.pitch~.mxo`;
 export const FLUCOMA_PACKAGE_VERSION = "1.0.10+sha.a1f6f90.core.sha.f1551f70";
 export const NATIVE_MEL_BUNDLE = `${FLUCOMA_DEPENDENCY_DIRECTORY}/listener.mel~.mxo`;
 export const NATIVE_MEL_PRODUCER = Object.freeze({
@@ -41,6 +42,31 @@ const pins = [
     "85c01328c29c6cb7d00b189f67f011328c0734037074eef508445aca6004d972",
   ],
   [
+    "docs/fluid.pitch~.maxref.xml",
+    9872,
+    "a0e9443e6230a85be76de75c3e87dc73a3353f0d6f7b45816015cd3f742e3135",
+  ],
+  [
+    "fluid.pitch~.mxo/Contents/MacOS/fluid.pitch~",
+    544048,
+    "23e23676725b4f7fa37327a74ed4d4c70ddf09b56dcf76c835fdfd25ab23d02b",
+  ],
+  [
+    "fluid.pitch~.mxo/Contents/_CodeSignature/CodeResources",
+    2200,
+    "6686de10a28a2fe11b36cbb86dcbacc827cfc4ea116b4dabf1845e5aee629e9b",
+  ],
+  [
+    "fluid.pitch~.mxo/Contents/CodeResources",
+    1674,
+    "f96235cc5e0e8c300615662adc0c64dcdf7054bf7cb1cb20ca48a02d24a668a7",
+  ],
+  [
+    "fluid.pitch~.mxo/Contents/Info.plist",
+    1145,
+    "230af267bd4fd41d5dd9572d5a1e2022e9aa537844220903390df9ca5ab8e20b",
+  ],
+  [
     "fluid.spectralshape~.mxo/Contents/MacOS/fluid.spectralshape~",
     507040,
     "2df23d68d1f04ed5506824b508f566da7bcce670b7ac738acbaded7374857b11",
@@ -62,8 +88,8 @@ const pins = [
   ],
   [
     "README.md",
-    3316,
-    "1cb8673fe14b09b1ebb1405b4494c6d1ddc0fc448c694100d1364ad7c8bd87fc",
+    5109,
+    "1c7a8d50cc957c8c3a6f5109fe550f7a769f6982d0fac01ae0ef76a4958e12f7",
   ],
   ...NATIVE_MEL_DEPENDENCY_PINS,
 ] as const;

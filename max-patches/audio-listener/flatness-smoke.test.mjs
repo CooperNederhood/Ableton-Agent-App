@@ -423,14 +423,14 @@ test("runtime admits cancellation synchronously during capture and pending gate 
     if (alreadyStopping) h.controllerOptions.beforeCleanup(control, false);
     cancelling = true;
     h.clientOptions.onListenerControl({ ...control, action: "cancel" });
-    assert.deepEqual(h.output.at(-1), [
-      "flatness_smoke_control",
-      "stop",
-      generation,
-      1,
-    ]);
+    assert.deepEqual(
+      h.output.filter((atoms) => atoms[0] === "flatness_smoke_control").at(-1),
+      ["flatness_smoke_control", "stop", generation, 1],
+    );
     h.handlers.flatness_smoke(generation, 1, "value", 0, 2, 1500, 1000, -10);
     h.handlers.flatness_smoke(generation, 1, "stopped");
+    assert.equal(h.controllerOptions.beforeCleanup(control, true), false);
+    h.handlers.pitch_smoke(generation, 1, "stopped");
     assert.equal(h.controllerOptions.beforeCleanup(control, true), true);
     assert.equal(disposed, 0);
     assert.deepEqual(h.stops, []);
@@ -463,12 +463,10 @@ test("runtime starts diagnostics only after launch and requires owned cleanup", 
     nativeLifecycle: { stage: "completed", nativeEpoch: 1, eventId: "launch" },
   };
   h.controllerOptions.onEvent(event);
-  assert.deepEqual(h.output.at(-1), [
-    "flatness_smoke_control",
-    "begin",
-    generation,
-    1,
-  ]);
+  assert.deepEqual(
+    h.output.filter((atoms) => atoms[0] === "flatness_smoke_control").at(-1),
+    ["flatness_smoke_control", "begin", generation, 1],
+  );
   h.handlers.flatness_smoke(
     generation,
     1,
@@ -480,6 +478,8 @@ test("runtime starts diagnostics only after launch and requires owned cleanup", 
   h.handlers.flatness_smoke(generation, 1, "value", 1, 1, 3000, 1000, -5);
   assert.equal(h.controllerOptions.beforeCleanup(control, false), false);
   h.handlers.flatness_smoke(generation, 1, "stopped");
+  assert.equal(h.controllerOptions.beforeCleanup(control, false), false);
+  h.handlers.pitch_smoke(generation, 1, "stopped");
   assert.equal(h.controllerOptions.beforeCleanup(control, false), true);
   assert.ok(
     h.diagnostics.some(

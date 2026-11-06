@@ -1,5 +1,119 @@
 # Playback Listening and Entity Context
 
+## F4 pitch/confidence diagnostic smoke (#95)
+
+The user-selected delivery is **smoke only**, using the unchanged reviewed
+`session-clip-identify` Set. It proves stock `fluid.pitch~` delivery through the
+existing bounded capture, authenticated ingress and persisted typed History,
+not numerical pitch accuracy or authoritative pitch observations/reports.
+The existing kick fixture is not a monophonic acoustic oracle. Original #95
+and parent #91 remain open for independent frames, numerical qualification,
+trajectories, summaries and broader Session/Arrangement coverage.
+
+The fixed smoke configuration is independent stereo YinFFT, Hz, a 50-2,000 Hz
+search range and 2,048-sample window/hop/FFT. Confidence is an algorithm-specific
+score, not a calibrated probability or universal harmonic-to-noise ratio.
+Zero Hz is the undefined sentinel; it is not absent acquisition, a zero-frequency
+note or a proven unvoiced classification. Positive candidates are not verified
+notes. Low confidence does not prove noise; octave errors, low-note/window
+limitations and unreliable polyphonic mixtures remain possible. No
+transcription, instrument recognition or automatic correction is provided.
+
+`monophonic-pitch` diagnostics use `flucoma-pitch-smoke/v1`, with support and
+value validity explicitly unqualified and lifecycle `frames: 0`. Per-channel
+paired pitch/confidence snapshots, candidate/delivery counts, actual object
+classes and physical gate cleanup belong to typed Desktop History, not metric
+context/report fields. A pitch request uses the same ordinary listening action
+and playback pass without a `requestedMetrics` argument. Callback deliveries
+are not independently identified FFT frames, support, loss or latency proof.
+
+The selected smoke requires one 90,000-sample capture at 48 kHz, healthy existing
+metrics, both-channel pitch/confidence delivery and at least one positive
+candidate per channel, actual mapped pinned pitch-binary identity, same-agent
+terminal result and existing context consumption, History persistence after an
+owned Desktop restart, protected state and terminal cleanup. No exact note,
+confidence ground truth, confidence threshold or callback count is imposed.
+The user authorized diagnosis, fixes and same-case retries until this smoke
+passes, preserving failed receipts without expanding the fixture/host campaign.
+The selected packaged smoke now passes all 16 assertions on Live 11.3.43.
+The separate bounded visible workflow completed with recovered host cleanup,
+as recorded below; neither result qualifies the deferred numerical requirements.
+
+The first packaged attempt, `run-fVUDqx` on Live 11.3.43, loaded the exact
+bundled pitch binary and retained 21 pitch/confidence deliveries per channel,
+including nine positive candidates per channel, followed by confirmed physical
+gate cleanup. Native/mel capture and context publication succeeded, but the
+agent searched the large context dump for intentionally absent pitch fields and
+made two denied shell calls. The unchanged `agent-listening-result` assertion
+correctly failed; final owned process/lease/profile cleanup succeeded. This
+receipt remains a failed attempt, not a completed smoke.
+Pitch guidance now directs the agent to bounded report pages and explicitly
+prohibits searching tool-output files or shell/filesystem paths for diagnostic
+data absent from its tool scope. The focused guidance regression fails before
+the correction. No permission, prompt, fixture or assertion was weakened.
+
+The second attempt, `run-1H55t8`, failed before pitch launch with native-mel
+`mel_native_integrity_failure_4`, `invalid_shared_timing` and
+`metric_cleanup_unconfirmed`. The agent then requested unsupported interactive
+input, and no smoke assertions ran. Final runner cleanup succeeded. This
+distinct native integrity failure remains unresolved; a later pass is not
+repetition-reliability evidence or a reason to weaken the shared integrity guard.
+
+The third attempt, `run-IYzggs`, passed all 16 unchanged assertions with exactly
+one capture, 21 paired deliveries and 12 positive candidates per channel,
+independent mapped pitch identity, healthy baseline/mel/spectral evidence,
+same-agent report consumption, restart persistence and protected-state checks.
+The last pair was 0 Hz / confidence 0 on both channels: a valid undefined tail,
+not an all-zero stream. Capture gates, both owned Desktop instances, Live,
+host reservation and isolated profile all reached successful terminal cleanup.
+The receipt is `.test-artifacts/acceptance/run-IYzggs/receipt.json`, run ID
+`345fdf37-7f74-403e-983c-df7a3cc700a7`, trace
+`b2948352-2837-4fd3-8b6f-5efb732ba23b`. Candidate source was `7ea89023`,
+SHA-256 `590cf5ee77bd41ff9102b9279a43581bd3ab684d652e1436b3fed52089d30b40`.
+Independent `readSuiteAttempt` single-case re-verification accepted the saved
+receipt/checkpoint/product/cleanup evidence against the current candidate and
+registration. The suite-only CLI verifier is not a single-case entrypoint; no
+suite receipt was fabricated or broader suite launched.
+Both earlier failed receipts remain preserved. This is a recovered single-case
+smoke, not a full-suite or first-attempt reliability qualification.
+
+The subsequent visible check reused the fixture with fresh profile-bound
+dependencies and owned Live/Desktop processes. Its one debug-MCP message,
+ordinary approval, busy/completed listening operation, bounded report and final
+response were visible in the Default conversation. The response explicitly
+disclosed that pitch/confidence are diagnostic History only, not agent report
+fields. The exact pitch-completed History filter returned the matching turn
+and opened its trace; Live showed the intended Session clip/track. These are
+presentation observations, not substitute numerical postconditions.
+Evidence is
+`.test-artifacts/desktop-ux/run-26bd8345-e67d-4291-b1c9-23eb10d14338/observations.json`.
+Desktop exited gracefully. Stopping the UX host helper left its owned Live
+process and lease; Live's UI quit then stalled on a blank untitled modal.
+The exact owned Live PID was terminated, all three owned PIDs and absence of
+Live processes were checked, and only then were the exact lease and inactive
+profile removed. This recovered cleanup is recorded separately from the clean
+packaged acceptance cleanup; it does not qualify graceful UX-host shutdown.
+
+The production branch retains exactly 24 bounded diagnostic facts and a
+96-attempt/8,192-byte event ceiling, separate from the unchanged SpectralShape
+288-attempt ceiling. Pair values remain atomic per channel; local rejected
+output is not widened into arbitrary diagnostic payloads. Both physical gates
+are stopped and joined before capture ownership is released, including observer
+failure and cancellation. The signed universal stock pitch binary is pinned at
+544,048 bytes with SHA-256
+`23e23676725b4f7fa37327a74ed4d4c70ddf09b56dcf76c835fdfd25ab23d02b`.
+Pinned package documentation confirms YinFFT, paired pitch/confidence list
+order, 0-Hz sentinel and the declared 0-1 score range. These are dependency and
+delivery contracts, not acoustic qualification.
+
+Offline checkpoints: producer regressions demonstrated eight pre-implementation
+failures; nine ingress/guidance regressions and the nested pitch-only
+missing-dependency freeze regression likewise failed before their fixes.
+The audio-listener suite passes 847 tests; shared passes 179; ingress/tools
+pass 278; and all 23 Electron tests pass, including pitch History reopening
+through production main/preload IPC. Build and workspace typechecks pass.
+Registration/admission and synthetic checks do not establish a real-Live pass.
+
 ## F3 mel-band implementation and bounded smoke (#105)
 
 The selected delivery keeps the full mel-band/ratio feature in scope but limits

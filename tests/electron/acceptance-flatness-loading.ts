@@ -4,6 +4,7 @@ import type { DependencyInventory } from "@ableton-agent/test-support/integratio
 import {
   FLUCOMA_DEPENDENCY_FILES,
   FLUCOMA_SPECTRALSHAPE_BUNDLE,
+  FLUCOMA_PITCH_BUNDLE,
   NATIVE_MEL_BUNDLE,
   readFlucomaDependencyFile,
 } from "../../packages/shared/src/m4l-devices.js";
@@ -27,6 +28,15 @@ export interface MelBinaryIdentity {
   melLoadedBinaryPids: string;
   melLoadedBinaryInode: string;
   melLoadedBinaryDevice: string;
+}
+export interface PitchBinaryIdentity {
+  pitchLoadedBinaryVerified: true;
+  pitchLoadedBinarySchema: "owned-mapped-flucoma-pitch/v1";
+  pitchLoadedBinaryPath: string;
+  pitchLoadedBinarySha256: string;
+  pitchLoadedBinaryPids: string;
+  pitchLoadedBinaryInode: string;
+  pitchLoadedBinaryDevice: string;
 }
 interface LoadedBinaryOptions {
   live: { pid: number; startedAt: string; command: string };
@@ -69,22 +79,46 @@ export async function verifyLoadedMelBinary(
   };
 }
 
-/** Only two immutable product identities, never a caller-selected binary or pin.
+export async function verifyLoadedPitchBinary(
+  options: LoadedBinaryOptions,
+  run = runProcess,
+): Promise<PitchBinaryIdentity> {
+  const identity = await verifyMappedBinary(options, "pitch", run);
+  return {
+    pitchLoadedBinaryVerified: true,
+    pitchLoadedBinarySchema: "owned-mapped-flucoma-pitch/v1",
+    pitchLoadedBinaryPath: identity.path,
+    pitchLoadedBinarySha256: identity.sha256,
+    pitchLoadedBinaryPids: identity.pids,
+    pitchLoadedBinaryInode: identity.inode,
+    pitchLoadedBinaryDevice: identity.device,
+  };
+}
+
+/** Only immutable product identities, never a caller-selected binary or pin.
  * Read mapping metadata only from verified Live/Max ancestors of owned Node runtimes.
  */
 async function verifyMappedBinary(
   options: LoadedBinaryOptions,
-  kind: "flatness" | "mel",
+  kind: "flatness" | "mel" | "pitch",
   run: typeof runProcess,
 ) {
   const binaryName =
     kind === "mel"
       ? `${NATIVE_MEL_BUNDLE}/Contents/MacOS/listener.mel~`
-      : `${FLUCOMA_SPECTRALSHAPE_BUNDLE}/Contents/MacOS/fluid.spectralshape~`;
+      : kind === "pitch"
+        ? `${FLUCOMA_PITCH_BUNDLE}/Contents/MacOS/fluid.pitch~`
+        : `${FLUCOMA_SPECTRALSHAPE_BUNDLE}/Contents/MacOS/fluid.spectralshape~`;
   const pin = FLUCOMA_DEPENDENCY_FILES.find(
     (entry) => entry.name === binaryName,
-  )!;
-  const mappingName = kind === "mel" ? "listener.mel" : "spectralshape";
+  );
+  if (!pin) throw new Error(`Missing immutable ${kind} binary pin`);
+  const mappingName =
+    kind === "mel"
+      ? "listener.mel"
+      : kind === "pitch"
+        ? "fluid.pitch"
+        : "spectralshape";
   options.signal.throwIfAborted();
   const devices = options.inventory.frozenDevices?.filter(
     (entry) => entry.id === "machine-listening",

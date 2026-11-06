@@ -98,13 +98,16 @@ describe("wire5 independent metric contracts", () => {
     }
     expect(observation.metrics.level.records).toEqual(nativeRecords);
   });
-  it.each(["flatness", "spread"])(
+  it.each(["flatness", "spread", "rolloff", "pitch"])(
     "registers %s only as a bounded diagnostic, never as a frame-qualified metric observation",
     (descriptor) => {
       const f = fixture();
+      const metric =
+        descriptor === "pitch" ? "monophonic-pitch" : `spectral-${descriptor}`;
+      const frequency = descriptor !== "flatness";
       const lifecycle = {
         scope: LISTENER_METRIC_SCOPE,
-        metric: `spectral-${descriptor}`,
+        metric,
         eventId: f.wire.generation,
         causationId: f.wire.causationId,
         generation: f.wire.generation,
@@ -121,17 +124,17 @@ describe("wire5 independent metric contracts", () => {
             actual: { state: "observed", value: "unqualified" },
           },
           {
-            field: `${descriptor}.left${descriptor === "spread" ? "Hz" : "Db"}`,
+            field: `${descriptor}.left${frequency ? "Hz" : "Db"}`,
             actual: {
               state: "observed",
-              value: descriptor === "spread" ? 1500 : -42,
+              value: frequency ? 1500 : -42,
             },
           },
           {
-            field: `${descriptor}.right${descriptor === "spread" ? "Hz" : "Db"}`,
+            field: `${descriptor}.right${frequency ? "Hz" : "Db"}`,
             actual: {
               state: "observed",
-              value: descriptor === "spread" ? 3000 : -7,
+              value: frequency ? 1000 : -7,
             },
           },
         ],
@@ -158,7 +161,7 @@ describe("wire5 independent metric contracts", () => {
           ...f.wire,
           type: "listener.control",
           action: "prepare",
-          config: { ...f.config, requestedMetrics: [`spectral-${descriptor}`] },
+          config: { ...f.config, requestedMetrics: [metric] },
         }).success,
       ).toBe(false);
       expect(
@@ -166,8 +169,14 @@ describe("wire5 independent metric contracts", () => {
           ...f.observation,
           metrics: {
             ...f.observation.metrics,
-            [`spectral-${descriptor}`]: { records: [] },
+            [metric]: { records: [] },
           },
+        }).success,
+      ).toBe(false);
+      expect(
+        nativeMetricLifecycleSchema.safeParse({
+          ...lifecycle,
+          facts: Array.from({ length: 25 }, () => lifecycle.facts[0]),
         }).success,
       ).toBe(false);
     },

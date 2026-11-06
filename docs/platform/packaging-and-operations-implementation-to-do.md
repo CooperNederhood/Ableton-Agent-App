@@ -2,6 +2,20 @@
 
 Companion specification: [Packaging and Operations](packaging-and-operations.md)
 
+## F4 stock pitch smoke (#95)
+
+- [x] Pin the minimal signed stock pitch bundle and reference from the existing
+      verified release, with notices and strict source/staged inventory checks.
+- [x] Validate exact stereo pitch graph configuration, paired callback wiring,
+      bounded companions, shared capture ownership and physical gate cleanup.
+- [x] Require independent owned-process pitch mapping and unchanged immutable
+      binary identity before and after the selected capture.
+- [x] Pass the unchanged-fixture packaged pitch smoke and persist exact candidate,
+      host version and cleanup evidence, preserving any earlier failures.
+      `run-IYzggs`: 16 assertions, Live 11.3.43, source `7ea89023`, independent
+      pitch mapping, restart and complete capture/process/lease/profile cleanup.
+      Earlier failures remain preserved; no public signing qualification claimed.
+
 ## F2a shared SpectralShape smoke (#98)
 
 - [x] Reuse the pinned external and existing companions for the shared stereo

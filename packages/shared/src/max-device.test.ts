@@ -1,14 +1,64 @@
 import { randomUUID } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { mkdir, readdir, rm, symlink, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  readFile,
+  readdir,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { afterEach, expect, it } from "vitest";
-import { publishResources } from "./max-device.js";
+import {
+  decodeAmxd,
+  encodeAmxd,
+  freezeAmxd,
+  publishResources,
+} from "./max-device.js";
 import type { ResourcePublicationEvent } from "./max-device.js";
 
 const scratch = resolve(".test-artifacts/max-device", randomUUID());
 afterEach(async () => {
   await rm(scratch, { recursive: true, force: true });
+});
+
+it("refuses a pitch-only nested graph when its adjacent dependency inventory is omitted", async () => {
+  const template = decodeAmxd(
+    await readFile(
+      new URL(
+        "../../../max-patches/audio-listener/audio-effect-template.amxd",
+        import.meta.url,
+      ),
+    ),
+  );
+  const raw = encodeAmxd(template, {
+    patcher: {
+      boxes: [
+        {
+          box: {
+            maxclass: "newobj",
+            text: "p pitch-smoke",
+            patcher: {
+              boxes: [
+                {
+                  box: {
+                    maxclass: "newobj",
+                    text: "fluid.pitch~ @algorithm 2",
+                  },
+                },
+              ],
+              lines: [],
+            },
+          },
+        },
+      ],
+      lines: [],
+    },
+  });
+  expect(() => freezeAmxd(raw, "pitch.amxd", new Map())).toThrow(
+    "Missing pinned adjacent FluCoMa dependency resources",
+  );
 });
 
 it("does not generalize the flat-resource count allowance for native pins", async () => {

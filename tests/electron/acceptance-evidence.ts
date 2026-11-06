@@ -4,6 +4,7 @@ import type {
   FlatnessSmokeEvidence,
   SpreadSmokeEvidence,
   RolloffSmokeEvidence,
+  PitchSmokeEvidence,
   MelSmokeEvidence,
   SessionIdentity,
   SpectralShapeSmokeEvidence,
@@ -13,6 +14,7 @@ import {
   projectFlatnessSmoke,
   projectSpreadSmoke,
   projectRolloffSmoke,
+  projectPitchSmoke,
   projectMelSmoke,
 } from "@ableton-agent/test-support/integration";
 import type { MetricAudioObservation } from "@ableton-agent/protocol";
@@ -118,7 +120,21 @@ async function restoreSmoke(
         ),
       );
   }
+
   return result;
+}
+
+export async function restorePitchSmoke(
+  original: readonly PitchSmokeEvidence[],
+  afterOwnedRestart: boolean,
+  readTrace: (traceId: string) => Promise<TelemetryEventPage["items"]>,
+): Promise<PitchSmokeEvidence[]> {
+  return restoreSmoke(
+    original,
+    afterOwnedRestart,
+    readTrace,
+    projectPitchSmoke,
+  );
 }
 
 /** Persisted observations must select an admitted kind and location, not invent content identity. */

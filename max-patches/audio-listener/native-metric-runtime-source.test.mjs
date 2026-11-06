@@ -93,6 +93,7 @@ test("v5 sends only implemented messages to its Node runtime, including preview-
       "scoped-native-clock",
       "scoped-native-analysis",
       "flatness-smoke-output",
+      "pitch-smoke-output",
     ]);
     for (const { patchline } of result.patcher.lines) {
       if (patchline.destination[0] === node.id)

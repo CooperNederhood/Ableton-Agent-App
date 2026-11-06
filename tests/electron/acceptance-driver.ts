@@ -27,6 +27,7 @@ import type {
   FlatnessSmokeEvidence,
   SpreadSmokeEvidence,
   RolloffSmokeEvidence,
+  PitchSmokeEvidence,
   MelSmokeEvidence,
   ContextEvidence,
   DriverContext,
@@ -54,6 +55,8 @@ import {
   projectFlatnessSmoke,
   projectSpreadSmoke,
   projectRolloffSmoke,
+  projectPitchSmoke,
+  validatePitchBinaryProof,
   projectMelSmoke,
   validateMelBinaryProof,
   collectAgentListeningEvidence,
@@ -86,6 +89,7 @@ import { verifyActiveFrozenCandidate } from "./acceptance-loading.js";
 import {
   verifyLoadedFlatnessBinary,
   verifyLoadedMelBinary,
+  verifyLoadedPitchBinary,
 } from "./acceptance-flatness-loading.js";
 import {
   inspectAcceptanceProject,
@@ -106,6 +110,7 @@ import {
   restoreFlatnessSmoke,
   restoreSpreadSmoke,
   restoreRolloffSmoke,
+  restorePitchSmoke,
   restoreMelSmoke,
 } from "./acceptance-evidence.js";
 import { ScopedApprovalPolicy } from "./acceptance-approvals.js";
@@ -243,6 +248,7 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
   #flatnessSmoke = new Map<string, FlatnessSmokeEvidence>();
   #spreadSmoke = new Map<string, SpreadSmokeEvidence>();
   #rolloffSmoke = new Map<string, RolloffSmokeEvidence>();
+  #pitchSmoke = new Map<string, PitchSmokeEvidence>();
   #melSmoke = new Map<string, MelSmokeEvidence>();
   #historyCollected = false;
   #agentListening: AgentListeningEvidence[] = [];
@@ -772,6 +778,7 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
         "session-flucoma-spread-smoke",
         "session-flucoma-rolloff-smoke",
         "session-flucoma-melbands-smoke",
+        "session-flucoma-pitch-smoke",
       ].includes(context.scenario.id)
     )
       return;
@@ -819,18 +826,26 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
     }
   }
 
-  async #verifyMelBinary(
+  async #verifyDiagnosticBinary(
     context: DriverContext,
     phase: "baseline" | "capture-completed",
+    kind: "mel" | "pitch",
     owner?: MetricAudioObservation["ownership"],
   ): Promise<void> {
-    if (context.scenario.id !== "session-flucoma-melbands-smoke") return;
+    if (
+      context.scenario.id !== "session-flucoma-pitch-smoke" &&
+      !(
+        kind === "mel" &&
+        context.scenario.id === "session-flucoma-melbands-smoke"
+      )
+    )
+      return;
     const started = performance.now();
     this.#provenance = {
       ...this.#provenance,
-      melLoadedBinaryVerified: false,
-      melLoadedBinaryState: "started",
-      melLoadedBinaryPhase: phase,
+      [`${kind}LoadedBinaryVerified`]: false,
+      [`${kind}LoadedBinaryState`]: "started",
+      [`${kind}LoadedBinaryPhase`]: phase,
     };
     try {
       const activeNodePids = this.#provenance.activeNodePids;
@@ -839,9 +854,11 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
         (phase === "capture-completed" && !owner)
       )
         throw new Error(
-          "Missing independently owned mel acquisition identities",
+          `Missing independently owned ${kind} acquisition identities`,
         );
-      const proof = await verifyLoadedMelBinary({
+      const verify =
+        kind === "mel" ? verifyLoadedMelBinary : verifyLoadedPitchBinary;
+      const proof = await verify({
         live: required(this.#live.publicRecord(), "owned Live"),
         activeNodePids,
         workingDirectory: required(context.stagedFixture, "staged fixture")
@@ -851,36 +868,38 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
       });
       const facts: Facts = {
         ...proof,
-        melLoadedBinaryState: "completed",
-        melLoadedBinaryPhase: phase,
-        melLoadedBinaryDurationMs: performance.now() - started,
+        [`${kind}LoadedBinaryState`]: "completed",
+        [`${kind}LoadedBinaryPhase`]: phase,
+        [`${kind}LoadedBinaryDurationMs`]: performance.now() - started,
         ...(owner
           ? Object.fromEntries(
               Object.entries(owner).map(([key, value]) => [
-                `melLoadedBinary${key[0]!.toUpperCase()}${key.slice(1)}`,
+                `${kind}LoadedBinary${key[0]!.toUpperCase()}${key.slice(1)}`,
                 value,
               ]),
             )
           : {}),
       };
-      validateMelBinaryProof(facts, phase);
+      if (kind === "mel") validateMelBinaryProof(facts, phase);
+      else validatePitchBinaryProof(facts, phase);
       this.#provenance = { ...this.#provenance, ...facts };
     } catch (error) {
       this.#provenance = {
         ...this.#provenance,
-        melLoadedBinaryVerified: false,
-        melLoadedBinaryState:
+        [`${kind}LoadedBinaryVerified`]: false,
+        [`${kind}LoadedBinaryState`]:
           context.signal.aborted ||
           (error instanceof Error && error.name === "AbortError")
             ? "cancelled"
             : "failed",
-        melLoadedBinaryError: "owned-loader-proof-unavailable-or-mismatched",
+        [`${kind}LoadedBinaryError`]:
+          "owned-loader-proof-unavailable-or-mismatched",
       };
       throw error;
     } finally {
       this.#provenance = {
         ...this.#provenance,
-        melLoadedBinaryDurationMs: performance.now() - started,
+        [`${kind}LoadedBinaryDurationMs`]: performance.now() - started,
       };
     }
   }
@@ -934,7 +953,8 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
       };
     }
     await this.#verifyFlatnessBinary(context, "baseline");
-    await this.#verifyMelBinary(context, "baseline");
+    await this.#verifyDiagnosticBinary(context, "baseline", "mel");
+    await this.#verifyDiagnosticBinary(context, "baseline", "pitch");
     if ((await this.#jobs(context)).length !== 0)
       throw new Error(
         "Fresh acceptance profile contains an unexpected listening pass",
@@ -1690,6 +1710,7 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
         const flatnessSmoke: FlatnessSmokeEvidence[] = [];
         const spreadSmoke: SpreadSmokeEvidence[] = [];
         const rolloffSmoke: RolloffSmokeEvidence[] = [];
+        const pitchSmoke: PitchSmokeEvidence[] = [];
         const melSmoke: MelSmokeEvidence[] = [];
         const contexts: ContextEvidence[] = [];
         const trace = jobs.length
@@ -1731,9 +1752,16 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
             continue turnLoop;
           }
           await this.#verifyFlatnessBinary(context, "capture-completed");
-          await this.#verifyMelBinary(
+          await this.#verifyDiagnosticBinary(
             context,
             "capture-completed",
+            "mel",
+            observed.ownership,
+          );
+          await this.#verifyDiagnosticBinary(
+            context,
+            "capture-completed",
+            "pitch",
             observed.ownership,
           );
           for (const [name, project, entries, retained] of [
@@ -1755,6 +1783,7 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
               rolloffSmoke,
               this.#rolloffSmoke,
             ],
+            ["pitch-smoke", projectPitchSmoke, pitchSmoke, this.#pitchSmoke],
           ] as const) {
             if (
               !context.scenario.steps.some((step) =>
@@ -1862,14 +1891,17 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
           ...(flatnessSmoke.length ? { flatnessSmoke } : {}),
           ...(spreadSmoke.length ? { spreadSmoke } : {}),
           ...(rolloffSmoke.length ? { rolloffSmoke } : {}),
+          ...(pitchSmoke.length ? { pitchSmoke } : {}),
           ...(melSmoke.length ? { melSmoke } : {}),
           contexts,
           ...(agentListening ? { agentListening } : {}),
           facts: {
             sdkTurnId,
             ...Object.fromEntries(
-              Object.entries(this.#provenance).filter(([key]) =>
-                key.startsWith("melLoadedBinary"),
+              Object.entries(this.#provenance).filter(
+                ([key]) =>
+                  key.startsWith("melLoadedBinary") ||
+                  key.startsWith("pitchLoadedBinary"),
               ),
             ),
             ...(await this.#verifyWorld(context)),
@@ -2077,6 +2109,11 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
       afterRestart,
       (traceId) => this.#readTrace(context, traceId),
     );
+    const pitchSmoke = await restorePitchSmoke(
+      [...this.#pitchSmoke.values()],
+      afterRestart,
+      (traceId) => this.#readTrace(context, traceId),
+    );
     for (const original of this.#agentListening) {
       const restored = await this.#readAgentListening(
         context,
@@ -2092,9 +2129,12 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
       );
     for (const traceId of new Set(this.#sdkTurns.values()))
       if (
-        ![...flatnessSmoke, ...spreadSmoke, ...rolloffSmoke].some(
-          (entry) => entry.traceId === traceId,
-        )
+        ![
+          ...flatnessSmoke,
+          ...spreadSmoke,
+          ...rolloffSmoke,
+          ...pitchSmoke,
+        ].some((entry) => entry.traceId === traceId)
       )
         await this.#readTrace(context, traceId);
     for (const traceId of this.#preflightTraces)
@@ -2112,6 +2152,7 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
       ...(flatnessSmoke.length ? { flatnessSmoke } : {}),
       ...(spreadSmoke.length ? { spreadSmoke } : {}),
       ...(rolloffSmoke.length ? { rolloffSmoke } : {}),
+      ...(pitchSmoke.length ? { pitchSmoke } : {}),
       ...(melSmoke.length ? { melSmoke } : {}),
       unchanged,
     };

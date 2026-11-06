@@ -15,11 +15,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   FLUCOMA_DEPENDENCY_FILES,
   FLUCOMA_SPECTRALSHAPE_BUNDLE,
+  FLUCOMA_PITCH_BUNDLE,
   NATIVE_MEL_BUNDLE,
 } from "../../packages/shared/src/m4l-devices.js";
 import {
   verifyLoadedFlatnessBinary,
   verifyLoadedMelBinary,
+  verifyLoadedPitchBinary,
 } from "../../tests/electron/acceptance-flatness-loading.js";
 import type { runProcess } from "./live-process-controller.mjs";
 import type { DependencyInventory } from "../../packages/test-support/src/integration/contracts.js";
@@ -106,6 +108,12 @@ async function setup(name: string) {
 }
 describe.each([
   {
+    kind: "pitch",
+    name: `${FLUCOMA_PITCH_BUNDLE}/Contents/MacOS/fluid.pitch~`,
+    verify: verifyLoadedPitchBinary,
+    schema: "owned-mapped-flucoma-pitch/v1",
+  },
+  {
     kind: "flatness",
     name: `${FLUCOMA_SPECTRALSHAPE_BUNDLE}/Contents/MacOS/fluid.spectralshape~`,
     verify: verifyLoadedFlatnessBinary,
@@ -140,6 +148,8 @@ describe.each([
     "global",
     "additional-global",
     "other-producer-only",
+    "spectral-only",
+    "mel-only",
     "wrong-inode",
     "wrong-device",
     "foreign-pid",
@@ -167,6 +177,9 @@ describe.each([
               ? "/Global/fluid.spectralshape~"
               : "/Global/listener.mel~",
           );
+        if (fault === "spectral-only")
+          stdout = mapping(11, "/Global/fluid.spectralshape~");
+        if (fault === "mel-only") stdout = mapping(11, "/Global/listener.mel~");
         if (fault === "wrong-inode") stdout = mapping(11, path, "0");
         if (fault === "wrong-device")
           stdout = stdout.replace(/D0x[0-9a-f]+/u, "D0x0");
@@ -213,36 +226,41 @@ describe.each([
       );
     },
   );
-  it.each(["bytes", "mode", "symlink", "inventory", "repinned-inventory"])(
-    "rejects changed staged %s before mapping inspection",
-    async (fault) => {
-      const { options, run, path } = await setup(name);
-      if (fault === "bytes") await writeFile(path, Buffer.alloc(pin.bytes));
-      if (fault === "mode") await chmod(path, 0o600);
-      if (fault === "symlink") {
-        const original = await readFile(path);
-        await rm(path);
-        const other = join(root, "other");
-        await writeFile(other, original, { mode: 0o755 });
-        await symlink(other, path);
-      }
-      if (fault === "inventory")
-        options.inventory = { ...options.inventory, resources: [] };
-      if (fault === "repinned-inventory") {
-        const substituted = Buffer.alloc(pin.bytes);
-        await writeFile(path, substituted);
-        options.inventory = {
-          ...options.inventory,
-          resources: options.inventory.resources.map((resource) => ({
-            ...resource,
-            sha256: createHash("sha256").update(substituted).digest("hex"),
-          })),
-        };
-      }
-      await expect(verify(options, run)).rejects.toThrow();
-      expect(run).not.toHaveBeenCalled();
-    },
-  );
+  it.each([
+    "missing",
+    "bytes",
+    "mode",
+    "symlink",
+    "inventory",
+    "repinned-inventory",
+  ])("rejects changed staged %s before mapping inspection", async (fault) => {
+    const { options, run, path } = await setup(name);
+    if (fault === "missing") await rm(path);
+    if (fault === "bytes") await writeFile(path, Buffer.alloc(pin.bytes));
+    if (fault === "mode") await chmod(path, 0o600);
+    if (fault === "symlink") {
+      const original = await readFile(path);
+      await rm(path);
+      const other = join(root, "other");
+      await writeFile(other, original, { mode: 0o755 });
+      await symlink(other, path);
+    }
+    if (fault === "inventory")
+      options.inventory = { ...options.inventory, resources: [] };
+    if (fault === "repinned-inventory") {
+      const substituted = Buffer.alloc(pin.bytes);
+      await writeFile(path, substituted);
+      options.inventory = {
+        ...options.inventory,
+        resources: options.inventory.resources.map((resource) => ({
+          ...resource,
+          sha256: createHash("sha256").update(substituted).digest("hex"),
+        })),
+      };
+    }
+    await expect(verify(options, run)).rejects.toThrow();
+    expect(run).not.toHaveBeenCalled();
+  });
   it("honors cancellation before and after bounded process reads", async () => {
     const { options, run } = await setup(name);
     await expect(

@@ -58,6 +58,8 @@ export const NATIVE_CANDIDATE_RESOURCES = [
   "audio_listener_native_v5_max.js",
   "audio_listener_flatness_smoke.js",
   "audio_listener_flatness_probe.js",
+  "audio_listener_pitch_smoke.js",
+  "audio_listener_pitch_probe.js",
   "audio_listener_metric_runtime.js",
   "audio_listener_metric_controller.js",
   "audio_listener_metric_spectrum.js",

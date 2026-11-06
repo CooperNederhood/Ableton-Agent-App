@@ -235,6 +235,17 @@ checks remain pending for the newly frozen candidate.
 
 ### Pinned FluCoMa smoke dependency
 
+The F4 diagnostic slice adds the stock `fluid.pitch~.mxo` and its reference
+from the same verified release to this explicit inventory. It uses the same
+adjacent dependency location, absolute project binding, signed-byte validation
+and executable-mode rules; it adds no global Max package installation or
+build-time network acquisition. Its generated stereo branch and bounded
+gate/probe companions require exact production-graph admission.
+The pitch smoke independently verifies the mapped pitch executable in owned
+Live/Max processes; successful SpectralShape or native-mel mapping does not
+establish pitch identity. This remains a diagnostic delivery milestone, not
+numerical qualification or independently aligned pitch frames.
+
 The #92 smoke packages only the stock macOS `fluid.spectralshape~.mxo` from
 FluCoMa Max 1.0.10, its upstream notices/reference metadata and a provenance
 README. Its signed bundle lives at

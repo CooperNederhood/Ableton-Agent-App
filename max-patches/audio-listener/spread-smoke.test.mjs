@@ -485,6 +485,8 @@ test("runtime preserves native publication on local descriptor failure and inval
       );
       assert.equal(h.controllerOptions.beforeCleanup(control, false), false);
       h.handlers.flatness_smoke(generation, 1, "stopped");
+      assert.equal(h.controllerOptions.beforeCleanup(control, false), false);
+      h.handlers.pitch_smoke(generation, 1, "stopped");
       assert.equal(h.controllerOptions.beforeCleanup(control, false), true);
       assert.ok(
         h.diagnostics.some(

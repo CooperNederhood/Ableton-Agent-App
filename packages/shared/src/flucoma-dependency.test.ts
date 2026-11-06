@@ -22,6 +22,7 @@ import {
   validateNativeMelSourceInputs,
   NATIVE_MEL_BUNDLE,
   NATIVE_MEL_PRODUCER,
+  FLUCOMA_PITCH_BUNDLE,
 } from "./flucoma-dependency.js";
 import { NATIVE_MEL_SOURCE_INPUTS } from "./native-mel-pins.js";
 import {
@@ -65,10 +66,10 @@ it.skipIf(process.platform === "win32" || process.getuid?.() === 0)(
 
 it("preserves stock universal pins alongside the app-owned native mel dependency", async () => {
   await validateFlucomaDependency(source);
-  expect(FLUCOMA_DEPENDENCY_FILES).toHaveLength(17);
+  expect(FLUCOMA_DEPENDENCY_FILES).toHaveLength(22);
   expect(
     FLUCOMA_DEPENDENCY_FILES.reduce((total, file) => total + file.bytes, 0),
-  ).toBeLessThan(1_000_000);
+  ).toBeLessThan(1_600_000);
   const version = JSON.parse(
     (
       await readFlucomaDependencyFile(
@@ -85,6 +86,58 @@ it("preserves stock universal pins alongside the app-owned native mel dependency
     0x01000007, 0x0100000c,
   ]);
 });
+
+it("pins the stock signed pitch bundle, documentation and paired YinFFT selectors", async () => {
+  expect(FLUCOMA_PITCH_BUNDLE).toBe("dependencies/flucoma/fluid.pitch~.mxo");
+  const files = FLUCOMA_DEPENDENCY_FILES.filter((file) =>
+    file.name.startsWith(`${FLUCOMA_PITCH_BUNDLE}/`),
+  );
+  expect(files).toHaveLength(4);
+  const binary = await readFlucomaDependencyFile(
+    source,
+    `${FLUCOMA_PITCH_BUNDLE}/Contents/MacOS/fluid.pitch~`,
+  );
+  expect(createHash("sha256").update(binary).digest("hex")).toBe(
+    "23e23676725b4f7fa37327a74ed4d4c70ddf09b56dcf76c835fdfd25ab23d02b",
+  );
+  expect(binary.readUInt32BE(0)).toBe(0xcafebabe);
+  expect(binary.readUInt32BE(4)).toBe(2);
+  const docs = (
+    await readFlucomaDependencyFile(
+      source,
+      "dependencies/flucoma/docs/fluid.pitch~.maxref.xml",
+    )
+  ).toString("utf8");
+  for (const fragment of [
+    "YinFFT",
+    "pitch of 0 Hz",
+    "between 0 and 1",
+    "normal order",
+    "window size, hop size and FFT size",
+  ])
+    expect(docs).toContain(fragment);
+});
+
+it.each(["missing", "tampered", "mode", "extra"] as const)(
+  "rejects %s stock pitch dependency without accepting manifest rehashes",
+  async (failure) => {
+    const root = await fixture();
+    const binary = join(
+      root,
+      FLUCOMA_PITCH_BUNDLE,
+      "Contents/MacOS/fluid.pitch~",
+    );
+    if (failure === "missing") await rm(binary);
+    if (failure === "tampered") await writeFile(binary, Buffer.alloc(544048));
+    if (failure === "mode") await chmod(binary, 0o644);
+    if (failure === "extra")
+      await writeFile(
+        join(root, FLUCOMA_PITCH_BUNDLE, "Contents/extra"),
+        "untrusted",
+      );
+    await expect(validateFlucomaDependency(root)).rejects.toThrow();
+  },
+);
 
 it("publishes the exact nested bundle and executable mode with attributable lifecycle", async () => {
   const events: ResourcePublicationEvent[] = [];

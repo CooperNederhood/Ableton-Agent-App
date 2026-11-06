@@ -195,7 +195,9 @@ export function freezeAmxd(
     else if (value && typeof value === "object") {
       if (
         typeof value.text === "string" &&
-        /^(?:fluid\.spectralshape|listener\.mel)~(?:\s|$)/u.test(value.text) &&
+        /^(?:fluid\.(?:spectralshape|pitch)|listener\.mel)~(?:\s|$)/u.test(
+          value.text,
+        ) &&
         !hasDependencies
       )
         throw new Error("Missing pinned adjacent FluCoMa dependency resources");

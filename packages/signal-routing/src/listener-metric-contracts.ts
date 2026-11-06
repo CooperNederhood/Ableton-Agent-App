@@ -223,13 +223,14 @@ export const nativeMetricLifecycleSchema = z.strictObject({
   durationMs: z.number().finite().min(0).max(120_000).optional(),
   facts: z.array(listeningFailureFactSchema).max(24).optional(),
   scope: z.literal(LISTENER_METRIC_SCOPE),
-  // SpectralShape smoke scopes are diagnostics, not registered observations.
+  // Stock FluCoMa smoke scopes are diagnostics, not registered observations.
   metric: z
     .enum([
       ...metricObservationMetricSchema.options,
       "spectral-flatness",
       "spectral-spread",
       "spectral-rolloff",
+      "monophonic-pitch",
     ])
     .optional(),
   generation: z.string().uuid(),

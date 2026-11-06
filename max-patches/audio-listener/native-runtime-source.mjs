@@ -1,5 +1,6 @@
 import { isAbsolute, join } from "node:path";
 import { appendFlatnessSmokeGraph } from "./flatness-smoke-source.mjs";
+import { appendPitchSmokeGraph } from "./pitch-smoke-source.mjs";
 import { genDocument } from "./native-source.mjs";
 import {
   CLOCK_CODE,
@@ -529,6 +530,8 @@ export function appendNativeRuntimeGraph(
     patcher.rect[3] = Math.max(patcher.rect[3], bottom + 300);
   if (nativeVersion === 5)
     appendFlatnessSmokeGraph(result, input.id, runtime.id, guard.id);
+  if (nativeVersion === 5)
+    appendPitchSmokeGraph(result, input.id, runtime.id, guard.id);
   if (nativeVersion === 5) {
     add(result, "melControlRoute", "route mel_native_control", 1, 2);
     box(result, "melControlRoute").patching_rect = [10, 350, 220, 22];

@@ -2,6 +2,22 @@
 
 Companion specification: [Acceptance test authoring](acceptance-authoring.md).
 
+## F4 pitch diagnostic smoke (#95)
+
+- [x] Agree to unchanged `session-clip-identify` fixture and diagnostic-only
+      delivery rather than numerical fixture authoring.
+- [x] Register one pitch/confidence turn with existing scoped permissions,
+      finite budgets, healthy sibling evidence and exactly one capture.
+- [x] Extend typed pair-aware evidence, fixed-profile/candidate assertions,
+      independent pitch binary mapping, restart provenance and cleanup checks.
+- [x] Prove missing/invalid/foreign/all-sentinel pitch cannot borrow sibling
+      success; cover evidence limits, cancellation and binary substitution.
+- [x] Pass focused regressions and owning acceptance suites.
+      The real producer/ingress/projector seam is covered offline; registration
+      is admitted with `executed: false`, not a real-Live qualification.
+- [ ] Qualify the selected packaged case and persisted re-verification; preserve
+      failures while exercising the user's same-case fix/retry authorization.
+
 ## F3 mel-band smoke (#105)
 
 - [x] Register exactly one approved Session mel-band smoke using the unchanged

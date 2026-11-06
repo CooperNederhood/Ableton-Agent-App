@@ -123,6 +123,8 @@ it("pins packaged FluCoMa resources independently of editable artifact hashes", 
   for (const name of [
     "audio_listener_flatness_smoke.js",
     "audio_listener_flatness_probe.js",
+    "audio_listener_pitch_smoke.js",
+    "audio_listener_pitch_probe.js",
   ]) {
     expect(manifest.resources.find((file) => file.name === name)).toMatchObject(
       {
@@ -384,6 +386,7 @@ it("canonical default authored package is v5 and rejects retired CLI selectors w
     "dspPack",
     "flatness-smoke-output",
     "identity",
+    "pitch-smoke-output",
     "scoped-native-analysis",
     "scoped-native-clock",
   ]);

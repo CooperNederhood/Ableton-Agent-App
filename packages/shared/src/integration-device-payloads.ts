@@ -63,6 +63,8 @@ export const INTEGRATION_DEVICE_INVENTORY = {
       "audio_listener_native_v5_max.js",
       "audio_listener_flatness_smoke.js",
       "audio_listener_flatness_probe.js",
+      "audio_listener_pitch_smoke.js",
+      "audio_listener_pitch_probe.js",
       "audio_listener_metric_runtime.js",
       "audio_listener_metric_controller.js",
       "audio_listener_metric_spectrum.js",
@@ -400,7 +402,14 @@ function validateWiring(raw: Buffer, id: IntegrationDeviceId): void {
     const smoke = uniqueObject("p flatness-smoke");
     const smokeControl = uniqueObject("route flatness_smoke_control");
     const guardRoute = uniqueObject("route stop");
-    const guardStop = uniqueObject("prepend guardstop");
+    const guardStop = boxes.find(
+      (box) => box.id === "flatness-smoke-guard-stop",
+    )?.id;
+    if (
+      !guardStop ||
+      boxes.find((box) => box.id === guardStop)?.text !== "prepend guardstop"
+    )
+      throw new Error("Missing spectral guard stop");
     for (const [from, outlet, to, inlet] of [
       [input, 0, smoke, 0],
       [input, 1, smoke, 1],
@@ -482,6 +491,93 @@ function validateWiring(raw: Buffer, id: IntegrationDeviceId): void {
       )
     )
       throw new Error("Invalid shared SpectralShape smoke graph");
+    const pitch = uniqueObject("p pitch-smoke");
+    const pitchControl = uniqueObject("route pitch_smoke_control");
+    const pitchOutput = uniqueObject("prepend pitch_smoke");
+    const pitchStop = boxes.find(
+      (box) => box.id === "pitch-smoke-guard-stop",
+    )?.id;
+    if (
+      !pitchStop ||
+      boxes.find((box) => box.id === pitchStop)?.text !== "prepend guardstop"
+    )
+      throw new Error("Missing pitch guard stop");
+    const pitchEdges = [
+      [input, 0, pitch, 0],
+      [input, 1, pitch, 1],
+      [runtime, 0, pitchControl, 0],
+      [pitchControl, 0, pitch, 2],
+      [pitch, 0, pitchOutput, 0],
+      [pitchOutput, 0, runtime, 0],
+      [guardRoute, 0, pitchStop, 0],
+      [pitchStop, 0, pitch, 2],
+    ] as const;
+    const pitchIds = new Set([pitch, pitchControl, pitchOutput, pitchStop]);
+    const pitchOuterLines = patcher.lines
+      .map((entry: unknown) => record(record(entry).patchline))
+      .filter((line) =>
+        [line.source, line.destination].some(
+          (endpoint) => Array.isArray(endpoint) && pitchIds.has(endpoint[0]),
+        ),
+      );
+    if (
+      pitchOuterLines.length !== pitchEdges.length ||
+      pitchEdges.some(
+        ([from, outlet, to, inlet]) =>
+          pitchOuterLines.filter(
+            (line) =>
+              JSON.stringify(line.source) === JSON.stringify([from, outlet]) &&
+              JSON.stringify(line.destination) === JSON.stringify([to, inlet]),
+          ).length !== 1,
+      )
+    )
+      throw new Error("Invalid pitch smoke wiring");
+    const pitchPatcher = record(boxes.find((box) => box.id === pitch)?.patcher);
+    if (
+      !Array.isArray(pitchPatcher.boxes) ||
+      !Array.isArray(pitchPatcher.lines)
+    )
+      throw new Error("Missing pitch smoke graph");
+    const pitchBoxes = pitchPatcher.boxes.map((entry: unknown) =>
+      record(record(entry).box),
+    );
+    const pitchSpecs = smokeSpecs.map(([id, maxclass, text]) => [
+      id?.replace(/^shape-/, "pitch-"),
+      maxclass,
+      text === "js audio_listener_flatness_smoke.js"
+        ? "js audio_listener_pitch_smoke.js"
+        : text?.startsWith("fluid.spectralshape~")
+          ? "fluid.pitch~ @algorithm 2 @unit 0 @minfreq 50 @maxfreq 2000 @fftsettings 2048 2048 2048 @select pitch confidence"
+          : text,
+    ]);
+    const pitchLines = smokeLines.map((endpoints) =>
+      endpoints.map(([id, port]) => [
+        String(id).replace(/^shape-/, "pitch-"),
+        port,
+      ]),
+    );
+    if (
+      pitchBoxes.length !== pitchSpecs.length ||
+      pitchSpecs.some(
+        ([id, maxclass, text]) =>
+          pitchBoxes.filter(
+            (box) =>
+              box.id === id && box.maxclass === maxclass && box.text === text,
+          ).length !== 1,
+      ) ||
+      pitchPatcher.lines.length !== pitchLines.length ||
+      pitchLines.some(
+        ([source, destination]) =>
+          (pitchPatcher.lines as unknown[]).filter((entry) => {
+            const line = record(record(entry).patchline);
+            return (
+              JSON.stringify(line.source) === JSON.stringify(source) &&
+              JSON.stringify(line.destination) === JSON.stringify(destination)
+            );
+          }).length !== 1,
+      )
+    )
+      throw new Error("Invalid pitch smoke graph");
     for (const [from, outlet, to, inlet] of [
       [init, 0, identity, 0],
       [identity, 0, runtime, 0],
@@ -501,6 +597,7 @@ function validateWiring(raw: Buffer, id: IntegrationDeviceId): void {
       byName("ml_scoped_native_clock"),
       byName("ml_scoped_native_analysis"),
       flatnessOutput,
+      pitchOutput,
     ]);
     for (const entry of patcher.lines) {
       const line = record(record(entry).patchline);

@@ -42,6 +42,26 @@ const sessionInput = {
 };
 
 describe("optional listening tool contracts", () => {
+  it("keeps pitch/confidence smoke out of authoritative reports and interpretation", () => {
+    for (const statement of [
+      "monophonic-pitch smoke diagnostics",
+      "YinFFT",
+      "50-2000 Hz",
+      "0 Hz is the undefined sentinel",
+      "not a calibrated probability",
+      "not proof of noise",
+      "Do not invent pitch report fields",
+      "octave errors",
+      "polyphonic mixtures",
+    ])
+      expect(LISTENING_AGENT_GUIDANCE).toContain(statement);
+    expect(
+      listeningOperationParamsSchema.safeParse({
+        ...sessionInput,
+        requestedMetrics: ["monophonic-pitch"],
+      }).success,
+    ).toBe(false);
+  });
   it("directs mel reads to typed contexts without promoting SpectralShape diagnostics", () => {
     expect(LISTENING_AGENT_GUIDANCE).toContain("all 24 bands");
     expect(LISTENING_AGENT_GUIDANCE).toContain(

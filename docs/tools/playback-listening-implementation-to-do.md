@@ -1,5 +1,29 @@
 # Playback Listening Implementation To-Do
 
+## F4 smoke-only milestone (#95)
+
+- [x] Agree to diagnostic-only scope using the unchanged reviewed identification
+  fixture, not new monophonic assets or numerical qualification.
+- [x] Pin the stock pitch bundle/reference from the existing FluCoMa release;
+  preserve signatures, notices, explicit inventory and offline builds.
+- [x] Add passive independent-stereo paired pitch/confidence delivery with
+  bounded snapshots, causal lifecycle, sentinel/candidate distinctions and
+  physical cleanup joined to the original capture owner.
+- [x] Admit the diagnostic identifier through typed ingress and redacted History;
+  keep pitch out of authoritative reports and prohibit invented tool arguments.
+  Nine new ingress/guidance regressions fail before the change and pass after.
+- [x] Register the single packaged pitch smoke with independent binary identity,
+  both-channel candidates, sibling health, one capture, restart persistence,
+  protected state and capture/final cleanup.
+- [x] Complete red/green producer/packaging/acceptance tests and owning suites.
+  Producer suite: 847; shared: 179; ingress/tools: 278; Electron: 23.
+  Workspace build/typechecks pass; offline admission is not a host result.
+- [ ] Run the selected smoke; diagnose/fix/retry within the user's authorization
+  until assertions and cleanup pass, preserving previous failed receipts.
+- [ ] Complete the bounded applicable visual workflow after deterministic success.
+- [ ] Follow up separately on original numerical, frame-support, trajectory,
+  report and broader Session/Arrangement requirements; smoke does not close #95.
+
 ## F3 full implementation with smoke-level host scope (#105)
 
 - [x] Record the fixed stereo 24-band magnitude profile, selected low/mid and

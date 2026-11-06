@@ -30,6 +30,10 @@ import {
   melSmokeHistory,
   melBinaryFacts,
 } from "../../packages/test-support/src/integration/mel-smoke-test-support.js";
+import {
+  pitchBinaryFacts,
+  pitchHistory,
+} from "../../packages/test-support/src/integration/pitch-smoke-test-support.js";
 import type {
   InspectSessionListeningSourceParams,
   InspectSessionListeningSourceResult,
@@ -51,6 +55,7 @@ const mocks = vi.hoisted(() => ({
   loading: vi.fn(),
   flatnessLoading: vi.fn(),
   melLoading: vi.fn(),
+  pitchLoading: vi.fn(),
   bridgeOptions: vi.fn(),
   bridgeStart: vi.fn(),
   bridgeClose: vi.fn(),
@@ -74,6 +79,7 @@ vi.mock("../../tests/electron/acceptance-loading.js", () => ({
 vi.mock("../../tests/electron/acceptance-flatness-loading.js", () => ({
   verifyLoadedFlatnessBinary: mocks.flatnessLoading,
   verifyLoadedMelBinary: mocks.melLoading,
+  verifyLoadedPitchBinary: mocks.pitchLoading,
 }));
 vi.mock("../../tests/electron/packaged-paths.js", () => ({
   packagedExecutable: async () => "/candidate/Contents/MacOS/Agent",
@@ -1507,6 +1513,12 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
     "melbands-mel-denied",
     "melbands-mel-cancelled",
     "melbands-mel-incomplete-denied",
+    "pitch",
+    "pitch-pitch-denied",
+    "pitch-pitch-cancelled",
+    "pitch-pitch-incomplete-denied",
+    "pitch-mel-denied",
+    "pitch-denied",
   ])(
     "binds raw Max identities and requires loaded-binary proof for all smoke cases: %s",
     async (mode) => {
@@ -1585,9 +1597,13 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
         flatnessLoadedBinaryInode: "123",
         flatnessLoadedBinaryDevice: "456",
       });
-      const selectedLoader = mode.includes("-mel-")
-        ? mocks.melLoading
-        : mocks.flatnessLoading;
+      if (mode.startsWith("pitch"))
+        mocks.pitchLoading.mockResolvedValue(pitchBinaryFacts("baseline"));
+      const selectedLoader = mode.includes("-pitch-")
+        ? mocks.pitchLoading
+        : mode.includes("-mel-")
+          ? mocks.melLoading
+          : mocks.flatnessLoading;
       if (mode.endsWith("-denied"))
         selectedLoader.mockRejectedValue(
           new Error("Mapped flatness binary is not the pinned staged identity"),
@@ -1596,10 +1612,15 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
         selectedLoader.mockRejectedValue(
           new DOMException("Aborted", "AbortError"),
         );
-      if (mode.includes("-incomplete-"))
+      if (mode.includes("-incomplete-") && mode.startsWith("melbands"))
         mocks.melLoading.mockResolvedValue({
           ...melBinaryFacts("baseline"),
           melLoadedBinarySha256: undefined,
+        });
+      if (mode.includes("-incomplete-") && mode.startsWith("pitch"))
+        mocks.pitchLoading.mockResolvedValue({
+          ...pitchBinaryFacts("baseline"),
+          pitchLoadedBinarySha256: undefined,
         });
       await driver.launch(context);
       await driver.ready(context);
@@ -1610,7 +1631,11 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
         const evidence: unknown = JSON.parse(
           await readFile(join(directory, "product-evidence.json"), "utf8"),
         );
-        const prefix = mode.includes("-mel-") ? "mel" : "flatness";
+        const prefix = mode.includes("-pitch-")
+          ? "pitch"
+          : mode.includes("-mel-")
+            ? "mel"
+            : "flatness";
         expect(evidence).toMatchObject({
           provenance: {
             [`${prefix}LoadedBinaryVerified`]: false,
@@ -1634,7 +1659,8 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
         mode === "flatness" ||
         mode === "spread" ||
         mode === "rolloff" ||
-        mode === "melbands"
+        mode === "melbands" ||
+        mode === "pitch"
       ) {
         expect(mocks.flatnessLoading).toHaveBeenCalledExactlyOnceWith(
           expect.objectContaining({
@@ -1648,7 +1674,7 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
           flatnessLoadedBinaryState: "completed",
         });
       } else expect(mocks.flatnessLoading).not.toHaveBeenCalled();
-      if (mode === "melbands") {
+      if (mode === "melbands" || mode === "pitch") {
         expect(mocks.melLoading).toHaveBeenCalledExactlyOnceWith(
           expect.objectContaining({
             live: { pid: 98766, owned: true },
@@ -1662,6 +1688,20 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
           melLoadedBinaryPhase: "baseline",
         });
       } else expect(mocks.melLoading).not.toHaveBeenCalled();
+      if (mode === "pitch") {
+        expect(mocks.pitchLoading).toHaveBeenCalledExactlyOnceWith(
+          expect.objectContaining({
+            live: { pid: 98766, owned: true },
+            activeNodePids: "1234",
+          }),
+        );
+        expect(baseline.facts).toMatchObject({
+          pitchLoadedBinaryVerified: true,
+          pitchLoadedBinarySchema: "owned-mapped-flucoma-pitch/v1",
+          pitchLoadedBinaryState: "completed",
+          pitchLoadedBinaryPhase: "baseline",
+        });
+      } else expect(mocks.pitchLoading).not.toHaveBeenCalled();
       await driver.cleanup(context);
     },
   );
@@ -2290,12 +2330,18 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
     "mel-typed",
     "mel-mapping-failed",
     "mel-mapping-cancelled",
+    "pitch-typed",
+    "pitch-mapping-failed",
+    "pitch-mapping-cancelled",
+    "pitch-history-missing",
+    "pitch-restart-missing",
     "history-failed",
     "history-cancelled",
   ])(
     "joins exact ingress, assistant and SDK activity (%s), not global idle",
     async (activity) => {
-      const mel = activity.startsWith("mel-");
+      const pitch = activity.startsWith("pitch-");
+      const mel = activity.startsWith("mel-") || pitch;
       const typed =
         ["typed", "mel-typed", "history-failed", "history-cancelled"].includes(
           activity,
@@ -2343,7 +2389,9 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
           ...context,
           scenario: {
             ...context.scenario,
-            id: "session-flucoma-melbands-smoke",
+            id: pitch
+              ? "session-flucoma-pitch-smoke"
+              : "session-flucoma-melbands-smoke",
           },
           fixture: {
             ...context.fixture,
@@ -2359,6 +2407,8 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
         mocks.flatnessLoading.mockResolvedValue({
           flatnessLoadedBinaryVerified: true,
         });
+        if (pitch)
+          mocks.pitchLoading.mockResolvedValue(pitchBinaryFacts("baseline"));
       }
       if (typed)
         context = {
@@ -2377,6 +2427,14 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
         mocks.melLoading.mockRejectedValue(new Error("capture mapping denied"));
       if (activity === "mel-mapping-cancelled")
         mocks.melLoading.mockRejectedValue(
+          new DOMException("capture mapping cancelled", "AbortError"),
+        );
+      if (activity === "pitch-mapping-failed")
+        mocks.pitchLoading.mockRejectedValue(
+          new Error("capture mapping denied"),
+        );
+      if (activity === "pitch-mapping-cancelled")
+        mocks.pitchLoading.mockRejectedValue(
           new DOMException("capture mapping cancelled", "AbortError"),
         );
       const subscription = await driver.subscribe();
@@ -2401,6 +2459,14 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
                     name: "melbands-smoke",
                     parameters: { sourceId: "a", afterRestart: false },
                   },
+                  ...(pitch
+                    ? [
+                        {
+                          name: "pitch-smoke",
+                          parameters: { sourceId: "a", afterRestart: false },
+                        },
+                      ]
+                    : []),
                 ],
               },
             ],
@@ -2452,6 +2518,20 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
           api.eventHistory.trace.mockResolvedValue({
             items: [
               ...melSmokeHistory(observation),
+              ...(pitch && activity !== "pitch-history-missing"
+                ? pitchHistory({
+                    traceId: sdkTurnId,
+                    correlationId: sdkTurnId,
+                    passId: observation.ownership.passId,
+                    listenerId: observation.ownership.listenerId,
+                    native: {
+                      generation: observation.ownership.generation,
+                      nativeEpoch: observation.ownership.nativeEpoch,
+                      connectionId: observation.ownership.connectionId,
+                      connectionEpoch: observation.ownership.connectionEpoch,
+                    },
+                  })
+                : []),
               {
                 id: "native-cleanup",
                 sequence: 1,
@@ -2568,7 +2648,9 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
       if (
         activity === "present" ||
         activity === "typed" ||
-        activity === "mel-typed"
+        activity === "mel-typed" ||
+        activity === "pitch-typed" ||
+        activity === "pitch-restart-missing"
       ) {
         const result = await subscription.waitForTurn(submission, context);
         expect(result).toMatchObject({
@@ -2576,11 +2658,11 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
           userMessageId,
           assistantText: "Hello",
           status: "completed",
-          ...(activity === "mel-typed" ? {} : { captures: [], contexts: [] }),
+          ...(mel ? {} : { captures: [], contexts: [] }),
           facts: { sdkTurnId },
         });
         expect(sdkTurnId).not.toBe(context.traceId);
-        if (activity === "mel-typed") {
+        if (mel) {
           expect(result.captures).toHaveLength(1);
           expect(result.captures[0]!.metricFamilies).toEqual([
             "level",
@@ -2603,6 +2685,19 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
             melLoadedBinaryPassId: result.captures[0]!.passId,
             melLoadedBinaryGeneration: result.captures[0]!.native!.generation,
           });
+          if (pitch) {
+            expect(result.pitchSmoke).toHaveLength(1);
+            expect(mocks.pitchLoading).toHaveBeenCalledTimes(2);
+            expect(baseline!.facts.pitchLoadedBinaryPhase).toBe("baseline");
+            expect(result.facts).toMatchObject({
+              pitchLoadedBinaryVerified: true,
+              pitchLoadedBinaryPhase: "capture-completed",
+              pitchLoadedBinaryTraceId: sdkTurnId,
+              pitchLoadedBinaryPassId: result.captures[0]!.passId,
+              pitchLoadedBinaryGeneration:
+                result.captures[0]!.native!.generation,
+            });
+          }
         }
         if (typed) {
           expect(result.agentListening?.sdkTurnId).toBe(sdkTurnId);
@@ -2614,26 +2709,57 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
               turnId: sdkTurnId,
             }),
           );
-          const collected = await driver.collect(context);
-          expect(collected.agentListening).toEqual([
-            { ...result.agentListening, afterOwnedRestart: true },
-          ]);
-          expect(api.eventHistory.agent).toHaveBeenCalledTimes(2);
-          if (activity === "mel-typed") {
-            expect(collected.facts.melLoadedBinaryPassId).toBe(
-              result.captures[0]!.passId,
-            );
-            expect(mocks.melLoading).toHaveBeenCalledTimes(2);
-            expect(collected.melSmoke).toEqual(
-              result.melSmoke!.map((entry) => ({
-                ...entry,
-                afterOwnedRestart: true,
-              })),
+          if (activity === "pitch-restart-missing") {
+            const history = (await api.eventHistory.trace()) as {
+              items: { name: string }[];
+            };
+            api.eventHistory.trace.mockResolvedValue({
+              items: history.items.filter(
+                (event) => !event.name.includes("monophonic-pitch"),
+              ),
+            });
+            await expect(driver.collect(context)).rejects.toThrow(
+              "Invalid or incomplete paired pitch",
             );
             expect(mocks.launch).toHaveBeenCalledTimes(2);
-            expect(
-              api.entityContext.get.mock.calls.length,
-            ).toBeGreaterThanOrEqual(4);
+            expect(mocks.pitchLoading).toHaveBeenCalledTimes(2);
+          } else {
+            const collected = await driver.collect(context);
+            expect(collected.agentListening).toEqual([
+              { ...result.agentListening, afterOwnedRestart: true },
+            ]);
+            expect(api.eventHistory.agent).toHaveBeenCalledTimes(2);
+            if (mel) {
+              expect(collected.facts.melLoadedBinaryPassId).toBe(
+                result.captures[0]!.passId,
+              );
+              expect(mocks.melLoading).toHaveBeenCalledTimes(2);
+              expect(collected.melSmoke).toEqual(
+                result.melSmoke!.map((entry) => ({
+                  ...entry,
+                  afterOwnedRestart: true,
+                })),
+              );
+              expect(mocks.launch).toHaveBeenCalledTimes(2);
+              expect(
+                api.entityContext.get.mock.calls.length,
+              ).toBeGreaterThanOrEqual(4);
+              if (pitch) {
+                expect(mocks.pitchLoading).toHaveBeenCalledTimes(2);
+                expect(collected.pitchSmoke).toEqual(
+                  result.pitchSmoke!.map((entry) => ({
+                    ...entry,
+                    afterOwnedRestart: true,
+                  })),
+                );
+                expect(
+                  api.eventHistory.trace.mock.calls.length,
+                ).toBeGreaterThanOrEqual(3);
+                expect(collected.facts.pitchLoadedBinaryPassId).toBe(
+                  result.captures[0]!.passId,
+                );
+              }
+            }
           }
         }
       } else
@@ -2644,13 +2770,17 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
             ? "no attributable SDK"
             : activity === "history-failed"
               ? "journal unavailable"
-              : activity === "mel-mapping-failed"
+              : activity === "mel-mapping-failed" ||
+                  activity === "pitch-mapping-failed"
                 ? "capture mapping denied"
-                : activity === "mel-mapping-cancelled"
+                : activity === "mel-mapping-cancelled" ||
+                    activity === "pitch-mapping-cancelled"
                   ? "capture mapping cancelled"
-                  : activity === "history-cancelled"
-                    ? "cancelled history read"
-                    : "More than one SDK",
+                  : activity === "pitch-history-missing"
+                    ? "Invalid or incomplete paired pitch"
+                    : activity === "history-cancelled"
+                      ? "cancelled history read"
+                      : "More than one SDK",
         );
       await subscription.close(context);
       if (activity === "history-cancelled")
@@ -2658,16 +2788,21 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
           "cancelled history read",
         );
       else await driver.cleanup(context);
-      if (activity.startsWith("mel-mapping-")) {
+      if (
+        activity.startsWith("mel-mapping-") ||
+        activity.startsWith("pitch-mapping-")
+      ) {
         const product = JSON.parse(
           await readFile(join(directory, "product-evidence.json"), "utf8"),
         ) as { provenance: Record<string, unknown> };
+        const prefix = pitch ? "pitch" : "mel";
         expect(product.provenance).toMatchObject({
           flatnessLoadedBinaryVerified: true,
-          melLoadedBinaryVerified: false,
-          melLoadedBinaryPhase: "capture-completed",
-          melLoadedBinaryState:
-            activity === "mel-mapping-cancelled" ? "cancelled" : "failed",
+          [`${prefix}LoadedBinaryVerified`]: false,
+          [`${prefix}LoadedBinaryPhase`]: "capture-completed",
+          [`${prefix}LoadedBinaryState`]: activity.endsWith("-cancelled")
+            ? "cancelled"
+            : "failed",
         });
         expect(mocks.stop).toHaveBeenCalled();
         expect(mocks.liveStop).toHaveBeenCalled();

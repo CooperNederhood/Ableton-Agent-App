@@ -16,6 +16,7 @@ import { validateFlatnessSmoke } from "./flatness-smoke.js";
 import { validateSpreadSmoke } from "./spread-smoke.js";
 import { validateRolloffSmoke } from "./rolloff-smoke.js";
 import { verifyMelSmoke } from "./mel-smoke.js";
+import { verifyPitchSmoke } from "./pitch-smoke.js";
 import {
   verifyAgentListeningResult,
   verifyRestoredAgentListeningEvidence,
@@ -192,6 +193,38 @@ function registerSmokeAssertions(
 }
 export function createDefaultAssertions(): AssertionRegistry {
   return registerSmokeAssertions(new AssertionRegistry())
+    .register(
+      "pitch-smoke",
+      (input, parameters) => {
+        try {
+          verifyPitchSmoke(
+            input,
+            String(parameters.sourceId),
+            parameters.afterRestart === true,
+          );
+          return result(
+            true,
+            "ok",
+            "Unqualified paired pitch History, independent pinned loading and owned cleanup survive restart",
+          );
+        } catch {
+          return result(
+            false,
+            "pitch-evidence",
+            "Missing, foreign, malformed or changed pitch diagnostics or loading proof",
+          );
+        }
+      },
+      (parameters) => {
+        rejectUnknownFields(parameters, ["sourceId", "afterRestart"]);
+        requiredStrings(parameters, ["sourceId"]);
+        identifier(parameters.sourceId);
+        requireCondition(
+          typeof parameters.afterRestart === "boolean",
+          "Missing smoke restart requirement",
+        );
+      },
+    )
     .register(
       "melbands-smoke",
       (input, parameters) => {

@@ -144,6 +144,20 @@ are registered.
 Registration does not establish real-host qualification; inspect terminal run
 receipts for execution and assertion outcomes.
 
+The selected `session-flucoma-pitch-smoke` reuses the unchanged
+`session-clip-identify` fixture, its exact-source one-use listening permission,
+and existing finite run/restart/cleanup budgets. Its one turn requests pitch and
+confidence. Pitch assertions require paired finite diagnostics on both channels,
+at least one positive candidate per channel, the fixed YinFFT Hz profile,
+attributable lifecycle and physical cleanup, independently pinned loaded pitch
+binary identity, and fresh typed History persistence after an owned Desktop
+restart. Healthy baseline/mel/SpectralShape evidence cannot substitute for
+missing pitch; agent context consumption remains about the existing report,
+not nonexistent pitch report fields. The kick fixture establishes delivery,
+not note accuracy, calibrated confidence, voicing or independent FFT support.
+The user authorized this one case's root-cause fixes and retries until passing,
+with prior failures retained and no broader real-host suite selected.
+
 The approved `session-flucoma-melbands-smoke` reuses the unchanged
 `session-clip-identify` fixture and rolloff smoke permissions/budgets. Its one
 turn requests mel bands and low/mid and high/mid ratios. `melbands-smoke`

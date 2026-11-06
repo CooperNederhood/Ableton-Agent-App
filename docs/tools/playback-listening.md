@@ -1,5 +1,62 @@
 # Playback Listening and Entity Context
 
+## F4 pitch/confidence diagnostic smoke (#95)
+
+The user-selected delivery is **smoke only**, using the unchanged reviewed
+`session-clip-identify` Set. It proves stock `fluid.pitch~` delivery through the
+existing bounded capture, authenticated ingress and persisted typed History,
+not numerical pitch accuracy or authoritative pitch observations/reports.
+The existing kick fixture is not a monophonic acoustic oracle. Original #95
+and parent #91 remain open for independent frames, numerical qualification,
+trajectories, summaries and broader Session/Arrangement coverage.
+
+The fixed smoke configuration is independent stereo YinFFT, Hz, a 50-2,000 Hz
+search range and 2,048-sample window/hop/FFT. Confidence is an algorithm-specific
+score, not a calibrated probability or universal harmonic-to-noise ratio.
+Zero Hz is the undefined sentinel; it is not absent acquisition, a zero-frequency
+note or a proven unvoiced classification. Positive candidates are not verified
+notes. Low confidence does not prove noise; octave errors, low-note/window
+limitations and unreliable polyphonic mixtures remain possible. No
+transcription, instrument recognition or automatic correction is provided.
+
+`monophonic-pitch` diagnostics use `flucoma-pitch-smoke/v1`, with support and
+value validity explicitly unqualified and lifecycle `frames: 0`. Per-channel
+paired pitch/confidence snapshots, candidate/delivery counts, actual object
+classes and physical gate cleanup belong to typed Desktop History, not metric
+context/report fields. A pitch request uses the same ordinary listening action
+and playback pass without a `requestedMetrics` argument. Callback deliveries
+are not independently identified FFT frames, support, loss or latency proof.
+
+The selected smoke requires one 90,000-sample capture at 48 kHz, healthy existing
+metrics, both-channel pitch/confidence delivery and at least one positive
+candidate per channel, actual mapped pinned pitch-binary identity, same-agent
+terminal result and existing context consumption, History persistence after an
+owned Desktop restart, protected state and terminal cleanup. No exact note,
+confidence ground truth, confidence threshold or callback count is imposed.
+The user authorized diagnosis, fixes and same-case retries until this smoke
+passes, preserving failed receipts without expanding the fixture/host campaign.
+Host qualification and applicable visible validation are pending.
+
+The production branch retains exactly 24 bounded diagnostic facts and a
+96-attempt/8,192-byte event ceiling, separate from the unchanged SpectralShape
+288-attempt ceiling. Pair values remain atomic per channel; local rejected
+output is not widened into arbitrary diagnostic payloads. Both physical gates
+are stopped and joined before capture ownership is released, including observer
+failure and cancellation. The signed universal stock pitch binary is pinned at
+544,048 bytes with SHA-256
+`23e23676725b4f7fa37327a74ed4d4c70ddf09b56dcf76c835fdfd25ab23d02b`.
+Pinned package documentation confirms YinFFT, paired pitch/confidence list
+order, 0-Hz sentinel and the declared 0-1 score range. These are dependency and
+delivery contracts, not acoustic qualification.
+
+Offline checkpoints: producer regressions demonstrated eight pre-implementation
+failures; nine ingress/guidance regressions and the nested pitch-only
+missing-dependency freeze regression likewise failed before their fixes.
+The audio-listener suite passes 847 tests; shared passes 179; ingress/tools
+pass 278; and all 23 Electron tests pass, including pitch History reopening
+through production main/preload IPC. Build and workspace typechecks pass.
+Registration/admission and synthetic checks do not establish a real-Live pass.
+
 ## F3 mel-band implementation and bounded smoke (#105)
 
 The selected delivery keeps the full mel-band/ratio feature in scope but limits

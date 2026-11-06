@@ -77,6 +77,97 @@ async function rehash(
 
 describe("canonical integration payloads", () => {
   it.each([
+    "algorithm",
+    "unit",
+    "range",
+    "fft",
+    "select",
+    "channel",
+    "control",
+    "watchdog",
+    "extra-edge",
+    "extra-analyzer",
+  ])("rejects self-rehashed pitch %s graph substitutions", async (failure) => {
+    const path = await fixture();
+    const name = "Machine-Listening-Development.amxd";
+    const container = decodeAmxd(
+      await readFile(join(path, "machine-listening", name)),
+    );
+    type Graph = {
+      boxes: { box: { id: string; text?: string; patcher?: Graph } }[];
+      lines: {
+        patchline: { source: [string, number]; destination: [string, number] };
+      }[];
+    };
+    if (
+      !container.document ||
+      typeof container.document !== "object" ||
+      Array.isArray(container.document)
+    )
+      throw new Error("Missing test device document");
+    const graph = container.document.patcher as unknown as Graph;
+    const pitch = graph.boxes.find(({ box }) => box.id === "pitch-smoke")!.box
+      .patcher!;
+    const analyzer = pitch.boxes.find(
+      ({ box }) => box.id === "pitch-left",
+    )!.box;
+    const substitutions: Record<string, [string, string]> = {
+      algorithm: ["@algorithm 2", "@algorithm 1"],
+      unit: ["@unit 0", "@unit 1"],
+      range: ["@minfreq 50", "@minfreq 20"],
+      fft: ["2048 2048 2048", "1024 512 1024"],
+      select: ["pitch confidence", "confidence"],
+    };
+    if (substitutions[failure])
+      analyzer.text = analyzer.text!.replace(...substitutions[failure]);
+    if (failure === "channel")
+      pitch.lines.find(
+        ({ patchline: p }) => p.source[0] === "pitch-left",
+      )!.patchline.destination[1] = 2;
+    if (failure === "control" || failure === "watchdog")
+      graph.lines = graph.lines.filter(
+        ({ patchline: p }) =>
+          p.source[0] !==
+          (failure === "control"
+            ? "pitch-smoke-control"
+            : "pitch-smoke-guard-stop"),
+      );
+    if (failure === "extra-edge")
+      graph.lines.push({
+        patchline: {
+          source: ["pitch-smoke", 0],
+          destination: ["pitch-smoke", 2],
+        },
+      });
+    if (failure === "extra-analyzer")
+      pitch.boxes.push({ box: { ...analyzer, id: "pitch-extra" } });
+    const raw = encodeAmxd(container, container.document);
+    const artifactName = "audio-listener-manifest.json";
+    const artifact = JSON.parse(
+      await readFile(join(path, "machine-listening", artifactName), "utf8"),
+    ) as { deviceSha256: string };
+    artifact.deviceSha256 = createHash("sha256").update(raw).digest("hex");
+    await rehash(
+      path,
+      "machine-listening",
+      artifactName,
+      Buffer.from(JSON.stringify(artifact)),
+    );
+    await rehash(path, "machine-listening", name, raw);
+    await expect(readIntegrationDevicePayloads(path)).rejects.toThrow(/pitch/i);
+  });
+  it("rejects a self-rehashed pitch executable independently of the payload manifest", async () => {
+    const path = await fixture();
+    const name =
+      "dependencies/flucoma/fluid.pitch~.mxo/Contents/MacOS/fluid.pitch~";
+    const raw = await readFile(join(path, "machine-listening", name));
+    raw[100] = raw[100]! ^ 1;
+    await rehash(path, "machine-listening", name, raw);
+    await expect(readIntegrationDevicePayloads(path)).rejects.toThrow(
+      /Pinned FluCoMa dependency mismatch/,
+    );
+  });
+  it.each([
     "channel",
     "clock",
     "epoch",

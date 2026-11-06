@@ -50,6 +50,47 @@ function createMetricRuntime({
       emit: (control, lifecycle) =>
         client.sendListenerDiagnostic(control, lifecycle),
     });
+  const pitch = require("./audio_listener_pitch_probe.js").createPitchSmoke({
+    now,
+    sendControl: (...atoms) => output("pitch_smoke_control", ...atoms),
+    emit: (control, lifecycle) =>
+      client.sendListenerDiagnostic(control, lifecycle),
+  });
+  // Never short-circuit a sibling's physical cleanup or startup after an
+  // observer exception. Shared capture ownership waits for both stop acks.
+  function eachSmoke(action) {
+    let failure;
+    let completed = true;
+    for (const probe of [smoke, pitch]) {
+      try {
+        if (action(probe) !== true) completed = false;
+      } catch (error) {
+        completed = false;
+        failure ||= error;
+      }
+    }
+    if (failure) throw failure;
+    return completed;
+  }
+  const stopSmokes = (control, cancelled) =>
+    eachSmoke((probe) => probe.stop(control, cancelled));
+  function startSmokes(event) {
+    const snapshots = [...Object.values(smoke.snapshot()), pitch.snapshot()];
+    if (
+      snapshots.some(
+        (state) => state.generation && state.cleanup !== "completed",
+      )
+    )
+      throw new Error("diagnostic_gates_still_owned");
+    eachSmoke((probe) =>
+      probe.start(
+        event.control,
+        event.nativeLifecycle.nativeEpoch,
+        event.nativeLifecycle.eventId,
+        event.nativeLifecycle.elapsedMs,
+      ),
+    );
+  }
 
   function invalidate(reason) {
     if (blocked) return;
@@ -110,19 +151,14 @@ function createMetricRuntime({
         client.sendListenerReply(control, payload),
       sendListenerResult: (control, payload) =>
         client.sendListenerResult(control, payload),
-      beforeCleanup: (control, cancelled) => smoke.stop(control, cancelled),
+      beforeCleanup: stopSmokes,
       onEvent: (event) => {
         if (
           event.phase === "launch" &&
           event.nativeLifecycle.stage === "completed" &&
           !event.nativeLifecycle.metric
         )
-          smoke.start(
-            event.control,
-            event.nativeLifecycle.nativeEpoch,
-            event.nativeLifecycle.eventId,
-            event.nativeLifecycle.elapsedMs,
-          );
+          startSmokes(event);
         if (
           event.nativeLifecycle.stage !== "failed" ||
           (event.nativeLifecycle.metric &&
@@ -353,7 +389,7 @@ function createMetricRuntime({
             control.config.geometry.sampleRate,
           );
         } else if (control.action === "arm") controller.arm(control);
-        else if (controller.cancel(control)) smoke.stop(control, true);
+        else if (controller.cancel(control)) stopSmokes(control, true);
       },
       onListenerFailure: () =>
         invalidate("sdk_publication_failed_requires_reload"),
@@ -419,6 +455,15 @@ function createMetricRuntime({
     } catch (error) {
       invalidate(
         error instanceof Error ? error.message : "spectralshape_packet_failed",
+      );
+    }
+  });
+  maxApi.addHandler("pitch_smoke", (...packet) => {
+    try {
+      pitch.receive(packet);
+    } catch (error) {
+      invalidate(
+        error instanceof Error ? error.message : "pitch_packet_failed",
       );
     }
   });

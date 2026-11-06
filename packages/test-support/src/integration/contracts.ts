@@ -196,6 +196,8 @@ export interface SpectralShapeSmokeEvidence {
 export type FlatnessSmokeEvidence = SpectralShapeSmokeEvidence;
 export type SpreadSmokeEvidence = SpectralShapeSmokeEvidence;
 export type RolloffSmokeEvidence = SpectralShapeSmokeEvidence;
+/** Paired Hz/confidence diagnostics; validated independently of scalar spectral snapshots. */
+export type PitchSmokeEvidence = SpectralShapeSmokeEvidence;
 export interface ContextEvidence {
   readonly contextId: string;
   readonly passId: string;
@@ -233,6 +235,7 @@ export interface AudioBaselineEvidence extends BaselineEvidence {
   readonly sources: Readonly<Record<string, AudioSourceEvidence>>;
 }
 export interface TurnEvidence extends Submission {
+  readonly pitchSmoke?: readonly PitchSmokeEvidence[];
   readonly melSmoke?: readonly MelSmokeEvidence[];
   readonly agentListening?: AgentListeningEvidence;
   readonly schemaVersion: 1;
@@ -248,6 +251,7 @@ export interface TurnEvidence extends Submission {
   readonly facts: Facts;
 }
 export interface RunEvidence {
+  readonly pitchSmoke?: readonly PitchSmokeEvidence[];
   readonly melSmoke?: readonly MelSmokeEvidence[];
   readonly agentListening?: readonly AgentListeningEvidence[];
   readonly schemaVersion: 1;

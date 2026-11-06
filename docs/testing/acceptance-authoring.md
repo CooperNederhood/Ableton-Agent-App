@@ -157,6 +157,18 @@ not nonexistent pitch report fields. The kick fixture establishes delivery,
 not note accuracy, calibrated confidence, voicing or independent FFT support.
 The user authorized this one case's root-cause fixes and retries until passing,
 with prior failures retained and no broader real-host suite selected.
+The selected case passed all 16 assertions in `run-IYzggs` on Live 11.3.43,
+candidate source `7ea89023`, including pitch binary identity, both-channel
+candidates, fresh restart History and complete capture/final cleanup.
+The existing exported `readSuiteAttempt` independently accepted its saved
+receipt/checkpoint/product/cleanup evidence against the candidate and registered
+case. This is single-case verification, not suite qualification; the
+`live:acceptance:verify` CLI expects a suite receipt.
+The two earlier failures remain preserved: `run-fVUDqx` exposed unsupported
+agent diagnostic retrieval, corrected by guidance; `run-1H55t8` exposed a
+pre-pitch native-mel integrity failure that is not resolved by this later pass.
+See the [bounded execution record](../tools/playback-listening.md#f4-pitchconfidence-diagnostic-smoke-95)
+for immutable candidate identity and separate visible-workflow cleanup recovery.
 
 The approved `session-flucoma-melbands-smoke` reuses the unchanged
 `session-clip-identify` fixture and rolloff smoke permissions/budgets. Its one

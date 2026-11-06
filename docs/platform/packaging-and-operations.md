@@ -245,6 +245,14 @@ The pitch smoke independently verifies the mapped pitch executable in owned
 Live/Max processes; successful SpectralShape or native-mel mapping does not
 establish pitch identity. This remains a diagnostic delivery milestone, not
 numerical qualification or independently aligned pitch frames.
+The bounded packaged case passed all 16 assertions in `run-IYzggs` on Live
+11.3.43, with candidate source `7ea89023` and SHA-256
+`590cf5ee77bd41ff9102b9279a43581bd3ab684d652e1436b3fed52089d30b40`.
+Independent pitch mapping, restart persistence and capture/final cleanup passed.
+This local unpacked Apple Silicon candidate was not Developer ID signed;
+the result is not public-release signing qualification. Earlier failed attempts
+and the separate visual-host cleanup recovery remain documented in the
+[F4 execution record](../tools/playback-listening.md#f4-pitchconfidence-diagnostic-smoke-95).
 
 The #92 smoke packages only the stock macOS `fluid.spectralshape~.mxo` from
 FluCoMa Max 1.0.10, its upstream notices/reference metadata and a provenance

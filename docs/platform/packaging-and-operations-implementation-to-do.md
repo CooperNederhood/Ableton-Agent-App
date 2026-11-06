@@ -10,8 +10,11 @@ Companion specification: [Packaging and Operations](packaging-and-operations.md)
       bounded companions, shared capture ownership and physical gate cleanup.
 - [x] Require independent owned-process pitch mapping and unchanged immutable
       binary identity before and after the selected capture.
-- [ ] Pass the unchanged-fixture packaged pitch smoke and persist exact candidate,
+- [x] Pass the unchanged-fixture packaged pitch smoke and persist exact candidate,
       host version and cleanup evidence, preserving any earlier failures.
+      `run-IYzggs`: 16 assertions, Live 11.3.43, source `7ea89023`, independent
+      pitch mapping, restart and complete capture/process/lease/profile cleanup.
+      Earlier failures remain preserved; no public signing qualification claimed.
 
 ## F2a shared SpectralShape smoke (#98)
 

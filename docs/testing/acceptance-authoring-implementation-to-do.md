@@ -15,8 +15,11 @@ Companion specification: [Acceptance test authoring](acceptance-authoring.md).
 - [x] Pass focused regressions and owning acceptance suites.
       The real producer/ingress/projector seam is covered offline; registration
       is admitted with `executed: false`, not a real-Live qualification.
-- [ ] Qualify the selected packaged case and persisted re-verification; preserve
+- [x] Qualify the selected packaged case and persisted re-verification; preserve
       failures while exercising the user's same-case fix/retry authorization.
+      `run-IYzggs` passed all 16 assertions on Live 11.3.43 and the existing
+      single-case `readSuiteAttempt` accepted saved receipt/checkpoint/product/
+      cleanup evidence. Preserve both earlier failures; no full-suite claim.
 
 ## F3 mel-band smoke (#105)
 

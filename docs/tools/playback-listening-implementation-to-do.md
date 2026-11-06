@@ -18,9 +18,16 @@
 - [x] Complete red/green producer/packaging/acceptance tests and owning suites.
   Producer suite: 847; shared: 179; ingress/tools: 278; Electron: 23.
   Workspace build/typechecks pass; offline admission is not a host result.
-- [ ] Run the selected smoke; diagnose/fix/retry within the user's authorization
-  until assertions and cleanup pass, preserving previous failed receipts.
-- [ ] Complete the bounded applicable visual workflow after deterministic success.
+- [x] Run the selected smoke; `run-IYzggs` passed all 16 assertions on Live
+  11.3.43, including restart persistence and capture/process/lease/profile cleanup.
+  Preserve `run-fVUDqx` (agent retrieval failure, corrected guidance) and
+  `run-1H55t8` (native-mel integrity failure, not resolved by the later pass).
+- [x] Complete the bounded applicable visual workflow after deterministic success.
+  Fresh owned fixture/profile check showed ordinary approval, completed listening
+  and report, honest pitch limitations and matching History. Desktop closed
+  gracefully; UX-host shutdown required exact-owned-PID and lease recovery.
+  Record this separately from clean acceptance cleanup; graceful UX shutdown
+  reliability is not qualified by this check.
 - [ ] Follow up separately on original numerical, frame-support, trajectory,
   report and broader Session/Arrangement requirements; smoke does not close #95.
 

@@ -1,4 +1,5 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
+import { setImmediate as yieldTurn } from "node:timers/promises";
 import {
   mkdir,
   readFile,
@@ -23,6 +24,14 @@ import {
 import {
   createMetricObservationReportRows,
   metricAudioObservationSchema,
+  compareListeningFeatures,
+  contextFeatureSchema,
+  PITCH_PROFILE,
+  SPECTRAL_SHAPE_PROFILE,
+  classifyPitchEstimate,
+  pitchTimelineSchema,
+  spectralShapeTimelineSchema,
+  type ListeningMusicalAlignment,
 } from "@ableton-agent/protocol";
 import {
   resolveLiveAgentStorage,
@@ -295,6 +304,93 @@ function metricPublication(id = "metric", partial = false): AppendContextPass {
     ],
     links: legacy.links.map((link) => ({ ...link, attribution: "unknown" })),
   };
+}
+
+function alignedMetricPublication(
+  id = "aligned",
+  startBeat = 0,
+  endBeat = 8,
+  alignment: Partial<ListeningMusicalAlignment> = {},
+): AppendContextPass {
+  const value = metricPublication(id);
+  const entry = value.entries[0]!;
+  if (entry.payload.schema !== "metric-audio-observation/v1")
+    throw new Error("Expected metric fixture");
+  const payload = createSyntheticMetricListeningObservation({
+    startBeat,
+    endBeat,
+    tempoBpm: alignment.tempoBpm ?? 120,
+  });
+  payload.ownership = entry.payload.ownership;
+  entry.payload = payload;
+  entry.musicalAlignment = {
+    version: 1,
+    coordinate: "transport-beats",
+    meter: { numerator: 4, denominator: 4 },
+    barOriginBeat: 0,
+    tempoBpm: 120,
+    tempoEvidence: "message-rate-monitored-constant",
+    provenance: "capture-snapshot/v1",
+    ...alignment,
+  };
+  value.pass.requestedRange = { startBeat, endBeat };
+  value.pass.actualRange = { startBeat, endBeat };
+  for (const link of value.links) link.coverage = { startBeat, endBeat };
+  return value;
+}
+
+function analyzerPublication(id: string, hz = 440): AppendContextPass {
+  const value = alignedMetricPublication(id, 0, 1, {
+    tempoBpm: 351.5625,
+    meter: { numerator: 1, denominator: 4 },
+  });
+  const entry = value.entries[0]!;
+  if (entry.payload.schema !== "metric-audio-observation/v1")
+    throw new Error("Expected metric fixture");
+  const payload = entry.payload;
+  const common = {
+    status: "complete",
+    sampleRate: payload.geometry.sampleRate,
+    sourceSupport: payload.sourceCoverage,
+    expectedRecords: 4,
+    trailingSupport: null,
+    gaps: [],
+  };
+  const frames = Array.from({ length: 4 }, (_, index) => ({
+    index,
+    support: {
+      startSample: payload.geometry.startSample + index * 2048,
+      endSample: payload.geometry.startSample + (index + 1) * 2048,
+    },
+  }));
+  payload.requestedMetrics.push("pitch", "spectral-shape");
+  payload.metrics.pitch = pitchTimelineSchema.parse({
+    ...common,
+    schema: "pitch-timeline/v1",
+    profile: PITCH_PROFILE,
+    frames: frames.map((frame) => ({
+      ...frame,
+      channels: [
+        classifyPitchEstimate(hz, 0.99),
+        classifyPitchEstimate(hz, 0.99),
+      ],
+    })),
+  });
+  payload.metrics["spectral-shape"] = spectralShapeTimelineSchema.parse({
+    ...common,
+    schema: "spectral-shape-timeline/v1",
+    profile: SPECTRAL_SHAPE_PROFILE,
+    frames: frames.map((frame) => ({
+      ...frame,
+      channels: [
+        { state: "valid", flatnessDb: -20, spreadHz: 500, rolloffHz: 1000 },
+        { state: "silence", flatnessDb: null, spreadHz: null, rolloffHz: null },
+      ],
+    })),
+  });
+  payload.rows = createMetricObservationReportRows(payload);
+  entry.payload = metricAudioObservationSchema.parse(payload);
+  return value;
 }
 
 function sessionPublication(endBeat = 2): AppendContextPass {
@@ -821,7 +917,7 @@ describe("typed metric context history", () => {
     await store.close();
     const reopened = await openSessionContextStore({ ...ownership, path });
     stores.push(reopened);
-    expect(reopened.schemaVersion).toBe(2);
+    expect(reopened.schemaVersion).toBe(3);
     for (const value of values) {
       expect(await reopened.getEntry(value.entries[0]!.id)).toEqual(
         value.entries[0],
@@ -1032,9 +1128,10 @@ describe("typed descriptive context history", () => {
         "session-audio-observation/v1",
       ],
     };
-    expect(sessionContextStoreReferenceSchema.parse(oldReference)).toEqual(
-      oldReference,
-    );
+    expect(sessionContextStoreReferenceSchema.parse(oldReference)).toEqual({
+      ...oldReference,
+      schemaVersion: 3,
+    });
     expect(SESSION_CONTEXT_STORE_REFERENCE.kinds).toEqual([
       "audio-observation/v1",
       "audio-observation/v2",
@@ -2191,11 +2288,11 @@ describe("context persistence lifecycle and recovery", () => {
     }
     await mutate((database) => {
       database.run(
-        "DROP TABLE context_live_set_ownership; PRAGMA user_version = 1",
+        "DROP TABLE context_features; DROP TABLE context_segments; DROP TABLE context_feature_derivations; DROP TABLE context_live_set_ownership; PRAGMA user_version = 1",
       );
     });
     const migrated = await openSessionContextStore({ ...ownership, path });
-    expect(migrated.schemaVersion).toBe(2);
+    expect(migrated.schemaVersion).toBe(3);
     expect(await migrated.getEntry("entry:1:0")).toBeDefined();
     await migrated.close();
     await mutate((database) => {
@@ -2220,6 +2317,1546 @@ describe("context persistence lifecycle and recovery", () => {
     await expect(stat(`${path}.lock`)).rejects.toMatchObject({
       code: "ENOENT",
     });
+  });
+});
+
+describe("phase 1 derived context features", () => {
+  it("publishes after measurements, preserves exact source bytes, and reopens stable identities without backfill", async () => {
+    const path = await diskPath();
+    const events: TelemetryEventEnvelope[] = [];
+    const store = await openSessionContextStore({
+      ...ownership,
+      path,
+      recorder: {
+        enqueue: (event) => {
+          events.push(event);
+        },
+      },
+    });
+    stores.push(store);
+    const value = metricPublication();
+    await store.appendPass(value);
+    const state = await store.getFeatureDerivation(value.entries[0]!.id);
+    expect(state).toMatchObject({
+      status: "ready",
+      definitionSet: "qualified-listening/v1",
+    });
+    expect(state!.featureIds).toHaveLength(15);
+    const feature = await store.getFeature(state!.featureIds[0]!);
+    expect(feature).toMatchObject({
+      entryId: value.entries[0]!.id,
+      sourceFingerprint: createHash("sha256")
+        .update(JSON.stringify(value.entries[0]!.payload))
+        .digest("hex"),
+      feature: {
+        type: "peak-summary/v1",
+        status: "ready",
+      },
+      freshness: { status: "unknown" },
+    });
+    expect(feature?.feature.values).toHaveLength(2);
+    const segment = await store.getSegment(feature!.segmentId);
+    expect(segment).toMatchObject({
+      kind: "unaligned",
+      order: 0,
+      startBeat: 0,
+      endBeat: 2,
+      startSample: 10000,
+      endSample: 58000,
+      sampleRate: 48000,
+      alignmentReason: "musical-bar-alignment-not-established",
+    });
+    expect(await store.deriveFeatures(value.entries[0]!.id)).toEqual(state);
+    expect(await store.getEntry(value.entries[0]!.id)).toEqual(
+      value.entries[0],
+    );
+    await store.close();
+    const sql = await loadSqlJs();
+    const before = new sql.Database(await readFile(path));
+    const sourceBytes = before.exec("SELECT payload FROM context_entries")[0]!
+      .values;
+    before.close();
+    const reopened = await openSessionContextStore({ ...ownership, path });
+    stores.push(reopened);
+    expect(await reopened.deriveFeatures(value.entries[0]!.id)).toEqual(state);
+    expect((await reopened.getFeature(feature!.id))?.createdAt).toBe(
+      feature!.createdAt,
+    );
+    await reopened.close();
+    const after = new sql.Database(await readFile(path));
+    expect(
+      after.exec("SELECT payload FROM context_entries")[0]!.values,
+    ).toEqual(sourceBytes);
+    expect(
+      after.exec("SELECT COUNT(*) FROM context_features")[0]!.values,
+    ).toEqual([[15]]);
+    after.close();
+    const names = events.map((event) => event.name);
+    expect(names.indexOf("context.publish.completed")).toBeLessThan(
+      names.indexOf("context.derive-features.started"),
+    );
+    const lifecycle = events
+      .filter((event) => event.name.startsWith("context.derive-features."))
+      .slice(0, 4);
+    expect(lifecycle.map((event) => event.stage)).toEqual([
+      "queued",
+      "started",
+      "progress",
+      "completed",
+    ]);
+    expect(
+      lifecycle.every(
+        (event) =>
+          event.activeAgentId === "agent:1" &&
+          event.trace?.traceId === trace.traceId,
+      ),
+    ).toBe(true);
+    for (let index = 1; index < lifecycle.length; index++)
+      expect(lifecycle[index]!.causationId).toBe(lifecycle[index - 1]!.id);
+  });
+
+  it("additively migrates v2 with byte-identical observations and no implicit extraction", async () => {
+    const path = await diskPath();
+    const store = await openSessionContextStore({ ...ownership, path });
+    await store.appendPass(metricPublication());
+    await store.getFeatureDerivation("entry:metric:0");
+    await store.close();
+    const sql = await loadSqlJs();
+    const database = new sql.Database(await readFile(path));
+    const payloads = database.exec("SELECT payload FROM context_entries")[0]!
+      .values;
+    database.run(
+      "DROP TABLE context_features; DROP TABLE context_segments; DROP TABLE context_feature_derivations; PRAGMA user_version = 2",
+    );
+    await writeFile(path, database.export());
+    database.close();
+    const migrated = await openSessionContextStore({ ...ownership, path });
+    stores.push(migrated);
+    expect(migrated.schemaVersion).toBe(3);
+    expect(
+      await migrated.getFeatureDerivation("entry:metric:0"),
+    ).toBeUndefined();
+    expect(
+      (await migrated.listFeatures({ includeHistorical: true })).items,
+    ).toEqual([]);
+    await migrated.close();
+    const reopened = new sql.Database(await readFile(path));
+    expect(
+      reopened.exec("SELECT payload FROM context_entries")[0]!.values,
+    ).toEqual(payloads);
+    reopened.close();
+  });
+
+  it("recovers durable pending as explicit interrupted failure without extracting", async () => {
+    const path = await diskPath();
+    const store = await openSessionContextStore({ ...ownership, path });
+    await store.appendPass(metricPublication());
+    const state = await store.getFeatureDerivation("entry:metric:0");
+    await store.close();
+    const sql = await loadSqlJs();
+    const database = new sql.Database(await readFile(path));
+    database.run("DELETE FROM context_features; DELETE FROM context_segments");
+    database.run(
+      "UPDATE context_feature_derivations SET status = 'pending', payload = ?",
+      [JSON.stringify({ ...state, status: "pending", featureIds: [] })],
+    );
+    await writeFile(path, database.export());
+    database.close();
+    const events: TelemetryEventEnvelope[] = [];
+    const resumed = await openSessionContextStore({
+      ...ownership,
+      path,
+      recorder: {
+        enqueue: (event) => {
+          events.push(event);
+        },
+      },
+    });
+    stores.push(resumed);
+    expect(await resumed.getFeatureDerivation("entry:metric:0")).toMatchObject({
+      status: "failed",
+      reason: "interrupted-before-publication",
+      featureIds: [],
+    });
+    expect((await resumed.listFeatures()).items).toEqual([]);
+    expect(
+      events.some(
+        (event) => event.name === "context.derive-recovery.completed",
+      ),
+    ).toBe(true);
+    expect(await resumed.deriveFeatures("entry:metric:0")).toMatchObject({
+      status: "ready",
+    });
+  });
+
+  it("keeps unsupported old observations explicit and immutable", async () => {
+    const store = await memory();
+    const value = publication();
+    await store.appendPass(value);
+    expect(await store.getFeatureDerivation("entry:1:0")).toBeUndefined();
+    expect(await store.deriveFeatures("entry:1:0")).toMatchObject({
+      status: "unavailable",
+      reason: "unsupported-source-kind",
+      featureIds: [],
+    });
+    expect(
+      (await store.listFeatures({ includeHistorical: true })).items,
+    ).toEqual([]);
+    expect(await store.getEntry("entry:1:0")).toEqual(value.entries[0]);
+  });
+
+  it("persists unavailable measurement families and computes nonzero exact distances without counting them as comparable", async () => {
+    const store = await memory();
+    const loud = metricPublication("loud");
+    const loudPayload = loud.entries[0]!.payload;
+    if (loudPayload.schema !== "metric-audio-observation/v1")
+      throw new Error("Expected metric fixture");
+    for (const record of loudPayload.metrics.level.records)
+      record.peak = [1, 1];
+    loudPayload.rows = createMetricObservationReportRows(loudPayload);
+    const spectrum = metricPublication("spectrum");
+    const spectrumPayload = spectrum.entries[0]!.payload;
+    if (spectrumPayload.schema !== "metric-audio-observation/v1")
+      throw new Error("Expected metric fixture");
+    spectrumPayload.requestedMetrics = ["spectral-centroid"];
+    spectrumPayload.metrics.level = {
+      status: "not-requested",
+      expectedRecords: 0,
+      algorithm: null,
+      records: [],
+      gaps: [],
+      limitations: [],
+    };
+    spectrumPayload.metrics["spectral-centroid"] =
+      createSyntheticMetricListeningObservation({ endBeat: 2 }).metrics[
+        "spectral-centroid"
+      ];
+    spectrumPayload.rows = createMetricObservationReportRows(spectrumPayload);
+    for (const value of [metricPublication("quiet"), loud, spectrum]) {
+      await store.appendPass(value);
+      await store.getFeatureDerivation(value.entries[0]!.id);
+    }
+    const spectrumState = await store.getFeatureDerivation("entry:spectrum:0");
+    expect(spectrumState).toMatchObject({
+      status: "ready",
+      definitionSet: "qualified-listening/v1",
+    });
+    expect(
+      (await store.getFeature(spectrumState!.featureIds[0]!))?.feature,
+    ).toMatchObject({
+      status: "unavailable",
+      reason: "unsupported-level-profile",
+    });
+    const quiet = await store.getFeatureDerivation("entry:quiet:0");
+    const source = await store.getFeature(quiet!.featureIds[0]!);
+    const result = await store.searchFeatures({ featureId: source!.id });
+    expect(result).toMatchObject({
+      eligibleCount: 2,
+      scannedCount: 2,
+      comparableCount: 1,
+      excludedCount: 1,
+      exhaustive: true,
+      exclusionReasons: { unavailable: 1 },
+    });
+    expect(result.matches[0]!.distance).toBe(
+      Math.hypot(
+        1 - source!.feature.values![0]!,
+        1 - source!.feature.values![1]!,
+      ),
+    );
+    expect(result.matches[0]!.feature.entryId).toBe("entry:loud:0");
+  });
+
+  it("scopes every feature operation to the current Set, even historical queries", async () => {
+    const store = await memory();
+    await store.appendPass(metricPublication());
+    const state = await store.getFeatureDerivation("entry:metric:0");
+    const feature = await store.getFeature(state!.featureIds[0]!);
+    await store.transitionLiveSetOwnership("set:other");
+    expect(await store.getFeature(feature!.id)).toBeUndefined();
+    expect(await store.getSegment(feature!.segmentId)).toBeUndefined();
+    expect(await store.getFeatureDerivation("entry:metric:0")).toBeUndefined();
+    expect(
+      (await store.listFeatures({ includeHistorical: true })).items,
+    ).toEqual([]);
+    await expect(
+      store.searchFeatures({ featureId: feature!.id, includeHistorical: true }),
+    ).rejects.toThrow("ownership");
+    await expect(store.deriveFeatures("entry:metric:0")).rejects.toThrow(
+      "ownership",
+    );
+    expect(await store.getEntry("entry:metric:0")).toBeDefined();
+  });
+
+  it("uses stable pagination and exact bounded distance search with explicit exclusions", async () => {
+    const store = await memory();
+    for (const id of ["a", "b", "c", "d"]) {
+      await store.appendPass(metricPublication(id));
+      await store.getFeatureDerivation(`entry:${id}:0`);
+    }
+    const all = await store.listFeatures({ featureType: "peak-summary/v1" });
+    expect(all.items).toHaveLength(4);
+    const first = await store.listFeatures({
+      limit: 1,
+      featureType: "peak-summary/v1",
+    });
+    const second = await store.listFeatures({
+      limit: 1,
+      featureType: "peak-summary/v1",
+      cursor: first.nextCursor,
+    });
+    expect(first.items[0]!.id < second.items[0]!.id).toBe(true);
+    await expect(
+      store.listFeatures({ includeHistorical: true, cursor: first.nextCursor }),
+    ).rejects.toThrow("cursor");
+    const query = all.items[0]!;
+    const search = await store.searchFeatures({ featureId: query.id });
+    expect(search).toMatchObject({
+      eligibleCount: 3,
+      scannedCount: 3,
+      comparableCount: 3,
+      excludedCount: 0,
+      exhaustive: true,
+      limitsHit: [],
+    });
+    expect(search.matches.every((hit) => hit.distance === 0)).toBe(true);
+    expect(search.matches.map((hit) => hit.feature.id)).toEqual(
+      search.matches.map((hit) => hit.feature.id).sort(),
+    );
+    const capped = await store.searchFeatures({
+      featureId: query.id,
+      candidateLimit: 1,
+    });
+    expect(capped).toMatchObject({
+      eligibleCount: 3,
+      scannedCount: 1,
+      exhaustive: false,
+      limitsHit: ["candidates"],
+    });
+    const excluded = await store.searchFeatures({
+      featureId: query.id,
+      excludeEntryIds: [search.matches[0]!.feature.entryId],
+    });
+    expect(excluded.eligibleCount).toBe(2);
+    expect(
+      excluded.matches.some(
+        (hit) => hit.feature.entryId === search.matches[0]!.feature.entryId,
+      ),
+    ).toBe(false);
+    await expect(
+      store.searchFeatures({ featureId: query.id, candidateLimit: 1001 }),
+    ).rejects.toThrow();
+    await expect(store.listFeatures({ limit: 101 })).rejects.toThrow();
+    await expect(store.getFeature("bad/id")).rejects.toThrow();
+  });
+
+  it("never upgrades historical links and filters fresh revalidation failures honestly", async () => {
+    const revalidate = vi.fn(async (): Promise<ContextFreshnessAssessment> => ({
+      status: "fresh",
+      assessedAt: timestamp,
+      reason: "Verified",
+    }));
+    const store = await memory({ ...ownership, revalidate });
+    await store.appendPass(metricPublication("a"));
+    await store.appendPass(metricPublication("b"));
+    const first = await store.getFeatureDerivation("entry:a:0");
+    await store.assessLink(
+      "link:a:0",
+      { status: "historical", assessedAt: timestamp, reason: "Old source" },
+      {},
+    );
+    expect(
+      (await store.listFeatures({ featureType: "peak-summary/v1" })).items,
+    ).toHaveLength(1);
+    expect(
+      (await store.getFeature(first!.featureIds[0]!))?.freshness?.status,
+    ).toBe("historical");
+    expect(
+      (
+        await store.listFeatures({
+          includeHistorical: true,
+          featureType: "peak-summary/v1",
+        })
+      ).items,
+    ).toHaveLength(2);
+    revalidate.mockImplementation(async () => {
+      throw new Error("token=feature-secret");
+    });
+    const remaining = await store.listFeatures({
+      featureType: "peak-summary/v1",
+    });
+    expect(remaining.items[0]!.freshness).toMatchObject({
+      status: "unknown",
+      reason: "Current binding revalidation failed",
+    });
+    expect(JSON.stringify(remaining)).not.toContain("feature-secret");
+    await expect(
+      store.searchFeatures({ featureId: first!.featureIds[0]! }),
+    ).rejects.toThrow("historical");
+  });
+
+  it.each(["pass", "entry", "missing-pass", "mixed"])(
+    "keeps unrelated feature derivation running when pruning by %s",
+    async (selection) => {
+      const events: TelemetryEventEnvelope[] = [];
+      const store = await memory({
+        ...ownership,
+        recorder: {
+          enqueue: (event) => {
+            events.push(event);
+          },
+        },
+      });
+      await store.appendPass(metricPublication("old"));
+      await store.getFeatureDerivation("entry:old:0");
+      const current = metricPublication("new");
+      await store.appendPass(current);
+      await store.prune({
+        trace,
+        ...(selection === "pass" || selection === "mixed"
+          ? { passIds: ["pass:old"] }
+          : selection === "missing-pass"
+            ? { passIds: ["pass:missing"] }
+            : {}),
+        ...(selection === "entry" || selection === "mixed"
+          ? { entryIds: ["entry:old:0"] }
+          : {}),
+      });
+      const derived = await store.getFeatureDerivation("entry:new:0");
+      expect(derived).toMatchObject({
+        status: "ready",
+        reason: null,
+      });
+      expect(derived!.featureIds.length).toBeGreaterThan(0);
+      expect((await store.getEntry("entry:new:0"))?.payload).toEqual(
+        current.entries[0]!.payload,
+      );
+      expect(
+        events.filter(
+          (event) => event.name === "context.derive-features.cancelled",
+        ),
+      ).toEqual([]);
+      expect(
+        events
+          .filter((event) => event.name.startsWith("context.prune."))
+          .map((event) => event.stage),
+      ).toEqual(["queued", "started", "progress", "completed"]);
+    },
+  );
+
+  it.each(["invalid", "cancelled"])(
+    "does not cancel feature jobs for %s prune requests",
+    async (mode) => {
+      const events: TelemetryEventEnvelope[] = [];
+      const store = await memory({
+        ...ownership,
+        recorder: {
+          enqueue: (event) => {
+            events.push(event);
+          },
+        },
+      });
+      await store.appendPass(metricPublication("new"));
+      const abort = new AbortController();
+      if (mode === "cancelled") abort.abort(new Error("Prune cancelled"));
+      await expect(
+        store.prune(
+          {
+            passIds: ["pass:new"],
+            ...(mode === "invalid" ? { entryIds: ["bad/id"] } : {}),
+            trace,
+          },
+          { signal: abort.signal, activeAgentId: "agent:pruner" },
+        ),
+      ).rejects.toThrow();
+      expect(await store.getPass("pass:new")).toBeDefined();
+      expect(await store.getFeatureDerivation("entry:new:0")).toMatchObject({
+        status: "ready",
+      });
+      expect(
+        events.filter(
+          (event) => event.name === "context.derive-features.cancelled",
+        ),
+      ).toEqual([]);
+      expect(
+        events.find(
+          (event) =>
+            event.name ===
+            `context.prune.${mode === "invalid" ? "failed" : "cancelled"}`,
+        ),
+      ).toMatchObject({
+        activeAgentId: "agent:pruner",
+        correlationId: trace.correlationId,
+        trace: { traceId: trace.traceId },
+      });
+    },
+  );
+
+  it("does not cancel a queued feature job when prune admission is denied", async () => {
+    let unblock!: () => void;
+    const blocker = new Promise<void>((resolve) => {
+      unblock = resolve;
+    });
+    const store = await memory({
+      ...ownership,
+      maxPendingOperations: 2,
+      revalidate: async () => {
+        await blocker;
+        return { status: "fresh", assessedAt: timestamp, reason: "Verified" };
+      },
+    });
+    await store.appendPass(publication());
+    const reading = store.listLinks();
+    const derivation = store.deriveFeatures("entry:1:0");
+    try {
+      await expect(store.prune({ passIds: ["pass:1"], trace })).rejects.toThrow(
+        "queue is full",
+      );
+    } finally {
+      unblock();
+    }
+    await reading;
+    await expect(derivation).resolves.toMatchObject({ status: "unavailable" });
+    expect(await store.getEntry("entry:1:0")).toBeDefined();
+  });
+
+  it("cancels pending derivation only for the selected pass and cascades its records", async () => {
+    const events: TelemetryEventEnvelope[] = [];
+    const store = await memory({
+      ...ownership,
+      recorder: {
+        enqueue: (event) => {
+          events.push(event);
+        },
+      },
+    });
+    await store.appendPass(metricPublication("selected"));
+    await store.prune({ passIds: ["pass:selected"], trace });
+    expect(await store.getPass("pass:selected")).toBeUndefined();
+    expect(await store.getEntry("entry:selected:0")).toBeUndefined();
+    expect(
+      await store.getFeatureDerivation("entry:selected:0"),
+    ).toBeUndefined();
+    expect(
+      (await store.listFeatures({ includeHistorical: true })).items,
+    ).toEqual([]);
+    expect(
+      events.some(
+        (event) => event.name === "context.derive-features.cancelled",
+      ),
+    ).toBe(true);
+  });
+
+  it("cancels extraction during shutdown/pruning and cannot resurrect removed sources", async () => {
+    const path = await diskPath();
+    const store = await openSessionContextStore({ ...ownership, path });
+    stores.push(store);
+    await store.appendPass(metricPublication());
+    await store.prune({ entryIds: ["entry:metric:0"], trace });
+    expect(await store.getEntry("entry:metric:0")).toBeUndefined();
+    expect(await store.getFeatureDerivation("entry:metric:0")).toBeUndefined();
+    expect(
+      (await store.listFeatures({ includeHistorical: true })).items,
+    ).toEqual([]);
+    await store.appendPass(metricPublication("ready-to-prune"));
+    const ready = await store.getFeatureDerivation("entry:ready-to-prune:0");
+    const readyFeature = await store.getFeature(ready!.featureIds[0]!);
+    await store.prune({ passIds: ["pass:ready-to-prune"], trace });
+    expect(await store.getFeature(readyFeature!.id)).toBeUndefined();
+    expect(await store.getSegment(readyFeature!.segmentId)).toBeUndefined();
+    expect(
+      await store.getFeatureDerivation("entry:ready-to-prune:0"),
+    ).toBeUndefined();
+    await store.appendPass(metricPublication("close"));
+    await store.close();
+    const reopened = await openSessionContextStore({ ...ownership, path });
+    stores.push(reopened);
+    expect(await reopened.getEntry("entry:close:0")).toBeDefined();
+    expect(await reopened.getFeatureDerivation("entry:close:0")).toMatchObject({
+      status: "cancelled",
+    });
+    expect(await reopened.deriveFeatures("entry:close:0")).toMatchObject({
+      status: "ready",
+    });
+  });
+
+  it("records caller cancellation and independent automatic queue failures while retaining measurements", async () => {
+    const events: TelemetryEventEnvelope[] = [];
+    const store = await memory({
+      ...ownership,
+      recorder: {
+        enqueue: (event) => {
+          events.push(event);
+        },
+      },
+    });
+    await store.appendPass(publication());
+    const controller = new AbortController();
+    controller.abort(new Error("token=feature-secret"));
+    await expect(
+      store.deriveFeatures("entry:1:0", {
+        signal: controller.signal,
+        trace,
+        activeAgentId: "agent:derive",
+      }),
+    ).rejects.toThrow();
+    expect(await store.getFeatureDerivation("entry:1:0")).toMatchObject({
+      status: "cancelled",
+    });
+    const terminal = events.find(
+      (event) => event.name === "context.derive-features.cancelled",
+    );
+    expect(terminal).toMatchObject({
+      activeAgentId: "agent:derive",
+      correlationId: trace.correlationId,
+    });
+    expect(JSON.stringify(events)).not.toContain("feature-secret");
+    const crowded = await memory({
+      ...ownership,
+      maxPendingOperations: 1,
+      recorder: {
+        enqueue: (event) => {
+          events.push(event);
+        },
+      },
+    });
+    await crowded.appendPass(metricPublication());
+    await yieldTurn();
+    expect(await crowded.getFeatureDerivation("entry:metric:0")).toMatchObject({
+      status: "failed",
+    });
+    expect(await crowded.getEntry("entry:metric:0")).toBeDefined();
+    expect(
+      events
+        .filter((event) => event.name.startsWith("context.derive-status."))
+        .map((event) => event.stage),
+    ).toEqual(["queued", "started", "progress", "completed"]);
+  });
+
+  it("rolls back derived quota failure atomically using the reserved terminal status space", async () => {
+    const path = await diskPath();
+    const store = await openSessionContextStore({ ...ownership, path });
+    await store.appendPass(metricPublication());
+    const state = await store.getFeatureDerivation("entry:metric:0");
+    await store.close();
+    const sql = await loadSqlJs();
+    const database = new sql.Database(await readFile(path));
+    database.run("DELETE FROM context_features; DELETE FROM context_segments");
+    const failed = JSON.stringify({
+      ...state,
+      status: "failed",
+      reason: "retry",
+      featureIds: [],
+    });
+    database.run(
+      "UPDATE context_feature_derivations SET status = 'failed', payload = ?",
+      [failed + " ".repeat(2048 - failed.length - 6)],
+    );
+    database.run("PRAGMA page_size = 512; VACUUM");
+    const bytes = database.export();
+    await writeFile(path, bytes);
+    database.close();
+    const bounded = await openSessionContextStore({
+      ...ownership,
+      path,
+      maxStoreBytes: bytes.byteLength,
+    });
+    stores.push(bounded);
+    await expect(bounded.deriveFeatures("entry:metric:0")).rejects.toThrow(
+      "quota",
+    );
+    expect(await bounded.getFeatureDerivation("entry:metric:0")).toMatchObject({
+      status: "failed",
+      reason: "derived-store-quota-exceeded",
+      featureIds: [],
+    });
+    expect(await bounded.getEntry("entry:metric:0")).toBeDefined();
+    expect(
+      (await bounded.listFeatures({ includeHistorical: true })).items,
+    ).toEqual([]);
+    expect((await stat(path)).size).toBeLessThanOrEqual(bytes.byteLength);
+    expect(
+      (await readdir(dirname(path))).filter((file) =>
+        file.endsWith(".staging"),
+      ),
+    ).toEqual([]);
+  });
+
+  it("bounds search time even when privileged revalidation ignores cancellation", async () => {
+    const store = await memory({
+      ...ownership,
+      revalidate: async () =>
+        new Promise<ContextFreshnessAssessment>(() => undefined),
+    });
+    await store.appendPass(metricPublication());
+    const state = await store.getFeatureDerivation("entry:metric:0");
+    const result = await store.searchFeatures({
+      featureId: state!.featureIds[0]!,
+    });
+    expect(result).toMatchObject({
+      exhaustive: false,
+      limitsHit: ["time"],
+      scannedCount: 0,
+    });
+    expect(await store.getEntry("entry:metric:0")).toBeDefined();
+  });
+
+  it("bounds distinct-source revalidation and returns unknown beyond its budget", async () => {
+    const revalidate = vi.fn(async (): Promise<ContextFreshnessAssessment> => ({
+      status: "fresh",
+      assessedAt: timestamp,
+      reason: "Verified current binding",
+    }));
+    const store = await memory({ ...ownership, revalidate });
+    for (let index = 0; index < 102; index++) {
+      await store.appendPass(metricPublication(`budget-${index}`));
+      await store.getFeatureDerivation(`entry:budget-${index}:0`);
+    }
+    const state = await store.getFeatureDerivation("entry:budget-0:0");
+    const result = await store.searchFeatures({
+      featureId: state!.featureIds[0]!,
+      limit: 100,
+    });
+    expect(result).toMatchObject({
+      scannedCount: 101,
+      comparableCount: 101,
+      exhaustive: true,
+    });
+    expect(revalidate).toHaveBeenCalledTimes(
+      CONTEXT_LIMITS.revalidationsPerQuery,
+    );
+    expect(
+      result.matches.some(
+        (match) => match.feature.freshness?.status === "unknown",
+      ),
+    ).toBe(true);
+    expect(
+      result.matches
+        .filter((match) => match.feature.freshness?.status === "unknown")
+        .every(
+          (match) =>
+            match.feature.freshness?.reason ===
+            "Current-query revalidation budget exhausted",
+        ),
+    ).toBe(true);
+  });
+
+  it("cancels active feature revalidation, frees the queue, and emits attributed cancellation", async () => {
+    let started: (() => void) | undefined;
+    const entered = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    const events: TelemetryEventEnvelope[] = [];
+    const store = await memory({
+      ...ownership,
+      revalidate: async () => {
+        started!();
+        return new Promise<ContextFreshnessAssessment>(() => undefined);
+      },
+      recorder: {
+        enqueue: (event) => {
+          events.push(event);
+        },
+      },
+    });
+    await store.appendPass(metricPublication());
+    const state = await store.getFeatureDerivation("entry:metric:0");
+    const controller = new AbortController();
+    const search = store.searchFeatures(
+      { featureId: state!.featureIds[0]! },
+      {
+        signal: controller.signal,
+        trace,
+        activeAgentId: "agent:search",
+      },
+    );
+    await entered;
+    controller.abort(new Error("Search cancelled"));
+    await expect(search).rejects.toThrow("cancel");
+    expect(await store.getEntry("entry:metric:0")).toBeDefined();
+    expect(
+      events.find(
+        (event) => event.name === "context.search-features.cancelled",
+      ),
+    ).toMatchObject({
+      activeAgentId: "agent:search",
+      correlationId: trace.correlationId,
+    });
+  });
+});
+
+describe("stored feature catalog persistence", () => {
+  it("persists qualified analyzer vectors, independent masks and exact cents search across reopen and prune", async () => {
+    const path = await diskPath();
+    const initial = await openSessionContextStore({ ...ownership, path });
+    const source = analyzerPublication("pitch-a");
+    await initial.appendPass(source);
+    await initial.appendPass(analyzerPublication("pitch-b", 880));
+    const state = await initial.getFeatureDerivation("entry:pitch-a:0");
+    expect(state).toMatchObject({
+      status: "ready",
+      definitionSet: "qualified-listening/v1",
+    });
+    expect(state!.featureIds).toHaveLength(15);
+    const pitch = (
+      await initial.listFeatures({
+        entryId: "entry:pitch-a:0",
+        featureType: "pitch-grid/v1",
+      })
+    ).items[0]!;
+    expect(pitch.feature).toMatchObject({
+      values: Array(8).fill(69),
+      units: "midi-semitones",
+      distanceUnits: "cents",
+    });
+    const flatness = (
+      await initial.listFeatures({
+        entryId: "entry:pitch-a:0",
+        featureType: "flatness-summary/v1",
+      })
+    ).items[0]!;
+    expect(flatness.feature).toMatchObject({
+      values: [-20, null],
+      channelReasons: [null, "silence"],
+    });
+    const search = await initial.searchFeatures({ featureId: pitch.id });
+    expect(search).toMatchObject({
+      comparableCount: 1,
+      eligibleCount: 1,
+      exhaustive: true,
+    });
+    expect(search.matches[0]!.distance).toBe(1200);
+    await initial.close();
+    const reopened = await openSessionContextStore({ ...ownership, path });
+    stores.push(reopened);
+    expect(await reopened.deriveFeatures("entry:pitch-a:0")).toEqual(state);
+    expect((await reopened.getFeature(flatness.id))!.feature).toEqual(
+      flatness.feature,
+    );
+    expect(await reopened.getEntry("entry:pitch-a:0")).toEqual(
+      source.entries[0],
+    );
+    await reopened.prune({ passIds: ["pass:pitch-b"], trace });
+    expect(
+      (await reopened.searchFeatures({ featureId: pitch.id })).matches,
+    ).toEqual([]);
+  });
+
+  it("leaves stored-ten definitions and bytes untouched until explicit fifteen-type upgrade", async () => {
+    const path = await diskPath();
+    const initial = await openSessionContextStore({ ...ownership, path });
+    await initial.appendPass(analyzerPublication("old-ten"));
+    const current = await initial.getFeatureDerivation("entry:old-ten:0");
+    await initial.close();
+    const sql = await loadSqlJs();
+    const database = new sql.Database(await readFile(path));
+    const source = database.exec("SELECT payload FROM context_entries")[0]!
+      .values;
+    database.run(
+      "DELETE FROM context_features WHERE feature_type IN ('pitch-grid/v1','pitch-confidence-summary/v1','flatness-summary/v1','spread-summary/v1','rolloff-summary/v1')",
+    );
+    for (const [id, payload] of database.exec(
+      "SELECT id,payload FROM context_features",
+    )[0]!.values) {
+      const feature = contextFeatureSchema.parse(JSON.parse(String(payload)));
+      const old = {
+        ...feature,
+        feature: Object.fromEntries(
+          Object.entries(feature.feature).filter(
+            ([key]) => key !== "distanceUnits",
+          ),
+        ),
+      };
+      database.run("UPDATE context_features SET payload = ? WHERE id = ?", [
+        JSON.stringify(old),
+        String(id),
+      ]);
+    }
+    const ids = new Set(
+      database
+        .exec("SELECT id FROM context_features")[0]!
+        .values.map(([id]) => String(id)),
+    );
+    const oldState = {
+      ...current,
+      definitionSet: "stored-listening/v1",
+      featureIds: current!.featureIds.filter((id) => ids.has(id)),
+    };
+    database.run("UPDATE context_feature_derivations SET payload = ?", [
+      JSON.stringify(oldState),
+    ]);
+    const oldRows = database.exec(
+      "SELECT payload FROM context_features ORDER BY id",
+    )[0]!.values;
+    await writeFile(path, database.export());
+    database.close();
+    const reopened = await openSessionContextStore({ ...ownership, path });
+    expect(await reopened.getFeatureDerivation("entry:old-ten:0")).toEqual(
+      oldState,
+    );
+    const inventory = await reopened.listFeatures();
+    expect(inventory.items).toHaveLength(10);
+    expect(
+      inventory.items.every(
+        (feature) => feature.feature.distanceUnits === feature.feature.units,
+      ),
+    ).toBe(true);
+    await reopened.close();
+    const unchanged = new sql.Database(await readFile(path));
+    expect(
+      unchanged.exec("SELECT payload FROM context_features ORDER BY id")[0]!
+        .values,
+    ).toEqual(oldRows);
+    unchanged.close();
+    const upgrade = await openSessionContextStore({ ...ownership, path });
+    stores.push(upgrade);
+    const state = await upgrade.deriveFeatures("entry:old-ten:0");
+    expect(state).toMatchObject({
+      definitionSet: "qualified-listening/v1",
+      status: "ready",
+    });
+    expect(state.featureIds).toHaveLength(15);
+    expect(
+      oldState.featureIds.every((id) => state.featureIds.includes(id)),
+    ).toBe(true);
+    expect(
+      (await upgrade.listFeatures({ featureType: "pitch-grid/v1" })).items[0]!
+        .feature.status,
+    ).toBe("ready");
+    await upgrade.close();
+    const final = new sql.Database(await readFile(path));
+    expect(
+      final.exec("SELECT payload FROM context_entries")[0]!.values,
+    ).toEqual(source);
+    final.close();
+  });
+
+  it("counts enlarged ready-state IDs against physical quota and retains reserved failure metadata after rollback", async () => {
+    const path = await diskPath();
+    const initial = await openSessionContextStore({ ...ownership, path });
+    const value = alignedMetricPublication("large-status", 0, 16, {
+      meter: { numerator: 1, denominator: 16 },
+    });
+    await initial.appendPass(value);
+    const ready = await initial.getFeatureDerivation("entry:large-status:0");
+    expect(ready).toMatchObject({
+      status: "ready",
+      definitionSet: "qualified-listening/v1",
+    });
+    expect(ready!.featureIds).toHaveLength(960);
+    expect(Buffer.byteLength(JSON.stringify(ready))).toBeGreaterThan(32 * 1024);
+    await initial.close();
+    const sql = await loadSqlJs();
+    const completeBytes = await readFile(path);
+    const database = new sql.Database(completeBytes);
+    const originalSource = database.exec(
+      "SELECT payload FROM context_entries",
+    )[0]!.values;
+    const failed = JSON.stringify({
+      ...ready,
+      status: "failed",
+      reason: "explicit-retry",
+      featureIds: [],
+    });
+    database.run(
+      "UPDATE context_feature_derivations SET status = 'failed', payload = ?",
+      [failed + " ".repeat(2048 - failed.length - 6)],
+    );
+    database.run("VACUUM");
+    const rowsWithoutReadyIds = database.export().byteLength;
+    const limit = completeBytes.byteLength - 16 * 1024;
+    expect(rowsWithoutReadyIds).toBeLessThanOrEqual(limit);
+    database.run(
+      "DELETE FROM context_features; DELETE FROM context_segments; VACUUM",
+    );
+    await writeFile(path, database.export());
+    database.close();
+    const bounded = await openSessionContextStore({
+      ...ownership,
+      path,
+      maxStoreBytes: limit,
+    });
+    stores.push(bounded);
+    await expect(
+      bounded.deriveFeatures("entry:large-status:0"),
+    ).rejects.toThrow("quota");
+    expect(
+      await bounded.getFeatureDerivation("entry:large-status:0"),
+    ).toMatchObject({
+      status: "failed",
+      reason: "derived-store-quota-exceeded",
+      featureIds: [],
+    });
+    expect(
+      (await bounded.listFeatures({ includeHistorical: true })).items,
+    ).toEqual([]);
+    expect(await bounded.getEntry("entry:large-status:0")).toEqual(
+      value.entries[0],
+    );
+    await bounded.close();
+    const retained = new sql.Database(await readFile(path));
+    expect(
+      retained.exec("SELECT payload FROM context_entries")[0]!.values,
+    ).toEqual(originalSource);
+    expect(
+      retained.exec(
+        "SELECT length(status) + length(payload) FROM context_feature_derivations",
+      )[0]!.values,
+    ).toEqual([[2048]]);
+    expect(
+      retained.exec("SELECT COUNT(*) FROM context_segments")[0]!.values,
+    ).toEqual([[0]]);
+    retained.close();
+  }, 30000);
+
+  it("rederives an old peak-only definition set only on explicit request, without rewriting the source", async () => {
+    const path = await diskPath();
+    const initial = await openSessionContextStore({ ...ownership, path });
+    await initial.appendPass(metricPublication());
+    const fullState = await initial.getFeatureDerivation("entry:metric:0");
+    await initial.close();
+    const sql = await loadSqlJs();
+    const database = new sql.Database(await readFile(path));
+    const sourceBytes = database.exec("SELECT payload FROM context_entries")[0]!
+      .values;
+    database.run(
+      "DELETE FROM context_features WHERE feature_type <> 'peak-summary/v1'",
+    );
+    const oldState = {
+      ...fullState,
+      definitionSet: "peak-summary/v1",
+      featureIds: fullState!.featureIds.slice(0, 1),
+    };
+    database.run(
+      "UPDATE context_feature_derivations SET payload = ? WHERE entry_id = ?",
+      [JSON.stringify(oldState), "entry:metric:0"],
+    );
+    await writeFile(path, database.export());
+    database.close();
+    const resumed = await openSessionContextStore({ ...ownership, path });
+    stores.push(resumed);
+    expect(await resumed.getFeatureDerivation("entry:metric:0")).toEqual(
+      oldState,
+    );
+    expect((await resumed.listFeatures()).items).toHaveLength(1);
+    const upgraded = await resumed.deriveFeatures("entry:metric:0");
+    expect(upgraded).toMatchObject({
+      definitionSet: "qualified-listening/v1",
+      status: "ready",
+    });
+    expect(upgraded.featureIds).toHaveLength(15);
+    expect((await resumed.listFeatures()).items).toHaveLength(15);
+    await resumed.close();
+    const final = new sql.Database(await readFile(path));
+    expect(
+      final.exec("SELECT payload FROM context_entries")[0]!.values,
+    ).toEqual(sourceBytes);
+    final.close();
+  });
+
+  it("persists two aligned bars and all definitions atomically, retaining source bytes and identities across reopen", async () => {
+    const path = await diskPath();
+    const events: TelemetryEventEnvelope[] = [];
+    const store = await openSessionContextStore({
+      ...ownership,
+      path,
+      recorder: {
+        enqueue: (event) => {
+          events.push(event);
+        },
+      },
+    });
+    stores.push(store);
+    const value = alignedMetricPublication();
+    const original = JSON.stringify(value.entries[0]);
+    await store.appendPass(value);
+    const state = await store.getFeatureDerivation("entry:aligned:0");
+    expect(state).toMatchObject({
+      status: "ready",
+      definitionSet: "qualified-listening/v1",
+    });
+    expect(state!.featureIds).toHaveLength(30);
+    const levels = await store.listFeatures({
+      entryId: "entry:aligned:0",
+      featureType: "level-grid/v1",
+    });
+    expect(levels.items).toHaveLength(2);
+    for (const feature of levels.items) {
+      expect(feature.feature).toMatchObject({
+        status: "ready",
+        values: Array.from({ length: 32 }, () => 0.25),
+        grid: { meter: { numerator: 4, denominator: 4 }, phaseBeats: 0 },
+      });
+    }
+    expect(
+      compareListeningFeatures(
+        levels.items[0]!.feature,
+        levels.items[1]!.feature,
+      ),
+    ).toMatchObject({ status: "comparable", distance: 0 });
+    const segments = await Promise.all(
+      levels.items.map((feature) => store.getSegment(feature.segmentId)),
+    );
+    segments.sort((a, b) => a!.order - b!.order);
+    expect(
+      segments.map((segment) => [
+        segment!.kind,
+        segment!.startBeat,
+        segment!.endBeat,
+      ]),
+    ).toEqual([
+      ["bar", 0, 4],
+      ["bar", 4, 8],
+    ]);
+    expect(segments[0]!.endSample).toBe(segments[1]!.startSample);
+    expect(JSON.stringify(await store.getEntry("entry:aligned:0"))).toBe(
+      original,
+    );
+    expect(
+      events.some(
+        (event) =>
+          event.name === "context.derive-features.progress" &&
+          event.attributes.completedSegments === 2 &&
+          event.attributes.totalSegments === 2,
+      ),
+    ).toBe(true);
+    await store.appendPass(alignedMetricPublication("other"));
+    await store.getFeatureDerivation("entry:other:0");
+    const results = await store.searchFeatures({
+      featureId: levels.items[0]!.id,
+      excludeEntryIds: ["entry:aligned:0"],
+    });
+    expect(results).toMatchObject({
+      comparableCount: 2,
+      eligibleCount: 2,
+      exhaustive: true,
+    });
+    expect(
+      results.matches.every(
+        (match) =>
+          match.feature.entryId === "entry:other:0" && match.distance === 0,
+      ),
+    ).toBe(true);
+    await store.close();
+    const resumed = await openSessionContextStore({ ...ownership, path });
+    stores.push(resumed);
+    expect(await resumed.deriveFeatures("entry:aligned:0")).toEqual(state);
+    expect(JSON.stringify(await resumed.getEntry("entry:aligned:0"))).toBe(
+      original,
+    );
+    await resumed.prune({ passIds: ["pass:aligned"], trace });
+    expect(
+      (await resumed.listFeatures({ entryId: "entry:aligned:0" })).items,
+    ).toEqual([]);
+    expect(await resumed.getSegment(segments[0]!.id)).toBeUndefined();
+    expect(
+      (await resumed.listFeatures({ entryId: "entry:other:0", limit: 100 }))
+        .items,
+    ).toHaveLength(30);
+  });
+
+  it("retains fractional 3/4 partials and short ranges without inventing sub-record RMS", async () => {
+    const store = await memory();
+    const value = alignedMetricPublication("fractional", 0.2, 6.2, {
+      meter: { numerator: 3, denominator: 4 },
+      barOriginBeat: 0.125,
+    });
+    await store.appendPass(value);
+    const state = await store.getFeatureDerivation("entry:fractional:0");
+    expect(state!.featureIds).toHaveLength(45);
+    const features = await store.listFeatures({
+      entryId: "entry:fractional:0",
+      featureType: "level-grid/v1",
+    });
+    const segments = await Promise.all(
+      features.items.map((feature) => store.getSegment(feature.segmentId)),
+    );
+    segments.sort((a, b) => a!.order - b!.order);
+    expect(segments.map((s) => [s!.kind, s!.startBeat, s!.endBeat])).toEqual([
+      ["partial", 0.2, 3.125],
+      ["bar", 3.125, 6.125],
+      ["partial", 6.125, 6.2],
+    ]);
+    expect(
+      features.items.every(
+        (feature) =>
+          feature.feature.status === "unavailable" &&
+          feature.feature.reason === "straddling-level-record",
+      ),
+    ).toBe(true);
+    const middle = features.items.find(
+      (feature) => feature.segmentId === segments[1]!.id,
+    )!;
+    expect(middle.feature.grid!.cells).toHaveLength(12);
+    expect(await store.getEntry("entry:fractional:0")).toEqual(
+      value.entries[0],
+    );
+    await store.appendPass(
+      alignedMetricPublication("short", 2.75, 3.25, {
+        meter: { numerator: 3, denominator: 4 },
+      }),
+    );
+    await store.getFeatureDerivation("entry:short:0");
+    const short = (
+      await store.listFeatures({
+        entryId: "entry:short:0",
+        featureType: "level-grid/v1",
+      })
+    ).items[0]!;
+    expect(await store.getSegment(short.segmentId)).toMatchObject({
+      kind: "short",
+      startBeat: 2.75,
+      endBeat: 3.25,
+    });
+    expect(short.feature.values).toEqual([0.25, 0.25, 0.25, 0.25]);
+  });
+
+  it.each([
+    { coordinate: "clip-local-beats" as const },
+    { tempoBpm: 121 },
+    { provenance: "session-clip-markers/v1" as const },
+    { meter: { numerator: 3, denominator: 3 } },
+  ])(
+    "rejects inconsistent alignment before persisting any source: %j",
+    async (change) => {
+      const store = await memory();
+      const value = alignedMetricPublication();
+      value.entries[0]!.musicalAlignment = {
+        ...value.entries[0]!.musicalAlignment!,
+        ...change,
+      };
+      await expect(store.appendPass(value)).rejects.toThrow();
+      expect(await store.getEntry("entry:aligned:0")).toBeUndefined();
+      expect(await store.getPass("pass:aligned")).toBeUndefined();
+    },
+  );
+
+  it("does not promote historical observation kinds by attaching alignment metadata", async () => {
+    const store = await memory();
+    const value = publication();
+    value.entries[0]!.musicalAlignment =
+      alignedMetricPublication().entries[0]!.musicalAlignment!;
+    await expect(store.appendPass(value)).rejects.toThrow(
+      "authoritative metric",
+    );
+    expect(await store.getEntry("entry:1:0")).toBeUndefined();
+  });
+
+  it("reports geometry overflow durably without partial publication or source loss", async () => {
+    const store = await memory();
+    const value = alignedMetricPublication("geometry-limit", 0, 20, {
+      meter: { numerator: 1, denominator: 128 },
+    });
+    await store.appendPass(value);
+    expect(
+      await store.getFeatureDerivation("entry:geometry-limit:0"),
+    ).toMatchObject({
+      status: "failed",
+      reason: "unsupported-geometry:feature_segment_limit",
+      featureIds: [],
+    });
+    expect(
+      (await store.listFeatures({ includeHistorical: true })).items,
+    ).toEqual([]);
+    expect(await store.getEntry("entry:geometry-limit:0")).toEqual(
+      value.entries[0],
+    );
+  });
+
+  it("cancels a multi-segment extraction at a progress boundary and drains shutdown without partial features", async () => {
+    const path = await diskPath();
+    let shutdown: Promise<void> | undefined;
+    const store = await openSessionContextStore({
+      ...ownership,
+      path,
+      recorder: {
+        enqueue: (event) => {
+          if (
+            event.name === "context.derive-features.progress" &&
+            event.attributes.completedSegments === 8
+          )
+            shutdown = store.close();
+        },
+      },
+    });
+    stores.push(store);
+    await store.appendPass(
+      alignedMetricPublication("cancel-segments", 0, 20, {
+        meter: { numerator: 1, denominator: 4 },
+      }),
+    );
+    expect(
+      await store.getFeatureDerivation("entry:cancel-segments:0"),
+    ).toMatchObject({ status: "cancelled" });
+    expect(shutdown).toBeDefined();
+    await shutdown;
+    const resumed = await openSessionContextStore({ ...ownership, path });
+    stores.push(resumed);
+    expect(
+      await resumed.getFeatureDerivation("entry:cancel-segments:0"),
+    ).toMatchObject({ status: "cancelled", featureIds: [] });
+    expect(
+      (await resumed.listFeatures({ includeHistorical: true })).items,
+    ).toEqual([]);
+    expect(await resumed.getEntry("entry:cancel-segments:0")).toBeDefined();
+  });
+
+  it.each([{ maxFeatureBytes: 64 }, { maxFeatureBatchBytes: 1024 }])(
+    "keeps measurements and no partial derived rows when an encoded bound fails: %j",
+    async (bounds) => {
+      const events: TelemetryEventEnvelope[] = [];
+      const store = await memory({
+        ...ownership,
+        ...bounds,
+        recorder: {
+          enqueue: (event) => {
+            events.push(event);
+          },
+        },
+      });
+      await store.appendPass(metricPublication());
+      expect(await store.getFeatureDerivation("entry:metric:0")).toMatchObject({
+        status: "failed",
+        reason: "derived-store-quota-exceeded",
+        featureIds: [],
+      });
+      expect(
+        (await store.listFeatures({ includeHistorical: true })).items,
+      ).toEqual([]);
+      expect(await store.getEntry("entry:metric:0")).toEqual(
+        metricPublication().entries[0],
+      );
+      expect(
+        events.some((event) => event.name === "context.publish.completed"),
+      ).toBe(true);
+      expect(
+        events.some((event) => event.name === "context.derive-features.failed"),
+      ).toBe(true);
+    },
+  );
+  it("publishes all definition rows atomically and caches source freshness across type inventory", async () => {
+    const revalidate = vi.fn(async (): Promise<ContextFreshnessAssessment> => ({
+      status: "fresh",
+      assessedAt: timestamp,
+      reason: "Source validated",
+    }));
+    const store = await memory({ ...ownership, revalidate });
+    await store.appendPass(metricPublication());
+    const state = await store.getFeatureDerivation("entry:metric:0");
+    expect(state).toMatchObject({
+      status: "ready",
+      definitionSet: "qualified-listening/v1",
+    });
+    expect(state!.featureIds).toHaveLength(15);
+    const inventory = await store.listFeatures();
+    expect(inventory.items).toHaveLength(15);
+    expect(revalidate).toHaveBeenCalledTimes(1);
+    expect(
+      inventory.items
+        .filter((item) => item.feature.status === "ready")
+        .map((item) => item.feature.type),
+    ).toEqual(["peak-summary/v1"]);
+    for (const feature of inventory.items) {
+      expect(feature.freshness?.status).toBe("fresh");
+      if (feature.feature.type === "level-grid/v1")
+        expect(feature.feature.reason).toBe("missing-alignment");
+    }
+    const filtered = await store.listFeatures({ featureType: "level-grid/v1" });
+    expect(filtered.items).toHaveLength(1);
+    await expect(
+      store.searchFeatures({
+        featureId: state!.featureIds[0]!,
+        featureType: "mel-shape/v1",
+      }),
+    ).rejects.toThrow("type");
+  });
+
+  it("honors the decoded candidate byte ceiling with truthful counts and no source mutation", async () => {
+    const store = await memory({ ...ownership, maxFeatureSearchBytes: 1 });
+    for (const id of ["byte-a", "byte-b"]) {
+      await store.appendPass(metricPublication(id));
+      await store.getFeatureDerivation(`entry:${id}:0`);
+    }
+    const state = await store.getFeatureDerivation("entry:byte-a:0");
+    const result = await store.searchFeatures({
+      featureId: state!.featureIds[0]!,
+    });
+    expect(result).toMatchObject({
+      matches: [],
+      eligibleCount: 1,
+      scannedCount: 0,
+      comparableCount: 0,
+      excludedCount: 0,
+      exhaustive: false,
+      limitsHit: ["bytes"],
+    });
+    expect(await store.getEntry("entry:byte-a:0")).toEqual(
+      metricPublication("byte-a").entries[0],
+    );
+    await expect(
+      createInMemorySessionContextStore({
+        ...ownership,
+        maxFeatureSearchBytes: 16 * 1024 * 1024 + 1,
+      }),
+    ).rejects.toThrow("bounds");
+    await expect(
+      createInMemorySessionContextStore({
+        ...ownership,
+        maxFeatureSearchMs: 1001,
+      }),
+    ).rejects.toThrow("bounds");
+  });
+});
+
+describe("feature source snapshot attribution", () => {
+  it("returns primary IDs with scan freshness and allows raw enrichment without another revalidation or persisted read metadata", async () => {
+    const path = await diskPath();
+    const revalidate = vi.fn(async (): Promise<ContextFreshnessAssessment> => ({
+      status: revalidate.mock.calls.length <= 2 ? "fresh" : "stale",
+      assessedAt: timestamp,
+      reason: "Query-owned source assessment",
+    }));
+    const store = await openSessionContextStore({
+      ...ownership,
+      path,
+      revalidate,
+    });
+    stores.push(store);
+    for (const id of ["snapshot-a", "snapshot-b"]) {
+      await store.appendPass(metricPublication(id));
+      await store.getFeatureDerivation(`entry:${id}:0`);
+    }
+    const state = await store.getFeatureDerivation("entry:snapshot-a:0");
+    const result = await store.searchFeatures({
+      featureId: state!.featureIds[0]!,
+    });
+    expect(result.matches).toHaveLength(1);
+    const snapshot = result.matches[0]!.feature;
+    expect(snapshot).toMatchObject({
+      entryId: "entry:snapshot-b:0",
+      primarySubjectId: "subject:1",
+      freshness: { status: "fresh" },
+    });
+    expect(revalidate).toHaveBeenCalledTimes(2);
+    expect(await store.getEntry(snapshot.entryId)).toEqual(
+      metricPublication("snapshot-b").entries[0],
+    );
+    expect(await store.getSubject(snapshot.primarySubjectId!)).toMatchObject({
+      id: "subject:1",
+    });
+    expect(await store.getSegment(snapshot.segmentId)).toBeDefined();
+    expect(revalidate).toHaveBeenCalledTimes(2);
+    const later = await store.getFeature(snapshot.id);
+    expect(later).toMatchObject({
+      primarySubjectId: "subject:1",
+      freshness: { status: "stale" },
+    });
+    expect(snapshot.freshness?.status).toBe("fresh");
+    const inventory = await store.listFeatures({ includeHistorical: true });
+    expect(inventory.items).toHaveLength(20);
+    expect(
+      inventory.items.every(
+        (feature) => feature.primarySubjectId === "subject:1",
+      ),
+    ).toBe(true);
+    expect(revalidate).toHaveBeenCalledTimes(5);
+    await store.close();
+    const sql = await loadSqlJs();
+    const database = new sql.Database(await readFile(path));
+    const payloads = database.exec("SELECT payload FROM context_features")[0]!
+      .values;
+    expect(
+      payloads.every(
+        ([payload]) =>
+          !String(payload).includes('"primarySubjectId"') &&
+          !String(payload).includes('"freshness"'),
+      ),
+    ).toBe(true);
+    database.close();
+  });
+
+  it.each(["missing", "ambiguous"] as const)(
+    "fails explicitly for a %s primary association without guessing from contributors",
+    async (mode) => {
+      const events: TelemetryEventEnvelope[] = [];
+      const store = await memory({
+        ...ownership,
+        recorder: {
+          enqueue: (event) => {
+            events.push(event);
+          },
+        },
+      });
+      await store.appendPass(metricPublication("valid-association"));
+      const query = await store.getFeatureDerivation(
+        "entry:valid-association:0",
+      );
+      const value = metricPublication("invalid-association");
+      if (mode === "missing") value.links[0]!.relationship = "contributor";
+      else value.links.push({ ...value.links[0]!, id: "link:second-primary" });
+      await store.appendPass(value);
+      const state = await store.getFeatureDerivation(
+        "entry:invalid-association:0",
+      );
+      await expect(
+        store.getFeature(state!.featureIds[0]!, {
+          trace,
+          activeAgentId: "agent:reader",
+        }),
+      ).rejects.toThrow("primary association");
+      await expect(
+        store.listFeatures({ entryId: "entry:invalid-association:0" }),
+      ).rejects.toThrow("primary association");
+      await expect(
+        store.searchFeatures({ featureId: state!.featureIds[0]! }),
+      ).rejects.toThrow("primary association");
+      await expect(
+        store.searchFeatures({ featureId: query!.featureIds[0]! }),
+      ).rejects.toThrow("primary association");
+      expect(await store.getEntry("entry:invalid-association:0")).toEqual(
+        value.entries[0],
+      );
+      expect(
+        events.find((event) => event.name === "context.get-feature.failed"),
+      ).toMatchObject({ activeAgentId: "agent:reader" });
+    },
+  );
+
+  it("does not substitute a fresh contributor assessment for a historical primary source", async () => {
+    const revalidate = vi.fn(async (): Promise<ContextFreshnessAssessment> => ({
+      status: "fresh",
+      assessedAt: timestamp,
+      reason: "Contributor exists",
+    }));
+    const store = await memory({ ...ownership, revalidate });
+    const value = metricPublication("mixed-association");
+    value.links.push({
+      ...value.links[0]!,
+      id: "a:contributor",
+      relationship: "contributor",
+    });
+    value.links[0]!.freshness = {
+      status: "historical",
+      assessedAt: timestamp,
+      reason: "Primary source is historical",
+    };
+    await store.appendPass(value);
+    const state = await store.getFeatureDerivation("entry:mixed-association:0");
+    expect(await store.getFeature(state!.featureIds[0]!)).toMatchObject({
+      primarySubjectId: "subject:1",
+      freshness: { status: "historical" },
+    });
+    expect((await store.listFeatures()).items).toEqual([]);
+    const historical = await store.listFeatures({ includeHistorical: true });
+    expect(historical.items).toHaveLength(15);
+    expect(
+      historical.items.every(
+        (feature) =>
+          feature.primarySubjectId === "subject:1" &&
+          feature.freshness?.status === "historical",
+      ),
+    ).toBe(true);
+    expect(revalidate).not.toHaveBeenCalled();
   });
 });
 

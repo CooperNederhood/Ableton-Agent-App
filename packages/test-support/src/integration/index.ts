@@ -11,3 +11,4 @@ export * from "./rolloff-smoke.js";
 export * from "./mel-smoke.js";
 export * from "./pitch-smoke.js";
 export * from "./agent-listening-result.js";
+export * from "./feature-search.js";

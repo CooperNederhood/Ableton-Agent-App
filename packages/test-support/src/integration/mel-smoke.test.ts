@@ -1,4 +1,5 @@
 import { readFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import {
   MEL_BAND_PROFILE,
@@ -11,6 +12,7 @@ import {
   projectMelSmoke,
   validateMelSmoke,
   verifyMelSmoke,
+  type MelSmokeEvidence,
 } from "./mel-smoke.js";
 import {
   validateEvidence,
@@ -23,7 +25,26 @@ import type {
   ScenarioManifest,
 } from "./contracts.js";
 
+function reportPages(evidence: MelSmokeEvidence) {
+  return evidence.reportProjection.pages.map(({ offset }) =>
+    projectMetricListeningReport(evidence.observation, { offset, limit: 32 }),
+  );
+}
+
 describe("bounded Session mel smoke (synthetic, not acoustic qualification)", () => {
+  it("bounds derivable report-page receipts without discarding the complete observation", () => {
+    const f = melSmokeFixture();
+    expect(
+      Buffer.byteLength(JSON.stringify(f.smoke.reportProjection)),
+    ).toBeLessThan(2048);
+    expect(f.smoke.observation).toEqual(f.observation);
+    expect(() => validateMelSmoke(f.smoke)).not.toThrow();
+    expect(f.smoke.reportProjection.pages.map((page) => page.sha256)).toEqual(
+      reportPages(f.smoke).map((page) =>
+        createHash("sha256").update(JSON.stringify(page)).digest("hex"),
+      ),
+    );
+  });
   it("adds exactly one approved scenario without changing rolloff guards or fixture", async () => {
     const read = async (path: string): Promise<unknown> =>
       JSON.parse(
@@ -98,15 +119,14 @@ describe("bounded Session mel smoke (synthetic, not acoustic qualification)", ()
       verifyMelSmoke({ ...f.input, evidence }, "a", true);
       expect(f.smoke.observation.metrics["mel-bands"]!.frames).toHaveLength(43);
       expect(
-        f.smoke.reportProjection.pages[0]!.metricMetadata["mel-bands"]!
-          .trailingSupport,
+        reportPages(f.smoke)[0]!.metricMetadata["mel-bands"]!.trailingSupport,
       ).toEqual({ startSample: 88064, endSample: 90000 });
       expect(f.smoke.reportProjection.provenance).toBe(
         "typed-desktop-context-projection",
       );
       expect(f.smoke.reportProjection.pages.length).toBeGreaterThan(1);
       expect(
-        f.smoke.reportProjection.pages
+        reportPages(f.smoke)
           .flatMap((page) =>
             page.rows.flatMap((row) => row["mel-bands"]!.frames),
           )
@@ -173,7 +193,7 @@ describe("bounded Session mel smoke (synthetic, not acoustic qualification)", ()
     [
       "truncated page",
       (f: ReturnType<typeof melSmokeFixture>) => {
-        (f.smoke.reportProjection.pages[0]!.rows as unknown[]).pop();
+        Object.assign(f.smoke.reportProjection.pages[0]!, { rowCount: 0 });
       },
     ],
     [
@@ -226,10 +246,16 @@ describe("bounded Session mel smoke (synthetic, not acoustic qualification)", ()
     )[0]!;
     Object.assign(frame.analysis.ratios[0].lowMid, { value: 12345 });
     expect(() => verifyAgentListeningResult(f.input, "a")).toThrow();
-    const projected = f.smoke.reportProjection.pages[0]!.rows.flatMap(
+    const changedPage = structuredClone(reportPages(f.smoke)[0]!);
+    const projected = changedPage.rows.flatMap(
       (row) => row["mel-bands"]!.frames,
     )[0]!;
     Object.assign(projected.analysis.ratios[0].lowMid, { value: 12345 });
+    Object.assign(f.smoke.reportProjection.pages[0]!, {
+      sha256: createHash("sha256")
+        .update(JSON.stringify(changedPage))
+        .digest("hex"),
+    });
     expect(() => validateMelSmoke(f.smoke)).toThrow();
   });
   it.each([
@@ -251,7 +277,7 @@ describe("bounded Session mel smoke (synthetic, not acoustic qualification)", ()
         true,
         f.history,
       );
-      const ratios = evidence.reportProjection.pages.flatMap((page) =>
+      const ratios = reportPages(evidence).flatMap((page) =>
         page.rows.flatMap((row) =>
           row["mel-bands"]!.frames.flatMap((frame) => frame.analysis.ratios),
         ),

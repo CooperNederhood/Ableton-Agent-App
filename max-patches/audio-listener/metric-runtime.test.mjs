@@ -5,6 +5,58 @@ import { runInNewContext } from "node:vm";
 import { URL } from "node:url";
 import { metricRuntimeHarness } from "./metric-runtime-test-helpers.mjs";
 import { nativeMetricLifecycleSchema } from "../../packages/signal-routing/src/listener-metric-contracts.ts";
+import { LISTENER_CAPABILITY_ANALYZER_TIMELINES } from "../../packages/protocol/src/analyzer-profile.ts";
+import * as actualProtocol from "./audio_listener_metric_protocol.mjs";
+
+test("actual consumer schema accepts source-perform ABI3 registration and its receipt", async () => {
+  const h = metricRuntimeHarness({ runtime: { protocol: actualProtocol } });
+  const registration = actualProtocol.listenerRegistrationMetricSchema.parse(
+    h.clientOptions.listener,
+  );
+  assert.equal(registration.analyzerReadiness.producerAbi, 3);
+  assert.ok(
+    registration.capabilities.includes(LISTENER_CAPABILITY_ANALYZER_TIMELINES),
+  );
+  await h.runtime.stop();
+});
+
+test("analyzer capability requires actual ABI3 readiness, not packaged version or elapsed callbacks", async () => {
+  const h = metricRuntimeHarness({ analyzerReady: false });
+  assert.equal(h.clientOptions, undefined);
+  const token = h.output.find(
+    ([selector, action]) =>
+      selector === "mel_native_control" && action === "probe",
+  )[2];
+  h.handlers.native_mel("analyzer_ready", 2, token, 1, 48000, 3, 10, 1);
+  assert.equal(h.clientOptions, undefined);
+  h.handlers.native_mel("analyzer_ready", 3, token + 1, 1, 48000, 3, 10, 1);
+  h.handlers.native_mel("analyzer_ready", 3, token, 1, 44100, 3, 10, 1);
+  assert.equal(h.clientOptions, undefined);
+  h.handlers.native_mel("analyzer_ready", 3, token, 1, 48000, 3, 10, 1);
+  assert.ok(
+    h.clientOptions.listener.capabilities.includes(
+      LISTENER_CAPABILITY_ANALYZER_TIMELINES,
+    ),
+  );
+  assert.equal(h.clientOptions.listener.analyzerReadiness.probeToken, token);
+  assert.equal(h.controllerOptions.analyzerReadiness.producerAbi, 3);
+  await h.runtime.stop();
+});
+
+test("bounded optional readiness timeout preserves baseline registration without analyzer capability", async () => {
+  const h = metricRuntimeHarness({ analyzerReady: false });
+  h.advance(1000);
+  assert.ok(h.clientOptions);
+  assert.equal(h.clientOptions.listener.analyzerReadiness, undefined);
+  assert.equal(
+    h.clientOptions.listener.capabilities.includes(
+      LISTENER_CAPABILITY_ANALYZER_TIMELINES,
+    ),
+    false,
+  );
+  assert.equal(h.controllerOptions.analyzerReadiness, null);
+  await h.runtime.stop();
+});
 
 test("runtime routes mel controls and native receipts without a second listener or capture", async () => {
   const received = [];
@@ -18,7 +70,10 @@ test("runtime routes mel controls and native receipts without a second listener 
   h.controllerOptions.sendControl("metric_mel", "drain", [12]);
   h.controllerOptions.sendControl("metric_mel", "stop", [7]);
   assert.deepEqual(
-    h.output.filter(([selector]) => selector === "mel_native_control"),
+    h.output.filter(
+      ([selector, action]) =>
+        selector === "mel_native_control" && action !== "probe",
+    ),
     [
       ["mel_native_control", "arm", 7],
       ["mel_native_control", "drain", 12],

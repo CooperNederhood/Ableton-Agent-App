@@ -24,6 +24,7 @@ import {
   type SessionListeningLaunchDetail,
   type ListeningFailureEvidence,
   readListeningFailureEvidence,
+  sessionMusicalAlignment,
 } from "@ableton-agent/protocol";
 import {
   recordSignalTelemetry,
@@ -121,7 +122,7 @@ type SessionState = SessionBindingSnapshot & {
   readonly policy: Readonly<ListeningTimingPolicy>;
   readonly createdAt: string;
   reserved: boolean;
-  repository?: Repository;
+  repositoryIdentity?: object;
   lease?: SessionSourceLease;
   nativeLaunch?: Promise<void>;
   captureFailure?: Error;
@@ -520,7 +521,7 @@ export function createSessionListeningServices(
       const cached = state(input);
       const repository = await options.resolveRepository(input);
       const receipt = await reserveListeningPublication(repository, input);
-      cached.repository = repository;
+      cached.repositoryIdentity = repository.publicationIdentity ?? repository;
       cached.reserved = true;
       return {
         release: async () => {
@@ -914,21 +915,20 @@ export function createSessionListeningServices(
     ) {
       const cached = state(input);
       const repository = await options.resolveRepository(input);
+      const sameRepository =
+        cached.repositoryIdentity ===
+        (repository.publicationIdentity ?? repository);
       if (
         !cached.reserved ||
         cached.captureFailure ||
-        cached.repository !== repository ||
+        !sameRepository ||
         !cached.startedAt ||
         !cached.endedAt
       )
         deny("invalid_publication_lifecycle", undefined, [
           failureFact("publication.reserved", cached.reserved, true),
           failureFact("capture.failed", Boolean(cached.captureFailure), false),
-          failureFact(
-            "publication.sameRepository",
-            cached.repository === repository,
-            true,
-          ),
+          failureFact("publication.sameRepository", sameRepository, true),
           failureFact("capture.started", Boolean(cached.startedAt), true),
           failureFact("capture.ended", Boolean(cached.endedAt), true),
         ]);
@@ -1002,6 +1002,9 @@ export function createSessionListeningServices(
         trackId,
         binding,
       };
+      const musicalAlignment = sessionMusicalAlignment(
+        cached.expected.source.settings,
+      );
       return persistMetricListeningObservations(
         repository,
         {
@@ -1031,6 +1034,7 @@ export function createSessionListeningServices(
               primary,
               contributors: [contributor],
               attribution: "unknown",
+              ...(musicalAlignment === undefined ? {} : { musicalAlignment }),
             },
           ],
         },

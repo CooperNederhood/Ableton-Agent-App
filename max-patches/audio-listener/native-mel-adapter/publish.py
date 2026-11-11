@@ -23,7 +23,9 @@ FILES = (
 )
 SOURCES = (
     "CMakeLists.txt", "Info.plist.in", "dependencies.json", "mel_engine.hpp",
-    "max_external.cpp", "build.py", "publish.py",
+    "diagnostic_analyzers.hpp", "max_external.cpp", "build.py", "publish.py",
+    "tests/diagnostic_qualification.cpp", "tests/engine_test.cpp",
+    "tests/stream_driver.cpp", "tests/source-binding.mjs",
 )
 DEST = ROOT.parent / "dependencies/flucoma"
 PIN_FILE = REPO / "packages/shared/src/native-mel-pins.ts"
@@ -77,8 +79,29 @@ def main():
     payload = {f"{BUNDLE}/{name}": regular(bundle / name) for name in FILES}
     provenance = {
         "schema": "listener-mel-native-build/v1",
-        "producerAbi": 2,
+        "producerAbi": 3,
+        "sourceIdentityDiagnostics": {
+            "schema": "analyzer-native-source-identity/v1",
+            "delivery": "additive-terminal-record-evidence",
+            "qualification": "offline-fault-injection-only",
+            "repairsOriginalTrigger": False,
+        },
         "profile": "24/20/20000/normalize0/scale0/2048/2048/2048/hann",
+        "analyzerProfiles": {
+            "pitch": "YinFFT/50/2000/2048/2048/2048/hann/independent-stereo",
+            "spectral-shape": "SpectralShape/magnitude/linear/rolloff95/2048/2048/2048/hann/independent-stereo",
+        },
+        "qualification": {
+            "scope": "offline-controlled-inputs",
+            "executedArchitecture": "arm64",
+            "sineCases": 144,
+            "sineMaxErrorCents": 20,
+            "sineMinimumConfidence": 0.9,
+            "spectralOracleCases": 16,
+            "spectralToleranceDb": 1e-5,
+            "spectralToleranceHz": 1e-7,
+            "counterexample": "2000Hz-sine-high-confidence-1000Hz-octave",
+        },
         "architectures": ["arm64", "x86_64"],
         "deploymentTarget": "11.0",
         "compiler": output("clang++", "--version").splitlines()[0],

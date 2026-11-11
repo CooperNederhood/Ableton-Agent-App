@@ -13,8 +13,28 @@ import {
   validateMetricListeningJobOutcome,
   metricListeningReportSchema,
   MAX_METRIC_REPORT_PAGE_ROWS,
+  listeningFeatureTypeSchema,
+  listeningFeatureDefinition,
+  isListeningFeatureValueValid,
+  listeningFeatureDistanceSchema,
+  listeningFeatureDistanceUnitsSchema,
+  contextSegmentSchema,
+  listeningFeatureDefinitionSchema,
+  listeningFeatureComparisonSchema,
 } from "@ableton-agent/protocol";
 import { z } from "zod";
+import {
+  contextFeatureMetadataSchema,
+  contextFeatureDerivationViewSchema,
+  listeningFeaturePageSchema,
+  listeningFeaturePageMasksMatch,
+  MAX_FEATURE_PAGE_CELLS,
+} from "./listening-feature-views.js";
+export {
+  projectListeningFeatureRecord,
+  projectListeningFeaturePage,
+  projectListeningFeatureDerivation,
+} from "./listening-feature-views.js";
 
 const id = z.string().min(1).max(256);
 export const MAX_METRIC_CONTEXT_RESPONSE_BYTES = 64 * 1024;
@@ -45,15 +65,24 @@ const RHYTHM_EVIDENCE_GUIDANCE =
   "For descriptive quarter-note beat placement, integer zero-based beat positions are on-beats; n+0.5 positions are offbeats. Human beat labels 1,2,3,4 correspond to zero-based positions 0,1,2,3, not rounded fractional positions. Do not round fractional detector-window endpoints onto integer beats; corroborate placement with native support and level-row intervals. If those intervals cannot establish phase, describe the uncertainty instead of claiming on-beat or offbeat placement. Convert samples using the report's actual sampleRate and tempoBpm: samples per beat = sampleRate * 60 / tempoBpm. Do not assume 120 BPM or treat quantized detector-end spacing as precise inter-onset timing.";
 
 const FLATNESS_SMOKE_GUIDANCE =
-  "The candidate also emits spectral-flatness, spectral-spread and spectral-rolloff smoke diagnostics during ordinary listening, sharing the same stereo SpectralShape analyzers. A request including flatness, spread or rolloff uses the same scoped listening action, not an extra capture or invented requestedMetrics argument. These diagnostics are available through typed Desktop History, not the metric context/report. Flatness uses stereo dB values; spread and rolloff use independent-channel nonnegative Hz values with magnitude mode and linear frequency configured. Rolloff is explicitly configured at 95 percent; this setting is not numerical qualification of its cumulative weighting or threshold. All have unqualified frame support and silence validity; do not invent flatness report values, spread report values or rolloff report values, claim complete descriptor coverage, or treat the smoke as numerical qualification. Delivery counts are not FFT frame counts. Spectral breadth is not physical filter bandwidth or source count, and flatness does not identify a noise source. Rolloff describes upper spectral extent, not an actual synth/filter cutoff or an automatic EQ prescription.";
+  "For flatness, spread and rolloff, read the authoritative spectral-shape timeline and bounded report when present in stored context. A request uses the same scoped listening action, not an extra capture or invented requestedMetrics argument. Read actual frame supports, independent channel states, gaps and unmeasured trailing support. Complete acquisition does not imply defined descriptors: silence, undefined and invalid channels retain unavailable values, not measured zeros. The pinned SpectralShape profile uses magnitude weighting, linear frequency, 20-log flatness in dB, and nonnegative Hz values for spread and rolloff. Rolloff is explicitly configured at 95 percent; the profile documents its qualified cumulative interpolation and excluded Nyquist bin. Spectral breadth is not physical filter bandwidth or source count; rolloff is not an actual synth/filter cutoff or an automatic EQ prescription. Historical smoke diagnostics remain in typed Desktop History and cannot substitute for an absent authoritative timeline. Delivery counts are not FFT frame counts. If the timeline is absent or unavailable, explain that limitation; do not invent flatness report values, spread report values or rolloff report values.";
 const MEL_BAND_GUIDANCE =
   "When mel-bands is requested, including by the default metric set, read its available timeline from the typed stored context or ableton_context report, not SpectralShape smoke diagnostics. The optional mel-bands section retains all 24 bands for independent left/right channels, full frame supports, exact gaps, the pinned profile and low/mid and high/mid ratios. Units are uncalibrated linear FFT magnitudes with normalize 0 and scale 0, not power or calibrated energy. Ratios derive from the same retained vectors; report aggregation averages linear vectors before deriving ratios, never averages ratios. Preserve zero-denominator and below-floor unavailable reasons; a valid zero numerator with a healthy denominator is a zero ratio. No-frame and missing support are not measured silence. Read status, retained/expected counts, gaps and unmeasured trailing support before making coverage claims. Never invent absent mel data, trim bands, substitute SpectralShape diagnostics, infer warmth or muddiness, or prescribe EQ from these ratios alone.";
 const PITCH_SMOKE_GUIDANCE =
-  'The candidate emits monophonic-pitch smoke diagnostics during the same ordinary listening pass, using independent stereo fluid.pitch~ analyzers configured for YinFFT, 50-2000 Hz, and a 2048-sample window/hop/FFT. Requests for pitch and confidence use the existing scoped listening action without extra arguments or recapture. Paired Hz/confidence snapshots are retained in typed Desktop History, not the metric context/report. For pitch requests, use ableton_context action "report" with the returned contextId, offset 0 and limit 8 to read the existing bounded measurements. Pitch diagnostics are not exposed by the current agent tools; explain that limitation after reading the available report. Do not search tool-output files or use shell/filesystem commands to find pitch: its absence from context/report is intentional, not a missing file or failed capture. 0 Hz is the undefined sentinel, not missing acquisition or a measured zero-frequency note. Confidence is an algorithm-specific score, not a calibrated probability or universal harmonic-to-noise ratio; low confidence is not proof of noise. Snapshot delivery and positive candidate counts are not independently identified FFT frames, valid-note counts, or numerical qualification. Do not invent pitch report fields, note identities, voiced/unvoiced labels, or pitch stability from unavailable evidence. The short window limits low-note estimation; octave errors and unreliable polyphonic mixtures remain possible. No transcription, instrument recognition, or automatic pitch correction is provided.';
+  'For pitch requests, use ableton_context action "report" with the returned contextId, offset 0 and limit 8; read authoritative pitch frames and their paired Hz/confidence when present, not historical monophonic-pitch smoke diagnostics. The independent stereo YinFFT profile retains its nominal 50-2000 Hz search and 2048-sample window/hop/FFT. Requests use the existing scoped listening action without extra arguments or recapture. Accepted-estimate means only that the frozen output/confidence gate passed, not verified pitch or input class. Controlled sine qualification covers the declared profile test cases; a known 2000 Hz sine produces a high-confidence estimate near 1000 Hz that passes the gate despite the octave error. Confidence is an algorithm-specific score, not a calibrated probability; low confidence is not proof of noise. Preserve rejected raw estimates and channel states; 0 Hz is the undefined sentinel, not a measured zero-frequency note, and zero confidence is a legitimate score. Acquisition gaps, undefined estimates and measured silence are distinct. Read native support and explicit unmeasured tails. The short window limits low notes; octave errors and unreliable polyphonic mixtures remain possible. Historical polled diagnostics cannot be promoted into frames. If authoritative pitch is absent or unavailable, report that rather than inventing fields or retrying. Do not search tool-output files or use shell/filesystem commands to find pitch. No transcription, instrument recognition or automatic pitch correction is provided.';
 
-const LISTENING_WORKFLOW_GUIDANCE = `Use only actions present in your scoped schema. For Arrangement capture, play-arrangement-and-listen requires listenerIds, startBeat and endBeat: use the absolute endBeat, not durationBeats; durationBeats is Session-only. Arrangement capture is not read-only: on a successful pass the App positions stopped transport and starts playback, leaving it running. Report verified transport changes, not unchanged transport/seek state. For Session capture, play-session-and-listen explicitly fires one exact MIDI or warped-audio clip through one same-track native listener supporting explicit Session mode (wire5). The canonical wire5 Development listener collects independent level, spectral-centroid and attack timelines during one playback in explicit Arrangement or Session mode, then assembles a tempo-aligned report. A locally unavailable analyzer does not block healthy metrics; shared source, clock and ownership failures or unconfirmed cleanup still prevent publication. Omit durationBeats to capture exactly one active loop (not the underlying audio file), or the active start/end region for a nonlooping clip. Specify durationBeats only for an explicitly requested shorter range; equality with the active end is supported. Requests exceeding thirty seconds are rejected, never truncated. Independently negotiated metric results use their declared musical reporting and native acquisition budgets, not a universal 300-row assumption. ${SESSION_LAUNCH_CASE_GUIDANCE} Do not substitute Arrangement capture or edit launch/source settings to make it pass. Session cancellation does not retract an accepted or queued launch; playback stays running and other selected Session material can resume. The Session timeout includes setup and launch. Source continuity is message-rate monitored, not sample-accurate; unknown follow-action settings are not disabled, and listener audio is not exclusively attributable to the clip. For arrangement_session_override, explain that Live's Back to Arrangement restores the playback source, not the view. Switching views, stopping playback or deselecting a clip does not clear this override. Ask the user to restore Arrangement manually, then make a new explicit request; never repair source selection or retry automatically. Both listening start calls wait for terminal capture, publication and cleanup before returning the owned job. No get-pass polling is needed to wait for a start call. Use get-pass only for explicit inspection of an existing pass with its exact returned passId. Queued or arming is not completion or failure. Never start another playback call to wait for the first. Never use bash or sleep to wait. After stage=completed or stage=partial, read the returned contextIds with ableton_context before answering: a known contextId goes to get or report, not list. A partial pass is a published result with usable metrics and explicit missing coverage, not full success or a failed tool. Read metricResults and the stored context; disclose missing metrics and intervals. Valid measured silence and empty attack lists are evidence, not missing data. Do not invent frequency or rhythm conclusions from absent measurements, infer exact whole-row FFT support, or retry automatically to fill gaps. Report failed, cancelled or interrupted passes honestly; do not describe queued acceptance as measured audio. An explicit user instruction to stop on any failure also covers argument-validation and permission failures: report and stop instead of correcting arguments, repairing or retrying. retryable describes technical recoverability, not permission to retry.`;
+const LISTENING_WORKFLOW_GUIDANCE = `Use only actions present in your scoped schema. For Arrangement capture, play-arrangement-and-listen requires listenerIds, startBeat and endBeat: use the absolute endBeat, not durationBeats; durationBeats is Session-only. Arrangement capture is not read-only: on a successful pass the App positions stopped transport and starts playback, leaving it running. Report verified transport changes, not unchanged transport/seek state. For Session capture, play-session-and-listen explicitly fires one exact MIDI or warped-audio clip through one same-track native listener supporting explicit Session mode (wire5). The canonical wire5 Development listener collects independent level, spectral-centroid and attack timelines during one playback in explicit Arrangement or Session mode, then assembles a tempo-aligned report. A locally unavailable analyzer does not block healthy metrics; shared source, clock and ownership failures or unconfirmed cleanup still prevent publication. Omit durationBeats to capture exactly one active loop (not the underlying audio file), or the active start/end region for a nonlooping clip. Specify durationBeats only for an explicitly requested shorter range; equality with the active end is supported. Requests exceeding thirty seconds are rejected, never truncated. Independently negotiated metric results use their declared musical reporting and native acquisition budgets, not a universal 300-row assumption. ${SESSION_LAUNCH_CASE_GUIDANCE} Do not substitute Arrangement capture or edit launch/source settings to make it pass. Session cancellation does not retract an accepted or queued launch; playback stays running and other selected Session material can resume. The Session timeout includes setup and launch. Source continuity is message-rate monitored, not sample-accurate; unknown follow-action settings are not disabled, and listener audio is not exclusively attributable to the clip. For arrangement_session_override, explain that Live's Back to Arrangement restores the playback source, not the view. Switching views, stopping playback or deselecting a clip does not clear this override. Ask the user to restore Arrangement manually, then make a new explicit request; never repair source selection or retry automatically. Both listening start calls wait for terminal capture, publication and cleanup before returning the owned job. No get-pass polling is needed to wait for a start call. Use get-pass only for explicit inspection of an existing pass with its exact returned passId. Queued or arming is not completion or failure. Never start another playback call to wait for the first. Never use bash or sleep to wait. After stage=completed or stage=partial, read the returned contextIds with ableton_context before answering: for metric-audio-observation/v1 use action "report", offset=0, limit=8, then follow report.nextOffset until null. Use get only for other or small contexts; get-feature is derived evidence and does not replace the original-measurement report. A known contextId does not need list first. A partial pass is a published result with usable metrics and explicit missing coverage, not full success or a failed tool. Read metricResults and the stored context; disclose missing metrics and intervals. Valid measured silence and empty attack lists are evidence, not missing data. Do not invent frequency or rhythm conclusions from absent measurements, infer exact whole-row FFT support, or retry automatically to fill gaps. Report failed, cancelled or interrupted passes honestly; do not describe queued acceptance as measured audio. An explicit user instruction to stop on any failure also covers argument-validation and permission failures: report and stop instead of correcting arguments, repairing or retrying. retryable describes technical recoverability, not permission to retry.`;
 
-export const LISTENING_AGENT_GUIDANCE = `${LISTENING_WORKFLOW_GUIDANCE} Wire5 report geometry supports nonzero/fractional Arrangement starts; physical qualification of a particular range remains separate. For a known metric-audio-observation/v1 context, use ableton_context report for stacked musical-row values, availability, gaps and actual native support without joining raw indices. Start offset=0 and limit=8 (maximum 32); follow report.nextOffset until null. Consult metricMetadata.algorithm.units for native level/centroid/attacks and metricMetadata["mel-bands"].profile for mel: metric peak/RMS values are linear amplitudes, not dBFS; attack strength is dB-rise and its timestamp is the detector-window end, not a precise onset. Partial attack coverage cannot establish absence of attacks over the whole clip. Reports do not authorize new capture or convert legacy data. ${MEL_BAND_GUIDANCE} ${FLATNESS_SMOKE_GUIDANCE} ${PITCH_SMOKE_GUIDANCE} ${RHYTHM_EVIDENCE_GUIDANCE} ${ALIGNMENT_EVIDENCE_GUIDANCE} ${FAILURE_EVIDENCE_GUIDANCE}`;
+const PERSISTED_FEATURE_READ_GUIDANCE =
+  "When the user explicitly asks to read or reread persisted features, call get-feature for each requested feature from every requested context in the current operation, including contexts read in earlier turns. Conversation memory or a previous turn's read does not satisfy an explicit persisted reread. Use known featureIds, or discover them with list-features scoped to each contextId; follow value/support page continuations needed for the requested evidence. When the user requests both comparison and search, call compare-features with pairs of leftFeatureId and rightFeatureId, and call search-features separately with featureId and the requested excludeContextIds. A search hit or its distance is not a substitute for the requested pair comparison, even when the hit is the comparison target. Use actual persisted IDs and typed results; report unavailable or failed reads/comparisons honestly rather than filling gaps from memory. These reads do not authorize capture, rederivation or retries.";
+
+export const METRIC_REPORT_PAGE_GUIDANCE =
+  "This is one original-measurement report page. Inspect report.nextOffset: if non-null, call ableton_context report again for the same contextId with offset equal to that exact nextOffset, not offset + limit. Byte limits can return fewer rows than the requested limit. Follow every continuation until nextOffset is null. A request to reread or verify stored analyzer evidence requires fresh complete pages for each requested context, including after restart; earlier-turn pages cannot establish that the evidence remains available and unchanged. Complete these reads even if feature values were read first. Global acquisition metadata and feature values do not replace unread frame validity.";
+
+export const FEATURE_VALUE_DETAIL_GUIDANCE =
+  "list-features, compare-features and search-features return metadata and distances, not feature value arrays. valueCount is a count, not values; distance is not either input vector. If the user requested values or persisted rereads, use get-feature for each requested featureId in this operation before reporting values; read page.values and needed continuations, not memory or original report rows. Preserve null/unavailable reasons. Comparison/search alone does not require these extra reads.";
+
+export const LISTENING_AGENT_GUIDANCE = `${LISTENING_WORKFLOW_GUIDANCE} ${PERSISTED_FEATURE_READ_GUIDANCE} Wire5 report geometry supports nonzero/fractional Arrangement starts; physical qualification of a particular range remains separate. For a known metric-audio-observation/v1 context, use ableton_context report for stacked musical-row values, availability, gaps and actual native support without joining raw indices. Start offset=0 and limit=8 (maximum 32); follow report.nextOffset until null. Consult metricMetadata.algorithm.units for native level/centroid/attacks and metricMetadata["mel-bands"].profile for mel: metric peak/RMS values are linear amplitudes, not dBFS; attack strength is dB-rise and its timestamp is the detector-window end, not a precise onset. Partial attack coverage cannot establish absence of attacks over the whole clip. Reports do not authorize new capture or convert legacy data. ${MEL_BAND_GUIDANCE} ${FLATNESS_SMOKE_GUIDANCE} ${PITCH_SMOKE_GUIDANCE} ${RHYTHM_EVIDENCE_GUIDANCE} ${ALIGNMENT_EVIDENCE_GUIDANCE} ${FAILURE_EVIDENCE_GUIDANCE}`;
 
 export const listeningOperationParamsSchema = z.discriminatedUnion("action", [
   z
@@ -194,6 +223,78 @@ export const listeningOperationResultSchema = z.discriminatedUnion("action", [
 ]);
 
 export const contextOperationParamsSchema = z.discriminatedUnion("action", [
+  z.strictObject({ action: z.literal("feature-definitions") }),
+  z
+    .strictObject({
+      action: z.literal("derive-features"),
+      contextIds: z
+        .array(id)
+        .min(1)
+        .max(8)
+        .refine((ids) => new Set(ids).size === ids.length),
+      includeHistorical: z.boolean().default(false),
+    })
+    .describe(
+      "Persist derived features for explicit stored observations. App-session data mutation only; never captures audio or changes Live. Unsupported sources return unavailable.",
+    ),
+  z
+    .strictObject({
+      action: z.literal("list-features"),
+      contextId: id.optional(),
+      featureType: listeningFeatureTypeSchema.optional(),
+      includeHistorical: z.boolean().default(false),
+      cursor: cursor
+        .optional()
+        .describe(
+          "Omit cursor on the first request. For the next page, copy the returned nextCursor unchanged; keep contextId, featureType and includeHistorical filters unchanged. Stop when nextCursor is absent. This is an opaque string, not an offset or page number.",
+        ),
+      limit: z
+        .number()
+        .int()
+        .min(1)
+        .max(20)
+        .default(10)
+        .describe(
+          "Feature records per page: default 10, maximum 20. This does not enable offset pagination.",
+        ),
+    })
+    .describe(
+      `Discover feature IDs with cursor pagination, not offset. First request: omit cursor; continue with the returned nextCursor until absent. offset and supportOffset are not accepted by list-features; those belong to report/get-feature pagination. ${FEATURE_VALUE_DETAIL_GUIDANCE}`,
+    ),
+  z
+    .strictObject({
+      action: z.literal("get-feature"),
+      featureId: id,
+      includeHistorical: z.boolean().default(false),
+      offset: z.number().int().min(0).max(2000).default(0),
+      supportOffset: z.number().int().min(0).max(2000).default(0),
+      limit: z.number().int().min(1).max(MAX_FEATURE_PAGE_CELLS).default(8),
+    })
+    .describe(
+      "Inventory/search return compact feature metadata. Read values here in at most 32 cells per page; follow page.nextOffset. Support intervals have independent page.nextSupportOffset; follow both until null. Values preserve whole-segment normalization; never renormalize pages or treat unavailable null values as zeros.",
+    ),
+  z
+    .strictObject({
+      action: z.literal("compare-features"),
+      pairs: z
+        .array(z.strictObject({ leftFeatureId: id, rightFeatureId: id }))
+        .min(1)
+        .max(16),
+      includeHistorical: z.boolean().default(false),
+    })
+    .describe(FEATURE_VALUE_DETAIL_GUIDANCE),
+  z
+    .strictObject({
+      action: z.literal("search-features"),
+      featureId: id,
+      excludeContextIds: z.array(id).max(100).default([]),
+      includeHistorical: z.boolean().default(false),
+      limit: z.number().int().min(1).max(20).default(10),
+      candidateLimit: z.number().int().min(1).max(1_000).default(1_000),
+    })
+    .describe(
+      `Exact distances over a bounded same-session, same-Set candidate scan. Exclude the query's entire source with excludeContextIds for independent matches. Non-exhaustive results are nearest only within the scanned subset. Never triggers derivation or capture. ${FEATURE_VALUE_DETAIL_GUIDANCE}`,
+    ),
   z
     .object({
       action: z.literal("list"),
@@ -205,7 +306,7 @@ export const contextOperationParamsSchema = z.discriminatedUnion("action", [
     })
     .strict()
     .describe(
-      "Discover context summaries by optional subjectId, listenerId or passId. Does not accept contextId; use get when the contextId is known.",
+      "Discover context summaries by optional subjectId, listenerId or passId. Does not accept contextId; use report for known metric observations, or get for other/small contexts.",
     ),
   z
     .object({
@@ -215,7 +316,7 @@ export const contextOperationParamsSchema = z.discriminatedUnion("action", [
     })
     .strict()
     .describe(
-      "Read one known contextId, including an ID returned by a completed listening job. No preceding list is needed. Set includeHistorical=true to retrieve historical evidence.",
+      "Read one known contextId for other or small contexts. Prefer report for metric-audio-observation/v1 original measurements: full metric get responses exceeding 64 KiB are rejected with report paging instructions. No preceding list is needed. Set includeHistorical=true to retrieve historical evidence.",
     ),
   z
     .object({
@@ -232,7 +333,7 @@ export const contextOperationParamsSchema = z.discriminatedUnion("action", [
     })
     .strict()
     .describe(
-      "Read a bounded stacked musical timeline for a known metric-audio-observation/v1 contextId, without joining record indices. Start at offset=0; follow report.nextOffset until null. limit defaults to 8, maximum 32. No capture, retry, or legacy conversion.",
+      "Preferred original-measurement read for a known metric-audio-observation/v1 contextId, without joining record indices. Start at offset=0, limit=8; follow report.nextOffset until null. limit defaults to 8, maximum 32. get-feature is derived evidence, not a substitute. No capture, retry, or legacy conversion.",
     ),
   z
     .object({
@@ -268,7 +369,90 @@ const contextSummarySchema = z
 
 export const metricListeningContextReportSchema = metricListeningReportSchema;
 
+export const contextFeatureViewSchema = z
+  .strictObject({
+    record: contextFeatureMetadataSchema,
+    segment: contextSegmentSchema,
+    source: contextSummarySchema,
+  })
+  .refine(
+    ({ record, segment, source }) =>
+      record.segmentId === segment.id &&
+      record.entryId === segment.entryId &&
+      record.entryId === source.contextId &&
+      record.sessionId === segment.sessionId &&
+      record.liveSetId === segment.liveSetId,
+    "Feature, segment and source provenance must agree",
+  );
+const comparisonEvidenceSchema = z.strictObject({
+  contextId: id,
+  segmentId: id,
+  coordinate: z.enum(["clip-local-beats", "transport-beats"]),
+  startBeat: z.number().finite().nonnegative(),
+  endBeat: z.number().finite().nonnegative(),
+  durationSeconds: z.number().finite().positive(),
+  coveredSamples: z.number().int().nonnegative(),
+  expectedSamples: z.number().int().positive(),
+  freshness: contextSummarySchema.shape.freshness,
+});
+
 export const contextOperationResultSchema = z.discriminatedUnion("action", [
+  z.strictObject({
+    action: z.literal("feature-definitions"),
+    definitions: z.array(listeningFeatureDefinitionSchema).max(32),
+  }),
+  z.strictObject({
+    action: z.literal("derive-features"),
+    derivations: z.array(contextFeatureDerivationViewSchema).max(8),
+  }),
+  z.strictObject({
+    action: z.literal("list-features"),
+    features: z.array(contextFeatureViewSchema).max(20),
+    derivation: contextFeatureDerivationViewSchema.optional(),
+    nextCursor: cursor.optional(),
+  }),
+  z.strictObject({
+    action: z.literal("get-feature"),
+    feature: contextFeatureViewSchema,
+    page: listeningFeaturePageSchema,
+  }),
+  z.strictObject({
+    action: z.literal("compare-features"),
+    comparisons: z
+      .array(
+        z.strictObject({
+          leftFeatureId: id,
+          rightFeatureId: id,
+          leftEvidence: comparisonEvidenceSchema,
+          rightEvidence: comparisonEvidenceSchema,
+          result: listeningFeatureComparisonSchema,
+        }),
+      )
+      .max(16),
+  }),
+  z.strictObject({
+    action: z.literal("search-features"),
+    query: contextFeatureViewSchema,
+    matches: z
+      .array(
+        z.strictObject({
+          feature: contextFeatureViewSchema,
+          distance: z.number().finite().nonnegative(),
+        }),
+      )
+      .max(20),
+    distanceDefinition: listeningFeatureDistanceSchema,
+    distanceUnits: listeningFeatureDistanceUnitsSchema,
+    scannedCount: z.number().int().min(0).max(1_000),
+    comparableCount: z.number().int().min(0).max(1_000),
+    eligibleCount: z.number().int().nonnegative(),
+    excludedCount: z.number().int().nonnegative(),
+    exhaustive: z.boolean(),
+    limitsHit: z.array(z.enum(["candidates", "bytes", "time"])).max(3),
+    exclusionReasons: z
+      .record(z.string().min(1).max(256), z.number().int().min(0).max(1_000))
+      .refine((value) => Object.keys(value).length <= 32),
+  }),
   z
     .object({
       action: z.literal("list"),
@@ -359,7 +543,10 @@ export function createListeningTools(
     }),
     defineTool("ableton_context", {
       description:
-        "Query typed listening context owned by the active App session. When a contextId is already known, use get with that exact contextId; no preceding list is needed. For metric-audio-observation/v1 musical analysis use report with that contextId: it returns measured values, per-metric availability, gaps and actual native supports stacked by musical row, rather than raw index joins. Start offset=0, limit=8 (maximum 32); follow report.nextOffset, stopping at null. A report is a bounded projection, not new evidence or whole-row FFT support; missing/no-frame is not silence. Legacy observations retain get unchanged and cannot be converted into metric reports. Use list only to discover unknown IDs by optional subjectId, listenerId or passId; list does not accept contextId. Current-only reads revalidate identity/freshness; explicitly include historical entries to inspect stale or unresolved evidence. RMS dBFS is not LUFS; attacks and attribution can be uncertain. Pruning deletes only explicitly named App-session context, requires approval and confirm='prune-session-context', and never deletes Live clips or source audio. No arbitrary SQL, filesystem paths, raw audio, or generic context writes.",
+        'After a listening capture, read the original stored metric-audio-observation/v1 measurement with action "report" before querying derived features. Start offset=0, limit=8; follow report.nextOffset until null. Do not request the full raw metric get as the first read: it can exceed the agent response budget. get-feature reads derived values and does not replace that original-measurement read. ' +
+        "Feature argument names: list-features uses singular contextId, not contextIds, and optional featureType; list-features and list use cursor, never offset: omit cursor initially, then copy nextCursor until absent. Only report and get-feature accept offset; only get-feature accepts supportOffset. feature-definitions accepts only action, with no pagination. derive-features uses the contextIds array. get-feature uses featureId. compare-features uses pairs of leftFeatureId and rightFeatureId. search-features uses featureId and excludeContextIds (an array of source context IDs). Use the exact action schema; these argument names are not interchangeable. " +
+        `${PERSISTED_FEATURE_READ_GUIDANCE} ` +
+        "Query typed listening context owned by the active App session. feature-definitions describes available feature types and their canonical distances; use derive-features for explicit stored contextIds, then list-features/get-feature, compare-features or search-features. Derivation changes only App-session derived data, never Live or original measurements. Search never captures or backfills. Distances are not probabilities or universal musical similarity; choose a feature relevant to the request and report source range, duration, coverage and freshness. A non-exhaustive scan is nearest only within the scanned subset. Exclude the query source explicitly when seeking independent matches. For other or small contexts, use get with the exact contextId; no preceding list is needed. Full metric get responses over 64 KiB fail explicitly: switch to report, never read tool-output spill files. For metric-audio-observation/v1 musical analysis use report with that contextId: it returns measured values, per-metric availability, gaps and actual native supports stacked by musical row, rather than raw index joins. Start offset=0, limit=8 (maximum 32); follow report.nextOffset, stopping at null. A report is a bounded projection, not new evidence or whole-row FFT support; missing/no-frame is not silence. Legacy observations retain get unchanged and cannot be converted into metric reports. Use list only to discover unknown IDs by optional subjectId, listenerId or passId; list does not accept contextId. Current-only reads revalidate identity/freshness; explicitly include historical entries to inspect stale or unresolved evidence. RMS dBFS is not LUFS; attacks and attribution can be uncertain. Pruning deletes only explicitly named App-session context, requires approval and confirm='prune-session-context', and never deletes Live clips or source audio. No arbitrary SQL, filesystem paths, raw audio, or generic context writes.",
       parameters: contextOperationParamsSchema,
       handler: async (params, invocation) => {
         const request = contextOperationParamsSchema.parse(params);
@@ -368,6 +555,111 @@ export function createListeningTools(
         );
         if (result.action !== request.action)
           throw new Error("Context result action mismatch");
+        if (
+          result.action === "get" &&
+          result.observation.schema === "metric-audio-observation/v1" &&
+          new TextEncoder().encode(JSON.stringify(result)).byteLength >
+            MAX_METRIC_CONTEXT_RESPONSE_BYTES
+        )
+          throw new Error(
+            'Metric context get response exceeds 64 KiB UTF-8 budget. Use action "report" with the same contextId, offset=0 and limit=8; follow report.nextOffset until null. Do not read tool-output spill files.',
+          );
+        if (result.action === "get-feature") {
+          const definition = listeningFeatureDefinition(
+            result.feature.record.feature.type,
+          );
+          const cellCount = Math.max(
+            0,
+            Math.min(
+              result.page.limit,
+              result.page.totalCells - result.page.offset,
+            ),
+          );
+          if (
+            result.page.dimensions !== definition.dimensions ||
+            result.page.cells.length !== (definition.grid ? cellCount : 0) ||
+            result.page.values?.some(
+              (value) =>
+                !isListeningFeatureValueValid(
+                  definition.type,
+                  value,
+                  result.feature.record.feature.sampleRate,
+                ),
+            ) ||
+            !listeningFeaturePageMasksMatch(
+              result.feature.record.feature,
+              result.page,
+            ) ||
+            (result.page.values === null) !==
+              (result.feature.record.feature.status === "unavailable")
+          )
+            throw new Error("Feature context result does not match request");
+        }
+        if (
+          (request.action === "get-feature" &&
+            result.action === "get-feature" &&
+            (result.feature.record.id !== request.featureId ||
+              result.page.offset !== request.offset ||
+              result.page.supportOffset !== request.supportOffset ||
+              result.page.limit !== request.limit ||
+              result.page.totalSupportIntervals !==
+                result.feature.record.feature.supportIntervalCount ||
+              JSON.stringify(result.page.totalChannelSupportIntervals) !==
+                JSON.stringify(
+                  result.feature.record.feature.channelSupportIntervalCounts,
+                ) ||
+              result.page.totalCells !==
+                (listeningFeatureDefinition(result.feature.record.feature.type)
+                  .grid
+                  ? (result.feature.record.feature.grid?.cellCount ?? 0)
+                  : 1))) ||
+          (request.action === "derive-features" &&
+            result.action === "derive-features" &&
+            (result.derivations.length !== request.contextIds.length ||
+              result.derivations.some(
+                (item, index) => item.entryId !== request.contextIds[index],
+              ))) ||
+          (request.action === "compare-features" &&
+            result.action === "compare-features" &&
+            (result.comparisons.length !== request.pairs.length ||
+              result.comparisons.some(
+                (item, index) =>
+                  item.leftFeatureId !== request.pairs[index]?.leftFeatureId ||
+                  item.rightFeatureId !== request.pairs[index]?.rightFeatureId,
+              ))) ||
+          (request.action === "list-features" &&
+            result.action === "list-features" &&
+            (result.features.length > request.limit ||
+              (request.featureType !== undefined &&
+                result.features.some(
+                  (item) => item.record.feature.type !== request.featureType,
+                )) ||
+              (request.contextId !== undefined &&
+                result.features.some(
+                  (item) => item.record.entryId !== request.contextId,
+                )))) ||
+          (request.action === "search-features" &&
+            result.action === "search-features" &&
+            (result.query.record.id !== request.featureId ||
+              result.distanceDefinition !==
+                result.query.record.feature.distanceDefinition ||
+              result.distanceUnits !==
+                result.query.record.feature.distanceUnits ||
+              result.matches.length > request.limit ||
+              result.scannedCount > request.candidateLimit ||
+              result.matches.some((item) =>
+                request.excludeContextIds.includes(item.feature.record.entryId),
+              )))
+        )
+          throw new Error("Feature context result does not match request");
+        if (
+          request.action.includes("feature") &&
+          new TextEncoder().encode(JSON.stringify(result)).byteLength >
+            MAX_METRIC_CONTEXT_RESPONSE_BYTES
+        )
+          throw new Error(
+            "Feature context response exceeds 64 KiB UTF-8 budget",
+          );
         if (
           result.action === "report" &&
           request.action === "report" &&

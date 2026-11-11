@@ -32,7 +32,40 @@ int main(int argc, char** argv) {
         if (i) std::cout << ',';
         std::cout << r.right[i];
       }
-      std::cout << "]}\n";
+      std::cout << "],\"diagnostics\":[";
+      for (std::size_t channel = 0; channel < 2; ++channel) {
+        if (channel) std::cout << ',';
+        const auto& d = r.diagnostics[channel];
+        std::cout << "{\"pitchState\":" << int(d.pitch)
+                  << ",\"spectralState\":" << int(d.spectral);
+        const char* keys[] = {"hz", "confidence", "flatnessDb", "spreadHz", "rolloffHz"};
+        const double values[] = {d.hz, d.confidence, d.flatnessDb, d.spreadHz, d.rolloffHz};
+        for (std::size_t i = 0; i < 5; ++i) {
+          std::cout << ",\"" << keys[i] << "\":";
+          if (std::isfinite(values[i])) std::cout << values[i];
+          else std::cout << "null";
+        }
+        std::cout << '}';
+      }
+      std::cout << "]";
+      if (r.kind == Kind::stopped && r.reason == Reason::sourceIdentity) {
+        std::cout << ",\"sourceIdentity\":[";
+        for (std::size_t i = 0; i < r.sourceIdentity.size(); ++i) {
+          if (i) std::cout << ',';
+          if (std::isfinite(r.sourceIdentity[i])) std::cout << r.sourceIdentity[i];
+          else std::cout << "null";
+        }
+        std::cout << ']';
+      }
+      if (r.kind == Kind::stopped) {
+        const auto receipt = engine.drainReceipt();
+        std::cout << ",\"drainReceipt\":{\"terminal\":" << receipt.terminal
+                  << ",\"clockValid\":" << receipt.clockValid
+                  << ",\"clockExclusive\":" << receipt.clockExclusive
+                  << ",\"records\":" << receipt.records
+                  << ",\"frames\":" << receipt.frames << '}';
+      }
+      std::cout << "}\n";
     }
   };
   std::size_t count = 0;

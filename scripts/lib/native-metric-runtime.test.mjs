@@ -66,14 +66,26 @@ function fixture(
     clear,
   });
   const send = (name, ...args) => handlers.get(name)(...args);
+  // Test-only receipt: echo the actual request token. Identity/DSP messages
+  // alone must never establish performed native analyzer readiness.
+  const respondToSyntheticProbe = () => {
+    const probe = outlet.mock.calls.findLast(
+      (row) => row[0] === "mel_native_control" && row[1] === "probe",
+    );
+    if (!probe) return false;
+    send("native_mel", "analyzer_ready", 3, probe[2], 1, 48000, 3, 10, 1);
+    return true;
+  };
   const ready = () => {
     send("identity", JSON.stringify(identity));
     send("dsp", 1, 48000, 64);
+    respondToSyntheticProbe();
   };
   return {
     runtime,
     send,
     ready,
+    respondToSyntheticProbe,
     clients,
     controllers,
     outlet,
@@ -126,6 +138,8 @@ describe("metric Node-for-Max entry wiring", () => {
     f.send("dsp", 1, 48000, 64);
     expect(f.clients).toHaveLength(0);
     f.send("identity", JSON.stringify(identity));
+    expect(f.clients).toHaveLength(0);
+    expect(f.respondToSyntheticProbe()).toBe(true);
     expect(f.clients).toHaveLength(1);
     const client = f.clients[0];
     expect(
@@ -135,11 +149,45 @@ describe("metric Node-for-Max entry wiring", () => {
       nativeStatus: { readiness: "BLOCKED" },
       sampleRate: 48000,
       vectorSize: 64,
+      analyzerReadiness: {
+        schema: "analyzer-native-readiness/v1",
+        producerAbi: 3,
+        sourceAbi: 3,
+        dspGeneration: 1,
+        sampleRate: 48000,
+        sourceClock: 10,
+      },
     });
     expect(client.configureProducer).toHaveBeenCalledWith(identity);
     expect(client.start).toHaveBeenCalledOnce();
     f.send("dsp", 1, 48000, 64);
     expect(f.clients).toHaveLength(1);
+  });
+
+  it("does not construct the SDK or controller from mismatched or unsuccessful probe receipts", () => {
+    const f = fixture();
+    f.send("identity", JSON.stringify(identity));
+    f.send("dsp", 1, 48000, 64);
+    const probe = f.outlet.mock.calls.find(
+      (row) => row[0] === "mel_native_control" && row[1] === "probe",
+    );
+    expect(probe).toBeDefined();
+    const token = probe[2];
+    for (const packet of [
+      [2, token, 1, 48000, 3, 10, 1],
+      [3, token + 1, 1, 48000, 3, 10, 1],
+      [3, token, 0, 48000, 3, 10, 1],
+      [3, token, 1, 44100, 3, 10, 1],
+      [3, token, 1, 48000, 2, 10, 1],
+      [3, token, 1, 48000, 3, 10, 0],
+    ]) {
+      f.send("native_mel", "analyzer_ready", ...packet);
+      expect(f.clients).toHaveLength(0);
+      expect(f.controllers).toHaveLength(0);
+    }
+    expect(f.respondToSyntheticProbe()).toBe(true);
+    expect(f.clients).toHaveLength(1);
+    expect(f.controllers).toHaveLength(1);
   });
 
   it("routes actual controls, IO packets, replies, results and lifecycle without manufacturing receipts", () => {
@@ -161,7 +209,7 @@ describe("metric Node-for-Max entry wiring", () => {
       control,
       expect.objectContaining({
         nativeEpoch: 1,
-        maxObservationBytes: protocol.MAX_AUDIO_OBSERVATION_BYTES,
+        maxObservationBytes: protocol.MAX_METRIC_OBSERVATION_BYTES,
       }),
     );
     expect(f.outlet).toHaveBeenCalledWith(

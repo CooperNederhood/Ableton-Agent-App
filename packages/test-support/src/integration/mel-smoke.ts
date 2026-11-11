@@ -2,10 +2,8 @@ import { createHash } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import {
   metricAudioObservationSchema,
-  metricListeningReportSchema,
   projectMetricListeningReport,
   type MetricAudioObservation,
-  type MetricListeningReport,
 } from "@ableton-agent/protocol";
 import type { AssertionInput, Facts } from "./contracts.js";
 import {
@@ -28,7 +26,12 @@ export interface MelSmokeEvidence {
   readonly observation: MetricAudioObservation;
   readonly reportProjection: {
     readonly provenance: "typed-desktop-context-projection";
-    readonly pages: readonly MetricListeningReport[];
+    readonly pages: readonly {
+      readonly offset: number;
+      readonly nextOffset: number | null;
+      readonly rowCount: number;
+      readonly sha256: string;
+    }[];
   };
 }
 function requireMel(value: unknown, detail: string): asserts value {
@@ -75,15 +78,22 @@ export function validateMelBinaryProof(
   );
 }
 
-function pages(observation: MetricAudioObservation): MetricListeningReport[] {
-  const result: MetricListeningReport[] = [];
+function pages(
+  observation: MetricAudioObservation,
+): MelSmokeEvidence["reportProjection"]["pages"] {
+  const result: MelSmokeEvidence["reportProjection"]["pages"][number][] = [];
   let offset: number | null = 0;
   do {
     const page = projectMetricListeningReport(observation, {
       offset,
       limit: 32,
     });
-    result.push(page);
+    result.push({
+      offset: page.offset,
+      nextOffset: page.nextOffset,
+      rowCount: page.rows.length,
+      sha256: createHash("sha256").update(JSON.stringify(page)).digest("hex"),
+    });
     requireMel(
       page.nextOffset === null || page.nextOffset > offset,
       "nonadvancing page",
@@ -175,11 +185,8 @@ export function validateMelSmoke(
       evidence.reportProjection.pages.length <= observation.rows.length,
     "missing bounded context report projection",
   );
-  const projected = evidence.reportProjection.pages.map((page) =>
-    metricListeningReportSchema.parse(page),
-  );
   requireMel(
-    isDeepStrictEqual(projected, pages(observation)),
+    isDeepStrictEqual(evidence.reportProjection.pages, pages(observation)),
     "lossy, changed or truncated report vectors, ratios, profile or support",
   );
 }

@@ -37,6 +37,8 @@ const settings = {
   tempoBpm: 120,
   signatureNumerator: 4,
   signatureDenominator: 4,
+  clipSignatureNumerator: 4,
+  clipSignatureDenominator: 4,
   globalQuantization: 4,
   launchQuantization: 0,
   launchMode: 0,
@@ -97,6 +99,27 @@ describe("Session listening source inspection", () => {
         ),
       }).positionUnit,
     ).toBe("seconds");
+  });
+
+  it("keeps clip meter separate from song meter and requires explicit unknowns", () => {
+    const snapshot = inspectSessionListeningSourceResultSchema.parse({
+      ...result,
+      settings: {
+        ...settings,
+        clipSignatureNumerator: 3,
+        clipSignatureDenominator: 8,
+      },
+    });
+    expect(snapshot.settings.signatureNumerator).toBe(4);
+    expect(snapshot.settings.clipSignatureNumerator).toBe(3);
+    for (const clipSignatureDenominator of [undefined, 0, 3, 256, Infinity]) {
+      expect(
+        inspectSessionListeningSourceResultSchema.safeParse({
+          ...result,
+          settings: { ...settings, clipSignatureDenominator },
+        }).success,
+      ).toBe(false);
+    }
   });
 
   it("rejects unbounded selectors and mutation parameters", () => {

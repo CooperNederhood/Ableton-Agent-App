@@ -85,6 +85,70 @@ function spectrumCleanupCounter(value) {
     value <= 17592186044415
   );
 }
+function spectrumFaultOperand(value) {
+  if (typeof value !== "number") return "unavailable:invalid-type";
+  if (isFinite(value)) return value;
+  return value !== value
+    ? "nonfinite:nan"
+    : value > 0
+      ? "nonfinite:+infinity"
+      : "nonfinite:-infinity";
+}
+function spectrumCounterPredicate(first, last) {
+  var values = [first, last],
+    names = ["first", "last"];
+  for (var index = 0; index < 2; index++) {
+    var value = values[index],
+      prefix = names[index] + "-";
+    if (typeof value !== "number")
+      return (
+        prefix +
+        (value.indexOf("nonfinite:") === 0 ? "nonfinite" : "unavailable")
+      );
+    if (value < 0) return prefix + "negative";
+    if (value > 17592186044415) return prefix + "out-of-range";
+    if (Math.floor(value) !== value) return prefix + "fractional";
+  }
+  return last < first ? "backwards" : null;
+}
+function decodeSpectrumCounterFault(text) {
+  if (typeof text !== "string" || text.length > 192) return null;
+  var value;
+  try {
+    value = JSON.parse(text);
+  } catch (_) {
+    return null;
+  }
+  if (
+    !value ||
+    typeof value !== "object" ||
+    Array.isArray(value) ||
+    Object.keys(value).sort().join(",") !== "first,last,predicate"
+  )
+    return null;
+  var markers = [
+    "nonfinite:nan",
+    "nonfinite:+infinity",
+    "nonfinite:-infinity",
+    "unavailable:invalid-type",
+  ];
+  if (
+    ![value.first, value.last].every(function (operand) {
+      return typeof operand === "number"
+        ? isFinite(operand)
+        : markers.indexOf(operand) >= 0;
+    })
+  )
+    return null;
+  var predicate = spectrumCounterPredicate(value.first, value.last);
+  return predicate && value.predicate === predicate
+    ? Object.freeze({
+        predicate: predicate,
+        first: value.first,
+        last: value.last,
+      })
+    : null;
+}
 function spectrumCleanupHostTime(value) {
   return (
     typeof value === "number" &&
@@ -427,6 +491,12 @@ NativeMessageIO.prototype.packet = function (type, values) {
     false;
   if (sent && metadata && this.generation === generation)
     this.metadata[type] = fingerprint;
+  if (sent && type === "dsp" && this.generation === generation) {
+    this.clockVectorSize = values[2];
+    this.clockSampleRate = values[1];
+  }
+  if (sent && type === "tempo" && this.generation === generation)
+    this.clockTempoBpm = values[0];
   return sent;
 };
 
@@ -780,10 +850,19 @@ NativeMessageIO.prototype.readSpectrumRow = function (values) {
 };
 // One counter-bookended bank, no second reader or ACK path. Epoch zero
 // is a disabled FIFO receipt, not a spectrum descriptor or a transport proof.
-NativeMessageIO.prototype.rejectSpectrumInput = function (reason) {
+NativeMessageIO.prototype.rejectSpectrumInput = function (reason, detail) {
   if (this.mode !== "spectrum" || !this.generation) return false;
   if (SPECTRUM_CLEANUP_REASONS.indexOf(reason) < 0)
     throw new Error("invalid_spectrum_cleanup_reason");
+  if (
+    detail !== undefined &&
+    (reason !== "counter_incoherent" || !decodeSpectrumCounterFault(detail))
+  )
+    throw new Error("invalid_spectrum_counter_fault");
+  if (this.spectrumInputFailure) {
+    if (this.spectrumCleanupState) return this.failSpectrumCleanup(reason);
+    return false;
+  }
   this.spectrumInputFailure = true;
   this.spectrumInputReason = reason;
   if (this.spectrumCleanupState) return this.failSpectrumCleanup(reason);
@@ -791,14 +870,16 @@ NativeMessageIO.prototype.rejectSpectrumInput = function (reason) {
   var epoch = this.retentionEpoch;
   try {
     this.send(
-      Object.freeze([
-        "native",
-        generation,
-        "spectrum-input-rejection",
-        2,
-        epoch,
-        SPECTRUM_CLEANUP_REASONS.indexOf(reason),
-      ])
+      Object.freeze(
+        [
+          "native",
+          generation,
+          "spectrum-input-rejection",
+          2,
+          epoch,
+          SPECTRUM_CLEANUP_REASONS.indexOf(reason),
+        ].concat(detail === undefined ? [] : [detail])
+      )
     );
   } finally {
     if (this.generation === generation && this.retentionEpoch === epoch) {
@@ -996,7 +1077,17 @@ NativeMessageIO.prototype.retainedSpectrumFrame = function (
     reason = "counter_incoherent";
   if (reason) {
     if (this.stopping) return this.failSpectrumCleanup(reason);
-    return this.rejectSpectrumInput(reason);
+    var detail;
+    if (reason === "counter_incoherent") {
+      var first = spectrumFaultOperand(values[0]);
+      var last = spectrumFaultOperand(values[21]);
+      detail = JSON.stringify({
+        predicate: spectrumCounterPredicate(first, last),
+        first: first,
+        last: last,
+      });
+    }
+    return this.rejectSpectrumInput(reason, detail);
   }
   var counter = values[0];
   if (
@@ -1284,6 +1375,10 @@ NativeMessageIO.prototype.release = function (generation) {
     this.retentionEpoch = null;
     this.pre = this.clock = null;
     this.clockCohortSkips = 0;
+    this.clockAccepted = null;
+    this.clockVectorSize = 0;
+    this.clockSampleRate = 0;
+    this.clockTempoBpm = 0;
     this.metadata = {};
     this.stopping = false;
     return true;
@@ -1442,6 +1537,10 @@ NativeMessageIO.prototype.begin = function (
   this.lastGeneration = generation;
   this.retentionEpoch = nativeEpoch;
   this.clockCohortSkips = 0;
+  this.clockAccepted = null;
+  this.clockVectorSize = 0;
+  this.clockSampleRate = 0;
+  this.clockTempoBpm = 0;
   this.invalidReported = false;
   this.lastRejectionKey = null;
   this.metadata = {};
@@ -1494,18 +1593,66 @@ NativeMessageIO.prototype.anchorPost = function (values) {
     }) ||
     clock[0] !== clock[2]
   ) {
-    this.clockCohortSkips = (this.clockCohortSkips || 0) + 1;
-    if (this.clockCohortSkips === 1 || this.clockCohortSkips % 16 === 0)
-      this.packet("clock-cohort-skipped", [
-        this.clockCohortSkips,
-        pre[2],
-        values[2],
-        clock[0],
-        clock[2],
-      ]);
-    return false;
+    return this.skipClockCohort(pre[2], values[2], clock[0], clock[2]);
   }
-  return this.packet("clock", pre.concat(clock, values));
+  var row = pre.concat(clock, values);
+  var previous = this.clockAccepted;
+  var beatAdvanceMatches =
+    previous &&
+    ((row[0] === 0 && row[1] === previous[1]) ||
+      (row[0] === 1 &&
+        (this.clockSampleRate === 44100 || this.clockSampleRate === 48000) &&
+        this.clockTempoBpm >= 20 &&
+        this.clockTempoBpm <= 999 &&
+        Math.abs(
+          row[1] -
+            previous[1] -
+            (this.clockVectorSize * this.clockTempoBpm) /
+              (this.clockSampleRate * 60)
+        ) <=
+          8 *
+            2.220446049250313e-16 *
+            Math.max(1, Math.abs(row[1]), Math.abs(previous[1]))));
+  // plugsync~ can advance one vector while mc.snapshot~ still holds its prior
+  // native sample. Beat tolerance covers floating-point subtraction only.
+  if (
+    previous &&
+    beatAdvanceMatches &&
+    this.clockVectorSize > 0 &&
+    row[2] - previous[2] === this.clockVectorSize &&
+    row.every(function (value, index) {
+      return (
+        index === 1 ||
+        index === 2 ||
+        index === 8 ||
+        index === 9 ||
+        value === previous[index]
+      );
+    })
+  )
+    return this.skipClockCohort(previous[2], row[2], row[4], row[6]);
+  var generation = this.generation;
+  var sent = this.packet("clock", row);
+  if (sent && this.generation === generation) this.clockAccepted = row;
+  return sent;
+};
+
+NativeMessageIO.prototype.skipClockCohort = function (
+  hostBefore,
+  hostAfter,
+  nativeBefore,
+  nativeAfter
+) {
+  this.clockCohortSkips = (this.clockCohortSkips || 0) + 1;
+  if (this.clockCohortSkips === 1 || this.clockCohortSkips % 16 === 0)
+    this.packet("clock-cohort-skipped", [
+      this.clockCohortSkips,
+      hostBefore,
+      hostAfter,
+      nativeBefore,
+      nativeAfter,
+    ]);
+  return false;
 };
 
 if (typeof module !== "undefined")
@@ -1514,6 +1661,7 @@ if (typeof module !== "undefined")
     decodeRetentionRejection: decodeRetentionRejection,
     RETENTION_REJECTION_LENGTH: RETENTION_REJECTION_LENGTH,
     decodeIORejection: decodeIORejection,
+    decodeSpectrumCounterFault: decodeSpectrumCounterFault,
     IO_REJECTION_LENGTH: IO_REJECTION_LENGTH,
     decodeRetentionSnapshot: decodeRetentionSnapshot,
     RETENTION_SNAPSHOT_LENGTH: RETENTION_SNAPSHOT_LENGTH,

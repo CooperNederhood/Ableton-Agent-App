@@ -19,6 +19,7 @@ const {
   decodeRetentionSnapshot,
   decodeRetentionRejection,
   decodeIORejection,
+  decodeSpectrumCounterFault,
   RETENTION_REJECTION_LENGTH,
   RETENTION_SNAPSHOT_LENGTH,
   IO_REJECTION_LENGTH,
@@ -79,6 +80,152 @@ test("clock reader does not repair differing native counter bookends", () => {
   io.anchorClock([164, 0, 165, 2]);
   assert.equal(io.anchorPost([0, 0, 100, 31]), false);
   assert.ok(!packets.some((packet) => packet[2] === "clock"));
+});
+
+function clockFixture({
+  playing = 0,
+  sampleRate = 48000,
+  vectorSize = 64,
+  tempoBpm = 128,
+} = {}) {
+  const packets = [];
+  const io = new NativeMessageIO(
+    "clock",
+    (packet) => packets.push(packet),
+    () => {},
+    assert.fail,
+    { now: () => 0 },
+  );
+  io.begin(GENERATION, EPOCH, sampleRate);
+  io.packet("dsp", [1, sampleRate, vectorSize]);
+  io.packet("tempo", [tempoBpm]);
+  function read(host, counter, phase = 0, beat = 2.059377861721612) {
+    io.anchorPre([playing, beat, host, 31]);
+    io.anchorClock([counter, phase, counter, 2]);
+    return io.anchorPost([playing, beat, host, 31]);
+  }
+  return { io, packets, read };
+}
+
+test("clock reader discards a one-vector host advance against an unchanged native hold", () => {
+  const f = clockFixture();
+  assert.equal(f.read(2525119, 2525183), true);
+  for (let index = 0; index < 32; index++)
+    assert.equal(f.read(2525183, 2525183), false);
+  assert.equal(f.packets.filter((p) => p[2] === "clock").length, 1);
+  const skips = f.packets.filter((p) => p[2] === "clock-cohort-skipped");
+  assert.equal(skips.length, 3);
+  assert.deepEqual(skips[0].slice(3), [1, 2525119, 2525183, 2525183, 2525183]);
+  assert.equal(f.read(2525183, 2525247), true);
+  assert.equal(f.packets.filter((p) => p[2] === "clock").length, 2);
+});
+
+test("clock reader discards the observed running one-vector mixed acquisition", () => {
+  const f = clockFixture({ playing: 1 });
+  f.read(2330559, 2330623, 0.546088888888886, 0.543288888888889);
+  assert.equal(
+    f.read(2330623, 2330623, 0.546088888888886, 0.546133333333333),
+    false,
+  );
+  assert.equal(f.packets.filter((p) => p[2] === "clock").length, 1);
+});
+
+for (const sampleRate of [44100, 48000])
+  for (const vectorSize of [32, 64, 128])
+    for (const tempoBpm of [20, 128, 999])
+      test(`running mixed-clock acquisition ${sampleRate}/${vectorSize}/${tempoBpm}`, () => {
+        const f = clockFixture({
+          playing: 1,
+          sampleRate,
+          vectorSize,
+          tempoBpm,
+        });
+        const beat = 1576700;
+        const step = (vectorSize * tempoBpm) / (sampleRate * 60);
+        f.read(10000, 10000 + vectorSize, 0.25, beat);
+        assert.equal(
+          f.read(10000 + vectorSize, 10000 + vectorSize, 0.25, beat + step),
+          false,
+        );
+        assert.equal(
+          f.read(
+            10000 + vectorSize,
+            10000 + 2 * vectorSize,
+            0.25 + step,
+            beat + step,
+          ),
+          true,
+        );
+      });
+
+for (const [label, beat] of [
+  ["wrong beat advance", 0.55],
+  ["backwards beat", 0.54],
+  ["unchanged running beat", 0.543288888888889],
+]) {
+  test(`clock acquisition forwards ${label} for integrity validation`, () => {
+    const f = clockFixture({ playing: 1 });
+    f.read(2330559, 2330623, 0.546088888888886, 0.543288888888889);
+    assert.equal(f.read(2330623, 2330623, 0.546088888888886, beat), true);
+  });
+}
+
+for (const [name, host, counter, phase, beat] of [
+  ["native phase mutation", 2525183, 2525183, 0.1, 2.059377861721612],
+  ["host position mutation", 2525183, 2525183, 0, 3],
+  ["host counter regression", 2525055, 2525183, 0, 2.059377861721612],
+  ["more than one vector", 2525247, 2525183, 0, 2.059377861721612],
+  ["native counter regression", 2525183, 2525119, 0, 2.059377861721612],
+]) {
+  test(`clock acquisition does not hide ${name} from the controller`, () => {
+    const f = clockFixture();
+    f.read(2525119, 2525183);
+    assert.equal(f.read(host, counter, phase, beat), true);
+    assert.equal(f.packets.filter((p) => p[2] === "clock").length, 2);
+    assert.equal(
+      f.packets.filter((p) => p[2] === "clock-cohort-skipped").length,
+      0,
+    );
+  });
+}
+
+test("clock acquisition hold and skip counts reset with a new owner", () => {
+  const f = clockFixture();
+  f.read(2525119, 2525183);
+  f.read(2525183, 2525183);
+  assert.equal(f.io.release(GENERATION), true);
+  f.io.begin(OTHER, EPOCH + 1, 48000);
+  f.io.packet("dsp", [1, 48000, 64]);
+  assert.equal(f.read(2525183, 2525183), true);
+  f.read(2525247, 2525183);
+  const skip = f.packets.filter((p) => p[2] === "clock-cohort-skipped").at(-1);
+  assert.equal(skip[1], OTHER);
+  assert.equal(skip[3], 1);
+});
+
+test("clock acquisition cannot reuse a previous owner's DSP vector declaration", () => {
+  const f = clockFixture();
+  f.read(2525119, 2525183);
+  f.io.release(GENERATION);
+  f.io.begin(OTHER, EPOCH + 1, 48000);
+  f.read(2525119, 2525183);
+  assert.equal(f.read(2525183, 2525183), true);
+  assert.equal(
+    f.packets.filter((p) => p[2] === "clock-cohort-skipped").length,
+    0,
+  );
+});
+
+test("running clock acquisition cannot reuse a previous owner's tempo", () => {
+  const f = clockFixture({ playing: 1 });
+  f.io.release(GENERATION);
+  f.io.begin(OTHER, EPOCH + 1, 48000);
+  f.io.packet("dsp", [1, 48000, 64]);
+  f.read(2330559, 2330623, 0.546088888888886, 0.543288888888889);
+  assert.equal(
+    f.read(2330623, 2330623, 0.546088888888886, 0.546133333333333),
+    true,
+  );
 });
 
 function deliverOne(f) {
@@ -287,6 +434,102 @@ function disabled(f) {
   assert.deepEqual(f.evidence().receipt.value.raw, actual.slice(1, -1));
   return actual;
 }
+
+for (const [first, last, expected] of [
+  [0.125, 67583, { predicate: "first-fractional", first: 0.125, last: 67583 }],
+  [67583, 67519, { predicate: "backwards", first: 67583, last: 67519 }],
+  [-1, 67583, { predicate: "first-negative", first: -1, last: 67583 }],
+  [
+    67583,
+    17592186044416,
+    { predicate: "last-out-of-range", first: 67583, last: 17592186044416 },
+  ],
+  [
+    NaN,
+    67583,
+    { predicate: "first-nonfinite", first: "nonfinite:nan", last: 67583 },
+  ],
+  [
+    67583,
+    Infinity,
+    { predicate: "last-nonfinite", first: 67583, last: "nonfinite:+infinity" },
+  ],
+  [
+    -Infinity,
+    67583,
+    { predicate: "first-nonfinite", first: "nonfinite:-infinity", last: 67583 },
+  ],
+  [
+    undefined,
+    67583,
+    {
+      predicate: "first-unavailable",
+      first: "unavailable:invalid-type",
+      last: 67583,
+    },
+  ],
+]) {
+  test(`FFT first fault retains only exact bookends through cleanup: ${expected.predicate}/${first}`, () => {
+    const f = spectrumFixture();
+    f.begin();
+    const row = [...f.advance()];
+    row[0] = first;
+    row[21] = last;
+    assert.equal(f.poll(row), false);
+    const packet = f.packets.find((p) => p[2] === "spectrum-input-rejection");
+    assert.deepEqual(packet.slice(0, 6), [
+      "native",
+      GENERATION,
+      "spectrum-input-rejection",
+      2,
+      EPOCH,
+      4,
+    ]);
+    assert.equal(typeof packet[6], "string");
+    assert.ok(packet[6].length <= 192);
+    assert.deepEqual(JSON.parse(packet[6]), expected);
+    assert.equal(f.io.retentionReader.stats().accepted, 0);
+    const second = [...row];
+    second[0] = NaN;
+    second[21] = Infinity;
+    f.poll(second);
+    f.request("failed");
+    acquire(f);
+    disabled(f);
+    assert.equal(f.io.release(GENERATION), true);
+    assert.equal(
+      f.packets.filter((p) => p[2] === "spectrum-input-rejection").length,
+      1,
+    );
+    assert.deepEqual(JSON.parse(packet[6]), expected);
+    f.begin(OTHER, EPOCH + 1);
+    assert.equal(f.poll(row, GENERATION, EPOCH), false);
+    assert.equal(f.io.spectrumInputReason, null);
+    const fresh = f.advance();
+    f.poll(fresh, OTHER, EPOCH + 1);
+    f.poll(fresh, OTHER, EPOCH + 1);
+    assert.equal(f.io.retentionReader.stats().accepted, 1);
+    assert.equal(
+      f.packets.filter((p) => p[2] === "spectrum-input-rejection").length,
+      1,
+    );
+  });
+}
+
+test("FFT counter evidence rejects extra bodies, contradictory predicates and invalid operand markers", () => {
+  for (const text of [
+    "0",
+    "null",
+    "[]",
+    "{",
+    JSON.stringify({ predicate: "backwards", first: 1, last: 2 }),
+    JSON.stringify({ predicate: "first-nonfinite", first: "NaN", last: 2 }),
+    JSON.stringify({ predicate: "backwards", first: 2, last: 1, audio: [] }),
+    '{"predicate":"first-nonfinite","first":1e309,"last":2}',
+    " ".repeat(193),
+  ])
+    assert.equal(decodeSpectrumCounterFault(text), null);
+});
 
 test("advancing FFT counter bookends discard the acquisition without admitting or acknowledging data", () => {
   const f = spectrumFixture();

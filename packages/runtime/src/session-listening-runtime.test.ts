@@ -138,6 +138,8 @@ async function fixture(
           tempoBpm: tempo,
           signatureNumerator: 4,
           signatureDenominator: 4,
+          clipSignatureNumerator: 4,
+          clipSignatureDenominator: 4,
           globalQuantization: stopped ? 4 : 0,
           launchQuantization: stopped?.clipQuantization ?? 0,
           launchMode: 0,
@@ -473,6 +475,15 @@ describe("production v5 Session host with synthetic native peer", () => {
       expect(f.appendPass.mock.calls[0]?.[0].entries[0]?.kind).toBe(
         "metric-audio-observation/v1",
       );
+      expect(
+        f.appendPass.mock.calls[0]?.[0].entries[0]?.musicalAlignment,
+      ).toMatchObject({
+        meter: { numerator: 4, denominator: 4 },
+        barOriginBeat: 0,
+        coordinate: "clip-local-beats",
+        provenance: "session-clip-markers/v1",
+        tempoEvidence: "message-rate-monitored-constant",
+      });
       expect((await f.repository.listEntries({})).items).toHaveLength(1);
       expect(f.jobs.at(-1)?.contextIds).toHaveLength(1);
       expect(f.log).toContain("session:release");
@@ -484,23 +495,48 @@ describe("production v5 Session host with synthetic native peer", () => {
     },
   );
 
-  it("does not salvage useful partial data after the Session source seal changes", async () => {
-    const f = await fixture("midi", true);
+  it.each([
+    "loopEnd",
+    "clipSignatureNumerator",
+    "clipSignatureDenominator",
+    "tempoBpm",
+  ] as const)(
+    "does not salvage useful partial data after the Session source %s changes",
+    async (field) => {
+      const f = await fixture("midi", true);
+      const inspect = f.inspectSessionListeningSource.getMockImplementation()!;
+      f.inspectSessionListeningSource.mockImplementation(async (params) => {
+        const source = await inspect(params);
+        if (f.log.includes("session:launch")) source.settings[field] = 16;
+        return source;
+      });
+      const job = await f.run();
+      expect(job.stage).toBe("failed");
+      expect(f.jobs.at(-1)?.failureEvidence).toMatchObject({
+        code: "session_source_changed",
+      });
+      expect(f.appendPass).not.toHaveBeenCalled();
+      expect(f.log).toContain("session:release");
+      expect(f.peer.subscribers.size).toBe(0);
+      expect(f.stopTransport).not.toHaveBeenCalled();
+    },
+  );
+
+  it("keeps capturing without inventing alignment when clip meter is unavailable", async () => {
+    const f = await fixture("midi", false);
     const inspect = f.inspectSessionListeningSource.getMockImplementation()!;
     f.inspectSessionListeningSource.mockImplementation(async (params) => {
       const source = await inspect(params);
-      if (f.log.includes("session:launch")) source.settings.loopEnd = 16;
+      source.settings.clipSignatureNumerator = null;
+      source.settings.clipSignatureDenominator = null;
       return source;
     });
-    const job = await f.run();
-    expect(job.stage).toBe("failed");
-    expect(f.jobs.at(-1)?.failureEvidence).toMatchObject({
-      code: "session_source_changed",
-    });
-    expect(f.appendPass).not.toHaveBeenCalled();
+    expect((await f.run()).stage).toBe("completed");
+    const entry = (await f.repository.listEntries({})).items[0]!;
+    expect(entry.musicalAlignment).toBeUndefined();
+    expect(entry.payload.schema).toBe("metric-audio-observation/v1");
     expect(f.log).toContain("session:release");
     expect(f.peer.subscribers.size).toBe(0);
-    expect(f.stopTransport).not.toHaveBeenCalled();
   });
 
   it("denies disabled qualification without acquiring a source or native capture", async () => {

@@ -264,6 +264,8 @@ export function sessionEvidence({
       tempoBpm: 120,
       signatureNumerator: 4,
       signatureDenominator: 4,
+      clipSignatureNumerator: 4,
+      clipSignatureDenominator: 4,
       globalQuantization: startBeat % 4 === 0 ? 4 : 0,
       launchQuantization: 0,
       launchMode: 0,

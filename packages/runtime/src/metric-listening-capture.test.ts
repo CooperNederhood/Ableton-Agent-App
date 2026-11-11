@@ -1,4 +1,8 @@
 import { randomUUID } from "node:crypto";
+import {
+  withSyntheticAnalyzerTimelines,
+  createSyntheticAnalyzerReadiness,
+} from "@ableton-agent/protocol/testing";
 import { connect } from "node:net";
 import { afterEach, describe, expect, expectTypeOf, it, vi } from "vitest";
 import {
@@ -131,6 +135,129 @@ class Service extends SyntheticMetricListenerPeer {
 }
 
 describe("real version5 ListenerService orchestration", () => {
+  function analyzerService(
+    reason?: "overflow" | "sequence-gap" | "malformed-record",
+    endBeat = 1,
+  ) {
+    const s = new Service("arrangement", false, { tempoBpm: 120, endBeat });
+    s.data.observation = withSyntheticAnalyzerTimelines(
+      s.data.observation,
+      reason,
+    );
+    s.data.config.requestedMetrics = [...s.data.observation.requestedMetrics];
+    s.data.ready.analyzerProducerAbi = 3;
+    s.data.proof.armed.analyzerProducerAbi = 3;
+    for (const descriptor of [s.descriptor, s.input.bindings[0]!.descriptor]) {
+      Object.assign(descriptor, {
+        registration: listenerRegistrationMetricSchema.parse({
+          ...descriptor.registration,
+          analyzerReadiness: createSyntheticAnalyzerReadiness(),
+          capabilities: [
+            ...descriptor.registration.capabilities,
+            "audio-listener/analyzer-timelines-v1",
+          ],
+        }),
+      });
+    }
+    return s;
+  }
+  it.each(["pitch", "spectral-shape"] as const)(
+    "accepts explicitly unmeasured sub-window %s-only captures without baseline assumptions",
+    async (metric) => {
+      const s = analyzerService(undefined, 0.01);
+      s.data.config.requestedMetrics = [metric];
+      s.data.config.attacks = null;
+      const observation = s.data.observation;
+      observation.requestedMetrics = [metric];
+      delete observation.metrics[
+        metric === "pitch" ? "spectral-shape" : "pitch"
+      ];
+      for (const name of nativeMetricObservationMetricSchema.options) {
+        observation.metrics[name] = {
+          ...observation.metrics[name],
+          status: "not-requested",
+          algorithm: null,
+          expectedRecords: 0,
+          records: [],
+          gaps: [],
+          limitations: [],
+        };
+      }
+      observation.rows = createMetricObservationReportRows(observation);
+      const prepared = await prepareMetricListenerCapture(s, s.input);
+      s.launch();
+      await prepared.nativeLaunch;
+      s.complete();
+      const [result] = await prepared.result;
+      expect(result?.metrics[metric]).toMatchObject({
+        status: "complete",
+        expectedRecords: 0,
+        frames: [],
+        gaps: [],
+      });
+      expect(result?.metrics[metric]?.trailingSupport).toEqual(
+        result?.sourceCoverage,
+      );
+      await prepared.disarm();
+      expect(s.subscribers.size).toBe(0);
+    },
+  );
+  it.each([undefined, "overflow", "sequence-gap", "malformed-record"] as const)(
+    "publishes synthetic authoritative analyzers with isolated failure %s and terminal cleanup",
+    async (reason) => {
+      const s = analyzerService(reason);
+      const prepared = await prepareMetricListenerCapture(s, s.input);
+      s.launch();
+      await prepared.nativeLaunch;
+      s.complete();
+      const [observation] = await prepared.result;
+      expect(observation?.metrics.pitch?.status).toBe(
+        reason ? "failed" : "complete",
+      );
+      expect(observation?.metrics["spectral-shape"]?.status).toBe("complete");
+      expect(observation?.metrics.level.status).toBe("complete");
+      expect(observation?.ownership).toMatchObject(trace);
+      await prepared.disarm();
+      expect(s.subscribers.size).toBe(0);
+      expect(s.descriptor.phase).toBe("idle");
+      expect(
+        s.telemetry.some((event) =>
+          JSON.stringify(event).includes("alignment"),
+        ),
+      ).toBe(true);
+    },
+  );
+  it("denies analyzer captures without producer capability even when bypassing binding creation", async () => {
+    const s = new Service();
+    s.data.config.requestedMetrics.push("pitch");
+    await expect(prepareMetricListenerCapture(s, s.input)).rejects.toThrow(
+      "analyzer-timelines-unavailable",
+    );
+    expect(s.calls).toHaveLength(0);
+    expect(s.subscribers.size).toBe(0);
+  });
+  it("denies capability-advertised analyzers without a fresh ABI3 receipt and cleans up before arm", async () => {
+    const s = analyzerService();
+    s.prepareHook = () => {
+      delete s.data.ready.analyzerProducerAbi;
+    };
+    await expect(prepareMetricListenerCapture(s, s.input)).rejects.toThrow();
+    expect(s.calls.some((call) => call.action === "arm")).toBe(false);
+    expect(s.calls.at(-1)?.action).toBe("cancel");
+    expect(s.subscribers.size).toBe(0);
+    expect(s.descriptor.phase).toBe("idle");
+  });
+  it("cancels analyzer captures without publishing and releases all ownership", async () => {
+    const s = analyzerService();
+    const prepared = await prepareMetricListenerCapture(s, s.input);
+    const result = expect(prepared.result).rejects.toThrow();
+    s.abort.abort();
+    await result;
+    await prepared.disarm();
+    expect(s.calls.at(-1)?.action).toBe("cancel");
+    expect(s.subscribers.size).toBe(0);
+    expect(s.descriptor.phase).toBe("idle");
+  });
   it.each([0.2, 0.01])(
     "accepts explicit mel-only valid/no-frame evidence for %s beats without native-record assumptions",
     async (endBeat) => {

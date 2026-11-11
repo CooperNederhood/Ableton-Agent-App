@@ -122,6 +122,10 @@ Companion specification: [IPC Protocol](ipc-protocol.md)
 
 ## Contract automation
 
+- [x] Version explicit nullable clip-meter source evidence with protocol 10;
+  preserve absent-property admission and include meter in source continuity.
+  Regenerate TypeScript/Python constants and wire fixtures together.
+
 - [x] Compare large committed protocol baselines without silently treating a
   subprocess output overflow or invalid JSON as an absent schema. Add a
   red-before/green-after regression against the actual committed contract.

@@ -1,0 +1,100 @@
+{
+  "schemaVersion": 1,
+  "id": "session-listening-feature-search",
+  "fixtureId": "session-clip-identify",
+  "requiredCapabilities": ["automation", "session-audio", "persistence"],
+  "permissions": [
+    {
+      "tool": "ableton_listening",
+      "action": "play-session-and-listen",
+      "risk": "medium",
+      "maxUses": 2,
+      "stepIds": ["first", "second"],
+      "arguments": {
+        "action": "play-session-and-listen",
+        "target.view": "session",
+        "target.track.kind": "regular",
+        "target.track.index": 0,
+        "target.track.expectedReference": "$source.trackId",
+        "target.track.expectedName": "audio-track",
+        "target.sceneIndex": "$source.slotIndex",
+        "target.expectedClipReference": "$source.clipId",
+        "target.expectedClipName": "clip-1",
+        "listenerIds.0": "$source.listenerId"
+      }
+    },
+    {
+      "tool": "ableton_context",
+      "action": "derive-features",
+      "risk": "medium",
+      "maxUses": 2,
+      "stepIds": ["first", "second"],
+      "arguments": {
+        "action": "derive-features",
+        "contextIds.0": "$source.contextId",
+        "includeHistorical": false
+      }
+    }
+  ],
+  "budget": { "runMs": 660000, "cleanupMs": 30000, "persistenceMs": 30000 },
+  "steps": [
+    {
+      "id": "first",
+      "sourceId": "a",
+      "message": "Listen exactly once to the first Session clip on track audio-track with all six metric families: level, spectral-centroid, attacks, mel-bands, pitch and spectral-shape. Read its stored measurements including authoritative pitch/confidence and SpectralShape acquisition and validity. List its peak-summary/v1 features, derive stored features for this context only if needed, and read the peak feature values. Also read available stored flatness, spread, rolloff and confidence feature values, following feature pagination. Report IDs, source ranges, coverage and validity honestly: confidence is an algorithm score, not accuracy; pitch may be unavailable on this kick. Diagnostic snapshots are not qualified measurements. Do not capture again, change any source or launch settings, stop transport, seek, or reset anything. Stop immediately on any failure.",
+      "timeoutMs": 150000,
+      "assertions": [
+        {
+          "name": "capture",
+          "parameters": {
+            "sourceId": "a",
+            "sampleRate": 48000,
+            "expectedFrames": 90000,
+            "metricFamilies": "level,spectral-centroid,attacks,mel-bands,pitch,spectral-shape"
+          }
+        },
+        { "name": "feature-search", "parameters": { "phase": "first" } }
+      ]
+    },
+    {
+      "id": "second",
+      "sourceId": "a",
+      "setupActions": ["stop-transport"],
+      "message": "Listen exactly once more to the same first Session clip on track audio-track with all six metric families: level, spectral-centroid, attacks, mel-bands, pitch and spectral-shape. Read the new stored measurements, including authoritative analyzer acquisition and validity. Read both contexts' peak-summary/v1 feature values, deriving features for the new context only if needed. Compare the first peak feature to the second, then search from the first peak feature excluding its entire source context with excludeContextIds. Report the other context, feature ID, source range, Euclidean distance definition, distance and coverage. Discover the complete 15-definition feature catalog and inspect the stored families, following pagination. Read both contexts' available flatness, spread, rolloff and confidence feature values; inspect pitch-grid availability without inventing valid pitch for this kick. Confidence is an algorithm score, not accuracy, and diagnostic snapshots are not qualified measurements. Do not make another capture, stop transport, seek, reset, edit clips, or change launch/source settings. Stop immediately on any failure.",
+      "timeoutMs": 180000,
+      "assertions": [
+        {
+          "name": "capture",
+          "parameters": {
+            "sourceId": "a",
+            "sampleRate": 48000,
+            "expectedFrames": 90000,
+            "metricFamilies": "level,spectral-centroid,attacks,mel-bands,pitch,spectral-shape"
+          }
+        },
+        { "name": "feature-search", "parameters": { "phase": "second" } }
+      ]
+    },
+    {
+      "id": "restored",
+      "setupActions": ["restart-owned-desktop"],
+      "message": "Without capturing, deriving, editing, seeking, stopping transport or resetting anything, read the same stored peak, flatness, spread, rolloff and confidence feature IDs from both previous captures, following value pagination. Read the original stored analyzer acquisition/validity evidence too. Report original context IDs, source ranges, definitions and coverage; do not treat confidence as accuracy or unavailable kick pitch as valid. Compare the original peak feature IDs again and report their persisted-values distance. Stop immediately if any previously available original source or feature is unavailable or changed.",
+      "timeoutMs": 300000,
+      "assertions": [
+        { "name": "no-capture", "parameters": {} },
+        { "name": "feature-search", "parameters": { "phase": "restored" } }
+      ]
+    }
+  ],
+  "assertions": [
+    { "name": "capture-count", "parameters": { "expected": 2 } },
+    { "name": "context", "parameters": { "afterRestart": true } },
+    { "name": "feature-search", "parameters": { "phase": "final" } },
+    {
+      "name": "unchanged",
+      "parameters": {
+        "scopes": "session-structure,source-settings,fixture-media,unrelated-playback"
+      }
+    }
+  ]
+}

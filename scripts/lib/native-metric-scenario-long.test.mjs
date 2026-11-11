@@ -342,6 +342,8 @@ function sourceFixture(kind = "midi", beats = 64) {
     tempoBpm: 128,
     signatureNumerator: 4,
     signatureDenominator: 4,
+    clipSignatureNumerator: 4,
+    clipSignatureDenominator: 4,
     globalQuantization: 4,
     launchQuantization: 0,
     launchMode: 0,

@@ -19,6 +19,7 @@ import {
   LISTENER_METRIC_SCOPE,
   listenerControlMetricSchema,
   type ListenerControlMetric,
+  type ListenerRegistrationMetric,
 } from "./listener-metric-contracts.js";
 
 export type NativeHostClockRow = z.infer<typeof nativeHostClockRowSchema>;
@@ -308,7 +309,10 @@ export function createSyntheticMetricWireFixture(
     registration: {
       version: 5,
       connectionEpoch: ownership.connectionEpoch,
-      capabilities: [LISTENER_CAPABILITY_METRIC, LISTENER_CAPABILITY_MEL],
+      capabilities: [
+        LISTENER_CAPABILITY_METRIC,
+        LISTENER_CAPABILITY_MEL,
+      ] as ListenerRegistrationMetric["capabilities"],
       algorithmVersion: "3.0.0",
       sampleRate: g.sampleRate,
       vectorSize: g.vectorSize,

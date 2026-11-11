@@ -11,6 +11,9 @@ import {
   nativeMetricObservationMetricSchema,
   type MetricAudioObservation,
   type StoredAudioObservation,
+  contextFeatureSchema,
+  contextSegmentSchema,
+  extractPeakFeature,
 } from "@ableton-agent/protocol";
 import {
   createSyntheticNativeListeningFixtureV2,
@@ -29,6 +32,242 @@ const context = { sessionId: "session-a", agentId: "reader", trace };
 const timestamp = "2026-10-12T00:00:00.000Z";
 const stores: EntityContextRepository[] = [];
 const reportDefaults = { includeHistorical: false, offset: 0, limit: 8 };
+const featurePageDefaults = { offset: 0, supportOffset: 0, limit: 8 };
+
+async function featureFixture() {
+  const seeded = await fixture();
+  const source = createSyntheticMetricListeningObservation();
+  const record = contextFeatureSchema.parse({
+    id: "feature-1",
+    entryId: "entry",
+    segmentId: "segment-1",
+    sessionId: context.sessionId,
+    liveSetId: "set-a",
+    sourceFingerprint: "a".repeat(64),
+    primarySubjectId: "subject",
+    freshness: {
+      status: "fresh",
+      assessedAt: timestamp,
+      reason: "test source snapshot",
+    },
+    createdAt: timestamp,
+    trace,
+    feature: extractPeakFeature(source),
+  });
+  const segment = contextSegmentSchema.parse({
+    id: "segment-1",
+    entryId: "entry",
+    sessionId: context.sessionId,
+    liveSetId: "set-a",
+    order: 0,
+    kind: "unaligned",
+    coordinate: "transport-beats",
+    startBeat: 0,
+    endBeat: 1,
+    startSample: 10_000,
+    endSample: 34_000,
+    sampleRate: 48_000,
+    alignmentReason: "musical-bar-alignment-not-established",
+  });
+  const getFeature = vi
+    .spyOn(seeded.store, "getFeature")
+    .mockImplementation(async (id) => (id === record.id ? record : undefined));
+  vi.spyOn(seeded.store, "getSegment").mockResolvedValue(segment);
+  return { ...seeded, record, segment, getFeature };
+}
+
+describe("typed listening feature host", () => {
+  it("discovers canonical registered comparisons without touching Live", async () => {
+    const { host } = await fixture();
+    const result = await host.executeContextOperation(
+      { action: "feature-definitions" },
+      context,
+    );
+    const parsed = contextOperationResultSchema.parse(result);
+    if (parsed.action !== "feature-definitions")
+      throw new Error("Expected definitions");
+    expect(
+      parsed.definitions.find(
+        (definition) => definition.type === "peak-summary/v1",
+      ),
+    ).toMatchObject({
+      type: "peak-summary/v1",
+      distanceDefinition: "euclidean-linear-amplitude/v1",
+    });
+  });
+
+  it("returns source-linked features and application-computed pairwise distances", async () => {
+    const { host, getFeature } = await featureFixture();
+    const detail = await host.executeContextOperation(
+      {
+        action: "get-feature",
+        featureId: "feature-1",
+        includeHistorical: false,
+        ...featurePageDefaults,
+      },
+      context,
+    );
+    expect(contextOperationResultSchema.parse(detail)).toMatchObject({
+      action: "get-feature",
+      feature: {
+        record: { id: "feature-1" },
+        segment: { kind: "unaligned" },
+        source: { contextId: "entry" },
+      },
+    });
+    const result = await host.executeContextOperation(
+      {
+        action: "compare-features",
+        pairs: [{ leftFeatureId: "feature-1", rightFeatureId: "feature-1" }],
+        includeHistorical: false,
+      },
+      context,
+    );
+    expect(result).toMatchObject({
+      comparisons: [{ result: { status: "comparable", distance: 0 } }],
+    });
+    expect(getFeature).toHaveBeenCalledWith(
+      "feature-1",
+      expect.objectContaining({ trace, activeAgentId: "reader" }),
+    );
+  });
+
+  it("denies missing sources and read-only derivation, and forwards cancellation", async () => {
+    const { host, store } = await featureFixture();
+    await expect(
+      host.executeContextOperation(
+        {
+          action: "derive-features",
+          contextIds: ["entry"],
+          includeHistorical: false,
+        },
+        { ...context, actorKind: "application" },
+      ),
+    ).rejects.toMatchObject({ code: "permission_denied" });
+    const controller = new AbortController();
+    controller.abort(new Error("cancelled"));
+    await expect(
+      host.executeContextOperation(
+        {
+          action: "get-feature",
+          featureId: "feature-1",
+          includeHistorical: false,
+          ...featurePageDefaults,
+        },
+        { ...context, signal: controller.signal },
+      ),
+    ).rejects.toThrow("cancelled");
+    vi.spyOn(store, "getEntry").mockResolvedValue(undefined);
+    await expect(
+      host.executeContextOperation(
+        {
+          action: "get-feature",
+          featureId: "feature-1",
+          includeHistorical: true,
+          ...featurePageDefaults,
+        },
+        context,
+      ),
+    ).rejects.toMatchObject({ code: "not_found" });
+  });
+
+  it("preserves search scope, exclusions and non-exhaustive evidence", async () => {
+    const { host, store, record } = await featureFixture();
+    const search = vi.spyOn(store, "searchFeatures").mockResolvedValue({
+      matches: [{ feature: record, distance: 0 }],
+      scannedCount: 1,
+      comparableCount: 1,
+      eligibleCount: 2,
+      excludedCount: 0,
+      exhaustive: false,
+      limitsHit: ["candidates"],
+      exclusionReasons: {},
+    });
+    const result = await host.executeContextOperation(
+      {
+        action: "search-features",
+        featureId: "feature-1",
+        excludeContextIds: ["other-source"],
+        includeHistorical: true,
+        limit: 10,
+        candidateLimit: 1,
+      },
+      context,
+    );
+    expect(contextOperationResultSchema.parse(result)).toMatchObject({
+      exhaustive: false,
+      scannedCount: 1,
+      limitsHit: ["candidates"],
+      exclusionReasons: {},
+      distanceDefinition: "euclidean-linear-amplitude/v1",
+      matches: [{ distance: 0, feature: { source: { contextId: "entry" } } }],
+    });
+    expect(search).toHaveBeenCalledWith(
+      expect.objectContaining({
+        excludeEntryIds: ["other-source"],
+        candidateLimit: 1,
+      }),
+      expect.objectContaining({ trace }),
+    );
+  });
+
+  it("uses search-owned source freshness without another candidate lookup or revalidation", async () => {
+    const { host, store, record, getFeature } = await featureFixture();
+    const listEntries = vi.spyOn(store, "listEntries");
+    const listLinks = vi.spyOn(store, "listLinks");
+    vi.spyOn(store, "searchFeatures").mockResolvedValue({
+      matches: [
+        {
+          feature: {
+            ...record,
+            freshness: {
+              status: "unknown",
+              assessedAt: timestamp,
+              reason: "revalidation budget exhausted",
+            },
+          },
+          distance: 0,
+        },
+      ],
+      scannedCount: 1,
+      comparableCount: 1,
+      eligibleCount: 1,
+      excludedCount: 0,
+      exhaustive: true,
+      limitsHit: [],
+      exclusionReasons: {},
+    });
+    const result = await host.executeContextOperation(
+      {
+        action: "search-features",
+        featureId: record.id,
+        excludeContextIds: [],
+        includeHistorical: false,
+        limit: 10,
+        candidateLimit: 1000,
+      },
+      context,
+    );
+    expect(contextOperationResultSchema.parse(result)).toMatchObject({
+      matches: [
+        {
+          feature: {
+            record: {
+              freshness: {
+                status: "unknown",
+                reason: "revalidation budget exhausted",
+              },
+            },
+            source: { freshness: "unknown" },
+          },
+        },
+      ],
+    });
+    expect(getFeature).toHaveBeenCalledTimes(1);
+    expect(listEntries).not.toHaveBeenCalled();
+    expect(listLinks).not.toHaveBeenCalled();
+  });
+});
 
 function metricFixture(): MetricAudioObservation {
   const value = createSyntheticMetricListeningObservation({ endBeat: 4 });

@@ -1,5 +1,166 @@
 # Playback Listening Implementation To-Do
 
+## Current-build native failure investigation
+
+- [x] Rerun historical quantized MIDI case on the current candidate; preserve
+      `run-7EFYKE` alongside `run-68gHYg`, both arming failures with
+      `mel_invalid_drain_receipt`. Distinguish capture from runner cleanup.
+- [x] Add bounded first-rejected-drain operands through the existing native
+      diagnostic writer with rejection, flooding, ownership and no-publication
+      regression coverage. Keep all receipt guards unchanged.
+- [x] Observe the rejected operands on an instrumented candidate, reproduce the
+      root cause deterministically and fix it without relaxing safety.
+      `run-apT6ij` proves control-accepted epoch 1/generation 0/empty receipt
+      before DSP readiness. ABI2/ABI3 units and controller/runtime test were
+      red before the fix; all 120 owning tests now pass. Invalid-owner,
+      count, token, readiness, cancellation and cleanup guards remain covered.
+- [x] Run all 13 registered packaged acceptance cases on one final built
+      candidate and identical native-resource inventories: 21 captures,
+      every final assertion and capture/runner cleanup passed on Live 11.3.43.
+      Preserve earlier failures and the qualification receipt ledger; original
+      user-session position-mismatch causation remains unproven.
+- [x] On explicit user request, install the exact qualified app/native payload
+      without rebuilding; preserve the default profile, update matching host
+      integrations, verify installed bytes/authentication and open the normal
+      installed app for manual testing.
+- [x] Record the user's 2026-11-11 manual acceptance of the installed candidate
+      and approval to submit the implementation for review.
+- [x] Correct the confirmed pre-PR prune cancellation bug with focused red/green
+      regressions, without changing native readiness or attributing prior
+      installed/manual qualification to the later storage-only correction.
+- [x] Complete fresh post-prune validation: 5,944 Vitest, 1,044 Max patch and
+      294 Python tests passed, with all typecheck scopes clean.
+- [ ] Investigate whether Live 11 can rebuild idle DSP at the same rate/vector
+      without normal listener reset. The isolated stale-readiness reproduction
+      is not yet a demonstrated real-host release blocker.
+
+## Measurement-to-feature coverage (#113)
+
+- [x] Reproduce the installed quantized MIDI failure (`run-P6yJER`), retain exact
+  clock-hold operands (`run-iq1Ltd`), and reject the demonstrated one-vector
+  host-only mixed acquisition without weakening immutable clock validation.
+  Add red/green reader and full-controller regressions, mutation-denial and
+  owner-reset coverage; 1,008 Max and 203 protocol checks pass.
+- [x] Rerun quantized MIDI on the corrected packaged candidate: `run-20nhYR`
+  passes all four assertions and complete cleanup on Live 11.3.43.
+- [x] Resolve the running-host-clock variant exposed by the subsequent audio
+  test `run-LKjZog`: host sample and beat advance while native counter holds.
+  No context was published; final cleanup completed. Exact one-vector beat
+  progression is now recognized without relaxing immutable bindings.
+- [x] Replace simultaneous FFT counter channels with ordered reads around the
+  retained payload after `run-mXXpnV`; preserve the 22-cell ABI and guards.
+  All 1,031 Max tests pass; audio `run-KeAplC`, MIDI `run-Js6e0r` and peak
+  `run-5AXSXg` pass their assertions and cleanup on Live 11.3.43.
+- [x] Add report continuation and fresh reread guidance through the existing
+  post-tool hook and strict typed History framing, with red/green scope,
+  redaction, result-preservation and forged-suffix regressions.
+- [x] Complete full measurement/restart qualification and then reinstall while
+  preserving the default profile. Preserve report-consumption failures
+  `run-54p1lT`/`run-5nMJGO` and historical verifier failure `run-zYhRGa`.
+  The missing-fixture native repeat/switch cases are explicitly deferred.
+- [x] Review `run-8Dr6MW` against useful outcomes: genuine exact-zero comparison
+  and independently equal vectors establish the second peak without another
+  read. Implement the approved evidence-based contract and complete canonical
+  inventory alternative, retaining immutable provenance and fresh persistence.
+- [x] Finish full qualification after `run-6soIhz` receipt overflow and
+  `run-qFzkdY` restored-turn timeout. Both runs pass capture/feature turns and
+  cleanup; neither is a full pass. Do not silently enlarge budgets or reinstall.
+- [x] Complete full qualification after explicit five-minute restored-step
+  approval and runner capture-inventory correction: `run-356zOY` passes ten
+  assertions and terminal cleanup on Live 11.3.43. Earlier failures remain
+  historical failures; the deferred native scenarios remain unrun.
+- [x] Perform the requested preserve-profile installation: rebuilt app installed,
+  authenticated and opened; listener updated, MIDI/Remote Script current.
+  All fifty listener resource hashes match `run-356zOY`; existing profile,
+  History, credentials and projects remain intact. Saved Set devices require
+  explicit replacement with the current User Library device.
+- [x] Correct the existing top-level feature-argument summary as well as nested
+  pagination descriptions. Verify full/mixed/single-action SDK registration
+  carries cursor-vs-offset semantics without relaxing strict argument denial.
+  Packaged SDK inspection confirms forwarding, not provider attention to nested
+  descriptions; retained turn evidence does not establish provider normalization.
+- [x] Make `list-features` cursor pagination explicit in action and field
+  descriptions, without accepting numeric offsets. Verify serialized full,
+  mixed and single-action SDK registration, unchanged cursor continuation and
+  attributed offset denial before repository execution. Keep stop-on-failure
+  policy and acceptance fixtures/oracles unchanged.
+- [x] Put compact value-detail guidance at list/compare/search action and
+  post-tool boundaries: metadata/counts/distances are not feature vectors.
+  Request `get-feature` only for requested values/persisted rereads, not every
+  comparison. Preserve typed payloads, accept only the exact corresponding
+  History suffix, and test hook scope plus created/resumed agent propagation.
+- [x] Clarify explicit persisted feature rereads: fetch each requested feature
+  from every requested context in the current operation, not conversation
+  memory. When both comparison and search are requested, require separate
+  `compare-features` pairs and `search-features` results. Share guidance across
+  context tools and created/resumed scoped listening agents; prove propagation
+  with red/green tools/application regressions without changing acceptance
+  prompts, fixtures or oracles.
+- [x] Fix staged capture publication rejecting newly reconstructed actor wrappers
+  for the same opened Desktop repository (`run-5NJeOs`). Snapshot an opaque
+  opened-store identity at reservation; keep fresh ownership checks, true
+  replacement denial, per-operation derive trace/signals and reader mutation
+  denial. Actual Desktop-manager/runtime Session and Arrangement regressions
+  fail before the fix and pass after it, with replacement/owner-change/abort
+  safeguards. No host launches are part of this fix validation.
+- [x] Audit stored values and emitted diagnostics; freeze the measurement,
+  feature and canonical comparison table in the companion specification.
+- [x] Complete core fundamentals with `peak-summary/v1`: immutable source
+  references, derived persistence, ownership, idempotency, lifecycle, typed
+  derive/read/compare/search, quota isolation and restart/prune cleanup.
+- [x] Add evidenced segmentation and features for remaining stored RMS,
+  spectral energy, centroid, attack timing/strength and mel vectors/sums/ratios.
+- [ ] Qualify retained-profile pitch/confidence acquisition and add supported
+  pitch-grid and confidence-summary comparisons.
+- [x] Integrate the five analyzer-backed feature types through the same typed
+  host detail/comparison/search path, with explicit distance units, independent
+  channel support paging and a 7,680-identity summary bound. Signed flatness
+  exposed a paged negative-peak validation regression; the red case now rejects
+  it and masked values correctly. Application/tools owning suites pass 542/542.
+- [x] Resolve canonical knowledge checkout configuration and freeze native
+  analyzer contracts. Offline compiled qualification passes 144 controlled
+  sine cases under the unchanged 20-cent/0.9-score criteria and sixteen
+  SpectralShape oracle cases; release and ASan/UBSan each pass 3/3 tests.
+  Preserve the 2000-to-1000 Hz high-confidence counterexample; this is not Live
+  qualification.
+- [ ] Qualify already-emitted flatness, spread and rolloff, then add each
+  summary feature and its canonical comparison. This supersedes their earlier
+  diagnostic-only scope for this new delivery, not historical qualification.
+- [ ] Prove every measurement has at least one supported feature and every
+  feature exactly one comparison; complete bounded same-agent acceptance,
+  independently verified persisted arithmetic, cleanup and related Desktop UX.
+- [x] Add typed analyzer context presentation and agent guidance distinguishing
+  rejected estimates, undefined zero, signed dB, null descriptors, gaps and
+  unmeasured tails. The context integration regression fails with the renderer
+  path disabled and passes restored; all 251 renderer tests pass.
+- [x] Run extended Electron analyzer persistence/navigation coverage and its
+  owning suite (23/23). Fix seeded derivation finishing after close, rather
+  than hiding the correct cancelled status or weakening the ready assertion.
+- [ ] Run the reviewed two-capture acceptance and subsequent owned-process
+  visual loop after the finalized native producer and complete catalog land.
+- [x] Publish the universal ABI3 analyzer producer and require performed native
+  readiness at registration and per-pass admission. Preserve source/clock/gap/
+  terminal checks and shared pre-allocation byte-budget denial. Native Max
+  regression suite passes 958/958; compiled and sanitized native tests pass.
+- [x] Correct the canonical registration-to-binding discovery path after the
+  reviewed run returned no listeners before capture. Share strict protocol
+  capability/receipt validation between ingress and application binding, retain
+  actual readiness through runtime projection, and cover qualified discovery,
+  all-six synthetic capture, baseline-plus-mel compatibility and invalid-receipt
+  denial. Real-host rerun remains separate; no capture evidence came from the
+  failed discovery attempt.
+- [x] Bound agent-facing full metric `get` responses at the existing 64 KiB
+  limit after a successful same-session capture exposed SDK spill notices.
+  Prefer original-measurement `report` pages at offset zero/limit eight, retain
+  explicit continuation, and reject oversized raw reads with actionable paging
+  instructions. Keep full typed Desktop/store reads unchanged. Dense synthetic
+  all-six-family pages and History parsing cover 43 native analyzer frames;
+  spill notices remain malformed evidence, never successful original reads.
+- [x] Resolve stale source pins and the omitted analyzer-handoff packaging
+  inventory entry without weakening validation. The 186 targeted resource/
+  builder/installer tests and arm64 packaged-candidate build pass. No Live
+  loading, scheduling, CPU or physical source timing claim follows from this.
+
 ## F4 smoke-only milestone (#95)
 
 - [x] Agree to diagnostic-only scope using the unchanged reviewed identification

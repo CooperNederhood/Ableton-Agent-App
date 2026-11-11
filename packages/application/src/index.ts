@@ -2380,9 +2380,11 @@ export class CopilotAgentService implements AgentService {
           );
           const result = await execute();
           // The SDK tool boundary serializes read errors before this observer.
-          // Keep the new report's terminal event honest without changing legacy reads.
+          // Keep report/feature terminal events honest without changing legacy reads.
           if (
-            operation.descriptor.operationId === "context.report" &&
+            (operation.descriptor.operationId === "context.report" ||
+              (tool.name === "ableton_context" &&
+                operation.descriptor.action.includes("feature"))) &&
             result !== null &&
             typeof result === "object" &&
             Reflect.get(result, "resultType") === "failure"
@@ -2398,8 +2400,16 @@ export class CopilotAgentService implements AgentService {
               {
                 ...base,
                 durationMs: Math.max(0, Date.now() - requestedAt),
-                errorCode: failure?.code ?? "context_report_failed",
-                error: failure?.message ?? "Metric context report failed",
+                errorCode:
+                  failure?.code ??
+                  (operation.descriptor.action === "report"
+                    ? "context_report_failed"
+                    : "context_feature_failed"),
+                error:
+                  failure?.message ??
+                  (operation.descriptor.action === "report"
+                    ? "Metric context report failed"
+                    : "Listening feature operation failed"),
               },
             );
             return result;

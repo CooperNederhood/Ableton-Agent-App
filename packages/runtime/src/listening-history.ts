@@ -2,6 +2,8 @@ import { VERIFIED_TOOL_RESULT_GUIDANCE } from "@ableton-agent/application";
 import { sanitizeTelemetryAttributes } from "@ableton-agent/observability";
 import {
   contextOperationResultSchema,
+  FEATURE_VALUE_DETAIL_GUIDANCE,
+  METRIC_REPORT_PAGE_GUIDANCE,
   listeningOperationResultSchema,
 } from "@ableton-agent/tools";
 
@@ -25,14 +27,26 @@ export function listeningHistoryResult(toolName: string, sdkResult: unknown) {
   if (!sdkResult || typeof sdkResult !== "object" || !("content" in sdkResult))
     return unavailable("missing_sdk_content");
   let content: unknown = sdkResult.content;
+  let featureSummaryGuidance = false;
+  let reportPageGuidance = false;
   if (typeof content === "string") {
     if (Buffer.byteLength(content) > MAX_LISTENING_HISTORY_RESULT_BYTES)
       return unavailable("result_byte_limit");
     // The SDK appends this application-owned post-tool hook to model-visible JSON.
     const suffix = `\n\nTool "${toolName}" succeeded. Additional guidance from postToolUse hooks:\n${VERIFIED_TOOL_RESULT_GUIDANCE}`;
-    const json = content.endsWith(suffix)
-      ? content.slice(0, -suffix.length)
-      : content;
+    const featureSuffix = `${suffix}\n${FEATURE_VALUE_DETAIL_GUIDANCE}`;
+    const reportSuffix = `${suffix}\n${METRIC_REPORT_PAGE_GUIDANCE}`;
+    featureSummaryGuidance =
+      toolName === "ableton_context" && content.endsWith(featureSuffix);
+    reportPageGuidance =
+      toolName === "ableton_context" && content.endsWith(reportSuffix);
+    const json = featureSummaryGuidance
+      ? content.slice(0, -featureSuffix.length)
+      : reportPageGuidance
+        ? content.slice(0, -reportSuffix.length)
+        : content.endsWith(suffix)
+          ? content.slice(0, -suffix.length)
+          : content;
     try {
       content = JSON.parse(json);
     } catch (error) {
@@ -46,6 +60,15 @@ export function listeningHistoryResult(toolName: string, sdkResult: unknown) {
       : contextOperationResultSchema
   ).safeParse(content);
   if (!parsed.success) return unavailable("invalid_typed_result");
+  if (reportPageGuidance && parsed.data.action !== "report")
+    return unavailable("invalid_typed_result");
+  if (
+    featureSummaryGuidance &&
+    !["list-features", "compare-features", "search-features"].includes(
+      parsed.data.action,
+    )
+  )
+    return unavailable("invalid_typed_result");
   if (
     Buffer.byteLength(JSON.stringify(parsed.data)) >
     MAX_LISTENING_HISTORY_RESULT_BYTES

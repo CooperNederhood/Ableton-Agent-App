@@ -132,7 +132,10 @@ function configurationReadbackPatcher(
   width = 7,
   selector = "configuration_frame",
   offset = 0,
+  orderedCounter = false,
 ) {
+  const payloadWidth = orderedCounter ? width - 2 : width;
+  const controlIndex = orderedCounter ? width - 1 : width;
   const document = {
     patcher: {
       fileversion: 1,
@@ -143,10 +146,10 @@ function configurationReadbackPatcher(
     },
   };
   const specs = [
-    ["channels", `mc.pack~ ${width}`, width, 1, 10, 65],
+    ["channels", `mc.pack~ ${payloadWidth}`, payloadWidth, 1, 10, 65],
     ["snapshot", `mc.snapshot~ @offset ${offset}`, 1, 2, 10, 110],
     ["voice", "route voice", 1, 2, 450, 110],
-    ["gate", `gate ${width}`, 2, width, 450, 155],
+    ["gate", `gate ${payloadWidth}`, 2, payloadWidth, 450, 155],
     [
       "pack",
       `pack ${selector} ${Array(width).fill("0.125").join(" ")}`,
@@ -157,6 +160,13 @@ function configurationReadbackPatcher(
     ],
     ["hot", "trigger b f", 1, 2, 650, 190],
     ["output", "", 1, 0, 10, 285],
+    ...(orderedCounter
+      ? [
+          ["counterSnapshot", `snapshot~ @offset ${offset}`, 1, 1, 10, 330],
+          ["counterGate", "gate 2", 2, 2, 250, 330],
+          ["acquisitionOrder", "trigger b 2 b b 1", 1, 5, 400, 330],
+        ]
+      : []),
   ];
   for (const [id, text, inputs, outputs, x, y] of specs) {
     add(document, id, text, inputs, outputs);
@@ -168,20 +178,32 @@ function configurationReadbackPatcher(
     ];
   }
   box(document, "output").maxclass = "outlet";
-  for (let index = 0; index <= width; index++) {
+  for (let index = 0; index <= controlIndex; index++) {
     const id = `input${index}`;
     add(document, id, "", 0, 1);
     box(document, id).maxclass = "inlet";
     box(document, id).patching_rect = [
       width === 7
         ? 10 + index * 100
-        : index === width
+        : index === controlIndex
           ? 760
           : 10 + index * Math.floor(740 / width),
       10,
       25,
       25,
     ];
+    if (orderedCounter) {
+      if (index === controlIndex)
+        document.patcher.lines.push(wire(id, 0, "acquisitionOrder"));
+      else if (index === 0)
+        document.patcher.lines.push(wire(id, 0, "counterSnapshot"));
+      else if (index < width - 1)
+        document.patcher.lines.push(
+          wire(id, 0, "channels", index - 1),
+          wire("gate", index - 1, "pack", index + 1),
+        );
+      continue;
+    }
     document.patcher.lines.push(
       index === width
         ? wire(id, 0, "snapshot")
@@ -203,6 +225,18 @@ function configurationReadbackPatcher(
     wire("hot", 0, "pack"),
     wire("pack", 0, "output"),
   );
+  if (orderedCounter)
+    document.patcher.lines.push(
+      // One shared counter reader brackets the complete multichannel payload.
+      wire("acquisitionOrder", 4, "counterGate"),
+      wire("acquisitionOrder", 3, "counterSnapshot"),
+      wire("acquisitionOrder", 2, "snapshot"),
+      wire("acquisitionOrder", 1, "counterGate"),
+      wire("acquisitionOrder", 0, "counterSnapshot"),
+      wire("counterSnapshot", 0, "counterGate", 1),
+      wire("counterGate", 0, "pack", 1),
+      wire("counterGate", 1, "hot"),
+    );
   return document.patcher;
 }
 
@@ -979,11 +1013,12 @@ out32 = sourceClock;`,
       wire("metricNativeMessages", 0, "out"),
     );
     const readback = box(fft, "measurementReadback");
-    readback.numinlets = 23;
+    readback.numinlets = 22;
     readback.patcher = configurationReadbackPatcher(
       22,
       "spectrum_measurement_frame",
       2047,
+      true,
     );
     fft.patcher.lines = fft.patcher.lines.filter(
       ({ patchline }) =>
@@ -992,8 +1027,7 @@ out32 = sourceClock;`,
     );
     fft.patcher.lines.push(
       wire("energy", 31, "measurementReadback", 0),
-      wire("energy", 31, "measurementReadback", 21),
-      wire("infoOrder", 0, "measurementReadback", 22),
+      wire("infoOrder", 0, "measurementReadback", 21),
       wire("measurementReadback", 0, "nativeIO"),
     );
     for (let index = 0; index < 20; index++)

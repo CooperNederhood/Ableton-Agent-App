@@ -42,6 +42,11 @@ function createMetricRuntime({
   let nativeEpoch = 0;
   let clockLease = null;
   let heartbeatEnabled = true;
+  const analyzerProbeToken = require("node:crypto").randomInt(1, 2 ** 40);
+  let analyzerProbeStarted = null;
+  let analyzerProbeSent = -Infinity;
+  let analyzerReadiness = null;
+  let analyzerProbeSettled = false;
   const output = (...atoms) => maxApi.outlet(...atoms);
   const smoke =
     require("./audio_listener_flatness_probe.js").createSpectralShapeSmoke({
@@ -133,10 +138,24 @@ function createMetricRuntime({
       invalidate("explicit_profile_discovery_required");
       return;
     }
+    if (!analyzerProbeSettled) {
+      analyzerProbeStarted ??= now();
+      if (now() - analyzerProbeStarted < 1000) {
+        if (now() - analyzerProbeSent >= 25) {
+          analyzerProbeSent = now();
+          output("mel_native_control", "probe", analyzerProbeToken);
+        }
+        return;
+      }
+      // Missing optional analyzer readiness never advertises the capability or
+      // makes already-supported baseline metrics unavailable.
+      analyzerProbeSettled = true;
+    }
     controller = createController({
       codec: protocol,
       spectrumEnabled: true,
       melEnabled: true,
+      analyzerReadiness,
       now,
       sendControl: (target, selector, args) =>
         target === "metric_mel"
@@ -151,6 +170,8 @@ function createMetricRuntime({
         client.sendListenerReply(control, payload),
       sendListenerResult: (control, payload) =>
         client.sendListenerResult(control, payload),
+      sendListenerDiagnostic: (control, lifecycle) =>
+        client.sendListenerDiagnostic(control, lifecycle),
       beforeCleanup: stopSmokes,
       onEvent: (event) => {
         if (
@@ -335,7 +356,11 @@ function createMetricRuntime({
         capabilities: [
           protocol.LISTENER_CAPABILITY_METRIC,
           protocol.LISTENER_CAPABILITY_MEL,
+          ...(analyzerReadiness
+            ? [protocol.LISTENER_CAPABILITY_ANALYZER_TIMELINES]
+            : []),
         ],
+        ...(analyzerReadiness ? { analyzerReadiness } : {}),
         deviceCanonicalPath: identity.canonicalPath,
         trackCanonicalPath: match[1],
         sampleRate: dsp.sampleRate,
@@ -370,7 +395,7 @@ function createMetricRuntime({
                 control.config.geometry.sampleRate) *
                 1000 +
               20000,
-            maxObservationBytes: protocol.MAX_AUDIO_OBSERVATION_BYTES,
+            maxObservationBytes: protocol.MAX_METRIC_OBSERVATION_BYTES,
           });
           nativeEpoch = epoch;
           clockLease = control.generation;
@@ -468,6 +493,25 @@ function createMetricRuntime({
     }
   });
   maxApi.addHandler("native_mel", (...packet) => {
+    if (packet[0] === "analyzer_ready") {
+      if (client || blocked || closing || analyzerProbeSettled) return;
+      const [, abi, token, generation, rate, sourceAbi, clock, ready] = packet;
+      if (packet.length !== 8 || token !== analyzerProbeToken) return;
+      const parsed = protocol.analyzerNativeReadinessSchema?.safeParse({
+        schema: "analyzer-native-readiness/v1",
+        producerAbi: abi,
+        sourceAbi,
+        probeToken: token,
+        dspGeneration: generation,
+        sampleRate: rate,
+        sourceClock: clock,
+      });
+      if (!parsed?.success || ready !== 1 || rate !== dsp?.sampleRate) return;
+      analyzerReadiness = parsed.data;
+      analyzerProbeSettled = true;
+      start();
+      return;
+    }
     controller?.receiveNative("metric_mel", packet);
   });
   maxApi.addHandler("native_spectrum", (...packet) => {
@@ -561,6 +605,7 @@ function createMetricRuntime({
   }
   const timer = interval(() => {
     if (heartbeatEnabled) output("heartbeat");
+    if (!client && !blocked && !closing) start();
     controller?.tick();
     settle();
   }, 25);

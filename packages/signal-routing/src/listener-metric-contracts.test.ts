@@ -10,7 +10,10 @@ import {
   melBandTimelineSchema,
   createMetricObservationReportRows,
 } from "@ableton-agent/protocol";
-import { createSyntheticMetricListeningObservation } from "@ableton-agent/protocol/testing";
+import {
+  createSyntheticMetricListeningObservation,
+  createSyntheticAnalyzerReadiness,
+} from "@ableton-agent/protocol/testing";
 import {
   LISTENER_CAPABILITY_METRIC,
   LISTENER_METRIC_ALGORITHM_VERSION,
@@ -33,6 +36,78 @@ import { producerMessageSchema } from "./ingress-contracts.js";
 import { createSyntheticMetricWireFixture as fixture } from "./listener-metric-test-support.js";
 
 describe("wire5 independent metric contracts", () => {
+  it("requires analyzer producer capability for claimed executed analyzer readiness", () => {
+    const f = fixture();
+    f.registration.nativeStatus.executedGen.config.requestedMetrics.push(
+      "pitch",
+    );
+    f.registration.nativeStatus.executedGen.analyzerProducerAbi = 3;
+    expect(
+      listenerRegistrationMetricSchema.safeParse(f.registration).success,
+    ).toBe(false);
+    expect(
+      listenerRegistrationMetricSchema.safeParse({
+        ...f.registration,
+        analyzerReadiness: createSyntheticAnalyzerReadiness(),
+        capabilities: [
+          ...f.registration.capabilities,
+          "audio-listener/analyzer-timelines-v1",
+        ],
+      }).success,
+    ).toBe(true);
+  });
+  it("requires a matching actual readiness receipt exactly when analyzer capability is advertised", () => {
+    const f = fixture();
+    const analyzerReadiness = createSyntheticAnalyzerReadiness();
+    const capabilities = [
+      ...f.registration.capabilities,
+      "audio-listener/analyzer-timelines-v1",
+    ];
+    expect(
+      listenerRegistrationMetricSchema.safeParse(f.registration).success,
+    ).toBe(true);
+    expect(
+      listenerRegistrationMetricSchema.safeParse({
+        ...f.registration,
+        capabilities,
+        analyzerReadiness,
+      }).success,
+    ).toBe(true);
+    for (const change of [
+      { capabilities },
+      { analyzerReadiness },
+      {
+        capabilities,
+        analyzerReadiness: { ...analyzerReadiness, sampleRate: 44100 },
+      },
+      {
+        capabilities,
+        analyzerReadiness: { ...analyzerReadiness, producerAbi: 2 },
+      },
+      {
+        capabilities,
+        analyzerReadiness: { ...analyzerReadiness, sourceAbi: 2 },
+      },
+      {
+        capabilities,
+        analyzerReadiness: { ...analyzerReadiness, probeToken: 0 },
+      },
+      {
+        capabilities,
+        analyzerReadiness: { ...analyzerReadiness, dspGeneration: 0 },
+      },
+      {
+        capabilities,
+        analyzerReadiness: { ...analyzerReadiness, sourceClock: 2 ** 44 },
+      },
+    ])
+      expect(
+        listenerRegistrationMetricSchema.safeParse({
+          ...f.registration,
+          ...change,
+        }).success,
+      ).toBe(false);
+  });
   it("rejects missing or malformed mel ingress independently of healthy native-three metrics", () => {
     const f = fixture();
     const observation = f.observation;

@@ -1,8 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
+import { denseSyntheticMetricObservation } from "./listening-report-test-support.js";
 import {
   summarizeMetricListeningResult,
   projectMetricListeningReport,
   nativeMetricObservationMetricSchema,
+  deriveMelBandFrame,
 } from "@ableton-agent/protocol";
 import {
   createSyntheticPartialMetricListeningObservation,
@@ -42,7 +44,78 @@ const sessionInput = {
 };
 
 describe("optional listening tool contracts", () => {
-  it("keeps pitch/confidence smoke out of authoritative reports and interpretation", () => {
+  it("classifies feature derivation as local mutation, while comparisons and search are reads", () => {
+    expect(
+      resolveAbletonOperation("ableton_context", {
+        action: "derive-features",
+        contextIds: ["entry"],
+      })?.descriptor,
+    ).toMatchObject({
+      operationId: "context.derive-features",
+      risk: "reversible",
+      mutationTarget: "session",
+    });
+    for (const action of [
+      "feature-definitions",
+      "list-features",
+      "search-features",
+    ]) {
+      const input =
+        action === "search-features"
+          ? { action, featureId: "feature" }
+          : { action };
+      expect(
+        resolveAbletonOperation("ableton_context", input)?.descriptor,
+      ).toMatchObject({
+        risk: "read",
+        mutationTarget: "read",
+      });
+    }
+  });
+  it("bounds feature access and rejects implicit capture, arbitrary distance and raw query inputs", () => {
+    expect(
+      contextOperationParamsSchema.parse({
+        action: "search-features",
+        featureId: "feature",
+      }),
+    ).toMatchObject({
+      limit: 10,
+      candidateLimit: 1_000,
+      excludeContextIds: [],
+    });
+    for (const extra of [
+      { candidateLimit: 1_001 },
+      { limit: 21 },
+      { distance: "custom" },
+      { sql: "SELECT *" },
+      { capture: true },
+    ]) {
+      expect(
+        contextOperationParamsSchema.safeParse({
+          action: "search-features",
+          featureId: "feature",
+          ...extra,
+        }).success,
+      ).toBe(false);
+    }
+    expect(
+      contextOperationParamsSchema.safeParse({
+        action: "derive-features",
+        contextIds: ["same", "same"],
+      }).success,
+    ).toBe(false);
+    expect(
+      contextOperationParamsSchema.safeParse({
+        action: "derive-features",
+        contextIds: ["source"],
+        musicalAlignment: {
+          barOriginBeat: 0,
+          meter: { numerator: 4, denominator: 4 },
+        },
+      }).success,
+    ).toBe(false);
+  });
+  it("distinguishes authoritative pitch from historical diagnostics and limits accuracy claims", () => {
     for (const statement of [
       "monophonic-pitch smoke diagnostics",
       "YinFFT",
@@ -50,7 +123,10 @@ describe("optional listening tool contracts", () => {
       "0 Hz is the undefined sentinel",
       "not a calibrated probability",
       "not proof of noise",
-      "Do not invent pitch report fields",
+      "Historical polled diagnostics cannot be promoted into frames",
+      "not verified pitch or input class",
+      "2000 Hz sine produces a high-confidence estimate near 1000 Hz",
+      "zero confidence is a legitimate score",
       "octave errors",
       "polyphonic mixtures",
     ])
@@ -62,12 +138,15 @@ describe("optional listening tool contracts", () => {
       }).success,
     ).toBe(false);
   });
-  it("directs pitch requests to bounded reports without searching deliberately absent diagnostics", () => {
+  it("directs pitch requests to bounded authoritative reports without filesystem fallback or retries", () => {
     expect(LISTENING_AGENT_GUIDANCE).toContain(
       'For pitch requests, use ableton_context action "report"',
     );
     expect(LISTENING_AGENT_GUIDANCE).toContain(
-      "Pitch diagnostics are not exposed by the current agent tools",
+      "read authoritative pitch frames and their paired Hz/confidence when present",
+    );
+    expect(LISTENING_AGENT_GUIDANCE).toContain(
+      "If authoritative pitch is absent or unavailable, report that rather than inventing fields or retrying",
     );
     expect(LISTENING_AGENT_GUIDANCE).toContain(
       "Do not search tool-output files or use shell/filesystem commands to find pitch",
@@ -91,7 +170,7 @@ describe("optional listening tool contracts", () => {
       "not SpectralShape smoke diagnostics",
     );
     expect(LISTENING_AGENT_GUIDANCE).toContain(
-      "These diagnostics are available through typed Desktop History, not the metric context/report",
+      "Historical smoke diagnostics remain in typed Desktop History and cannot substitute for an absent authoritative timeline",
     );
   });
   const reportEntry = {
@@ -104,6 +183,151 @@ describe("optional listening tool contracts", () => {
     freshness: "unknown" as const,
     summary: "Stored metric report; not current source proof",
   };
+  it("denies oversized full metric get at the agent boundary without restricting full typed Desktop reads", async () => {
+    const observation = denseSyntheticMetricObservation();
+    const raw = { action: "get" as const, entry: reportEntry, observation };
+    const serialized = JSON.stringify(raw);
+    expect(observation.geometry.totalSamples).toBe(90000);
+    expect(observation.metrics.pitch?.frames).toHaveLength(43);
+    expect(observation.metrics["spectral-shape"]?.frames).toHaveLength(43);
+    expect(Buffer.byteLength(serialized)).toBeGreaterThan(
+      MAX_METRIC_CONTEXT_RESPONSE_BYTES,
+    );
+    expect(contextOperationResultSchema.parse(raw)).toEqual(raw);
+    const executeContextOperation = vi.fn(async () => raw);
+    const [, tool] = createListeningTools({
+      executeListeningOperation: async () => ({
+        action: "inspect-listeners",
+        listeners: [],
+        truncated: false,
+      }),
+      executeContextOperation,
+    });
+    const params = contextOperationParamsSchema.parse({
+      action: "get",
+      contextId: "context",
+    });
+    await expect(
+      tool.handler?.(params, {
+        sessionId: "sdk",
+        toolCallId: "dense-get",
+        toolName: "ableton_context",
+        arguments: params,
+      }),
+    ).rejects.toThrow(
+      /64 KiB.*action.*report.*offset.*0.*limit.*8.*nextOffset/,
+    );
+    expect(executeContextOperation).toHaveBeenCalledOnce();
+    expect(JSON.stringify(raw)).toBe(serialized);
+  });
+  it("keeps small full metric get responses available without replacing them with reports", async () => {
+    const raw = {
+      action: "get" as const,
+      entry: reportEntry,
+      observation: createSyntheticMetricListeningObservation(),
+    };
+    expect(Buffer.byteLength(JSON.stringify(raw))).toBeLessThan(
+      MAX_METRIC_CONTEXT_RESPONSE_BYTES,
+    );
+    const [, tool] = createListeningTools({
+      executeListeningOperation: async () => ({
+        action: "inspect-listeners",
+        listeners: [],
+        truncated: false,
+      }),
+      executeContextOperation: async () => raw,
+    });
+    const params = contextOperationParamsSchema.parse({
+      action: "get",
+      contextId: "context",
+    });
+    expect(
+      await tool.handler?.(params, {
+        sessionId: "sdk",
+        toolCallId: "small-get",
+        toolName: "ableton_context",
+        arguments: params,
+      }),
+    ).toEqual(raw);
+  });
+  it("pages every dense all-six-family original measurement through the actual report handler at default limit eight", async () => {
+    const observation = denseSyntheticMetricObservation();
+    const before = JSON.stringify(observation);
+    const [, tool] = createListeningTools({
+      executeListeningOperation: async () => ({
+        action: "inspect-listeners",
+        listeners: [],
+        truncated: false,
+      }),
+      executeContextOperation: async (request) => {
+        if (request.action !== "report")
+          throw new Error("Expected report read");
+        return {
+          action: "report",
+          entry: reportEntry,
+          report: projectMetricListeningReport(observation, request),
+        };
+      },
+    });
+    let offset: number | null = 0;
+    const indices: number[] = [];
+    const frames = {
+      pitch: new Map<number, unknown>(),
+      "spectral-shape": new Map<number, unknown>(),
+      "mel-bands": new Map<number, unknown>(),
+    };
+    while (offset !== null) {
+      const params = contextOperationParamsSchema.parse({
+        action: "report",
+        contextId: "context",
+        offset,
+      });
+      const result = contextOperationResultSchema.parse(
+        await tool.handler?.(params, {
+          sessionId: "sdk",
+          toolCallId: `report-${offset}`,
+          toolName: "ableton_context",
+          arguments: params,
+        }),
+      );
+      if (result.action !== "report") throw new Error("Expected typed report");
+      expect(result.report.pageBudget.requestedRowLimit).toBe(8);
+      expect(Buffer.byteLength(JSON.stringify(result))).toBeLessThanOrEqual(
+        MAX_METRIC_CONTEXT_RESPONSE_BYTES,
+      );
+      expect(
+        Buffer.byteLength(JSON.stringify(result.report)),
+      ).toBeLessThanOrEqual(48 * 1024);
+      expect(result.report.requestedMetrics).toEqual(
+        observation.requestedMetrics,
+      );
+      expect(Object.values(result.report.metricStatus)).toEqual(
+        Array(6).fill("complete"),
+      );
+      for (const row of result.report.rows) {
+        indices.push(row.index);
+        for (const metric of ["pitch", "spectral-shape", "mel-bands"] as const)
+          for (const frame of row[metric]!.frames)
+            frames[metric].set(frame.index, frame);
+      }
+      if (result.report.nextOffset !== null)
+        expect(result.report.nextOffset).toBeGreaterThan(offset);
+      offset = result.report.nextOffset;
+    }
+    expect(indices).toEqual(observation.rows.map((row) => row.index));
+    for (const metric of ["pitch", "spectral-shape"] as const)
+      expect([...frames[metric].values()]).toEqual(
+        observation.metrics[metric]!.frames,
+      );
+    expect([...frames["mel-bands"].values()]).toEqual(
+      observation.metrics["mel-bands"]!.frames.map((frame) => ({
+        index: frame.index,
+        support: frame.support,
+        analysis: deriveMelBandFrame(frame.magnitudes),
+      })),
+    );
+    expect(JSON.stringify(observation)).toBe(before);
+  });
   it("enforces the complete 64 KiB UTF-8 budget when a valid 48 KiB report fits but its entry does not", () => {
     expect(MAX_METRIC_CONTEXT_RESPONSE_BYTES).toBe(64 * 1024);
     const observation = createSyntheticMetricListeningObservation({
@@ -398,15 +622,15 @@ describe("optional listening tool contracts", () => {
       "corroborate placement with native support and level-row intervals",
     );
   });
-  it("keeps shared flatness/spread/rolloff smoke diagnostics distinct from qualified context and forbids invented arguments", () => {
+  it("uses supported spectral descriptors without promoting historical diagnostics or inventing arguments", () => {
     expect(LISTENING_AGENT_GUIDANCE).toContain(
       "not an extra capture or invented requestedMetrics argument",
     );
     expect(LISTENING_AGENT_GUIDANCE).toContain(
-      "typed Desktop History, not the metric context/report",
+      "read the authoritative spectral-shape timeline and bounded report when present",
     );
     expect(LISTENING_AGENT_GUIDANCE).toContain(
-      "unqualified frame support and silence validity",
+      "Complete acquisition does not imply defined descriptors",
     );
     expect(LISTENING_AGENT_GUIDANCE).toContain(
       "do not invent flatness report values",
@@ -530,6 +754,53 @@ describe("optional listening tool contracts", () => {
     );
   });
 
+  it.each(["list-features", "compare-features", "search-features"])(
+    "distinguishes %s summary metadata from requested numeric value detail",
+    (action) => {
+      const schema = contextOperationParamsSchema.options.find(
+        (option) => option.shape.action.value === action,
+      );
+      expect(schema?.description).toContain(
+        "metadata and distances, not feature value arrays",
+      );
+      expect(schema?.description).toContain(
+        "If the user requested values or persisted rereads",
+      );
+      expect(schema?.description).toContain(
+        "Comparison/search alone does not require these extra reads",
+      );
+    },
+  );
+
+  it("requires current-operation persisted feature rereads and separate requested comparison and search", () => {
+    const [listening, context] = createListeningTools({
+      executeListeningOperation: async () => ({
+        action: "inspect-listeners",
+        listeners: [],
+        truncated: false,
+      }),
+      executeContextOperation: async () => ({ action: "list", entries: [] }),
+    });
+    for (const guidance of [
+      LISTENING_AGENT_GUIDANCE,
+      listening.description,
+      context.description,
+    ]) {
+      expect(guidance).toContain(
+        "call get-feature for each requested feature from every requested context in the current operation",
+      );
+      expect(guidance).toContain(
+        "Conversation memory or a previous turn's read does not satisfy an explicit persisted reread",
+      );
+      expect(guidance).toContain(
+        "call compare-features with pairs of leftFeatureId and rightFeatureId, and call search-features separately",
+      );
+      expect(guidance).toContain(
+        "A search hit or its distance is not a substitute for the requested pair comparison",
+      );
+    }
+  });
+
   it("explains exact arguments, terminal delivery and known-context retrieval before a call", () => {
     const [listening, context] = createListeningTools({
       executeListeningOperation: async () => ({
@@ -565,9 +836,46 @@ describe("optional listening tool contracts", () => {
       "never repair source selection or retry automatically",
     );
     expect(context.description).toContain(
-      "When a contextId is already known, use get",
+      "For other or small contexts, use get",
     );
     expect(context.description).toContain("list does not accept contextId");
+    expect(context.description).toContain(
+      "list-features uses singular contextId, not contextIds",
+    );
+    expect(context.description).toContain(
+      'read the original stored metric-audio-observation/v1 measurement with action "report"',
+    );
+    expect(context.description).not.toContain("get or report");
+    expect(listening.description).not.toContain("get or report");
+    expect(listening.description).toContain(
+      'for metric-audio-observation/v1 use action "report", offset=0, limit=8',
+    );
+    expect(context.description).toContain(
+      "get-feature reads derived values and does not replace",
+    );
+    expect(context.description).toContain(
+      "derive-features uses the contextIds array",
+    );
+    expect(context.description).toContain(
+      "compare-features uses pairs of leftFeatureId and rightFeatureId",
+    );
+    expect(context.description).toContain(
+      "search-features uses featureId and excludeContextIds",
+    );
+    expect(
+      contextOperationParamsSchema.safeParse({
+        action: "list-features",
+        contextId: "source",
+        featureType: "peak-summary/v1",
+      }).success,
+    ).toBe(true);
+    expect(
+      contextOperationParamsSchema.safeParse({
+        action: "list-features",
+        contextIds: ["source"],
+        featureType: "peak-summary/v1",
+      }).success,
+    ).toBe(false);
     expect(context.description).not.toContain(
       "List compact summaries before requesting observation detail",
     );

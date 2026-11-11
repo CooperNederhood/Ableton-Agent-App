@@ -2294,6 +2294,122 @@ describe("Ableton tools", () => {
     },
   );
 
+  it.each(["default", "mixed", "list-only"] as const)(
+    "exposes cursor-only feature inventory pagination in the %s SDK schema",
+    async (scope) => {
+      const nextCursor = "opaque-feature-cursor+/=page-2";
+      const executeContextOperation = vi
+        .fn<NonNullable<AbletonToolServices["executeContextOperation"]>>()
+        .mockResolvedValueOnce({
+          action: "list-features",
+          features: [],
+          nextCursor,
+        })
+        .mockResolvedValueOnce({ action: "list-features", features: [] });
+      const set = createAbletonTools({
+        ...services(),
+        executeContextOperation,
+      });
+      const tool =
+        scope === "default"
+          ? toolByName(set, "ableton_context")
+          : scopeAbletonTools(set, {
+              allowedToolNames: ["ableton_context"],
+              allowedOperationIds:
+                scope === "list-only"
+                  ? ["context.list-features"]
+                  : [
+                      "context.list-features",
+                      "context.get-feature",
+                      "context.report",
+                    ],
+            })[0]!;
+      interface Variant {
+        description?: string;
+        additionalProperties?: boolean;
+        properties?: Record<string, { const?: unknown; description?: string }>;
+        oneOf?: Variant[];
+        anyOf?: Variant[];
+      }
+      const parameters = tool.parameters as {
+        toJSONSchema(): Variant;
+        safeParse(value: unknown): { success: boolean };
+      };
+      expect(tool.description).toContain(
+        "list-features and list use cursor, never offset",
+      );
+      expect(tool.description).toContain(
+        "omit cursor initially, then copy nextCursor until absent",
+      );
+      expect(tool.description).toContain(
+        "Only report and get-feature accept offset; only get-feature accepts supportOffset",
+      );
+      expect(tool.description).toContain(
+        "feature-definitions accepts only action, with no pagination",
+      );
+      const wire = JSON.parse(
+        JSON.stringify(parameters.toJSONSchema()),
+      ) as Variant;
+      expect(wire.properties).not.toHaveProperty("offset");
+      const inventory = (wire.oneOf ?? wire.anyOf ?? [wire]).find(
+        (variant) => variant.properties?.action?.const === "list-features",
+      );
+      expect(inventory?.description).toContain("cursor pagination, not offset");
+      expect(inventory?.properties?.cursor?.description).toContain(
+        "Omit cursor on the first request",
+      );
+      expect(inventory?.properties?.cursor?.description).toContain(
+        "returned nextCursor unchanged",
+      );
+      expect(inventory?.properties?.limit?.description).toContain(
+        "default 10, maximum 20",
+      );
+      expect(inventory?.properties).not.toHaveProperty("offset");
+      expect(inventory?.additionalProperties).toBe(false);
+      const args = {
+        action: "list-features",
+        contextId: "context",
+        featureType: "peak-summary/v1",
+        limit: 8,
+      };
+      const invoke = (
+        arguments_: Record<string, unknown>,
+        toolCallId: string,
+      ) =>
+        tool.handler?.(arguments_, {
+          sessionId: "sdk",
+          toolCallId,
+          toolName: "ableton_context",
+          arguments: arguments_,
+        });
+      expect(parameters.safeParse({ ...args, offset: 0 }).success).toBe(false);
+      const denied = await invoke({ ...args, offset: 0 }, "invalid-offset");
+      expect(denied).toMatchObject({ resultType: "failure" });
+      expect(denied).toHaveProperty(
+        "error",
+        expect.stringContaining("invalid_tool_arguments"),
+      );
+      expect(executeContextOperation).not.toHaveBeenCalled();
+      await expect(invoke(args, "first-page")).resolves.toEqual({
+        action: "list-features",
+        features: [],
+        nextCursor,
+      });
+      await expect(
+        invoke({ ...args, cursor: nextCursor }, "second-page"),
+      ).resolves.toEqual({
+        action: "list-features",
+        features: [],
+      });
+      expect(
+        executeContextOperation.mock.calls.map(([request]) => request),
+      ).toEqual([
+        { ...args, includeHistorical: false },
+        { ...args, cursor: nextCursor, includeHistorical: false },
+      ]);
+    },
+  );
+
   it("does not advertise capture actions in a lookup-only listening scope", () => {
     const [tool] = scopeAbletonTools(
       createAbletonTools({

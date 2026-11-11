@@ -463,6 +463,15 @@ export class SignalIngressServer implements ListenerService {
       throw denied("listener_configuration_version_mismatch");
     const control = parsedControl.data;
     if (
+      control.config?.requestedMetrics.some(
+        (metric) => metric === "pitch" || metric === "spectral-shape",
+      ) &&
+      !state.listener.capabilities.some(
+        (capability) => capability === "audio-listener/analyzer-timelines-v1",
+      )
+    )
+      throw denied("analyzer_timelines_unavailable");
+    if (
       control.config &&
       (control.config.geometry.sampleRate !== state.listener.sampleRate ||
         control.config.geometry.vectorSize !== state.listener.vectorSize ||

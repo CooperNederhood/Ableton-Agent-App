@@ -270,6 +270,84 @@ function withCurrentContexts(
 }
 
 describe("repeated capture context evidence", () => {
+  function runCompletion(afterRestart: boolean): AssertionInput {
+    const input = scenario([0, 1]);
+    return {
+      fixture: input.fixture,
+      baseline: input.baseline,
+      turns: input.turns,
+      evidence: {
+        ...input.evidence!,
+        contexts: input.evidence!.contexts.map((entry) => ({
+          ...entry,
+          afterOwnedRestart: afterRestart,
+        })),
+      },
+    };
+  }
+
+  it.each([false, true])(
+    "verifies both sources from final collected context evidence without a current turn (restart: %s)",
+    (afterRestart) => {
+      expect(
+        checkContext(runCompletion(afterRestart), afterRestart).passed,
+      ).toBe(true);
+    },
+  );
+
+  it.each([
+    "missing",
+    "source",
+    "identity",
+    "content",
+    "unreadable",
+    "duplicate",
+    "pass",
+  ] as const)(
+    "rejects %s final context evidence without falling back to successful turns",
+    (fault) => {
+      const input = runCompletion(false);
+      const contexts = [...input.evidence!.contexts];
+      const second = contexts[1]!;
+      if (fault === "missing") contexts.pop();
+      else if (fault === "duplicate") contexts.push(second);
+      else
+        contexts[1] =
+          fault === "source"
+            ? { ...second, source: contexts[0]!.source }
+            : fault === "identity"
+              ? { ...second, contextId: "replacement-context" }
+              : fault === "content"
+                ? { ...second, contentSha256: "f".repeat(64) }
+                : fault === "unreadable"
+                  ? { ...second, readable: false }
+                  : { ...second, passId: "foreign-pass" };
+      expect(
+        checkContext({
+          ...input,
+          evidence: { ...input.evidence!, contexts },
+        }),
+      ).toMatchObject({ passed: false, code: "context-mismatch" });
+    },
+  );
+
+  it("does not substitute successful turns for absent final context collection", () => {
+    const input = runCompletion(false);
+    expect(
+      checkContext({
+        ...input,
+        evidence: { ...input.evidence!, contexts: [] },
+      }),
+    ).toMatchObject({ passed: false, code: "missing-context" });
+  });
+
+  it("still requires a real restart when final context assertions request one", () => {
+    expect(checkContext(runCompletion(false), true)).toMatchObject({
+      passed: false,
+      code: "context-mismatch",
+    });
+  });
+
   it.each([
     { sources: [0, 0, 0] },
     { sources: [0, 1, 0] },

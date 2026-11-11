@@ -3,10 +3,16 @@ import {
   createMetricObservationReportRows,
   MEL_BAND_PROFILE,
   melBandTimelineSchema,
+  classifyPitchEstimate,
   type MetricAudioObservation,
 } from "@ableton-agent/protocol";
-import { createSyntheticMetricListeningObservation } from "@ableton-agent/protocol/testing";
+import {
+  createSyntheticMetricListeningObservation,
+  withSyntheticAnalyzerTimelines,
+} from "@ableton-agent/protocol/testing";
 import { createInMemorySessionContextStore } from "@ableton-agent/project-state";
+import { contextOperationResultSchema } from "@ableton-agent/tools";
+import { createSessionContextHost } from "./session-context-host.js";
 import {
   buildListeningPublication,
   buildMetricListeningPublication,
@@ -92,6 +98,355 @@ function fixture(partial = false): MetricListeningPublicationInput {
 }
 
 describe("explicit independent metric publication", () => {
+  it("exposes all five analyzer features through persisted typed detail, comparison and source-excluding search", async () => {
+    const original = fixture();
+    const first: MetricListeningPublicationInput = {
+      ...original,
+      observations: [withSyntheticAnalyzerTimelines(original.observations[0]!)],
+      bindings: original.bindings.map((binding) => ({
+        ...binding,
+        musicalAlignment: {
+          version: 1,
+          coordinate: "transport-beats",
+          meter: { numerator: 4, denominator: 4 },
+          barOriginBeat: 0,
+          tempoBpm: original.observations[0]!.geometry.tempoBpm,
+          tempoEvidence: "message-rate-monitored-constant",
+          provenance: "capture-snapshot/v1",
+        },
+      })),
+    };
+    const observation = structuredClone(first.observations[0]!);
+    observation.ownership.passId = "second-analyzers";
+    observation.metrics.pitch = {
+      ...observation.metrics.pitch!,
+      frames: observation.metrics.pitch!.frames.map((frame) => ({
+        ...frame,
+        channels: [classifyPitchEstimate(880, 0.9), frame.channels[1]] as const,
+      })),
+    };
+    observation.metrics["spectral-shape"] = {
+      ...observation.metrics["spectral-shape"]!,
+      frames: observation.metrics["spectral-shape"]!.frames.map((frame) => ({
+        ...frame,
+        channels: [
+          {
+            state: "valid",
+            flatnessDb: -30,
+            spreadHz: 750,
+            rolloffHz: 1250,
+          },
+          frame.channels[1],
+        ] as const,
+      })),
+    };
+    observation.rows = createMetricObservationReportRows(observation);
+    const second = {
+      ...first,
+      passId: observation.ownership.passId,
+      observations: [observation],
+    };
+    const store = await createInMemorySessionContextStore({
+      sessionId: first.owner.sessionId,
+      liveSetId: first.owner.liveSetId,
+    });
+    const host = createSessionContextHost({
+      resolveRepository: async () => store,
+    });
+    const actor = {
+      sessionId: first.owner.sessionId,
+      agentId: first.owner.agentId,
+      trace: first.trace,
+    };
+    try {
+      const sourceIds: string[] = [];
+      for (const input of [first, second])
+        sourceIds.push(
+          ...(await persistMetricListeningObservations(
+            store,
+            input,
+            new AbortController().signal,
+          )),
+        );
+      const before = await Promise.all(
+        sourceIds.map((id) => store.getEntry(id)),
+      );
+      const derived = await host.executeContextOperation(
+        {
+          action: "derive-features",
+          contextIds: sourceIds,
+          includeHistorical: true,
+        },
+        actor,
+      );
+      expect(derived).toMatchObject({
+        derivations: [
+          { status: "ready", featureCount: 15 },
+          { status: "ready", featureCount: 15 },
+        ],
+      });
+      for (const [featureType, distance, units] of [
+        ["pitch-grid/v1", 1200, "cents"],
+        ["pitch-confidence-summary/v1", 0.05, "algorithm-score"],
+        ["flatness-summary/v1", 10, "dB"],
+        ["spread-summary/v1", 250, "Hz"],
+        ["rolloff-summary/v1", 250, "Hz"],
+      ] as const) {
+        const features = [];
+        for (const contextId of sourceIds) {
+          const result = await host.executeContextOperation(
+            {
+              action: "list-features",
+              contextId,
+              featureType,
+              includeHistorical: true,
+              limit: 10,
+            },
+            actor,
+          );
+          if (result.action !== "list-features")
+            throw new Error("Expected inventory");
+          expect(result.features).toHaveLength(1);
+          expect(result.features[0]!.record.feature.status).toBe("ready");
+          features.push(result.features[0]!.record);
+        }
+        const detail = contextOperationResultSchema.parse(
+          await host.executeContextOperation(
+            {
+              action: "get-feature",
+              featureId: features[0]!.id,
+              includeHistorical: true,
+              offset: 0,
+              supportOffset: 0,
+              limit: 32,
+            },
+            actor,
+          ),
+        );
+        if (detail.action !== "get-feature") throw new Error("Expected detail");
+        expect(detail.feature.record.feature.distanceUnits).toBe(units);
+        expect(detail.feature.record.feature).not.toHaveProperty(
+          "channelSupport",
+        );
+        expect(detail.page.channelSupportIntervals).toBeDefined();
+        if (featureType === "pitch-grid/v1")
+          expect(detail.feature.record.feature.units).toBe("midi-semitones");
+        if (featureType === "flatness-summary/v1")
+          expect(detail.page.values).toEqual([-20, null]);
+        const compared = await host.executeContextOperation(
+          {
+            action: "compare-features",
+            pairs: [
+              {
+                leftFeatureId: features[0]!.id,
+                rightFeatureId: features[1]!.id,
+              },
+            ],
+            includeHistorical: true,
+          },
+          actor,
+        );
+        if (compared.action !== "compare-features")
+          throw new Error("Expected comparison");
+        const comparison = compared.comparisons[0]!.result;
+        if (comparison.status !== "comparable")
+          throw new Error(`Not comparable: ${featureType}`);
+        expect(comparison.distance).toBeCloseTo(distance, 8);
+        expect(comparison.units).toBe(units);
+        const searched = contextOperationResultSchema.parse(
+          await host.executeContextOperation(
+            {
+              action: "search-features",
+              featureId: features[0]!.id,
+              excludeContextIds: [sourceIds[0]!],
+              includeHistorical: true,
+              limit: 10,
+              candidateLimit: 1000,
+            },
+            actor,
+          ),
+        );
+        if (searched.action !== "search-features")
+          throw new Error("Expected search");
+        expect(searched.distanceUnits).toBe(units);
+        expect(searched.matches).toHaveLength(1);
+        expect(searched.matches[0]!.feature.record.entryId).toBe(sourceIds[1]);
+        expect(searched.matches[0]!.distance).toBeCloseTo(distance, 8);
+      }
+      expect(
+        await Promise.all(sourceIds.map((id) => store.getEntry(id))),
+      ).toEqual(before);
+    } finally {
+      await store.close();
+    }
+  });
+
+  it.each([undefined, "overflow"] as const)(
+    "persists synthetic authoritative analyzer evidence unchanged with isolated %s outcome",
+    async (failure) => {
+      const original = fixture();
+      const observation = withSyntheticAnalyzerTimelines(
+        original.observations[0]!,
+        failure,
+      );
+      const input = { ...original, observations: [observation] };
+      const store = await createInMemorySessionContextStore({
+        sessionId: input.owner.sessionId,
+        liveSetId: input.owner.liveSetId,
+      });
+      try {
+        const ids = await persistMetricListeningObservations(
+          store,
+          input,
+          new AbortController().signal,
+        );
+        expect((await store.getEntry(ids[0]!))?.payload).toEqual(observation);
+        const publication = buildMetricListeningPublication(input);
+        expect(publication.entries[0]?.payload).toEqual(observation);
+        expect(publication.pass.status).toBe(failure ? "partial" : "completed");
+        expect(observation.metrics["spectral-shape"]?.status).toBe("complete");
+        expect(observation.metrics.level.status).toBe("complete");
+      } finally {
+        await store.close();
+      }
+    },
+  );
+  it("derives, compares and searches persisted peaks through the same typed host without recapture", async () => {
+    const first = fixture();
+    const secondObservation = structuredClone(first.observations[0]!);
+    secondObservation.ownership.passId = "pass-two";
+    for (const record of secondObservation.metrics.level.records) {
+      record.peak = [0.75, 0.75];
+    }
+    const second = {
+      ...first,
+      passId: "pass-two",
+      observations: [secondObservation],
+    };
+    const store = await createInMemorySessionContextStore({
+      sessionId: first.owner.sessionId,
+      liveSetId: first.owner.liveSetId,
+    });
+    const host = createSessionContextHost({
+      resolveRepository: async () => store,
+    });
+    const actor = {
+      sessionId: first.owner.sessionId,
+      agentId: first.owner.agentId,
+      trace: first.trace,
+    };
+    try {
+      const sourceIds = [];
+      for (const input of [first, second]) {
+        sourceIds.push(
+          ...(await persistMetricListeningObservations(
+            store,
+            input,
+            new AbortController().signal,
+          )),
+        );
+      }
+      const before = await Promise.all(
+        sourceIds.map((id) => store.getEntry(id)),
+      );
+      const derived = await host.executeContextOperation(
+        {
+          action: "derive-features",
+          contextIds: sourceIds,
+          includeHistorical: true,
+        },
+        actor,
+      );
+      expect(derived).toMatchObject({
+        derivations: [{ status: "ready" }, { status: "ready" }],
+      });
+      const features = [];
+      for (const id of sourceIds) {
+        const page = await host.executeContextOperation(
+          {
+            action: "list-features",
+            contextId: id,
+            featureType: "peak-summary/v1",
+            includeHistorical: true,
+            limit: 10,
+          },
+          actor,
+        );
+        if (page.action !== "list-features")
+          throw new Error("Expected feature inventory");
+        expect(page.features).toHaveLength(1);
+        features.push(page.features[0]!.record);
+      }
+      const comparison = await host.executeContextOperation(
+        {
+          action: "compare-features",
+          pairs: [
+            { leftFeatureId: features[0]!.id, rightFeatureId: features[1]!.id },
+          ],
+          includeHistorical: true,
+        },
+        actor,
+      );
+      if (comparison.action !== "compare-features")
+        throw new Error("Expected comparison");
+      const persisted = await Promise.all(
+        features.map((feature) => store.getFeature(feature.id)),
+      );
+      const left = persisted[0]!.feature.values!;
+      const right = persisted[1]!.feature.values!;
+      const expected = Math.hypot(left[0]! - right[0]!, left[1]! - right[1]!);
+      const detail = await host.executeContextOperation(
+        {
+          action: "get-feature",
+          featureId: features[0]!.id,
+          includeHistorical: true,
+          offset: 0,
+          supportOffset: 0,
+          limit: 32,
+        },
+        actor,
+      );
+      expect(contextOperationResultSchema.parse(detail)).toMatchObject({
+        action: "get-feature",
+        page: { values: left, nextOffset: null },
+      });
+      expect(comparison.comparisons[0]!.result).toMatchObject({
+        status: "comparable",
+        distance: expected,
+      });
+      expect(expected).toBeGreaterThan(0);
+      const result = contextOperationResultSchema.parse(
+        await host.executeContextOperation(
+          {
+            action: "search-features",
+            featureId: features[0]!.id,
+            excludeContextIds: [sourceIds[0]!],
+            includeHistorical: true,
+            limit: 10,
+            candidateLimit: 1_000,
+          },
+          actor,
+        ),
+      );
+      if (result.action !== "search-features")
+        throw new Error("Expected search");
+      expect(result.exhaustive).toBe(true);
+      expect(result.matches).toHaveLength(1);
+      expect(result.matches[0]).toMatchObject({
+        distance: expected,
+        feature: {
+          record: { entryId: sourceIds[1] },
+          segment: { kind: "unaligned" },
+        },
+      });
+      expect(
+        await Promise.all(sourceIds.map((id) => store.getEntry(id))),
+      ).toEqual(before);
+    } finally {
+      await store.close();
+    }
+  });
+
   it.each([false, true])(
     "persists full mel vectors and explicit gaps: partial=%s",
     async (partial) => {

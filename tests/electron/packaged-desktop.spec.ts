@@ -1,6 +1,7 @@
 import {
   access,
   cp,
+  lstat,
   mkdir,
   mkdtemp,
   readFile,
@@ -8,6 +9,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { execFile } from "node:child_process";
+import { createHash } from "node:crypto";
 import { createServer } from "node:net";
 import { dirname, join, resolve } from "node:path";
 import { promisify } from "node:util";
@@ -17,6 +19,8 @@ import { sendAutomationMessage } from "@ableton-agent/debug-control";
 import { resolveLiveAgentStorage } from "../../packages/storage/src/index.js";
 import {
   decodeAmxd,
+  FLUCOMA_DEPENDENCY_FILES,
+  isFlucomaDependencyResource,
   readIntegrationDevicePayloads,
 } from "../../packages/shared/src/m4l-devices.js";
 import {
@@ -255,10 +259,37 @@ test("installs both canonical Max bundles and Remote Script from packaged resour
           [
             ...device.files
               .map((file) => file.name)
-              .filter((name) => name !== "audio-listener-manifest.json"),
+              .filter(
+                (name) =>
+                  name !== "audio-listener-manifest.json" &&
+                  !isFlucomaDependencyResource(name),
+              ),
             "agent_signal_storage.js",
           ].sort(),
         );
+        for (const dependency of FLUCOMA_DEPENDENCY_FILES) {
+          const path = join(installed, dependency.name);
+          expect(
+            createHash("sha256")
+              .update(await readFile(path))
+              .digest("hex"),
+          ).toBe(dependency.sha256);
+          expect((await lstat(path)).mode & 0o777).toBe(dependency.mode);
+        }
+        expect(frozen.document).toMatchObject({
+          patcher: {
+            project: {
+              searchpath: {
+                "0": {
+                  bootpath: join(installed, "dependencies/flucoma"),
+                  enabled: 1,
+                  recursive: 0,
+                  includeincollective: 0,
+                },
+              },
+            },
+          },
+        });
         for (const file of frozen.frozenFiles!.slice(1)) {
           expect(file.data).toEqual(await readFile(join(installed, file.name)));
           expect(file.flags).toBe(

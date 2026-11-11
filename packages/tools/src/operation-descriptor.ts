@@ -379,19 +379,22 @@ function applicationContextDescriptors(): readonly AbletonOperationDescriptor[] 
     ...contextOperationParamsSchema.options.map((inputSchema) => {
       const action = inputSchema.shape.action.value;
       const prunes = action === "prune";
+      const derives = action === "derive-features";
       return {
         operationId: `context.${action}`,
         action,
         toolName: "ableton_context",
         title: prunes
           ? "Prune App-session context"
-          : "Read App-session context",
+          : derives
+            ? "Derive App-session listening features"
+            : "Read App-session context",
         inputSchema,
         resultSchema: contextOperationResultSchema,
-        risk: prunes ? "destructive" : "read",
+        risk: prunes ? "destructive" : derives ? "reversible" : "read",
         duration: "short",
-        mutationTarget: prunes ? "session" : "read",
-        editScope: prunes ? "session" : "none",
+        mutationTarget: prunes || derives ? "session" : "read",
+        editScope: prunes || derives ? "session" : "none",
         requiredCapability: "application.context",
         handlerBinding: "executeContextOperation",
         lifecycleEvents: operationLifecycleEvents,

@@ -20,6 +20,7 @@ export async function waitForRunnerOwnedLiveReady(
   {
     coordinatedStartup = false,
     discardRecovery = !coordinatedStartup,
+    requireAudio = false,
     host = "127.0.0.1",
     port = 8765,
     timeoutMs = coordinatedStartup ? 600_000 : 120_000,
@@ -37,6 +38,10 @@ export async function waitForRunnerOwnedLiveReady(
     const dismissed = await controller.dismissKnownStartupDialogs({
       discardRecovery,
     });
+    if (requireAudio && dismissed === "audio-disabled")
+      throw new Error(
+        "Runner-owned Live audio is disabled; select an audio output device in Live Audio Preferences before running listening acceptance",
+      );
     if (dismissed !== "none" && !dismissedDialogs.includes(dismissed)) {
       dismissedDialogs.push(dismissed);
     }

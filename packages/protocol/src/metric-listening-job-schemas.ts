@@ -49,7 +49,7 @@ export const metricListeningResultSummarySchema = z
     metrics: z
       .array(metricSummarySchema)
       .min(metricIds.length)
-      .max(metricIds.length + 1),
+      .max(metricIds.length + 3),
   })
   .superRefine((value, ctx) => {
     const requested = value.metrics.filter(
@@ -63,12 +63,13 @@ export const metricListeningResultSummarySchema = z
       ) ||
       value.metrics.some(
         (metric) =>
-          metric.metric === "mel-bands" && metric.status === "not-requested",
+          ["mel-bands", "pitch", "spectral-shape"].includes(metric.metric) &&
+          metric.status === "not-requested",
       ) ||
       !requested.some(
         (metric) =>
           metric.retainedRecords > 0 ||
-          (metric.metric === "mel-bands" &&
+          (["mel-bands", "pitch", "spectral-shape"].includes(metric.metric) &&
             metric.status === "complete" &&
             metric.expectedRecords === 0),
       ) ||
@@ -158,6 +159,26 @@ export function summarizeMetricListeningResult(input: MetricAudioObservation) {
               gapReasons: [...new Set(mel.gaps.map((gap) => gap.reason))],
             },
           ]),
+      ...(["pitch", "spectral-shape"] as const).flatMap((metric) => {
+        const timeline = observation.metrics[metric];
+        return timeline === undefined
+          ? []
+          : [
+              {
+                metric,
+                status: timeline.status,
+                expectedRecords: timeline.expectedRecords,
+                retainedRecords: timeline.frames.length,
+                missingRecords: timeline.gaps.reduce(
+                  (sum, gap) => sum + gap.count,
+                  0,
+                ),
+                gapReasons: [
+                  ...new Set(timeline.gaps.map((gap) => gap.reason)),
+                ],
+              },
+            ];
+      }),
     ],
   });
 }

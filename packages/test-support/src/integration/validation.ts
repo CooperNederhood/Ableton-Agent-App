@@ -463,6 +463,7 @@ export function validatePermission(
           "$source.clipId",
           "$source.slotIndex",
           "$source.listenerId",
+          "$source.contextId",
         ].includes(argument),
         "Unknown source permission reference",
       );
@@ -488,7 +489,10 @@ export function resolvePermissionArguments(
         resolved[key] = actualSource.source.clipId;
       else if (value === "$source.listenerId")
         resolved[key] = actualSource.listenerId;
-      else resolved[key] = actualSource.source.slotIndex;
+      else if (value === "$source.contextId") {
+        identifier(actualSource.contextId);
+        resolved[key] = actualSource.contextId;
+      } else resolved[key] = actualSource.source.slotIndex;
     } else resolved[key] = value;
   }
   return Object.freeze(resolved);
@@ -547,6 +551,7 @@ export function validateScenario(
   requireCondition(value.steps.length > 0, "Empty scenario");
   let assertionCount = 0;
   const stepIds: string[] = [];
+  const setupActions = new Set<string>();
   for (const step of value.steps) {
     object(step);
     rejectUnknownFields(step, [
@@ -556,8 +561,31 @@ export function validateScenario(
       "expectedStatus",
       "sourceId",
       "assertions",
+      "setupActions",
     ]);
     identifier(step.id);
+    if (step.setupActions !== undefined) {
+      list(step.setupActions, 1);
+      requireCondition(step.setupActions.length === 1, "Empty setup actions");
+      for (const action of step.setupActions) {
+        requireCondition(
+          action === "stop-transport" || action === "restart-owned-desktop",
+          "Unsupported setup action",
+        );
+        requireCondition(
+          !setupActions.has(action) && stepIds.length > 0,
+          "Setup actions require a preceding turn and exactly one execution",
+        );
+        requireCondition(
+          action === "restart-owned-desktop"
+            ? value.requiredCapabilities.includes("persistence")
+            : value.requiredCapabilities.includes("session-audio") ||
+                value.requiredCapabilities.includes("session-midi"),
+          "Setup actions require declared driver capabilities",
+        );
+        setupActions.add(action);
+      }
+    }
     if (step.sourceId !== undefined) {
       identifier(step.sourceId);
       requireCondition(
@@ -772,6 +800,8 @@ export function validateTurn(value: unknown): asserts value is TurnEvidence {
   object(value);
   validateSubmission(value);
   const record = value;
+  if (record.featureSources !== undefined)
+    validateFeatureSources(record.featureSources, "peak-only");
   requireCondition(record.schemaVersion === 1, "Unsupported turn version");
   identifier(record.assistantMessageId);
   requireCondition(record.terminal === true, "Nonterminal turn evidence");
@@ -853,6 +883,60 @@ export function validateTurn(value: unknown): asserts value is TurnEvidence {
 }
 export function validateEvidence(value: unknown): asserts value is RunEvidence {
   object(value);
+  if (value.featureSources !== undefined)
+    validateFeatureSources(value.featureSources, "peak-only");
+  if (value.setupActions !== undefined) {
+    list(value.setupActions, 2);
+    const actions = new Set<string>();
+    for (const action of value.setupActions) {
+      object(action);
+      rejectUnknownFields(action, [
+        "action",
+        "stepId",
+        "traceId",
+        "correlationId",
+        "causationId",
+        "appSessionId",
+        "conversationId",
+        "agentId",
+        "completed",
+        "transport",
+      ]);
+      requireCondition(
+        (action.action === "stop-transport" ||
+          action.action === "restart-owned-desktop") &&
+          !actions.has(action.action) &&
+          action.completed === true,
+        "Invalid setup evidence",
+      );
+      actions.add(action.action);
+      if (action.action === "stop-transport") {
+        object(action.transport);
+        rejectUnknownFields(action.transport, [
+          "command",
+          "dispatchedCount",
+          "beforePlaying",
+          "afterPlaying",
+          "verified",
+        ]);
+        requireCondition(
+          action.transport.command === "transport.set_playing" &&
+            action.transport.dispatchedCount === 1 &&
+            typeof action.transport.beforePlaying === "boolean" &&
+            action.transport.afterPlaying === false &&
+            action.transport.verified === true,
+          "Unverified runner transport stop",
+        );
+      } else
+        requireCondition(
+          action.transport === undefined,
+          "Restart cannot include a transport mutation",
+        );
+      validateIdentity(action);
+      for (const field of ["stepId", "traceId", "correlationId", "causationId"])
+        identifier(action[field]);
+    }
+  }
   requireCondition(value.schemaVersion === 1, "Unsupported evidence version");
   if (value.recoveries !== undefined) {
     list(value.recoveries, 32);
@@ -1131,3 +1215,4 @@ export function validateResult(value: unknown): asserts value is RunResult {
       "Success requires assertions and finalized cleanup/persistence",
     );
 }
+import { validateFeatureSources } from "./feature-search.js";

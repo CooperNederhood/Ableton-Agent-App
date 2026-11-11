@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { LISTENER_CAPABILITY_ANALYZER_TIMELINES } from "@ableton-agent/protocol";
 import {
   producerDiagnosticsSchema,
   type WRITE_DIAGNOSTIC_CAPABILITY,
@@ -21,6 +22,7 @@ export const DEFAULT_SIGNAL_INGRESS_PORT = 45_832;
 export const SUPPORTED_LISTENER_CAPABILITIES = [
   LISTENER_CAPABILITY_METRIC,
   LISTENER_CAPABILITY_MEL,
+  LISTENER_CAPABILITY_ANALYZER_TIMELINES,
 ] as const;
 export { DEFAULT_MAX_INGRESS_FRAME_BYTES } from "./contracts.js";
 

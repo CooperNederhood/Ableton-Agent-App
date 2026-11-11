@@ -147,6 +147,18 @@ describe("packaged mel typed context restoration", () => {
     };
     lifecycle.facts.find((fact) => fact.field === "mel.sourceClockExclusive")!
       .actual.value++;
+    const drain = events.find(
+      (event) =>
+        "lifecycle" in event.attributes &&
+        (event.attributes.lifecycle as { reason?: string } | undefined)
+          ?.reason === "mel_native_drain_receipt",
+    )!;
+    if (!("lifecycle" in drain.attributes))
+      throw new Error("Missing synthetic drain receipt");
+    const drainLifecycle = drain.attributes.lifecycle as typeof lifecycle;
+    drainLifecycle.facts.find(
+      (fact) => fact.field === "mel.drain.sourceClockExclusive",
+    )!.actual.value++;
     f.readTrace.mockResolvedValue(events);
     const restored = await f.restore();
     expect(() =>

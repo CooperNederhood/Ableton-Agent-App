@@ -190,6 +190,37 @@ alone remains Copilot SDK-owned and does not promote the Desktop session.
 
 ## Listening context and producer discovery
 
+### Derived feature storage (#113)
+
+Context SQL schema version 3 adds typed `context_segments`, `context_features`
+and per-source derivation state alongside immutable observations. The one-way
+v2 schema update preserves existing observation payloads rather than converting
+or recapturing them. Session registry/manifest references advance with the store;
+unknown future versions remain errors.
+
+Derived records use the same resolved `context/entity-context.sqlite` path,
+session/Set ownership, atomic publication, sanitation and 32 MiB physical quota.
+They are not fake observation kinds or journal records. Stable source/segment/
+definition identities make repeated derivation idempotent. Explicit source
+pruning cascades to dependent records. Prune cancellation targets only pending
+derivations whose entry or owning pass is explicitly selected; unrelated captures
+continue deriving. Invalid, already-cancelled and queue-denied prune requests
+must not cancel feature work. Validation/admission failures retain the normal
+attributed prune lifecycle events. Derivation failure, cancellation or quota
+rejection must preserve measured observations and expose separate readiness.
+Search never creates missing features, and historical inclusion does not grant
+cross-Set or cross-session access. Feature values remain available only through
+typed bounded APIs; no renderer SQL/filesystem or network access is introduced.
+
+The fifteen measurement definitions share this storage path, beginning with
+the stereo peak summary. Definition-set identity prevents implicit upgrades:
+reopening retains existing derived records, and explicit derivation upgrades
+them without rewriting source observations. The additional analyzer timelines
+and their features retain separate completion gates in the
+[listening specification](../tools/playback-listening.md).
+
+### Observation payloads and capture admission
+
 `resolveNestedSessionStorage` returns `contextDirectory` and `entityContextPath`
 from the required Set/Project/App-session ownership tuple. Store processed,
 credential-redacted `audio-observation/v1`, `audio-observation/v2`,
@@ -224,8 +255,9 @@ records/rows. LLM report-page and Desktop IPC result ceilings are unchanged;
 storage admission is not permission to send a full large entry through either
 boundary.
 
-Session and independent-metric observations add registered kinds without changing
-the database format, schema version two, canonical path or historical semantics.
+Session and independent-metric observations originally added registered kinds
+without changing schema version two, the canonical path or historical semantics.
+The derived-feature tables above advance the schema independently of those kinds.
 Existing one-, two- and three-kind declarations remain readable; publication
 reconciles the four-kind declaration additively through the same registry/manifest
 API. Independent metric entries retain indexed native records, explicit gaps,

@@ -49,6 +49,14 @@ export const inspectSessionListeningSourceResultSchema = z
       tempoBpm: z.number().finite().positive().nullable(),
       signatureNumerator: z.number().int().min(1).max(128).nullable(),
       signatureDenominator: z.number().int().min(1).max(128).nullable(),
+      clipSignatureNumerator: z.number().int().min(1).max(128).nullable(),
+      clipSignatureDenominator: z
+        .number()
+        .int()
+        .min(1)
+        .max(128)
+        .refine((value) => (value & (value - 1)) === 0)
+        .nullable(),
       globalQuantization: z.number().int().min(0).max(14).nullable(),
       launchQuantization: z
         .number()

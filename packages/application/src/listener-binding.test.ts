@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { createSyntheticAnalyzerReadiness } from "@ableton-agent/protocol/testing";
 import {
   listenerNativeMetricStatusSchema,
   type InspectListeningContextResult,
@@ -23,6 +24,12 @@ const { createSyntheticMetricWireFixture } = await vi.importActual<{
     proof: { armed: NativeMetricArmProof };
   };
 }>("../../signal-routing/src/listener-metric-test-support.js");
+const { listenerRegistrationMetricSchema } = await vi.importActual<{
+  listenerRegistrationMetricSchema: {
+    parse(input: unknown): ListenerBindingDescriptor["registration"];
+    safeParse(input: unknown): { success: boolean };
+  };
+}>("../../signal-routing/src/listener-metric-contracts.js");
 
 const queryId = "10000000-0000-4000-8000-000000000001";
 const trackReference = "20000000-0000-4000-8000-000000000001";
@@ -166,6 +173,83 @@ function descriptor(
 }
 
 describe("authenticated v5 metric listener binding metadata", () => {
+  function analyzerDescriptor(): ListenerBindingDescriptor {
+    const report = metricDescriptor();
+    return {
+      ...report,
+      registration: listenerRegistrationMetricSchema.parse({
+        ...report.registration,
+        capabilities: [
+          ...report.registration.capabilities!,
+          "audio-listener/analyzer-timelines-v1",
+        ],
+        analyzerReadiness: createSyntheticAnalyzerReadiness(),
+      }),
+    };
+  }
+  it("keeps a canonically registered ABI3 analyzer discoverable and retains its actual readiness through binding", () => {
+    const report = analyzerDescriptor();
+    const before = structuredClone(report);
+    const candidate = readConnectedListenerBinding(report);
+    expect(candidate.ok).toBe(true);
+    if (!candidate.ok) throw new Error(candidate.reason);
+    expect(candidate.connection).toHaveProperty(
+      "analyzerReadiness",
+      createSyntheticAnalyzerReadiness(),
+    );
+    expect(candidate.connection.capabilities).toEqual(
+      report.registration.capabilities,
+    );
+    const resolved = join(report);
+    expect(resolved.ok).toBe(true);
+    if (!resolved.ok) throw new Error(resolved.reason);
+    expect(resolved.connection).toHaveProperty(
+      "analyzerReadiness",
+      createSyntheticAnalyzerReadiness(),
+    );
+    expect(
+      resolve({
+        selected: { ...resolved.connection, expectedTarget: target },
+        connected: [candidate.connection],
+      }).ok,
+    ).toBe(true);
+    expect(report).toEqual(before);
+  });
+  it.each(["missing", "abi", "sample-rate", "unadvertised", "token"] as const)(
+    "denies %s analyzer readiness consistently with the actual registration schema",
+    (failure) => {
+      const report = analyzerDescriptor();
+      const receipt = createSyntheticAnalyzerReadiness();
+      Object.assign(
+        report.registration,
+        failure === "unadvertised"
+          ? {
+              capabilities: connected.capabilities,
+            }
+          : {
+              analyzerReadiness:
+                failure === "missing"
+                  ? undefined
+                  : {
+                      ...receipt,
+                      ...(failure === "abi" ? { producerAbi: 2 } : {}),
+                      ...(failure === "sample-rate"
+                        ? { sampleRate: 44100 }
+                        : {}),
+                      ...(failure === "token" ? { probeToken: 0 } : {}),
+                    },
+            },
+      );
+      expect(
+        listenerRegistrationMetricSchema.safeParse(report.registration).success,
+      ).toBe(false);
+      expect(readConnectedListenerBinding(report)).toEqual({
+        ok: false,
+        reason: "invalid-input",
+      });
+      expect(join(report)).toEqual({ ok: false, reason: "invalid-input" });
+    },
+  );
   function metricDescriptor(cold = true): ListenerBindingDescriptor {
     const fixture = createSyntheticMetricWireFixture();
     return {

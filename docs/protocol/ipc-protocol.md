@@ -522,10 +522,15 @@ Live 11 support and deliberate omissions.
 
 ## Compatibility rules
 
-Protocol 9 versions the extended `devices.inspect` recursive instrument
-inspection contract. Both application and Remote Script use the generated
-version constants and reject protocol-8 peers during handshake rather than
-assuming that an older peer can supply complete nested instrument evidence.
+Protocol 10 adds explicit nullable clip numerator/denominator to Session source
+inspection. They are distinct from song meter and never default to it. Missing
+clip properties do not change capture admission; they make musical feature
+alignment unavailable. Supported clip-meter listeners latch transient changes,
+and source fingerprints include both fields. This remains message-rate
+evidence, not a sample-accurate tempo map. Application and Remote Script use
+generated constants and reject older peers rather than interpreting missing
+inspection fields as new evidence. Protocol 9 introduced recursive instrument
+inspection.
 
 - `system.hello` selects the highest version present in both the client's
   `supportedProtocolVersions` and the Remote Script's available versions. No

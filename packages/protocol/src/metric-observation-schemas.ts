@@ -9,6 +9,10 @@ import {
 import { listeningAlignmentQualitySchema } from "./listening-timing-schemas.js";
 import { inspectSessionListeningSourceParamsSchema } from "./session-listening-source-schemas.js";
 import { melBandTimelineSchema } from "./mel-band-timeline.js";
+import {
+  pitchTimelineSchema,
+  spectralShapeTimelineSchema,
+} from "./analyzer-timeline.js";
 
 const sample = z
   .number()
@@ -44,6 +48,8 @@ export const nativeMetricObservationMetricSchema = z.enum([
 export const metricObservationMetricSchema = z.enum([
   ...nativeMetricObservationMetricSchema.options,
   "mel-bands",
+  "pitch",
+  "spectral-shape",
 ]);
 export const metricObservationStatusSchema = z.enum([
   "complete",
@@ -165,6 +171,8 @@ const metricsSchema = z.strictObject({
   "spectral-centroid": spectralMetric,
   attacks: attackMetric,
   "mel-bands": melBandTimelineSchema.optional(),
+  pitch: pitchTimelineSchema.optional(),
+  "spectral-shape": spectralShapeTimelineSchema.optional(),
 });
 type Metrics = z.infer<typeof metricsSchema>;
 type Metric = z.infer<typeof nativeMetricObservationMetricSchema>;
@@ -255,6 +263,8 @@ const rowMetric = z.strictObject({
 });
 export const metricObservationReportRowSchema = z.strictObject({
   index: count,
+  pitch: rowMetric.optional(),
+  "spectral-shape": rowMetric.optional(),
   level: rowMetric,
   "spectral-centroid": rowMetric,
   attacks: rowMetric.extend({
@@ -318,7 +328,7 @@ const body = z.strictObject({
   geometry: metricListeningGeometrySchema,
   sourceCoverage: interval,
   alignment: listeningAlignmentQualitySchema,
-  requestedMetrics: z.array(metricObservationMetricSchema).min(1).max(4),
+  requestedMetrics: z.array(metricObservationMetricSchema).min(1).max(6),
   metrics: metricsSchema,
   rows: z.array(metricObservationReportRowSchema).max(MAX_METRIC_REPORT_ROWS),
   reduction: z.strictObject({
@@ -448,6 +458,41 @@ export function createMetricObservationReportRows(
         .map((frame) => frame.index) ?? [];
     return {
       index,
+      ...Object.fromEntries(
+        (["pitch", "spectral-shape"] as const).flatMap((metric) => {
+          const timeline = metrics[metric];
+          if (timeline === undefined) return [];
+          const overlaps = (support: Interval) =>
+            support.startSample < row.endSample &&
+            support.endSample > row.startSample;
+          const expected = Array.from(
+            { length: timeline.expectedRecords },
+            (_, slot) => ({
+              startSample: timeline.sourceSupport.startSample + slot * 2048,
+              endSample: timeline.sourceSupport.startSample + (slot + 1) * 2048,
+            }),
+          ).filter(overlaps).length;
+          const recordIndices = timeline.frames
+            .filter((frame) => overlaps(frame.support))
+            .map((frame) => frame.index);
+          return [
+            [
+              metric,
+              {
+                availability:
+                  expected === 0
+                    ? "no-frame"
+                    : recordIndices.length === expected
+                      ? "available"
+                      : recordIndices.length === 0
+                        ? "missing"
+                        : "partial",
+                recordIndices,
+              },
+            ],
+          ];
+        }),
+      ),
       level: projection("level"),
       "spectral-centroid": projection("spectral-centroid"),
       attacks: {
@@ -663,6 +708,23 @@ export const metricAudioObservationSchema = body.superRefine((value, ctx) => {
     useful ||=
       mel.frames.length > 0 ||
       (mel.status === "complete" && mel.expectedRecords === 0);
+  }
+  for (const metric of ["pitch", "spectral-shape"] as const) {
+    const timeline = metrics[metric];
+    if (value.requestedMetrics.includes(metric) !== (timeline !== undefined))
+      issue(`${metric}: a timeline is required exactly when requested`);
+    if (timeline === undefined) continue;
+    if (
+      timeline.sampleRate !== geometry.sampleRate ||
+      !sameSupport(timeline.sourceSupport, value.sourceCoverage) ||
+      !sameSupport(timeline.sourceSupport, geometry)
+    )
+      issue(
+        `${metric}: source support and sample rate must match admitted geometry`,
+      );
+    useful ||=
+      timeline.frames.length > 0 ||
+      (timeline.status === "complete" && timeline.expectedRecords === 0);
   }
   for (const frame of metrics["spectral-centroid"].records) {
     if (

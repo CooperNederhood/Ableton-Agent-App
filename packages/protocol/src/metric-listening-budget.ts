@@ -26,6 +26,7 @@ import {
   MAX_MEL_BAND_TIMELINE_BYTES,
 } from "./mel-band-budget.js";
 import { MEL_BAND_PROFILE } from "./mel-band-profile.js";
+import { boundAnalyzerTimelineBytes } from "./analyzer-budget.js";
 
 // The version 5 terminal listener.result contract has a 2 MiB ingress ceiling.
 // This module cannot import signal-routing, which itself imports protocol.
@@ -73,6 +74,9 @@ export interface MetricListeningBudgetOperands {
   readonly wireHeaderBytes: number;
   readonly metricsBytes: Readonly<Record<Outcome, number>>;
   readonly melTimelineBytes?: Readonly<Record<Outcome, number>>;
+  readonly analyzerTimelineBytes?: Readonly<
+    Partial<Record<"pitch" | "spectral-shape", number>>
+  >;
 }
 export interface MetricListeningBudgetBounds {
   readonly observationBytes: number;
@@ -140,7 +144,21 @@ export function admitMetricListeningBudget(
     "mel-bands": requested.has("mel-bands")
       ? Math.floor(geometry.totalSamples / MEL_BAND_PROFILE.windowSamples)
       : 0,
+    pitch: requested.has("pitch")
+      ? Math.floor(geometry.totalSamples / 2048)
+      : 0,
+    "spectral-shape": requested.has("spectral-shape")
+      ? Math.floor(geometry.totalSamples / 2048)
+      : 0,
   };
+  const analyzerTimelineBytes = Object.fromEntries(
+    (["pitch", "spectral-shape"] as const)
+      .filter((metric) => requested.has(metric))
+      .map((metric) => [
+        metric,
+        boundAnalyzerTimelineBytes(metric, expectedRecords[metric]),
+      ]),
+  );
   // The standalone estimator reserves 14-digit absolute supports even though
   // the admitted request grid is capture-local and the physical origin is unknown.
   const melBudget = requested.has("mel-bands")
@@ -172,7 +190,7 @@ export function admitMetricListeningBudget(
           ) +
           Math.max(0, geometry.rows.length - 1)
         );
-      if (Object.hasOwn(geometry, p))
+      if (Object.prototype.hasOwnProperty.call(geometry, p))
         return bytes(geometry[p as keyof typeof geometry]);
       return undefined;
     },
@@ -224,19 +242,20 @@ export function admitMetricListeningBudget(
     }
     if (melBudget !== undefined)
       sizes["mel-bands"] = melBudget.upperBounds[outcome];
+    Object.assign(sizes, analyzerTimelineBytes);
     metricsBytes[outcome] = objectBytes(sizes);
   }
   const rowSchema = item(property(observationSchema, "rows"));
-  const activeRowSchema = requested.has("mel-bands")
-    ? rowSchema
-    : {
-        ...rowSchema,
-        properties: Object.fromEntries(
-          Object.entries(rowSchema.properties ?? {}).filter(
-            ([key]) => key !== "mel-bands",
-          ),
-        ),
-      };
+  const activeRowSchema = {
+    ...rowSchema,
+    properties: Object.fromEntries(
+      Object.entries(rowSchema.properties ?? {}).filter(
+        ([key]) =>
+          !["mel-bands", "pitch", "spectral-shape"].includes(key) ||
+          requested.has(key as Metric),
+      ),
+    ),
+  };
   const rowSizes = geometry.rows.map((row) =>
     bound(activeRowSchema, "", (p) => {
       if (!p.endsWith("recordIndices") && p !== "attacks.eventRecordIndices")
@@ -352,6 +371,9 @@ export function admitMetricListeningBudget(
       nativeSourceCoverageBytes,
       wireHeaderBytes,
       metricsBytes,
+      ...(Object.keys(analyzerTimelineBytes).length === 0
+        ? {}
+        : { analyzerTimelineBytes }),
       ...(melBudget === undefined
         ? {}
         : { melTimelineBytes: melBudget.upperBounds }),

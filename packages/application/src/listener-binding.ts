@@ -5,9 +5,9 @@ import {
   listeningCanonicalTrackPathSchema,
   listeningPathSelectorSchema,
   listenerNativeMetricStatusSchema,
-  NATIVE_METRIC_LISTENING_CAPABILITY,
-  NATIVE_MEL_BAND_LISTENING_CAPABILITY,
-  NATIVE_METRIC_ALGORITHM_VERSION,
+  listenerMetricRegistrationMetadataSchema,
+  refineListenerMetricRegistrationMetadata,
+  type AnalyzerNativeReadiness,
   type ListenerNativeMetricStatus,
   type InspectListeningContextResult,
   type ListeningPathAttestation,
@@ -17,15 +17,7 @@ export type ListenerBridgeTarget =
   InspectListeningContextResult["listeners"][number]["binding"];
 
 const id = z.string().min(1).max(128);
-const metricMetadata = {
-  capabilities: z.tuple([
-    z.literal(NATIVE_METRIC_LISTENING_CAPABILITY),
-    z.literal(NATIVE_MEL_BAND_LISTENING_CAPABILITY),
-  ]),
-  algorithmVersion: z.literal(NATIVE_METRIC_ALGORITHM_VERSION),
-  sampleRate: z.number().int().min(8_000).max(384_000),
-  vectorSize: z.number().int().min(1).max(65_536),
-};
+const metricMetadata = listenerMetricRegistrationMetadataSchema.shape;
 const rawConnectionSchema = z
   .object({
     connectionId: z.string().uuid(),
@@ -34,26 +26,28 @@ const rawConnectionSchema = z
     connectionEpoch: z.string().uuid(),
     canonicalPath: listeningPathSelectorSchema.shape.canonicalPath,
     canonicalTrackPath: listeningCanonicalTrackPathSchema,
-    nativeStatus: listenerNativeMetricStatusSchema,
     signalKind: z.literal("audio"),
     schemaVersion: z.literal("metric-audio-observation/v1"),
     status: z.enum(["connected", "stale", "disconnected"]),
     ...metricMetadata,
   })
   .strict();
-const connectionSchema = rawConnectionSchema.refine((value) => {
-  const status = value.nativeStatus;
-  return (
-    status.readiness !== "READY" ||
-    (status.executedGen != null &&
-      status.acceptedSampleRates.some((rate) => rate === value.sampleRate) &&
-      status.acceptedVectorSizes.some((size) => size === value.vectorSize) &&
-      status.executedGen.config.geometry.sampleRate === value.sampleRate &&
-      status.executedGen.config.geometry.vectorSize === value.vectorSize &&
-      status.executedGen.ownership.connectionEpoch === value.connectionEpoch &&
-      status.executedGen.ownership.connectionId === value.connectionId)
-  );
-});
+const connectionSchema = rawConnectionSchema
+  .superRefine(refineListenerMetricRegistrationMetadata)
+  .refine((value) => {
+    const status = value.nativeStatus;
+    return (
+      status.readiness !== "READY" ||
+      (status.executedGen != null &&
+        status.acceptedSampleRates.some((rate) => rate === value.sampleRate) &&
+        status.acceptedVectorSizes.some((size) => size === value.vectorSize) &&
+        status.executedGen.config.geometry.sampleRate === value.sampleRate &&
+        status.executedGen.config.geometry.vectorSize === value.vectorSize &&
+        status.executedGen.ownership.connectionEpoch ===
+          value.connectionEpoch &&
+        status.executedGen.ownership.connectionId === value.connectionId)
+    );
+  });
 
 /** Canonical path comes from authenticated producer metadata, never its ID hash. */
 export type ConnectedListenerBinding = z.infer<typeof connectionSchema>;
@@ -100,6 +94,7 @@ export interface ListenerBindingDescriptor {
     readonly sampleRate?: number;
     readonly vectorSize?: number;
     readonly nativeStatus?: ListenerNativeMetricStatus;
+    readonly analyzerReadiness?: AnalyzerNativeReadiness | undefined;
   };
   readonly status?: "connected" | "stale" | "disconnected";
 }
@@ -129,6 +124,7 @@ const descriptorHeaderSchema = z
         algorithmVersion: metricMetadata.algorithmVersion.optional(),
         sampleRate: metricMetadata.sampleRate.optional(),
         vectorSize: metricMetadata.vectorSize.optional(),
+        analyzerReadiness: metricMetadata.analyzerReadiness,
       })
       .strip(),
     status: z.enum(["connected", "stale", "disconnected"]).optional(),
@@ -183,6 +179,9 @@ export function readConnectedListenerBinding(
     algorithmVersion: registration.algorithmVersion,
     sampleRate: registration.sampleRate,
     vectorSize: registration.vectorSize,
+    ...(registration.analyzerReadiness === undefined
+      ? {}
+      : { analyzerReadiness: registration.analyzerReadiness }),
   });
   if (!connection.success) return { ok: false, reason: "invalid-input" };
   if (

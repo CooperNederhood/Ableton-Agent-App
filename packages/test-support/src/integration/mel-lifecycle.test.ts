@@ -23,7 +23,7 @@ describe("owned mel physical-drain smoke receipts (synthetic only)", () => {
       reason: "mel_native_cleanup_complete",
       frames: 43,
       facts: {
-        "mel.abi": 2,
+        "mel.abi": 3,
         "mel.sampleRate": 48000,
         "mel.bandCount": 24,
         "mel.expectedFrames": 43,
@@ -42,6 +42,95 @@ describe("owned mel physical-drain smoke receipts (synthetic only)", () => {
       },
     });
   });
+  it.each(["stopped", "drain"])(
+    "rejects foreign %s diagnostic operands",
+    (kind) => {
+      const f = fixture();
+      const diagnostic = f.history.find(
+        (event) =>
+          (event.attributes.lifecycle as { reason: string }).reason ===
+          `mel_native_${kind}_receipt`,
+      )!;
+      const lifecycle = diagnostic.attributes.lifecycle as typeof f.lifecycle;
+      lifecycle.facts.find((fact) => fact.field === `mel.${kind}.epoch`)!.actual
+        .value++;
+      expect(() => projectMelLifecycle(f.history, f.observation)).toThrow();
+    },
+  );
+  it.each([0, 2, 4])("rejects post-readiness ABI %s", (abi) => {
+    const f = fixture();
+    f.lifecycle.facts.find((fact) => fact.field === "mel.abi")!.actual.value =
+      abi;
+    expect(() => projectMelLifecycle(f.history, f.observation)).toThrow();
+  });
+  it("accepts an empty pending-arm event before readiness, never after it", () => {
+    const f = fixture();
+    const pending = structuredClone(f.history[1]!);
+    pending.id = "pending-arm";
+    pending.trace!.spanId = pending.id;
+    pending.sequence = 25;
+    pending.name = "output.listener.native.metric.mel-bands.progress";
+    Object.assign(pending.attributes.lifecycle as object, {
+      eventId: pending.id,
+      stage: "progress",
+      reason: "mel_native_arm_pending",
+    });
+    f.history.splice(2, 0, pending);
+    expect(() => projectMelLifecycle(f.history, f.observation)).not.toThrow();
+    f.history.splice(2, 1);
+    pending.sequence = 35;
+    f.history.splice(3, 0, pending);
+    expect(() => projectMelLifecycle(f.history, f.observation)).toThrow();
+  });
+  it.each([
+    ["stopped", "producerAbi", 2],
+    ["stopped", "generation", 8],
+    ["stopped", "sequence", 42],
+    ["stopped", "startSample", 88063],
+    ["stopped", "endSample", 89999],
+    ["stopped", "lostFrames", 1],
+    ["stopped", "trailingSamples", 1935],
+    ["stopped", "reason", 11],
+    ["stopped", "sampleRate", 44100],
+    ["stopped", "bandCount", 23],
+    ["drain", "producerAbi", 2],
+    ["drain", "generation", 8],
+    ["drain", "recordsDrained", 45],
+    ["drain", "framesDrained", 42],
+    ["drain", "terminalConsumed", 0],
+    ["drain", "clockValid", 0],
+    ["drain", "sourceClockExclusive", 90063],
+    ["drain", "token", 0],
+    ["drain", "token", 12001],
+  ] as const)("rejects inconsistent %s.%s evidence", (kind, field, value) => {
+    const f = fixture();
+    const event = f.history.find(
+      (item) =>
+        (item.attributes.lifecycle as { reason: string }).reason ===
+        `mel_native_${kind}_receipt`,
+    )!;
+    const lifecycle = event.attributes.lifecycle as typeof f.lifecycle;
+    lifecycle.facts.find(
+      (fact) => fact.field === `mel.${kind}.${field}`,
+    )!.actual.value = value;
+    expect(() => projectMelLifecycle(f.history, f.observation)).toThrow();
+  });
+  it.each(["missing", "duplicate", "reordered"])(
+    "rejects %s physical diagnostic receipts",
+    (mode) => {
+      const f = fixture();
+      const index = f.history.findIndex(
+        (event) =>
+          (event.attributes.lifecycle as { reason: string }).reason ===
+          "mel_native_drain_receipt",
+      );
+      if (mode === "missing") f.history.splice(index, 1);
+      else if (mode === "duplicate")
+        f.history.splice(index, 0, f.history[index]!);
+      else f.history[index]!.sequence = 1;
+      expect(() => projectMelLifecycle(f.history, f.observation)).toThrow();
+    },
+  );
   it.each([
     ["abi", 1],
     ["sampleRate", 44100],

@@ -14,7 +14,7 @@ import {
 
 describe("Desktop session context reference", () => {
   const reference = {
-    schemaVersion: 2,
+    schemaVersion: 3,
     relativePath: "context/entity-context.sqlite",
   };
 
@@ -97,7 +97,8 @@ describe("Desktop session context reference", () => {
   it("retains the canonical version, path and strict renderer boundary", () => {
     const value = { ...reference, kinds: ["audio-observation/v1"] };
     for (const invalid of [
-      { ...value, schemaVersion: 3 },
+      { ...value, schemaVersion: 1 },
+      { ...value, schemaVersion: 4 },
       { ...value, relativePath: "../foreign.sqlite" },
       { ...value, sql: "SELECT * FROM entries" },
     ]) {
@@ -105,6 +106,28 @@ describe("Desktop session context reference", () => {
         desktopSessionContextStoreReferenceSchema.safeParse(invalid).success,
       ).toBe(false);
     }
+  });
+
+  it("reads a version-two reference unchanged for the one-way store migration", () => {
+    const value = {
+      ...reference,
+      schemaVersion: 2,
+      kinds: ["audio-observation/v1"],
+    };
+    expect(desktopSessionContextStoreReferenceSchema.parse(value)).toEqual(
+      value,
+    );
+    const session = sessionSchema.parse({
+      version: 4,
+      id: "session",
+      title: "App session",
+      createdAt: "2026-10-15T00:00:00.000Z",
+      updatedAt: "2026-10-15T00:00:00.000Z",
+      liveSetId: "set",
+      liveSetName: "Set",
+      contextStore: value,
+    });
+    expect(session.contextStore).toEqual(value);
   });
 });
 

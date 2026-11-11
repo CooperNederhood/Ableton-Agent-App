@@ -523,6 +523,33 @@ function readyFixture(
 }
 
 describe("non-arming metric prepare readiness", () => {
+  it.each(["pitch", "spectral-shape"] as const)(
+    "requires actual ABI3 analyzer readiness and arm receipts for %s",
+    (metric) => {
+      const f = readyFixture();
+      const config = nativeMetricListeningConfigSchema.parse({
+        ...f.ready.config,
+        requestedMetrics: [...f.ready.config.requestedMetrics, metric],
+      });
+      for (const [schema, proof] of [
+        [nativeMetricReadyProofSchema, f.ready],
+        [nativeMetricArmProofSchema, f.proof.armed],
+      ] as const) {
+        expect(schema.safeParse({ ...proof, config }).success).toBe(false);
+        expect(
+          schema.safeParse({ ...proof, config, analyzerProducerAbi: 2 })
+            .success,
+        ).toBe(false);
+        expect(
+          schema.safeParse({ ...proof, config, analyzerProducerAbi: 3 })
+            .success,
+        ).toBe(true);
+      }
+      expect(nativeMetricReadyProofSchema.parse(f.ready)).not.toHaveProperty(
+        "analyzerProducerAbi",
+      );
+    },
+  );
   it.each([44_100, 48_000] as const)(
     "supports non-arming %iHz preflight for both modes and every supported vector",
     (rate) => {

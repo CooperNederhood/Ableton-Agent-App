@@ -66,6 +66,7 @@ export const NATIVE_CANDIDATE_RESOURCES = [
   "audio_listener_metric_io.js",
   "audio_listener_metric_timelines.js",
   "audio_listener_mel_handoff.js",
+  "audio_listener_analyzer_handoff.js",
   "audio_listener_measurements.js",
   "audio_listener_native_io.js",
   NATIVE_METRIC_PROTOCOL_FILE,

@@ -1,0 +1,100 @@
+{
+  "schemaVersion": 1,
+  "id": "session-listening-peak-smoke",
+  "fixtureId": "session-clip-identify",
+  "requiredCapabilities": ["automation", "session-audio"],
+  "permissions": [
+    {
+      "tool": "ableton_listening",
+      "action": "play-session-and-listen",
+      "risk": "medium",
+      "maxUses": 2,
+      "stepIds": ["first", "second"],
+      "arguments": {
+        "action": "play-session-and-listen",
+        "target.view": "session",
+        "target.track.kind": "regular",
+        "target.track.index": 0,
+        "target.track.expectedReference": "$source.trackId",
+        "target.track.expectedName": "audio-track",
+        "target.sceneIndex": "$source.slotIndex",
+        "target.expectedClipReference": "$source.clipId",
+        "target.expectedClipName": "clip-1",
+        "listenerIds.0": "$source.listenerId"
+      }
+    },
+    {
+      "tool": "ableton_context",
+      "action": "derive-features",
+      "risk": "medium",
+      "maxUses": 2,
+      "stepIds": ["first", "second"],
+      "arguments": {
+        "action": "derive-features",
+        "contextIds.0": "$source.contextId",
+        "includeHistorical": false
+      }
+    }
+  ],
+  "budget": { "runMs": 360000, "cleanupMs": 30000, "persistenceMs": 30000 },
+  "steps": [
+    {
+      "id": "first",
+      "sourceId": "a",
+      "message": "Listen exactly once to the first Session clip on track audio-track using normal listening. Read its stored measurements, list its peak-summary/v1 feature, derive stored features for this context only if needed, and read the persisted stereo peak feature values. Report the context ID, peak feature ID, source range, definition and coverage. Do not capture again, stop transport, seek, reset, edit clips or change any source or launch settings. Stop immediately on any failure.",
+      "timeoutMs": 150000,
+      "assertions": [
+        {
+          "name": "capture",
+          "parameters": {
+            "sourceId": "a",
+            "sampleRate": 48000,
+            "expectedFrames": 90000,
+            "metricFamilies": "level"
+          }
+        },
+        {
+          "name": "feature-search",
+          "parameters": { "phase": "first", "coverage": "peak-only" }
+        }
+      ]
+    },
+    {
+      "id": "second",
+      "sourceId": "a",
+      "setupActions": ["stop-transport"],
+      "message": "Listen exactly once more to the same first Session clip on track audio-track using normal listening. Read its stored measurements and both contexts' persisted stereo peak-summary/v1 values, deriving features for the new context only if needed. Compare the first peak feature to the second. Search from the first peak feature, excluding its entire source context with excludeContextIds. Report the other context and feature ID, source range, canonical Euclidean distance definition, distance units, measured distance and coverage. Do not make another capture, stop transport, seek, reset, edit clips or change source or launch settings. Stay in this same conversation; no restart is needed. Stop immediately on any failure.",
+      "timeoutMs": 180000,
+      "assertions": [
+        {
+          "name": "capture",
+          "parameters": {
+            "sourceId": "a",
+            "sampleRate": 48000,
+            "expectedFrames": 90000,
+            "metricFamilies": "level"
+          }
+        },
+        { "name": "context", "parameters": { "afterRestart": false } },
+        {
+          "name": "feature-search",
+          "parameters": { "phase": "second", "coverage": "peak-only" }
+        }
+      ]
+    }
+  ],
+  "assertions": [
+    { "name": "capture-count", "parameters": { "expected": 2 } },
+    { "name": "native-freshness", "parameters": {} },
+    {
+      "name": "feature-search",
+      "parameters": { "phase": "final", "coverage": "peak-only" }
+    },
+    {
+      "name": "unchanged",
+      "parameters": {
+        "scopes": "session-structure,source-settings,fixture-media,unrelated-playback"
+      }
+    }
+  ]
+}

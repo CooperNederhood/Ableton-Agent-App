@@ -88,6 +88,10 @@ export function createDesktopSessionContextManager(
   const publishing = new Set<string>();
   const writing = new Map<string, number>();
   const reserved = new Map<string, Set<string>>();
+  const actorHandles = new WeakMap<
+    EntityContextRepository,
+    WeakMap<ListeningExecutionContext, EntityContextRepository>
+  >();
   let tail = Promise.resolve();
   let pending = 0;
   let closed = false;
@@ -124,7 +128,35 @@ export function createDesktopSessionContextManager(
     handle: EntityContextRepository,
     context: ListeningExecutionContext,
   ): EntityContextRepository => {
-    if (context.actorKind !== "application") return handle;
+    if (context.actorKind !== "application") {
+      const handles =
+        actorHandles.get(handle) ??
+        new WeakMap<ListeningExecutionContext, EntityContextRepository>();
+      const existing = handles.get(context);
+      if (existing !== undefined) return existing;
+      const actorHandle: EntityContextRepository = {
+        ...handle,
+        get liveSetId() {
+          return handle.liveSetId;
+        },
+        deriveFeatures: (entryId, operation) => {
+          const signals = [context.signal, operation?.signal].filter(
+            (signal): signal is AbortSignal => signal !== undefined,
+          );
+          return handle.deriveFeatures(entryId, {
+            ...operation,
+            trace: operation?.trace ?? context.trace,
+            activeAgentId: context.agentId,
+            ...(signals.length === 0
+              ? {}
+              : { signal: AbortSignal.any(signals) }),
+          });
+        },
+      };
+      handles.set(context, actorHandle);
+      actorHandles.set(handle, handles);
+      return actorHandle;
+    }
     const deny = () =>
       run(
         "reader-mutation",
@@ -141,6 +173,7 @@ export function createDesktopSessionContextManager(
         return handle.liveSetId;
       },
       appendPass: deny,
+      deriveFeatures: deny,
       assessLink: deny,
       prune: deny,
       reservePass: deny,
@@ -533,7 +566,9 @@ export function createDesktopSessionContextManager(
               : { revalidate: options.revalidate }),
             publishSessionContext: async (request) => {
               let current = await requireSession(request.sessionId);
-              const declaresKinds = (value: DesktopSession) =>
+              const declaresReference = (value: DesktopSession) =>
+                value.contextStore?.schemaVersion ===
+                  request.contextStore.schemaVersion &&
                 request.contextStore.kinds.every((kind) =>
                   value.contextStore?.kinds.some((known) => known === kind),
                 );
@@ -541,13 +576,16 @@ export function createDesktopSessionContextManager(
                 throw new Error(
                   "Session context publication no longer matches its invoking owner",
                 );
-              if (!declaresKinds(current)) {
+              if (!declaresReference(current)) {
                 publishing.add(session.id);
                 try {
                   current = sessionSchema.parse(
                     await options.publishSessionContext(request),
                   );
-                  if (!sameOwner(session, current) || !declaresKinds(current))
+                  if (
+                    !sameOwner(session, current) ||
+                    !declaresReference(current)
+                  )
                     throw new Error(
                       "Session publisher returned an invalid ownership declaration",
                     );
@@ -571,6 +609,7 @@ export function createDesktopSessionContextManager(
               await declaredStore(current);
             const handle: EntityContextRepository = {
               sessionId: repository.sessionId,
+              publicationIdentity: Object.freeze({}),
               get liveSetId() {
                 return repository.liveSetId;
               },
@@ -603,6 +642,43 @@ export function createDesktopSessionContextManager(
               listPasses: (...args) => repository.listPasses(...args),
               getEntry: (...args) => repository.getEntry(...args),
               listEntries: (...args) => repository.listEntries(...args),
+              deriveFeatures: async (entryId, operation) => {
+                writing.set(session.id, (writing.get(session.id) ?? 0) + 1);
+                try {
+                  await run(
+                    "validate-feature-writer",
+                    async () => {
+                      const owner = await requireSession(session.id);
+                      if (
+                        transitioning.has(session.id) ||
+                        !sameOwner(session, owner) ||
+                        !owner.activeAgents.some(
+                          ({ id }) => id === operation?.activeAgentId,
+                        )
+                      )
+                        throw new Error(
+                          "Context writer no longer belongs to the invoking session ownership",
+                        );
+                    },
+                    {
+                      ...operation,
+                      sessionId: session.id,
+                      liveSetId: session.liveSetId,
+                    },
+                  );
+                  return await repository.deriveFeatures(entryId, operation);
+                } finally {
+                  const remaining = (writing.get(session.id) ?? 1) - 1;
+                  if (remaining > 0) writing.set(session.id, remaining);
+                  else writing.delete(session.id);
+                }
+              },
+              getFeatureDerivation: (...args) =>
+                repository.getFeatureDerivation(...args),
+              getFeature: (...args) => repository.getFeature(...args),
+              getSegment: (...args) => repository.getSegment(...args),
+              listFeatures: (...args) => repository.listFeatures(...args),
+              searchFeatures: (...args) => repository.searchFeatures(...args),
               getSubject: (...args) => repository.getSubject(...args),
               getLink: (...args) => repository.getLink(...args),
               listLinks: (...args) => repository.listLinks(...args),

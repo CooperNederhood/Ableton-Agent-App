@@ -17,6 +17,7 @@ import {
   type DesktopContextPage,
   type DesktopEntityContextApi,
 } from "../context-contracts.js";
+import { AnalyzerTimelineDetail } from "./AnalyzerTimelineDetail.js";
 
 type PageState =
   | { key: string; status: "loading" }
@@ -469,11 +470,48 @@ function MetricObservationDetail({
       {value.metrics["mel-bands"] !== undefined && (
         <MelBandDetail timeline={value.metrics["mel-bands"]} />
       )}
+      {(["pitch", "spectral-shape"] as const).map((name) => {
+        const timeline = value.metrics[name];
+        return timeline === undefined ? null : (
+          <AnalyzerTimelineDetail
+            key={name}
+            contextId={detail.entry.contextId}
+            timeline={timeline}
+            gapDetails={
+              <PagedDetail
+                label={`${name} gaps`}
+                items={timeline.gaps.map((gap) => ({
+                  key: gap.firstIndex,
+                  text: `Frames ${gap.firstIndex}-${gap.firstIndex + gap.count - 1}; ${sampleSupport(gap.support)}; ${gap.reason}`,
+                }))}
+              />
+            }
+          />
+        );
+      })}
       <PagedDetail
         label="Report rows"
         items={value.rows.map((row) => ({
           key: row.index,
-          text: `Row ${row.index}: beats [${value.geometry.rows[row.index]!.startBeat}, ${value.geometry.rows[row.index]!.endBeat}); ${sampleSupport(value.geometry.rows[row.index]!)}; ${(["level", "spectral-centroid", "attacks"] as const).map((name) => `${name}: ${row[name].availability}; record indices ${row[name].recordIndices.join(", ") || "none"}`).join("; ")}${row["mel-bands"] === undefined ? "" : `; mel-bands: ${row["mel-bands"].availability}; record indices ${row["mel-bands"].recordIndices.join(", ") || "none"}`}`,
+          text: `Row ${row.index}: beats [${value.geometry.rows[row.index]!.startBeat}, ${value.geometry.rows[row.index]!.endBeat}); ${sampleSupport(value.geometry.rows[row.index]!)}; ${(
+            [
+              "level",
+              "spectral-centroid",
+              "attacks",
+              "mel-bands",
+              "pitch",
+              "spectral-shape",
+            ] as const
+          )
+            .flatMap((name) => {
+              const metric = row[name];
+              return metric === undefined
+                ? []
+                : [
+                    `${name}: ${metric.availability}; record indices ${metric.recordIndices.join(", ") || "none"}`,
+                  ];
+            })
+            .join("; ")}`,
         }))}
       />
     </div>

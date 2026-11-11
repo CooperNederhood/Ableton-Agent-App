@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { createSyntheticAnalyzerReadiness } from "@ableton-agent/protocol/testing";
 import {
   listenerRegistrationMetricSchema,
   type ListenerDescriptor,
@@ -46,6 +47,54 @@ function fixture(mode: "arrangement" | "session", partial = false) {
 }
 
 describe("application-owned metric capture configuration", () => {
+  it("requests authoritative analyzers by default only after producer capability admission", () => {
+    const { input } = fixture("session");
+    input.descriptor.registration = listenerRegistrationMetricSchema.parse({
+      ...input.descriptor.registration,
+      analyzerReadiness: createSyntheticAnalyzerReadiness(),
+      capabilities: [
+        ...input.descriptor.registration.capabilities,
+        "audio-listener/analyzer-timelines-v1",
+      ],
+    });
+    const binding = createMetricCaptureBinding(input);
+    expect(binding.descriptor.registration).toHaveProperty(
+      "analyzerReadiness",
+      createSyntheticAnalyzerReadiness(),
+    );
+    expect(
+      Object.isFrozen(binding.descriptor.registration.analyzerReadiness),
+    ).toBe(true);
+    expect(binding.config.requestedMetrics).toEqual([
+      "level",
+      "spectral-centroid",
+      "attacks",
+      "mel-bands",
+      "pitch",
+      "spectral-shape",
+    ]);
+  });
+  it("rejects a capability-only descriptor before admitting analyzer capture defaults", () => {
+    const { input } = fixture("session");
+    Object.assign(input.descriptor.registration, {
+      capabilities: [
+        ...input.descriptor.registration.capabilities,
+        "audio-listener/analyzer-timelines-v1",
+      ],
+    });
+    expect(() => createMetricCaptureBinding(input)).toThrow(
+      "readiness receipt",
+    );
+  });
+  it.each(["pitch", "spectral-shape"] as const)(
+    "denies explicit %s requests against old diagnostic-only capabilities",
+    (metric) => {
+      const { input } = fixture("arrangement");
+      expect(() =>
+        createMetricCaptureBinding({ ...input, requestedMetrics: [metric] }),
+      ).toThrow("analyzer_timelines_unavailable");
+    },
+  );
   it.each(["arrangement", "session"] as const)(
     "freezes an explicit level-only %s request without silently dropping admitted analyzers",
     (mode) => {

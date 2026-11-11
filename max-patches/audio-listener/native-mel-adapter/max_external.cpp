@@ -41,32 +41,76 @@ void drainLow(External* x, t_symbol*, long argc, t_atom* argv) {
   Record r;
   // Bounded control work, even if audio concurrently produces more frames.
   for (std::size_t n = 0; n < queueCapacity && x->state->engine->drain(r); ++n) {
-    t_atom atoms[59];
+    if (r.kind == Kind::stopped && r.reason == Reason::sourceIdentity) {
+      // Same terminal FIFO record and owner; diagnostic-only, not an extra
+      // measurement/receipt. Emitted before the unchanged stopped packet.
+      t_atom evidence[9];
+      atom_setlong(evidence, producerAbi);
+      atom_setlong(evidence + 1, r.epoch);
+      atom_setlong(evidence + 2, r.generation);
+      atom_setlong(evidence + 3, r.sequence);
+      for (std::size_t i = 0; i < r.sourceIdentity.size(); ++i) {
+        if (std::isfinite(r.sourceIdentity[i]))
+          atom_setfloat(evidence + 4 + i, r.sourceIdentity[i]);
+        else atom_setsym(evidence + 4 + i, gensym("null"));
+      }
+      outlet_anything(x->outlet, gensym("mel_source_identity"), 9, evidence);
+    }
+    t_atom atoms[73];
     const std::uint64_t header[] = {
-      2, r.epoch, r.generation, r.sequence, r.start, r.end,
+      producerAbi, r.epoch, r.generation, r.sequence, r.start, r.end,
       r.lost, r.partial, static_cast<std::uint64_t>(r.reason)
     };
     for (std::size_t i = 0; i < 9; ++i) atom_setlong(atoms + i, header[i]);
     atom_setfloat(atoms + 9, r.sampleRate);
     atom_setlong(atoms + 10, bands);
     for (std::size_t i = 0; i < bands; ++i) {
-      atom_setfloat(atoms + 11 + i, r.left[i]);
-      atom_setfloat(atoms + 35 + i, r.right[i]);
+      if (std::isfinite(r.left[i])) atom_setfloat(atoms + 11 + i, r.left[i]);
+      else atom_setsym(atoms + 11 + i, gensym("null"));
+      if (std::isfinite(r.right[i])) atom_setfloat(atoms + 35 + i, r.right[i]);
+      else atom_setsym(atoms + 35 + i, gensym("null"));
+    }
+    for (std::size_t channel = 0; channel < 2; ++channel) {
+      const auto& d = r.diagnostics[channel];
+      auto* out = atoms + 59 + channel * 7;
+      atom_setlong(out, static_cast<long>(d.pitch));
+      atom_setlong(out + 3, static_cast<long>(d.spectral));
+      const double values[] = {d.hz, d.confidence, d.flatnessDb, d.spreadHz, d.rolloffHz};
+      const std::size_t offsets[] = {1, 2, 4, 5, 6};
+      for (std::size_t i = 0; i < 5; ++i) {
+        if (std::isfinite(values[i])) atom_setfloat(out + offsets[i], values[i]);
+        else atom_setsym(out + offsets[i], gensym("null"));
+      }
     }
     const char* name = r.kind == Kind::frame ? "mel_frame" :
                        r.kind == Kind::started ? "mel_started" :
                        r.kind == Kind::ready ? "mel_ready" : "mel_stopped";
-    outlet_anything(x->outlet, gensym(name), r.kind == Kind::frame ? 59 : 11, atoms);
+    outlet_anything(x->outlet, gensym(name), r.kind == Kind::frame ? 73 : 11, atoms);
   }
   const auto status = x->state->engine->drainReceipt();
   const std::uint64_t fields[] = {
-    2, token, status.epoch, status.generation, status.records, status.frames,
+    producerAbi, token, status.epoch, status.generation, status.records, status.frames,
     status.terminal ? 1ULL : 0ULL, status.clockValid ? 1ULL : 0ULL,
     status.clockExclusive
   };
   t_atom receipt[9];
   for (std::size_t i = 0; i < 9; ++i) atom_setlong(receipt + i, fields[i]);
   outlet_anything(x->outlet, gensym("mel_drain"), 9, receipt);
+}
+void probeLow(External* x, t_symbol*, long argc, t_atom* argv) {
+  std::uint64_t token;
+  if (!epochArgument(argc, argv, token) || !x->state->engine) return;
+  ProbeReceipt r;
+  if (x->state->engine->probeReceipt(token, r)) {
+    const std::uint64_t values[] = {producerAbi, r.token, r.generation,
+      static_cast<std::uint64_t>(r.sampleRate), 3, r.sourceClock, r.ready ? 1ULL : 0ULL};
+    t_atom atoms[7];
+    for (std::size_t i = 0; i < 7; ++i) atom_setlong(atoms + i, values[i]);
+    outlet_anything(x->outlet, gensym("analyzer_ready"), 7, atoms);
+  } else x->state->engine->probe(token);
+}
+void probe(External* x, t_symbol* s, long argc, t_atom* argv) {
+  defer_low(x, reinterpret_cast<method>(probeLow), s, argc, argv);
 }
 void arm(External* x, t_symbol* s, long argc, t_atom* argv) {
   defer_low(x, reinterpret_cast<method>(armLow), s, argc, argv);
@@ -119,6 +163,7 @@ extern "C" C74_EXPORT void ext_main(void*) {
   class_addmethod(klass, reinterpret_cast<method>(arm), "arm", A_GIMME, 0);
   class_addmethod(klass, reinterpret_cast<method>(stop), "stop", A_GIMME, 0);
   class_addmethod(klass, reinterpret_cast<method>(drain), "drain", A_GIMME, 0);
+  class_addmethod(klass, reinterpret_cast<method>(probe), "probe", A_GIMME, 0);
   class_dspinit(klass);
   class_register(CLASS_BOX, klass);
 }

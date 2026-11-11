@@ -1,5 +1,6 @@
 import type { TelemetryEventPage } from "@ableton-agent/observability";
 import type { MetricAudioObservation } from "@ableton-agent/protocol";
+import { NATIVE_MEL_PRODUCER } from "@ableton-agent/shared/m4l-devices";
 
 type HistoryEvent = TelemetryEventPage["items"][number];
 export type MelHistoryEvent = Pick<HistoryEvent, "name" | "attributes"> &
@@ -53,6 +54,32 @@ const fields = [
   "framesDrained",
   "sourceClockExclusive",
 ].map((key) => `mel.${key}`);
+const diagnosticFields = {
+  stopped: [
+    "producerAbi",
+    "epoch",
+    "generation",
+    "sequence",
+    "startSample",
+    "endSample",
+    "lostFrames",
+    "trailingSamples",
+    "reason",
+    "sampleRate",
+    "bandCount",
+  ],
+  drain: [
+    "producerAbi",
+    "token",
+    "epoch",
+    "generation",
+    "recordsDrained",
+    "framesDrained",
+    "terminalConsumed",
+    "clockValid",
+    "sourceClockExclusive",
+  ],
+} as const;
 function check(value: unknown): asserts value {
   if (!value)
     throw new Error("Missing or invalid owned mel physical-drain receipt");
@@ -80,7 +107,11 @@ export function projectMelLifecycle(
       event.attributes.passId === owner.passId,
   );
   check(events.length > 0 && events.length <= 1024);
-  const receipts = events.map((event) => {
+  const diagnostics = new Map<
+    string,
+    { facts: Record<string, number>; sequence: number }
+  >();
+  const receipts = events.flatMap((event) => {
     const lifecycle = object(event.attributes.lifecycle);
     check(
       event.source === "output-ingress" &&
@@ -101,6 +132,15 @@ export function projectMelLifecycle(
       if (key !== "traceId" && key !== "correlationId")
         check(event.attributes[key] === owner[key]);
     check(Array.isArray(lifecycle.facts) && lifecycle.facts.length <= 16);
+    const kind =
+      lifecycle.reason === "mel_native_stopped_receipt"
+        ? "stopped"
+        : lifecycle.reason === "mel_native_drain_receipt"
+          ? "drain"
+          : undefined;
+    const allowed = kind
+      ? diagnosticFields[kind].map((key) => `mel.${kind}.${key}`)
+      : fields;
     const facts: Record<string, number> = {};
     for (const raw of lifecycle.facts) {
       const fact = object(raw);
@@ -108,7 +148,7 @@ export function projectMelLifecycle(
       check(
         Object.keys(fact).length === 2 &&
           typeof fact.field === "string" &&
-          fields.includes(fact.field) &&
+          allowed.includes(fact.field) &&
           !Object.hasOwn(facts, fact.field) &&
           Object.keys(actual).length === 2 &&
           actual.state === "observed" &&
@@ -116,21 +156,77 @@ export function projectMelLifecycle(
       );
       facts[fact.field] = actual.value;
     }
-    return {
-      ...Object.fromEntries(ownerKeys.map((key) => [key, owner[key]])),
-      eventId: event.id,
-      causationId: event.causationId,
-      sequence: event.sequence,
-      stage: lifecycle.stage,
-      phase: lifecycle.phase,
-      reason: lifecycle.reason,
-      frames: lifecycle.frames,
-      elapsedMs: lifecycle.elapsedMs,
-      durationMs: lifecycle.durationMs,
-      facts,
-    } as MelLifecycleReceipt;
+    if (kind) {
+      check(
+        !diagnostics.has(kind) &&
+          lifecycle.stage === "progress" &&
+          lifecycle.phase === "drain" &&
+          lifecycle.frames ===
+            observation.metrics["mel-bands"]?.frames.length &&
+          lifecycle.durationMs === undefined &&
+          integer(event.sequence, 1) &&
+          Object.keys(facts).length === allowed.length &&
+          allowed.every((key) => Object.hasOwn(facts, key)),
+      );
+      diagnostics.set(kind, { facts, sequence: event.sequence });
+      return [];
+    }
+    return [
+      {
+        ...Object.fromEntries(ownerKeys.map((key) => [key, owner[key]])),
+        eventId: event.id,
+        causationId: event.causationId,
+        sequence: event.sequence,
+        stage: lifecycle.stage,
+        phase: lifecycle.phase,
+        reason: lifecycle.reason,
+        frames: lifecycle.frames,
+        elapsedMs: lifecycle.elapsedMs,
+        durationMs: lifecycle.durationMs,
+        facts,
+      } as MelLifecycleReceipt,
+    ];
   });
   validateMelLifecycle(receipts, observation);
+  const terminal = receipts.at(-1)!;
+  const mel = observation.metrics["mel-bands"]!;
+  for (const kind of ["stopped", "drain"] as const) {
+    const diagnostic = diagnostics.get(kind);
+    check(diagnostic);
+    const expected = {
+      producerAbi: NATIVE_MEL_PRODUCER.abi,
+      epoch: owner.nativeEpoch,
+      generation: terminal.facts["mel.dspGeneration"],
+      ...(kind === "stopped"
+        ? {
+            sequence: mel.expectedRecords,
+            startSample:
+              mel.sourceSupport.startSample + mel.expectedRecords * 2048,
+            endSample: mel.sourceSupport.endSample,
+            lostFrames: 0,
+            trailingSamples: terminal.facts["mel.trailingSamples"],
+            reason: 10,
+            sampleRate: mel.sampleRate,
+            bandCount: 24,
+          }
+        : {
+            recordsDrained: terminal.facts["mel.recordsDrained"],
+            framesDrained: terminal.facts["mel.framesDrained"],
+            terminalConsumed: 1,
+            clockValid: 1,
+            sourceClockExclusive: terminal.facts["mel.sourceClockExclusive"],
+          }),
+    };
+    for (const [key, value] of Object.entries(expected))
+      check(diagnostic.facts[`mel.${kind}.${key}`] === value);
+    check(diagnostic.sequence < terminal.sequence);
+    if (kind === "drain")
+      check(
+        diagnostic.sequence > diagnostics.get("stopped")!.sequence &&
+          integer(diagnostic.facts["mel.drain.token"], 1) &&
+          diagnostic.facts["mel.drain.token"] <= 12000,
+      );
+  }
   return receipts;
 }
 
@@ -142,7 +238,6 @@ export function validateMelLifecycle(
   const mel = observation.metrics["mel-bands"];
   check(mel);
   const expected = {
-    "mel.abi": 2,
     "mel.sampleRate": mel.sampleRate,
     "mel.bandCount": 24,
     "mel.expectedFrames": mel.expectedRecords,
@@ -163,6 +258,7 @@ export function validateMelLifecycle(
     previousReceived = 0;
   const ids = new Set<string>();
   let terminal = 0;
+  let ready = false;
   for (const [index, raw] of value.entries()) {
     const event = object(raw);
     check(
@@ -199,6 +295,33 @@ export function validateMelLifecycle(
         ),
     );
     for (const key of fields.slice(0, 6)) check(Object.hasOwn(facts, key));
+    if (
+      event.reason === "mel_native_prepare" ||
+      event.reason === "mel_native_arm_pending"
+    ) {
+      check(
+        !ready &&
+          event.phase === "configuration" &&
+          (event.reason === "mel_native_prepare"
+            ? ["queued", "started"].includes(String(event.stage))
+            : event.stage === "progress") &&
+          facts["mel.abi"] === 0 &&
+          facts["mel.validFrames"] === 0 &&
+          facts["mel.receivedFrames"] === 0 &&
+          Object.keys(facts).length === 6,
+      );
+    } else {
+      check(facts["mel.abi"] === NATIVE_MEL_PRODUCER.abi);
+      if (event.reason === "mel_native_ready") {
+        check(
+          !ready &&
+            event.phase === "configuration" &&
+            event.stage === "completed" &&
+            integer(facts["mel.dspGeneration"], 1),
+        );
+        ready = true;
+      } else check(ready);
+    }
     for (const [key, expectedValue] of Object.entries(expected))
       if (Object.hasOwn(facts, key)) check(facts[key] === expectedValue);
     check(

@@ -23,6 +23,11 @@ import {
   MEL_BAND_PROFILE,
   melBandTimelineSchema,
   createMetricObservationReportRows,
+  PITCH_PROFILE,
+  SPECTRAL_SHAPE_PROFILE,
+  classifyPitchEstimate,
+  pitchTimelineSchema,
+  spectralShapeTimelineSchema,
 } from "../../packages/protocol/src/index.js";
 
 export const listeningFixtureSessionId = "electron-listening-context";
@@ -202,55 +207,118 @@ export async function seedListeningContext(
         })),
         gaps: [],
       });
+      const analyzerBase = {
+        status: "complete",
+        sampleRate: observation.geometry.sampleRate,
+        sourceSupport: observation.sourceCoverage,
+        expectedRecords: 2,
+        trailingSupport: {
+          startSample: observation.geometry.startSample + 4096,
+          endSample: observation.geometry.endSample,
+        },
+        gaps: [],
+      };
+      observation.requestedMetrics.push("pitch", "spectral-shape");
+      observation.metrics.pitch = pitchTimelineSchema.parse({
+        ...analyzerBase,
+        schema: "pitch-timeline/v1",
+        profile: PITCH_PROFILE,
+        frames: observation.metrics["mel-bands"].frames.map((frame) => ({
+          index: frame.index,
+          support: frame.support,
+          channels: [
+            classifyPitchEstimate(440, 0.99),
+            frame.index === 0
+              ? classifyPitchEstimate(0, 0)
+              : classifyPitchEstimate(220, 0.25),
+          ],
+        })),
+      });
+      observation.metrics["spectral-shape"] = spectralShapeTimelineSchema.parse(
+        {
+          ...analyzerBase,
+          schema: "spectral-shape-timeline/v1",
+          profile: SPECTRAL_SHAPE_PROFILE,
+          frames: observation.metrics["mel-bands"].frames.map((frame) => ({
+            index: frame.index,
+            support: frame.support,
+            channels: [
+              {
+                state: "valid",
+                flatnessDb: -120 + frame.index,
+                spreadHz: 0,
+                rolloffHz: 1000,
+              },
+              {
+                state: "undefined",
+                flatnessDb: null,
+                spreadHz: null,
+                rolloffHz: null,
+              },
+            ],
+          })),
+        },
+      );
       observation.rows = createMetricObservationReportRows(observation);
       observation.limitations = [
         "Synthetic persistence/IPC fixture; not measured Max DSP",
       ];
-      await repository.appendPass(
-        buildMetricListeningPublication({
-          passId: melFixturePassId,
-          owner: { ...ownership, agentId: "fixture-agent" },
-          trace,
-          requestedMode: "arrangement",
-          actualMode: "arrangement",
-          requestedRange: { startBeat: 0, endBeat: 0.2 },
-          createdAt: timestamp,
-          startedAt: timestamp,
-          endedAt: "2026-10-12T00:00:02.000Z",
-          observations: [observation],
-          bindings: [
-            {
-              listenerId: observation.ownership.listenerId,
-              deviceReference: "fixture-mel-device",
-              connectionEpoch: observation.ownership.connectionEpoch,
-              version: observation.schema,
-              attribution: "unknown",
-              contributors: [],
-              primary: {
-                id: "fixture-mel-subject",
-                ...ownership,
-                kind: "track",
-                trackId: "fixture-mel-track",
-                location: "track",
-                binding: {
-                  version: 1,
-                  semanticLocator: {
-                    name: "Synthetic mel-band persistence fixture",
-                    trackId: "fixture-mel-track",
-                  },
-                  sourceIdentity: "synthetic-fixture",
-                  playbackSettingsHash: "fixture-settings",
-                  upstreamProcessingHash: "fixture-chain",
-                  routingHash: "fixture-routing",
-                  dependencyScope: "unknown",
-                  previousRuntimeBindings: [observation.ownership.connectionId],
+      const publication = buildMetricListeningPublication({
+        passId: melFixturePassId,
+        owner: { ...ownership, agentId: "fixture-agent" },
+        trace,
+        requestedMode: "arrangement",
+        actualMode: "arrangement",
+        requestedRange: { startBeat: 0, endBeat: 0.2 },
+        createdAt: timestamp,
+        startedAt: timestamp,
+        endedAt: "2026-10-12T00:00:02.000Z",
+        observations: [observation],
+        bindings: [
+          {
+            listenerId: observation.ownership.listenerId,
+            deviceReference: "fixture-mel-device",
+            connectionEpoch: observation.ownership.connectionEpoch,
+            version: observation.schema,
+            attribution: "unknown",
+            contributors: [],
+            primary: {
+              id: "fixture-mel-subject",
+              ...ownership,
+              kind: "track",
+              trackId: "fixture-mel-track",
+              location: "track",
+              binding: {
+                version: 1,
+                semanticLocator: {
+                  name: "Synthetic mel-band persistence fixture",
+                  trackId: "fixture-mel-track",
                 },
+                sourceIdentity: "synthetic-fixture",
+                playbackSettingsHash: "fixture-settings",
+                upstreamProcessingHash: "fixture-chain",
+                routingHash: "fixture-routing",
+                dependencyScope: "unknown",
+                previousRuntimeBindings: [observation.ownership.connectionId],
               },
             },
-          ],
-        }),
-        { trace, activeAgentId: "fixture-agent" },
-      );
+          },
+        ],
+      });
+      await repository.appendPass(publication, {
+        trace,
+        activeAgentId: "fixture-agent",
+      });
+      for (const entry of publication.entries) {
+        const derivation = await repository.deriveFeatures(entry.id, {
+          trace,
+          activeAgentId: "fixture-agent",
+        });
+        if (derivation.status !== "ready")
+          throw new Error(
+            `Fixture derivation did not finish: ${derivation.status}`,
+          );
+      }
     }
     if (includeDescriptive) {
       const { observation } = createSyntheticNativeListeningFixtureV2({

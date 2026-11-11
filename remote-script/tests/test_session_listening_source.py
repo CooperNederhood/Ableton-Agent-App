@@ -117,6 +117,25 @@ class SessionListeningSourceTest(unittest.TestCase):
         self.clip.is_midi_clip = True
         self.assertEqual(self.inspect()["sourceKind"], "unknown")
 
+    def test_clip_meter_is_explicit_and_never_inferred_from_song_meter(self):
+        settings = self.inspect()["settings"]
+        self.assertIsNone(settings["clipSignatureNumerator"])
+        self.assertIsNone(settings["clipSignatureDenominator"])
+        self.clip.signature_numerator = 3
+        self.clip.signature_denominator = 8
+        settings = self.inspect()["settings"]
+        self.assertEqual(settings["signatureNumerator"], 4)
+        self.assertEqual(settings["clipSignatureNumerator"], 3)
+        self.assertEqual(settings["clipSignatureDenominator"], 8)
+
+    def test_invalid_clip_meter_stays_unavailable(self):
+        for numerator, denominator in ((False, 4), (0, 4), (129, 4), (4, 3), (4, float("nan"))):
+            self.clip.signature_numerator = numerator
+            self.clip.signature_denominator = denominator
+            settings = self.inspect()["settings"]
+            self.assertTrue(settings["clipSignatureNumerator"] is None
+                            or settings["clipSignatureDenominator"] is None)
+
     def test_start_time_is_not_attributed_to_target_when_another_slot_is_selected(self):
         other = types.SimpleNamespace(name="Other")
         self.track.clip_slots.append(types.SimpleNamespace(has_clip=True, clip=other))

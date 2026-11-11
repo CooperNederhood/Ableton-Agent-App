@@ -5108,10 +5108,13 @@ describe("desktop adapter over the shared application", () => {
         sessionId: invoking.id,
         liveSetId: invoking.liveSetId,
         activeAgentId: invoking.activeAgents[0]!.id,
-        contextStore: desktopSessionContextStoreReferenceSchema.parse({
-          ...SESSION_CONTEXT_STORE_REFERENCE,
-          kinds: ["audio-observation/v1"],
-        }),
+        contextStore: {
+          ...desktopSessionContextStoreReferenceSchema.parse({
+            ...SESSION_CONTEXT_STORE_REFERENCE,
+            kinds: ["audio-observation/v1"],
+          }),
+          schemaVersion: SESSION_CONTEXT_STORE_REFERENCE.schemaVersion,
+        },
         trace: {
           traceId: randomUUID(),
           correlationId: "tool:context",
@@ -7845,7 +7848,8 @@ describe("desktop adapter over the shared application", () => {
   });
 
   it("accepts an agent message while identity polling waits for snapshot enrichment", async () => {
-    const { service, application } = await harness(
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const { service, application, sessionStore } = await harness(
       {},
       { liveSetIdentityPollIntervalMs: 5 },
     );
@@ -7862,24 +7866,48 @@ describe("desktop adapter over the shared application", () => {
         return originalInspectDevices(params);
       },
     );
+    const getLiveIdentity = vi.spyOn(application, "getLiveIdentity");
+    const persistenceEntered = deferred<void>();
+    const releasePersistence = deferred<void>();
+    const originalSave = sessionStore.save.bind(sessionStore);
+    vi.spyOn(sessionStore, "save").mockImplementationOnce(async (...args) => {
+      persistenceEntered.resolve();
+      await releasePersistence.promise;
+      return originalSave(...args);
+    });
 
-    const refresh = service.getSnapshot();
-    await deviceReadEntered.promise;
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    let refreshCompleted = false;
+    const refresh = service.getSnapshot().then((snapshot) => {
+      refreshCompleted = true;
+      return snapshot;
+    });
+    let send:
+      ReturnType<HeadlessDesktopService["sendToActiveAgent"]> | undefined;
+    try {
+      await deviceReadEntered.promise;
+      await vi.advanceTimersByTimeAsync(5);
+      expect(getLiveIdentity).toHaveBeenCalledOnce();
 
-    const send = service.sendToActiveAgent(agent!.id, "hello");
-    const acceptance = await Promise.race([
-      send.then(() => "accepted" as const),
-      new Promise<"blocked">((resolve) =>
-        setTimeout(() => resolve("blocked"), 20),
-      ),
-    ]);
+      send = service.sendToActiveAgent(agent!.id, "hello");
+      await persistenceEntered.promise;
+      await vi.advanceTimersByTimeAsync(20);
 
-    deviceRead.resolve();
-    await Promise.all([refresh, send]);
-    await service.stop();
-
-    expect(acceptance).toBe("accepted");
+      // Admission persists the busy agent before accepting; disk latency is
+      // unrelated to whether the deferred identity poll blocks the send.
+      releasePersistence.resolve();
+      await expect(send).resolves.toMatchObject({ accepted: true });
+      expect(getLiveIdentity).toHaveBeenCalledOnce();
+      expect(refreshCompleted).toBe(false);
+    } finally {
+      releasePersistence.resolve();
+      deviceRead.resolve();
+      try {
+        await Promise.all([refresh, send]);
+        await service.stop();
+      } finally {
+        vi.useRealTimers();
+      }
+    }
   });
 
   it("waits for an in-flight identity poll before starting a snapshot", async () => {

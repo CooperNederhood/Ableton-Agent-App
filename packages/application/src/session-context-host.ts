@@ -1,12 +1,16 @@
 import type {
   ContextEntry,
   ContextEntrySummary,
+  ContextFeature,
   ContextOperationOptions,
   EntityContextRepository,
 } from "@ableton-agent/project-state";
 import {
   contextOperationParamsSchema,
   contextOperationResultSchema,
+  projectListeningFeatureRecord,
+  projectListeningFeaturePage,
+  projectListeningFeatureDerivation,
   type ContextOperationResult,
 } from "@ableton-agent/tools";
 import type {
@@ -23,6 +27,8 @@ import {
   storedObservationIdentity,
   type MetricAudioObservation,
   projectMetricListeningReport,
+  LISTENING_FEATURE_DEFINITIONS,
+  compareListeningFeatures,
 } from "@ableton-agent/protocol";
 
 function metricSummary(value: MetricAudioObservation): string[] {
@@ -175,6 +181,7 @@ async function summarize(
       samples,
       coords.sampleRate,
     ).toFixed(3)} ms)`;
+  const derivation = await repository.getFeatureDerivation(entry.id, options);
   return {
     contextId: entry.id,
     passId: identity.passId,
@@ -185,6 +192,7 @@ async function summarize(
     freshness,
     summary: [
       `${subject.kind}: ${subject.binding.semanticLocator.name}`,
+      `Derived features ${derivation?.status ?? "not-derived"}${derivation?.reason ? `: ${derivation.reason}` : ""}; discovery and comparisons use typed feature actions, not new capture`,
       ...(payload.schema === "metric-audio-observation/v1" ? measurements : []),
       `Observed ${"coordinate" in link.coverage ? link.coverage.coordinate : "beats"} ${link.coverage.startBeat}-${link.coverage.endBeat}`,
       ...(payload.schema === "metric-audio-observation/v1"
@@ -292,6 +300,118 @@ export function createSessionContextHost(
       ...(page.nextCursor === undefined ? {} : { nextCursor: page.nextCursor }),
     };
   };
+  const requireFeatureSource = async (
+    repository: EntityContextRepository,
+    entryId: string,
+    includeHistorical: boolean,
+    operation: ContextOperationOptions,
+  ) => {
+    const available = await repository.listEntries(
+      { entryId, includeHistorical, limit: 1 },
+      operation,
+    );
+    const entry = available.items[0];
+    if (entry === undefined || entry.liveSetId !== repository.liveSetId) {
+      throw new ListeningFailure(
+        "not_found",
+        "Feature source is unavailable for this App session, Set or freshness scope",
+      );
+    }
+    return entry;
+  };
+  const featureView = async (
+    repository: EntityContextRepository,
+    featureId: string,
+    includeHistorical: boolean,
+    operation: ContextOperationOptions,
+    snapshot?: ContextFeature,
+  ) => {
+    const record =
+      snapshot ?? (await repository.getFeature(featureId, operation));
+    if (
+      record === undefined ||
+      record.id !== featureId ||
+      record.sessionId !== repository.sessionId ||
+      record.liveSetId !== repository.liveSetId
+    ) {
+      throw new ListeningFailure(
+        "not_found",
+        "Listening feature is unavailable",
+      );
+    }
+    const entry = await repository.getEntry(record.entryId, operation);
+    if (
+      entry === undefined ||
+      entry.sessionId !== record.sessionId ||
+      entry.liveSetId !== record.liveSetId ||
+      (!includeHistorical &&
+        ["stale", "historical"].includes(record.freshness?.status ?? "unknown"))
+    ) {
+      throw new ListeningFailure(
+        "not_found",
+        "Feature source is unavailable for this scope",
+      );
+    }
+    const segment = await repository.getSegment(record.segmentId, operation);
+    if (
+      segment === undefined ||
+      segment.entryId !== entry.id ||
+      segment.sessionId !== record.sessionId ||
+      segment.liveSetId !== record.liveSetId
+    ) {
+      throw new ListeningFailure(
+        "context_binding_unavailable",
+        "Feature segment source is unavailable",
+      );
+    }
+    const subject =
+      record.primarySubjectId === undefined
+        ? undefined
+        : await repository.getSubject(record.primarySubjectId, operation);
+    if (
+      subject === undefined ||
+      subject.sessionId !== record.sessionId ||
+      subject.liveSetId !== record.liveSetId
+    ) {
+      throw new ListeningFailure(
+        "context_binding_unavailable",
+        "Feature source association is unavailable",
+      );
+    }
+    const assessedFreshness = record.freshness?.status ?? "unknown";
+    const freshness =
+      includeHistorical && assessedFreshness === "fresh"
+        ? "historical"
+        : assessedFreshness;
+    const source: ContextSummary = {
+      contextId: entry.id,
+      passId: entry.passId,
+      listenerId: entry.producer.listenerId,
+      subjectId: subject.id,
+      kind: entry.kind,
+      createdAt: entry.createdAt,
+      freshness,
+      summary: [
+        `${subject.kind}: ${subject.binding.semanticLocator.name}`,
+        `${record.feature.type}, ${record.feature.status}, ${record.feature.units}`,
+        `${segment.kind}; ${segment.coordinate} ${segment.startBeat}-${segment.endBeat}`,
+        `${record.feature.coveredSamples}/${record.feature.expectedSamples} supported samples; ${record.feature.durationSeconds} seconds`,
+        "Source identity association is not exclusive audio attribution",
+        `Freshness ${freshness}; retained from the feature query, not revalidated during presentation`,
+      ]
+        .join(". ")
+        .slice(0, 1024),
+    };
+    return {
+      record,
+      segment,
+      source,
+    };
+  };
+  const presentFeature = (view: Awaited<ReturnType<typeof featureView>>) => ({
+    ...view,
+    record: projectListeningFeatureRecord(view.record),
+  });
   return {
     executeContextOperation: async (
       input,
@@ -300,6 +420,188 @@ export function createSessionContextHost(
       const query = contextOperationParamsSchema.parse(input);
       const repository = await repositoryFor(context);
       const operation = operationOptions(context, options.signal);
+      if (query.action === "feature-definitions") {
+        return {
+          action: query.action,
+          definitions: [...LISTENING_FEATURE_DEFINITIONS],
+        };
+      }
+      if (query.action === "derive-features") {
+        if (context.actorKind === "application") {
+          throw new ListeningFailure(
+            "permission_denied",
+            "Application readers cannot derive features",
+          );
+        }
+        for (const id of query.contextIds) {
+          await requireFeatureSource(
+            repository,
+            id,
+            query.includeHistorical,
+            operation,
+          );
+        }
+        const derivations = [];
+        for (const id of query.contextIds) {
+          operation.signal?.throwIfAborted();
+          derivations.push(
+            projectListeningFeatureDerivation(
+              await repository.deriveFeatures(id, operation),
+            ),
+          );
+        }
+        return { action: query.action, derivations };
+      }
+      if (query.action === "list-features") {
+        if (query.contextId !== undefined) {
+          await requireFeatureSource(
+            repository,
+            query.contextId,
+            query.includeHistorical,
+            operation,
+          );
+        }
+        const page = await repository.listFeatures(
+          {
+            includeHistorical: query.includeHistorical,
+            limit: query.limit,
+            ...(query.featureType === undefined
+              ? {}
+              : { featureType: query.featureType }),
+            ...(query.contextId === undefined
+              ? {}
+              : { entryId: query.contextId }),
+            ...(query.cursor === undefined ? {} : { cursor: query.cursor }),
+          },
+          operation,
+        );
+        const features = [];
+        for (const record of page.items) {
+          features.push(
+            presentFeature(
+              await featureView(
+                repository,
+                record.id,
+                query.includeHistorical,
+                operation,
+                record,
+              ),
+            ),
+          );
+        }
+        const derivation =
+          query.contextId === undefined
+            ? undefined
+            : await repository.getFeatureDerivation(query.contextId, operation);
+        return {
+          action: query.action,
+          features,
+          ...(derivation === undefined
+            ? {}
+            : { derivation: projectListeningFeatureDerivation(derivation) }),
+          ...(page.nextCursor === undefined
+            ? {}
+            : { nextCursor: page.nextCursor }),
+        };
+      }
+      if (query.action === "get-feature") {
+        const view = await featureView(
+          repository,
+          query.featureId,
+          query.includeHistorical,
+          operation,
+        );
+        return {
+          action: query.action,
+          feature: presentFeature(view),
+          page: projectListeningFeaturePage(
+            view.record.feature,
+            query.offset,
+            query.limit,
+            query.supportOffset,
+          ),
+        };
+      }
+      if (query.action === "compare-features") {
+        const comparisons = [];
+        const evidence = (view: Awaited<ReturnType<typeof featureView>>) => ({
+          contextId: view.record.entryId,
+          segmentId: view.segment.id,
+          coordinate: view.segment.coordinate,
+          startBeat: view.segment.startBeat,
+          endBeat: view.segment.endBeat,
+          durationSeconds: view.record.feature.durationSeconds,
+          coveredSamples: view.record.feature.coveredSamples,
+          expectedSamples: view.record.feature.expectedSamples,
+          freshness: view.source.freshness,
+        });
+        for (const pair of query.pairs) {
+          const left = await featureView(
+            repository,
+            pair.leftFeatureId,
+            query.includeHistorical,
+            operation,
+          );
+          const right = await featureView(
+            repository,
+            pair.rightFeatureId,
+            query.includeHistorical,
+            operation,
+          );
+          comparisons.push({
+            ...pair,
+            leftEvidence: evidence(left),
+            rightEvidence: evidence(right),
+            result: compareListeningFeatures(
+              left.record.feature,
+              right.record.feature,
+            ),
+          });
+        }
+        return { action: query.action, comparisons };
+      }
+      if (query.action === "search-features") {
+        const queryFeature = await featureView(
+          repository,
+          query.featureId,
+          query.includeHistorical,
+          operation,
+        );
+        const result = await repository.searchFeatures(
+          {
+            featureId: query.featureId,
+            excludeEntryIds: query.excludeContextIds,
+            includeHistorical: query.includeHistorical,
+            limit: query.limit,
+            candidateLimit: query.candidateLimit,
+          },
+          operation,
+        );
+        const matches = [];
+        for (const match of result.matches) {
+          matches.push({
+            feature: presentFeature(
+              await featureView(
+                repository,
+                match.feature.id,
+                query.includeHistorical,
+                operation,
+                match.feature,
+              ),
+            ),
+            distance: match.distance,
+          });
+        }
+        return {
+          ...result,
+          limitsHit: [...result.limitsHit],
+          action: query.action,
+          query: presentFeature(queryFeature),
+          matches,
+          distanceDefinition: queryFeature.record.feature.distanceDefinition,
+          distanceUnits: queryFeature.record.feature.distanceUnits,
+        };
+      }
       if (query.action === "list") return list(repository, query, context);
       if (query.action === "get" || query.action === "report") {
         const available = await repository.listEntries(

@@ -14,7 +14,7 @@ export const FLUCOMA_PACKAGE_VERSION = "1.0.10+sha.a1f6f90.core.sha.f1551f70";
 export const NATIVE_MEL_BUNDLE = `${FLUCOMA_DEPENDENCY_DIRECTORY}/listener.mel~.mxo`;
 export const NATIVE_MEL_PRODUCER = Object.freeze({
   schema: "listener-mel-native/v1",
-  abi: 2,
+  abi: 3,
   bundle: NATIVE_MEL_BUNDLE,
   binarySha256: NATIVE_MEL_DEPENDENCY_PINS.find(
     ([name]) => name === "listener.mel~.mxo/Contents/MacOS/listener.mel~",

@@ -52,7 +52,8 @@ export function boundJsonSchemaBytes(
   if (replacement !== undefined) return replacement;
   if (typeof schema === "boolean")
     throw new Error(`metric_budget_unbounded_schema:${path}`);
-  if (Object.hasOwn(schema, "const")) return encodedJsonBytes(schema.const);
+  if (Object.prototype.hasOwnProperty.call(schema, "const"))
+    return encodedJsonBytes(schema.const);
   if (schema.enum) return Math.max(...schema.enum.map(encodedJsonBytes));
   if (schema.anyOf)
     return Math.max(

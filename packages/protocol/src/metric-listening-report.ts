@@ -1,5 +1,15 @@
 import { z } from "zod";
 import {
+  pitchReportMetadataSchema,
+  spectralShapeReportMetadataSchema,
+  pitchReportRowSchema,
+  spectralShapeReportRowSchema,
+  analyzerReportMetadata,
+  projectAnalyzerRow,
+  analyzerSupportsOverlap,
+} from "./analyzer-report.js";
+import { deriveAnalyzerTrailingSupport } from "./analyzer-timeline.js";
+import {
   metricAudioObservationSchema,
   metricLevelRecordSchema,
   metricObservationStatusSchema,
@@ -69,6 +79,8 @@ const reportRowSchema = z.strictObject({
     gaps: z.array(reportGapSchema).max(300),
   }),
   "mel-bands": melBandReportPayloadSchema.optional(),
+  pitch: pitchReportRowSchema.optional(),
+  "spectral-shape": spectralShapeReportRowSchema.optional(),
 });
 
 export const metricListeningReportSchema = z
@@ -84,6 +96,8 @@ export const metricListeningReportSchema = z
     requestedMetrics: metricAudioObservationSchema.shape.requestedMetrics,
     limitations: metricAudioObservationSchema.shape.limitations,
     metricMetadata: z.strictObject({
+      pitch: pitchReportMetadataSchema.optional(),
+      "spectral-shape": spectralShapeReportMetadataSchema.optional(),
       level: metricAudioObservationSchema.shape.metrics.shape.level
         .pick(metadataPick)
         .extend(metadataCounts),
@@ -106,6 +120,8 @@ export const metricListeningReportSchema = z
         .optional(),
     }),
     metricStatus: z.strictObject({
+      pitch: z.enum(["complete", "partial", "failed"]).optional(),
+      "spectral-shape": z.enum(["complete", "partial", "failed"]).optional(),
       level: metricObservationStatusSchema,
       "spectral-centroid": metricObservationStatusSchema,
       attacks: metricObservationStatusSchema,
@@ -127,6 +143,147 @@ export const metricListeningReportSchema = z
     rows: z.array(reportRowSchema).max(MAX_METRIC_REPORT_PAGE_ROWS),
   })
   .superRefine((value, ctx) => {
+    for (const metric of ["pitch", "spectral-shape"] as const) {
+      const metadata = value.metricMetadata[metric];
+      const status = value.metricStatus[metric];
+      const requested = value.requestedMetrics.includes(metric);
+      const retainedByIndex = new Map<number, string>();
+      const missingByIndex = new Map<number, string>();
+      const reject = () =>
+        ctx.addIssue({
+          code: "custom",
+          message: `${metric}: inconsistent authoritative report projection`,
+        });
+      if (
+        requested !== (metadata !== undefined) ||
+        requested !== (status !== undefined)
+      )
+        reject();
+      if (metadata !== undefined) {
+        const expected = Math.floor(
+          (value.sourceCoverage.endSample - value.sourceCoverage.startSample) /
+            2048,
+        );
+        if (
+          metadata.expectedRecords !== expected ||
+          metadata.retainedRecords + metadata.missingRecords !== expected ||
+          status !==
+            (metadata.missingRecords === 0
+              ? "complete"
+              : metadata.retainedRecords === 0
+                ? "failed"
+                : "partial") ||
+          JSON.stringify(metadata.trailingSupport) !==
+            JSON.stringify(deriveAnalyzerTrailingSupport(value.sourceCoverage))
+        )
+          reject();
+      }
+      for (const row of value.rows) {
+        const projected = row[metric];
+        if (requested !== (projected !== undefined)) reject();
+        if (projected === undefined || metadata === undefined) continue;
+        const expectedSlots = Array.from(
+          { length: metadata.expectedRecords },
+          (_, index) => ({
+            index,
+            support: {
+              startSample: value.sourceCoverage.startSample + index * 2048,
+              endSample: value.sourceCoverage.startSample + (index + 1) * 2048,
+            },
+          }),
+        ).filter((slot) => analyzerSupportsOverlap(slot.support, row));
+        const slots = new Set<number>();
+        let previous = -1;
+        for (const frame of projected.frames) {
+          if (missingByIndex.has(frame.index)) reject();
+          const serialized = JSON.stringify(frame);
+          if (
+            retainedByIndex.has(frame.index) &&
+            retainedByIndex.get(frame.index) !== serialized
+          )
+            reject();
+          retainedByIndex.set(frame.index, serialized);
+          if (
+            metric === "spectral-shape" &&
+            frame.channels.some(
+              (channel) =>
+                "spreadHz" in channel &&
+                channel.state === "valid" &&
+                (channel.spreadHz > value.sampleRate / 2 ||
+                  channel.rolloffHz > value.sampleRate / 2),
+            )
+          )
+            reject();
+          if (
+            frame.index <= previous ||
+            slots.has(frame.index) ||
+            frame.support.startSample !==
+              value.sourceCoverage.startSample + frame.index * 2048 ||
+            frame.support.endSample !== frame.support.startSample + 2048 ||
+            !expectedSlots.some((slot) => slot.index === frame.index)
+          )
+            reject();
+          previous = frame.index;
+          slots.add(frame.index);
+        }
+        let gapEnd = 0;
+        for (const gap of projected.gaps) {
+          if (
+            gap.firstIndex < gapEnd ||
+            gap.firstIndex + gap.count > metadata.expectedRecords ||
+            gap.support.startSample !==
+              value.sourceCoverage.startSample + gap.firstIndex * 2048 ||
+            gap.support.endSample !==
+              gap.support.startSample + gap.count * 2048 ||
+            !analyzerSupportsOverlap(gap.support, row)
+          )
+            reject();
+          gapEnd = gap.firstIndex + gap.count;
+          for (const slot of expectedSlots.filter(
+            (slot) => slot.index >= gap.firstIndex && slot.index < gapEnd,
+          )) {
+            const serialized = JSON.stringify(gap);
+            if (
+              retainedByIndex.has(slot.index) ||
+              (missingByIndex.has(slot.index) &&
+                missingByIndex.get(slot.index) !== serialized)
+            )
+              reject();
+            missingByIndex.set(slot.index, serialized);
+            if (slots.has(slot.index)) reject();
+            slots.add(slot.index);
+          }
+        }
+        if (
+          projected.expectedRecords !== expectedSlots.length ||
+          slots.size !== expectedSlots.length ||
+          projected.availability !==
+            (expectedSlots.length === 0
+              ? "no-frame"
+              : projected.frames.length === expectedSlots.length
+                ? "available"
+                : projected.frames.length === 0
+                  ? "missing"
+                  : "partial")
+        )
+          reject();
+      }
+      if (
+        metadata !== undefined &&
+        retainedByIndex.size > metadata.retainedRecords
+      )
+        reject();
+      if (
+        metadata !== undefined &&
+        (missingByIndex.size > metadata.missingRecords ||
+          (value.reduction.mode === "none" &&
+            value.offset === 0 &&
+            value.nextOffset === null &&
+            (retainedByIndex.size !== metadata.retainedRecords ||
+              missingByIndex.size !== metadata.missingRecords)))
+      )
+        reject();
+    }
     const end = value.offset + value.rows.length;
     if (
       value.offset > value.totalRows ||
@@ -489,6 +646,20 @@ export function projectMetricListeningReport(
       const melRow = melProjection?.rows[references.index];
       return {
         index: references.index,
+        ...(metrics.pitch === undefined
+          ? {}
+          : {
+              pitch: pitchReportRowSchema.parse(
+                projectAnalyzerRow(metrics.pitch, row),
+              ),
+            }),
+        ...(metrics["spectral-shape"] === undefined
+          ? {}
+          : {
+              "spectral-shape": spectralShapeReportRowSchema.parse(
+                projectAnalyzerRow(metrics["spectral-shape"], row),
+              ),
+            }),
         ...row,
         level: {
           availability: references.level.availability,
@@ -541,6 +712,20 @@ export function projectMetricListeningReport(
     requestedMetrics: observation.requestedMetrics,
     limitations: observation.limitations,
     metricMetadata: {
+      ...(metrics.pitch === undefined
+        ? {}
+        : {
+            pitch: pitchReportMetadataSchema.parse(
+              analyzerReportMetadata(metrics.pitch),
+            ),
+          }),
+      ...(metrics["spectral-shape"] === undefined
+        ? {}
+        : {
+            "spectral-shape": spectralShapeReportMetadataSchema.parse(
+              analyzerReportMetadata(metrics["spectral-shape"]),
+            ),
+          }),
       level: metricMetadata(metrics.level),
       "spectral-centroid": metricMetadata(metrics["spectral-centroid"]),
       attacks: metricMetadata(metrics.attacks),
@@ -558,6 +743,10 @@ export function projectMetricListeningReport(
           }),
     },
     metricStatus: {
+      ...(metrics.pitch === undefined ? {} : { pitch: metrics.pitch.status }),
+      ...(metrics["spectral-shape"] === undefined
+        ? {}
+        : { "spectral-shape": metrics["spectral-shape"].status }),
       level: metrics.level.status,
       "spectral-centroid": metrics["spectral-centroid"].status,
       attacks: metrics.attacks.status,

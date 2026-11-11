@@ -2,6 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { Buffer } from "node:buffer";
 import { createRequire, Module } from "node:module";
+import { readFile } from "node:fs/promises";
+import { fileURLToPath, URL } from "node:url";
 import { compileNativeMetricProtocol } from "../../scripts/lib/native-metric-protocol-bundle.mjs";
 import { genModel } from "./gen-model.mjs";
 import { nativeRuntimeDocuments } from "./native-runtime-source.mjs";
@@ -14,7 +16,11 @@ import { fftReference } from "./fft-reference.mjs";
 import { metricRuntimeHarness } from "./metric-runtime-test-helpers.mjs";
 
 const require = createRequire(import.meta.url);
-const { NativeMessageIO } = require("./audio_listener_native_io.js");
+const {
+  NativeMessageIO,
+  IO_REJECTION_CHECKS,
+  SPECTRUM_CLEANUP_REASONS,
+} = require("./audio_listener_native_io.js");
 const {
   createMetricController,
 } = require("./audio_listener_metric_controller.js");
@@ -44,9 +50,22 @@ async function controllerHarness({
   engineeringRuntime = false,
   session = false,
   melEnabled = false,
+  analyzerEnabled = false,
+  malformedPitchFrame = false,
+  malformedShapeFrame = false,
   malformedMelFrame = false,
   suppressMelTerminal = false,
   suppressMelReady = false,
+  sourceIdentityFault = false,
+  failureBeforeIdentity = false,
+  runtimeBridge = false,
+  rejectDiagnostic = false,
+  sourceIdentityEpoch = 7,
+  nonfiniteIdentity = false,
+  invalidMelDrain = false,
+  initialMelDrains = 0,
+  delayedLevelBank = false,
+  clockHoldHostAdvance = false,
   totalSamples = 9000,
   deadlineMs = 10000,
   maxObservationBytes = 512 * 1024,
@@ -165,6 +184,10 @@ async function controllerHarness({
     stoppedRequested = false,
     controller;
   const melQueue = [];
+  const levelBankHistory = new Array(65);
+  const diagnosticWrites = [];
+  const sdkStatuses = [];
+  let bridgeClient;
   let melArmCounter = null;
   let melOrigin = null;
   let melReady = false;
@@ -175,6 +198,7 @@ async function controllerHarness({
   let melFramesDrained = 0;
   let melTerminalConsumed = false;
   let melTerminalClock = 0;
+  let melTerminalClockValid = true;
   const melHeader = (
     sequence,
     start,
@@ -182,7 +206,19 @@ async function controllerHarness({
     lost = 0,
     partial = 0,
     reason = 0,
-  ) => [2, 7, 1, sequence, start, end, lost, partial, reason, sampleRate, 24];
+  ) => [
+    analyzerEnabled ? 3 : 2,
+    7,
+    1,
+    sequence,
+    start,
+    end,
+    lost,
+    partial,
+    reason,
+    sampleRate,
+    24,
+  ];
   const spectrumModel = spectrumEnabled
     ? genModel(
         `${retainedNativeSpectrumSource().code}\nout32 = sourceClock;`,
@@ -201,7 +237,9 @@ async function controllerHarness({
         "spectrum",
         (packet) => {
           spectrumPackets.push([...packet]);
-          controller.receiveNative("metric_spectrum", packet);
+          if (runtimeBridge && packet[2] !== "spectrum")
+            runtimeHarness.handlers.native_spectrum(...packet);
+          else controller.receiveNative("metric_spectrum", packet);
           return true;
         },
         (control) => {
@@ -231,12 +269,18 @@ async function controllerHarness({
         ]) {
           if (suppressDetector && selector === "metric_detector_sample")
             continue;
-          const bank = [
+          const currentBank = [
             sourceClock[1],
             ...output.slice(offset, offset + width),
             sourceClock[1],
           ];
-          readbacks.push({ selector, bank });
+          const bank =
+            delayedLevelBank &&
+            selector === "metric_level_sample" &&
+            counter >= 64
+              ? levelBankHistory[(counter - 64) % 65]
+              : currentBank;
+          readbacks.push({ selector, bank, counter });
           adapter.dispatch(selector, bank);
         }
       }
@@ -249,17 +293,79 @@ async function controllerHarness({
     (reason) => assert.fail(reason),
     { now: () => now },
   );
-  const runtimeHarness = engineeringRuntime
-    ? metricRuntimeHarness({
-        controller: {
-          snapshot: () => controller?.snapshot() ?? { state: "idle" },
-        },
-        engineeringEntry: true,
-      })
-    : null;
+  let OfflineClient;
+  if (runtimeBridge) {
+    const sdk = new Module("fault-runtime-sdk");
+    sdk.filename = fileURLToPath(
+      new URL("../shared/agent_signal_client.js", import.meta.url),
+    );
+    sdk.require = (name) =>
+      name === "./audio_listener_metric_protocol.js" ? codec : require(name);
+    sdk._compile(await readFile(sdk.filename, "utf8"), sdk.filename);
+    OfflineClient = class extends sdk.exports.AgentSignalClient {
+      constructor(options) {
+        super({
+          ...options,
+          onStatus: (...args) => {
+            sdkStatuses.push(args);
+            options.onStatus?.(...args);
+          },
+        });
+        bridgeClient = this;
+      }
+      start() {
+        // Actual SDK validation/serialization, no socket or host process.
+        this.authenticated = true;
+        this.connectionId = GENERATION;
+        this.socket = {
+          destroyed: false,
+          write: (encoded) => {
+            const value = JSON.parse(encoded);
+            codec.listenerResultMetricSchema.parse(value);
+            if (
+              rejectDiagnostic &&
+              value.nativeLifecycle?.reason?.startsWith("mel_native_")
+            )
+              throw new Error("controlled_diagnostic_write_failure");
+            diagnosticWrites.push(value);
+            return true;
+          },
+          destroy() {
+            this.destroyed = true;
+          },
+        };
+      }
+    };
+  }
+  const runtimeHarness =
+    engineeringRuntime || runtimeBridge
+      ? metricRuntimeHarness({
+          controller: {
+            snapshot: () => controller?.snapshot() ?? { state: "idle" },
+            receiveNative: (...args) => controller.receiveNative(...args),
+          },
+          engineeringEntry: engineeringRuntime,
+          ...(runtimeBridge
+            ? { runtime: { Client: OfflineClient, protocol: codec } }
+            : {}),
+        })
+      : null;
   controller = createMetricController({
     codec,
     melEnabled,
+    ...(analyzerEnabled
+      ? {
+          analyzerReadiness: {
+            schema: "analyzer-native-readiness/v1",
+            producerAbi: 3,
+            sourceAbi: 3,
+            probeToken: 1,
+            dspGeneration: 1,
+            sampleRate,
+            sourceClock: 1,
+          },
+        }
+      : {}),
     ...(beforeCleanup ? { beforeCleanup } : {}),
     spectrumEnabled: runtimeHarness
       ? runtimeHarness.controllerOptions.spectrumEnabled
@@ -275,25 +381,47 @@ async function controllerHarness({
           assert.equal(args[0], 7);
           melStopRequested = true;
         } else if (selector === "drain") {
+          if (initialMelDrains > 0) {
+            initialMelDrains--;
+            const packet = [
+              "mel_drain",
+              analyzerEnabled ? 3 : 2,
+              args[0],
+              7,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+            ];
+            if (runtimeBridge) runtimeHarness.handlers.native_mel(...packet);
+            else controller.receiveNative("metric_mel", packet);
+            return true;
+          }
           while (melQueue.length) {
             const packet = melQueue.shift();
-            melRecordsDrained++;
+            if (packet[0] !== "mel_source_identity") melRecordsDrained++;
             if (packet[0] === "mel_frame") melFramesDrained++;
             if (packet[0] === "mel_stopped") melTerminalConsumed = true;
-            controller.receiveNative("metric_mel", packet);
+            if (runtimeBridge) runtimeHarness.handlers.native_mel(...packet);
+            else controller.receiveNative("metric_mel", packet);
           }
-          controller.receiveNative("metric_mel", [
+          const packet = [
             "mel_drain",
-            2,
+            analyzerEnabled ? 3 : 2,
             args[0],
             7,
             1,
             melRecordsDrained,
             melFramesDrained,
             Number(melTerminalConsumed),
-            Number(melTerminalConsumed),
+            Number(melTerminalConsumed && melTerminalClockValid),
             melTerminalClock,
-          ]);
+          ];
+          if (invalidMelDrain) packet[5] += 1;
+          if (runtimeBridge) runtimeHarness.handlers.native_mel(...packet);
+          else controller.receiveNative("metric_mel", packet);
         } else assert.fail(selector);
         return asyncControlResult ? asyncControlResult(selector) : true;
       }
@@ -341,12 +469,30 @@ async function controllerHarness({
       results.push({ control, payload, counter });
       return true;
     },
+    sendListenerDiagnostic(control, lifecycle) {
+      if (runtimeBridge)
+        return runtimeHarness.controllerOptions.sendListenerDiagnostic(
+          control,
+          lifecycle,
+        );
+      if (rejectDiagnostic) return false;
+      diagnosticWrites.push({ control, nativeLifecycle: lifecycle });
+      return true;
+    },
     onEvent(event) {
       events.push(event);
       runtimeHarness?.controllerOptions.onEvent(event);
       onEvent?.(event, controller, cancel);
     },
   });
+  if (runtimeBridge) {
+    for (const control of [prepare, arm, cancel]) {
+      control.listenerId = bridgeClient.producer.producerId;
+      control.connectionEpoch = bridgeClient.listener.connectionEpoch;
+    }
+    bridgeClient.handleListenerControl(prepare);
+    assert.ok(bridgeClient.listenerJob, "SDK must admit exact capture owner");
+  }
   assert.equal(
     controller.prepare(prepare, {
       nativeEpoch: 7,
@@ -377,6 +523,12 @@ async function controllerHarness({
       inCapture ? 0.125 : 0,
       sourceClock[1],
     );
+    if (delayedLevelBank)
+      levelBankHistory[counter % 65] = [
+        counter,
+        ...output.slice(20, 42),
+        counter,
+      ];
     if (melArmCounter !== null && !melStopped) {
       // Controlled retained packets exercise the controller boundary, not the
       // native engine's numerical or physical-source qualification.
@@ -417,9 +569,75 @@ async function controllerHarness({
             melOrigin + melFrames * 2048,
           ),
           ...values,
+          ...(analyzerEnabled
+            ? [
+                malformedPitchFrame === melFrames ? 99 : 6,
+                440.64057245232351,
+                0.98155965120131161,
+                0,
+                malformedShapeFrame === melFrames ? "bad" : -111.6107319300893,
+                28.407856266650601,
+                464.58433501233941,
+                1,
+                "null",
+                "null",
+                1,
+                "null",
+                "null",
+                "null",
+              ]
+            : []),
         ]);
       }
+      if (sourceIdentityFault && melFrames === 1 && !melStopped) {
+        if (failureBeforeIdentity) {
+          const packet = [
+            "native_metric",
+            JSON.stringify({
+              owner: adapter.snapshot().owner,
+              nativeEpoch: 7,
+              family: "control",
+              status: "failed",
+              reason: "invalid_shared_timing",
+            }),
+          ];
+          controller.receiveNative("metric_envelope", packet);
+          assert.equal(
+            controller.snapshot().inputFailureReason,
+            "invalid_shared_timing",
+          );
+        }
+        melStopped = true;
+        melTerminalClock = 0;
+        melTerminalClockValid = false;
+        melQueue.push(
+          [
+            "mel_source_identity",
+            3,
+            sourceIdentityEpoch,
+            1,
+            melFrames,
+            nonfiniteIdentity ? "null" : 3,
+            7,
+            14,
+            7,
+            counter,
+          ],
+          [
+            "mel_stopped",
+            ...melHeader(
+              melFrames,
+              melOrigin + melFrames * 2048,
+              melOrigin + totalSamples,
+              Math.floor(totalSamples / 2048) - melFrames,
+              totalSamples % 2048,
+              4,
+            ),
+          ],
+        );
+      }
       if (
+        !melStopped &&
         !suppressMelTerminal &&
         (melStopRequested ||
           (melOrigin !== null && counter + 1 >= melOrigin + totalSamples))
@@ -489,6 +707,19 @@ async function controllerHarness({
         sourceClock[7],
       ]);
       clockIO.anchorPost(tuple);
+      if (clockHoldHostAdvance) {
+        const advanced = [...tuple];
+        advanced[2] += vectorSize;
+        if (playing) advanced[1] += (vectorSize * tempoBpm) / (sampleRate * 60);
+        clockIO.anchorPre(advanced);
+        clockIO.anchorClock([
+          sourceClock[1],
+          phase,
+          sourceClock[1],
+          sourceClock[7],
+        ]);
+        clockIO.anchorPost(advanced);
+      }
     }
     if (counter % (controllerTickSamples ?? vectorSize) === 0)
       controller.tick();
@@ -521,6 +752,8 @@ async function controllerHarness({
     replies,
     results,
     events,
+    diagnosticWrites,
+    sdkStatuses,
     deliveries,
     spectrumIO,
     spectrumPackets,
@@ -553,6 +786,99 @@ async function untilAsync(h, predicate, samplesPerYield = 64) {
   assert.ok(predicate(), JSON.stringify(h.controller.snapshot()));
 }
 
+for (const session of [false, true])
+  test(`ABI3 all six requested metrics retain authoritative timelines; Session=${session}`, async () => {
+    const h = await controllerHarness({
+      session,
+      analyzerEnabled: true,
+      melEnabled: true,
+      spectrumEnabled: true,
+      requestedMetrics: [
+        "level",
+        "spectral-centroid",
+        "attacks",
+        "mel-bands",
+        "pitch",
+        "spectral-shape",
+      ],
+    });
+    h.launch();
+    h.until(() =>
+      ["completed", "partial", "failed"].includes(
+        h.controller.snapshot().state,
+      ),
+    );
+    const result = h.results.find(({ payload }) =>
+      ["completed", "partial", "failed"].includes(payload.status),
+    ).payload;
+    assert.equal(
+      result.status,
+      "completed",
+      JSON.stringify(h.controller.snapshot()),
+    );
+    assert.equal(result.observation.metrics.pitch.frames.length, 4);
+    assert.equal(result.observation.metrics["spectral-shape"].frames.length, 4);
+    assert.equal(result.observation.metrics["mel-bands"].frames.length, 4);
+    assert.equal(
+      result.observation.metrics.pitch.frames[0].channels[1].hz,
+      null,
+    );
+    assert.deepEqual(
+      result.observation.metrics.pitch.sourceSupport,
+      result.observation.sourceCoverage,
+    );
+    assert.equal(h.controller.snapshot().cleanup, "completed");
+  });
+
+test("ABI3 analyzer-only requests do not invent mel or baseline measurements", async () => {
+  const h = await controllerHarness({
+    analyzerEnabled: true,
+    requestedMetrics: ["pitch", "spectral-shape"],
+  });
+  h.launch();
+  h.until(() =>
+    ["completed", "partial", "failed"].includes(h.controller.snapshot().state),
+  );
+  const result = h.results.find(({ payload }) => payload.observation)?.payload;
+  assert.ok(result, JSON.stringify(h.controller.snapshot()));
+  assert.equal(result.status, "completed");
+  assert.deepEqual(result.observation.requestedMetrics, [
+    "pitch",
+    "spectral-shape",
+  ]);
+  assert.equal(result.observation.metrics["mel-bands"], undefined);
+  assert.equal(result.observation.metrics.level.status, "not-requested");
+});
+
+test("ABI3 malformed descriptor families preserve each other and later supported samples", async () => {
+  const h = await controllerHarness({
+    analyzerEnabled: true,
+    melEnabled: true,
+    malformedPitchFrame: 1,
+    malformedShapeFrame: 2,
+    malformedMelFrame: 3,
+    requestedMetrics: ["level", "mel-bands", "pitch", "spectral-shape"],
+  });
+  h.launch();
+  h.until(() =>
+    ["completed", "partial", "failed"].includes(h.controller.snapshot().state),
+  );
+  const result = h.results.find(({ payload }) => payload.observation)?.payload;
+  assert.ok(result, JSON.stringify(h.controller.snapshot()));
+  assert.equal(result.status, "partial");
+  assert.equal(result.observation.metrics.level.status, "complete");
+  for (const [metric, missing] of [
+    ["pitch", 0],
+    ["spectral-shape", 1],
+    ["mel-bands", 2],
+  ]) {
+    assert.equal(result.observation.metrics[metric].frames.length, 3);
+    assert.equal(
+      result.observation.metrics[metric].gaps[0].firstIndex,
+      missing,
+    );
+  }
+});
 for (const session of [false, true])
   test(`mel controller binds retained vectors, publishes four metrics and cleans up; Session=${session}`, async () => {
     const h = await controllerHarness({
@@ -627,11 +953,57 @@ for (const session of [false, true])
     assert.ok(h.events.indexOf(clean) < h.events.indexOf(sharedCleanup));
   });
 
-test("maximum-duration four-metric capture preserves all mel frames within admission and lifecycle bounds", async () => {
+test("six-metric thirty-second capture is denied by the shared worst-case budget before native ownership", async () => {
+  let lifecycleEvents = 0;
+  await assert.rejects(
+    controllerHarness({
+      melEnabled: true,
+      analyzerEnabled: true,
+      spectrumEnabled: true,
+      requestedMetrics: [
+        "level",
+        "spectral-centroid",
+        "attacks",
+        "mel-bands",
+        "pitch",
+        "spectral-shape",
+      ],
+      totalSamples: 1440000,
+      deadlineMs: 40000,
+      maxObservationBytes: 2 * 1024 * 1024,
+      onEvent: () => {
+        lifecycleEvents++;
+      },
+    }),
+    (error) => {
+      assert.equal(error.code, "metric_result_budget_exceeded");
+      assert.equal(error.budget.admitted, false);
+      assert.equal(error.budget.limits.observationBytes, 2 * 1024 * 1024);
+      assert.ok(
+        error.budget.upperBounds.partial.observationBytes > 2 * 1024 * 1024,
+      );
+      assert.ok(
+        error.budget.violations.some(
+          (violation) => violation.outcome === "partial",
+        ),
+      );
+      return true;
+    },
+  );
+  assert.equal(lifecycleEvents, 0);
+});
+
+test("admitted maximum-duration five-metric capture retains all frames without silently requesting mel", async () => {
   const h = await controllerHarness({
-    melEnabled: true,
+    analyzerEnabled: true,
     spectrumEnabled: true,
-    requestedMetrics: ["level", "spectral-centroid", "attacks", "mel-bands"],
+    requestedMetrics: [
+      "level",
+      "spectral-centroid",
+      "attacks",
+      "pitch",
+      "spectral-shape",
+    ],
     totalSamples: 1440000,
     deadlineMs: 40000,
     maxObservationBytes: 2 * 1024 * 1024,
@@ -652,14 +1024,16 @@ test("maximum-duration four-metric capture preserves all mel frames within admis
     "completed",
     JSON.stringify(h.controller.snapshot()),
   );
-  assert.equal(result.observation.metrics["mel-bands"].frames.length, 703);
+  assert.equal(result.observation.metrics["mel-bands"], undefined);
+  assert.equal(result.observation.metrics.pitch.frames.length, 703);
+  assert.equal(result.observation.metrics["spectral-shape"].frames.length, 703);
   assert.ok(
     Buffer.byteLength(JSON.stringify(result.observation)) <= 2 * 1024 * 1024,
   );
   assert.ok(
     h.events.filter(
       (event) =>
-        event.nativeLifecycle.metric === "mel-bands" &&
+        event.nativeLifecycle.metric === "pitch" &&
         event.nativeLifecycle.stage === "progress",
     ).length <= 61,
   );
@@ -869,6 +1243,293 @@ test("missing mel physical terminal denies publication even when native metrics 
   );
 });
 
+test("pending native arm drains survive the runtime boundary and complete a genuine six-metric Session capture", async () => {
+  const h = await controllerHarness({
+    melEnabled: true,
+    analyzerEnabled: true,
+    runtimeBridge: true,
+    spectrumEnabled: true,
+    session: true,
+    initialMelDrains: 3,
+    requestedMetrics: [
+      "level",
+      "spectral-centroid",
+      "attacks",
+      "mel-bands",
+      "pitch",
+      "spectral-shape",
+    ],
+  });
+  h.launch();
+  h.until(() => h.controller.snapshot().state === "completed", 300000);
+  assert.equal(h.controller.snapshot().cleanup, "completed");
+  assert.equal(
+    h.results.filter(({ payload }) => payload.observation).length,
+    1,
+  );
+  assert.ok(
+    h.diagnosticWrites.every(
+      (message) =>
+        message.nativeLifecycle?.reason !== "mel_rejected_drain_receipt",
+    ),
+  );
+});
+
+test("rejected drain operands traverse the runtime and diagnostic SDK without publishing a context", async () => {
+  const h = await controllerHarness({
+    melEnabled: true,
+    analyzerEnabled: true,
+    runtimeBridge: true,
+    invalidMelDrain: true,
+    requestedMetrics: ["mel-bands", "pitch", "spectral-shape"],
+  });
+  h.until(() => h.replies.some((reply) => reply.payload.status === "ready"));
+  h.controller.arm(h.arm);
+  h.until(() => h.controller.snapshot().state === "failed", 300000);
+  const wire = h.diagnosticWrites.filter(
+    (message) =>
+      message.nativeLifecycle?.reason === "mel_rejected_drain_receipt",
+  );
+  assert.equal(wire.length, 1);
+  h.codec.listenerResultMetricSchema.parse(wire[0]);
+  for (const field of [
+    "listenerId",
+    "connectionId",
+    "generation",
+    "passId",
+    "traceId",
+    "correlationId",
+    "causationId",
+  ])
+    assert.equal(wire[0][field], h.prepare[field], field);
+  const facts = Object.fromEntries(
+    wire[0].nativeLifecycle.facts.map((f) => [f.field, f.actual.value]),
+  );
+  assert.equal(
+    facts["mel.drain.recordsDrained"],
+    facts["mel.expected.recordsDrained"] + 1,
+  );
+  assert.ok(
+    h.results.every(({ payload }) => payload.observation === undefined),
+  );
+});
+
+for (const nonfiniteIdentity of [false, true])
+  test(`failed-pass operands traverse actual native_mel runtime, controller and SDK wire writer (nonfinite=${nonfiniteIdentity})`, async () => {
+    const h = await controllerHarness({
+      melEnabled: true,
+      analyzerEnabled: true,
+      sourceIdentityFault: true,
+      failureBeforeIdentity: true,
+      runtimeBridge: true,
+      nonfiniteIdentity,
+      requestedMetrics: ["mel-bands", "pitch", "spectral-shape"],
+    });
+    h.launch();
+    h.until(() => h.controller.snapshot().state === "failed", 300000);
+    const reasons = [
+      "mel_native_source_identity",
+      "mel_native_stopped_receipt",
+      "mel_native_drain_receipt",
+    ];
+    const wire = h.diagnosticWrites.filter((message) =>
+      reasons.includes(message.nativeLifecycle?.reason),
+    );
+    assert.deepEqual(
+      wire.map((message) => message.nativeLifecycle.reason),
+      reasons,
+    );
+    for (const message of wire) {
+      h.codec.listenerResultMetricSchema.parse(message);
+      assert.equal(message.type, "listener.result");
+      assert.equal(message.status, "progress");
+      for (const field of [
+        "listenerId",
+        "connectionId",
+        "connectionEpoch",
+        "generation",
+        "jobId",
+        "passId",
+        "traceId",
+        "correlationId",
+        "causationId",
+      ])
+        assert.equal(message[field], h.prepare[field], field);
+      assert.equal(message.nativeLifecycle.nativeEpoch, 7);
+      assert.ok(message.nativeLifecycle.causationId);
+      assert.ok(Buffer.byteLength(JSON.stringify(message)) < 4096);
+      assert.deepEqual(
+        message.nativeLifecycle,
+        h.events.find(
+          (event) =>
+            event.nativeLifecycle.eventId === message.nativeLifecycle.eventId,
+        ).nativeLifecycle,
+      );
+    }
+    assert.equal(new Set(wire.map((message) => message.requestId)).size, 3);
+    assert.ok(
+      wire.every(
+        (message, index) =>
+          !index || message.sequence > wire[index - 1].sequence,
+      ),
+    );
+    assert.ok(
+      h.results.every(
+        ({ payload }) =>
+          !reasons.includes(payload.nativeLifecycle?.reason) &&
+          payload.observation === undefined,
+      ),
+    );
+    const snapshot = h.controller.snapshot();
+    assert.equal(snapshot.reason, "invalid_shared_timing");
+    assert.equal(snapshot.cleanup, "failed");
+    assert.equal(snapshot.mel.sourceIdentityEvidence.sourceRejected, 14);
+    assert.equal(snapshot.mel.drainPacket[6], 1);
+    assert.equal(snapshot.mel.drainPacket[7], 0);
+    assert.equal(snapshot.mel.receipt, null);
+    const facts = Object.fromEntries(
+      wire.flatMap((message) =>
+        message.nativeLifecycle.facts.map(({ field, actual }) => [
+          field,
+          actual,
+        ]),
+      ),
+    );
+    for (const [field, value] of Object.entries({
+      "mel.identity.expectedEpoch": 7,
+      "mel.identity.expectedGeneration": 1,
+      "mel.identity.completedFrames": 1,
+      "mel.identity.sourceEpoch": 7,
+      "mel.identity.sourceRejected": 14,
+      "mel.identity.sourceSealedEpoch": 7,
+      "mel.identity.sourceClock":
+        snapshot.mel.sourceIdentityEvidence.sourceClock,
+      "mel.stopped.reason": 4,
+      "mel.drain.terminalConsumed": 1,
+      "mel.drain.clockValid": 0,
+      "mel.drain.sourceClockExclusive": 0,
+    }))
+      assert.deepEqual(facts[field], { state: "observed", value }, field);
+    assert.deepEqual(
+      facts["mel.identity.sourceAbi"],
+      nonfiniteIdentity
+        ? { state: "unavailable", reason: "nonfinite" }
+        : { state: "observed", value: 3 },
+    );
+  });
+
+test("foreign source identity cannot cross runtime and SDK diagnostic boundary", async () => {
+  const h = await controllerHarness({
+    melEnabled: true,
+    analyzerEnabled: true,
+    sourceIdentityFault: true,
+    sourceIdentityEpoch: 8,
+    runtimeBridge: true,
+    requestedMetrics: ["mel-bands", "pitch"],
+  });
+  h.launch();
+  h.until(() => h.controller.snapshot().state === "failed", 300000);
+  assert.equal(
+    h.controller.snapshot().reason,
+    "mel_foreign_source_identity_evidence",
+  );
+  assert.equal(h.controller.snapshot().cleanup, "failed");
+  assert.equal(h.controller.snapshot().mel.sourceIdentityEvidence, null);
+  assert.ok(
+    h.diagnosticWrites.every(
+      (message) =>
+        message.nativeLifecycle?.reason !== "mel_native_source_identity",
+    ),
+  );
+});
+
+test("refused diagnostic delivery fails the pass without hiding a source fault or authorizing cleanup", async () => {
+  const h = await controllerHarness({
+    melEnabled: true,
+    analyzerEnabled: true,
+    sourceIdentityFault: true,
+    rejectDiagnostic: true,
+    runtimeBridge: true,
+    requestedMetrics: ["mel-bands", "pitch"],
+  });
+  h.launch();
+  h.until(() => h.controller.snapshot().state === "failed", 300000);
+  assert.equal(
+    h.controller.snapshot().reason,
+    "metric_diagnostic_delivery_failed",
+  );
+  assert.equal(h.controller.snapshot().cleanup, "failed");
+  assert.equal(
+    h.controller.snapshot().mel.sourceIdentityEvidence.sourceRejected,
+    14,
+  );
+  assert.equal(h.controller.snapshot().mel.receipt, null);
+  assert.ok(
+    h.results.every(({ payload }) => payload.observation === undefined),
+  );
+  assert.ok(
+    h.sdkStatuses.some(([, state]) => state === "native_diagnostic_gap"),
+  );
+});
+
+test("owned ABI3 fault operands and refused drain survive observability; cleanup cannot replace first failure", async () => {
+  const h = await controllerHarness({
+    melEnabled: true,
+    analyzerEnabled: true,
+    sourceIdentityFault: true,
+    spectrumEnabled: true,
+    requestedMetrics: [
+      "level",
+      "attacks",
+      "spectral-centroid",
+      "mel-bands",
+      "pitch",
+      "spectral-shape",
+    ],
+  });
+  h.launch();
+  h.until(() => h.controller.snapshot().state === "failed", 300000);
+  const snapshot = h.controller.snapshot();
+  assert.equal(snapshot.reason, "mel_native_integrity_failure_4");
+  assert.equal(snapshot.inputFailureReason, "mel_native_integrity_failure_4");
+  assert.equal(snapshot.cleanup, "failed");
+  assert.equal(snapshot.mel.sourceIdentityEvidence.sourceRejected, 14);
+  assert.equal(snapshot.mel.drainPacket[6], 1);
+  assert.equal(snapshot.mel.drainPacket[7], 0);
+  assert.equal(snapshot.mel.receipt, null);
+  const result = h.results.at(-1);
+  assert.equal(result.payload.reason, "mel_native_integrity_failure_4");
+  assert.equal(result.payload.status, "failed");
+  assert.ok(
+    h.results.every(({ payload }) => payload.observation === undefined),
+  );
+  assert.ok(
+    result.payload.nativeLifecycle.facts.some(
+      (f) =>
+        f.field === "capture.cleanupFailure" &&
+        f.actual.value === "metric_cleanup_unconfirmed",
+    ),
+  );
+  const diagnostics = h.events.filter((e) =>
+    [
+      "mel_native_source_identity",
+      "mel_native_stopped_receipt",
+      "mel_native_drain_receipt",
+    ].includes(e.nativeLifecycle.reason),
+  );
+  assert.equal(diagnostics.length, 3);
+  for (const event of diagnostics) {
+    h.codec.nativeMetricLifecycleSchema.parse(event.nativeLifecycle);
+    assert.equal(event.control.passId, h.prepare.passId);
+    assert.equal(event.traceId, h.prepare.traceId);
+    assert.equal(event.correlationId, h.prepare.correlationId);
+    assert.equal(event.nativeLifecycle.generation, h.prepare.generation);
+    assert.equal(event.nativeLifecycle.nativeEpoch, 7);
+    assert.ok(event.nativeLifecycle.causationId);
+    assert.ok(event.nativeLifecycle.facts.length <= 24);
+  }
+});
+
 test("missing actual mel readiness prevents armed reply and source launch", async () => {
   const h = await controllerHarness({
     melEnabled: true,
@@ -928,6 +1589,245 @@ test("mel cancellation waits for physical termination and retains cancelled life
         event.nativeLifecycle.metric === "mel-bands" &&
         event.nativeLifecycle.stage === "cancelled",
     ),
+  );
+});
+
+const emptyDiagnosticRow = (length) => [
+  length,
+  ...Array.from({ length: 22 }, () => [8, 0]).flat(),
+];
+const spectrumIORejection = (check) => [
+  "io-rejection",
+  1,
+  IO_REJECTION_CHECKS.indexOf(check),
+  7,
+  1,
+  ...emptyDiagnosticRow(0),
+];
+const spectrumRetentionRejection = (code) => [
+  "retention-rejection",
+  2,
+  code,
+  7,
+  1,
+  ...emptyDiagnosticRow(0),
+  ...emptyDiagnosticRow(-2),
+  ...emptyDiagnosticRow(-2),
+];
+
+for (const { capturing, packet, detail } of [
+  {
+    capturing: false,
+    packet: [
+      "spectrum-input-rejection",
+      2,
+      7,
+      SPECTRUM_CLEANUP_REASONS.indexOf("counter_regression"),
+    ],
+    detail: "spectrum-input-rejection: counter_regression (5)",
+  },
+  {
+    capturing: false,
+    packet: spectrumIORejection("reader-failed"),
+    detail: "io-rejection: reader-failed",
+  },
+  {
+    capturing: false,
+    packet: spectrumRetentionRejection(5),
+    detail: "retention-rejection: invalid_owner_reset",
+  },
+  {
+    capturing: false,
+    packet: ["ioError", 1],
+    detail: "ioError: upstream_io_error_without_classification",
+  },
+  {
+    capturing: true,
+    packet: spectrumIORejection("reader-failed"),
+    detail: "io-rejection: upstream_io_rejection; check=reader-failed",
+  },
+  {
+    capturing: true,
+    packet: spectrumRetentionRejection(5),
+    detail: "retention-rejection: upstream_invalid_owner_reset",
+  },
+  {
+    capturing: true,
+    packet: ["ioError", 1],
+    detail: "ioError: upstream_io_error_without_classification",
+  },
+  {
+    capturing: true,
+    packet: ["retention-state", 3, 0, 7, 1, 0, 0, 128, 0, 0, 0],
+    detail: "retention-state: invalid_retention_family",
+  },
+]) {
+  test(`first shared spectrum detail survives runtime/SDK terminal cleanup: ${detail}, capturing=${capturing}`, async () => {
+    const h = await controllerHarness({
+      spectrumEnabled: true,
+      runtimeBridge: true,
+      requestedMetrics: ["level", "spectral-centroid", "attacks"],
+    });
+    h.launch();
+    if (capturing) h.until(() => h.controller.snapshot().state === "capturing");
+    h.runtimeHarness.handlers.native_spectrum("native", GENERATION, ...packet);
+    assert.equal(
+      h.controller.snapshot().inputFailureReason,
+      "metric_spectrum_shared_failure",
+    );
+    assert.equal(h.controller.snapshot().inputFailureDetail, detail);
+    h.runtimeHarness.handlers.native_spectrum(
+      "native",
+      GENERATION,
+      "spectrum-readback",
+      7,
+      h.counter,
+      1,
+      7,
+      0,
+      0,
+    );
+    assert.equal(
+      h.controller.snapshot().lastNativeSelector,
+      "spectrum-readback",
+    );
+    assert.equal(h.controller.snapshot().inputFailureDetail, detail);
+    h.runtimeHarness.handlers.native_spectrum(
+      "native",
+      GENERATION,
+      "spectrum-input-rejection",
+      2,
+      7,
+      SPECTRUM_CLEANUP_REASONS.indexOf("owner_mismatch"),
+    );
+    h.until(() => h.controller.snapshot().state === "failed");
+    const snapshot = h.controller.snapshot();
+    assert.equal(snapshot.reason, "metric_spectrum_shared_failure");
+    assert.equal(snapshot.inputFailureDetail, detail);
+    assert.notEqual(snapshot.lastNativeSelector, packet[0]);
+    assert.equal(snapshot.cleanup, "completed");
+    assert.equal(h.spectrumIO.generation, null);
+    assert.ok(
+      h.results.every(({ payload }) => payload.observation === undefined),
+    );
+    const evidence = h.diagnosticWrites.filter(
+      ({ nativeLifecycle }) =>
+        nativeLifecycle?.reason === "native_failure_evidence" &&
+        nativeLifecycle.facts?.some(
+          (fact) =>
+            fact.field === "capture.inputFailureDetail" &&
+            fact.actual.value === detail,
+        ),
+    );
+    assert.ok(
+      evidence.length > 0,
+      "detail must cross the actual runtime and SDK wire writer",
+    );
+    for (const message of evidence) {
+      h.codec.listenerResultMetricSchema.parse(message);
+      assert.equal(message.traceId, h.prepare.traceId);
+      assert.equal(message.passId, h.prepare.passId);
+      assert.equal(message.correlationId, h.prepare.correlationId);
+      assert.ok(message.nativeLifecycle.causationId);
+      assert.ok(detail.length <= 256);
+      assert.ok(
+        message.nativeLifecycle.facts.some(
+          (fact) =>
+            fact.field === "capture.cleanup" &&
+            fact.actual.value === "completed",
+        ),
+      );
+    }
+  });
+}
+
+for (const [value, last] of [
+  [0.125, null],
+  [NaN, null],
+  [1e100, null],
+  [-Infinity, Infinity],
+]) {
+  test(`actual FFT reader fault operands reach runtime/SDK terminal failure facts: ${value}/${last}`, async () => {
+    const h = await controllerHarness({
+      spectrumEnabled: true,
+      runtimeBridge: true,
+      requestedMetrics: ["level", "spectral-centroid", "attacks"],
+    });
+    h.launch();
+    const row = Array(22).fill(0);
+    row[0] = value;
+    row[21] = last === null ? h.counter : last;
+    h.spectrumIO.retainedSpectrumFrame(GENERATION, 7, row);
+    const packet = h.spectrumPackets.find(
+      (p) => p[2] === "spectrum-input-rejection",
+    );
+    assert.equal(typeof packet[6], "string");
+    const expected = `spectrum-input-rejection: counter_incoherent (4) ${packet[6]}`;
+    h.until(() => h.controller.snapshot().state === "failed");
+    assert.equal(
+      h.controller.snapshot().reason,
+      "metric_spectrum_shared_failure",
+    );
+    assert.equal(h.controller.snapshot().inputFailureDetail, expected);
+    assert.equal(h.controller.snapshot().cleanup, "completed");
+    assert.ok(
+      h.results.every(({ payload }) => payload.observation === undefined),
+    );
+    const evidence = h.diagnosticWrites.find(
+      ({ nativeLifecycle }) =>
+        nativeLifecycle?.reason === "native_failure_evidence" &&
+        nativeLifecycle.facts?.some(
+          (fact) =>
+            fact.field === "capture.inputFailureDetail" &&
+            fact.actual.value === expected,
+        ),
+    );
+    assert.ok(
+      evidence,
+      "original two operands must reach the actual lifecycle observer path",
+    );
+    h.codec.listenerResultMetricSchema.parse(evidence);
+    assert.equal(evidence.traceId, h.prepare.traceId);
+    assert.equal(evidence.passId, h.prepare.passId);
+    assert.ok(expected.length <= 256);
+  });
+}
+
+test("one-vector-old coherent level snapshots complete without disarming the shared Gen", async () => {
+  const h = await controllerHarness({
+    delayedLevelBank: true,
+    spectrumEnabled: true,
+    melEnabled: true,
+    analyzerEnabled: true,
+    totalSamples: 90000,
+    requestedMetrics: [
+      "level",
+      "attacks",
+      "spectral-centroid",
+      "mel-bands",
+      "pitch",
+      "spectral-shape",
+    ],
+  });
+  h.launch();
+  h.until(() =>
+    ["completed", "partial", "failed"].includes(h.controller.snapshot().state),
+  );
+  assert.equal(h.controller.snapshot().state, "completed");
+  assert.equal(h.controller.snapshot().cleanup, "completed");
+  assert.ok(
+    h.readbacks.some(
+      ({ selector, bank, counter }) =>
+        selector === "metric_level_sample" && counter - bank[0] === 64,
+    ),
+  );
+  const result = h.results.find(({ payload }) => payload.observation)?.payload;
+  assert.equal(result.observation.metrics.level.status, "complete");
+  assert.equal(result.observation.metrics.attacks.status, "complete");
+  assert.equal(result.observation.metrics.pitch.frames.length, 43);
+  assert.equal(result.observation.metrics["spectral-shape"].frames.length, 43);
+  assert.ok(
+    h.events.every(({ nativeLifecycle }) => nativeLifecycle.stage !== "failed"),
   );
 });
 
@@ -1659,7 +2559,10 @@ test("throwing diagnostic cleanup cannot bypass native stop or the cleanup deadl
   });
   h.launch();
   h.until(() => h.controller.snapshot().state === "failed");
-  assert.equal(h.controller.snapshot().reason, "metric_cleanup_unconfirmed");
+  assert.equal(
+    h.controller.snapshot().reason,
+    "metric_diagnostic_cleanup_failed",
+  );
   assert.equal(h.controller.snapshot().cleanup, "failed");
   assert.ok(h.now - firstAttempt >= 2000);
   assert.ok(h.now - firstAttempt < 2002);
@@ -1700,6 +2603,60 @@ test("a diagnostic rejection stays failed even when physical cleanup subsequentl
   assert.equal(
     h.controls.some((c) => c.selector === "release"),
     true,
+  );
+});
+
+test("Session capture completes with independently advancing host-clock snapshots", async () => {
+  const h = await controllerHarness({
+    session: true,
+    clockHoldHostAdvance: true,
+  });
+  h.launch();
+  h.until(() => h.controller.snapshot().state === "completed");
+  assert.equal(h.controller.snapshot().cleanup, "completed");
+  assert.ok(h.results.some((r) => r.payload.status === "completed"));
+  const skipped = h.events
+    .map((e) => e.nativeLifecycle)
+    .filter((e) => e.reason === "native_clock_cohort_skipped");
+  assert.ok(skipped.length > 0);
+  assert.ok(
+    skipped.every((e) => e.generation === GENERATION && e.stage === "progress"),
+  );
+});
+
+test("changed clock hold retains fault operands through cleanup without publishing", async () => {
+  const h = await controllerHarness({ session: true });
+  h.until(() => h.replies.some((r) => r.payload.status === "ready"));
+  const previous = h.controller.snapshot().clockReadback;
+  const row = [...previous];
+  row[2] += 64;
+  row[9] += 64;
+  assert.equal(
+    h.controller.receiveNative("clock", [
+      "native",
+      GENERATION,
+      "clock",
+      ...row,
+    ]),
+    false,
+  );
+  h.until(() => h.controller.snapshot().state === "failed");
+  const snapshot = h.controller.snapshot();
+  assert.equal(snapshot.reason, "metric_changed_clock_hold");
+  assert.equal(snapshot.cleanup, "completed");
+  assert.deepEqual(snapshot.clockReadback, row);
+  assert.deepEqual(JSON.parse(snapshot.inputFailureDetail), {
+    check: "metric_changed_clock_hold",
+    counter: row[4],
+    changes: [
+      [2, previous[2], row[2]],
+      [9, previous[9], row[9]],
+    ],
+  });
+  assert.ok(snapshot.inputFailureDetail.length <= 256);
+  assert.equal(
+    h.results.some((r) => ["completed", "partial"].includes(r.payload.status)),
+    false,
   );
 });
 

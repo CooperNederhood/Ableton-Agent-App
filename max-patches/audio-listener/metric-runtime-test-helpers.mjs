@@ -2,6 +2,10 @@ import { createRequire } from "node:module";
 import { readFileSync } from "node:fs";
 import { URL } from "node:url";
 import { runInNewContext } from "node:vm";
+import {
+  analyzerNativeReadinessSchema,
+  LISTENER_CAPABILITY_ANALYZER_TIMELINES,
+} from "../../packages/protocol/src/analyzer-profile.ts";
 
 const require = createRequire(import.meta.url);
 const { createMetricRuntime } = require("./audio_listener_metric_runtime.js");
@@ -14,6 +18,7 @@ export function metricRuntimeHarness(options = {}) {
     logs = [],
     stops = [];
   let controllerOptions, clientOptions, tick;
+  let time = 0;
   const controller = {
     snapshot: () => ({ state: "idle", cleanup: "completed" }),
     prepare() {},
@@ -95,7 +100,11 @@ export function metricRuntimeHarness(options = {}) {
       LISTENER_CAPABILITY_MEL: "audio-listener/mel-band-timelines-v1",
       LISTENER_METRIC_ALGORITHM_VERSION: "3.0.0",
       MAX_AUDIO_OBSERVATION_BYTES: 256 * 1024,
+      MAX_METRIC_OBSERVATION_BYTES: 2 * 1024 * 1024,
+      analyzerNativeReadinessSchema,
+      LISTENER_CAPABILITY_ANALYZER_TIMELINES,
     },
+    now: () => time,
     ...entryOptions,
     interval: (handler) => {
       tick = handler;
@@ -112,15 +121,30 @@ export function metricRuntimeHarness(options = {}) {
     }),
   );
   handlers.dsp(1, 48000, 64);
+  if (options.analyzerReady !== false) {
+    const probe = output.find(
+      (row) => row[0] === "mel_native_control" && row[1] === "probe",
+    );
+    if (probe)
+      handlers.native_mel("analyzer_ready", 3, probe[2], 1, 48000, 3, 10, 1);
+  }
   return {
     runtime,
-    controllerOptions,
-    clientOptions,
+    get controllerOptions() {
+      return controllerOptions;
+    },
+    get clientOptions() {
+      return clientOptions;
+    },
     handlers,
     output,
     diagnostics,
     logs,
     stops,
     tick: () => tick(),
+    advance: (ms) => {
+      time += ms;
+      tick();
+    },
   };
 }

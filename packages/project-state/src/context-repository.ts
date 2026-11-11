@@ -9,11 +9,31 @@ import {
 } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { performance } from "node:perf_hooks";
+import { setImmediate as yieldTurn } from "node:timers/promises";
 import type { BindParams, Database, SqlJsStatic } from "sql.js";
 import {
   storedObservationCoordinates,
   storedObservationIdentity,
+  extractListeningFeatures,
+  segmentListeningObservation,
+  LISTENING_FEATURE_LIMITS,
+  LISTENING_FEATURE_DEFINITION_SET,
+  listeningFeatureDefinition,
+  compareListeningFeatures,
 } from "@ableton-agent/protocol";
+import {
+  contextSegmentSchema,
+  contextFeatureSchema,
+  contextFeatureDerivationSchema,
+  contextFeatureQuerySchema,
+  contextFeatureSearchSchema,
+  type ContextSegment,
+  type ContextFeature,
+  type ContextFeatureDerivation,
+  type ContextFeatureQuery,
+  type ContextFeatureSearch,
+  type ContextFeatureSearchResult,
+} from "./context-feature-schemas.js";
 import {
   createNonBlockingObservabilityRecorder,
   OBSERVABILITY_CONTRACT_VERSION,
@@ -66,6 +86,12 @@ export interface ContextOperationOptions {
   readonly activeAgentId?: string;
 }
 
+interface FeatureReadBudget {
+  remaining: number;
+  assessments?: Map<string, Promise<ContextFreshnessAssessment>>;
+  primaryLinks?: Map<string, ContextLink>;
+}
+
 type ObservationSummary<T> = T extends unknown
   ? T extends {
       schema: "metric-audio-observation/v1";
@@ -101,6 +127,33 @@ export interface ContextPruneResult {
 export interface EntityContextRepository {
   readonly sessionId: string;
   readonly liveSetId: string;
+  /** Process-local opened-store identity shared by caller wrappers, never across reopen/ownership changes.
+   * Without an explicit token, publication uses the repository object's identity. */
+  readonly publicationIdentity?: object;
+  deriveFeatures(
+    entryId: string,
+    options?: ContextOperationOptions,
+  ): Promise<ContextFeatureDerivation>;
+  getFeatureDerivation(
+    entryId: string,
+    options?: ContextOperationOptions,
+  ): Promise<ContextFeatureDerivation | undefined>;
+  getFeature(
+    id: string,
+    options?: ContextOperationOptions,
+  ): Promise<ContextFeature | undefined>;
+  getSegment(
+    id: string,
+    options?: ContextOperationOptions,
+  ): Promise<ContextSegment | undefined>;
+  listFeatures(
+    query?: ContextFeatureQuery,
+    options?: ContextOperationOptions,
+  ): Promise<ContextPage<ContextFeature>>;
+  searchFeatures(
+    query: ContextFeatureSearch,
+    options?: ContextOperationOptions,
+  ): Promise<ContextFeatureSearchResult>;
   appendPass(
     input: AppendContextPass,
     options?: ContextOperationOptions,
@@ -166,6 +219,10 @@ export interface SessionContextStoreOptions {
   readonly maxStoreBytes?: number;
   readonly maxPassBytes?: number;
   readonly maxPendingOperations?: number;
+  readonly maxFeatureSearchBytes?: number;
+  readonly maxFeatureSearchMs?: number;
+  readonly maxFeatureBytes?: number;
+  readonly maxFeatureBatchBytes?: number;
   readonly clock?: () => Date;
   readonly trace?: ContextTrace;
   readonly signal?: AbortSignal;
@@ -361,6 +418,25 @@ function newTrace(): ContextTrace {
 
 const TABLES = ["subjects", "passes", "entries", "links"] as const;
 type Table = (typeof TABLES)[number];
+const DERIVATION_STATUS_BYTES = 2048;
+const FEATURE_DEFINITION_SET = LISTENING_FEATURE_DEFINITION_SET;
+const hashIdentity = (value: unknown): string =>
+  createHash("sha256").update(JSON.stringify(value)).digest("hex");
+
+function derivationState(
+  entryId: string,
+  status: ContextFeatureDerivation["status"],
+  reason: string | null = null,
+  featureIds: string[] = [],
+): ContextFeatureDerivation {
+  return contextFeatureDerivationSchema.parse({
+    entryId,
+    status,
+    reason,
+    featureIds,
+    definitionSet: FEATURE_DEFINITION_SET,
+  });
+}
 
 function migrate(
   database: Database,
@@ -370,7 +446,7 @@ function migrate(
   const version = Number(
     rows(database, "PRAGMA user_version")[0]?.user_version ?? 0,
   );
-  if (version > 2)
+  if (version > 3)
     throw new Error("Context store schema version is unsupported");
   database.run("PRAGMA foreign_keys = ON");
   if (version === 0) {
@@ -416,6 +492,33 @@ function migrate(
       COMMIT;
     `);
   }
+  if (version < 3) {
+    database.run(`
+      BEGIN IMMEDIATE;
+      CREATE TABLE context_segments (
+        id TEXT PRIMARY KEY, entry_id TEXT NOT NULL REFERENCES context_entries(id) ON DELETE CASCADE,
+        session_id TEXT NOT NULL, live_set_id TEXT NOT NULL, payload TEXT NOT NULL
+      );
+      CREATE INDEX context_segment_source ON context_segments(session_id, live_set_id, entry_id, id);
+      CREATE TABLE context_features (
+        id TEXT PRIMARY KEY, entry_id TEXT NOT NULL REFERENCES context_entries(id) ON DELETE CASCADE,
+        segment_id TEXT NOT NULL REFERENCES context_segments(id) ON DELETE CASCADE,
+        session_id TEXT NOT NULL, live_set_id TEXT NOT NULL,
+        feature_type TEXT NOT NULL, distance_definition TEXT NOT NULL,
+        config_id TEXT NOT NULL, source_fingerprint TEXT NOT NULL,
+        status TEXT NOT NULL, dimensions INTEGER NOT NULL, payload TEXT NOT NULL,
+        UNIQUE(entry_id, segment_id, feature_type, config_id, source_fingerprint)
+      );
+      CREATE INDEX context_feature_search ON context_features(session_id, live_set_id, feature_type, status, id);
+      CREATE INDEX context_feature_source ON context_features(entry_id, id);
+      CREATE TABLE context_feature_derivations (
+        entry_id TEXT PRIMARY KEY REFERENCES context_entries(id) ON DELETE CASCADE,
+        status TEXT NOT NULL, payload TEXT NOT NULL
+      );
+      PRAGMA user_version = 3;
+      COMMIT;
+    `);
+  }
   const owner = rows(
     database,
     "SELECT session_id, live_set_id FROM context_owner",
@@ -457,6 +560,7 @@ export class SessionContextStore implements EntityContextRepository {
   #closing = false;
   #closePromise: Promise<void> | undefined;
   #sessionPublicationReady = false;
+  readonly #featureJobs = new Map<AbortController, string>();
 
   private constructor(
     sql: SqlJsStatic,
@@ -501,6 +605,10 @@ export class SessionContextStore implements EntityContextRepository {
       [options.maxStoreBytes, CONTEXT_LIMITS.storeBytes],
       [options.maxPassBytes, CONTEXT_LIMITS.passBytes],
       [options.maxPendingOperations, CONTEXT_LIMITS.pendingOperations],
+      [options.maxFeatureSearchBytes, LISTENING_FEATURE_LIMITS.candidateBytes],
+      [options.maxFeatureSearchMs, LISTENING_FEATURE_LIMITS.searchMs],
+      [options.maxFeatureBytes, LISTENING_FEATURE_LIMITS.featureBytes],
+      [options.maxFeatureBatchBytes, LISTENING_FEATURE_LIMITS.batchBytes],
     ] as const) {
       if (
         value !== undefined &&
@@ -558,6 +666,30 @@ export class SessionContextStore implements EntityContextRepository {
       migrate(database, ownership, liveSetId);
       const store = new SessionContextStore(sql, database, path, lock, options);
       options.signal?.throwIfAborted();
+      const interrupted = rows(
+        database,
+        "SELECT entry_id FROM context_feature_derivations WHERE status = 'pending'",
+      );
+      if (interrupted.length > 0) {
+        await store.#operation(
+          "derive-recovery",
+          options.trace,
+          options.signal,
+          async () => {
+            await store.#transaction(() => {
+              for (const row of interrupted) {
+                store.#putDerivation(
+                  derivationState(
+                    String(row.entry_id),
+                    "failed",
+                    "interrupted-before-publication",
+                  ),
+                );
+              }
+            }, options.signal);
+          },
+        );
+      }
       await store.#publish();
       emit("completed", performance.now() - startedAt, {
         schemaVersion: store.schemaVersion,
@@ -582,7 +714,7 @@ export class SessionContextStore implements EntityContextRepository {
     return this.#path;
   }
   public get schemaVersion(): number {
-    return 2;
+    return 3;
   }
   public get liveSetId(): string {
     return this.#liveSetId;
@@ -637,7 +769,7 @@ export class SessionContextStore implements EntityContextRepository {
                   [subject.id, JSON.stringify(subject)],
                 );
             }
-            for (const entry of parsed.entries)
+            for (const entry of parsed.entries) {
               this.#database.run(
                 "INSERT INTO context_entries VALUES (?, ?, ?, ?, ?, ?)",
                 [
@@ -649,6 +781,10 @@ export class SessionContextStore implements EntityContextRepository {
                   JSON.stringify(entry),
                 ],
               );
+              if (entry.kind === "metric-audio-observation/v1") {
+                this.#putDerivation(derivationState(entry.id, "pending"));
+              }
+            }
             for (const link of parsed.links)
               this.#database.run(
                 "INSERT INTO context_links VALUES (?, ?, ?, ?, ?, ?, ?)",
@@ -667,6 +803,47 @@ export class SessionContextStore implements EntityContextRepository {
           parsed.pass.id,
         );
         this.#reservations.delete(parsed.pass.id);
+        for (const entry of parsed.entries) {
+          if (entry.kind === "metric-audio-observation/v1") {
+            // Publication is already durable. Derivation has independent lifecycle/failure.
+            const denied = this.#closing || this.#pending >= this.#maxPending;
+            void this.deriveFeatures(entry.id, {
+              trace: entry.trace,
+              activeAgentId: entry.producer.agentId,
+            }).catch(() => undefined);
+            if (denied) {
+              // Already inside the serialized publication: do not create an overflow cleanup queue.
+              const startedAt = performance.now();
+              const emit = lifecycleEmitter(
+                this.#recorder,
+                this,
+                "derive-status",
+                entry.trace,
+                () => this.#now(),
+                entry.producer.agentId,
+              );
+              emit("queued");
+              emit("started", 0);
+              try {
+                emit("progress", 0, { phase: "persisting-admission-failure" });
+                await this.#transaction(() =>
+                  this.#putDerivation(
+                    derivationState(
+                      entry.id,
+                      this.#closing ? "cancelled" : "failed",
+                      this.#closing
+                        ? "derivation-cancelled"
+                        : "derivation-queue-full",
+                    ),
+                  ),
+                );
+                emit("completed", performance.now() - startedAt);
+              } catch (error) {
+                emit("failed", performance.now() - startedAt, { error });
+              }
+            }
+          }
+        }
       },
       false,
       input.pass.initiatorAgentId,
@@ -680,6 +857,657 @@ export class SessionContextStore implements EntityContextRepository {
     return this.#read("get-pass", options, () =>
       this.#get("passes", id, parsePass),
     );
+  }
+
+  public deriveFeatures(
+    entryId: string,
+    options: ContextOperationOptions = {},
+  ): Promise<ContextFeatureDerivation> {
+    const controller = new AbortController();
+    const signal =
+      options.signal === undefined
+        ? controller.signal
+        : AbortSignal.any([controller.signal, options.signal]);
+    const owner = this.liveSetId;
+    const admitted =
+      !this.#closed && !this.#closing && this.#pending < this.#maxPending;
+    const result = this.#operation(
+      "derive-features",
+      options.trace,
+      signal,
+      async (progress) => {
+        const entry = this.#featureSource(entryId);
+        if (entry === undefined || owner !== this.liveSetId)
+          throw new RepositoryConflictError(
+            "Feature source is outside current ownership or no longer exists",
+          );
+        const prior = this.#getDerivation(entryId);
+        if (
+          prior?.definitionSet === FEATURE_DEFINITION_SET &&
+          (prior.status === "ready" || prior.status === "unavailable")
+        )
+          return prior;
+        await this.#transaction(
+          () => this.#putDerivation(derivationState(entryId, "pending")),
+          signal,
+        );
+        await yieldTurn();
+        signal.throwIfAborted();
+        if (entry.payload.schema !== "metric-audio-observation/v1") {
+          const unavailable = derivationState(
+            entryId,
+            "unavailable",
+            "unsupported-source-kind",
+          );
+          await this.#transaction(
+            () => this.#putDerivation(unavailable),
+            signal,
+          );
+          return unavailable;
+        }
+        const observation = entry.payload;
+        // Fingerprint the immutable persisted measurement, never a derived or summarized view.
+        const stored = rows(
+          this.#database,
+          "SELECT payload FROM context_entries WHERE id = ?",
+          [entryId],
+        )[0];
+        const sourceFingerprint = hashIdentity(
+          (JSON.parse(String(stored?.payload)) as ContextEntry).payload,
+        );
+        const segments: ContextSegment[] = [];
+        const features: ContextFeature[] = [];
+        let batchBytes = 0;
+        const ranges = segmentListeningObservation(
+          observation,
+          entry.musicalAlignment,
+        );
+        for (const range of ranges) {
+          signal.throwIfAborted();
+          const segmentData = {
+            entryId,
+            sessionId: this.sessionId,
+            liveSetId: owner,
+            ...omitFields(range, "grid"),
+          };
+          const segment = contextSegmentSchema.parse({
+            ...segmentData,
+            id: `segment:${hashIdentity([sourceFingerprint, segmentData])}`,
+          });
+          segments.push(segment);
+          batchBytes += Buffer.byteLength(JSON.stringify(segment));
+          for (const value of extractListeningFeatures(observation, range)) {
+            const feature = contextFeatureSchema.parse({
+              id: `feature:${hashIdentity([entryId, sourceFingerprint, segment.id, value.type, value.profileKey, value.normalization])}`,
+              entryId,
+              segmentId: segment.id,
+              sessionId: this.sessionId,
+              liveSetId: owner,
+              sourceFingerprint,
+              createdAt: this.#now(),
+              trace: options.trace ?? entry.trace,
+              feature: value,
+            });
+            const bytes = Buffer.byteLength(JSON.stringify(feature));
+            batchBytes += bytes;
+            if (
+              bytes >
+                (this.#options.maxFeatureBytes ??
+                  LISTENING_FEATURE_LIMITS.featureBytes) ||
+              batchBytes >
+                (this.#options.maxFeatureBatchBytes ??
+                  LISTENING_FEATURE_LIMITS.batchBytes)
+            )
+              throw new ContextQuotaError(
+                "Derived feature batch exceeds encoded quota",
+              );
+            features.push(feature);
+          }
+          if (
+            ranges.length > 1 &&
+            (segments.length % 8 === 0 || segments.length === ranges.length)
+          )
+            progress({
+              phase: "extracting-segments",
+              completedSegments: segments.length,
+              totalSegments: ranges.length,
+              encodedBytes: batchBytes,
+            });
+          await yieldTurn();
+        }
+        const anyReady = features.some(
+          (feature) => feature.feature.status === "ready",
+        );
+        const state = derivationState(
+          entryId,
+          anyReady ? "ready" : "unavailable",
+          anyReady ? null : "no-supported-measurements",
+          features.map((feature) => feature.id),
+        );
+        if (
+          batchBytes + Buffer.byteLength(JSON.stringify(state)) >
+          (this.#options.maxFeatureBatchBytes ??
+            LISTENING_FEATURE_LIMITS.batchBytes)
+        )
+          throw new ContextQuotaError(
+            "Derived feature batch exceeds encoded quota",
+          );
+        await this.#transaction(() => {
+          if (
+            this.#featureSource(entryId) === undefined ||
+            this.liveSetId !== owner
+          )
+            throw new RepositoryConflictError(
+              "Feature source was removed or ownership changed",
+            );
+          this.#database.run(
+            "DELETE FROM context_segments WHERE entry_id = ?",
+            [entryId],
+          );
+          for (const segment of segments)
+            this.#database.run(
+              "INSERT INTO context_segments VALUES (?, ?, ?, ?, ?)",
+              [
+                segment.id,
+                entryId,
+                this.sessionId,
+                owner,
+                JSON.stringify(segment),
+              ],
+            );
+          for (const feature of features)
+            this.#database.run(
+              "INSERT INTO context_features VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+              [
+                feature.id,
+                entryId,
+                feature.segmentId,
+                this.sessionId,
+                owner,
+                feature.feature.type,
+                feature.feature.distanceDefinition,
+                hashIdentity([
+                  feature.feature.profileKey,
+                  feature.feature.normalization,
+                  feature.feature.supportPolicy,
+                ]),
+                sourceFingerprint,
+                feature.feature.status,
+                listeningFeatureDefinition(feature.feature.type).dimensions *
+                  (listeningFeatureDefinition(feature.feature.type).grid
+                    ? (feature.feature.grid?.cells.length ?? 0)
+                    : 1),
+                JSON.stringify(feature),
+              ],
+            );
+          this.#putDerivation(state);
+        }, signal);
+        return state;
+      },
+      false,
+      options.activeAgentId,
+      "extracting-and-publishing",
+      async (error) => {
+        if (
+          this.#featureSource(entryId) === undefined ||
+          this.liveSetId !== owner
+        )
+          return;
+        const prior = this.#getDerivation(entryId);
+        if (prior?.status === "ready" || prior?.status === "unavailable")
+          return;
+        const reason =
+          error instanceof ContextQuotaError
+            ? "derived-store-quota-exceeded"
+            : signal.aborted
+              ? "derivation-cancelled"
+              : error instanceof RangeError &&
+                  error.message.startsWith("feature_")
+                ? `unsupported-geometry:${error.message}`
+                : "derivation-failed";
+        await this.#transaction(() =>
+          this.#putDerivation(
+            derivationState(
+              entryId,
+              signal.aborted ? "cancelled" : "failed",
+              reason,
+            ),
+          ),
+        );
+      },
+    );
+    if (admitted) this.#featureJobs.set(controller, entryId);
+    return result.finally(() => this.#featureJobs.delete(controller));
+  }
+
+  public getFeatureDerivation(
+    entryId: string,
+    options: ContextOperationOptions = {},
+  ): Promise<ContextFeatureDerivation | undefined> {
+    return this.#read("get-feature-derivation", options, () =>
+      this.#featureSource(entryId) === undefined
+        ? undefined
+        : this.#getDerivation(entryId),
+    );
+  }
+
+  public getSegment(
+    id: string,
+    options: ContextOperationOptions = {},
+  ): Promise<ContextSegment | undefined> {
+    return this.#read("get-segment", options, () => {
+      contextSubjectSchema.shape.id.parse(id);
+      const row = rows(
+        this.#database,
+        "SELECT payload FROM context_segments WHERE id = ? AND session_id = ? AND live_set_id = ?",
+        [id, this.sessionId, this.liveSetId],
+      )[0];
+      return row === undefined
+        ? undefined
+        : decode(row.payload, (value) => contextSegmentSchema.parse(value));
+    });
+  }
+
+  public getFeature(
+    id: string,
+    options: ContextOperationOptions = {},
+  ): Promise<ContextFeature | undefined> {
+    return this.#read("get-feature", options, async (readOptions) => {
+      const feature = this.#getFeature(id);
+      if (feature === undefined) return undefined;
+      const budget = { remaining: CONTEXT_LIMITS.revalidationsPerQuery };
+      return {
+        ...feature,
+        primarySubjectId: this.#featurePrimaryLink(feature.entryId, budget)
+          .subjectId,
+        freshness: await this.#featureFreshness(
+          feature.entryId,
+          budget,
+          readOptions,
+        ),
+      };
+    });
+  }
+
+  public listFeatures(
+    input: ContextFeatureQuery = {},
+    options: ContextOperationOptions = {},
+  ): Promise<ContextPage<ContextFeature>> {
+    return this.#read("list-features", options, async (readOptions) => {
+      const query = contextFeatureQuerySchema.parse(input);
+      const filters = hashIdentity([
+        query.entryId ?? null,
+        query.featureType ?? null,
+        query.includeHistorical,
+      ]);
+      let after = "";
+      if (query.cursor !== undefined) {
+        try {
+          const cursor = JSON.parse(
+            Buffer.from(query.cursor, "base64url").toString("utf8"),
+          ) as Record<string, unknown>;
+          if (
+            cursor.sessionId !== this.sessionId ||
+            cursor.liveSetId !== this.liveSetId ||
+            cursor.filters !== filters
+          )
+            throw new Error("Cursor scope mismatch");
+          after = contextSubjectSchema.shape.id.parse(cursor.after);
+        } catch {
+          throw new TypeError(
+            "Feature cursor does not match ownership or query",
+          );
+        }
+      }
+      const parameters: (string | number)[] = [
+        this.sessionId,
+        this.liveSetId,
+        after,
+      ];
+      const clauses = ["f.session_id = ?", "f.live_set_id = ?", "f.id > ?"];
+      if (query.entryId !== undefined) {
+        clauses.push("f.entry_id = ?");
+        parameters.push(query.entryId);
+      }
+      if (query.featureType !== undefined) {
+        clauses.push("f.feature_type = ?");
+        parameters.push(query.featureType);
+      }
+      if (!query.includeHistorical) clauses.push(this.#featureCurrentClause());
+      const records = rows(
+        this.#database,
+        `SELECT f.id, f.payload FROM context_features f WHERE ${clauses.join(" AND ")} ORDER BY f.id LIMIT ?`,
+        [...parameters, query.limit + 1],
+      );
+      const selected = records.slice(0, query.limit);
+      const budget = { remaining: CONTEXT_LIMITS.revalidationsPerQuery };
+      const items: ContextFeature[] = [];
+      for (const row of selected) {
+        const feature = decode(row.payload, (value) =>
+          contextFeatureSchema.parse(value),
+        );
+        const freshness = await this.#featureFreshness(
+          feature.entryId,
+          budget,
+          readOptions,
+        );
+        if (
+          !query.includeHistorical &&
+          ["historical", "stale"].includes(freshness.status)
+        )
+          continue;
+        items.push({
+          ...feature,
+          freshness,
+          primarySubjectId: this.#featurePrimaryLink(feature.entryId, budget)
+            .subjectId,
+        });
+      }
+      return {
+        items,
+        ...(records.length > query.limit
+          ? {
+              nextCursor: Buffer.from(
+                JSON.stringify({
+                  sessionId: this.sessionId,
+                  liveSetId: this.liveSetId,
+                  filters,
+                  after: selected.at(-1)?.id,
+                }),
+              ).toString("base64url"),
+            }
+          : {}),
+      };
+    });
+  }
+
+  public searchFeatures(
+    input: ContextFeatureSearch,
+    options: ContextOperationOptions = {},
+  ): Promise<ContextFeatureSearchResult> {
+    return this.#read("search-features", options, async (readOptions) => {
+      const searchMs =
+        this.#options.maxFeatureSearchMs ?? LISTENING_FEATURE_LIMITS.searchMs;
+      const deadline = performance.now() + searchMs;
+      const timeout = AbortSignal.timeout(searchMs);
+      const query = contextFeatureSearchSchema.parse(input);
+      const source = this.#getFeature(query.featureId);
+      if (source === undefined)
+        throw new RepositoryConflictError(
+          "Query feature is outside current ownership or does not exist",
+        );
+      if (
+        query.featureType !== undefined &&
+        query.featureType !== source.feature.type
+      )
+        throw new TypeError("Search feature type must match the query feature");
+      const parameters: (string | number)[] = [
+        this.sessionId,
+        this.liveSetId,
+        source.feature.type,
+        source.id,
+      ];
+      const clauses = [
+        "f.session_id = ?",
+        "f.live_set_id = ?",
+        "f.feature_type = ?",
+        "f.id <> ?",
+      ];
+      if (query.excludeEntryIds.length > 0) {
+        clauses.push(
+          `f.entry_id NOT IN (${query.excludeEntryIds.map(() => "?").join(",")})`,
+        );
+        parameters.push(...query.excludeEntryIds);
+      }
+      if (!query.includeHistorical) clauses.push(this.#featureCurrentClause());
+      const where = clauses.join(" AND ");
+      const eligibleCount = Number(
+        rows(
+          this.#database,
+          `SELECT COUNT(*) AS n FROM context_features f WHERE ${where}`,
+          parameters,
+        )[0]?.n ?? 0,
+      );
+      const records = rows(
+        this.#database,
+        `SELECT f.payload FROM context_features f WHERE ${where} ORDER BY f.entry_id, f.segment_id, f.id LIMIT ?`,
+        [...parameters, query.candidateLimit],
+      );
+      const limitsHit: ("candidates" | "bytes" | "time")[] =
+        eligibleCount > query.candidateLimit ? ["candidates"] : [];
+      const matches: { feature: ContextFeature; distance: number }[] = [];
+      const exclusionReasons: Record<string, number> = {};
+      let scannedCount = 0;
+      let comparableCount = 0;
+      let bytes = 0;
+      const budget = { remaining: CONTEXT_LIMITS.revalidationsPerQuery };
+      const signal =
+        readOptions.signal === undefined
+          ? timeout
+          : AbortSignal.any([timeout, readOptions.signal]);
+      const searchOptions = { ...readOptions, signal };
+      const exclude = (reason: string): void => {
+        exclusionReasons[reason] = (exclusionReasons[reason] ?? 0) + 1;
+      };
+      try {
+        const sourceFreshness = await this.#featureFreshness(
+          source.entryId,
+          budget,
+          searchOptions,
+        );
+        if (
+          !query.includeHistorical &&
+          ["historical", "stale"].includes(sourceFreshness.status)
+        )
+          throw new RepositoryConflictError(
+            "Query feature is historical or stale",
+          );
+        for (const row of records) {
+          readOptions.signal?.throwIfAborted();
+          if (timeout.aborted || performance.now() >= deadline) {
+            limitsHit.push("time");
+            break;
+          }
+          bytes += Buffer.byteLength(String(row.payload), "utf8");
+          if (
+            bytes >
+            (this.#options.maxFeatureSearchBytes ??
+              LISTENING_FEATURE_LIMITS.candidateBytes)
+          ) {
+            limitsHit.push("bytes");
+            break;
+          }
+          const feature = decode(row.payload, (value) =>
+            contextFeatureSchema.parse(value),
+          );
+          const freshness = await this.#featureFreshness(
+            feature.entryId,
+            budget,
+            searchOptions,
+          );
+          scannedCount++;
+          if (
+            !query.includeHistorical &&
+            ["historical", "stale"].includes(freshness.status)
+          ) {
+            exclude(freshness.status);
+          } else {
+            const comparison = compareListeningFeatures(
+              source.feature,
+              feature.feature,
+            );
+            if (comparison.status === "comparable") {
+              comparableCount++;
+              matches.push({
+                feature: {
+                  ...feature,
+                  freshness,
+                  primarySubjectId: this.#featurePrimaryLink(
+                    feature.entryId,
+                    budget,
+                  ).subjectId,
+                },
+                distance: comparison.distance,
+              });
+            } else exclude(comparison.reason);
+          }
+          if (scannedCount % 32 === 0) await yieldTurn();
+        }
+      } catch (error) {
+        readOptions.signal?.throwIfAborted();
+        if (!timeout.aborted) throw error;
+        limitsHit.push("time");
+      }
+      matches.sort(
+        (a, b) =>
+          a.distance - b.distance ||
+          (a.feature.id < b.feature.id
+            ? -1
+            : a.feature.id > b.feature.id
+              ? 1
+              : 0),
+      );
+      return {
+        matches: matches.slice(0, query.limit),
+        scannedCount,
+        comparableCount,
+        eligibleCount,
+        excludedCount: scannedCount - comparableCount,
+        exhaustive: scannedCount === eligibleCount && limitsHit.length === 0,
+        limitsHit,
+        exclusionReasons,
+      };
+    });
+  }
+
+  #featureCurrentClause(): string {
+    return "EXISTS (SELECT 1 FROM context_links l WHERE l.entry_id = f.entry_id AND l.freshness NOT IN ('historical', 'stale'))";
+  }
+
+  #featureSource(entryId: string): ContextEntry | undefined {
+    const entry = this.#get("entries", entryId, parseEntry);
+    return entry?.sessionId === this.sessionId &&
+      entry.liveSetId === this.liveSetId
+      ? entry
+      : undefined;
+  }
+
+  #getFeature(id: string): ContextFeature | undefined {
+    contextSubjectSchema.shape.id.parse(id);
+    const row = rows(
+      this.#database,
+      "SELECT payload FROM context_features WHERE id = ? AND session_id = ? AND live_set_id = ?",
+      [id, this.sessionId, this.liveSetId],
+    )[0];
+    return row === undefined
+      ? undefined
+      : decode(row.payload, (value) => contextFeatureSchema.parse(value));
+  }
+
+  #getDerivation(entryId: string): ContextFeatureDerivation | undefined {
+    const row = rows(
+      this.#database,
+      "SELECT payload FROM context_feature_derivations WHERE entry_id = ?",
+      [entryId],
+    )[0];
+    return row === undefined
+      ? undefined
+      : decode(row.payload, (value) =>
+          contextFeatureDerivationSchema.parse(value),
+        );
+  }
+
+  #putDerivation(state: ContextFeatureDerivation): void {
+    const text = JSON.stringify(
+      contextFeatureDerivationSchema.parse(sanitizeStrings(state)),
+    );
+    if (Buffer.byteLength(text, "utf8") > LISTENING_FEATURE_LIMITS.batchBytes)
+      throw new ContextQuotaError(
+        "Derivation status exceeds reserved metadata",
+      );
+    // Reserve fixed bytes at source admission, including room for terminal failure reasons.
+    const payload =
+      text +
+      " ".repeat(
+        Math.max(
+          0,
+          DERIVATION_STATUS_BYTES -
+            Buffer.byteLength(text, "utf8") -
+            state.status.length,
+        ),
+      );
+    this.#database.run(
+      "INSERT INTO context_feature_derivations VALUES (?, ?, ?) ON CONFLICT(entry_id) DO UPDATE SET status = excluded.status, payload = excluded.payload",
+      [state.entryId, state.status, payload],
+    );
+  }
+
+  async #featureFreshness(
+    entryId: string,
+    budget: FeatureReadBudget,
+    options: ContextOperationOptions,
+  ): Promise<ContextFreshnessAssessment> {
+    budget.assessments ??= new Map();
+    const previous = budget.assessments.get(entryId);
+    if (previous !== undefined) return previous;
+    const pending = this.#assessFeatureFreshness(entryId, budget, options);
+    budget.assessments.set(entryId, pending);
+    return pending;
+  }
+
+  async #assessFeatureFreshness(
+    entryId: string,
+    budget: FeatureReadBudget,
+    options: ContextOperationOptions,
+  ): Promise<ContextFreshnessAssessment> {
+    options.signal?.throwIfAborted();
+    const link = this.#featurePrimaryLink(entryId, budget);
+    // Historical primary evidence is never upgraded through a current contributor.
+    if (["historical", "stale"].includes(link.freshness.status))
+      return link.freshness;
+    const pending = this.#currentLink(link, budget, options);
+    const signal = options.signal;
+    let onAbort: (() => void) | undefined;
+    try {
+      const current =
+        signal === undefined
+          ? await pending
+          : await new Promise<ContextLink>((resolve, reject) => {
+              onAbort = () =>
+                reject(new Error("Feature freshness read cancelled"));
+              signal.addEventListener("abort", onAbort, { once: true });
+              if (signal.aborted) onAbort();
+              void pending.then(resolve, reject);
+            });
+      return current.freshness;
+    } finally {
+      if (onAbort !== undefined) signal?.removeEventListener("abort", onAbort);
+    }
+  }
+
+  #featurePrimaryLink(entryId: string, budget: FeatureReadBudget): ContextLink {
+    budget.primaryLinks ??= new Map();
+    const existing = budget.primaryLinks.get(entryId);
+    if (existing !== undefined) return existing;
+    const links = rows(
+      this.#database,
+      "SELECT payload FROM context_links WHERE entry_id = ? ORDER BY id LIMIT 513",
+      [entryId],
+    )
+      .map((row) => decode(row.payload, parseLink))
+      .filter((link) => link.relationship === "primary");
+    const primary = links[0];
+    if (
+      links.length !== 1 ||
+      primary === undefined ||
+      primary.sessionId !== this.sessionId ||
+      primary.liveSetId !== this.liveSetId
+    )
+      throw new RepositoryConflictError(
+        "Feature source primary association is missing, ambiguous, or outside current ownership",
+      );
+    budget.primaryLinks.set(entryId, primary);
+    return primary;
   }
 
   public getEntry(
@@ -975,6 +1803,8 @@ export class SessionContextStore implements EntityContextRepository {
     toLiveSetId: string,
     options: ContextOperationOptions = {},
   ): Promise<void> {
+    for (const controller of this.#featureJobs.keys())
+      controller.abort(new Error("Context ownership transition"));
     return this.#operation(
       "ownership",
       options.trace,
@@ -1010,24 +1840,28 @@ export class SessionContextStore implements EntityContextRepository {
     selection: ContextPrune,
     options: ContextOperationOptions = {},
   ): Promise<ContextPruneResult> {
-    return this.#operation(
+    const input = contextPruneSchema.safeParse(selection);
+    const parsed = input.success
+      ? contextPruneSchema.safeParse(sanitizeStrings(input.data))
+      : input;
+    const admitted =
+      !this.#closed && !this.#closing && this.#pending < this.#maxPending;
+    const result = this.#operation(
       "prune",
       options.trace ?? selection.trace,
       options.signal,
       async () => {
-        const parsed = contextPruneSchema.parse(
-          sanitizeStrings(contextPruneSchema.parse(selection)),
-        );
+        if (!parsed.success) throw parsed.error;
         const before = TABLES.map((table) =>
           count(this.#database, `context_${table}`),
         );
         await this.#transaction(
           () => {
-            for (const id of parsed.passIds)
+            for (const id of parsed.data.passIds)
               this.#database.run("DELETE FROM context_passes WHERE id = ?", [
                 id,
               ]);
-            for (const id of parsed.entryIds)
+            for (const id of parsed.data.entryIds)
               this.#database.run("DELETE FROM context_entries WHERE id = ?", [
                 id,
               ]);
@@ -1053,11 +1887,26 @@ export class SessionContextStore implements EntityContextRepository {
       false,
       options.activeAgentId,
     );
+    if (admitted && parsed.success && options.signal?.aborted !== true) {
+      const entries = new Set(parsed.data.entryIds);
+      const passes = new Set(parsed.data.passIds);
+      for (const [controller, entryId] of this.#featureJobs) {
+        const source = this.#featureSource(entryId);
+        if (
+          entries.has(entryId) ||
+          (source !== undefined && passes.has(source.passId))
+        )
+          controller.abort(new Error("Context source pruning"));
+      }
+    }
+    return result;
   }
 
   public close(): Promise<void> {
     if (this.#closePromise !== undefined) return this.#closePromise;
     if (this.#closed) return Promise.resolve();
+    for (const controller of this.#featureJobs.keys())
+      controller.abort(new Error("Context store closing"));
     const result = this.#operation(
       "close",
       undefined,
@@ -1653,10 +2502,13 @@ export class SessionContextStore implements EntityContextRepository {
     action: string,
     inputTrace: ContextTrace | undefined,
     signal: AbortSignal | undefined,
-    operation: () => Promise<T>,
+    operation: (
+      progress: (attributes: Record<string, unknown>) => void,
+    ) => Promise<T>,
     allowOverflow = false,
     activeAgentId?: string,
     phase = "validating-and-persisting",
+    onFailure?: (error: unknown) => Promise<void>,
   ): Promise<T> {
     const trace = contextTraceSchema.parse(inputTrace ?? newTrace());
     const queuedAt = performance.now();
@@ -1683,21 +2535,31 @@ export class SessionContextStore implements EntityContextRepository {
       try {
         signal?.throwIfAborted();
         emit("progress", 0, { phase });
-        const value = await operation();
+        const value = await operation((attributes) =>
+          emit("progress", performance.now() - startedAt, attributes),
+        );
         emit("completed", performance.now() - startedAt);
         return value;
       } catch (error) {
+        let recoveryError: unknown;
+        try {
+          await onFailure?.(error);
+        } catch (failure) {
+          recoveryError = failure;
+        }
         emit(
           signal?.aborted === true ? "cancelled" : "failed",
           performance.now() - startedAt,
-          { error },
+          { error, ...(recoveryError === undefined ? {} : { recoveryError }) },
         );
         throw error;
       }
     }, allowOverflow);
     // Queue denial happens before the instrumented operation starts.
     return result.catch((error: unknown) => {
-      if (!started) emit("failed", performance.now() - queuedAt, { error });
+      if (!started) {
+        emit("failed", performance.now() - queuedAt, { error });
+      }
       throw error;
     });
   }

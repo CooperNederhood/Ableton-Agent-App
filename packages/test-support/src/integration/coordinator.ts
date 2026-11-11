@@ -38,6 +38,7 @@ import type {
   Submission,
   TurnEvidence,
   TurnSubscription,
+  SetupEvidence,
 } from "./contracts.js";
 import {
   identifier,
@@ -222,6 +223,11 @@ export async function runAcceptance(
     options.driver.capabilities,
   );
   requireCondition(
+    !options.scenario.steps.some((step) => step.setupActions?.length) ||
+      typeof options.driver.setup === "function",
+    "Declared setup actions require a setup-capable driver",
+  );
+  requireCondition(
     options.fixture.dependencies.length === 0 || options.provision,
     "Declared dependencies require explicit candidate provisioning",
   );
@@ -240,6 +246,7 @@ export async function runAcceptance(
   const runDeadline = startedAt + scenario.budget.runMs;
   const executed: string[] = [];
   const turns: TurnEvidence[] = [];
+  const setupActions: SetupEvidence[] = [];
   const assertions: AssertionResult[] = [];
   const finalizationFailures: RunFailure[] = [];
   const pendingOwnership = new Set<Promise<unknown>>();
@@ -528,6 +535,34 @@ export async function runAcceptance(
     const assistants = new Set<string>();
     for (const step of scenario.steps) {
       const deadline = Math.min(runDeadline, Date.now() + step.timeoutMs);
+      for (const action of step.setupActions ?? []) {
+        await bounded(
+          `setup.${step.id}.${action}`,
+          deadline,
+          async (ctx) => {
+            const observed = await options.driver.setup!(action, step, ctx);
+            validateEvidence({
+              schemaVersion: 1,
+              facts: {},
+              contexts: [],
+              unchanged: [],
+              setupActions: [observed],
+            });
+            requireCondition(
+              observed.completed === true &&
+                observed.action === action &&
+                observed.stepId === step.id &&
+                observed.traceId === ctx.traceId &&
+                observed.correlationId === ctx.correlationId &&
+                observed.causationId === ctx.causationId &&
+                sameIdentity(identity!, observed),
+              "Setup action evidence does not match its declared ownership",
+            );
+            setupActions.push(immutableCopy(observed));
+          },
+          options.signal,
+        );
+      }
       const submission: Submission = await bounded(
         `submit.${step.id}`,
         deadline,
@@ -618,7 +653,10 @@ export async function runAcceptance(
       "collect",
       runDeadline,
       async (ctx) => {
-        const collected = await options.driver.collect(ctx);
+        const collected = {
+          ...(await options.driver.collect(ctx)),
+          ...(setupActions.length ? { setupActions } : {}),
+        };
         validateEvidence(collected);
         const retained = safeCopy(
           collected,

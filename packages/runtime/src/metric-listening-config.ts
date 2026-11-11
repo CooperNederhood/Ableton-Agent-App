@@ -5,13 +5,17 @@ import {
   nativeMetricListeningConfigSchema,
   NATIVE_METRIC_ALGORITHM_VERSION,
   NATIVE_METRIC_LISTENING_SCOPE,
+  LISTENER_CAPABILITY_ANALYZER_TIMELINES,
   type ListeningTimingPolicy,
   type MetricAudioObservation,
   type NativeMetricListeningConfig,
   type StoredAudioObservation,
 } from "@ableton-agent/protocol";
 import type { ListeningPassContext } from "@ableton-agent/application";
-import type { ListenerDescriptor } from "@ableton-agent/signal-routing";
+import {
+  listenerRegistrationMetricSchema,
+  type ListenerDescriptor,
+} from "@ableton-agent/signal-routing";
 import { denyListening as deny, failureFact } from "./listening-failure.js";
 
 export interface MetricCaptureBinding {
@@ -44,6 +48,7 @@ export function createMetricCaptureBinding(input: {
     deny("listener_version_unsupported", undefined, [
       failureFact("listener.version", registration.version, 5),
     ]);
+  listenerRegistrationMetricSchema.parse(registration);
   if (
     registration.nativeStatus.scope !== NATIVE_METRIC_LISTENING_SCOPE ||
     !registration.nativeStatus.supportedModes.includes(input.source.view) ||
@@ -87,8 +92,27 @@ export function createMetricCaptureBinding(input: {
       "spectral-centroid",
       "attacks",
       "mel-bands",
+      ...(registration.capabilities.some(
+        (capability) => capability === LISTENER_CAPABILITY_ANALYZER_TIMELINES,
+      )
+        ? (["pitch", "spectral-shape"] as const)
+        : []),
     ]),
   ];
+  if (
+    requestedMetrics.some(
+      (metric) => metric === "pitch" || metric === "spectral-shape",
+    ) &&
+    !registration.capabilities.some(
+      (capability) => capability === LISTENER_CAPABILITY_ANALYZER_TIMELINES,
+    )
+  )
+    deny("analyzer_timelines_unavailable", undefined, [
+      failureFact(
+        "listener.requiredCapability",
+        LISTENER_CAPABILITY_ANALYZER_TIMELINES,
+      ),
+    ]);
   const shared = {
     scope: NATIVE_METRIC_LISTENING_SCOPE,
     algorithmVersion: NATIVE_METRIC_ALGORITHM_VERSION,

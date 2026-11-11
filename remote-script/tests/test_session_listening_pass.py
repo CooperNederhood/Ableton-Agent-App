@@ -474,6 +474,22 @@ class SessionListeningPassTest(unittest.TestCase):
                 self.assertEqual(self.call("inspect")["status"], "invalidated")
                 self.assertTrue(self.song.is_playing)
 
+    def test_available_clip_meter_monitors_latch_transient_changes_and_clean_up(self):
+        for field in ("signature_numerator", "signature_denominator"):
+            with self.subTest(field=field):
+                self.setUp()
+                self.clip.signature_numerator = 4
+                self.clip.signature_denominator = 4
+                self.call()
+                self.launch()
+                self.activate()
+                self.tick()
+                self.clip.change(field, 8)
+                self.clip.change(field, 4)
+                self.assertEqual(self.call("inspect")["status"], "invalidated")
+                self.call("release", reason="cancelled")
+                self.assert_no_monitors()
+
     def test_expired_or_cancelled_at_acceptance_before_fire_is_not_dispatched(self):
         self.call()
         deferred = self.call("launch")

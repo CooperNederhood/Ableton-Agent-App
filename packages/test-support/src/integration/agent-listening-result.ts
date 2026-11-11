@@ -21,7 +21,7 @@ import type {
 export interface AgentListeningEvidence extends SessionIdentity {
   readonly sdkTurnId: string;
   readonly afterOwnedRestart: boolean;
-  /** Complete typed query, not generic event attributes or runner context reads. */
+  /** Complete typed record set; full-feature receipts may project validated report bodies. */
   readonly records: AgentHistoryPage["items"];
 }
 

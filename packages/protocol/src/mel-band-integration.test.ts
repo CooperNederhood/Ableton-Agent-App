@@ -115,12 +115,14 @@ function budgetInput(observation: MetricAudioObservation) {
 }
 
 describe("registered mel-band metric contract integration", () => {
-  it("registers four requested metrics without adding mel to baseline observations or configs", () => {
+  it("registers optional metrics without adding them to historical baseline observations or configs", () => {
     expect(metricObservationMetricSchema.options).toEqual([
       "level",
       "spectral-centroid",
       "attacks",
       "mel-bands",
+      "pitch",
+      "spectral-shape",
     ]);
     const baseline = createSyntheticMetricListeningObservation();
     expect(metricAudioObservationSchema.parse(baseline)).toEqual(baseline);

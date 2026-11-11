@@ -1309,7 +1309,7 @@ for (const action of [
   }
 }
 
-test("renders and reopens persisted mel-band detail through typed IPC without starting Live", async () => {
+test("renders and reopens persisted mel and analyzer detail through typed IPC without starting Live", async () => {
   const launched = await launchIsolatedDesktop(
     {},
     undefined,
@@ -1382,11 +1382,27 @@ test("renders and reopens persisted mel-band detail through typed IPC without st
         });
       }, listeningFixtureSessionId);
       expect(details.entry.passId).toBe(melFixturePassId);
+      expect(details.entry.summary).toContain("Derived features ready");
       if (details.observation.schema !== "metric-audio-observation/v1")
         throw new Error("Expected metric fixture");
       expect(
         details.observation.metrics["mel-bands"]?.frames[0]?.magnitudes[1][23],
       ).toBe(124);
+      expect(details.observation.metrics.pitch?.frames[0]?.channels[1]).toEqual(
+        {
+          state: "undefined",
+          hz: 0,
+          confidence: 0,
+        },
+      );
+      expect(
+        details.observation.metrics["spectral-shape"]?.frames[0]?.channels[0],
+      ).toEqual({
+        state: "valid",
+        flatnessDb: -120,
+        spreadHz: 0,
+        rolloffHz: 1000,
+      });
       if (cycle === 0) {
         savedId = details.entry.contextId;
         savedPayload = JSON.stringify(details.observation);
@@ -1430,6 +1446,35 @@ test("renders and reopens persisted mel-band detail through typed IPC without st
       await expect(mel).toContainText("Unavailable (zero-denominator)");
       await expect(mel).toContainText("Unavailable (below-floor)");
       await expect(table.locator("tbody tr")).toHaveCount(24);
+      const pitch = window.getByRole("region", {
+        name: "pitch metric",
+        exact: true,
+      });
+      await expect(pitch).toContainText("2/2 validated acquisition frames");
+      await expect(pitch).toContainText("0 (undefined sentinel)");
+      await expect(pitch).toContainText("not verified pitch");
+      await expect(pitch).toContainText("known 2000 Hz sine");
+      await expect(
+        pitch.getByRole("button", {
+          name: "Previous pitch frame",
+          exact: true,
+        }),
+      ).toBeDisabled();
+      await pitch
+        .getByRole("button", { name: "Next pitch frame", exact: true })
+        .click();
+      await expect(pitch).toContainText("Low confidence estimate");
+      await expect(pitch).toContainText("0.25");
+      const shape = window.getByRole("region", {
+        name: "spectral-shape metric",
+        exact: true,
+      });
+      await expect(shape).toContainText("-120");
+      await expect(shape).toContainText("Unavailable");
+      await shape
+        .getByRole("button", { name: "Next spectral-shape frame", exact: true })
+        .click();
+      await expect(shape).toContainText("-119");
       expect(
         await window.evaluate(() =>
           Object.keys(globalThis.window.desktop.entityContext),
@@ -1721,6 +1766,7 @@ test("normal startup advertises metric listening and keeps producer credentials 
       listenerCapabilities: [
         "audio-listener/independent-metric-timelines-v1",
         "audio-listener/mel-band-timelines-v1",
+        "audio-listener/analyzer-timelines-v1",
       ],
     });
     expect(JSON.stringify(descriptor)).not.toContain(token);
@@ -2202,6 +2248,7 @@ test("accepts an MCP-style user message in the visible desktop session", async (
         listenerCapabilities: [
           "audio-listener/independent-metric-timelines-v1",
           "audio-listener/mel-band-timelines-v1",
+          "audio-listener/analyzer-timelines-v1",
         ],
       });
     await expect

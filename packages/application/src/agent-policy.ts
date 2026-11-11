@@ -4,6 +4,8 @@ import type { ConnectionStatus } from "@ableton-agent/shared";
 import type { SessionHooks } from "@github/copilot-sdk";
 import {
   BROWSER_IDENTITY_GUIDANCE,
+  FEATURE_VALUE_DETAIL_GUIDANCE,
+  METRIC_REPORT_PAGE_GUIDANCE,
   abletonToolMetadata,
   parseAbletonToolFailure,
   resolveAbletonOperation,
@@ -364,6 +366,23 @@ export function createAgentPolicy(services: AgentPolicyServices): AgentPolicy {
           VERIFIED_TOOL_RESULT_GUIDANCE,
           ...(input.toolName === "ableton_browser"
             ? [BROWSER_IDENTITY_GUIDANCE]
+            : []),
+          ...(input.toolName === "ableton_context" &&
+          input.toolArgs !== null &&
+          typeof input.toolArgs === "object" &&
+          "action" in input.toolArgs &&
+          typeof input.toolArgs.action === "string" &&
+          ["list-features", "compare-features", "search-features"].includes(
+            input.toolArgs.action,
+          )
+            ? [FEATURE_VALUE_DETAIL_GUIDANCE]
+            : []),
+          ...(input.toolName === "ableton_context" &&
+          input.toolArgs !== null &&
+          typeof input.toolArgs === "object" &&
+          "action" in input.toolArgs &&
+          input.toolArgs.action === "report"
+            ? [METRIC_REPORT_PAGE_GUIDANCE]
             : []),
         ].join("\n"),
       };

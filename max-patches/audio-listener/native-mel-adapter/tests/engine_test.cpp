@@ -380,7 +380,74 @@ void concurrentFifo() {
   producer.join();
 }
 
+void actualProbe() {
+  Engine engine(48000);
+  ProbeReceipt receipt;
+  engine.probe(99);
+  assert(!engine.probeReceipt(99, receipt)); // control is NOT execution
+  engine.dspSetup(48000, true);
+  double left = 0, right = 0, clock = 1234, epoch = 0, rejected = 0;
+  double origin = -1, abi = 3, total = 10000, vector = 64, sealed = 0;
+  engine.process({&left, &right, &clock, &epoch, &rejected, &origin, &abi,
+                  &total, &vector, &sealed}, 1);
+  assert(engine.probeReceipt(99, receipt));
+  assert(receipt.ready && receipt.generation == 1 && receipt.sourceClock == 1234);
+  assert(receipt.sampleRate == 48000);
+  engine.probe(100);
+  assert(!engine.probeReceipt(100, receipt));
+  abi = 2;
+  engine.process({&left, &right, &clock, &epoch, &rejected, &origin, &abi,
+                  &total, &vector, &sealed}, 1);
+  assert(engine.probeReceipt(100, receipt) && !receipt.ready);
+  engine.dspSetup(48000, false);
+  engine.probe(101);
+  abi = 3;
+  engine.process({&left, &right, &clock, &epoch, &rejected, &origin, &abi,
+                  &total, &vector, &sealed}, 1);
+  assert(engine.probeReceipt(101, receipt) && !receipt.ready);
+}
+
+void identityFaultEvidence() {
+  // Capture exact offending-sample operands, not a later callback snapshot.
+  const double nan = std::numeric_limits<double>::quiet_NaN();
+  const double inf = std::numeric_limits<double>::infinity();
+  const std::array<std::array<double, 4>, 10> cases{{
+    {2, 1, 0, 1}, {3, 2, 0, 1}, {3, 1, 14, 1}, {3, 1, 0, .5},
+    {nan, 1, 0, 1}, {3, nan, 0, 1}, {3, 1, nan, 1}, {3, 1, 0, nan},
+    {inf, 1, 0, 1}, {3, 1, -inf, 1}
+  }};
+  for (const auto& fault : cases) {
+    Harness h;
+    h.feed(window + 7);
+    auto prior = h.drain();
+    assert(prior.size() == 2);
+    double left = 0, right = 0, clock = h.position;
+    double abi = fault[0], epoch = fault[1], rejected = fault[2], sealed = fault[3];
+    h.engine.process({&left, &right, &clock, &epoch, &rejected, &h.origin,
+                      &abi, &h.total, &h.vector, &sealed}, 1);
+    // Mutating all signal storage AFTER perform must not change the evidence.
+    abi = epoch = rejected = sealed = -123;
+    auto records = h.drain();
+    assert(records.size() == 1);
+    const auto& terminal = records[0];
+    assert(terminal.kind == Kind::stopped && terminal.reason == Reason::sourceIdentity);
+    assert(terminal.epoch == 1 && terminal.generation == 1 && terminal.sequence == 1);
+    for (std::size_t i = 0; i < fault.size(); ++i)
+      assert(std::isnan(fault[i]) ? std::isnan(terminal.sourceIdentity[i])
+                                 : terminal.sourceIdentity[i] == fault[i]);
+    assert(terminal.sourceIdentity[4] == clock);
+    const auto receipt = h.engine.drainReceipt();
+    assert(receipt.terminal && receipt.records == 3 && receipt.frames == 1);
+    assert(!receipt.clockValid && receipt.clockExclusive == 0);
+    h.engine.process({&left, &right, &clock, &epoch, &rejected, &h.origin,
+                      &abi, &h.total, &h.vector, &sealed}, 1);
+    assert(h.drain().empty()); // one bounded fault record, no repeated telemetry
+  }
+}
+
 int main() {
+  identityFaultEvidence();
+  actualProbe();
   framing();
   partitionInvariant();
   physicalStopAndEpoch();
@@ -392,5 +459,5 @@ int main() {
   edgeCases();
   captureOriginAndTail();
   drainCompleteness();
-  std::cout << "11 native suites passed; capture binding, drain receipt and FFT verified\n";
+  std::cout << "13 native suites passed; actual ABI3 readiness, fault operands, capture binding, drain receipt and FFT verified\n";
 }

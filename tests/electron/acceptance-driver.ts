@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { lstat, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import {
@@ -10,6 +11,10 @@ import {
 import { sendAutomationMessage } from "@ableton-agent/debug-control";
 import { automationDiscoveryDescriptorSchema } from "@ableton-agent/debug-control/contracts";
 import { resolveLiveAgentStorage } from "@ableton-agent/storage";
+import { AbletonBridgeService } from "@ableton-agent/bridge";
+import { withCorrelation } from "@ableton-agent/correlation";
+import { InMemoryEventPublisher } from "@ableton-agent/shared";
+import { resolveBridgeCredential } from "../../apps/desktop/src/main/bridge-credentials.js";
 import { preferencesSchema } from "../../apps/desktop/src/contracts.js";
 import {
   metricAudioObservationSchema,
@@ -41,6 +46,8 @@ import type {
   TurnEvidence,
   TurnSubscription,
   AgentListeningEvidence,
+  SetupAction,
+  SetupEvidence,
 } from "@ableton-agent/test-support/integration";
 import {
   validateSupportedSessionBaseline,
@@ -61,6 +68,8 @@ import {
   validateMelBinaryProof,
   collectAgentListeningEvidence,
   verifyRestoredAgentListeningEvidence,
+  projectFeatureSource,
+  projectFeatureSearchHistory,
 } from "@ableton-agent/test-support/integration";
 import type { DesktopListeningJob } from "../../apps/desktop/src/listening-contracts.js";
 import type { DesktopContextDetail } from "../../apps/desktop/src/context-contracts.js";
@@ -217,6 +226,7 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
     }
   >();
   readonly #contexts = new Map<string, ContextEvidence>();
+  readonly #observedCapturePassIds = new Set<string>();
   readonly #contextTraces = new Map<
     string,
     { traceId: string; correlationId: string }
@@ -253,10 +263,12 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
   #historyCollected = false;
   #agentListening: AgentListeningEvidence[] = [];
   #restoredAgentListening: AgentListeningEvidence[] = [];
+  readonly #setupExecuted = new Set<SetupAction>();
+  #afterOwnedRestart = false;
   #desktopCleanupReceipts: PackagedCleanupReceipt[] = [];
   #omittedDesktopCleanupReceipts = 0;
   #provenance: Facts = {};
-  readonly #bridgeTiming: AcceptanceBridgeTimingProxy | undefined;
+  #bridgeTiming: AcceptanceBridgeTimingProxy | undefined;
   #bridgePort: number | undefined;
 
   constructor(private readonly options: PackagedAcceptanceOptions) {
@@ -276,6 +288,7 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
     if (
       snapshot &&
       requireRead &&
+      this.options.bridgeReadMinimumMs !== undefined &&
       !snapshot.records.some(
         (record) =>
           record.stage === "request" &&
@@ -517,10 +530,20 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
     );
     context.signal.throwIfAborted();
     await waitForRunnerOwnedLiveReady(this.#live, {
-      timeoutMs: Math.max(1, Math.min(60_000, context.deadlineAt - Date.now())),
+      timeoutMs: Math.max(1, context.deadlineAt - Date.now()),
       discardRecovery: false,
+      requireAudio: (context.fixture.listenerBindings?.length ?? 0) > 0,
+      signal: context.signal,
     });
     context.signal.throwIfAborted();
+    if (
+      context.scenario.steps.some((step) =>
+        step.setupActions?.includes("stop-transport"),
+      )
+    )
+      this.#bridgeTiming ??= new AcceptanceBridgeTimingProxy({
+        minimumReadMs: 0,
+      });
     if (this.#bridgeTiming) {
       this.#bridgePort = await this.#bridgeTiming.start();
       const storage = this.#storage();
@@ -534,8 +557,11 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
       );
       this.#provenance = {
         ...this.#provenance,
-        bridgeTimingMode: "read-response-minimum",
-        bridgeReadMinimumMs: this.options.bridgeReadMinimumMs!,
+        bridgeTimingMode:
+          this.options.bridgeReadMinimumMs === undefined
+            ? "exclusive-stop-handoff"
+            : "read-response-minimum",
+        bridgeReadMinimumMs: this.options.bridgeReadMinimumMs ?? 0,
       };
     }
     await this.#launchDesktop(context);
@@ -688,6 +714,9 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
     );
     if (jobs.length >= 100)
       throw new Error("Listening inventory may be truncated");
+    for (const job of jobs) this.#observedCapturePassIds.add(job.passId);
+    if (this.#observedCapturePassIds.size >= 100)
+      throw new Error("Run listening inventory exceeds evidence bound");
     return jobs;
   }
 
@@ -764,6 +793,19 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
     );
   }
 
+  #receiptHistory(
+    context: DriverContext,
+    history: AgentListeningEvidence,
+  ): AgentListeningEvidence {
+    return context.scenario.assertions.some(
+      (assertion) =>
+        assertion.name === "feature-search" &&
+        assertion.parameters.coverage !== "peak-only",
+    )
+      ? projectFeatureSearchHistory(history)
+      : history;
+  }
+
   async readBaseline(context: DriverContext): Promise<BaselineEvidence> {
     return this.#readBaseline(context);
   }
@@ -836,7 +878,11 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
       context.scenario.id !== "session-flucoma-pitch-smoke" &&
       !(
         kind === "mel" &&
-        context.scenario.id === "session-flucoma-melbands-smoke"
+        [
+          "session-flucoma-melbands-smoke",
+          "session-listening-feature-search",
+          "session-listening-peak-smoke",
+        ].includes(context.scenario.id)
       )
     )
       return;
@@ -1043,7 +1089,21 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
       )
     )
       throw new Error(
-        `Blocked source precondition: ${definition.id}.stoppedPosition`,
+        `Blocked source precondition: ${definition.id}.stoppedPosition ${JSON.stringify(
+          {
+            expectedBeat,
+            beforeBeat: source.before.globalBeat,
+            afterBeat: source.after.globalBeat,
+            beforePlaying: source.before.transportPlaying,
+            afterPlaying: source.after.transportPlaying,
+            beforeSlot: source.before.playingSlotIndex,
+            afterSlot: source.after.playingSlotIndex,
+            expectedSlot: target.target.sceneIndex,
+            remembered: expectedRemembered,
+            triggered: source.after.targetTriggered,
+            recording: source.after.targetRecording,
+          },
+        )}`,
       );
     if (
       "audio" in preflight &&
@@ -1362,6 +1422,137 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
     };
   }
 
+  async setup(
+    action: SetupAction,
+    step: ScenarioStep,
+    context: DriverContext,
+  ): Promise<SetupEvidence> {
+    context.signal.throwIfAborted();
+    if (
+      !(action === "restart-owned-desktop"
+        ? context.scenario.requiredCapabilities.includes("persistence")
+        : context.scenario.requiredCapabilities.includes("session-audio") ||
+          context.scenario.requiredCapabilities.includes("session-midi")) ||
+      !step.setupActions?.includes(action) ||
+      !context.scenario.steps.some(
+        (declared) =>
+          declared.id === step.id && declared.setupActions?.includes(action),
+      ) ||
+      this.#setupExecuted.has(action) ||
+      !this.#live.publicRecord() ||
+      !this.#application
+    )
+      throw new Error(
+        "Setup action lacks declared single-use owned-process admission",
+      );
+    const identity = required(this.#identity, "session identity");
+    this.#setupExecuted.add(action);
+    let transport: SetupEvidence["transport"];
+    if (action === "restart-owned-desktop") {
+      if (!context.scenario.requiredCapabilities.includes("persistence"))
+        throw new Error("Owned restart requires persistence admission");
+      await this.#restartDesktop(context);
+    } else {
+      await this.#verifyWorld(context);
+      const credential = await resolveBridgeCredential({
+        environment: process.env,
+        homeDirectory: homedir(),
+      });
+      const bridge = new AbletonBridgeService({
+        authenticationToken: required(
+          credential.token,
+          "installed bridge credential",
+        ),
+        events: new InMemoryEventPublisher(),
+        reconnect: { maxAttempts: 0 },
+        requestTimeoutMs: Math.max(
+          1,
+          Math.min(5000, context.deadlineAt - Date.now()),
+        ),
+      });
+      const stopped = await required(
+        this.#bridgeTiming,
+        "owned STOP bridge handoff",
+      ).withExclusiveUpstream(
+        context.signal,
+        () =>
+          withCorrelation(
+            {
+              traceId: context.traceId,
+              correlationId: context.correlationId,
+              causationId: context.causationId,
+              sessionId: identity.appSessionId,
+              operationId: `setup.${step.id}.stop-transport`,
+            },
+            async () => {
+              try {
+                await observe(() => bridge.start(), context.signal);
+                const status = await bridge.getStatus();
+                if (status.state !== "connected")
+                  throw new Error(
+                    `Runner bridge handshake failed: ${status.state}${status.state === "error" ? `/${status.code}` : ""}`,
+                  );
+                return await observe(
+                  () => bridge.setPlaying(false),
+                  context.signal,
+                );
+              } finally {
+                await bridge.stop();
+              }
+            },
+          ),
+        {
+          traceId: context.traceId,
+          correlationId: context.correlationId,
+          causationId: context.causationId,
+        },
+      );
+      if (!stopped.verified || stopped.afterIsPlaying)
+        throw new Error("Declared transport stop was not verified");
+      transport = {
+        command: "transport.set_playing",
+        dispatchedCount: 1,
+        beforePlaying: stopped.beforeIsPlaying,
+        afterPlaying: false,
+        verified: true,
+      };
+      const reconnected = await observe(
+        () => this.#getPage().evaluate(() => window.desktop.ableton.connect()),
+        context.signal,
+      );
+      if (reconnected.state !== "connected")
+        throw new Error(
+          "Owned Desktop bridge did not reconnect after runner STOP",
+        );
+      if ((await this.#verifyWorld(context)).transportStopped !== true)
+        throw new Error("Source inspection did not confirm stopped transport");
+    }
+    return {
+      ...identity,
+      action,
+      stepId: step.id,
+      completed: true,
+      traceId: context.traceId,
+      correlationId: context.correlationId,
+      causationId: context.causationId,
+      ...(transport ? { transport } : {}),
+    };
+  }
+
+  async #restartDesktop(context: DriverContext): Promise<void> {
+    const previous = required(this.#identity, "session identity");
+    await this.#jobs(context);
+    await this.#closeDesktop();
+    context.signal.throwIfAborted();
+    await this.#launchDesktop(context);
+    const restored = await this.#ready(context, false);
+    if (JSON.stringify(restored) !== JSON.stringify(previous))
+      throw new Error(
+        "Restart did not restore the same agent conversation and App session",
+      );
+    this.#afterOwnedRestart = true;
+  }
+
   async #verifyWorld(context: DriverContext): Promise<Facts> {
     if (!Object.keys(this.#sources).length) return {};
     context.signal.throwIfAborted();
@@ -1395,6 +1586,7 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
     let stoppedZero = snapshot.sessionClips!.every(
       (clip) => clip.status !== "playing" && clip.status !== "queued",
     );
+    let transportStopped = true;
     const remembered =
       context.fixture.baseline.rememberedSessionClips ??
       context.fixture.baseline.playingSessionClips;
@@ -1410,15 +1602,16 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
       );
       const listener = connections[0];
       if (
-        connections.length !== 1 ||
-        !listener ||
-        hash({
-          connectionId: listener.connectionId,
-          instanceId: listener.instanceId,
-          producerId: listener.producerId,
-          track: listener.track,
-          device: listener.device,
-        }) !== this.#listenerIdentities.get(id)
+        !this.#afterOwnedRestart &&
+        (connections.length !== 1 ||
+          !listener ||
+          hash({
+            connectionId: listener.connectionId,
+            instanceId: listener.instanceId,
+            producerId: listener.producerId,
+            track: listener.track,
+            device: listener.device,
+          }) !== this.#listenerIdentities.get(id))
       )
         throw new Error("Listener instance or connection changed");
       const request = {
@@ -1432,6 +1625,10 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
           window.desktop.ableton.inspectSessionListeningPreflight(request),
         request,
       );
+      transportStopped &&=
+        preflight.source.after.transportPlaying === false &&
+        preflight.recording.state.arrangementRecord === false &&
+        preflight.recording.state.sessionRecord === false;
       if (
         (await this.#verifySourceContent(
           context,
@@ -1458,7 +1655,7 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
         preflight.recording.state.sessionRecord === false;
     }
     context.signal.throwIfAborted();
-    return { ...facts, stoppedZero, stoppedDeclared };
+    return { ...facts, stoppedZero, stoppedDeclared, transportStopped };
   }
 
   async submit(
@@ -1468,6 +1665,10 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
     this.#assertBridgeTimingHealthy(true);
     context.signal.throwIfAborted();
     if (step.assertions.some((assertion) => assertion.name === "capture")) {
+      if (this.#afterOwnedRestart)
+        throw new Error(
+          "Capture after the owned persistence restart is forbidden",
+        );
       if (!step.sourceId || !this.#sources[step.sourceId])
         throw new Error("Capture turn requires an admitted source");
       const state = await this.#verifyWorld(context);
@@ -1476,7 +1677,11 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
         (context.fixture.baseline.rememberedSessionClips ??
           context.fixture.baseline.playingSessionClips) === 0;
       if (
-        (originalBaseline ? state.stoppedZero : state.stoppedDeclared) !== true
+        (step.setupActions?.includes("stop-transport")
+          ? this.#setupExecuted.has("stop-transport") && state.transportStopped
+          : originalBaseline
+            ? state.stoppedZero
+            : state.stoppedDeclared) !== true
       )
         throw new Error(
           originalBaseline
@@ -1546,6 +1751,32 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
     return detail;
   }
 
+  async #featureSources(context: DriverContext) {
+    const coverage =
+      context.scenario.assertions.find(({ name }) => name === "feature-search")
+        ?.parameters.coverage === "peak-only"
+        ? "peak-only"
+        : "full";
+    const sources = [];
+    for (const contextId of this.#contexts.keys()) {
+      const detail = await this.#readContext(contextId, context);
+      this.#context(
+        detail,
+        this.#afterOwnedRestart,
+        required(this.#contextTraces.get(contextId), "context SDK trace"),
+      );
+      sources.push(
+        projectFeatureSource(
+          contextId,
+          detail.observation,
+          this.#afterOwnedRestart,
+          coverage,
+        ),
+      );
+    }
+    return sources;
+  }
+
   #context(
     detail: DesktopContextDetail,
     afterOwnedRestart: boolean,
@@ -1596,7 +1827,6 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
     turnLoop: for (;;) {
       context.signal.throwIfAborted();
       const events = this.#events.read().slice(link.eventOffset);
-      await this.#handleApprovals(events, submission);
       const submitted = events.filter(
         (event) =>
           event.type === "agent.user_message_submitted" &&
@@ -1647,6 +1877,7 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
         );
       const sdkTurnId = activities.values().next().value;
       if (sdkTurnId) this.#sdkTurns.set(submission.userMessageId, sdkTurnId);
+      await this.#handleApprovals(events, submission, context);
       const completed = events
         .filter(
           (event) =>
@@ -1861,17 +2092,18 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
           contexts.push(
             this.#context(
               await this.#readContext(contextId, context),
-              false,
+              this.#afterOwnedRestart,
               required(this.#contextTraces.get(contextId), "context SDK trace"),
             ),
           );
         const agentListening = link.step.assertions.some(
-          ({ name }) => name === "agent-listening-result",
+          ({ name }) =>
+            name === "agent-listening-result" || name === "feature-search",
         )
           ? await this.#readAgentListening(
               context,
               { ...submission, sdkTurnId },
-              false,
+              this.#afterOwnedRestart,
             )
           : undefined;
         if (agentListening) this.#agentListening.push(agentListening);
@@ -1894,7 +2126,12 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
           ...(pitchSmoke.length ? { pitchSmoke } : {}),
           ...(melSmoke.length ? { melSmoke } : {}),
           contexts,
-          ...(agentListening ? { agentListening } : {}),
+          ...(link.step.assertions.some(({ name }) => name === "feature-search")
+            ? { featureSources: await this.#featureSources(context) }
+            : {}),
+          ...(agentListening
+            ? { agentListening: this.#receiptHistory(context, agentListening) }
+            : {}),
           facts: {
             sdkTurnId,
             ...Object.fromEntries(
@@ -1915,6 +2152,7 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
   async #handleApprovals(
     events: readonly DesktopAppEvent[],
     submission: Submission,
+    context: DriverContext,
   ): Promise<void> {
     for (const event of events) {
       if (
@@ -1943,6 +2181,52 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
       let invalidArguments: Error | undefined;
       if (tool?.argumentsComplete && tool.action) {
         try {
+          const step = this.#submissions.get(submission.userMessageId)?.step;
+          let source = this.#sources[step?.sourceId ?? ""];
+          let approvalArguments = tool.arguments;
+          if (
+            tool.name === "ableton_context" &&
+            tool.action === "derive-features" &&
+            source
+          ) {
+            const sdkTurnId = this.#sdkTurns.get(submission.userMessageId);
+            const jobs = (await this.#jobs(context)).filter(
+              (job) =>
+                job.stage === "completed" &&
+                job.trace.traceId === sdkTurnId &&
+                job.agentId === submission.agentId &&
+                job.sessionId === submission.appSessionId &&
+                job.contextIds.length === 1,
+            );
+            if (jobs.length !== 1)
+              throw new Error(
+                "Derivation approval requires exactly one completed invoking capture",
+              );
+            const contextId = jobs[0]!.contextIds[0]!;
+            const detail = await this.#readContext(contextId, context);
+            const observed = metricAudioObservationSchema.parse(
+              detail.observation,
+            );
+            const matched = observedSessionSource(
+              observed.source,
+              observed.ownership.listenerId,
+              this.#sources,
+            );
+            if (
+              matched.source.clipId !== source.source.clipId ||
+              observed.ownership.traceId !== sdkTurnId
+            )
+              throw new Error(
+                "Derivation approval source does not match the invoking turn",
+              );
+            source = { ...source, contextId };
+            // Apply only the public derive default; explicit values remain guarded.
+            if (!Object.hasOwn(tool.arguments, "includeHistorical"))
+              approvalArguments = {
+                ...tool.arguments,
+                includeHistorical: false,
+              };
+          }
           permitted = required(
             this.#approvalPolicy,
             "reviewed approval policy",
@@ -1951,16 +2235,13 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
               ...owner,
               tool: tool.name,
               action: tool.action,
-              arguments: tool.arguments,
+              arguments: approvalArguments,
               risk: event.approval.risk,
               destructive: event.approval.destructive,
             },
             owner,
-            this.#sources[
-              this.#submissions.get(submission.userMessageId)?.step.sourceId ??
-                ""
-            ],
-            this.#submissions.get(submission.userMessageId)?.step.id,
+            source,
+            step?.id,
           );
         } catch (error) {
           invalidArguments =
@@ -1985,9 +2266,7 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
 
   async collect(context: DriverContext): Promise<RunEvidence> {
     this.#assertBridgeTimingHealthy();
-    const capturePassIds = new Set(
-      (await this.#jobs(context)).map(({ passId }) => passId),
-    );
+    await this.#jobs(context);
     const snapshot = await this.#getPage().evaluate(() =>
       window.desktop.ableton.requestSnapshot(),
     );
@@ -2064,17 +2343,8 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
     const previous = required(this.#identity, "session identity");
     const afterRestart =
       context.scenario.requiredCapabilities.includes("persistence");
-    if (afterRestart) {
-      await this.#closeDesktop();
-      await this.#launchDesktop(context);
-      // Native disconnect deliberately requires device reload. Persistence is a
-      // read-only restore check, not another capture or a reconnect qualification.
-      const restored = await this.#ready(context, false);
-      if (JSON.stringify(restored) !== JSON.stringify(previous))
-        throw new Error(
-          "Restart did not restore the same agent conversation and App session",
-        );
-    }
+    if (afterRestart && !this.#afterOwnedRestart)
+      await this.#restartDesktop(context);
     const contexts: ContextEvidence[] = [];
     const melSmoke = await restoreMelSmoke(
       [...this.#melSmoke.values()],
@@ -2092,7 +2362,7 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
           required(this.#contextTraces.get(contextId), "context SDK trace"),
         ),
       );
-    for (const job of await this.#jobs(context)) capturePassIds.add(job.passId);
+    await this.#jobs(context);
     await this.#readTrace(context);
     const flatnessSmoke = await restoreFlatnessSmoke(
       [...this.#flatnessSmoke.values()],
@@ -2114,19 +2384,21 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
       afterRestart,
       (traceId) => this.#readTrace(context, traceId),
     );
-    for (const original of this.#agentListening) {
-      const restored = await this.#readAgentListening(
-        context,
-        original,
-        afterRestart,
-      );
-      this.#restoredAgentListening.push(restored);
+    if (afterRestart) {
+      for (const original of this.#agentListening) {
+        const restored = await this.#readAgentListening(
+          context,
+          original,
+          true,
+        );
+        this.#restoredAgentListening.push(restored);
+      }
+      if (this.#agentListening.length)
+        verifyRestoredAgentListeningEvidence(
+          this.#agentListening.map((agentListening) => ({ agentListening })),
+          this.#restoredAgentListening,
+        );
     }
-    if (this.#agentListening.length)
-      verifyRestoredAgentListeningEvidence(
-        this.#agentListening.map((agentListening) => ({ agentListening })),
-        this.#restoredAgentListening,
-      );
     for (const traceId of new Set(this.#sdkTurns.values()))
       if (
         ![
@@ -2143,11 +2415,20 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
     this.#assertBridgeTimingHealthy();
     return {
       schemaVersion: 1,
-      capturePassIds: [...capturePassIds],
+      capturePassIds: [...this.#observedCapturePassIds],
       facts: { ...this.#provenance, persistedContexts: contexts.length },
       contexts,
+      ...(context.scenario.assertions.some(
+        ({ name }) => name === "feature-search",
+      )
+        ? { featureSources: await this.#featureSources(context) }
+        : {}),
       ...(this.#restoredAgentListening.length
-        ? { agentListening: this.#restoredAgentListening }
+        ? {
+            agentListening: this.#restoredAgentListening.map((history) =>
+              this.#receiptHistory(context, history),
+            ),
+          }
         : {}),
       ...(flatnessSmoke.length ? { flatnessSmoke } : {}),
       ...(spreadSmoke.length ? { spreadSmoke } : {}),
@@ -2220,6 +2501,14 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
         }, signal);
       });
     }
+    const bridgeAtCleanup = this.#bridgeTiming;
+    const closeBridgeProxy = async () => {
+      await this.#bridgeTiming!.close();
+      this.#assertBridgeTimingHealthy();
+    };
+    // Claim socket shutdown before the owned process disconnects with pending reads.
+    if (bridgeAtCleanup)
+      await cleanup.attempt("bridge-proxy", closeBridgeProxy);
     // Closing a known process releases blocked page calls before awaiting a late launch.
     await cleanup.attempt("desktop-stop", () => this.#closeDesktop());
     await cleanup.attempt("settle-acquisitions", async () => {
@@ -2228,12 +2517,8 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
         await this.#desktopLaunching.catch(() => undefined);
       if (this.#provisioning) await this.#provisioning.catch(() => undefined);
     });
-    if (this.#bridgeTiming) {
-      await cleanup.attempt("bridge-proxy", async () => {
-        await this.#bridgeTiming!.close();
-        this.#assertBridgeTimingHealthy();
-      });
-    }
+    if (this.#bridgeTiming && this.#bridgeTiming !== bridgeAtCleanup)
+      await cleanup.attempt("bridge-proxy-after-settle", closeBridgeProxy);
     await cleanup.attempt("product-evidence", async () => {
       await writeScenarioReceipt(
         join(this.options.runDirectory, "product-evidence.json"),

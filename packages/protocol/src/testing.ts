@@ -329,3 +329,7 @@ export {
   createSyntheticPartialMetricListeningObservation,
   createSyntheticMetricSpectrumEvidence,
 } from "./metric-testing.js";
+export {
+  withSyntheticAnalyzerTimelines,
+  createSyntheticAnalyzerReadiness,
+} from "./analyzer-testing.js";

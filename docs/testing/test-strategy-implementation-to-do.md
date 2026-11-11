@@ -1,5 +1,189 @@
 # Test Strategy Implementation To-Do
 
+## Measurement features (#113)
+
+- [x] Establish missing-feature red regression and exact peak arithmetic,
+  source preservation, measured-zero/unavailable and incomplete-support tests.
+- [x] Demonstrate clip-meter inspection and transient-change regressions fail
+  against baseline Python modules; pass the 294-test Remote Script suite and
+  37-test bridge suite with protocol 10 contracts. This is not Live evidence.
+- [x] Bound feature value/support pages independently, preserve null masks and
+  segment-wide normalization, and summarize maximum-size derivation ID sets.
+  Keep the typed History derivation fixture aligned with the compact response.
+- [x] Complete core repository/host/tool/Desktop ownership, persistence, lifecycle,
+  cancellation, quota, bounded-search and cleanup regressions.
+- [x] Add analyzer detail component and Electron IPC/restart regressions:
+  renderer 251/251, Electron 23/23, application/tools 540/540. Preserve and fix
+  the initial fixture shutdown/derivation race and obsolete catalog/capability
+  expectations; these are synthetic application checks, not native execution.
+- [x] Update native-runner synthetic source fixtures for explicit clip meter;
+  the failing schema cases pass in the 235-test focused regression run.
+- [x] Add every measurement's healthy feature/comparison coverage and a fixed
+  registry completeness check; qualify newly stored analyzer outputs numerically.
+  The canonical `MAX4LIVE_MCP_ROOT` setup blocker is resolved and offline native
+  arithmetic is qualified. All fifteen definitions and the universal ABI3
+  producer are published, including performed-readiness and companion-resource
+  inventory checks. Physical host acquisition remains a separate pending gate;
+  diagnostic deliveries are not an acceptable replacement.
+- [x] Complete whole-workspace build/typechecks, repository lint/format,
+  documentation/version/protocol/device checks and Remote Script tests (294).
+  Preserve the parallel full-suite timeout: its isolated revalidation test and
+  complete 159-test project-state owner pass without increasing timeouts.
+- [x] Finish the final workspace sweep after native-startup fixtures include
+  performed readiness and host-driven fixes: 5,690 tests across 255 files pass
+  with four workers and zero skipped; Electron passes 23/23. Earlier packaging
+  failures and the parallel timeout remain recorded; no timeout increase or
+  skipped-test exemption was used.
+- [x] Execute the scoped same-agent two-capture feature-search acceptance,
+  persistence and cleanup checks; preserve failures and any blocked pitch case.
+  First attempt `run-ridQYg` failed at Live startup behind pre-existing crash
+  recovery, before Desktop or any turn/capture. Owned cleanup completed.
+  The user resolved recovery and closed Live cleanly. Second attempt
+  `run-ULocYv` reached the first turn but captured nothing: a stale
+  two-capability binding validator rejected analyzer-capable registration.
+  Preserve both receipts; fix and regression-test that boundary before retry.
+  The shared registration fix passes 1,811 owning tests. Third attempt
+  `run-USX4ji` discovered the listener but failed preparation on unsupported
+  `Object.hasOwn`. The supported predicate passes a compiled-bundle red/green
+  regression and 2,506 protocol/script tests; retain its failed host receipt
+  and complete cleanup.
+  Fourth attempt `run-5NJeOs` completed acquisition but failed publication's
+  same-repository guard because reconstructed execution contexts received
+  distinct Desktop actor wrappers. Fix identity without weakening ownership,
+  cancellation or attribution; no context was published and cleanup completed.
+  The store-token fix passes 774 runtime/Desktop and 159 project-state tests.
+  Fifth attempt `run-TECwOb` failed native capture cleanup confirmation before
+  publication; final process/profile cleanup completed. Diagnose the native
+  failure independently; do not treat final cleanup as capture confirmation.
+  Additive fault-point diagnostics pass offline checks, but sixth attempt
+  `run-5f9zDG` still fails source identity and retains none of the new operand
+  events. First-failure preservation works; investigate actual diagnostic
+  delivery and mapped-external provenance before retrying. Cleanup completed.
+- [ ] Run required visual desktop workflow validation after exact-state checks.
+- [x] Register the user-selected same-session peak milestone without restart,
+  new capture flags, changed assets, or relaxed full-catalog defaults.
+- [x] Cover mapped-adapter baseline enforcement and clarify feature argument
+  names/original-measurement reads with red/green regressions.
+- [x] Pass `session-listening-peak-smoke` in `run-DSlBN3` with all nine assertions
+  and complete final cleanup. Preserve the earlier unsuccessful attempts:
+  `run-HNzDTZ` and `run-lOO5ME`
+  independently pass the first capture/publication oracle and read its stored
+  peak feature, but fail agent-consumption requirements before the second
+  capture. `run-G4Q5LG` fails native launch with
+  `metric_spectrum_shared_failure`. All final cleanup passes. Comparison/search
+  are not yet proven by this host case.
+- [x] Diagnose the reader-triggered epoch-zero failure from `run-e6OaA6` and
+  retain per-bank monotonicity regression coverage without relaxing native
+  identity or global new-pass/cleanup boundaries (266 owning, 19 package tests).
+- [x] Bound raw agent metric reads and prefer existing paged reports after
+  `run-ZwJbX2` exposed an SDK-spilled response; retain full typed Desktop reads
+  and typed History regression coverage (426 tools/runtime tests).
+- [x] Escalate bounded-read/per-bank fixes: 5,695 workspace tests, 985 Max tests,
+  and 23 Electron tests pass. Update the stale application prompt assertion
+  exposed by the first workspace sweep to enforce report-first guidance.
+- [x] Resolve the runner STOP capability failure in `run-6vu8LH` with a bounded
+  single-client proxy handoff, then rerun the unchanged same-session peak case.
+  `run-vSZQII` passes STOP, both captures and retained-context checks; the owning
+  workspace sweep passes 5,704 tests.
+- [ ] Complete explicit second-turn feature rereads and pair comparison.
+  `run-vSZQII` returns the other context from source-excluding search at distance
+  0, independently consistent with both stored stereo peak vectors, but omits
+  the first-feature reread and separate comparison call. The scenario remains
+  failed with final assertions unrun and complete owned cleanup.
+- [x] Independently check original level-row reduction against actual pair and
+  search results in `run-TQyFgQ`: both distances are correctly 0. Preserve the
+  failed receipt because second-turn explicit feature-value reads remain absent.
+- [x] Add compact action-local value-read guidance and exact typed History suffix
+  handling with 859 owning regressions; preserve metadata/value distinctions.
+- [x] Escalate final guidance and STOP handoff changes to 5,722 workspace tests
+  across 255 files and 23 Electron tests, all passing.
+- [x] Resolve the same-turn reread contract decision. `run-Y4gRuG` reads the first
+  feature in turn one and the new feature in turn two, then successfully compares
+  and searches, but omits the first-feature reread in turn two. The user was
+  initially unavailable; subsequently approved accepting verified immutable
+  reads across the same conversation and requested continued execution.
+- [x] Apply the approved peak-only prior-read evidence rule with identity,
+  attribution and missing-evidence regressions, then pass a fresh terminal
+  same-session smoke without relaxing its remaining checks.
+- [x] Implement the approved prior-read rule with 23 new regressions; 5,745
+  workspace tests pass. Keep the separate fresh host milestone open.
+- [x] Resolve readiness-cancellation proxy teardown from `run-IpjSVr`: zero
+  submitted turns and no surviving owned host processes, but the terminal
+  cleanup receipt fails on `client_closed_with_pending_work`.
+- [x] After the user's host reset, verify exact previous process absence and
+  recover only the retained `run-fub3JG` lease owner. Preserve its failed
+  receipt; the subsequent `run-DSlBN3` passes with complete owned cleanup.
+- [x] Manually archive twelve reviewed terminal runs under the existing acceptance
+  evidence root, verifying all 708 files before removing duplicates; preserve
+  historical verdicts and restore offline admission without raising quotas.
+- [x] After the peak milestone, run the user-selected existing full six-family,
+  fifteen-definition scenario with its owned Desktop restart. `run-sQ6iJ8`
+  passes first-turn full capture/feature checks, then fails second-turn bounded
+  History collection; restart is unrun and final owned cleanup passes.
+- [x] Run the approved single reviewed Operator capture with
+  `session-stopped-quantized-midi`: `run-Ldx9ZB` passes all assertions and cleanup.
+  Independently validate authoritative pitch: 36 accepted/43 frames per channel
+  near 262.67 Hz, three low-confidence, four undefined, no gaps and explicit tail.
+- [x] Compact full report-consumption receipt evidence without increasing
+  budgets; preserve complete reports separately and strict source matching.
+  Extend approved same-conversation reuse to analyzer summaries before restart,
+  retaining fresh restored reads. The workspace suite passes 5,801 tests.
+- [x] Resolve the action-specific pagination discovery failure in `run-kzgwQV`;
+  `run-vXr1LM` repeats it despite nested descriptions. Inspect the actual exposed
+  contract; preserve unsupported-offset rejection and the stop-on-failure oracle.
+- [x] Check all fifteen extraction/comparison definitions against the two real
+  peak-smoke observations: twelve comparable distances recompute to 0; energy/
+  centroid retain FFT-phase incompatibility and kick pitch remains unavailable.
+- [x] Correct the existing top-level pagination argument summary after confirming
+  the packaged nested descriptions were present; 5,807 workspace tests pass.
+- [ ] Diagnose/fix native `counter_incoherent (4)` arming rejection in
+  `run-r0h6na` before rerunning full measurement/restart acceptance. Preserve
+  fault operands and failed capture cleanup separately from complete process
+  cleanup; do not weaken coherence guards.
+- [x] Retain the rejected FFT bookends at the fault point: current host-clock
+  diagnostics are not those operands. Instrumentation is not a root fix;
+  determine the rejected predicate from exact evidence if it recurs.
+- [x] Validate bounded FFT fault diagnostics: 274 owning, 19 packaging/runtime
+  and 998 full Max tests pass without guard, ABI or timeout changes.
+- [x] Recheck launch readiness after the historical Accessibility blocker:
+  `run-ryuIP1` remains launch-blocked with zero turns and complete cleanup;
+  its permission request was skipped. Later approved quantized runs reach
+  actual Live turns without a bypass. Full restart and visual gates remain open.
+- [x] Execute the subsequently approved quantized MIDI/audio checkpoint on
+  2026-11-07. Actual Live turns now run; this does not retroactively qualify the
+  earlier permission-blocked receipt or the unrun visual/restart gates.
+- [x] Reproduce MIDI arming failure in `run-P6yJER`, capture exact clock operands
+  in `run-iq1Ltd`, and validate the bounded acquisition fix with red/green
+  regressions, 1,008 Max checks, 203 protocol checks and packaged launch/install.
+  Corrected-candidate `run-20nhYR` passes all four MIDI assertions and cleanup.
+- [x] Address audio `run-LKjZog` running-clock hold failure after the requested
+  checkpoint. It publishes no context; final capture/process/profile cleanup
+  completes. Follow-up running-clock and ordered FFT fixes pass 1,031 Max tests,
+  then audio `run-KeAplC`, MIDI `run-Js6e0r` and peak `run-5AXSXg` pass with
+  terminal cleanup. These are bounded recoveries, not general reliability.
+- [x] Add report-page/fresh-reread guidance and strict History suffix handling;
+  preserve skipped-read failures `run-54p1lT` and `run-5nMJGO`.
+- [x] Regress and correct the explicitly approved transport-read-only verifier
+  restriction exposed by `run-zYhRGa`, keeping all other gates unchanged.
+- [x] Finish four packaged checks and preserve-profile installation. The two
+  missing-fixture native repeat/switch scenarios are explicitly deferred.
+- [x] Complete supported rebuild/install/authentication/launch, preserving the
+  default profile. Verify installed application/package equality and fifty
+  listener resource hashes against `run-356zOY`; native deferred cases stay unrun.
+- [x] Apply the approved outcome-based revision to `run-8Dr6MW`: independently
+  verified exact peak equality and full canonical inventory can replace
+  redundant calls. Keep genuine fresh persisted evidence and all mutation guards.
+- [x] Regress presentation-only receipt compaction and outcome-based fresh
+  source reports backed by independently unchanged full timelines: 197 focused
+  and 818 owning tests pass.
+- [x] Resolve `run-qFzkdY` restored-turn deadline after both capture/feature
+  phases pass. Preserve `run-6soIhz` receipt-budget failure and both cleanups;
+  no full pass, silent budget increase or normal-profile reinstall.
+- [x] Apply explicit scenario-local five-minute restored-step approval and fix
+  the subsequently exposed loss of pre-restart capture IDs. All 1,040 owning
+  checks pass; fresh `run-356zOY` passes all ten assertions and cleanup on
+  Live 11.3.43. Earlier failed receipts and deferred native coverage remain.
+
 ## F3 mel-band smoke scope (#105)
 
 - [x] Select full feature implementation with one existing-fixture packaged

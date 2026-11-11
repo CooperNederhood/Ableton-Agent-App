@@ -994,6 +994,8 @@ describe("HeadlessApplication", () => {
         tempoBpm: null,
         signatureNumerator: null,
         signatureDenominator: null,
+        clipSignatureNumerator: null,
+        clipSignatureDenominator: null,
         globalQuantization: null,
         launchQuantization: null,
         launchMode: null,

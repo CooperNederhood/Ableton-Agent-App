@@ -5,11 +5,13 @@ import {
   type Socket,
 } from "node:net";
 import { performance } from "node:perf_hooks";
+import { setTimeout as delay } from "node:timers/promises";
 import {
   DEFAULT_MAX_FRAME_BYTES,
   FRAME_HEADER_BYTES,
 } from "../../packages/protocol/src/constants.js";
 import { FrameDecoder } from "../../packages/protocol/src/framing.js";
+import { commandCatalog } from "../../packages/protocol/src/catalog.js";
 import type { MessageEnvelope } from "../../packages/protocol/src/schemas.js";
 
 const READ_COMMANDS = new Set([
@@ -18,6 +20,11 @@ const READ_COMMANDS = new Set([
   "listening.inspect_context",
   "listening.inspect_session_pass",
 ]);
+const READ_ONLY_COMMANDS = new Set(
+  Object.entries(commandCatalog)
+    .filter(([, definition]) => !definition.mutates)
+    .map(([command]) => command),
+);
 
 export const ACCEPTANCE_BRIDGE_TIMING_LIMITS = {
   tunnels: 4,
@@ -29,7 +36,7 @@ export const ACCEPTANCE_BRIDGE_TIMING_LIMITS = {
 type State = "queued" | "started" | "completed" | "failed" | "cancelled";
 export interface AcceptanceBridgeTimingRecord {
   id: number;
-  stage: "proxy" | "tunnel" | "request" | "close";
+  stage: "proxy" | "tunnel" | "request" | "handoff" | "close";
   state: State;
   queuedMs: number;
   startedMs?: number;
@@ -37,11 +44,15 @@ export interface AcceptanceBridgeTimingRecord {
   tunnelId?: number;
   requestId?: string;
   command?: string;
+  readOnly?: boolean;
   minimumReadMs?: number;
   responseOk?: boolean;
   observedResponseMs?: number;
   deliveredRoundTripMs?: number;
   failure?: string;
+  traceId?: string;
+  correlationId?: string;
+  causationId?: string;
 }
 
 export interface AcceptanceBridgeTimingEvent {
@@ -73,6 +84,8 @@ interface Tunnel {
   pendingBytes: number;
   writing: boolean;
   stopped: boolean;
+  requestFrames: RawFrames;
+  responseFrames: RawFrames;
   timer?: ReturnType<typeof setTimeout> | undefined;
 }
 
@@ -110,7 +123,7 @@ class RawFrames {
 }
 
 /**
- * Test-only timing intervention, never a bridge implementation: all forwarded
+ * Runner-only socket handoff/timing proxy, never a bridge implementation: forwarded
  * frames are byte-for-byte originals, including auth, sequence and trace fields.
  * Any diagnostic failure tears down the proxy rather than bypassing the delay.
  */
@@ -127,14 +140,16 @@ export class AcceptanceBridgeTimingProxy {
     "idle";
   #failure?: string;
   #proxyRecord?: AcceptanceBridgeTimingRecord;
+  #exclusive = false;
+  #handoffUsed = false;
 
   public constructor(options: AcceptanceBridgeTimingOptions) {
     if (
       !Number.isFinite(options.minimumReadMs) ||
-      options.minimumReadMs < 1 ||
+      options.minimumReadMs < 0 ||
       options.minimumReadMs > 1000
     ) {
-      throw new RangeError("minimumReadMs must be between 1 and 1000");
+      throw new RangeError("minimumReadMs must be between 0 and 1000");
     }
     const port = options.testOnlyUpstreamPort ?? 8765;
     if (!Number.isSafeInteger(port) || port < 1 || port > 65535) {
@@ -227,6 +242,11 @@ export class AcceptanceBridgeTimingProxy {
   }
 
   #accept(client: Socket): void {
+    if (this.#exclusive) {
+      client.on("error", () => undefined);
+      client.destroy();
+      return;
+    }
     // Install an error handler even for a rejected socket.
     client.on("error", () => this.#fail("client_socket_error"));
     if (
@@ -246,6 +266,8 @@ export class AcceptanceBridgeTimingProxy {
       host: "127.0.0.1",
       port: this.#upstreamPort,
     });
+    const requests = new RawFrames();
+    const responses = new RawFrames();
     const tunnel: Tunnel = {
       record,
       client,
@@ -255,12 +277,12 @@ export class AcceptanceBridgeTimingProxy {
       pendingBytes: 0,
       writing: false,
       stopped: false,
+      requestFrames: requests,
+      responseFrames: responses,
     };
     this.#tunnels.add(tunnel);
     client.setNoDelay(true);
     upstream.setNoDelay(true);
-    const requests = new RawFrames();
-    const responses = new RawFrames();
     upstream.on("error", () => this.#fail("upstream_socket_error"));
     upstream.once("connect", () => {
       if (!tunnel.stopped) this.#transition(record, "started");
@@ -280,10 +302,12 @@ export class AcceptanceBridgeTimingProxy {
             requestId: message.requestId,
             command:
               READ_COMMANDS.has(message.command) ||
+              message.command === "system.hello" ||
               message.command === "system.ping" ||
               message.command === "system.authenticate"
                 ? message.command
                 : "[other]",
+            readOnly: READ_ONLY_COMMANDS.has(message.command),
             minimumReadMs: READ_COMMANDS.has(message.command)
               ? this.#minimumReadMs
               : 0,
@@ -427,6 +451,78 @@ export class AcceptanceBridgeTimingProxy {
     this.#transition(tunnel.record, state, this.#failure);
   }
 
+  /** Release the single-client Remote Script socket only between completed turns. */
+  public async withExclusiveUpstream<T>(
+    signal: AbortSignal,
+    operation: () => Promise<T>,
+    trace: { traceId: string; correlationId: string; causationId: string },
+  ): Promise<T> {
+    signal.throwIfAborted();
+    if (this.#state !== "listening" || this.#handoffUsed || this.#exclusive)
+      throw new Error("runner_handoff_not_admitted");
+    if (
+      Object.values(trace).some(
+        (value) => !/^[a-zA-Z0-9._:-]{1,256}$/u.test(value),
+      )
+    )
+      throw new Error("runner_handoff_invalid_trace");
+    this.#handoffUsed = true;
+    const record = this.#record("handoff", trace);
+    if (!record || this.#failure)
+      throw new Error(this.#failure ?? "runner_handoff_failed");
+    this.#transition(record, "started");
+    try {
+      const deadline = performance.now() + 5000;
+      while (
+        [...this.#tunnels].some(
+          (tunnel) =>
+            tunnel.requests.size > 0 ||
+            tunnel.queue.length > 0 ||
+            tunnel.writing ||
+            tunnel.requestFrames.incomplete ||
+            tunnel.responseFrames.incomplete,
+        )
+      ) {
+        signal.throwIfAborted();
+        if (this.#state !== "listening" || performance.now() >= deadline)
+          throw new Error("runner_handoff_bridge_not_idle");
+        await delay(5, undefined, { signal });
+      }
+      signal.throwIfAborted();
+      if (this.#state !== "listening")
+        throw new Error("runner_handoff_proxy_closed");
+      this.#exclusive = true;
+      const closed: Promise<void>[] = [];
+      for (const tunnel of this.#tunnels) {
+        for (const socket of [tunnel.client, tunnel.upstream])
+          if (!socket.closed)
+            closed.push(
+              new Promise((resolve) => socket.once("close", resolve)),
+            );
+        this.#stopTunnel(tunnel, "completed");
+      }
+      await Promise.all(closed);
+      signal.throwIfAborted();
+      this.#emit(record, "progress");
+      if (this.#failure) throw new Error(this.#failure);
+      const result = await operation();
+      signal.throwIfAborted();
+      if (this.#state !== "listening")
+        throw new Error("runner_handoff_proxy_closed");
+      this.#transition(record, "completed");
+      return result;
+    } catch (error) {
+      this.#transition(
+        record,
+        signal.aborted ? "cancelled" : "failed",
+        "runner_handoff_operation_failed",
+      );
+      throw error;
+    } finally {
+      this.#exclusive = false;
+    }
+  }
+
   #fail(failure: string): void {
     if (this.#failure) return;
     this.#failure = failure;
@@ -443,6 +539,13 @@ export class AcceptanceBridgeTimingProxy {
     this.#shutdown = new Promise<void>((resolve) => {
       finish = resolve;
     });
+    if (
+      !this.#failure &&
+      [...this.#tunnels].some((tunnel) =>
+        [...tunnel.requests.values()].some((request) => !request.readOnly),
+      )
+    )
+      this.#fail("pending_mutation_or_unknown_at_close");
     if (!this.#failure) this.#state = "closing";
     const record = this.#record("close");
     if (record) this.#transition(record, "started");

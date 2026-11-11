@@ -3,6 +3,7 @@
 #include <flucoma/data/TensorTypes.hpp>
 #include <flucoma/algorithms/public/MelBands.hpp>
 #include <flucoma/algorithms/public/STFT.hpp>
+#include "diagnostic_analyzers.hpp"
 #include <array>
 #include <atomic>
 #include <cmath>
@@ -14,6 +15,7 @@ namespace listener::mel {
 constexpr std::size_t window = 2048, bands = 24, bins = 1025;
 constexpr std::uint64_t clockLimit = 1ULL << 44;
 constexpr std::size_t queueCapacity = 64;
+constexpr std::uint64_t producerAbi = 3;
 
 enum class Kind : std::uint64_t { started = 1, frame = 2, stopped = 3, ready = 4 };
 enum class Reason : std::uint64_t {
@@ -37,6 +39,17 @@ struct Record {
   bool receiptValid{};
   double sampleRate{};
   std::array<double, bands> left{}, right{};
+  std::array<listener::diagnostics::Channel, 2> diagnostics{};
+  // Only a sourceIdentity terminal carries these exact offending-sample
+  // operands. Owner epoch/generation and completed frame count are in header.
+  // No PCM, allocation, second queue, or change to measurement/drain ABI.
+  std::array<double, 5> sourceIdentity{};
+};
+
+struct ProbeReceipt {
+  std::uint64_t token{}, generation{}, sourceClock{};
+  double sampleRate{};
+  bool ready{};
 };
 
 struct DrainReceipt {
@@ -119,6 +132,21 @@ public:
   // claim queue quiescence until the reserved terminal was actually consumed.
   DrainReceipt drainReceipt() const noexcept { return consumed; }
 
+  // Idle capability discovery is answered by a real perform, never by class
+  // construction, scheduler callbacks, or an optimistic bundled-file claim.
+  void probe(std::uint64_t token) noexcept {
+    if (token > 0 && token < clockLimit)
+      probeRequested.store(token, std::memory_order_release);
+  }
+  bool probeReceipt(std::uint64_t token, ProbeReceipt& result) const noexcept {
+    if (!token || probeCompleted.load(std::memory_order_acquire) != token)
+      return false;
+    result = {token, probeGeneration.load(std::memory_order_relaxed),
+      probeClock.load(std::memory_order_relaxed), sampleRate,
+      probeValid.load(std::memory_order_relaxed) != 0};
+    return probeCompleted.load(std::memory_order_acquire) == token;
+  }
+
   // Called by dsp64, only while Max has suspended this object's perform.
   // Never acknowledges stop here. A rebuild while armed faults on the next
   // real perform, including an otherwise identical DSP rebuild.
@@ -131,6 +159,18 @@ public:
   // Header sample coordinates are read from the native source signal, not
   // constructed by incrementing host callbacks. end is exclusive.
   void process(const Signals& s, std::size_t size) noexcept {
+    const auto probeToken = probeRequested.load(std::memory_order_acquire);
+    if (size && probeToken &&
+        probeToken != probeCompleted.load(std::memory_order_relaxed)) {
+      const bool valid = bindingValid && generation > 0 &&
+        s.abi[0] == 3 && integer(s.clock[0]);
+      probeCompleted.store(0, std::memory_order_release);
+      probeGeneration.store(generation, std::memory_order_relaxed);
+      probeClock.store(valid ? static_cast<std::uint64_t>(s.clock[0]) : 0,
+                       std::memory_order_relaxed);
+      probeValid.store(valid ? 1 : 0, std::memory_order_relaxed);
+      probeCompleted.store(probeToken, std::memory_order_release);
+    }
     auto requested = requestEpoch.load(std::memory_order_acquire);
     if (!active && requested != accepted) {
       accepted = requested;
@@ -173,12 +213,12 @@ public:
       haveClock = true;
       if (s.abi[i] != 3 || !integer(s.epoch[i]) ||
           s.epoch[i] > accepted || (begun && s.epoch[i] != accepted)) {
-        finish(Reason::sourceIdentity);
+        finishIdentity(s, i);
         break;
       }
       if (s.epoch[i] == accepted &&
           (s.rejected[i] != 0 || !integer(s.sealed[i]))) {
-        finish(Reason::sourceIdentity);
+        finishIdentity(s, i);
         break;
       }
       if (begun && (s.sealed[i] != accepted || s.origin[i] != captureStart ||
@@ -204,7 +244,7 @@ public:
             s.vector[i] < 1 || s.vector[i] > 1024 ||
             (static_cast<std::uint64_t>(s.vector[i]) &
              (static_cast<std::uint64_t>(s.vector[i]) - 1))) {
-          finish(Reason::sourceIdentity);
+          finishIdentity(s, i);
           break;
         }
         if (!ready && s.origin[i] == -1 && retained > s.vector[i]) {
@@ -222,7 +262,7 @@ public:
       if (!begun) {
         if (!integer(s.origin[i]) || !integer(s.total[i]) || s.total[i] == 0 ||
             !integer(s.vector[i]) || s.vector[i] < 1 || s.vector[i] > 1024) {
-          finish(Reason::sourceIdentity);
+          finishIdentity(s, i);
           break;
         }
         const auto origin = static_cast<std::uint64_t>(s.origin[i]);
@@ -230,7 +270,7 @@ public:
         const auto vector = static_cast<std::uint64_t>(s.vector[i]);
         if ((vector & (vector - 1)) || origin > now ||
             total > clockLimit - origin || total > sampleRate * 30) {
-          finish(Reason::sourceIdentity);
+          finishIdentity(s, i);
           break;
         }
         if (now - origin > vector || now - origin >= retained) {
@@ -275,9 +315,14 @@ private:
     r.receiptClock = receiptValid ? receiptClock : 0;
     return r;
   }
-  void finish(Reason reason) noexcept {
+  void finishIdentity(const Signals& s, std::size_t i) noexcept {
+    finish(Reason::sourceIdentity,
+           {s.abi[i], s.epoch[i], s.rejected[i], s.sealed[i], s.clock[i]});
+  }
+  void finish(Reason reason, std::array<double, 5> identity = {}) noexcept {
     Record r = header(Kind::stopped);
     r.reason = reason;
+    r.sourceIdentity = identity;
     r.sequence = completed;
     r.start = begun ? captureStart + completed * window : 0;
     r.end = begun ? captureEnd : 0;
@@ -309,12 +354,10 @@ private:
       frame.sequence = completed + 1;
       frame.start = frameStart;
       frame.end = sample + 1;
-      analyse(audioL, frame.left);
-      analyse(audioR, frame.right);
-      if (!finite(frame.left) || !finite(frame.right)) {
-        finish(Reason::nonfiniteResult);
-        return;
-      }
+      analyse(audioL, frame.left, frame.diagnostics[0]);
+      analyse(audioR, frame.right, frame.diagnostics[1]);
+      // Analyzer-local failure is carried on this exact supported frame.
+      // It must not terminate healthy sibling metrics or invent missing PCM.
       if (!records.push(frame)) {
         finish(Reason::overflow);
         return;
@@ -326,18 +369,26 @@ private:
     if (sample + 1 == captureEnd) finish(Reason::complete);
   }
   void analyse(std::array<double, window>& audio,
-               std::array<double, bands>& output) noexcept {
-    fluid::RealVectorView view(audio.data(), 0, window);
-    stft.processFrame(view, spectrum);
-    fluid::algorithm::STFT::magnitude(spectrum, magnitude);
-    mel.processFrame(magnitude, result, false, false, false,
-                     fluid::FluidDefaultAllocator());
-    for (std::size_t i = 0; i < bands; ++i) output[i] = result(i);
+               std::array<double, bands>& output,
+               listener::diagnostics::Channel& descriptors) noexcept {
+    output.fill(std::numeric_limits<double>::quiet_NaN());
+    try {
+      fluid::RealVectorView view(audio.data(), 0, window);
+      stft.processFrame(view, spectrum);
+      fluid::algorithm::STFT::magnitude(spectrum, magnitude);
+    } catch (...) { return; }
+    descriptors = analyzers.process(magnitude, sampleRate);
+    try {
+      mel.processFrame(magnitude, result, false, false, false,
+                       fluid::FluidDefaultAllocator());
+      for (std::size_t i = 0; i < bands; ++i) output[i] = result(i);
+    } catch (...) { /* one mel frame unavailable; other analyzers survive */ }
   }
 
   double sampleRate;
   fluid::algorithm::STFT stft;
   fluid::algorithm::MelBands mel;
+  listener::diagnostics::Analyzers analyzers;
   fluid::FluidTensor<std::complex<double>, 1> spectrum;
   fluid::FluidTensor<double, 1> magnitude, result;
   std::array<double, window> audioL{}, audioR{};
@@ -345,6 +396,8 @@ private:
   std::array<double, historySize> historyL{}, historyR{};
   Records records;
   std::atomic<std::uint64_t> requestEpoch{0}, stopEpoch{0};
+  std::atomic<std::uint64_t> probeRequested{0}, probeCompleted{0};
+  std::atomic<std::uint64_t> probeGeneration{0}, probeClock{0}, probeValid{0};
   // Control-owned:
   std::uint64_t highWater{0};
   bool busy{false};

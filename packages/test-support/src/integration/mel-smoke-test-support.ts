@@ -84,12 +84,12 @@ export function melSmokeHistory(
   ];
   const eventId = (index: number) =>
     `00000000-0000-4000-c000-${String(index).padStart(12, "0")}`;
-  return stages.map((stage, index) => {
+  const events = stages.map((stage, index) => {
     const id = eventId(index);
     const cause = index === 0 ? owner.causationId : eventId(index - 1);
     const count = index < 4 ? 0 : mel.frames.length;
     const values = {
-      "mel.abi": 2,
+      "mel.abi": index < 2 ? 0 : NATIVE_MEL_PRODUCER.abi,
       "mel.sampleRate": mel.sampleRate,
       "mel.bandCount": 24,
       "mel.expectedFrames": mel.expectedRecords,
@@ -124,7 +124,7 @@ export function melSmokeHistory(
       causationId: cause,
       trace: { traceId: owner.traceId, spanId: id },
       correlationId: owner.correlationId,
-      sequence: index + 10,
+      sequence: (index + 1) * 10,
       occurredAt: "2026-11-05T00:00:00.000Z",
       recordedAt: "2026-11-05T00:00:00.000Z",
       name: `output.listener.native.metric.mel-bands.${stage}`,
@@ -158,8 +158,68 @@ export function melSmokeHistory(
           })),
         },
       },
-    };
+    } satisfies TelemetryEventPage["items"][number];
   });
+  const diagnostic = (
+    kind: "stopped" | "drain",
+    values: Record<string, number>,
+  ) => {
+    const event = structuredClone(events[5]!);
+    const id = eventId(kind === "stopped" ? 90 : 91);
+    event.id = id;
+    event.trace.spanId = id;
+    event.sequence += kind === "stopped" ? -1 : 1;
+    event.name = "output.listener.native.metric.mel-bands.progress";
+    event.outcome = "unknown";
+    return {
+      ...event,
+      durationMs: undefined,
+      attributes: {
+        ...event.attributes,
+        lifecycle: {
+          ...event.attributes.lifecycle,
+          durationMs: undefined,
+          eventId: id,
+          stage: "progress",
+          phase: "drain",
+          reason: `mel_native_${kind}_receipt`,
+          facts: Object.entries(values).map(([field, value]) => ({
+            field: `mel.${kind}.${field}`,
+            actual: { state: "observed", value },
+          })),
+        },
+      },
+    };
+  };
+  return [
+    ...events.slice(0, 5),
+    diagnostic("stopped", {
+      producerAbi: NATIVE_MEL_PRODUCER.abi,
+      epoch: owner.nativeEpoch,
+      generation: 7,
+      sequence: mel.expectedRecords,
+      startSample: mel.sourceSupport.startSample + mel.expectedRecords * 2048,
+      endSample: mel.sourceSupport.endSample,
+      lostFrames: 0,
+      trailingSamples: 1936,
+      reason: 10,
+      sampleRate: mel.sampleRate,
+      bandCount: 24,
+    }),
+    events[5]!,
+    diagnostic("drain", {
+      producerAbi: NATIVE_MEL_PRODUCER.abi,
+      token: 251,
+      epoch: owner.nativeEpoch,
+      generation: 7,
+      recordsDrained: mel.frames.length + 3,
+      framesDrained: mel.frames.length,
+      terminalConsumed: 1,
+      clockValid: 1,
+      sourceClockExclusive: mel.sourceSupport.endSample + 64,
+    }),
+    ...events.slice(6),
+  ];
 }
 
 /** Synthetic contract vectors, never an acoustic oracle or native DSP proof. */

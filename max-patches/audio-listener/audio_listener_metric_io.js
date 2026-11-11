@@ -489,6 +489,8 @@ var AudioListenerMetricIO = (function (measurements) {
         launchClock: null,
         launchPhaseSamples: null,
         lastCounter: null,
+        configurationCounter: null,
+        timingCounter: null,
         idleSeenEpoch: null,
         stopCounter: null,
         families: {},
@@ -616,9 +618,10 @@ var AudioListenerMetricIO = (function (measurements) {
         cleanupConfirmed();
         return pass.stopConfiguration;
       }
-      if (pass.lastCounter !== null && sourceCounter < pass.lastCounter)
+      if (pass.configurationCounter !== null && sourceCounter < pass.configurationCounter)
         return fatal("shared_clock_regressed");
-      pass.lastCounter = sourceCounter;
+      pass.configurationCounter = sourceCounter;
+      pass.lastCounter = pass.lastCounter === null ? sourceCounter : Math.max(pass.lastCounter, sourceCounter);
       if (pass.state === "idle") {
         if (
           row[10] !== 0 ||
@@ -717,9 +720,10 @@ var AudioListenerMetricIO = (function (measurements) {
         cleanupConfirmed();
         return pass.stopTiming;
       }
-      if (pass.lastCounter !== null && sourceCounter < pass.lastCounter)
+      if (pass.timingCounter !== null && sourceCounter < pass.timingCounter)
         return fatal("shared_clock_regressed");
-      pass.lastCounter = sourceCounter;
+      pass.timingCounter = sourceCounter;
+      pass.lastCounter = pass.lastCounter === null ? sourceCounter : Math.max(pass.lastCounter, sourceCounter);
       if (pass.state === "idle" || pass.state === "configured") {
         if (row[0] !== 0 || row[3] !== 0) return fatal("foreign_timing_owner");
         pass.idleTiming = true;
@@ -976,7 +980,7 @@ var AudioListenerMetricIO = (function (measurements) {
   function createMaxAdapter(options) {
     if (!options || typeof options.emit !== "function") throw new Error("invalid_max_adapter");
     var currentOwner = null, pollOwner = null, pollSeen = null, pollCounters = null,
-      watermark = null, floor = null, captureVector = null,
+      watermark = null, bankWatermarks = {}, floor = null, captureVector = null,
       records = {}, closed = false, io;
     function emit(index, values) { options.emit(index, Object.freeze(values)); }
     function packet(selector, value) { emit(0, [selector, JSON.stringify(value)]); }
@@ -1049,12 +1053,16 @@ var AudioListenerMetricIO = (function (measurements) {
       }
       var counter = args[0];
       if (floor !== null && counter <= floor) return false;
-      if (watermark !== null && counter < watermark)
+      // Separate mc.snapshot~ banks can expose different DSP vectors during
+      // one poll. Only a bank's own coherent counter establishes regression.
+      var previous = bankWatermarks[selector];
+      if (previous !== undefined && counter < previous)
         return io.metric_timing_frame(pollOwner, null, null, Object.freeze({
           bank: selector,
           counterBefore: counter,
-          watermark: watermark,
+          watermark: previous,
         }));
+      bankWatermarks[selector] = counter;
       if (watermark === null || counter > watermark) watermark = counter;
       var row = args.slice(1, width + 1);
       if (timing) return io.metric_timing_frame(pollOwner, row, counter);
@@ -1107,7 +1115,7 @@ var AudioListenerMetricIO = (function (measurements) {
         if (pollOwner !== null) throw new Error("begin_during_poll");
         var begun = handlers.begin.apply(null, args);
         currentOwner = io.snapshot().owner;
-        floor = watermark; records = {}; captureVector = null;
+        floor = watermark; bankWatermarks = {}; records = {}; captureVector = null;
         emit(1, ["poll", 1]);
         return begun;
       }

@@ -106,7 +106,7 @@ interface CaptureState {
   readonly metricBindings: readonly MetricCaptureBinding[];
   readonly trace: ListeningPassContext["trace"];
   readonly createdAt: string;
-  repository?: Repository;
+  repositoryIdentity?: object;
   reserved: boolean;
   startedAt?: string;
   endedAt?: string;
@@ -198,6 +198,9 @@ function bindingDescriptor(
       sampleRate: registration.sampleRate,
       vectorSize: registration.vectorSize,
       capabilities: registration.capabilities,
+      ...(registration.analyzerReadiness === undefined
+        ? {}
+        : { analyzerReadiness: registration.analyzerReadiness }),
       connectionEpoch: registration.connectionEpoch,
       ...(registration.deviceCanonicalPath === undefined
         ? {}
@@ -1427,7 +1430,7 @@ export function createListeningRuntimeHost(
           const cached = state(input);
           const resolved = await repository(input);
           const receipt = await reserveListeningPublication(resolved, input);
-          cached.repository = resolved;
+          cached.repositoryIdentity = resolved.publicationIdentity ?? resolved;
           cached.reserved = true;
           return {
             release: async () => {
@@ -1629,19 +1632,18 @@ export function createListeningRuntimeHost(
           return session.services.persist(input);
         const cached = state(input);
         const resolved = await repository(input);
+        const sameRepository =
+          cached.repositoryIdentity ===
+          (resolved.publicationIdentity ?? resolved);
         if (
           !cached.reserved ||
-          cached.repository !== resolved ||
+          !sameRepository ||
           !cached.startedAt ||
           !cached.endedAt
         )
           deny("invalid_publication_lifecycle", undefined, [
             failureFact("publication.reserved", cached.reserved, true),
-            failureFact(
-              "publication.repositoryMatches",
-              cached.repository === resolved,
-              true,
-            ),
+            failureFact("publication.repositoryMatches", sameRepository, true),
             failureFact(
               "publication.started",
               cached.startedAt !== undefined,

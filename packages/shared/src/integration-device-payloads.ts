@@ -71,6 +71,7 @@ export const INTEGRATION_DEVICE_INVENTORY = {
       "audio_listener_metric_io.js",
       "audio_listener_metric_timelines.js",
       "audio_listener_mel_handoff.js",
+      "audio_listener_analyzer_handoff.js",
       "audio_listener_native_io.js",
       "audio_listener_measurements.js",
       "audio_listener_metric_protocol.js",

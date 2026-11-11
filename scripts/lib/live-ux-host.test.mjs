@@ -23,6 +23,42 @@ describe("Live UX host fixture selection", () => {
 });
 
 describe("Live UX host readiness", () => {
+  it.each([false, true])(
+    "rejects disabled audio before polling the bridge when listening requires DSP (port ready: %s)",
+    async (portReady) => {
+      let time = 0;
+      const dismissKnownStartupDialogs = vi.fn(async () => "audio-disabled");
+      const isReady = vi.fn(async () => portReady);
+      await expect(
+        waitForRunnerOwnedLiveReady(
+          { dismissKnownStartupDialogs },
+          {
+            requireAudio: true,
+            discardRecovery: false,
+            timeoutMs: 2_000,
+            isReady,
+            now: () => time,
+            sleep: async (milliseconds) => {
+              time += milliseconds;
+            },
+          },
+        ),
+      ).rejects.toThrow("Live audio is disabled");
+      expect(dismissKnownStartupDialogs).toHaveBeenCalledOnce();
+      expect(isReady).not.toHaveBeenCalled();
+      expect(time).toBe(0);
+    },
+  );
+
+  it("reports disabled audio without rejecting a bridge-only inspection", async () => {
+    await expect(
+      waitForRunnerOwnedLiveReady(
+        { dismissKnownStartupDialogs: vi.fn(async () => "audio-disabled") },
+        { isReady: async () => true },
+      ),
+    ).resolves.toEqual({ dismissedDialogs: ["audio-disabled"] });
+  });
+
   it("cancels readiness without further dialog interaction", async () => {
     const cancellation = new globalThis.AbortController();
     cancellation.abort();

@@ -21,6 +21,7 @@ import {
   verifyAgentListeningResult,
   verifyRestoredAgentListeningEvidence,
 } from "./agent-listening-result.js";
+import { verifyFeatureSearch } from "./feature-search.js";
 
 export class AssertionRegistry {
   private readonly entries = new Map<
@@ -193,6 +194,49 @@ function registerSmokeAssertions(
 }
 export function createDefaultAssertions(): AssertionRegistry {
   return registerSmokeAssertions(new AssertionRegistry())
+    .register(
+      "feature-search",
+      (input, parameters) => {
+        try {
+          verifyFeatureSearch(
+            input,
+            String(parameters.phase),
+            parameters.coverage === "peak-only" ? "peak-only" : "full",
+          );
+          return result(
+            true,
+            "ok",
+            "Measured peak distance, source exclusion and typed feature consumption verified",
+          );
+        } catch (error) {
+          return result(
+            false,
+            "feature-search-invalid",
+            error instanceof Error ? error.message : "Invalid feature evidence",
+          );
+        }
+      },
+      (parameters) => {
+        rejectUnknownFields(parameters, ["phase", "coverage"]);
+        requireCondition(
+          parameters.coverage === undefined ||
+            parameters.coverage === "full" ||
+            parameters.coverage === "peak-only",
+          "Invalid feature-search coverage",
+        );
+        requireCondition(
+          parameters.coverage !== "peak-only" ||
+            parameters.phase !== "restored",
+          "Peak-only coverage cannot assert restart",
+        );
+        requireCondition(
+          ["first", "second", "restored", "final"].includes(
+            String(parameters.phase),
+          ),
+          "Invalid feature-search phase",
+        );
+      },
+    )
     .register(
       "pitch-smoke",
       (input, parameters) => {
@@ -519,7 +563,7 @@ export function createDefaultAssertions(): AssertionRegistry {
           owner.captures.map((capture) => ({ capture, owner })),
         );
         const candidates =
-          parameters.afterRestart === true
+          parameters.afterRestart === true || turn === undefined
             ? evidence?.contexts
             : turn?.contexts;
         if (!captures.length || !candidates?.length)

@@ -5,6 +5,7 @@ export function waitForRunnerOwnedLiveReady(
   options?: {
     coordinatedStartup?: boolean;
     discardRecovery?: boolean;
+    requireAudio?: boolean;
     host?: string;
     port?: number;
     timeoutMs?: number;

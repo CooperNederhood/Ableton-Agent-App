@@ -38,6 +38,8 @@ const runtime = createMetricRuntime({
 handlers.identity(JSON.stringify({canonicalPath:"live_set tracks 0 devices 0",
   track:{id:"1",name:"fixture"},device:{id:"2",name:"Audio-Listener"}}));
 handlers.dsp(1,48000,64);
+const probe = output.find(v=>v[0]==="mel_native_control" && v[1]==="probe");
+if (probe) handlers.native_mel("analyzer_ready",3,probe[2],1,48000,3,10,1);
 const client = created[0];
 const result = {readerAvailable:typeof AgentSignalClient === "function" &&
   typeof require("./agent_signal_client_common.js").installedDiscoveryPaths === "function",

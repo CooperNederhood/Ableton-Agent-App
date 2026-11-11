@@ -117,6 +117,14 @@ function fixture(options = {}) {
     },
     clear: () => calls.push(["clear"]),
   });
+  const ready = () => {
+    const probe = outputs.find(
+      ([selector, action]) =>
+        selector === "mel_native_control" && action === "probe",
+    );
+    if (probe)
+      handlers.native_mel("analyzer_ready", 3, probe[2], 1, 48000, 3, 10, 1);
+  };
   return {
     runtime,
     handlers,
@@ -124,12 +132,14 @@ function fixture(options = {}) {
     calls,
     outputs,
     tick: () => tick(),
+    ready,
     get controllerOptions() {
       return controllerOptions;
     },
     start(value = identity()) {
       handlers.identity(JSON.stringify(value));
       handlers.dsp(1, 48000, 64);
+      ready();
     },
   };
 }
@@ -246,6 +256,53 @@ for (const [change, reason] of [
   });
 }
 
+test("native budget rejection consumes no epoch or source lease and keeps its exact SDK failure reason", async () => {
+  let deny = true,
+    admission;
+  const f = fixture({
+    controller: {
+      prepare(_control, value) {
+        if (deny)
+          throw Object.assign(new Error("metric_result_budget_exceeded"), {
+            code: "metric_result_budget_exceeded",
+          });
+        admission = value;
+      },
+    },
+  });
+  f.start();
+  const command = {
+    action: "prepare",
+    generation: "generation-budget",
+    traceId: "trace-budget",
+    correlationId: "correlation-budget",
+    causationId: "cause-budget",
+    config: { geometry: { totalSamples: 1440000, sampleRate: 48000 } },
+  };
+  assert.throws(
+    () => f.clients[0].config.onListenerControl(command),
+    (error) => {
+      assert.equal(
+        f.clients[0].listenerErrorReason(error),
+        "metric_result_budget_exceeded",
+      );
+      return true;
+    },
+  );
+  assert.equal(
+    f.outputs.some(
+      ([selector, action]) =>
+        selector === "native_control" && action === "begin",
+    ),
+    false,
+  );
+  deny = false;
+  f.clients[0].config.onListenerControl(command);
+  assert.equal(admission.nativeEpoch, 1);
+  assert.equal(admission.maxObservationBytes, 2 * 1024 * 1024);
+  await f.runtime.stop();
+});
+
 test("metric generation lease propagates attribution, deadline and monotonic epochs through cancel/cleanup", async () => {
   const f = fixture();
   f.start();
@@ -263,7 +320,7 @@ test("metric generation lease propagates attribution, deadline and monotonic epo
     {
       nativeEpoch: 1,
       deadlineMs: 21100,
-      maxObservationBytes: codec.MAX_AUDIO_OBSERVATION_BYTES,
+      maxObservationBytes: codec.MAX_METRIC_OBSERVATION_BYTES,
     },
   ]);
   assert.deepEqual(f.outputs.slice(-2), [
@@ -392,6 +449,7 @@ test("actual shared watcher fences deleted callbacks while metric placement chan
   );
   context.bang();
   f.handlers.dsp(1, 48000, 64);
+  f.ready();
   assert.equal(f.clients.length, 1);
   const tick = () => [...pending].forEach((task) => task.fire());
   tick();

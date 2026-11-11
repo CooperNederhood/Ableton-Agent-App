@@ -2,6 +2,25 @@
 
 Companion specification: [Local Storage Layout](local-storage.md)
 
+## Derived listening features (#113)
+
+- [x] Isolate prune-triggered derivation cancellation to selected entries or
+  their actual owning passes. Reproduce unrelated-pass, invalid, pre-cancelled
+  and queue-denied request side effects before the fix; preserve targeted
+  cancellation, cascade cleanup and attributed failure/cancellation events.
+
+- [x] Verify additive schema v3 and registry/manifest reconciliation preserve
+  source payloads and canonical ownership paths.
+- [x] Verify bounded atomic derived publication, idempotency, persistent
+  readiness, quota/cancellation isolation, restart and cascade pruning.
+- [x] Verify same-session/Set retrieval, read-only actor denial of derivation,
+  freshness, redaction and absence of raw renderer storage access.
+- [x] Persist and reopen analyzer UI fixtures through actual main/preload IPC
+  without Live. Seed derivation explicitly finishes before repository close;
+  shutdown cancellation is not treated as ready feature data.
+- [ ] Finish the expanded fifteen-feature persistence contract and final
+  real-host acceptance; offline fixture success does not qualify capture.
+
 ## Canonical layout
 
 - [x] Keep initial FluCoMa flatness snapshots in the existing bounded/redacted

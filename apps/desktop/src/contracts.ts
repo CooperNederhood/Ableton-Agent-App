@@ -1077,7 +1077,7 @@ export type DesktopAgentHistoryMessage = z.infer<
 
 export const desktopSessionContextStoreReferenceSchema = z
   .object({
-    schemaVersion: z.literal(2),
+    schemaVersion: z.union([z.literal(2), z.literal(3)]),
     relativePath: z.literal("context/entity-context.sqlite"),
     kinds: z
       .array(audioObservationKindSchema)

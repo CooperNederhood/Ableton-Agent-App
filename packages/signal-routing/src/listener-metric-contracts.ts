@@ -6,7 +6,8 @@ import {
   assertNativeMetricSourceCoverage,
   metricAudioObservationSchema,
   metricObservationMetricSchema,
-  listenerNativeMetricStatusSchema,
+  listenerMetricRegistrationMetadataSchema,
+  refineListenerMetricRegistrationMetadata,
   nativeListenerLifecycleSchema,
   listeningFailureFactSchema,
   nativeMetricArmProofSchema,
@@ -81,17 +82,12 @@ const reason = z.string().min(1).max(512);
 export const listenerRegistrationMetricSchema = z
   .strictObject({
     ...listenerRegistrationBaseSchema.shape,
+    ...listenerMetricRegistrationMetadataSchema.shape,
     version: z.literal(LISTENER_VERSION_METRIC),
     connectionEpoch: z.string().uuid(),
-    capabilities: z.tuple([
-      z.literal(LISTENER_CAPABILITY_METRIC),
-      z.literal(LISTENER_CAPABILITY_MEL),
-    ]),
-    algorithmVersion: z.literal(LISTENER_METRIC_ALGORITHM_VERSION),
-    vectorSize: z.number().int().min(1).max(65_536),
-    nativeStatus: listenerNativeMetricStatusSchema,
   })
   .refine(listenerPathsHaveSameOwner, "Listener paths require the same owner")
+  .superRefine(refineListenerMetricRegistrationMetadata)
   .superRefine((value, ctx) => {
     const status = value.nativeStatus;
     if (

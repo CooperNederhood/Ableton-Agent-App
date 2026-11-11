@@ -14,6 +14,11 @@ import {
   metricAudioObservationSchema,
   MEL_BAND_PROFILE,
   melBandTimelineSchema,
+  PITCH_PROFILE,
+  SPECTRAL_SHAPE_PROFILE,
+  classifyPitchEstimate,
+  pitchTimelineSchema,
+  spectralShapeTimelineSchema,
   type MetricAudioObservation,
 } from "@ableton-agent/protocol";
 import { createSyntheticMetricListeningObservation } from "@ableton-agent/protocol/testing";
@@ -74,6 +79,71 @@ function melFixture(missing: "none" | "one" | "all" = "none", endBeat = 0.2) {
   });
   value.outcome =
     missing === "none" || expectedRecords === 0 ? "complete" : "partial";
+  return value;
+}
+
+function analyzerFixture() {
+  const value = metricFixture(0.2);
+  const start = value.geometry.startSample;
+  const supports = [0, 1].map((index) => ({
+    startSample: start + index * 2048,
+    endSample: start + (index + 1) * 2048,
+  }));
+  const common = {
+    sampleRate: value.geometry.sampleRate,
+    sourceSupport: value.sourceCoverage,
+    expectedRecords: 2,
+    trailingSupport: {
+      startSample: start + 4096,
+      endSample: value.geometry.endSample,
+    },
+  };
+  value.requestedMetrics.push("pitch", "spectral-shape");
+  value.metrics.pitch = pitchTimelineSchema.parse({
+    ...common,
+    schema: "pitch-timeline/v1",
+    status: "partial",
+    profile: PITCH_PROFILE,
+    frames: [
+      {
+        index: 1,
+        support: supports[1],
+        channels: [
+          classifyPitchEstimate(440, 0.99),
+          classifyPitchEstimate(220, 0.25),
+        ],
+      },
+    ],
+    gaps: [
+      {
+        firstIndex: 0,
+        count: 1,
+        support: supports[0],
+        reason: "sequence-gap",
+      },
+    ],
+  });
+  value.metrics["spectral-shape"] = spectralShapeTimelineSchema.parse({
+    ...common,
+    schema: "spectral-shape-timeline/v1",
+    status: "complete",
+    profile: SPECTRAL_SHAPE_PROFILE,
+    frames: supports.map((support, index) => ({
+      index,
+      support,
+      channels: [
+        {
+          state: "valid",
+          flatnessDb: -120 + index,
+          spreadHz: 0,
+          rolloffHz: 1000,
+        },
+        { state: "silence", flatnessDb: null, spreadHz: null, rolloffHz: null },
+      ],
+    })),
+    gaps: [],
+  });
+  value.outcome = "partial";
   return value;
 }
 
@@ -175,6 +245,53 @@ async function click(text: string) {
 }
 
 describe("stored listening context presentation", () => {
+  it.each(["pending", "ready", "failed", "cancelled"])(
+    "keeps measured observations readable when derived features are %s",
+    async (status) => {
+      const source = api();
+      const summary = `Known source. Derived features ${status}; measured observation retained`;
+      source.list.mockResolvedValue({
+        action: "list",
+        entries: [{ ...entry, summary }],
+      });
+      source.get.mockResolvedValue({
+        ...detail(),
+        entry: { ...entry, summary },
+      });
+      await render("session", source);
+      expect(container.textContent).toContain(`Derived features ${status}`);
+      await click("View observation context");
+      expect(container.textContent).toContain("440");
+      expect(source.get).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it("opens authoritative analyzer timelines while preserving healthy measurements and independent gaps", async () => {
+    const source = api();
+    source.get.mockResolvedValueOnce(metricDetail(analyzerFixture()));
+    await render("session", source);
+    await click("View observation context");
+    const pitch = container.querySelector('[aria-label="pitch metric"]');
+    const shape = container.querySelector(
+      '[aria-label="spectral-shape metric"]',
+    );
+    expect(pitch?.textContent).toContain("pitch: partial");
+    expect(pitch?.textContent).toContain("1/2 validated acquisition frames");
+    expect(pitch?.textContent).toContain("Frame 1:");
+    expect(pitch?.textContent).toContain("Low confidence estimate");
+    expect(pitch?.textContent).toContain("sequence-gap");
+    expect(pitch?.textContent).toContain("220");
+    expect(shape?.textContent).toContain("spectral-shape: complete");
+    expect(shape?.textContent).toContain("-120");
+    expect(shape?.textContent).toContain("Unavailable");
+    expect(container.textContent).toContain("level: complete");
+    await click("Next spectral-shape frame");
+    expect(shape?.textContent).toContain("Frame 1:");
+    expect(shape?.textContent).toContain("-119");
+    expect(pitch?.textContent).toContain("Frame 1:");
+    expect(source.get).toHaveBeenCalledTimes(1);
+  });
+
   it("renders all 24 independent mel bands, pinned units and actual source support", async () => {
     const source = api();
     source.get.mockResolvedValueOnce(metricDetail(melFixture()));

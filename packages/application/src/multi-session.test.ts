@@ -26,6 +26,7 @@ import {
   projectMetricListeningReport,
   summarizeMetricListeningResult,
   nativeMetricObservationMetricSchema,
+  LISTENING_FEATURE_DEFINITIONS,
 } from "@ableton-agent/protocol";
 import {
   createSyntheticMetricListeningObservation,
@@ -2093,7 +2094,11 @@ describe("CopilotAgentService managed sessions", () => {
         );
         expect(prompt).toContain("endBeat, not durationBeats");
         expect(prompt).toContain(
-          "known contextId goes to get or report, not list",
+          'for metric-audio-observation/v1 use action "report", offset=0, limit=8, then follow report.nextOffset until null',
+        );
+        expect(prompt).toContain("A known contextId does not need list first");
+        expect(prompt).toContain(
+          "get-feature is derived evidence and does not replace the original-measurement report",
         );
         expect(prompt).toContain(
           "An explicit user instruction to stop on any failure also covers argument-validation and permission failures",
@@ -2102,9 +2107,283 @@ describe("CopilotAgentService managed sessions", () => {
           "retryable describes technical recoverability, not permission to retry",
         );
       }
+      for (const index of [1, 2, 3]) {
+        const postTool = await configs[index]?.hooks?.onPostToolUse?.(
+          {
+            sessionId: `session-${index}`,
+            timestamp: new Date(),
+            workingDirectory: "/tmp",
+            toolName: "ableton_context",
+            toolArgs: { action: "list-features" },
+            toolResult: {
+              resultType: "success",
+              textResultForLlm: '{"action":"list-features","features":[]}',
+            },
+          },
+          { sessionId: `session-${index}` },
+        );
+        expect(postTool?.additionalContext).toContain(
+          "If the user requested values or persisted rereads",
+        );
+        expect(postTool?.additionalContext).toContain(
+          "metadata and distances, not feature value arrays",
+        );
+        const contextTool = configs[index]?.tools?.find(
+          ({ name }) => name === "ableton_context",
+        );
+        const guidance = [
+          contextTool?.description,
+          ...(index === 2 ? [] : [configs[index]?.customAgents?.[0]?.prompt]),
+        ];
+        for (const text of guidance) {
+          expect(text).toContain(
+            "call get-feature for each requested feature from every requested context in the current operation",
+          );
+          expect(text).toContain(
+            "Conversation memory or a previous turn's read does not satisfy an explicit persisted reread",
+          );
+          expect(text).toContain(
+            "call compare-features with pairs of leftFeatureId and rightFeatureId, and call search-features separately",
+          );
+          expect(text).toContain(
+            "A search hit or its distance is not a substitute for the requested pair comparison",
+          );
+        }
+      }
       expect(configs[2]?.customAgents?.[0]?.prompt).not.toContain(
         "Queued or arming is not completion or failure",
       );
+    } finally {
+      await service.stop();
+    }
+  });
+
+  it.each([
+    { operations: undefined },
+    {
+      operations: [
+        "context.list-features",
+        "context.get-feature",
+        "context.report",
+      ],
+    },
+    { operations: ["context.list-features"] },
+  ])(
+    "registers cursor-only list-features pagination and attributes offset denial ($operations)",
+    async ({ operations }) => {
+      const configs: SessionConfig[] = [];
+      const events: AgentRuntimeEvent[] = [];
+      const executeContextOperation = vi
+        .fn<
+          NonNullable<CopilotAgentServiceOptions["executeContextOperation"]>
+        >()
+        .mockResolvedValue({ action: "list-features", features: [] });
+      const service = new CopilotAgentService(
+        baseOptions({
+          executeContextOperation,
+          runtimeObserver: { enqueue: (event) => events.push(event) },
+          clientFactory: () => ({
+            createSession: vi.fn(async (config: SessionConfig) => {
+              configs.push(config);
+              return createFakeSession(`feature-pages-${configs.length}`);
+            }),
+            resumeSession: vi.fn(async () => {
+              throw new Error("unused");
+            }),
+            stop: vi.fn(async () => undefined),
+          }),
+        }),
+      );
+      try {
+        await service.start();
+        await service.createManagedAgent(
+          configuration("feature-pages", {
+            resolvedTools: ["ableton_context"],
+            ...(operations === undefined
+              ? {}
+              : { resolvedOperations: operations }),
+          }),
+        );
+        const tool = configs
+          .at(-1)
+          ?.tools?.find(({ name }) => name === "ableton_context");
+        if (tool === undefined)
+          throw new Error("Missing registered context tool");
+        const sdkDescription = JSON.parse(
+          JSON.stringify({ description: tool.description }),
+        ) as { description: string };
+        expect(sdkDescription.description).toContain(
+          "list-features and list use cursor, never offset",
+        );
+        expect(sdkDescription.description).toContain(
+          "omit cursor initially, then copy nextCursor until absent",
+        );
+        expect(sdkDescription.description).toContain(
+          "Only report and get-feature accept offset; only get-feature accepts supportOffset",
+        );
+        expect(sdkDescription.description).toContain(
+          "feature-definitions accepts only action, with no pagination",
+        );
+        interface Variant {
+          description?: string;
+          properties?: Record<
+            string,
+            { const?: unknown; description?: string }
+          >;
+          oneOf?: Variant[];
+          anyOf?: Variant[];
+        }
+        const parameters = tool.parameters as { toJSONSchema(): Variant };
+        const wire = JSON.parse(
+          JSON.stringify(parameters.toJSONSchema()),
+        ) as Variant;
+        const inventory = (wire.oneOf ?? wire.anyOf ?? [wire]).find(
+          (variant) => variant.properties?.action?.const === "list-features",
+        );
+        expect(inventory?.description).toContain(
+          "cursor pagination, not offset",
+        );
+        expect(inventory?.properties?.cursor?.description).toContain(
+          "returned nextCursor unchanged",
+        );
+        expect(inventory?.properties).not.toHaveProperty("offset");
+        const args = {
+          action: "list-features",
+          contextId: "source",
+          offset: 0,
+          limit: 8,
+        };
+        const denied = await tool.handler?.(args, {
+          sessionId: "feature-pages-2",
+          toolCallId: "invalid-offset",
+          toolName: "ableton_context",
+          arguments: args,
+        });
+        expect(denied).toMatchObject({ resultType: "failure" });
+        expect(denied).toHaveProperty(
+          "error",
+          expect.stringContaining("invalid_tool_arguments"),
+        );
+        expect(executeContextOperation).not.toHaveBeenCalled();
+        expect(
+          events.filter(({ type }) => type === "agent.operation.completed"),
+        ).toHaveLength(0);
+        const failures = events.filter(
+          ({ type }) => type === "agent.operation.failed",
+        );
+        expect(failures).toHaveLength(1);
+        expect(failures[0]).toMatchObject({
+          agentInstanceId: "feature-pages",
+          sessionId: "feature-pages-2",
+          data: {
+            toolCallId: "invalid-offset",
+            toolName: "ableton_context",
+            operationDescriptorId: "context.list-features",
+            errorCode: "invalid_tool_arguments",
+            targetIdentity: {
+              domain: "context",
+              action: "list-features",
+              targetKind: "invalid-arguments",
+            },
+          },
+        });
+        expect(failures[0]?.data.durationMs).toEqual(expect.any(Number));
+      } finally {
+        await service.stop();
+      }
+    },
+  );
+
+  it("routes feature discovery through scoped SDK context with attributed lifecycle and failures", async () => {
+    const configs: SessionConfig[] = [];
+    const events: AgentRuntimeEvent[] = [];
+    const executeContextOperation = vi.fn<
+      NonNullable<CopilotAgentServiceOptions["executeContextOperation"]>
+    >(async () => ({
+      action: "feature-definitions",
+      definitions: [...LISTENING_FEATURE_DEFINITIONS],
+    }));
+    const service = new CopilotAgentService(
+      baseOptions({
+        executeContextOperation,
+        runtimeObserver: { enqueue: (event) => events.push(event) },
+        clientFactory: () => ({
+          createSession: vi.fn(async (config: SessionConfig) => {
+            configs.push(config);
+            return createFakeSession(`session-${configs.length}`);
+          }),
+          resumeSession: vi.fn(async () => {
+            throw new Error("resume not expected");
+          }),
+          stop: vi.fn(async () => undefined),
+        }),
+      }),
+    );
+    try {
+      await service.start();
+      await service.createManagedAgent(
+        configuration("feature-reader", {
+          resolvedTools: ["ableton_context"],
+          resolvedOperations: ["context.feature-definitions"],
+        }),
+      );
+      const handler = configs[1]?.tools?.find(
+        ({ name }) => name === "ableton_context",
+      )?.handler;
+      expect(handler).toBeDefined();
+      const args = { action: "feature-definitions" };
+      await expect(
+        handler?.(args, {
+          sessionId: "session-2",
+          toolCallId: "feature-call",
+          toolName: "ableton_context",
+          arguments: args,
+        }),
+      ).resolves.toMatchObject({
+        action: "feature-definitions",
+        definitions: [...LISTENING_FEATURE_DEFINITIONS],
+      });
+      expect(executeContextOperation.mock.lastCall?.[1]).toMatchObject({
+        sessionId: "production-feature-reader",
+        agentId: "feature-reader",
+        trace: { causationId: "feature-call" },
+      });
+      const operations = events.filter((event) =>
+        event.type.startsWith("agent.operation."),
+      );
+      expect(operations.map((event) => event.type)).toEqual([
+        "agent.operation.requested",
+        "agent.operation.started",
+        "agent.operation.verification",
+        "agent.operation.completed",
+      ]);
+      expect(operations.at(-1)?.data).toMatchObject({
+        operationDescriptorId: "context.feature-definitions",
+        toolCallId: "feature-call",
+      });
+      expect(typeof operations.at(-1)?.data?.durationMs).toBe("number");
+      executeContextOperation.mockRejectedValueOnce(
+        new Error("Feature source unavailable"),
+      );
+      await Promise.resolve(
+        handler?.(args, {
+          sessionId: "session-2",
+          toolCallId: "feature-failure",
+          toolName: "ableton_context",
+          arguments: args,
+        }),
+      ).catch(() => undefined);
+      expect(
+        events
+          .filter((event) => event.type.startsWith("agent.operation."))
+          .at(-1),
+      ).toMatchObject({
+        type: "agent.operation.failed",
+        data: {
+          operationDescriptorId: "context.feature-definitions",
+          toolCallId: "feature-failure",
+        },
+      });
     } finally {
       await service.stop();
     }

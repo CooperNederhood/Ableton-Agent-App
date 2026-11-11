@@ -1,4 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  createSyntheticAnalyzerReadiness,
+  withSyntheticAnalyzerTimelines,
+} from "@ableton-agent/protocol/testing";
 import type {
   ListeningExecutionContext,
   ListeningJob,
@@ -113,10 +117,18 @@ async function fixture(
   enabled = true,
   completeOnStart = true,
   provideMelBands = true,
+  analyzers = false,
 ) {
   const data = createSyntheticMetricWireFixture("arrangement", partial);
+  if (analyzers) {
+    data.observation = withSyntheticAnalyzerTimelines(data.observation);
+    data.ready.analyzerProducerAbi = 3;
+    data.proof.armed.analyzerProducerAbi = 3;
+  }
   const log: string[] = [];
   const jobs: ListeningJob[] = [];
+  const telemetryEnqueue =
+    vi.fn<NonNullable<ListeningRuntimeDependencies["telemetry"]>["enqueue"]>();
   const listener: ListenerDescriptor = {
     connectionId: data.wire.connectionId,
     producer: {
@@ -131,6 +143,15 @@ async function fixture(
     binding: { trackId: "500", deviceId: "600" },
     registration: listenerRegistrationMetricSchema.parse({
       ...data.registration,
+      ...(analyzers
+        ? {
+            capabilities: [
+              ...data.registration.capabilities,
+              "audio-listener/analyzer-timelines-v1",
+            ],
+            analyzerReadiness: createSyntheticAnalyzerReadiness(),
+          }
+        : {}),
       nativeStatus: {
         ...data.registration.nativeStatus,
         readiness: "BLOCKED",
@@ -206,7 +227,7 @@ async function fixture(
     },
     signals: { listeners: service, listenerTransport: service },
     events: { publish: vi.fn(), subscribe: vi.fn(() => () => {}) },
-    telemetry: { enqueue: vi.fn(() => true) },
+    telemetry: { enqueue: telemetryEnqueue },
   } as unknown as ListeningRuntimeDependencies;
   const host = createListeningRuntimeHost(dependencies, {
     independentMetricListeners: enabled,
@@ -233,8 +254,10 @@ async function fixture(
   };
   return {
     data,
+    listener,
     log,
     jobs,
+    telemetryEnqueue,
     peer,
     repository,
     host,
@@ -251,6 +274,104 @@ async function fixture(
 }
 
 describe("production v5 Arrangement listening host with synthetic native peer", () => {
+  it("discovers an actual three-capability ABI3 registration and captures all six metric families without dropping readiness", async () => {
+    const f = await fixture(false, true, true, true, true);
+    const discovery = await f.host.executeListeningOperation(
+      { action: "inspect-listeners" },
+      context,
+    );
+    expect(discovery).toMatchObject({
+      action: "inspect-listeners",
+      truncated: false,
+      listeners: [
+        {
+          listenerId: "listener-0",
+          trackReference: uuid(10),
+          deviceReference: uuid(20),
+          ready: false,
+        },
+      ],
+    });
+    const discoveryEvents = f.telemetryEnqueue.mock.calls
+      .map(([event]) => event)
+      .filter((event) => event.name.startsWith("listening.runtime.discovery."));
+    expect(discoveryEvents.map((event) => event.name)).toEqual([
+      "listening.runtime.discovery.queued",
+      "listening.runtime.discovery.started",
+      "listening.runtime.discovery.completed",
+    ]);
+    for (const event of discoveryEvents) {
+      expect(event).toMatchObject({
+        sessionId: context.sessionId,
+        activeAgentId: context.agentId,
+        trace: { traceId: context.trace.traceId },
+        correlationId: context.trace.correlationId,
+        causationId: context.trace.causationId,
+      });
+      expect(event.durationMs).toBeGreaterThanOrEqual(0);
+    }
+    const job = await f.run();
+    expect(job.stage, JSON.stringify({ job, log: f.log })).toBe("completed");
+    const observed = metricAudioObservationSchema.parse(
+      (await f.repository.getEntry(job.contextIds[0]!))?.payload,
+    );
+    expect(observed.requestedMetrics).toEqual([
+      "level",
+      "spectral-centroid",
+      "attacks",
+      "mel-bands",
+      "pitch",
+      "spectral-shape",
+    ]);
+    expect(observed.metrics.pitch?.status).toBe("complete");
+    expect(observed.metrics["spectral-shape"]?.status).toBe("complete");
+    expect(f.listener.registration).toHaveProperty(
+      "analyzerReadiness",
+      createSyntheticAnalyzerReadiness(),
+    );
+    expect(f.peer.subscribers.size).toBe(0);
+    expect(f.releaseReservation).toHaveBeenCalledOnce();
+  });
+  it.each(["missing", "sample-rate", "abi", "unadvertised"] as const)(
+    "denies %s analyzer registration during discovery and before capture controls",
+    async (failure) => {
+      const f = await fixture(false, true, true, true, true);
+      const receipt = createSyntheticAnalyzerReadiness();
+      Object.assign(
+        f.listener.registration,
+        failure === "unadvertised"
+          ? {
+              capabilities: [
+                "audio-listener/independent-metric-timelines-v1",
+                "audio-listener/mel-band-timelines-v1",
+              ],
+            }
+          : {
+              analyzerReadiness:
+                failure === "missing"
+                  ? undefined
+                  : {
+                      ...receipt,
+                      ...(failure === "sample-rate"
+                        ? { sampleRate: 44100 }
+                        : {}),
+                      ...(failure === "abi" ? { producerAbi: 2 } : {}),
+                    },
+            },
+      );
+      expect(
+        await f.host.executeListeningOperation(
+          { action: "inspect-listeners" },
+          context,
+        ),
+      ).toMatchObject({ listeners: [], truncated: true });
+      const job = await f.run();
+      expect(job.stage).toBe("failed");
+      expect(f.requestListenerControl).not.toHaveBeenCalled();
+      expect(f.startListeningPlayback).not.toHaveBeenCalled();
+      expect(f.appendPass).not.toHaveBeenCalled();
+    },
+  );
   it.each([false, true])(
     "positions and publishes negotiated metric partial=%s without legacy assembly",
     async (partial) => {

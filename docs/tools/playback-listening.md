@@ -1,5 +1,318 @@
 # Playback Listening and Entity Context
 
+## Current-build native failure investigation
+
+The approved two-MIDI fixture initially failed on its first Operator capture
+(`run-68gHYg`); the previously passing quantized MIDI scenario also failed when
+rerun on that same current Desktop candidate (`run-7EFYKE`). Both report
+`mel_invalid_drain_receipt` while arming, cancellation ownership mismatch and
+unconfirmed capture cleanup. Runner-owned process/profile cleanup succeeds
+independently. Earlier passing receipts are historical, not qualification of
+the current build. All fifty native listener resources match the earlier MIDI
+pass, but Desktop build hashes differ. Instrumented `run-apT6ij` established
+the native race described below; it does not establish a Desktop regression.
+
+The first rejected native drain now emits one bounded, diagnostic-only
+`mel_rejected_drain_receipt` event carrying nine numeric receipt operands and
+seven expected counter/owner values through the existing attributed diagnostic
+writer. Non-numeric/nonfinite operands are unavailable, oversized finite numbers
+are strings, and repeated rejection cannot flood history. This does not accept
+the packet, advance counters, establish readiness or authorize cleanup. No
+validation guard is relaxed by diagnostic instrumentation.
+
+`run-apT6ij` retained the actual rejected ABI3 receipt: token 1, owned epoch 1,
+generation 0, and zero records, frames, terminal, clock-valid and source-clock
+fields. The native control thread has accepted `arm` and set the epoch, but
+the audio thread has not yet supplied the first readiness record. The consumer
+only recognized the earlier epoch-zero empty state and wrongly rejected this
+legitimate pending state. This explains how the first capture can fail and why
+passing runs do not exclude the scheduling race.
+
+The handoff now accepts only that empty, generation-zero state for epoch zero
+or the exact owned epoch. It acknowledges the monotonic poll token but does not
+bind a DSP generation, mark readiness, publish data or confirm cleanup. Real
+native readiness and terminal receipts remain mandatory; foreign epochs,
+replayed tokens, nonempty counts and premature terminal/clock claims still fail.
+One bounded `mel_native_arm_pending` progress event exposes the wait through
+the existing configuration lifecycle. ABI2/ABI3 handoff tests and a real
+controller/runtime six-metric Session regression failed before this fix and
+pass with it.
+
+The subsequent selected packaged suite passed **13/13 cases, 21 captures** on
+Live **11.3.43**, using the same ASAR
+`bbb259e7d9184b4e85ce757a51aeee035b532007b360aca2774dcaf890c372ee`
+and identical candidate native-resource inventories. The native handoff hash is
+`8edca2fa8f1da527182a8c78f7a5b19d4c96e9573547dfeb93d53cadb795fdca`.
+The user restored built-in speaker output at 48 kHz; no fixture settings were
+repaired during execution. Both MIDI sources passed in `run-f5eDKl`, including
+exact capture count, source/context attribution, freshness, protected state and
+cleanup. The 17-turn continuity case passed in `run-Me7tyU`.
+
+Final non-restart context selection, stale mel lifecycle verification and
+duplicated derived report pages were corrected in the harness with red/green
+regressions; case contracts and evidence limits were not relaxed. See the
+[current-candidate receipt table](../testing/acceptance-authoring.md#current-candidate-suite-result-2026-11-11)
+for all cases and preserved failures. All terminal capture and runner cleanup
+checks passed. This qualifies the selected packaged scenarios, not arbitrary
+repetition or the separately deferred runtime fixtures. The original user
+session's exact `metric_source_position_mismatch` did not recur and its cause
+remains unproven. The installed `/Applications` bundle was not replaced during
+this validation cycle.
+
+After qualification, the user explicitly requested installation. The same
+tested ASAR and all 50 native resources were copied into
+`/Applications/Ableton Agent.app` without rebuilding, locally signed and
+byte-verified. The packaged installer updated Machine Listening in the default
+User Library; Remote Script and MIDI Capture were already current. The existing
+default profile was preserved. The installed-app authentication smoke passed
+in an isolated temporary profile, and the normal installed app was opened for
+the user's manual testing. Receipts:
+`.test-artifacts/issue113-install.json` and
+`.test-artifacts/issue113-installed-integrations.json`.
+
+On 2026-11-11, the user confirmed that this installed candidate passed their
+manual testing and approved preparing/submitting the PR. This is user-reported
+manual acceptance, in addition to the automated qualification above; it does
+not retroactively establish the original position-mismatch cause.
+
+Pre-PR review subsequently found and corrected a storage-only pruning bug:
+pruning one pass cancelled every pending derivation. Cancellation now requires
+an admitted, valid, non-aborted prune request and matches each job's entry or
+actual owning pass. Eight focused regressions cover unrelated and absent passes,
+mixed selections, invalid/cancelled/queue-denied requests and selected-source
+cleanup; six reproduced the defect before the correction. This correction was
+made after the installed candidate's manual acceptance, so the earlier packaged
+and manual results are not fresh qualification of the corrected storage code.
+Fresh post-correction validation passed 5,944 Vitest tests in 256 files,
+1,044 Max patch tests, 294 Python tests and all typecheck scopes. Logs are
+`.test-artifacts/prune-final-{vitest,max-patches,python,typecheck}.log`.
+The review's possible stale analyzer readiness after an idle same-format DSP
+rebuild remains a follow-up investigation: an isolated reproduction exists, but
+the corresponding Live 11 sequence has not been demonstrated. Native readiness
+behavior is unchanged in this follow-up.
+
+## Measurement features and comparisons (#113)
+
+The delivery has two phases: first establish derived storage, ownership, typed
+agent access, comparison and bounded search with the simplest pair,
+`peak-summary/v1` and Euclidean distance; then cover every existing measurement
+with at least one feature. Each feature type/version owns exactly one canonical
+comparison. Shared arithmetic does not combine incompatible units into one
+musical-similarity score.
+
+The first vertical slice, `peak-summary/v1`, now shares the derived-storage and
+query path with all fourteen other definitions. It takes the
+maximum retained sample peak on each channel over a supported segment, in linear
+amplitude. It is not true peak or loudness. Full level support is required for
+comparison; measured zero is valid, missing support is not zero. A coarse
+window's maximum cannot be localized to a smaller segment. Source duration and
+coverage remain visible even when comparing different durations. Without
+privileged alignment, the whole-source segment remains explicitly unaligned.
+
+The audited target catalog is below. "Diagnostic" describes the original
+acquisition of the final five quantities. Historical polling/delivery counts
+cannot establish independently identified frames or source support. Their new
+source-supported acquisition and feature integration are separate completion
+gates; a table row is not a real-host qualification claim.
+
+| Measurement | Feature | Comparison function |
+| --- | --- | --- |
+| Stored stereo sample peak | `peak-summary/v1`: channel maxima | Euclidean, linear amplitude |
+| Stored stereo RMS | `level-grid/v1`: supported RMS sequence | RMS difference, linear amplitude |
+| Stored aggregate FFT energy | `spectral-energy-summary/v1`: supported mean | Absolute difference, native FFT-energy units |
+| Stored aggregate centroid | `centroid-grid/v1`: supported Hz sequence | RMS difference, Hz |
+| Stored attack endpoint timestamps | `attack-activity-grid/v1`: event counts | RMS difference, counts |
+| Stored attack strength | `attack-strength-grid/v1`: maximum dB rise per cell | RMS difference, dB rise |
+| Stored stereo 24-band mel vectors | `mel-shape/v1`: jointly normalized channel means | Euclidean |
+| Stored stereo 24-band mel vectors | `mel-grid/v1`: jointly normalized sequence | RMS element difference |
+| Existing derived mel regional sums | `mel-region-summary/v1`: sums of supported mean bands | Euclidean, native magnitude units |
+| Existing derived low/mid and high/mid ratios | `mel-ratio-summary/v1`: ratios of mean bands | Euclidean, ratio units |
+| Diagnostic stereo pitch | `pitch-grid/v1`: continuous log pitch | RMS difference, cents |
+| Diagnostic paired pitch confidence | `pitch-confidence-summary/v1`: supported channel means | Euclidean, algorithm-specific score units |
+| Diagnostic stereo flatness | `flatness-summary/v1`: supported channel means | Euclidean, dB |
+| Diagnostic stereo spread | `spread-summary/v1`: supported channel means | Euclidean, Hz |
+| Diagnostic stereo rolloff, configured at 95 percent | `rolloff-summary/v1`: supported channel means | Euclidean, Hz |
+
+Regional sums and ratios are already derived from measured mel bands, not
+separate acquisitions. Attack-window peak/RMS are another level-acquisition
+profile, not musical-row measurements. Historical RMS dBFS is a representation
+of RMS, not another independent quantity. Sample/beat coordinates, sample rate,
+tempo, profile, gaps and validity are supporting evidence rather than additional
+musical-similarity features.
+
+`ableton_context` adds `feature-definitions`, `derive-features`, `list-features`,
+`get-feature`, `compare-features` and `search-features`. Derivation mutates only
+App-session derived data and uses session edit authorization; comparison/search
+are read-only. An explicit request to read or reread persisted features requires
+`get-feature` for every requested feature from every requested context in the
+current operation, including contexts read in earlier turns. Conversation memory
+does not satisfy that reread. Use known feature IDs or discover them with
+`list-features` scoped to each `contextId`, then follow the necessary value and
+support page continuations. If both comparison and search are requested, call
+`compare-features` with `pairs` of `leftFeatureId` and `rightFeatureId`, and call
+`search-features` separately with `featureId` and the requested `excludeContextIds`.
+A search hit and its distance do not replace the requested pair comparison, even
+when the hit is the comparison target. Unavailable or failed reads/comparisons
+remain explicit; memory cannot fill missing evidence. This guidance is shared by
+the context tool and newly created/resumed listening agents; it does not
+authorize capture, rederivation or retries.
+
+The action descriptions and existing post-tool success hook distinguish
+`list-features`, `compare-features` and `search-features` metadata/distances from
+numeric feature details. `valueCount` is not a vector and a distance is not either
+input vector. Only when values or persisted rereads were requested, follow with
+`get-feature` for each requested ID and read `page.values` and needed
+continuations before reporting values; neither original measurement rows nor
+conversation memory substitute for that detail. Comparison/search-only requests
+need no extra value reads. The compact reminder is attached only at those three
+summary-result boundaries, without rewriting results. Typed History recognizes
+the exact application-owned suffix for those actions; altered or mismatched
+suffixes remain unavailable evidence.
+
+No action captures audio, repairs Live, imports files or performs
+hidden backfill. Inventory and search default to 10 results, at most 20 enriched
+tool results and 64 KiB per response. Their feature records are compact metadata,
+not full value arrays. `list-features` uses opaque cursor pagination, not numeric
+offsets: omit `cursor` on the first request, copy `nextCursor` unchanged on the
+next request with the same filters, and stop when `nextCursor` is absent.
+`limit` defaults to 10, at most 20 feature records. Neither `offset` nor
+`supportOffset` is accepted for feature inventory. This distinction is carried
+by the action and field descriptions in full, mixed and single-action SDK
+schemas; strict validation continues to reject unsupported pagination fields
+before repository dispatch. The existing top-level tool argument summary also
+states this distinction: `list`/`list-features` use cursor continuation,
+`report`/`get-feature` accept `offset`, only `get-feature` accepts `supportOffset`,
+and `feature-definitions` accepts no pagination arguments. This keeps pagination
+discoverable without relying solely on nested union descriptions.
+
+`get-feature` pages at most 32 cells and 32 support
+intervals; `offset` and `supportOffset` have independent continuation offsets.
+Pages preserve whole-segment normalization and explicit null cell masks.
+Analyzer features retain independent channel validity. Inventories expose only
+`channelSupportIntervalCounts` and compact channel reasons; value pages expose
+at most 32 intervals per channel in `channelSupportIntervals`, using the same
+`supportOffset`, with separate `nextChannelSupportOffsets`. Continue any
+non-null support cursor; the aggregate support page may already be exhausted.
+Values and canonical distances have separate units: pitch-grid values are
+continuous MIDI semitones, while their distance is in cents. Search explicitly
+returns `distanceUnits`. Signed flatness must not weaken nonnegative peak
+validation or turn masked values into measured zeros.
+Derivation responses expose `featureCount`; enumerate IDs through `list-features`
+rather than embedding thousands of IDs in a status response. Explicit derivation
+accepts at most eight sources and comparison at most sixteen pairs. Search scans at most 1,000
+candidates with stable identity/tie ordering and reports scanned/comparable/
+eligible/excluded counts and exhaustive status. Capped results are nearest in
+the scanned subset, never claimed globally nearest. Source exclusions are
+explicit; repeated source hits are not silently deduplicated.
+Returned candidate freshness belongs to the bounded search assessment; source
+presentation must not run a second candidate revalidation or upgrade unknown
+evidence to fresh.
+
+Musical alignment is privileged capture evidence, not a model-supplied override.
+Session inspection reads clip numerator/denominator separately from song meter.
+Absent or invalid public clip properties stay unknown and do not add a capture
+admission requirement. Known zero start/loop markers establish a clip-local
+origin only after the pass-owned source monitors and terminal seal succeed.
+Tempo and available clip-meter listeners latch observed transient changes;
+fingerprints also cover both meter fields. The persisted evidence is explicitly
+`message-rate-monitored-constant`, not proof of sample-accurate phase or absence
+of sub-message automation. Existing stopped/4/4 Session guards remain.
+Arrangement bar origin is not inferred; missing alignment remains unaligned.
+
+The full registry is `qualified-listening/v1`, with fifteen definitions and
+at most 7,680 feature identities per bounded derivation (512 segments), still
+subject to the existing batch and physical database quotas. Controlled typed
+publication tests exercise all five analyzer features through detail, canonical
+comparison and source-excluding search, including a 1,200-cent octave distance,
+signed flatness and independent unavailable channels. This establishes
+application arithmetic and persistence, not physical capture.
+
+Capture admission sums every requested family and the terminal envelope
+against the unchanged 2 MiB limit, including possible partial outcomes. Thirty
+seconds is a maximum duration, not a guarantee every metric/tempo combination
+fits: an all-six-family 30-second/128-BPM request exceeds the conservative
+worst-case budget and is rejected before playback, without trimming timelines
+or increasing quotas.
+
+The approved second phase retains current Session admission guards and the
+2048-sample YinFFT profile, qualifying its limits rather than asserting reliable
+50 Hz behavior. It also qualifies flatness/spread/rolloff. Historical diagnostic
+snapshots must not be backfilled into supported timelines. Musical segmentation,
+other catalog definitions and analyzer qualification remain separate completion
+gates; current feature discovery reports only implemented definitions.
+
+The initial native-qualification setup blocker was resolved by locating and
+verifying the complete canonical Max4Live-MCP checkout. Native commands supply
+its absolute `MAX4LIVE_MCP_ROOT` explicitly, without changing global shell
+configuration. Compiled pinned-core qualification passed 144 controlled sine
+cases at 44.1/48 kHz under the frozen 20-cent/0.9-score criteria (maximum error
+12.2375599595 cents, minimum score 0.9112004762), plus sixteen independent
+SpectralShape numerical cases. Release and ASan/UBSan runs each passed all
+three native tests. These are offline arithmetic results, not physical Live
+capture, publication or cleanup qualification.
+
+Pitch retains the 2048-sample window/hop/FFT and nominal 50-2000 Hz search.
+An accepted estimate passes only the declared output/confidence gate: a known
+2000 Hz sine produces a high-confidence estimate near 1000 Hz that passes it.
+Confidence is an algorithm-specific score, not probability; neither confidence
+nor output filtering establishes input class or correct pitch. The new typed
+context detail and agent guidance retain raw rejected estimates, undefined-zero
+sentinels, independent channel states, acquisition gaps and unmeasured tails.
+SpectralShape detail retains signed flatness dB and independent Hz descriptors;
+undefined values are not measured zeros. Acquisition completeness does not imply
+descriptor validity. Historical diagnostic snapshots cannot replace absent
+authoritative timelines.
+
+The published `listener.mel~` producer now uses ABI3, while shared Gen source
+timing remains ABI3 and the terminal listener wire remains version 5. Analyzer
+capability requires an actual matching DSP-perform `analyzerReadiness` receipt;
+per-pass ready/arm proofs additionally carry `analyzerProducerAbi: 3`. Merely
+installing the binary or observing polled diagnostics cannot enable the
+capability. The universal binary SHA-256 is
+`6188cb21933af611c3d420bb99951fedb76e385af8f8ea3a4d706de0fc1966d5`.
+Authenticated ingress and application canonical-path binding share the protocol
+registration metadata validator. Both retain the actual `analyzerReadiness`
+receipt and enforce its exact pairing with the third analyzer capability and
+matching registration sample rate. Runtime descriptor projection must not drop
+that receipt: valid three-capability producers remain discoverable and eligible
+for guarded capture, while malformed, missing, mismatched or unadvertised
+receipts are denied. Legitimate baseline-plus-mel registrations remain valid
+without analyzer evidence. Discovery still does not establish per-pass readiness.
+Native execution was tested on arm64; x86_64 was compiled, not runtime-qualified.
+Producer admission uses the shared conservative byte bound before acquiring
+capture ownership. Production packaging retains the analyzer handoff companion
+in its strict resource inventory. These checks and the packaged candidate build
+are not real-Live qualification; the reviewed two-capture run remains pending.
+
+The following smoke milestones retain their original scope and evidence. Their
+diagnostic-only statements describe those earlier candidates, not qualification
+of the new analyzer timelines.
+
+### Staged publication repository identity
+
+Session and Arrangement reservation/publication compare the identity of the
+opened context store, not an actor wrapper's object identity. Desktop creates
+an opaque process-local `publicationIdentity` token for each opened store and
+shares that token through caller-scoped wrappers. Runtime snapshots the token
+at reservation and compares it after fresh owner/repository resolution at
+publication. Repositories without a token retain strict object-identity checks.
+Closing/reopening, cache replacement, or ownership transitions create a new
+token and cannot inherit an old reservation.
+
+The token is not persisted, serialized, or used as authorization. Session,
+Live Set, initiating-agent, reservation, capture and cancellation guards remain
+mandatory. Actor wrappers remain scoped to their execution contexts so feature
+derivation retains the current operation's trace, agent and abort signals;
+application readers still cannot mutate. Existing publication lifecycle events
+and typed `sameRepository`/`repositoryMatches` failure facts remain unchanged.
+
+Deterministic regressions use the actual Desktop context manager and production
+runtime orchestration with a synthetic native peer. They reproduce the
+completed-capture/failed-publication condition from `run-5NJeOs` before the fix,
+then verify both modes publish, actual store replacement and changed ownership
+fail closed, abort releases reservations, and independent derivation attribution
+does not reuse a cancelled caller. This is not a new real-host capture claim.
+
 ## F4 pitch/confidence diagnostic smoke (#95)
 
 The user-selected delivery is **smoke only**, using the unchanged reviewed
@@ -1139,6 +1452,104 @@ bounded acquisition operands; musical skip evidence is emitted on the first
 skip and every sixteenth skip, with its counter reset for each admitted pass.
 The required genuine clock cohorts, receipt counts and timing bounds are unchanged.
 
+On 2026-11-07, quantized MIDI acceptance against the installed candidate
+(`run-P6yJER`) reproduced `metric_changed_clock_hold` during arming. Bounded
+fault-point diagnostics in `run-iq1Ltd` identify a native counter held at
+2,525,183 while only the host counter advanced from 2,525,119 to 2,525,183.
+The host `plugsync~` and native `mc.snapshot~` readings can therefore straddle
+different DSP updates even when each individual bracket is coherent.
+The reader now discards the narrowly identified combination: host-counter-only
+advance of exactly one declared DSP vector, with every other field unchanged.
+It preserves the previously admitted immutable binding and waits for fresh
+native evidence. Existing bounded `native_clock_cohort_skipped` events carry
+the operands; state resets on release and new ownership. No values are repaired,
+no coverage is credited, and controller/protocol guards and deadlines remain
+unchanged. Native phase changes, host position changes, regressions and larger
+advances are not hidden by this acquisition filter.
+
+The corrected candidate passes `session-stopped-quantized-midi` in `run-20nhYR`
+on Live 11.3.43, including all four postconditions and terminal cleanup.
+The subsequent approved audio scenario `run-LKjZog` fails during playback:
+the native counter holds at 2,330,623 while host sample and beat both advance
+by one vector (host samples 2,330,559 to 2,330,623; beats
+0.543288888888889 to 0.546133333333333). That failed attempt publishes no context;
+both final capture and process/profile cleanup complete.
+
+The subsequent approved correction recognizes running-host skew only when the
+beat increment equals one declared vector's beat duration at the validated
+sample rate and tempo. Floating-point subtraction tolerance is eight machine
+epsilons times the larger absolute beat coordinate (at least one), not a new
+musical timing tolerance. Other changes, backward motion, larger advances and
+missing owner metadata remain visible to the immutable-binding guard.
+
+`run-mXXpnV` then exposed the FFT `backwards` counter predicate: the first
+counter was 2,320,447 and the last 2,318,399. Duplicate channels in one
+`mc.snapshot~` are not temporally ordered bookends. FFT readout now bangs one
+shared scalar `snapshot~ @offset 2047` before and after the twenty-channel
+payload snapshot, publishing the same 22-cell ABI. Strict unequal/backward
+counter rejection remains. Reader/controller/graph regressions pass in the
+1,031-test Max suite. On Live 11.3.43, corrected audio `run-KeAplC` and MIDI
+`run-Js6e0r` each pass all four assertions and cleanup; peak workflow
+`run-5AXSXg` passes all nine assertions and cleanup.
+
+Full workflow `run-54p1lT` captures all six families but fails skipped report
+continuation. Action-local post-tool guidance now requires the exact returned
+`report.nextOffset`, not requested page size, and fresh complete original
+analyzer reads when rereading after restart. Typed History recognizes only its
+exact action-matched suffix and still preserves/redacts the actual result.
+`run-5nMJGO` passes both capture turns but fails fresh report consumption after
+restart. `run-zYhRGa` reads the first capture's complete report but fails the
+historical read-only transport verifier restriction, now explicitly reviewed
+for correction. All three failed receipts retain complete terminal cleanup.
+The user deferred the missing-fixture native repeat/switch cases; four packaged
+cases remain the reinstall gate. No general reliability or fresh installation
+is established by these partial results.
+
+After the reviewed transport-read correction, `run-8Dr6MW` passes both captures
+and first-turn feature consumption but fails the missing second-source typed
+peak-feature read. The agent reads the four analyzer feature summaries and
+performs comparison/search, yet reports peak values without fetching that
+feature. No restored turn executes; terminal cleanup completes. The corrected
+verifier does not convert incomplete requested reads into success, and the
+normal-profile installation remains unchanged. This failure is under the
+then-current direct-read contract, not evidence that the reported vector was
+incorrect: the subsequent outcome-based review independently establishes equal
+peak vectors and a genuine zero-distance comparison in that run.
+
+The approved outcome-based contract accepts sufficient attributable evidence,
+including exact peak equality and canonical fifteen-type inventory discovery,
+without requiring redundant read/catalog calls. Fresh post-restart feature
+vectors and source acquisition reports remain mandatory, backed by independent
+full persisted source/timeline equality; the agent need not redownload every
+unchanged frame. The revised verifier has 197 focused and 818 owning passing
+tests. Fresh `run-6soIhz` passes both capture/feature turns but exceeds aggregate
+receipt retention at restart. Presentation-only summaries/freshness are now
+omitted from bounded receipt projections, never raw product History or evidence.
+In `run-qFzkdY`, both capture/feature turns pass again, but the restored turn hits
+its unchanged 120-second deadline while the agent is still streaming its reply.
+Final cleanup completes. Neither run is a full pass; installation remains gated.
+
+The subsequently approved scenario-local restored-step budget is five minutes,
+with an eleven-minute outer run allowance; other tests and cleanup limits are
+unchanged. `run-uqZfOc` completes all three turns but exposes the runner's loss
+of pre-restart job IDs. Retaining the bounded union of actual inventory reads
+fixes that bookkeeping without weakening extra-capture detection. Fresh
+`run-356zOY` then passes all ten assertions and terminal cleanup on Live
+11.3.43, including persisted feature/source reads, comparison/search, exactly two
+captures and unchanged protected state. Total duration is 361 seconds. The
+selected packaged qualification gate is satisfied; normal-profile installation
+has not yet been performed. Deferred native repeat/switch cases remain unrun.
+
+The subsequent requested preserve-profile install completed on 2026-11-07:
+`/Applications/Ableton Agent.app` was rebuilt, installed, authenticated and
+opened. Machine-Listening-Development was updated in the default User Library;
+MIDI Capture and Remote Script were already current. All fifty installed
+listener resource hashes match passing `run-356zOY`; installed application
+bytes match the rebuilt package. Existing default-profile History, credentials
+and projects were preserved. Saved Sets' embedded listener instances are not
+replaced automatically; manual testing must load the current User Library
+device. This does not qualify the two deferred native scenarios.
+
 Asynchronous evidence/status/tick queries have bounded separate delivery
 tracking: they cannot continually block readiness or arming solely by being
 queued immediately before those decisions. Configuration, arm and other
@@ -1251,7 +1662,16 @@ performs no playback, physical proof, retries or persistence, and does not chang
 installed capture behavior.
 
 Agent-facing `ableton_context` adds `action: "report"` for a known metric context
-ID. It uses the same App-session repository, freshness scope, caller cancellation,
+ID. This is the preferred original-measurement read after a metric capture:
+start with `offset: 0, limit: 8` and follow `report.nextOffset` until null before
+querying derived evidence. `get-feature` is not a substitute for reading the
+original measurement. Use `get` for other or small contexts; agent-facing full
+metric `get` responses exceeding the existing 64 KiB UTF-8 response budget fail
+explicitly with instructions to use `report`, rather than returning an oversized
+success that the SDK replaces with a spill-file notice. Never read spill files.
+The guard belongs to the tool handler only: full typed Desktop IPC, repository
+reads and historical observations remain unchanged.
+`report` uses the same App-session repository, freshness scope, caller cancellation,
 trace and active-agent attribution as `get`. The request accepts `contextId`,
 `includeHistorical` (default false), `offset` (default zero) and `limit` (default
 eight, maximum thirty-two). Follow `report.nextOffset` until null; an offset at
@@ -1270,8 +1690,8 @@ contains measured level records, weighted spectral centroid/energy with native
 frame support, attack events and support, and per-metric availability/gaps.
 Acquisition status and overall outcome remain separate from row availability.
 No-frame/missing spectral energy is null; zero denotes measured silence only.
-Existing `get` and all legacy payloads remain unchanged; `report` refuses legacy
-conversion. The application-owned operation lifecycle and timed repository reads
+Small metric `get` responses and all legacy payloads remain unchanged; `report`
+refuses legacy conversion. The application-owned operation lifecycle and timed repository reads
 remain authoritative for queued/started/completed/failed/cancelled events and
 trace propagation; the pure synchronous projection creates no new persisted
 state, audio body, network path or renderer storage access. Immediate reads do

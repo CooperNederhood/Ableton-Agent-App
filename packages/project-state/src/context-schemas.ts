@@ -3,6 +3,7 @@ import {
   MAX_METRIC_OBSERVATION_BYTES,
   audioObservationKindSchema,
   storedAudioObservationSchema,
+  listeningMusicalAlignmentSchema,
 } from "@ableton-agent/protocol";
 
 const listenersPerPass = 8;
@@ -25,7 +26,9 @@ export const CONTEXT_LIMITS = Object.freeze({
 
 export const sessionContextStoreReferenceSchema = z
   .strictObject({
-    schemaVersion: z.literal(2),
+    schemaVersion: z
+      .union([z.literal(2), z.literal(3)])
+      .transform(() => 3 as const),
     relativePath: z.literal("context/entity-context.sqlite"),
     kinds: z
       .array(audioObservationKindSchema)
@@ -38,7 +41,7 @@ export const sessionContextStoreReferenceSchema = z
 
 export const SESSION_CONTEXT_STORE_REFERENCE =
   sessionContextStoreReferenceSchema.parse({
-    schemaVersion: 2,
+    schemaVersion: 3,
     relativePath: "context/entity-context.sqlite",
     kinds: [
       "audio-observation/v1",
@@ -223,9 +226,36 @@ export const contextEntrySchema = z
     capturedAt: timestamp,
     trace: contextTraceSchema,
     payload: contextPayloadSchema,
+    musicalAlignment: listeningMusicalAlignmentSchema.optional(),
   })
   .refine((entry) => entry.kind === entry.payload.schema, {
     message: "Context kind must match its registered payload schema",
+  })
+  .superRefine((entry, context) => {
+    if (entry.musicalAlignment === undefined) return;
+    if (entry.payload.schema !== "metric-audio-observation/v1") {
+      context.addIssue({
+        code: "custom",
+        message:
+          "Musical alignment requires authoritative metric observation evidence",
+      });
+      return;
+    }
+    const coordinate =
+      entry.payload.source.view === "session"
+        ? "clip-local-beats"
+        : "transport-beats";
+    if (
+      entry.musicalAlignment.coordinate !== coordinate ||
+      entry.musicalAlignment.tempoBpm !== entry.payload.geometry.tempoBpm ||
+      (entry.musicalAlignment.provenance === "session-clip-markers/v1" &&
+        coordinate !== "clip-local-beats")
+    )
+      context.addIssue({
+        code: "custom",
+        message:
+          "Musical alignment must match the captured metric coordinate and tempo",
+      });
   });
 
 export const contextLinkSchema = z.strictObject({

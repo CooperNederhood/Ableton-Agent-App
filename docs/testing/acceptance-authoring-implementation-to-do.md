@@ -2,6 +2,159 @@
 
 Companion specification: [Acceptance test authoring](acceptance-authoring.md).
 
+## Two-MIDI-track listener smoke (#113)
+
+- [x] Review the user-approved Operator then 808 contract with one STOP and no
+      seek, retry, reload, restart, source repair or added interpretation task.
+- [x] Intake the revised Set without Blackhole; retain both returns, original
+      MIDI and exact listener slots, and verify all factory samples in place.
+- [x] Complete separate no-capture loaded review on owned Live 11.3.43,
+      independently check notes/instrument identities, and confirm cleanup.
+- [x] Obtain repository asset approval and register the two-source fixture,
+      five-minute turn budgets, six-metric capture/source/context assertions,
+      native freshness and protected-state/cleanup checks.
+- [x] Reproduce and correct the harness-only audio capability restriction on
+      STOP in manifest validation and the packaged driver; cover MIDI and audio
+      single-use STOP, attribution, lifecycle and cleanup without changing the app.
+- [x] Preserve `run-wrQAle` as a pre-capture approval failure with complete
+      cleanup. Correct the missing explicit four-beat permission to match the
+      approved contract, retaining exact scope and single-use enforcement.
+- [x] Execute the unchanged candidate against the new fixture and preserve the
+      first terminal receipt, distinguishing product failure from setup failure.
+- [x] Preserve `run-68gHYg` as a valid native product failure on the first
+      Operator capture (`mel_invalid_drain_receipt`, cancellation ownership
+      mismatch, capture cleanup unconfirmed), with terminal owned cleanup passed.
+- [ ] Reproduce the original second-track position mismatch if it recurs.
+      The distinct first-track pending-arm race is fixed and the unchanged
+      two-track smoke passes; the original first rejected clock row was not
+      retained, so its root cause remains unproven.
+- [x] Preserve current-build quantized MIDI failure `run-7EFYKE` and blocked
+      instrumented admission `run-1BGLe1`; add exact bounded source-admission
+      operands with a red/green regression, keeping preconditions unchanged.
+- [x] Reproduce the hardcoded 60-second Live startup cap and missing abort
+      signal after `run-N92QN6`; use the already approved remaining scenario
+      budget and propagate cancellation without altering case budgets or
+      enabling recovery discard.
+- [x] Reproduce `run-GpPZ2o`'s disabled-audio startup admission with lightweight
+      ready/unready bridge cases; reject the known startup outcome for listening,
+      retain bridge-only inspection, and confirm owned cleanup without launching
+      Desktop or changing audio settings.
+- [x] Reproduce `run-y4L4Rr`'s final non-restart context assertion failure in
+      assertion and coordinator tests; select collected run evidence when no
+      current turn exists, without falling back to cached turns or weakening
+      source, pass, identity, content, readability or restart checks.
+- [x] Reproduce the stale mel lifecycle verifier exposed by `run-DFFYC5`;
+      validate the pinned ABI and empty pre-readiness state, and cross-check
+      bounded stopped/drain operands against authoritative terminal cleanup.
+      Keep diagnostic events distinct from summary receipts and reject
+      missing, duplicated, reordered, foreign or inconsistent evidence.
+- [x] Reproduce derived-report duplication exceeding the existing turn evidence
+      cap; retain the full observation once and exact canonical page digests,
+      offsets and row counts. Keep raw agent report validation and restart
+      equality checks, without increasing the evidence cap.
+- [x] Complete all 13 selected packaged cases on the same product/native
+      candidate with terminal assertions, capture cleanup and owned cleanup
+      passing. Retain all failed attempts and per-case receipt hashes.
+- [x] Complete fresh final deterministic validation without Live/build
+      contention: 5,936 Vitest, 1,044 Max patch and 294 Python tests passed,
+      with all typecheck scopes clean.
+
+## Same-session peak fundamentals (#113)
+
+- [x] Register a separately approved two-turn/two-capture peak smoke on unchanged
+      `session-clip-identify` assets, with one declared runner STOP and no restart.
+- [x] Reuse strict peak arithmetic, units, ownership and whole-source exclusion
+      checks through explicit peak-only coverage; preserve full analyzer and
+      restart defaults and the original full scenario.
+- [x] Keep normal capture negotiation and exact scoped approvals unchanged;
+      require mapped binary checks, native/source/fixture evidence and cleanup.
+- [x] Cover positive evidence, bad distance/exclusion, ownership, accidental
+      restart, missing cleanup, protected state and strict-default regressions.
+- [x] Reproduce the protocol 10 single-client handshake failure behind the
+      runner's unavailable STOP error using the real bridge and Python simulator.
+- [x] Hand off the idle Desktop socket through the existing bounded proxy for
+      one capability-guarded STOP, then reconnect the same Desktop process and
+      verify protected source state. Retain denial, timeout/no-resend,
+      cancellation, reconnect/cleanup and trace lifecycle regression coverage.
+- [x] Apply the approved peak-only immutable typed-read carry-forward contract:
+      revalidate first-turn ownership/source/content and require the second
+      feature's own typed read plus exact comparison and source-excluding search.
+- [x] Reject missing raw calls/results, foreign owners/feature IDs, swapped
+      evidence, changed metadata/provenance, and missing second-turn actions.
+      Keep mandatory fresh post-restart reads and all other smoke gates.
+- [x] Extend the approved pre-restart reuse to peak, confidence, flatness, spread
+      and rolloff only, with unchanged ownership/source/content and genuine
+      second-source reads. Preserve all fifteen catalog and numerical/native gates.
+- [x] Bind fresh restored feature IDs/content to both earlier turns, even when
+      the second turn reused first-source reads; reject cached, missing or changed
+      restored feature/source evidence.
+- [x] Reproduce readiness cancellation with an actual in-flight bridge hello;
+      close the proxy before owned Desktop teardown, including late acquisitions.
+      Account for cancelled reads without resending while preserving pending
+      mutation/unknown work, unexpected disconnects and real teardown failures.
+      Preserve `run-IpjSVr` as the historical cancelled receipt.
+- [x] Diagnose the full-feature aggregate History overflow without raising any
+      report/query quota. Retain all typed records and raw report bodies in
+      product evidence; project validated report consumption for bounded receipts.
+- [x] Cover four-page reports, complete fifteen-definition catalog/inventories,
+      strict reads and restored eight-page consumption within the existing
+      three-turn budget. Preserve overflow, duplicate, nonterminal, attribution,
+      malformed/truncated report and exact native-frame/profile checks.
+- [x] Execute the full measurement/restart case and verify terminal owned cleanup
+      under the approved reuse contract. Preserve `run-Y4gRuG`, `run-TQyFgQ` and
+      `run-vSZQII` as failed under the historical contract, alongside earlier
+      native, baseline and runner failures. Offline replay is not a new host run.
+- [x] Apply the explicitly reviewed read-only `ableton_transport.get` exception
+      after `run-zYhRGa`: require strict argument/result schemas and exact success
+      framing; regress plain/object/framed results across full and peak phases,
+      mutations, malformed/foreign/failed results and ownership. Preserve every
+      measurement, feature, restart and cleanup assertion and historical verdict.
+- [x] Apply the later explicitly approved outcome-based revision: distinguish
+      genuine direct peak reads from exact-zero canonical Euclidean equality
+      proofs, with genuine target metadata and independent exact target-vector
+      recomputation. Never synthesize calls/results or hide contradictory reads.
+- [x] Accept bounded attributable inventories covering all fifteen canonical
+      types/metadata instead of requiring a redundant catalog call. Validate any
+      catalog response that exists; retain explicit unavailable/analyzer checks.
+- [x] Require fresh actual post-restart reads binding equality-established target
+      identity, metadata/provenance and values. Regress tiny/nonzero distances,
+      wrong source/range/identity/units, arithmetic, malformed reads, incomplete
+      discovery and changed/missing/cached restored evidence in the shared oracle.
+- [x] Replay genuine `run-8Dr6MW` first/second evidence offline under the approved
+      revision, without rewriting receipt bytes or its historical failed verdict.
+      Both phases pass; this is not a host pass. Its restored turn remains unrun.
+- [x] Establish red/green regression evidence, then pass 195 focused tests and
+      816 owning test-support tests, typecheck/build, workspace ESLint with the
+      6144 MB heap, formatting and paired-doc validation. One setup/finalization
+      test failed during concurrent build load, then passed isolated and in the
+      complete owning rerun without changes to that test.
+- [x] Execute a new full real-host measurement/restart case under the revised
+      outcome contract: verify fresh persisted reads of all original features,
+      exact captures, native provenance, unchanged protected state and terminal
+      owned cleanup. Keep prompts, fixture assets, permissions and budgets frozen.
+
+- [x] Apply outcome-based restored-source evidence: fresh per-source acquisition
+      reports and all requested feature vectors, backed by independent complete
+      persisted source/timeline equality. Regress mutations in unread frames.
+- [x] Reproduce `run-6soIhz` aggregate receipt overflow; omit display-only
+      summaries/freshness from receipt projections, never raw product History,
+      measurements, provenance or records. Keep the existing size bound.
+- [x] Finish real-host qualification after `run-qFzkdY` passes capture/feature
+      phases but times out during the restored reply at 120 seconds. Cleanup
+      completes; preserve the failed receipt and do not silently extend budgets.
+- [x] Apply the subsequent explicit five-minute restored-step approval using
+      this scenario's existing timeout parameter. Increase only its outer run
+      allowance by the same 180 seconds; preserve other steps/tests and cleanup
+      bounds. Regress the manifest values and outer-budget headroom.
+- [x] Reproduce `run-uqZfOc` empty final capture inventory after successful
+      restart reads. Retain the bounded union of actual queried pass IDs across
+      owned restart; preserve unexpected passes, reject read failures before
+      shutdown and reject cumulative overflow. All 1,040 driver/verifier checks pass.
+- [x] Qualify the revised full scenario in fresh `run-356zOY`: ten assertions,
+      all three turns, exact two-capture inventory, persisted reads and protected
+      state pass on Live 11.3.43; terminal cleanup completes. Preserve earlier
+      timeout, retention and inventory failures.
+
 ## F4 pitch diagnostic smoke (#95)
 
 - [x] Agree to unchanged `session-clip-identify` fixture and diagnostic-only

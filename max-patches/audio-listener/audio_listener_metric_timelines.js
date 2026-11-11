@@ -508,10 +508,11 @@ function missingRanges(expected, records, supportAt, reason, lastSequence) {
 function createMetricTimelines(input, options = {}) {
   const grid = createMusicalGrid(input);
   const owner = ownerCopy(input.owner);
-  // The controller must merge independently settled mel evidence before parsing
+  // The controller must merge independently settled external analyzer evidence before parsing
   // this empty native result; it is not publishable by itself.
   const externalOnly =
-    input.externalOnly === "mel-bands" && input.requestedMetrics?.length === 0;
+    ["mel-bands", "source-bound-analyzers"].includes(input.externalOnly) &&
+    input.requestedMetrics?.length === 0;
   invariant(
     Array.isArray(input.requestedMetrics) &&
       (input.externalOnly === undefined || externalOnly) &&
@@ -1433,7 +1434,9 @@ function adaptMetricTimelineObservation(result, context, contract) {
       result.status === "completed" ||
         result.status === "partial" ||
         (result.status === "failed" &&
-          context?.externalMetricAvailable === "mel-bands"),
+          ["mel-bands", "source-bound-analyzers"].includes(
+            context?.externalMetricAvailable,
+          )),
       "metric_adapter_result_not_publishable",
     );
     invariant(

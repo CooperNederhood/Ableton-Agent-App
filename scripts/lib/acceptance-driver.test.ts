@@ -1,17 +1,20 @@
 import { createHash, randomUUID } from "node:crypto";
-import {
-  mkdir,
-  mkdtemp,
-  readFile,
-  realpath,
-  rm,
-  writeFile,
-} from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { createServer, type Socket } from "node:net";
+import { InMemoryEventPublisher } from "@ableton-agent/shared";
+import type * as BridgeModule from "@ableton-agent/bridge";
+import type * as TimingProxyModule from "../../tests/electron/acceptance-bridge-timing.js";
+import { FrameDecoder } from "../../packages/protocol/src/framing.js";
 import { gzipSync } from "node:zlib";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resolveLiveAgentStorage } from "@ableton-agent/storage";
+import { withSyntheticAnalyzerTimelines } from "../../packages/protocol/src/testing.js";
+import { projectMetricListeningReport } from "@ableton-agent/protocol";
+import type {
+  ResolveBridgeCredentialOptions,
+  resolveBridgeCredential,
+} from "../../apps/desktop/src/main/bridge-credentials.js";
 import type { DriverContext } from "../../packages/test-support/src/integration/contracts.js";
 import {
   liveSetSnapshotSchema,
@@ -61,6 +64,28 @@ const mocks = vi.hoisted(() => ({
   bridgeClose: vi.fn(),
   bridgeSnapshot: vi.fn(),
   subscriber: vi.fn<(handler: (event: unknown) => void) => () => void>(),
+  runnerBridgeStart: vi.fn(),
+  runnerBridgeStatus: vi.fn(),
+  runnerBridgeOptions: vi.fn(),
+  runnerBridgeStop: vi.fn(),
+  runnerSetPlaying: vi.fn(),
+  credential: vi.fn(),
+  bridgeHandoff: vi.fn(),
+}));
+vi.mock("@ableton-agent/bridge", async (original) => ({
+  ...(await original<object>()),
+  AbletonBridgeService: class {
+    constructor(options: unknown) {
+      mocks.runnerBridgeOptions(options);
+    }
+    start = mocks.runnerBridgeStart;
+    getStatus = mocks.runnerBridgeStatus;
+    stop = mocks.runnerBridgeStop;
+    setPlaying = mocks.runnerSetPlaying;
+  },
+}));
+vi.mock("../../apps/desktop/src/main/bridge-credentials.js", () => ({
+  resolveBridgeCredential: mocks.credential,
 }));
 vi.mock("@playwright/test", () => ({ _electron: { launch: mocks.launch } }));
 vi.mock("@ableton-agent/debug-control", () => ({
@@ -94,6 +119,15 @@ vi.mock("../../tests/electron/acceptance-bridge-timing.js", () => ({
     start = mocks.bridgeStart;
     close = mocks.bridgeClose;
     snapshot = mocks.bridgeSnapshot;
+    withExclusiveUpstream<T>(
+      signal: AbortSignal,
+      operation: () => Promise<T>,
+      trace: unknown,
+    ): Promise<T> {
+      signal.throwIfAborted();
+      mocks.bridgeHandoff(trace);
+      return operation();
+    }
   },
 }));
 vi.mock("../../tests/electron/packaged-cleanup.js", () => ({
@@ -133,6 +167,7 @@ const listenerBinding = {
 const api = {
   lifecycle: { get: vi.fn() },
   ableton: {
+    connect: vi.fn(),
     getStatus: vi.fn(),
     requestSnapshot: vi.fn(),
     inspectSessionListeningPreflight:
@@ -186,9 +221,21 @@ beforeEach(async () => {
   mocks.bridgeStart.mockResolvedValue(54321);
   mocks.bridgeSnapshot.mockReturnValue({ records: [] });
   vi.stubGlobal("window", { desktop: api });
-  directory = await realpath(
-    await mkdtemp(join(tmpdir(), "acceptance-adapter-")),
+  directory = join(
+    process.cwd(),
+    ".test-artifacts",
+    `acceptance-adapter-${randomUUID()}`,
   );
+  await mkdir(directory, { recursive: true });
+  directory = await realpath(directory);
+  mocks.credential.mockResolvedValue({ token: "controlled-token-".repeat(4) });
+  mocks.runnerBridgeStatus.mockResolvedValue({ state: "connected" });
+  api.ableton.connect.mockResolvedValue({ state: "connected" });
+  mocks.runnerSetPlaying.mockResolvedValue({
+    beforeIsPlaying: true,
+    afterIsPlaying: false,
+    verified: true,
+  });
   const projectPath = join(directory, "project.als");
   await writeFile(projectPath, "controlled test project; never opened in Live");
   context = {
@@ -313,6 +360,7 @@ beforeEach(async () => {
   driver = new PackagedAcceptanceDriver({ runDirectory: directory });
 });
 afterEach(async () => {
+  vi.unstubAllEnvs();
   vi.unstubAllGlobals();
   await rm(directory, { recursive: true, force: true });
 });
@@ -451,6 +499,8 @@ async function audioBaseline(
     tempoBpm: 120,
     signatureNumerator: 4,
     signatureDenominator: 4,
+    clipSignatureNumerator: 4,
+    clipSignatureDenominator: 4,
     globalQuantization: 0,
     launchQuantization: 0,
     launchMode: 0,
@@ -749,6 +799,366 @@ async function midiBaseline() {
 }
 
 describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
+  it.each([
+    "environment",
+    "installed-home",
+    "custom-library",
+    "missing",
+    "invalid",
+    "denied",
+  ] as const)(
+    "resolves STOP credentials through the real resolver without exposing or widening them (%s)",
+    async (mode) => {
+      const home = join(directory, "controlled-home");
+      vi.stubEnv("HOME", home);
+      vi.stubEnv("USERPROFILE", home);
+      vi.stubEnv("ABLETON_AGENT_TOKEN", undefined);
+      vi.stubEnv("ABLETON_USER_LIBRARY", undefined);
+      const token = randomUUID().replaceAll("-", "").repeat(2);
+      const library =
+        mode === "custom-library"
+          ? join(directory, "custom-library")
+          : join(home, "Music", "Ableton", "User Library");
+      if (mode === "environment" || mode === "denied")
+        vi.stubEnv("ABLETON_AGENT_TOKEN", token);
+      if (mode === "custom-library")
+        vi.stubEnv("ABLETON_USER_LIBRARY", library);
+      if (["installed-home", "custom-library", "invalid"].includes(mode)) {
+        const path = join(
+          library,
+          "Remote Scripts",
+          "AbletonAgent",
+          ".ableton-agent-token",
+        );
+        await mkdir(dirname(path), { recursive: true });
+        await writeFile(path, mode === "invalid" ? "short" : `${token}\n`, {
+          mode: 0o600,
+        });
+      }
+      const real = await vi.importActual<{
+        resolveBridgeCredential: typeof resolveBridgeCredential;
+      }>("../../apps/desktop/src/main/bridge-credentials.js");
+      mocks.credential.mockImplementation(
+        (options: ResolveBridgeCredentialOptions) =>
+          real.resolveBridgeCredential({ ...options, platform: "darwin" }),
+      );
+      await audioBaseline();
+      const step = {
+        id: "second",
+        message: "Listen once",
+        timeoutMs: 1000,
+        sourceId: "a",
+        setupActions: ["stop-transport"] as const,
+        assertions: [],
+      };
+      context = {
+        ...context,
+        scenario: { ...context.scenario, steps: [step] },
+      };
+      await driver.launch(context);
+      await driver.ready(context);
+      await driver.readBaseline(context);
+      if (mode === "denied")
+        mocks.runnerBridgeStart.mockRejectedValue(
+          new Error("authentication denied"),
+        );
+      if (mode === "missing" || mode === "invalid" || mode === "denied") {
+        await expect(
+          driver.setup("stop-transport", step, context),
+        ).rejects.toThrow(
+          mode === "denied"
+            ? "authentication denied"
+            : "installed bridge credential",
+        );
+        expect(mocks.runnerSetPlaying).not.toHaveBeenCalled();
+        if (mode === "denied") {
+          expect(mocks.runnerBridgeStart).toHaveBeenCalledOnce();
+          expect(mocks.runnerBridgeStop).toHaveBeenCalledOnce();
+        } else expect(mocks.runnerBridgeOptions).not.toHaveBeenCalled();
+      } else {
+        expect(
+          await driver.setup("stop-transport", step, context),
+        ).toMatchObject({ completed: true });
+        expect(mocks.runnerSetPlaying).toHaveBeenCalledExactlyOnceWith(false);
+        expect(mocks.runnerBridgeStop).toHaveBeenCalledOnce();
+      }
+      if (mocks.runnerBridgeOptions.mock.calls.length > 0) {
+        const options = mocks.runnerBridgeOptions.mock.calls[0]![0] as {
+          authenticationToken: string;
+          reconnect: { maxAttempts: number };
+        };
+        expect(options.authenticationToken === token).toBe(true);
+        expect(options.reconnect.maxAttempts).toBe(0);
+      }
+      const options = mocks.credential.mock
+        .calls[0]![0] as ResolveBridgeCredentialOptions;
+      expect(options.homeDirectory).toBe(home);
+      expect(
+        options.environment?.ABLETON_AGENT_TOKEN ===
+          process.env.ABLETON_AGENT_TOKEN,
+      ).toBe(true);
+      expect(options.vault).toBeUndefined();
+      expect(mocks.send).not.toHaveBeenCalled();
+      await expect(
+        driver.setup("stop-transport", step, context),
+      ).rejects.toThrow("single-use");
+      await driver.cleanup(context);
+      const evidence = await readFile(
+        join(directory, "product-evidence.json"),
+        "utf8",
+      );
+      expect(evidence.includes(token)).toBe(false);
+      expect(mocks.liveStop).toHaveBeenCalledOnce();
+      expect(mocks.liveClose).toHaveBeenCalledOnce();
+    },
+  );
+  it.each(["session-audio", "session-midi"])(
+    "executes exactly one declared transport STOP without a reset prompt, seek or retry (%s)",
+    async (capability) => {
+      await audioBaseline();
+      const step = {
+        id: "second",
+        message: "Listen once more",
+        timeoutMs: 1000,
+        sourceId: "a",
+        setupActions: ["stop-transport"] as const,
+        assertions: [],
+      };
+      context = {
+        ...context,
+        scenario: {
+          ...context.scenario,
+          requiredCapabilities: ["automation", capability],
+          steps: [step],
+        },
+      };
+      await driver.launch(context);
+      await driver.ready(context);
+      await driver.readBaseline(context);
+      expect(await driver.setup("stop-transport", step, context)).toMatchObject(
+        {
+          ...identity,
+          action: "stop-transport",
+          completed: true,
+          stepId: "second",
+          traceId: context.traceId,
+          correlationId: context.correlationId,
+          causationId: context.causationId,
+        },
+      );
+      expect(mocks.bridgeOptions).toHaveBeenCalledWith({ minimumReadMs: 0 });
+      expect(mocks.bridgeHandoff).toHaveBeenCalledExactlyOnceWith({
+        traceId: context.traceId,
+        correlationId: context.correlationId,
+        causationId: context.causationId,
+      });
+      expect(api.ableton.connect).toHaveBeenCalledOnce();
+      expect(mocks.runnerSetPlaying).toHaveBeenCalledExactlyOnceWith(false);
+      expect(mocks.runnerBridgeStop).toHaveBeenCalledOnce();
+      expect(mocks.send).not.toHaveBeenCalled();
+      await expect(
+        driver.setup("stop-transport", step, context),
+      ).rejects.toThrow("single-use");
+      await driver.cleanup(context);
+      expect(mocks.liveStop).toHaveBeenCalledOnce();
+      expect(mocks.liveClose).toHaveBeenCalledOnce();
+    },
+  );
+
+  it.each([
+    "failed",
+    "cancelled",
+    "handshake-failed",
+    "reconnect-failed",
+  ] as const)(
+    "closes the runner stop connection after %s without resending",
+    async (outcome) => {
+      await audioBaseline();
+      const step = {
+        id: "second",
+        message: "Listen",
+        timeoutMs: 1000,
+        sourceId: "a",
+        setupActions: ["stop-transport"] as const,
+        assertions: [],
+      };
+      const controller = new AbortController();
+      context = {
+        ...context,
+        signal: controller.signal,
+        scenario: { ...context.scenario, steps: [step] },
+      };
+      await driver.launch(context);
+      await driver.ready(context);
+      await driver.readBaseline(context);
+      if (outcome !== "reconnect-failed")
+        mocks.runnerSetPlaying.mockImplementation(async () => {
+          if (outcome === "cancelled")
+            controller.abort(new Error("cancel stop"));
+          throw new Error("ambiguous stop");
+        });
+      else
+        api.ableton.connect.mockResolvedValue({
+          state: "error",
+          code: "operation_timeout",
+        });
+      if (outcome === "handshake-failed")
+        mocks.runnerBridgeStatus.mockResolvedValue({
+          state: "error",
+          code: "operation_timeout",
+        });
+      await expect(
+        driver.setup("stop-transport", step, context),
+      ).rejects.toThrow(
+        outcome === "handshake-failed"
+          ? "handshake failed: error/operation_timeout"
+          : outcome === "reconnect-failed"
+            ? "did not reconnect"
+            : "ambiguous stop",
+      );
+      expect(mocks.runnerBridgeStop).toHaveBeenCalledOnce();
+      expect(mocks.runnerSetPlaying).toHaveBeenCalledTimes(
+        outcome === "handshake-failed" ? 0 : 1,
+      );
+      expect(api.ableton.connect).toHaveBeenCalledTimes(
+        outcome === "reconnect-failed" ? 1 : 0,
+      );
+      expect(mocks.send).not.toHaveBeenCalled();
+      await driver.cleanup({
+        ...context,
+        signal: new AbortController().signal,
+      });
+      expect(mocks.liveStop).toHaveBeenCalledOnce();
+    },
+  );
+
+  it.each([false, true])(
+    "retains complete capture inventory across the single owned restart (extra=%s)",
+    async (extra) => {
+      const step = {
+        id: "restored",
+        message: "Read original feature IDs without capture",
+        timeoutMs: 1000,
+        setupActions: ["restart-owned-desktop"] as const,
+        assertions: [],
+      };
+      context = {
+        ...context,
+        scenario: {
+          ...context.scenario,
+          requiredCapabilities: ["automation", "persistence"],
+          steps: [step],
+        },
+      };
+      await driver.launch(context);
+      await driver.ready(context);
+      await driver.readBaseline(context);
+      api.listening.list.mockResolvedValue({
+        jobs: [{ passId: "before-one" }, { passId: "before-two" }],
+      });
+      expect(
+        await driver.setup("restart-owned-desktop", step, context),
+      ).toMatchObject({ ...identity, completed: true });
+      expect(mocks.launch).toHaveBeenCalledTimes(2);
+      expect(mocks.stop).toHaveBeenCalledOnce();
+      expect(mocks.liveLaunch).toHaveBeenCalledOnce();
+      api.listening.list.mockResolvedValue({
+        jobs: extra ? [{ passId: "unexpected-after-restart" }] : [],
+      });
+      expect((await driver.collect(context)).capturePassIds).toEqual([
+        "before-one",
+        "before-two",
+        ...(extra ? ["unexpected-after-restart"] : []),
+      ]);
+      expect(mocks.launch).toHaveBeenCalledTimes(2);
+      await expect(
+        driver.setup("restart-owned-desktop", step, context),
+      ).rejects.toThrow("single-use");
+      await driver.cleanup(context);
+    },
+  );
+
+  it.each(["read-failure", "cumulative-bound"] as const)(
+    "fails closed when preserving restart inventory (%s)",
+    async (mode) => {
+      const step = {
+        id: "restored",
+        message: "Read original evidence",
+        timeoutMs: 1000,
+        setupActions: ["restart-owned-desktop"] as const,
+        assertions: [],
+      };
+      context = {
+        ...context,
+        scenario: {
+          ...context.scenario,
+          requiredCapabilities: ["automation", "persistence"],
+          steps: [step],
+        },
+      };
+      await driver.launch(context);
+      await driver.ready(context);
+      await driver.readBaseline(context);
+      if (mode === "read-failure") {
+        api.listening.list.mockRejectedValueOnce(
+          new Error("Inventory unavailable"),
+        );
+        await expect(
+          driver.setup("restart-owned-desktop", step, context),
+        ).rejects.toThrow("Inventory unavailable");
+        expect(mocks.stop).not.toHaveBeenCalled();
+        expect(mocks.launch).toHaveBeenCalledOnce();
+      } else {
+        api.listening.list.mockResolvedValue({
+          jobs: Array.from({ length: 99 }, (_, index) => ({
+            passId: `before-${index}`,
+          })),
+        });
+        await driver.setup("restart-owned-desktop", step, context);
+        api.listening.list.mockResolvedValue({
+          jobs: [{ passId: "new-after-restart" }],
+        });
+        await expect(driver.collect(context)).rejects.toThrow(
+          "inventory exceeds evidence bound",
+        );
+      }
+      await driver.cleanup(context);
+    },
+  );
+
+  it("does not relaunch when owned Desktop restart cleanup fails", async () => {
+    const step = {
+      id: "restored",
+      message: "Read",
+      timeoutMs: 1000,
+      setupActions: ["restart-owned-desktop"] as const,
+      assertions: [],
+    };
+    context = {
+      ...context,
+      scenario: {
+        ...context.scenario,
+        requiredCapabilities: ["automation", "persistence"],
+        steps: [step],
+      },
+    };
+    await driver.launch(context);
+    await driver.ready(context);
+    mocks.stop.mockResolvedValueOnce({
+      stopped: false,
+      successful: false,
+      events: [],
+    });
+    await expect(
+      driver.setup("restart-owned-desktop", step, context),
+    ).rejects.toThrow();
+    expect(mocks.launch).toHaveBeenCalledOnce();
+    expect(mocks.send).not.toHaveBeenCalled();
+    await expect(
+      driver.setup("restart-owned-desktop", step, context),
+    ).rejects.toThrow("single-use");
+    await driver.cleanup(context);
+  });
   it("reviews owned MIDI evidence without invented expected hashes or a user-message submission", async () => {
     const { preflight, expected } = await midiBaseline();
     const source = context.fixture.sources![0]!;
@@ -779,12 +1189,41 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
     );
     preflight.source.after.transportPlaying = true;
     await expect(driver.reviewMidiSources(context, [review])).rejects.toThrow(
-      "stoppedPosition",
+      /stoppedPosition.*"afterPlaying":true/,
     );
     await driver.cleanup(context);
     expect(mocks.stop).toHaveBeenCalled();
     expect(mocks.liveStop).toHaveBeenCalled();
   });
+  it("bounds Live readiness by the declared remaining run budget and propagates cancellation", async () => {
+    await audioBaseline();
+    context = {
+      ...context,
+      deadlineAt: Date.now() + 180_000,
+      fixture: { ...context.fixture, listenerBindings: [listenerBinding] },
+    };
+    mocks.liveReady.mockImplementation(
+      async (
+        _controller: unknown,
+        options: {
+          timeoutMs: number;
+          signal?: AbortSignal;
+          discardRecovery?: boolean;
+          requireAudio?: boolean;
+        },
+      ) => {
+        expect(options.timeoutMs).toBeGreaterThan(60_000);
+        expect(options.timeoutMs).toBeLessThanOrEqual(180_000);
+        expect(options.signal).toBe(context.signal);
+        expect(options.discardRecovery).toBe(false);
+        expect(options.requireAudio).toBe(true);
+      },
+    );
+    await driver.launch(context);
+    await driver.cleanup(context);
+    expect(mocks.liveStop).toHaveBeenCalledOnce();
+  });
+
   it("admits a source with omitted common kind and quantization facts and an explicit stopped playing count", async () => {
     const { preflight } = await midiBaseline();
     preflight.source.settings.launchQuantization = 5;
@@ -1416,13 +1855,110 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
     expect(mocks.stop).toHaveBeenCalled();
     expect(mocks.liveStop).toHaveBeenCalled();
   });
-  it("does not launch Desktop when the owned Remote Script never becomes ready", async () => {
-    mocks.liveReady.mockRejectedValue(new Error("bridge readiness timeout"));
-    await expect(driver.launch(context)).rejects.toThrow("bridge readiness");
-    expect(mocks.launch).not.toHaveBeenCalled();
-    await driver.cleanup(context);
-    expect(mocks.liveStop).toHaveBeenCalled();
+  it("cancels readiness with an in-flight real hello before closing Desktop and accounts for all owned cleanup", async () => {
+    const { AcceptanceBridgeTimingProxy } = await vi.importActual<
+      typeof TimingProxyModule
+    >("../../tests/electron/acceptance-bridge-timing.js");
+    const { AbletonBridgeService } = await vi.importActual<typeof BridgeModule>(
+      "@ableton-agent/bridge",
+    );
+    const sockets: Socket[] = [];
+    const commands: string[] = [];
+    const server = createServer((socket) => {
+      sockets.push(socket);
+      socket.on("error", () => undefined);
+      const decoder = new FrameDecoder();
+      socket.on("data", (chunk: Buffer) => {
+        for (const message of decoder.push(chunk))
+          if (message.kind === "request") commands.push(message.command);
+      });
+    });
+    await new Promise<void>((resolve) =>
+      server.listen(0, "127.0.0.1", resolve),
+    );
+    const address = server.address();
+    if (!address || typeof address === "string")
+      throw new Error("Missing controlled port");
+    const proxy = new AcceptanceBridgeTimingProxy({
+      minimumReadMs: 0,
+      testOnlyUpstreamPort: address.port,
+    });
+    let port = 0;
+    mocks.bridgeStart.mockImplementation(
+      async () => (port = await proxy.start()),
+    );
+    mocks.bridgeClose.mockImplementation(() => proxy.close());
+    mocks.bridgeSnapshot.mockImplementation(() => proxy.snapshot());
+    driver = new PackagedAcceptanceDriver({
+      runDirectory: directory,
+      bridgeReadMinimumMs: 1,
+    });
+    await driver.launch(context);
+    const desktop = new AbletonBridgeService({
+      port,
+      authenticationToken:
+        "controlled-readiness-token-over-thirty-two-characters",
+      events: new InMemoryEventPublisher(),
+      reconnect: { maxAttempts: 0 },
+      requestTimeoutMs: 5000,
+    });
+    const starting = desktop.start();
+    try {
+      await vi.waitFor(() => expect(commands).toEqual(["system.hello"]));
+      api.ableton.getStatus.mockImplementation(() => desktop.getStatus());
+      mocks.stop.mockImplementation(async () => {
+        await desktop.stop();
+        await vi.waitFor(() => expect(proxy.snapshot().activeTunnels).toBe(0));
+        return { stopped: true, successful: true, events: [] };
+      });
+      const controller = new AbortController();
+      const ready = driver.ready({ ...context, signal: controller.signal });
+      const cancelled = expect(ready).rejects.toThrow("Acceptance cancelled");
+      controller.abort(new Error("Acceptance cancelled"));
+      await cancelled;
+      await expect(driver.cleanup(context)).resolves.toBeUndefined();
+      await starting;
+      expect(mocks.bridgeClose.mock.invocationCallOrder[0]).toBeLessThan(
+        mocks.stop.mock.invocationCallOrder[0]!,
+      );
+      expect(commands).toEqual(["system.hello"]);
+      expect(mocks.send).not.toHaveBeenCalled();
+      expect(mocks.liveStop).toHaveBeenCalledOnce();
+      expect(mocks.liveClose).toHaveBeenCalledOnce();
+      expect(proxy.snapshot()).toMatchObject({
+        state: "closed",
+        activeTunnels: 0,
+      });
+      const cleanup: unknown = JSON.parse(
+        await readFile(join(directory, "cleanup-evidence.json"), "utf8"),
+      );
+      expect(cleanup).toMatchObject({
+        resources: {
+          desktopStopped: true,
+          liveStopped: true,
+          hostReservationClosed: true,
+          profileRemoved: true,
+        },
+        failures: [],
+      });
+    } finally {
+      await desktop.stop();
+      await starting;
+      await proxy.close();
+      for (const socket of sockets) socket.destroy();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
   });
+  it.each(["bridge readiness timeout", "Runner-owned Live audio is disabled"])(
+    "does not launch Desktop after an owned startup failure: %s",
+    async (reason) => {
+      mocks.liveReady.mockRejectedValue(new Error(reason));
+      await expect(driver.launch(context)).rejects.toThrow(reason);
+      expect(mocks.launch).not.toHaveBeenCalled();
+      await driver.cleanup(context);
+      expect(mocks.liveStop).toHaveBeenCalledOnce();
+    },
+  );
   it("does not launch Desktop after cancellation during bridge startup", async () => {
     const controller = new AbortController();
     mocks.liveReady.mockImplementation(async () => controller.abort());
@@ -1432,6 +1968,54 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
     expect(mocks.launch).not.toHaveBeenCalled();
     await driver.cleanup(context);
     expect(mocks.liveStop).toHaveBeenCalled();
+  });
+  it("also closes a proxy acquired during cleanup settlement before its late Desktop process", async () => {
+    let release!: () => void;
+    mocks.liveReady.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          release = resolve;
+        }),
+    );
+    context = {
+      ...context,
+      scenario: {
+        ...context.scenario,
+        steps: [
+          {
+            id: "second",
+            message: "Listen",
+            timeoutMs: 1000,
+            setupActions: ["stop-transport"],
+            assertions: [],
+          },
+        ],
+      },
+    };
+    const launching = driver.launch(context);
+    await vi.waitFor(() => expect(mocks.liveReady).toHaveBeenCalledOnce());
+    const cleaning = driver.cleanup(context);
+    release();
+    await launching;
+    await cleaning;
+    expect(mocks.bridgeClose).toHaveBeenCalledOnce();
+    expect(mocks.bridgeClose.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.stop.mock.invocationCallOrder[0]!,
+    );
+    expect(mocks.liveStop).toHaveBeenCalledOnce();
+    expect(mocks.liveClose).toHaveBeenCalledOnce();
+    const cleanup: unknown = JSON.parse(
+      await readFile(join(directory, "cleanup-evidence.json"), "utf8"),
+    );
+    expect(cleanup).toMatchObject({
+      resources: {
+        desktopStopped: true,
+        liveStopped: true,
+        hostReservationClosed: true,
+        profileRemoved: true,
+      },
+      failures: [],
+    });
   });
   it("reports a bridge prerequisite failure rather than waiting for a listener", async () => {
     api.ableton.getStatus.mockResolvedValue({
@@ -1519,6 +2103,14 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
     "pitch-pitch-incomplete-denied",
     "pitch-mel-denied",
     "pitch-denied",
+    "features",
+    "features-mel-denied",
+    "features-mel-cancelled",
+    "features-mel-incomplete-denied",
+    "features-peak",
+    "features-peak-mel-denied",
+    "features-peak-mel-cancelled",
+    "features-peak-mel-incomplete-denied",
   ])(
     "binds raw Max identities and requires loaded-binary proof for all smoke cases: %s",
     async (mode) => {
@@ -1554,7 +2146,11 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
           id:
             mode === "baseline"
               ? context.scenario.id
-              : `session-flucoma-${mode.split("-")[0]}-smoke`,
+              : mode.startsWith("features")
+                ? mode.startsWith("features-peak")
+                  ? "session-listening-peak-smoke"
+                  : "session-listening-feature-search"
+                : `session-flucoma-${mode.split("-")[0]}-smoke`,
         },
         fixture: {
           ...context.fixture,
@@ -1612,7 +2208,10 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
         selectedLoader.mockRejectedValue(
           new DOMException("Aborted", "AbortError"),
         );
-      if (mode.includes("-incomplete-") && mode.startsWith("melbands"))
+      if (
+        mode.includes("-incomplete-") &&
+        (mode.startsWith("melbands") || mode.startsWith("features"))
+      )
         mocks.melLoading.mockResolvedValue({
           ...melBinaryFacts("baseline"),
           melLoadedBinarySha256: undefined,
@@ -1674,7 +2273,12 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
           flatnessLoadedBinaryState: "completed",
         });
       } else expect(mocks.flatnessLoading).not.toHaveBeenCalled();
-      if (mode === "melbands" || mode === "pitch") {
+      if (
+        mode === "melbands" ||
+        mode === "pitch" ||
+        mode === "features" ||
+        mode === "features-peak"
+      ) {
         expect(mocks.melLoading).toHaveBeenCalledExactlyOnceWith(
           expect.objectContaining({
             live: { pid: 98766, owned: true },
@@ -1789,6 +2393,152 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
     await driver.cleanup(context);
     expect(mocks.liveStop).toHaveBeenCalled();
   });
+  it.each([
+    "owned",
+    "omitted-default",
+    "historical",
+    "extra-context",
+    "omitted-extra-context",
+    "duplicate-context",
+    "foreign-context",
+    "foreign-agent",
+    "missing-capture",
+  ] as const)(
+    "admits bounded local derivation only for the invoking persisted capture (%s)",
+    async (mode) => {
+      const allowed = mode === "owned" || mode === "omitted-default";
+      await audioBaseline();
+      const step = {
+        id: "first",
+        sourceId: "a",
+        message: "Listen once and derive",
+        timeoutMs: 1000,
+        assertions: [],
+      };
+      context = {
+        ...context,
+        scenario: {
+          ...context.scenario,
+          steps: [step],
+          permissions: [
+            {
+              tool: "ableton_context",
+              action: "derive-features",
+              risk: "medium",
+              maxUses: 2,
+              stepIds: ["first", "second"],
+              arguments: {
+                action: "derive-features",
+                "contextIds.0": "$source.contextId",
+                includeHistorical: false,
+              },
+            },
+          ],
+        },
+      };
+      await driver.launch(context);
+      await driver.ready(context);
+      const baseline = await driver.readBaseline(context);
+      const subscription = await driver.subscribe();
+      const submission = await driver.submit(step, context);
+      const f = agentListeningFixture();
+      const observation = structuredClone(f.context.observation!);
+      if (observation.source.view !== "session")
+        throw new Error("Missing synthetic source");
+      const source = baseline.sources!.a!.source;
+      const sdkTurnId = randomUUID();
+      observation.ownership.traceId = sdkTurnId;
+      observation.ownership.correlationId = sdkTurnId;
+      Object.assign(observation.source.target.track, {
+        expectedReference: source.trackId,
+        expectedName: "Source 1",
+      });
+      Object.assign(observation.source.target, {
+        expectedClipReference: source.clipId,
+        expectedClipName: "Clip 1",
+      });
+      observation.source.clipReference = source.clipId;
+      api.entityContext.get.mockResolvedValue({ ...f.context, observation });
+      api.listening.list.mockResolvedValue({
+        jobs:
+          mode === "missing-capture"
+            ? []
+            : [
+                {
+                  passId: observation.ownership.passId,
+                  sessionId: identity.appSessionId,
+                  agentId:
+                    mode === "foreign-agent" ? randomUUID() : identity.agentId,
+                  stage: "completed",
+                  contextIds: [f.contextId],
+                  trace: {
+                    traceId: sdkTurnId,
+                    correlationId: sdkTurnId,
+                    causationId: "cause",
+                  },
+                },
+              ],
+      });
+      const emit = mocks.subscriber.mock.calls[0]![0];
+      emit({
+        type: "agent.working_update",
+        messageId: assistantMessageId,
+        agentInstanceId: identity.agentId,
+        sdkSessionId: identity.conversationId,
+        update: {
+          kind: "started",
+          activityId: sdkTurnId,
+          occurredAt: new Date().toISOString(),
+        },
+      });
+      const approvalId = randomUUID();
+      const event = {
+        type: "approval.requested",
+        operationId: submission.operationId,
+        appSessionId: identity.appSessionId,
+        agentInstanceId: identity.agentId,
+        sdkSessionId: identity.conversationId,
+        approval: {
+          id: approvalId,
+          title: "Derive local features",
+          risk: "medium",
+          summary: "Stored data only",
+          changes: [],
+          destructive: false,
+          tool: {
+            name: "ableton_context",
+            action: "derive-features",
+            argumentsComplete: true,
+            arguments: {
+              action: "derive-features",
+              contextIds: [
+                mode === "foreign-context" ? "foreign" : f.contextId,
+                ...(mode.endsWith("extra-context") ? ["foreign"] : []),
+                ...(mode === "duplicate-context" ? [f.contextId] : []),
+              ],
+              ...(mode.startsWith("omitted-")
+                ? {}
+                : { includeHistorical: mode === "historical" }),
+            },
+          },
+        },
+      };
+      emit(event);
+      if (allowed)
+        emit({ ...event, approval: { ...event.approval, id: randomUUID() } });
+      await expect(
+        subscription.waitForTurn(submission, context),
+      ).rejects.toThrow();
+      expect(api.approvals.resolve).toHaveBeenNthCalledWith(
+        1,
+        approvalId,
+        allowed ? "approve" : "deny",
+      );
+      if (allowed)
+        expect(api.approvals.resolve.mock.calls[1]?.[1]).toBe("deny");
+      await driver.cleanup(context);
+    },
+  );
   it.each(["reviewed", "wrong-arguments", "foreign-turn", "incomplete"])(
     "enforces scoped approvals through the real adapter: %s",
     async (mode) => {
@@ -2328,6 +3078,11 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
     "duplicate",
     "typed",
     "mel-typed",
+    "mel-feature-typed",
+    "mel-feature-report",
+    "mel-feature-missing",
+    "mel-peak-typed",
+    "mel-peak-mapping-failed",
     "mel-mapping-failed",
     "mel-mapping-cancelled",
     "pitch-typed",
@@ -2341,6 +3096,8 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
     "joins exact ingress, assistant and SDK activity (%s), not global idle",
     async (activity) => {
       const pitch = activity.startsWith("pitch-");
+      const peakOnly = activity.startsWith("mel-peak-");
+      const featureProjection = activity.startsWith("mel-feature-") || peakOnly;
       const mel = activity.startsWith("mel-") || pitch;
       const typed =
         ["typed", "mel-typed", "history-failed", "history-cancelled"].includes(
@@ -2389,9 +3146,11 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
           ...context,
           scenario: {
             ...context.scenario,
-            id: pitch
-              ? "session-flucoma-pitch-smoke"
-              : "session-flucoma-melbands-smoke",
+            id: peakOnly
+              ? "session-listening-peak-smoke"
+              : pitch
+                ? "session-flucoma-pitch-smoke"
+                : "session-flucoma-melbands-smoke",
           },
           fixture: {
             ...context.fixture,
@@ -2416,14 +3175,21 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
           scenario: {
             ...context.scenario,
             requiredCapabilities: mel
-              ? ["automation", "session-audio", "persistence"]
+              ? [
+                  "automation",
+                  "session-audio",
+                  ...(peakOnly ? [] : ["persistence"]),
+                ]
               : ["automation", "persistence"],
           },
         };
       await driver.launch(context);
       await driver.ready(context);
       const baseline = typed ? await driver.readBaseline(context) : undefined;
-      if (activity === "mel-mapping-failed")
+      if (
+        activity === "mel-mapping-failed" ||
+        activity === "mel-peak-mapping-failed"
+      )
         mocks.melLoading.mockRejectedValue(new Error("capture mapping denied"));
       if (activity === "mel-mapping-cancelled")
         mocks.melLoading.mockRejectedValue(
@@ -2443,7 +3209,20 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
         message: "Say hello",
         timeoutMs: 1000,
         assertions: typed
-          ? [{ name: "agent-listening-result", parameters: { sourceId: "a" } }]
+          ? [
+              { name: "agent-listening-result", parameters: { sourceId: "a" } },
+              ...(featureProjection
+                ? [
+                    {
+                      name: "feature-search",
+                      parameters: {
+                        phase: "first",
+                        ...(peakOnly ? { coverage: "peak-only" } : {}),
+                      },
+                    },
+                  ]
+                : []),
+            ]
           : [],
       };
       if (mel)
@@ -2451,6 +3230,19 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
           ...context,
           scenario: {
             ...context.scenario,
+            ...(featureProjection
+              ? {
+                  assertions: [
+                    {
+                      name: "feature-search",
+                      parameters: {
+                        phase: "final",
+                        ...(peakOnly ? { coverage: "peak-only" } : {}),
+                      },
+                    },
+                  ],
+                }
+              : {}),
             steps: [
               {
                 ...step,
@@ -2480,7 +3272,10 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
         if (mel) {
           if (!("observation" in f.context))
             throw new Error("Missing synthetic context");
-          const observation = structuredClone(f.context.observation);
+          const observation =
+            featureProjection && !peakOnly && activity !== "mel-feature-missing"
+              ? withSyntheticAnalyzerTimelines(f.context.observation)
+              : structuredClone(f.context.observation);
           if (observation.source.view !== "session")
             throw new Error("Missing synthetic Session source");
           const source = baseline!.sources!.a!.source;
@@ -2498,6 +3293,32 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
           });
           Object.assign(observation.source, { clipReference: source.clipId });
           Object.assign(f.context, { observation });
+          if (activity === "mel-feature-report") {
+            const call = f.records.find(
+              (record) =>
+                record.kind === "tool_call" &&
+                record.arguments.action === "get",
+            )!;
+            if (call.kind !== "tool_call")
+              throw new Error("Missing typed report call");
+            call.arguments.action = "report";
+            const result = f.records.find(
+              (record) =>
+                record.kind === "tool_result" &&
+                record.toolCallId === call.toolCallId,
+            )!;
+            if (result.kind !== "tool_result")
+              throw new Error("Missing typed report result");
+            result.result = {
+              result: {
+                content: {
+                  action: "report",
+                  entry: f.context.entry,
+                  report: projectMetricListeningReport(observation),
+                },
+              },
+            };
+          }
           api.entityContext.get.mockResolvedValue(f.context);
           api.listening.list.mockResolvedValue({
             jobs: [
@@ -2649,6 +3470,9 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
         activity === "present" ||
         activity === "typed" ||
         activity === "mel-typed" ||
+        activity === "mel-feature-typed" ||
+        activity === "mel-feature-report" ||
+        activity === "mel-peak-typed" ||
         activity === "pitch-typed" ||
         activity === "pitch-restart-missing"
       ) {
@@ -2662,6 +3486,16 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
           facts: { sdkTurnId },
         });
         expect(sdkTurnId).not.toBe(context.traceId);
+        if (featureProjection) {
+          expect(result.featureSources).toHaveLength(1);
+          expect(result.featureSources![0]).toMatchObject({
+            contextId: result.contexts[0]!.contextId,
+            contentSha256: result.contexts[0]!.contentSha256,
+            afterOwnedRestart: false,
+          });
+          expect(result.featureSources![0]!.records.length).toBeGreaterThan(0);
+          expect(result.featureSources![0]).not.toHaveProperty("observation");
+        }
         if (mel) {
           expect(result.captures).toHaveLength(1);
           expect(result.captures[0]!.metricFamilies).toEqual([
@@ -2669,6 +3503,9 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
             "spectral-centroid",
             "attacks",
             "mel-bands",
+            ...(featureProjection && !peakOnly
+              ? ["pitch", "spectral-shape"]
+              : []),
           ]);
           expect(result.melSmoke).toHaveLength(1);
           expect(
@@ -2676,7 +3513,7 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
           ).toHaveLength(43);
           expect(result.melSmoke![0]!.cleanupComplete).toBe(true);
           expect(mocks.melLoading).toHaveBeenCalledTimes(2);
-          expect(mocks.flatnessLoading).toHaveBeenCalledTimes(2);
+          expect(mocks.flatnessLoading).toHaveBeenCalledTimes(peakOnly ? 0 : 2);
           expect(baseline!.facts.melLoadedBinaryPhase).toBe("baseline");
           expect(result.facts).toMatchObject({
             melLoadedBinaryVerified: true,
@@ -2701,6 +3538,14 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
         }
         if (typed) {
           expect(result.agentListening?.sdkTurnId).toBe(sdkTurnId);
+          if (activity === "mel-feature-report") {
+            expect(JSON.stringify(result.agentListening)).toContain(
+              "acceptance-feature-report/v1",
+            );
+            expect(JSON.stringify(result.agentListening)).not.toContain(
+              "metric-listening-report/v1",
+            );
+          }
           expect(api.eventHistory.agent).toHaveBeenCalledExactlyOnceWith(
             expect.objectContaining({
               appSessionId: identity.appSessionId,
@@ -2709,7 +3554,18 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
               turnId: sdkTurnId,
             }),
           );
-          if (activity === "pitch-restart-missing") {
+          if (peakOnly) {
+            const collected = await driver.collect(context);
+            expect(collected.featureSources).toEqual(result.featureSources);
+            expect(
+              result.featureSources!.every(
+                (source) => source.analyzers === undefined,
+              ),
+            ).toBe(true);
+            expect(collected.agentListening).toBeUndefined();
+            expect(mocks.launch).toHaveBeenCalledOnce();
+            expect(mocks.melLoading).toHaveBeenCalledTimes(2);
+          } else if (activity === "pitch-restart-missing") {
             const history = (await api.eventHistory.trace()) as {
               items: { name: string }[];
             };
@@ -2725,6 +3581,13 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
             expect(mocks.pitchLoading).toHaveBeenCalledTimes(2);
           } else {
             const collected = await driver.collect(context);
+            if (featureProjection)
+              expect(collected.featureSources).toEqual(
+                result.featureSources!.map((source) => ({
+                  ...source,
+                  afterOwnedRestart: true,
+                })),
+              );
             expect(collected.agentListening).toEqual([
               { ...result.agentListening, afterOwnedRestart: true },
             ]);
@@ -2766,21 +3629,24 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
         await expect(
           subscription.waitForTurn(submission, context),
         ).rejects.toThrow(
-          activity === "missing"
-            ? "no attributable SDK"
-            : activity === "history-failed"
-              ? "journal unavailable"
-              : activity === "mel-mapping-failed" ||
-                  activity === "pitch-mapping-failed"
-                ? "capture mapping denied"
-                : activity === "mel-mapping-cancelled" ||
-                    activity === "pitch-mapping-cancelled"
-                  ? "capture mapping cancelled"
-                  : activity === "pitch-history-missing"
-                    ? "Invalid or incomplete paired pitch"
-                    : activity === "history-cancelled"
-                      ? "cancelled history read"
-                      : "More than one SDK",
+          activity === "mel-feature-missing"
+            ? "missing or incomplete authoritative metric family"
+            : activity === "missing"
+              ? "no attributable SDK"
+              : activity === "history-failed"
+                ? "journal unavailable"
+                : activity === "mel-mapping-failed" ||
+                    activity === "mel-peak-mapping-failed" ||
+                    activity === "pitch-mapping-failed"
+                  ? "capture mapping denied"
+                  : activity === "mel-mapping-cancelled" ||
+                      activity === "pitch-mapping-cancelled"
+                    ? "capture mapping cancelled"
+                    : activity === "pitch-history-missing"
+                      ? "Invalid or incomplete paired pitch"
+                      : activity === "history-cancelled"
+                        ? "cancelled history read"
+                        : "More than one SDK",
         );
       await subscription.close(context);
       if (activity === "history-cancelled")
@@ -2788,8 +3654,18 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
           "cancelled history read",
         );
       else await driver.cleanup(context);
+      if (peakOnly) {
+        expect(mocks.stop).toHaveBeenCalledOnce();
+        expect(mocks.liveStop).toHaveBeenCalledOnce();
+        expect(mocks.liveClose).toHaveBeenCalledOnce();
+      }
+      if (activity === "mel-feature-missing") {
+        expect(mocks.stop).toHaveBeenCalled();
+        expect(mocks.liveStop).toHaveBeenCalled();
+      }
       if (
         activity.startsWith("mel-mapping-") ||
+        activity.startsWith("mel-peak-mapping-") ||
         activity.startsWith("pitch-mapping-")
       ) {
         const product = JSON.parse(
@@ -2797,7 +3673,7 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
         ) as { provenance: Record<string, unknown> };
         const prefix = pitch ? "pitch" : "mel";
         expect(product.provenance).toMatchObject({
-          flatnessLoadedBinaryVerified: true,
+          ...(peakOnly ? {} : { flatnessLoadedBinaryVerified: true }),
           [`${prefix}LoadedBinaryVerified`]: false,
           [`${prefix}LoadedBinaryPhase`]: "capture-completed",
           [`${prefix}LoadedBinaryState`]: activity.endsWith("-cancelled")
@@ -2807,12 +3683,23 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
         expect(mocks.stop).toHaveBeenCalled();
         expect(mocks.liveStop).toHaveBeenCalled();
       }
-      if (activity === "typed") {
+      if (activity === "typed" || activity === "mel-feature-report") {
         const product = JSON.parse(
           await readFile(join(directory, "product-evidence.json"), "utf8"),
         ) as { agentListening: unknown[]; restoredAgentListening: unknown[] };
         expect(product.agentListening).toHaveLength(1);
         expect(product.restoredAgentListening).toHaveLength(1);
+        if (activity === "mel-feature-report") {
+          expect(JSON.stringify(product.agentListening)).toContain(
+            "metric-listening-report/v1",
+          );
+          expect(JSON.stringify(product.restoredAgentListening)).toContain(
+            "metric-listening-report/v1",
+          );
+          expect(JSON.stringify(product)).not.toContain(
+            "acceptance-feature-report/v1",
+          );
+        }
       }
     },
   );

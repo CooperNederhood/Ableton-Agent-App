@@ -2,6 +2,8 @@
   "schemaVersion": 1,
   "scenarios": [
     "session-clip-identify",
+    "session-listening-feature-search",
+    "session-listening-peak-smoke",
     "session-flucoma-flatness-smoke",
     "session-flucoma-spread-smoke",
     "session-flucoma-rolloff-smoke",
@@ -10,6 +12,7 @@
     "session-listening-continuity",
     "session-stopped-quantized-audio",
     "session-stopped-quantized-midi",
-    "session-drum-rack-listening"
+    "session-drum-rack-listening",
+    "session-two-midi-listening"
   ]
 }

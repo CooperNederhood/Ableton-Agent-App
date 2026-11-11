@@ -42,7 +42,7 @@ function lifecycle(signal) {
 }
 
 describe("canonical native metric CommonJS protocol bundle", () => {
-  it("loads without workspace dependencies or loaders and preserves canonical validation", async () => {
+  it("preserves canonical validation and budget admission without Object.hasOwn in Node for Max", async () => {
     const owner = lifecycle();
     const result = await compileNativeMetricProtocol({ stage: owner.stage });
     const parent = resolve(".test-artifacts/independent-metric-listening");
@@ -59,6 +59,7 @@ describe("canonical native metric CommonJS protocol bundle", () => {
         "--input-type=commonjs",
         "-e",
         `
+      delete Object.hasOwn;
       const Module = require("node:module");
       const original = Module._load;
       Module._load = function (name, ...args) {
@@ -95,6 +96,19 @@ describe("canonical native metric CommonJS protocol bundle", () => {
       const admission = codec.admitMetricListeningBudget({
         config, ownership: parsed.ownership, source: parsed.source, jobId: "synthetic-budget"
       });
+      const analyzerAdmission = codec.admitMetricListeningBudget({
+        config: {
+          ...config,
+          requestedMetrics: ["level", "spectral-centroid", "attacks", "mel-bands", "pitch", "spectral-shape"]
+        },
+        ownership: parsed.ownership, source: parsed.source, jobId: "synthetic-analyzer-budget"
+      });
+      const fault = codec.analyzerNativeSourceIdentitySchema.parse({
+        schema: "analyzer-native-source-identity/v1", producerAbi: 3,
+        expectedEpoch: 1, expectedGeneration: 1, completedFrames: 21,
+        sourceAbi: 3, sourceEpoch: 1, sourceRejected: 14,
+        sourceSealedEpoch: null, sourceClock: 1858560
+      });
       observation.metrics.attacks.records[0].events[0].strength = 0;
       process.stdout.write(JSON.stringify({
         version: codec.LISTENER_VERSION_METRIC,
@@ -108,6 +122,9 @@ describe("canonical native metric CommonJS protocol bundle", () => {
         producerSchema: producer.schemaVersion,
         rejectsLegacyProducer: !codec.listenerMetricProducerSchema.safeParse({...producer,schemaVersion:"audio-observation/v2"}).success,
         budgetAdmitted: admission.admitted,
+        analyzerBudgetAdmitted: analyzerAdmission.admitted,
+        preservesFaultOperands: fault.sourceRejected === 14 && fault.sourceSealedEpoch === null,
+        rejectsUnboundedFault: !codec.analyzerNativeSourceIdentitySchema.safeParse({...fault,completedFrames:704}).success,
         sourceContextBound: JSON.stringify(config.sourceContext) === JSON.stringify(parsed.source),
         rejectsForeignSourceRange: !codec.nativeMetricListeningConfigSchema.safeParse({
           ...config, sourceContext: {
@@ -141,6 +158,9 @@ describe("canonical native metric CommonJS protocol bundle", () => {
       producerSchema: "metric-audio-observation/v1",
       rejectsLegacyProducer: true,
       budgetAdmitted: true,
+      analyzerBudgetAdmitted: true,
+      preservesFaultOperands: true,
+      rejectsUnboundedFault: true,
       sourceContextBound: true,
       rejectsForeignSourceRange: true,
       proofChecker: "function",

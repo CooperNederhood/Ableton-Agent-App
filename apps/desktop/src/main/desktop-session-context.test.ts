@@ -19,7 +19,31 @@ import {
   type AppendContextPass,
   type SessionContextPublicationRequest,
 } from "@ableton-agent/project-state";
-import { createSyntheticNativeListeningFixtureV2 } from "@ableton-agent/protocol/testing";
+import {
+  createSyntheticMetricListeningObservation,
+  createSyntheticNativeListeningFixtureV2,
+} from "@ableton-agent/protocol/testing";
+import {
+  LISTENING_FEATURE_DEFINITIONS,
+  PROTOCOL_VERSION,
+  type InspectListeningContextParams,
+  type InspectListeningContextResult,
+  type InspectSessionListeningSourceParams,
+  type InspectSessionListeningSourceResult,
+  type SessionListeningPassParams,
+  type SessionListeningPassResult,
+} from "@ableton-agent/protocol";
+import {
+  createListeningRuntimeHost,
+  type ConcreteListeningRuntimeHost,
+  type ListeningRuntimeDependencies,
+} from "@ableton-agent/runtime";
+import {
+  listenerRegistrationMetricSchema,
+  type ListenerDescriptor,
+} from "@ableton-agent/signal-routing";
+import { createSyntheticMetricWireFixture } from "@ableton-agent/signal-routing/testing";
+import { SyntheticMetricListenerPeer } from "../../../../packages/runtime/src/metric-listening-test-support.js";
 import {
   telemetryEventEnvelopeSchema,
   type TelemetryEventEnvelope,
@@ -38,7 +62,9 @@ import {
 const at = "2026-10-12T00:00:00.000Z";
 const roots: string[] = [];
 const managers: ReturnType<typeof createDesktopSessionContextManager>[] = [];
+const runtimeHosts: ConcreteListeningRuntimeHost[] = [];
 afterEach(async () => {
+  await Promise.all(runtimeHosts.splice(0).map((host) => host.shutdown()));
   await Promise.all(managers.splice(0).map((manager) => manager.close()));
   await Promise.all(
     roots.splice(0).map((root) => rm(root, { recursive: true, force: true })),
@@ -275,16 +301,470 @@ async function harness(initial = [session(), session("set:other")]) {
   };
 }
 
+async function stagedCapture(mode: "session" | "arrangement") {
+  const h = await harness([session()]);
+  const desktopOwner = h.sessions[0]!;
+  const context = invocation(desktopOwner);
+  const controller = new AbortController();
+  const data = createSyntheticMetricWireFixture(mode);
+  const uuid = (index: number) =>
+    `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`;
+  const target = {
+    view: "session" as const,
+    track: {
+      kind: "regular" as const,
+      index: 0,
+      expectedReference: uuid(10),
+      expectedName: "Track",
+    },
+    sceneIndex: 0,
+    expectedClipReference: uuid(30),
+    expectedClipName: "Clip",
+  };
+  const listener: ListenerDescriptor = {
+    connectionId: data.wire.connectionId,
+    producer: {
+      producerId: "listener-0",
+      instanceId: "synthetic-instance",
+      displayName: "Synthetic listener",
+      signalKind: "audio",
+      schemaVersion: "metric-audio-observation/v1",
+      track: { id: "500" },
+      device: { id: "600" },
+    },
+    binding: { trackId: "500", deviceId: "600" },
+    registration: listenerRegistrationMetricSchema.parse({
+      ...data.registration,
+      nativeStatus: {
+        ...data.registration.nativeStatus,
+        readiness: "BLOCKED",
+        reason: "fresh_per_pass_native_validation_required",
+        executedGen: null,
+      },
+    }),
+    phase: "idle",
+  };
+  const peer = new SyntheticMetricListenerPeer(listener, data, {});
+  let playing = false;
+  const durationBeats =
+    data.config.geometry.endBeat - data.config.geometry.startBeat;
+  const sourceState = (): InspectSessionListeningSourceResult["after"] => ({
+    transportPlaying: playing,
+    globalBeat: playing ? 0.2 : 0,
+    startTimeBeats: playing ? 0 : null,
+    playingPosition: playing ? 0.2 : 0,
+    targetPlaying: playing,
+    targetTriggered: false,
+    targetRecording: false,
+    playingSlotIndex: playing ? 0 : -1,
+    firedSlotIndex: -1,
+    selectedClipReference: target.expectedClipReference,
+  });
+  const inspectListeningContext = async (
+    input: InspectListeningContextParams,
+  ): Promise<InspectListeningContextResult> => ({
+    schemaVersion: 1,
+    bindingScope: "live-connection",
+    bindingQueryId: input.bindingQueryId,
+    projectRevision: 1,
+    transport: {
+      playing,
+      currentBeat: 0,
+      tempo: data.config.geometry.tempoBpm,
+      safeToStart: !playing,
+      recording: {
+        recordMode: false,
+        sessionRecord: false,
+        arrangementOverdub: false,
+        sessionAutomationRecord: false,
+      },
+    },
+    listeners: [
+      {
+        binding: {
+          track: target.track,
+          deviceIndex: 0,
+          expectedDeviceReference: uuid(20),
+          expectedDeviceName: "Synthetic listener",
+          expectedClassName: "MxDeviceAudioEffect",
+        },
+        canonicalPath: "live_set tracks 0 devices 0",
+        pathAttestation: {
+          schemaVersion: 1,
+          source: "remote-script-lom",
+          canonicalDevicePath: "live_set tracks 0 devices 0",
+          canonicalTrackPath: "live_set tracks 0",
+          trackReference: uuid(10),
+          deviceReference: uuid(20),
+          placement: { kind: "track-device", deviceIndex: 0 },
+        },
+        verified: true,
+        enabled: true,
+        sessionOverride: false,
+        clips: [],
+        clipsTruncated: false,
+        trackEvidence: [],
+        upstreamDevices: [],
+        dependenciesTruncated: false,
+        fingerprint: {
+          algorithm: "sha256",
+          scope: "available-live-fields/v1",
+          digest: "a".repeat(64),
+          completeness: "unknown",
+          unknownReasons: ["routing-unmeasured"],
+        },
+        attribution: "nonexclusive",
+        unknownReasons: ["routing-unmeasured"],
+      },
+    ],
+  });
+  const inspectSessionListeningSource = async (
+    input: InspectSessionListeningSourceParams,
+  ): Promise<InspectSessionListeningSourceResult> => ({
+    ...input,
+    projectRevision: 1,
+    evidence: "message-rate-only",
+    nativeAlignment: "unverified",
+    sourceKind: "midi",
+    positionUnit: "beats",
+    before: sourceState(),
+    after: sourceState(),
+    settings: {
+      tempoBpm: data.config.geometry.tempoBpm,
+      signatureNumerator: 4,
+      signatureDenominator: 4,
+      clipSignatureNumerator: 4,
+      clipSignatureDenominator: 4,
+      globalQuantization: 0,
+      launchQuantization: 0,
+      launchMode: 0,
+      legato: false,
+      followActionEnabled: null,
+      startMarker: 0,
+      endMarker: 8,
+      loopStart: 0,
+      loopEnd: 8,
+      looping: true,
+    },
+  });
+  const sessionListeningPass = async (
+    input: SessionListeningPassParams,
+  ): Promise<SessionListeningPassResult> => {
+    if (input.action === "launch") {
+      playing = true;
+      peer.launch();
+      peer.complete();
+    }
+    return {
+      schemaVersion: 1,
+      ownerId: input.ownerId,
+      passId: input.passId,
+      status:
+        input.action === "release"
+          ? "released"
+          : playing
+            ? "playing"
+            : "prepared",
+      mutationState: playing ? "observed-playing" : "not-attempted",
+      reason: null,
+      cleanupPolicy: "leave-running",
+      evidence: "message-rate-only",
+      nativeAlignment: "unverified",
+      lastObservedSource: sourceState(),
+      sourceEpoch: playing
+        ? {
+            startTimeBeats: 0,
+            clipReference: target.expectedClipReference,
+            observedGlobalBeat: 0.2,
+          }
+        : null,
+      followActionState: "unknown",
+      limitations: [
+        "Synthetic source evidence, not DSP proof",
+        "Follow settings unavailable",
+      ],
+      durationBeats,
+      expiresInMs: 39000,
+    };
+  };
+  const dependencies = {
+    ableton: {
+      getLiveIdentity: async () => ({
+        liveSetId: desktopOwner.liveSetId,
+        liveSetName: "Synthetic Set",
+        saved: false,
+        diagnostics: [],
+      }),
+      inspectSession: async () => ({
+        tracks: [{ index: 0, reference: uuid(10), name: "Track" }],
+        clips: [
+          {
+            trackReference: uuid(10),
+            sceneIndex: 0,
+            reference: uuid(30),
+            name: "Clip",
+          },
+        ],
+      }),
+      getCapabilities: async () => ({
+        selectedProtocolVersion: PROTOCOL_VERSION,
+        liveVersion: "11.3.43",
+        remoteScriptVersion: "synthetic",
+        liveSetId: desktopOwner.liveSetId,
+        liveSetName: "Synthetic Set",
+        saved: false,
+        diagnostics: [],
+        capabilities: Object.fromEntries(
+          [
+            "prepare_session_pass",
+            "launch_session_pass",
+            "inspect_session_pass",
+            "release_session_pass",
+            "inspect_session_source",
+          ].map((name) => [`listening.${name}`, true]),
+        ),
+        limits: { maxFrameBytes: 1048576, maxBatchItems: 128 },
+      }),
+      inspectListeningContext,
+      inspectSessionListeningSource,
+      sessionListeningPass,
+      positionListeningPlayback: async (input: {
+        range: { startBeat: number };
+      }) => ({
+        schemaVersion: 1,
+        mode: "arrangement",
+        requestedStartBeat: input.range.startBeat,
+        sourceOnset: "unverified",
+        insertMarkerBeat: input.range.startBeat,
+        currentBeat: input.range.startBeat,
+        playing: false,
+        changed: { insertMarker: false, currentPosition: false },
+        cleanupPolicy: "leave-running",
+      }),
+      startListeningPlayback: async () => {
+        peer.launch();
+        peer.complete();
+        return {
+          schemaVersion: 1,
+          mode: "arrangement",
+          cleanupPolicy: "leave-running",
+          startedAtBeat: data.config.geometry.startBeat,
+          sourceOnset: "unverified",
+        };
+      },
+    },
+    signals: { listeners: peer, listenerTransport: peer },
+    events: { publish: vi.fn(), subscribe: vi.fn(() => () => {}) },
+    telemetry: { enqueue: vi.fn(() => true) },
+  } as unknown as ListeningRuntimeDependencies;
+  const contexts: ListeningExecutionContext[] = [];
+  const repositories: Awaited<
+    ReturnType<typeof h.manager.resolveRepository>
+  >[] = [];
+  const host = createListeningRuntimeHost(dependencies, {
+    independentMetricListeners: true,
+    resolveOwner: async (input) => ({
+      sessionId: desktopOwner.id,
+      agentId: input.agentId,
+      liveSetId: h.sessions[0]!.liveSetId,
+    }),
+    resolveRepository: async (_owner, input) => {
+      contexts.push(input);
+      const repository = await h.manager.resolveRepository(input);
+      repositories.push(repository);
+      return repository;
+    },
+    resolveTimingPolicy: () => data.config.timingPolicy,
+  });
+  runtimeHosts.push(host);
+  return {
+    h,
+    desktopOwner,
+    context,
+    controller,
+    peer,
+    contexts,
+    repositories,
+    async run() {
+      const result = await host.executeListeningOperation(
+        mode === "session"
+          ? {
+              action: "play-session-and-listen",
+              target,
+              listenerIds: ["listener-0"],
+              durationBeats,
+              maximumDurationMs: 5000,
+            }
+          : {
+              action: "play-arrangement-and-listen",
+              listenerIds: ["listener-0"],
+              startBeat: data.config.geometry.startBeat,
+              endBeat: data.config.geometry.endBeat,
+              maximumDurationMs: 5000,
+            },
+        { ...context, signal: controller.signal },
+      );
+      if (!("job" in result)) throw new Error("Expected staged listening job");
+      return host.waitForListeningPass(result.job.passId, context);
+    },
+  };
+}
+
+describe("Desktop repository identity through real staged runtime orchestration", () => {
+  it.each(["session", "arrangement"] as const)(
+    "publishes %s through reconstructed execution contexts without changing caller handles",
+    async (mode) => {
+      const f = await stagedCapture(mode);
+      const job = await f.run();
+      expect(job.stage, JSON.stringify(job)).toBe("completed");
+      expect(f.contexts.length).toBeGreaterThanOrEqual(2);
+      expect(new Set(f.contexts).size).toBe(f.contexts.length);
+      expect(new Set(f.repositories).size).toBe(f.repositories.length);
+      expect(f.h.publishSessionContext).toHaveBeenCalledOnce();
+      const repository = await f.h.manager.resolveRepository(
+        invocation(f.h.sessions[0]!),
+      );
+      expect((await repository.listPasses()).items).toHaveLength(1);
+      expect(await repository.getEntry(job.contextIds[0]!)).toMatchObject({
+        kind: "metric-audio-observation/v1",
+      });
+      expect(
+        (await repository.getFeatureDerivation(job.contextIds[0]!))?.status,
+      ).toBe("ready");
+    },
+  );
+
+  it.each(["session", "arrangement"] as const)(
+    "rejects an actually replaced %s store even when session and Set IDs are unchanged",
+    async (mode) => {
+      const f = await stagedCapture(mode);
+      f.peer.prepareHook = async () => {
+        await f.repositories[0]!.close();
+      };
+      const job = await f.run();
+      expect(job.stage).toBe("failed");
+      expect(JSON.stringify(job)).toContain("invalid_publication_lifecycle");
+      expect(job.failureEvidence?.facts).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            field:
+              mode === "session"
+                ? "publication.sameRepository"
+                : "publication.repositoryMatches",
+            actual: { state: "observed", value: false },
+          }),
+        ]),
+      );
+      expect(f.h.publishSessionContext).not.toHaveBeenCalled();
+      const repository = await f.h.manager.resolveRepository(f.context);
+      expect((await repository.listPasses()).items).toEqual([]);
+    },
+  );
+
+  it.each(["session", "arrangement"] as const)(
+    "fails closed after %s owner changes without publishing captured observations",
+    async (mode) => {
+      const f = await stagedCapture(mode);
+      f.peer.prepareHook = async () => {
+        await expect(
+          f.h.save([{ ...f.h.sessions[0]!, liveSetId: "set:changed" }]),
+        ).rejects.toThrow("must retry");
+        f.h.sessions[0] = { ...f.h.sessions[0]!, liveSetId: "set:changed" };
+      };
+      const job = await f.run();
+      expect(job.stage).toBe("failed");
+      expect(f.h.publishSessionContext).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(["session", "arrangement"] as const)(
+    "cancels %s capture and releases reservations before ownership reconciliation",
+    async (mode) => {
+      const f = await stagedCapture(mode);
+      f.peer.armHook = async () => {
+        f.controller.abort(new Error("Capture cancelled"));
+      };
+      const job = await f.run();
+      expect(job.stage).toBe("cancelled");
+      expect(f.h.publishSessionContext).not.toHaveBeenCalled();
+      await expect(
+        f.h.save([{ ...f.h.sessions[0]!, liveSetId: "set:after-cancel" }]),
+      ).resolves.toBeUndefined();
+    },
+  );
+});
+
 describe("Desktop session context manager", () => {
-  it.each(["completed", "failed"] as const)(
-    "reconciles legacy supported kinds atomically on %s v2 publication",
-    async (outcome) => {
+  it("shares only opened-store identity while preserving independent derive trace and abort attribution", async () => {
+    const h = await harness();
+    const owner = h.sessions[0]!;
+    const oldAbort = new AbortController();
+    const original = { ...invocation(owner), signal: oldAbort.signal };
+    const first = await h.manager.resolveRepository(original);
+    const input = pass(owner, original);
+    await first.appendPass(input);
+    const fresh = invocation(owner);
+    const second = await h.manager.resolveRepository(fresh);
+    expect(second).not.toBe(first);
+    expect(second.publicationIdentity).toBe(first.publicationIdentity);
+    expect(second.publicationIdentity).toBeDefined();
+    oldAbort.abort(new Error("Earlier operation cancelled"));
+    await expect(first.deriveFeatures(input.entries[0]!.id)).rejects.toThrow(
+      "Earlier operation cancelled",
+    );
+    await expect(
+      second.deriveFeatures(input.entries[0]!.id),
+    ).resolves.toMatchObject({ status: "unavailable" });
+    await new Promise<void>((resolve) => queueMicrotask(resolve));
+    expect(
+      h.events.some(
+        (event) =>
+          event.name === "desktop.context.validate-feature-writer.cancelled" &&
+          event.trace?.traceId === original.trace.traceId &&
+          event.activeAgentId === original.agentId,
+      ),
+    ).toBe(true);
+    const derivation = h.events.filter((event) =>
+      event.name.startsWith("context.derive-features."),
+    );
+    expect(derivation.length).toBeGreaterThan(0);
+    expect(
+      derivation.every(
+        (event) =>
+          event.trace?.traceId === fresh.trace.traceId &&
+          event.correlationId === fresh.trace.correlationId &&
+          event.activeAgentId === fresh.agentId,
+      ),
+    ).toBe(true);
+    await second.close();
+    const reopened = await h.manager.resolveRepository(invocation(owner));
+    expect(reopened.publicationIdentity).not.toBe(second.publicationIdentity);
+    expect(await reopened.getEntry(input.entries[0]!.id)).toBeDefined();
+  });
+
+  it.each([
+    { outcome: "completed", schemaVersion: 2, kinds: ["audio-observation/v1"] },
+    { outcome: "failed", schemaVersion: 2, kinds: ["audio-observation/v1"] },
+    {
+      outcome: "completed",
+      schemaVersion: 2,
+      kinds: SESSION_CONTEXT_STORE_REFERENCE.kinds,
+    },
+    {
+      outcome: "failed",
+      schemaVersion: 2,
+      kinds: SESSION_CONTEXT_STORE_REFERENCE.kinds,
+    },
+  ] as const)(
+    "reconciles reference version and kinds atomically on $outcome publication ($kinds)",
+    async ({ outcome, schemaVersion, kinds }) => {
       const owner = session();
       const legacyOwner: DesktopSession = {
         ...owner,
         contextStore: {
           ...SESSION_CONTEXT_STORE_REFERENCE,
-          kinds: ["audio-observation/v1"],
+          schemaVersion,
+          kinds,
         },
       };
       const h = await harness([legacyOwner]);
@@ -421,6 +901,17 @@ describe("Desktop session context manager", () => {
     });
     const input = pass(owner, agent);
     await expect(reader.appendPass(input)).rejects.toThrow("cannot mutate");
+    await expect(reader.deriveFeatures(input.entries[0]!.id)).rejects.toThrow(
+      "cannot mutate",
+    );
+    expect(await reader.getFeatureDerivation("missing")).toBeUndefined();
+    expect(await reader.getFeature("missing")).toBeUndefined();
+    expect(await reader.getSegment("missing")).toBeUndefined();
+    expect(await reader.listFeatures()).toEqual({ items: [] });
+    await expect(reader.listFeatures({ limit: 101 })).rejects.toThrow();
+    await expect(
+      reader.searchFeatures({ featureId: "missing", candidateLimit: 1001 }),
+    ).rejects.toThrow();
     await expect(reader.reservePass(input.pass.id, 4096)).rejects.toThrow(
       "cannot mutate",
     );
@@ -497,6 +988,192 @@ describe("Desktop session context manager", () => {
     ).toEqual([]);
   });
 
+  it("wraps feature derivation and bounded reads with agent ownership, cancellation and trace attribution", async () => {
+    const h = await harness();
+    const owner = h.sessions[0]!;
+    const context = invocation(owner);
+    const repository = await h.manager.resolveRepository(context);
+    const input = pass(owner, context);
+    await repository.appendPass(input);
+    const entryId = input.entries[0]!.id;
+    const result = await repository.deriveFeatures(entryId);
+    expect(await repository.getFeatureDerivation(entryId)).toEqual(result);
+    expect(h.sessions[0]?.contextStore?.schemaVersion).toBe(3);
+
+    const cancelled = new AbortController();
+    cancelled.abort();
+    await expect(
+      repository.deriveFeatures(entryId, { signal: cancelled.signal }),
+    ).rejects.toThrow();
+    const replacement = session().activeAgents[0]!;
+    await h.save(
+      h.sessions.map((record) =>
+        record.id === owner.id
+          ? {
+              ...record,
+              activeAgents: [replacement],
+              selectedAgentInstanceId: replacement.id,
+            }
+          : record,
+      ),
+    );
+    await expect(
+      repository.deriveFeatures(entryId, {
+        activeAgentId: replacement.id,
+      }),
+    ).rejects.toThrow("no longer belongs");
+    const current = await h.manager.resolveRepository({
+      ...context,
+      agentId: replacement.id,
+    });
+    expect(await current.deriveFeatures(entryId)).toEqual(result);
+    await new Promise<void>((resolve) => queueMicrotask(resolve));
+    const validation = h.events.filter((event) =>
+      event.name.startsWith("desktop.context.validate-feature-writer."),
+    );
+    expect(validation.map((event) => event.stage)).toEqual([
+      "queued",
+      "started",
+      "progress",
+      "completed",
+      "queued",
+      "started",
+      "cancelled",
+      "queued",
+      "started",
+      "progress",
+      "failed",
+      "queued",
+      "started",
+      "progress",
+      "completed",
+    ]);
+    expect(
+      validation.every(
+        (event) => event.trace?.traceId === context.trace.traceId,
+      ),
+    ).toBe(true);
+    expect(
+      validation.every(
+        (event) => event.sessionId === owner.id && event.durationMs! >= 0,
+      ),
+    ).toBe(true);
+    expect(
+      validation
+        .slice(0, -4)
+        .every((event) => event.activeAgentId === context.agentId),
+    ).toBe(true);
+    expect(
+      validation
+        .slice(-4)
+        .every((event) => event.activeAgentId === replacement.id),
+    ).toBe(true);
+  });
+
+  it("counts queued feature writes before transitions and denies stale-owner derivation after relocation", async () => {
+    const h = await harness();
+    const owner = h.sessions[0]!;
+    const context = invocation(owner);
+    const repository = await h.manager.resolveRepository(context);
+    const input = pass(owner, context);
+    await repository.appendPass(input);
+    const next = h.sessions.map((record) =>
+      record.id === owner.id ? { ...record, liveSetId: "set:saved" } : record,
+    );
+    const transition = h.manager.prepareSessionTransition(h.sessions, next);
+    const deriving = repository.deriveFeatures(input.entries[0]!.id);
+    await expect(transition).rejects.toThrow("must retry");
+    await deriving;
+    await h.save(next);
+    await expect(
+      repository.deriveFeatures(input.entries[0]!.id),
+    ).rejects.toThrow("no longer belongs");
+    const restored = await h.manager.resolveRepository(context);
+    expect(restored.liveSetId).toBe("set:saved");
+    expect(await restored.getEntry(input.entries[0]!.id)).toEqual(
+      input.entries[0],
+    );
+  });
+
+  it("exposes persisted feature and segment detail and similarity only through bounded repository reads", async () => {
+    const h = await harness();
+    const owner = h.sessions[0]!;
+    const context = invocation(owner);
+    const repository = await h.manager.resolveRepository(context);
+    const input = pass(owner, context);
+    const observation = createSyntheticMetricListeningObservation({
+      endBeat: 2,
+    });
+    const source = input.entries[0]!;
+    const connectionEpoch = randomUUID();
+    observation.ownership = {
+      ...observation.ownership,
+      listenerId: source.producer.listenerId,
+      passId: source.passId,
+      connectionEpoch,
+      ...context.trace,
+    };
+    const value: AppendContextPass = {
+      ...input,
+      pass: {
+        ...input.pass,
+        requestedMode: "arrangement",
+        actualMode: "arrangement",
+      },
+      entries: input.entries.map((entry) => ({
+        ...entry,
+        producer: { ...entry.producer, connectionEpoch },
+        kind: "metric-audio-observation/v1",
+        payload: observation,
+      })),
+    };
+    await repository.appendPass(value);
+    const entryId = value.entries[0]!.id;
+    const derived = await repository.deriveFeatures(entryId);
+    expect(derived.status).toBe("ready");
+    const reader = await h.manager.resolveRepository({
+      ...context,
+      actorKind: "application",
+      agentId: "desktop-context",
+    });
+    const page = await reader.listFeatures({
+      entryId,
+      featureType: "peak-summary/v1",
+      limit: 1,
+    });
+    expect(page.items).toHaveLength(1);
+    const feature = page.items[0]!;
+    expect(derived.featureIds).toHaveLength(
+      LISTENING_FEATURE_DEFINITIONS.length,
+    );
+    expect(derived.featureIds).toContain(feature.id);
+    expect(await reader.getFeature(feature.id)).toMatchObject({
+      id: feature.id,
+      feature: feature.feature,
+      trace: feature.trace,
+    });
+    expect(await reader.getSegment(feature.segmentId)).toMatchObject({
+      id: feature.segmentId,
+      entryId,
+      sessionId: owner.id,
+      liveSetId: owner.liveSetId,
+    });
+    const found = await reader.searchFeatures({
+      featureId: feature.id,
+      limit: 1,
+      candidateLimit: 1,
+    });
+    expect(found.scannedCount).toBeLessThanOrEqual(1);
+    expect(found.matches.length).toBeLessThanOrEqual(1);
+    expect(await reader.getFeatureDerivation(entryId)).toEqual(derived);
+    await repository.close();
+    const reopened = await h.manager.resolveRepository(context);
+    expect(await reopened.getFeature(feature.id)).toMatchObject({
+      id: feature.id,
+      feature: feature.feature,
+      trace: feature.trace,
+    });
+  });
   it("denies unknown sessions, foreign agents and undeclared/corrupt/missing stores rather than empty recovery", async () => {
     const h = await harness();
     const owner = h.sessions[0]!;

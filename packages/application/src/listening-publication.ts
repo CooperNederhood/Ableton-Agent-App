@@ -14,6 +14,7 @@ import {
   storedObservationIdentity,
   type MetricAudioObservation,
   type StoredAudioObservation,
+  type ListeningMusicalAlignment,
 } from "@ableton-agent/protocol";
 import {
   ListeningFailure,
@@ -65,6 +66,7 @@ export interface ListeningPublicationBinding {
   readonly primary: ContextSubject;
   readonly contributors: readonly ContextSubject[];
   readonly attribution: "exclusive" | "mixed" | "unknown";
+  readonly musicalAlignment?: ListeningMusicalAlignment;
 }
 
 export interface ListeningPublicationInput {
@@ -249,6 +251,9 @@ function buildPublication(
       liveSetId: input.owner.liveSetId,
       passId: input.passId,
       kind: observation.schema,
+      ...(binding.musicalAlignment === undefined
+        ? {}
+        : { musicalAlignment: binding.musicalAlignment }),
       producer: {
         listenerId: identity.listenerId,
         deviceId: binding.deviceReference,

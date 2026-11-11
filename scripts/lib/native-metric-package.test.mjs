@@ -265,6 +265,7 @@ it("packages a matched v5 executable, actual controller and fresh same-folder co
     sendControl() {},
     sendListenerReply: () => true,
     sendListenerResult: () => true,
+    sendListenerDiagnostic: () => true,
     onEvent() {},
   });
   expect(controller.snapshot().state).toBe("idle");

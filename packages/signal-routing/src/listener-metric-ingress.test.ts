@@ -3,6 +3,10 @@ import { connect, Socket } from "node:net";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { setImmediate as nextTurn } from "node:timers/promises";
 import { MAX_METRIC_RESULT_FRAME_BYTES } from "@ableton-agent/protocol";
+import {
+  withSyntheticAnalyzerTimelines,
+  createSyntheticAnalyzerReadiness,
+} from "@ableton-agent/protocol/testing";
 import type { TelemetryEventEnvelope } from "@ableton-agent/observability";
 import {
   SignalIngressServer,
@@ -193,8 +197,30 @@ async function session(
   options: Partial<SignalIngressServerOptions> = {},
   withSourceContext = false,
   geometry: false | { tempoBpm: number; endBeat: number } = false,
+  analyzer?: "complete" | "overflow",
 ) {
   const f = createSyntheticMetricWireFixture(mode, partial, geometry);
+  if (analyzer !== undefined) {
+    f.observation = withSyntheticAnalyzerTimelines(
+      f.observation,
+      analyzer === "overflow" ? analyzer : undefined,
+    );
+    f.config.requestedMetrics = [...f.observation.requestedMetrics];
+    f.ready.analyzerProducerAbi = 3;
+    f.proof.armed.analyzerProducerAbi = 3;
+    f.ready.config = structuredClone(f.config);
+    f.proof.armed.config = structuredClone(f.config);
+    f.registration.capabilities = [
+      "audio-listener/independent-metric-timelines-v1",
+      "audio-listener/mel-band-timelines-v1",
+      "audio-listener/analyzer-timelines-v1",
+    ];
+    Object.assign(f.registration, {
+      analyzerReadiness: createSyntheticAnalyzerReadiness(
+        f.observation.geometry.sampleRate,
+      ),
+    });
+  }
   if (withSourceContext) {
     const config = nativeMetricListeningConfigSchema.parse({
       ...f.config,
@@ -222,6 +248,11 @@ async function session(
   });
   const descriptor = server.inspectListeners()[0];
   if (!descriptor) throw new Error("Synthetic metric registration missing");
+  if (analyzer !== undefined)
+    expect(descriptor.registration).toHaveProperty(
+      "analyzerReadiness",
+      createSyntheticAnalyzerReadiness(f.observation.geometry.sampleRate),
+    );
   const connectionId = descriptor.connectionId;
   expect(acknowledgement).toMatchObject({
     connectionId: descriptor.connectionId,
@@ -229,6 +260,7 @@ async function session(
   expect(acknowledgement).toHaveProperty("listenerCapabilities", [
     "audio-listener/independent-metric-timelines-v1",
     "audio-listener/mel-band-timelines-v1",
+    "audio-listener/analyzer-timelines-v1",
   ]);
   const input = {
     jobId: f.wire.jobId,
@@ -331,6 +363,189 @@ function lifecycle(
 }
 
 describe("opt-in authenticated independent metric ingress", () => {
+  it.each(["missing", "unadvertised", "rate", "abi"] as const)(
+    "denies %s registration DSP readiness without registering a producer",
+    async (failure) => {
+      const f = createSyntheticMetricWireFixture();
+      const { server, client } = await start();
+      const registration = hello(f);
+      const analyzerReadiness = createSyntheticAnalyzerReadiness();
+      client.send({
+        ...registration,
+        listener: {
+          ...registration.listener,
+          ...(failure === "unadvertised"
+            ? {}
+            : {
+                capabilities: [
+                  ...f.registration.capabilities,
+                  "audio-listener/analyzer-timelines-v1",
+                ],
+              }),
+          ...(failure === "missing"
+            ? {}
+            : {
+                analyzerReadiness: {
+                  ...analyzerReadiness,
+                  ...(failure === "rate" ? { sampleRate: 44100 } : {}),
+                  ...(failure === "abi" ? { producerAbi: 2 } : {}),
+                },
+              }),
+        },
+      });
+      expect(await client.next()).toMatchObject({ type: "producer.error" });
+      expect(server.inspectListeners()).toEqual([]);
+    },
+  );
+  it("rejects stale native ABI readiness despite an advertised analyzer capability", async () => {
+    const s = await session("session", false, {}, true, false, "complete");
+    s.client.send({
+      ...wire(s.prepare),
+      type: "listener.reply",
+      sequence: 0,
+      status: "ready",
+      nativeReady: { ...s.bound.ready, analyzerProducerAbi: 2 },
+    });
+    expect(await s.client.next()).toMatchObject({ type: "producer.error" });
+    await expect(s.preparing).rejects.toThrow();
+    expect(
+      s.received.some((event) => event.result.status === "completed"),
+    ).toBe(false);
+  });
+  it.each(["pitch", "spectral-shape"] as const)(
+    "attributes every %s stage without promoting lifecycle diagnostics into frames",
+    async (metric) => {
+      const s = await session("session", false, {}, true, false, "complete");
+      await s.ready();
+      await s.arm();
+      let cause = s.prepare.causationId;
+      for (const stage of [
+        "queued",
+        "started",
+        "progress",
+        "completed",
+        "failed",
+        "cancelled",
+      ] as const) {
+        const event = lifecycle(s, {
+          metric,
+          stage,
+          causationId: cause,
+          elapsedMs: 23,
+          ...(["completed", "failed", "cancelled"].includes(stage)
+            ? { durationMs: 7 }
+            : {}),
+          ...(["failed", "cancelled"].includes(stage)
+            ? { reason: "synthetic_analyzer_stage" }
+            : {}),
+        });
+        expect(
+          (await s.result({ status: "progress", nativeLifecycle: event }))
+            .acknowledgement,
+        ).toMatchObject({ type: "producer.ack" });
+        expect(
+          s.events.find((item) => item.id === event.eventId),
+        ).toMatchObject({
+          name: `output.listener.native.metric.${metric}.${stage}`,
+          causationId: cause,
+          correlationId: s.prepare.correlationId,
+          trace: { traceId: s.prepare.traceId },
+          ...(event.durationMs === undefined ? {} : { durationMs: 7 }),
+        });
+        cause = event.eventId;
+      }
+      expect(
+        s.received.some(
+          (event) =>
+            "observation" in event.result &&
+            event.result.observation !== undefined,
+        ),
+      ).toBe(false);
+      expect(s.server.inspectListeners()[0]?.phase).toBe("armed");
+    },
+  );
+  it.each(["complete", "overflow"] as const)(
+    "retains authoritative analyzer %s frames through authenticated fragmented ingress",
+    async (analyzer) => {
+      const s = await session("session", false, {}, true, false, analyzer);
+      await s.ready();
+      await s.arm();
+      const result = await s.result(
+        {
+          status: analyzer === "complete" ? "completed" : "partial",
+          observation: s.bound.observation,
+          nativeSourceCoverage: s.bound.proof,
+        },
+        256 * 1024,
+      );
+      expect(result.acknowledgement).toMatchObject({ type: "producer.ack" });
+      expect(s.received.at(-1)?.result).toMatchObject({
+        observation: {
+          metrics: {
+            pitch: { status: analyzer === "complete" ? "complete" : "failed" },
+            "spectral-shape": { status: "complete" },
+          },
+        },
+      });
+      expect(s.server.inspectListeners()[0]?.phase).toBe("idle");
+    },
+  );
+  it.each(["missing", "foreign", "malformed"] as const)(
+    "rejects %s authoritative analyzer evidence instead of fabricating frames",
+    async (failure) => {
+      const s = await session("session", false, {}, true, false, "complete");
+      await s.ready();
+      await s.arm();
+      const observation = structuredClone(s.bound.observation);
+      const pitch = observation.metrics.pitch!;
+      observation.metrics.pitch =
+        failure === "missing"
+          ? { ...pitch, frames: pitch.frames.slice(1) }
+          : failure === "foreign"
+            ? { ...pitch, sourceSupport: { startSample: 1, endSample: 2 } }
+            : {
+                ...pitch,
+                frames: pitch.frames.map((frame) => ({
+                  ...frame,
+                  channels: [
+                    { state: "accepted-estimate", hz: 440, confidence: 0 },
+                    frame.channels[1],
+                  ],
+                })),
+              };
+      const result = await s.result({
+        status: "completed",
+        observation,
+        nativeSourceCoverage: s.bound.proof,
+      });
+      expect(result.acknowledgement).toMatchObject({ type: "producer.error" });
+      expect(
+        s.received.some((event) => event.result.status === "completed"),
+      ).toBe(false);
+    },
+  );
+  it("denies analyzer prepare on old producer capability before sending control", async () => {
+    const f = createSyntheticMetricWireFixture();
+    const { server, client } = await start();
+    client.send(hello(f));
+    await client.next();
+    const descriptor = server.inspectListeners()[0]!;
+    await expect(
+      server.requestListenerControl(descriptor.connectionId, {
+        jobId: f.wire.jobId,
+        passId: f.wire.passId,
+        traceId: f.wire.traceId,
+        correlationId: f.wire.correlationId,
+        causationId: f.wire.causationId,
+        action: "prepare",
+        config: {
+          ...f.config,
+          requestedMetrics: [...f.config.requestedMetrics, "pitch"],
+        },
+      }),
+    ).rejects.toThrow("analyzer_timelines_unavailable");
+    expect(server.inspectListeners()[0]?.phase).toBe("idle");
+  });
   it.each([false, true])(
     "receives a fragmented 2 MiB complete/partial frame with thirty-second records (partial=%s)",
     async (partial) => {
@@ -1020,6 +1235,8 @@ describe("opt-in authenticated independent metric ingress", () => {
     "spectral-spread",
     "spectral-rolloff",
     "monophonic-pitch",
+    "pitch",
+    "spectral-shape",
   ])(
     "records %s failure separately while healthy capture continues, preserving causal identity and redaction",
     async (metric) => {
@@ -1360,6 +1577,8 @@ describe("opt-in authenticated independent metric ingress", () => {
     "spectral-spread",
     "spectral-rolloff",
     "monophonic-pitch",
+    "pitch",
+    "spectral-shape",
   ] as const)(
     "persists %s stage causation, duration, redaction and deduplication through typed journal reads",
     async (metric) => {

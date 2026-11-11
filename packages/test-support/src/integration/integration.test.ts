@@ -686,6 +686,198 @@ describe("driver-neutral acceptance foundation (synthetic only)", () => {
       ...overrides,
     });
   }
+  it.each(["session-audio", "session-midi"])(
+    "runs declared setup once before submission and retains attributed lifecycle and action evidence (%s)",
+    async (capability) => {
+      const driver = Object.assign(new ControlledDriver(), {
+        capabilities: ["controlled", capability],
+        setup: async (
+          action: "stop-transport" | "restart-owned-desktop",
+          step: ScenarioStep,
+          ctx: DriverContext,
+        ) => {
+          driver.calls.push(`setup:${action}`);
+          return {
+            ...identity,
+            action,
+            stepId: step.id,
+            completed: true as const,
+            traceId: ctx.traceId,
+            correlationId: ctx.correlationId,
+            causationId: ctx.causationId,
+            transport: {
+              command: "transport.set_playing" as const,
+              dispatchedCount: 1 as const,
+              beforePlaying: true,
+              afterPlaying: false as const,
+              verified: true as const,
+            },
+          };
+        },
+      });
+      const events: LifecycleEvent[] = [];
+      const result = await execute(driver, {
+        scenario: {
+          ...scenario,
+          requiredCapabilities: ["controlled", capability],
+          steps: [
+            scenario.steps[0]!,
+            { ...scenario.steps[1]!, setupActions: ["stop-transport"] },
+          ],
+        },
+        event: (event) => events.push(event),
+      });
+      expect(result.status).toBe("passed");
+      expect(driver.calls.filter((call) => call.startsWith("setup:"))).toEqual([
+        "setup:stop-transport",
+      ]);
+      expect(driver.calls.indexOf("setup:stop-transport")).toBeLessThan(
+        driver.calls.indexOf("submit:second"),
+      );
+      expect(result.evidence?.setupActions).toHaveLength(1);
+      const stages = events.filter(
+        (event) => event.stage === "setup.second.stop-transport",
+      );
+      expect(stages.map((event) => event.phase)).toEqual([
+        "queued",
+        "started",
+        "completed",
+      ]);
+      expect(
+        stages.every(
+          (event) => event.traceId === result.traceId && event.durationMs >= 0,
+        ),
+      ).toBe(true);
+    },
+  );
+
+  it.each(["failed", "cancelled", "timeout", "foreign"] as const)(
+    "never submits or retries after %s setup and always runs owned cleanup",
+    async (outcome) => {
+      const controller = new AbortController();
+      const driver = Object.assign(new ControlledDriver(), {
+        capabilities: ["controlled", "persistence"],
+        setup: async (
+          action: "stop-transport" | "restart-owned-desktop",
+          step: ScenarioStep,
+          ctx: DriverContext,
+        ) => {
+          driver.calls.push(`setup:${action}`);
+          if (outcome === "cancelled")
+            controller.abort(new Error("cancel setup"));
+          if (outcome === "timeout")
+            await new Promise<void>((_resolve, reject) =>
+              ctx.signal.addEventListener(
+                "abort",
+                () => reject(new Error("setup deadline")),
+                { once: true },
+              ),
+            );
+          if (outcome !== "foreign") throw new Error("setup failed");
+          return {
+            ...identity,
+            agentId: "foreign",
+            action,
+            stepId: step.id,
+            completed: true as const,
+            traceId: ctx.traceId,
+            correlationId: ctx.correlationId,
+            causationId: ctx.causationId,
+          };
+        },
+      });
+      const result = await execute(driver, {
+        signal: controller.signal,
+        scenario: {
+          ...scenario,
+          requiredCapabilities: ["controlled", "persistence"],
+          steps: [
+            scenario.steps[0]!,
+            {
+              ...scenario.steps[1]!,
+              timeoutMs: 40,
+              setupActions: ["restart-owned-desktop"],
+            },
+          ],
+        },
+      });
+      expect(result.status).not.toBe("passed");
+      expect(driver.calls).not.toContain("submit:second");
+      expect(
+        driver.calls.filter((call) => call.startsWith("setup:")),
+      ).toHaveLength(1);
+      expect(driver.calls).toContain("cleanup");
+      expect(result.cleanupComplete).toBe(true);
+      expect(result.primaryFailure?.stage).toBe(
+        "setup.second.restart-owned-desktop",
+      );
+    },
+  );
+
+  it("rejects undeclared, repeated, unsupported and first-turn setup before launching", async () => {
+    const driver = new ControlledDriver();
+    const declared = {
+      ...scenario,
+      requiredCapabilities: ["controlled", "session-audio"],
+      steps: [
+        scenario.steps[0]!,
+        { ...scenario.steps[1]!, setupActions: ["stop-transport"] as const },
+      ],
+    };
+    for (const invalid of [
+      { ...declared, requiredCapabilities: ["controlled"] },
+      {
+        ...declared,
+        steps: [{ ...scenario.steps[0]!, setupActions: ["stop-transport"] }],
+      },
+      {
+        ...declared,
+        steps: [
+          scenario.steps[0],
+          { ...scenario.steps[1], setupActions: ["seek"] },
+        ],
+      },
+      {
+        ...declared,
+        steps: [...declared.steps, { ...declared.steps[1], id: "third" }],
+      },
+    ])
+      expect(() => validateScenario(invalid, fixture)).toThrow();
+    Object.assign(driver, { capabilities: ["controlled", "session-audio"] });
+    await expect(execute(driver, { scenario: declared })).rejects.toThrow(
+      "setup-capable",
+    );
+    expect(driver.calls).toEqual([]);
+  });
+
+  it("binds derivation permission only to an independently observed source context", () => {
+    const permission = {
+      tool: "ableton_context",
+      action: "derive-features",
+      risk: "medium" as const,
+      maxUses: 2,
+      stepIds: ["first", "second"],
+      arguments: {
+        action: "derive-features",
+        "contextIds.0": "$source.contextId",
+        includeHistorical: false,
+      },
+    };
+    const sourceEvidence = new ControlledDriver().baseline.sources.a!;
+    expect(() =>
+      resolvePermissionArguments(permission, sourceEvidence),
+    ).toThrow();
+    expect(
+      resolvePermissionArguments(permission, {
+        ...sourceEvidence,
+        contextId: "observed-context",
+      }),
+    ).toEqual({
+      action: "derive-features",
+      "contextIds.0": "observed-context",
+      includeHistorical: false,
+    });
+  });
   it.each(["buffered", "asynchronous"] as const)(
     "reuses one scenario and assertions with %s driver",
     async (delivery) => {
@@ -1760,6 +1952,27 @@ describe("driver-neutral acceptance foundation (synthetic only)", () => {
       });
       expect(checked).toMatchObject({ passed: false, code: "missing-source" });
     }
+  });
+  it("verifies final collected contexts without requiring a Desktop restart", async () => {
+    const driver = new ControlledDriver();
+    driver.collected = {
+      ...driver.collected,
+      contexts: [{ ...contextEvidence, afterOwnedRestart: false }],
+    };
+    const result = await execute(driver, {
+      scenario: {
+        ...scenario,
+        assertions: scenario.assertions.map((assertion) =>
+          assertion.name === "context"
+            ? { name: "context", parameters: { afterRestart: false } }
+            : assertion,
+        ),
+      },
+    });
+    expect(result.status).toBe("passed");
+    expect(driver.calls).toContain("collect");
+    expect(result.cleanupComplete && result.persisted).toBe(true);
+    expect(result.assertions.every((assertion) => assertion.passed)).toBe(true);
   });
   it("rejects unknown manifest envelope, nested, and built-in assertion parameter fields", () => {
     for (const invalid of [

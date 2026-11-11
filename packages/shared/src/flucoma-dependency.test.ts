@@ -195,7 +195,7 @@ it("pins the universal app-owned binary, ABI, notices, provenance and exact sour
   ) as Record<string, unknown>;
   expect(provenance).toMatchObject({
     schema: "listener-mel-native-build/v1",
-    producerAbi: 2,
+    producerAbi: 3,
     architectures: ["arm64", "x86_64"],
     deploymentTarget: "11.0",
     binarySha256: NATIVE_MEL_PRODUCER.binarySha256,

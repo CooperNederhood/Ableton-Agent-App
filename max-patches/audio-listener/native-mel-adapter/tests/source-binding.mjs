@@ -106,6 +106,23 @@ for (const rate of [44100, 48000]) {
       assert.equal(records[1].end, origin + total);
       const frames = records.filter((r) => r.kind === 2);
       assert.equal(frames.length, 3);
+      assert.equal(frames[0].diagnostics[0].pitchState, 1);
+      assert.equal(frames[0].diagnostics[0].hz, null);
+      assert.equal(frames[0].diagnostics[0].spectralState, 1);
+      assert.equal(frames[1].diagnostics[1].pitchState, 1);
+      for (const [frame, channel, bin] of [
+        [frames[1], 0, 64],
+        [frames[2], 1, 32],
+      ]) {
+        const d = frame.diagnostics[channel];
+        assert.equal(d.pitchState, 6);
+        assert.ok(
+          Math.abs(1200 * Math.log2(d.hz / ((rate * bin) / 2048))) <= 20,
+        );
+        assert.ok(d.confidence >= 0.9);
+        assert.equal(d.spectralState, 0);
+        assert.ok(d.flatnessDb <= 1e-10 && d.spreadHz >= 0);
+      }
       for (const [index, frame] of frames.entries()) {
         assert.equal(frame.start, origin + window * index);
         assert.equal(frame.end, frame.start + window);

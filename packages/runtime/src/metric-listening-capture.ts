@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import {
   admitMetricListeningBudget,
   MAX_METRIC_RESULT_FRAME_BYTES,
+  LISTENER_CAPABILITY_ANALYZER_TIMELINES,
   assertNativeMetricArmProof,
   assertNativeMetricObservationSource,
   assertNativeMetricReadyProof,
@@ -277,6 +278,15 @@ class MetricCapture implements PreparedMetricListeningCapture {
       );
       listenerMetricProducerSchema.parse(descriptor.producer);
       const config = nativeMetricListeningConfigSchema.parse(binding.config);
+      if (
+        config.requestedMetrics.some(
+          (metric) => metric === "pitch" || metric === "spectral-shape",
+        ) &&
+        !registration.capabilities.some(
+          (capability) => capability === LISTENER_CAPABILITY_ANALYZER_TIMELINES,
+        )
+      )
+        throw new ListeningCaptureError("analyzer-timelines-unavailable");
       if (config.sourceContext === undefined)
         throw new ListeningCaptureError("metric-source-context-required");
       if (
@@ -862,16 +872,19 @@ class MetricCapture implements PreparedMetricListeningCapture {
           message.observation,
           item.expected,
         );
-        const mel = observation.metrics["mel-bands"];
         if (
           !nativeMetricObservationMetricSchema.options.some(
             (name) => observation.metrics[name].records.length > 0,
           ) &&
-          !(
-            mel !== undefined &&
-            (mel.frames.length > 0 ||
-              (mel.status === "complete" && mel.expectedRecords === 0))
-          )
+          !(["mel-bands", "pitch", "spectral-shape"] as const).some((name) => {
+            const timeline = observation.metrics[name];
+            return (
+              timeline !== undefined &&
+              (timeline.frames.length > 0 ||
+                (timeline.status === "complete" &&
+                  timeline.expectedRecords === 0))
+            );
+          })
         )
           this.#deny("metric-no-useful-data", item);
         item.observation = freeze(structuredClone(observation));

@@ -122,10 +122,15 @@ def inspect_session_listening_source(context, params, launch_quantization_enum=_
     elif audio is True and midi is False and warping is not None:
         kind = "warped-audio" if warping else "unwarped-audio"
     tempo = _safe_lom_getattr(context.song, "tempo")
+    clip_denominator = _index(clip, "signature_denominator", 1, 128)
+    if clip_denominator is not None and clip_denominator & (clip_denominator - 1):
+        clip_denominator = None
     settings = {
         "tempoBpm": tempo if _number(tempo, positive=True) else None,
         "signatureNumerator": _index(context.song, "signature_numerator", 1, 128),
         "signatureDenominator": _index(context.song, "signature_denominator", 1, 128),
+        "clipSignatureNumerator": _index(clip, "signature_numerator", 1, 128),
+        "clipSignatureDenominator": clip_denominator,
         "globalQuantization": _index(context.song, "clip_trigger_quantization", 0, 14),
         "launchQuantization": _clip_launch_quantization(
             clip, ClipLaunchQuantization if launch_quantization_enum is _HOST_ENUM

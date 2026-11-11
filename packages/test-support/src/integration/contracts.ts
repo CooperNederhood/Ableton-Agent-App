@@ -1,6 +1,7 @@
 import type { SessionListeningPreflightResult } from "@ableton-agent/protocol";
 import type { AgentListeningEvidence } from "./agent-listening-result.js";
 import type { MelSmokeEvidence } from "./mel-smoke.js";
+import type { FeatureSourceEvidence } from "./feature-search.js";
 
 export type Scalar = string | number | boolean | null;
 export type Facts = Readonly<Record<string, Scalar>>;
@@ -97,7 +98,24 @@ export interface ScenarioStep {
   readonly timeoutMs: number;
   readonly expectedStatus?: "completed" | "refused";
   readonly sourceId?: string;
+  readonly setupActions?: readonly SetupAction[];
   readonly assertions: readonly AssertionReference[];
+}
+export type SetupAction = "stop-transport" | "restart-owned-desktop";
+export interface SetupEvidence extends SessionIdentity {
+  readonly action: SetupAction;
+  readonly stepId: string;
+  readonly traceId: string;
+  readonly correlationId: string;
+  readonly causationId: string;
+  readonly completed: true;
+  readonly transport?: {
+    readonly command: "transport.set_playing";
+    readonly dispatchedCount: 1;
+    readonly beforePlaying: boolean;
+    readonly afterPlaying: false;
+    readonly verified: true;
+  };
 }
 export interface ScenarioPermission {
   readonly tool: string;
@@ -213,6 +231,7 @@ export interface BaselineEvidence {
   readonly dependencyHashes: Readonly<Record<string, string>>;
 }
 export interface AudioSourceEvidence {
+  readonly contextId?: string;
   readonly loadedMediaPath: string;
   readonly source: SourceLocation & { readonly mediaSha256: string };
   readonly listenerId: string;
@@ -224,6 +243,7 @@ export interface ListenerPlacement {
   readonly deviceReference: string;
 }
 export interface MidiSourceEvidence {
+  readonly contextId?: string;
   readonly source: SourceLocation & MidiContentIdentity;
   readonly listenerId: string;
   readonly facts: Facts;
@@ -235,6 +255,7 @@ export interface AudioBaselineEvidence extends BaselineEvidence {
   readonly sources: Readonly<Record<string, AudioSourceEvidence>>;
 }
 export interface TurnEvidence extends Submission {
+  readonly featureSources?: readonly FeatureSourceEvidence[];
   readonly pitchSmoke?: readonly PitchSmokeEvidence[];
   readonly melSmoke?: readonly MelSmokeEvidence[];
   readonly agentListening?: AgentListeningEvidence;
@@ -251,6 +272,8 @@ export interface TurnEvidence extends Submission {
   readonly facts: Facts;
 }
 export interface RunEvidence {
+  readonly featureSources?: readonly FeatureSourceEvidence[];
+  readonly setupActions?: readonly SetupEvidence[];
   readonly pitchSmoke?: readonly PitchSmokeEvidence[];
   readonly melSmoke?: readonly MelSmokeEvidence[];
   readonly agentListening?: readonly AgentListeningEvidence[];
@@ -300,6 +323,11 @@ export interface TurnSubscription {
 export interface AcceptanceDriver {
   readonly schemaVersion: 1;
   readonly capabilities: readonly string[];
+  setup?(
+    action: SetupAction,
+    step: ScenarioStep,
+    context: DriverContext,
+  ): Promise<SetupEvidence>;
   launch(context: DriverContext): Promise<void>;
   ready(context: DriverContext): Promise<SessionIdentity>;
   subscribe(context: DriverContext): Promise<TurnSubscription>;

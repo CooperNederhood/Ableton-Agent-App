@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ANALYZER_PRODUCER_ABI } from "./analyzer-profile.js";
 import {
   metricAudioObservationSchema,
   metricAttackAlgorithmSchema,
@@ -31,6 +32,27 @@ export const NATIVE_METRIC_LISTENING_CAPABILITY =
 export const NATIVE_MEL_BAND_LISTENING_CAPABILITY =
   "audio-listener/mel-band-timelines-v1" as const;
 export const NATIVE_METRIC_ALGORITHM_VERSION = "3.0.0" as const;
+export const nativeAnalyzerProducerAbiSchema = z.literal(ANALYZER_PRODUCER_ABI);
+function validateAnalyzerProducer(
+  value: {
+    config: { requestedMetrics: readonly string[] };
+    analyzerProducerAbi?: number | undefined;
+  },
+  ctx: z.RefinementCtx,
+): void {
+  if (
+    value.config.requestedMetrics.some(
+      (metric) => metric === "pitch" || metric === "spectral-shape",
+    ) &&
+    value.analyzerProducerAbi !== ANALYZER_PRODUCER_ABI
+  )
+    ctx.addIssue({
+      code: "custom",
+      path: ["analyzerProducerAbi"],
+      message:
+        "Authoritative analyzers require actual native producer ABI3 readiness",
+    });
+}
 const LIMIT = 2 ** 44;
 const integer = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 const signed = z.number().int().min(-1).max(Number.MAX_SAFE_INTEGER);
@@ -65,7 +87,7 @@ const config = {
   requestedMetrics: z
     .array(metricObservationMetricSchema)
     .min(1)
-    .max(4)
+    .max(6)
     .refine((metrics) => new Set(metrics).size === metrics.length),
   sourceContext: metricObservationSourceSchema.optional(),
   attacks: nativeMetricAttackSettingsSchema.nullable().optional(),
@@ -287,6 +309,7 @@ export type NativeMetricIdleReceipt = z.infer<
  */
 export const nativeMetricReadyProofSchema = z
   .strictObject({
+    analyzerProducerAbi: nativeAnalyzerProducerAbiSchema.optional(),
     scope: z.literal(NATIVE_METRIC_LISTENING_SCOPE),
     phase: z.literal("idle-preflight"),
     configurationEvidence: z.literal("admitted-not-executed"),
@@ -298,6 +321,7 @@ export const nativeMetricReadyProofSchema = z
     elapsedMs: z.number().finite().min(0).max(2_000),
   })
   .superRefine((value, ctx) => {
+    validateAnalyzerProducer(value, ctx);
     const g = value.config.geometry;
     const first = value.before.frames[0]![4];
     const last = value.before.frames.at(-1)![4];
@@ -342,6 +366,7 @@ export type NativeMetricReadyProof = z.infer<
 
 export const nativeMetricArmProofSchema = z
   .strictObject({
+    analyzerProducerAbi: nativeAnalyzerProducerAbiSchema.optional(),
     scope: z.literal(NATIVE_METRIC_LISTENING_SCOPE),
     ownership: nativeMetricOwnershipSchema,
     config: nativeMetricListeningConfigSchema,
@@ -349,6 +374,7 @@ export const nativeMetricArmProofSchema = z
     receipt: nativeMetricDspReceiptSchema,
   })
   .superRefine((value, ctx) => {
+    validateAnalyzerProducer(value, ctx);
     const g = value.config.geometry;
     const first = value.before.frames[0]!;
     const last = value.before.frames.at(-1)!;

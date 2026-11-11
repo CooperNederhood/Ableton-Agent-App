@@ -175,6 +175,111 @@ test("an unbound initial empty receipt cannot establish a DSP owner or readiness
   );
 });
 
+for (const abi of [2, 3])
+  test(`ABI${abi} accepts an empty owned pending-arm drain without inventing DSP readiness`, () => {
+    const f = fixture();
+    f.handoff.arm();
+    for (let token = 1; token <= 3; token++) {
+      f.advance();
+      f.handoff.receive(["mel_drain", abi, token, 3, 0, 0, 0, 0, 0, 0]);
+      assert.equal(f.handoff.snapshot().generation, null);
+      assert.equal(f.handoff.snapshot().ready, false);
+      assert.equal(f.handoff.snapshot().completed, false);
+      assert.equal(f.handoff.snapshot().receipt, null);
+    }
+    assert.equal(
+      f.events.filter((e) => e.reason === "mel_native_arm_pending").length,
+      1,
+    );
+    assert.throws(() => f.handoff.timeline(), /not_settled/);
+    f.handoff.receive(["mel_ready", abi, ...header(0, 9000, 9000).slice(1)]);
+    assert.equal(f.handoff.snapshot().generation, 7);
+    assert.equal(f.handoff.snapshot().ready, true);
+    assert.equal(f.handoff.stop(true), false);
+    assert.equal(f.handoff.snapshot().completed, false);
+    f.handoff.receive([
+      "mel_stopped",
+      abi,
+      ...header(0, 9000, 9000, 0, 0, 1).slice(1),
+    ]);
+    f.advance();
+    f.handoff.receive(["mel_drain", abi, 4, 3, 7, 2, 0, 1, 1, 9000]);
+    assert.equal(f.handoff.stop(true), true);
+    assert.throws(() => f.handoff.timeline(), /not_settled/);
+  });
+
+test("pending-arm receipts cannot replay a token or replace established readiness", () => {
+  const f = fixture();
+  f.handoff.arm();
+  f.advance();
+  const packet = ["mel_drain", 3, 1, 3, 0, 0, 0, 0, 0, 0];
+  f.handoff.receive(packet);
+  assert.throws(() => f.handoff.receive(packet), /mel_invalid_drain_receipt/);
+  const ready = fixture();
+  ready.ready();
+  ready.advance();
+  assert.throws(
+    () => ready.handoff.receive(["mel_drain", 2, 1, 3, 0, 0, 0, 0, 0, 0]),
+    /mel_invalid_drain_receipt/,
+  );
+  assert.equal(ready.handoff.snapshot().generation, 7);
+});
+
+for (const [label, change] of [
+  [
+    "foreign epoch",
+    (p) => {
+      p[3] = 4;
+    },
+  ],
+  [
+    "unexpected records",
+    (p) => {
+      p[5] = 1;
+    },
+  ],
+  [
+    "unexpected frames",
+    (p) => {
+      p[6] = 1;
+    },
+  ],
+  [
+    "terminal claim",
+    (p) => {
+      p[7] = 1;
+    },
+  ],
+  [
+    "clock claim",
+    (p) => {
+      p[8] = 1;
+    },
+  ],
+  [
+    "source clock",
+    (p) => {
+      p[9] = 1;
+    },
+  ],
+  [
+    "unissued token",
+    (p) => {
+      p[2] = 2;
+    },
+  ],
+])
+  test(`pending-arm handling still rejects ${label}`, () => {
+    const f = fixture();
+    f.handoff.arm();
+    f.advance();
+    const packet = ["mel_drain", 3, 1, 3, 0, 0, 0, 0, 0, 0];
+    change(packet);
+    assert.throws(() => f.handoff.receive(packet), /mel_invalid_drain_receipt/);
+    assert.equal(f.handoff.snapshot().ready, false);
+    assert.equal(f.handoff.snapshot().receipt, null);
+  });
+
 for (const [reason, gap] of [
   [6, "overflow"],
   [7, "malformed-record"],

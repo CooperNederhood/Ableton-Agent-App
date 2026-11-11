@@ -415,6 +415,7 @@ describe("SignalIngressServer", () => {
               listenerCapabilities: [
                 "audio-listener/independent-metric-timelines-v1",
                 "audio-listener/mel-band-timelines-v1",
+                "audio-listener/analyzer-timelines-v1",
               ],
             }
           : {}),

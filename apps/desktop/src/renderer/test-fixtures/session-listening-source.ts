@@ -141,6 +141,8 @@ export function sessionListeningSourceFixture(): {
         tempoBpm: 120,
         signatureNumerator: 4,
         signatureDenominator: 4,
+        clipSignatureNumerator: 4,
+        clipSignatureDenominator: 4,
         globalQuantization: 0,
         launchQuantization: 0,
         launchMode: 0,

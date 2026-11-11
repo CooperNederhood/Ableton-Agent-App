@@ -220,7 +220,8 @@ class _Pass(object):
             _fail("Required polled Session origin/position is unavailable")
         if evidence["sourceKind"] not in ("midi", "warped-audio"):
             _fail("Only known MIDI or warped audio Session sources are admitted")
-        if any(settings[field] is None for field in settings if field != "followActionEnabled"):
+        optional_evidence = ("followActionEnabled", "clipSignatureNumerator", "clipSignatureDenominator")
+        if any(settings[field] is None for field in settings if field not in optional_evidence):
             _fail("Session source required setting is unknown")
         active_end = settings["loopEnd"] if settings["looping"] else settings["endMarker"]
         if self.params["durationBeats"] > active_end:
@@ -253,6 +254,9 @@ class _Pass(object):
                 self.add_monitor(obj, field, static=True)
         if self.source_kind == "warped-audio":
             self.add_monitor(self.clip, "warping", static=True)
+        for field in ("signature_numerator", "signature_denominator"):
+            if _monitor_available(self.clip, field):
+                self.add_monitor(self.clip, field, static=True)
         # Public Clip playing_status reports playing/trigger changes. Recording
         # and origin reads remain required on every observation.
         # Nullable follow_action_enabled is not a listenable public API on Live 11.

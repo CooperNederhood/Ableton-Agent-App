@@ -980,6 +980,54 @@ test("classic Max advancing counter bookends discard a torn acquisition and acce
   h.cleanStop();
 });
 
+for (const [selector, first, width] of [
+  ["metric_configuration_sample", 8, 12],
+  ["metric_timing_sample", 0, 8],
+  ["metric_level_sample", 20, 22],
+  ["metric_detector_sample", 42, 22],
+]) {
+  test(`independent coherent ${selector} may lag another bank by one vector but never its own watermark`, () => {
+    let cached = null;
+    const h = classicCleanupHarness({
+      transformFrame(bank, values) {
+        if (cached && bank === selector)
+          values.splice(0, values.length, ...cached);
+      },
+    });
+    const older = [
+      h.counter,
+      ...h.output.slice(first, first + width),
+      h.counter,
+    ];
+    for (let i = 0; i < 64; i++) h.step();
+    cached = [h.counter, ...h.output.slice(first, first + width), h.counter];
+    for (let i = 0; i < 64; i++) h.step();
+    assert.equal(h.counter - cached[0], 64);
+    h.message("metric_poll");
+    assert.notEqual(h.snapshot().state, "failed");
+    assert.equal(h.snapshot().cleanup, "blocked");
+    h.step();
+    assert.equal(h.output[0], 1);
+    assert.equal(h.output[18], 1);
+    assert.equal(h.output[2], 0);
+    assert.equal(h.output[7], 3);
+
+    cached = older;
+    h.message("metric_poll");
+    assert.equal(h.snapshot().reason, "invalid_shared_timing");
+    assert.equal(h.snapshot().cleanup, "started");
+    h.step();
+    // The failed reader disarms the same Gen consumed by listener.mel~.
+    assert.equal(h.output[0], 0);
+    assert.equal(h.output[18], 0);
+    assert.equal(h.output[2], 0);
+    assert.equal(h.output[7], 3);
+    cached = null;
+    h.message("metric_poll");
+    assert.equal(h.snapshot().cleanup, "completed");
+  });
+}
+
 test("classic Max forged/backwards cohort data cannot update receipt slots and foreign evidence owners stay fatal", () => {
   for (const fault of ["backwards", "forged", "foreign"]) {
     let inject = false;

@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto";
+import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { createInterface } from "node:readline";
 import {
   createConnection,
   createServer,
@@ -7,6 +9,9 @@ import {
 } from "node:net";
 import { performance } from "node:perf_hooks";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { AbletonBridgeService } from "../../packages/bridge/src/index.js";
+import { InMemoryEventPublisher } from "@ableton-agent/shared";
+import { withCorrelation } from "@ableton-agent/correlation";
 import {
   PROTOCOL_VERSION,
   DEFAULT_MAX_FRAME_BYTES,
@@ -22,7 +27,10 @@ import {
 const proxies: AcceptanceBridgeTimingProxy[] = [];
 const servers: Server[] = [];
 const sockets: Socket[] = [];
+const bridges: AbletonBridgeService[] = [];
+const simulators: ChildProcessWithoutNullStreams[] = [];
 afterEach(async () => {
+  await Promise.all(bridges.splice(0).map((bridge) => bridge.stop()));
   await Promise.all(proxies.splice(0).map((proxy) => proxy.close()));
   for (const socket of sockets.splice(0)) socket.destroy();
   await Promise.all(
@@ -33,7 +41,81 @@ afterEach(async () => {
           new Promise<void>((resolve) => server.close(() => resolve())),
       ),
   );
+  await Promise.all(
+    simulators.splice(0).map(async (child) => {
+      if (child.exitCode !== null || child.signalCode !== null) return;
+      const exited = new Promise<void>((resolve) =>
+        child.once("exit", () => resolve()),
+      );
+      child.kill();
+      await exited;
+    }),
+  );
 });
+
+const bridgeToken = "runner-only-simulator-token-over-thirty-two-characters";
+async function simulatorPort(): Promise<number> {
+  const child = spawn(
+    "python3",
+    [
+      "remote-script/simulator.py",
+      "--token",
+      bridgeToken,
+      "--connections",
+      "10",
+    ],
+    {
+      cwd: new URL("../../", import.meta.url),
+      stdio: ["pipe", "pipe", "pipe"],
+    },
+  );
+  simulators.push(child);
+  const lines = createInterface({ input: child.stdout });
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const line = await new Promise<string>((resolve, reject) => {
+      timer = setTimeout(
+        () => reject(new Error("Simulator startup timed out")),
+        5000,
+      );
+      lines.once("line", resolve);
+      child.once("error", reject);
+      child.once("exit", () =>
+        reject(new Error("Simulator exited before startup")),
+      );
+    });
+    const value = JSON.parse(line) as { port: number };
+    if (!Number.isInteger(value.port) || value.port <= 0)
+      throw new Error("Invalid simulator port");
+    return value.port;
+  } finally {
+    clearTimeout(timer);
+    lines.close();
+  }
+}
+function realBridge(
+  port: number,
+  commands: string[] = [],
+  requestTimeoutMs = 1000,
+) {
+  const bridge = new AbletonBridgeService({
+    port,
+    authenticationToken: bridgeToken,
+    events: new InMemoryEventPublisher(),
+    reconnect: { maxAttempts: 0 },
+    requestTimeoutMs,
+    onRequest: ({ command }) => commands.push(command),
+  });
+  bridges.push(bridge);
+  return bridge;
+}
+function handoffTrace() {
+  return {
+    traceId: randomUUID(),
+    correlationId: randomUUID(),
+    causationId: randomUUID(),
+  };
+}
 
 function rawFrame(message: object): Buffer {
   // Deliberate whitespace and unknown fields detect accidental reserialization.
@@ -148,7 +230,235 @@ async function waitFor(check: () => void): Promise<void> {
 }
 
 describe("AcceptanceBridgeTimingProxy", () => {
-  it.each([0, -1, 1001, NaN, Infinity])(
+  it("reproduces the real single-client handshake timeout masked as unavailable STOP capability", async () => {
+    const port = await simulatorPort();
+    const desktop = realBridge(port);
+    await desktop.start();
+    expect(
+      (await desktop.getCapabilities()).capabilities["transport.set_playing"],
+    ).toBe(true);
+    const requests: string[] = [];
+    const runner = realBridge(port, requests, 80);
+    await runner.start();
+    expect(await runner.getStatus()).toMatchObject({
+      state: "error",
+      code: "operation_timeout",
+    });
+    await expect(runner.setPlaying(false)).rejects.toMatchObject({
+      code: "unsupported_capability",
+    });
+    expect(requests).toEqual(["system.hello"]);
+    await expect(desktop.ping()).resolves.toBeDefined();
+  });
+
+  it("hands off the real protocol socket for exactly one guarded STOP and restores the same Desktop client", async () => {
+    const upstream = await simulatorPort();
+    const events: AcceptanceBridgeTimingEvent[] = [];
+    const proxy = new AcceptanceBridgeTimingProxy({
+      minimumReadMs: 0,
+      testOnlyUpstreamPort: upstream,
+      onEvent: (event) => events.push(event),
+    });
+    proxies.push(proxy);
+    const port = await proxy.start();
+    const desktop = realBridge(port);
+    await desktop.start();
+    const identity = desktop.getCurrentLiveIdentity();
+    expect(identity).toBeDefined();
+    const commands: string[] = [];
+    const runner = realBridge(upstream, commands);
+    const trace = handoffTrace();
+    const result = await proxy.withExclusiveUpstream(
+      AbortSignal.timeout(3000),
+      () =>
+        withCorrelation(trace, async () => {
+          await runner.start();
+          expect(await runner.getStatus()).toMatchObject({
+            state: "connected",
+          });
+          try {
+            const eagerDesktop = realBridge(port, [], 80);
+            await eagerDesktop.start();
+            expect((await eagerDesktop.getStatus()).state).toBe("error");
+            await eagerDesktop.stop();
+            return await runner.setPlaying(false);
+          } finally {
+            await runner.stop();
+          }
+        }),
+      trace,
+    );
+    expect(result).toMatchObject({ afterIsPlaying: false, verified: true });
+    expect(commands).toEqual(["system.hello", "transport.set_playing"]);
+    await desktop.start();
+    expect(await desktop.getStatus()).toMatchObject({ state: "connected" });
+    expect(desktop.getCurrentLiveIdentity()).toEqual(identity);
+    await expect(desktop.ping()).resolves.toBeDefined();
+    await expect(
+      proxy.withExclusiveUpstream(
+        AbortSignal.timeout(500),
+        async () => undefined,
+        trace,
+      ),
+    ).rejects.toThrow("not_admitted");
+    const handoff = proxy
+      .snapshot()
+      .records.find((record) => record.stage === "handoff");
+    expect(handoff).toMatchObject({
+      ...trace,
+      state: "completed",
+    });
+    expect(handoff?.startedMs).toBeTypeOf("number");
+    expect(handoff?.endedMs).toBeGreaterThanOrEqual(handoff!.startedMs!);
+    const handoffEvents = events.filter(
+      (event) => event.record.stage === "handoff",
+    );
+    expect(handoffEvents.map((event) => event.phase)).toEqual([
+      "queued",
+      "started",
+      "progress",
+      "completed",
+    ]);
+    for (const event of handoffEvents)
+      expect(event.record).toMatchObject(trace);
+    expect(JSON.stringify(proxy.snapshot())).not.toContain(bridgeToken);
+    await desktop.stop();
+    await proxy.close();
+    expect(proxy.snapshot()).toMatchObject({
+      state: "closed",
+      activeTunnels: 0,
+    });
+  });
+
+  it.each(["denied", "timeout"] as const)(
+    "preserves real STOP capability/timeout guards during handoff (%s)",
+    async (mode) => {
+      const commands: string[] = [];
+      const server = createServer((socket) => {
+        sockets.push(socket);
+        socket.on("error", () => undefined);
+        const decoder = new FrameDecoder();
+        socket.on("data", (chunk: Buffer) => {
+          for (const message of decoder.push(chunk)) {
+            if (message.kind !== "request") continue;
+            commands.push(message.command);
+            if (message.command === "system.hello")
+              socket.write(
+                rawFrame({
+                  ...response(message.requestId),
+                  result: {
+                    selectedProtocolVersion: PROTOCOL_VERSION,
+                    liveVersion: "11.3.43",
+                    remoteScriptVersion: "test",
+                    liveSetId: "owned",
+                    liveSetName: "Owned",
+                    saved: false,
+                    capabilities: {
+                      "transport.set_playing": mode !== "denied",
+                    },
+                    limits: {
+                      maxFrameBytes: DEFAULT_MAX_FRAME_BYTES,
+                      maxBatchItems: 128,
+                    },
+                  },
+                }),
+              );
+          }
+        });
+      });
+      servers.push(server);
+      const port = await listen(server);
+      const proxy = new AcceptanceBridgeTimingProxy({
+        minimumReadMs: 0,
+        testOnlyUpstreamPort: port,
+      });
+      proxies.push(proxy);
+      const clientPort = await proxy.start();
+      const runner = realBridge(port, [], 80);
+      await expect(
+        proxy.withExclusiveUpstream(
+          AbortSignal.timeout(2000),
+          async () => {
+            try {
+              await runner.start();
+              expect(await runner.getStatus()).toMatchObject({
+                state: "connected",
+              });
+              return await runner.setPlaying(false);
+            } finally {
+              await runner.stop();
+            }
+          },
+          handoffTrace(),
+        ),
+      ).rejects.toMatchObject({
+        code:
+          mode === "denied" ? "unsupported_capability" : "operation_timeout",
+      });
+      expect(
+        commands.filter((command) => command === "transport.set_playing"),
+      ).toHaveLength(mode === "denied" ? 0 : 1);
+      expect(
+        proxy.snapshot().records.find((record) => record.stage === "handoff")
+          ?.state,
+      ).toBe("failed");
+      const desktop = realBridge(clientPort);
+      await desktop.start();
+      expect(await desktop.getStatus()).toMatchObject({ state: "connected" });
+    },
+  );
+
+  it("cancels a pending handoff without dropping active Desktop work or dispatching a runner command", async () => {
+    const h = await harness(0);
+    h.client.write(rawFrame(request("system.ping")));
+    await waitFor(() => expect(h.messages).toHaveLength(1));
+    const controller = new AbortController();
+    const operation = vi.fn(async () => undefined);
+    const pending = h.proxy.withExclusiveUpstream(
+      controller.signal,
+      operation,
+      handoffTrace(),
+    );
+    const rejected = expect(pending).rejects.toThrow();
+    controller.abort();
+    await rejected;
+    expect(operation).not.toHaveBeenCalled();
+    expect(h.proxy.snapshot().activeTunnels).toBe(1);
+    expect(
+      h.proxy.snapshot().records.find((record) => record.stage === "handoff")
+        ?.state,
+    ).toBe("cancelled");
+  });
+
+  it.each(["cancelled", "closed"] as const)(
+    "cannot complete an interrupted handoff (%s)",
+    async (outcome) => {
+      const h = await harness(0);
+      const controller = new AbortController();
+      const operation = vi.fn(async () => {
+        if (outcome === "cancelled") controller.abort();
+        else await h.proxy.close();
+      });
+      await expect(
+        h.proxy.withExclusiveUpstream(
+          controller.signal,
+          operation,
+          handoffTrace(),
+        ),
+      ).rejects.toThrow();
+      expect(operation).toHaveBeenCalledOnce();
+      expect(h.proxy.snapshot().activeTunnels).toBe(0);
+      expect(
+        h.proxy.snapshot().records.find((record) => record.stage === "handoff")
+          ?.state,
+      ).toBe("cancelled");
+      if (outcome === "cancelled") {
+        await connect(h.port);
+        await waitFor(() => expect(h.proxy.snapshot().activeTunnels).toBe(1));
+      }
+    },
+  );
+  it.each([-0.1, -1, 1001, NaN, Infinity])(
     "rejects invalid minimum %s",
     (minimumReadMs) => {
       expect(() => new AcceptanceBridgeTimingProxy({ minimumReadMs })).toThrow(
@@ -328,6 +638,84 @@ describe("AcceptanceBridgeTimingProxy", () => {
     expect(h.received()).toHaveLength(0);
     await expect(connect(h.port)).rejects.toThrow();
     await waitFor(() => expect(h.upstream.destroyed).toBe(true));
+  });
+
+  it.each(["system.hello", "session.inspect"])(
+    "accounts for pending read %s during intentional shutdown without resending",
+    async (command) => {
+      const events: AcceptanceBridgeTimingEvent[] = [];
+      const h = await harness(0, (event) => events.push(event));
+      const req = request(command, { authenticationToken: "not-for-evidence" });
+      h.client.write(rawFrame(req));
+      await waitFor(() => expect(h.messages).toHaveLength(1));
+      await h.proxy.close();
+      h.client.destroy();
+      await h.proxy.close();
+      expect(h.proxy.snapshot()).toMatchObject({
+        state: "closed",
+        activeTunnels: 0,
+        pendingFrames: 0,
+        pendingBytes: 0,
+      });
+      expect(h.proxy.snapshot().failure).toBeUndefined();
+      const pending = h.proxy
+        .snapshot()
+        .records.find((record) => record.requestId === req.requestId);
+      expect(pending).toMatchObject({ state: "cancelled", readOnly: true });
+      expect(
+        events
+          .filter((event) => event.record.requestId === req.requestId)
+          .map((event) => event.phase),
+      ).toEqual(["queued", "started", "cancelled"]);
+      expect(h.messages).toHaveLength(1);
+      await waitFor(() => expect(h.upstream.destroyed).toBe(true));
+      await expect(connect(h.port)).rejects.toThrow();
+      expect(JSON.stringify(h.proxy.snapshot())).not.toContain(
+        "not-for-evidence",
+      );
+    },
+  );
+
+  it.each(["transport.set_playing", "unknown.command"])(
+    "preserves unaccounted mutation/unknown work on intentional close (%s)",
+    async (command) => {
+      const h = await harness(0);
+      const req = request(command, { isPlaying: false });
+      h.client.write(rawFrame(req));
+      await waitFor(() => expect(h.messages).toHaveLength(1));
+      await h.proxy.close();
+      expect(h.proxy.snapshot()).toMatchObject({
+        state: "failed",
+        failure: "pending_mutation_or_unknown_at_close",
+        activeTunnels: 0,
+        pendingFrames: 0,
+        pendingBytes: 0,
+      });
+      expect(
+        h.proxy
+          .snapshot()
+          .records.find((record) => record.requestId === req.requestId)?.state,
+      ).toBe("failed");
+      expect(h.messages).toHaveLength(1);
+    },
+  );
+
+  it("preserves unexpected read-client disconnects through later intentional cleanup", async () => {
+    const h = await harness(0);
+    h.client.write(rawFrame(request("system.hello")));
+    await waitFor(() => expect(h.messages).toHaveLength(1));
+    h.client.end();
+    await waitFor(() =>
+      expect(h.proxy.snapshot().failure).toBe(
+        "client_closed_with_pending_work",
+      ),
+    );
+    await h.proxy.close();
+    expect(h.proxy.snapshot()).toMatchObject({
+      state: "failed",
+      failure: "client_closed_with_pending_work",
+      activeTunnels: 0,
+    });
   });
 
   it("records connection refusal and tears down instead of silently bypassing", async () => {

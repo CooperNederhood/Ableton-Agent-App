@@ -171,15 +171,38 @@ test("v5 FFT readout carries the actual executed counter around all twenty retai
   const documents = nativeRuntimeDocuments({ nativeVersion: 5 });
   const fft = documents["audio_listener_native_fft.maxpat"];
   const readback = boxes(fft).get("measurementReadback");
-  assert.equal(readback.numinlets, 23);
+  assert.equal(readback.numinlets, 22);
   assert.ok(connected(fft, "energy", 31, "measurementReadback", 0));
-  assert.ok(connected(fft, "energy", 31, "measurementReadback", 21));
-  assert.ok(connected(fft, "infoOrder", 0, "measurementReadback", 22));
+  assert.ok(!connected(fft, "energy", 31, "measurementReadback", 21));
+  assert.ok(connected(fft, "infoOrder", 0, "measurementReadback", 21));
   for (let index = 0; index < 20; index++)
     assert.ok(
       connected(fft, "energy", 11 + index, "measurementReadback", 1 + index),
     );
   const texts = [...boxes(readback).values()].map((box) => box.text || "");
+  assert.equal(
+    boxes(readback).get("counterSnapshot")?.text,
+    "snapshot~ @offset 2047",
+  );
+  assert.equal(
+    boxes(readback).get("acquisitionOrder")?.text,
+    "trigger b 2 b b 1",
+  );
+  assert.equal(boxes(readback).get("channels").text, "mc.pack~ 20");
+  assert.ok(connected(readback, "input0", 0, "counterSnapshot"));
+  assert.ok(connected(readback, "input21", 0, "acquisitionOrder"));
+  assert.ok(connected(readback, "acquisitionOrder", 4, "counterGate"));
+  assert.ok(connected(readback, "acquisitionOrder", 3, "counterSnapshot"));
+  assert.ok(connected(readback, "acquisitionOrder", 2, "snapshot"));
+  assert.ok(connected(readback, "acquisitionOrder", 1, "counterGate"));
+  assert.ok(connected(readback, "acquisitionOrder", 0, "counterSnapshot"));
+  assert.ok(connected(readback, "counterSnapshot", 0, "counterGate", 1));
+  assert.ok(connected(readback, "counterGate", 0, "pack", 1));
+  assert.ok(connected(readback, "counterGate", 1, "hot"));
+  for (let index = 0; index < 20; index++) {
+    assert.ok(connected(readback, `input${index + 1}`, 0, "channels", index));
+    assert.ok(connected(readback, "gate", index, "pack", index + 2));
+  }
   assert.ok(texts.some((text) => text.includes("spectrum_measurement_frame")));
   assert.ok(
     texts.some(

@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { performance } from "node:perf_hooks";
 import { withCorrelation } from "@ableton-agent/correlation";
 import {
+  SESSION_CONTEXT_STORE_REFERENCE,
   contextTraceSchema,
   type SessionContextPublicationRequest,
 } from "@ableton-agent/project-state";
@@ -970,6 +971,7 @@ export class HeadlessDesktopService implements DesktopService {
           ...session,
           contextStore: desktopSessionContextStoreReferenceSchema.parse({
             ...reference,
+            schemaVersion: SESSION_CONTEXT_STORE_REFERENCE.schemaVersion,
             kinds: [
               ...new Set([
                 ...(session.contextStore?.kinds ?? []),

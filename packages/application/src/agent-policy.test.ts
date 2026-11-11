@@ -13,6 +13,7 @@ import {
   type AgentIdentityContext,
   retryGuidance,
   structuredErrorCode,
+  VERIFIED_TOOL_RESULT_GUIDANCE,
 } from "./agent-policy.js";
 
 const snapshot: SessionSnapshot = {
@@ -427,6 +428,110 @@ describe("agent policy", () => {
     );
     expect(unrelated?.additionalContext).not.toContain("opaque strings");
   });
+
+  it.each(["list-features", "compare-features", "search-features"])(
+    "directs requested value reads after %s without rewriting summary evidence",
+    async (action) => {
+      const hooks = createAgentHooks({
+        getAbletonStatus: async () => connected,
+      });
+      const toolResult = {
+        resultType: "success" as const,
+        textResultForLlm: JSON.stringify({ action }),
+      };
+      const before = structuredClone(toolResult);
+      const result = await hooks.onPostToolUse?.(
+        {
+          sessionId: "sdk",
+          timestamp: new Date(),
+          workingDirectory: "/tmp",
+          toolName: "ableton_context",
+          toolArgs: { action },
+          toolResult,
+        },
+        { sessionId: "sdk" },
+      );
+      expect(result?.additionalContext).toContain(
+        "metadata and distances, not feature value arrays",
+      );
+      expect(result?.additionalContext).toContain(
+        "If the user requested values or persisted rereads",
+      );
+      expect(result?.additionalContext).toContain(
+        "get-feature for each requested featureId in this operation",
+      );
+      expect(result?.additionalContext).toContain(
+        "Comparison/search alone does not require these extra reads",
+      );
+      expect(result?.additionalContext).toContain("page.values");
+      expect(result?.additionalContext?.length).toBeLessThan(800);
+      expect(result?.modifiedResult).toBeUndefined();
+      expect(toolResult).toEqual(before);
+    },
+  );
+
+  it("reinforces exact report continuation without rewriting stored measurement evidence", async () => {
+    const hooks = createAgentHooks({ getAbletonStatus: async () => connected });
+    const toolResult = {
+      resultType: "success" as const,
+      textResultForLlm: JSON.stringify({
+        action: "report",
+        report: { offset: 0, nextOffset: 5 },
+      }),
+    };
+    const before = structuredClone(toolResult);
+    const result = await hooks.onPostToolUse?.(
+      {
+        sessionId: "sdk",
+        timestamp: new Date(),
+        workingDirectory: "/tmp",
+        toolName: "ableton_context",
+        toolArgs: { action: "report" },
+        toolResult,
+      },
+      { sessionId: "sdk" },
+    );
+    expect(result?.additionalContext).toContain("report.nextOffset");
+    expect(result?.additionalContext).toContain(
+      "fewer rows than the requested limit",
+    );
+    expect(result?.additionalContext).toContain("not offset + limit");
+    expect(result?.additionalContext).toContain("fresh complete pages");
+    expect(result?.additionalContext).toContain("after restart");
+    expect(result?.modifiedResult).toBeUndefined();
+    expect(toolResult).toEqual(before);
+  });
+
+  it.each([
+    ["ableton_context", { action: "get-feature" }],
+    ["ableton_context", { action: "derive-features" }],
+    ["ableton_context", { action: "feature-definitions" }],
+    ["ableton_context", {}],
+    ["ableton_context", null],
+    ["ableton_tracks", { action: "list-features" }],
+    ["ableton_tracks", { action: "report" }],
+  ])(
+    "keeps unrelated successful %s reads free of feature-value instructions",
+    async (toolName, toolArgs) => {
+      const hooks = createAgentHooks({
+        getAbletonStatus: async () => connected,
+      });
+      const result = await hooks.onPostToolUse?.(
+        {
+          sessionId: "sdk",
+          timestamp: new Date(),
+          workingDirectory: "/tmp",
+          toolName,
+          toolArgs,
+          toolResult: { resultType: "success", textResultForLlm: "{}" },
+        },
+        { sessionId: "sdk" },
+      );
+      expect(result).toEqual({
+        additionalContext: VERIFIED_TOOL_RESULT_GUIDANCE,
+      });
+    },
+  );
 
   it("blocks an unchanged retry after a stale or denied tool failure", async () => {
     const hooks = createAgentHooks({

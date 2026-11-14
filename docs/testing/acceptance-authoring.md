@@ -140,6 +140,14 @@ with playback running, and original records/manifest/context ownership after
 an owned Desktop restart without recapture. Final runner cleanup completed.
 Earlier red receipts remain preserved; this recovered result does not qualify
 ten-minute captures, unrestricted reliability, or additional visual UX coverage.
+The subsequent user-selected existing Session regression set also passed
+unchanged on that candidate, Live Suite 11.3.43/48 kHz:
+`session-clip-identify` (`run-PQJot8`),
+`session-listening-feature-search` (`run-qRBkVE`, including two all-six captures
+and original context/feature reads after owned restart), and
+`session-stopped-quantized-midi` (`run-pCeJK6`). All selected turns, terminal
+assertions and runner cleanup passed. This is bounded single-case evidence,
+not a complete registered-suite receipt; the remaining cases were not selected.
 Saved XML identifies Live **11.3.43**, regular track index 1 `Drums-audio`,
 listener device index 0, and 24 adjacent 16-beat audio clips over beats 0–384.
 At 128 BPM this is 180 seconds: independently expected capture coverage is

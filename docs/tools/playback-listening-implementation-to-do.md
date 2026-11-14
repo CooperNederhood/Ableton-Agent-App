@@ -98,6 +98,13 @@
       assertions, capture cleanup/playback running, original-record persistence
       across owned Desktop restart without recapture, and final runner cleanup.
       Preserve earlier failures; no ten-minute or visual UX qualification claim.
+- [x] Run the user-selected existing Session regressions on the same candidate:
+      `session-clip-identify` (`run-PQJot8`), six-family repeated
+      `session-listening-feature-search` with owned restart (`run-qRBkVE`), and
+      `session-stopped-quantized-midi` (`run-pCeJK6`). Every selected turn,
+      source/context/feature/protected-state assertion and final cleanup passed
+      on Live Suite 11.3.43/48 kHz. No fixes or contract changes were needed;
+      the remaining registered Session suite was not selected.
 - [x] Keep terminal native cleanup separate from host transport state: require
       confirmed inactive capture/disabled bank while Arrangement playback
       remains running, with a demonstrated red/green terminal clock regression.

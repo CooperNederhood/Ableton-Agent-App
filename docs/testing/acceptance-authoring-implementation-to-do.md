@@ -52,6 +52,12 @@ Companion specification: [Acceptance test authoring](acceptance-authoring.md).
       and qualifies the production/native stream before the one approved run.
 - [x] Parent records the unchanged isolated three-minute smoke and owned cleanup:
       terminal `run-S4Cl1H`, including owned-restart persistence without recapture.
+- [x] Record subsequent focused Session regression receipts on the same candidate:
+      basic clip identification `run-PQJot8`, repeated six-family feature/search
+      with restart `run-qRBkVE`, and stopped/quantized MIDI `run-pCeJK6`.
+      All selected turns, assertions and cleanup passed without modifying
+      production behavior, source fixtures, prompts, permissions or oracles.
+      Keep this distinct from qualification of the full registered suite.
 
 ## Two-MIDI-track listener smoke (#113)
 

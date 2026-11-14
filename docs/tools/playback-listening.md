@@ -44,6 +44,22 @@ restart without recapture. Final runner cleanup completed. This is one recovered
 passing case after the preserved failures below, not first-attempt reliability,
 ten-minute qualification, or additional visual UX qualification.
 
+The user then selected a focused existing Session regression set. All three
+passed on Live Suite 11.3.43/48 kHz with the same verified app executable
+SHA-256 `4e68554e85fb1ae754de58d96503131f2a1e2c12e6893c9fd5a86612239a0988`:
+
+| Scenario                           | Terminal receipt | Verified scope                                                      |
+| ---------------------------------- | ---------------- | ------------------------------------------------------------------- |
+| `session-clip-identify`              | `run-PQJot8`     | One capture, correct identification, original context after restart. |
+| `session-listening-feature-search`  | `run-qRBkVE`     | Two six-family captures, feature/search and restart reads.            |
+| `session-stopped-quantized-midi`    | `run-pCeJK6`     | MIDI Session capture from saved stopped/nonzero/quantized state.      |
+
+Every selected turn and terminal assertion passed, including independent
+capture coverage, protected state and final runner cleanup. No host processes
+remained after the selected runs. No product fixes or fixture/permission/oracle
+changes were needed. These are three passing single cases, not qualification
+of the entire registered Session suite or additional visual UX coverage.
+
 The following is the historical investigation, including its then-pending gates.
 
 The approved fixture and `arrangement-long-form-listening` scenario are now

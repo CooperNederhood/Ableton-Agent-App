@@ -73,7 +73,12 @@ function collectorInput(sampleRate = 48000, overrides = {}) {
 function make(input = collectorInput(), binding = {}) {
   const events = [];
   let ms = 0;
-  const collector = createMetricTimelines(input);
+  const collector = createMetricTimelines(
+    input,
+    input.captureMode === "arrangement-continuous"
+      ? { onRecord: () => {} }
+      : {},
+  );
   const expected = {
     sampleRate: input.sampleRate,
     captureStartSample: input.captureStartSample,
@@ -409,6 +414,8 @@ function executedFixture(
   assert.equal(reader.stats().accepted, expectedAccepted);
   step();
   ms = 1000;
+  readback(page);
+  step();
   readback(page);
   io.publishRetentionSnapshot("waiting");
   // Only actual reader completion supplies the unthrottled final forwarded count.
@@ -880,6 +887,39 @@ test("actual immutable retained-slot mutation fails FFT only and never ACKs the 
   observation(f, result);
 });
 
+test("continuous retention diagnostics honor the finite long-pass deadline without widening bounded captures", () => {
+  for (const [mode, elapsedMs, accepted] of [
+    ["arrangement-continuous", 180000, true],
+    ["arrangement-continuous", 600000, true],
+    ["arrangement-continuous", 720000, true],
+    ["arrangement-continuous", 720001, false],
+    ["arrangement-continuous", -1, false],
+    [undefined, 120000, true],
+    [undefined, 120001, false],
+  ]) {
+    const f = make(collectorInput(48000, mode ? { captureMode: mode } : {}));
+    const result = f.handoff.receive([
+      "native",
+      GENERATION,
+      "retention-state",
+      2,
+      1,
+      OWNER.nativeEpoch,
+      1,
+      0,
+      0,
+      128,
+      0,
+      elapsedMs,
+      0,
+    ]);
+    assert.equal(
+      result.reason,
+      accepted ? "observed" : "invalid_retention_state_bounds",
+    );
+  }
+});
+
 test("unknown counters stay unknown; missing failure diagnostics are shared-fatal, not fabricated metric data", () => {
   const f = make();
   for (const key of [
@@ -901,7 +941,7 @@ test("unknown counters stay unknown; missing failure diagnostics are shared-fata
     1,
     0,
     0,
-    32,
+    128,
     0,
     1,
     3,
@@ -928,18 +968,18 @@ test("explicit upstream FIFO exhaustion is spectral-local; levels continue beyon
     4,
     OWNER.nativeEpoch,
     1,
-    33,
+    129,
     0,
-    32,
-    32,
+    128,
+    128,
     100,
     1,
   ];
   assert.equal(f.handoff.receive(failure).classification, "metric");
   feedOtherFamilies(f);
   const { delivery, result } = f.finish();
-  assert.equal(delivery.counters.upstream.backlog, 33);
-  assert.equal(delivery.counters.upstream.highWaterMark, 32);
+  assert.equal(delivery.counters.upstream.backlog, 129);
+  assert.equal(delivery.counters.upstream.highWaterMark, 128);
   assert(result.metrics.level.acceptedRecords > 8);
   assert.equal(result.metrics.attacks.status, "completed");
   assert.equal(result.status, "partial");
@@ -1018,7 +1058,7 @@ test("terminal events cover partial, failed and cancelled exactly once; sealed c
       2,
       5,
       0,
-      32,
+      128,
       5,
       10,
       0,

@@ -45,6 +45,31 @@ export function createDesktopApi(transport: PreloadTransport): DesktopApi {
         }),
     },
     entityContext: {
+      getMetricCapture: async (request) => {
+        const record = await invoke("entity-context:get-metric-capture", {
+          ...request,
+          trace: request.trace ?? trace(),
+        });
+        if (
+          record !== undefined &&
+          (record.metadata.id !== request.contextId ||
+            record.metadata.pass.sessionId !== request.sessionId)
+        )
+          throw new Error("Metric capture response identity mismatch");
+        return record;
+      },
+      listMetricChunks: async (request) => {
+        const page = await invoke("entity-context:list-metric-chunks", {
+          ...request,
+          trace: request.trace ?? trace(),
+        });
+        if (
+          page.items.length > request.limit ||
+          page.encodedBytes > request.maxBytes
+        )
+          throw new Error("Metric chunk response exceeds its bounded request");
+        return page;
+      },
       list: (request) =>
         invoke("entity-context:list", {
           ...request,
@@ -207,6 +232,19 @@ export function createDesktopApi(transport: PreloadTransport): DesktopApi {
       inspectSessionListeningSource: (params) =>
         invoke("ableton:inspect-session-listening-source", params),
       inspectRecording: () => invoke("ableton:inspect-recording", {}),
+      inspectArrangementListeningSource: async (params) => {
+        const result = await invoke(
+          "ableton:inspect-arrangement-listening-source",
+          params,
+        );
+        if (
+          result.queryId !== params.queryId ||
+          JSON.stringify(result.track) !== JSON.stringify(params.track) ||
+          JSON.stringify(result.range) !== JSON.stringify(params.range)
+        )
+          throw new Error("Arrangement source response identity mismatch");
+        return result;
+      },
       inspectSessionListeningPreflight: (params) =>
         invoke("ableton:inspect-session-listening-preflight", params),
     },

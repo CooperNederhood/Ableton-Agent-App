@@ -4,6 +4,12 @@ import {
   storedAudioObservationSchema,
 } from "@ableton-agent/protocol";
 import type { ContextOperationResult } from "@ableton-agent/tools";
+import {
+  metricCaptureRecordSchema,
+  metricChunkPageSchema,
+  type MetricCaptureRecord,
+  type MetricChunkPage,
+} from "@ableton-agent/project-state/metric-capture-schemas";
 
 const id = z.string().min(1).max(200);
 export const desktopContextTraceSchema = z.strictObject({
@@ -27,6 +33,27 @@ export const desktopContextGetRequestSchema = z.strictObject({
   includeHistorical: z.boolean().default(false),
   trace: desktopContextTraceSchema.optional(),
 });
+export const desktopMetricCaptureGetRequestSchema = z.strictObject({
+  sessionId: id,
+  contextId: id,
+  trace: desktopContextTraceSchema.optional(),
+});
+export const desktopMetricChunksRequestSchema = z.strictObject({
+  sessionId: id,
+  captureId: id,
+  afterSequence: z.number().int().min(-1).default(-1),
+  limit: z.number().int().min(1).max(16),
+  maxBytes: z.number().int().min(1).max(1_048_576),
+  trace: desktopContextTraceSchema.optional(),
+});
+export const desktopMetricCaptureSchema = metricCaptureRecordSchema.optional();
+export const desktopMetricChunkPageSchema = metricChunkPageSchema.transform(
+  ({ items, encodedBytes, nextSequence }): MetricChunkPage => ({
+    items,
+    encodedBytes,
+    ...(nextSequence === undefined ? {} : { nextSequence }),
+  }),
+);
 
 type ContextSummary = Extract<
   ContextOperationResult,
@@ -38,7 +65,10 @@ export const desktopContextSummarySchema: z.ZodType<ContextSummary> =
     passId: id,
     listenerId: id,
     subjectId: id,
-    kind: audioObservationKindSchema,
+    kind: z.union([
+      audioObservationKindSchema,
+      z.literal("metric-record-stream-context/v1"),
+    ]),
     createdAt: z.string().datetime(),
     freshness: z.enum([
       "fresh",
@@ -80,4 +110,10 @@ export type DesktopContextDetail = z.infer<typeof desktopContextDetailSchema>;
 export interface DesktopEntityContextApi {
   list(request: DesktopContextListRequest): Promise<DesktopContextPage>;
   get(request: DesktopContextGetRequest): Promise<DesktopContextDetail>;
+  getMetricCapture(
+    request: z.input<typeof desktopMetricCaptureGetRequestSchema>,
+  ): Promise<MetricCaptureRecord | undefined>;
+  listMetricChunks(
+    request: z.input<typeof desktopMetricChunksRequestSchema>,
+  ): Promise<MetricChunkPage>;
 }

@@ -36,7 +36,9 @@ interface SyntheticMetricPeerOptions {
 /** Bounded test peer with synthetic proofs, not native execution evidence. */
 export class SyntheticMetricListenerPeer implements ListenerService {
   readonly descriptor: MutableDescriptor;
-  readonly subscribers = new Set<(event: ListenerResultEvent) => void>();
+  readonly subscribers = new Set<
+    (event: ListenerResultEvent) => void | Promise<void>
+  >();
   readonly calls: ListenerControlInput[] = [];
   readonly controls: ListenerControlMetric[] = [];
   sequence = -1;
@@ -57,7 +59,9 @@ export class SyntheticMetricListenerPeer implements ListenerService {
   inspectListeners(): readonly ListenerDescriptor[] {
     return structuredClone([this.descriptor]);
   }
-  onListenerResult(callback: (event: ListenerResultEvent) => void) {
+  onListenerResult(
+    callback: (event: ListenerResultEvent) => void | Promise<void>,
+  ) {
     if (this.subscribers.size >= 16)
       throw new Error("Synthetic peer subscriber quota exceeded");
     this.subscribers.add(callback);
@@ -96,6 +100,7 @@ export class SyntheticMetricListenerPeer implements ListenerService {
         throw new Error("Synthetic peer requires subscription before prepare");
       if (
         !control.config?.sourceContext ||
+        control.config.scope !== "independent-metric-timelines/v1" ||
         !isDeepStrictEqual(
           control.config.geometry,
           this.data.config.geometry,
@@ -207,7 +212,17 @@ export class SyntheticMetricListenerPeer implements ListenerService {
     });
     return result;
   }
-  emit(result: ListenerResultMetric, evidence?: ListeningFailureEvidence) {
+  emit(
+    result: ListenerResultMetric,
+    evidence?: ListeningFailureEvidence,
+  ): void {
+    const delivery = this.emitDurable(result, evidence);
+    if (delivery !== undefined) void delivery.catch(() => {});
+  }
+  emitDurable(
+    result: ListenerResultMetric,
+    evidence?: ListeningFailureEvidence,
+  ): void | Promise<void> {
     const event: ListenerResultEvent = {
       connectionId: this.descriptor.connectionId,
       producer: structuredClone(this.descriptor.producer),
@@ -215,10 +230,23 @@ export class SyntheticMetricListenerPeer implements ListenerService {
       result,
       ...(evidence ? { failureEvidence: evidence } : {}),
     };
-    try {
-      for (const callback of this.subscribers) callback(event);
-    } finally {
+    const release = () => {
       if (result.status !== "progress") this.releaseOwner();
+    };
+    try {
+      const deliveries: Promise<void>[] = [];
+      for (const callback of this.subscribers) {
+        const delivery = callback(event);
+        if (delivery !== undefined) deliveries.push(delivery);
+      }
+      if (deliveries.length)
+        return Promise.all(deliveries)
+          .then(() => {})
+          .finally(release);
+      release();
+    } catch (error) {
+      release();
+      throw error;
     }
   }
   lifecycle(patch: object = {}) {

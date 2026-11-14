@@ -54,6 +54,8 @@ mac:
         - arm64
   hardenedRuntime: true
   gatekeeperAssess: false
+  signIgnore:
+    - "ableton-integrations/"
 win:
   icon: build/icon.ico
   target:

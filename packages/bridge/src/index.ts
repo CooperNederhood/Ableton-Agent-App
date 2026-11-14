@@ -7,6 +7,10 @@ import type {
   AbletonService,
 } from "@ableton-agent/ableton-contracts";
 import {
+  inspectArrangementListeningSourceParamsSchema,
+  inspectArrangementListeningSourceResultSchema,
+  type InspectArrangementListeningSourceParams,
+  type InspectArrangementListeningSourceResult,
   inspectSessionListeningSourceParamsSchema,
   inspectSessionListeningSourceResultSchema,
   type InspectSessionListeningSourceParams,
@@ -1003,6 +1007,34 @@ export class AbletonBridgeService implements AbletonService {
         false,
       );
     }
+    return result;
+  }
+
+  public async inspectArrangementListeningSource(
+    params: InspectArrangementListeningSourceParams,
+    options?: AbletonRequestOptions,
+  ): Promise<InspectArrangementListeningSourceResult> {
+    const validated =
+      inspectArrangementListeningSourceParamsSchema.parse(params);
+    this.#requireCapability("listening.inspect_arrangement_source");
+    const result = inspectArrangementListeningSourceResultSchema.parse(
+      await this.#request(
+        "listening.inspect_arrangement_source",
+        validated,
+        true,
+        options?.signal,
+      ),
+    );
+    if (
+      result.queryId !== validated.queryId ||
+      !isDeepStrictEqual(result.track, validated.track) ||
+      !isDeepStrictEqual(result.range, validated.range)
+    )
+      throw new AbletonBridgeError(
+        "invalid_response",
+        "Arrangement source does not match exact query/track/range",
+        false,
+      );
     return result;
   }
 

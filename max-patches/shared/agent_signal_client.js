@@ -400,6 +400,7 @@ class AgentSignalClient {
     this.requestSequence = 0;
     this.offlineQueue = [];
     this.pending = new Map();
+    this.listenerAcks = new Map();
     this.writeDrain = null;
     this.writeQueue = [];
     this.writeQueueBytes = 0;
@@ -680,6 +681,7 @@ class AgentSignalClient {
       return;
     }
     if (response.type === "producer.error") {
+      this.settleListenerAck(response.requestId, false);
       const diagnostic = this.writeDiagnosticBatches.delete(response.requestId);
       if (this.signalKind === "audio" && !diagnostic)
         this.listenerFailure(response.code);
@@ -700,6 +702,8 @@ class AgentSignalClient {
 
     const pendingAction = this.pending.get(response.requestId);
     this.pending.delete(response.requestId);
+    if (response.action === "listener" && pendingAction === "listener.result")
+      this.settleListenerAck(response.requestId, true);
     if (pendingAction === "heartbeat" && response.action === "heartbeat") {
       const batch = this.writeDiagnosticBatches.get(response.requestId);
       if (batch) {
@@ -1270,6 +1274,7 @@ class AgentSignalClient {
     this.connectionId = null;
     this.buffer = "";
     this.pending.clear();
+    this.settleListenerAcks();
     this.writeDiagnosticBatches.clear();
     this.stopHeartbeat();
     if (this.listenerJob) this.listenerFailure("disconnected");
@@ -1328,6 +1333,7 @@ class AgentSignalClient {
   }
 
   listenerFailure(reason, diagnostic) {
+    this.settleListenerAcks();
     this.emitStatus("live", "listener_partial", reason);
     if (this.notifyingListenerFailure) return;
     this.notifyingListenerFailure = true;
@@ -1468,6 +1474,38 @@ class AgentSignalClient {
   sendListenerResult(control, result) {
     return this.sendListenerMessage("listener.result", control, result);
   }
+  settleListenerAck(requestId, accepted) {
+    const waiter = this.listenerAcks.get(requestId);
+    if (!waiter) return;
+    this.listenerAcks.delete(requestId);
+    this.clearTimeout(waiter.timer);
+    waiter.resolve(accepted);
+  }
+  settleListenerAcks() {
+    for (const requestId of this.listenerAcks.keys())
+      this.settleListenerAck(requestId, false);
+  }
+  sendListenerResultAwaitAck(control, result) {
+    if (this.listenerAcks.size >= 8) {
+      this.listenerFailure("metric_stream_ack_overflow");
+      return Promise.resolve(false);
+    }
+    return new Promise((resolve) => {
+      const waiter = { resolve, timer: null, requestId: null };
+      const sent = this.sendListenerMessage(
+        "listener.result",
+        control,
+        result,
+        true,
+        false,
+        waiter
+      );
+      if (!sent) {
+        if (waiter.requestId) this.settleListenerAck(waiter.requestId, false);
+        else resolve(false);
+      }
+    });
+  }
   sendListenerDiagnostic(control, nativeLifecycle) {
     try {
       return this.sendListenerMessage(
@@ -1503,7 +1541,8 @@ class AgentSignalClient {
     control,
     payload,
     releaseJob,
-    deliveryFailure
+    deliveryFailure,
+    acknowledgement = null
   ) {
     const codec = this.metricProtocol;
     const job = this.listenerJob;
@@ -1585,8 +1624,19 @@ class AgentSignalClient {
             ])
       )
         throw new Error("invalid_metric_phase");
+      const continuous =
+        job?.config?.scope === codec.NATIVE_CONTINUOUS_METRIC_LISTENING_SCOPE;
+      if (
+        !continuous &&
+        message.nativeLifecycle &&
+        (message.nativeLifecycle.elapsedMs > 120000 ||
+          message.nativeLifecycle.durationMs > 120000)
+      )
+        throw new Error("metric_legacy_lifecycle_duration");
       const expected = (nativeEpoch) =>
-        codec.snapshotNativeMetricListeningExpectation({
+        (continuous
+          ? codec.snapshotNativeContinuousMetricListeningExpectation
+          : codec.snapshotNativeMetricListeningExpectation)({
           listenerId: job.listenerId,
           passId: job.passId,
           connectionId: job.connectionId,
@@ -1601,7 +1651,11 @@ class AgentSignalClient {
       if (message.nativeReady) {
         if (phase.ready || phase.armRequestId !== null)
           throw new Error("metric_ready_already_delivered");
-        ready = codec.assertNativeMetricReadyProof(
+        ready = (
+          continuous
+            ? codec.assertNativeContinuousMetricReadyProof
+            : codec.assertNativeMetricReadyProof
+        )(
           message.nativeReady,
           expected(message.nativeReady.ownership.nativeEpoch)
         );
@@ -1618,15 +1672,18 @@ class AgentSignalClient {
           phase.armRequestId !== control.requestId
         )
           throw new Error("metric_arm_without_ready");
-        armed = codec.assertNativeMetricArmProof(
-          message.nativeArm,
-          expected(phase.ready.ownership.nativeEpoch)
-        );
+        armed = (
+          continuous
+            ? codec.assertNativeContinuousMetricArmProof
+            : codec.assertNativeMetricArmProof
+        )(message.nativeArm, expected(phase.ready.ownership.nativeEpoch));
       }
       if (message.nativeLaunch) {
         if (!phase.armed || phase.launched)
           throw new Error("metric_launch_without_arm");
-        codec.nativeMetricLaunchCoordinates(
+        (continuous
+          ? codec.nativeContinuousMetricLaunchCoordinates
+          : codec.nativeMetricLaunchCoordinates)(
           phase.armed,
           message.nativeLaunch,
           expected(phase.ready.ownership.nativeEpoch)
@@ -1658,15 +1715,36 @@ class AgentSignalClient {
           expected(phase.ready.ownership.nativeEpoch)
         );
       }
+      if (
+        (message.metricStream ||
+          message.metricChunk ||
+          message.metricManifest) &&
+        (!continuous || !phase?.armed || !phase?.launched)
+      )
+        throw new Error("metric_stream_without_native_launch");
     } catch {
       deliveryFailure("invalid_metric_listener_payload");
       return false;
     }
     const socket = this.socket;
     const encoded = `${JSON.stringify(message)}\n`;
-    if (encodedFrameBytes(encoded) > this.maxFrameBytes()) {
+    if (
+      encodedFrameBytes(encoded) > this.maxFrameBytes() ||
+      ((message.metricStream ||
+        message.metricChunk ||
+        message.metricManifest) &&
+        encodedFrameBytes(encoded) > codec.MAX_METRIC_RECORD_CHUNK_BYTES)
+    ) {
       deliveryFailure("listener_frame_too_large", encodedFrameBytes(encoded));
       return false;
+    }
+    if (acknowledgement) {
+      acknowledgement.requestId = message.requestId;
+      acknowledgement.timer = this.setTimeout(() => {
+        this.settleListenerAck(message.requestId, false);
+        this.listenerFailure("metric_stream_ack_timeout");
+      }, 15000);
+      this.listenerAcks.set(message.requestId, acknowledgement);
     }
     const sent = this.writeEncoded(message, encoded);
     if (
@@ -1717,7 +1795,8 @@ class AgentSignalClient {
     control,
     payload,
     releaseJob = true,
-    diagnosticOnly = false
+    diagnosticOnly = false,
+    acknowledgement = null
   ) {
     if (!this.metricProtocol) {
       this.listenerFailure("metric_listener_required");
@@ -1797,11 +1876,13 @@ class AgentSignalClient {
       control,
       payload,
       releaseJob,
-      deliveryFailure
+      deliveryFailure,
+      acknowledgement
     );
   }
 
   stop() {
+    this.settleListenerAcks();
     if (this.stopping) {
       return;
     }

@@ -3,7 +3,11 @@ import {
   LISTENER_CAPABILITY_ANALYZER_TIMELINES,
   analyzerNativeReadinessSchema,
 } from "./analyzer-profile.js";
-import { listenerNativeMetricStatusSchema } from "./listener-native-status-metric.js";
+import {
+  listenerNativeMetricRegistrationStatusSchema,
+  listenerNativeMetricRegistrationStatusWireSchema,
+} from "./listener-native-status-continuous.js";
+import { METRIC_CONTINUOUS_LISTENING_CAPABILITY } from "./metric-continuous-geometry.js";
 import {
   NATIVE_METRIC_ALGORITHM_VERSION,
   NATIVE_METRIC_LISTENING_CAPABILITY,
@@ -20,6 +24,12 @@ export const listenerMetricCapabilitiesSchema = z.union([
     z.literal(NATIVE_MEL_BAND_LISTENING_CAPABILITY),
     z.literal(LISTENER_CAPABILITY_ANALYZER_TIMELINES),
   ]),
+  z.tuple([
+    z.literal(NATIVE_METRIC_LISTENING_CAPABILITY),
+    z.literal(NATIVE_MEL_BAND_LISTENING_CAPABILITY),
+    z.literal(LISTENER_CAPABILITY_ANALYZER_TIMELINES),
+    z.literal(METRIC_CONTINUOUS_LISTENING_CAPABILITY),
+  ]),
 ]);
 
 const metadata = z.strictObject({
@@ -27,7 +37,7 @@ const metadata = z.strictObject({
   algorithmVersion: z.literal(NATIVE_METRIC_ALGORITHM_VERSION),
   sampleRate: z.number().int().min(8_000).max(384_000),
   vectorSize: z.number().int().min(1).max(65_536),
-  nativeStatus: listenerNativeMetricStatusSchema,
+  nativeStatus: listenerNativeMetricRegistrationStatusSchema,
   analyzerReadiness: analyzerNativeReadinessSchema.optional(),
 });
 
@@ -40,6 +50,24 @@ export function refineListenerMetricRegistrationMetadata(
   const analyzerCapability = value.capabilities.some(
     (capability) => capability === LISTENER_CAPABILITY_ANALYZER_TIMELINES,
   );
+  const continuousCapability = value.capabilities.some(
+    (capability) => capability === METRIC_CONTINUOUS_LISTENING_CAPABILITY,
+  );
+  if (
+    continuousCapability !== (value.nativeStatus.version === 6) ||
+    (value.nativeStatus.version === 6 &&
+      value.nativeStatus.readiness === "READY" &&
+      (value.nativeStatus.executedGen?.config.geometry.sampleRate !==
+        value.sampleRate ||
+        value.nativeStatus.executedGen?.config.geometry.vectorSize !==
+          value.vectorSize))
+  )
+    ctx.addIssue({
+      code: "custom",
+      path: ["nativeStatus"],
+      message:
+        "Continuous capability requires matching explicit continuous producer execution status",
+    });
   if (
     analyzerCapability !== (value.analyzerReadiness !== undefined) ||
     (value.analyzerReadiness !== undefined &&
@@ -67,3 +95,9 @@ export function refineListenerMetricRegistrationMetadata(
 export const listenerMetricRegistrationMetadataSchema = metadata.superRefine(
   refineListenerMetricRegistrationMetadata,
 );
+export const listenerMetricRegistrationMetadataWireSchema = z
+  .strictObject({
+    ...metadata.shape,
+    nativeStatus: listenerNativeMetricRegistrationStatusWireSchema,
+  })
+  .superRefine(refineListenerMetricRegistrationMetadata);

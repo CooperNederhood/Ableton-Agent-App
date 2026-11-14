@@ -113,7 +113,7 @@ var AudioListenerMetricIO = (function (measurements) {
     });
     return Object.freeze(result);
   }
-  function geometry(value) {
+  function geometry(value, continuous) {
     if (
       !value ||
       Object.keys(value).length !== CONFIG.length ||
@@ -128,7 +128,7 @@ var AudioListenerMetricIO = (function (measurements) {
     });
     if (
       (c.sampleRate !== 44100 && c.sampleRate !== 48000) ||
-      !integer(c.totalSamples, 1, 30 * c.sampleRate) ||
+      !integer(c.totalSamples, 1, (continuous ? 600 : 30) * c.sampleRate) ||
       c.hopSamples !== Math.round(c.sampleRate / 10) ||
       c.tempoBpm < 20 ||
       c.tempoBpm > 999 ||
@@ -140,7 +140,7 @@ var AudioListenerMetricIO = (function (measurements) {
       c.reportEndBeat <= c.reportStartBeat ||
       c.startBeatFraction !==
         c.reportStartBeat - Math.floor(c.reportStartBeat) ||
-      !integer(c.reportRowCount, 1, 2000) ||
+      !integer(c.reportRowCount, 1, continuous ? 39961 : 2000) ||
       c.reportRowCount !==
         Math.ceil(c.reportEndBeat * 4) - Math.floor(c.reportStartBeat * 4) ||
       c.totalSamples !==
@@ -339,7 +339,7 @@ var AudioListenerMetricIO = (function (measurements) {
         Object.freeze({ accepted: f.accepted, expected: f.expected })
       );
     }
-    function actions(name, result) {
+    function actions(name, result, row, previous) {
       var f = pass.families[name];
       if (
         terminal() ||
@@ -355,7 +355,20 @@ var AudioListenerMetricIO = (function (measurements) {
           fatal(
             result.reason === "invalid_dsp_control"
               ? "shared_dsp_control"
-              : "shared_reader_integrity"
+              : "shared_reader_integrity",
+            row
+              ? Object.freeze({
+                  family: name,
+                  readerReason: result.reason,
+                  requestedSequence: row[2],
+                  slotSequence: row[4],
+                  produced: row[7],
+                  acknowledged: row[8],
+                  fault: row[9],
+                  previousRequestedSequence: previous ? previous[2] : null,
+                  previousAcknowledged: previous ? previous[8] : null,
+                })
+              : undefined
           );
         return;
       }
@@ -371,7 +384,13 @@ var AudioListenerMetricIO = (function (measurements) {
       } catch (_) {
         fatal("control_failed");
       }
-      if (!terminal() && f.accepted === f.expected && f.state === "started") {
+      if (
+        !terminal() &&
+        f.accepted === f.expected &&
+        f.state === "started" &&
+        row &&
+        row[8] === f.expected
+      ) {
         f.state = "completed";
         f.reader.complete();
         event(
@@ -430,7 +449,7 @@ var AudioListenerMetricIO = (function (measurements) {
                 startSample: start,
                 endSample: end,
                 sourceOriginCounter: pass.origin,
-              });
+              }, pass.continuous ? "arrangement-continuous" : undefined);
             } catch (error) {
               if (LOCAL_FAILURES.indexOf(error.message) >= 0)
                 familyFail(name, error.message);
@@ -500,13 +519,14 @@ var AudioListenerMetricIO = (function (measurements) {
       event("control", "queued");
       return true;
     }
-    function configure_metric(owner, configuration) {
+    function configure_metric(owner, configuration, continuous) {
       if (!gate(owner)) return false;
       if (callbackDepth > 0) return fatal("reentrant_control");
       if (pass.config !== null) return fatal("configuration_mutation");
       if (pass.state !== "idle" || !pass.idleTiming || !pass.idleConfiguration)
         throw new Error("configuration_requires_executed_idle");
-      var g = geometry(configuration);
+      var g = geometry(configuration, continuous === true);
+      pass.continuous = continuous === true;
       pass.config = g.configuration;
       pass.bounds = g.bounds;
       pass.state = "configured";
@@ -799,7 +819,9 @@ var AudioListenerMetricIO = (function (measurements) {
         return false;
       }
       try {
-        actions(name, f.reader.poll(row));
+        var previous = f.lastReaderRow;
+        f.lastReaderRow = Array.isArray(row) ? row.slice(0, 22) : null;
+        actions(name, f.reader.poll(row), f.lastReaderRow, previous);
       } catch (error) {
         if (LOCAL_FAILURES.indexOf(error.message) >= 0)
           familyFail(name, error.message);
@@ -931,6 +953,7 @@ var AudioListenerMetricIO = (function (measurements) {
     [
       "begin",
       "configure_metric",
+      "configure_metric_continuous",
       "arm",
       "stop",
       "cancel",
@@ -947,7 +970,7 @@ var AudioListenerMetricIO = (function (measurements) {
         var arity =
           selector === "begin"
             ? 2
-            : selector === "configure_metric"
+            : selector === "configure_metric" || selector === "configure_metric_continuous"
               ? 10
               : 0;
         if (rest.length !== arity) throw new Error("invalid_selector_arity");
@@ -957,12 +980,12 @@ var AudioListenerMetricIO = (function (measurements) {
             nativeEpoch: rest[0],
             deadlineMs: rest[1],
           });
-        if (selector === "configure_metric") {
+        if (selector === "configure_metric" || selector === "configure_metric_continuous") {
           var configuration = {};
           CONFIG.forEach(function (key, i) {
             configuration[key] = rest[i];
           });
-          return io.configure_metric(owner, configuration);
+          return io.configure_metric(owner, configuration, selector === "configure_metric_continuous");
         }
         return io[selector](owner);
       };
@@ -981,7 +1004,9 @@ var AudioListenerMetricIO = (function (measurements) {
     if (!options || typeof options.emit !== "function") throw new Error("invalid_max_adapter");
     var currentOwner = null, pollOwner = null, pollSeen = null, pollCounters = null,
       watermark = null, bankWatermarks = {}, floor = null, captureVector = null,
-      records = {}, closed = false, io;
+      records = {}, closed = false, io, continuous = false;
+    var RECORD_CAPACITY = 64;
+    function slot(sequence) { return continuous ? (sequence - 1) % RECORD_CAPACITY : sequence - 1; }
     function emit(index, values) { options.emit(index, Object.freeze(values)); }
     function packet(selector, value) { emit(0, [selector, JSON.stringify(value)]); }
     io = createMetricEnvelopeIO({
@@ -990,13 +1015,13 @@ var AudioListenerMetricIO = (function (measurements) {
       control: function (action) { emit(1, [action[1], action[2]]); },
       consume: function (family, record) {
         var rows = records[family];
-        if (!rows || record.sequence < 1 || record.sequence > rows.length ||
-          rows[record.sequence - 1] !== undefined || !currentOwner ||
+        if (!rows || record.sequence < 1 || (!continuous && record.sequence > rows.length) ||
+          rows[slot(record.sequence)] !== undefined || !currentOwner ||
           !sameOwner(io.snapshot().owner, currentOwner) || !pollCounters ||
           !integer(pollCounters[family], 0, MAX) ||
           record.sourceOriginCounter + record.endSample + captureVector - 1 > pollCounters[family])
           return false;
-        rows[record.sequence - 1] = record;
+        rows[slot(record.sequence)] = record;
         return true;
       },
     });
@@ -1021,7 +1046,7 @@ var AudioListenerMetricIO = (function (measurements) {
         FAMILIES.indexOf(family) < 0 || !health ||
         !integer(sequence, 1, health.expected) || sequence > health.accepted)
         throw new Error("metric_prefix_record_unavailable");
-      var record = records[family] && records[family][sequence - 1];
+      var record = records[family] && records[family][slot(sequence)];
       if (!record || record.sequence !== sequence || record.epoch !== state.nativeEpoch ||
         record.sourceOriginCounter !== state.sourceOriginCounter)
         throw new Error("metric_prefix_record_unavailable");
@@ -1107,7 +1132,7 @@ var AudioListenerMetricIO = (function (measurements) {
       }
       if (["metric_timing_sample", "metric_configuration_sample", "metric_level_sample", "metric_detector_sample"].indexOf(selector) >= 0)
         return readback(selector, args);
-      if (["begin", "configure_metric", "arm", "stop", "cancel", "callerTick", "release", "metric_status", "metric_record", "metric_spectrum_poll", "metric_evidence", "metric_prefix_record"].indexOf(selector) < 0)
+      if (["begin", "configure_metric", "configure_metric_continuous", "arm", "stop", "cancel", "callerTick", "release", "metric_status", "metric_record", "metric_spectrum_poll", "metric_evidence", "metric_prefix_record", "metric_record_ack"].indexOf(selector) < 0)
         throw new Error("unknown_metric_selector");
       var owner = ownerFrom(args);
       if (selector !== "begin" && !sameCurrent(owner)) return false;
@@ -1115,7 +1140,7 @@ var AudioListenerMetricIO = (function (measurements) {
         if (pollOwner !== null) throw new Error("begin_during_poll");
         var begun = handlers.begin.apply(null, args);
         currentOwner = io.snapshot().owner;
-        floor = watermark; bankWatermarks = {}; records = {}; captureVector = null;
+        floor = watermark; bankWatermarks = {}; records = {}; captureVector = null; continuous = false;
         emit(1, ["poll", 1]);
         return begun;
       }
@@ -1135,6 +1160,16 @@ var AudioListenerMetricIO = (function (measurements) {
         if (prefix === false) return false;
         packet("native_metric_prefix_record", prefix); return true;
       }
+      if (selector === "metric_record_ack") {
+        if (args.length !== 8 || !continuous || FAMILIES.indexOf(args[6]) < 0 ||
+          !integer(args[7], 1, 39961))
+          throw new Error("invalid_metric_record_ack");
+        var acknowledged = records[args[6]] && records[args[6]][slot(args[7])];
+        if (!acknowledged || acknowledged.sequence !== args[7])
+          throw new Error("metric_record_ack_unavailable");
+        records[args[6]][slot(args[7])] = undefined;
+        return true;
+      }
       if (selector === "metric_spectrum_poll") {
         if (args.length !== 7 || !integer(args[6], 0, 1))
           throw new Error("invalid_selector_arity");
@@ -1153,10 +1188,11 @@ var AudioListenerMetricIO = (function (measurements) {
         return true;
       }
       var result = handlers[selector].apply(null, args);
-      if (selector === "configure_metric" && result === true) {
+      if ((selector === "configure_metric" || selector === "configure_metric_continuous") && result === true) {
+        continuous = selector === "configure_metric_continuous";
         captureVector = args[IDS.length + 5];
         var families = io.snapshot().families;
-        FAMILIES.forEach(function (name) { records[name] = new Array(families[name].expected); });
+        FAMILIES.forEach(function (name) { records[name] = new Array(continuous ? RECORD_CAPACITY : families[name].expected); });
       }
       if (selector === "release" && result === true) {
         currentOwner = null; records = {}; emit(1, ["poll", 0]); emit(2, ["spectrum_poll", 0]);

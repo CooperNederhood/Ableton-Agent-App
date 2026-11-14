@@ -109,6 +109,9 @@ function publicJob(job: ListeningJob) {
     createdAt: job.createdAt,
     updatedAt: job.updatedAt,
     durationMs: job.durationMs,
+    ...(job.captureProgress === undefined
+      ? {}
+      : { captureProgress: job.captureProgress }),
     contextIds: [...job.contextIds],
     ...(job.metricResults === undefined
       ? {}

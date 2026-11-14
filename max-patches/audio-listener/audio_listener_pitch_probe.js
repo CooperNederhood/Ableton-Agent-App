@@ -2,13 +2,14 @@
 "use strict";
 
 const { randomUUID } = require("node:crypto");
+const { diagnosticDeliveryLimit } = require("./audio_listener_probe_limits.js");
 
 // Stock output lists are paired diagnostic snapshots, never FFT-frame witnesses.
 function createPitchSmoke({ now, sendControl, emit }) {
   let pass = null;
   function event(stage, reason) {
     // Reserve terminal/failure headroom even if progress callbacks are sparse.
-    // The full 400-delivery, 100ms horizon normally uses <=80 progress events.
+    // At most 80 progress events over the admitted diagnostic horizon.
     if (stage === "progress" && pass.events >= 88) return;
     const observed = (value) => ({ state: "observed", value });
     const optional = (value) =>
@@ -96,8 +97,11 @@ function createPitchSmoke({ now, sendControl, emit }) {
     start(control, epoch, causationId, passElapsedAtStart = 0) {
       if (pass && pass.cleanup !== "completed")
         throw new Error("pitch_probe_still_owned");
+      const deliveryLimit = diagnosticDeliveryLimit(control);
       pass = {
         control,
+        deliveryLimit,
+        progressIntervalMs: (deliveryLimit * 100) / 80,
         epoch,
         passElapsedAtStart,
         startedAt: now(),
@@ -120,7 +124,12 @@ function createPitchSmoke({ now, sendControl, emit }) {
         event("queued", "pitch_smoke_capture");
       } finally {
         // Even a rejected queued event must leave a stoppable physical owner.
-        sendControl("begin", control.generation, epoch);
+        sendControl(
+          "begin",
+          control.generation,
+          epoch,
+          ...(deliveryLimit > 400 ? [deliveryLimit] : []),
+        );
       }
     },
     receive(packet) {
@@ -142,7 +151,7 @@ function createPitchSmoke({ now, sendControl, emit }) {
           ![0, 1].includes(channel) ||
           !Number.isSafeInteger(sequence) ||
           sequence !== pass.sequences[channel] + 1 ||
-          sequence > 400
+          sequence > pass.deliveryLimit
         )
           throw new Error("pitch_invalid_envelope");
         pass.sequences[channel] = sequence;
@@ -164,7 +173,7 @@ function createPitchSmoke({ now, sendControl, emit }) {
         pass.pairs[channel] = [hz, confidence];
         if (hz > 0) pass.candidates[channel]++;
         if (
-          now() - pass.lastProgressAt >= 500 &&
+          now() - pass.lastProgressAt >= pass.progressIntervalMs &&
           pass.pairs.every((p) => p !== null)
         ) {
           pass.lastProgressAt = now();

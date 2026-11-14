@@ -29,7 +29,13 @@ import type {
   InspectDevicesResult,
   InspectSessionListeningSourceParams,
   InspectSessionListeningSourceResult,
+  InspectArrangementListeningSourceParams,
+  InspectArrangementListeningSourceResult,
   SessionSnapshot,
+} from "@ableton-agent/protocol";
+import {
+  inspectArrangementListeningSourceParamsSchema,
+  inspectArrangementListeningSourceResultSchema,
 } from "@ableton-agent/protocol";
 import {
   DefaultSignalRuntime,
@@ -1884,6 +1890,9 @@ export class HeadlessDesktopService implements DesktopService {
         createdAt: source.createdAt,
         updatedAt: source.updatedAt,
         durationMs: source.durationMs,
+        ...(source.captureProgress === undefined
+          ? {}
+          : { captureProgress: source.captureProgress }),
         contextIds: source.contextIds.slice(0, 100),
         ...(source.metricResults === undefined
           ? {}
@@ -1976,6 +1985,9 @@ export class HeadlessDesktopService implements DesktopService {
         listeningStage: job.stage,
         cleanupPolicy: job.cleanupPolicy,
         listeningDurationMs: job.durationMs,
+        ...(job.captureProgress === undefined
+          ? {}
+          : { captureProgress: job.captureProgress }),
         ...(job.metricResults === undefined
           ? {}
           : { metricResults: job.metricResults }),
@@ -2969,6 +2981,51 @@ export class HeadlessDesktopService implements DesktopService {
           : { sessionId: this.#activeAppSessionId }),
       },
       () => this.#application.inspectSessionListeningSource(params),
+    );
+  }
+
+  public async inspectArrangementListeningSource(
+    params: InspectArrangementListeningSourceParams,
+  ): Promise<InspectArrangementListeningSourceResult> {
+    this.#assertAccepting();
+    const request = inspectArrangementListeningSourceParamsSchema.parse(params);
+    const owner = this.#sessions.find(
+      ({ id }) => id === this.#activeAppSessionId,
+    );
+    if (owner === undefined)
+      throw new Error(
+        "Arrangement source inspection requires an active App session",
+      );
+    const ownerLiveSetId = owner.liveSetId;
+    const trace = {
+      traceId: request.queryId,
+      correlationId: request.queryId,
+      causationId: request.queryId,
+    };
+    return this.#listeningOperation(
+      "arrangement-source-inspection",
+      { sessionId: owner.id, agentId: "desktop-context" },
+      trace,
+      () =>
+        withCorrelation({ ...trace, sessionId: owner.id }, async () => {
+          const result = inspectArrangementListeningSourceResultSchema.parse(
+            await this.#application.inspectArrangementListeningSource(request),
+          );
+          this.#assertAccepting();
+          if (
+            this.#activeAppSessionId !== owner.id ||
+            this.#sessions.find(({ id }) => id === owner.id)?.liveSetId !==
+              ownerLiveSetId
+          )
+            throw new Error("Arrangement source inspection ownership changed");
+          if (
+            result.queryId !== request.queryId ||
+            JSON.stringify(result.track) !== JSON.stringify(request.track) ||
+            JSON.stringify(result.range) !== JSON.stringify(request.range)
+          )
+            throw new Error("Arrangement source inspection identity mismatch");
+          return result;
+        }),
     );
   }
 

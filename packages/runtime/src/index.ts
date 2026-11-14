@@ -53,12 +53,24 @@ export {
 } from "./prepared-context.js";
 export {
   prepareMetricListenerCapture,
+  prepareMetricListenerStream,
   type PrepareMetricListenerCaptureInput,
   type MetricListeningCaptureProgress,
   type PreparedMetricListeningCapture,
+  type PreparedMetricListeningStream,
 } from "./metric-listening-capture.js";
+export {
+  MetricRecordIngestion,
+  type MetricRecordStagedSink,
+} from "./metric-record-ingestion.js";
+export { createStorageMetricStreamPublication } from "./metric-stream-publication.js";
+export {
+  metricListeningDeadlines,
+  type MetricListeningDeadlineOptions,
+} from "./metric-listening-deadlines.js";
 export {
   createListeningRuntimeHost,
   type ListeningRuntimeHostOptions,
   type ConcreteListeningRuntimeHost,
+  type MetricStreamPublication,
 } from "./listening-runtime-host.js";

@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { Buffer } from "node:buffer";
 import { createRequire, Module } from "node:module";
 import { readFile } from "node:fs/promises";
+import { setImmediate } from "node:timers";
 import { fileURLToPath, URL } from "node:url";
 import { compileNativeMetricProtocol } from "../../scripts/lib/native-metric-protocol-bundle.mjs";
 import { genModel } from "./gen-model.mjs";
@@ -59,6 +60,7 @@ async function controllerHarness({
   sourceIdentityFault = false,
   failureBeforeIdentity = false,
   runtimeBridge = false,
+  sdkStreamBridge = false,
   rejectDiagnostic = false,
   sourceIdentityEpoch = 7,
   nonfiniteIdentity = false,
@@ -69,6 +71,8 @@ async function controllerHarness({
   totalSamples = 9000,
   deadlineMs = 10000,
   maxObservationBytes = 512 * 1024,
+  continuous = false,
+  streamSend,
 } = {}) {
   const codec = await loadCodec();
   const sampleRate = 48000,
@@ -76,7 +80,12 @@ async function controllerHarness({
     tempoBpm = 128;
   const startBeat = session ? 0 : 5.13;
   const endBeat = startBeat + (totalSamples * tempoBpm) / (sampleRate * 60);
-  const geometry = codec.createMetricListeningGeometry({
+  const geometry = (
+    continuous
+      ? codec.createContinuousMetricListeningGeometry
+      : codec.createMetricListeningGeometry
+  )({
+    ...(continuous ? { captureMode: "arrangement-continuous" } : {}),
     sampleRate,
     vectorSize,
     tempoBpm,
@@ -85,7 +94,17 @@ async function controllerHarness({
     startSample: 0,
   });
   const config = {
-    scope: "independent-metric-timelines/v1",
+    scope: continuous
+      ? codec.NATIVE_CONTINUOUS_METRIC_LISTENING_SCOPE
+      : "independent-metric-timelines/v1",
+    ...(continuous
+      ? {
+          capability: codec.METRIC_CONTINUOUS_LISTENING_CAPABILITY,
+          captureMode: "arrangement-continuous",
+          maxPendingChunks: 8,
+          maxChunkBytes: 131072,
+        }
+      : {}),
     algorithmVersion: "3.0.0",
     mode: "arrangement",
     sourceEvidence: "transport-only",
@@ -157,8 +176,18 @@ async function controllerHarness({
     sequence: 0,
   };
   const prepare = { ...command, action: "prepare", config };
-  const arm = { ...command, action: "arm", sequence: 1 };
-  const cancel = { ...command, action: "cancel", sequence: 2 };
+  const arm = {
+    ...command,
+    action: "arm",
+    sequence: 1,
+    ...(sdkStreamBridge ? { requestId: "controller-arm" } : {}),
+  };
+  const cancel = {
+    ...command,
+    action: "cancel",
+    sequence: 2,
+    ...(sdkStreamBridge ? { requestId: "controller-cancel" } : {}),
+  };
   const model = genModel(retainedMusicalEnvelopeSource().code, 64, sampleRate);
   const clockModel = genModel(DESCRIPTIVE_CLOCK_CODE, 8, sampleRate);
   clockModel.configure({
@@ -175,6 +204,7 @@ async function controllerHarness({
     deliveries = [],
     events = [],
     readbacks = [];
+  let clockPausedUntil = -1;
   let counter = -1,
     now = 0,
     output,
@@ -321,13 +351,36 @@ async function controllerHarness({
           destroyed: false,
           write: (encoded) => {
             const value = JSON.parse(encoded);
-            codec.listenerResultMetricSchema.parse(value);
+            (value.type === "listener.reply"
+              ? codec.listenerReplyMetricSchema
+              : codec.listenerResultMetricSchema
+            ).parse(value);
             if (
               rejectDiagnostic &&
               value.nativeLifecycle?.reason?.startsWith("mel_native_")
             )
               throw new Error("controlled_diagnostic_write_failure");
             diagnosticWrites.push(value);
+            if (sdkStreamBridge)
+              new Promise((resolve) => setImmediate(resolve))
+                .then(() =>
+                  value.metricStream ||
+                  value.metricChunk ||
+                  value.metricManifest
+                    ? streamSend(value)
+                    : true,
+                )
+                .then((accepted) => {
+                  assert.equal(accepted, true);
+                  this.handleResponse(
+                    JSON.stringify({
+                      type: "producer.ack",
+                      protocolVersion: 1,
+                      requestId: value.requestId,
+                      action: "listener",
+                    }),
+                  );
+                });
             return true;
           },
           destroy() {
@@ -353,6 +406,7 @@ async function controllerHarness({
   controller = createMetricController({
     codec,
     melEnabled,
+    continuousEnabled: continuous,
     ...(analyzerEnabled
       ? {
           analyzerReadiness: {
@@ -460,13 +514,22 @@ async function controllerHarness({
     sendListenerReply(control, payload) {
       deliveries.push({ type: "reply", status: payload.status });
       replies.push({ control, payload, counter });
-      return true;
+      return sdkStreamBridge
+        ? runtimeHarness.controllerOptions.sendListenerReply(control, payload)
+        : true;
     },
     sendListenerResult(control, payload) {
       deliveries.push({ type: "result", status: payload.status });
       if (terminalThrow && ["failed", "cancelled"].includes(payload.status))
         throw new Error("controlled_terminal_transport_failure");
       results.push({ control, payload, counter });
+      if (sdkStreamBridge)
+        return runtimeHarness.controllerOptions.sendListenerResult(
+          control,
+          payload,
+        );
+      if (payload.metricStream || payload.metricChunk || payload.metricManifest)
+        return streamSend ? streamSend(payload) : true;
       return true;
     },
     sendListenerDiagnostic(control, lifecycle) {
@@ -697,7 +760,7 @@ async function controllerHarness({
       }
     }
     if (counter % 16 === 0 && polling) adapter.dispatch("metric_poll", []);
-    if (counter % vectorSize === 0) {
+    if (counter % vectorSize === 0 && counter >= clockPausedUntil) {
       const tuple = [Number(playing), beat, counter + 800000, 31];
       clockIO.anchorPre(tuple);
       clockIO.anchorClock([
@@ -734,11 +797,13 @@ async function controllerHarness({
         replies: replies.map((r) => r.payload.status),
         controls: controls.slice(-8),
         lastEvent: events.at(-1),
+        sdkStatuses: sdkStatuses.slice(-8),
       }),
     );
   }
   function launch() {
     until(() => replies.some((r) => r.payload.status === "ready"));
+    if (sdkStreamBridge) bridgeClient.handleListenerControl(arm);
     controller.arm(arm);
     until(() => replies.some((r) => r.payload.status === "armed"));
     playingOrigin = counter + 1;
@@ -769,6 +834,9 @@ async function controllerHarness({
     startPlayback() {
       playingOrigin = counter + 1;
     },
+    pauseClock(samples) {
+      clockPausedUntil = counter + samples;
+    },
     get counter() {
       return counter;
     },
@@ -785,6 +853,119 @@ async function untilAsync(h, predicate, samplesPerYield = 64) {
   }
   assert.ok(predicate(), JSON.stringify(h.controller.snapshot()));
 }
+
+test("31s continuous controller uses executed native proofs and emits only bounded chunks and a compact manifest", async () => {
+  let descriptor,
+    receiver,
+    verified = false,
+    h;
+  h = await controllerHarness({
+    continuous: true,
+    runtimeBridge: true,
+    sdkStreamBridge: true,
+    analyzerEnabled: true,
+    melEnabled: true,
+    spectrumEnabled: true,
+    totalSamples: 31 * 48000,
+    deadlineMs: 60000,
+    streamSend: async (payload) => {
+      await new Promise((resolve) => setImmediate(resolve));
+      if (payload.metricStream) {
+        descriptor = h.codec.expandMetricRecordStreamAdmission(
+          payload.metricStream,
+        );
+        receiver = await h.codec.createMetricRecordStreamState(descriptor);
+      } else if (payload.metricChunk) {
+        receiver = await h.codec.acceptMetricRecordChunk(
+          descriptor,
+          receiver,
+          payload.metricChunk,
+        );
+      } else {
+        await h.codec.verifyMetricRecordStreamManifest(
+          descriptor,
+          receiver,
+          payload.metricManifest,
+        );
+        verified = true;
+      }
+      return true;
+    },
+    requestedMetrics: [
+      "level",
+      "spectral-centroid",
+      "attacks",
+      "mel-bands",
+      "pitch",
+      "spectral-shape",
+    ],
+  });
+  h.launch();
+  for (let block = 0; block < 20000 && !verified; block++) {
+    for (let i = 0; i < 128; i++) h.step();
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+  const terminal = h.results.find((r) => r.payload.metricManifest);
+  assert.ok(
+    terminal,
+    JSON.stringify({
+      snapshot: h.controller.snapshot(),
+      results: h.results.map((r) => r.payload.status),
+    }),
+  );
+  assert.equal(terminal.payload.status, "completed");
+  assert.equal(terminal.payload.observation, undefined);
+  assert.equal(terminal.payload.nativeSourceCoverage, undefined);
+  assert.ok(h.results.some((r) => r.payload.metricStream));
+  assert.ok(h.results.some((r) => r.payload.metricChunk));
+  assert.equal(
+    h.controls.filter(
+      ({ selector, target }) => selector === "arm" && target !== "metric_mel",
+    ).length,
+    1,
+  );
+  assert.equal(
+    h.controls.filter(
+      ({ selector, target }) => selector === "arm" && target === "metric_mel",
+    ).length,
+    1,
+  );
+  assert.equal(verified, true);
+  const native = terminal.payload.metricManifest.nativeProof;
+  assert.ok(native.clock.frames[0][4] > native.after.frames.at(-1)[4]);
+  assert.ok(native.clock.frames[0][4] > native.spectrumCleanup.stopWatermark);
+  const sourceProof = {
+    armed: h.replies.find((r) => r.payload.nativeArm).payload.nativeArm,
+    launched: native.launch,
+    completion: {
+      fields: native.configuration,
+      confirmedFields: native.confirmedConfiguration,
+      timing: native.timing,
+      confirmedTiming: native.confirmedTiming,
+      elapsedMs: 0,
+    },
+    after: native.after,
+    timingWitnesses: native.timingWitnesses,
+    postElapsedMs: 0,
+  };
+  const expected = { ...native.ownership, config: h.config };
+  assert.equal(
+    h.codec.assertNativeContinuousMetricSourceCoverage(sourceProof, expected)
+      .endSample,
+    native.sourceEnd,
+  );
+  const changed = JSON.parse(JSON.stringify(sourceProof));
+  changed.completion.fields[1]++;
+  changed.completion.confirmedFields[1] = changed.completion.fields[1];
+  assert.throws(() =>
+    h.codec.assertNativeContinuousMetricSourceCoverage(changed, expected),
+  );
+  const stopped = JSON.parse(JSON.stringify(sourceProof));
+  stopped.after.frames[0][0] = 0;
+  assert.throws(() =>
+    h.codec.assertNativeContinuousMetricSourceCoverage(stopped, expected),
+  );
+});
 
 for (const session of [false, true])
   test(`ABI3 all six requested metrics retain authoritative timelines; Session=${session}`, async () => {
@@ -1615,6 +1796,54 @@ const spectrumRetentionRejection = (code) => [
   ...emptyDiagnosticRow(-2),
 ];
 
+test("the first spectral reader rejection remains attributable after the routine progress budget is exhausted", async () => {
+  const h = await controllerHarness({
+    spectrumEnabled: true,
+    runtimeBridge: true,
+    requestedMetrics: ["level", "spectral-centroid", "attacks"],
+  });
+  h.launch();
+  h.until(() => h.controller.snapshot().state === "capturing");
+  for (let count = 0; count < 1000; count++)
+    h.controller.receiveNative("clock", [
+      "native",
+      GENERATION,
+      "clock-cohort-skipped",
+      1,
+      100,
+      200,
+      100,
+      200,
+    ]);
+  h.runtimeHarness.handlers.native_spectrum(
+    "native",
+    GENERATION,
+    ...spectrumRetentionRejection(5),
+  );
+  h.runtimeHarness.handlers.native_spectrum(
+    "native",
+    GENERATION,
+    ...spectrumRetentionRejection(5),
+  );
+  const rejected = h.events.filter(
+    (event) =>
+      event.nativeLifecycle.reason === "native_spectrum_reader_rejected",
+  );
+  assert.equal(rejected.length, 1);
+  assert.equal(rejected[0].nativeLifecycle.metric, "spectral-centroid");
+  assert.equal(rejected[0].nativeLifecycle.generation, GENERATION);
+  assert.deepEqual(rejected[0].nativeLifecycle.facts, [
+    {
+      field: "capture.spectrum.retention.readerReason",
+      actual: { state: "observed", value: "invalid_owner_reset" },
+    },
+  ]);
+  assert.equal(
+    h.controller.snapshot().inputFailureDetail,
+    "retention-rejection: upstream_invalid_owner_reset",
+  );
+});
+
 for (const { capturing, packet, detail } of [
   {
     capturing: false,
@@ -1792,6 +2021,23 @@ for (const [value, last] of [
     assert.ok(expected.length <= 256);
   });
 }
+
+test("a stopped clock scheduling pause requires a fresh bracket rather than parsing old samples as a new proof", async () => {
+  const h = await controllerHarness();
+  h.until(() => h.replies.some((reply) => reply.payload.status === "ready"));
+  h.pauseClock(48064);
+  for (let sample = 0; sample < 48064; sample++) h.step();
+  assert.equal(h.controller.snapshot().reason, null);
+  assert.equal(h.controller.arm(h.arm), true);
+  h.until(() => h.replies.some((reply) => reply.payload.status === "armed"));
+  assert.equal(h.controller.snapshot().reason, null);
+  assert(
+    h.events.some(
+      (event) =>
+        event.nativeLifecycle.reason === "native_clock_bracket_refreshed",
+    ),
+  );
+});
 
 test("one-vector-old coherent level snapshots complete without disarming the shared Gen", async () => {
   const h = await controllerHarness({
@@ -2275,6 +2521,68 @@ test("controller real retained Gen and Max prefix -> canonical ready/arm/source/
     );
   assert.ok(at("launch", "completed") < at("capture", "queued"));
   assert.ok(at("post-binding", "completed") < at("cleanup", "started"));
+});
+
+test("primary envelope reader fault coordinates cross the runtime codec before secondary cleanup failures", async () => {
+  const h = await controllerHarness({ runtimeBridge: true });
+  h.until(() => h.replies.some((reply) => reply.payload.status === "ready"));
+  const owner = Object.fromEntries(
+    [
+      "generation",
+      "passId",
+      "connectionEpoch",
+      "traceId",
+      "correlationId",
+      "causationId",
+    ].map((field) => [field, h.prepare[field]]),
+  );
+  const progress = {
+    family: "level",
+    readerReason: "invalid_dsp_control",
+    requestedSequence: 729,
+    slotSequence: 729,
+    produced: 730,
+    acknowledged: 728,
+    fault: 2,
+    previousRequestedSequence: 728,
+    previousAcknowledged: 727,
+  };
+  h.controller.receiveNative("metric_envelope", [
+    "native_metric",
+    JSON.stringify({
+      owner,
+      nativeEpoch: h.controller.snapshot().nativeEpoch,
+      family: "control",
+      status: "failed",
+      reason: "shared_dsp_control",
+      progress,
+    }),
+  ]);
+  h.until(() => h.controller.snapshot().state === "failed");
+  assert.equal(h.controller.snapshot().reason, "shared_dsp_control");
+  assert.equal(h.controller.snapshot().cleanup, "completed");
+  const evidence = h.diagnosticWrites.find(
+    ({ nativeLifecycle }) =>
+      nativeLifecycle?.reason === "native_failure_evidence" &&
+      nativeLifecycle.facts?.some(
+        (fact) => fact.field === "capture.readback.readerReason",
+      ),
+  );
+  assert(evidence);
+  h.codec.listenerResultMetricSchema.parse(evidence);
+  assert.equal(evidence.traceId, h.prepare.traceId);
+  assert.equal(evidence.passId, h.prepare.passId);
+  assert.equal(evidence.correlationId, h.prepare.correlationId);
+  assert(evidence.nativeLifecycle.causationId);
+  for (const [field, value] of Object.entries(progress))
+    assert.equal(
+      evidence.nativeLifecycle.facts.find(
+        (fact) => fact.field === `capture.readback.${field}`,
+      )?.actual.value,
+      value,
+    );
+  assert(evidence.nativeLifecycle.facts.length <= 24);
+  assert(h.results.every(({ payload }) => payload.observation === undefined));
 });
 
 for (const [selector, fields] of [

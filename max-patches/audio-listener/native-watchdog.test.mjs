@@ -132,6 +132,39 @@ test("explicit v1 constructor retains its 30-second bound", () => {
   assert.equal(events.at(-1).elapsedMs, 30000);
 });
 
+for (const seconds of [180, 600]) {
+  test(`v5 continuous ${seconds}s duration freezes a finite total bound without renewing inactivity`, () => {
+    const { context, controls, events } = fixture([
+      "audio_listener_guard.js",
+      5,
+    ]);
+    context.native_watchdog_context(a, "trace", "correlation", "cause");
+    assert.equal(context.native_watchdog_duration(b, seconds * 1000), false);
+    assert.equal(context.native_watchdog_duration(a, seconds * 1000), true);
+    assert.equal(context.native_watchdog_duration(a, 600000), false);
+    context.begin(a);
+    const timeout = seconds * 1000 + 20000;
+    for (let i = 0; i < timeout / 250 - 1; i++) {
+      context.heartbeat();
+      context.check();
+    }
+    assert.deepEqual(controls, []);
+    assert.equal(context.native_watchdog_duration(a, 600000), false);
+    context.heartbeat();
+    context.check();
+    assert.deepEqual(controls, [[2, "stop", a]]);
+    assert.equal(events.at(-1).reason, "native_total_timeout");
+    assert.equal(events.at(-1).totalTimeoutMs, timeout);
+    assert.equal(events.at(-1).captureOutcome, "unknown");
+    context.native_watchdog_context(b, "trace", "correlation", "cause");
+    context.native_watchdog_duration(b, seconds * 1000);
+    context.begin(b);
+    for (let i = 0; i < 8; i++) context.check();
+    assert.equal(events.at(-1).reason, "native_heartbeat_timeout");
+    assert.equal(events.at(-1).elapsedMs, 2000);
+  });
+}
+
 for (const version of [3, 4, 5])
   test(`explicit wire${version} watchdog has the same fixed native bounds and generation ownership`, () => {
     const { context, controls, events, prepare } = fixture([

@@ -1195,34 +1195,38 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
     expect(mocks.stop).toHaveBeenCalled();
     expect(mocks.liveStop).toHaveBeenCalled();
   });
-  it("bounds Live readiness by the declared remaining run budget and propagates cancellation", async () => {
-    await audioBaseline();
-    context = {
-      ...context,
-      deadlineAt: Date.now() + 180_000,
-      fixture: { ...context.fixture, listenerBindings: [listenerBinding] },
-    };
-    mocks.liveReady.mockImplementation(
-      async (
-        _controller: unknown,
-        options: {
-          timeoutMs: number;
-          signal?: AbortSignal;
-          discardRecovery?: boolean;
-          requireAudio?: boolean;
+  it.each([900_000, 180_000, 30_000])(
+    "caps Live readiness at 120 seconds or the remaining %ims budget and propagates cancellation",
+    async (remainingMs) => {
+      await audioBaseline();
+      context = {
+        ...context,
+        deadlineAt: Date.now() + remainingMs,
+        fixture: { ...context.fixture, listenerBindings: [listenerBinding] },
+      };
+      mocks.liveReady.mockImplementation(
+        async (
+          _controller: unknown,
+          options: {
+            timeoutMs: number;
+            signal?: AbortSignal;
+            discardRecovery?: boolean;
+            requireAudio?: boolean;
+          },
+        ) => {
+          const maximum = Math.min(120_000, remainingMs);
+          expect(options.timeoutMs).toBeGreaterThan(maximum - 5_000);
+          expect(options.timeoutMs).toBeLessThanOrEqual(maximum);
+          expect(options.signal).toBe(context.signal);
+          expect(options.discardRecovery).toBe(false);
+          expect(options.requireAudio).toBe(true);
         },
-      ) => {
-        expect(options.timeoutMs).toBeGreaterThan(60_000);
-        expect(options.timeoutMs).toBeLessThanOrEqual(180_000);
-        expect(options.signal).toBe(context.signal);
-        expect(options.discardRecovery).toBe(false);
-        expect(options.requireAudio).toBe(true);
-      },
-    );
-    await driver.launch(context);
-    await driver.cleanup(context);
-    expect(mocks.liveStop).toHaveBeenCalledOnce();
-  });
+      );
+      await driver.launch(context);
+      await driver.cleanup(context);
+      expect(mocks.liveStop).toHaveBeenCalledOnce();
+    },
+  );
 
   it("admits a source with omitted common kind and quantization facts and an explicit stopped playing count", async () => {
     const { preflight } = await midiBaseline();
@@ -1959,6 +1963,31 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
       expect(mocks.liveStop).toHaveBeenCalledOnce();
     },
   );
+  it("cleans up owned Live when Electron launch rejects before returning an application handle", async () => {
+    mocks.launch.mockRejectedValue(
+      new Error("electron.launch: Process failed to launch!"),
+    );
+    await expect(driver.launch(context)).rejects.toThrow(
+      "Process failed to launch!",
+    );
+    await expect(driver.cleanup(context)).resolves.toBeUndefined();
+    expect(mocks.liveLaunch).toHaveBeenCalledOnce();
+    expect(mocks.liveStop).toHaveBeenCalledOnce();
+    expect(mocks.liveClose).toHaveBeenCalledOnce();
+    expect(mocks.stop).not.toHaveBeenCalled();
+    const receipt: unknown = JSON.parse(
+      await readFile(join(directory, "cleanup-evidence.json"), "utf8"),
+    );
+    expect(receipt).toMatchObject({
+      resources: {
+        desktopStopped: true,
+        liveStopped: true,
+        hostReservationClosed: true,
+        profileRemoved: true,
+      },
+      failures: [],
+    });
+  });
   it("does not launch Desktop after cancellation during bridge startup", async () => {
     const controller = new AbortController();
     mocks.liveReady.mockImplementation(async () => controller.abort());

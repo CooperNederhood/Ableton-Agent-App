@@ -6480,11 +6480,96 @@
         }
       }
     },
-    "listening.inspect_session_source": {
+    "listening.inspect_arrangement_source": {
       "request": {
         "protocolVersion": 10,
         "kind": "request",
         "requestId": "00000000-0000-4000-8000-000000001122",
+        "command": "listening.inspect_arrangement_source",
+        "params": {
+          "schemaVersion": 1,
+          "queryId": "00000000-0000-4000-8000-000000000099",
+          "track": {
+            "kind": "regular",
+            "index": 0,
+            "expectedReference": "00000000-0000-4000-8000-000000000099",
+            "expectedName": "x"
+          },
+          "range": { "startBeat": 0, "endBeat": 1 }
+        }
+      },
+      "success": {
+        "protocolVersion": 10,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001122",
+        "ok": true,
+        "result": {
+          "schemaVersion": 1,
+          "queryId": "00000000-0000-4000-8000-000000000099",
+          "track": {
+            "kind": "regular",
+            "index": 0,
+            "expectedReference": "00000000-0000-4000-8000-000000000099",
+            "expectedName": "x"
+          },
+          "range": { "startBeat": 0, "endBeat": 1 },
+          "projectRevision": 0,
+          "evidence": "message-rate-only",
+          "projectPath": "x",
+          "before": {
+            "transportPlaying": false,
+            "currentBeat": 0,
+            "tempoBpm": 1,
+            "loopEnabled": false,
+            "arrangementRecord": false,
+            "sessionRecord": false,
+            "overdub": false,
+            "sessionAutomationRecord": false,
+            "globalBackToArrangement": false,
+            "targetArmed": false,
+            "targetMonitoring": 0,
+            "arrangementEligible": false,
+            "playingSessionClips": 0,
+            "queuedSessionClips": 0
+          },
+          "after": {
+            "transportPlaying": false,
+            "currentBeat": 0,
+            "tempoBpm": 1,
+            "loopEnabled": false,
+            "arrangementRecord": false,
+            "sessionRecord": false,
+            "overdub": false,
+            "sessionAutomationRecord": false,
+            "globalBackToArrangement": false,
+            "targetArmed": false,
+            "targetMonitoring": 0,
+            "arrangementEligible": false,
+            "playingSessionClips": 0,
+            "queuedSessionClips": 0
+          },
+          "clips": []
+        },
+        "warnings": []
+      },
+      "failure": {
+        "protocolVersion": 10,
+        "kind": "response",
+        "requestId": "00000000-0000-4000-8000-000000001122",
+        "ok": false,
+        "error": {
+          "code": "lom_error",
+          "message": "Golden listening.inspect_arrangement_source failure",
+          "retryable": true,
+          "details": {}
+        }
+      }
+    },
+    "listening.inspect_session_source": {
+      "request": {
+        "protocolVersion": 10,
+        "kind": "request",
+        "requestId": "00000000-0000-4000-8000-000000001123",
         "command": "listening.inspect_session_source",
         "params": {
           "schemaVersion": 1,
@@ -6506,7 +6591,7 @@
       "success": {
         "protocolVersion": 10,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001122",
+        "requestId": "00000000-0000-4000-8000-000000001123",
         "ok": true,
         "result": {
           "schemaVersion": 1,
@@ -6575,7 +6660,7 @@
       "failure": {
         "protocolVersion": 10,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001122",
+        "requestId": "00000000-0000-4000-8000-000000001123",
         "ok": false,
         "error": {
           "code": "lom_error",
@@ -6589,7 +6674,7 @@
       "request": {
         "protocolVersion": 10,
         "kind": "request",
-        "requestId": "00000000-0000-4000-8000-000000001123",
+        "requestId": "00000000-0000-4000-8000-000000001124",
         "command": "listening.prepare_session_pass",
         "params": {
           "schemaVersion": 1,
@@ -6629,7 +6714,7 @@
       "success": {
         "protocolVersion": 10,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001123",
+        "requestId": "00000000-0000-4000-8000-000000001124",
         "ok": true,
         "result": {
           "schemaVersion": 1,
@@ -6667,7 +6752,7 @@
       "failure": {
         "protocolVersion": 10,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001123",
+        "requestId": "00000000-0000-4000-8000-000000001124",
         "ok": false,
         "error": {
           "code": "lom_error",
@@ -6681,7 +6766,7 @@
       "request": {
         "protocolVersion": 10,
         "kind": "request",
-        "requestId": "00000000-0000-4000-8000-000000001124",
+        "requestId": "00000000-0000-4000-8000-000000001125",
         "command": "listening.launch_session_pass",
         "params": {
           "schemaVersion": 1,
@@ -6693,7 +6778,7 @@
       "success": {
         "protocolVersion": 10,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001124",
+        "requestId": "00000000-0000-4000-8000-000000001125",
         "ok": true,
         "result": {
           "schemaVersion": 1,
@@ -6735,7 +6820,7 @@
       "failure": {
         "protocolVersion": 10,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001124",
+        "requestId": "00000000-0000-4000-8000-000000001125",
         "ok": false,
         "error": {
           "code": "lom_error",
@@ -6749,7 +6834,7 @@
       "request": {
         "protocolVersion": 10,
         "kind": "request",
-        "requestId": "00000000-0000-4000-8000-000000001125",
+        "requestId": "00000000-0000-4000-8000-000000001126",
         "command": "listening.inspect_session_pass",
         "params": {
           "schemaVersion": 1,
@@ -6761,7 +6846,7 @@
       "success": {
         "protocolVersion": 10,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001125",
+        "requestId": "00000000-0000-4000-8000-000000001126",
         "ok": true,
         "result": {
           "schemaVersion": 1,
@@ -6803,7 +6888,7 @@
       "failure": {
         "protocolVersion": 10,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001125",
+        "requestId": "00000000-0000-4000-8000-000000001126",
         "ok": false,
         "error": {
           "code": "lom_error",
@@ -6817,7 +6902,7 @@
       "request": {
         "protocolVersion": 10,
         "kind": "request",
-        "requestId": "00000000-0000-4000-8000-000000001126",
+        "requestId": "00000000-0000-4000-8000-000000001127",
         "command": "listening.release_session_pass",
         "params": {
           "schemaVersion": 1,
@@ -6830,7 +6915,7 @@
       "success": {
         "protocolVersion": 10,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001126",
+        "requestId": "00000000-0000-4000-8000-000000001127",
         "ok": true,
         "result": {
           "schemaVersion": 1,
@@ -6868,7 +6953,7 @@
       "failure": {
         "protocolVersion": 10,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001126",
+        "requestId": "00000000-0000-4000-8000-000000001127",
         "ok": false,
         "error": {
           "code": "lom_error",
@@ -6882,7 +6967,7 @@
       "request": {
         "protocolVersion": 10,
         "kind": "request",
-        "requestId": "00000000-0000-4000-8000-000000001127",
+        "requestId": "00000000-0000-4000-8000-000000001128",
         "command": "listening.position_playback",
         "params": {
           "schemaVersion": 1,
@@ -6911,7 +6996,7 @@
       "success": {
         "protocolVersion": 10,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001127",
+        "requestId": "00000000-0000-4000-8000-000000001128",
         "ok": true,
         "result": {
           "schemaVersion": 1,
@@ -6929,7 +7014,7 @@
       "failure": {
         "protocolVersion": 10,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001127",
+        "requestId": "00000000-0000-4000-8000-000000001128",
         "ok": false,
         "error": {
           "code": "lom_error",
@@ -6943,7 +7028,7 @@
       "request": {
         "protocolVersion": 10,
         "kind": "request",
-        "requestId": "00000000-0000-4000-8000-000000001128",
+        "requestId": "00000000-0000-4000-8000-000000001129",
         "command": "listening.start_playback",
         "params": {
           "schemaVersion": 1,
@@ -6972,7 +7057,7 @@
       "success": {
         "protocolVersion": 10,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001128",
+        "requestId": "00000000-0000-4000-8000-000000001129",
         "ok": true,
         "result": {
           "schemaVersion": 1,
@@ -6986,7 +7071,7 @@
       "failure": {
         "protocolVersion": 10,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001128",
+        "requestId": "00000000-0000-4000-8000-000000001129",
         "ok": false,
         "error": {
           "code": "lom_error",
@@ -7000,7 +7085,7 @@
       "request": {
         "protocolVersion": 10,
         "kind": "request",
-        "requestId": "00000000-0000-4000-8000-000000001129",
+        "requestId": "00000000-0000-4000-8000-000000001130",
         "command": "listening.stop_playback",
         "params": {
           "schemaVersion": 1,
@@ -7015,7 +7100,7 @@
       "success": {
         "protocolVersion": 10,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001129",
+        "requestId": "00000000-0000-4000-8000-000000001130",
         "ok": true,
         "result": { "schemaVersion": 1, "ownership": "owned", "stopped": true },
         "warnings": []
@@ -7023,7 +7108,7 @@
       "failure": {
         "protocolVersion": 10,
         "kind": "response",
-        "requestId": "00000000-0000-4000-8000-000000001129",
+        "requestId": "00000000-0000-4000-8000-000000001130",
         "ok": false,
         "error": {
           "code": "lom_error",

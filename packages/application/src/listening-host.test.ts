@@ -184,6 +184,11 @@ describe("owned listening tool host", () => {
             trackReference: "track",
             deviceReference: "device",
             displayName: "password=inspection-private-secret",
+            capabilities: [
+              "audio-listener/metric-capture-v1",
+              "audio-listener/mel-band-timeline-v1",
+              "audio-listener/analyzer-timelines-v1",
+            ],
             ready: false,
             limitations: [
               "native_per_pass_validation_required",
@@ -219,15 +224,15 @@ describe("owned listening tool host", () => {
       f.host.executeListeningOperation(
         {
           ...request,
-          maximumDurationMs: 300_001,
+          maximumDurationMs: 900_001,
         },
         context,
       ),
     ).rejects.toThrow();
     expect(f.enqueue.mock.lastCall?.[0].attributes.facts).toContainEqual({
       field: "issue.0.value",
-      actual: { state: "observed", value: 300_001 },
-      expected: { state: "observed", value: 300_000 },
+      actual: { state: "observed", value: 900_001 },
+      expected: { state: "observed", value: 900_000 },
       comparison: "at-most",
     });
     expect(f.enqueue.mock.lastCall?.[0].attributes).not.toHaveProperty(

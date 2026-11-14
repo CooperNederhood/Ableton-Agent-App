@@ -2,19 +2,33 @@ import { randomUUID, timingSafeEqual } from "node:crypto";
 import { createServer, type Server, type Socket } from "node:net";
 import { isAbsolute } from "node:path";
 import {
+  expandMetricRecordStreamAdmission,
+  acceptMetricRecordChunk,
+  createMetricRecordStreamState,
+  verifyMetricRecordStreamManifest,
+  metricRecordStreamExpectedCoverage,
+  MAX_METRIC_RECORD_PENDING_CHUNKS,
+  METRIC_CONTINUOUS_LISTENING_CAPABILITY,
+  NATIVE_CONTINUOUS_METRIC_LISTENING_SCOPE,
+  canonicalMetricRecordJson,
+  type MetricRecordStreamDescriptor,
+  type MetricRecordStreamState,
   listeningFailureEvidenceSchema,
   type ListeningFailureEvidence,
   type ListeningFailureFact,
-  assertNativeMetricReadyProof,
-  assertNativeMetricArmProof,
   assertNativeMetricObservationSource,
-  snapshotNativeMetricListeningExpectation,
-  nativeMetricLaunchCoordinates,
   MAX_METRIC_RESULT_FRAME_BYTES,
-  type NativeMetricReadyProof,
-  type NativeMetricArmProof,
+  type NativeMetricControlReadyProof as NativeMetricReadyProof,
+  type NativeMetricControlArmProof as NativeMetricArmProof,
   type NativeMetricLaunchProof,
 } from "@ableton-agent/protocol";
+import {
+  assertMetricControlArm as assertNativeMetricArmProof,
+  assertMetricControlReady as assertNativeMetricReadyProof,
+  metricControlLaunchCoordinates as nativeMetricLaunchCoordinates,
+  snapshotMetricControlExpectation as snapshotNativeMetricListeningExpectation,
+  legacyMetricControlExpectation,
+} from "./metric-control-evidence.js";
 import {
   LISTENER_METRIC_PRODUCER_SCHEMA_VERSION,
   listenerControlMetricSchema,
@@ -153,7 +167,12 @@ export interface SignalIngressEndpoint {
 interface ClientState {
   readonly socket: Socket;
   buffer: Buffer;
-  readonly queue: Array<{ readonly line: string; readonly receivedAt: number }>;
+  readonly queue: Array<{
+    readonly input: unknown;
+    readonly receivedAt: number;
+    readonly metricChunk: boolean;
+  }>;
+  pendingMetricChunks: number;
   pumping: boolean;
   closing: boolean;
   connectionId: string | undefined;
@@ -170,6 +189,8 @@ interface ClientState {
   nativeMetricReady?: NativeMetricReadyProof;
   nativeMetricArm?: NativeMetricArmProof;
   nativeMetricLaunch?: NativeMetricLaunchProof;
+  metricStream?: MetricRecordStreamDescriptor;
+  metricStreamState?: MetricRecordStreamState;
   metricControlSequence?: number;
   metricEpochHighwater?: number;
   lastMetricCounter?: number;
@@ -224,7 +245,9 @@ export class SignalIngressServer implements ListenerService {
   readonly #clients = new Set<ClientState>();
   readonly #liveInstances = new Map<string, ClientState>();
   readonly #listenerControls = new Map<string, PendingListenerControl>();
-  readonly #resultListeners = new Set<(event: ListenerResultEvent) => void>();
+  readonly #resultListeners = new Set<
+    (event: ListenerResultEvent) => void | Promise<void>
+  >();
   readonly #now: () => number;
   readonly #producerDiagnosticReceipts: ProducerDiagnosticReceipts;
   readonly #secretBytes: Buffer;
@@ -354,7 +377,9 @@ export class SignalIngressServer implements ListenerService {
     );
   }
 
-  onListenerResult(listener: (event: ListenerResultEvent) => void): () => void {
+  onListenerResult(
+    listener: (event: ListenerResultEvent) => void | Promise<void>,
+  ): () => void {
     this.#resultListeners.add(listener);
     return () => {
       this.#resultListeners.delete(listener);
@@ -488,6 +513,8 @@ export class SignalIngressServer implements ListenerService {
       delete state.nativeMetricReady;
       delete state.nativeMetricArm;
       delete state.nativeMetricLaunch;
+      delete state.metricStream;
+      delete state.metricStreamState;
       delete state.metricLifecycleReceipts;
       delete state.metricLifecycleEpoch;
       state.listenerOwner = control;
@@ -645,6 +672,23 @@ export class SignalIngressServer implements ListenerService {
           : {}),
         ...("observation" in message && message.observation !== undefined
           ? { observation: message.observation }
+          : {}),
+        ...("metricChunk" in message && message.metricChunk !== undefined
+          ? {
+              metricChunk: {
+                metric: message.metricChunk.metric,
+                chunkSequence: message.metricChunk.chunkSequence,
+                recordOffset: message.metricChunk.recordOffset,
+                slotOffset: message.metricChunk.slotOffset,
+                recordCount: message.metricChunk.records.length,
+                gapCount: message.metricChunk.gaps.length,
+                digest: message.metricChunk.digest,
+                descriptorDigest: message.metricChunk.descriptorDigest,
+              },
+            }
+          : {}),
+        ...("metricManifest" in message && message.metricManifest !== undefined
+          ? { metricManifest: message.metricManifest }
           : {}),
         ...("nativeArm" in message && message.nativeArm !== undefined
           ? { nativeArm: message.nativeArm }
@@ -830,6 +874,7 @@ export class SignalIngressServer implements ListenerService {
       socket,
       buffer: Buffer.alloc(0),
       queue: [],
+      pendingMetricChunks: 0,
       pumping: false,
       closing: false,
       connectionId: undefined,
@@ -877,7 +922,38 @@ export class SignalIngressServer implements ListenerService {
       }
       const line = state.buffer.subarray(0, newline).toString("utf8");
       state.buffer = state.buffer.subarray(newline + 1);
-      if (state.queue.length >= this.#options.maxOutstandingMessages) {
+      let input: unknown;
+      try {
+        input = JSON.parse(line);
+      } catch {
+        void this.#fail(
+          state,
+          "malformed-json",
+          "Malformed JSON",
+          true,
+          undefined,
+          this.#now(),
+        );
+        return;
+      }
+      const metricChunk =
+        typeof input === "object" &&
+        input !== null &&
+        "type" in input &&
+        input.type === "listener.result" &&
+        "metricChunk" in input;
+      const continuous =
+        state.metricStream !== undefined ||
+        String(state.listenerOwner?.config?.geometry.schema) ===
+          "metric-listening-geometry/v2";
+      if (
+        state.queue.length >= this.#options.maxOutstandingMessages ||
+        (continuous &&
+          metricChunk &&
+          state.pendingMetricChunks >=
+            (state.metricStream?.maxPendingChunks ??
+              MAX_METRIC_RECORD_PENDING_CHUNKS))
+      ) {
         void this.#fail(
           state,
           "backpressure",
@@ -886,7 +962,8 @@ export class SignalIngressServer implements ListenerService {
         );
         return;
       }
-      state.queue.push({ line, receivedAt: this.#now() });
+      if (metricChunk) state.pendingMetricChunks += 1;
+      state.queue.push({ input, receivedAt: this.#now(), metricChunk });
     }
     this.#pump(state);
   }
@@ -904,7 +981,11 @@ export class SignalIngressServer implements ListenerService {
           if (entry === undefined) {
             break;
           }
-          await this.#handleLine(state, entry.line, entry.receivedAt);
+          try {
+            await this.#handleLine(state, entry.input, entry.receivedAt);
+          } finally {
+            if (entry.metricChunk) state.pendingMetricChunks -= 1;
+          }
           delete state.processing;
         }
       } catch (error) {
@@ -926,23 +1007,9 @@ export class SignalIngressServer implements ListenerService {
 
   async #handleLine(
     state: ClientState,
-    line: string,
+    input: unknown,
     receivedAt: number,
   ): Promise<void> {
-    let input: unknown;
-    try {
-      input = JSON.parse(line);
-    } catch {
-      await this.#fail(
-        state,
-        "malformed-json",
-        "Malformed JSON",
-        true,
-        undefined,
-        receivedAt,
-      );
-      return;
-    }
     const requestId = extractRequestId(input);
     const version = extractProtocolVersion(input);
     if (version !== undefined && version !== PRODUCER_PROTOCOL_VERSION) {
@@ -1384,6 +1451,8 @@ export class SignalIngressServer implements ListenerService {
           delete state.nativeMetricReady;
           delete state.nativeMetricArm;
           delete state.nativeMetricLaunch;
+          delete state.metricStream;
+          delete state.metricStreamState;
           delete state.metricLifecycleReceipts;
           delete state.metricLifecycleEpoch;
         }
@@ -1437,7 +1506,8 @@ export class SignalIngressServer implements ListenerService {
       }
       state.listenerResults += 1;
       try {
-        this.#assertMetricResult(state, owner, message);
+        const validation = this.#assertMetricResult(state, owner, message);
+        if (validation !== undefined) await validation;
       } catch (cause) {
         await this.#fail(
           state,
@@ -1466,7 +1536,8 @@ export class SignalIngressServer implements ListenerService {
         message,
       );
       if (state.processing) state.processing.phase = "result-delivery";
-      this.#emitListenerResult(state, message);
+      const delivery = this.#emitListenerResult(state, message);
+      if (delivery !== undefined) await delivery;
       const awaitingMetricCancellationReply =
         state.listenerPhase === "cancelling" && message.status === "cancelled";
       if (
@@ -1480,6 +1551,8 @@ export class SignalIngressServer implements ListenerService {
         delete state.nativeMetricReady;
         delete state.nativeMetricArm;
         delete state.nativeMetricLaunch;
+        delete state.metricStream;
+        delete state.metricStreamState;
         delete state.metricLifecycleReceipts;
         delete state.metricLifecycleEpoch;
         state.listenerPhase = "idle";
@@ -1561,8 +1634,18 @@ export class SignalIngressServer implements ListenerService {
     state: ClientState,
     owner: ListenerControlMetric,
     message: ListenerResultMetric,
-  ): void {
-    if (state.listenerResults > 1024)
+  ): void | Promise<void> {
+    const resultLimit = state.metricStream
+      ? 8192 +
+        state.metricStream.requestedMetrics.reduce(
+          (sum, metric) =>
+            sum +
+            metricRecordStreamExpectedCoverage(state.metricStream!, metric)
+              .expectedRecords,
+          0,
+        )
+      : 1024;
+    if (state.listenerResults > resultLimit)
       throw new Error("native_metric_result_quota_exceeded");
     const epoch =
       state.nativeMetricReady?.ownership.nativeEpoch ??
@@ -1575,13 +1658,21 @@ export class SignalIngressServer implements ListenerService {
       throw new Error("native_metric_lifecycle_epoch_mismatch");
     const lifecycle = message.nativeLifecycle;
     if (lifecycle) {
+      if (
+        owner.config?.scope !== NATIVE_CONTINUOUS_METRIC_LISTENING_SCOPE &&
+        (lifecycle.elapsedMs > 120_000 ||
+          (lifecycle.durationMs !== undefined &&
+            lifecycle.durationMs > 120_000))
+      )
+        throw new Error("native_metric_lifecycle_duration");
       const signature = stableTelemetryId(JSON.stringify(lifecycle));
       const previous = state.metricLifecycleReceipts?.get(lifecycle.eventId);
       if (previous !== undefined && previous !== signature)
         throw new Error("native_metric_lifecycle_mutated");
       if (
         previous === undefined &&
-        (state.metricLifecycleReceipts?.size ?? 0) >= 1024
+        (state.metricLifecycleReceipts?.size ?? 0) >=
+          (state.metricStream ? 8192 : 1024)
       )
         throw new Error("native_metric_lifecycle_quota_exceeded");
     }
@@ -1601,6 +1692,14 @@ export class SignalIngressServer implements ListenerService {
       state.nativeMetricLaunch = structuredClone(message.nativeLaunch);
       state.lastMetricCounter = message.nativeLaunch.clock[4];
     }
+    if (
+      message.metricStream !== undefined ||
+      message.metricChunk !== undefined ||
+      message.metricManifest !== undefined
+    )
+      return this.#assertStreamResult(state, owner, message);
+    if (state.metricStream && message.observation !== undefined)
+      throw new Error("native_metric_stream_whole_result_forbidden");
     if (message.status === "completed" || message.status === "partial") {
       const proof = message.nativeSourceCoverage;
       if (
@@ -1617,9 +1716,84 @@ export class SignalIngressServer implements ListenerService {
       assertNativeMetricObservationSource(
         proof,
         message.observation,
-        this.#metricExpectation(owner, state),
+        legacyMetricControlExpectation(this.#metricExpectation(owner, state)),
       );
       state.lastMetricCounter = proof.after.frames.at(-1)![4];
+    }
+  }
+
+  async #assertStreamResult(
+    state: ClientState,
+    owner: ListenerControlMetric,
+    message: ListenerResultMetric,
+  ): Promise<void> {
+    if (
+      !state.listener?.capabilities.some(
+        (capability) =>
+          String(capability) === METRIC_CONTINUOUS_LISTENING_CAPABILITY,
+      ) ||
+      owner.mode !== "arrangement" ||
+      !owner.config ||
+      !state.nativeMetricArm ||
+      !state.nativeMetricLaunch ||
+      state.listenerPhase === "cancelling"
+    )
+      throw new Error("native_metric_stream_not_admitted");
+    if (message.metricStream !== undefined) {
+      const descriptor = expandMetricRecordStreamAdmission(
+        message.metricStream,
+      );
+      const expected = owner.config;
+      const g = descriptor.geometry;
+      if (
+        state.metricStream !== undefined ||
+        canonicalMetricRecordJson(descriptor.ownership) !==
+          canonicalMetricRecordJson(state.nativeMetricArm.ownership) ||
+        canonicalMetricRecordJson(descriptor.source) !==
+          canonicalMetricRecordJson(expected.sourceContext) ||
+        canonicalMetricRecordJson(descriptor.requestedMetrics) !==
+          canonicalMetricRecordJson(expected.requestedMetrics) ||
+        canonicalMetricRecordJson(descriptor.timingPolicy) !==
+          canonicalMetricRecordJson(expected.timingPolicy) ||
+        g.startSample !== state.nativeMetricLaunch.timing[6] ||
+        (
+          [
+            "sampleRate",
+            "vectorSize",
+            "tempoBpm",
+            "startBeat",
+            "endBeat",
+            "totalSamples",
+          ] as const
+        ).some((field) => g[field] !== expected.geometry[field])
+      )
+        throw new Error("native_metric_stream_descriptor_binding_mismatch");
+      state.metricStreamState = await createMetricRecordStreamState(descriptor);
+      state.metricStream = descriptor;
+      return;
+    }
+    if (!state.metricStream || !state.metricStreamState)
+      throw new Error("native_metric_stream_descriptor_required");
+    if (message.metricChunk !== undefined) {
+      state.metricStreamState = await acceptMetricRecordChunk(
+        state.metricStream,
+        state.metricStreamState,
+        message.metricChunk,
+      );
+      return;
+    }
+    if (message.metricManifest !== undefined) {
+      const manifest = await verifyMetricRecordStreamManifest(
+        state.metricStream,
+        state.metricStreamState,
+        message.metricManifest,
+      );
+      if (
+        canonicalMetricRecordJson(manifest.nativeProof.launch) !==
+        canonicalMetricRecordJson(state.nativeMetricLaunch)
+      )
+        throw new Error("native_metric_stream_launch_replaced");
+      state.lastMetricCounter = manifest.nativeProof.clock.frames.at(-1)![4];
     }
   }
 
@@ -1798,7 +1972,7 @@ export class SignalIngressServer implements ListenerService {
     state: ClientState,
     result: ListenerResult,
     failureEvidence?: ListeningFailureEvidence,
-  ): void {
+  ): void | Promise<void> {
     if (
       !state.connectionId ||
       !state.producer ||
@@ -1806,9 +1980,10 @@ export class SignalIngressServer implements ListenerService {
       state.producer.device?.id === undefined
     )
       return;
+    const deliveries: Promise<void>[] = [];
     for (const callback of this.#resultListeners) {
       try {
-        callback({
+        const delivery = callback({
           connectionId: state.connectionId,
           binding: {
             trackId: state.producer.track.id,
@@ -1820,6 +1995,7 @@ export class SignalIngressServer implements ListenerService {
             ? {}
             : { failureEvidence: structuredClone(failureEvidence) }),
         });
+        if (delivery !== undefined) deliveries.push(delivery);
       } catch {
         this.#diagnostic(
           "internal-error",
@@ -1828,6 +2004,7 @@ export class SignalIngressServer implements ListenerService {
         );
       }
     }
+    if (deliveries.length) return Promise.all(deliveries).then(() => {});
   }
 
   #publishListenerFailure(
@@ -1944,16 +2121,37 @@ export class SignalIngressServer implements ListenerService {
       undefined,
       evidence.success ? evidence.data : undefined,
     );
-    this.#emitListenerResult(
+    const delivery = this.#emitListenerResult(
       state,
       result,
       evidence.success ? evidence.data : undefined,
     );
+    if (delivery !== undefined)
+      void delivery.catch(() => {
+        recordSignalTelemetry(this.#options.telemetry, {
+          name: "output.listener.failure-delivery.failed",
+          source: "output-ingress",
+          outcome: "failure",
+          trace: {
+            traceId: result.traceId,
+            spanId: stableTelemetryId(result.requestId),
+          },
+          correlationId: result.correlationId,
+          causationId: result.causationId,
+          attributes: sanitizeTelemetryAttributes({
+            connectionId: result.connectionId,
+            passId: result.passId,
+            jobId: result.jobId,
+          }),
+        });
+      });
     delete state.listenerOwner;
     delete state.listenerDeadline;
     delete state.nativeMetricReady;
     delete state.nativeMetricArm;
     delete state.nativeMetricLaunch;
+    delete state.metricStream;
+    delete state.metricStreamState;
     delete state.metricLifecycleReceipts;
     delete state.metricLifecycleEpoch;
     state.listenerPhase = "idle";

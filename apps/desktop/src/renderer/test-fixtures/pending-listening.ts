@@ -42,6 +42,20 @@ export function pendingListeningFixture(
     createdAt: "2026-10-12T00:00:00.000Z",
     updatedAt: new Date(Date.UTC(2026, 9, 12, 0, 0, revision)).toISOString(),
     durationMs: 1250,
+    ...(action === "play-arrangement-and-listen" && stage !== "queued"
+      ? {
+          captureProgress: {
+            sampleRate: 48_000 as const,
+            requestedSamples: 8_640_000,
+            persistedSamples:
+              stage === "persisting" || stage === "completed"
+                ? 8_640_000
+                : 2_880_000,
+            persistedChunks:
+              stage === "persisting" || stage === "completed" ? 90 : 30,
+          },
+        }
+      : {}),
     contextIds:
       stage === "completed" || stage === "partial"
         ? ["synthetic-terminal-context-not-measured"]

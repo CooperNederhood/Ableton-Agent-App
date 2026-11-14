@@ -122,6 +122,7 @@ function createMetricListeningGeometry(input) {
   );
   const { sampleRate, vectorSize, tempoBpm, startBeat, endBeat, startSample } =
     input;
+  const continuous = input.captureMode === "arrangement-continuous";
   invariant(
     Object.keys(input).every((key) =>
       [
@@ -131,8 +132,10 @@ function createMetricListeningGeometry(input) {
         "startBeat",
         "endBeat",
         "startSample",
+        "captureMode",
       ].includes(key),
     ) &&
+      (input.captureMode === undefined || continuous) &&
       [44100, 48000].includes(sampleRate) &&
       integer(vectorSize) &&
       vectorSize >= 1 &&
@@ -154,14 +157,15 @@ function createMetricListeningGeometry(input) {
   const durationBeats = endBeat - startBeat;
   const samplesPerBeat = (sampleRate * 60) / tempoBpm;
   const totalSamples = Math.round(durationBeats * samplesPerBeat);
-  const maximumBeats = (30 * tempoBpm) / 60;
+  const captureSeconds = continuous ? 600 : METRIC_LIMITS.captureSeconds;
+  const maximumBeats = (captureSeconds * tempoBpm) / 60;
   const coordinateRoundoff =
     2 * Number.EPSILON * Math.max(1, startBeat, endBeat);
   invariant(
     durationBeats > 0 &&
       durationBeats - maximumBeats <= coordinateRoundoff &&
       totalSamples >= 1 &&
-      totalSamples <= METRIC_LIMITS.captureSeconds * sampleRate &&
+      totalSamples <= captureSeconds * sampleRate &&
       startSample + totalSamples <= 2 ** 44 - 1,
     "capture_duration_exceeded",
   );
@@ -171,7 +175,10 @@ function createMetricListeningGeometry(input) {
   let position = startBeat;
   let gridIndex = Math.floor(startBeat / 0.25) + 1;
   while (position < endBeat) {
-    invariant(rows.length < METRIC_LIMITS.reportRows, "report_quota_exceeded");
+    invariant(
+      rows.length < (continuous ? 39961 : METRIC_LIMITS.reportRows),
+      "report_quota_exceeded",
+    );
     const end = Math.min(gridIndex * 0.25, endBeat);
     const row = {
       startBeat: position,
@@ -186,7 +193,9 @@ function createMetricListeningGeometry(input) {
   }
   return freeze({
     ...input,
-    schema: "metric-listening-geometry/v1",
+    schema: continuous
+      ? "metric-listening-geometry/v2"
+      : "metric-listening-geometry/v1",
     reportBeats: 0.25,
     totalSamples,
     endSample: startSample + totalSamples,
@@ -214,16 +223,19 @@ function createMusicalGrid(input) {
     startBeat: input.startBeat,
     endBeat: input.endBeat,
     startSample: input.captureStartSample,
+    ...(input.captureMode === undefined
+      ? {}
+      : { captureMode: input.captureMode }),
   });
   invariant(
     geometry.endSample === input.captureEndSample,
     "capture_endpoint_mismatch",
   );
-  const maxRows = budget(
-    input.maxReportRows,
-    METRIC_LIMITS.reportRows,
-    METRIC_LIMITS.reportRows,
-  );
+  const rowLimit =
+    input.captureMode === "arrangement-continuous"
+      ? 39961
+      : METRIC_LIMITS.reportRows;
+  const maxRows = budget(input.maxReportRows, rowLimit, rowLimit);
   invariant(geometry.rows.length <= maxRows, "report_quota_exceeded");
   return freeze(
     geometry.rows.map((row, index) => ({
@@ -506,6 +518,11 @@ function missingRanges(expected, records, supportAt, reason, lastSequence) {
  * into that native-counter frame, never legacy host-derived timestamps.
  */
 function createMetricTimelines(input, options = {}) {
+  const streaming = input.captureMode === "arrangement-continuous";
+  invariant(
+    !streaming || typeof options.onRecord === "function",
+    "metric_stream_sink_required",
+  );
   const grid = createMusicalGrid(input);
   const owner = ownerCopy(input.owner);
   // The controller must merge independently settled external analyzer evidence before parsing
@@ -596,6 +613,7 @@ function createMetricTimelines(input, options = {}) {
         );
   const envelope = freeze({
     owner,
+    ...(streaming ? { captureMode: input.captureMode } : {}),
     originSample: input.originSample,
     originBeat: input.originBeat,
     sampleRate: input.sampleRate,
@@ -641,7 +659,9 @@ function createMetricTimelines(input, options = {}) {
   }
   invariant(
     object(options) &&
-      Object.keys(options).every((key) => ["now", "onEvent"].includes(key)),
+      Object.keys(options).every((key) =>
+        ["now", "onEvent", "onRecord"].includes(key),
+      ),
     "invalid_options",
   );
   const now = optional(options.now, () => globalThis.performance.now());
@@ -666,6 +686,7 @@ function createMetricTimelines(input, options = {}) {
         sumSquares: [0, 0],
         spectralEnergy: 0,
         lastSequence: 0,
+        acceptedRecords: 0,
         failure: null,
         duplicateCount: 0,
         progressCount: 0,
@@ -809,12 +830,15 @@ function createMetricTimelines(input, options = {}) {
       }
       return failMetric(metric, "duplicate_mutation");
     }
-    if (state.records.size >= limits[metric])
+    if (state.acceptedRecords >= limits[metric])
       return failMetric(metric, "quota_overflow");
     if (normalized.reason) return failMetric(metric, normalized.reason);
     if (raw.sequence <= state.lastSequence)
       return failMetric(metric, "sequence_regression");
-    if (metric === "attacks" && raw.sequence !== state.lastSequence + 1)
+    if (
+      (metric === "attacks" || streaming) &&
+      raw.sequence !== state.lastSequence + 1
+    )
       return failMetric(metric, "sequence_gap");
     let record = normalized.record;
     if (metric === "spectrum" && !finite(state.spectralEnergy + record.energy))
@@ -832,7 +856,46 @@ function createMetricTimelines(input, options = {}) {
       record = detected.record;
       state.detector = detected.state;
     }
+    if (streaming) {
+      // Retain only the last fingerprint for immediate duplicate diagnosis.
+      // Detector state, sums and native phase survive every transport batch.
+      const support = {
+        startSample: record.startSample,
+        endSample: record.endSample,
+      };
+      const base = { index: record.sequence - 1, support };
+      const canonical =
+        metric === "level"
+          ? {
+              ...base,
+              peak: record.peak,
+              rms: record.sumSquares.map((sum) =>
+                Math.sqrt(sum / record.count),
+              ),
+            }
+          : metric === "attacks"
+            ? { ...base, inputLevel: record.inputLevel, events: record.events }
+            : {
+                ...base,
+                spectralEnergy: record.energy,
+                centroidHz: record.centroidHz,
+              };
+      let accepted = false;
+      try {
+        accepted =
+          options.onRecord(
+            metric === "spectrum" ? "spectral-centroid" : metric,
+            freeze(canonical),
+          ) === true;
+      } catch {
+        return failMetric(metric, "quota_overflow");
+      }
+      if (!accepted) return failMetric(metric, "quota_overflow");
+      state.records.clear();
+      state.fingerprints.clear();
+    }
     state.records.set(record.sequence, record);
+    state.acceptedRecords++;
     state.fingerprints.set(record.sequence, fingerprint);
     if (metric !== "spectrum")
       state.sumSquares = state.sumSquares.map(
@@ -849,11 +912,11 @@ function createMetricTimelines(input, options = {}) {
     );
     if (
       state.progressCount < METRIC_LIMITS.progressEventsPerMetric &&
-      (state.records.size === 1 || state.records.size % stride === 0)
+      (state.acceptedRecords === 1 || state.acceptedRecords % stride === 0)
     ) {
       state.progressCount++;
       emit("progress", metric, {
-        acceptedRecords: state.records.size,
+        acceptedRecords: state.acceptedRecords,
         expectedRecords: expectedCount(metric),
         sequence: record.sequence,
         sourceEndSample: record.endSample,
@@ -1074,6 +1137,45 @@ function createMetricTimelines(input, options = {}) {
     invariant(!sealing, "reentrant_finalization");
     sealing = true;
     const collectionEndedMs = time();
+    if (streaming) {
+      const metrics = Object.fromEntries(
+        [...states].map(([metric, s]) => [
+          metric,
+          {
+            acceptedRecords: s.acceptedRecords,
+            expectedRecords: expectedCount(metric),
+            lastSequence: s.lastSequence,
+            failure: s.failure,
+            retainedRecords: s.records.size,
+          },
+        ]),
+      );
+      const status =
+        forcedStatus ??
+        (Object.values(metrics).every(
+          (m) => !m.failure && m.acceptedRecords === m.expectedRecords,
+        )
+          ? "completed"
+          : "failed");
+      sealed = freeze({
+        schema: "metric-stream-collector-terminal/v1",
+        status,
+        metrics,
+        reason: sharedFailure,
+        elapsedMs: collectionEndedMs,
+      });
+      sealing = false;
+      for (const [metric, s] of states) {
+        s.records.clear();
+        s.fingerprints.clear();
+        emit(status, metric, {
+          acceptedRecords: s.acceptedRecords,
+          expectedRecords: expectedCount(metric),
+        });
+      }
+      emit(status, "capture", { reason: sharedFailure });
+      return sealed;
+    }
     emit("queued", "assembly");
     emit("started", "assembly");
     const metrics = Object.fromEntries(
@@ -1190,7 +1292,8 @@ function createMetricTimelines(input, options = {}) {
           [...states].map(([metric, state]) => [
             metric,
             {
-              acceptedRecords: state.records.size,
+              acceptedRecords: state.acceptedRecords,
+              retainedRecords: state.records.size,
               lastSequence: state.lastSequence,
               failure: state.failure,
               snapshot: state.snapshot,
@@ -1200,6 +1303,7 @@ function createMetricTimelines(input, options = {}) {
       });
     },
     finalize(proof) {
+      invariant(!streaming, "metric_stream_requires_terminal_manifest");
       if (sealed) return sealed;
       invariant(!sealing, "reentrant_finalization");
       if (!checkOwner(proof?.owner)) return sealed;
@@ -1207,6 +1311,14 @@ function createMetricTimelines(input, options = {}) {
         return failShared("clock_corruption");
       // The controller supplies source-coverage proof after its own shared
       // safety/deadline checks. A readiness snapshot is never that proof.
+      return finish();
+    },
+    finalizeStream(proof) {
+      invariant(streaming, "metric_stream_not_enabled");
+      if (sealed) return sealed;
+      if (!checkOwner(proof?.owner)) return sealed;
+      if (proof.sourceEndSample !== envelope.captureEndSample)
+        return failShared("clock_corruption");
       return finish();
     },
     cancel() {

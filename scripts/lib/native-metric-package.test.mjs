@@ -125,6 +125,7 @@ it("pins packaged FluCoMa resources independently of editable artifact hashes", 
     "audio_listener_flatness_probe.js",
     "audio_listener_pitch_smoke.js",
     "audio_listener_pitch_probe.js",
+    "audio_listener_probe_limits.js",
   ]) {
     expect(manifest.resources.find((file) => file.name === name)).toMatchObject(
       {

@@ -77,6 +77,8 @@ import type {
   InspectDevicesResult,
   InspectSessionListeningSourceParams,
   InspectSessionListeningSourceResult,
+  InspectArrangementListeningSourceParams,
+  InspectArrangementListeningSourceResult,
   InspectBrowserRootsResult,
   InspectBrowserChildrenParams,
   InspectBrowserChildrenResult,
@@ -6702,6 +6704,16 @@ export class HeadlessApplication {
       );
     }
     return this.services.ableton.inspectSessionListeningSource(params);
+  }
+
+  public inspectArrangementListeningSource(
+    params: InspectArrangementListeningSourceParams,
+  ): Promise<InspectArrangementListeningSourceResult> {
+    if (this.services.ableton.inspectArrangementListeningSource === undefined)
+      return Promise.reject(
+        new Error("Arrangement listening source inspection is unavailable"),
+      );
+    return this.services.ableton.inspectArrangementListeningSource(params);
   }
 
   public async inspectSessionListeningPreflight(

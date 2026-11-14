@@ -123,6 +123,221 @@ function fixture(
 afterEach(() => vi.useRealTimers());
 
 describe("headless listening coordinator", () => {
+  it("cancels continuous capture without publishing an observation or a stream", async () => {
+    vi.useFakeTimers();
+    const disarm = vi.fn(async () => {});
+    const persistStreams = vi.fn(async () => ["stream-context"]);
+    const release = vi.fn(async () => {});
+    const f = fixture({
+      prepare: async () => ({
+        observationContract: "metric-record-stream/v1",
+        manifests: new Promise(() => {}),
+        disarm,
+      }),
+      startPlayback: async () => ({
+        cleanupPolicy: "leave-running",
+        release,
+      }),
+      validateStreams: vi.fn(),
+      persistStreams,
+    });
+    const job = f.coordinator.start(
+      { ...request, maximumDurationMs: 900_000 },
+      owner,
+      trace,
+    );
+    await vi.advanceTimersByTimeAsync(600_000);
+    expect(f.coordinator.get(job.passId, owner).stage).toBe("capturing");
+    const cancelled = await f.coordinator.cancel(job.passId, owner);
+    expect(cancelled).toMatchObject({
+      stage: "cancelled",
+      cleanupPolicy: "leave-running",
+      contextIds: [],
+    });
+    expect(disarm).toHaveBeenCalledOnce();
+    expect(release).toHaveBeenCalledOnce();
+    expect(f.stop).not.toHaveBeenCalled();
+    expect(f.services.persist).not.toHaveBeenCalled();
+    expect(persistStreams).not.toHaveBeenCalled();
+    expect(f.releaseReservation).toHaveBeenCalledOnce();
+  });
+
+  it.each(["empty", "rejected"] as const)(
+    "rejects %s continuous results without falling back to whole observations",
+    async (failure) => {
+      const disarm = vi.fn(async () => {});
+      const persistStreams = vi.fn(async () => ["stream-context"]);
+      const f = fixture({
+        prepare: async () => ({
+          observationContract: "metric-record-stream/v1",
+          manifests:
+            failure === "empty"
+              ? Promise.resolve([])
+              : Promise.reject(new Error("Incremental capture failed")),
+          disarm,
+        }),
+        validateStreams: vi.fn(),
+        persistStreams,
+      });
+      const job = f.coordinator.start(request, owner, trace);
+      const result = await f.coordinator.wait(job.passId, owner);
+      expect(result.stage).toBe("failed");
+      expect(result.contextIds).toEqual([]);
+      expect(result.metricResults).toBeUndefined();
+      expect(disarm).toHaveBeenCalledOnce();
+      expect(f.services.persist).not.toHaveBeenCalled();
+      expect(persistStreams).not.toHaveBeenCalled();
+      expect(f.releaseReservation).toHaveBeenCalledOnce();
+      await f.coordinator.shutdown();
+    },
+  );
+
+  it("attributes durable capture progress without promoting it to terminal success", async () => {
+    vi.useFakeTimers();
+    const f = fixture();
+    const job = f.coordinator.start(request, owner, trace);
+    await vi.advanceTimersByTimeAsync(0);
+    const input = vi.mocked(f.services.prepare).mock.calls[0]![0];
+    const progress = {
+      sampleRate: 48_000 as const,
+      requestedSamples: 8_640_000,
+      persistedSamples: 2_880_000,
+      persistedChunks: 30,
+    };
+    input.onProgress!(progress);
+    expect(f.coordinator.get(job.passId, owner)).toMatchObject({
+      stage: "capturing",
+      captureProgress: progress,
+      contextIds: [],
+    });
+    expect(f.enqueue.mock.lastCall?.[0]).toMatchObject({
+      name: "listening.progress",
+      trace: { traceId: trace.traceId },
+      correlationId: trace.correlationId,
+      causationId: trace.causationId,
+      attributes: { captureProgress: progress },
+    });
+    const events = f.enqueue.mock.calls.length;
+    input.onProgress!(progress);
+    expect(f.enqueue.mock.calls.length).toBe(events);
+    progress.persistedSamples = 0;
+    expect(
+      f.coordinator.get(job.passId, owner).captureProgress?.persistedSamples,
+    ).toBe(2_880_000);
+    expect((await f.coordinator.cancel(job.passId, owner)).stage).toBe(
+      "cancelled",
+    );
+    input.onProgress!({ ...progress, persistedSamples: 8_640_000 });
+    expect(f.coordinator.get(job.passId, owner).stage).toBe("cancelled");
+    expect(f.services.persist).not.toHaveBeenCalled();
+  });
+
+  it.each(["regressed", "out-of-bounds", "identity"] as const)(
+    "fails closed and cleans up %s durable progress",
+    async (fault) => {
+      vi.useFakeTimers();
+      const f = fixture();
+      const job = f.coordinator.start(request, owner, trace);
+      await vi.advanceTimersByTimeAsync(0);
+      const input = vi.mocked(f.services.prepare).mock.calls[0]![0];
+      const progress = {
+        sampleRate: 48_000 as const,
+        requestedSamples: 8_640_000,
+        persistedSamples: 2_880_000,
+        persistedChunks: 30,
+      };
+      input.onProgress!(progress);
+      expect(() =>
+        input.onProgress!({
+          ...progress,
+          ...(fault === "regressed"
+            ? { persistedChunks: 29 }
+            : fault === "out-of-bounds"
+              ? { persistedSamples: 8_640_001 }
+              : { requestedSamples: 8_640_001 }),
+        }),
+      ).toThrow();
+      expect((await f.coordinator.wait(job.passId, owner)).stage).toBe(
+        "failed",
+      );
+      expect(f.disarm).toHaveBeenCalledOnce();
+      expect(f.releaseReservation).toHaveBeenCalledOnce();
+      expect(f.services.persist).not.toHaveBeenCalled();
+    },
+  );
+
+  it("keeps an Arrangement capture alive through ten minutes within its explicit execution budget", async () => {
+    vi.useFakeTimers();
+    const f = fixture();
+    const job = f.coordinator.start(
+      { ...request, maximumDurationMs: 900_000 },
+      owner,
+      trace,
+    );
+    await vi.advanceTimersByTimeAsync(600_000);
+    expect(f.coordinator.get(job.passId, owner).stage).toBe("capturing");
+    f.resolveCapture([observation(job.passId)]);
+    expect((await f.coordinator.wait(job.passId, owner)).stage).toBe(
+      "completed",
+    );
+    expect(f.disarm).toHaveBeenCalledOnce();
+    expect(f.releaseReservation).toHaveBeenCalledOnce();
+  });
+
+  it("still cancels and cleans up an Arrangement capture after ten minutes", async () => {
+    vi.useFakeTimers();
+    const f = fixture();
+    const job = f.coordinator.start(
+      { ...request, maximumDurationMs: 900_000 },
+      owner,
+      trace,
+    );
+    await vi.advanceTimersByTimeAsync(600_000);
+    expect((await f.coordinator.cancel(job.passId, owner)).stage).toBe(
+      "cancelled",
+    );
+    expect(f.disarm).toHaveBeenCalledOnce();
+    expect(f.releaseReservation).toHaveBeenCalledOnce();
+    expect(f.services.persist).not.toHaveBeenCalled();
+  });
+
+  it("does not extend the Session execution budget with the Arrangement allowance", () => {
+    const f = fixture();
+    expect(() =>
+      f.coordinator.start(
+        {
+          mode: "session",
+          listenerIds: ["listener"],
+          clipReference: "clip",
+          trackReference: "track",
+          maximumDurationMs: 300_001,
+        },
+        owner,
+        trace,
+      ),
+    ).toThrow("300 seconds");
+    expect(f.services.inspect).not.toHaveBeenCalled();
+  });
+
+  it("fails and cleans up a long Arrangement capture at its finite deadline", async () => {
+    vi.useFakeTimers();
+    const f = fixture();
+    const job = f.coordinator.start(
+      { ...request, maximumDurationMs: 900_000 },
+      owner,
+      trace,
+    );
+    await vi.advanceTimersByTimeAsync(900_000);
+    const result = await f.coordinator.wait(job.passId, owner);
+    expect(result.stage).toBe("failed");
+    expect(result.failureEvidence?.checkId).toBe(
+      "application.deadline.capture",
+    );
+    expect(f.disarm).toHaveBeenCalledOnce();
+    expect(f.releaseReservation).toHaveBeenCalledOnce();
+    expect(f.services.persist).not.toHaveBeenCalled();
+  });
+
   it("keeps omitted Session duration and absent failure evidence genuinely absent from queued snapshots", async () => {
     const f = fixture();
     const job = f.coordinator.start(
@@ -1142,12 +1357,12 @@ describe("headless listening coordinator", () => {
       f.coordinator.start(
         {
           ...request,
-          maximumDurationMs: 300_001,
+          maximumDurationMs: 900_001,
         },
         owner,
         trace,
       ),
-    ).toThrow("300 seconds");
+    ).toThrow("900 seconds");
     expect(() =>
       f.coordinator.start(
         {

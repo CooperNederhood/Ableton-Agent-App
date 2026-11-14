@@ -28,7 +28,10 @@ test("both native prototype compositions keep every declaration before expressio
       body,
       /\b(?:Param|History|Buffer|Data|Delay)\s+\w+\s*\(/,
     );
-    assert.equal(source.retention.storageBytes, 2560);
+    assert.equal(
+      source.retention.storageBytes,
+      source.retention.width === 6 ? 10240 : 2560,
+    );
     assert.equal(source.retention.readbackWidth, source.retention.width + 14);
   }
 });
@@ -45,123 +48,151 @@ test("native-host prototype documents expose complete readback without selecting
     assert.equal(codebox.numoutlets, name.includes("envelope") ? 53 : 31);
   }
 });
+test("production spectral retention remains finite and never overwrites an unacknowledged frame", () => {
+  const source = retainedNativeSpectrumSource();
+  const model = genModel(source.code, source.outputs, 48000);
+  model.configure({ measurementEpoch: 1 });
+  let output;
+  for (let sample = 0; sample < 129 * 2048; sample++)
+    output = model.step(
+      sample % 2048 === 32 ? 1 : 0,
+      0,
+      0,
+      0,
+      sample % 2048,
+      sample,
+      0,
+    );
+  const page = output.slice(11);
+  assert.equal(page[7], 128);
+  assert.equal(page[8], 0);
+  assert.equal(page[9], 1);
+  assert.equal(page[2], 1);
+  assert.equal(page[5], 0);
+  assert.equal(page[6], 2048);
+});
 for (const rate of [44100, 48000])
-  test(`actual ${rate}Hz FFT producer retains frames that latest-only polling loses`, () => {
-    const retained = retainedNativeSpectrumSource();
-    const latest = genModel(descriptiveSpectrumCode(), 10, rate);
-    const queued = genModel(retained.code, retained.outputs, rate);
-    queued.configure({ measurementEpoch: 1 });
-    let before;
-    const published = [];
-    const origin = 2 ** 32;
-    for (let frame = 0; frame < 4; frame++) {
-      for (let bin = 0; bin < 2048; bin++) {
-        const counter = origin + frame * 2048 + bin;
-        const inputs = [
-          bin === 32 ? 1 : 0,
-          0,
-          bin === 64 ? 2 : 0,
-          0,
-          bin,
-          counter % 1048576,
-          Math.floor(counter / 1048576),
-        ];
-        before = latest.step(...inputs);
-        const after = queued.step(...inputs);
-        assert.deepEqual(after.slice(0, 10), before);
-        if (bin === 2047) published.push([...before]);
+  for (const frameCount of [4, 64])
+    test(`actual ${rate}Hz FFT producer retains ${frameCount} frames across delayed control reads`, () => {
+      const retained = retainedNativeSpectrumSource();
+      const latest = genModel(descriptiveSpectrumCode(), 10, rate);
+      const queued = genModel(retained.code, retained.outputs, rate);
+      queued.configure({ measurementEpoch: 1 });
+      let before;
+      const published = [];
+      const origin = 2 ** 32;
+      for (let frame = 0; frame < frameCount; frame++) {
+        for (let bin = 0; bin < 2048; bin++) {
+          const counter = origin + frame * 2048 + bin;
+          const inputs = [
+            bin === 32 ? 1 : 0,
+            0,
+            bin === 64 ? 2 : 0,
+            0,
+            bin,
+            counter % 1048576,
+            Math.floor(counter / 1048576),
+          ];
+          before = latest.step(...inputs);
+          const after = queued.step(...inputs);
+          assert.deepEqual(after.slice(0, 10), before);
+          if (bin === 2047) published.push([...before]);
+        }
       }
-    }
-    assert.equal(before[3], origin + 8192);
-    const output = queued.step(0, 0, 0, 0, 0, 8192, 4096);
-    const page = output.slice(11);
-    assert.equal(page[4], 1);
-    assert.equal(page[5], origin);
-    assert.equal(page[6], origin + 2048);
-    assert.deepEqual(page.slice(10, 16), [
-      published[0][3],
-      published[0][0],
-      published[0][1],
-      published[0][2],
-      published[0][3],
-      published[0][4],
-    ]);
-    assert.equal(page[7], 4);
-    assert.notEqual(page[14], before[3]);
+      const totalSamples = frameCount * 2048;
+      assert.equal(before[3], origin + totalSamples);
+      const output = queued.step(0, 0, 0, 0, 0, totalSamples, 4096);
+      const page = output.slice(11);
+      assert.equal(page[4], 1);
+      assert.equal(page[5], origin);
+      assert.equal(page[6], origin + 2048);
+      assert.deepEqual(page.slice(10, 16), [
+        published[0][3],
+        published[0][0],
+        published[0][1],
+        published[0][2],
+        published[0][3],
+        published[0][4],
+      ]);
+      assert.equal(page[7], frameCount);
+      assert.notEqual(page[14], before[3]);
 
-    const owner = {
-      passId: "controlled-delayed-read",
-      connectionEpoch: "owned-model",
-      nativeEpoch: 1,
-    };
-    const acceptedFrames = [];
-    const reader = measurements.createReader({
-      declaration: {
-        version: 1,
-        kind: "native-spectrum/v2",
-        algorithmVersion: "2.0.0",
-        sampleRate: rate,
-        hopSamples: 2048,
-        windowSamples: 2048,
-        width: 6,
-        capacity: 32,
-        fields: [
-          { name: "endCounter", unit: "samples" },
-          { name: "centroidHz", unit: "Hz" },
-          { name: "energy", unit: "linear" },
-          { name: "startCounter", unit: "samples" },
-          { name: "frameEnd", unit: "samples" },
-          { name: "invalidFrames", unit: "count" },
-        ],
-      },
-      epoch: 1,
-      ownerContext: {
-        generation: "owned-model-generation",
-        ...owner,
-      },
-      consume: (record) => {
-        assert.equal(record.startSample, record.values[3]);
-        assert.equal(record.endSample, record.values[0]);
-        acceptedFrames.push(record);
-        return true;
-      },
-    });
-    reader.begin();
-    let current = page;
-    let readCounter = origin + 8193;
-    const advance = () => {
-      const bin = (readCounter - origin) % 2048;
-      const low = readCounter % 1048576;
-      const high = Math.floor(readCounter++ / 1048576);
-      return queued.step(0, 0, 0, 0, bin, low, high).slice(11);
-    };
-    for (let sequence = 1; sequence <= 4; sequence++) {
-      assert.equal(current[4], sequence);
-      assert.equal(reader.poll(current).status, "settling");
-      current = advance();
-      const accepted = reader.poll(current);
-      assert.equal(accepted.status, "accepted", JSON.stringify(accepted));
-      assert.notEqual(reader.poll(current).status, "failed");
-      for (const action of accepted.actions) {
-        queued.configure(
-          action.type === "request"
-            ? { measurementReadSequence: action.sequence }
-            : { measurementAcknowledged: action.sequence },
-        );
+      const owner = {
+        passId: "controlled-delayed-read",
+        connectionEpoch: "owned-model",
+        nativeEpoch: 1,
+      };
+      const acceptedFrames = [];
+      const reader = measurements.createReader({
+        declaration: {
+          version: 1,
+          kind: "native-spectrum/v2",
+          algorithmVersion: "2.0.0",
+          sampleRate: rate,
+          hopSamples: 2048,
+          windowSamples: 2048,
+          width: 6,
+          capacity: 128,
+          fields: [
+            { name: "endCounter", unit: "samples" },
+            { name: "centroidHz", unit: "Hz" },
+            { name: "energy", unit: "linear" },
+            { name: "startCounter", unit: "samples" },
+            { name: "frameEnd", unit: "samples" },
+            { name: "invalidFrames", unit: "count" },
+          ],
+        },
+        epoch: 1,
+        ownerContext: {
+          generation: "owned-model-generation",
+          ...owner,
+        },
+        consume: (record) => {
+          assert.equal(record.startSample, record.values[3]);
+          assert.equal(record.endSample, record.values[0]);
+          acceptedFrames.push(record);
+          return true;
+        },
+      });
+      reader.begin();
+      let current = page;
+      let readCounter = origin + totalSamples + 1;
+      const advance = () => {
+        const bin = (readCounter - origin) % 2048;
+        const low = readCounter % 1048576;
+        const high = Math.floor(readCounter++ / 1048576);
+        return queued.step(0, 0, 0, 0, bin, low, high).slice(11);
+      };
+      for (let sequence = 1; sequence <= frameCount; sequence++) {
+        assert.equal(current[4], sequence);
+        const settling = reader.poll(current);
+        assert.equal(settling.status, "settling");
+        for (const action of settling.actions)
+          queued.configure({ measurementAcknowledged: action.sequence });
         current = advance();
+        const accepted = reader.poll(current);
+        assert.equal(accepted.status, "accepted", JSON.stringify(accepted));
+        assert.notEqual(reader.poll(current).status, "failed");
+        for (const action of accepted.actions) {
+          queued.configure(
+            action.type === "request"
+              ? { measurementReadSequence: action.sequence }
+              : { measurementAcknowledged: action.sequence },
+          );
+          current = advance();
+        }
       }
-    }
-    assert.equal(reader.complete().status, "completed");
-    assert.equal(reader.stats().accepted, 4);
-    assert.equal(acceptedFrames.length, 4);
-    for (const [index, record] of acceptedFrames.entries()) {
-      assert.equal(record.sequence, index + 1);
-      assert.equal(record.startSample, origin + index * 2048);
-      assert.equal(record.endSample, origin + (index + 1) * 2048);
-      assert.equal(record.values[1], published[index][0]);
-      assert.equal(record.values[2], published[index][1]);
-    }
-  });
+      assert.equal(reader.complete().status, "completed");
+      assert.equal(reader.stats().accepted, frameCount);
+      assert.equal(acceptedFrames.length, frameCount);
+      for (const [index, record] of acceptedFrames.entries()) {
+        assert.equal(record.sequence, index + 1);
+        assert.equal(record.startSample, origin + index * 2048);
+        assert.equal(record.endSample, origin + (index + 1) * 2048);
+        assert.equal(record.values[1], published[index][0]);
+        assert.equal(record.values[2], published[index][1]);
+      }
+    });
 
 for (const rate of [44100, 48000])
   test(`actual ${rate}Hz envelope producer retains complete hops and fractional tail`, () => {

@@ -12,7 +12,7 @@ import { genDocument } from "./native-source.mjs";
 // readback/compilation evidence and a matching versioned reader handshake.
 export function retainedNativeSpectrumSource() {
   const retention = retainedMeasurementSource({
-    capacity: 32,
+    capacity: 128,
     firstOutput: 12,
     values: [
       "publishedEnd",

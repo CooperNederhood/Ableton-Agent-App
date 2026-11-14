@@ -6,6 +6,7 @@ import {
   BROWSER_IDENTITY_GUIDANCE,
   FEATURE_VALUE_DETAIL_GUIDANCE,
   METRIC_REPORT_PAGE_GUIDANCE,
+  METRIC_STREAM_READ_GUIDANCE,
   abletonToolMetadata,
   parseAbletonToolFailure,
   resolveAbletonOperation,
@@ -383,6 +384,15 @@ export function createAgentPolicy(services: AgentPolicyServices): AgentPolicy {
           "action" in input.toolArgs &&
           input.toolArgs.action === "report"
             ? [METRIC_REPORT_PAGE_GUIDANCE]
+            : []),
+          ...(input.toolName === "ableton_context" &&
+          input.toolArgs !== null &&
+          typeof input.toolArgs === "object" &&
+          "action" in input.toolArgs &&
+          ["stream-overview", "stream-records"].includes(
+            String(input.toolArgs.action),
+          )
+            ? [METRIC_STREAM_READ_GUIDANCE]
             : []),
         ].join("\n"),
       };

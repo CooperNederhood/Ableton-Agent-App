@@ -1,5 +1,424 @@
 # Playback Listening and Entity Context
 
+## Long-form Arrangement listening
+
+The long-form target is one continuous, fixed-tempo Arrangement pass through
+one track listener, retaining level, spectral centroid, attacks, mel bands,
+pitch and spectral shape for up to ten minutes. Delivery boundaries must not
+restart playback, reset analyzer windows/detector history, or silently omit
+records. A terminal result must independently reconcile source/sample coverage,
+metric counts, durable chunks and native cleanup, not merely report that the
+requested wall-clock time elapsed.
+
+The Arrangement tool and application execution allowance is at most 900 seconds
+to accommodate ten minutes of audio plus bounded finalization. This execution
+allowance does not itself admit a longer native capture or establish streaming
+capability. Session execution remains bounded to 300 seconds, and Session
+long-form listening is outside this scope. Actual admission must use negotiated
+native capabilities and the source geometry; no fallback to repeated short
+captures is permitted.
+
+The implementation must use bounded incremental messages, bounded in-memory
+queues and typed paginated context reads. Existing SQLite and aggregate context,
+pass and feature-storage quotas may be relaxed to generous configurable values
+as needed; preserving the old 32 MiB store ceiling or optimizing storage is not
+a prerequisite. Persist observation records and metadata, not raw audio.
+Write failures and acquisition/delivery loss must remain explicit.
+
+The proposed user-supplied smoke source is `Drums-audio`, beats 0–384 at
+128 BPM: exactly 180 seconds across 24 adjacent Arrangement clips. Offline
+intake alone does not establish a loaded baseline. The user explicitly approved
+the exact fixture contract, project-local repository test assets, and isolated
+three-minute real-host execution on 2026-11-14. Approval does not establish a
+passing acceptance case. A three-minute
+real-host result, when obtained, must not be described as ten-minute real-host
+qualification or proof of musical recognition.
+
+**Current qualification (2026-11-14):** terminal `run-S4Cl1H` passed the reviewed
+three-minute fixture on Live Suite 11.3.43 at 48 kHz. One continuous capture
+covered all 8,640,000 samples and all six metric families in 251 immutable,
+digest-verified chunks. Independent assertions verified source/range, exact
+record counts, capture cleanup with playback left running, protected Set/media
+state, and original records/manifest/context ownership after an owned Desktop
+restart without recapture. Final runner cleanup completed. This is one recovered
+passing case after the preserved failures below, not first-attempt reliability,
+ten-minute qualification, or additional visual UX qualification.
+
+The user then selected a focused existing Session regression set. All three
+passed on Live Suite 11.3.43/48 kHz with the same verified app executable
+SHA-256 `4e68554e85fb1ae754de58d96503131f2a1e2c12e6893c9fd5a86612239a0988`:
+
+| Scenario                           | Terminal receipt | Verified scope                                                      |
+| ---------------------------------- | ---------------- | ------------------------------------------------------------------- |
+| `session-clip-identify`              | `run-PQJot8`     | One capture, correct identification, original context after restart. |
+| `session-listening-feature-search`  | `run-qRBkVE`     | Two six-family captures, feature/search and restart reads.            |
+| `session-stopped-quantized-midi`    | `run-pCeJK6`     | MIDI Session capture from saved stopped/nonzero/quantized state.      |
+
+Every selected turn and terminal assertion passed, including independent
+capture coverage, protected state and final runner cleanup. No host processes
+remained after the selected runs. No product fixes or fixture/permission/oracle
+changes were needed. These are three passing single cases, not qualification
+of the entire registered Session suite or additional visual UX coverage.
+
+The following is the historical investigation, including its then-pending gates.
+
+The approved fixture and `arrangement-long-form-listening` scenario are now
+registered and pass fixture validation. Fixture-driven execution on 2026-11-14
+exposed setup failures before any listening turn: missing packaged output
+(`run-l7RW2U`), invalid local app signing (`run-8UIXbJ`) and app signing rewriting
+pinned Max plugin binaries (`run-cMS5jD`). The local arm64 directory build now
+uses ad-hoc app signing, while `mac.signIgnore` preserves the
+`ableton-integrations/` payload byte-for-byte; the packaged pin regression passes.
+Subsequent attempts `run-S2JgDR` and `run-HJMJqt` were blocked by Live crash
+recovery for the generated `prepared.als` and cancelled with terminal receipts
+reporting complete runner cleanup. The user subsequently opened and closed Live
+to clear its startup state. Attempts `run-b32oj4` and `run-v1XOYv` then launched
+Live but timed out before Desktop's first window; neither executed listening.
+The existing packaged startup regression passes with an environment credential.
+As in the separately documented historical Keychain startup investigation, the
+next attempt uses the real installed Remote Script token through the supported
+environment credential source, held only in the child process environment.
+`run-2egufy` reached its isolated Desktop automation endpoint with that source;
+this is not successful OS-vault startup or three-minute capture qualification.
+Preserve all earlier receipts rather than treating setup retries as captures.
+That attempt independently reached a connected/authenticated/ready application
+but discovered zero listeners. Read-only inspection of the owned Node-for-Max
+producer confirmed the updated v6 listener and correct isolated discovery paths;
+the ingress descriptor still advertised only the three older capabilities.
+The SDK correctly refused that mismatch before opening a socket. Ingress
+discovery and hello acknowledgements now advertise the implemented continuous
+capability under the existing independent-metrics opt-in. The descriptor
+regression failed before the fix and all 196 signal-routing tests pass with it.
+The interrupted diagnostic attempt has no terminal acceptance receipt; its
+descriptor/logs are preserved separately and its owned processes, profile and
+orphaned host lease were explicitly cleaned up before another attempt.
+With that fix, `run-Hg1jKt` passed listener readiness and reached the independent
+Arrangement precondition read. It was blocked because the installed Remote
+Script lacked `listening.inspect_arrangement_source`; no turn ran and terminal
+cleanup was complete. Building and replacing fixture listeners does not install
+Python into Live's User Library. While Live was closed, the canonical updater
+installed the current candidate's bundled Remote Script, preserving its existing
+token and backup. A fresh unchanged-fixture attempt follows that installation.
+Attempts `run-lwQJ2h` and `run-q7fq5o` then reached the loaded-source guard:
+Live was stopped at beat 72/128 BPM, recording toggles were off and no Session
+clips were playing/queued, but global Back to Arrangement was on and target
+Arrangement eligibility was unavailable. Both retained blocked receipts with
+complete cleanup and no listening turn. The user explicitly approved one
+declared Back to Arrangement source handoff before capture, rather than editing
+the fixture or requiring manual view preparation. The original fixture/audio,
+single start/capture and exact six-family three-minute criteria remain
+unchanged. Shared pre-baseline setup/evidence integration is implemented and
+its 900 owning integration tests pass; the guarded driver/helper tests and both
+acceptance typechecks also pass. Real-host handoff/capture qualification remains
+pending the next approved run.
+`run-eQJNVh` then verified the one-shot handoff, passed loaded baseline admission
+and submitted the exact listening turn. The Default agent refused it without
+starting playback because production guidance still stated an unqualified
+thirty-second ceiling. The failed assertion and complete cleanup are preserved.
+Guidance now distinguishes negotiated, single-listener continuous Arrangement
+captures up to 600 seconds from the unchanged Session and bounded-observation
+limits. The new guidance regression fails without this correction and the full
+147-test tools suite passes. This enables an attempt, not a capture-success claim.
+`run-czsOjt` then passed the same preparation and reached agent tools, but the
+agent requested a separate transport seek. The unchanged scoped approval
+correctly rejected that call; cleanup completed and no capture succeeded.
+Production guidance now requires calling `play-arrangement-and-listen`
+directly: that action owns stopped positioning and the single playback start.
+Listener discovery also returns the bounded, authenticated registration
+capabilities instead of hiding the continuous advertisement from the agent.
+The discovery read remains non-mutating and does not claim per-pass readiness.
+Both guidance/discovery regressions fail without their fixes. The reviewed
+prompt, fixture, exact counts and capture permission remain unchanged.
+`run-mFUgYU` reached actual native acquisition and durable streaming: 49 chunks
+and 1,692,160 samples (about 35.25 seconds) were retained before a listener
+disconnect. No context was published; capture cleanup could not be confirmed,
+while final runner process/profile cleanup completed. A deterministic socket
+regression then reproduced continuous ingress incorrectly applying the
+eight-pending-chunk limit to a coalesced burst of ordinary native progress
+messages. Ingress now counts pending chunks separately, including the chunk
+being durably delivered, while retaining the existing general message bound.
+The progress-burst regression is red without the fix, the nine-chunk denial
+remains enforced, and the 198-test signal-routing suite passes. The unchanged
+three-minute smoke must still establish terminal acquisition and cleanup.
+`run-yiyQNT` still disconnected after 49 chunks/about 30.21 seconds, despite
+the corrected queue classification; its final runner cleanup completed. The
+burst fix therefore does not establish the remaining disconnect cause. A
+subsequent launch was blocked before opening Live by the active artifact
+directory retention guard. Completed historical setup failures `run-Hg1jKt`
+and `run-q7fq5o` were preserved unchanged under
+`.test-artifacts/fixture-authoring/retained-acceptance/` (receipt hashes verified),
+not deleted or rewritten, before a fresh diagnostic attempt.
+`run-9bdGDb` and `run-A7ipzJ` preserved the same failure with completed runner
+cleanup. Bounded reads of the owned Node-for-Max SDK showed healthy ACKs and
+empty write queues before teardown. Non-pausing native logpoints then identified
+`spectralshape_invalid_envelope` and `pitch_invalid_envelope`: the separate,
+unqualified stock diagnostic gates were capped at 400 deliveries at 10 Hz,
+aborting the otherwise continuous pass at about forty seconds. Both physical
+Max gates and their Node observers now use a finite duration-derived budget
+(capture duration plus the existing forty-second margin, at most 6,400
+deliveries). Session/bounded probes retain 400. Progress intervals scale to
+preserve the existing 96/288 diagnostic event budgets; no native metric records,
+qualification claims or cleanup guards are weakened. Physical-gate/Node tests
+reproduce the old failure and cover 180/600-second horizons, scope/overflow
+denial and cancellation cleanup.
+`run-A4Ei14` passed the forty-second boundary and durably retained 155 chunks /
+5,304,375 samples (about 110.51 seconds), then disconnected at the next stale
+diagnostic boundary. The spectral retention handoff still rejected elapsed
+times over 120 seconds even for explicit continuous captures. Its guard now
+uses the finite 720-second continuous native deadline while retaining the
+120-second bounded limit. A regression fails on the original guard and checks
+180/600-second observations, exact ceiling/overflow and the unchanged bounded
+denial.
+`run-sTnnsx` still disconnected at that boundary: the metric lifecycle wire
+schema inherited a separate 120-second `elapsedMs` ceiling. Actual emitted
+180/600-second diagnostic events now pass through the shipping schema in
+regressions. Continuous lifecycle elapsed time is finite and capped at 900
+seconds; authenticated bounded-mode ingress still rejects elapsed/duration
+over 120 seconds. The 199 signal-routing and 1,079 native tests pass.
+`run-H1lVxa` then completed the full 180-second acquisition on Live 11.3.43:
+251 original chunks, all six exact reviewed counts, no missing records,
+confirmed capture/source release and playback left running. Its terminal
+receipt remains failed: the acceptance assertion incorrectly equated tool-call
+causation with the user-message ID and absolute host sample positions with
+zero-based offsets. The verifier now independently joins the scoped Desktop
+approval's tool causation to the job and persisted descriptor, checks exactly
+8,640,000 elapsed host samples, and requires every metric's identical absolute
+endpoints. Regression tests reproduce both mismatches before the correction.
+The fixture, prompt, source range, metric counts and permissions are unchanged.
+An unchanged real-host rerun and owned-restart persistence qualification remain
+required; the earlier failed receipt is not rewritten or reclassified.
+`run-P5RalY` also completed full acquisition/release, then correctly failed the
+still-fixed centroid count: its verified absolute FFT phase yields 4,219
+records, not 4,218. The user explicitly approved calculating that one exact
+count from the verified phase and 180-second host range, rather than forcing
+capture alignment or accepting a loose count range. Every chunk/native phase
+proof and all other fixed counts remain required. Both terminal failures are
+preserved while the revised reviewed assertion awaits a fresh run.
+`run-jn3ISH` failed acquisition before that assertion: the physical spectral
+FIFO exhausted its 32 retained frames (about 1.37 seconds at 48 kHz). Production
+retention now has a fixed 128-frame/10,240-byte descriptor ring (about 5.46
+seconds), with matching Max/TypeScript declarations and Node handoff bounds.
+Generated-DSP regressions reproduce the old 64-frame delayed-read loss at both
+sample rates, preserve exact record order after draining, and still fault at
+the 129th unacknowledged frame without overwriting any record. Overflow cleanup
+remains independently required.
+`run-zEUoZc` then failed with a distinct native spectral-reader rejection around
+34 seconds; acquisition and restart persistence are not qualified. The exact
+reader reason was hidden after the routine 900-event progress quota filled.
+A red/green controller regression now reserves one attributable, bounded reader
+rejection event with its decoded reason and at most twenty current/prior scalar
+readback facts. Routine progress retains its quota; duplicates cannot repeat the
+reserved event. This improves the evidence, not the unresolved reader itself.
+The user clarified that the fixture remains the end-to-end feedback loop, with
+focused regressions added for failures rather than suspending real-host checks.
+`run-ZAsrAt` exposed the earlier primary failure: envelope `shared_dsp_control`;
+the generic spectral-reader rejection was secondary cleanup. A bounded native
+IO/runtime regression now preserves the actual failing family, reader reason,
+current request/slot/production/ACK/fault and prior request/ACK coordinates.
+`run-cVitOp` identified detector-level `invalid_dsp_control`: request 889,
+produced 888, accepted ACK 887, fault 2.
+
+A generated-DSP regression reproduced independent ACK/request Param execution
+reordering. Readers now authorize an ACK only after coherent DSP readback proves
+the next request executed, and never issue another ACK before the prior ACK is
+observed. One next immutable record can settle while the authorized ACK executes;
+this preserves sustained FFT throughput without weakening DSP guards. Both Max
+adapters dispatch these deferred ACKs; envelope completion waits for its last
+executed ACK. Delay, immutable-slot, cancellation, finite-overflow and native
+throughput coverage remains green.
+
+`run-swFSvX` then failed before useful capture on a stale stopped clock bracket
+after a scheduler pause. A separate red/green controller test reproduces this:
+rolling brackets discard expired samples and wait for 32 fresh native rows,
+retaining the existing one-second freshness/schema limits and stage deadlines.
+The full native suite passes 1,087 tests. The next unchanged-fixture run,
+`run-S4Cl1H`, passed every terminal assertion; no further host runs were launched.
+
+Completed historical failures `run-A4Ei14`, `run-sTnnsx` and `run-mFUgYU` were
+moved unchanged to `.test-artifacts/fixture-authoring/retained-acceptance/` to
+respect the active runner's sixteen-entry quota; receipt hashes match before
+and after relocation.
+
+The typed listening job can carry durable capture progress: actual sample rate,
+requested samples, persisted samples and persisted chunk count. The coordinator
+rejects impossible coverage, changed identity and regressing counters, throttles
+progress presentation, and ignores late callbacks after cancellation/terminal
+state. Desktop shows retained seconds separately from lifecycle completion;
+even full progress is not terminal source/metric/cleanup verification. No audio
+or measurement vectors are included in these progress events.
+
+The coordinator distinguishes prepared `metric-record-stream/v1` captures from
+whole observations. A stream returns manifests, never an empty observation
+array standing in for success. Before publication it checks Arrangement scope,
+selected listener/pass and trace ownership, invokes the stream-specific
+validator, releases playback monitors, confirms capture disarm and checks
+cancellation. Only then may the stream publication service commit the staged
+context. Missing stream services, malformed/empty terminal results and cleanup
+failure cannot fall back to legacy publication.
+
+### Continuous metric protocol foundations
+
+The separate `metric-listening-geometry/v2` admission contract requires
+`captureMode: "arrangement-continuous"` and admits one sample through 600 seconds
+at 44,100/48,000 Hz, with the original independently rounded global quarter-beat
+grid. Its exact worst-case bounds are 39,961 reporting rows, 14,065 possible
+FFT acquisitions and 6,000 detector windows. The v1 geometry, complete v5
+observation transport and Session capture limits remain unchanged at 30 seconds.
+The new `audio-listener/arrangement-continuous-metric-stream-v1` capability
+describes one Arrangement listener, all six metric families and manifest-only
+termination; publishing that capability still requires actual producer support.
+Native command admission uses the separate
+`nativeContinuousMetricListeningConfigSchema` with scope
+`arrangement-continuous-metric-stream/v1`, explicit Arrangement capture mode,
+that capability, exact capture-local zero-origin geometry, existing timing/grid
+and detector settings, and explicit chunk-byte/pending-queue limits. It cannot
+admit Session, nonlocal source counters or an unnegotiated legacy capability.
+This request is not the final source descriptor: native launch proof must first
+establish its actual source origin and algorithm/phase readiness.
+Continuous ready/arm proofs use that same explicit continuous scope and config,
+with separately bounded long configuration readbacks. Shared refinements retain
+the original ABI3 readiness, idle-owner/freshness, stopped-clock, double-read
+seal, arm-counter and projected counter-headroom guards. The exported control
+config/ready/arm unions admit either contract without widening the bounded
+schemas. The DSP launch tuple/proof is unchanged; continuous launch-coordinate
+verification binds it to the pinned continuous arm owner/configuration.
+Registration has a separate v6 continuous producer-status contract and exact
+four-capability tuple (independent metrics, mel, analyzers, continuous stream).
+It declares 600,000 ms/39,961 rows for Arrangement but explicitly retains
+30,000 ms/2,000 rows for Session. READY requires an actual double-read
+600-second all-six executed configuration, matching registered rate/vector
+and ABI3 analyzer readiness. Missing/short/subset evidence cannot upgrade v5.
+BLOCKED retains an explicit reason without manufacturing execution evidence.
+These are producer-reported contracts, not actual native implementation or
+real-host streaming qualification; authenticated freshness, integrated producer
+support and external qualification gates remain mandatory.
+
+`metric-record-stream/v1` is an immutable acquisition descriptor.
+It binds the complete native ownership/trace/correlation/causation identity,
+Arrangement target/range, source-counter geometry, timing policy, requested
+metrics, exact algorithm profiles, availability/reasons and FFT phase.
+Storage may persist its canonical `metric-record-stream-admission/v1` compact
+form plus descriptor digest instead of copying reporting rows. This admission
+contains only geometry input coordinates/rate/vector/tempo/mode and the same
+source/ownership/profile metadata. `compactMetricRecordStreamDescriptor` and
+`expandMetricRecordStreamAdmission` validate and deterministically recover the
+identical descriptor/digest; derived rows exist transiently, not in staged
+metadata or terminal publication. Native zero-origin command admission and
+actual-source-pinned storage admission remain distinct.
+`metric-record-chunk/v1` references its SHA-256 digest instead of repeating
+geometry/report rows. Each metric independently advances `chunkSequence`,
+`recordOffset` (retained-record count) and `slotOffset` (covered expected slots).
+Records retain their original fields, values and half-open supports; continuous
+indices have their own bounds rather than weakening the short timeline schemas.
+Explicit indexed gaps cover unavailable slots without fabricated zero values.
+After a missing attack-input window, later detector records cannot be admitted:
+the missing replay history is not recoverable from musical reporting rows.
+
+Each chunk has 1–256 combined record/gap entries and at most 128 KiB of encoded
+UTF-8 JSON, including attribution and digests. The raw-wire parser checks bytes
+before JSON parsing. The pending queue is bounded globally across metrics by the
+descriptor's 1–8 chunk allowance. These are transport/backpressure limits, not
+SQLite, aggregate-context or feature-storage quotas; they do not impose an
+upfront storage-sizing prerequisite or justify discarding original measurements.
+
+SHA-256 uses recursively sorted object keys, original array ordering and ordinary
+JSON scalar encoding. The descriptor digest covers its complete parsed value;
+each chunk digest covers its complete parsed value **except** `digest`, and its
+`previousDigest` is that metric's preceding digest (initially the descriptor
+digest). Hashes bind integrity, not authentication or physical source provenance.
+The application must pin the authenticated native owner/admission and sanitize
+bounded free-text metadata before hashing/persistence; sanitized journal copies
+must not be mistaken for rewritten authoritative numeric measurements.
+
+`acceptMetricRecordChunk` checks identity, independent offsets/sequences, digest
+links, exact source-aligned supports, gap coverage, Nyquist and incremental
+attack replay. Persist its returned small state with the chunk in the same
+SQLite transaction; failed writes must not advance the producer acknowledgement
+or publish a context. Duplicate/reordered chunks are rejected, not silently
+merged. Queue exhaustion, capture loss and cancellation require explicit gaps
+and application-owned failure/cancellation/cleanup handling.
+
+Continuous native control and ready/arm proof envelopes must also omit derived
+geometry rows. At 600 seconds/999 BPM, geometry alone exceeds 3.2 MB.
+`compactNativeContinuousMetricListeningConfig`,
+`compactNativeContinuousMetricReadyProof` and
+`compactNativeContinuousMetricArmProof` retain the immutable geometry inputs.
+The corresponding `nativeMetricControlConfigWireSchema`,
+`nativeMetricControlReadyProofWireSchema` and
+`nativeMetricControlArmProofWireSchema` regenerate the exact canonical geometry
+before applying unchanged admission, native receipt and proof guards.
+Internal config/proof schemas remain full-geometry validators, not wire encoders.
+Registration uses `compactListenerNativeContinuousMetricStatus` and
+`listenerMetricRegistrationMetadataWireSchema` so its executed arm evidence
+cannot reintroduce a giant geometry payload. The producer and authenticated
+ingress must explicitly use these wire helpers; defining them does not establish
+native integration or permit raising frame limits.
+The physical DSP launch tuple deliberately retains the
+`independent-metric-timelines/v1` launch scope; only continuous admission and
+ready/arm scopes change. `assertNativeContinuousMetricSourceCoverage` validates
+the controller's completed preterminal armed/launched/completion/source evidence
+through the same native source arithmetic as the legacy helper, without applying
+the legacy geometry ceiling. Partial/cancelled terminal capture prefixes instead
+use manifest verification and must not claim full completed source coverage.
+
+`metric-record-stream-manifest/v1` contains no record arrays or report rows.
+For every requested metric it reconciles the durable prefix's counts, final
+digest, availability, gaps/reasons and exact unpadded trailing-window support
+with the descriptor. It retains the bounded algorithm profiles and unavailable
+reasons as summary metadata, exactly matching the descriptor. Original gap
+details remain in their digest-bound chunks. Expected counts cover the admitted
+planned geometry; a cancelled/failed acquisition accounts for its unacquired
+suffix with explicit gaps. Its trailing support instead describes the actual
+captured prefix, including an aborted partial level/detector window, never
+samples beyond the native stop counter.
+Terminal native proof retains actual double-read configuration/timing,
+pre/post clock bindings and timing extrema, launch/source-counter arithmetic,
+FFT phase and confirmed disabled cleanup. Final verification reuses the existing
+source/alignment checker and rejects records beyond a cancelled capture's actual
+sample prefix. A parsed manifest is not independent native execution evidence.
+Final cleanup confirms the listener capture is inactive while the host
+Arrangement transport remains running; the terminal checked clock therefore
+requires playing transport, not an additional playback-stop mutation.
+
+After durable-prefix/native verification,
+`summarizeMetricListeningStreamManifest` derives the existing
+`MetricListeningResultSummary` directly from a publishable manifest, including
+mandatory native-family not-requested entries. Summary counts have explicit
+continuous per-family limits; original observation/admission limits are not
+widened. Stream summaries retain `nativeStatus` so a native failure cannot be
+misreported as a complete capture merely because every retained metric happens
+to have complete indexed coverage. Failed/cancelled manifests are not
+publishable summaries.
+
+The attributed `metric-record-stream-lifecycle/v1` contract supports
+queued/started/progress/completed/failed/cancelled events and elapsed timing for
+admission, capture, drain, persistence, publication and cleanup. Application
+boundaries emit/redact those events; pure protocol validators emit none.
+Its explicit `requestedSamples`, `capturedSamples`, `durablyPersistedSamples`
+and `pendingChunks` fields retain honest sample/queue progress; unavailable
+observations are `null`. Durable sample progress is the actual captured prefix
+whose required metric records or explicit gaps are committed, not a claim that
+missing audio was measured. It cannot exceed captured/requested samples.
+The shared `MAX_ARRANGEMENT_LISTENING_EXECUTION_MS` ceiling is 900,000 ms,
+separate from the 600-second audio bound; the Session execution limit remains
+300,000 ms.
+Native generation/readiness, authenticated transport and acknowledgements,
+transactional staging/publication, typed paginated original-record reads,
+feature/report consumers and real-host validation remain integration work.
+Synthetic protocol coverage includes one complete 600-second six-family stream;
+it is not ten-minute Live or musical-recognition qualification.
+The `@ableton-agent/protocol/testing` entry point supplies
+`createSyntheticMetricRecordStreamTerminalProof`,
+`createSyntheticMetricRecordStreamManifest` and
+`createSyntheticMetricRecordStreamFixture` for downstream deterministic tests.
+The manifest helper accepts the shared `SyntheticMetricRecordStreamOptions`
+and returns a verified synthetic manifest without requiring native tuple setup.
+The optional `target` preserves an explicit regular/return track index and
+reference; omitting it retains the synthetic master target.
+The fixture exposes reentrant bounded chunk iterators plus compact admission,
+small final state and a verified synthetic manifest, never a retained long
+timeline array. These helpers are not production readiness or real-host proof.
+
 ## Current-build native failure investigation
 
 The approved two-MIDI fixture initially failed on its first Operator capture
@@ -2157,11 +2576,14 @@ streams, independent rates and value layouts, and future asynchronous adapters.
 It does not require a multi-writer audio-thread queue or arbitrary JSON output.
 Actual FluCoMa analyzers and dependency installation remain deferred.
 
-The initial native prototype uses local Gen `Data` for descriptor records, not
-audio. Envelope and spectrum capacities are 16 and 32 records. Each reserves
-2560 bytes of double-precision record storage, plus small fixed histories.
-Selected records remain immutable until acknowledged; the consumer advances its
-read request before acknowledging the previous record. Ownership/sequence
+The initial native prototype used local Gen `Data` for descriptor records, not
+audio: envelope/spectrum capacities were 16/32 records with 2560 bytes each.
+The current spectral ring has 128 records and 10,240 bytes after the reproduced
+long-pass delayed-reader overflow; the envelope remains at 16/2560. This source
+change does not inherit the historical physical qualification below.
+Selected records remain immutable until acknowledged; coherent DSP readback of
+the next request must precede acknowledging the previous record. JavaScript
+send order alone is insufficient for independent Params. Ownership/sequence
 bookends identify stale or incoherent reads, and overflow latches an explicit
 failure rather than overwriting unread data. Capacity does not extend existing
 deadlines or establish tolerable physical scheduler delay.

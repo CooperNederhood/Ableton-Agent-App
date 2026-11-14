@@ -2,7 +2,7 @@ import { z } from "zod";
 import {
   listeningCanonicalDevicePathSchema,
   listeningCanonicalTrackPathSchema,
-  nativeMetricListeningConfigSchema,
+  nativeMetricControlConfigSchema as nativeMetricListeningConfigSchema,
   type ListeningFailureEvidence,
 } from "@ableton-agent/protocol";
 import type { OutputProducer } from "./contracts.js";
@@ -87,5 +87,8 @@ export interface ListenerService {
     input: ListenerControlInput,
     options?: ListenerControlOptions,
   ): Promise<ListenerReplyMetric>;
-  onListenerResult(listener: (event: ListenerResultEvent) => void): () => void;
+  /** Async consumers settle before ingress acknowledges durable delivery. */
+  onListenerResult(
+    listener: (event: ListenerResultEvent) => void | Promise<void>,
+  ): () => void;
 }

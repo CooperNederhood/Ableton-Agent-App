@@ -153,11 +153,13 @@ test("delayed DSP ACK application cannot make the real reader skip a Gen acknowl
     0,
     "a second ACK must not overwrite the still-unexecuted first ACK",
   );
-  assert.equal(pending.status, "waiting");
+  assert.equal(pending.status, "accepted");
+  assert.deepEqual(pending.actions, [{ type: "request", sequence: 3 }]);
   model.configure({ measurementAcknowledged: 1 });
   const committed = model.step();
   const next = reader.poll(committed);
-  assert.equal(next.status, "accepted");
+  assert.equal(next.status, "settling");
+  assert.deepEqual(next.actions, [{ type: "acknowledge", sequence: 2 }]);
   for (const action of next.actions)
     model.configure({
       [action.type === "request"
@@ -165,10 +167,60 @@ test("delayed DSP ACK application cannot make the real reader skip a Gen acknowl
         : "measurementAcknowledged"]: action.sequence,
     });
   assert.equal(model.step()[9], 0);
+  const third = reader.poll(model.step());
+  assert.equal(third.status, "accepted");
+  assert.deepEqual(third.actions, [{ type: "request", sequence: 4 }]);
   assert.deepEqual(
     records.map((record) => record.sequence),
-    [1, 2],
+    [1, 2, 3],
   );
+});
+
+test("reader waits for executed request before an ACK can reach DSP ahead of that request", () => {
+  const { model } = fixture();
+  for (let sequence = 1; sequence <= 3; sequence++)
+    model.step(1, (sequence - 1) * 2048, sequence * 2048, sequence);
+  const records = [];
+  const reader = measurements.createReader({
+    declaration: {
+      version: 1,
+      kind: "scalar",
+      algorithmVersion: "v1",
+      sampleRate: 48000,
+      hopSamples: 2048,
+      windowSamples: 2048,
+      width: 2,
+      capacity: 4,
+      fields: [
+        { name: "a", unit: "linear" },
+        { name: "b", unit: "linear" },
+      ],
+    },
+    epoch: 1,
+    consume(record) {
+      records.push(record);
+      return true;
+    },
+  });
+  reader.begin();
+  for (let poll = 0; poll < 32; poll++) {
+    const result = reader.poll(model.step());
+    assert.notEqual(result.status, "failed");
+    // Independent Params need not execute in JavaScript send order.
+    for (const action of [...result.actions].reverse()) {
+      model.configure({
+        [action.type === "request"
+          ? "measurementReadSequence"
+          : "measurementAcknowledged"]: action.sequence,
+      });
+      assert.equal(model.step()[9], 0, "ACK executed before the next request");
+    }
+  }
+  assert.deepEqual(
+    records.map((record) => record.sequence),
+    [1, 2, 3],
+  );
+  assert.equal(model.step()[8], 3);
 });
 
 test("new capture ownership invalidates old slots without storing or clearing audio", () => {

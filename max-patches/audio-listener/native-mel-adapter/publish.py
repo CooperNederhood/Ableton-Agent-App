@@ -80,6 +80,14 @@ def main():
     provenance = {
         "schema": "listener-mel-native-build/v1",
         "producerAbi": 3,
+        "continuousAcquisition": {
+            "maximumSeconds": 600,
+            "offlineDurationsSeconds": [180, 600],
+            "fixedQueueCapacity": 64,
+            "reservedTerminalSlots": 1,
+            "controllerTransportQualified": False,
+            "hostQualified": False,
+        },
         "sourceIdentityDiagnostics": {
             "schema": "analyzer-native-source-identity/v1",
             "delivery": "additive-terminal-record-evidence",

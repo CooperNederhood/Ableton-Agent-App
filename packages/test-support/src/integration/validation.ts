@@ -1,5 +1,11 @@
 import { SUPPORTED_AUDIO_BASELINE } from "./contracts.js";
 import { midiContentIdentity } from "./sources.js";
+import {
+  validateArrangementDefinition,
+  validateArrangementIdentity,
+  type ArrangementFixtureSource,
+  type ArrangementSourceEvidence,
+} from "./arrangement.js";
 import { validateFlatnessSmoke } from "./flatness-smoke.js";
 import { validateSpreadSmoke } from "./spread-smoke.js";
 import { validateRolloffSmoke } from "./rolloff-smoke.js";
@@ -71,7 +77,7 @@ export function identifier(value: unknown): asserts value is string {
     "Invalid identifier",
   );
 }
-function listenerIdentifier(value: unknown): asserts value is string {
+export function listenerIdentifier(value: unknown): asserts value is string {
   text(value, 128);
   requireCondition(
     /^[a-zA-Z0-9][a-zA-Z0-9._:-]*$/u.test(value),
@@ -247,6 +253,7 @@ export function validateFixture(
     "dependencies",
     "listenerBindings",
     "sources",
+    "arrangementSources",
     "builtinResources",
     "coreLibraryResources",
     "baseline",
@@ -322,6 +329,32 @@ export function validateFixture(
     unique(slots);
   }
   validateFacts(value.baseline);
+  if (value.arrangementSources !== undefined) {
+    requireCondition(
+      value.sources === undefined,
+      "Mixed Arrangement/Session source inventories are unsupported",
+    );
+    list(value.arrangementSources, 1);
+    requireCondition(
+      value.arrangementSources.length === 1,
+      "Arrangement smoke requires one regular audio track",
+    );
+    for (const entry of value.arrangementSources) {
+      object(entry);
+      validateArrangementDefinition(
+        entry as unknown as ArrangementFixtureSource,
+        value as unknown as FixtureManifest,
+      );
+    }
+    requireCondition(
+      typeof value.baseline.currentSongTime === "number" &&
+        Number.isFinite(value.baseline.currentSongTime) &&
+        value.baseline.currentSongTime >= 0 &&
+        value.baseline.currentSongTime <= 1_576_800 &&
+        typeof value.baseline.targetArmed === "boolean",
+      "Arrangement baseline requires explicit current beat and target armed state",
+    );
+  }
   if (value.sources !== undefined) {
     list(value.sources, 16);
     requireCondition(value.sources.length > 0, "Empty source inventory");
@@ -464,6 +497,9 @@ export function validatePermission(
           "$source.slotIndex",
           "$source.listenerId",
           "$source.contextId",
+          "$source.trackIndex",
+          "$source.startBeat",
+          "$source.endBeat",
         ].includes(argument),
         "Unknown source permission reference",
       );
@@ -471,7 +507,7 @@ export function validatePermission(
 }
 export function resolvePermissionArguments(
   permission: ScenarioPermission,
-  actualSource?: SessionSourceEvidence,
+  actualSource?: SessionSourceEvidence | ArrangementSourceEvidence,
 ): Facts {
   validatePermission(permission);
   const resolved: Record<string, Facts[string]> = {};
@@ -481,18 +517,40 @@ export function resolvePermissionArguments(
         actualSource,
         "Source permission reference has no actual source binding",
       );
-      source(actualSource.source);
+      const arrangement = "view" in actualSource.source;
+      if (arrangement) validateArrangementIdentity(actualSource.source);
+      else source(actualSource.source);
       listenerIdentifier(actualSource.listenerId);
       if (value === "$source.trackId")
         resolved[key] = actualSource.source.trackId;
-      else if (value === "$source.clipId")
+      else if (
+        value === "$source.trackIndex" ||
+        value === "$source.startBeat" ||
+        value === "$source.endBeat"
+      ) {
+        requireCondition(
+          arrangement,
+          "Arrangement scope reference requires an Arrangement source",
+        );
+        const field = value.slice("$source.".length) as
+          "trackIndex" | "startBeat" | "endBeat";
+        resolved[key] = actualSource.source[field];
+      } else if (value === "$source.clipId") {
+        requireCondition(
+          !arrangement,
+          "Arrangement range has no single Session clip",
+        );
         resolved[key] = actualSource.source.clipId;
-      else if (value === "$source.listenerId")
+      } else if (value === "$source.listenerId")
         resolved[key] = actualSource.listenerId;
       else if (value === "$source.contextId") {
+        requireCondition("contextId" in actualSource, "Missing source context");
         identifier(actualSource.contextId);
         resolved[key] = actualSource.contextId;
-      } else resolved[key] = actualSource.source.slotIndex;
+      } else {
+        requireCondition(!arrangement, "Arrangement range has no Session slot");
+        resolved[key] = actualSource.source.slotIndex;
+      }
     } else resolved[key] = value;
   }
   return Object.freeze(resolved);
@@ -522,6 +580,11 @@ export function validateScenario(
   list(value.requiredCapabilities, 64);
   value.requiredCapabilities.forEach(identifier);
   unique(value.requiredCapabilities);
+  if (fixture.arrangementSources?.length)
+    requireCondition(
+      value.requiredCapabilities.includes("arrangement-audio"),
+      "Arrangement source requires explicit Arrangement capability",
+    );
   if (capabilities)
     for (const capability of value.requiredCapabilities) {
       identifier(capability);
@@ -569,17 +632,27 @@ export function validateScenario(
       requireCondition(step.setupActions.length === 1, "Empty setup actions");
       for (const action of step.setupActions) {
         requireCondition(
-          action === "stop-transport" || action === "restart-owned-desktop",
+          action === "stop-transport" ||
+            action === "restart-owned-desktop" ||
+            action === "back-to-arrangement",
           "Unsupported setup action",
         );
         requireCondition(
-          !setupActions.has(action) && stepIds.length > 0,
-          "Setup actions require a preceding turn and exactly one execution",
+          !setupActions.has(action) &&
+            (action === "back-to-arrangement"
+              ? stepIds.length === 0
+              : stepIds.length > 0),
+          action === "back-to-arrangement"
+            ? "Back to Arrangement requires the first step and exactly one execution"
+            : "Setup actions require a preceding turn and exactly one execution",
         );
         requireCondition(
-          action === "restart-owned-desktop"
-            ? value.requiredCapabilities.includes("persistence")
-            : value.requiredCapabilities.includes("session-audio") ||
+          action === "back-to-arrangement"
+            ? value.requiredCapabilities.includes("arrangement-audio") &&
+                fixture.arrangementSources?.length === 1
+            : action === "restart-owned-desktop"
+              ? value.requiredCapabilities.includes("persistence")
+              : value.requiredCapabilities.includes("session-audio") ||
                 value.requiredCapabilities.includes("session-midi"),
           "Setup actions require declared driver capabilities",
         );
@@ -589,7 +662,10 @@ export function validateScenario(
     if (step.sourceId !== undefined) {
       identifier(step.sourceId);
       requireCondition(
-        fixture.sources?.some((source) => source.id === step.sourceId),
+        fixture.sources?.some((source) => source.id === step.sourceId) ||
+          fixture.arrangementSources?.some(
+            (source) => source.id === step.sourceId,
+          ),
         "Unknown step source",
       );
     }
@@ -707,6 +783,26 @@ export function validateBaseline(
   object(value);
   requireCondition(value.schemaVersion === 1, "Unsupported baseline version");
   validateFacts(value.facts);
+  if (value.arrangementSources !== undefined) {
+    object(value.arrangementSources);
+    requireCondition(
+      Object.keys(value.arrangementSources).length === 1,
+      "Arrangement smoke requires one source",
+    );
+    for (const [id, entry] of Object.entries(value.arrangementSources)) {
+      identifier(id);
+      object(entry);
+      validateArrangementIdentity(
+        entry.source as Parameters<typeof validateArrangementIdentity>[0],
+      );
+      hash(entry.savedProjectSha256);
+      hash(entry.loadedProjectSha256);
+      list(entry.savedClips, 256);
+      list(entry.media, 256);
+      object(entry.before);
+      object(entry.after);
+    }
+  }
   if (value.sources !== undefined) {
     object(value.sources);
     requireCondition(
@@ -800,6 +896,88 @@ export function validateTurn(value: unknown): asserts value is TurnEvidence {
   object(value);
   validateSubmission(value);
   const record = value;
+  if (record.arrangementCaptures !== undefined) {
+    list(record.arrangementCaptures, 1);
+    for (const capture of record.arrangementCaptures) {
+      object(capture);
+      for (const key of [
+        "passId",
+        "operationId",
+        "traceId",
+        "correlationId",
+        "causationId",
+      ])
+        identifier(capture[key]);
+      listenerIdentifier(capture.listenerId);
+      if (capture.stream !== undefined)
+        validateArrangementStreamProof(capture.stream);
+      validateArrangementIdentity(
+        capture.source as Parameters<typeof validateArrangementIdentity>[0],
+      );
+      integer(capture.sampleRate, 8_000, 768_000);
+      integer(capture.startSample, 0, Number.MAX_SAFE_INTEGER);
+      integer(
+        capture.endSample,
+        Number(capture.startSample) + 1,
+        Number.MAX_SAFE_INTEGER,
+      );
+      if (capture.spectralCentroidFirstFrameEndSample !== undefined)
+        integer(
+          capture.spectralCentroidFirstFrameEndSample,
+          Math.max(2048, Number(capture.startSample) + 1),
+          Number(capture.startSample) + 2048,
+        );
+      list(capture.metrics, 64);
+      for (const metric of capture.metrics) {
+        object(metric);
+        identifier(metric.name);
+        identifier(metric.passId);
+        listenerIdentifier(metric.listenerId);
+        for (const key of [
+          "expectedRecords",
+          "receivedRecords",
+          "missingRecords",
+          "startSample",
+          "endSample",
+        ])
+          integer(metric[key], 0, Number.MAX_SAFE_INTEGER);
+        validateArrangementIdentity(
+          metric.source as Parameters<typeof validateArrangementIdentity>[0],
+        );
+        requireCondition(
+          typeof metric.nonSilent === "boolean",
+          "Invalid metric silence evidence",
+        );
+      }
+      for (const key of ["complete", "truncated"])
+        requireCondition(
+          typeof capture[key] === "boolean",
+          "Invalid Arrangement capture flag",
+        );
+      requireCondition(
+        capture.failure === null ||
+          (typeof capture.failure === "string" &&
+            capture.failure.length <= 8192),
+        "Invalid Arrangement failure",
+      );
+      object(capture.cleanup);
+      for (const key of [
+        "captureReleased",
+        "sourceRestored",
+        "transportPlaying",
+      ])
+        requireCondition(
+          typeof capture.cleanup[key] === "boolean",
+          "Invalid Arrangement cleanup flag",
+        );
+      requireCondition(
+        capture.cleanup.failure === null ||
+          (typeof capture.cleanup.failure === "string" &&
+            capture.cleanup.failure.length <= 8192),
+        "Invalid Arrangement cleanup failure",
+      );
+    }
+  }
   if (record.featureSources !== undefined)
     validateFeatureSources(record.featureSources, "peak-only");
   requireCondition(record.schemaVersion === 1, "Unsupported turn version");
@@ -881,12 +1059,39 @@ export function validateTurn(value: unknown): asserts value is TurnEvidence {
     );
   }
 }
+export function validateArrangementStreamProof(value: unknown): void {
+  object(value);
+  rejectUnknownFields(value, [
+    "contextId",
+    "passId",
+    "listenerId",
+    "descriptorDigest",
+    "manifestSha256",
+    "recordsSha256",
+    "chunkCount",
+    "afterOwnedRestart",
+  ]);
+  identifier(value.contextId);
+  identifier(value.passId);
+  listenerIdentifier(value.listenerId);
+  for (const key of ["descriptorDigest", "manifestSha256", "recordsSha256"])
+    hash(value[key]);
+  integer(value.chunkCount, 1, 4096);
+  requireCondition(
+    typeof value.afterOwnedRestart === "boolean",
+    "Invalid owned restart evidence",
+  );
+}
 export function validateEvidence(value: unknown): asserts value is RunEvidence {
   object(value);
+  if (value.arrangementContexts !== undefined) {
+    list(value.arrangementContexts, 1);
+    value.arrangementContexts.forEach(validateArrangementStreamProof);
+  }
   if (value.featureSources !== undefined)
     validateFeatureSources(value.featureSources, "peak-only");
   if (value.setupActions !== undefined) {
-    list(value.setupActions, 2);
+    list(value.setupActions, 3);
     const actions = new Set<string>();
     for (const action of value.setupActions) {
       object(action);
@@ -901,15 +1106,47 @@ export function validateEvidence(value: unknown): asserts value is RunEvidence {
         "agentId",
         "completed",
         "transport",
+        "arrangementSource",
       ]);
       requireCondition(
         (action.action === "stop-transport" ||
-          action.action === "restart-owned-desktop") &&
+          action.action === "restart-owned-desktop" ||
+          action.action === "back-to-arrangement") &&
           !actions.has(action.action) &&
           action.completed === true,
         "Invalid setup evidence",
       );
       actions.add(action.action);
+      if (action.action === "back-to-arrangement") {
+        requireCondition(
+          action.transport === undefined,
+          "Arrangement handoff cannot include transport mutation",
+        );
+        object(action.arrangementSource);
+        rejectUnknownFields(action.arrangementSource, [
+          "command",
+          "dispatchedCount",
+          "beforeBackToArrangement",
+          "afterBackToArrangement",
+          "transportStopped",
+          "verified",
+        ]);
+        requireCondition(
+          action.arrangementSource.command ===
+            "transport.back_to_arrangement" &&
+            action.arrangementSource.dispatchedCount === 1 &&
+            typeof action.arrangementSource.beforeBackToArrangement ===
+              "boolean" &&
+            action.arrangementSource.afterBackToArrangement === false &&
+            action.arrangementSource.transportStopped === true &&
+            action.arrangementSource.verified === true,
+          "Unverified Arrangement source handoff",
+        );
+      } else
+        requireCondition(
+          action.arrangementSource === undefined,
+          "Only Back to Arrangement may contain Arrangement source evidence",
+        );
       if (action.action === "stop-transport") {
         object(action.transport);
         rejectUnknownFields(action.transport, [

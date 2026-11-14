@@ -125,6 +125,81 @@ function setup(mode = "arrangement", partial = false, options = {}) {
   };
 }
 
+test("listener result durable promise settles only after its matching listener acknowledgement", async () => {
+  const f = setup();
+  f.client.handleListenerControl(f.prepare);
+  assert.equal(
+    f.client.sendListenerReply(f.prepare, {
+      status: "ready",
+      nativeReady: f.native.ready
+    }),
+    true
+  );
+  const arm = f.control("arm");
+  f.client.handleListenerControl(arm);
+  assert.equal(
+    f.client.sendListenerReply(arm, {
+      status: "armed",
+      nativeArm: f.native.proof.armed
+    }),
+    true
+  );
+  let settled = false;
+  const result = f.client
+    .sendListenerResultAwaitAck(f.prepare, {
+      status: "progress",
+      nativeLaunch: f.native.proof.launched
+    })
+    .then((value) => {
+      settled = true;
+      return value;
+    });
+  const wire = f.writes.at(-1);
+  await Promise.resolve();
+  assert.equal(settled, false, "socket acceptance is not durable commit");
+  f.client.handleResponse(
+    JSON.stringify({
+      type: "producer.ack",
+      protocolVersion: 1,
+      requestId: "foreign",
+      action: "listener"
+    })
+  );
+  assert.equal(settled, false);
+  f.client.handleResponse(
+    JSON.stringify({
+      type: "producer.ack",
+      protocolVersion: 1,
+      requestId: wire.requestId,
+      action: "listener"
+    })
+  );
+  assert.equal(await result, true);
+  assert.equal(f.client.listenerAcks.size, 0);
+});
+
+test("listener result durable promise fails on disconnect without a matching commit acknowledgement", async () => {
+  const f = setup();
+  f.client.handleListenerControl(f.prepare);
+  f.client.sendListenerReply(f.prepare, {
+    status: "ready",
+    nativeReady: f.native.ready
+  });
+  const arm = f.control("arm");
+  f.client.handleListenerControl(arm);
+  f.client.sendListenerReply(arm, {
+    status: "armed",
+    nativeArm: f.native.proof.armed
+  });
+  const result = f.client.sendListenerResultAwaitAck(f.prepare, {
+    status: "progress",
+    nativeLaunch: f.native.proof.launched
+  });
+  f.client.listenerFailure("disconnected");
+  assert.equal(await result, false);
+  assert.equal(f.client.listenerAcks.size, 0);
+});
+
 test("matched SDK negotiates 2 MiB and delivers thirty-second complete/partial observations without reduction", () => {
   for (const { partial, fixtureGeometry, nearCeiling } of [
     { partial: false, fixtureGeometry: { tempoBpm: 128, endBeat: 64 } },

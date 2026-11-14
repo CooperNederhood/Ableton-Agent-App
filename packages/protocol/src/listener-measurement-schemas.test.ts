@@ -111,9 +111,9 @@ describe("bounded measurement protocol agrees with classic Max core", () => {
   it("pins current native payload widths/capacities without interpreting fields", () => {
     for (const [kind, width, capacity] of [
       ["native-envelope", 16, 16],
-      ["native-spectrum", 6, 32],
+      ["native-spectrum", 6, 128],
       ["native-envelope/v2", 16, 16],
-      ["native-spectrum/v2", 6, 32],
+      ["native-spectrum/v2", 6, 128],
     ] as const) {
       const d = {
         ...declaration(width),

@@ -84,6 +84,10 @@ async function staging(configured, action) {
       join(directory, "audio_listener_pitch_probe.js"),
     );
     await copyFile(
+      join(SOURCE_DIRECTORY, "audio_listener_probe_limits.js"),
+      join(directory, "audio_listener_probe_limits.js"),
+    );
+    await copyFile(
       join(SOURCE_DIRECTORY, "../shared/agent_signal_client.js"),
       join(directory, "agent_signal_client_common.js"),
     );
@@ -126,7 +130,9 @@ test("isolated artifact consumes shared generated profile configuration without 
     assert.equal(result.legacyDiscovery, false);
     assert.equal(result.deviceCanonicalPath, "live_set tracks 0 devices 0");
     assert.equal(result.trackCanonicalPath, "live_set tracks 0");
-    assert.equal(result.nativeStatus.version, 5);
+    assert.equal(result.nativeStatus.version, 6);
+    assert.equal(result.nativeStatus.maxAudioDurationMs, 600000);
+    assert.equal(result.nativeStatus.maxSessionAudioDurationMs, 30000);
     assert.equal(result.nativeStatus.readiness, "BLOCKED");
     assert.equal(result.nativeStatus.alignment, "approximate");
     assert.equal(result.nativeStatus.verifiedAbsoluteErrorBoundSamples, null);

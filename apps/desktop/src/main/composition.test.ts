@@ -24,6 +24,8 @@ import {
   sessionSchema,
 } from "../contracts.js";
 import { resolveLiveAgentStorage } from "@ableton-agent/storage";
+import { currentCorrelationContext } from "@ableton-agent/correlation";
+import { inspectArrangementListeningSourceResultSchema } from "@ableton-agent/protocol";
 import * as runtimeModule from "@ableton-agent/runtime";
 import { ApprovalCoordinator, ApprovalPolicyController } from "./approvals.js";
 import { bridgeTokenKey } from "./bridge-credentials.js";
@@ -84,6 +86,106 @@ async function cleanupFixtures() {
 afterEach(cleanupFixtures);
 
 describe("desktop composition", () => {
+  it("wires both original metric reads and the attributed Arrangement bridge read without a handoff", async () => {
+    const location = await paths();
+    const storage = resolveLiveAgentStorage({
+      environment: {
+        LIVE_AGENT_HOME: join(location.directory, "owned-storage"),
+        LIVE_AGENT_PROFILE: "automation",
+      },
+    });
+    const composition = await createDesktopComposition({
+      ...location,
+      agentsDirectory: resolve("agents"),
+      skillsDirectory: resolve("skills"),
+      storage,
+      environment: {},
+    });
+    expect(Object.keys(composition.entityContext ?? {})).toEqual(
+      expect.arrayContaining(["getMetricCapture", "listMetricChunks"]),
+    );
+    await expect(
+      composition.entityContext!.getMetricCapture({
+        sessionId: "foreign",
+        contextId: "missing",
+      }),
+    ).rejects.toThrow("Unknown App session");
+    const params = {
+      schemaVersion: 1 as const,
+      queryId: "10000000-0000-4000-8000-000000000001",
+      track: {
+        kind: "regular" as const,
+        index: 0,
+        expectedReference: "10000000-0000-4000-8000-000000000002",
+        expectedName: "Drums",
+      },
+      range: { startBeat: 0, endBeat: 384 },
+    };
+    const state = {
+      transportPlaying: true,
+      currentBeat: 0,
+      tempoBpm: 128,
+      loopEnabled: false,
+      arrangementRecord: false,
+      sessionRecord: false,
+      overdub: false,
+      sessionAutomationRecord: false,
+      globalBackToArrangement: false,
+      targetArmed: false,
+      targetMonitoring: 2,
+      arrangementEligible: true,
+      playingSessionClips: 0,
+      queuedSessionClips: 0,
+    };
+    const source = inspectArrangementListeningSourceResultSchema.parse({
+      ...params,
+      projectRevision: 1,
+      evidence: "message-rate-only",
+      projectPath: null,
+      before: state,
+      after: state,
+      clips: [],
+    });
+    const inspect = vi.fn(async () => {
+      expect(currentCorrelationContext()).toMatchObject({
+        traceId: params.queryId,
+        correlationId: params.queryId,
+        causationId: params.queryId,
+        sessionId: composition.service.activeSessionId,
+      });
+      return source;
+    });
+    composition.runtime.ableton.inspectArrangementListeningSource = inspect;
+    await expect(
+      composition.service.inspectArrangementListeningSource(params),
+    ).rejects.toThrow("not accepting");
+    await composition.service.start();
+    await expect(
+      composition.service.inspectArrangementListeningSource(params),
+    ).resolves.toEqual(source);
+    expect(inspect).toHaveBeenCalledExactlyOnceWith(params);
+    inspect.mockRejectedValueOnce(new Error("owned bridge inspection failure"));
+    await expect(
+      composition.service.inspectArrangementListeningSource(params),
+    ).rejects.toThrow("owned bridge inspection failure");
+    inspect.mockResolvedValueOnce({
+      ...source,
+      range: { startBeat: 0, endBeat: 385 },
+    });
+    await expect(
+      composition.service.inspectArrangementListeningSource(params),
+    ).rejects.toThrow("identity mismatch");
+    inspect.mockRejectedValueOnce(
+      Object.assign(new Error("inspection cancelled"), { name: "AbortError" }),
+    );
+    await expect(
+      composition.service.inspectArrangementListeningSource(params),
+    ).rejects.toMatchObject({ name: "AbortError" });
+    await composition.service.stop();
+    await expect(
+      composition.service.inspectArrangementListeningSource(params),
+    ).rejects.toThrow("not accepting");
+  });
   it.each([undefined, false, true])(
     "uses one metric admission setting for signal ingress and listening: %s",
     async (independentMetricListeners) => {
@@ -108,6 +210,9 @@ describe("desktop composition", () => {
         });
         expect(factory.mock.calls[0]?.[1].independentMetricListeners).toBe(
           independentMetricListeners === true,
+        );
+        expect(factory.mock.calls[0]?.[1].createMetricStreamPublication).toBe(
+          runtimeModule.createStorageMetricStreamPublication,
         );
         expect(
           resolveDesktopSignalOptions({ storage, ...option }, 9001)

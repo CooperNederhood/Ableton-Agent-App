@@ -80,6 +80,76 @@ afterEach(() => {
 });
 
 describe("AbletonBridgeService", () => {
+  it("reads exact Arrangement ranges through the authenticated read-only traced boundary", async () => {
+    const port = await startSimulator(token, { listeningFixture: true });
+    const telemetry: TelemetryEventEnvelope[] = [];
+    const service = new AbletonBridgeService({
+      authenticationToken: token,
+      port,
+      events: new InMemoryEventPublisher(),
+      telemetry: { enqueue: (event) => telemetry.push(event) },
+    });
+    await service.start();
+    try {
+      const snapshot = await service.inspectSession();
+      const track = snapshot.tracks[0]!;
+      const params = {
+        schemaVersion: 1 as const,
+        queryId: "10000000-0000-4000-8000-000000000063",
+        track: {
+          kind: "regular" as const,
+          index: track.index,
+          expectedReference: track.reference,
+          expectedName: track.name,
+        },
+        range: { startBeat: 0, endBeat: 8 },
+      };
+      const result = await withCorrelation(
+        {
+          traceId: params.queryId,
+          correlationId: "arrangement-read",
+          causationId: "source-admission",
+        },
+        () => service.inspectArrangementListeningSource(params),
+      );
+      expect(result.range).toEqual(params.range);
+      expect(result.clips).toHaveLength(1);
+      expect(result.evidence).toBe("message-rate-only");
+      expect(await service.inspectSession()).toEqual(snapshot);
+      const events = telemetry.filter(
+        (event) =>
+          event.attributes.command === "listening.inspect_arrangement_source",
+      );
+      expect(events.map((event) => event.name)).toEqual([
+        "bridge.request.queued",
+        "bridge.request.dispatched",
+        "bridge.request.completed",
+      ]);
+      expect(
+        events.every(
+          (event) =>
+            event.trace?.traceId === params.queryId &&
+            event.correlationId === "arrangement-read" &&
+            event.causationId === "source-admission",
+        ),
+      ).toBe(true);
+      await expect(
+        service.inspectArrangementListeningSource({
+          ...params,
+          track: { ...params.track, expectedName: "Wrong" },
+        }),
+      ).rejects.toThrow();
+      const controller = new AbortController();
+      controller.abort();
+      await expect(
+        service.inspectArrangementListeningSource(params, {
+          signal: controller.signal,
+        }),
+      ).rejects.toThrow();
+    } finally {
+      await service.stop();
+    }
+  });
   const cancellableSourceParams = {
     schemaVersion: 1 as const,
     queryId: "10000000-0000-4000-8000-000000000063",

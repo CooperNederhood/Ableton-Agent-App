@@ -233,6 +233,7 @@ function deliverOne(f) {
   assert.equal(f.poll(), false);
   assert.equal(f.poll(), true);
   assert.equal(f.io.retentionReader.stats().accepted, 1);
+  f.poll(f.readback());
 }
 
 test("the producer pairs a zero retained energy with zero centroid after buffer readback", () => {
@@ -869,7 +870,7 @@ test("stale generations are ignored, same-generation epoch forgery is fatal, and
 test("overflow is a failed FFT family, but actual cleared FIFO still provides genuine resource-disarm evidence", () => {
   const f = spectrumFixture();
   f.begin();
-  for (let n = 0; n < 33; n++) f.advance();
+  for (let n = 0; n < 129; n++) f.advance();
   f.poll();
   const reader = f.io.retentionReader;
   assert.equal(reader.stats().reason, "unread_capacity_overflow");

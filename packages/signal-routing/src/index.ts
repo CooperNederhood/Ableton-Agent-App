@@ -11,3 +11,4 @@ export * from "./summaries.js";
 export * from "./telemetry.js";
 export * from "./translation.js";
 export * from "./listener-metric-contracts.js";
+export * from "./metric-control-evidence.js";

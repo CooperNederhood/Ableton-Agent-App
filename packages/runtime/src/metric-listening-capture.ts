@@ -1,24 +1,26 @@
 import { randomUUID } from "node:crypto";
 import {
+  expandMetricRecordStreamAdmission,
   admitMetricListeningBudget,
   MAX_METRIC_RESULT_FRAME_BYTES,
   LISTENER_CAPABILITY_ANALYZER_TIMELINES,
-  assertNativeMetricArmProof,
   assertNativeMetricObservationSource,
-  assertNativeMetricReadyProof,
-  nativeMetricLaunchCoordinates,
-  nativeMetricListeningConfigSchema,
+  nativeMetricControlConfigSchema as nativeMetricListeningConfigSchema,
   nativeMetricObservationMetricSchema,
   readListeningFailureEvidence,
-  snapshotNativeMetricListeningExpectation,
   type ListeningFailureEvidence,
   type ListeningFailureFact,
   type MetricAudioObservation,
   type MetricListeningBudgetAdmission,
-  type NativeMetricArmProof,
+  type NativeMetricControlArmProof as NativeMetricArmProof,
   type NativeMetricLaunchProof,
-  type NativeMetricListeningConfig,
-  type NativeMetricListeningExpectation,
+  type NativeMetricControlConfig as NativeMetricListeningConfig,
+  createContinuousMetricListeningGeometry,
+  metricRecordStreamManifestSchema,
+  METRIC_CONTINUOUS_LISTENING_CAPABILITY,
+  NATIVE_CONTINUOUS_METRIC_LISTENING_SCOPE,
+  type MetricRecordStreamManifest,
+  type ListeningCaptureProgress,
 } from "@ableton-agent/protocol";
 import {
   sanitizePersistedText,
@@ -40,8 +42,22 @@ import {
   type ListenerResultMetric,
   type ListenerService,
   type ListenerControlInput,
+  assertMetricControlArm as assertNativeMetricArmProof,
+  assertMetricControlReady as assertNativeMetricReadyProof,
+  metricControlLaunchCoordinates as nativeMetricLaunchCoordinates,
+  snapshotMetricControlExpectation as snapshotNativeMetricListeningExpectation,
+  type MetricControlExpectation as NativeMetricListeningExpectation,
+  legacyMetricControlExpectation,
 } from "@ableton-agent/signal-routing";
 import { captureFailureEvidence, failureFact } from "./listening-failure.js";
+import {
+  MetricRecordIngestion,
+  type MetricRecordStagedSink,
+} from "./metric-record-ingestion.js";
+import {
+  metricListeningDeadlines,
+  type MetricListeningDeadlineOptions,
+} from "./metric-listening-deadlines.js";
 
 export interface PrepareMetricListenerCaptureInput {
   readonly bindings: readonly {
@@ -57,9 +73,12 @@ export interface PrepareMetricListenerCaptureInput {
   readonly signal: AbortSignal;
   readonly telemetry?: Pick<NonBlockingObservabilityRecorder, "enqueue">;
   readonly onProgress?: (progress: MetricListeningCaptureProgress) => void;
+  readonly onStreamProgress?: (progress: ListeningCaptureProgress) => void;
   readonly controlTimeoutMs?: number;
   readonly cleanupTimeoutMs?: number;
   readonly resultTimeoutMs?: number;
+  readonly streamSink?: MetricRecordStagedSink;
+  readonly deadlines?: MetricListeningDeadlineOptions;
 }
 
 export interface MetricListeningCaptureProgress {
@@ -68,6 +87,10 @@ export interface MetricListeningCaptureProgress {
   readonly readyCount: number;
   readonly armedCount: number;
   readonly completedCount: number;
+  readonly elapsedMs?: number;
+  readonly requestedDurationMs?: number;
+  readonly durableChunks?: number;
+  readonly durableRecords?: number;
 }
 
 export interface PreparedMetricListeningCapture {
@@ -75,6 +98,15 @@ export interface PreparedMetricListeningCapture {
   readonly passId: string;
   readonly observationContract: "independent-metric-timelines/v1";
   readonly result: Promise<readonly MetricAudioObservation[]>;
+  readonly nativeLaunch: Promise<void>;
+  disarm(): Promise<void>;
+}
+
+export interface PreparedMetricListeningStream {
+  readonly jobId: string;
+  readonly passId: string;
+  readonly observationContract: "metric-record-stream/v1";
+  readonly result: Promise<readonly MetricRecordStreamManifest[]>;
   readonly nativeLaunch: Promise<void>;
   disarm(): Promise<void>;
 }
@@ -166,6 +198,8 @@ type Stage = "idle" | "preparing" | "ready" | "arming" | "armed";
 type Message = ListenerReplyMetric | ListenerResultMetric;
 interface PendingControl {
   readonly abort: AbortController;
+  readonly settled: Promise<void>;
+  settle(): void;
   acknowledged: boolean;
 }
 interface Selected {
@@ -184,7 +218,11 @@ interface Selected {
   arm?: Readonly<NativeMetricArmProof>;
   launch?: NativeMetricLaunchProof;
   observation?: Readonly<MetricAudioObservation>;
+  ingestion?: MetricRecordIngestion;
+  manifest?: MetricRecordStreamManifest;
+  lastActivity: number;
   lastProgress: number;
+  lastNativeProgress: number;
   progressEvents: number;
 }
 
@@ -222,10 +260,13 @@ function timeout(value: number, max: number): number {
   return value;
 }
 
-class MetricCapture implements PreparedMetricListeningCapture {
+class MetricCapture {
   readonly passId: string;
-  readonly observationContract = "independent-metric-timelines/v1";
-  readonly result: Promise<readonly MetricAudioObservation[]>;
+  readonly observationContract:
+    "independent-metric-timelines/v1" | "metric-record-stream/v1";
+  readonly result: Promise<
+    readonly (MetricAudioObservation | MetricRecordStreamManifest)[]
+  >;
   readonly nativeLaunch: Promise<void>;
   readonly #selected: Selected[];
   readonly #trace: PrepareMetricListenerCaptureInput["trace"];
@@ -233,10 +274,16 @@ class MetricCapture implements PreparedMetricListeningCapture {
   readonly #controlTimeout: number;
   readonly #cleanupTimeout: number;
   readonly #resultTimeout: number;
+  readonly #streaming: boolean;
+  readonly #inactivityTimeout: number;
+  readonly #drainTimeout: number;
+  readonly #setupTimeout: number;
   readonly #stages = new Map<string, number>();
   readonly #gate: Promise<never>;
   #rejectGate!: (error: Error) => void;
-  #resolveResult!: (results: readonly MetricAudioObservation[]) => void;
+  #resolveResult!: (
+    results: readonly (MetricAudioObservation | MetricRecordStreamManifest)[],
+  ) => void;
   #rejectResult!: (error: Error) => void;
   #resolveLaunch!: () => void;
   #rejectLaunch!: (error: Error) => void;
@@ -262,10 +309,20 @@ class MetricCapture implements PreparedMetricListeningCapture {
     this.passId = input.passId;
     this.#trace = freeze({ ...input.trace });
     this.input = Object.freeze({ ...input, trace: this.#trace });
+    this.#streaming = input.streamSink !== undefined;
+    this.observationContract = this.#streaming
+      ? "metric-record-stream/v1"
+      : "independent-metric-timelines/v1";
     this.#controlTimeout = timeout(input.controlTimeoutMs ?? 5000, 10000);
-    this.#cleanupTimeout = timeout(input.cleanupTimeoutMs ?? 2000, 5000);
+    this.#cleanupTimeout = timeout(
+      input.cleanupTimeoutMs ??
+        (this.#streaming ? (input.deadlines?.cleanupMs ?? 5000) : 2000),
+      this.#streaming ? 120_000 : 5000,
+    );
     if (input.bindings.length < 1 || input.bindings.length > 8)
       throw new ListeningCaptureError("listener-quota");
+    if (this.#streaming && input.bindings.length !== 1)
+      throw new ListeningCaptureError("continuous-listener-quota");
     const identities = new Set<string>(),
       targets = new Set<string>();
     let common: string | undefined;
@@ -278,6 +335,24 @@ class MetricCapture implements PreparedMetricListeningCapture {
       );
       listenerMetricProducerSchema.parse(descriptor.producer);
       const config = nativeMetricListeningConfigSchema.parse(binding.config);
+      if (
+        (config.scope === NATIVE_CONTINUOUS_METRIC_LISTENING_SCOPE) !==
+        this.#streaming
+      )
+        throw new ListeningCaptureError(
+          this.#streaming
+            ? "continuous-metric-stream-unavailable"
+            : "continuous-metric-stream-required",
+        );
+      if (
+        this.#streaming &&
+        (config.mode !== "arrangement" ||
+          !registration.capabilities.some(
+            (capability) =>
+              String(capability) === METRIC_CONTINUOUS_LISTENING_CAPABILITY,
+          ))
+      )
+        throw new ListeningCaptureError("continuous-metric-stream-unavailable");
       if (
         config.requestedMetrics.some(
           (metric) => metric === "pitch" || metric === "spectral-shape",
@@ -374,7 +449,9 @@ class MetricCapture implements PreparedMetricListeningCapture {
         resultCount: 0,
         bufferedBytes: 0,
         buffered: [],
+        lastActivity: performance.now(),
         lastProgress: -Infinity,
+        lastNativeProgress: -Infinity,
         progressEvents: 0,
       };
     });
@@ -383,13 +460,21 @@ class MetricCapture implements PreparedMetricListeningCapture {
         Math.ceil((g.totalSamples * 1000) / g.sampleRate),
       ),
     );
+    const policy = metricListeningDeadlines(duration, input.deadlines);
+    this.#inactivityTimeout = policy.inactivityMs;
+    this.#drainTimeout = policy.drainMs;
+    this.#setupTimeout = policy.setupMs;
     this.#resultTimeout = timeout(
       input.resultTimeoutMs ??
-        Math.min(
-          125000,
-          duration + 2 * this.#selected.length * this.#controlTimeout + 5000,
-        ),
-      125000,
+        (this.#streaming
+          ? policy.totalMs
+          : Math.min(
+              125_000,
+              duration +
+                2 * this.#selected.length * this.#controlTimeout +
+                5000,
+            )),
+      this.#streaming ? 960_000 : 125_000,
     );
     this.#verify(true);
     this.result = new Promise((resolve, reject) => {
@@ -478,7 +563,7 @@ class MetricCapture implements PreparedMetricListeningCapture {
     attrs: Readonly<Record<string, unknown>> = {},
   ): void {
     if (stage === "progress" && action === "results" && item) {
-      if (item.progressEvents >= 128) return;
+      if (item.progressEvents >= (this.#streaming ? 2048 : 128)) return;
       item.progressEvents++;
     }
     const key = `${action}:${item?.descriptor.connectionId ?? "pass"}`;
@@ -551,8 +636,10 @@ class MetricCapture implements PreparedMetricListeningCapture {
   ): void {
     if (
       item &&
-      (item.progressEvents >= 128 ||
-        (!force && performance.now() - item.lastProgress < 100))
+      (item.progressEvents >= (this.#streaming ? 2048 : 128) ||
+        (!force &&
+          performance.now() - item.lastProgress <
+            (this.#streaming ? 1000 : 100)))
     )
       return;
     if (item) item.lastProgress = performance.now();
@@ -563,12 +650,38 @@ class MetricCapture implements PreparedMetricListeningCapture {
       readyCount: this.#selected.filter((s) =>
         ["ready", "arming", "armed"].includes(s.stage),
       ).length,
+      ...(this.#streaming
+        ? {
+            elapsedMs: Math.max(0, performance.now() - this.#startedAt),
+            requestedDurationMs: Math.max(
+              ...this.#selected.map((s) =>
+                Math.ceil(
+                  (s.config.geometry.totalSamples * 1000) /
+                    s.config.geometry.sampleRate,
+                ),
+              ),
+            ),
+            durableChunks: this.#selected.reduce(
+              (sum, s) => sum + (s.ingestion?.progress.chunks ?? 0),
+              0,
+            ),
+            durableRecords: this.#selected.reduce(
+              (sum, s) => sum + (s.ingestion?.progress.records ?? 0),
+              0,
+            ),
+          }
+        : {}),
       armedCount: this.#selected.filter((s) => s.stage === "armed").length,
-      completedCount: this.#selected.filter((s) => s.observation !== undefined)
-        .length,
+      completedCount: this.#selected.filter(
+        (s) => s.observation !== undefined || s.manifest !== undefined,
+      ).length,
     });
     try {
       this.input.onProgress?.(progress);
+      if (this.#streaming) {
+        const coverage = this.#selected[0]?.ingestion?.coverage;
+        if (coverage) this.input.onStreamProgress?.(coverage);
+      }
     } catch (cause) {
       throw this.#error(cause, "progress-handler-failed", item);
     }
@@ -705,7 +818,7 @@ class MetricCapture implements PreparedMetricListeningCapture {
       sanitized,
     );
   }
-  #receive = (event: ListenerResultEvent): void => {
+  #receive = (event: ListenerResultEvent): void | Promise<void> => {
     if (this.#sealed) return;
     const draining = this.#failure !== undefined;
     const item =
@@ -746,10 +859,28 @@ class MetricCapture implements PreparedMetricListeningCapture {
       )
         this.#deny("listener-ownership-changed", item);
       const bytes = Buffer.byteLength(JSON.stringify(event.result), "utf8");
-      if (bytes > MAX_METRIC_RESULT_FRAME_BYTES || ++item.resultCount > 1024)
+      const g = item.config.geometry;
+      const resultLimit = this.#streaming
+        ? 8192 +
+          item.config.requestedMetrics.reduce(
+            (sum, metric) =>
+              sum +
+              (metric === "level"
+                ? g.rows.length
+                : metric === "attacks"
+                  ? Math.ceil(g.totalSamples / Math.round(g.sampleRate / 10))
+                  : Math.ceil(g.totalSamples / 2048) + 2),
+            0,
+          )
+        : 1024;
+      if (
+        bytes > MAX_METRIC_RESULT_FRAME_BYTES ||
+        ++item.resultCount > resultLimit
+      )
         this.#deny("result-overflow", item);
       const message = listenerResultMetricSchema.parse(event.result);
       this.#identity(item, message);
+      item.lastActivity = performance.now();
       if (draining) {
         // The SDK can send owned results before its cancel reply. Track only
         // bounded producer sequencing; never admit observations after failure.
@@ -777,6 +908,30 @@ class MetricCapture implements PreparedMetricListeningCapture {
         );
       }
       if (item.stage === "idle") this.#deny("result-before-prepare", item);
+      if (
+        message.metricStream !== undefined ||
+        message.metricChunk !== undefined ||
+        message.metricManifest !== undefined
+      ) {
+        if (!this.#streaming) this.#deny("unexpected-stream-result", item);
+        const pending = item.pending;
+        const consume = async () => {
+          if (pending)
+            await this.#bounded(
+              pending.settled,
+              this.#controlTimeout,
+              "metric-stream-control-timeout",
+            );
+          this.#checkFailure();
+          this.#sequence(item, message);
+          await this.#consumeStream(item, message);
+        };
+        return consume().catch((cause: unknown) => {
+          const error = this.#error(cause, "metric-stream-write-failed", item);
+          void this.#fail(error);
+          throw error;
+        });
+      }
       if (item.pending) {
         if (
           item.buffered.length >= 32 ||
@@ -810,6 +965,117 @@ class MetricCapture implements PreparedMetricListeningCapture {
     }
   };
 
+  async #consumeStream(
+    item: Selected,
+    message: ListenerResultMetric,
+  ): Promise<void> {
+    if (!item.arm || !item.launch || item.stage !== "armed")
+      this.#deny("metric-stream-launch-required", item);
+    if (message.metricStream !== undefined) {
+      if (item.ingestion) this.#deny("metric-stream-descriptor-replaced", item);
+      const local = item.config.geometry;
+      const geometry = createContinuousMetricListeningGeometry({
+        sampleRate: local.sampleRate,
+        vectorSize: local.vectorSize,
+        tempoBpm: local.tempoBpm,
+        startBeat: local.startBeat,
+        endBeat: local.endBeat,
+        startSample: item.launch.timing[6],
+        captureMode: "arrangement-continuous",
+      });
+      const source = item.config.sourceContext;
+      if (source?.view !== "arrangement" || !this.input.streamSink)
+        this.#deny("metric-stream-source-required", item);
+      item.ingestion = new MetricRecordIngestion(this.input.streamSink, {
+        ownership: item.arm.ownership,
+        source,
+        geometry,
+        requestedMetrics: item.config.requestedMetrics,
+        timingPolicy: item.config.timingPolicy,
+      });
+      this.#start("stream-staging", item);
+      try {
+        await this.#bounded(
+          item.ingestion.begin(
+            expandMetricRecordStreamAdmission(message.metricStream),
+          ),
+          this.#setupTimeout,
+          "metric-stream-setup-timeout",
+        );
+        this.#event("completed", "stream-staging", item);
+      } catch (cause) {
+        this.#event(
+          this.input.signal.aborted ? "cancelled" : "failed",
+          "stream-staging",
+          item,
+        );
+        throw cause;
+      }
+      return;
+    }
+    if (!item.ingestion) this.#deny("metric-stream-descriptor-required", item);
+    if (message.metricChunk !== undefined) {
+      const chunk = message.metricChunk;
+      this.#start("chunk-write", item);
+      try {
+        await this.#bounded(
+          item.ingestion.append(chunk),
+          this.#inactivityTimeout,
+          "metric-stream-write-timeout",
+        );
+        this.#checkFailure();
+        this.#event("completed", "chunk-write", item, {
+          metric: chunk.metric,
+          chunkSequence: chunk.chunkSequence,
+          digest: chunk.digest,
+          recordCount: chunk.records.length,
+          ...item.ingestion.progress,
+        });
+      } catch (cause) {
+        this.#event(
+          this.input.signal.aborted ? "cancelled" : "failed",
+          "chunk-write",
+          item,
+        );
+        throw cause;
+      }
+      this.#progress("capturing", item);
+      return;
+    }
+    if (message.metricManifest !== undefined) {
+      if (
+        JSON.stringify(message.metricManifest.nativeProof.launch) !==
+        JSON.stringify(item.launch)
+      )
+        this.#deny("metric-stream-launch-replaced", item);
+      this.#start("stream-finalization", item);
+      try {
+        const manifest = await this.#bounded(
+          item.ingestion.finalize(message.metricManifest),
+          this.#drainTimeout,
+          "metric-stream-finalization-timeout",
+        );
+        this.#checkFailure();
+        item.manifest = manifest;
+        item.terminal = true;
+        this.#event("completed", "stream-finalization", item, {
+          descriptorDigest: manifest.descriptorDigest,
+          ...item.ingestion.progress,
+        });
+      } catch (cause) {
+        this.#event(
+          this.input.signal.aborted ? "cancelled" : "failed",
+          "stream-finalization",
+          item,
+        );
+        throw cause;
+      }
+      // Async durable delivery releases ingress ownership only after this
+      // callback settles; finish on the next task, not its promise microtask.
+      setTimeout(() => this.#complete(), 0);
+    }
+  }
+
   #consume(item: Selected, message: ListenerResultMetric): void {
     this.#identity(item, message);
     if (message.nativeLaunch !== undefined) {
@@ -829,10 +1095,13 @@ class MetricCapture implements PreparedMetricListeningCapture {
     if (message.nativeLifecycle !== undefined) {
       const n = message.nativeLifecycle;
       if (
-        performance.now() - item.lastProgress >= 100 ||
+        performance.now() -
+          (this.#streaming ? item.lastNativeProgress : item.lastProgress) >=
+          (this.#streaming ? 1000 : 100) ||
         n.stage === "failed" ||
         n.stage === "cancelled"
       ) {
+        item.lastNativeProgress = performance.now();
         this.#event("progress", "results", item, {
           nativeEventId: n.eventId,
           nativeCausationId: n.causationId,
@@ -851,6 +1120,8 @@ class MetricCapture implements PreparedMetricListeningCapture {
       }
     }
     if (message.status === "completed" || message.status === "partial") {
+      if (this.#streaming)
+        this.#deny("metric-stream-whole-result-forbidden", item);
       if (
         !item.arm ||
         !item.launch ||
@@ -870,7 +1141,7 @@ class MetricCapture implements PreparedMetricListeningCapture {
         const observation = assertNativeMetricObservationSource(
           message.nativeSourceCoverage,
           message.observation,
-          item.expected,
+          legacyMetricControlExpectation(item.expected),
         );
         if (
           !nativeMetricObservationMetricSchema.options.some(
@@ -947,8 +1218,14 @@ class MetricCapture implements PreparedMetricListeningCapture {
     this.#verify();
     item.attempted = true;
     item.stage = action === "prepare" ? "preparing" : "arming";
+    let settle!: () => void;
+    const settled = new Promise<void>((resolve) => {
+      settle = resolve;
+    });
     const pending: PendingControl = {
       abort: new AbortController(),
+      settled,
+      settle,
       acknowledged: false,
     };
     item.pending = pending;
@@ -1012,12 +1289,13 @@ class MetricCapture implements PreparedMetricListeningCapture {
           )
         )
           this.#deny("colliding-native-generation", item);
-        admission = admitMetricListeningBudget({
-          config: item.config,
-          ownership: ready.ownership,
-          source: item.config.sourceContext!,
-          jobId: this.jobId,
-        });
+        if (!this.#streaming)
+          admission = admitMetricListeningBudget({
+            config: legacyMetricControlExpectation(item.expected).config,
+            ownership: ready.ownership,
+            source: item.config.sourceContext!,
+            jobId: this.jobId,
+          });
       } else {
         if (!reply.nativeArm) this.#deny("native-arm-proof-required", item);
         item.arm = assertNativeMetricArmProof(reply.nativeArm, item.expected);
@@ -1075,6 +1353,8 @@ class MetricCapture implements PreparedMetricListeningCapture {
         { execution: pending.acknowledged ? "confirmed" : "unknown" },
       );
       throw this.#error(cause, "metric-control-failed", item);
+    } finally {
+      pending.settle();
     }
   }
   #complete(): void {
@@ -1083,7 +1363,7 @@ class MetricCapture implements PreparedMetricListeningCapture {
       this.#failure ||
       this.#sealed ||
       this.#completionQueued ||
-      this.#selected.some((s) => !s.observation)
+      this.#selected.some((s) => !s.observation && !s.manifest)
     )
       return;
     this.#completionQueued = true;
@@ -1100,7 +1380,7 @@ class MetricCapture implements PreparedMetricListeningCapture {
       !this.#allArmed ||
       this.#failure ||
       this.#sealed ||
-      this.#selected.some((s) => !s.observation)
+      this.#selected.some((s) => !s.observation && !s.manifest)
     )
       return;
     try {
@@ -1122,7 +1402,9 @@ class MetricCapture implements PreparedMetricListeningCapture {
       if (this.input.signal.aborted) this.#deny("cancelled");
       this.#sealed = true;
       const output = freeze(
-        this.#selected.map((s) => structuredClone(s.observation!)),
+        this.#selected.map((s) =>
+          structuredClone(s.manifest ?? s.observation!),
+        ),
       );
       this.#event("completed", "finalization", undefined, {
         partial: output.some((o) => o.outcome === "partial"),
@@ -1241,6 +1523,28 @@ class MetricCapture implements PreparedMetricListeningCapture {
           ? [this.#error(o.reason, "cleanup-failed")]
           : [],
       );
+      for (const item of this.#selected) {
+        if (!item.ingestion) continue;
+        this.#start("stream-abort", item);
+        try {
+          await this.#bounded(
+            item.ingestion.abort(
+              this.#failure instanceof ListeningCaptureError
+                ? this.#failure.code
+                : "capture-failed",
+            ),
+            this.#cleanupTimeout,
+            "metric-stream-cleanup-timeout",
+            false,
+          );
+          this.#event("completed", "stream-abort", item);
+        } catch (cause) {
+          failures.push(
+            this.#error(cause, "metric-stream-cleanup-failed", item),
+          );
+          this.#event("failed", "stream-abort", item);
+        }
+      }
       for (const item of this.#selected)
         if (item.cleanupFailure && !failures.includes(item.cleanupFailure))
           failures.push(item.cleanupFailure);
@@ -1328,6 +1632,17 @@ class MetricCapture implements PreparedMetricListeningCapture {
         if (this.#sealed || this.#failure) return;
         try {
           this.#verify();
+          if (this.#streaming) {
+            const now = performance.now();
+            if (!this.#launched && now - this.#startedAt > this.#setupTimeout)
+              this.#deny("metric-stream-setup-timeout");
+            for (const item of this.#selected)
+              if (
+                !item.terminal &&
+                now - item.lastActivity > this.#inactivityTimeout
+              )
+                this.#deny("metric-stream-inactivity-timeout", item);
+          }
         } catch (cause) {
           void this.#fail(this.#error(cause, "listener-inspection-failed"));
         }
@@ -1359,10 +1674,10 @@ class MetricCapture implements PreparedMetricListeningCapture {
  * start transport only after this handle returns, then gate publication on its
  * own cancellation/commit boundary. No transport mutation or persistence here.
  */
-export async function prepareMetricListenerCapture(
+function createMetricCapture(
   service: ListenerService,
   input: PrepareMetricListenerCaptureInput,
-): Promise<PreparedMetricListeningCapture> {
+): MetricCapture {
   const jobId = randomUUID();
   let capture: MetricCapture;
   try {
@@ -1402,12 +1717,55 @@ export async function prepareMetricListenerCapture(
       });
     throw error;
   }
+  return capture;
+}
+
+export async function prepareMetricListenerCapture(
+  service: ListenerService,
+  input: PrepareMetricListenerCaptureInput,
+): Promise<PreparedMetricListeningCapture> {
+  if (input.streamSink !== undefined)
+    throw new ListeningCaptureError("use-explicit-metric-stream-capture");
+  const capture = createMetricCapture(service, input);
   await capture.prepare();
+  const result = capture.result.then((items) =>
+    freeze(
+      items.map((item) => {
+        if (item.schema === "metric-record-stream-manifest/v1")
+          throw new ListeningCaptureError("unexpected-stream-manifest");
+        return item;
+      }),
+    ),
+  );
+  void result.catch(() => {});
   return Object.freeze({
     jobId: capture.jobId,
     passId: capture.passId,
-    observationContract: capture.observationContract,
-    result: capture.result,
+    observationContract: "independent-metric-timelines/v1" as const,
+    result,
+    nativeLaunch: capture.nativeLaunch,
+    disarm: () => capture.disarm(),
+  });
+}
+
+/** Explicit durable-stream entry point; never falls back to terminal JSON. */
+export async function prepareMetricListenerStream(
+  service: ListenerService,
+  input: PrepareMetricListenerCaptureInput & {
+    readonly streamSink: MetricRecordStagedSink;
+  },
+): Promise<PreparedMetricListeningStream> {
+  const capture = createMetricCapture(service, input);
+  await capture.prepare();
+  const result = capture.result.then((items) =>
+    freeze(items.map((item) => metricRecordStreamManifestSchema.parse(item))),
+  );
+  void result.catch(() => {});
+  return Object.freeze({
+    jobId: capture.jobId,
+    passId: capture.passId,
+    observationContract: "metric-record-stream/v1" as const,
+    result,
     nativeLaunch: capture.nativeLaunch,
     disarm: () => capture.disarm(),
   });

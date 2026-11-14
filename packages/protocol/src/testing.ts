@@ -333,3 +333,10 @@ export {
   withSyntheticAnalyzerTimelines,
   createSyntheticAnalyzerReadiness,
 } from "./analyzer-testing.js";
+export {
+  createSyntheticMetricRecordStreamTerminalProof,
+  createSyntheticMetricRecordStreamFixture,
+  createSyntheticMetricRecordStreamManifest,
+  type SyntheticMetricRecordStreamFixture,
+  type SyntheticMetricRecordStreamOptions,
+} from "./metric-stream-testing.js";

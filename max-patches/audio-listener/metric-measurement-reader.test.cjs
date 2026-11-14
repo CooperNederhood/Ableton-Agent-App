@@ -260,10 +260,7 @@ test("admits a record before ACK, and a failed family never blocks its peer", ()
   const result = detector.poll(frame);
   assert.equal(result.status, "accepted");
   assert.equal(accepted.length, 1);
-  assert.deepEqual(result.actions, [
-    { type: "request", sequence: 2 },
-    { type: "acknowledge", sequence: 1 },
-  ]);
+  assert.deepEqual(result.actions, [{ type: "request", sequence: 2 }]);
   detector.complete();
   assert.equal(events.at(-1).stage, "completed");
   assert.equal(events.at(-1).ownerContext.traceId, ownerContext.traceId);

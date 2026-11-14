@@ -174,6 +174,7 @@ export async function acceptanceDefinition(
     "automation",
     "session-audio",
     "session-midi",
+    "arrangement-audio",
     "persistence",
   ]);
   if (scenario.id !== selected || fixture.id !== scenario.fixtureId)
@@ -556,6 +557,7 @@ export async function acceptanceCli(
         "automation",
         "session-audio",
         "session-midi",
+        "arrangement-audio",
         "persistence",
       ]);
       for (const reference of [

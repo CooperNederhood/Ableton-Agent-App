@@ -7,11 +7,12 @@ outlets = 1;
 var owner = null;
 var values = [null, null];
 var counts = [0, 0];
+var deliveryLimit = 400;
 var pending = [false, false];
 var timer = new Task(publish, this);
 var beganAt = 0;
 
-function begin(generation, epoch) {
+function begin(generation, epoch, requestedLimit) {
   if (owner !== null) throw new Error("flatness_gate_still_owned");
   if (
     typeof generation !== "string" ||
@@ -22,6 +23,15 @@ function begin(generation, epoch) {
     epoch % 1 !== 0
   )
     throw new Error("flatness_invalid_owner");
+  var limit = requestedLimit === undefined ? 400 : requestedLimit;
+  if (
+    typeof limit !== "number" ||
+    limit < 400 ||
+    limit > 6400 ||
+    limit % 1 !== 0
+  )
+    throw new Error("flatness_invalid_delivery_limit");
+  deliveryLimit = limit;
   owner = [generation, epoch];
   values = [null, null];
   counts = [0, 0];
@@ -91,7 +101,7 @@ function publish() {
   if (!owner) return;
   for (var channel = 0; channel < 2; channel++) {
     if (!pending[channel]) continue;
-    if (counts[channel] >= 400) {
+    if (counts[channel] >= deliveryLimit) {
       timer.cancel();
       outlet(0, owner.concat(["delivery-limit"]));
       throw new Error("flatness_delivery_limit");

@@ -11,6 +11,9 @@ const {
 } = require("./audio_listener_metric_spectrum.js");
 const { createMelBandHandoff } = require("./audio_listener_mel_handoff.js");
 const {
+  createMetricRecordProducer,
+} = require("./audio_listener_metric_stream.js");
+const {
   decodeIORejection,
   decodeRetentionRejection,
   decodeRetentionSnapshot,
@@ -156,6 +159,7 @@ function createMetricController(options) {
           "mel_native_stopped_receipt",
           "mel_native_drain_receipt",
           "mel_rejected_drain_receipt",
+          "native_spectrum_reader_rejected",
         ].includes(reason))
     )
       return;
@@ -248,7 +252,13 @@ function createMetricController(options) {
   }
   function send(p, selector, args, target = "metric_envelope") {
     if (!current(p)) return;
-    if (p.wantCleanup && ["arm", "configure_metric"].includes(selector)) return;
+    if (
+      p.wantCleanup &&
+      ["arm", "configure_metric", "configure_metric_continuous"].includes(
+        selector,
+      )
+    )
+      return;
     try {
       const result = options.sendControl(target, selector, copy(args));
       requireValue(result !== false, "metric_control_delivery_failed");
@@ -385,6 +395,30 @@ function createMetricController(options) {
         p.witnesses[key] = row;
     }
   }
+  function appendClockBracket(p, rows, row) {
+    rows.push(row);
+    if (rows.length > 32) rows.shift();
+    let expired = 0;
+    while (rows[0][4] < row[4] - p.config.geometry.sampleRate) {
+      rows.shift();
+      expired++;
+    }
+    if (expired)
+      emit(
+        p,
+        p.armProof ? "capture" : "preflight",
+        "progress",
+        undefined,
+        "native_clock_bracket_refreshed",
+        undefined,
+        [
+          {
+            field: "clock.bracket.expiredSamples",
+            actual: { state: "observed", value: expired },
+          },
+        ],
+      );
+  }
   function clock(p, values) {
     const row = copy(
       codec.nativeMetricLaunchProofSchema.shape.clock.parse(values),
@@ -434,16 +468,14 @@ function createMetricController(options) {
       p.clockHistory.shift();
     if (row[0] === 1 && p.spectrum.started) p.spectrum.streaming = true;
     if (row[0] === 0 && !p.armProof) {
-      p.clocks.push(row);
-      if (p.clocks.length > 32) p.clocks.shift();
+      appendClockBracket(p, p.clocks, row);
       if (p.clocks.length === 32 && p.dsp)
         codec.nativeMetricReadyProofSchema.shape.before.parse({
           dsp: p.dsp,
           frames: p.clocks,
         });
     } else if (row[0] === 1) {
-      p.playingClocks.push(row);
-      if (p.playingClocks.length > 32) p.playingClocks.shift();
+      appendClockBracket(p, p.playingClocks, row);
       if (p.playingClocks.length === 32)
         codec.nativeMetricSourceCoverageProofSchema.shape.after.parse({
           dsp: p.dsp,
@@ -460,7 +492,7 @@ function createMetricController(options) {
       row[4] >= p.coordinates.endSample + p.config.geometry.vectorSize - 1 &&
       p.after.length < 32
     )
-      p.after.push(row);
+      appendClockBracket(p, p.after, row);
   }
   function receiveEvidence(p, frame) {
     requireValue(
@@ -513,6 +545,7 @@ function createMetricController(options) {
         ? p.collector.ingestLevel(record)
         : p.collector.ingestDetectorLevel(record);
     if (result.accepted || result.duplicate) {
+      if (p.continuous && result.accepted) f.pendingAck = r.sequence; // tick owns all Max controls, never reenter readback
       f.next++;
       if (result.accepted) p.admittedRecords++;
     } else f.failure = "malformed_record";
@@ -605,6 +638,36 @@ function createMetricController(options) {
         retentionRejection && retentionRejection.nativeEpoch === p.epoch,
         "metric_invalid_spectrum_rejection",
       );
+      if (!s.readerRejectionReported) {
+        s.readerRejectionReported = true;
+        const observedCell = (value) =>
+          Number.isFinite(value) && Math.abs(value) <= Number.MAX_SAFE_INTEGER
+            ? { state: "observed", value }
+            : { state: "unavailable", reason: "not-reported" };
+        const rows = retentionRejection.readerReadbacks;
+        emit(
+          p,
+          p.coordinates ? "capture" : "preflight",
+          "progress",
+          "spectrum",
+          "native_spectrum_reader_rejected",
+          undefined,
+          [
+            {
+              field: "capture.spectrum.retention.readerReason",
+              actual: {
+                state: "observed",
+                value: retentionRejection.readerReason,
+              },
+            },
+            ...(rows.at(-1)?.cells.slice(0, 20) ?? []).map((value, index) => ({
+              field: `capture.spectrum.retention.cell.${index}`,
+              actual: observedCell(value),
+              expected: observedCell(rows.at(-2)?.cells[index]),
+            })),
+          ],
+        );
+      }
       reportSpectrumRetention(
         p,
         retentionRejection.readerReadbacks.at(-1)?.cells,
@@ -1101,13 +1164,50 @@ function createMetricController(options) {
       "metric_source_context_required",
     );
     const started = time();
+    const continuous =
+      command.config.scope === codec.NATIVE_CONTINUOUS_METRIC_LISTENING_SCOPE;
+    if (continuous) {
+      requireValue(
+        options.continuousEnabled === true,
+        "metric_continuous_producer_unavailable",
+      );
+      requireValue(
+        command.config.mode === "arrangement" &&
+          command.config.sourceContext.view === "arrangement" &&
+          command.config.requestedMetrics.length === 6 &&
+          options.spectrumEnabled === true &&
+          analyzerReadiness,
+        "metric_continuous_all_six_required",
+      );
+      for (const key of [
+        "createContinuousMetricListeningGeometry",
+        "metricRecordStreamDescriptorSchema",
+        "compactMetricRecordStreamDescriptor",
+        "createMetricRecordStreamState",
+        "metricRecordChunkSchema",
+        "metricRecordChunkDigest",
+        "acceptMetricRecordChunk",
+        "metricRecordStreamTerminalProofSchema",
+        "metricRecordStreamManifestSchema",
+        "metricRecordStreamExpectedCoverage",
+        "metricRecordStreamCapturedTrailingSupport",
+        "verifyMetricRecordStreamManifest",
+        "METRIC_CONTINUOUS_LISTENING_CAPABILITY",
+        "snapshotNativeContinuousMetricListeningExpectation",
+        "assertNativeContinuousMetricReadyProof",
+        "assertNativeContinuousMetricArmProof",
+        "nativeContinuousMetricLaunchCoordinates",
+        "assertNativeContinuousMetricSourceCoverage",
+      ])
+        requireValue(codec[key], `missing_metric_codec_${key}`);
+    }
     requireValue(
       admission &&
         integer(admission.nativeEpoch, 1000000) &&
         admission.nativeEpoch > epochHighWater &&
         Number.isFinite(admission.deadlineMs) &&
         admission.deadlineMs > started &&
-        admission.deadlineMs <= started + 120000 &&
+        admission.deadlineMs <= started + (continuous ? 720000 : 120000) &&
         integer(admission.maxObservationBytes, 4 * 1024 * 1024) &&
         admission.maxObservationBytes > 0,
       "metric_admission_required",
@@ -1116,12 +1216,14 @@ function createMetricController(options) {
       ...Object.fromEntries(OWNER.map((k) => [k, command[k]])),
       nativeEpoch: admission.nativeEpoch,
     };
-    const budgetAdmission = codec.admitMetricListeningBudget({
-      config: command.config,
-      ownership,
-      source: command.config.sourceContext,
-      jobId: command.jobId,
-    });
+    const budgetAdmission = continuous
+      ? { admitted: true, limits: { observationBytes: 128 * 1024 } }
+      : codec.admitMetricListeningBudget({
+          config: command.config,
+          ownership,
+          source: command.config.sourceContext,
+          jobId: command.jobId,
+        });
     if (!budgetAdmission.admitted) {
       // No pass, epoch, Max commands, or source lease has been acquired yet.
       // The SDK turns this exact bounded reason into listener.reply/failed.
@@ -1137,10 +1239,14 @@ function createMetricController(options) {
     epochHighWater = admission.nativeEpoch;
     pass = {
       control: command,
+      continuous,
+      pendingStream: [],
       config: command.config,
       epoch: admission.nativeEpoch,
       ownership: copy(ownership),
-      expected: codec.snapshotNativeMetricListeningExpectation({
+      expected: (continuous
+        ? codec.snapshotNativeContinuousMetricListeningExpectation
+        : codec.snapshotNativeMetricListeningExpectation)({
         ...ownership,
         config: command.config,
       }),
@@ -1235,6 +1341,13 @@ function createMetricController(options) {
         },
         requestedMetrics: p.config.requestedMetrics,
         analyzerReadiness,
+        ...(continuous
+          ? {
+              captureMode: "arrangement-continuous",
+              onRecord: (metric, record) => streamRecord(p, metric, record),
+              onGap: (metric, gap) => streamRecord(p, metric, gap, true),
+            }
+          : {}),
       });
     }
     emit(pass, "preflight", "queued");
@@ -1272,7 +1385,22 @@ function createMetricController(options) {
     const p = pass;
     if (!p || p.done || !sameControl(p, command)) return false;
     p.cancelControl = command;
+    p.streamProducer?.cancel();
     p.wantCleanup = true;
+    return true;
+  }
+  function streamRecord(p, metric, record, gap = false) {
+    if (p.failure || p.cancelControl) return false;
+    if (p.streamProducer)
+      return gap
+        ? p.streamProducer.gap(metric, record)
+        : p.streamProducer.ingest(metric, record);
+    // At most a short prelaunch readback cohort, never whole-pass staging.
+    if (p.pendingStream.length >= 256) {
+      abort(p, "metric_stream_startup_overflow");
+      return false;
+    }
+    p.pendingStream.push({ metric, record: copy(record), gap });
     return true;
   }
   function startCollector(p) {
@@ -1284,6 +1412,7 @@ function createMetricController(options) {
     });
     p.collector = createMetricTimelines(
       {
+        ...(p.continuous ? { captureMode: "arrangement-continuous" } : {}),
         owner: p.collectorOwner,
         originSample: p.coordinates.originCounter,
         originBeat: g.startBeat,
@@ -1319,8 +1448,14 @@ function createMetricController(options) {
       },
       {
         now: time,
+        ...(p.continuous
+          ? { onRecord: (metric, record) => streamRecord(p, metric, record) }
+          : {}),
         onEvent: (event) => {
-          if (event.metricId && integer(event.acceptedRecords, 2000))
+          if (
+            event.metricId &&
+            integer(event.acceptedRecords, p.continuous ? 39961 : 2000)
+          )
             p.metricCounts[event.metricId] = event.acceptedRecords;
           emit(
             p,
@@ -1334,6 +1469,94 @@ function createMetricController(options) {
         },
       },
     );
+    if (p.continuous) {
+      const phase = p.collector.envelope.spectrum.firstEndSample;
+      const descriptor = {
+        schema: "metric-record-stream/v1",
+        capability: codec.METRIC_CONTINUOUS_LISTENING_CAPABILITY,
+        ownership: p.ownership,
+        source: p.config.sourceContext,
+        geometry: codec.createContinuousMetricListeningGeometry({
+          captureMode: "arrangement-continuous",
+          sampleRate: g.sampleRate,
+          vectorSize: g.vectorSize,
+          tempoBpm: g.tempoBpm,
+          startBeat: g.startBeat,
+          endBeat: g.endBeat,
+          startSample: p.coordinates.startSample,
+        }),
+        timingPolicy: p.config.timingPolicy,
+        requestedMetrics: p.config.requestedMetrics,
+        maxPendingChunks: 8,
+        algorithms: [
+          {
+            metric: "level",
+            algorithm: {
+              name: "sample-grid-peak-rms",
+              version: 1,
+              units: "linear-amplitude",
+            },
+          },
+          {
+            metric: "spectral-centroid",
+            algorithm: {
+              name: "fft-energy-centroid",
+              version: 1,
+              fftSamples: 2048,
+              hopSamples: 2048,
+              firstFrameEndSample: phase,
+              units: "Hz",
+            },
+          },
+          { metric: "attacks", algorithm: p.collector.envelope.attacks },
+          { metric: "mel-bands", algorithm: codec.MEL_BAND_PROFILE },
+          { metric: "pitch", algorithm: codec.PITCH_PROFILE },
+          { metric: "spectral-shape", algorithm: codec.SPECTRAL_SHAPE_PROFILE },
+        ].map((item) => ({
+          ...item,
+          availability:
+            item.metric === "spectral-centroid" && phase === null
+              ? "unavailable"
+              : "available",
+          unavailableReason:
+            item.metric === "spectral-centroid" && phase === null
+              ? "Native FFT phase unavailable."
+              : null,
+        })),
+      };
+      p.streamProducer = createMetricRecordProducer({
+        codec,
+        descriptor,
+        onFailure: (reason) => abort(p, reason),
+        send: (payload) => {
+          if (
+            !current(p) ||
+            p.failure ||
+            p.cancelControl ||
+            time() >= p.deadline
+          )
+            return false;
+          const sent = options.sendListenerResult(p.control, payload);
+          if (sent === true && payload.metricChunk)
+            emit(
+              p,
+              "capture",
+              "progress",
+              payload.metricChunk.metric,
+              "metric_stream_chunk_delivered",
+            );
+          return sent;
+        },
+      });
+      for (const { metric, record, gap } of p.pendingStream)
+        requireValue(
+          gap
+            ? p.streamProducer.gap(metric, record)
+            : p.streamProducer.ingest(metric, record),
+          "metric_stream_record_rejected",
+        );
+      p.pendingStream.length = 0;
+    }
     for (const metric of p.config.requestedMetrics.filter(
       (metric) =>
         metric !== "spectral-centroid" && !externalMetrics.includes(metric),
@@ -1449,6 +1672,21 @@ function createMetricController(options) {
             c.raw[0] === p.samples.idle.configuration.at(-1)?.raw[0]),
         "metric_cleanup_epoch_mismatch",
       );
+      if (p.continuous && !p.failure && !p.cancelControl) {
+        p.terminalClockWatermark ??= Math.max(
+          c.nativeSourceCounter,
+          t.nativeSourceCounter,
+          p.spectrum.cleanupEvidence?.stopWatermark || 0,
+        );
+        if (
+          p.playingClocks.length !== 32 ||
+          p.playingClocks[0][4] <= p.terminalClockWatermark
+        )
+          return false;
+        // A fresh independently read running bracket AFTER physical cleanup,
+        // not the earlier source-coverage postcheck reused as terminal evidence.
+        p.terminalClock = copy({ dsp: p.dsp, frames: p.playingClocks });
+      }
       if (!p.released) {
         io(p, "release");
         p.released = true;
@@ -1470,6 +1708,8 @@ function createMetricController(options) {
       const cancelled = !p.failure && !!p.cancelControl;
       const status = cancelled ? "cancelled" : "failed";
       const reason = p.failure || "cancelled";
+      p.streamProducer?.cancel();
+      p.pendingStream.length = 0;
       if (p.collector && !p.finalized) p.collector.cancel();
       emit(
         p,
@@ -1544,10 +1784,101 @@ function createMetricController(options) {
       });
       p.spectrum.handoff?.finish();
     }
-    const checked = codec.assertNativeMetricSourceCoverage(
-      p.sourceProof,
-      p.expected,
-    );
+    const checked = (
+      p.continuous
+        ? codec.assertNativeContinuousMetricSourceCoverage
+        : codec.assertNativeMetricSourceCoverage
+    )(p.sourceProof, p.expected);
+    if (p.continuous) {
+      if (p.streamFinalizing) return;
+      const terminal = p.collector.finalizeStream({
+        owner: p.collectorOwner,
+        sourceEndSample: checked.endSample,
+      });
+      p.finalized = true;
+      p.mel.settleStream();
+      for (const [internal, item] of Object.entries(terminal.metrics)) {
+        if (item.lastSequence === item.expectedRecords) continue;
+        const metric = internal === "spectrum" ? "spectral-centroid" : internal;
+        const supportAt = (index) =>
+          internal === "level"
+            ? p.collector.grid[index]
+            : internal === "attacks"
+              ? {
+                  startSample:
+                    checked.startSample +
+                    index * p.collector.envelope.attacks.windowSamples,
+                  endSample: Math.min(
+                    checked.endSample,
+                    checked.startSample +
+                      (index + 1) * p.collector.envelope.attacks.windowSamples,
+                  ),
+                }
+              : {
+                  startSample:
+                    p.collector.envelope.spectrum.firstEndSample +
+                    (index - 1) * 2048,
+                  endSample:
+                    p.collector.envelope.spectrum.firstEndSample + index * 2048,
+                };
+        requireValue(
+          p.streamProducer.gap(metric, {
+            firstIndex: item.lastSequence,
+            count: item.expectedRecords - item.lastSequence,
+            support: {
+              startSample: supportAt(item.lastSequence).startSample,
+              endSample: supportAt(item.expectedRecords - 1).endSample,
+            },
+            reason:
+              item.failure === "quota_overflow" ? "overflow" : "unavailable",
+            detail:
+              "Native family stopped before all declared supports were acquired.",
+          }),
+          "metric_stream_gap_rejected",
+        );
+      }
+      const completion = p.sourceProof.completion;
+      const nativeProof = {
+        schema: "metric-record-stream-terminal/v1",
+        ownership: p.ownership,
+        status: "completed",
+        launch: p.launch,
+        timing: completion.timing,
+        confirmedTiming: completion.confirmedTiming,
+        configuration: completion.fields,
+        confirmedConfiguration: completion.confirmedFields,
+        before: p.before,
+        after: p.sourceProof.after,
+        timingWitnesses: p.sourceProof.timingWitnesses,
+        // Playback remains running. Never stop Live to manufacture terminal proof.
+        clock: p.terminalClock,
+        capturedSamples: p.config.geometry.totalSamples,
+        sourceOrigin: checked.startSample,
+        sourceEnd: checked.endSample,
+        drain: "completed",
+        spectrumCleanup: p.spectrum.cleanupEvidence,
+        spectrumPhase: p.spectrum.phase,
+      };
+      p.streamFinalizing = true;
+      void p.streamProducer
+        .finalize(nativeProof)
+        .then((manifest) => {
+          if (!current(p) || p.failure || p.cancelControl) return;
+          p.state =
+            manifest.outcome === "complete" ? "completed" : manifest.outcome;
+          p.done = true;
+        })
+        .catch((error) => {
+          abort(
+            p,
+            error instanceof Error &&
+              /^[a-z][a-z0-9_]{0,127}$/.test(error.message)
+              ? error.message
+              : "metric_stream_finalization_failed",
+          );
+        });
+      return;
+    }
     const result = p.collector.finalize({
       owner: p.collectorOwner,
       sourceEndSample: checked.endSample,
@@ -1708,7 +2039,11 @@ function createMetricController(options) {
         p.preflightBlocker = "idle_receipts_outside_clock_bracket";
         return;
       }
-      const ready = codec.assertNativeMetricReadyProof(
+      const ready = (
+        p.continuous
+          ? codec.assertNativeContinuousMetricReadyProof
+          : codec.assertNativeMetricReadyProof
+      )(
         {
           ...(analyzerReadiness ? { analyzerProducerAbi: 3 } : {}),
           scope: p.config.scope,
@@ -1733,7 +2068,11 @@ function createMetricController(options) {
       p.configurationStarted = now;
       emit(p, "configuration", "queued");
       emit(p, "configuration", "started");
-      io(p, "configure_metric", configuration(p));
+      io(
+        p,
+        p.continuous ? "configure_metric_continuous" : "configure_metric",
+        configuration(p),
+      );
       if (p.wantCleanup) return;
       requireValue(
         options.sendListenerReply(p.control, {
@@ -1766,7 +2105,11 @@ function createMetricController(options) {
         p.samples.currentEpoch.timing,
       );
       if (!receipt) return;
-      p.armProof = codec.assertNativeMetricArmProof(
+      p.armProof = (
+        p.continuous
+          ? codec.assertNativeContinuousMetricArmProof
+          : codec.assertNativeMetricArmProof
+      )(
         {
           ...(analyzerReadiness ? { analyzerProducerAbi: 3 } : {}),
           scope: p.config.scope,
@@ -1813,17 +2156,19 @@ function createMetricController(options) {
       )
         return;
       p.launch = copy({
-        scope: p.config.scope,
+        // Launch is the shared compact DSP proof, whose canonical scope stays
+        // v1 even when command/arm geometry uses the continuous contract.
+        scope: codec.LISTENER_METRIC_SCOPE,
         ownership: p.ownership,
         timing,
         clock: p.lastClock,
         elapsedMs: now - p.armStarted,
       });
-      p.coordinates = codec.nativeMetricLaunchCoordinates(
-        p.armProof,
-        p.launch,
-        p.expected,
-      );
+      p.coordinates = (
+        p.continuous
+          ? codec.nativeContinuousMetricLaunchCoordinates
+          : codec.nativeMetricLaunchCoordinates
+      )(p.armProof, p.launch, p.expected);
       p.mel?.bind({
         startSample: p.coordinates.startSample,
         endSample: p.coordinates.endSample,
@@ -1876,7 +2221,12 @@ function createMetricController(options) {
             timingWitnesses: p.witnesses,
             postElapsedMs: now - p.drainStarted,
           });
-          codec.assertNativeMetricSourceCoverage(p.sourceProof, p.expected);
+          (p.continuous
+            ? codec.assertNativeContinuousMetricSourceCoverage
+            : codec.assertNativeMetricSourceCoverage)(
+            p.sourceProof,
+            p.expected,
+          );
           emit(
             p,
             "post-binding",
@@ -1903,9 +2253,15 @@ function createMetricController(options) {
           continue;
         }
         requireValue(
-          integer(status.accepted, 2000),
+          integer(status.accepted, p.continuous ? 39961 : 2000),
           "metric_invalid_available_count",
         );
+        if (f.pendingAck) {
+          io(p, "metric_record_ack", [family, f.pendingAck]);
+          f.pendingAck = null;
+          drained = false;
+          continue;
+        }
         if (f.next <= status.accepted && !f.failure) {
           drained = false;
           if (!f.outstanding) {
@@ -1956,6 +2312,8 @@ function createMetricController(options) {
     pumping = true;
     try {
       drive(p);
+      if (p.streamProducer && !p.streamFinalizing && !p.wantCleanup)
+        p.streamProducer.tick(time());
       if (p.wantCleanup && !p.done && cleanup(p)) finish(p);
     } catch (error) {
       abort(

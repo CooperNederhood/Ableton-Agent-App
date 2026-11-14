@@ -18,7 +18,7 @@ const legacyHashes = [
   "d102081c366e48f040661f4d08d0ae8c597f8549ee0493a341c3f0fd2fe4473e",
   "31f79ee084b39a3eead7d7a63dd7781aa1ee38f33b88fd2537efaef1efe7136e",
   "31f79ee084b39a3eead7d7a63dd7781aa1ee38f33b88fd2537efaef1efe7136e",
-  "838b20d3ba61c2cf933c02d53d283aa57a9c7ad537d7a5c2eba5a77e76493b57",
+  "e5920c7de60c8eead4bd0633f58d94833c4c8905a3a485f37a95cd49ad32689e",
 ];
 const boxes = (doc) =>
   new Map(doc.patcher.boxes.map(({ box }) => [box.id, box]));

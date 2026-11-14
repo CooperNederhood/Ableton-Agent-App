@@ -5,6 +5,7 @@ import {
   rm,
   stat,
   symlink,
+  truncate,
   writeFile,
 } from "node:fs/promises";
 import { join } from "node:path";
@@ -16,6 +17,11 @@ import {
 import {
   SESSION_CONTEXT_STORE_REFERENCE,
   openSessionContextStore,
+  SessionContextStore,
+  metricCaptureRecordSchema,
+  metricCapturePageSchema,
+  metricChunkPageSchema,
+  type MetricCaptureStart,
   type AppendContextPass,
   type SessionContextPublicationRequest,
 } from "@ableton-agent/project-state";
@@ -25,6 +31,14 @@ import {
 } from "@ableton-agent/protocol/testing";
 import {
   LISTENING_FEATURE_DEFINITIONS,
+  METRIC_CONTINUOUS_LISTENING_CAPABILITY,
+  DEFAULT_LISTENING_TIMING_POLICY,
+  createContinuousMetricListeningGeometry,
+  createMetricRecordStreamState,
+  metricRecordChunkDigest,
+  metricRecordChunkSchema,
+  metricRecordStreamDescriptorSchema,
+  type MetricRecordStreamManifest,
   PROTOCOL_VERSION,
   type InspectListeningContextParams,
   type InspectListeningContextResult,
@@ -231,6 +245,99 @@ function pass(
       },
     ],
   };
+}
+function streamStart(
+  owner: DesktopSession,
+  context: ListeningExecutionContext,
+): MetricCaptureStart {
+  const input = pass(owner, context);
+  const source = createSyntheticMetricListeningObservation();
+  const range = { startBeat: 0, endBeat: 1 };
+  const descriptor = metricRecordStreamDescriptorSchema.parse({
+    schema: "metric-record-stream/v1",
+    capability: METRIC_CONTINUOUS_LISTENING_CAPABILITY,
+    ownership: {
+      ...source.ownership,
+      ...context.trace,
+      passId: input.pass.id,
+      listenerId: "listener:1",
+    },
+    source: source.source,
+    geometry: createContinuousMetricListeningGeometry({
+      captureMode: "arrangement-continuous",
+      sampleRate: 48000,
+      vectorSize: 64,
+      tempoBpm: 120,
+      startBeat: 0,
+      endBeat: 1,
+      startSample: 10000,
+    }),
+    timingPolicy: DEFAULT_LISTENING_TIMING_POLICY,
+    requestedMetrics: ["level"],
+    algorithms: [
+      {
+        metric: "level",
+        algorithm: source.metrics.level.algorithm,
+        availability: "available",
+        unavailableReason: null,
+      },
+    ],
+    maxPendingChunks: 8,
+  });
+  return {
+    descriptor,
+    metadata: {
+      id: randomUUID(),
+      trace: context.trace,
+      pass: {
+        ...input.pass,
+        requestedMode: "arrangement",
+        actualMode: "arrangement",
+        requestedRange: range,
+        actualRange: null,
+        status: "partial",
+        complete: false,
+      },
+      producer: {
+        ...input.entries[0]!.producer,
+        connectionEpoch: descriptor.ownership.connectionEpoch,
+      },
+      subject: {
+        ...input.subjects[0]!,
+        kind: "arrangement-range",
+        location: "arrangement",
+        binding: {
+          ...input.subjects[0]!.binding,
+          semanticLocator: {
+            ...input.subjects[0]!.binding.semanticLocator,
+            arrangementRange: range,
+          },
+        },
+      },
+    },
+  };
+}
+async function streamLevelChunk(start: MetricCaptureStart) {
+  const state = await createMetricRecordStreamState(start.descriptor);
+  const chunk = metricRecordChunkSchema.parse({
+    schema: "metric-record-chunk/v1",
+    descriptorDigest: state.descriptorDigest,
+    ownership: start.descriptor.ownership,
+    metric: "level",
+    chunkSequence: 0,
+    recordOffset: 0,
+    slotOffset: 0,
+    previousDigest: state.descriptorDigest,
+    digest: "0".repeat(64),
+    gaps: [],
+    records: start.descriptor.geometry.rows.map((row, index) => ({
+      index,
+      support: { startSample: row.startSample, endSample: row.endSample },
+      peak: [0, 0],
+      rms: [0, 0],
+    })),
+  });
+  return { ...chunk, digest: await metricRecordChunkDigest(chunk) };
 }
 async function harness(initial = [session(), session("set:other")]) {
   const root = join(process.cwd(), `.desktop-context-${randomUUID()}`);
@@ -695,6 +802,305 @@ describe("Desktop repository identity through real staged runtime orchestration"
 });
 
 describe("Desktop session context manager", () => {
+  it("forwards incremental context reads and durable writes while denying application reader mutations", async () => {
+    const h = await harness();
+    const owner = h.sessions[0]!;
+    const context = invocation(owner);
+    const repository = await h.manager.resolveRepository(context);
+    expect(repository.incrementalMetrics).toBeDefined();
+    const metrics = repository.incrementalMetrics!;
+    const start = streamStart(owner, context);
+    const capture = await metrics.beginMetricCapture(start);
+    const chunk = await streamLevelChunk(start);
+    await metrics.appendMetricChunk(capture, chunk);
+    expect(
+      metricCaptureRecordSchema.parse(
+        await metrics.getMetricCapture(capture.captureId),
+      ),
+    ).toMatchObject({
+      metadata: { id: start.metadata.id },
+      status: "staging",
+      chunkCount: 1,
+    });
+    const page = await metrics.listMetricChunks({
+      captureId: capture.captureId,
+    });
+    expect(metricChunkPageSchema.parse(page).items).toEqual([chunk]);
+    expect(
+      metricCapturePageSchema.parse(
+        await metrics.listMetricCaptures({ status: "staging" }),
+      ).items,
+    ).toHaveLength(1);
+    const application: ListeningExecutionContext = {
+      ...invocation(owner),
+      actorKind: "application",
+      agentId: "desktop-context",
+    };
+    const reader = (await h.manager.resolveRepository(application))
+      .incrementalMetrics!;
+    expect((await reader.getMetricCapture(capture.captureId))?.chunkCount).toBe(
+      1,
+    );
+    expect(
+      (await reader.listMetricChunks({ captureId: capture.captureId })).items,
+    ).toEqual([chunk]);
+    const manifest = {} as MetricRecordStreamManifest;
+    for (const mutate of [
+      () => reader.beginMetricCapture(start),
+      () => reader.appendMetricChunk(capture, chunk),
+      () => reader.sealMetricCapture(capture, manifest),
+      () =>
+        reader.finalizeMetricCapture(capture, manifest, {
+          ...start.metadata.pass,
+          status: "completed",
+          complete: true,
+          actualRange: start.metadata.pass.requestedRange,
+        }),
+      () =>
+        reader.terminateMetricCapture(
+          capture,
+          "cancelled",
+          "reader must not mutate",
+        ),
+    ])
+      await expect(mutate()).rejects.toThrow("cannot mutate");
+    expect((await metrics.getMetricCapture(capture.captureId))?.status).toBe(
+      "staging",
+    );
+    await metrics.terminateMetricCapture(capture, "cancelled", "test cleanup");
+    const stages = h.events.filter((event) =>
+      event.name.startsWith("context.metric-chunk."),
+    );
+    expect(stages).toHaveLength(5);
+    expect(
+      stages.every(
+        (event) =>
+          event.trace?.traceId === context.trace.traceId &&
+          event.activeAgentId === context.agentId,
+      ),
+    ).toBe(true);
+    const readerEvents = h.events.filter((event) =>
+      event.name.startsWith("desktop.context.reader-mutation."),
+    );
+    expect(
+      readerEvents.filter((event) => event.stage === "failed"),
+    ).toHaveLength(5);
+    expect(
+      readerEvents.every((event) => event.activeAgentId === undefined),
+    ).toBe(true);
+  });
+
+  it("rechecks incremental agent ownership and denies capture takeover through cached handles", async () => {
+    const h = await harness();
+    const owner = h.sessions[0]!;
+    const context = invocation(owner);
+    const metrics = (await h.manager.resolveRepository(context))
+      .incrementalMetrics!;
+    const start = streamStart(owner, context);
+    const forged = structuredClone(start);
+    forged.metadata.producer.agentId = randomUUID();
+    await expect(metrics.beginMetricCapture(forged)).rejects.toThrow(
+      "no longer belongs",
+    );
+    expect(h.publishSessionContext).not.toHaveBeenCalled();
+    const capture = await metrics.beginMetricCapture(start);
+    const chunk = await streamLevelChunk(start);
+    const otherOwner = h.sessions[1]!;
+    const other = (await h.manager.resolveRepository(invocation(otherOwner)))
+      .incrementalMetrics!;
+    await expect(other.appendMetricChunk(capture, chunk)).rejects.toThrow(
+      "does not own",
+    );
+    expect(await other.getMetricCapture(capture.captureId)).toBeUndefined();
+    const replacement = session().activeAgents[0]!;
+    await h.save(
+      h.sessions.map((record) =>
+        record.id === owner.id
+          ? {
+              ...record,
+              activeAgents: [replacement],
+              selectedAgentInstanceId: replacement.id,
+            }
+          : record,
+      ),
+    );
+    await expect(metrics.getMetricCapture(capture.captureId)).rejects.toThrow(
+      "no longer belongs",
+    );
+    await expect(
+      metrics.appendMetricChunk(capture, chunk, {
+        activeAgentId: replacement.id,
+      }),
+    ).rejects.toThrow("no longer belongs");
+    const current = (
+      await h.manager.resolveRepository({ ...context, agentId: replacement.id })
+    ).incrementalMetrics!;
+    expect((await current.getMetricCapture(capture.captureId))?.status).toBe(
+      "staging",
+    );
+    await expect(
+      current.terminateMetricCapture(capture, "cancelled", "takeover denied"),
+    ).rejects.toThrow("does not own");
+  });
+
+  it("propagates incremental invocation cancellation but permits bounded owned termination cleanup", async () => {
+    const h = await harness();
+    const owner = h.sessions[0]!;
+    const controller = new AbortController();
+    const context = { ...invocation(owner), signal: controller.signal };
+    const metrics = (await h.manager.resolveRepository(context))
+      .incrementalMetrics!;
+    const start = streamStart(owner, context);
+    const capture = await metrics.beginMetricCapture(start);
+    controller.abort(new Error("capture invocation cancelled"));
+    await expect(metrics.getMetricCapture(capture.captureId)).rejects.toThrow(
+      "capture invocation cancelled",
+    );
+    await expect(
+      metrics.appendMetricChunk(capture, await streamLevelChunk(start)),
+    ).rejects.toThrow("capture invocation cancelled");
+    const cleanup = new AbortController();
+    await metrics.terminateMetricCapture(
+      capture,
+      "cancelled",
+      "owned cancelled cleanup",
+      { signal: cleanup.signal },
+    );
+    const current = (await h.manager.resolveRepository(invocation(owner)))
+      .incrementalMetrics!;
+    expect((await current.getMetricCapture(capture.captureId))?.status).toBe(
+      "cancelled",
+    );
+    const aborted = new AbortController();
+    aborted.abort(new Error("read cancelled"));
+    await expect(
+      current.listMetricChunks(
+        { captureId: capture.captureId },
+        { signal: aborted.signal },
+      ),
+    ).rejects.toThrow("read cancelled");
+  });
+
+  it("forwards sealing and publication with invocation trace and immutable agent attribution", async () => {
+    const h = await harness();
+    const owner = h.sessions[0]!;
+    const context = invocation(owner);
+    const metrics = (await h.manager.resolveRepository(context))
+      .incrementalMetrics!;
+    const start = streamStart(owner, context);
+    const capture = await metrics.beginMetricCapture(start);
+    const manifest = {} as MetricRecordStreamManifest;
+    const completed = {
+      ...start.metadata.pass,
+      status: "completed" as const,
+      complete: true,
+      actualRange: start.metadata.pass.requestedRange,
+    };
+    const receipt = {
+      contextId: start.metadata.id,
+      kind: "metric-record-stream-context/v1" as const,
+      passId: completed.id,
+      subjectId: start.metadata.subject.id,
+      listenerId: start.metadata.producer.listenerId,
+    };
+    const seal = vi
+      .spyOn(SessionContextStore.prototype, "sealMetricCapture")
+      .mockResolvedValue(undefined);
+    const publish = vi
+      .spyOn(SessionContextStore.prototype, "finalizeMetricCapture")
+      .mockResolvedValue(receipt);
+    const trace = {
+      ...context.trace,
+      correlationId: "stream:publication",
+      causationId: "stream:gate",
+    };
+    try {
+      await metrics.sealMetricCapture(capture, manifest, {
+        trace,
+        activeAgentId: "spoofed-agent",
+      });
+      expect(
+        await metrics.finalizeMetricCapture(capture, manifest, completed, {
+          trace,
+          activeAgentId: "spoofed-agent",
+        }),
+      ).toEqual(receipt);
+      expect(seal).toHaveBeenCalledWith(
+        capture,
+        manifest,
+        expect.objectContaining({ trace, activeAgentId: context.agentId }),
+      );
+      expect(publish).toHaveBeenCalledWith(
+        capture,
+        manifest,
+        completed,
+        expect.objectContaining({ trace, activeAgentId: context.agentId }),
+      );
+    } finally {
+      seal.mockRestore();
+      publish.mockRestore();
+    }
+    await metrics.terminateMetricCapture(
+      capture,
+      "failed",
+      "stubbed publication cleanup",
+    );
+  });
+
+  it("protects active incremental captures from cache eviction and ownership relocation", async () => {
+    const h = await harness();
+    const limited = h.create(h.storage, { maxCachedSessions: 1 });
+    h.store.setSessionContextTransitionHandler(
+      limited.prepareSessionTransition,
+    );
+    const owner = h.sessions[0]!;
+    const context = invocation(owner);
+    const metrics = (await limited.resolveRepository(context))
+      .incrementalMetrics!;
+    const start = streamStart(owner, context);
+    const capture = await metrics.beginMetricCapture(start);
+    await expect(
+      limited.resolveRepository(invocation(h.sessions[1]!)),
+    ).rejects.toThrow("active listening");
+    await expect(
+      h.save(
+        h.sessions.map((record) =>
+          record.id === owner.id
+            ? { ...record, liveSetId: "set:move-active" }
+            : record,
+        ),
+      ),
+    ).rejects.toThrow("capture is in progress");
+    expect((await metrics.getMetricCapture(capture.captureId))?.status).toBe(
+      "staging",
+    );
+    await metrics.terminateMetricCapture(
+      capture,
+      "cancelled",
+      "release owned capture",
+    );
+    await expect(
+      limited.resolveRepository(invocation(h.sessions[1]!)),
+    ).resolves.toBeDefined();
+  });
+
+  it("uses the shared generous store allowance when reopening declared context", async () => {
+    const h = await harness();
+    const owner = h.sessions[0]!;
+    const context = invocation(owner);
+    const repository = await h.manager.resolveRepository(context);
+    const input = pass(owner, context);
+    await repository.appendPass(input);
+    await h.manager.close();
+    const path = resolveNestedSessionStorage(h.storage, {
+      sessionId: owner.id,
+      liveSetId: owner.liveSetId,
+    }).entityContextPath;
+    await truncate(path, 33 * 1024 * 1024);
+    const restored = await h.create().resolveRepository(context);
+    expect(await restored.getPass(input.pass.id)).toEqual(input.pass);
+  });
+
   it("shares only opened-store identity while preserving independent derive trace and abort attribution", async () => {
     const h = await harness();
     const owner = h.sessions[0]!;
@@ -998,7 +1404,7 @@ describe("Desktop session context manager", () => {
     const entryId = input.entries[0]!.id;
     const result = await repository.deriveFeatures(entryId);
     expect(await repository.getFeatureDerivation(entryId)).toEqual(result);
-    expect(h.sessions[0]?.contextStore?.schemaVersion).toBe(3);
+    expect(h.sessions[0]?.contextStore?.schemaVersion).toBe(4);
 
     const cancelled = new AbortController();
     cancelled.abort();

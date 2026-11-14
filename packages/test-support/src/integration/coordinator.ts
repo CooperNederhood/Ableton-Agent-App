@@ -8,6 +8,7 @@ import {
   sanitizeTelemetryAttributes,
 } from "@ableton-agent/observability";
 import { createDefaultAssertions } from "./assertions.js";
+import { verifyArrangementSource } from "./arrangement.js";
 import type { AgentListeningEvidence } from "./agent-listening-result.js";
 import {
   validateFixtureSourceEvidence,
@@ -39,6 +40,8 @@ import type {
   TurnEvidence,
   TurnSubscription,
   SetupEvidence,
+  SetupAction,
+  ScenarioStep,
 } from "./contracts.js";
 import {
   identifier,
@@ -386,6 +389,46 @@ export async function runAcceptance(
       void cancelled.catch(() => {});
     }
   }
+  async function runSetup(
+    action: SetupAction,
+    step: ScenarioStep,
+    deadline: number,
+  ): Promise<void> {
+    await bounded(
+      `setup.${step.id}.${action}`,
+      deadline,
+      async (ctx) => {
+        const observed = await options.driver.setup!(action, step, ctx);
+        validateEvidence({
+          schemaVersion: 1,
+          facts: {},
+          contexts: [],
+          unchanged: [],
+          setupActions: [observed],
+        });
+        requireCondition(
+          observed.completed === true &&
+            observed.action === action &&
+            observed.stepId === step.id &&
+            observed.traceId === ctx.traceId &&
+            observed.correlationId === ctx.correlationId &&
+            observed.causationId === ctx.causationId &&
+            sameIdentity(identity!, observed),
+          "Setup action evidence does not match its declared ownership",
+        );
+        setupActions.push(immutableCopy(observed));
+        if (action === "back-to-arrangement")
+          evidence = {
+            schemaVersion: 1,
+            facts: {},
+            contexts: [],
+            unchanged: [],
+            setupActions: immutableCopy(setupActions),
+          };
+      },
+      options.signal,
+    );
+  }
   try {
     emit("run", "queued", startedAt, runId);
     emit("run", "started", startedAt, runId);
@@ -462,6 +505,15 @@ export async function runAcceptance(
       },
       options.signal,
     );
+    const firstStep = scenario.steps[0]!;
+    let initialSetupDeadline: number | undefined;
+    if (firstStep.setupActions?.includes("back-to-arrangement")) {
+      initialSetupDeadline = Math.min(
+        runDeadline,
+        Date.now() + firstStep.timeoutMs,
+      );
+      await runSetup("back-to-arrangement", firstStep, initialSetupDeadline);
+    }
     baseline = await bounded(
       "preconditions",
       runDeadline,
@@ -475,6 +527,40 @@ export async function runAcceptance(
         );
         ensureReportBudget({ baseline: admitted });
         baseline = admitted;
+        requireCondition(
+          Object.keys(baseline.arrangementSources ?? {}).length ===
+            (fixture.arrangementSources?.length ?? 0),
+          "Observed Arrangement source inventory differs from fixture",
+        );
+        for (const definition of fixture.arrangementSources ?? []) {
+          const observed = baseline.arrangementSources?.[definition.id];
+          requireCondition(
+            observed,
+            "Missing independently read Arrangement source",
+          );
+          verifyArrangementSource(fixture, definition, observed);
+          requireCondition(
+            observed.savedProjectSha256 ===
+              (dependencyInventory?.preparedProject?.sha256 ??
+                fixture.resources.find(
+                  (entry) => entry.target === "project.als",
+                )?.sha256),
+            "Arrangement saved/loaded Set differs from verified fixture",
+          );
+          for (const media of observed.media) {
+            requireCondition(
+              resolve(media.loadedPath) ===
+                resolve(stagedFixture!.workingDirectory, media.target),
+              "Loaded Arrangement media target differs from staged fixture",
+            );
+            await verifyStagedMedia(
+              stagedFixture!,
+              media.loadedPath,
+              media.sha256,
+              ctx.signal,
+            );
+          }
+        }
         for (const source of Object.values(baseline.sources ?? {})) {
           if (!("loadedMediaPath" in source)) continue;
           await verifyStagedMedia(
@@ -534,34 +620,13 @@ export async function runAcceptance(
     const operations = new Set<string>();
     const assistants = new Set<string>();
     for (const step of scenario.steps) {
-      const deadline = Math.min(runDeadline, Date.now() + step.timeoutMs);
+      const deadline =
+        step.id === firstStep.id && initialSetupDeadline !== undefined
+          ? initialSetupDeadline
+          : Math.min(runDeadline, Date.now() + step.timeoutMs);
       for (const action of step.setupActions ?? []) {
-        await bounded(
-          `setup.${step.id}.${action}`,
-          deadline,
-          async (ctx) => {
-            const observed = await options.driver.setup!(action, step, ctx);
-            validateEvidence({
-              schemaVersion: 1,
-              facts: {},
-              contexts: [],
-              unchanged: [],
-              setupActions: [observed],
-            });
-            requireCondition(
-              observed.completed === true &&
-                observed.action === action &&
-                observed.stepId === step.id &&
-                observed.traceId === ctx.traceId &&
-                observed.correlationId === ctx.correlationId &&
-                observed.causationId === ctx.causationId &&
-                sameIdentity(identity!, observed),
-              "Setup action evidence does not match its declared ownership",
-            );
-            setupActions.push(immutableCopy(observed));
-          },
-          options.signal,
-        );
+        if (action === "back-to-arrangement") continue;
+        await runSetup(action, step, deadline);
       }
       const submission: Submission = await bounded(
         `submit.${step.id}`,

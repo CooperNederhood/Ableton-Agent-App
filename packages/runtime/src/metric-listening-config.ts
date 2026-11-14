@@ -1,14 +1,19 @@
 import { isDeepStrictEqual } from "node:util";
 import {
   createMetricListeningGeometry,
+  createContinuousMetricListeningGeometry,
+  METRIC_CONTINUOUS_LISTENING_CAPABILITY,
   metricAudioObservationSchema,
-  nativeMetricListeningConfigSchema,
+  nativeMetricControlConfigSchema as nativeMetricListeningConfigSchema,
+  NATIVE_CONTINUOUS_METRIC_LISTENING_SCOPE,
+  MAX_METRIC_RECORD_CHUNK_BYTES,
+  MAX_METRIC_RECORD_PENDING_CHUNKS,
   NATIVE_METRIC_ALGORITHM_VERSION,
   NATIVE_METRIC_LISTENING_SCOPE,
   LISTENER_CAPABILITY_ANALYZER_TIMELINES,
   type ListeningTimingPolicy,
   type MetricAudioObservation,
-  type NativeMetricListeningConfig,
+  type NativeMetricControlConfig as NativeMetricListeningConfig,
   type StoredAudioObservation,
 } from "@ableton-agent/protocol";
 import type { ListeningPassContext } from "@ableton-agent/application";
@@ -50,7 +55,10 @@ export function createMetricCaptureBinding(input: {
     ]);
   listenerRegistrationMetricSchema.parse(registration);
   if (
-    registration.nativeStatus.scope !== NATIVE_METRIC_LISTENING_SCOPE ||
+    ![
+      NATIVE_METRIC_LISTENING_SCOPE,
+      NATIVE_CONTINUOUS_METRIC_LISTENING_SCOPE,
+    ].includes(registration.nativeStatus.scope) ||
     !registration.nativeStatus.supportedModes.includes(input.source.view) ||
     (registration.nativeStatus.readiness !== "READY" &&
       registration.nativeStatus.reason !==
@@ -69,7 +77,26 @@ export function createMetricCaptureBinding(input: {
         "READY|fresh-per-pass",
       ),
     ]);
-  const geometry = createMetricListeningGeometry({
+  const durationSeconds =
+    ((input.source.transport.endBeat - input.source.transport.startBeat) * 60) /
+    input.tempoBpm;
+  const continuous = durationSeconds > 30;
+  if (
+    continuous &&
+    (input.source.view !== "arrangement" ||
+      !registration.capabilities.some(
+        (capability) =>
+          String(capability) === METRIC_CONTINUOUS_LISTENING_CAPABILITY,
+      ))
+  )
+    deny("continuous_metric_stream_unavailable", undefined, [
+      failureFact(
+        "listener.requiredCapability",
+        METRIC_CONTINUOUS_LISTENING_CAPABILITY,
+      ),
+      failureFact("listener.requestedMode", input.source.view, "arrangement"),
+    ]);
+  const geometryInput = {
     sampleRate:
       registration.sampleRate === 44_100 || registration.sampleRate === 48_000
         ? registration.sampleRate
@@ -85,14 +112,21 @@ export function createMetricCaptureBinding(input: {
     startBeat: input.source.transport.startBeat,
     endBeat: input.source.transport.endBeat,
     startSample: 0,
-  });
+  } as const;
+  const geometry = continuous
+    ? createContinuousMetricListeningGeometry({
+        ...geometryInput,
+        captureMode: "arrangement-continuous",
+      })
+    : createMetricListeningGeometry(geometryInput);
   const requestedMetrics = [
     ...(input.requestedMetrics ?? [
       "level",
       "spectral-centroid",
       "attacks",
       "mel-bands",
-      ...(registration.capabilities.some(
+      ...(continuous ||
+      registration.capabilities.some(
         (capability) => capability === LISTENER_CAPABILITY_ANALYZER_TIMELINES,
       )
         ? (["pitch", "spectral-shape"] as const)
@@ -114,7 +148,9 @@ export function createMetricCaptureBinding(input: {
       ),
     ]);
   const shared = {
-    scope: NATIVE_METRIC_LISTENING_SCOPE,
+    scope: continuous
+      ? NATIVE_CONTINUOUS_METRIC_LISTENING_SCOPE
+      : NATIVE_METRIC_LISTENING_SCOPE,
     algorithmVersion: NATIVE_METRIC_ALGORITHM_VERSION,
     geometry,
     timingPolicy: input.timingPolicy,
@@ -148,7 +184,19 @@ export function createMetricCaptureBinding(input: {
             target: input.source.target,
           },
         }
-      : { ...shared, mode: "arrangement", sourceEvidence: "transport-only" },
+      : {
+          ...shared,
+          mode: "arrangement",
+          sourceEvidence: "transport-only",
+          ...(continuous
+            ? {
+                capability: METRIC_CONTINUOUS_LISTENING_CAPABILITY,
+                captureMode: "arrangement-continuous",
+                maxPendingChunks: MAX_METRIC_RECORD_PENDING_CHUNKS,
+                maxChunkBytes: MAX_METRIC_RECORD_CHUNK_BYTES,
+              }
+            : {}),
+        },
   );
   return freeze({ descriptor, config });
 }
@@ -182,6 +230,8 @@ export function validateMetricCaptureObservations(
         ]);
       seen.add(owner.listenerId);
       const { config, descriptor } = binding;
+      if (config.scope === NATIVE_CONTINUOUS_METRIC_LISTENING_SCOPE)
+        deny("continuous_metric_legacy_publication_forbidden");
       const local = config.geometry;
       const expectedGeometry = createMetricListeningGeometry({
         sampleRate: local.sampleRate,

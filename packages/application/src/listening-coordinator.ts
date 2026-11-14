@@ -11,9 +11,14 @@ import {
   storedObservationIdentity,
   storedObservationCoordinates,
   summarizeMetricListeningResult,
+  metricRecordStreamManifestSchema,
+  summarizeMetricListeningStreamManifest,
+  MAX_ARRANGEMENT_LISTENING_EXECUTION_MS,
   sessionListeningLaunchDetailSchema,
   listeningFailureEvidenceSchema,
   readListeningFailureEvidence,
+  listeningCaptureProgressSchema,
+  type ListeningCaptureProgress,
   type ListeningFailureEvidence,
   type ListeningFailureFact,
   type SessionListeningLaunchDetail,
@@ -21,11 +26,13 @@ import {
   type InspectSessionListeningSourceParams,
   type StoredAudioObservation,
   type MetricListeningResultSummary,
+  type MetricRecordStreamManifest,
 } from "@ableton-agent/protocol";
 
 export const listeningLimits = {
   maxListeners: 8,
-  maxDurationMs: 300_000,
+  maxDurationMs: MAX_ARRANGEMENT_LISTENING_EXECUTION_MS,
+  maxSessionDurationMs: 300_000,
   readinessTimeoutMs: 10_000,
   cleanupTimeoutMs: 10_000,
   maxJobs: 100,
@@ -82,12 +89,18 @@ export type OwnedListeningPlayback =
       release(): Promise<void>;
     };
 
-export interface PreparedListeningCapture {
-  /** Set only after explicit native capability/control/proof negotiation. */
-  readonly observationContract?: "independent-metric-timelines/v1";
-  readonly observations: Promise<readonly StoredAudioObservation[]>;
-  disarm(): Promise<void>;
-}
+export type PreparedListeningCapture =
+  | {
+      /** Set only after explicit native capability/control/proof negotiation. */
+      readonly observationContract?: "independent-metric-timelines/v1";
+      readonly observations: Promise<readonly StoredAudioObservation[]>;
+      disarm(): Promise<void>;
+    }
+  | {
+      readonly observationContract: "metric-record-stream/v1";
+      readonly manifests: Promise<readonly MetricRecordStreamManifest[]>;
+      disarm(): Promise<void>;
+    };
 
 export interface ListeningPassContext {
   readonly passId: string;
@@ -122,6 +135,7 @@ export interface ListeningCoordinatorServices {
       readonly owner: ListeningOwner;
       readonly trace: ListeningTrace;
       readonly signal: AbortSignal;
+      readonly onProgress?: (progress: ListeningCaptureProgress) => void;
     },
   ): Promise<PreparedListeningCapture>;
   /** Must guard stopped/recording-off state again and clean up aborted starts. */
@@ -154,6 +168,23 @@ export interface ListeningCoordinatorServices {
     request: ListeningRequest,
     passId: string,
   ): void;
+  validateStreams?(
+    this: void,
+    manifests: readonly MetricRecordStreamManifest[],
+    request: ListeningRequest,
+    passId: string,
+  ): void;
+  persistStreams?(
+    this: void,
+    input: {
+      readonly passId: string;
+      readonly owner: ListeningOwner;
+      readonly trace: ListeningTrace;
+      readonly request: ListeningRequest;
+      readonly manifests: readonly MetricRecordStreamManifest[];
+      readonly signal: AbortSignal;
+    },
+  ): Promise<readonly string[]>;
 }
 
 export interface ListeningPublicationReservation {
@@ -182,6 +213,7 @@ export interface ListeningJob {
   readonly createdAt: string;
   readonly updatedAt: string;
   readonly durationMs: number;
+  readonly captureProgress?: ListeningCaptureProgress;
   readonly contextIds: readonly string[];
   readonly metricResults?: readonly MetricListeningResultSummary[];
   readonly error?: string;
@@ -572,21 +604,25 @@ function validateRequest(request: ListeningRequest): void {
     );
   }
 
+  const maximumExecutionMs =
+    request.mode === "session"
+      ? listeningLimits.maxSessionDurationMs
+      : listeningLimits.maxDurationMs;
   if (
     !Number.isInteger(request.maximumDurationMs) ||
     request.maximumDurationMs <= 0 ||
-    request.maximumDurationMs > listeningLimits.maxDurationMs
+    request.maximumDurationMs > maximumExecutionMs
   ) {
     throw new ListeningFailure(
       "invalid_params",
-      "Capture duration must be bounded to at most 300 seconds",
+      `Listening execution must be bounded to at most ${maximumExecutionMs / 1000} seconds`,
       {
         checkId: "application.input.duration",
         facts: [
           fact(
             "maximumDurationMs",
             request.maximumDurationMs,
-            listeningLimits.maxDurationMs,
+            maximumExecutionMs,
             "at-most",
           ),
           fact("minimumDurationMs", request.maximumDurationMs, 1, "at-least"),
@@ -1043,6 +1079,7 @@ export class ListeningCoordinator {
     let finalStage: ListeningStage = "completed";
     let contextIds: readonly string[] = [];
     let metricResults: readonly MetricListeningResultSummary[] | undefined;
+    let lastProgressAt = -Infinity;
     const readinessTimer = () => {
       const deadline = setTimeout(() => {
         job.controller.abort(
@@ -1109,11 +1146,74 @@ export class ListeningCoordinator {
           owner: job.snapshot.owner,
           trace: job.snapshot.trace,
           signal,
+          onProgress: (raw) => {
+            if (signal.aborted || terminal(job.snapshot.stage)) return;
+            const parsed = listeningCaptureProgressSchema.safeParse(raw);
+            if (!parsed.success) {
+              const error = new ListeningFailure(
+                "invalid_capture_progress",
+                "Capture progress is outside its declared bounds",
+                {
+                  checkId: "application.capture.progress",
+                  phase: "capture",
+                  facts: [
+                    fact("schemaIssueCount", parsed.error.issues.length, 0),
+                  ],
+                },
+              );
+              job.controller.abort(error);
+              throw error;
+            }
+            const progress = parsed.data;
+            const previous = job.snapshot.captureProgress;
+            if (
+              previous !== undefined &&
+              (progress.sampleRate !== previous.sampleRate ||
+                progress.requestedSamples !== previous.requestedSamples ||
+                progress.persistedSamples < previous.persistedSamples ||
+                progress.persistedChunks < previous.persistedChunks)
+            ) {
+              const error = new ListeningFailure(
+                "invalid_capture_progress",
+                "Durable capture progress changed identity or regressed",
+                {
+                  checkId: "application.capture.progress",
+                  phase: "capture",
+                  facts: [
+                    fact("persistedSamples", progress.persistedSamples),
+                    fact("persistedChunks", progress.persistedChunks),
+                  ],
+                },
+              );
+              job.controller.abort(error);
+              throw error;
+            }
+            if (
+              previous !== undefined &&
+              progress.persistedSamples === previous.persistedSamples &&
+              progress.persistedChunks === previous.persistedChunks
+            )
+              return;
+            job.snapshot = { ...job.snapshot, captureProgress: progress };
+            const now = performance.now();
+            if (
+              now - lastProgressAt >= 1000 ||
+              (progress.persistedSamples === progress.requestedSamples &&
+                previous?.persistedSamples !== progress.requestedSamples)
+            ) {
+              lastProgressAt = now;
+              this.#transition(job, job.snapshot.stage);
+            }
+          },
         }),
         signal,
       );
       // Observe a rejected result immediately, including before playback starts.
-      void capture.observations.catch(() => undefined);
+      void (
+        capture.observationContract === "metric-record-stream/v1"
+          ? capture.manifests
+          : capture.observations
+      ).catch(() => undefined);
       checkAbort(signal);
       job.readinessBoundary = "post-arm-inspection";
       boundary = {
@@ -1191,139 +1291,226 @@ export class ListeningCoordinator {
         phase: "capture",
         facts: [],
       };
-      const rawObservations = await bounded(capture.observations, signal);
-      const metricContract =
-        capture.observationContract === "independent-metric-timelines/v1";
-      const parsedObservations = metricContract
-        ? metricAudioObservationSchema.array().max(8).safeParse(rawObservations)
-        : legacyStoredAudioObservationSchema
-            .array()
-            .max(8)
-            .safeParse(rawObservations);
-      if (!parsedObservations.success) {
-        throw new ListeningFailure(
-          "listening_failed",
-          parsedObservations.error.message,
-          {
-            checkId: "application.observation.schema",
-            phase: "capture",
-            facts: [
-              fact(
-                "schemaIssueCount",
-                parsedObservations.error.issues.length,
-                0,
-              ),
-              fact(
-                "observationCount",
-                Array.isArray(rawObservations)
-                  ? rawObservations.length
-                  : undefined,
-                request.listenerIds.length,
-              ),
-            ],
-          },
+      let candidateMetricResults: MetricListeningResultSummary[] | undefined;
+      let capturedCount: number;
+      let validationBoundary: typeof boundary;
+      let validateCapture: () => void;
+      let persistCapture: () => Promise<readonly string[]>;
+      if (capture.observationContract === "metric-record-stream/v1") {
+        const manifests = metricRecordStreamManifestSchema
+          .array()
+          .min(1)
+          .max(1)
+          .parse(await bounded(capture.manifests, signal));
+        capturedCount = manifests.length;
+        if (
+          request.mode !== "arrangement" ||
+          request.listenerIds.length !== manifests.length ||
+          manifests.some(
+            ({ ownership, outcome }) =>
+              ownership.passId !== job.snapshot.passId ||
+              !request.listenerIds.includes(ownership.listenerId) ||
+              ownership.traceId !== job.snapshot.trace.traceId ||
+              ownership.correlationId !== job.snapshot.trace.correlationId ||
+              ownership.causationId !== job.snapshot.trace.causationId ||
+              (outcome !== "complete" && outcome !== "partial"),
+          )
+        ) {
+          throw new ListeningFailure(
+            "incomplete_capture",
+            "Continuous capture requires one owned Arrangement manifest with publishable metric evidence",
+          );
+        }
+        const { validateStreams, persistStreams } = this.options.services;
+        if (validateStreams === undefined || persistStreams === undefined) {
+          throw new ListeningFailure(
+            "stream_publication_unavailable",
+            "Continuous capture requires verified incremental context publication",
+          );
+        }
+        validationBoundary = {
+          checkId: "application.stream.validate",
+          phase: "post-binding",
+          facts: [fact("manifestCount", manifests.length)],
+        };
+        validateCapture = () =>
+          validateStreams(manifests, request, job.snapshot.passId);
+        candidateMetricResults = manifests.map((manifest) => {
+          const summary = summarizeMetricListeningStreamManifest(manifest);
+          return {
+            ...summary,
+            listenerId: sanitizePersistedText(summary.listenerId).slice(0, 128),
+          };
+        });
+        persistCapture = () =>
+          persistStreams({
+            passId: job.snapshot.passId,
+            owner: job.snapshot.owner,
+            trace: job.snapshot.trace,
+            request,
+            manifests,
+            signal,
+          });
+      } else {
+        const rawObservations = await bounded(capture.observations, signal);
+        const metricContract =
+          capture.observationContract === "independent-metric-timelines/v1";
+        const parsedObservations = metricContract
+          ? metricAudioObservationSchema
+              .array()
+              .max(8)
+              .safeParse(rawObservations)
+          : legacyStoredAudioObservationSchema
+              .array()
+              .max(8)
+              .safeParse(rawObservations);
+        if (!parsedObservations.success) {
+          throw new ListeningFailure(
+            "listening_failed",
+            parsedObservations.error.message,
+            {
+              checkId: "application.observation.schema",
+              phase: "capture",
+              facts: [
+                fact(
+                  "schemaIssueCount",
+                  parsedObservations.error.issues.length,
+                  0,
+                ),
+                fact(
+                  "observationCount",
+                  Array.isArray(rawObservations)
+                    ? rawObservations.length
+                    : undefined,
+                  request.listenerIds.length,
+                ),
+              ],
+            },
+          );
+        }
+        const observations = parsedObservations.data;
+        const identities = observations.map(storedObservationIdentity);
+        const coordinates = observations.map(storedObservationCoordinates);
+        const publishable = observations.map((item) =>
+          item.schema === "metric-audio-observation/v1"
+            ? item.ownership.traceId === job.snapshot.trace.traceId &&
+              item.ownership.correlationId ===
+                job.snapshot.trace.correlationId &&
+              item.ownership.causationId === job.snapshot.trace.causationId &&
+              item.source.view === request.mode
+            : item.complete,
         );
+        if (
+          observations.length !== request.listenerIds.length ||
+          new Set(identities.map((item) => item.listenerId)).size !==
+            observations.length ||
+          identities.some(
+            (item) =>
+              item.passId !== job.snapshot.passId ||
+              !request.listenerIds.includes(item.listenerId),
+          ) ||
+          publishable.some((valid) => !valid) ||
+          coordinates.some(
+            (item) =>
+              item.endSample <= item.startSample ||
+              item.endBeat <= item.startBeat,
+          )
+        ) {
+          throw new ListeningFailure(
+            "incomplete_capture",
+            metricContract
+              ? "Every selected listener must return one publishable owned metric observation for this pass"
+              : "Every selected listener must return one complete observation for this pass",
+            {
+              checkId: "application.observation.coverage",
+              phase: "capture",
+              facts: [
+                fact(
+                  "observationCount",
+                  observations.length,
+                  request.listenerIds.length,
+                ),
+                fact(
+                  "distinctListenerCount",
+                  new Set(identities.map((item) => item.listenerId)).size,
+                  observations.length,
+                ),
+                ...identities.flatMap((item, index) => [
+                  fact(
+                    `observation.${index}.passMatches`,
+                    item.passId === job.snapshot.passId,
+                    true,
+                  ),
+                  fact(
+                    `observation.${index}.listenerSelected`,
+                    request.listenerIds.includes(item.listenerId),
+                    true,
+                  ),
+                  fact(
+                    `observation.${index}.${metricContract ? "publishable" : "complete"}`,
+                    publishable[index],
+                    true,
+                  ),
+                  fact(
+                    `observation.${index}.startSample`,
+                    coordinates[index]?.startSample,
+                  ),
+                  fact(
+                    `observation.${index}.endSample`,
+                    coordinates[index]?.endSample,
+                  ),
+                  fact(
+                    `observation.${index}.startBeat`,
+                    coordinates[index]?.startBeat,
+                  ),
+                  fact(
+                    `observation.${index}.endBeat`,
+                    coordinates[index]?.endBeat,
+                  ),
+                ]),
+              ],
+            },
+          );
+        }
+        candidateMetricResults = metricContract
+          ? observations.map((observation) => {
+              if (observation.schema !== "metric-audio-observation/v1")
+                throw new ListeningFailure(
+                  "incomplete_capture",
+                  "Independent metric capture returned a legacy observation",
+                );
+              const summary = summarizeMetricListeningResult(observation);
+              return {
+                ...summary,
+                listenerId: sanitizePersistedText(summary.listenerId).slice(
+                  0,
+                  128,
+                ),
+              };
+            })
+          : undefined;
+        capturedCount = observations.length;
+        validationBoundary = {
+          checkId: "application.observation.validate",
+          phase: "post-binding",
+          facts: [fact("observationCount", observations.length)],
+        };
+        validateCapture = () =>
+          this.options.services.validateObservations(
+            observations,
+            request,
+            job.snapshot.passId,
+          );
+        persistCapture = () =>
+          this.options.services.persist({
+            passId: job.snapshot.passId,
+            owner: job.snapshot.owner,
+            trace: job.snapshot.trace,
+            request,
+            observations,
+            signal,
+          });
       }
-      const observations = parsedObservations.data;
-      const identities = observations.map(storedObservationIdentity);
-      const coordinates = observations.map(storedObservationCoordinates);
-      const publishable = observations.map((item) =>
-        item.schema === "metric-audio-observation/v1"
-          ? item.ownership.traceId === job.snapshot.trace.traceId &&
-            item.ownership.correlationId === job.snapshot.trace.correlationId &&
-            item.ownership.causationId === job.snapshot.trace.causationId &&
-            item.source.view === request.mode
-          : item.complete,
-      );
-      if (
-        observations.length !== request.listenerIds.length ||
-        new Set(identities.map((item) => item.listenerId)).size !==
-          observations.length ||
-        identities.some(
-          (item) =>
-            item.passId !== job.snapshot.passId ||
-            !request.listenerIds.includes(item.listenerId),
-        ) ||
-        publishable.some((valid) => !valid) ||
-        coordinates.some(
-          (item) =>
-            item.endSample <= item.startSample ||
-            item.endBeat <= item.startBeat,
-        )
-      ) {
-        throw new ListeningFailure(
-          "incomplete_capture",
-          metricContract
-            ? "Every selected listener must return one publishable owned metric observation for this pass"
-            : "Every selected listener must return one complete observation for this pass",
-          {
-            checkId: "application.observation.coverage",
-            phase: "capture",
-            facts: [
-              fact(
-                "observationCount",
-                observations.length,
-                request.listenerIds.length,
-              ),
-              fact(
-                "distinctListenerCount",
-                new Set(identities.map((item) => item.listenerId)).size,
-                observations.length,
-              ),
-              ...identities.flatMap((item, index) => [
-                fact(
-                  `observation.${index}.passMatches`,
-                  item.passId === job.snapshot.passId,
-                  true,
-                ),
-                fact(
-                  `observation.${index}.listenerSelected`,
-                  request.listenerIds.includes(item.listenerId),
-                  true,
-                ),
-                fact(
-                  `observation.${index}.${metricContract ? "publishable" : "complete"}`,
-                  publishable[index],
-                  true,
-                ),
-                fact(
-                  `observation.${index}.startSample`,
-                  coordinates[index]?.startSample,
-                ),
-                fact(
-                  `observation.${index}.endSample`,
-                  coordinates[index]?.endSample,
-                ),
-                fact(
-                  `observation.${index}.startBeat`,
-                  coordinates[index]?.startBeat,
-                ),
-                fact(
-                  `observation.${index}.endBeat`,
-                  coordinates[index]?.endBeat,
-                ),
-              ]),
-            ],
-          },
-        );
-      }
-      const candidateMetricResults = metricContract
-        ? observations.map((observation) => {
-            if (observation.schema !== "metric-audio-observation/v1")
-              throw new ListeningFailure(
-                "incomplete_capture",
-                "Independent metric capture returned a legacy observation",
-              );
-            const summary = summarizeMetricListeningResult(observation);
-            return {
-              ...summary,
-              listenerId: sanitizePersistedText(summary.listenerId).slice(
-                0,
-                128,
-              ),
-            };
-          })
-        : undefined;
       if (playback.cleanupPolicy !== "leave-running" && !playback.isOwned()) {
         finalStage = "interrupted";
         throw new ListeningFailure(
@@ -1336,16 +1523,9 @@ export class ListeningCoordinator {
           },
         );
       }
-      boundary = {
-        checkId: "application.observation.validate",
-        phase: "post-binding",
-        facts: [fact("observationCount", observations.length)],
-      };
-      this.options.services.validateObservations(
-        observations,
-        request,
-        job.snapshot.passId,
-      );
+      checkAbort(signal);
+      boundary = validationBoundary;
+      validateCapture();
       boundary = {
         checkId: "application.cleanup.playback",
         phase: "cleanup",
@@ -1371,21 +1551,11 @@ export class ListeningCoordinator {
       boundary = {
         checkId: "application.publication.persist",
         phase: "publication",
-        facts: [fact("observationCount", observations.length)],
+        facts: [fact("observationCount", capturedCount)],
       };
       let publishedIds: readonly string[];
       try {
-        publishedIds = await bounded(
-          this.options.services.persist({
-            passId: job.snapshot.passId,
-            owner: job.snapshot.owner,
-            trace: job.snapshot.trace,
-            request,
-            observations,
-            signal,
-          }),
-          signal,
-        );
+        publishedIds = await bounded(persistCapture(), signal);
       } catch (error) {
         if (signal.aborted) {
           throw new ListeningFailure(
@@ -1592,6 +1762,9 @@ export class ListeningCoordinator {
       stage,
       contextIds,
       ...(metricResults === undefined ? {} : { metricResults }),
+      ...(job.snapshot.captureProgress === undefined
+        ? {}
+        : { captureProgress: job.snapshot.captureProgress }),
       ...(job.readinessBoundary === undefined
         ? {}
         : { readinessBoundary: job.readinessBoundary }),

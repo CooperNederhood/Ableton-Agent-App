@@ -107,6 +107,44 @@ async function click(text: string) {
 }
 
 describe("owned listening lifecycle presentation (synthetic fixtures only)", () => {
+  it("shows durable long-form coverage separately from terminal verification and retains it on cancellation", async () => {
+    const h = source();
+    const capturing: DesktopListeningJob = {
+      ...job,
+      stage: "capturing",
+      captureProgress: {
+        sampleRate: 48_000,
+        requestedSamples: 8_640_000,
+        persistedSamples: 2_880_000,
+        persistedChunks: 30,
+      },
+    };
+    vi.mocked(h.api.listening.list).mockResolvedValueOnce(page([capturing]));
+    await render(h.api);
+    expect(container.textContent).toContain(
+      "60.00 of 180.00 seconds durably retained in 30 chunks",
+    );
+    expect(container.textContent).toContain(
+      "Coverage progress is not terminal verification",
+    );
+    const progress = container.querySelector("progress");
+    expect(progress?.value).toBe(2_880_000);
+    expect(progress?.max).toBe(8_640_000);
+    await click("Cancel owned capture (not transport)");
+    expect(h.cancel).toHaveBeenCalledOnce();
+    await act(async () =>
+      h.emit({
+        type: "listening.changed",
+        page: page([{ ...capturing, stage: "cancelled" }], 1),
+      }),
+    );
+    expect(
+      container.querySelector('[data-listening-stage="cancelled"]'),
+    ).not.toBeNull();
+    expect(container.querySelector("progress")?.value).toBe(2_880_000);
+    expect(container.textContent).not.toContain("Lifecycle completed");
+  });
+
   it("shows a saved partial as terminal, with usable metrics and explicit gaps rather than a failure", async () => {
     const h = source();
     const partial: DesktopListeningJob = {

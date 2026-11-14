@@ -199,7 +199,7 @@ or recapturing them. Session registry/manifest references advance with the store
 unknown future versions remain errors.
 
 Derived records use the same resolved `context/entity-context.sqlite` path,
-session/Set ownership, atomic publication, sanitation and 32 MiB physical quota.
+session/Set ownership, atomic publication, sanitation and configurable physical quota.
 They are not fake observation kinds or journal records. Stable source/segment/
 definition identities make repeated derivation idempotent. Explicit source
 pruning cascades to dependent records. Prune cancellation targets only pending
@@ -236,17 +236,20 @@ entries therefore have a 2 MiB + 16 KiB serialized ceiling; both the total
 entry and its metadata portion are checked after credential sanitation.
 Publication admission measures the complete serialized
 `{pass, subjects, entries, links}` object, not just observation payloads.
-Its ceiling is eight metric entry ceilings plus 1 MiB for bounded
-pass/subject/link framing: 17.125 MiB (17,956,864 bytes). Schema count limits do
-not grant permission for arbitrarily large metadata: the aggregate byte ceiling
-still applies. These quotas allow an atomic eight-listener metric pass without
+Its default aggregate ceiling is 512 MiB. Schema count limits do
+not grant permission for arbitrarily large metadata: per-entry and bounded
+wire/query ceilings still apply. These allowances admit atomic short passes without
 enlarging unrelated observation-kind protocol limits.
 
-The physical exported SQLite store remains capped at 32 MiB per App session,
+The physical exported SQLite store defaults to 2 GiB per App session,
 including database/index overhead and outstanding pass reservations. A full
 eight-listener pass fits a fresh store; existing history can still require
 explicit reviewed pruning before reservation or publication. Full-store failure is visible and does not
 silently evict observations.
+`maxStoreBytes`, `maxPassBytes`, `maxFeatureBytes`, and `maxFeatureBatchBytes`
+accept positive safe-integer overrides above their defaults. These are storage
+allowances, not enlarged transport frames, LLM messages, query pages, or journal
+payloads. No sizing exercise is required before admitting long-form capture.
 Quota failure/cancellation rolls back the entire publication; releasing the
 reservation or closing its owner releases admission capacity. Reopen preserves
 immutable exact native records, gaps, musical rows and causal attribution.
@@ -270,10 +273,147 @@ windows. These processed features are not raw audio or reconstructed musical
 level rows. Retained attack inputs form a validated prefix; missing input ends
 that detector's trustworthy coverage rather than inventing later event absence.
 Missing musical-level delivery does not invalidate independently retained
-detector inputs. Explicit pruning, 32 MiB store retention,
+detector inputs. Explicit pruning, configurable store retention,
 profile/session ownership and redaction remain unchanged. Geometry count limits
 do not override byte admission. This stored-kind extension is not authorization
 for unnegotiated native capture.
+
+### Incremental metric contexts
+
+Schema v4 adds `context_metric_captures` and immutable
+`context_metric_chunks` **inside the same resolver-owned**
+`context/entity-context.sqlite`. There is no second capture database, raw audio
+directory, renderer SQL/filesystem capability, or upload path. The four registered
+observation kinds remain unchanged. Continuous Arrangement captures use the
+shared protocol's descriptor/chunk/manifest contract and retain all requested
+metric families; neither disk admission nor terminal publication reduces records.
+
+`EntityContextRepository.incrementalMetrics` advertises the typed
+`IncrementalMetricContextRepository` capability. `SessionContextStore` also
+exposes its methods directly:
+
+- `beginMetricCapture({metadata, descriptor}, options)` durably stages an
+  incomplete pass, immutable subject/producer binding, descriptor and compact
+  per-metric state; it returns `{captureId, ownerToken}`.
+- `appendMetricChunk(owner, chunk, options)` verifies shared-protocol identity,
+  sequence, support, digest chain and metric continuity, then commits the chunk
+  and new prefix state together. Its promise acknowledges durable publication,
+  not merely queue admission.
+- `sealMetricCapture(owner, manifest, options)` independently verifies the
+  durable chunks and terminal manifest, then records `sealed` with ownership
+  retained. It does **not** create a completed pass, primary subject, or ordinary
+  completed-context inventory item. Runtime sink finalization must use this
+  operation; the application coordinator retains its separate cancellation/
+  commit gate before explicitly requesting publication.
+- `finalizeMetricCapture(owner, manifest, completedPass, options)` independently
+  rereads one durable chunk at a time, rebuilding counts, continuity, replay
+  state and digests before verifying native terminal/cleanup evidence. Only then
+  does one transaction publish the completed pass, subject and terminal manifest.
+  The ordinary `appendPass` path cannot publish an incremental pass.
+  Finalization returns a typed `MetricCapturePublication` receipt containing
+  `{contextId, kind, passId, subjectId, listenerId}`. Its explicit kind is
+  `metric-record-stream-context/v1`, not a fabricated whole-observation kind;
+  `contextId` is the capture metadata ID and remains the lookup key after restart.
+  When publishing a sealed capture, the terminal claim must be identical to its
+  durable seal and all original chunks are independently verified again. The
+  application passes its publication cancellation signal; cancellation before
+  atomic commit classifies the capture without exposing completed context.
+  Disk publication checks cancellation again after staging-file fsync, directly
+  before rename. Rename is the commit boundary; cancellation cannot retroactively
+  label an already committed immutable context cancelled. Directory sync remains
+  the shared adapter's best-effort durability hint, not a second commit gate.
+- `terminateMetricCapture(owner, status, reason, options)` records `failed`,
+  `cancelled` or `interrupted`, invalidates ownership, and never creates a
+  completed pass. Chunk/verification errors and ingress/finalization invocation cancellation classify
+  the owned capture before returning; cleanup-persistence failure remains an
+  explicit operation failure, never success.
+- `getMetricCapture(id, options)` returns typed overview/provisional/terminal
+  state; `listMetricChunks({captureId, afterSequence, metric, range, limit,
+  maxBytes}, options)` returns bounded, digest-checked detail. Range filters use
+  half-open sample supports and return complete intersecting immutable chunks,
+  not clipped or rehashed records. Global storage cursors differ from the
+  protocol's per-metric chunk sequences; feed `nextSequence` back as
+  `afterSequence`. An undersized page budget fails explicitly rather than
+  silently skipping a chunk.
+
+Staged metadata is bounded to 64 KiB and terminal overviews to 256 KiB; detail
+is bounded to 16 chunks and 1 MiB per page.
+Individual protocol chunks remain bounded separately. These APIs never assemble
+a whole-capture timeline or aggregate terminal/pass JSON. The existing sql.js
+adapter still keeps SQLite pages in memory and atomically exports the database
+for durable writes; that infrastructure cost is not a second in-memory metric
+array or a promise of constant total database memory.
+Persisted/returned descriptors omit derived geometry rows. Validation regenerates
+the reporting grid through the shared geometry constructor and checks the
+independently derived geometry against the persisted projection before verifying
+the shared descriptor digest; original metric records are never regenerated.
+`listMetricCaptures` provides byte-bounded, keyset-paged discovery by pass, subject,
+listener and status; its default status is `completed`, so unfinished captures
+cannot silently enter ordinary context inventory.
+Public `metricCaptureRecordSchema`, `metricCapturePageSchema` and
+`metricChunkPageSchema` validate these projections, including terminal-state
+consistency and exact UTF-8 `encodedBytes` accounting for the page's `items`.
+Inventory pages expose `nextId`; chunk pages expose `nextSequence`. Neither
+projection contains derived geometry rows or an unbounded timeline.
+
+The application context host and `ableton_context` consume these typed reads
+directly. `stream-overview` exposes compact source/geometry/algorithm metadata
+and independently verified terminal counts, gap reasons, native status and
+digests; establishing acquisition coverage does not require exhausting a
+ten-minute record timeline. `stream-records` reads at most one immutable
+128-KiB chunk internally and returns an explicitly labelled original-record/gap
+projection under the **64-KiB total UTF-8 tool response budget**. It returns at
+most 64 entries, trimming further by encoded bytes without altering records.
+Query-bound continuations preserve within-chunk offsets and next-chunk identity.
+The chunk digest identifies the original immutable chunk, not a hash of the
+sliced projection. Sample-range filters select intersecting chunks; original
+record/gap support is not clipped.
+
+Completed stream summaries share bounded discovery and bootstrap inventory with
+legacy observations. A query-bound composite cursor alternates both sources,
+with at most four summaries per tool page and a 4-KiB cursor ceiling; bootstrap
+inventory remains 16 KiB UTF-8 with explicit truncation. Session/Set ownership
+and historical scope are checked without asserting current source freshness.
+Staged, sealed, failed, cancelled and interrupted captures are not completed
+context reads. Whole-observation `get`/`report` and feature derivation/discovery
+for stream IDs fail explicitly; consumers must not reassemble a stream as a
+legacy observation or recapture to obtain features. Stream contexts are not
+silently pruned through legacy entry-ID pruning, whose pass-ID cascade could
+otherwise affect unrequested listeners.
+
+Staging ownership is process-scoped and token-checked. A stale token or terminal
+capture cannot append, finalize, or invalidate another owner. A sealed capture
+cannot accept further chunks; late records or altered terminal claims fail the
+capture rather than changing the seal. Open/reopen marks all surviving staging
+or sealed rows `interrupted` durably before accepting new work.
+Graceful close likewise interrupts unfinished captures; it does not certify
+native resource cleanup or stop Live. Ownership transitions refuse active staged
+captures. Completed captures remain immutable across reopen. Failed,
+cancelled and interrupted chunks are retained under the same configurable
+physical quota for diagnosis until explicit reviewed pruning.
+
+`prune({passIds, trace}, options)` removes each selected capture and all its
+chunks, including an unpublished failed/staged capture. Entry-only pruning does
+not select stream captures. Subject cleanup preserves bindings still referenced
+by completed stream contexts. No age-based eviction, automatic resume, retry,
+recapture, or native cleanup claim is inferred from crash recovery.
+Prune receipts and progress record deleted capture/chunk counts separately from
+published pass/entry counts, including deletion of unpublished staged data.
+
+Stage, chunk, seal, finalize, overview, page, explicit termination and recovery use the
+existing application-owned context queued/started/progress/completed/failed/
+cancelled lifecycle with elapsed and queue timing, trace/correlation/causation
+IDs, active-agent attribution and sanitized bounded attributes. Measurements
+are referenced by capture/metric/count/byte facts, not copied into events.
+Metadata/reasons are redacted before persistence; credential-bearing integrity
+payloads are rejected rather than silently changing a hashed chunk. Existing
+short-pass observations, entry paging and feature derivation remain available.
+`deriveFeatures`, `getFeatureDerivation`, and entry-scoped `listFeatures` explicitly
+reject stream context IDs with `IncrementalMetricFeaturesUnsupportedError`
+(`incremental_metric_features_unsupported`) until incremental derivation exists;
+they never flatten a stream or return absent feature state as success.
+Stream-aware reports/features must consume these bounded reads rather than call
+the whole-observation extractor.
 
 Opt-in wire5 native and metric lifecycle records use the same profile-owned
 observability journal and typed redacted History reads. They retain bounded
@@ -366,14 +506,42 @@ per session/ownership in its profile. Trusted main-process application readers
 receive a read-only facade with no model-agent attribution; their get/list
 queries still validate session, Set and profile ownership. Mutation and handle
 closure are denied on that facade, including when it shares a cached store
-with an agent. Repository resolution combines the invocation's cancellation
+with an agent. Its `incrementalMetrics` capability forwards the same typed
+bounded reads while denying begin, append, seal, publish and terminate. Agent
+stream operations recheck current session/Set ownership, current agent membership
+and the capture's original initiating agent on every call; operation arguments
+cannot spoof another active agent. Per-call validation and repository lifecycle
+events retain invocation trace attribution. Staging and sealed captures prevent
+cache eviction and ownership relocation between chunk writes.
+
+Repository resolution combines the invocation's cancellation
 signal with an explicitly supplied operation signal; cancelled queued reads
 never open or publish a store. Empty inventory reads do not promote an
 ephemeral session. Closing an unpublished store after cancelled or failed
 capture setup releases its reservation ownership and removes the empty file;
 reopening returns empty inventory without claiming saved observations. Cleanup
 of a retained shared repository releases the pass reservation without closing
-other callers' repository. Its first append uses the specific-session
+other callers' repository. Incremental termination alone accepts an independent
+cleanup signal instead of inheriting an already-cancelled invocation, while
+retaining all ownership checks; this permits durable cancellation of the owned
+capture. Declared-store reopening uses the shared generous store allowance,
+not an obsolete separate Desktop byte ceiling.
+The public, read-only Desktop API forwards `entityContext.getMetricCapture`
+and `entityContext.listMetricChunks` through validated IPC/preload contracts to
+that application-reader facade. Every read resolves its explicit session and
+revalidates current Set ownership; chunk reads additionally bind descriptor and
+native ownership to the requested capture. Capture overviews retain the 256-KiB
+bound; original immutable chunk pages retain the caller's count/byte limits
+(at most 16 chunks and 1 MiB), without using the agent tool's sliced projections.
+Schemas import the browser-safe `@ableton-agent/project-state/metric-capture-schemas`
+subpath, never the Node/SQLite repository entrypoint.
+
+`ableton.inspectArrangementListeningSource` forwards only the authenticated,
+typed exact-track/range bridge read. It validates request/result identity and
+retains application/session attribution, query trace/correlation/causation,
+timed lifecycle and failed/cancelled outcomes. It never uses an exclusive bridge
+handoff, changes playback, or grants renderer SQL/filesystem access.
+Its first append uses the specific-session
 `HeadlessDesktopService.publishSessionContext` API, not selected-UI-session
 publication, to commit the registry record and strict, credential-redacted
 `session.json` reference before observations. The reference contains only
@@ -383,9 +551,9 @@ manifest is an explicit recovery failure, not an empty replacement.
 Old v1-only kind declarations remain readable. On the next append, additive
 supported-kind registration is reconciled through the same invoking-session
 registry/manifest publication hook before accepting observations; failure
-preserves the old history and declaration. The database remains schema version
-2 at the same owned path; this adds registered payload kinds, not a file-layout
-or SQLite-format migration.
+preserves the old history and declaration. Registered-kind reconciliation alone is not a file-layout or SQLite-format
+migration; the incremental repository independently advances to schema version
+4 at the same owned path.
 
 Composition registers the manager's `prepareSessionTransition` through
 `JsonSessionStore.setSessionContextTransitionHandler`. Preparation drains and

@@ -445,7 +445,89 @@ void identityFaultEvidence() {
   }
 }
 
+void continuousLongForm() {
+  // One arm, one source clock, one DSP generation. Drain on independent
+  // scheduler-sized boundaries, never stop/rearm at a transport/chunk boundary.
+  for (const auto seconds : {180, 600}) {
+    Harness h;
+    h.total = 48000 * seconds - 17;
+    const auto expected = static_cast<std::uint64_t>(h.total) / window;
+    std::uint64_t sequence = 0, terminals = 0, starts = 0;
+    const auto end = h.position + static_cast<std::uint64_t>(h.total);
+    std::size_t highWater = 0;
+    while (h.position < end) {
+      h.feed(std::min<std::uint64_t>(480, end - h.position), .125, -.25);
+      auto rows = h.drain();
+      highWater = std::max(highWater, rows.size());
+      for (const auto& r : rows) {
+        assert(r.epoch == 1 && r.generation == 1);
+        if (r.kind == Kind::started) {
+          ++starts;
+          assert(r.start == 100000 && r.end == end);
+        } else if (r.kind == Kind::frame) {
+          assert(r.sequence == ++sequence);
+          assert(r.start == 100000 + (sequence - 1) * window);
+          assert(r.end == r.start + window);
+          for (std::size_t band = 0; band < bands; ++band) {
+            assert(std::isfinite(r.left[band]));
+            assert(std::abs(r.right[band] - 2 * r.left[band]) < 1e-10);
+          }
+        } else if (r.kind == Kind::stopped) {
+          ++terminals;
+          assert(r.reason == Reason::complete && r.sequence == expected);
+          assert(r.lost == 0 && r.partial == static_cast<std::uint64_t>(h.total) % window && r.end == end);
+        } else assert(false);
+      }
+    }
+    assert(starts == 1 && terminals == 1 && sequence == expected);
+    assert(highWater <= 2); // independent of total capture duration
+    const auto receipt = h.engine.drainReceipt();
+    assert(receipt.terminal && receipt.frames == expected);
+    assert(receipt.records == expected + 2 && receipt.clockValid);
+    assert(receipt.clockExclusive == end);
+    assert(!h.engine.stop(1));
+    h.feed(window);
+    assert(h.drain().empty()); // no callback can revive the completed owner
+  }
+  {
+    Harness h;
+    h.total = 600 * 48000;
+    h.feed(window * 2 + 17);
+    auto prefix = h.drain();
+    assert(prefix.size() == 3 && prefix.back().sequence == 2);
+    assert(h.engine.stop(1));
+    assert(h.drain().empty()); // cancellation request is not physical cleanup
+    h.feed(64);
+    auto terminal = h.drain();
+    assert(terminal.size() == 1 && terminal[0].reason == Reason::requested);
+    assert(terminal[0].sequence == 2);
+    assert(terminal[0].lost == static_cast<std::uint64_t>(h.total) / window - 2);
+    assert(h.engine.drainReceipt().terminal);
+    h.feed(window);
+    assert(h.drain().empty());
+  }
+  {
+    Harness h;
+    h.total = 600 * 48000;
+    h.feed(window * (queueCapacity + 2));
+    auto rows = h.drain();
+    assert(rows.size() == queueCapacity); // final slot remained reserved
+    assert(rows.back().reason == Reason::overflow && rows.back().lost > 0);
+    assert(rows.back().sequence == queueCapacity - 2);
+    assert(h.engine.drainReceipt().terminal);
+  }
+  {
+    Harness h;
+    h.total = 600 * 48000 + 1;
+    h.feed(64);
+    auto rows = h.drain();
+    assert(rows.size() == 1 && rows[0].reason == Reason::sourceIdentity);
+    assert(rows[0].sequence == 0); // over-limit source never started acquisition
+  }
+}
+
 int main() {
+  continuousLongForm();
   identityFaultEvidence();
   actualProbe();
   framing();
@@ -459,5 +541,5 @@ int main() {
   edgeCases();
   captureOriginAndTail();
   drainCompleteness();
-  std::cout << "13 native suites passed; actual ABI3 readiness, fault operands, capture binding, drain receipt and FFT verified\n";
+  std::cout << "14 native suites passed; continuous180/600s, actual ABI3 readiness, fault operands, capture binding, drain receipt and FFT verified\n";
 }

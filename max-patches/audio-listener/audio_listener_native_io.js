@@ -622,7 +622,7 @@ NativeMessageIO.prototype.beginRetention = function (epoch, sampleRate) {
     ["frameEndCounter", "samples"],
     ["invalidFrames", "count"],
   ];
-  var queue = { produced: 0, acknowledged: 0, capacity: 32, highWaterMark: 0 };
+  var queue = { produced: 0, acknowledged: 0, capacity: 128, highWaterMark: 0 };
   this.retentionQueue = queue;
   this.retentionProgressAt = this.retentionUnstableAt = -250;
   this.retentionReadySent = false;
@@ -641,7 +641,7 @@ NativeMessageIO.prototype.beginRetention = function (epoch, sampleRate) {
         hopSamples: 2048,
         windowSamples: 2048,
         width: 6,
-        capacity: 32,
+        capacity: 128,
         fields: layout.map(function (field) {
           return { name: field[0], unit: field[1] };
         }),
@@ -829,18 +829,18 @@ NativeMessageIO.prototype.readSpectrumRow = function (values) {
     if (this.retentionReader !== reader || !this.generation || this.stopping)
       return false;
   }
+  for (var action = 0; action < result.actions.length; action++) {
+    if (this.retentionReader !== reader || !this.generation || this.stopping)
+      return false;
+    var next = result.actions[action];
+    this.control([
+      next.type === "request"
+        ? "measurementReadSequence"
+        : "measurementAcknowledged",
+      next.sequence,
+    ]);
+  }
   if (result.status === "accepted") {
-    for (var action = 0; action < result.actions.length; action++) {
-      if (this.retentionReader !== reader || !this.generation || this.stopping)
-        return false;
-      var next = result.actions[action];
-      this.control([
-        next.type === "request"
-          ? "measurementReadSequence"
-          : "measurementAcknowledged",
-        next.sequence,
-      ]);
-    }
     if (this.retentionReader === reader)
       this.publishRetentionSnapshot(result.status);
     return true;

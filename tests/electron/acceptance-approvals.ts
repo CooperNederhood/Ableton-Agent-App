@@ -4,6 +4,7 @@ import {
   type Facts,
   type ScenarioPermission,
   type SessionSourceEvidence,
+  type ArrangementSourceEvidence,
 } from "@ableton-agent/test-support/integration";
 
 export type ScopedPermission = ScenarioPermission;
@@ -85,7 +86,7 @@ export class ScopedApprovalPolicy {
   decide(
     request: ScopedApproval,
     owner: ApprovalOwner,
-    source?: SessionSourceEvidence,
+    source?: SessionSourceEvidence | ArrangementSourceEvidence,
     stepId?: string,
   ): boolean {
     if (
@@ -114,9 +115,13 @@ export class ScopedApprovalPolicy {
         )
       )
         return [];
-      const exact = Object.entries(
-        resolvePermissionArguments(rule, source),
-      ).every(
+      let resolved: Facts;
+      try {
+        resolved = resolvePermissionArguments(rule, source);
+      } catch {
+        return [];
+      }
+      const exact = Object.entries(resolved).every(
         ([key, expected]) =>
           Object.hasOwn(actual, key) && actual[key] === expected,
       );

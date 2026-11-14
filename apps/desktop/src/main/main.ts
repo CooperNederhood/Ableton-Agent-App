@@ -616,6 +616,16 @@ async function bootstrap(): Promise<void> {
     },
     profileManager,
     {
+      getMetricCapture: (request) => {
+        if (composition?.entityContext === undefined)
+          throw new Error("App-session context storage is unavailable");
+        return composition.entityContext.getMetricCapture(request);
+      },
+      listMetricChunks: (request) => {
+        if (composition?.entityContext === undefined)
+          throw new Error("App-session context storage is unavailable");
+        return composition.entityContext.listMetricChunks(request);
+      },
       list: (request) => {
         if (composition?.entityContext === undefined) {
           throw new Error("App-session context storage is unavailable");

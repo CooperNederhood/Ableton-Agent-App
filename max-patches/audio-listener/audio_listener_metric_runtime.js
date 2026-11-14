@@ -1,6 +1,21 @@
 /* global require, module, process, setInterval, clearInterval */
 "use strict";
 
+// Node for Max releases need not expose WebCrypto/TextEncoder as globals.
+// Install Node's built-in implementations before calling the canonical pure
+// protocol codec; never replace SHA256 with an unchecked/native-private digest.
+function ensureMetricStreamCrypto() {
+  if (!globalThis.crypto?.subtle?.digest)
+    globalThis.crypto = require("node:crypto").webcrypto;
+  if (typeof globalThis.TextEncoder !== "function")
+    globalThis.TextEncoder = require("node:util").TextEncoder;
+  if (
+    typeof globalThis.crypto?.subtle?.digest !== "function" ||
+    typeof globalThis.TextEncoder !== "function"
+  )
+    throw new Error("metric_stream_crypto_unavailable");
+}
+
 function sharedClient() {
   try {
     return require("./agent_signal_client_common.js");
@@ -26,6 +41,7 @@ function createMetricRuntime({
 } = {}) {
   if (!maxApi || typeof maxApi.addHandler !== "function")
     throw new Error("metric_max_api_required");
+  ensureMetricStreamCrypto();
   const common = sharedClient();
   Client = Client ?? common.AgentSignalClient;
   createController =
@@ -156,6 +172,7 @@ function createMetricRuntime({
       spectrumEnabled: true,
       melEnabled: true,
       analyzerReadiness,
+      continuousEnabled: !!analyzerReadiness,
       now,
       sendControl: (target, selector, args) =>
         target === "metric_mel"
@@ -169,7 +186,9 @@ function createMetricRuntime({
       sendListenerReply: (control, payload) =>
         client.sendListenerReply(control, payload),
       sendListenerResult: (control, payload) =>
-        client.sendListenerResult(control, payload),
+        payload.metricStream || payload.metricChunk || payload.metricManifest
+          ? client.sendListenerResultAwaitAck(control, payload)
+          : client.sendListenerResult(control, payload),
       sendListenerDiagnostic: (control, lifecycle) =>
         client.sendListenerDiagnostic(control, lifecycle),
       beforeCleanup: stopSmokes,
@@ -211,6 +230,15 @@ function createMetricRuntime({
             "counterAfter",
             "watermark",
             "sourceCounter",
+            "family",
+            "readerReason",
+            "requestedSequence",
+            "slotSequence",
+            "produced",
+            "acknowledged",
+            "fault",
+            "previousRequestedSequence",
+            "previousAcknowledged",
           ]) {
             const value = snapshot.ioFailureDetail[field];
             if (value === undefined) continue;
@@ -357,7 +385,10 @@ function createMetricRuntime({
           protocol.LISTENER_CAPABILITY_METRIC,
           protocol.LISTENER_CAPABILITY_MEL,
           ...(analyzerReadiness
-            ? [protocol.LISTENER_CAPABILITY_ANALYZER_TIMELINES]
+            ? [
+                protocol.LISTENER_CAPABILITY_ANALYZER_TIMELINES,
+                protocol.METRIC_CONTINUOUS_LISTENING_CAPABILITY,
+              ]
             : []),
         ],
         ...(analyzerReadiness ? { analyzerReadiness } : {}),
@@ -367,8 +398,10 @@ function createMetricRuntime({
         vectorSize: dsp.vectorSize,
         algorithmVersion: protocol.LISTENER_METRIC_ALGORITHM_VERSION,
         nativeStatus: {
-          version: 5,
-          scope: protocol.LISTENER_METRIC_SCOPE,
+          version: analyzerReadiness ? 6 : 5,
+          scope: analyzerReadiness
+            ? protocol.NATIVE_CONTINUOUS_METRIC_LISTENING_SCOPE
+            : protocol.LISTENER_METRIC_SCOPE,
           readiness: "BLOCKED",
           alignment: "approximate",
           verifiedAbsoluteErrorBoundSamples: null,
@@ -377,8 +410,15 @@ function createMetricRuntime({
           supportedModes: ["arrangement", "session"],
           timingModes: ["descriptive", "strict"],
           maxClockDisagreementSamples: 480,
-          maxAudioDurationMs: 30000,
-          maxReportRows: 2000,
+          maxAudioDurationMs: analyzerReadiness ? 600000 : 30000,
+          maxReportRows: analyzerReadiness ? 39961 : 2000,
+          ...(analyzerReadiness
+            ? {
+                maxSessionAudioDurationMs: 30000,
+                maxSessionReportRows: 2000,
+                streamCapability: protocol.METRIC_RECORD_STREAM_CAPABILITY,
+              }
+            : {}),
           reason: "fresh_per_pass_native_validation_required",
         },
       }),
@@ -405,6 +445,13 @@ function createMetricRuntime({
             control.traceId,
             control.correlationId,
             control.causationId,
+            ...(control.config.geometry.captureMode === "arrangement-continuous"
+              ? [
+                  (control.config.geometry.totalSamples /
+                    control.config.geometry.sampleRate) *
+                    1000,
+                ]
+              : []),
           );
           output(
             "native_control",
@@ -626,4 +673,4 @@ function createMetricRuntime({
   });
 }
 
-module.exports = { createMetricRuntime };
+module.exports = { createMetricRuntime, ensureMetricStreamCrypto };

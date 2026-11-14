@@ -15,6 +15,8 @@ import type { ListeningJob } from "@ableton-agent/application";
 import type {
   InspectSessionListeningSourceParams,
   InspectSessionListeningSourceResult,
+  InspectArrangementListeningSourceParams,
+  InspectArrangementListeningSourceResult,
 } from "@ableton-agent/protocol";
 import type {
   DesktopListeningCancellationOptions,
@@ -194,6 +196,9 @@ export interface DesktopService {
   inspectSessionListeningSource(
     params: InspectSessionListeningSourceParams,
   ): Promise<InspectSessionListeningSourceResult>;
+  inspectArrangementListeningSource(
+    params: InspectArrangementListeningSourceParams,
+  ): Promise<InspectArrangementListeningSourceResult>;
   inspectRecording(): Promise<DesktopRecordingInspection>;
   inspectSessionListeningPreflight(
     params: InspectSessionListeningSourceParams,

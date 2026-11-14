@@ -2,7 +2,15 @@ import { randomUUID } from "node:crypto";
 import { connect, Socket } from "node:net";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { setImmediate as nextTurn } from "node:timers/promises";
-import { MAX_METRIC_RESULT_FRAME_BYTES } from "@ableton-agent/protocol";
+import {
+  MAX_METRIC_RESULT_FRAME_BYTES,
+  MAX_METRIC_RECORD_CHUNK_BYTES,
+  METRIC_RECORD_STREAM_CAPABILITY,
+  METRIC_CONTINUOUS_LISTENING_CAPABILITY,
+  NATIVE_CONTINUOUS_METRIC_LISTENING_SCOPE,
+  createContinuousMetricListeningGeometry,
+  nativeContinuousMetricListeningConfigSchema,
+} from "@ableton-agent/protocol";
 import {
   withSyntheticAnalyzerTimelines,
   createSyntheticAnalyzerReadiness,
@@ -261,6 +269,7 @@ async function session(
     "audio-listener/independent-metric-timelines-v1",
     "audio-listener/mel-band-timelines-v1",
     "audio-listener/analyzer-timelines-v1",
+    "audio-listener/arrangement-continuous-metric-stream-v1",
   ]);
   const input = {
     jobId: f.wire.jobId,
@@ -361,6 +370,189 @@ function lifecycle(
     ...patch,
   });
 }
+
+describe("durable metric result delivery", () => {
+  it("keeps the bounded native lifecycle elapsed ceiling after enabling continuous events", async () => {
+    const s = await session();
+    await s.ready();
+    await s.arm();
+    const result = await s.result({
+      status: "progress",
+      nativeLifecycle: {
+        ...lifecycle(s),
+        elapsedMs: 120001,
+      },
+    });
+    expect(result.acknowledgement).toMatchObject({
+      type: "producer.error",
+      code: "route-rejected",
+      fatal: true,
+    });
+  });
+  async function continuousPreparing() {
+    const f = createSyntheticMetricWireFixture("arrangement");
+    const s = await start();
+    const message = hello(f);
+    s.client.send({
+      ...message,
+      listener: listenerRegistrationMetricSchema.parse({
+        ...message.listener,
+        capabilities: [
+          "audio-listener/independent-metric-timelines-v1",
+          "audio-listener/mel-band-timelines-v1",
+          "audio-listener/analyzer-timelines-v1",
+          METRIC_CONTINUOUS_LISTENING_CAPABILITY,
+        ],
+        analyzerReadiness: createSyntheticAnalyzerReadiness(),
+        nativeStatus: {
+          ...message.listener.nativeStatus,
+          version: 6,
+          scope: NATIVE_CONTINUOUS_METRIC_LISTENING_SCOPE,
+          maxAudioDurationMs: 600_000,
+          maxSessionAudioDurationMs: 30_000,
+          maxReportRows: 39_961,
+          maxSessionReportRows: 2_000,
+          streamCapability: METRIC_RECORD_STREAM_CAPABILITY,
+        },
+      }),
+    });
+    expect(await s.client.next()).toMatchObject({ action: "hello" });
+    const descriptor = s.server.inspectListeners()[0]!;
+    const preparing = s.server.requestListenerControl(descriptor.connectionId, {
+      jobId: f.wire.jobId,
+      passId: f.wire.passId,
+      traceId: f.wire.traceId,
+      correlationId: f.wire.correlationId,
+      causationId: f.wire.causationId,
+      action: "prepare",
+      config: nativeContinuousMetricListeningConfigSchema.parse({
+        ...f.config,
+        scope: NATIVE_CONTINUOUS_METRIC_LISTENING_SCOPE,
+        capability: METRIC_CONTINUOUS_LISTENING_CAPABILITY,
+        captureMode: "arrangement-continuous",
+        geometry: createContinuousMetricListeningGeometry({
+          captureMode: "arrangement-continuous",
+          sampleRate: 48_000,
+          vectorSize: 64,
+          tempoBpm: 120,
+          startBeat: 0,
+          endBeat: 1,
+          startSample: 0,
+        }),
+        maxPendingChunks: 8,
+        maxChunkBytes: MAX_METRIC_RECORD_CHUNK_BYTES,
+      }),
+    });
+    void preparing.catch(() => {});
+    const prepare = listenerControlMetricSchema.parse(await s.client.next());
+    return { ...s, prepare, preparing };
+  }
+
+  it("does not apply the continuous chunk quota to a coalesced burst of native progress messages", async () => {
+    const s = await continuousPreparing();
+    s.client.sendBatch(
+      Array.from({ length: 12 }, (_, sequence) => ({
+        ...wire(s.prepare),
+        type: "listener.result",
+        requestId: randomUUID(),
+        sequence,
+        status: "progress",
+        nativeLifecycle: nativeMetricLifecycleSchema.parse({
+          scope: "independent-metric-timelines/v1",
+          eventId: randomUUID(),
+          causationId: randomUUID(),
+          generation: s.prepare.generation,
+          nativeEpoch: 1,
+          stage: "progress",
+          phase: "capture",
+          elapsedMs: 180000 + sequence,
+          frames: sequence,
+        }),
+      })),
+    );
+    for (let index = 0; index < 12; index++)
+      expect(await s.client.next()).toMatchObject({
+        type: "producer.ack",
+        action: "listener",
+      });
+    s.client.close();
+    await expect(s.preparing).rejects.toThrow();
+  });
+
+  it("still rejects more than eight queued continuous chunks before delivery", async () => {
+    const s = await continuousPreparing();
+    s.client.sendBatch(
+      Array.from({ length: 9 }, () => ({
+        type: "listener.result",
+        metricChunk: {},
+      })),
+    );
+    expect(await s.client.next()).toMatchObject({
+      type: "producer.error",
+      code: "backpressure",
+      fatal: true,
+    });
+    await expect(s.preparing).rejects.toThrow();
+  });
+
+  it("acknowledges a result only after its async consumer commits", async () => {
+    const s = await session();
+    await s.ready();
+    await s.arm();
+    let release!: () => void;
+    let entered = false;
+    s.server.onListenerResult(async () => {
+      entered = true;
+      await new Promise<void>((resolve) => {
+        release = resolve;
+      });
+    });
+    let acknowledged = false;
+    const delivery = s
+      .result({
+        status: "progress",
+        nativeLifecycle: lifecycle(s),
+      })
+      .then((result) => {
+        acknowledged = true;
+        return result;
+      });
+    await vi.waitFor(() => expect(entered).toBe(true));
+    expect(acknowledged).toBe(false);
+    release();
+    expect((await delivery).acknowledgement).toMatchObject({
+      type: "producer.ack",
+      action: "listener",
+    });
+  });
+  it("does not acknowledge successful delivery after a consumer write rejection", async () => {
+    const s = await session();
+    await s.ready();
+    await s.arm();
+    s.server.onListenerResult(async () => {
+      throw new Error("durable-write-failed");
+    });
+    const response = await s.result({
+      status: "progress",
+      nativeLifecycle: lifecycle(s),
+    });
+    expect(response.acknowledgement).toMatchObject({ type: "producer.error" });
+    expect(response.acknowledgement).not.toMatchObject({
+      type: "producer.ack",
+    });
+    await vi.waitFor(() => expect(s.server.inspectListeners()).toEqual([]));
+    await vi.waitFor(() =>
+      expect(s.events).toContainEqual(
+        expect.objectContaining({
+          name: "output.listener.failure-delivery.failed",
+          correlationId: s.input.correlationId,
+          causationId: s.input.causationId,
+          outcome: "failure",
+        }),
+      ),
+    );
+  });
+});
 
 describe("opt-in authenticated independent metric ingress", () => {
   it.each(["missing", "unadvertised", "rate", "abi"] as const)(

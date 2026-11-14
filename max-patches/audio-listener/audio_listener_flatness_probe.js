@@ -2,6 +2,7 @@
 "use strict";
 
 const { randomUUID } = require("node:crypto");
+const { diagnosticDeliveryLimit } = require("./audio_listener_probe_limits.js");
 const MAX_POSITIVE_ROUNDOFF_DB = 1e-9;
 
 // Outlet deliveries are diagnostic snapshots, never identified analysis frames.
@@ -108,8 +109,11 @@ function createSmokeProbe({ now, sendControl, emit }, prefix) {
     start(control, epoch, causationId, passElapsedAtStart = 0) {
       if (pass && pass.cleanup !== "completed")
         throw new Error(`${prefix}_probe_still_owned`);
+      const deliveryLimit = diagnosticDeliveryLimit(control);
       pass = {
         control,
+        deliveryLimit,
+        progressIntervalMs: (deliveryLimit * 100) / 80,
         epoch,
         startedAt: now(),
         stageStartedAt: now(),
@@ -127,7 +131,12 @@ function createSmokeProbe({ now, sendControl, emit }, prefix) {
         lastProgressAt: -Infinity,
       };
       event("queued", "flatness_smoke_capture");
-      sendControl("begin", control.generation, epoch);
+      sendControl(
+        "begin",
+        control.generation,
+        epoch,
+        ...(deliveryLimit > 400 ? [deliveryLimit] : []),
+      );
     },
     receive(packet) {
       if (
@@ -193,7 +202,7 @@ function createSmokeProbe({ now, sendControl, emit }, prefix) {
           ![0, 1].includes(channel) ||
           !Number.isSafeInteger(sequence) ||
           sequence !== pass.counts[channel] + 1 ||
-          sequence > 400 ||
+          sequence > pass.deliveryLimit ||
           typeof db !== "number" ||
           !Number.isFinite(db) ||
           (frequency ? db < 0 : db < -320 || db > MAX_POSITIVE_ROUNDOFF_DB)
@@ -216,7 +225,7 @@ function createSmokeProbe({ now, sendControl, emit }, prefix) {
         // overshoot it by sub-nanodecibel roundoff. Larger positives stay invalid.
         pass.values[channel] = frequency ? db : Math.min(0, db);
         if (
-          now() - pass.lastProgressAt >= 500 &&
+          now() - pass.lastProgressAt >= pass.progressIntervalMs &&
           pass.values.every((v) => v !== null)
         ) {
           pass.lastProgressAt = now();
@@ -280,7 +289,7 @@ function createSpectralShapeSmoke({ now, sendControl, emit }) {
     now,
     emit: (control, lifecycle) => {
       // Three chains: at most 240 progress + 18 lifecycle events across the
-      // 400-delivery/100ms gate horizon, with bounded failure/terminal headroom.
+      // admitted gate horizon, with bounded failure/terminal headroom.
       if (
         ++eventCount > 288 ||
         Buffer.byteLength(JSON.stringify(lifecycle)) > 8192
@@ -299,6 +308,7 @@ function createSpectralShapeSmoke({ now, sendControl, emit }) {
   let stopping = false;
   let started = false;
   let cleaned = true;
+  let deliveryLimit = 400;
   function eachProbe(action) {
     let failure;
     for (const probe of probes) {
@@ -313,6 +323,7 @@ function createSpectralShapeSmoke({ now, sendControl, emit }) {
   return Object.freeze({
     start(control, epoch, causationId, elapsedMs = 0) {
       if (!cleaned) throw new Error("spectralshape_probe_still_owned");
+      deliveryLimit = diagnosticDeliveryLimit(control);
       owner = [control.generation, epoch];
       eventCount = 0;
       sequences = [0, 0];
@@ -326,7 +337,11 @@ function createSpectralShapeSmoke({ now, sendControl, emit }) {
       } finally {
         // Establish the physical lease even if diagnostic delivery throws:
         // controller cleanup can then always stop the same owned gate.
-        sendControl("begin", ...owner);
+        sendControl(
+          "begin",
+          ...owner,
+          ...(deliveryLimit > 400 ? [deliveryLimit] : []),
+        );
       }
     },
     receive(packet) {
@@ -349,7 +364,7 @@ function createSpectralShapeSmoke({ now, sendControl, emit }) {
           ![0, 1].includes(channel) ||
           !Number.isSafeInteger(sequence) ||
           sequence !== sequences[channel] + 1 ||
-          sequence > 400
+          sequence > deliveryLimit
         )
           throw new Error("spectralshape_invalid_envelope");
         sequences[channel] = sequence;

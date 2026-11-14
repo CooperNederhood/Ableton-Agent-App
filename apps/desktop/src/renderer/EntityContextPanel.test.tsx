@@ -198,6 +198,12 @@ function detail(
 }
 function api() {
   return {
+    getMetricCapture: vi.fn<DesktopEntityContextApi["getMetricCapture"]>(
+      async () => undefined,
+    ),
+    listMetricChunks: vi.fn<DesktopEntityContextApi["listMetricChunks"]>(
+      async () => ({ items: [], encodedBytes: 2 }),
+    ),
     list: vi.fn<DesktopEntityContextApi["list"]>(async () => page),
     get: vi.fn<DesktopEntityContextApi["get"]>(async ({ contextId }) =>
       detail(contextId),

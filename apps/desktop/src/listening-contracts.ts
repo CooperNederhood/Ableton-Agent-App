@@ -4,6 +4,7 @@ import {
   sessionListeningJobDetailSchema,
   metricListeningResultSummariesSchema,
   validateMetricListeningJobOutcome,
+  listeningCaptureProgressSchema,
 } from "@ableton-agent/protocol";
 
 export const desktopListeningTraceSchema = z.strictObject({
@@ -36,6 +37,7 @@ export const desktopListeningJobSchema = z
     createdAt: z.string().datetime(),
     updatedAt: z.string().datetime(),
     durationMs: z.number().finite().nonnegative().max(Number.MAX_SAFE_INTEGER),
+    captureProgress: listeningCaptureProgressSchema.optional(),
     contextIds: z.array(z.string().min(1).max(128)).max(100),
     metricResults: metricListeningResultSummariesSchema.optional(),
     error: z.string().min(1).max(2048).optional(),

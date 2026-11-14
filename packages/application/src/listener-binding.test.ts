@@ -2,6 +2,11 @@ import { describe, expect, it, vi } from "vitest";
 import { createSyntheticAnalyzerReadiness } from "@ableton-agent/protocol/testing";
 import {
   listenerNativeMetricStatusSchema,
+  listenerNativeContinuousMetricStatusSchema,
+  METRIC_RECORD_STREAM_CAPABILITY,
+  METRIC_CONTINUOUS_LISTENING_CAPABILITY,
+  MAX_CONTINUOUS_METRIC_REPORT_ROWS,
+  NATIVE_CONTINUOUS_METRIC_LISTENING_SCOPE,
   type InspectListeningContextResult,
   type NativeMetricArmProof,
   type NativeMetricReadyProof,
@@ -187,6 +192,51 @@ describe("authenticated v5 metric listener binding metadata", () => {
       }),
     };
   }
+  it("binds explicitly negotiated continuous status without claiming fresh native readiness", () => {
+    const report = analyzerDescriptor();
+    const nativeStatus = listenerNativeContinuousMetricStatusSchema.parse({
+      ...blocked,
+      version: 6,
+      scope: NATIVE_CONTINUOUS_METRIC_LISTENING_SCOPE,
+      maxAudioDurationMs: 600_000,
+      maxSessionAudioDurationMs: 30_000,
+      maxReportRows: MAX_CONTINUOUS_METRIC_REPORT_ROWS,
+      maxSessionReportRows: 2_000,
+      streamCapability: METRIC_RECORD_STREAM_CAPABILITY,
+    });
+    const continuous: ListenerBindingDescriptor = {
+      ...report,
+      registration: {
+        ...report.registration,
+        capabilities: [
+          ...report.registration.capabilities!,
+          METRIC_CONTINUOUS_LISTENING_CAPABILITY,
+        ],
+        nativeStatus,
+      },
+    };
+    const candidate = readConnectedListenerBinding(continuous);
+    expect(candidate.ok).toBe(true);
+    if (!candidate.ok) throw new Error(candidate.reason);
+    expect(candidate.connection.nativeStatus).toEqual(nativeStatus);
+    expect(candidate.connection.nativeStatus.readiness).toBe("BLOCKED");
+    expect(join(continuous).ok).toBe(true);
+    expect(
+      readConnectedListenerBinding({
+        ...continuous,
+        registration: {
+          ...continuous.registration,
+          capabilities: [...report.registration.capabilities!],
+        },
+      }),
+    ).toEqual({ ok: false, reason: "invalid-input" });
+    expect(
+      readConnectedListenerBinding({
+        ...continuous,
+        registration: { ...continuous.registration, nativeStatus: blocked },
+      }),
+    ).toEqual({ ok: false, reason: "invalid-input" });
+  });
   it("keeps a canonically registered ABI3 analyzer discoverable and retains its actual readiness through binding", () => {
     const report = analyzerDescriptor();
     const before = structuredClone(report);

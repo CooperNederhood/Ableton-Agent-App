@@ -20,6 +20,7 @@ if (typeof jsarguments !== "undefined" && jsarguments.length !== 1) {
     (jsarguments[1] === 1 || jsarguments[1] === 2 || jsarguments[1] === 3 || jsarguments[1] === 4 || jsarguments[1] === 5) ? jsarguments[1] : 0;
 }
 var nativeTotalTimeoutMs = nativeVersion >= 2 ? 60000 : 30000;
+var nativeDefaultTimeoutMs = nativeTotalTimeoutMs;
 var timer = new Task(check, this);
 timer.interval = 250;
 timer.repeat();
@@ -58,7 +59,7 @@ function nativeEvent(stage, reason, context, duration) {
   }
   post("native-watchdog " + JSON.stringify(event) + "\n");
 }
-function native_watchdog_context(generation, traceId, correlationId, causationId) {
+function native_watchdog_context(generation, traceId, correlationId, causationId, requestedDurationMs) {
   if (!validGeneration(generation)) {
     nativeEvent("failed", "invalid_context_generation", null, 0);
     return;
@@ -67,10 +68,30 @@ function native_watchdog_context(generation, traceId, correlationId, causationId
     nativeEvent("cancelled", "pending_context_replaced", pendingContext, pendingAge);
   pendingContext = {
     generation: generation, traceId: safeId(traceId),
-    correlationId: safeId(correlationId), causationId: safeId(causationId)
+    correlationId: safeId(correlationId), causationId: safeId(causationId),
+    timeoutMs: nativeDefaultTimeoutMs, durationBound: false
   };
   pendingAge = 0;
+  if (requestedDurationMs !== undefined &&
+      !native_watchdog_duration(generation, requestedDurationMs)) {
+    nativeEvent("failed", "invalid_continuous_duration", pendingContext, 0);
+    pendingContext = null;
+    return false;
+  }
   nativeEvent("queued", "context_received", pendingContext, 0);
+}
+// A duration-derived total ceiling is frozen before begin. Heartbeats only
+// renew the independent 2s inactivity watchdog; they cannot extend this bound.
+function native_watchdog_duration(generation, requestedDurationMs) {
+  if (nativeVersion !== 5 || !pendingContext ||
+      pendingContext.generation !== generation || pendingContext.durationBound)
+    return false;
+  if (typeof requestedDurationMs !== "number" || !isFinite(requestedDurationMs) ||
+      requestedDurationMs <= 0 || requestedDurationMs > 600000)
+    return false;
+  pendingContext.timeoutMs = Math.ceil(requestedDurationMs) + 20000;
+  pendingContext.durationBound = true;
+  return true;
 }
 function finishNative(stage, reason, stopDSP) {
   var generation = nativeGeneration;
@@ -111,6 +132,7 @@ function begin(generation) {
   }
   nativeGeneration = generation;
   nativeContext = pendingContext;
+  nativeTotalTimeoutMs = nativeContext.timeoutMs;
   pendingContext = null;
   pendingAge = 0;
   nativeAge = 0;
@@ -163,7 +185,7 @@ function check() {
   if (!active) return;
   age += 250;
   elapsed += 250;
-  if (age >= 2000 || elapsed >= 300000) analysis(0, 1, 0);
+  if (age >= 2000 || elapsed >= Math.max(300000, nativeTotalTimeoutMs)) analysis(0, 1, 0);
 }
 function notifydeleted() {
   finishNative("cancelled", "device_deleted", true);

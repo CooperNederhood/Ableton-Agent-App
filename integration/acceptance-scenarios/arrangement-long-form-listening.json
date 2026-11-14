@@ -1,0 +1,73 @@
+{
+  "schemaVersion": 1,
+  "id": "arrangement-long-form-listening",
+  "fixtureId": "arrangement-long-form-listening",
+  "requiredCapabilities": ["automation", "arrangement-audio", "persistence"],
+  "permissions": [
+    {
+      "tool": "ableton_listening",
+      "action": "play-arrangement-and-listen",
+      "risk": "medium",
+      "maxUses": 1,
+      "stepIds": ["listen"],
+      "arguments": {
+        "action": "play-arrangement-and-listen",
+        "listenerIds.0": "$source.listenerId",
+        "startBeat": "$source.startBeat",
+        "endBeat": "$source.endBeat"
+      }
+    }
+  ],
+  "budget": { "runMs": 900000, "cleanupMs": 60000, "persistenceMs": 60000 },
+  "steps": [
+    {
+      "id": "listen",
+      "sourceId": "arrangement-source",
+      "setupActions": ["back-to-arrangement"],
+      "message": "Listen to the Arrangement on track Drums-audio from beat 0 through beat 384 at its existing 128 BPM, exactly three minutes. Use the existing listener on that track. Make exactly one new capture with all six metric families. You may position the stopped transport from its saved beat 72 to beat 0 once, then start playback once. Preserve all tracks, clips, MIDI, devices, returns, routing and settings. Leave playback running after capture. If anything fails or coverage has gaps, duplicates or truncation, stop and report it without rearming, repairing, retrying or recapturing.",
+      "timeoutMs": 480000,
+      "assertions": [
+        {
+          "name": "arrangement-listening",
+          "parameters": {
+            "sourceId": "arrangement-source",
+            "hostSampleRate": 48000,
+            "playbackAfterCapture": "playing",
+            "records.level": 1536,
+            "records.spectral-centroid": "verified-fft-phase",
+            "records.attacks": 1800,
+            "records.mel-bands": 4218,
+            "records.pitch": 4218,
+            "records.spectral-shape": 4218
+          }
+        }
+      ]
+    }
+  ],
+  "assertions": [
+    {
+      "name": "arrangement-listening",
+      "parameters": {
+        "sourceId": "arrangement-source",
+        "hostSampleRate": 48000,
+        "playbackAfterCapture": "playing",
+        "records.level": 1536,
+        "records.spectral-centroid": "verified-fft-phase",
+        "records.attacks": 1800,
+        "records.mel-bands": 4218,
+        "records.pitch": 4218,
+        "records.spectral-shape": 4218
+      }
+    },
+    {
+      "name": "arrangement-persistence",
+      "parameters": { "sourceId": "arrangement-source" }
+    },
+    {
+      "name": "unchanged",
+      "parameters": {
+        "scopes": "session-structure,source-settings,fixture-media,unrelated-playback,project-file"
+      }
+    }
+  ]
+}

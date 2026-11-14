@@ -13,6 +13,7 @@
     "session-stopped-quantized-audio",
     "session-stopped-quantized-midi",
     "session-drum-rack-listening",
-    "session-two-midi-listening"
+    "session-two-midi-listening",
+    "arrangement-long-form-listening"
   ]
 }

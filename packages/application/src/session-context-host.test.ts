@@ -3,6 +3,7 @@ import {
   createInMemorySessionContextStore,
   type AppendContextPass,
   type EntityContextRepository,
+  type MetricCaptureRecord,
 } from "@ableton-agent/project-state";
 import {
   audioObservationSchema,
@@ -14,12 +15,25 @@ import {
   contextFeatureSchema,
   contextSegmentSchema,
   extractPeakFeature,
+  createContinuousMetricListeningGeometry,
+  createMetricRecordStreamState,
+  metricRecordStreamDescriptorSchema,
+  metricRecordChunkSchema,
+  metricRecordChunkDigest,
+  METRIC_CONTINUOUS_LISTENING_CAPABILITY,
+  DEFAULT_LISTENING_TIMING_POLICY,
+  MEL_BAND_PROFILE,
+  type MetricRecordStreamManifest,
+  type MetricRecordChunk,
 } from "@ableton-agent/protocol";
 import {
   createSyntheticNativeListeningFixtureV2,
   createSyntheticMetricListeningObservation,
 } from "@ableton-agent/protocol/testing";
-import { contextOperationResultSchema } from "@ableton-agent/tools";
+import {
+  contextOperationParamsSchema,
+  contextOperationResultSchema,
+} from "@ableton-agent/tools";
 import { createSessionContextHost } from "./session-context-host.js";
 import { buildListeningPublication } from "./listening-publication.js";
 
@@ -33,6 +47,448 @@ const timestamp = "2026-10-12T00:00:00.000Z";
 const stores: EntityContextRepository[] = [];
 const reportDefaults = { includeHistorical: false, offset: 0, limit: 8 };
 const featurePageDefaults = { offset: 0, supportOffset: 0, limit: 8 };
+
+async function streamFixture() {
+  const seeded = await fixture();
+  const observation = createSyntheticMetricListeningObservation();
+  const geometry = createContinuousMetricListeningGeometry({
+    captureMode: "arrangement-continuous",
+    sampleRate: 48_000,
+    vectorSize: 64,
+    tempoBpm: 120,
+    startBeat: 0,
+    endBeat: 1200,
+    startSample: 10_000,
+  });
+  const descriptor = metricRecordStreamDescriptorSchema.parse({
+    schema: "metric-record-stream/v1",
+    capability: METRIC_CONTINUOUS_LISTENING_CAPABILITY,
+    ownership: { ...observation.ownership, passId: "stream-pass" },
+    source: {
+      ...observation.source,
+      transport: { startBeat: 0, endBeat: 1200 },
+    },
+    geometry,
+    timingPolicy: DEFAULT_LISTENING_TIMING_POLICY,
+    requestedMetrics: ["mel-bands"],
+    maxPendingChunks: 8,
+    algorithms: [
+      {
+        metric: "mel-bands",
+        availability: "available",
+        unavailableReason: null,
+        algorithm: MEL_BAND_PROFILE,
+      },
+    ],
+  });
+  const state = await createMetricRecordStreamState(descriptor);
+  const chunks: MetricRecordChunk[] = [];
+  for (let sequence = 0; sequence < 2; sequence++) {
+    const body = metricRecordChunkSchema.parse({
+      schema: "metric-record-chunk/v1",
+      descriptorDigest: state.descriptorDigest,
+      ownership: descriptor.ownership,
+      metric: "mel-bands",
+      chunkSequence: sequence,
+      recordOffset: sequence * 96,
+      slotOffset: sequence * 96,
+      previousDigest: chunks.at(-1)?.digest ?? state.metrics[0]!.lastDigest,
+      digest: "0".repeat(64),
+      gaps: [],
+      records: Array.from({ length: 96 }, (_, offset) => {
+        const index = sequence * 96 + offset;
+        return {
+          index,
+          support: {
+            startSample: 10_000 + index * 2048,
+            endSample: 10_000 + (index + 1) * 2048,
+          },
+          magnitudes: [
+            Array.from({ length: 24 }, (_, band) => (band + 1) / 31),
+            Array.from({ length: 24 }, (_, band) => (band + 1) / 37),
+          ],
+        };
+      }),
+    });
+    chunks.push({ ...body, digest: await metricRecordChunkDigest(body) });
+  }
+  const pass = (await seeded.store.getPass("pass"))!;
+  const subject = (await seeded.store.getSubject("subject"))!;
+  const { rows: _rows, ...coordinates } = geometry;
+  void _rows;
+  // This read boundary consumes a committed typed overview. Native terminal
+  // proof/replay is independently qualified by the real project-state suite.
+  const manifest = {
+    schema: "metric-record-stream-manifest/v1",
+    descriptorDigest: state.descriptorDigest,
+    ownership: descriptor.ownership,
+    outcome: "complete",
+    algorithms: descriptor.algorithms,
+    limitations: ["Synthetic typed reader fixture, not native qualification"],
+    metrics: state.metrics.map((metric) => ({
+      ...metric,
+      nextChunkSequence: 147,
+      nextIndex: 14062,
+      nextRecordOffset: 14062,
+      status: "complete",
+      availability: "available",
+      expectedRecords: 14062,
+      trailingSupport: null,
+    })),
+    nativeProof: {
+      status: "completed",
+      capturedSamples: geometry.totalSamples,
+      sourceOrigin: geometry.startSample,
+      sourceEnd: geometry.endSample,
+      drain: "completed",
+    },
+  } as unknown as MetricRecordStreamManifest;
+  const record: MetricCaptureRecord = {
+    kind: "metric-record-stream-context/v1",
+    metadata: {
+      id: "stream-context",
+      pass: {
+        ...pass,
+        id: "stream-pass",
+        requestedRange: { startBeat: 0, endBeat: 1200 },
+        actualRange: { startBeat: 0, endBeat: 1200 },
+      },
+      subject: { ...subject, id: "stream-subject", kind: "arrangement-range" },
+      producer: {
+        listenerId: "listener",
+        deviceId: "device",
+        agentId: "writer",
+        connectionEpoch: "epoch",
+        version: "fixture",
+      },
+      trace,
+    },
+    descriptor: { ...descriptor, geometry: coordinates },
+    state,
+    status: "completed",
+    chunkCount: 147,
+    storedBytes: 16_000_000,
+    updatedAt: timestamp,
+    reason: null,
+    manifest,
+  };
+  const metrics = seeded.store.incrementalMetrics!;
+  const get = vi
+    .spyOn(metrics, "getMetricCapture")
+    .mockImplementation(async (id) =>
+      id === record.metadata.id ? record : undefined,
+    );
+  const inventory = vi.spyOn(metrics, "listMetricCaptures").mockResolvedValue({
+    items: [record],
+    encodedBytes: Buffer.byteLength(JSON.stringify([record])),
+  });
+  const read = vi
+    .spyOn(metrics, "listMetricChunks")
+    .mockImplementation(async (query) => {
+      const index = (query.afterSequence ?? -1) + 1;
+      const chunk = chunks[index];
+      const items =
+        chunk === undefined ||
+        (query.metric !== undefined && query.metric !== chunk.metric)
+          ? []
+          : [chunk];
+      return {
+        items,
+        encodedBytes: Buffer.byteLength(JSON.stringify(items)),
+        ...(index === 0 && items.length ? { nextSequence: 0 } : {}),
+      };
+    });
+  return { ...seeded, record, chunks, get, inventory, read };
+}
+
+describe("bounded stream context consumers", () => {
+  it("reads a verified 600-second overview without loading records or deriving features", async () => {
+    const { host, read, record } = await streamFixture();
+    const result = await host.executeContextOperation(
+      {
+        action: "stream-overview",
+        contextId: record.metadata.id,
+        includeHistorical: false,
+      },
+      context,
+    );
+    expect(contextOperationResultSchema.parse(result)).toMatchObject({
+      action: "stream-overview",
+      entry: { kind: record.kind, freshness: "unknown" },
+      overview: {
+        geometry: { totalSamples: 28_800_000, sampleRate: 48_000 },
+        metrics: [{ expectedRecords: 14062 }],
+        featureDerivation: "unsupported",
+      },
+    });
+    expect(JSON.stringify(result)).not.toContain('"rows"');
+    expect(Buffer.byteLength(JSON.stringify(result))).toBeLessThan(65536);
+    expect(read).not.toHaveBeenCalled();
+  });
+
+  it("pages exact records below 64KiB, continuing within and between immutable chunks", async () => {
+    const { host, record, chunks, read } = await streamFixture();
+    const indices = [];
+    let cursor: string | undefined;
+    let pages = 0;
+    do {
+      const result = await host.executeContextOperation(
+        {
+          action: "stream-records",
+          contextId: record.metadata.id,
+          includeHistorical: false,
+          metric: "mel-bands",
+          limit: 64,
+          ...(cursor === undefined ? {} : { cursor }),
+        },
+        context,
+      );
+      if (result.action !== "stream-records" || result.page === null)
+        throw new Error("Expected record page");
+      expect(Buffer.byteLength(JSON.stringify(result))).toBeLessThanOrEqual(
+        65536,
+      );
+      expect(result.page.kind).toBe("metric-record-chunk-projection/v1");
+      expect(result.page.chunkDigest).toBe(
+        chunks[result.page.chunkSequence]!.digest,
+      );
+      if (pages++ === 0) expect(result.page.records.length).toBeLessThan(64);
+      indices.push(...result.page.records.map((item) => item.index));
+      cursor = result.nextCursor;
+    } while (cursor !== undefined && pages < 12);
+    expect(cursor).toBeUndefined();
+    expect(indices).toEqual(Array.from({ length: 192 }, (_, index) => index));
+    expect(read.mock.calls[0]?.[0]).toMatchObject({
+      limit: 1,
+      maxBytes: 131074,
+    });
+    expect(read.mock.calls[0]?.[1]).toMatchObject({
+      trace,
+      activeAgentId: "reader",
+    });
+  });
+
+  it("binds continuations to context, filters and original chunk identity", async () => {
+    const { host, record, read, chunks } = await streamFixture();
+    const query = {
+      action: "stream-records" as const,
+      contextId: record.metadata.id,
+      includeHistorical: false,
+      limit: 8,
+    };
+    const first = await host.executeContextOperation(query, context);
+    if (first.action !== "stream-records") throw new Error("Expected records");
+    await expect(
+      host.executeContextOperation(
+        { ...query, cursor: first.nextCursor!, metric: "pitch" },
+        context,
+      ),
+    ).rejects.toMatchObject({ code: "invalid_cursor" });
+    await expect(
+      host.executeContextOperation({ ...query, cursor: "malformed" }, context),
+    ).rejects.toMatchObject({ code: "invalid_cursor" });
+    read.mockResolvedValueOnce({
+      items: [{ ...chunks[0]!, digest: "f".repeat(64) }],
+      encodedBytes: 1,
+    });
+    await expect(
+      host.executeContextOperation(
+        { ...query, cursor: first.nextCursor! },
+        context,
+      ),
+    ).rejects.toMatchObject({ code: "invalid_cursor" });
+  });
+
+  it("includes completed streams alongside legacy inventory and rejects whole-observation/feature access", async () => {
+    const { host, store, record, read, inventory } = await streamFixture();
+    const derive = vi.spyOn(store, "deriveFeatures");
+    const result = await host.executeContextOperation(
+      { action: "list", includeHistorical: false, limit: 20 },
+      context,
+    );
+    expect(result).toMatchObject({
+      entries: [{ kind: "audio-observation/v1" }, { kind: record.kind }],
+    });
+    expect(inventory.mock.calls[0]?.[0]).toMatchObject({
+      status: "completed",
+      limit: 1,
+    });
+    const bootstrap: unknown = JSON.parse(
+      await host.getSessionContextInventory(context.sessionId, context),
+    );
+    expect(bootstrap).toMatchObject({
+      entries: [{ contextId: "entry" }, { contextId: record.metadata.id }],
+    });
+    for (const action of ["get", "report"] as const)
+      await expect(
+        host.executeContextOperation(
+          contextOperationParamsSchema.parse({
+            action,
+            contextId: record.metadata.id,
+            includeHistorical: false,
+            ...(action === "report" ? { offset: 0, limit: 8 } : {}),
+          }),
+          context,
+        ),
+      ).rejects.toMatchObject({ code: "unsupported_context_kind" });
+    for (const query of [
+      {
+        action: "derive-features" as const,
+        contextIds: [record.metadata.id],
+        includeHistorical: false,
+      },
+      {
+        action: "derive-features" as const,
+        contextIds: ["entry", record.metadata.id],
+        includeHistorical: false,
+      },
+      {
+        action: "list-features" as const,
+        contextId: record.metadata.id,
+        includeHistorical: false,
+        limit: 20,
+      },
+    ])
+      await expect(
+        host.executeContextOperation(query, context),
+      ).rejects.toMatchObject({
+        code: "incremental_metric_features_unsupported",
+      });
+    expect(read).not.toHaveBeenCalled();
+    expect(derive).not.toHaveBeenCalled();
+  });
+
+  it("denies provisional, foreign and wrong-Set contexts and forwards cancellation without reads", async () => {
+    const { host, record, get, read } = await streamFixture();
+    const query = {
+      action: "stream-overview" as const,
+      contextId: record.metadata.id,
+      includeHistorical: false,
+    };
+    get.mockResolvedValueOnce({ ...record, status: "sealed" });
+    await expect(
+      host.executeContextOperation(query, context),
+    ).rejects.toMatchObject({ code: "not_found" });
+    get.mockResolvedValueOnce({
+      ...record,
+      metadata: {
+        ...record.metadata,
+        pass: { ...record.metadata.pass, sessionId: "foreign" },
+      },
+    });
+    await expect(
+      host.executeContextOperation(query, context),
+    ).rejects.toMatchObject({ code: "permission_denied" });
+    const historical = {
+      ...record,
+      metadata: {
+        ...record.metadata,
+        pass: { ...record.metadata.pass, liveSetId: "old-set" },
+      },
+    };
+    get.mockResolvedValueOnce(historical);
+    await expect(
+      host.executeContextOperation(query, context),
+    ).rejects.toMatchObject({ code: "not_found" });
+    get.mockResolvedValueOnce(historical);
+    expect(
+      await host.executeContextOperation(
+        { ...query, includeHistorical: true },
+        context,
+      ),
+    ).toMatchObject({ entry: { freshness: "historical" } });
+    const controller = new AbortController();
+    controller.abort(new Error("reader cancelled"));
+    await expect(
+      host.executeContextOperation(query, {
+        ...context,
+        signal: controller.signal,
+      }),
+    ).rejects.toThrow("reader cancelled");
+    expect(read).not.toHaveBeenCalled();
+  });
+
+  it("returns an explicit empty page and propagates repository failures", async () => {
+    const { host, record, read } = await streamFixture();
+    const query = {
+      action: "stream-records" as const,
+      contextId: record.metadata.id,
+      includeHistorical: false,
+      limit: 8,
+      metric: "pitch" as const,
+    };
+    expect(await host.executeContextOperation(query, context)).toMatchObject({
+      page: null,
+    });
+    read.mockRejectedValueOnce(new Error("stored chunk integrity failed"));
+    await expect(host.executeContextOperation(query, context)).rejects.toThrow(
+      "stored chunk integrity failed",
+    );
+  });
+});
+
+describe("stream range and cancellation boundaries", () => {
+  it("continues mixed discovery across both repositories and binds inventory filters", async () => {
+    const { host, record } = await streamFixture();
+    const query = {
+      action: "list" as const,
+      includeHistorical: false,
+      limit: 1,
+    };
+    const first = await host.executeContextOperation(query, context);
+    if (first.action !== "list" || first.nextCursor === undefined)
+      throw new Error("Expected mixed continuation");
+    expect(first.entries.map((entry) => entry.contextId)).toEqual(["entry"]);
+    const second = await host.executeContextOperation(
+      { ...query, cursor: first.nextCursor },
+      context,
+    );
+    expect(second).toMatchObject({
+      entries: [{ contextId: record.metadata.id }],
+    });
+    expect(second).not.toHaveProperty("nextCursor");
+    await expect(
+      host.executeContextOperation(
+        { ...query, cursor: first.nextCursor, listenerId: "different" },
+        context,
+      ),
+    ).rejects.toMatchObject({ code: "invalid_cursor" });
+  });
+  it("preserves original range supports and application attribution, and cancels an empty in-flight read", async () => {
+    const { host, record, read } = await streamFixture();
+    const range = { startSample: 10_001, endSample: 10_002 };
+    const query = {
+      action: "stream-records" as const,
+      contextId: record.metadata.id,
+      includeHistorical: false,
+      range,
+      limit: 1,
+    };
+    const result = await host.executeContextOperation(query, {
+      ...context,
+      actorKind: "application",
+      agentId: "desktop-reader",
+    });
+    expect(result).toMatchObject({
+      page: {
+        records: [{ support: { startSample: 10_000, endSample: 12_048 } }],
+      },
+    });
+    expect(read.mock.calls[0]?.[0]).toMatchObject({ range });
+    expect(read.mock.calls[0]?.[1]).not.toHaveProperty("activeAgentId");
+    const controller = new AbortController();
+    read.mockImplementationOnce(async () => {
+      controller.abort(new Error("cancelled during record query"));
+      return { items: [], encodedBytes: 2 };
+    });
+    await expect(
+      host.executeContextOperation(query, {
+        ...context,
+        signal: controller.signal,
+      }),
+    ).rejects.toThrow("cancelled during record query");
+  });
+});
 
 async function featureFixture() {
   const seeded = await fixture();
@@ -1394,7 +1850,8 @@ describe("typed App-session context host", () => {
     const entry = page.items[0];
     if (entry === undefined) throw new Error("Expected fixture entry");
     vi.spyOn(store, "listEntries").mockResolvedValue({
-      items: Array.from({ length: 20 }, () => entry),
+      items: [entry],
+      nextCursor: "bounded-repository-continuation",
     });
     const inventory = await host.getSessionContextInventory(
       context.sessionId,

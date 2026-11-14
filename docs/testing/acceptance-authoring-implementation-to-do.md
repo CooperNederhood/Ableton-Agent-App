@@ -2,6 +2,57 @@
 
 Companion specification: [Acceptance test authoring](acceptance-authoring.md).
 
+## Approved three-minute Arrangement listening
+
+- [x] Complete the separately approved single `back-to-arrangement` source
+      preparation before baseline, with owned/stopped/recording-off admission,
+      no active/queued Session clips, one verified command and independently
+      unchanged protected source reads. Keep fixture/audio bytes and every
+      capture/count/persistence/cleanup requirement unchanged. Controlled driver
+      tests cover failure/cancellation and no retry; shared coordinator admission,
+      ordering and evidence integration pass 900 owning integration tests.
+      The combined driver/helper tests and both acceptance typechecks pass.
+      This does not establish a successful real-host handoff or capture.
+- [x] Reproduce the early Electron-process exit crash without Live and contain
+      Playwright's secondary startup rejection; preserve coordinator failure
+      receipts and owned cleanup rather than exiting on an orphaned promise.
+- [x] Bound owned Live startup readiness to 120 seconds or the remaining run
+      budget, whichever is smaller; retain cancellation, no automatic modal
+      dismissal, no recovery discard, and owned cleanup after startup timeout.
+
+- [x] Preserve exact stopped beat72/armed/monitor-off baseline, both original
+      tracks/returns and authorized project-local media; hash factory content
+      in place rather than redistribute it.
+- [x] Freeze and register `arrangement-long-form-listening` through the shared
+      runner with exact single-use range/listener permission and finite budgets.
+- [x] Add bounded read-only loaded Arrangement protocol/bridge/Remote Script
+      evidence; unavailable recording/monitor/source properties fail admission.
+- [x] Independently replay original persisted stream chunks, metric coverage,
+      source/owner/digests and native proof; reread after owned Desktop restart.
+- [x] Correct harness ownership/clock assumptions exposed by `run-H1lVxa` after
+      successful full acquisition: independently derive tool-call causation
+      from its scoped Desktop approval and compare exact absolute host-clock
+      spans, not user-message causation or zero-based endpoints. Preserve
+      strict wrong-owner, missing/ambiguous call, duration and per-metric
+      endpoint denial, and the original failed receipt.
+- [x] Obtain explicit review after `run-P5RalY` exposed phase-dependent centroid
+      frame counts. Implement centroid-only `verified-fft-phase` expectations
+      using native-proof-verified phase and exact sample arithmetic; regress
+      both phases, wrong self-consistent totals, invalid/missing phase and
+      absent native phase proof. Keep every other reviewed requirement.
+- [x] Keep running the three-minute fixture as the end-to-end feedback check and
+      add smaller red/green regressions for its failures. Subsequent
+      `run-ZAsrAt`/`run-cVitOp` identified primary envelope DSP-control rejection,
+      reproduced as independent Param execution reordering; `run-swFSvX`
+      exposed stale rolling clock samples after a scheduling pause. Both have
+      focused fixes and native owning coverage. `run-S4Cl1H` passed the unchanged
+      reviewed source/permission/count/protected-state/cleanup assertions plus
+      owned-restart original-record persistence. Preserve every earlier failure.
+- [x] Parent finishes public Desktop loaded-source/context/chunk read forwarding
+      and qualifies the production/native stream before the one approved run.
+- [x] Parent records the unchanged isolated three-minute smoke and owned cleanup:
+      terminal `run-S4Cl1H`, including owned-restart persistence without recapture.
+
 ## Two-MIDI-track listener smoke (#113)
 
 - [x] Review the user-approved Operator then 808 contract with one STOP and no
@@ -33,7 +84,7 @@ Companion specification: [Acceptance test authoring](acceptance-authoring.md).
       operands with a red/green regression, keeping preconditions unchanged.
 - [x] Reproduce the hardcoded 60-second Live startup cap and missing abort
       signal after `run-N92QN6`; use the already approved remaining scenario
-      budget and propagate cancellation without altering case budgets or
+      budget bounded at 120 seconds and propagate cancellation without altering case budgets or
       enabling recovery discard.
 - [x] Reproduce `run-GpPZ2o`'s disabled-audio startup admission with lightweight
       ready/unready bridge cases; reject the known startup outcome for listening,

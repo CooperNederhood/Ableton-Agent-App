@@ -19,6 +19,10 @@ import {
   inspectEventSelectionResultSchema,
   inspectSessionListeningSourceParamsSchema,
   inspectSessionListeningSourceResultSchema,
+  inspectArrangementListeningSourceParamsSchema,
+  inspectArrangementListeningSourceResultSchema,
+  type InspectArrangementListeningSourceParams,
+  type InspectArrangementListeningSourceResult,
   sessionListeningPreflightResultSchema,
   recordingOperationResultSchema,
   type InspectSessionListeningSourceParams,
@@ -56,6 +60,10 @@ import {
   desktopContextGetRequestSchema,
   desktopContextListRequestSchema,
   desktopContextPageSchema,
+  desktopMetricCaptureGetRequestSchema,
+  desktopMetricChunksRequestSchema,
+  desktopMetricCaptureSchema,
+  desktopMetricChunkPageSchema,
   type DesktopEntityContextApi,
 } from "./context-contracts.js";
 
@@ -1077,7 +1085,7 @@ export type DesktopAgentHistoryMessage = z.infer<
 
 export const desktopSessionContextStoreReferenceSchema = z
   .object({
-    schemaVersion: z.union([z.literal(2), z.literal(3)]),
+    schemaVersion: z.union([z.literal(2), z.literal(3), z.literal(4)]),
     relativePath: z.literal("context/entity-context.sqlite"),
     kinds: z
       .array(audioObservationKindSchema)
@@ -2157,6 +2165,10 @@ export const ipcSchemas = {
     request: inspectSessionListeningSourceParamsSchema,
     response: inspectSessionListeningSourceResultSchema,
   },
+  "ableton:inspect-arrangement-listening-source": {
+    request: inspectArrangementListeningSourceParamsSchema,
+    response: inspectArrangementListeningSourceResultSchema,
+  },
   "ableton:inspect-recording": {
     request: z.strictObject({}),
     response: desktopRecordingInspectionSchema,
@@ -2232,6 +2244,14 @@ export const ipcSchemas = {
   "entity-context:get": {
     request: desktopContextGetRequestSchema,
     response: desktopContextDetailSchema,
+  },
+  "entity-context:get-metric-capture": {
+    request: desktopMetricCaptureGetRequestSchema,
+    response: desktopMetricCaptureSchema,
+  },
+  "entity-context:list-metric-chunks": {
+    request: desktopMetricChunksRequestSchema,
+    response: desktopMetricChunkPageSchema,
   },
   "outputs:list": {
     request: z.object({}),
@@ -2611,6 +2631,9 @@ export interface DesktopApi {
     inspectSessionListeningSource(
       params: InspectSessionListeningSourceParams,
     ): Promise<InspectSessionListeningSourceResult>;
+    inspectArrangementListeningSource(
+      params: InspectArrangementListeningSourceParams,
+    ): Promise<InspectArrangementListeningSourceResult>;
     inspectRecording(): Promise<DesktopRecordingInspection>;
     inspectSessionListeningPreflight(
       params: InspectSessionListeningSourceParams,

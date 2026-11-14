@@ -12,6 +12,7 @@
     "packaged-cleanup.ts",
     "packaged-paths.ts",
     "acceptance-source.ts",
+    "acceptance-arrangement.ts",
     "acceptance-events.ts",
     "acceptance-evidence.ts",
     "acceptance-approvals.ts",

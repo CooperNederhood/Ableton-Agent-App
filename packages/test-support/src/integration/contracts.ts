@@ -2,6 +2,12 @@ import type { SessionListeningPreflightResult } from "@ableton-agent/protocol";
 import type { AgentListeningEvidence } from "./agent-listening-result.js";
 import type { MelSmokeEvidence } from "./mel-smoke.js";
 import type { FeatureSourceEvidence } from "./feature-search.js";
+import type { ArrangementStreamProof } from "./arrangement-stream.js";
+import type {
+  ArrangementFixtureSource,
+  ArrangementSourceEvidence,
+  ArrangementCaptureEvidence,
+} from "./arrangement.js";
 
 export type Scalar = string | number | boolean | null;
 export type Facts = Readonly<Record<string, Scalar>>;
@@ -78,6 +84,7 @@ export interface FixtureManifest {
   readonly dependencies: readonly string[];
   readonly listenerBindings?: readonly ListenerBinding[];
   readonly sources?: readonly FixtureSource[];
+  readonly arrangementSources?: readonly ArrangementFixtureSource[];
   /** Existing licensed Live Builtin content; verified in place, never redistributed. */
   readonly builtinResources?: readonly {
     readonly path: string;
@@ -101,7 +108,8 @@ export interface ScenarioStep {
   readonly setupActions?: readonly SetupAction[];
   readonly assertions: readonly AssertionReference[];
 }
-export type SetupAction = "stop-transport" | "restart-owned-desktop";
+export type SetupAction =
+  "stop-transport" | "restart-owned-desktop" | "back-to-arrangement";
 export interface SetupEvidence extends SessionIdentity {
   readonly action: SetupAction;
   readonly stepId: string;
@@ -114,6 +122,14 @@ export interface SetupEvidence extends SessionIdentity {
     readonly dispatchedCount: 1;
     readonly beforePlaying: boolean;
     readonly afterPlaying: false;
+    readonly verified: true;
+  };
+  readonly arrangementSource?: {
+    readonly command: "transport.back_to_arrangement";
+    readonly dispatchedCount: 1;
+    readonly beforeBackToArrangement: boolean;
+    readonly afterBackToArrangement: false;
+    readonly transportStopped: true;
     readonly verified: true;
   };
 }
@@ -225,6 +241,9 @@ export interface ContextEvidence {
   readonly afterOwnedRestart: boolean;
 }
 export interface BaselineEvidence {
+  readonly arrangementSources?: Readonly<
+    Record<string, ArrangementSourceEvidence>
+  >;
   readonly schemaVersion: 1;
   readonly facts: Facts;
   readonly sources?: Readonly<Record<string, SessionSourceEvidence>>;
@@ -255,6 +274,7 @@ export interface AudioBaselineEvidence extends BaselineEvidence {
   readonly sources: Readonly<Record<string, AudioSourceEvidence>>;
 }
 export interface TurnEvidence extends Submission {
+  readonly arrangementCaptures?: readonly ArrangementCaptureEvidence[];
   readonly featureSources?: readonly FeatureSourceEvidence[];
   readonly pitchSmoke?: readonly PitchSmokeEvidence[];
   readonly melSmoke?: readonly MelSmokeEvidence[];
@@ -272,6 +292,7 @@ export interface TurnEvidence extends Submission {
   readonly facts: Facts;
 }
 export interface RunEvidence {
+  readonly arrangementContexts?: readonly ArrangementStreamProof[];
   readonly featureSources?: readonly FeatureSourceEvidence[];
   readonly setupActions?: readonly SetupEvidence[];
   readonly pitchSmoke?: readonly PitchSmokeEvidence[];

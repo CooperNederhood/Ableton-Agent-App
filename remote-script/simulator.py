@@ -19,6 +19,7 @@ from AbletonAgent.listening_simulator import (
     build_listening_simulator_context,
 )
 from AbletonAgent.session_listening_source import inspect_session_listening_source
+from AbletonAgent.arrangement_listening_source import inspect_arrangement_listening_source
 from AbletonAgent.session_listening_pass import SESSION_PASS_COMMANDS, validate_session_pass_action
 from AbletonAgent.listening_playback import (
     OWNERSHIP_LIMITATION, PLAYBACK_CAPABILITIES, POSITION_LIMITATION, START_LIMITATION,
@@ -2619,6 +2620,12 @@ def handle(request, token, state):
             "Simulator does not provide pass-owned public Session source monitors",
             {"mutationState": "not-attempted", "cleanupPolicy": "leave-running"},
         )
+    if command == "listening.inspect_arrangement_source":
+        try:
+            return response(request, inspect_arrangement_listening_source(
+                build_listening_simulator_context(state), params))
+        except ProtocolFailure as error:
+            return failure(request, error.code, error.message)
     if command == "listening.inspect_session_source":
         try:
             return response(request, inspect_session_listening_source(
@@ -2657,6 +2664,7 @@ def handle(request, token, state):
                     "session.inspect": True,
                     "listening.inspect_context": True,
                     "listening.inspect_session_source": True,
+                    "listening.inspect_arrangement_source": True,
                     "listening.prepare_session_pass": False,
                     "listening.launch_session_pass": False,
                     "listening.inspect_session_pass": False,

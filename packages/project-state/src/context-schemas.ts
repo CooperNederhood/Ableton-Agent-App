@@ -19,16 +19,16 @@ export const CONTEXT_LIMITS = Object.freeze({
   metricEntryMetadataBytes,
   metricEntryBytes,
   // Publication JSON includes subjects, links and the pass as well as entries.
-  passBytes: listenersPerPass * metricEntryBytes + 1_024 * 1_024,
-  storeBytes: 32 * 1_024 * 1_024,
+  passBytes: 512 * 1_024 * 1_024,
+  storeBytes: 2 * 1_024 * 1_024 * 1_024,
   pendingOperations: 32,
 });
 
 export const sessionContextStoreReferenceSchema = z
   .strictObject({
     schemaVersion: z
-      .union([z.literal(2), z.literal(3)])
-      .transform(() => 3 as const),
+      .union([z.literal(2), z.literal(3), z.literal(4)])
+      .transform(() => 4 as const),
     relativePath: z.literal("context/entity-context.sqlite"),
     kinds: z
       .array(audioObservationKindSchema)
@@ -41,7 +41,7 @@ export const sessionContextStoreReferenceSchema = z
 
 export const SESSION_CONTEXT_STORE_REFERENCE =
   sessionContextStoreReferenceSchema.parse({
-    schemaVersion: 3,
+    schemaVersion: 4,
     relativePath: "context/entity-context.sqlite",
     kinds: [
       "audio-observation/v1",

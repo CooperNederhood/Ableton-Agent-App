@@ -388,7 +388,12 @@ describe("preload API", () => {
     const invalid = { ...request, sql: "SELECT * FROM entries" };
     await expect(api.entityContext.list(invalid)).rejects.toThrow();
     expect(vi.mocked(transport.invoke)).toHaveBeenCalledTimes(2);
-    expect(Object.keys(api.entityContext)).toEqual(["list", "get"]);
+    expect(Object.keys(api.entityContext).sort()).toEqual([
+      "get",
+      "getMetricCapture",
+      "list",
+      "listMetricChunks",
+    ]);
   });
   it("applies context query defaults before crossing the preload/main boundary", async () => {
     const transport = transportFor({

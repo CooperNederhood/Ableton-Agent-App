@@ -51,7 +51,7 @@ export function spectrumFixture(options = {}) {
     (reason) => diagnostics.push(reason),
     { now: () => (options.now ? options.now(time) : time) },
   );
-  function advance() {
+  function advance(oneSample = false) {
     let output;
     do {
       const counter = nextCounter++;
@@ -64,7 +64,7 @@ export function spectrumFixture(options = {}) {
         counter % 1048576,
         Math.floor(counter / 1048576),
       );
-    } while ((nextCounter - 1) % 2048 !== 2047);
+    } while (!oneSample && (nextCounter - 1) % 2048 !== 2047);
     frame = [output[31], ...output.slice(11, 31), output[31]];
     return frame;
   }
@@ -75,6 +75,7 @@ export function spectrumFixture(options = {}) {
     controls,
     diagnostics,
     advance,
+    readback: () => advance(true),
     get frame() {
       return frame;
     },

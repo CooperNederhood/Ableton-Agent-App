@@ -164,6 +164,22 @@ test("launches the generated production application", async () => {
   }
 });
 
+test("preserves pinned native plugin bytes during macOS application signing", async () => {
+  const executable = await packagedExecutable();
+  const payload = resolve(
+    dirname(executable),
+    "../Resources/ableton-integrations/machine-listening",
+  );
+  for (const resource of FLUCOMA_DEPENDENCY_FILES) {
+    const bytes = await readFile(join(payload, resource.name));
+    expect(bytes.byteLength, resource.name).toBe(resource.bytes);
+    expect(
+      createHash("sha256").update(bytes).digest("hex"),
+      resource.name,
+    ).toBe(resource.sha256);
+  }
+});
+
 test("installs both canonical Max bundles and Remote Script from packaged resources without a checkout", async () => {
   const root = await mkdtemp(
     join(process.cwd(), "ableton-agent-packaged-integrations-"),

@@ -40,6 +40,7 @@ import {
 import {
   MetricListeningBudgetError,
   prepareMetricListenerCapture,
+  prepareMetricListenerStream,
   type MetricListeningCaptureProgress,
   type PrepareMetricListenerCaptureInput,
 } from "./metric-listening-capture.js";
@@ -135,6 +136,31 @@ class Service extends SyntheticMetricListenerPeer {
 }
 
 describe("real version5 ListenerService orchestration", () => {
+  it("denies continuous capture without an actual producer capability before controls and journals the attributed failure", async () => {
+    const s = new Service();
+    const sink = {
+      begin: vi.fn(async () => {}),
+      append: vi.fn(async () => {}),
+      finalize: vi.fn(async () => {}),
+      abort: vi.fn(async () => {}),
+    };
+    await expect(
+      prepareMetricListenerStream(s, { ...s.input, streamSink: sink }),
+    ).rejects.toThrow("continuous-metric-stream-unavailable");
+    expect(s.calls).toEqual([]);
+    expect(sink.begin).not.toHaveBeenCalled();
+    expect(s.telemetry.map((event) => event.name)).toEqual([
+      "listening.metric-capture.queued",
+      "listening.metric-capture.started",
+      "listening.metric-capture.failed",
+    ]);
+    expect(s.telemetry.at(-1)).toMatchObject({
+      trace: { traceId: trace.traceId },
+      correlationId: trace.correlationId,
+      causationId: trace.causationId,
+      outcome: "failure",
+    });
+  });
   function analyzerService(
     reason?: "overflow" | "sequence-gap" | "malformed-record",
     endBeat = 1,
@@ -1157,7 +1183,7 @@ describe("real version5 ListenerService orchestration", () => {
     s.descriptor.jobId = "replacement-job";
     s.descriptor.passId = "replacement-pass";
     for (const subscriber of s.subscribers)
-      subscriber({
+      void subscriber({
         connectionId: s.descriptor.connectionId,
         producer: s.descriptor.producer,
         binding: s.descriptor.binding,

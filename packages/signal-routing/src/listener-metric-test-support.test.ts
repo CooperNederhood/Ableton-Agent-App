@@ -36,7 +36,7 @@ const ownershipKeys = [
 ] as const;
 
 function prepare(fixture: SyntheticMetricWireFixture) {
-  return listenerControlMetricSchema.parse({
+  const control = listenerControlMetricSchema.parse({
     ...fixture.wire,
     type: "listener.control",
     action: "prepare",
@@ -53,6 +53,10 @@ function prepare(fixture: SyntheticMetricWireFixture) {
     sequence: 41,
     config: fixture.config,
   });
+  return {
+    ...control,
+    config: nativeMetricListeningConfigSchema.parse(control.config),
+  };
 }
 
 function owners(fixture: SyntheticMetricWireFixture) {
@@ -336,7 +340,7 @@ describe("source-only SYNTHETIC metric wire fixture", () => {
     expect(() =>
       assertNativeMetricSourceCoverage(bound.proof, {
         ...bound.proof.armed.ownership,
-        config: control.config!,
+        config: control.config,
       }),
     ).toThrow("native_metric_owner_or_config_mismatch");
   });
@@ -362,7 +366,7 @@ describe("source-only SYNTHETIC metric wire fixture", () => {
     expect(() =>
       assertNativeMetricSourceCoverage(bound.proof, {
         ...bound.proof.armed.ownership,
-        config: control.config!,
+        config: control.config,
       }),
     ).toThrow("native_metric_owner_or_config_mismatch");
   });
@@ -377,7 +381,7 @@ describe("source-only SYNTHETIC metric wire fixture", () => {
     expect(() =>
       assertNativeMetricReadyProof(bound.ready, {
         ...bound.ready.ownership,
-        config: control.config!,
+        config: control.config,
       }),
     ).toThrow("native_metric_owner_or_config_mismatch");
   });

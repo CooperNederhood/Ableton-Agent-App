@@ -10,7 +10,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { melSmokeFixture } from "./mel-smoke-test-support.js";
 import {
   SUPPORTED_AUDIO_BASELINE,
@@ -48,6 +48,10 @@ import type {
   TurnEvidence,
   TurnSubscription,
 } from "./index.js";
+
+const { awaitElectronLaunch } = await vi.importActual<{
+  awaitElectronLaunch<T>(start: () => Promise<T>): Promise<T>;
+}>("../../../../tests/electron/acceptance-launch.js");
 
 const digest = (value: string) =>
   createHash("sha256").update(value).digest("hex");
@@ -686,6 +690,39 @@ describe("driver-neutral acceptance foundation (synthetic only)", () => {
       ...overrides,
     });
   }
+  it("persists Electron startup failure and completes owned cleanup without submitting a turn", async () => {
+    const driver = new ControlledDriver();
+    driver.launch = async () => {
+      driver.calls.push("launch");
+      await awaitElectronLaunch(() =>
+        Promise.reject(new Error("electron.launch: Process failed to launch!")),
+      );
+    };
+    const result = await execute(driver);
+    expect(result).toMatchObject({
+      status: "failed",
+      primaryFailure: {
+        stage: "launch",
+        message: "electron.launch: Process failed to launch!",
+      },
+      cleanupComplete: true,
+      persisted: true,
+      turns: [],
+      finalizationFailures: [],
+    });
+    expect(driver.calls).toContain("cleanup");
+    expect(driver.calls).toContain("persist");
+    expect(driver.calls).not.toContain("submit");
+    expect(receipts.at(-1)).toMatchObject({
+      runId: result.runId,
+      status: "failed",
+      primaryFailure: result.primaryFailure,
+      cleanupComplete: true,
+      persisted: true,
+      turns: [],
+      finalizationFailures: [],
+    });
+  });
   it.each(["session-audio", "session-midi"])(
     "runs declared setup once before submission and retains attributed lifecycle and action evidence (%s)",
     async (capability) => {

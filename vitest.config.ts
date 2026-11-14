@@ -50,6 +50,9 @@ export default defineConfig({
         "./packages/observability/src/index.ts",
       ),
       "@ableton-agent/protocol": source("./packages/protocol/src/index.ts"),
+      "@ableton-agent/project-state/metric-capture-schemas": source(
+        "./packages/project-state/src/metric-capture-schemas.ts",
+      ),
       "@ableton-agent/project-state": source(
         "./packages/project-state/src/index.ts",
       ),

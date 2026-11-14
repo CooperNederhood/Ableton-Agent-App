@@ -1194,6 +1194,75 @@ describe("desktop adapter over the shared application", () => {
     await service.stop();
   });
 
+  it("forwards bounded durable progress through typed Desktop inventory and events", async () => {
+    const { service, events } = await harness();
+    await service.start();
+    const agent = (await service.listActiveAgents())[0]!;
+    const owner = (await service.getSessions()).find((session) =>
+      session.activeAgents.some(({ id }) => id === agent.id),
+    )!;
+    const captureProgress = {
+      sampleRate: 48_000 as const,
+      requestedSamples: 8_640_000,
+      persistedSamples: 2_880_000,
+      persistedChunks: 30,
+    };
+    const job: ListeningJob = {
+      passId: "synthetic-stream-progress",
+      owner: {
+        sessionId: owner.id,
+        liveSetId: owner.liveSetId,
+        agentId: agent.id,
+      },
+      trace: {
+        traceId: randomUUID(),
+        correlationId: "stream-progress",
+        causationId: "fixture",
+      },
+      stage: "capturing",
+      createdAt: "2026-10-12T00:00:00.000Z",
+      updatedAt: "2026-10-12T00:01:00.000Z",
+      durationMs: 60_000,
+      contextIds: [],
+      captureProgress,
+      cleanupPolicy: "leave-running",
+    };
+    service.reportListeningJob(job);
+    const request = { sessionId: owner.id, agentId: agent.id };
+    expect((await service.listListeningJobs(request)).jobs[0]).toMatchObject({
+      stage: "capturing",
+      captureProgress,
+      contextIds: [],
+    });
+    expect(
+      events.some(
+        (event) =>
+          event.type === "listening.changed" &&
+          event.page.jobs.some(
+            (entry) => entry.captureProgress?.persistedChunks === 30,
+          ),
+      ),
+    ).toBe(true);
+    expect(() =>
+      service.reportListeningJob({
+        ...job,
+        captureProgress: { ...captureProgress, persistedSamples: 8_640_001 },
+      }),
+    ).toThrow();
+    service.reportListeningJob({
+      ...job,
+      stage: "cancelled",
+      updatedAt: "2026-10-12T00:01:01.000Z",
+    });
+    captureProgress.persistedSamples = 0;
+    expect((await service.listListeningJobs(request)).jobs[0]).toMatchObject({
+      stage: "cancelled",
+      captureProgress: { persistedSamples: 2_880_000 },
+      contextIds: [],
+    });
+    await service.stop();
+  });
+
   it("preserves and redacts terminal partial metric publication in owned Desktop inventory", async () => {
     const { service, events } = await harness();
     await service.start();

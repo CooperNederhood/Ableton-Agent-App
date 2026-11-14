@@ -210,6 +210,27 @@ export const nativeMetricConfigurationReadbackSchema = z.tuple([
 export type NativeMetricConfigurationReadback = z.infer<
   typeof nativeMetricConfigurationReadbackSchema
 >;
+export function validateNativeMetricDspReceiptEvidence(
+  value: {
+    fields: readonly number[];
+    confirmedFields: readonly number[];
+    timing: readonly number[];
+    confirmedTiming: readonly number[];
+  },
+  ctx: z.RefinementCtx,
+): void {
+  if (
+    value.fields[0] !== value.fields[10] ||
+    value.fields[0] !== value.fields[11] ||
+    value.fields[0] !== value.timing[0] ||
+    value.confirmedFields.some((cell, index) => cell !== value.fields[index]) ||
+    value.confirmedTiming.some((cell, index) => cell !== value.timing[index])
+  )
+    ctx.addIssue({
+      code: "custom",
+      message: "Native metric DSP readback seal or immutable hold mismatch",
+    });
+}
 export const nativeMetricDspReceiptSchema = z
   .strictObject({
     fields: nativeMetricConfigurationReadbackSchema,
@@ -218,21 +239,7 @@ export const nativeMetricDspReceiptSchema = z
     confirmedTiming: nativeMetricCompactTimingSchema,
     elapsedMs: z.number().finite().min(0).max(1_000),
   })
-  .superRefine((value, ctx) => {
-    if (
-      value.fields[0] !== value.fields[10] ||
-      value.fields[0] !== value.fields[11] ||
-      value.fields[0] !== value.timing[0] ||
-      value.confirmedFields.some(
-        (cell, index) => cell !== value.fields[index],
-      ) ||
-      value.confirmedTiming.some((cell, index) => cell !== value.timing[index])
-    )
-      ctx.addIssue({
-        code: "custom",
-        message: "Native metric DSP readback seal or immutable hold mismatch",
-      });
-  });
+  .superRefine(validateNativeMetricDspReceiptEvidence);
 export type NativeMetricDspReceipt = z.infer<
   typeof nativeMetricDspReceiptSchema
 >;
@@ -303,6 +310,76 @@ export type NativeMetricIdleReceipt = z.infer<
   typeof nativeMetricIdleReceiptSchema
 >;
 
+export interface NativeMetricAdmissionEvidence {
+  analyzerProducerAbi?: number | undefined;
+  ownership: z.infer<typeof nativeMetricOwnershipSchema>;
+  config: {
+    mode: "arrangement" | "session";
+    stoppedBeat?: number | undefined;
+    requestedMetrics: readonly string[];
+    timingPolicy: z.infer<typeof listeningTimingPolicySchema>;
+    geometry: Pick<
+      MetricListeningGeometry,
+      | "sampleRate"
+      | "vectorSize"
+      | "tempoBpm"
+      | "startBeat"
+      | "endBeat"
+      | "totalSamples"
+      | "rows"
+    >;
+  };
+  before: z.infer<ReturnType<typeof nativeCheckedTransportClockBindingSchema>>;
+}
+
+export function validateNativeMetricReadyEvidence(
+  value: NativeMetricAdmissionEvidence & {
+    disarmCounter: number;
+    idle: NativeMetricIdleReceipt;
+    elapsedMs: number;
+  },
+  ctx: z.RefinementCtx,
+): void {
+  validateAnalyzerProducer(value, ctx);
+  const g = value.config.geometry;
+  const first = value.before.frames[0]![4];
+  const last = value.before.frames.at(-1)![4];
+  const idle = value.idle;
+  if (
+    value.before.dsp[1] !== g.sampleRate ||
+    value.before.dsp[2] !== g.vectorSize ||
+    value.before.frames.some(
+      (row) =>
+        row[1] !==
+        (value.config.mode === "session"
+          ? value.config.stoppedBeat
+          : g.startBeat),
+    ) ||
+    (value.config.timingPolicy.mode === "strict" &&
+      value.before.frames.some(
+        (row) => row[2] - row[4] !== value.before.frames[0]![2] - first,
+      )) ||
+    last +
+      10 * g.sampleRate +
+      Math.ceil(g.totalSamples / (g.sampleRate / 10)) * (g.sampleRate / 10) +
+      g.vectorSize >=
+      LIMIT ||
+    value.disarmCounter >= first ||
+    idle.fields[0] >= value.ownership.nativeEpoch ||
+    idle.elapsedMs > value.elapsedMs ||
+    [
+      idle.configurationCounter,
+      idle.confirmedConfigurationCounter,
+      idle.timingCounter,
+      idle.confirmedTimingCounter,
+    ].some((sample) => sample < first || sample > last)
+  )
+    ctx.addIssue({
+      code: "custom",
+      message: "Native metric idle preflight ownership or freshness mismatch",
+    });
+}
+
 /**
  * Non-arming preflight only. Epoch is a future reservation; old launch/history
  * latches are deliberately not interpreted as a new launch or configuration.
@@ -320,49 +397,74 @@ export const nativeMetricReadyProofSchema = z
     idle: nativeMetricIdleReceiptSchema,
     elapsedMs: z.number().finite().min(0).max(2_000),
   })
-  .superRefine((value, ctx) => {
-    validateAnalyzerProducer(value, ctx);
-    const g = value.config.geometry;
-    const first = value.before.frames[0]![4];
-    const last = value.before.frames.at(-1)![4];
-    const idle = value.idle;
-    if (
-      value.before.dsp[1] !== g.sampleRate ||
-      value.before.dsp[2] !== g.vectorSize ||
-      value.before.frames.some(
-        (row) =>
-          row[1] !==
-          (value.config.mode === "session"
-            ? value.config.stoppedBeat
-            : g.startBeat),
-      ) ||
-      (value.config.timingPolicy.mode === "strict" &&
-        value.before.frames.some(
-          (row) => row[2] - row[4] !== value.before.frames[0]![2] - first,
-        )) ||
-      last +
-        10 * g.sampleRate +
-        Math.ceil(g.totalSamples / (g.sampleRate / 10)) * (g.sampleRate / 10) +
-        g.vectorSize >=
-        LIMIT ||
-      value.disarmCounter >= first ||
-      idle.fields[0] >= value.ownership.nativeEpoch ||
-      idle.elapsedMs > value.elapsedMs ||
-      [
-        idle.configurationCounter,
-        idle.confirmedConfigurationCounter,
-        idle.timingCounter,
-        idle.confirmedTimingCounter,
-      ].some((sample) => sample < first || sample > last)
-    )
-      ctx.addIssue({
-        code: "custom",
-        message: "Native metric idle preflight ownership or freshness mismatch",
-      });
-  });
+  .superRefine(validateNativeMetricReadyEvidence);
 export type NativeMetricReadyProof = z.infer<
   typeof nativeMetricReadyProofSchema
 >;
+
+export function validateNativeMetricArmEvidence(
+  value: NativeMetricAdmissionEvidence & {
+    receipt: {
+      fields: readonly number[];
+      timing: NativeMetricCompactTiming;
+    };
+  },
+  ctx: z.RefinementCtx,
+): void {
+  validateAnalyzerProducer(value, ctx);
+  const g = value.config.geometry;
+  const first = value.before.frames[0]!;
+  const last = value.before.frames.at(-1)!;
+  const timing = value.receipt.timing;
+  const fields = value.receipt.fields;
+  const expected = [
+    value.ownership.nativeEpoch,
+    g.totalSamples,
+    g.sampleRate / 10,
+    g.tempoBpm,
+    g.startBeat - Math.floor(g.startBeat),
+    g.vectorSize,
+    1,
+    g.startBeat,
+    g.endBeat,
+    g.rows.length,
+    value.ownership.nativeEpoch,
+    value.ownership.nativeEpoch,
+  ];
+  if (
+    fields.some((cell, index) => cell !== expected[index]) ||
+    timing[0] !== value.ownership.nativeEpoch ||
+    timing[1] !== -1 ||
+    timing[3] !== 0 ||
+    timing[4] !== -1 ||
+    timing[6] !== -1 ||
+    value.before.dsp[1] !== g.sampleRate ||
+    value.before.dsp[2] !== g.vectorSize ||
+    timing[5] < last[4] ||
+    timing[5] - last[4] > g.sampleRate ||
+    timing[5] +
+      10 * g.sampleRate +
+      Math.ceil(g.totalSamples / (g.sampleRate / 10)) * (g.sampleRate / 10) +
+      g.vectorSize >=
+      LIMIT ||
+    value.before.frames.some(
+      (row) =>
+        row[1] !==
+        (value.config.mode === "session"
+          ? value.config.stoppedBeat
+          : g.startBeat),
+    ) ||
+    (value.config.timingPolicy.mode === "strict" &&
+      value.before.frames.some(
+        (row) => row[2] - row[4] !== first[2] - first[4],
+      ))
+  )
+    ctx.addIssue({
+      code: "custom",
+      message:
+        "Native metric arm execution receipt or stopped binding mismatch",
+    });
+}
 
 export const nativeMetricArmProofSchema = z
   .strictObject({
@@ -373,61 +475,7 @@ export const nativeMetricArmProofSchema = z
     before: nativeCheckedTransportClockBindingSchema(false),
     receipt: nativeMetricDspReceiptSchema,
   })
-  .superRefine((value, ctx) => {
-    validateAnalyzerProducer(value, ctx);
-    const g = value.config.geometry;
-    const first = value.before.frames[0]!;
-    const last = value.before.frames.at(-1)!;
-    const timing = value.receipt.timing;
-    const fields = value.receipt.fields;
-    const expected = [
-      value.ownership.nativeEpoch,
-      g.totalSamples,
-      g.sampleRate / 10,
-      g.tempoBpm,
-      g.startBeat - Math.floor(g.startBeat),
-      g.vectorSize,
-      1,
-      g.startBeat,
-      g.endBeat,
-      g.rows.length,
-      value.ownership.nativeEpoch,
-      value.ownership.nativeEpoch,
-    ];
-    if (
-      fields.some((cell, index) => cell !== expected[index]) ||
-      timing[0] !== value.ownership.nativeEpoch ||
-      timing[1] !== -1 ||
-      timing[3] !== 0 ||
-      timing[4] !== -1 ||
-      timing[6] !== -1 ||
-      value.before.dsp[1] !== g.sampleRate ||
-      value.before.dsp[2] !== g.vectorSize ||
-      timing[5] < last[4] ||
-      timing[5] - last[4] > g.sampleRate ||
-      timing[5] +
-        10 * g.sampleRate +
-        Math.ceil(g.totalSamples / (g.sampleRate / 10)) * (g.sampleRate / 10) +
-        g.vectorSize >=
-        LIMIT ||
-      value.before.frames.some(
-        (row) =>
-          row[1] !==
-          (value.config.mode === "session"
-            ? value.config.stoppedBeat
-            : g.startBeat),
-      ) ||
-      (value.config.timingPolicy.mode === "strict" &&
-        value.before.frames.some(
-          (row) => row[2] - row[4] !== first[2] - first[4],
-        ))
-    )
-      ctx.addIssue({
-        code: "custom",
-        message:
-          "Native metric arm execution receipt or stopped binding mismatch",
-      });
-  });
+  .superRefine(validateNativeMetricArmEvidence);
 export type NativeMetricArmProof = z.infer<typeof nativeMetricArmProofSchema>;
 
 export const nativeMetricLaunchProofSchema = z
@@ -711,11 +759,13 @@ export function assertNativeMetricArmProof(
 }
 
 /** Host projection is for clock alignment only, never metric coordinates. */
-function launchCoordinates(
-  armed: NativeMetricArmProof,
+export function nativeMetricEvidenceLaunchCoordinates(
+  armed: NativeMetricAdmissionEvidence & {
+    receipt: { timing: NativeMetricCompactTiming };
+  },
   launched: NativeMetricLaunchProof,
 ) {
-  const g: MetricListeningGeometry = armed.config.geometry;
+  const g = armed.config.geometry;
   const timing = launched.timing;
   const armCounter = armed.receipt.timing[5];
   const hostOffsetSamples =
@@ -767,7 +817,7 @@ export function nativeMetricLaunchCoordinates(
     throw new Error("native_metric_missing_owner_pin");
   const armed = assertNativeMetricArmProof(rawArm, expected);
   const launched = nativeMetricLaunchProofSchema.parse(rawLaunch);
-  const coordinates = launchCoordinates(armed, launched);
+  const coordinates = nativeMetricEvidenceLaunchCoordinates(armed, launched);
   return Object.freeze({
     startSample: coordinates.originCounter,
     endSample: coordinates.originCounter + armed.config.geometry.totalSamples,
@@ -792,7 +842,25 @@ export function assertNativeMetricSourceCoverage(
     throw new Error("native_metric_missing_owner_pin");
   const proof = nativeMetricSourceCoverageProofSchema.parse(raw);
   const armed = assertNativeMetricArmProof(proof.armed, expected);
-  const coordinates = launchCoordinates(armed, proof.launched);
+  return nativeMetricEvidenceSourceCoverage(proof, armed);
+}
+
+/** Shared executed completion/source arithmetic after scope-specific parsing. */
+export function nativeMetricEvidenceSourceCoverage(
+  proof: Pick<
+    NativeMetricSourceCoverageProof,
+    "launched" | "completion" | "after" | "timingWitnesses"
+  >,
+  armed: NativeMetricAdmissionEvidence & {
+    receipt: { fields: readonly number[]; timing: NativeMetricCompactTiming };
+  },
+) {
+  if (armed.config.mode === "session" && armed.config.stoppedBeat === undefined)
+    throw new Error("native_metric_missing_stopped_beat");
+  const coordinates = nativeMetricEvidenceLaunchCoordinates(
+    armed,
+    proof.launched,
+  );
   if (
     proof.completion.fields.some(
       (cell, index) => cell !== armed.receipt.fields[index],
@@ -811,7 +879,8 @@ export function assertNativeMetricSourceCoverage(
   const checked = assertNativeCheckedTransportSourceCoverage({
     policy: armed.config.timingPolicy,
     geometry: armed.config.geometry,
-    ...(armed.config.mode === "session"
+    ...(armed.config.mode === "session" &&
+    armed.config.stoppedBeat !== undefined
       ? { stoppedBeat: armed.config.stoppedBeat }
       : {}),
     before: armed.before,

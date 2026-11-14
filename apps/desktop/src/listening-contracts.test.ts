@@ -24,6 +24,32 @@ const job = {
   evidence: "lifecycle-only",
 };
 describe("Desktop listening wire contracts", () => {
+  it("accepts bounded durable progress but rejects impossible coverage and raw payloads", () => {
+    const captureProgress = {
+      sampleRate: 48_000,
+      requestedSamples: 8_640_000,
+      persistedSamples: 2_880_000,
+      persistedChunks: 30,
+    };
+    expect(
+      desktopListeningJobSchema.parse({ ...job, captureProgress })
+        .captureProgress,
+    ).toEqual(captureProgress);
+    for (const patch of [
+      { persistedSamples: 8_640_001 },
+      { persistedSamples: -1 },
+      { persistedChunks: -1 },
+      { sampleRate: 96_000 },
+      { audio: [1, 2] },
+    ])
+      expect(
+        desktopListeningJobSchema.safeParse({
+          ...job,
+          captureProgress: { ...captureProgress, ...patch },
+        }).success,
+      ).toBe(false);
+  });
+
   it("accepts only published partial results with honest bounded metric coverage", () => {
     const metricResults = [
       summarizeMetricListeningResult(

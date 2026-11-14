@@ -29,7 +29,10 @@ import {
   listeningTimingPolicySchema,
   readListeningFailureEvidence,
   NATIVE_METRIC_LISTENING_SCOPE,
+  NATIVE_CONTINUOUS_METRIC_LISTENING_SCOPE,
   MAX_METRIC_LISTENING_SECONDS,
+  MAX_CONTINUOUS_METRIC_LISTENING_SECONDS,
+  type MetricRecordStreamManifest,
   inspectListeningContextResultSchema,
   positionListeningPlaybackResultSchema,
   type InspectListeningContextResult,
@@ -43,7 +46,12 @@ import {
   type ListenerDescriptor,
   type ListenerService,
 } from "@ableton-agent/signal-routing";
-import { prepareMetricListenerCapture } from "./metric-listening-capture.js";
+import {
+  prepareMetricListenerCapture,
+  prepareMetricListenerStream,
+} from "./metric-listening-capture.js";
+import type { MetricRecordStagedSink } from "./metric-record-ingestion.js";
+import { createStorageMetricStreamPublication } from "./metric-stream-publication.js";
 import {
   createMetricCaptureBinding,
   validateMetricCaptureObservations,
@@ -63,6 +71,12 @@ import type {
 
 type Repository = Parameters<typeof reserveListeningPublication>[0];
 type PassInput = Parameters<ListeningCoordinatorServices["prepare"]>[0];
+type StreamPassInput = Omit<
+  Parameters<ListeningCoordinatorServices["persist"]>[0],
+  "observations"
+> & {
+  readonly manifests: readonly MetricRecordStreamManifest[];
+};
 type ContextPorts = Pick<
   CopilotAgentServiceOptions,
   "executeContextOperation" | "getSessionContextInventory"
@@ -84,7 +98,34 @@ export interface ListeningRuntimeHostOptions {
   ) => Promise<Repository>;
   /** Existing caller-scoped context ports; no Desktop dependency or raw storage access. */
   readonly contextPorts?: ContextPorts;
+  /** Construct a side-effect-free adapter; durable allocation starts in sink.begin. */
+  readonly createMetricStreamPublication?: (
+    repository: Repository,
+    input: {
+      readonly passId: string;
+      readonly owner: ListeningOwner;
+      readonly trace: ListeningPassContext["trace"];
+      readonly requestedRange: {
+        readonly startBeat: number;
+        readonly endBeat: number;
+      };
+      readonly createdAt: string;
+      readonly bindings: readonly ListeningPublicationBinding[];
+    },
+    signal: AbortSignal,
+  ) => MetricStreamPublication;
   readonly onChange?: (job: ListeningJob) => void;
+}
+
+export interface MetricStreamPublication {
+  /** finalize seals staging only; publication occurs through publish after the coordinator gate. */
+  readonly sink: MetricRecordStagedSink;
+  publish(input: {
+    readonly manifests: readonly MetricRecordStreamManifest[];
+    readonly startedAt: string;
+    readonly endedAt: string;
+    readonly signal: AbortSignal;
+  }): Promise<readonly string[]>;
 }
 
 export interface ConcreteListeningRuntimeHost extends ListeningRuntimeHost {
@@ -112,6 +153,8 @@ interface CaptureState {
   endedAt?: string;
   captureFailure?: ListeningFailure;
   nativeLaunch?: Promise<void>;
+  streamPublication?: MetricStreamPublication;
+  streamManifests?: readonly MetricRecordStreamManifest[];
 }
 
 function execution(
@@ -151,7 +194,7 @@ function assertCaptureDuration(
   const duration = Math.ceil(
     ((request.endBeat - request.startBeat) * 60000) / tempo,
   );
-  const maximumDurationMs = MAX_METRIC_LISTENING_SECONDS * 1000;
+  const maximumDurationMs = MAX_CONTINUOUS_METRIC_LISTENING_SECONDS * 1000;
   if (
     duration < 1 ||
     duration > maximumDurationMs ||
@@ -172,6 +215,13 @@ function assertCaptureDuration(
         comparison: "equal",
         unit: "boolean",
       }),
+    ]);
+  if (
+    duration > MAX_METRIC_LISTENING_SECONDS * 1000 &&
+    request.listenerIds.length !== 1
+  )
+    deny("continuous_listener_quota", undefined, [
+      failureFact("listener.count", request.listenerIds.length, 1),
     ]);
 }
 
@@ -1050,7 +1100,10 @@ export function createListeningRuntimeHost(
         });
         if (
           !discovery &&
-          connection.nativeStatus.scope !== NATIVE_METRIC_LISTENING_SCOPE
+          ![
+            NATIVE_METRIC_LISTENING_SCOPE,
+            NATIVE_CONTINUOUS_METRIC_LISTENING_SCOPE,
+          ].includes(connection.nativeStatus.scope)
         )
           deny("real_live_timing_validation_required", undefined, [
             failureFact(
@@ -1435,9 +1488,17 @@ export function createListeningRuntimeHost(
           return {
             release: async () => {
               try {
-                await receipt.release();
+                await cached.streamPublication?.sink.abort(
+                  input.signal.aborted
+                    ? "cancelled"
+                    : "Stream publication was not committed",
+                );
               } finally {
-                cached.reserved = false;
+                try {
+                  await receipt.release();
+                } finally {
+                  cached.reserved = false;
+                }
               }
             },
           };
@@ -1456,7 +1517,17 @@ export function createListeningRuntimeHost(
             deny("context_reservation_required", undefined, [
               failureFact("context.reserved", cached.reserved, true),
             ]);
-          await repository(input);
+          const preparedRepository = await repository(input);
+          if (
+            cached.metricBindings.some(
+              (binding) =>
+                binding.config.geometry.schema ===
+                "metric-listening-geometry/v2",
+            ) &&
+            !options.createMetricStreamPublication &&
+            !preparedRepository.incrementalMetrics
+          )
+            deny("continuous_metric_persistence_unavailable");
           let snapshot = await inspect(
             input.request.listenerIds,
             cached.request,
@@ -1530,10 +1601,52 @@ export function createListeningRuntimeHost(
               ? { telemetry: dependencies.telemetry }
               : {}),
           };
-          const capture = await prepareMetricListenerCapture(listeners(), {
-            ...captureInput,
-            bindings: cached.metricBindings,
-          });
+          const continuous = cached.metricBindings.some(
+            (binding) =>
+              String(binding.config.geometry.schema) ===
+              "metric-listening-geometry/v2",
+          );
+          let streamPublication: MetricStreamPublication | undefined;
+          if (continuous) {
+            const createPublication =
+              options.createMetricStreamPublication ??
+              createStorageMetricStreamPublication;
+            streamPublication = await stage(
+              "stream-publication-preparation",
+              execution(input, input.signal),
+              async () =>
+                createPublication(
+                  await repository(input),
+                  {
+                    passId: input.passId,
+                    owner: input.owner,
+                    trace: input.trace,
+                    requestedRange: {
+                      startBeat: cached.request.startBeat,
+                      endBeat: cached.request.endBeat,
+                    },
+                    createdAt: cached.createdAt,
+                    bindings: publicationBindings(cached),
+                  },
+                  input.signal,
+                ),
+              (publication) => publication.sink.abort("cancelled"),
+            );
+            cached.streamPublication = streamPublication;
+          }
+          const capture = streamPublication
+            ? await prepareMetricListenerStream(listeners(), {
+                ...captureInput,
+                bindings: cached.metricBindings,
+                streamSink: streamPublication.sink,
+                ...(input.onProgress
+                  ? { onStreamProgress: input.onProgress }
+                  : {}),
+              })
+            : await prepareMetricListenerCapture(listeners(), {
+                ...captureInput,
+                bindings: cached.metricBindings,
+              });
           void capture.result.catch((cause: unknown) => {
             const source = readListeningFailureEvidence(cause);
             cached.captureFailure = new ListeningFailure(
@@ -1549,6 +1662,18 @@ export function createListeningRuntimeHost(
           if (capture.nativeLaunch !== undefined)
             cached.nativeLaunch = capture.nativeLaunch;
           else delete cached.nativeLaunch;
+          if (capture.observationContract === "metric-record-stream/v1") {
+            const manifests = capture.result.then((results) => {
+              cached.streamManifests = results;
+              return results;
+            });
+            void manifests.catch(() => {});
+            return {
+              manifests,
+              disarm: () => capture.disarm(),
+              observationContract: capture.observationContract,
+            };
+          }
           return {
             observations: capture.result,
             disarm: () => capture.disarm(),
@@ -1599,9 +1724,85 @@ export function createListeningRuntimeHost(
             () => nativeLaunch,
           );
           cached.startedAt = new Date().toISOString();
+          let cleanup: Promise<void> | undefined;
+          const release = () =>
+            (cleanup ??= (async () => {
+              const attributes: Record<string, unknown> = {
+                passId: input.passId,
+                cleanupPolicy: "leave-running",
+                sourceOwnership: "authenticated-listener-registry",
+                listenerOwnerReleased: false,
+                listeners: cached.descriptors.map((descriptor) => {
+                  const manifest = cached.streamManifests?.find(
+                    (item) =>
+                      item.ownership.listenerId ===
+                      descriptor.producer.producerId,
+                  );
+                  return {
+                    listenerId: descriptor.producer.producerId,
+                    connectionId: descriptor.connectionId,
+                    connectionEpoch: descriptor.registration.connectionEpoch,
+                    generation: manifest?.ownership.generation ?? null,
+                    nativeEpoch: manifest?.ownership.nativeEpoch ?? null,
+                  };
+                }),
+              };
+              await stage(
+                "arrangement-source-cleanup",
+                execution(input, new AbortController().signal),
+                async () => {
+                  const current = listeners().inspectListeners();
+                  for (const expected of cached.descriptors) {
+                    const observed = current.find(
+                      (item) => item.connectionId === expected.connectionId,
+                    );
+                    if (
+                      !observed ||
+                      observed.producer.producerId !==
+                        expected.producer.producerId ||
+                      observed.registration.connectionEpoch !==
+                        expected.registration.connectionEpoch ||
+                      observed.phase !== "idle" ||
+                      observed.jobId !== undefined ||
+                      observed.passId !== undefined
+                    )
+                      deny("arrangement_source_cleanup_unverified", undefined, [
+                        failureFact(
+                          "listener.id",
+                          expected.producer.producerId,
+                        ),
+                        failureFact(
+                          "listener.present",
+                          Boolean(observed),
+                          true,
+                        ),
+                        failureFact("listener.phase", observed?.phase, "idle"),
+                        failureFact(
+                          "listener.connectionEpoch",
+                          observed?.registration.connectionEpoch,
+                          expected.registration.connectionEpoch,
+                        ),
+                        failureFact(
+                          "listener.jobOwned",
+                          Boolean(observed?.jobId),
+                          false,
+                        ),
+                        failureFact(
+                          "listener.passOwned",
+                          Boolean(observed?.passId),
+                          false,
+                        ),
+                      ]);
+                  }
+                  attributes.listenerOwnerReleased = true;
+                },
+                undefined,
+                attributes,
+              );
+            })());
           return {
             cleanupPolicy: "leave-running",
-            release: async () => {},
+            release,
           };
         },
         (playback) => playback.release(),
@@ -1626,6 +1827,64 @@ export function createListeningRuntimeHost(
       });
       cached.endedAt = new Date().toISOString();
     },
+    validateStreams: (
+      manifests: readonly MetricRecordStreamManifest[],
+      request: ListeningRequest,
+      passId: string,
+    ) => {
+      const cached = states.get(passId);
+      if (
+        !cached ||
+        request.mode !== "arrangement" ||
+        !cached.startedAt ||
+        !cached.streamPublication ||
+        !cached.streamManifests ||
+        !isDeepStrictEqual(cached.streamManifests, manifests) ||
+        manifests.length !== 1 ||
+        cached.metricBindings.length !== 1
+      )
+        deny("invalid_stream_publication_lifecycle");
+      const manifest = manifests[0]!;
+      const binding = cached.metricBindings[0]!;
+      const owner = manifest.ownership;
+      if (
+        manifest.outcome !== "complete" ||
+        owner.passId !== passId ||
+        owner.listenerId !== binding.descriptor.producer.producerId ||
+        owner.connectionId !== binding.descriptor.connectionId ||
+        owner.connectionEpoch !==
+          binding.descriptor.registration.connectionEpoch ||
+        owner.traceId !== cached.trace.traceId ||
+        owner.correlationId !== cached.trace.correlationId ||
+        owner.causationId !== cached.trace.causationId
+      )
+        deny("invalid_stream_publication_identity");
+      cached.endedAt = new Date().toISOString();
+    },
+    persistStreams: (input: StreamPassInput) =>
+      stage("stream-publication", execution(input, input.signal), async () => {
+        const cached = state(input);
+        const resolved = await repository(input);
+        if (
+          input.request.mode !== "arrangement" ||
+          !cached.reserved ||
+          !cached.startedAt ||
+          !cached.endedAt ||
+          !cached.streamPublication ||
+          (cached.streamManifests !== input.manifests &&
+            !isDeepStrictEqual(cached.streamManifests, input.manifests)) ||
+          cached.repositoryIdentity !==
+            (resolved.publicationIdentity ?? resolved)
+        )
+          deny("invalid_stream_publication_lifecycle");
+        input.signal.throwIfAborted();
+        return cached.streamPublication.publish({
+          manifests: input.manifests,
+          startedAt: cached.startedAt,
+          endedAt: cached.endedAt,
+          signal: input.signal,
+        });
+      }),
     persist: (input) =>
       stage("publication", execution(input, input.signal), async () => {
         if (input.request.mode === "session")
@@ -1742,6 +2001,7 @@ export function createListeningRuntimeHost(
                 (item) => item.producer.producerId === candidate.producerId,
               )!.producer.displayName,
             ).slice(0, 128),
+            capabilities: [...candidate.capabilities],
             ready: false,
             limitations: [...new Set(limitations)],
           });

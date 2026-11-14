@@ -80,6 +80,12 @@ const unavailableProfiles: ProfileManagerActions = new Proxy(
 ) as ProfileManagerActions;
 
 const unavailableContext: DesktopEntityContextApi = {
+  getMetricCapture: async () => {
+    throw new Error("App-session context storage is unavailable");
+  },
+  listMetricChunks: async () => {
+    throw new Error("App-session context storage is unavailable");
+  },
   list: async () => {
     throw new Error("App-session context storage is unavailable");
   },
@@ -98,11 +104,17 @@ export function createIpcHandlers(
     "listening:list": (request) => service.listListeningJobs(request),
     "ableton:inspect-session-listening-source": (request) =>
       service.inspectSessionListeningSource(request),
+    "ableton:inspect-arrangement-listening-source": (request) =>
+      service.inspectArrangementListeningSource(request),
     "ableton:inspect-recording": () => service.inspectRecording(),
     "ableton:inspect-session-listening-preflight": (request) =>
       service.inspectSessionListeningPreflight(request),
     "entity-context:list": (request) => context.list(request),
     "entity-context:get": (request) => context.get(request),
+    "entity-context:get-metric-capture": (request) =>
+      context.getMetricCapture(request),
+    "entity-context:list-metric-chunks": (request) =>
+      context.listMetricChunks(request),
     "app:lifecycle": async () => ({
       state: await service.getLifecycleState(),
     }),

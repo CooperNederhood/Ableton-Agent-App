@@ -32,12 +32,18 @@ function createMelBandHandoff({
   emit,
   requestedMetrics = ["mel-bands"],
   analyzerReadiness = null,
+  captureMode,
+  onRecord,
+  onGap,
 }) {
+  const streaming = captureMode === "arrangement-continuous";
   requireValue(
     integer(epoch, 1000000) &&
       epoch > 0 &&
       [44100, 48000].includes(sampleRate) &&
-      integer(totalSamples, sampleRate * 30) &&
+      integer(totalSamples, sampleRate * (streaming ? 600 : 30)) &&
+      (!streaming ||
+        (typeof onRecord === "function" && typeof onGap === "function")) &&
       totalSamples > 0 &&
       codec?.melBandTimelineSchema &&
       codec?.melBandStereoFrameSchema &&
@@ -47,6 +53,8 @@ function createMelBandHandoff({
   );
   const expectedRecords = Math.floor(totalSamples / 2048);
   const frames = [];
+  let validFrames = 0;
+  let streamSettled = false;
   const needsAnalyzers = requestedMetrics.some((metric) =>
     ["pitch", "spectral-shape"].includes(metric),
   );
@@ -57,6 +65,7 @@ function createMelBandHandoff({
     codec,
     emit: (metric, stage, reason, count) =>
       event(stage, "capture", reason, startedAt, metric, count),
+    ...(streaming ? { onRecord, onGap } : {}),
   });
   let armed = false;
   let generation = null;
@@ -167,14 +176,14 @@ function createMelBandHandoff({
     reason,
     started = startedAt,
     metric = "mel-bands",
-    count = frames.length,
+    count = validFrames,
   ) {
     const values = {
       "mel.abi": producerAbi ?? 0,
       "mel.sampleRate": sampleRate,
       "mel.bandCount": 24,
       "mel.expectedFrames": expectedRecords,
-      "mel.validFrames": frames.length,
+      "mel.validFrames": validFrames,
       "mel.receivedFrames": receivedFrames,
       ...(generation === null ? {} : { "mel.dspGeneration": generation }),
       ...(source
@@ -476,14 +485,35 @@ function createMelBandHandoff({
         values.slice(11, 35),
         values.slice(35, 59),
       ]);
-      if (!parsed.success || values.length !== expectedLength)
+      if (!parsed.success || values.length !== expectedLength) {
         failLocal("mel_malformed_vector");
-      else if (producerAbi === 3 || !localFailure)
-        frames.push({
+        if (
+          streaming &&
+          requestedMetrics.includes("mel-bands") &&
+          onGap("mel-bands", {
+            firstIndex: sequence - 1,
+            count: 1,
+            support: { startSample: start, endSample: end },
+            reason: "malformed-record",
+            detail: "Native mel supplied a malformed supported vector.",
+          }) !== true
+        )
+          throw new Error("mel_stream_gap_rejected");
+      } else if (producerAbi === 3 || !localFailure) {
+        const frame = {
           index: sequence - 1,
           support: { startSample: start, endSample: end },
           magnitudes: parsed.data,
-        });
+        };
+        if (streaming) {
+          if (
+            requestedMetrics.includes("mel-bands") &&
+            onRecord("mel-bands", frame) !== true
+          )
+            throw new Error("mel_stream_record_rejected");
+        } else frames.push(frame);
+        validFrames++;
+      }
       if (now() - progressAt >= 500) {
         progressAt = now();
         event("progress", "capture", "mel_native_frames");
@@ -579,7 +609,10 @@ function createMelBandHandoff({
     tick() {
       if (!armed || receipt || now() - lastPoll < 10) return;
       lastPoll = now();
-      requireValue(issuedToken < 12000, "mel_drain_attempt_limit");
+      requireValue(
+        issuedToken < (streaming ? 72000 : 12000),
+        "mel_drain_attempt_limit",
+      );
       send("drain", [++issuedToken]);
       // Preserve the ABI2 mel-only prefix contract. ABI3 retains independently
       // supported later frames instead of stopping healthy sibling analyzers.
@@ -613,6 +646,7 @@ function createMelBandHandoff({
       return receipt !== null;
     },
     timeline() {
+      requireValue(!streaming, "mel_stream_requires_terminal_manifest");
       requireValue(
         binding &&
           source &&
@@ -664,6 +698,7 @@ function createMelBandHandoff({
       });
     },
     analyzerTimelines() {
+      requireValue(!streaming, "analyzer_stream_requires_terminal_manifest");
       requireValue(
         binding &&
           source &&
@@ -680,13 +715,52 @@ function createMelBandHandoff({
         terminal.reason === 6 ? "overflow" : "unavailable",
       );
     },
+    settleStream() {
+      requireValue(
+        streaming &&
+          binding &&
+          source &&
+          terminal &&
+          receipt &&
+          !cancelled &&
+          !integrityFailure,
+        "mel_stream_not_settled",
+      );
+      validateBinding();
+      if (!streamSettled && receivedFrames < expectedRecords) {
+        const gap = {
+          firstIndex: receivedFrames,
+          count: expectedRecords - receivedFrames,
+          support: {
+            startSample: source.startSample + receivedFrames * 2048,
+            endSample: source.startSample + expectedRecords * 2048,
+          },
+          reason: terminal.reason === 6 ? "overflow" : "unavailable",
+          detail: "Native terminal reports analysis frames not acquired.",
+        };
+        for (const metric of requestedMetrics.filter((m) =>
+          ["mel-bands", "pitch", "spectral-shape"].includes(m),
+        ))
+          requireValue(onGap(metric, gap) === true, "mel_stream_gap_rejected");
+      }
+      streamSettled = true;
+      return Object.freeze({
+        expectedRecords,
+        receivedFrames,
+        validFrames,
+        analyzerCounts: analyzers.counts(),
+        terminal,
+        receipt,
+      });
+    },
     snapshot() {
       return Object.freeze({
         armed,
         ready: readiness !== null,
         started: source !== null,
         completed: terminal !== null && receipt !== null,
-        frames: frames.length,
+        frames: validFrames,
+        ...(streaming ? { retainedFrames: frames.length } : {}),
         receivedFrames,
         generation,
         failure: localFailure,

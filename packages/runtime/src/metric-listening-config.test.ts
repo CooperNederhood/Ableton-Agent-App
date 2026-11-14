@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { createSyntheticAnalyzerReadiness } from "@ableton-agent/protocol/testing";
 import {
+  METRIC_RECORD_STREAM_CAPABILITY,
+  METRIC_CONTINUOUS_LISTENING_CAPABILITY,
+  NATIVE_CONTINUOUS_METRIC_LISTENING_SCOPE,
+} from "@ableton-agent/protocol";
+import {
   listenerRegistrationMetricSchema,
   type ListenerDescriptor,
 } from "@ableton-agent/signal-routing";
@@ -47,6 +52,54 @@ function fixture(mode: "arrangement" | "session", partial = false) {
 }
 
 describe("application-owned metric capture configuration", () => {
+  it.each([180, 600])(
+    "builds a %ss all-six continuous config only from explicit producer status",
+    (seconds) => {
+      const { input } = fixture("arrangement");
+      input.source.transport.endBeat =
+        input.source.transport.startBeat + (seconds * input.tempoBpm) / 60;
+      input.descriptor.registration = listenerRegistrationMetricSchema.parse({
+        ...input.descriptor.registration,
+        capabilities: [
+          ...input.descriptor.registration.capabilities,
+          "audio-listener/analyzer-timelines-v1",
+          METRIC_CONTINUOUS_LISTENING_CAPABILITY,
+        ],
+        analyzerReadiness: createSyntheticAnalyzerReadiness(),
+        nativeStatus: {
+          ...input.descriptor.registration.nativeStatus,
+          version: 6,
+          scope: NATIVE_CONTINUOUS_METRIC_LISTENING_SCOPE,
+          readiness: "BLOCKED",
+          reason: "fresh_per_pass_native_validation_required",
+          executedGen: null,
+          maxAudioDurationMs: 600_000,
+          maxSessionAudioDurationMs: 30_000,
+          maxReportRows: 39_961,
+          maxSessionReportRows: 2_000,
+          streamCapability: METRIC_RECORD_STREAM_CAPABILITY,
+        },
+      });
+      const binding = createMetricCaptureBinding(input);
+      expect(binding.config.scope).toBe(
+        NATIVE_CONTINUOUS_METRIC_LISTENING_SCOPE,
+      );
+      expect(binding.config.geometry.totalSamples).toBe(seconds * 48_000);
+      expect(binding.config.requestedMetrics).toHaveLength(6);
+      expect(binding.config.geometry.startSample).toBe(0);
+    },
+  );
+  it.each(["arrangement", "session"] as const)(
+    "does not silently split or fall back for unsupported continuous %s capture",
+    (mode) => {
+      const { input } = fixture(mode);
+      input.source.transport.endBeat =
+        input.source.transport.startBeat + (180 * input.tempoBpm) / 60;
+      expect(() => createMetricCaptureBinding(input)).toThrow(
+        "continuous_metric_stream_unavailable",
+      );
+    },
+  );
   it("requests authoritative analyzers by default only after producer capability admission", () => {
     const { input } = fixture("session");
     input.descriptor.registration = listenerRegistrationMetricSchema.parse({

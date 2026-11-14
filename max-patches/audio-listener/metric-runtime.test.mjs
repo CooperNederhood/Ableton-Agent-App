@@ -14,6 +14,15 @@ test("actual consumer schema accepts source-perform ABI3 registration and its re
     h.clientOptions.listener,
   );
   assert.equal(registration.analyzerReadiness.producerAbi, 3);
+  assert.equal(registration.nativeStatus.version, 6);
+  assert.equal(registration.nativeStatus.maxAudioDurationMs, 600000);
+  assert.equal(registration.nativeStatus.maxSessionAudioDurationMs, 30000);
+  assert.ok(
+    registration.capabilities.includes(
+      actualProtocol.METRIC_CONTINUOUS_LISTENING_CAPABILITY,
+    ),
+  );
+  assert.equal(h.controllerOptions.continuousEnabled, true);
   assert.ok(
     registration.capabilities.includes(LISTENER_CAPABILITY_ANALYZER_TIMELINES),
   );

@@ -4,6 +4,15 @@ import {
   metricObservationMetricSchema,
   type MetricAudioObservation,
 } from "./metric-observation-schemas.js";
+import {
+  metricRecordStreamManifestSchema,
+  type MetricRecordStreamManifest,
+} from "./metric-record-stream.js";
+import {
+  MAX_CONTINUOUS_METRIC_REPORT_ROWS,
+  MAX_CONTINUOUS_METRIC_SPECTRUM_RECORDS,
+  MAX_CONTINUOUS_METRIC_ATTACK_RECORDS,
+} from "./metric-continuous-geometry.js";
 
 const metricIds = ["level", "spectral-centroid", "attacks"] as const;
 const gapReasons = [
@@ -13,20 +22,36 @@ const gapReasons = [
   "overflow",
   "drain-timeout",
   "dependency-unavailable",
+  "capture-failed",
+  "cancelled",
 ] as const;
+const metricRecordLimits = {
+  level: MAX_CONTINUOUS_METRIC_REPORT_ROWS,
+  "spectral-centroid": MAX_CONTINUOUS_METRIC_SPECTRUM_RECORDS,
+  attacks: MAX_CONTINUOUS_METRIC_ATTACK_RECORDS,
+  "mel-bands": Math.floor((48_000 * 600) / 2048),
+  pitch: Math.floor((48_000 * 600) / 2048),
+  "spectral-shape": Math.floor((48_000 * 600) / 2048),
+} as const;
+const summaryCount = z
+  .number()
+  .int()
+  .min(0)
+  .max(MAX_CONTINUOUS_METRIC_REPORT_ROWS);
 
 const metricSummarySchema = z
   .strictObject({
     metric: metricObservationMetricSchema,
     status: z.enum(["complete", "partial", "failed", "not-requested"]),
-    expectedRecords: z.number().int().min(0).max(2_000),
-    retainedRecords: z.number().int().min(0).max(2_000),
-    missingRecords: z.number().int().min(0).max(2_000),
+    expectedRecords: summaryCount,
+    retainedRecords: summaryCount,
+    missingRecords: summaryCount,
     gapReasons: z.array(z.enum(gapReasons)).max(gapReasons.length),
   })
   .superRefine((value, ctx) => {
     if (
       value.retainedRecords + value.missingRecords !== value.expectedRecords ||
+      value.expectedRecords > metricRecordLimits[value.metric] ||
       new Set(value.gapReasons).size !== value.gapReasons.length ||
       (value.missingRecords === 0) !== (value.gapReasons.length === 0) ||
       (value.status === "complete" && value.missingRecords !== 0) ||
@@ -46,6 +71,7 @@ export const metricListeningResultSummarySchema = z
   .strictObject({
     listenerId: z.string().min(1).max(128),
     outcome: z.enum(["complete", "partial"]),
+    nativeStatus: z.enum(["completed", "failed"]).optional(),
     metrics: z
       .array(metricSummarySchema)
       .min(metricIds.length)
@@ -74,7 +100,8 @@ export const metricListeningResultSummarySchema = z
             metric.expectedRecords === 0),
       ) ||
       (value.outcome === "complete") !==
-        requested.every((metric) => metric.status === "complete")
+        (value.nativeStatus !== "failed" &&
+          requested.every((metric) => metric.status === "complete"))
     )
       ctx.addIssue({
         code: "custom",
@@ -179,6 +206,50 @@ export function summarizeMetricListeningResult(input: MetricAudioObservation) {
               },
             ];
       }),
+    ],
+  });
+}
+
+/** Call only after native/durable-prefix verification; never reconstructs records. */
+export function summarizeMetricListeningStreamManifest(
+  input: MetricRecordStreamManifest,
+): MetricListeningResultSummary {
+  const manifest = metricRecordStreamManifestSchema.parse(input);
+  if (
+    manifest.outcome === "failed" ||
+    manifest.outcome === "cancelled" ||
+    manifest.nativeProof.status === "cancelled"
+  )
+    throw new RangeError("metric_stream_manifest_not_publishable");
+  const summary = (metric: MetricRecordStreamManifest["metrics"][number]) => ({
+    metric: metric.metric,
+    status: metric.status,
+    expectedRecords: metric.expectedRecords,
+    retainedRecords: metric.nextRecordOffset,
+    missingRecords: metric.missingRecords,
+    gapReasons: metric.gapReasons,
+  });
+  return metricListeningResultSummarySchema.parse({
+    listenerId: manifest.ownership.listenerId,
+    outcome: manifest.outcome,
+    nativeStatus: manifest.nativeProof.status,
+    metrics: [
+      ...metricIds.map((id) => {
+        const metric = manifest.metrics.find((metric) => metric.metric === id);
+        return metric === undefined
+          ? {
+              metric: id,
+              status: "not-requested",
+              expectedRecords: 0,
+              retainedRecords: 0,
+              missingRecords: 0,
+              gapReasons: [],
+            }
+          : summary(metric);
+      }),
+      ...manifest.metrics
+        .filter((metric) => !metricIds.some((id) => id === metric.metric))
+        .map(summary),
     ],
   });
 }

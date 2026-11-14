@@ -92,7 +92,7 @@ var AudioListenerMeasurements = (function () {
       (envelope || spectrum) &&
       (value.algorithmVersion !== "2.0.0" ||
         value.width !== (envelope ? 16 : 6) ||
-        value.capacity !== (envelope ? 16 : 32))
+        value.capacity !== (envelope ? 16 : 128))
     ) {
       throw new Error("invalid_native_declaration");
     }
@@ -199,9 +199,10 @@ var AudioListenerMeasurements = (function () {
   }
   // Structural/sample-moment validation only. A null origin permits bounded
   // startup staging; the capture owner must still verify it against launch.
-  function normalizeMetricRecord(value, declaration, expected) {
+  function normalizeMetricRecord(value, declaration, expected, captureMode) {
     var d = validateDeclaration(declaration);
     var record = validateRecord(value, d);
+    var continuous = captureMode === "arrangement-continuous";
     if (
       d.version !== 2 ||
       !keys(expected, [
@@ -213,13 +214,23 @@ var AudioListenerMeasurements = (function () {
       !integer(
         expected.sequence,
         1,
-        d.kind === "native-musical-level/v1" ? 2000 : 300
+        d.kind === "native-musical-level/v1"
+          ? continuous
+            ? 39961
+            : 2000
+          : continuous
+            ? 6000
+            : 300
       ) ||
-      !integer(expected.startSample, 0, 30 * d.sampleRate - 1) ||
+      !integer(
+        expected.startSample,
+        0,
+        (continuous ? 600 : 30) * d.sampleRate - 1
+      ) ||
       !integer(
         expected.endSample,
         expected.startSample + 1,
-        30 * d.sampleRate
+        (continuous ? 600 : 30) * d.sampleRate
       ) ||
       (expected.sourceOriginCounter !== null &&
         !integer(expected.sourceOriginCounter, 0, COUNTER_MAX))
@@ -339,6 +350,7 @@ var AudioListenerMeasurements = (function () {
     var ownerObserved = false;
     var lastProduced = 0;
     var lastAcknowledged = 0;
+    var acknowledgementIssued = 0;
     var polling = false;
     var counts = {
       polls: 0,
@@ -547,13 +559,28 @@ var AudioListenerMeasurements = (function () {
       if (row[2] !== expected) {
         return fail("invalid_sequence_order");
       }
-      pendingAccepted = null;
+      var acknowledgement = [];
+      if (pendingAccepted && row[8] < pendingAccepted.sequence) {
+        // A send order is not a DSP execution order for independent Params.
+        // Only this coherent next-request readback authorizes freeing the old slot.
+        if (row[8] === pendingAccepted.sequence - 1) {
+          acknowledgementIssued = pendingAccepted.sequence;
+          acknowledgement.push({
+            type: "acknowledge",
+            sequence: acknowledgementIssued,
+          });
+          pendingAccepted = null;
+        }
+      } else {
+        pendingAccepted = null;
+        acknowledgementIssued = Math.max(acknowledgementIssued, row[8]);
+      }
       lastProduced = row[7];
       lastAcknowledged = row[8];
       if (row[7] < expected) {
         if (candidate) return fail("slot_disappeared");
         increment("waiting");
-        return result("waiting");
+        return result("waiting", acknowledgement);
       }
       if (row[3] !== epoch || row[4] !== expected)
         return fail("invalid_slot_owner");
@@ -573,18 +600,18 @@ var AudioListenerMeasurements = (function () {
         candidate = record;
         consecutive = true;
         increment("candidates");
-        return result("settling");
+        return result("settling", acknowledgement);
       }
       if (!same(candidate, record)) return fail("immutable_slot_changed");
       if (!consecutive) {
         consecutive = true;
         return result("settling");
       }
-      // Request and ACK Params can execute in different DSP blocks. Do not
-      // overwrite an unexecuted ACK with the next one: Gen rejects that jump.
-      if (row[8] !== expected - 1) {
+      // One next record may settle while the authorized prior ACK executes.
+      // Never issue a second ACK before the prior one is observed in DSP.
+      if (acknowledgementIssued !== expected - 1) {
         increment("waiting");
-        return result("waiting");
+        return result("waiting", acknowledgement);
       }
       if (expected === COUNTER_MAX) return fail("sequence_exhausted");
       var accepted;
@@ -602,13 +629,10 @@ var AudioListenerMeasurements = (function () {
       increment("accepted");
       event("progress");
       if (state !== "started") return result();
-      // Separate Param writes must request the still-retained next slot before freeing this one.
+      // The next coherent requested-page readback will authorize the ACK separately.
       return result(
         "accepted",
-        [
-          { type: "request", sequence: expected },
-          { type: "acknowledge", sequence: expected - 1 },
-        ],
+        [{ type: "request", sequence: expected }].concat(acknowledgement),
         record
       );
     }

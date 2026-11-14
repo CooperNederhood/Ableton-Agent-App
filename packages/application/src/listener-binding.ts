@@ -4,11 +4,11 @@ import {
   listeningCanonicalDevicePathSchema,
   listeningCanonicalTrackPathSchema,
   listeningPathSelectorSchema,
-  listenerNativeMetricStatusSchema,
+  listenerNativeMetricRegistrationStatusSchema,
   listenerMetricRegistrationMetadataSchema,
   refineListenerMetricRegistrationMetadata,
   type AnalyzerNativeReadiness,
-  type ListenerNativeMetricStatus,
+  type ListenerNativeMetricRegistrationStatus,
   type InspectListeningContextResult,
   type ListeningPathAttestation,
 } from "@ableton-agent/protocol";
@@ -93,7 +93,7 @@ export interface ListenerBindingDescriptor {
     readonly algorithmVersion?: string;
     readonly sampleRate?: number;
     readonly vectorSize?: number;
-    readonly nativeStatus?: ListenerNativeMetricStatus;
+    readonly nativeStatus?: ListenerNativeMetricRegistrationStatus;
     readonly analyzerReadiness?: AnalyzerNativeReadiness | undefined;
   };
   readonly status?: "connected" | "stale" | "disconnected";
@@ -120,7 +120,7 @@ const descriptorHeaderSchema = z
         capabilities: metricMetadata.capabilities.optional(),
         deviceCanonicalPath: listeningCanonicalDevicePathSchema.optional(),
         trackCanonicalPath: listeningCanonicalTrackPathSchema.optional(),
-        nativeStatus: listenerNativeMetricStatusSchema.optional(),
+        nativeStatus: listenerNativeMetricRegistrationStatusSchema.optional(),
         algorithmVersion: metricMetadata.algorithmVersion.optional(),
         sampleRate: metricMetadata.sampleRate.optional(),
         vectorSize: metricMetadata.vectorSize.optional(),

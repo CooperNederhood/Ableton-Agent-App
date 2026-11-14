@@ -1,5 +1,9 @@
 import { z, type ZodType } from "zod";
 import {
+  inspectArrangementListeningSourceParamsSchema,
+  inspectArrangementListeningSourceResultSchema,
+} from "./arrangement-listening-source-schemas.js";
+import {
   prepareSessionListeningPassParamsSchema,
   launchSessionListeningPassParamsSchema,
   inspectSessionListeningPassParamsSchema,
@@ -739,6 +743,10 @@ export const commandCatalog = {
   "listening.inspect_context": command(
     inspectListeningContextParamsSchema,
     inspectListeningContextResultSchema,
+  ),
+  "listening.inspect_arrangement_source": command(
+    inspectArrangementListeningSourceParamsSchema,
+    inspectArrangementListeningSourceResultSchema,
   ),
   "listening.inspect_session_source": command(
     inspectSessionListeningSourceParamsSchema,

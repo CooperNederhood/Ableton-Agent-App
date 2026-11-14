@@ -8,7 +8,12 @@ function createAnalyzerTimelines({
   sampleRate,
   codec,
   emit,
+  onRecord,
+  onGap,
 }) {
+  const streaming = typeof onRecord === "function";
+  if (streaming && typeof onGap !== "function")
+    throw new Error("analyzer_stream_gap_sink_required");
   const requested = requestedMetrics.filter((metric) =>
     ["pitch", "spectral-shape"].includes(metric),
   );
@@ -16,6 +21,8 @@ function createAnalyzerTimelines({
   const malformed = Object.fromEntries(
     requested.map((metric) => [metric, new Set()]),
   );
+  const accepted = Object.fromEntries(requested.map((metric) => [metric, 0]));
+  const rejected = Object.fromEntries(requested.map((metric) => [metric, 0]));
   const pitchStates = {
     1: "silence",
     2: "undefined",
@@ -40,8 +47,12 @@ function createAnalyzerTimelines({
     "spectral-shape": codec.spectralShapeTimelineSchema,
   };
   const frameSchemas = {
-    pitch: codec.pitchTimelineFrameSchema,
-    "spectral-shape": codec.spectralShapeTimelineFrameSchema,
+    pitch: streaming
+      ? codec.metricStreamPitchRecordSchema
+      : codec.pitchTimelineFrameSchema,
+    "spectral-shape": streaming
+      ? codec.metricStreamSpectralShapeRecordSchema
+      : codec.spectralShapeTimelineFrameSchema,
   };
   for (const metric of requested)
     if (!profiles[metric] || !schemas[metric] || !frameSchemas[metric])
@@ -67,20 +78,39 @@ function createAnalyzerTimelines({
         const parsed =
           values.length === 14 &&
           frameSchemas[metric].safeParse({ index, support, channels });
-        if (parsed?.success) frames[metric].push(parsed.data);
-        else {
-          malformed[metric].add(index);
-          if (malformed[metric].size === 1)
+        if (parsed?.success) {
+          if (streaming) {
+            if (onRecord(metric, parsed.data) !== true)
+              throw new Error("analyzer_stream_record_rejected");
+          } else frames[metric].push(parsed.data);
+          accepted[metric]++;
+        } else {
+          rejected[metric]++;
+          if (streaming) {
+            if (
+              onGap(metric, {
+                firstIndex: index,
+                count: 1,
+                support,
+                reason: "malformed-record",
+                detail: "Native analyzer supplied a malformed supported frame.",
+              }) !== true
+            )
+              throw new Error("analyzer_stream_gap_rejected");
+          } else malformed[metric].add(index);
+          if (rejected[metric] === 1)
             emit(
               metric,
               "failed",
               "analyzer_malformed_frame",
-              frames[metric].length,
+              accepted[metric],
             );
         }
       }
     },
     timelines(sourceSupport, expectedRecords, reason) {
+      if (streaming)
+        throw new Error("analyzer_stream_requires_terminal_manifest");
       return Object.fromEntries(
         requested.map((metric) => {
           const retained = new Set(frames[metric].map((frame) => frame.index));
@@ -134,11 +164,11 @@ function createAnalyzerTimelines({
     },
     counts() {
       return Object.fromEntries(
-        requested.map((metric) => [metric, frames[metric].length]),
+        requested.map((metric) => [metric, accepted[metric]]),
       );
     },
     failed(metric) {
-      return malformed[metric]?.size > 0;
+      return rejected[metric] > 0;
     },
   });
 }

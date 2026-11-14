@@ -44,6 +44,23 @@ const sessionInput = {
 };
 
 describe("optional listening tool contracts", () => {
+  it("distinguishes negotiated continuous Arrangement admission from the Session duration ceiling", () => {
+    expect(LISTENING_AGENT_GUIDANCE).toContain(
+      "Fixed-tempo Arrangement listening may span up to 600 seconds",
+    );
+    expect(LISTENING_AGENT_GUIDANCE).toContain(
+      "audio-listener/arrangement-continuous-metric-stream-v1",
+    );
+    expect(LISTENING_AGENT_GUIDANCE).toContain(
+      "Session requests exceeding thirty seconds are rejected",
+    );
+    expect(LISTENING_AGENT_GUIDANCE).not.toContain(
+      " Requests exceeding thirty seconds are rejected",
+    );
+    expect(LISTENING_AGENT_GUIDANCE).toContain(
+      "Do not call a separate transport seek or start before it",
+    );
+  });
   it("classifies feature derivation as local mutation, while comparisons and search are reads", () => {
     expect(
       resolveAbletonOperation("ableton_context", {
@@ -183,6 +200,125 @@ describe("optional listening tool contracts", () => {
     freshness: "unknown" as const,
     summary: "Stored metric report; not current source proof",
   };
+  it("classifies both bounded stream readers as read-only and rejects raw/unbounded arguments", () => {
+    for (const action of ["stream-overview", "stream-records"]) {
+      expect(
+        resolveAbletonOperation("ableton_context", {
+          action,
+          contextId: "context",
+        })?.descriptor,
+      ).toMatchObject({
+        operationId: `context.${action}`,
+        risk: "read",
+        mutationTarget: "read",
+        editScope: "none",
+      });
+      expect(
+        contextOperationParamsSchema.safeParse({
+          action,
+          contextId: "context",
+          sql: "SELECT *",
+        }).success,
+      ).toBe(false);
+    }
+    expect(
+      contextOperationParamsSchema.parse({
+        action: "stream-records",
+        contextId: "context",
+      }),
+    ).toMatchObject({ limit: 8, includeHistorical: false });
+    for (const extra of [
+      { limit: 65 },
+      { cursor: "x".repeat(4097) },
+      { range: { startSample: 10, endSample: 9 } },
+      { path: "/file" },
+    ])
+      expect(
+        contextOperationParamsSchema.safeParse({
+          action: "stream-records",
+          contextId: "context",
+          ...extra,
+        }).success,
+      ).toBe(false);
+    expect(LISTENING_AGENT_GUIDANCE).toContain(
+      "Do not exhaust every page merely to establish coverage",
+    );
+    expect(LISTENING_AGENT_GUIDANCE).toContain(
+      "feature derivation is explicitly unsupported",
+    );
+  });
+  it("validates explicitly labelled stream projections, context identity and the total UTF8 tool budget", async () => {
+    const entry = {
+      ...reportEntry,
+      kind: "metric-record-stream-context/v1" as const,
+    };
+    const page = {
+      kind: "metric-record-chunk-projection/v1" as const,
+      metric: "level" as const,
+      descriptorDigest: "a".repeat(64),
+      chunkDigest: "b".repeat(64),
+      previousDigest: "c".repeat(64),
+      chunkSequence: 0,
+      recordOffset: 0,
+      slotOffset: 0,
+      totalRecords: 256,
+      totalGaps: 0,
+      entryOffset: 0,
+      records: [
+        createSyntheticMetricListeningObservation().metrics.level.records[0]!,
+      ],
+      gaps: [],
+    };
+    const result = contextOperationResultSchema.parse({
+      action: "stream-records",
+      entry,
+      page,
+    });
+    expect(result).toMatchObject({
+      page: { kind: "metric-record-chunk-projection/v1" },
+    });
+    const oversized = {
+      action: "stream-records",
+      entry,
+      page: {
+        ...page,
+        metric: "mel-bands",
+        totalRecords: 64,
+        records: Array.from({ length: 64 }, (_, index) => ({
+          index,
+          support: {
+            startSample: 10_000 + index * 2048,
+            endSample: 12_048 + index * 2048,
+          },
+          magnitudes: [Array(24).fill(1 / 7), Array(24).fill(1 / 7)],
+        })),
+      },
+    };
+    expect(Buffer.byteLength(JSON.stringify(oversized))).toBeGreaterThan(65536);
+    expect(contextOperationResultSchema.safeParse(oversized).success).toBe(
+      false,
+    );
+    const [, tool] = createListeningTools({
+      executeListeningOperation: async () => ({
+        action: "inspect-listeners",
+        listeners: [],
+        truncated: false,
+      }),
+      executeContextOperation: async () => result,
+    });
+    const request = contextOperationParamsSchema.parse({
+      action: "stream-records",
+      contextId: "foreign",
+    });
+    await expect(
+      tool.handler?.(request, {
+        sessionId: "sdk",
+        toolCallId: "stream-read",
+        toolName: "ableton_context",
+        arguments: request,
+      }),
+    ).rejects.toThrow("Stream context result does not match request");
+  });
   it("denies oversized full metric get at the agent boundary without restricting full typed Desktop reads", async () => {
     const observation = denseSyntheticMetricObservation();
     const raw = { action: "get" as const, entry: reportEntry, observation };
@@ -978,6 +1114,30 @@ describe("optional listening tool contracts", () => {
     ).toBe(false);
   });
 
+  it("admits a finite ten-minute Arrangement execution allowance without enlarging Session budgets", () => {
+    const arrangement = {
+      action: "play-arrangement-and-listen",
+      listenerIds: ["tap-after"],
+      startBeat: 0,
+      endBeat: 1280,
+    };
+    expect(listeningOperationParamsSchema.parse(arrangement)).toMatchObject({
+      maximumDurationMs: 900_000,
+    });
+    expect(
+      listeningOperationParamsSchema.safeParse({
+        ...arrangement,
+        maximumDurationMs: 900_001,
+      }).success,
+    ).toBe(false);
+    expect(
+      listeningOperationParamsSchema.safeParse({
+        ...sessionInput,
+        maximumDurationMs: 900_000,
+      }).success,
+    ).toBe(false);
+  });
+
   it.each([
     { listenerIds: [] },
     { listenerIds: ["tap", "tap"] },
@@ -1040,7 +1200,7 @@ describe("optional listening tool contracts", () => {
     expect(
       contextOperationParamsSchema.safeParse({
         action: "list",
-        cursor: "a".repeat(2049),
+        cursor: "a".repeat(4097),
       }).success,
     ).toBe(false);
     expect(

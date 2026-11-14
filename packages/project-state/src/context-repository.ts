@@ -20,6 +20,8 @@ import {
   LISTENING_FEATURE_DEFINITION_SET,
   listeningFeatureDefinition,
   compareListeningFeatures,
+  type MetricRecordChunk,
+  type MetricRecordStreamManifest,
 } from "@ableton-agent/protocol";
 import {
   contextSegmentSchema,
@@ -72,11 +74,33 @@ import {
   releaseDatabaseLock,
   syncDirectory,
 } from "./sqlite.js";
+import { MetricCaptureRepository } from "./metric-capture-repository.js";
+import type {
+  MetricCaptureOwner,
+  MetricCaptureStart,
+  MetricCaptureRecord,
+  MetricCaptureStatus,
+  MetricChunkQuery,
+  MetricChunkPage,
+  MetricCaptureQuery,
+  MetricCapturePage,
+  MetricCapturePublication,
+} from "./metric-capture-schemas.js";
 
 export class ContextQuotaError extends Error {
   public constructor(message: string) {
     super(message);
     this.name = "ContextQuotaError";
+  }
+}
+
+export class IncrementalMetricFeaturesUnsupportedError extends Error {
+  public readonly code = "incremental_metric_features_unsupported";
+  public constructor() {
+    super(
+      "Incremental metric feature derivation is unsupported; use bounded stream context reads",
+    );
+    this.name = "IncrementalMetricFeaturesUnsupportedError";
   }
 }
 
@@ -122,6 +146,8 @@ export interface ContextPruneResult {
   readonly deletedEntries: number;
   readonly deletedLinks: number;
   readonly deletedSubjects: number;
+  readonly deletedMetricCaptures?: number;
+  readonly deletedMetricChunks?: number;
 }
 
 export interface EntityContextRepository {
@@ -130,6 +156,7 @@ export interface EntityContextRepository {
   /** Process-local opened-store identity shared by caller wrappers, never across reopen/ownership changes.
    * Without an explicit token, publication uses the repository object's identity. */
   readonly publicationIdentity?: object;
+  readonly incrementalMetrics?: IncrementalMetricContextRepository;
   deriveFeatures(
     entryId: string,
     options?: ContextOperationOptions,
@@ -209,6 +236,47 @@ export interface EntityContextRepository {
     options?: ContextOperationOptions,
   ): Promise<ContextPruneResult>;
   close(): Promise<void>;
+}
+
+export interface IncrementalMetricContextRepository {
+  beginMetricCapture(
+    input: MetricCaptureStart,
+    options?: ContextOperationOptions,
+  ): Promise<MetricCaptureOwner>;
+  appendMetricChunk(
+    owner: MetricCaptureOwner,
+    chunk: MetricRecordChunk,
+    options?: ContextOperationOptions,
+  ): Promise<void>;
+  sealMetricCapture(
+    owner: MetricCaptureOwner,
+    manifest: MetricRecordStreamManifest,
+    options?: ContextOperationOptions,
+  ): Promise<void>;
+  finalizeMetricCapture(
+    owner: MetricCaptureOwner,
+    manifest: MetricRecordStreamManifest,
+    pass: ListeningPass,
+    options?: ContextOperationOptions,
+  ): Promise<MetricCapturePublication>;
+  terminateMetricCapture(
+    owner: MetricCaptureOwner,
+    status: Exclude<MetricCaptureStatus, "staging" | "sealed" | "completed">,
+    reason: string,
+    options?: ContextOperationOptions,
+  ): Promise<void>;
+  getMetricCapture(
+    id: string,
+    options?: ContextOperationOptions,
+  ): Promise<MetricCaptureRecord | undefined>;
+  listMetricCaptures(
+    query?: MetricCaptureQuery,
+    options?: ContextOperationOptions,
+  ): Promise<MetricCapturePage>;
+  listMetricChunks(
+    query: MetricChunkQuery,
+    options?: ContextOperationOptions,
+  ): Promise<MetricChunkPage>;
 }
 
 export interface SessionContextStoreOptions {
@@ -446,7 +514,7 @@ function migrate(
   const version = Number(
     rows(database, "PRAGMA user_version")[0]?.user_version ?? 0,
   );
-  if (version > 3)
+  if (version > 4)
     throw new Error("Context store schema version is unsupported");
   database.run("PRAGMA foreign_keys = ON");
   if (version === 0) {
@@ -519,6 +587,31 @@ function migrate(
       COMMIT;
     `);
   }
+  if (version < 4) {
+    database.run(`
+      BEGIN IMMEDIATE;
+      CREATE TABLE context_metric_captures (
+        id TEXT PRIMARY KEY, pass_id TEXT NOT NULL UNIQUE,
+        subject_id TEXT NOT NULL, listener_id TEXT NOT NULL,
+        status TEXT NOT NULL, owner_token TEXT NOT NULL,
+        stored_bytes INTEGER NOT NULL DEFAULT 0, payload TEXT NOT NULL
+      );
+      CREATE TABLE context_metric_chunks (
+        capture_id TEXT NOT NULL REFERENCES context_metric_captures(id) ON DELETE CASCADE,
+        sequence INTEGER NOT NULL, metric TEXT NOT NULL, metric_sequence INTEGER NOT NULL,
+        start_sample INTEGER NOT NULL, end_sample INTEGER NOT NULL,
+        digest TEXT NOT NULL, payload TEXT NOT NULL,
+        PRIMARY KEY(capture_id, sequence),
+        UNIQUE(capture_id, metric, metric_sequence)
+      );
+      CREATE INDEX context_metric_chunk_range
+        ON context_metric_chunks(capture_id, metric, start_sample, sequence);
+      CREATE INDEX context_metric_capture_subject
+        ON context_metric_captures(subject_id, status, id);
+      PRAGMA user_version = 4;
+      COMMIT;
+    `);
+  }
   const owner = rows(
     database,
     "SELECT session_id, live_set_id FROM context_owner",
@@ -561,6 +654,7 @@ export class SessionContextStore implements EntityContextRepository {
   #closePromise: Promise<void> | undefined;
   #sessionPublicationReady = false;
   readonly #featureJobs = new Map<AbortController, string>();
+  readonly #metricCaptures: MetricCaptureRepository;
 
   private constructor(
     sql: SqlJsStatic,
@@ -581,6 +675,35 @@ export class SessionContextStore implements EntityContextRepository {
     this.#maxPassBytes = options.maxPassBytes ?? CONTEXT_LIMITS.passBytes;
     this.#maxPending =
       options.maxPendingOperations ?? CONTEXT_LIMITS.pendingOperations;
+    this.#metricCaptures = new MetricCaptureRepository({
+      database: () => this.#database,
+      sessionId: this.sessionId,
+      liveSetId: () => this.liveSetId,
+      now: () => this.#now(),
+      maxPassBytes: this.#maxPassBytes,
+      passAllowance: (passId) =>
+        this.#reservations.get(passId) ?? this.#maxPassBytes,
+      releaseReservation: (passId) => {
+        this.#reservations.delete(passId);
+      },
+      quotaError: (message) => new ContextQuotaError(message),
+      sanitize: sanitizeStrings,
+      transaction: (operation, signal, compact, reservationId) =>
+        this.#transaction(operation, signal, reservationId, compact),
+      operation: (action, operationOptions, operation, onFailure) =>
+        this.#operation(
+          action,
+          operationOptions.trace,
+          operationOptions.signal,
+          operation,
+          false,
+          operationOptions.activeAgentId,
+          "validating-and-persisting",
+          onFailure,
+        ),
+      publishSession: (pass, operationOptions) =>
+        this.#publishSessionBeforeContext(pass, operationOptions),
+    });
   }
 
   public static async open(
@@ -602,13 +725,9 @@ export class SessionContextStore implements EntityContextRepository {
       );
     }
     for (const [value, ceiling] of [
-      [options.maxStoreBytes, CONTEXT_LIMITS.storeBytes],
-      [options.maxPassBytes, CONTEXT_LIMITS.passBytes],
       [options.maxPendingOperations, CONTEXT_LIMITS.pendingOperations],
       [options.maxFeatureSearchBytes, LISTENING_FEATURE_LIMITS.candidateBytes],
       [options.maxFeatureSearchMs, LISTENING_FEATURE_LIMITS.searchMs],
-      [options.maxFeatureBytes, LISTENING_FEATURE_LIMITS.featureBytes],
-      [options.maxFeatureBatchBytes, LISTENING_FEATURE_LIMITS.batchBytes],
     ] as const) {
       if (
         value !== undefined &&
@@ -618,6 +737,17 @@ export class SessionContextStore implements EntityContextRepository {
           "Context bounds must be positive integers within canonical limits",
         );
       }
+    }
+    for (const value of [
+      options.maxStoreBytes,
+      options.maxPassBytes,
+      options.maxFeatureBytes,
+      options.maxFeatureBatchBytes,
+    ]) {
+      if (value !== undefined && (!Number.isSafeInteger(value) || value <= 0))
+        throw new TypeError(
+          "Context storage allowances must be positive safe integers",
+        );
     }
     const path =
       options.path === undefined || options.path === ":memory:"
@@ -666,6 +796,7 @@ export class SessionContextStore implements EntityContextRepository {
       migrate(database, ownership, liveSetId);
       const store = new SessionContextStore(sql, database, path, lock, options);
       options.signal?.throwIfAborted();
+      await store.#metricCaptures.recover(options);
       const interrupted = rows(
         database,
         "SELECT entry_id FROM context_feature_derivations WHERE status = 'pending'",
@@ -690,7 +821,7 @@ export class SessionContextStore implements EntityContextRepository {
           },
         );
       }
-      await store.#publish();
+      await store.#publish(options.signal);
       emit("completed", performance.now() - startedAt, {
         schemaVersion: store.schemaVersion,
       });
@@ -714,10 +845,81 @@ export class SessionContextStore implements EntityContextRepository {
     return this.#path;
   }
   public get schemaVersion(): number {
-    return 3;
+    return 4;
   }
   public get liveSetId(): string {
     return this.#liveSetId;
+  }
+
+  public get incrementalMetrics(): IncrementalMetricContextRepository {
+    return this;
+  }
+
+  public beginMetricCapture(
+    input: MetricCaptureStart,
+    options: ContextOperationOptions = {},
+  ): Promise<MetricCaptureOwner> {
+    return this.#metricCaptures.begin(input, options);
+  }
+
+  public appendMetricChunk(
+    owner: MetricCaptureOwner,
+    chunk: MetricRecordChunk,
+    options: ContextOperationOptions = {},
+  ): Promise<void> {
+    return this.#metricCaptures.append(owner, chunk, options);
+  }
+
+  public finalizeMetricCapture(
+    owner: MetricCaptureOwner,
+    manifest: MetricRecordStreamManifest,
+    pass: ListeningPass,
+    options: ContextOperationOptions = {},
+  ): Promise<MetricCapturePublication> {
+    return this.#metricCaptures
+      .finalize(owner, manifest, pass, options)
+      .then((publication) => {
+        this.#reservations.delete(pass.id);
+        return publication;
+      });
+  }
+
+  public sealMetricCapture(
+    owner: MetricCaptureOwner,
+    manifest: MetricRecordStreamManifest,
+    options: ContextOperationOptions = {},
+  ): Promise<void> {
+    return this.#metricCaptures.seal(owner, manifest, options);
+  }
+
+  public terminateMetricCapture(
+    owner: MetricCaptureOwner,
+    status: Exclude<MetricCaptureStatus, "staging" | "sealed" | "completed">,
+    reason: string,
+    options: ContextOperationOptions = {},
+  ): Promise<void> {
+    return this.#metricCaptures.terminate(owner, status, reason, options);
+  }
+
+  public getMetricCapture(
+    id: string,
+    options: ContextOperationOptions = {},
+  ): Promise<MetricCaptureRecord | undefined> {
+    return this.#metricCaptures.get(id, options);
+  }
+
+  public listMetricChunks(
+    query: MetricChunkQuery,
+    options: ContextOperationOptions = {},
+  ): Promise<MetricChunkPage> {
+    return this.#metricCaptures.list(query, options);
+  }
+
+  public listMetricCaptures(
+    query: MetricCaptureQuery = {},
+    options: ContextOperationOptions = {},
+  ): Promise<MetricCapturePage> {
+    return this.#metricCaptures.listCaptures(query, options);
   }
 
   public appendPass(
@@ -876,6 +1078,7 @@ export class SessionContextStore implements EntityContextRepository {
       options.trace,
       signal,
       async (progress) => {
+        this.#assertLegacyFeatureSource(entryId);
         const entry = this.#featureSource(entryId);
         if (entry === undefined || owner !== this.liveSetId)
           throw new RepositoryConflictError(
@@ -1084,11 +1287,12 @@ export class SessionContextStore implements EntityContextRepository {
     entryId: string,
     options: ContextOperationOptions = {},
   ): Promise<ContextFeatureDerivation | undefined> {
-    return this.#read("get-feature-derivation", options, () =>
-      this.#featureSource(entryId) === undefined
+    return this.#read("get-feature-derivation", options, () => {
+      this.#assertLegacyFeatureSource(entryId);
+      return this.#featureSource(entryId) === undefined
         ? undefined
-        : this.#getDerivation(entryId),
-    );
+        : this.#getDerivation(entryId);
+    });
   }
 
   public getSegment(
@@ -1135,6 +1339,8 @@ export class SessionContextStore implements EntityContextRepository {
   ): Promise<ContextPage<ContextFeature>> {
     return this.#read("list-features", options, async (readOptions) => {
       const query = contextFeatureQuerySchema.parse(input);
+      if (query.entryId !== undefined)
+        this.#assertLegacyFeatureSource(query.entryId);
       const filters = hashIdentity([
         query.entryId ?? null,
         query.featureType ?? null,
@@ -1390,6 +1596,18 @@ export class SessionContextStore implements EntityContextRepository {
       entry.liveSetId === this.liveSetId
       ? entry
       : undefined;
+  }
+
+  #assertLegacyFeatureSource(entryId: string): void {
+    contextSubjectSchema.shape.id.parse(entryId);
+    if (
+      rows(
+        this.#database,
+        "SELECT id FROM context_metric_captures WHERE id = ?",
+        [entryId],
+      ).length > 0
+    )
+      throw new IncrementalMetricFeaturesUnsupportedError();
   }
 
   #getFeature(id: string): ContextFeature | undefined {
@@ -1756,6 +1974,11 @@ export class SessionContextStore implements EntityContextRepository {
         }
         if (
           this.#reservations.has(passId) ||
+          rows(
+            this.#database,
+            "SELECT id FROM context_metric_captures WHERE pass_id = ?",
+            [passId],
+          ).length > 0 ||
           this.#get("passes", passId, parsePass) !== undefined
         ) {
           throw new RepositoryConflictError(
@@ -1813,7 +2036,7 @@ export class SessionContextStore implements EntityContextRepository {
         const next = contextSubjectSchema.shape.liveSetId.parse(
           sanitizePersistedText(toLiveSetId),
         );
-        if (this.#reservations.size > 0) {
+        if (this.#reservations.size > 0 || this.#metricCaptures.hasStaging()) {
           throw new RepositoryConflictError(
             "Cannot transition ownership during reserved listening work",
           );
@@ -1850,23 +2073,26 @@ export class SessionContextStore implements EntityContextRepository {
       "prune",
       options.trace ?? selection.trace,
       options.signal,
-      async () => {
+      async (progress) => {
         if (!parsed.success) throw parsed.error;
         const before = TABLES.map((table) =>
           count(this.#database, `context_${table}`),
         );
+        const beforeCaptures = count(this.#database, "context_metric_captures");
+        const beforeChunks = count(this.#database, "context_metric_chunks");
         await this.#transaction(
           () => {
             for (const id of parsed.data.passIds)
               this.#database.run("DELETE FROM context_passes WHERE id = ?", [
                 id,
               ]);
+            this.#metricCaptures.prunePasses(parsed.data.passIds);
             for (const id of parsed.data.entryIds)
               this.#database.run("DELETE FROM context_entries WHERE id = ?", [
                 id,
               ]);
             this.#database.run(
-              "DELETE FROM context_subjects WHERE id NOT IN (SELECT subject_id FROM context_links)",
+              "DELETE FROM context_subjects WHERE id NOT IN (SELECT subject_id FROM context_links) AND id NOT IN (SELECT subject_id FROM context_metric_captures)",
             );
             // Partial entry pruning intentionally retains the immutable pass manifest.
           },
@@ -1877,11 +2103,21 @@ export class SessionContextStore implements EntityContextRepository {
         const after = TABLES.map((table) =>
           count(this.#database, `context_${table}`),
         );
+        for (const passId of parsed.data.passIds)
+          this.#reservations.delete(passId);
+        const deletedMetricCaptures =
+          beforeCaptures - count(this.#database, "context_metric_captures");
+        const deletedMetricChunks =
+          beforeChunks - count(this.#database, "context_metric_chunks");
+        if (deletedMetricCaptures > 0)
+          progress({ deletedMetricCaptures, deletedMetricChunks });
         return {
           deletedSubjects: (before[0] ?? 0) - (after[0] ?? 0),
           deletedPasses: (before[1] ?? 0) - (after[1] ?? 0),
           deletedEntries: (before[2] ?? 0) - (after[2] ?? 0),
           deletedLinks: (before[3] ?? 0) - (after[3] ?? 0),
+          ...(deletedMetricCaptures === 0 ? {} : { deletedMetricCaptures }),
+          ...(deletedMetricChunks === 0 ? {} : { deletedMetricChunks }),
         };
       },
       false,
@@ -1911,10 +2147,11 @@ export class SessionContextStore implements EntityContextRepository {
       "close",
       undefined,
       undefined,
-      async () => {
+      async (progress) => {
+        this.#reservations.clear();
+        await this.#metricCaptures.interruptStaging(undefined, progress);
         this.#database.close();
         this.#closed = true;
-        this.#reservations.clear();
         await releaseDatabaseLock(
           this.#lock,
           this.#path === undefined ? undefined : `${this.#path}.lock`,
@@ -1929,6 +2166,27 @@ export class SessionContextStore implements EntityContextRepository {
 
   #validatePublication(publication: AppendContextPass): void {
     const { pass, subjects, entries, links } = publication;
+    for (const entry of entries)
+      if (
+        rows(
+          this.#database,
+          "SELECT id FROM context_metric_captures WHERE id = ?",
+          [entry.id],
+        ).length > 0
+      )
+        throw new RepositoryConflictError(
+          "Context ID already belongs to an incremental metric capture",
+        );
+    if (
+      rows(
+        this.#database,
+        "SELECT id FROM context_metric_captures WHERE pass_id = ?",
+        [pass.id],
+      ).length > 0
+    )
+      throw new RepositoryConflictError(
+        "Incremental metric passes require verified manifest publication",
+      );
     if (this.#get("passes", pass.id, parsePass) !== undefined) {
       throw new RepositoryConflictError("Listening passes are immutable");
     }
@@ -2393,7 +2651,7 @@ export class SessionContextStore implements EntityContextRepository {
         );
       }
       signal?.throwIfAborted();
-      await this.#publish();
+      await this.#publish(signal);
     } catch (error) {
       if (committed) {
         this.#database.close();
@@ -2404,12 +2662,14 @@ export class SessionContextStore implements EntityContextRepository {
     }
   }
 
-  async #publish(): Promise<void> {
+  async #publish(signal?: AbortSignal): Promise<void> {
+    signal?.throwIfAborted();
     const bytes = this.#database.export();
     if (bytes.byteLength > this.#maxStoreBytes)
       throw new ContextQuotaError("Context database exceeds physical quota");
     if (this.#path === undefined) return;
     const staging = `${this.#path}.${randomUUID()}.staging`;
+    let published = false;
     try {
       const handle = await open(staging, "wx", 0o600);
       try {
@@ -2418,10 +2678,13 @@ export class SessionContextStore implements EntityContextRepository {
       } finally {
         await handle.close();
       }
+      signal?.throwIfAborted();
       await rename(staging, this.#path);
-      await syncDirectory(dirname(this.#path));
+      published = true;
+      // The rename is the commit boundary; directory sync is a best-effort hint.
+      await syncDirectory(dirname(this.#path)).catch(() => undefined);
     } finally {
-      await rm(staging, { force: true });
+      if (!published) await rm(staging, { force: true });
     }
   }
 

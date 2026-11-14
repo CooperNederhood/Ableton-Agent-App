@@ -8,7 +8,7 @@ const {
 } = require("./audio_listener_native_io.js");
 
 const COUNTER_MAX = 2 ** 44 - 1;
-const CAPACITY = 32;
+const CAPACITY = 128;
 const WIDTH = 6;
 const SUPPORT = 2048;
 const MAX_RECORDS = 706;
@@ -82,7 +82,7 @@ function exactBinding(packet, owner, type, values) {
  * Post-forwarding Node stage, NOT a retention reader.
  *
  * Existing FFT selector measurement_frame -> NativeMessageIO.retainedFrame:
- * the existing ABI1 width6/capacity32 reader settles immutable DSP slots, forwards
+ * the existing ABI1 width6/capacity128 reader settles immutable DSP slots, forwards
  * ["native",generation,"spectrum",end,centroid,energy,start,end,invalidFrames],
  * then requests its next slot before ACKing the current slot. Node MUST NOT ACK.
  * Forwarding/Max ACK is not durable Node acceptance; send(false) is not checked
@@ -135,6 +135,8 @@ function createMetricSpectrumHandoff(config, options) {
     "invalid_handoff_options",
   );
   const { collector } = options;
+  const streaming =
+    collector?.envelope?.captureMode === "arrangement-continuous";
   requireValue(
     collector &&
       typeof collector.ingestSpectrum === "function" &&
@@ -165,14 +167,14 @@ function createMetricSpectrumHandoff(config, options) {
       integer(expected.captureStartSample) &&
       integer(expected.captureEndSample, expected.captureStartSample + 1) &&
       expected.captureEndSample - expected.captureStartSample <=
-        expected.sampleRate * 30 &&
+        expected.sampleRate * (streaming ? 600 : 30) &&
       integer(expected.firstFrameEndCounter, SUPPORT) &&
       expected.firstFrameEndCounter > expected.captureStartSample &&
       expected.firstFrameEndCounter <= expected.captureStartSample + SUPPORT &&
       expected.supportSamples === SUPPORT &&
       expected.hopSamples === SUPPORT &&
       integer(expected.invalidFrames, 0, 4096) &&
-      integer(expected.expectedCount, 0, MAX_RECORDS) &&
+      integer(expected.expectedCount, 0, streaming ? 14065 : MAX_RECORDS) &&
       expected.expectedCount ===
         Math.max(
           0,
@@ -316,6 +318,24 @@ function createMetricSpectrumHandoff(config, options) {
     );
   }
   function gaps() {
+    if (streaming) {
+      // Continuous collectors enforce a contiguous accepted prefix and fail
+      // explicitly on a missing sequence. Do not retain capture-wide hashes.
+      const last = node.lastAcceptedSequence;
+      return last === geometry.expectedCount
+        ? []
+        : [
+            {
+              firstSequence: last + 1,
+              lastSequence: geometry.expectedCount,
+              startSample:
+                geometry.firstFrameEndCounter + last * SUPPORT - SUPPORT,
+              endSample:
+                geometry.firstFrameEndCounter +
+                (geometry.expectedCount - 1) * SUPPORT,
+            },
+          ];
+    }
     const result = [];
     let first = null;
     for (let sequence = 1; sequence <= geometry.expectedCount + 1; sequence++) {
@@ -427,7 +447,7 @@ function createMetricSpectrumHandoff(config, options) {
       capacity !== CAPACITY ||
       !integer(highWater, Math.min(backlog, CAPACITY), CAPACITY) ||
       ms < 0 ||
-      ms > 120000 ||
+      ms > (streaming ? 720000 : 120000) ||
       !integer(fault, 0, 5) ||
       (stage === 4) !== fault > 0 ||
       (backlog > CAPACITY && fault !== 1)
@@ -688,6 +708,7 @@ function createMetricSpectrumHandoff(config, options) {
       }
       return metricFailure("collector_rejected_spectrum", "analyzer_failed");
     }
+    if (streaming) fingerprints.clear();
     fingerprints.set(sequence, fingerprint);
     increment("acceptedRecords");
     node.lastAcceptedSequence = sequence;

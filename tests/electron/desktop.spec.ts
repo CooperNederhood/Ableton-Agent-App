@@ -1163,6 +1163,25 @@ for (const action of [
             window.locator(`[data-listening-stage=${progress}]`),
           ).toBeVisible();
           await expect(cancel).toBeEnabled();
+          if (action === "play-arrangement-and-listen") {
+            const coverage = window.getByRole("progressbar", {
+              name: "Persisted capture coverage",
+              exact: true,
+            });
+            await expect(coverage).toHaveAttribute("max", "8640000");
+            await expect(coverage).toHaveAttribute(
+              "value",
+              progress === "capturing" ? "2880000" : "8640000",
+            );
+            await expect(
+              window.getByText(
+                "Coverage progress is not terminal verification",
+                {
+                  exact: false,
+                },
+              ),
+            ).toBeVisible();
+          }
           expect(
             await application.evaluate(
               () =>

@@ -3,8 +3,8 @@
 export const NATIVE_MEL_DEPENDENCY_PINS = [
   [
     "listener-mel-build.json",
-    4362,
-    "5ec105f1d80f0a45f618a0702188bef89e78ce6410385f068637b00b5eaf0410"
+    4616,
+    "b2a56ffe8ae0fc7b334bc8b5fb2ce72fdc878f56269c3eaac79ba0efcdee8cfa"
   ],
   [
     "listener.mel~.mxo/Contents/Info.plist",
@@ -14,7 +14,7 @@ export const NATIVE_MEL_DEPENDENCY_PINS = [
   [
     "listener.mel~.mxo/Contents/MacOS/listener.mel~",
     344384,
-    "9396867893605be398f8d7af4a5605a8289afbeb28d472c96bd43e67aa93995a"
+    "fa84889253daae1f94bef92c4318d87a4764f8e89f491b6a69bc25988dab53f1"
   ],
   [
     "listener.mel~.mxo/Contents/Resources/licenses/Eigen-MPL2.txt",
@@ -67,8 +67,8 @@ export const NATIVE_MEL_SOURCE_INPUTS = [
   },
   {
     "path": "max-patches/audio-listener/native-mel-adapter/mel_engine.hpp",
-    "bytes": 16343,
-    "sha256": "12aa749fa5f5d835713942be4985115471b0866442fb11b1da0bfa84e3d78e59"
+    "bytes": 16654,
+    "sha256": "157b68bab5760c7257ee33fd9315e090fa5a06c8dd847b94e2d920302649726c"
   },
   {
     "path": "max-patches/audio-listener/native-mel-adapter/diagnostic_analyzers.hpp",
@@ -87,8 +87,8 @@ export const NATIVE_MEL_SOURCE_INPUTS = [
   },
   {
     "path": "max-patches/audio-listener/native-mel-adapter/publish.py",
-    "bytes": 5996,
-    "sha256": "a16c3e84e7ad09343227252cc1733cf580966091e4f24f469df67d8e18f18d6c"
+    "bytes": 6293,
+    "sha256": "c177b72a64eb583dcf43c2f7ba4ed7c3313401358f234084d06f702fc9ef1e75"
   },
   {
     "path": "max-patches/audio-listener/native-mel-adapter/tests/diagnostic_qualification.cpp",
@@ -97,8 +97,8 @@ export const NATIVE_MEL_SOURCE_INPUTS = [
   },
   {
     "path": "max-patches/audio-listener/native-mel-adapter/tests/engine_test.cpp",
-    "bytes": 15507,
-    "sha256": "480c3901b7ea89ac4e2f9912775266e64c74cf53c635b730722d6433c7518fd6"
+    "bytes": 18864,
+    "sha256": "6d9a8e05cf25fbdba54d8b109459b7604c0f3280afa95c97b94575c42cd6ed87"
   },
   {
     "path": "max-patches/audio-listener/native-mel-adapter/tests/stream_driver.cpp",

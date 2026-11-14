@@ -324,7 +324,7 @@ describe("desktop IPC", () => {
       () => trusted,
       undefined,
       undefined,
-      { list, get },
+      { list, get, getMetricCapture: vi.fn(), listMetricChunks: vi.fn() },
     );
     const read = registered.get("entity-context:list");
     if (read === undefined)

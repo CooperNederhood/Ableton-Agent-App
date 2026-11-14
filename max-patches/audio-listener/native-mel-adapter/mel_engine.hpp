@@ -14,6 +14,10 @@ namespace listener::mel {
 
 constexpr std::size_t window = 2048, bands = 24, bins = 1025;
 constexpr std::uint64_t clockLimit = 1ULL << 44;
+// Acquisition capacity, not a host capability advertisement. The host still
+// admits Session/v1 <=30s and requires continuous-stream admission for longer
+// Arrangement passes. Queue/FFT/history sizes never scale with this limit.
+constexpr std::uint64_t maxCaptureSeconds = 600;
 constexpr std::size_t queueCapacity = 64;
 constexpr std::uint64_t producerAbi = 3;
 
@@ -240,7 +244,7 @@ public:
       }
       if (!begun && s.epoch[i] == accepted && s.sealed[i] == accepted) {
         if (!integer(s.total[i]) || s.total[i] < 1 ||
-            s.total[i] > sampleRate * 30 || !integer(s.vector[i]) ||
+            s.total[i] > sampleRate * maxCaptureSeconds || !integer(s.vector[i]) ||
             s.vector[i] < 1 || s.vector[i] > 1024 ||
             (static_cast<std::uint64_t>(s.vector[i]) &
              (static_cast<std::uint64_t>(s.vector[i]) - 1))) {
@@ -269,7 +273,7 @@ public:
         const auto total = static_cast<std::uint64_t>(s.total[i]);
         const auto vector = static_cast<std::uint64_t>(s.vector[i]);
         if ((vector & (vector - 1)) || origin > now ||
-            total > clockLimit - origin || total > sampleRate * 30) {
+            total > clockLimit - origin || total > sampleRate * maxCaptureSeconds) {
           finishIdentity(s, i);
           break;
         }

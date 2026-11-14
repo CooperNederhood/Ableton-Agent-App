@@ -22,6 +22,11 @@ import {
   verifyRestoredAgentListeningEvidence,
 } from "./agent-listening-result.js";
 import { verifyFeatureSearch } from "./feature-search.js";
+import {
+  verifyArrangementListening,
+  sameArrangementSource,
+  type ArrangementMetricRecordExpectation,
+} from "./arrangement.js";
 
 export class AssertionRegistry {
   private readonly entries = new Map<
@@ -194,6 +199,125 @@ function registerSmokeAssertions(
 }
 export function createDefaultAssertions(): AssertionRegistry {
   return registerSmokeAssertions(new AssertionRegistry())
+    .register(
+      "arrangement-persistence",
+      ({ turns, evidence, baseline }, parameters) => {
+        const captures = turns.flatMap(
+          (turn) => turn.arrangementCaptures ?? [],
+        );
+        const source =
+          baseline.arrangementSources?.[String(parameters.sourceId)];
+        const original = captures[0]?.stream;
+        const restored = evidence?.arrangementContexts?.[0];
+        const fields = [
+          "contextId",
+          "passId",
+          "listenerId",
+          "descriptorDigest",
+          "manifestSha256",
+          "recordsSha256",
+          "chunkCount",
+        ] as const;
+        return result(
+          captures.length === 1 &&
+            !!source &&
+            sameArrangementSource(captures[0]!.source, source.source) &&
+            !!original &&
+            !!restored &&
+            evidence?.arrangementContexts?.length === 1 &&
+            restored.afterOwnedRestart &&
+            original.afterOwnedRestart === false &&
+            fields.every((key) => original[key] === restored[key]) &&
+            evidence.capturePassIds?.length === 1 &&
+            evidence.capturePassIds[0] === original.passId,
+          "arrangement-persistence-invalid",
+          "Original records, manifest, owner and context must survive owned restart without recapture",
+        );
+      },
+      (parameters) => {
+        rejectUnknownFields(parameters, ["sourceId"]);
+        identifier(parameters.sourceId);
+      },
+    )
+    .register(
+      "arrangement-listening",
+      (input, parameters) => {
+        try {
+          const metricRecords = Object.fromEntries(
+            Object.entries(parameters)
+              .filter(([key]) => key.startsWith("records."))
+              .map(
+                ([key, value]): [
+                  string,
+                  ArrangementMetricRecordExpectation,
+                ] => [
+                  key.slice("records.".length),
+                  value === "verified-fft-phase" ? value : Number(value),
+                ],
+              ),
+          );
+          verifyArrangementListening(
+            input,
+            String(parameters.sourceId),
+            Number(parameters.hostSampleRate),
+            metricRecords,
+            parameters.playbackAfterCapture === "playing"
+              ? "playing"
+              : "stopped",
+          );
+          return result(
+            true,
+            "ok",
+            "Independent Arrangement source, range, metric coverage and cleanup verified",
+          );
+        } catch (error) {
+          return result(
+            false,
+            "arrangement-listening-invalid",
+            error instanceof Error
+              ? error.message
+              : "Invalid Arrangement evidence",
+          );
+        }
+      },
+      (parameters) => {
+        identifier(parameters.sourceId);
+        requireCondition(
+          Number.isSafeInteger(parameters.hostSampleRate) &&
+            Number(parameters.hostSampleRate) >= 8_000 &&
+            Number(parameters.hostSampleRate) <= 768_000,
+          "Invalid expected host sample rate",
+        );
+        const keys = Object.keys(parameters).filter((key) =>
+          key.startsWith("records."),
+        );
+        requireCondition(
+          keys.length > 0 && keys.length <= 64,
+          "Declare independent per-metric record counts",
+        );
+        rejectUnknownFields(parameters, [
+          "sourceId",
+          "hostSampleRate",
+          "playbackAfterCapture",
+          ...keys,
+        ]);
+        for (const key of keys) {
+          identifier(key.slice("records.".length));
+          requireCondition(
+            (key === "records.spectral-centroid" &&
+              parameters[key] === "verified-fft-phase") ||
+              (Number.isSafeInteger(parameters[key]) &&
+                Number(parameters[key]) > 0),
+            "Invalid expected metric count",
+          );
+        }
+        requireCondition(
+          parameters.playbackAfterCapture === "playing" ||
+            parameters.playbackAfterCapture === "stopped",
+          "Declare independent post-capture playback state",
+        );
+      },
+    )
     .register(
       "feature-search",
       (input, parameters) => {

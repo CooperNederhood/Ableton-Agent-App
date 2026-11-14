@@ -133,6 +133,7 @@ for (const rate of [44100, 48000])
       f.advance();
       f.poll();
       assert.equal(f.poll(), true);
+      f.poll(f.readback());
     }
     assert.equal(f.io.retentionReader.stats().accepted, 143);
     finish(f);
@@ -162,17 +163,19 @@ test("delayed Param application never turns startup pages into readiness or repe
   const acks = f.controls.filter(
     (c) => c[0] === "measurementAcknowledged" && c[1] > 0,
   );
-  assert.equal(acks.length, 1);
+  assert.equal(acks.length, 0);
   assert.equal(f.poll(), false);
   assert.equal(
     f.controls.filter((c) => c[0] === "measurementAcknowledged" && c[1] > 0)
       .length,
-    1,
+    0,
   );
   f.flush();
   f.advance();
   f.poll();
   assert.equal(f.poll(), true);
+  f.flush();
+  f.poll(f.readback());
   const controls = f.controls.slice(-2);
   assert.deepEqual(controls, [
     ["measurementReadSequence", 3],

@@ -754,7 +754,7 @@ describe("wire5 independent metric contracts", () => {
       { observation: f.observation },
       { nativeSourceCoverage: f.proof },
       { nativeLaunch: undefined, nativeLifecycle: undefined },
-      { nativeLifecycle: { ...lifecycle, frames: 2_001 } },
+      { nativeLifecycle: { ...lifecycle, frames: 39_962 } },
       { nativeLifecycle: { ...lifecycle, causationId: "" } },
       {
         nativeLifecycle: {

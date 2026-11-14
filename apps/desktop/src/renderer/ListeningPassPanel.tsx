@@ -211,6 +211,30 @@ function ListeningInventory({
               <p>
                 Pass {job.passId} | Agent {job.agentId}
               </p>
+              {job.captureProgress !== undefined && (
+                <div aria-label="Durable listening coverage">
+                  <progress
+                    aria-label="Persisted capture coverage"
+                    max={job.captureProgress.requestedSamples}
+                    value={job.captureProgress.persistedSamples}
+                  />
+                  <p>
+                    {(
+                      job.captureProgress.persistedSamples /
+                      job.captureProgress.sampleRate
+                    ).toFixed(2)}{" "}
+                    of{" "}
+                    {(
+                      job.captureProgress.requestedSamples /
+                      job.captureProgress.sampleRate
+                    ).toFixed(2)}{" "}
+                    seconds durably retained in{" "}
+                    {job.captureProgress.persistedChunks} chunks. Coverage
+                    progress is not terminal verification or proof of defined
+                    values for every analyzer.
+                  </p>
+                </div>
+              )}
               {job.session !== undefined && (
                 <div aria-label="Session source and launch">
                   <p>

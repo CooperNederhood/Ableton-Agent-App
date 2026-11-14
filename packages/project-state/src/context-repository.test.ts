@@ -917,7 +917,7 @@ describe("typed metric context history", () => {
     await store.close();
     const reopened = await openSessionContextStore({ ...ownership, path });
     stores.push(reopened);
-    expect(reopened.schemaVersion).toBe(3);
+    expect(reopened.schemaVersion).toBe(4);
     for (const value of values) {
       expect(await reopened.getEntry(value.entries[0]!.id)).toEqual(
         value.entries[0],
@@ -1130,7 +1130,7 @@ describe("typed descriptive context history", () => {
     };
     expect(sessionContextStoreReferenceSchema.parse(oldReference)).toEqual({
       ...oldReference,
-      schemaVersion: 3,
+      schemaVersion: 4,
     });
     expect(SESSION_CONTEXT_STORE_REFERENCE.kinds).toEqual([
       "audio-observation/v1",
@@ -1977,7 +1977,7 @@ describe("context persistence lifecycle and recovery", () => {
     const context = await memory({ ...ownership, maxPassBytes: 100 });
     await expect(context.appendPass(publication())).rejects.toThrow("quota");
     expect(await context.getPass("pass:1")).toBeUndefined();
-    const physical = await memory({ ...ownership, maxStoreBytes: 160_000 });
+    const physical = await memory({ ...ownership, maxStoreBytes: 200_000 });
     await physical.reservePass("pass:1", 20_000, { trace });
     await expect(physical.reservePass("pass:2", 100_000)).rejects.toThrow(
       "quota",
@@ -2288,11 +2288,11 @@ describe("context persistence lifecycle and recovery", () => {
     }
     await mutate((database) => {
       database.run(
-        "DROP TABLE context_features; DROP TABLE context_segments; DROP TABLE context_feature_derivations; DROP TABLE context_live_set_ownership; PRAGMA user_version = 1",
+        "DROP TABLE context_metric_chunks; DROP TABLE context_metric_captures; DROP TABLE context_features; DROP TABLE context_segments; DROP TABLE context_feature_derivations; DROP TABLE context_live_set_ownership; PRAGMA user_version = 1",
       );
     });
     const migrated = await openSessionContextStore({ ...ownership, path });
-    expect(migrated.schemaVersion).toBe(3);
+    expect(migrated.schemaVersion).toBe(4);
     expect(await migrated.getEntry("entry:1:0")).toBeDefined();
     await migrated.close();
     await mutate((database) => {
@@ -2426,13 +2426,13 @@ describe("phase 1 derived context features", () => {
     const payloads = database.exec("SELECT payload FROM context_entries")[0]!
       .values;
     database.run(
-      "DROP TABLE context_features; DROP TABLE context_segments; DROP TABLE context_feature_derivations; PRAGMA user_version = 2",
+      "DROP TABLE context_metric_chunks; DROP TABLE context_metric_captures; DROP TABLE context_features; DROP TABLE context_segments; DROP TABLE context_feature_derivations; PRAGMA user_version = 2",
     );
     await writeFile(path, database.export());
     database.close();
     const migrated = await openSessionContextStore({ ...ownership, path });
     stores.push(migrated);
-    expect(migrated.schemaVersion).toBe(3);
+    expect(migrated.schemaVersion).toBe(4);
     expect(
       await migrated.getFeatureDerivation("entry:metric:0"),
     ).toBeUndefined();

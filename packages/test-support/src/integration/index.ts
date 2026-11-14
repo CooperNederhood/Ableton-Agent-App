@@ -12,3 +12,5 @@ export * from "./mel-smoke.js";
 export * from "./pitch-smoke.js";
 export * from "./agent-listening-result.js";
 export * from "./feature-search.js";
+export * from "./arrangement.js";
+export * from "./arrangement-stream.js";

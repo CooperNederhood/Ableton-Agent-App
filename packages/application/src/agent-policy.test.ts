@@ -502,6 +502,35 @@ describe("agent policy", () => {
     expect(toolResult).toEqual(before);
   });
 
+  it.each(["stream-overview", "stream-records"])(
+    "keeps %s guidance coverage-first without demanding exhaustive record reads",
+    async (action) => {
+      const hooks = createAgentHooks({
+        getAbletonStatus: async () => connected,
+      });
+      const result = await hooks.onPostToolUse?.(
+        {
+          sessionId: "sdk",
+          timestamp: new Date(),
+          workingDirectory: process.cwd(),
+          toolName: "ableton_context",
+          toolArgs: { action },
+          toolResult: { resultType: "success", textResultForLlm: "{}" },
+        },
+        { sessionId: "sdk" },
+      );
+      expect(result?.additionalContext).toContain(
+        "Do not exhaust every page merely to establish coverage",
+      );
+      expect(result?.additionalContext).toContain(
+        "digest-checked immutable chunk",
+      );
+      expect(result?.additionalContext).not.toContain(
+        "Follow every continuation",
+      );
+      expect(result?.modifiedResult).toBeUndefined();
+    },
+  );
   it.each([
     ["ableton_context", { action: "get-feature" }],
     ["ableton_context", { action: "derive-features" }],

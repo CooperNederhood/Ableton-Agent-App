@@ -21,6 +21,10 @@ export interface AbletonService {
     params: Protocol.InspectSessionListeningSourceParams,
     options?: AbletonRequestOptions,
   ): Promise<Protocol.InspectSessionListeningSourceResult>;
+  inspectArrangementListeningSource?(
+    params: Protocol.InspectArrangementListeningSourceParams,
+    options?: AbletonRequestOptions,
+  ): Promise<Protocol.InspectArrangementListeningSourceResult>;
   sessionListeningPass?(
     params: Protocol.SessionListeningPassParams,
     options?: AbletonRequestOptions,

@@ -102,20 +102,25 @@ Param reportStartBeat(0); Param reportEndBeat(0); Param reportRowCount(0);`;
 export const MUSICAL_LEVEL_CONFIG_VALID = DESCRIPTIVE_CONFIG_VALID.replace(
   "totalSamples >= round(samplerate / 10)",
   "totalSamples >= 1",
-).replace(
-  ");",
-  `) &&
+)
+  .replace(
+    "totalSamples <= 30 * samplerate",
+    "totalSamples <= 600 * samplerate",
+  )
+  .replace(
+    ");",
+    `) &&
  (levelConfigurationVersion == 1) &&
  (reportStartBeat >= 0 && reportStartBeat <= 1576800 &&
   reportEndBeat > reportStartBeat && reportEndBeat <= 1576800) &&
  (startBeatFraction == reportStartBeat - floor(reportStartBeat)) &&
- (reportRowCount >= 1 && reportRowCount <= 2000 &&
+ (reportRowCount >= 1 && reportRowCount <= 39961 &&
   reportRowCount == -floor(-reportEndBeat * 4) - floor(reportStartBeat * 4)) &&
  (totalSamples == round((reportEndBeat - reportStartBeat) * samplerate * 60 / tempoBpm)) &&
  (round((min((floor(reportStartBeat * 4) + 1) / 4, reportEndBeat) - reportStartBeat) * samplerate * 60 / tempoBpm) > 0) &&
  (reportRowCount == 1 ||
   round(((-floor(-reportEndBeat * 4) - 1) / 4 - reportStartBeat) * samplerate * 60 / tempoBpm) < totalSamples);`,
-);
+  );
 
 // Inclusive 1e12 is 953674 whole 2^20 words plus 331776. Subtract normalized
 // words before scaling; no wide ceiling or large remainder product in Gen.

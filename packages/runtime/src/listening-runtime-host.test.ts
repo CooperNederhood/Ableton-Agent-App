@@ -11,6 +11,8 @@ import { createInMemorySessionContextStore } from "@ableton-agent/project-state"
 import {
   inspectListeningContextParamsSchema,
   metricAudioObservationSchema,
+  METRIC_RECORD_STREAM_CAPABILITY,
+  NATIVE_CONTINUOUS_METRIC_LISTENING_SCOPE,
   type InspectListeningContextParams,
   type InspectListeningContextResult,
 } from "@ableton-agent/protocol";
@@ -274,6 +276,149 @@ async function fixture(
 }
 
 describe("production v5 Arrangement listening host with synthetic native peer", () => {
+  it("exposes the authenticated continuous capability without claiming fresh native readiness or starting playback", async () => {
+    const f = await fixture(false, true, true, true, true);
+    const continuous = {
+      ...f.listener,
+      registration: listenerRegistrationMetricSchema.parse({
+        ...f.listener.registration,
+        capabilities: [
+          ...f.listener.registration.capabilities,
+          "audio-listener/arrangement-continuous-metric-stream-v1",
+        ],
+        nativeStatus: {
+          ...f.listener.registration.nativeStatus,
+          version: 6,
+          scope: NATIVE_CONTINUOUS_METRIC_LISTENING_SCOPE,
+          maxAudioDurationMs: 600_000,
+          maxSessionAudioDurationMs: 30_000,
+          maxReportRows: 39_961,
+          maxSessionReportRows: 2_000,
+          streamCapability: METRIC_RECORD_STREAM_CAPABILITY,
+        },
+      }),
+    };
+    vi.spyOn(
+      f.dependencies.signals.listeners!,
+      "inspectListeners",
+    ).mockReturnValue([continuous]);
+    const result = await f.host.executeListeningOperation(
+      { action: "inspect-listeners" },
+      context,
+    );
+    expect(result).toMatchObject({
+      listeners: [
+        {
+          capabilities: continuous.registration.capabilities,
+          ready: false,
+          limitations: expect.arrayContaining([
+            "native_per_pass_validation_required",
+          ]),
+        },
+      ],
+    });
+    expect(f.requestListenerControl).not.toHaveBeenCalled();
+    expect(f.positionListeningPlayback).not.toHaveBeenCalled();
+    expect(f.startListeningPlayback).not.toHaveBeenCalled();
+  });
+  it("journals independently checked listener-owner release before publishing without stopping playback", async () => {
+    const f = await fixture();
+    const result = await f.run();
+    expect(result.stage).toBe("completed");
+    const events = f.telemetryEnqueue.mock.calls.map(([event]) => event);
+    const released = events.find(
+      (event) =>
+        event.name === "listening.runtime.arrangement-source-cleanup.completed",
+    );
+    expect(released).toMatchObject({
+      sessionId: owner.sessionId,
+      activeAgentId: owner.agentId,
+      correlationId: context.trace.correlationId,
+      causationId: context.trace.causationId,
+      trace: { traceId: context.trace.traceId },
+      outcome: "success",
+      attributes: {
+        passId: result.passId,
+        cleanupPolicy: "leave-running",
+        sourceOwnership: "authenticated-listener-registry",
+        listenerOwnerReleased: true,
+        listeners: [
+          {
+            listenerId: f.listener.producer.producerId,
+            connectionId: f.listener.connectionId,
+            connectionEpoch: f.listener.registration.connectionEpoch,
+            generation: null,
+            nativeEpoch: null,
+          },
+        ],
+      },
+    });
+    expect(released?.durationMs).toBeGreaterThanOrEqual(0);
+    const cleanupIndex = events.indexOf(released!);
+    const publicationIndex = events.findIndex(
+      (event) => event.name === "listening.runtime.publication.started",
+    );
+    expect(publicationIndex).toBeGreaterThan(cleanupIndex);
+  });
+  it("denies publication when a new native owner occupies the listener at source cleanup", async () => {
+    const f = await fixture();
+    const service = f.dependencies.signals.listeners!;
+    const inspect = service.inspectListeners.bind(service);
+    vi.spyOn(service, "inspectListeners").mockImplementation(() => {
+      const current = inspect();
+      const cleanupStarted = f.telemetryEnqueue.mock.calls.some(
+        ([event]) =>
+          event.name === "listening.runtime.arrangement-source-cleanup.started",
+      );
+      return cleanupStarted
+        ? current.map((item) => ({
+            ...item,
+            phase: "armed" as const,
+            jobId: "foreign-job",
+            passId: "foreign-pass",
+          }))
+        : current;
+    });
+    const result = await f.run();
+    expect(result.stage).toBe("failed");
+    expect(f.appendPass).not.toHaveBeenCalled();
+    expect(
+      f.telemetryEnqueue.mock.calls.some(
+        ([event]) =>
+          event.name === "listening.runtime.arrangement-source-cleanup.failed",
+      ),
+    ).toBe(true);
+    expect(
+      f.telemetryEnqueue.mock.calls.some(
+        ([event]) =>
+          event.name ===
+          "listening.runtime.arrangement-source-cleanup.completed",
+      ),
+    ).toBe(false);
+  });
+  it.each([180, 600])(
+    "does not advertise or start an unsupported %ss producer pass",
+    async (seconds) => {
+      const f = await fixture(false, true, true, true, true);
+      const result = await f.host.executeListeningOperation(
+        {
+          action: "play-arrangement-and-listen",
+          listenerIds: [f.listener.producer.producerId],
+          startBeat: 0,
+          endBeat: seconds * 2,
+          maximumDurationMs: seconds * 1000,
+        },
+        context,
+      );
+      if (!("job" in result)) throw new Error("Expected owned listening job");
+      const job = await f.host.waitForListeningPass(result.job.passId, context);
+      expect(job.stage).toBe("failed");
+      expect(f.requestListenerControl).not.toHaveBeenCalled();
+      expect(f.positionListeningPlayback).not.toHaveBeenCalled();
+      expect(f.startListeningPlayback).not.toHaveBeenCalled();
+      expect(f.appendPass).not.toHaveBeenCalled();
+    },
+  );
   it("discovers an actual three-capability ABI3 registration and captures all six metric families without dropping readiness", async () => {
     const f = await fixture(false, true, true, true, true);
     const discovery = await f.host.executeListeningOperation(
@@ -288,6 +433,7 @@ describe("production v5 Arrangement listening host with synthetic native peer", 
           listenerId: "listener-0",
           trackReference: uuid(10),
           deviceReference: uuid(20),
+          capabilities: [...f.listener.registration.capabilities],
           ready: false,
         },
       ],

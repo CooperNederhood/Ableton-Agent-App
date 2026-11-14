@@ -5,9 +5,12 @@ import { performance } from "node:perf_hooks";
 import type { ListeningExecutionContext } from "@ableton-agent/application";
 import {
   openSessionContextStore,
+  CONTEXT_LIMITS,
   contextTraceSchema,
   type ContextOperationOptions,
   type EntityContextRepository,
+  type IncrementalMetricContextRepository,
+  type MetricCaptureOwner,
   type SessionContextPublicationRequest,
   type SessionContextStore,
   type SessionContextStoreOptions,
@@ -124,6 +127,67 @@ export function createDesktopSessionContextManager(
       );
     }
   };
+  const incrementalForActor = (
+    metrics: IncrementalMetricContextRepository,
+    context: ListeningExecutionContext,
+    deny?: () => Promise<never>,
+  ): IncrementalMetricContextRepository => {
+    const operationFor = (
+      operation: ContextOperationOptions = {},
+      cleanup = false,
+    ): ContextOperationOptions => {
+      const {
+        activeAgentId: _actor,
+        signal: operationSignal,
+        ...rest
+      } = operation;
+      void _actor;
+      const signals = [
+        cleanup ? undefined : context.signal,
+        operationSignal,
+      ].filter((signal): signal is AbortSignal => signal !== undefined);
+      return {
+        ...rest,
+        trace: operation.trace ?? context.trace,
+        ...(context.actorKind === "application"
+          ? {}
+          : { activeAgentId: context.agentId }),
+        ...(signals.length === 0 ? {} : { signal: AbortSignal.any(signals) }),
+      };
+    };
+    return {
+      beginMetricCapture: (input, operation) =>
+        deny?.() ?? metrics.beginMetricCapture(input, operationFor(operation)),
+      appendMetricChunk: (owner, chunk, operation) =>
+        deny?.() ??
+        metrics.appendMetricChunk(owner, chunk, operationFor(operation)),
+      sealMetricCapture: (owner, manifest, operation) =>
+        deny?.() ??
+        metrics.sealMetricCapture(owner, manifest, operationFor(operation)),
+      finalizeMetricCapture: (owner, manifest, pass, operation) =>
+        deny?.() ??
+        metrics.finalizeMetricCapture(
+          owner,
+          manifest,
+          pass,
+          operationFor(operation),
+        ),
+      terminateMetricCapture: (owner, status, reason, operation) =>
+        deny?.() ??
+        metrics.terminateMetricCapture(
+          owner,
+          status,
+          reason,
+          operationFor(operation, true),
+        ),
+      getMetricCapture: (id, operation) =>
+        metrics.getMetricCapture(id, operationFor(operation)),
+      listMetricCaptures: (query, operation) =>
+        metrics.listMetricCaptures(query, operationFor(operation)),
+      listMetricChunks: (query, operation) =>
+        metrics.listMetricChunks(query, operationFor(operation)),
+    };
+  };
   const handleForActor = (
     handle: EntityContextRepository,
     context: ListeningExecutionContext,
@@ -136,6 +200,14 @@ export function createDesktopSessionContextManager(
       if (existing !== undefined) return existing;
       const actorHandle: EntityContextRepository = {
         ...handle,
+        ...(handle.incrementalMetrics === undefined
+          ? {}
+          : {
+              incrementalMetrics: incrementalForActor(
+                handle.incrementalMetrics,
+                context,
+              ),
+            }),
         get liveSetId() {
           return handle.liveSetId;
         },
@@ -169,6 +241,15 @@ export function createDesktopSessionContextManager(
       );
     return {
       ...handle,
+      ...(handle.incrementalMetrics === undefined
+        ? {}
+        : {
+            incrementalMetrics: incrementalForActor(
+              handle.incrementalMetrics,
+              context,
+              deny,
+            ),
+          }),
       get liveSetId() {
         return handle.liveSetId;
       },
@@ -277,7 +358,7 @@ export function createDesktopSessionContextManager(
       !info.isFile() ||
       info.isSymbolicLink() ||
       info.size === 0 ||
-      info.size > 32 * 1024 * 1024
+      info.size > CONTEXT_LIMITS.storeBytes
     )
       throw new Error(
         "Declared context store is not a regular bounded owned file",
@@ -334,6 +415,18 @@ export function createDesktopSessionContextManager(
       }
     }
   };
+  const hasActiveMetricCapture = async (
+    repository: SessionContextStore,
+    operation: ContextOperationOptions = {},
+  ) => {
+    for (const status of ["staging", "sealed"] as const)
+      if (
+        (await repository.listMetricCaptures({ status, limit: 1 }, operation))
+          .items.length > 0
+      )
+        return true;
+    return false;
+  };
   const prepareSessionTransition: DesktopSessionContextTransitionHandler = (
     previous,
     next,
@@ -373,6 +466,16 @@ export function createDesktopSessionContextManager(
           throw new Error(
             "Context publication or listening reservation is in progress; ownership transition must retry",
           );
+        for (const { before } of changes) {
+          const entry = cached.get(before.id);
+          if (
+            entry !== undefined &&
+            (await hasActiveMetricCapture(entry.repository, transitionOptions))
+          )
+            throw new Error(
+              "Incremental context capture is in progress; ownership transition must retry",
+            );
+        }
         const applied: typeof changes = [];
         for (const { before } of changes) transitioning.add(before.id);
         try {
@@ -516,11 +619,19 @@ export function createDesktopSessionContextManager(
           }
           if (session.contextStore !== undefined) await declaredStore(session);
           if (cached.size >= maxCached) {
-            const oldest = [...cached.entries()].find(
-              ([id]) =>
-                (writing.get(id) ?? 0) === 0 &&
-                (reserved.get(id)?.size ?? 0) === 0,
-            );
+            const oldest = await (async () => {
+              for (const entry of cached.entries())
+                if (
+                  (writing.get(entry[0]) ?? 0) === 0 &&
+                  (reserved.get(entry[0])?.size ?? 0) === 0 &&
+                  !(await hasActiveMetricCapture(
+                    entry[1].repository,
+                    operationOptions,
+                  ))
+                )
+                  return entry;
+              return undefined;
+            })();
             if (oldest === undefined)
               throw new Error(
                 "Context cache is full with active listening work",
@@ -607,8 +718,138 @@ export function createDesktopSessionContextManager(
               );
             if (current.contextStore !== undefined)
               await declaredStore(current);
+            const metricOperation = async <T>(
+              mutation: boolean,
+              operation: ContextOperationOptions | undefined,
+              execute: () => Promise<T>,
+              capture?: MetricCaptureOwner,
+              initiatingAgents: readonly string[] = [],
+            ): Promise<T> => {
+              if (mutation)
+                writing.set(session.id, (writing.get(session.id) ?? 0) + 1);
+              try {
+                await run(
+                  mutation
+                    ? "validate-stream-writer"
+                    : "validate-stream-reader",
+                  async () => {
+                    const owner = await requireSession(session.id);
+                    if (
+                      transitioning.has(session.id) ||
+                      !sameOwner(session, owner) ||
+                      (operation?.activeAgentId !== undefined &&
+                        !owner.activeAgents.some(
+                          ({ id }) => id === operation.activeAgentId,
+                        )) ||
+                      (mutation &&
+                        (operation?.activeAgentId === undefined ||
+                          initiatingAgents.some(
+                            (id) => id !== operation.activeAgentId,
+                          )))
+                    )
+                      throw new Error(
+                        "Context stream caller no longer belongs to the invoking session ownership",
+                      );
+                    if (mutation && capture !== undefined) {
+                      const record = await repository.getMetricCapture(
+                        capture.captureId,
+                        operation,
+                      );
+                      if (
+                        record === undefined ||
+                        record.metadata.pass.initiatorAgentId !==
+                          operation?.activeAgentId
+                      )
+                        throw new Error(
+                          "Context stream writer does not own this capture",
+                        );
+                    }
+                  },
+                  {
+                    ...operation,
+                    sessionId: session.id,
+                    liveSetId: session.liveSetId,
+                  },
+                );
+                return await execute();
+              } finally {
+                if (mutation) {
+                  const remaining = (writing.get(session.id) ?? 1) - 1;
+                  if (remaining > 0) writing.set(session.id, remaining);
+                  else writing.delete(session.id);
+                }
+              }
+            };
+            const incrementalMetrics: IncrementalMetricContextRepository = {
+              beginMetricCapture: (input, operation) =>
+                metricOperation(
+                  true,
+                  operation,
+                  () => repository.beginMetricCapture(input, operation),
+                  undefined,
+                  [
+                    input.metadata.pass.initiatorAgentId,
+                    input.metadata.producer.agentId,
+                  ],
+                ),
+              appendMetricChunk: (owner, chunk, operation) =>
+                metricOperation(
+                  true,
+                  operation,
+                  () => repository.appendMetricChunk(owner, chunk, operation),
+                  owner,
+                ),
+              sealMetricCapture: (owner, manifest, operation) =>
+                metricOperation(
+                  true,
+                  operation,
+                  () =>
+                    repository.sealMetricCapture(owner, manifest, operation),
+                  owner,
+                ),
+              finalizeMetricCapture: (owner, manifest, pass, operation) =>
+                metricOperation(
+                  true,
+                  operation,
+                  () =>
+                    repository.finalizeMetricCapture(
+                      owner,
+                      manifest,
+                      pass,
+                      operation,
+                    ),
+                  owner,
+                  [pass.initiatorAgentId],
+                ),
+              terminateMetricCapture: (owner, status, reason, operation) =>
+                metricOperation(
+                  true,
+                  operation,
+                  () =>
+                    repository.terminateMetricCapture(
+                      owner,
+                      status,
+                      reason,
+                      operation,
+                    ),
+                  owner,
+                ),
+              getMetricCapture: (id, operation) =>
+                metricOperation(false, operation, () =>
+                  repository.getMetricCapture(id, operation),
+                ),
+              listMetricCaptures: (query, operation) =>
+                metricOperation(false, operation, () =>
+                  repository.listMetricCaptures(query, operation),
+                ),
+              listMetricChunks: (query, operation) =>
+                metricOperation(false, operation, () =>
+                  repository.listMetricChunks(query, operation),
+                ),
+            };
             const handle: EntityContextRepository = {
               sessionId: repository.sessionId,
+              incrementalMetrics,
               publicationIdentity: Object.freeze({}),
               get liveSetId() {
                 return repository.liveSetId;

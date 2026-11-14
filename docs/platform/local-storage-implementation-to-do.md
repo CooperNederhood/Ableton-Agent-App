@@ -2,6 +2,58 @@
 
 Companion specification: [Local Storage Layout](local-storage.md)
 
+## Long-form incremental metric contexts
+
+- [x] Add schema v4 staged manifests and immutable metric chunks to the existing
+  resolver-owned entity-context SQLite file; retain short-pass callers and
+  reject whole-pass publication bypasses for incremental captures.
+- [x] Commit each shared-protocol-validated chunk and prefix state durably;
+  independently reread chunks for count/support/digest/replay verification before
+  atomic completed pass/subject/manifest publication.
+- [x] Separate independently verified durable `sealed` state from completed
+  publication for the runtime/application cancellation gate. Permit abort of
+  staging/sealed owners; reject late chunks and altered terminal claims; treat
+  sealed crash/reopen as interrupted and reverify before publication.
+- [x] Reproduce the cancellation-during-fsync race, then check the operation
+  signal again before rename so no completed context appears after a cancelled
+  pre-commit publication; verify in-memory state, file cleanup and restart.
+- [x] Expose typed bounded overview, chunk paging and sample-range filtering;
+  retain complete immutable chunk supports and explicit insufficient-page errors.
+- [x] Return the actual durable context ID and explicit stream-context kind in
+  final publication receipts; regress typed retrieval after restart. Explicitly
+  guard stream feature derivation/status/list requests until incremental
+  extraction is implemented rather than silently flattening or claiming absence.
+- [x] Relax physical/aggregate storage defaults to configurable generous
+  allowances without widening wire/query/journal budgets.
+- [x] Define explicit failed/cancelled/interrupted retention, stale-owner denial,
+  crash/reopen interruption, active-capture ownership-transition denial and exact
+  pass-ID cascade pruning with redacted attributable lifecycle events.
+- [x] Regress six-family 600-second persistence with independently enumerated
+  record counts and bounded pages, complete/crash reopen, malformed continuity/
+  digests, quota/registry/write failure, cancellation, stale owners, cleanup,
+  prune receipts and trace/redaction. Demonstrate red/green cancellation and
+  compact-descriptor regressions, then run the broader owning package suite,
+  lint, formatting and typecheck. This is deterministic storage qualification.
+- [x] Forward the incremental capability through the privileged Desktop repository
+  with fresh owner/agent checks, forced attribution, bounded typed read schemas,
+  read-only application denial, cancellation-safe owned cleanup, active-capture
+  cache/relocation guards and the shared generous reopen allowance. Regress the
+  privileged boundary and public page byte accounting.
+- [x] Expose exactly the public typed capture/chunk reads and Arrangement source
+  inspection needed by the frozen acceptance driver. Reuse the read-only owner
+  resolver, preserve full original chunks and caller page bounds, validate
+  preload/IPC identity and use browser-safe schema imports. Cover contracts,
+  reader, preload, IPC, production composition and lifecycle failure/cancellation.
+- [x] Integrate stream-overview, bounded original-record projections, mixed
+  completed inventory, owner/query-bound continuations and explicit unsupported
+  feature guards in application/tools. Keep every stream tool response below
+  64 KiB and bootstrap inventory below 16 KiB UTF-8; regress continuity across
+  chunk boundaries, source/Set guards, cancellation and read-only descriptors.
+- [ ] Wire runtime publication and incremental feature derivation; these are consumers of the
+  repository API, not a second database or flattened terminal observation.
+- [ ] Qualify the reviewed real-host long-form case separately; deterministic
+  persistence tests do not establish native acquisition or cleanup.
+
 ## Derived listening features (#113)
 
 - [x] Isolate prune-triggered derivation cancellation to selected entries or

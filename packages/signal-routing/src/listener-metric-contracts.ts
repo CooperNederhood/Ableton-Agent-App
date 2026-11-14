@@ -1,7 +1,5 @@
 import { z } from "zod";
 import {
-  assertNativeMetricArmProof,
-  assertNativeMetricReadyProof,
   assertNativeMetricObservationSource,
   assertNativeMetricSourceCoverage,
   metricAudioObservationSchema,
@@ -10,17 +8,23 @@ import {
   refineListenerMetricRegistrationMetadata,
   nativeListenerLifecycleSchema,
   listeningFailureFactSchema,
-  nativeMetricArmProofSchema,
-  nativeMetricReadyProofSchema,
+  nativeMetricControlArmProofSchema as nativeMetricArmProofSchema,
+  nativeMetricControlReadyProofSchema as nativeMetricReadyProofSchema,
   nativeMetricLaunchProofSchema,
   nativeMetricListeningConfigSchema,
+  nativeMetricControlConfigSchema,
   nativeMetricSourceCoverageProofSchema,
   NATIVE_METRIC_LISTENING_SCOPE,
   NATIVE_METRIC_LISTENING_CAPABILITY,
   NATIVE_MEL_BAND_LISTENING_CAPABILITY,
   NATIVE_METRIC_ALGORITHM_VERSION,
+  NATIVE_CONTINUOUS_METRIC_LISTENING_SCOPE,
   MAX_METRIC_RESULT_FRAME_BYTES,
-  type NativeMetricArmProof,
+  MAX_METRIC_RECORD_CHUNK_BYTES,
+  metricRecordChunkSchema,
+  metricRecordStreamAdmissionSchema,
+  metricRecordStreamManifestSchema,
+  type NativeMetricControlArmProof as NativeMetricArmProof,
 } from "@ableton-agent/protocol";
 import {
   DEFAULT_MAX_INGRESS_FRAME_BYTES,
@@ -30,6 +34,10 @@ import {
   listenerPathsHaveSameOwner,
   listenerRegistrationBaseSchema,
 } from "./listener-contracts.js";
+import {
+  assertMetricControlArm as assertNativeMetricArmProof,
+  assertMetricControlReady as assertNativeMetricReadyProof,
+} from "./metric-control-evidence.js";
 
 export { nativeMetricListeningConfigSchema };
 export {
@@ -112,7 +120,7 @@ export const listenerControlMetricSchema = z
     ...wire,
     type: z.literal("listener.control"),
     action: z.enum(["prepare", "arm", "cancel"]),
-    config: nativeMetricListeningConfigSchema.optional(),
+    config: nativeMetricControlConfigSchema.optional(),
   })
   .superRefine((value, ctx) => {
     if (
@@ -216,9 +224,13 @@ export const listenerReplyMetricSchema = z
 
 export const nativeMetricLifecycleSchema = z.strictObject({
   ...nativeListenerLifecycleSchema.shape,
-  durationMs: z.number().finite().min(0).max(120_000).optional(),
+  elapsedMs: z.number().finite().min(0).max(900_000),
+  durationMs: z.number().finite().min(0).max(900_000).optional(),
   facts: z.array(listeningFailureFactSchema).max(24).optional(),
-  scope: z.literal(LISTENER_METRIC_SCOPE),
+  scope: z.enum([
+    LISTENER_METRIC_SCOPE,
+    NATIVE_CONTINUOUS_METRIC_LISTENING_SCOPE,
+  ]),
   // Stock FluCoMa smoke scopes are diagnostics, not registered observations.
   metric: z
     .enum([
@@ -231,7 +243,7 @@ export const nativeMetricLifecycleSchema = z.strictObject({
     .optional(),
   generation: z.string().uuid(),
   nativeEpoch: z.number().int().min(1).max(1_000_000),
-  frames: z.number().int().min(0).max(2_000),
+  frames: z.number().int().min(0).max(39_961),
   phase: z
     .enum([
       "preflight",
@@ -251,28 +263,72 @@ export const listenerResultMetricSchema = z
     type: z.literal("listener.result"),
     status: z.enum(["progress", "completed", "partial", "failed", "cancelled"]),
     observation: metricAudioObservationSchema.optional(),
+    metricStream: metricRecordStreamAdmissionSchema.optional(),
+    metricChunk: metricRecordChunkSchema.optional(),
+    metricManifest: metricRecordStreamManifestSchema.optional(),
     nativeSourceCoverage: nativeMetricSourceCoverageProofSchema.optional(),
     nativeLaunch: nativeMetricLaunchProofSchema.optional(),
     nativeLifecycle: nativeMetricLifecycleSchema.optional(),
     reason: reason.optional(),
   })
   .superRefine((value, ctx) => {
+    const streamed = value.metricManifest !== undefined;
     const terminalPublication =
       value.status === "completed" || value.status === "partial";
     if (
-      terminalPublication !== (value.observation !== undefined) ||
-      terminalPublication !== (value.nativeSourceCoverage !== undefined) ||
+      terminalPublication !== (value.observation !== undefined || streamed) ||
+      (terminalPublication && !streamed) !==
+        (value.nativeSourceCoverage !== undefined) ||
+      (streamed && value.observation !== undefined) ||
+      ((value.metricStream !== undefined || value.metricChunk !== undefined) &&
+        value.status !== "progress") ||
+      [value.metricStream, value.metricChunk, value.metricManifest].filter(
+        (item) => item !== undefined,
+      ).length > 1 ||
       (value.nativeLaunch !== undefined && value.status !== "progress") ||
       (["failed", "cancelled"].includes(value.status) &&
         value.reason === undefined) ||
       (value.status === "progress" &&
         value.nativeLaunch === undefined &&
-        value.nativeLifecycle === undefined)
+        value.nativeLifecycle === undefined &&
+        value.metricStream === undefined &&
+        value.metricChunk === undefined)
     ) {
       ctx.addIssue({
         code: "custom",
         message: "Invalid independent metric publication stage/evidence",
       });
+    }
+    const streamedBody =
+      value.metricStream ?? value.metricChunk ?? value.metricManifest;
+    if (streamedBody !== undefined) {
+      const owner = streamedBody.ownership;
+      if (
+        value.mode !== "arrangement" ||
+        value.observation !== undefined ||
+        value.nativeSourceCoverage !== undefined ||
+        value.nativeLaunch !== undefined ||
+        value.nativeLifecycle !== undefined ||
+        (
+          [
+            "listenerId",
+            "connectionId",
+            "connectionEpoch",
+            "generation",
+            "passId",
+            "traceId",
+            "correlationId",
+            "causationId",
+          ] as const
+        ).some((field) => owner[field] !== value[field]) ||
+        (value.metricManifest !== undefined &&
+          value.metricManifest.outcome !==
+            (value.status === "completed" ? "complete" : "partial"))
+      )
+        ctx.addIssue({
+          code: "custom",
+          message: "Continuous stream wire ownership or outcome mismatch",
+        });
     }
     // Lifecycle causation names its stage parent, not the immutable capture origin.
     const lifecycle = value.nativeLifecycle;
@@ -340,7 +396,10 @@ export const listenerResultMetricSchema = z
     if (proof !== undefined) {
       validateArm(value, proof.armed, ctx);
       validateProof(() => {
-        const expected = expectation(value, proof.armed);
+        const expected = {
+          ...expectation(value, proof.armed),
+          config: proof.armed.config,
+        };
         if (observation === undefined) {
           assertNativeMetricSourceCoverage(proof, expected);
         } else {
@@ -348,7 +407,13 @@ export const listenerResultMetricSchema = z
         }
       }, ctx);
     }
-    enforceFrameQuota(value, ctx);
+    enforceFrameQuota(
+      value,
+      ctx,
+      value.metricChunk !== undefined || value.metricStream !== undefined
+        ? MAX_METRIC_RECORD_CHUNK_BYTES
+        : MAX_METRIC_RESULT_FRAME_BYTES,
+    );
   });
 
 export type ListenerRegistrationMetric = z.infer<

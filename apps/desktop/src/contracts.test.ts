@@ -14,7 +14,7 @@ import {
 
 describe("Desktop session context reference", () => {
   const reference = {
-    schemaVersion: 3,
+    schemaVersion: 4,
     relativePath: "context/entity-context.sqlite",
   };
 
@@ -98,7 +98,7 @@ describe("Desktop session context reference", () => {
     const value = { ...reference, kinds: ["audio-observation/v1"] };
     for (const invalid of [
       { ...value, schemaVersion: 1 },
-      { ...value, schemaVersion: 4 },
+      { ...value, schemaVersion: 5 },
       { ...value, relativePath: "../foreign.sqlite" },
       { ...value, sql: "SELECT * FROM entries" },
     ]) {

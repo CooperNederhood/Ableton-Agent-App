@@ -462,6 +462,8 @@ export function createSessionListeningServices(
             synchronization: "transport-coupled-first-iteration",
           },
         });
+      if (metricBinding.config.mode !== "session")
+        deny("session_metric_configuration_required");
       const capturePlan = {
         metricBinding,
         geometry: metricBinding.config.geometry,

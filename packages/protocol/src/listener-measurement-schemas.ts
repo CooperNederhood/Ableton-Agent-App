@@ -48,7 +48,7 @@ export const listenerMeasurementDeclarationSchema = z
       ((envelope || spectrum) &&
         (value.algorithmVersion !== "2.0.0" ||
           value.width !== (envelope ? 16 : 6) ||
-          value.capacity !== (envelope ? 16 : 32)))
+          value.capacity !== (envelope ? 16 : 128)))
     ) {
       ctx.addIssue({
         code: "custom",

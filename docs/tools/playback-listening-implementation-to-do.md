@@ -1,5 +1,176 @@
 # Playback Listening Implementation To-Do
 
+## Long-form Arrangement listening
+
+- [x] Intake an owned copy and inspect the supplied Arrangement offline:
+      `Drums-audio`, beats 0–384 at 128 BPM, exactly 180 seconds. Preserve
+      source hashes, existing tracks/returns and explicit loaded-state unknowns.
+- [x] Obtain exact fixture/asset approval before freezing or registration.
+      The user also approved isolated three-minute execution; this is permission,
+      not loaded-baseline or capture evidence.
+- [x] Carry all six metric families through continuous native acquisition,
+      bounded incremental transport and durable chunked context publication,
+      without intermediate playback seeks, analyzer resets or recapture.
+- [ ] Admit up to 600 seconds using explicit negotiated Arrangement capability;
+      preserve existing Session capture scope and source/proof guards.
+- [x] Define separate explicit continuous Arrangement geometry and bounded
+      six-family record/gap chunks, independent per-metric sequence/offset/digest
+      validation, immutable attributed identity, compact terminal manifests,
+      algorithm availability, exact trailing supports and native proof
+      verification without rebuilding a terminal measurement JSON object.
+- [x] Define distinct native continuous command admission with explicit
+      capability/mode, exact local DSP grid and bounded chunk/queue settings;
+      reject legacy/Session scope and translated final source geometry.
+- [x] Add distinct continuous ready/arm proofs and shared control unions, reusing
+      unchanged ABI/readiness/source/ownership/seal/freshness/launch guards with
+      explicit long readback bounds, without widening bounded or Session proof
+      contracts.
+- [x] Admit the continuous registration capability only with explicit v6
+      producer status, full 600-second/all-six executed configuration and
+      matching ABI3/rate/vector evidence, preserving v5 and Session limits.
+      Keep actual native integration/qualification as separate enabling gates.
+- [x] Advertise continuous support in the actual opt-in ingress descriptor and
+      hello acknowledgement, not only in registration schemas. The owned
+      `run-2egufy` diagnostic found the updated producer refusing the stale
+      three-capability descriptor before connection. Preserve its interrupted,
+      nonqualifying status; the descriptor regression is red without the fix
+      and the full 196-test signal-routing suite passes with it.
+- [x] Remove the ambiguous universal thirty-second instruction from production
+      agent guidance. `run-eQJNVh` passed handoff/baseline but the agent refused
+      the three-minute request without capture. State the negotiated 600-second
+      Arrangement path explicitly while preserving Session and bounded limits;
+      the guidance regression is red without the fix and all 147 tools tests pass.
+- [x] Make Arrangement action ownership explicit after `run-czsOjt` requested
+      an out-of-scope standalone seek: call the listening action directly and
+      let it position/start once. Expose actual bounded registration capabilities
+      through the existing typed discovery read without claiming native
+      readiness or weakening approvals. Preserve the failed receipt and cleanup;
+      demonstrate guidance/discovery regressions red before their fixes.
+- [x] Separate the eight-pending-chunk guard from the general ingress message
+      queue. After `run-mFUgYU` streamed 49 chunks/about 35.25 seconds before a
+      disconnect, reproduce rejection of a coalesced native-progress burst.
+      Preserve the eight-chunk bound (including active durable delivery),
+      generic message bounds and fatal overflow; all 198 signal-routing tests
+      pass. Real three-minute terminal qualification remains pending.
+- [x] Remove the separate unqualified stock pitch/shape diagnostic forty-second
+      abort from continuous passes. Preserve finite physical/Node delivery
+      quotas derived from the admitted duration, unchanged bounded/Session
+      quotas, bounded progress events, unqualified evidence labels and owned
+      stop acknowledgements. Regress physical-gate/Node three-/ten-minute
+      operation, invalid scope, overflow and cancellation cleanup.
+- [x] Apply the explicit continuous native execution deadline to spectral FIFO
+      elapsed diagnostics, not the old 120-second bounded-pass guard.
+      `run-A4Ei14` retained about 110.51 seconds before exposing this boundary;
+      regress long-duration acceptance, exact finite overflow and unchanged
+      bounded-mode rejection before rerunning the same smoke.
+- [x] Validate actual long diagnostic events against the shipping lifecycle
+      wire schema after `run-sTnnsx` exposed its inherited elapsed ceiling.
+      Keep continuous elapsed time finite and bounded-mode ingress at 120 seconds;
+      regress both paths (199 signal-routing and 1,079 native tests pass).
+- [x] Preserve `run-H1lVxa`: full three-minute/six-metric acquisition and cleanup,
+      but failed acceptance attribution and no restart qualification. Regress
+      actual tool-call causation versus user-message identity and absolute host
+      sample endpoints versus zero-based offsets without changing the reviewed
+      source/count/permission contract.
+- [x] Obtain approval for exact phase-aware centroid framing after `run-P5RalY`
+      completed acquisition with 4,219 valid centroid records. Independently
+      calculate the one expected count from verified native phase/range;
+      preserve all other counts and reject missing/extra records or phase proof.
+- [x] Reproduce `run-jn3ISH` spectral FIFO exhaustion using actual generated DSP
+      with a delayed control reader before correcting the fixed ring to 128
+      frames/10,240 bytes. Cover both sample rates, ordered draining, finite
+      overflow/no overwrite, matching declarations and actual overflow cleanup.
+- [x] Reproduce loss of the precise reader rejection after routine progress
+      exhausts its quota. Reserve one bounded, attributable decoded rejection
+      with current/prior scalar facts; regress duplicate suppression.
+- [x] Resume the reviewed smoke with focused regression fixes between runs.
+      `run-ZAsrAt`/`run-cVitOp` exposed primary envelope DSP-control rejection
+      before the secondary spectral cleanup failure. Reproduce reordered
+      independent ACK/request Params in generated DSP; require executed request
+      readback before ACK, one outstanding ACK, unchanged native guards and
+      sustained FFT throughput. Preserve bounded primary failure coordinates
+      through the runtime codec and wait for the envelope's final executed ACK.
+- [x] Reproduce `run-swFSvX` stale stopped-clock bracket after a scheduling pause.
+      Gather 32 fresh rows without widening the one-second proof limit or stage
+      budgets. Full native owning suite: 1,087 passing tests.
+- [x] Pass unchanged three-minute `run-S4Cl1H` on Live Suite 11.3.43/48 kHz:
+      251 verified chunks, all six exact metric counts, source/protected-state
+      assertions, capture cleanup/playback running, original-record persistence
+      across owned Desktop restart without recapture, and final runner cleanup.
+      Preserve earlier failures; no ten-minute or visual UX qualification claim.
+- [x] Keep terminal native cleanup separate from host transport state: require
+      confirmed inactive capture/disabled bank while Arrangement playback
+      remains running, with a demonstrated red/green terminal clock regression.
+- [x] Export reusable synthetic terminal-proof and bounded reentrant chunk
+      fixture helpers through protocol/testing so downstream storage/runtime
+      tests share the exact current proof contract without giant timeline
+      fixture arrays or real-host qualification claims.
+- [x] Derive existing typed listener/job summaries directly from verified stream
+      manifests with explicit long per-family counts and native failure status,
+      without reconstructing complete observations.
+- [x] Export the shared finite 900-second Arrangement execution ceiling and
+      explicit requested/captured/durably persisted sample/queue lifecycle
+      progress, retaining unknown values and unchanged Session limits.
+- [x] Provide canonical geometry-input-only persisted admission and validated
+      descriptor compaction/expansion with identical identity/digest, avoiding
+      copied reporting rows in staged metadata or terminal manifests.
+- [x] Define compact continuous native config, ready/arm and registration wire
+      helpers; expand exact geometry before unchanged proof validation and
+      regress the 600-second/999-BPM geometry exceeding the 2-MiB frame budget.
+- [x] Share completed native source arithmetic between legacy and continuous
+      preterminal source validators; preserve the unchanged DSP launch scope and
+      reject forged completion receipts, missing owner pins and wrong scopes.
+- [ ] Wire compact native control/proof/registration encoding and authenticated
+      decoding at producer/runtime boundaries; verify actual maximum-tempo
+      envelopes without increasing frame limits.
+- [x] Cover full 600-second synthetic chunk roundtrips, short/Session denial,
+      loss/replay/byte limits, cancellation, detector replay and native
+      geometry/alignment/phase/cleanup proof guards in protocol regressions.
+- [ ] Integrate the continuous capability with actual native generation,
+      authenticated backpressure/acknowledgements, atomic staged SQLite prefix
+      commits/publication and typed paginated six-family original-record reads.
+- [x] Extend the Arrangement execution allowance to 900 seconds without
+      enlarging the 300-second Session execution budget; cover success,
+      cancellation and upper-bound denial.
+- [x] Add an explicit manifest-based coordinator capture branch, separate from
+      whole observations. Require matching pass/listener/trace ownership,
+      Arrangement mode and stream validation/publication services; share the
+      cleanup and post-cancellation commit gate. Reject empty/rejected streams
+      without observation fallback and preserve leave-running cancellation.
+- [x] Add typed durable-coverage progress through application, tool, Desktop main,
+      preload/event and renderer boundaries. Reject invalid/regressing counters
+      and distinguish progress from terminal verification. Four new deadline
+      assertions and the renderer coverage regression fail without their fixes;
+      the broader 814 owning tests and four Arrangement Electron outcomes pass.
+      Native progress production remains part of the end-to-end integration.
+- [ ] Relax SQLite and related aggregate storage quotas as needed. Do not make
+      storage optimization or an upfront sizing exercise a prerequisite.
+- [ ] Expose attributable lifecycle/progress, bounded typed overview and original
+      measurement reads, terminal validation, cancellation and physical cleanup.
+- [ ] Extend the shared packaged acceptance driver for independently verified
+      Arrangement source/range coverage; do not introduce a bespoke runner.
+- [ ] Complete red/green regressions and broader owning suites, then execute
+      only separately approved real-host coverage and the visible UX loop.
+      Keep three-minute and ten-minute qualification claims distinct.
+      The registered three-minute fixture passes validation. Its first actual
+      attempts exposed packaging/signing setup failures, now addressed by the
+      locally signed candidate and pinned-payload signing exclusion. Live then
+      blocked on recovery of the generated test Set; `run-S2JgDR` and
+      `run-HJMJqt` retain cancelled receipts with complete cleanup and no
+      executed listening turn. The user cleared Live startup afterward.
+      `run-b32oj4` and `run-v1XOYv` then failed at Desktop's first-window
+      deadline, still before listening. `run-2egufy` reaches the automation
+      endpoint using the real installed token through the supported ephemeral
+      environment source, as in historical listening qualification. Do not
+      claim successful OS-vault startup or audio qualification from that
+      setup milestone.
+      After the ingress fix, `run-Hg1jKt` passes listener readiness but blocks
+      at `listening.inspect_arrangement_source`, absent from the older installed
+      Remote Script. It has complete terminal cleanup and no executed turn.
+      The canonical updater then installed the candidate's bundled Python
+      while Live was closed, preserving the existing token and backup; fixture
+      listener replacement alone is not a Remote Script installation.
+
 ## Current-build native failure investigation
 
 - [x] Rerun historical quantized MIDI case on the current candidate; preserve

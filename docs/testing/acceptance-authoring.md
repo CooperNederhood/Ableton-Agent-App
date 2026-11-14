@@ -11,6 +11,215 @@ packages, and runs the test. Computer-use fixture creation is not required.
 The [integration testing summary](integration-testing-summary.md) explains the
 architecture. The [test strategy](test-strategy.md) defines evidence boundaries.
 
+Packaged startup failures must return through the coordinator so failed receipts
+and owned Live cleanup still run. The Electron launcher narrowly contains the
+installed Playwright stderr-wait orphan rejections during startup, preserves the
+primary launch error, and removes its process listener after that launch settles.
+Unrelated unhandled rejections retain normal failure behavior. Playwright launch
+artifacts stay inside the owned acceptance run directory.
+
+## Fixed-tempo single-track Arrangement acceptance
+
+An explicitly reviewed first-step `setupActions: ["back-to-arrangement"]`
+prepares an Arrangement source before baseline admission. This is a declared
+source handoff, not permission for implicit repairs. It requires Arrangement
+driver capability, exactly one declared Arrangement source and owned processes.
+Read independently before dispatch: transport stopped, recording disabled and
+no playing or queued Session clips. Dispatch the existing
+`transport.back_to_arrangement` operation once, without seek or playback start,
+then verify Arrangement eligibility, stopped transport, unchanged clips,
+media/track identities, beat, tempo and protected source settings. Retain the
+attributed setup evidence and normal queued/started/terminal timing. Failure or
+cancellation prevents submission; never retry the handoff. Other setup actions
+retain their existing preceding-turn requirements. An undeclared or later
+handoff cannot normalize a failed baseline.
+
+The shared integration contract now distinguishes `ArrangementFixtureSource`
+and `ArrangementSourceIdentity` from Session slots. A bounded optional
+`arrangementSources` inventory describes one regular audio track, its exact
+top-level listener binding, fixed tempo, beat range, and ordered saved clip
+IDs/media targets. Clips must exactly tile that range: gaps, overlaps,
+duplicates, extra tracks and undeclared media are not admitted. Session source
+schemas, capabilities and tests remain separate and unchanged.
+
+`tests/electron/acceptance-arrangement.ts` provides a reusable independent
+saved/loaded/media read seam, not a bespoke runner. `readSavedArrangementSource`
+inspects the exact Live 11 regular audio track's
+`MainSequencer/Sample/ArrangerAutomation/Events/AudioClip` entries; it excludes
+Session clips and returns, records saved provenance and Set hash, and never
+rewrites bytes. It intentionally does **not** establish loaded global record,
+transport, tempo automation, source readiness or clip playback settings.
+Providers must read those independently and verify actual owned media bytes,
+paths and header sample rates. Admission pins saved/loaded Set hashes to the
+verified staged or candidate-prepared Set, compares each saved and loaded clip
+ID/range/media independently, and requires loaded observation brackets with
+explicit current beat, target arm/monitor state, fixed tempo, stopped transport,
+loop off, no Session override/queued playback and both global recording states
+off. Missing fields are failures, never false defaults or silent fixture repairs.
+The seam propagates run/trace/correlation/causation IDs, emits bounded
+queued/started/progress/terminal and cleanup timing events, honors finite read
+and cleanup deadlines/cancellation, and retains primary plus cleanup failures.
+Read providers must honor the supplied context cancellation and release their
+handles through `close`; this seam does not create host processes.
+
+The `arrangement-listening` assertion requires `sourceId`, independently
+reviewed `hostSampleRate`, explicit `playbackAfterCapture` (`playing` or `stopped`),
+and positive `records.<metric-name>` counts for every
+required metric. Spectral centroid also accepts the explicitly reviewed
+`"verified-fft-phase"` expectation: derive the exact frame count from the
+native-proof-verified first FFT endpoint, 2,048-sample hop and independently
+verified host range. This is not a two-value tolerance or a copied result count;
+one missing, extra or duplicated frame still fails. Other metrics require
+positive integer counts. Counts must come from the agreed framing/metric contract,
+not captured totals. It requires exactly one attributable capture, exact
+operation/trace/correlation/causation/listener ownership, ordered source
+identities and ranges, independent host frame coverage, complete non-silent
+per-metric counts/ranges/source identities, and separate capture release,
+source ownership release and the reviewed post-capture playback state.
+The capture's causal parent is the actual listening tool call, not the user
+message: independently join the scoped Desktop approval's operation, session,
+agent, conversation and SDK trace/correlation to its tool-call ID, then require
+that ID in both the listening job and persisted descriptor. Retain the joined
+ID in typed turn facts; absent, ambiguous or different ownership fails.
+Sample positions are absolute host-clock positions, not offsets from beat zero.
+Require finite integer endpoints with exactly the independently derived frame
+span and identical endpoints for every metric; the descriptor's source range
+and native proof separately establish the reviewed Arrangement beat range.
+Capture release does not imply stopping transport: the approved draft requires
+playback left running until eventual owned-process teardown. `complete: true` cannot
+override missing/truncated records or cleanup failure. These are typed
+acceptance-evidence checks. Reviewed-live fixtures additionally require
+`verifyPersistedArrangementStream`: reconstruct the canonical geometry from the
+compact stored descriptor, enumerate every original chunk with bounded global
+storage cursors, independently validate each sequence/digest/record and the
+terminal native proof, and compare the replayed state with persisted counters.
+No completion flag or publication receipt substitutes for those reads.
+`arrangement-persistence` compares original-record, manifest and descriptor
+digests, context/pass/listener identity and chunk count after an owned Desktop
+restart, and rejects recapture or a missing original/restored inventory.
+
+After `run-P5RalY` completed another full three-minute capture but exposed
+4,219 valid centroid frames rather than the fixed 4,218 fixture assumption,
+the user explicitly approved this phase-aware centroid-only expectation.
+The prompt, source range, all other metric counts, permissions, persistence
+and cleanup requirements remain unchanged. Preserve both that failed receipt
+and `run-H1lVxa`; neither is retroactively classified as a passing smoke.
+
+The public read-only `listening.inspect_arrangement_source` bridge command
+returns exact target/range/query echoes, loaded project path, two message-rate
+transport/record/arm/monitor/override brackets, and bounded loaded audio clip
+identities, intervals, source metadata and settings. Unknown properties remain
+null, never assumed false. This is not sample-accurate evidence. Saved tempo
+manual/envelope values establish the fixed saved tempo independently; loaded
+tempo and the stream's native terminal clock/extrema establish actual capture
+conditions. Arbitrary hidden plug-in state is not certified.
+
+Exact scoped approvals can resolve `$source.trackId`, `$source.trackIndex`,
+`$source.startBeat`, `$source.endBeat` and `$source.listenerId` from admitted
+Arrangement evidence. `$source.clipId`/`$source.slotIndex` are Session-only;
+Arrangement ranges cannot substitute a single Session slot. Step, argument-key,
+risk, owner and use-count checks remain mandatory; unresolved or mixed source
+references deny approval.
+
+### Approved frozen fixture and implementation checklist
+
+The owned offline intake
+`.test-artifacts/fixture-authoring/draft-GZ618J/long-horizon-listening.als`
+and canonical `draft-GZ618J-intake.json` were frozen into
+`integration/fixtures/arrangement-long-form-listening/` and registered as
+`integration/acceptance-scenarios/arrangement-long-form-listening.json` in the
+shared suite. The frozen Set hash is
+`94b14e8f59f73760d7f6db0355d1cac0e904aa206320048bc0194b9a5f18e12e`.
+Only project-local file references were relocated to neutral
+`Samples/Imported/resource-*.aif` paths; musical content/settings were not
+repaired. All nine authorized media files are retained byte-for-byte.
+Terminal `run-S4Cl1H` passed this reviewed single case on 2026-11-14,
+Live Suite 11.3.43/48 kHz: all six families over exactly 8,640,000 samples,
+251 verified immutable chunks, protected-state assertions, capture cleanup
+with playback running, and original records/manifest/context ownership after
+an owned Desktop restart without recapture. Final runner cleanup completed.
+Earlier red receipts remain preserved; this recovered result does not qualify
+ten-minute captures, unrestricted reliability, or additional visual UX coverage.
+Saved XML identifies Live **11.3.43**, regular track index 1 `Drums-audio`,
+listener device index 0, and 24 adjacent 16-beat audio clips over beats 0–384.
+At 128 BPM this is 180 seconds: independently expected capture coverage is
+8,640,000 frames at a loaded 48 kHz host, or 7,938,000 at 44.1 kHz.
+The AIFF source rate is separately 48 kHz; source rate does not establish host
+rate. Saved beat 72, loop off, target armed and monitoring off must not be
+silently changed to fit the earlier Session baseline. Global Arrangement and
+Session Record still require loaded reads. Preserve `Drums-midi`, both returns,
+active factory 808 samples and Hybrid IRs; verify installed licensed content
+in place rather than redistributing it.
+
+On 2026-11-14 the user explicitly approved this exact copied Set and all nine
+project-local AIFF files as repository test assets. All **10** canonical intake
+inventory entries were independently rehashed and size-checked, totaling
+**11,495,846 bytes**; every entry matches. The immutable Set SHA-256 is
+`6d94204db069d3bdec0a8d4c5f7ca318de725934ee163d75b4f6b208eafd9865`;
+canonical intake receipt SHA-256 is
+`e281fb4839cff2275de9ce7dbdbe2236f2ce6a663518931c8ae2c9524cf28c9c`.
+The original project was not accessed or changed by this verification.
+Approval and fixture provenance are retained separately in
+`.test-artifacts/fixture-authoring/draft-GZ618J-approved-contract.json`;
+the frozen manifest retains that explicit authorized provenance.
+Its 69 active Core Library sample references and two Builtin Hybrid IRs have
+installed-path size/SHA-256 dependencies; factory files are not redistributed.
+
+The approved scope retains every track, MIDI content, both returns, routing and
+settings. Exact copied saved listener bindings are
+`MidiTrack:175/DeviceChain/DeviceChain/Devices/MxDeviceAudioEffect:1`
+(regular track 0, device 1) and
+`AudioTrack:176/DeviceChain/DeviceChain/Devices/MxDeviceAudioEffect:0`
+(regular track 1, device 0), both to be bound to the current candidate.
+After independently reading stopped/nonrecording/Arrangement-eligible state at
+saved beat 72, one approved action may position to beat 0, followed by exactly
+one play. Capture all six metric families with no gaps, duplicates, truncation,
+rearm or retry; independently verify full persisted chunks, then retained
+context after one owned Desktop restart with no recapture. Leave playback
+running. Budgets are 480 seconds for the capture turn, 900 seconds for the run,
+60 seconds for persistence and 60 seconds for cleanup.
+
+The user subsequently explicitly approved **one** reviewed isolated three-minute
+real-host smoke, conditional on completed implementation/build and passing
+deterministic readiness checks. Only the coordinating parent will execute it:
+one copied Set, one capture pass, dedicated Live 11 and isolated application
+profile, no original-project changes and no takeover of pre-existing user
+processes. This acceptance agent must not launch Live. The separate conditional
+execution authorization is recorded in the approval receipt above; it does not
+waive missing production APIs, contract assertions or readiness gates. No run
+has been performed by this workstream.
+
+- [x] Add reusable typed Arrangement definitions, independent source/media/range
+  evidence, exact approval placeholders, per-metric coverage and cleanup checks,
+  and synthetic success/denial/failure/cancellation regressions.
+- [x] Obtain explicit fixture/mutation contract and project-local asset
+  authorization, verify complete intake hashes and exact saved listener slots,
+  and preserve approval provenance. Encode reviewed messages and exact
+  action/argument scopes only when supported.
+- [x] Obtain conditional real-host approval for one isolated reviewed pass,
+  executed only by the coordinating parent after implementation/build completion
+  and deterministic readiness.
+- [x] Add production read-only protocol/bridge/Remote Script source inspection
+  and concrete driver baseline/protected-source verification.
+- [x] Add original per-metric chunk verification and owned-restart equality;
+  Session observation parsing remains a separate branch.
+- [x] Freeze authorized assets and register the exact reviewed scenario.
+- [ ] Complete parent-owned Desktop public forwarding:
+  `ableton.inspectArrangementListeningSource(params)`,
+  `entityContext.getMetricCapture({sessionId, contextId})`, and
+  `entityContext.listMetricChunks({sessionId, captureId, afterSequence, limit,
+  maxBytes})`. These are typed bounded reads, never raw renderer SQL/filesystem
+  access. Admission checks method availability before submitting any capture.
+- [ ] Coordinating parent confirms production/native/build readiness, runs
+  `pnpm live:acceptance --scenario arrangement-long-form-listening` exactly once,
+  and records actual Live version, independent postconditions and owned cleanup.
+
+The packaged driver advertises dedicated `arrangement-audio`; it still rejects
+missing/mismatched loaded evidence before turn submission. Missing APIs or
+native capability block a run rather than substituting Session capture,
+flattening streamed records or inferring success from assistant text.
+Conditional approval and synthetic tests are not execution evidence.
+
 ## Two-MIDI-track listener smoke (#113)
 
 `session-two-midi-listening` uses the user-approved saved Operator/808 Set,
@@ -91,8 +300,11 @@ precondition or saved fixture value is relaxed or repaired.
 The fixed native candidate's `run-N92QN6` exposed a separate startup-budget
 bug: owned Live started at 23:13:56 and logged its Remote Script listener at
 23:14:57.155, just outside the driver's hardcoded 60-second readiness cap.
-Live readiness now consumes the scenario's existing remaining overall budget
-and receives its cancellation signal. No manifest budget, capture deadline,
+Live readiness receives the cancellation signal and is bounded by the smaller
+of 120 seconds and the scenario's remaining overall budget. It does not spend a
+15-minute Arrangement run budget waiting on an unidentified startup modal.
+No dialog dismissal or recovery discard is authorized by this deadline.
+No manifest budget, capture deadline,
 source assertion or recovery-discard policy changes. This is separate from the
 earlier Desktop shutdown during `run-WVTVNu`; neither is a native-fix verdict.
 

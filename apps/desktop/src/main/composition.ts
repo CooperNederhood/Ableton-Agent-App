@@ -39,6 +39,7 @@ import {
 import {
   createAgentRuntime,
   createListeningRuntimeHost,
+  createStorageMetricStreamPublication,
   RuntimeConfigurationError,
   type AgentRuntime,
   type ListeningRuntimeHost,
@@ -997,6 +998,8 @@ export async function createDesktopComposition(
             dependencies: Parameters<typeof createListeningRuntimeHost>[0],
           ) => {
             const host = createListeningRuntimeHost(dependencies, {
+              createMetricStreamPublication:
+                createStorageMetricStreamPublication,
               independentMetricListeners:
                 options.independentMetricListeners === true,
               contextPorts: contextHost,
@@ -1121,6 +1124,7 @@ export async function createDesktopComposition(
       : {
           entityContext: createDesktopContextReader({
             execute: contextHost.executeContextOperation,
+            resolveRepository: contextManager!.resolveRepository,
             telemetry,
           }),
         }),

@@ -10,6 +10,34 @@ import { DESCRIPTIVE_CLOCK_CODE } from "./host-timing-source.mjs";
 
 const require = createRequire(import.meta.url);
 const { createMetricEnvelopeIO } = require("./audio_listener_metric_io.js");
+test("shared DSP control rejection retains the first failing family and bounded FIFO coordinates", () => {
+  const h = harness();
+  h.begin();
+  h.arm();
+  let rejected;
+  h.run({
+    mutate(output) {
+      if (!rejected && h.records.some((record) => record.family === "level")) {
+        output[29] = 2;
+        rejected = output.slice(20, 42);
+      }
+    },
+  });
+  assert(rejected);
+  const failure = h.events.find(
+    (event) =>
+      event.family === "control" && event.reason === "shared_dsp_control",
+  );
+  assert(failure);
+  assert.equal(failure.progress.family, "level");
+  assert.equal(failure.progress.readerReason, "invalid_dsp_control");
+  assert.equal(failure.progress.requestedSequence, rejected[2]);
+  assert.equal(failure.progress.produced, rejected[7]);
+  assert.equal(failure.progress.acknowledged, rejected[8]);
+  assert.equal(failure.progress.fault, 2);
+  assert.equal(Object.keys(failure.progress).length, 9);
+  assert(Object.isFrozen(failure.progress));
+});
 const owner = Object.freeze({
   generation: "generation-1",
   passId: "pass-1",
@@ -71,6 +99,7 @@ function harness(g = geometry(), options = {}) {
     output = model.step(phase, ...pcm, counter++);
     return output;
   }
+
   function receipts(who = owner) {
     io.metric_configuration_frame(who, output.slice(8, 20), counter - 1);
     io.metric_timing_frame(who, output.slice(0, 8), counter - 1);
@@ -90,7 +119,11 @@ function harness(g = geometry(), options = {}) {
   function configure() {
     const configuration = { ...g };
     delete configuration.bounds;
-    return io.configure_metric(owner, configuration);
+    return io.configure_metric(
+      owner,
+      configuration,
+      options.continuous === true,
+    );
   }
   function arm(wait = 0) {
     configure();
@@ -118,7 +151,7 @@ function harness(g = geometry(), options = {}) {
         phase,
         sample >= 0 && sample < g.totalSamples ? pcm(sample) : [0, 0],
       );
-      if (sample % 16 === 0) {
+      if (sample % (options.pollSamples ?? 16) === 0) {
         receipts();
         if (mutate) mutate(output, sample);
         for (const family of ["level", "detector-level"])
@@ -171,6 +204,45 @@ function harness(g = geometry(), options = {}) {
 function pcm(sample) {
   return [sample % 7 === 0 ? -0.5 : 0.125, sample % 11 === 0 ? 0.75 : -0.25];
 }
+
+for (const seconds of [180, 600]) {
+  test(`${seconds}s continuous executed Gen and IO preserve one epoch and every independent musical/detector boundary`, () => {
+    const g = geometry(48000, 128, 0, (seconds * 128) / 60);
+    const f = harness(g, { continuous: true, pollSamples: 256 });
+    f.begin();
+    f.arm();
+    f.run();
+    const state = f.io.snapshot();
+    for (const [family, expected] of [
+      ["level", g.reportRowCount],
+      ["detector-level", seconds * 10],
+    ]) {
+      assert.equal(state.families[family].state, "completed");
+      assert.equal(state.families[family].accepted, expected);
+      const records = f.records
+        .filter((r) => r.family === family)
+        .map((r) => r.record);
+      assert.equal(records.length, expected);
+      let end = 0;
+      for (let i = 0; i < records.length; i++) {
+        const r = records[i];
+        assert.equal(r.sequence, i + 1);
+        assert.equal(r.epoch, 1);
+        assert.equal(r.sourceOriginCounter, f.origin);
+        assert.equal(r.startSample, end);
+        assert.ok(r.endSample > end);
+        end = r.endSample;
+      }
+      assert.equal(end, g.totalSamples);
+    }
+    assert.equal(
+      f.controls.filter((c) => c[1] === "epoch" && c[2] === 1).length,
+      1,
+    );
+    f.cleanup();
+    assert.equal(f.io.release(owner), true);
+  });
+}
 function reference(bounds) {
   return bounds.slice(1).map((end, i) => {
     const start = bounds[i];
@@ -195,8 +267,10 @@ function classicCleanupHarness({
   autoStart = true,
   transformFrame,
   onPacket,
+  configuration = geometry(),
+  continuous = false,
 } = {}) {
-  const g = geometry();
+  const g = configuration;
   const model = genModel(
     retainedMusicalEnvelopeSource().code,
     64,
@@ -283,7 +357,11 @@ function classicCleanupHarness({
   if (autoStart) {
     message("begin", ...prefix, 1, 100000);
     message("metric_poll");
-    message("configure_metric", ...prefix, ...Object.values(g).slice(0, -1));
+    message(
+      continuous ? "configure_metric_continuous" : "configure_metric",
+      ...prefix,
+      ...Object.values(g).slice(0, -1),
+    );
     message("arm", ...prefix);
     step();
     message("metric_poll");
@@ -377,6 +455,60 @@ function maxPrefixRecord(h, family, sequence = 1, prefix = h.prefix) {
   assert.equal(h.frames.at(-1).selector, "native_metric_prefix_record");
   return h.frames.at(-1).payload;
 }
+
+test("continuous Max handoff reuses only explicitly acknowledged slots across more than64 records", () => {
+  const h = classicCleanupHarness({
+    continuous: true,
+    configuration: geometry(48000, 120, 0, 20),
+  });
+  const next = { level: 1, "detector-level": 1 };
+  h.until((state) => {
+    for (const [family, health] of Object.entries(state.families))
+      while (next[family] <= health.accepted) {
+        const sequence = next[family]++;
+        assert.equal(
+          maxPrefixRecord(h, family, sequence).record.sequence,
+          sequence,
+        );
+        assert.equal(
+          h.message("metric_record_ack", ...h.prefix, family, sequence),
+          true,
+        );
+        assert.throws(
+          () => maxPrefixRecord(h, family, sequence),
+          /unavailable/,
+        );
+      }
+    return Object.values(state.families).every((f) => f.state === "completed");
+  });
+  assert.equal(next.level, 81);
+  assert.equal(next["detector-level"], 101);
+  assert.throws(
+    () => h.message("metric_record_ack", ...h.prefix, "level", 1),
+    /unavailable/,
+  );
+  h.cleanStop();
+  assert.equal(h.message("release", ...h.prefix), true);
+});
+
+test("continuous Max handoff full unacknowledged ring fails explicitly instead of overwriting records", () => {
+  const h = classicCleanupHarness({
+    continuous: true,
+    configuration: geometry(48000, 120, 0, 20),
+  });
+  h.until((state) =>
+    Object.values(state.families).every((f) => f.state === "failed"),
+  );
+  const state = h.snapshot();
+  for (const [family, health] of Object.entries(state.families)) {
+    assert.equal(health.accepted, 64);
+    assert.equal(health.reason, "consumer_rejected");
+    assert.equal(maxPrefixRecord(h, family, 1).record.sequence, 1);
+    assert.equal(maxPrefixRecord(h, family, 64).record.sequence, 64);
+    assert.throws(() => maxPrefixRecord(h, family, 65), /unavailable/);
+  }
+  h.cleanStop();
+});
 
 test("active prefix getter hands off only accepted native-origin records before clean stop, without another ACK", () => {
   const h = classicCleanupHarness();

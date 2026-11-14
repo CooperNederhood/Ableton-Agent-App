@@ -7,6 +7,7 @@ import {
   safeRelativePath,
 } from "./validation.js";
 import type { AssertionInput, FixtureManifest } from "./contracts.js";
+import type { ArrangementStreamProof } from "./arrangement-stream.js";
 
 /** Dedicated Arrangement capability; Session source and duration contracts remain unchanged. */
 export const ARRANGEMENT_AUDIO_CAPABILITY = "arrangement-audio" as const;
@@ -74,7 +75,7 @@ export interface ArrangementLoadedState {
   readonly queuedSessionClips: 0;
 }
 export interface ArrangementCaptureEvidence {
-  readonly stream?: import("./arrangement-stream.js").ArrangementStreamProof;
+  readonly stream?: ArrangementStreamProof;
   readonly passId: string;
   readonly operationId: string;
   readonly traceId: string;

@@ -262,14 +262,11 @@ export async function handoffArrangementSource(input: {
     assertLoadedArrangementState(state, after.clips);
   const unaffected = (
     state: InspectArrangementListeningSourceResult["before"],
-  ) => {
-    const {
-      globalBackToArrangement: _override,
-      arrangementEligible: _eligibility,
-      ...rest
-    } = state;
-    return rest;
-  };
+  ) => ({
+    ...state,
+    globalBackToArrangement: false,
+    arrangementEligible: false,
+  });
   if (
     JSON.stringify(before.clips) !== JSON.stringify(after.clips) ||
     JSON.stringify(unaffected(before.after)) !==

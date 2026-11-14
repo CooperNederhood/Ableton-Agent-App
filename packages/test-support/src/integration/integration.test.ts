@@ -50,7 +50,7 @@ import type {
 } from "./index.js";
 
 const { awaitElectronLaunch } = await vi.importActual<{
-  awaitElectronLaunch<T>(start: () => Promise<T>): Promise<T>;
+  awaitElectronLaunch: <T>(start: () => Promise<T>) => Promise<T>;
 }>("../../../../tests/electron/acceptance-launch.js");
 
 const digest = (value: string) =>

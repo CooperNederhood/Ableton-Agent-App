@@ -311,12 +311,13 @@ describe("production v5 Arrangement listening host with synthetic native peer", 
         {
           capabilities: continuous.registration.capabilities,
           ready: false,
-          limitations: expect.arrayContaining([
-            "native_per_pass_validation_required",
-          ]),
         },
       ],
     });
+    expect(result).toHaveProperty(
+      "listeners.0.limitations",
+      expect.arrayContaining(["native_per_pass_validation_required"]),
+    );
     expect(f.requestListenerControl).not.toHaveBeenCalled();
     expect(f.positionListeningPlayback).not.toHaveBeenCalled();
     expect(f.startListeningPlayback).not.toHaveBeenCalled();

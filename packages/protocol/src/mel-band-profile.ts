@@ -13,20 +13,16 @@ export const MEL_BAND_DENOMINATOR_FLOOR = 1e-12;
 export const MAX_MEL_BAND_MAGNITUDE = 64 * 2_048 * 1_025;
 const maximumRegionalSum = 24 * MAX_MEL_BAND_MAGNITUDE;
 const maximumRatio = maximumRegionalSum / MEL_BAND_DENOMINATOR_FLOOR;
-const melConstant = 1127.01048;
-const toMel = (hz: number) => melConstant * Math.log(1 + hz / 700);
-const lowerMel = toMel(20);
-const upperMel = toMel(20_000);
-const points = Array.from({ length: 26 }, (_, index) => {
-  // Keep the specified endpoints exact despite inverse-transform roundoff.
-  if (index === 0) return 20;
-  if (index === 25) return 20_000;
-  return (
-    700 *
-    (Math.exp((lowerMel + ((upperMel - lowerMel) * index) / 25) / melConstant) -
-      1)
-  );
-});
+// Pin serialized profile identity: Math.exp/log can round differently across V8 versions.
+const points = [
+  20, 123.52731848625925, 241.94061707384537, 377.38032021127265,
+  532.2946195742453, 709.4837272819768, 912.1504921924226, 1143.9582942104569,
+  1409.097263099492, 1712.3600187597683, 2059.228302045408, 2455.9720620484027,
+  2909.762790939266, 3428.803154991234, 4022.4752649826905, 4701.51026609567,
+  5478.182312796898, 6366.530434967874, 7382.612305709211, 8544.794497895482,
+  9874.084476122756, 11394.510325095225, 13133.55507837506, 15122.653498369704,
+  17397.760287291167, 20_000,
+] as const;
 const regionForCenter = (hz: number): "low" | "mid" | "high" =>
   hz < 250 ? "low" : hz < 2_000 ? "mid" : "high";
 const bands = Object.freeze(

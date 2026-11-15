@@ -2,6 +2,24 @@
 
 Companion specification: [Packaging and Operations](packaging-and-operations.md)
 
+## Native macOS startup recovery
+
+- [x] Match the installed startup crash to the upstream null power-notification
+      port failure and pin Electron 43.8.10 with the supported-branch fix.
+- [x] Assert the actual packaged runtime version in the startup smoke.
+- [x] Give the packaged startup smoke its own rejecting bridge and signal ports
+      so it can run without colliding with the user's normal running app.
+- [x] Pin canonical mel metadata against V8 transcendental rounding differences;
+      reproduce with a perturbed-math regression and preserve strict validation.
+- [x] Verify all 23 source-mode Electron tests, 1,016 protocol tests, packaged
+      startup and immutable native-plugin bytes. The wider packaged run was not
+      green: x64 artifacts were absent, integration installation was blocked by
+      the user's running Live, and OS-vault startup awaited Keychain access.
+- [x] Install the arm64 runtime and inspect normal visible startup after the
+      user completed Keychain authorization: default profile, ready composer,
+      connected Live 11.3.43. Preserve the user's profile and project; do not
+      claim a new real-Live capture or full packaged-suite qualification.
+
 ## F4 stock pitch smoke (#95)
 
 - [x] Pin the minimal signed stock pitch bundle and reference from the existing

@@ -104,25 +104,55 @@ test("launches the generated production application", async () => {
     environment: { LIVE_AGENT_HOME: join(profile, "live-agent") },
     profile: "default",
   });
-  const application = await electron.launch({
-    executablePath: await packagedExecutable(),
-    args: [`--user-data-dir=${join(profile, "electron")}`],
-    cwd: process.cwd(),
-    env: finderLikeEnvironment({
-      ABLETON_AGENT_TOKEN: syntheticBridgeToken,
-      LIVE_AGENT_HOME: join(profile, "live-agent"),
-      LIVE_AGENT_PROFILE: "default",
-      NODE_ENV: "production",
-    }),
-  });
-
+  const bridge = createServer((socket) => socket.destroy());
+  const signal = createServer();
+  let application: Awaited<ReturnType<typeof electron.launch>> | undefined;
   try {
+    await new Promise<void>((done) => bridge.listen(0, "127.0.0.1", done));
+    await new Promise<void>((done) => signal.listen(0, "127.0.0.1", done));
+    const bridgeAddress = bridge.address();
+    const signalAddress = signal.address();
+    if (
+      !bridgeAddress ||
+      typeof bridgeAddress === "string" ||
+      !signalAddress ||
+      typeof signalAddress === "string"
+    )
+      throw new Error("Missing isolated packaged startup ports");
+    await mkdir(dirname(storage.preferencesPath), { recursive: true });
+    await writeFile(
+      storage.preferencesPath,
+      JSON.stringify(
+        preferencesSchema.parse({
+          abletonPort: bridgeAddress.port,
+          signalPort: signalAddress.port,
+        }),
+      ),
+      { mode: 0o600 },
+    );
+    await new Promise<void>((done, reject) =>
+      signal.close((error) => (error ? reject(error) : done())),
+    );
+    application = await electron.launch({
+      executablePath: await packagedExecutable(),
+      args: [`--user-data-dir=${join(profile, "electron")}`],
+      cwd: process.cwd(),
+      env: finderLikeEnvironment({
+        ABLETON_AGENT_TOKEN: syntheticBridgeToken,
+        ABLETON_AGENT_PORT: String(bridgeAddress.port),
+        LIVE_AGENT_HOME: join(profile, "live-agent"),
+        LIVE_AGENT_PROFILE: "default",
+        NODE_ENV: "production",
+      }),
+    });
     const runtime = await application.evaluate(({ app }) => ({
       appPath: app.getAppPath(),
       isPackaged: app.isPackaged,
       resourcesPath: process.resourcesPath,
+      electronVersion: process.versions.electron,
     }));
     expect(runtime.isPackaged).toBe(true);
+    expect(runtime.electronVersion).toBe("43.8.10");
     expect(runtime.appPath).toMatch(/app\.asar$/u);
     await expect(
       access(join(runtime.resourcesPath, "agents")),
@@ -156,7 +186,15 @@ test("launches the generated production application", async () => {
     );
     expect(descriptor).toMatchObject({ listenerVersions: [5] });
   } finally {
-    await application.close();
+    await application?.close();
+    if (signal.listening)
+      await new Promise<void>((done, reject) =>
+        signal.close((error) => (error ? reject(error) : done())),
+      );
+    if (bridge.listening)
+      await new Promise<void>((done, reject) =>
+        bridge.close((error) => (error ? reject(error) : done())),
+      );
     await expect(
       access(storage.signalIngressDescriptorPath),
     ).rejects.toMatchObject({ code: "ENOENT" });

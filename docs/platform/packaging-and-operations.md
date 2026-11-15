@@ -51,6 +51,26 @@ installation. The installer deliberately uses the validated host `dir` path.
 
 ## Distribution
 
+### macOS native startup crash
+
+The desktop runtime is pinned to Electron 43.8.10, which includes the upstream
+fix for a native startup crash when macOS refuses sleep/wake notification
+registration (electron/electron#54490, backport electron/electron#54597).
+Electron 37.2.6 can segfault in `IONotificationPortGetRunLoopSource` before
+application JavaScript or logging starts. A successful isolated launch does not
+exclude this intermittent failure. Packaged startup coverage verifies the actual
+runtime version, not just the dependency manifest. This runtime change does not
+alter profiles, credentials, projects, or listening payloads.
+
+Canonical mel profile frequencies are stored as explicit constants rather than
+recomputed using runtime-specific transcendental rounding. Their exact existing
+serialized identity and strict validation are preserved across Node and Electron.
+On 2026-11-14 the updated arm64 app passed all 23 source-mode Electron tests and
+the packaged startup/native-plugin integrity checks. After the user completed
+macOS Keychain authorization, its normal installed window was observed ready,
+using the default profile and connected to Live 11.3.43. No user Set was mutated.
+This is startup recovery, not renewed real-Live listening qualification.
+
 ### Local real-Live release check
 
 Hosted CI and packaging do not run licensed Ableton. A successful build artifact

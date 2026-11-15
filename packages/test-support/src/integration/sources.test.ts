@@ -215,6 +215,43 @@ function admitted() {
 }
 
 describe("bounded independently declared MIDI source identity", () => {
+  it("keeps Arrangement target arm baseline separate from mixed Session selectors", () => {
+    const { manifest, definition } = admitted();
+    expect(
+      declaredSourceBaseline(
+        {
+          ...manifest,
+          arrangementSources: [
+            {
+              id: "arrangement",
+              view: "arrangement",
+              trackIndex: 1,
+              trackName: "Audio",
+              listenerBindingSlot: "slot",
+              startBeat: 0,
+              endBeat: 80,
+              tempoBpm: 128,
+              clips: [],
+            },
+          ],
+          baseline: {
+            currentSongTime: 0,
+            targetArmed: false,
+            targetMonitoring: "off",
+            loopEnabled: false,
+            backToArrangement: true,
+            arrangementRecord: false,
+            sessionRecord: false,
+          },
+        },
+        definition,
+      ),
+    ).toEqual({
+      currentSongTime: 0,
+      arrangementRecord: false,
+      sessionRecord: false,
+    });
+  });
   it("pins nested instrument parameters and pad assignments without pinning runtime IDs", () => {
     const flat = fixture();
     const rack = flat.instrumentChain.devices[0]!.device;
@@ -386,6 +423,7 @@ describe("bounded independently declared MIDI source identity", () => {
     "success",
     "source-quantization",
     "nested-tree",
+    "multiple-nested-trees",
     "oversized-tree",
     "wrong-notes",
     "wrong-instrument",
@@ -400,8 +438,13 @@ describe("bounded independently declared MIDI source identity", () => {
       const success =
         mode === "success" ||
         mode === "source-quantization" ||
-        mode === "nested-tree";
-      if (mode === "nested-tree" || mode === "oversized-tree") {
+        mode === "nested-tree" ||
+        mode === "multiple-nested-trees";
+      if (
+        mode === "nested-tree" ||
+        mode === "multiple-nested-trees" ||
+        mode === "oversized-tree"
+      ) {
         const chain = evidence.midi.instrumentChain;
         const rack = chain.before.devices[0]!;
         rack.canHaveChains = true;
@@ -460,6 +503,30 @@ describe("bounded independently declared MIDI source identity", () => {
         evidence.midi.source.settings.launchQuantization = 5;
         Object.assign(evidence.facts, { clipLaunchQuantization: "bar" });
       }
+      const definitions = [definition];
+      const sourceEvidence = { [definition.id]: evidence };
+      if (mode === "multiple-nested-trees") {
+        for (let index = 1; index < 4; index++) {
+          const id = `midi-source-${index}`;
+          const copy = structuredClone(evidence);
+          const sceneIndex = index + 1;
+          const clipId = ref(300 + index);
+          Object.assign(copy.source, { clipId, slotIndex: sceneIndex });
+          Object.assign(copy.facts, { sceneIndex });
+          Object.assign(copy.midi.source.target, {
+            sceneIndex,
+            expectedClipReference: clipId,
+          });
+          Object.assign(copy.midi.midi.clip, { sceneIndex, reference: clipId });
+          for (const state of [copy.midi.source.before, copy.midi.source.after])
+            Object.assign(state, { playingSlotIndex: sceneIndex });
+          definitions.push({ ...definition, id, sceneIndex });
+          sourceEvidence[id] = copy;
+        }
+        expect(
+          Buffer.byteLength(JSON.stringify(sourceEvidence)),
+        ).toBeGreaterThan(2 * 1024 * 1024);
+      }
       const root = resolve(".test-artifacts", `midi-admission-${randomUUID()}`);
       const catalogRoot = join(root, "catalog"),
         workingRoot = join(root, "working");
@@ -479,24 +546,22 @@ describe("bounded independently declared MIDI source identity", () => {
             bytes: 3,
           },
         ],
-        sources: [
-          {
-            ...definition,
-            ...(mode === "source-quantization"
-              ? { clipLaunchQuantization: "bar" as const }
-              : {}),
-            midi: {
-              notesSha256:
-                mode === "wrong-notes"
-                  ? "0".repeat(64)
-                  : definition.midi.notesSha256,
-              instrumentChainSha256:
-                mode === "wrong-instrument"
-                  ? "0".repeat(64)
-                  : definition.midi.instrumentChainSha256,
-            },
+        sources: definitions.map((source) => ({
+          ...source,
+          ...(mode === "source-quantization"
+            ? { clipLaunchQuantization: "bar" as const }
+            : {}),
+          midi: {
+            notesSha256:
+              mode === "wrong-notes"
+                ? "0".repeat(64)
+                : definition.midi.notesSha256,
+            instrumentChainSha256:
+              mode === "wrong-instrument"
+                ? "0".repeat(64)
+                : definition.midi.instrumentChainSha256,
           },
-        ],
+        })),
       };
       const inventory = {
         schemaVersion: 1 as const,
@@ -558,7 +623,7 @@ describe("bounded independently declared MIDI source identity", () => {
               mode === "source-quantization"
                 ? { clipLaunchQuantization: "bar" }
                 : {},
-            sources: { [definition.id]: evidence },
+            sources: sourceEvidence,
             dependencyHashes: dependencyInventoryHashes(inventory),
           };
         },

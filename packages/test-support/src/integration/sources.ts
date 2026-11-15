@@ -31,8 +31,17 @@ export function declaredSourceBaseline(
   fixture: FixtureManifest,
   source: FixtureSource,
 ): Facts {
+  const baseline = { ...fixture.baseline };
+  if (fixture.arrangementSources?.length)
+    for (const key of [
+      "targetArmed",
+      "targetMonitoring",
+      "loopEnabled",
+      "backToArrangement",
+    ])
+      delete baseline[key];
   return {
-    ...fixture.baseline,
+    ...baseline,
     ...(source.clipLaunchQuantization === undefined
       ? {}
       : { clipLaunchQuantization: source.clipLaunchQuantization }),

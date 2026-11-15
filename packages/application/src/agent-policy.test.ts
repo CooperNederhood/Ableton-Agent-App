@@ -502,7 +502,41 @@ describe("agent policy", () => {
     expect(toolResult).toEqual(before);
   });
 
-  it.each(["stream-overview", "stream-records"])(
+  it("explains the inverted Back to Arrangement flag without changing observed transport state", async () => {
+    const hooks = createAgentHooks({ getAbletonStatus: async () => connected });
+    const toolResult = {
+      resultType: "success" as const,
+      textResultForLlm: JSON.stringify({
+        action: "get",
+        transport: { isPlaying: false, backToArrangement: true },
+      }),
+    };
+    const before = structuredClone(toolResult);
+    const result = await hooks.onPostToolUse?.(
+      {
+        sessionId: "sdk",
+        timestamp: new Date(),
+        workingDirectory: process.cwd(),
+        toolName: "ableton_transport",
+        toolArgs: { action: "get" },
+        toolResult,
+      },
+      { sessionId: "sdk" },
+    );
+    expect(result?.additionalContext).toContain(
+      "backToArrangement=true means Session override is active",
+    );
+    expect(result?.additionalContext).toContain(
+      "not that Arrangement is active",
+    );
+    expect(result?.additionalContext).toContain(
+      "false clears only the global override",
+    );
+    expect(result?.modifiedResult).toBeUndefined();
+    expect(toolResult).toEqual(before);
+  });
+
+  it.each(["stream-overview", "stream-records", "stream-summary"])(
     "keeps %s guidance coverage-first without demanding exhaustive record reads",
     async (action) => {
       const hooks = createAgentHooks({

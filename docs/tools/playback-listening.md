@@ -1,5 +1,128 @@
 # Playback Listening and Entity Context
 
+## Same-turn Session-to-Arrangement comprehension
+
+The five-listen fixture covers a sequence absent from the older two-MIDI test:
+four consecutive Session captures and one full Arrangement in a single user
+turn, without harness transport stops. The older case's between-turn setup
+cannot establish this workflow.
+
+Successful Session listening leaves transport running. Before another Session
+capture, the agent must prepare stopped transport through normal approval.
+Before a planned user-requested Arrangement capture, it must also restore Back
+to Arrangement through normal approval; stopping transport or switching views
+does not restore the source. These are pre-capture preparations, not permission
+to repair or retry a failed pass. Shared guidance leads with those prerequisites;
+completed leave-running Session results also carry bounded `nextCaptureGuidance`.
+Failed/cancelled results do not advertise a successful next-pass handoff.
+Whole-Arrangement bounds come from the requested track's actual clips, never
+the transport loop or a guessed default. No native admission guard is relaxed.
+
+`run-Jznu9M` completed all five captures on Live Suite 11.3.43, but failed during
+analysis when the agent attempted extra captures; required History also exceeded
+its evidence bound. Owned process/profile teardown succeeded independently.
+This is not a qualified answer or reproduction of the historical launch timeout.
+
+The narrow deterministic reproduction identified coarse sample-range reads:
+`stream-records` returned the beginning of each intersecting chunk instead of
+just the requested musical interval. It now filters original records and gaps
+by half-open support intersection before pagination, preserving their values,
+indices, complete boundary supports and original chunk digest. A coarse chunk
+match with no qualifying entry yields an empty projection and, when needed, a
+continuation, not a fabricated value or response-size failure. Query/ownership
+binding, cancellation, per-read storage limits and the 64-KiB tool budget remain
+enforced. Beat-to-sample conversion uses the overview's actual origin, tempo
+and sample rate. This adds no capture, whole-observation reconstruction,
+derived feature, storage location or new asynchronous stage.
+
+`run-Y8B5fx` again completed all five captures but exhausted its analysis turn
+while manually comparing raw arrays. A draft page-local aggregation in
+`run-ZQN5eC` still left partial-chunk comparisons cumbersome. The current
+`stream-summary` read instead aggregates a complete bounded mel passage across
+chunks using existing linear math: at most 256 frames, eight chunks and 1 MiB
+internally, with explicit rejection rather than partial means. It preserves
+descriptor/chunk identity, profile, availability and gaps. No draft page-only
+summary mode remains. Neither candidate established a correct final answer.
+
+The runner also reproduced its isolated app silently retaining a ten-minute
+turn setting despite the reviewed fifteen-minute scenario budget. It now writes
+the reviewed maximum step duration to the isolated profile and provenance,
+without extending scenario deadlines or changing the normal user's settings.
+`run-uBRGXJ` subsequently failed a Session preparation condition; ordinary
+capture guidance is not a guarantee of agent compliance.
+
+`run-6BTpzz` completed five captures and returned an incorrect repeated
+four-measure sequence. Its complete turn could not reach the answer assertion
+because a required trace exceeded 10,000 records despite being only 14,169,716
+bytes. A deterministic red test reproduces this evidence-capacity problem.
+The per-trace row cap is now 32,768 while per-trace and aggregate byte budgets
+remain 32 MiB; no events or assertions are dropped. This does not make the
+incorrect answer pass. Earlier failed receipts remain unchanged.
+
+`run-WH18Jn` exposed a source-state interpretation error before the Arrangement
+capture. Live 11's `backToArrangement: true` means a Session override is active
+and the Back to Arrangement button is lit, not that Arrangement is active.
+Successful transport reads now explain that meaning. `false` clears only the
+global override; it does not independently prove a selected listener's
+Arrangement eligibility, and `null` remains unknown. The native source guard
+and ordinary pre-capture approval still apply.
+
+`run-tNBn9W` then exposed a checker restriction, not a native launch timeout:
+the agent grouped optional derivation of its four owned Session contexts into
+one supported call. The checker now independently validates each exact
+same-turn completed source/context and atomically spends the existing
+per-source permissions. Unknown, duplicate, historical, extra-argument and
+over-budget batches remain denied; a rejected batch spends no valid prefix.
+Deterministic red/green coverage and all 2,310 owning tests pass. Neither fix
+alone establishes the unchanged real five-capture answer.
+
+`run-aklAjt` again completed all five captures, then requested unsupported
+persisted feature derivation for the Arrangement stream. The derivation action
+previously described unsupported sources as returning unavailable without
+identifying streams. Its schema and leading context guidance now state the
+actual limitation and point to supported bounded summary/record reads; typed
+refusals name the same alternatives. Red/green regressions preserve refusal
+without reading chunks or persisting features. All 2,311 owning tests pass.
+That failed run also exceeded its five-second cleanup History-read allowance;
+owned Desktop, Live, reservation and profile teardown independently succeeded.
+It is not a qualified answer or a complete-cleanup receipt.
+
+The first run of the clarified-capability candidate, `run-qJJPiV`, was blocked
+before submitting its user turn: a baseline `devices.inspect` response arrived
+after approximately 5.052 seconds and exceeded the bridge deadline. Concurrent
+deterministic checks were running, but their causal role is unproven. All
+cleanup completed. Preserve this blocked setup separately from an executed
+comprehension attempt; it cannot establish that the capability guidance works.
+
+The idle-host execution `run-dpVv8M` completed all five captures and returned
+the exact twenty-measure answer. It is still not green: the runner's timing
+proxy hit 512 retained diagnostic records during final collection and closed
+the bridge. History cleanup also timed out; all owned resources closed.
+The narrow framed-traffic regression reproduces that false disconnect and
+passes with a 2,048-record finite inventory, preserving every record and the
+existing socket, pending-frame/byte and fail-closed overflow guards. A fresh
+complete independent verification and terminal cleanup are still required.
+
+`run-JAAhev` then completed the five captures but stopped before its final
+answer when the distinct Desktop event observer reached 10,000 events at
+4,544,497 bytes. Its new red/green regressions retain 32,768 ordered events
+without changing the 16-MiB byte guard or dropping required evidence.
+All owned resources closed, but the failed observer and History cleanup mean
+this receipt is not a pass.
+
+The latest `run-HFt0eC` used the unchanged signed `1439e040` candidate with both
+runner capacity fixes and no concurrent build/tests. All four Session captures
+and the complete Arrangement capture finished; 28 bounded summary reads also
+completed, with final tool durations below one second. The agent nevertheless
+exhausted the reviewed 900-second turn during analysis without a final answer.
+No native launch timeout or bridge wedge was reproduced. The turn and required
+History cleanup remain failed, although all owned resources closed.
+Qualification is blocked on completing the comparison within the existing
+budget, not on another capture. Do not extend the budget, change the answer,
+inject an analysis strategy, install this unqualified candidate or repeat
+unchanged runs merely to obtain a pass. All 2,314 deterministic owning tests
+pass; that does not make the real case green.
+
 ## Installed Session launch incident: investigation still open
 
 The normal-profile Session attempt on `1-808 Core Kit` / `clip-1` failed at

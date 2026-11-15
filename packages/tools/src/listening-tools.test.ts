@@ -5,6 +5,7 @@ import {
   projectMetricListeningReport,
   nativeMetricObservationMetricSchema,
   deriveMelBandFrame,
+  MEL_BAND_PROFILE,
 } from "@ableton-agent/protocol";
 import {
   createSyntheticPartialMetricListeningObservation,
@@ -44,6 +45,96 @@ const sessionInput = {
 };
 
 describe("optional listening tool contracts", () => {
+  it.each(["completed", "failed", "cancelled"] as const)(
+    "puts next-capture prerequisites beside a successful Session result, not a %s recovery instruction",
+    async (stage) => {
+      const request = listeningOperationParamsSchema.parse(sessionInput);
+      const execute = vi.fn(async () => ({
+        action: "play-session-and-listen" as const,
+        job: {
+          passId: "pass",
+          stage,
+          createdAt: "2026-10-25T23:00:00.000Z",
+          updatedAt: "2026-10-25T23:00:01.000Z",
+          durationMs: 1000,
+          cleanupPolicy: "leave-running" as const,
+          contextIds: stage === "completed" ? ["context"] : [],
+          ...(stage === "completed"
+            ? {
+                metricResults: [
+                  summarizeMetricListeningResult(
+                    createSyntheticMetricListeningObservation(),
+                  ),
+                ],
+              }
+            : {}),
+        },
+      }));
+      const [tool] = createListeningTools({
+        executeListeningOperation: execute,
+        executeContextOperation: async () => ({ action: "list", entries: [] }),
+      });
+      const result = await tool.handler?.(request, {
+        sessionId: "sdk",
+        toolCallId: "listen",
+        toolName: "ableton_listening",
+        arguments: request,
+      });
+      expect(execute).toHaveBeenCalledTimes(1);
+      if (stage === "completed") {
+        expect(result).toHaveProperty(
+          "nextCaptureGuidance",
+          expect.stringContaining("Before the next Session listen"),
+        );
+        expect(result).toHaveProperty(
+          "nextCaptureGuidance",
+          expect.stringContaining(
+            "restore Arrangement before submitting the Arrangement listen",
+          ),
+        );
+      } else expect(result).not.toHaveProperty("nextCaptureGuidance");
+    },
+  );
+
+  it("explains safe consecutive-listen preparation before submitting another capture", () => {
+    expect(LISTENING_AGENT_GUIDANCE).toMatch(/^Before each listening capture:/);
+    const [listening] = createListeningTools({
+      executeListeningOperation: async () => ({
+        action: "inspect-listeners",
+        listeners: [],
+        truncated: false,
+      }),
+      executeContextOperation: async () => ({ action: "list", entries: [] }),
+    });
+    for (const guidance of [
+      LISTENING_AGENT_GUIDANCE,
+      listening.description,
+      listeningOperationParamsSchema.options[1].description,
+    ]) {
+      expect(guidance).toContain(
+        "Every successful Session listen leaves playback running",
+      );
+      expect(guidance).toContain("Before the next Session listen");
+      expect(guidance).toContain("set-playing");
+      expect(guidance).toContain("stop-clips");
+      expect(guidance).toContain(
+        "not permission to repair or retry a failed pass",
+      );
+    }
+    for (const guidance of [
+      LISTENING_AGENT_GUIDANCE,
+      listening.description,
+      listeningOperationParamsSchema.options[2].description,
+    ]) {
+      expect(guidance).toContain("planned Session-to-Arrangement handoff");
+      expect(guidance).toContain("actual Arrangement clips");
+      expect(guidance).toContain("loop length is not the Arrangement duration");
+    }
+    expect(listeningOperationParamsSchema.options[2].description).not.toContain(
+      "Returns a queued job",
+    );
+  });
+
   it("distinguishes negotiated continuous Arrangement admission from the Session duration ceiling", () => {
     expect(LISTENING_AGENT_GUIDANCE).toContain(
       "Fixed-tempo Arrangement listening may span up to 600 seconds",
@@ -88,6 +179,28 @@ describe("optional listening tool contracts", () => {
         mutationTarget: "read",
       });
     }
+  });
+  it("states the stream derivation limitation at the action boundary with supported read alternatives", () => {
+    const [, tool] = createListeningTools({
+      executeListeningOperation: async () => ({
+        action: "list-passes",
+        jobs: [],
+      }),
+      executeContextOperation: async () => ({ action: "list", entries: [] }),
+    });
+    expect(
+      tool.description?.startsWith(
+        "Stream contexts do not support derive-features;",
+      ),
+    ).toBe(true);
+    const derive = contextOperationParamsSchema.options.find(
+      (option) => option.shape.action.value === "derive-features",
+    );
+    expect(derive?.description).toContain("metric-record-stream-context/v1");
+    expect(derive?.description).toContain('"stream-summary"');
+    expect(derive?.description).not.toContain(
+      "Unsupported sources return unavailable",
+    );
   });
   it("bounds feature access and rejects implicit capture, arbitrary distance and raw query inputs", () => {
     expect(
@@ -200,12 +313,19 @@ describe("optional listening tool contracts", () => {
     freshness: "unknown" as const,
     summary: "Stored metric report; not current source proof",
   };
-  it("classifies both bounded stream readers as read-only and rejects raw/unbounded arguments", () => {
-    for (const action of ["stream-overview", "stream-records"]) {
+  it("classifies bounded stream readers as read-only and rejects raw/unbounded arguments", () => {
+    for (const action of [
+      "stream-overview",
+      "stream-records",
+      "stream-summary",
+    ]) {
       expect(
         resolveAbletonOperation("ableton_context", {
           action,
           contextId: "context",
+          ...(action === "stream-summary"
+            ? { range: { startSample: 10_000, endSample: 14_096 } }
+            : {}),
         })?.descriptor,
       ).toMatchObject({
         operationId: `context.${action}`,
@@ -355,6 +475,66 @@ describe("optional listening tool contracts", () => {
     );
     expect(executeContextOperation).toHaveBeenCalledOnce();
     expect(JSON.stringify(raw)).toBe(serialized);
+  });
+  it("binds complete bounded summaries to their requested context and range at the SDK boundary", async () => {
+    const result = contextOperationResultSchema.parse({
+      action: "stream-summary",
+      entry: { ...reportEntry, kind: "metric-record-stream-context/v1" },
+      summary: {
+        kind: "mel-band-range-summary/v1",
+        descriptorDigest: "a".repeat(64),
+        range: { startSample: 10_000, endSample: 14_096 },
+        supportPolicy: "intersecting-native-frames",
+        availability: "available",
+        profile: MEL_BAND_PROFILE,
+        chunkDigests: ["b".repeat(64)],
+        gaps: [],
+        aggregation: {
+          status: "completed",
+          frameCount: 2,
+          analysis: deriveMelBandFrame([Array(24).fill(1), Array(24).fill(1)]),
+        },
+      },
+    });
+    const [, tool] = createListeningTools({
+      executeListeningOperation: async () => ({
+        action: "inspect-listeners",
+        listeners: [],
+        truncated: false,
+      }),
+      executeContextOperation: async () => result,
+    });
+    const invoke = (extra: object) => {
+      const request = contextOperationParamsSchema.parse({
+        action: "stream-summary",
+        contextId: "context",
+        range: { startSample: 10_000, endSample: 14_096 },
+        ...extra,
+      });
+      return tool.handler?.(request, {
+        sessionId: "sdk",
+        toolCallId: "compact-mel",
+        toolName: "ableton_context",
+        arguments: request,
+      });
+    };
+    await expect(invoke({})).resolves.toEqual(result);
+    await expect(invoke({ contextId: "foreign" })).rejects.toThrow(
+      "Stream context result does not match request",
+    );
+    await expect(
+      invoke({ range: { startSample: 10_001, endSample: 14_096 } }),
+    ).rejects.toThrow("Stream summary does not match request");
+    if (result.action !== "stream-summary") throw new Error("Expected summary");
+    expect(
+      contextOperationResultSchema.safeParse({
+        ...result,
+        summary: {
+          ...result.summary,
+          aggregation: { ...result.summary.aggregation, frameCount: 257 },
+        },
+      }).success,
+    ).toBe(false);
   });
   it("keeps small full metric get responses available without replacing them with reports", async () => {
     const raw = {

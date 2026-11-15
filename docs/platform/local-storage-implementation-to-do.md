@@ -19,6 +19,14 @@ Companion specification: [Local Storage Layout](local-storage.md)
   pre-commit publication; verify in-memory state, file cleanup and restart.
 - [x] Expose typed bounded overview, chunk paging and sample-range filtering;
   retain complete immutable chunk supports and explicit insufficient-page errors.
+- [x] Filter tool record/gap projections by support before pagination; preserve
+  original chunk totals/digests and full boundary supports, explicit empty
+  projections, query-bound cursors, cancellation and trace attribution.
+- [x] Reuse existing linear mel aggregation for complete bounded range summaries
+  across chunks, with explicit support/gaps/provenance, failure on partial
+  queries, frame/chunk/byte limits and the unchanged 64-KiB tool budget.
+  Keep raw record paging separate; do not retain draft page-only summary modes.
+  This is read presentation, not persisted features or a new storage path.
 - [x] Return the actual durable context ID and explicit stream-context kind in
   final publication receipts; regress typed retrieval after restart. Explicitly
   guard stream feature derivation/status/list requests until incremental

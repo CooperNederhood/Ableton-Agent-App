@@ -1,5 +1,58 @@
 # Playback Listening Implementation To-Do
 
+## Same-turn comprehension
+
+- [x] Preserve the installed-candidate consecutive-Session failure and identify
+      the older regression's hidden between-turn transport stop.
+- [x] Cover shared sequencing/range guidance and completed Session result
+      annotations with red/green regressions; preserve failure/cancel semantics.
+- [x] Reach four Session and one full Arrangement capture in the same turn,
+      with agent-owned approved preparation, not harness resets.
+- [x] Reproduce coarse record-range pagination with red tests; filter original
+      records/gaps before bounded paging without clipping or rehashing evidence.
+      Cover cross-chunk boundaries, empty projections, gaps and cursor binding.
+      All 2,298 combined owning application/tools/checker tests pass.
+- [x] Preserve five-capture/failed-analysis outcomes and reproduce missing
+      complete bounded summaries across chunk boundaries. Reuse existing mel
+      math with explicit range/profile/gaps/provenance and strict frame, chunk,
+      response-byte, failure and cancellation guards. No draft page-only
+      summary mode remains. All 2,302 owning tests and the complete build pass.
+- [x] Reproduce the app's hidden ten-minute timeout; propagate the reviewed
+      step budget to isolated profile settings and provenance, without changing
+      scenario budgets or the normal app.
+- [x] Preserve the incorrect repeated-sequence answer in `run-6BTpzz`;
+      reproduce its complete History exceeding 10,000 records below 32 MiB.
+      Increase finite row capacity to 32,768, retaining both 32-MiB byte guards
+      and every event/assertion.
+- [x] Reproduce the Live 11 `backToArrangement` interpretation defect and explain
+      true/false/unknown semantics at successful transport results without
+      weakening per-listener eligibility or authorizing failed-pass repair.
+- [x] Reproduce the checker's single-context-only derivation restriction.
+      Validate each same-turn owned source/context and atomically consume the
+      existing per-source rules for an equivalent batch; retain all denial and
+      usage guards. All 2,310 owning application/tools/checker tests pass.
+- [x] Preserve `run-aklAjt` and reproduce misleading stream derivation
+      capability metadata. State unsupported stream derivation at its action
+      boundary and expose supported bounded read alternatives in typed
+      refusals; retain no-read/no-write denial. All 2,311 owning tests pass.
+- [x] Reach the exact answer with exactly five completed captures in
+      `run-dpVv8M`, without calling it a pass: final collection lost the bridge
+      when runner timing diagnostics filled 512 records. Reproduce that
+      disconnect and retain a bounded 2,048-record inventory with all existing
+      overflow, pending-traffic, ownership and cleanup guards.
+- [x] Preserve `run-JAAhev` and reproduce the distinct Desktop observer's
+      10,000-event count failure below its byte budget. Retain up to 32,768
+      ordered events, keeping the 16-MiB byte ceiling and explicit failure.
+- [ ] Obtain the exact twenty-measure answer and complete terminal evidence
+      under the unchanged five-capture contract. `run-dpVv8M` answered correctly
+      but failed final evidence. Latest `run-HFt0eC` completed all five captures
+      and bounded reads but exhausted the 900-second analysis turn without an
+      answer; History cleanup also failed while owned resources closed.
+      Blocked on bounded comparison completion, not another unchanged retry.
+      All 2,314 deterministic owning tests pass; the real case remains red.
+- [ ] Qualify and install an updated candidate only after this case passes.
+      The normal installed app remains the earlier `4dae4562` candidate.
+
 ## Installed Session launch incident
 
 - [x] Run unchanged basic Session regressions against the actual installed

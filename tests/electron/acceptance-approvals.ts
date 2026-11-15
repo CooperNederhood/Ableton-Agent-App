@@ -88,6 +88,9 @@ export class ScopedApprovalPolicy {
     owner: ApprovalOwner,
     source?: SessionSourceEvidence | ArrangementSourceEvidence,
     stepId?: string,
+    sources: Readonly<
+      Record<string, SessionSourceEvidence | ArrangementSourceEvidence>
+    > = {},
   ): boolean {
     if (
       request.destructive ||
@@ -104,12 +107,14 @@ export class ScopedApprovalPolicy {
           (!stepId || !rule.stepIds.includes(stepId))) ||
         rule.tool !== request.tool ||
         rule.action !== request.action ||
-        rule.risk !== request.risk ||
-        Object.keys(rule.arguments).length !== Object.keys(actual).length
+        rule.risk !== request.risk
       )
         return [];
+      const selected =
+        rule.sourceId === undefined ? source : sources[rule.sourceId];
+      if (rule.sourceId !== undefined && !selected) return [];
       if (
-        !source &&
+        !selected &&
         Object.values(rule.arguments).some(
           (value) => typeof value === "string" && value.startsWith("$source."),
         )
@@ -117,16 +122,105 @@ export class ScopedApprovalPolicy {
         return [];
       let resolved: Facts;
       try {
-        resolved = resolvePermissionArguments(rule, source);
+        resolved = resolvePermissionArguments(rule, selected);
       } catch {
         return [];
       }
-      const exact = Object.entries(resolved).every(
-        ([key, expected]) =>
-          Object.hasOwn(actual, key) && actual[key] === expected,
-      );
+      const normalized = { ...actual };
+      if (rule.sourceId && rule.tool === "ableton_listening") {
+        const defaultDuration =
+          rule.action === "play-session-and-listen"
+            ? 300_000
+            : rule.action === "play-arrangement-and-listen"
+              ? 900_000
+              : undefined;
+        if (
+          defaultDuration !== undefined &&
+          !Object.hasOwn(resolved, "maximumDurationMs") &&
+          normalized.maximumDurationMs === defaultDuration
+        )
+          delete normalized.maximumDurationMs;
+        if (
+          defaultDuration !== undefined &&
+          resolved.maximumDurationMs === defaultDuration &&
+          !Object.hasOwn(normalized, "maximumDurationMs")
+        )
+          normalized.maximumDurationMs = defaultDuration;
+        if (
+          rule.action === "play-session-and-listen" &&
+          selected &&
+          "midi" in selected
+        ) {
+          const settings = selected.midi.source.settings;
+          const start = settings.looping
+            ? settings.loopStart
+            : settings.startMarker;
+          const end = settings.looping ? settings.loopEnd : settings.endMarker;
+          if (
+            typeof start === "number" &&
+            typeof end === "number" &&
+            end > start
+          ) {
+            const duration = end - start;
+            if (
+              !Object.hasOwn(resolved, "durationBeats") &&
+              normalized.durationBeats === duration
+            )
+              delete normalized.durationBeats;
+            if (
+              resolved.durationBeats === duration &&
+              !Object.hasOwn(normalized, "durationBeats")
+            )
+              normalized.durationBeats = duration;
+          }
+        }
+      }
+      const exact =
+        Object.keys(resolved).length === Object.keys(normalized).length &&
+        Object.entries(resolved).every(
+          ([key, expected]) =>
+            Object.hasOwn(normalized, key) && normalized[key] === expected,
+        );
       return exact ? [index] : [];
     });
+    if (
+      matches.length === 0 &&
+      request.tool === "ableton_context" &&
+      request.action === "derive-features" &&
+      request.arguments !== null &&
+      typeof request.arguments === "object" &&
+      "contextIds" in request.arguments &&
+      Array.isArray(request.arguments.contextIds)
+    ) {
+      const args = request.arguments;
+      const ids: unknown[] = request.arguments.contextIds;
+      if (
+        ids.length < 2 ||
+        ids.length > 8 ||
+        ids.some((id) => typeof id !== "string") ||
+        new Set(ids).size !== ids.length
+      )
+        return false;
+      const transaction = new ScopedApprovalPolicy(this.permissions);
+      this.#uses.forEach((value, key) => transaction.#uses.set(key, value));
+      this.#usedSteps.forEach((key) => transaction.#usedSteps.add(key));
+      for (const id of ids)
+        if (
+          !transaction.decide(
+            { ...request, arguments: { ...args, contextIds: [id] } },
+            owner,
+            source,
+            stepId,
+            sources,
+          )
+        )
+          return false;
+      this.#uses.clear();
+      transaction.#uses.forEach((value, key) => this.#uses.set(key, value));
+      this.#usedSteps.clear();
+      transaction.#usedSteps.forEach((key) => this.#usedSteps.add(key));
+      return true;
+    }
     if (matches.length !== 1) return false;
     const index = matches[0]!;
     const stepKey = `${index}:${stepId}`;

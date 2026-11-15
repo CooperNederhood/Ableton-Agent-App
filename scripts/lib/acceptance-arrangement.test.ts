@@ -362,6 +362,34 @@ describe("declared Arrangement source handoff", () => {
 });
 
 describe("loaded Arrangement guard diagnostics", () => {
+  it("records an explicitly reviewed initial override without repairing it", () => {
+    const state = {
+      transportPlaying: false,
+      currentBeat: 0,
+      tempoBpm: 128,
+      loopEnabled: false,
+      arrangementRecord: false,
+      sessionRecord: false,
+      overdub: false,
+      sessionAutomationRecord: false,
+      globalBackToArrangement: true,
+      targetArmed: true,
+      targetMonitoring: 2,
+      arrangementEligible: null,
+      playingSessionClips: 0,
+      queuedSessionClips: 0,
+    };
+    expect(loadedArrangementState(state, [], true).backToArrangement).toBe(
+      true,
+    );
+    expect(() => loadedArrangementState(state, [])).toThrow(
+      "Loaded Arrangement state",
+    );
+    expect(() =>
+      loadedArrangementState({ ...state, arrangementRecord: true }, [], true),
+    ).toThrow("Loaded Arrangement state");
+  });
+
   it.each([true, null])(
     "retains the exact blocked override state %s",
     (override) => {

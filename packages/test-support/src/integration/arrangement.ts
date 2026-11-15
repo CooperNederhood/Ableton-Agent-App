@@ -70,7 +70,7 @@ export interface ArrangementLoadedState {
   readonly targetRecording: false;
   readonly targetArmed: boolean;
   readonly targetMonitoring: "off";
-  readonly backToArrangement: false;
+  readonly backToArrangement: boolean;
   readonly playingSessionClips: 0;
   readonly queuedSessionClips: 0;
 }
@@ -378,7 +378,8 @@ export function verifyArrangementSource(
         state.sessionRecord === false &&
         state.targetRecording === false &&
         state.targetMonitoring === "off" &&
-        state.backToArrangement === false &&
+        state.backToArrangement ===
+          (fixture.baseline.backToArrangement ?? false) &&
         state.playingSessionClips === 0 &&
         state.queuedSessionClips === 0,
       "Arrangement requires independent loaded stopped, fixed-tempo, nonrecording state; no repair",

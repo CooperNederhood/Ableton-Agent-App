@@ -34,6 +34,8 @@ import {
   LISTENING_FEATURE_DEFINITIONS,
   compareListeningFeatures,
   MAX_METRIC_RECORD_CHUNK_BYTES,
+  aggregateMelBandFrames,
+  type MetricRecordStreamGap,
 } from "@ableton-agent/protocol";
 
 const continuationSchema = z.strictObject({
@@ -497,7 +499,7 @@ export function createSessionContextHost(
       streamSummary(repository, stream, includeHistorical);
       throw new ListeningFailure(
         "incremental_metric_features_unsupported",
-        "Feature derivation and feature reads for stream contexts are unsupported; use stream-overview and stream-records",
+        "Feature derivation and feature reads for stream contexts are unsupported; use stream-overview, then bounded stream-summary or stream-records",
       );
     }
     const available = await repository.listEntries(
@@ -616,6 +618,7 @@ export function createSessionContextHost(
       const operation = operationOptions(context, options.signal);
       if (
         query.action === "stream-overview" ||
+        query.action === "stream-summary" ||
         query.action === "stream-records"
       ) {
         const { record, entry } = await requireStream(
@@ -650,6 +653,87 @@ export function createSessionContextHost(
               featureDerivation: "unsupported",
             },
           });
+        if (query.action === "stream-summary") {
+          const geometry = record.descriptor.geometry;
+          if (
+            query.range.startSample < geometry.startSample ||
+            query.range.endSample > geometry.endSample
+          )
+            throw new ListeningFailure(
+              "invalid_range",
+              "Summary range must remain inside the captured source",
+            );
+          const algorithm = record.descriptor.algorithms.find(
+            (item) => item.metric === "mel-bands",
+          );
+          if (algorithm?.metric !== "mel-bands")
+            throw new ListeningFailure(
+              "unsupported_metric",
+              "This capture did not request mel-band measurements",
+            );
+          const chunks = await repository.incrementalMetrics!.listMetricChunks(
+            {
+              captureId: query.contextId,
+              afterSequence: -1,
+              metric: "mel-bands",
+              range: query.range,
+              limit: 8,
+              maxBytes: 1024 * 1024,
+            },
+            operation,
+          );
+          operation.signal?.throwIfAborted();
+          if (chunks.nextSequence !== undefined)
+            throw new ListeningFailure(
+              "context_response_too_large",
+              "Summary range exceeds eight chunks or 1 MiB; request a narrower passage",
+            );
+          const intersects = (support: {
+            startSample: number;
+            endSample: number;
+          }) =>
+            support.startSample < query.range.endSample &&
+            support.endSample > query.range.startSample;
+          const frames: unknown[] = [];
+          const gaps: MetricRecordStreamGap[] = [];
+          for (const chunk of chunks.items) {
+            if (
+              chunk.metric !== "mel-bands" ||
+              chunk.descriptorDigest !== record.state.descriptorDigest
+            )
+              throw new ListeningFailure(
+                "invalid_capture",
+                "Summary chunk does not match the owned capture and metric",
+              );
+            frames.push(
+              ...chunk.records
+                .filter((item) => intersects(item.support))
+                .map((item) => item.magnitudes),
+            );
+            gaps.push(...chunk.gaps.filter((item) => intersects(item.support)));
+            if (frames.length > 256)
+              throw new ListeningFailure(
+                "context_response_too_large",
+                "Summary range exceeds 256 frames; request a narrower passage",
+              );
+          }
+          operation.signal?.throwIfAborted();
+          return contextOperationResultSchema.parse({
+            action: query.action,
+            entry,
+            summary: {
+              kind: "mel-band-range-summary/v1",
+              descriptorDigest: record.state.descriptorDigest,
+              range: query.range,
+              supportPolicy: "intersecting-native-frames",
+              availability: algorithm.availability,
+              profile: algorithm.algorithm,
+              aggregation: aggregateMelBandFrames(frames),
+              gaps,
+              chunkDigests: chunks.items.map((chunk) => chunk.digest),
+            },
+          });
+        }
         const binding = fingerprint({
           sessionId: repository.sessionId,
           liveSetId: repository.liveSetId,
@@ -694,8 +778,13 @@ export function createSessionContextHost(
             "invalid_cursor",
             "Stream continuation chunk identity changed",
           );
-        const all = [...chunk.records, ...chunk.gaps];
-        if (entryOffset >= all.length)
+        const all = [...chunk.records, ...chunk.gaps].filter(
+          (item) =>
+            query.range === undefined ||
+            (item.support.startSample < query.range.endSample &&
+              item.support.endSample > query.range.startSample),
+        );
+        if (entryOffset >= all.length && entryOffset !== 0)
           throw new ListeningFailure(
             "invalid_cursor",
             "Stream continuation is outside its chunk",
@@ -748,7 +837,11 @@ export function createSessionContextHost(
             MAX_METRIC_CONTEXT_RESPONSE_BYTES
         )
           selected.pop();
-        if (selected.length === 0)
+        if (
+          (selected.length === 0 && all.length > 0) ||
+          Buffer.byteLength(JSON.stringify(result())) >
+            MAX_METRIC_CONTEXT_RESPONSE_BYTES
+        )
           throw new ListeningFailure(
             "context_response_too_large",
             "One retained record cannot fit the 64 KiB response budget",
@@ -948,7 +1041,7 @@ export function createSessionContextHost(
         )
           throw new ListeningFailure(
             "unsupported_context_kind",
-            "Stream contexts use stream-overview and stream-records, not whole-observation get or report",
+            "Stream contexts use stream-overview with bounded stream-summary or stream-records, not whole-observation get or report",
           );
         const available = await repository.listEntries(
           {

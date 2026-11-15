@@ -777,18 +777,49 @@ describe("AcceptanceBridgeTimingProxy", () => {
     expect(h.proxy.snapshot().activeTunnels).toBe(0);
   });
 
+  it("retains a complete multi-source conversation beyond 512 diagnostic records without closing the bridge", async () => {
+    const h = await harness(0);
+    const requests = Array.from({ length: 600 }, () => request("system.ping"));
+    h.client.write(Buffer.concat(requests.map(rawFrame)));
+    await waitFor(() => expect(h.messages.length).toBe(requests.length));
+    const frames = requests.map((item) => rawFrame(response(item.requestId)));
+    const responses = Buffer.concat(frames);
+    let delivered = 0;
+    for (let offset = 0; offset < frames.length; offset += 32) {
+      const batch = Buffer.concat(frames.slice(offset, offset + 32));
+      h.upstream.write(batch);
+      delivered += batch.length;
+      await waitFor(() => expect(h.received().length).toBe(delivered));
+    }
+    expect(h.received().equals(responses)).toBe(true);
+    const snapshot = h.proxy.snapshot();
+    expect(snapshot.state).toBe("listening");
+    expect(snapshot.failure).toBeUndefined();
+    const retained = snapshot.records.filter(
+      (record) => record.stage === "request",
+    );
+    expect(retained).toHaveLength(requests.length);
+    expect(retained.every((record) => record.state === "completed")).toBe(true);
+    await h.proxy.close();
+    expect(h.proxy.snapshot().records.at(-1)?.stage).toBe("close");
+  });
+
   it("bounds retained receipts and fails closed rather than dropping evidence", async () => {
     const h = await harness();
     h.client.write(
       Buffer.concat(
-        Array.from({ length: 512 }, () => rawFrame(request("system.ping"))),
+        Array.from({ length: ACCEPTANCE_BRIDGE_TIMING_LIMITS.records }, () =>
+          rawFrame(request("system.ping")),
+        ),
       ),
     );
     await waitFor(() =>
       expect(h.proxy.snapshot().failure).toBe("evidence_limit_exceeded"),
     );
     await h.proxy.close();
-    expect(h.proxy.snapshot().records.length).toBeLessThanOrEqual(512);
+    expect(h.proxy.snapshot().records.length).toBeLessThanOrEqual(
+      ACCEPTANCE_BRIDGE_TIMING_LIMITS.records,
+    );
     expect(h.proxy.snapshot().records.at(-1)?.stage).toBe("close");
   });
 

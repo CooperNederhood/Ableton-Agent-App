@@ -188,10 +188,28 @@ function sanitizeRunEvidence(value: RunEvidence) {
       : {}),
   };
 }
-function sanitizeResult(value: RunResult) {
-  const { turns, evidence, ...body } = value;
+function sanitizeBaseline(value: BaselineEvidence) {
+  const { sources, arrangementSources, ...body } = value;
+  const sanitizeSources = (entries: Readonly<Record<string, object>>) =>
+    Object.fromEntries(
+      Object.entries(entries).map(([id, source]) => [
+        sanitizePersistedText(id),
+        sanitizeTelemetryAttributes({ ...source }),
+      ]),
+    );
   return {
     ...sanitizeTelemetryAttributes(body),
+    ...(sources ? { sources: sanitizeSources(sources) } : {}),
+    ...(arrangementSources
+      ? { arrangementSources: sanitizeSources(arrangementSources) }
+      : {}),
+  };
+}
+function sanitizeResult(value: RunResult) {
+  const { turns, evidence, baseline, ...body } = value;
+  return {
+    ...sanitizeTelemetryAttributes(body),
+    ...(baseline ? { baseline: sanitizeBaseline(baseline) } : {}),
     turns: turns.map(sanitizeTurn),
     ...(evidence ? { evidence: sanitizeRunEvidence(evidence) } : {}),
   };
@@ -524,6 +542,7 @@ export async function runAcceptance(
           read,
           validateBaseline,
           524_288 + instrumentTreeBytes(read),
+          sanitizeBaseline,
         );
         ensureReportBudget({ baseline: admitted });
         baseline = admitted;

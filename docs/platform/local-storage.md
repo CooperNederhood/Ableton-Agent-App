@@ -364,10 +364,28 @@ ten-minute record timeline. `stream-records` reads at most one immutable
 128-KiB chunk internally and returns an explicitly labelled original-record/gap
 projection under the **64-KiB total UTF-8 tool response budget**. It returns at
 most 64 entries, trimming further by encoded bytes without altering records.
-Query-bound continuations preserve within-chunk offsets and next-chunk identity.
+Query-bound continuations preserve filtered within-chunk offsets and next-chunk identity.
 The chunk digest identifies the original immutable chunk, not a hash of the
-sliced projection. Sample-range filters select intersecting chunks; original
-record/gap support is not clipped.
+sliced projection. Storage sample-range filters select intersecting immutable
+chunks; the tool projection additionally filters records and gaps by half-open
+support intersection before pagination. Original record/gap supports are not
+clipped. `totalRecords`/`totalGaps` still describe the original chunk, not the
+filtered projection; `entryOffset` addresses its filtered entries. Empty
+projections may retain a continuation when a coarse chunk match has no
+intersecting entries. This changes neither persisted bytes nor storage ownership,
+retention or native evidence verification.
+
+`stream-summary` provides a complete bounded mel-band range summary across
+chunk boundaries, using the existing equal-weight linear frame aggregation,
+regional sums and ratios. Each request remains inside the captured source and
+reads at most eight chunks/1 MiB and 256 matching frames. A continuation or
+larger frame count is an explicit error, never a partial mean. The typed result
+retains the requested range, original chunk digests, descriptor identity,
+availability, profile, full intersecting gaps and an explicit native-frame
+support policy, under the same 64-KiB tool budget. No raw arrays are returned.
+This is read presentation, not feature derivation or a new persisted object.
+Record paging remains available independently; no draft page-only summary or
+raw-array omission mode is retained.
 
 Completed stream summaries share bounded discovery and bootstrap inventory with
 legacy observations. A query-bound composite cursor alternates both sources,

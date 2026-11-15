@@ -291,8 +291,13 @@ export async function handoffArrangementSource(input: {
 export function loadedArrangementState(
   state: InspectArrangementListeningSourceResult["before"],
   clips: InspectArrangementListeningSourceResult["clips"],
+  expectedBackToArrangement = false,
 ): ArrangementSourceEvidence["before"] {
-  assertLoadedArrangementState(state, clips);
+  assertLoadedArrangementState(state, clips, !expectedBackToArrangement);
+  if (state.globalBackToArrangement !== expectedBackToArrangement)
+    throw new Error(
+      "Loaded Arrangement override differs from reviewed baseline",
+    );
   return {
     tempoBpm: state.tempoBpm,
     tempoAutomation: false,
@@ -304,7 +309,7 @@ export function loadedArrangementState(
     targetRecording: false,
     targetArmed: state.targetArmed,
     targetMonitoring: "off",
-    backToArrangement: false,
+    backToArrangement: state.globalBackToArrangement,
     playingSessionClips: 0,
     queuedSessionClips: 0,
   };

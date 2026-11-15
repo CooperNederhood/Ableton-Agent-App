@@ -1,4 +1,7 @@
-import type { TelemetryEventPage } from "../../apps/desktop/src/contracts.js";
+import type {
+  DesktopAppEvent,
+  TelemetryEventPage,
+} from "../../apps/desktop/src/contracts.js";
 import type {
   CaptureEvidence,
   FlatnessSmokeEvidence,
@@ -9,6 +12,7 @@ import type {
   SessionIdentity,
   SpectralShapeSmokeEvidence,
   SessionSourceEvidence,
+  Submission,
 } from "@ableton-agent/test-support/integration";
 import {
   projectFlatnessSmoke,
@@ -18,6 +22,57 @@ import {
   projectMelSmoke,
 } from "@ableton-agent/test-support/integration";
 import type { MetricAudioObservation } from "@ableton-agent/protocol";
+
+export function sessionCaptureToolCausation(
+  events: readonly DesktopAppEvent[],
+  owner: Submission & { sdkTurnId: string },
+  observation: MetricAudioObservation,
+): string {
+  const source = observation.source;
+  if (source.view !== "session")
+    throw new Error("Expected Session capture source");
+  const matches = events.filter((event) => {
+    if (
+      event.type !== "approval.requested" ||
+      event.operationId !== owner.operationId ||
+      event.appSessionId !== owner.appSessionId ||
+      event.agentInstanceId !== owner.agentId ||
+      event.sdkSessionId !== owner.conversationId ||
+      event.trace?.traceId !== owner.sdkTurnId ||
+      event.trace.correlationId !== owner.sdkTurnId ||
+      event.trace.causationId !== observation.ownership.causationId ||
+      event.approval.tool?.name !== "ableton_listening" ||
+      event.approval.tool.action !== "play-session-and-listen" ||
+      !event.approval.tool.argumentsComplete
+    )
+      return false;
+    const args = event.approval.tool.arguments;
+    const target = args.target;
+    if (!target || typeof target !== "object" || Array.isArray(target))
+      return false;
+    const track: unknown = Reflect.get(target, "track");
+    return (
+      track !== null &&
+      typeof track === "object" &&
+      !Array.isArray(track) &&
+      Reflect.get(target, "view") === "session" &&
+      Reflect.get(target, "sceneIndex") === source.target.sceneIndex &&
+      Reflect.get(target, "expectedClipReference") === source.clipReference &&
+      Reflect.get(track, "kind") === "regular" &&
+      Reflect.get(track, "index") === source.target.track.index &&
+      Reflect.get(track, "expectedReference") ===
+        source.target.track.expectedReference &&
+      Array.isArray(args.listenerIds) &&
+      args.listenerIds.length === 1 &&
+      args.listenerIds[0] === observation.ownership.listenerId
+    );
+  });
+  if (matches.length !== 1)
+    throw new Error(
+      "Missing or ambiguous attributable exact-source Session capture tool call",
+    );
+  return observation.ownership.causationId;
+}
 
 /** Re-read raw typed context and cleanup History, never reuse cached mel vectors. */
 export async function restoreMelSmoke(

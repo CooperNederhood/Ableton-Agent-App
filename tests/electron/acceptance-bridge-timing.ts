@@ -28,7 +28,7 @@ const READ_ONLY_COMMANDS = new Set(
 
 export const ACCEPTANCE_BRIDGE_TIMING_LIMITS = {
   tunnels: 4,
-  records: 512,
+  records: 2048,
   pendingFrames: 128,
   pendingBytes: 8 * 1024 * 1024,
 } as const;

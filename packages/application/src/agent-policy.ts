@@ -34,6 +34,8 @@ const projectContextTrackLimit = 16;
 const projectContextSessionClipLimit = 128;
 export const VERIFIED_TOOL_RESULT_GUIDANCE =
   "Use the verified tool result as observed state. Re-inspect before any dependent mutation when the project may have changed.";
+const TRANSPORT_SOURCE_FLAG_GUIDANCE =
+  'In Live 11 transport results, backToArrangement=true means Session override is active (Back to Arrangement is lit), not that Arrangement is active. backToArrangement=false clears only the global override; it does not certify per-listener Arrangement eligibility. null is unknown. Before a planned user-requested Arrangement capture with that flag true, restore the source using ableton_transport action "back-to-arrangement" through ordinary approval. This does not authorize repair or retry of a failed capture.';
 export const AUTOMATIC_LIVE_EVENT_IDENTITY_GUIDANCE =
   "Automatic Listening Event identity policy: cached-context freshness describes mutable state age, not exact identity validity. When the required track and Session clip are present as one unambiguous exact-reference match, use those references directly with the tool's expected-reference guards. Do not inspect solely because freshness is stale or project revisions differ. Inspect only when a required identity is missing, ambiguous, unresolved, or truncated, or after a guarded tool rejects an identity as stale or ambiguous. Never retry unchanged rejected mutation arguments.";
 
@@ -365,6 +367,9 @@ export function createAgentPolicy(services: AgentPolicyServices): AgentPolicy {
       return {
         additionalContext: [
           VERIFIED_TOOL_RESULT_GUIDANCE,
+          ...(input.toolName === "ableton_transport"
+            ? [TRANSPORT_SOURCE_FLAG_GUIDANCE]
+            : []),
           ...(input.toolName === "ableton_browser"
             ? [BROWSER_IDENTITY_GUIDANCE]
             : []),
@@ -389,7 +394,7 @@ export function createAgentPolicy(services: AgentPolicyServices): AgentPolicy {
           input.toolArgs !== null &&
           typeof input.toolArgs === "object" &&
           "action" in input.toolArgs &&
-          ["stream-overview", "stream-records"].includes(
+          ["stream-overview", "stream-records", "stream-summary"].includes(
             String(input.toolArgs.action),
           )
             ? [METRIC_STREAM_READ_GUIDANCE]

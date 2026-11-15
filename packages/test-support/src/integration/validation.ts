@@ -1,5 +1,6 @@
 import { SUPPORTED_AUDIO_BASELINE } from "./contracts.js";
 import { midiContentIdentity } from "./sources.js";
+import { metricAudioObservationSchema } from "@ableton-agent/protocol";
 import {
   validateArrangementDefinition,
   validateArrangementIdentity,
@@ -143,7 +144,7 @@ export function safeRelativePath(value: unknown): asserts value is string {
         .split("/")
         .every(
           (part) =>
-            /^[a-zA-Z0-9_][a-zA-Z0-9._ ~-]*$/.test(part) &&
+            /^[a-zA-Z0-9_][a-zA-Z0-9._ ~[\]-]*$/.test(part) &&
             part !== "." &&
             part !== "..",
         ),
@@ -329,11 +330,8 @@ export function validateFixture(
     unique(slots);
   }
   validateFacts(value.baseline);
+  const sourceIds: string[] = [];
   if (value.arrangementSources !== undefined) {
-    requireCondition(
-      value.sources === undefined,
-      "Mixed Arrangement/Session source inventories are unsupported",
-    );
     list(value.arrangementSources, 1);
     requireCondition(
       value.arrangementSources.length === 1,
@@ -345,6 +343,8 @@ export function validateFixture(
         entry as unknown as ArrangementFixtureSource,
         value as unknown as FixtureManifest,
       );
+      identifier(entry.id);
+      sourceIds.push(entry.id);
     }
     requireCondition(
       typeof value.baseline.currentSongTime === "number" &&
@@ -358,7 +358,7 @@ export function validateFixture(
   if (value.sources !== undefined) {
     list(value.sources, 16);
     requireCondition(value.sources.length > 0, "Empty source inventory");
-    const ids: string[] = [];
+    const ids = sourceIds;
     const selectors: string[] = [];
     for (const entry of value.sources) {
       object(entry);
@@ -460,7 +460,9 @@ export function validatePermission(
     "maxUses",
     "arguments",
     "stepIds",
+    "sourceId",
   ]);
+  if (value.sourceId !== undefined) identifier(value.sourceId);
   identifier(value.tool);
   identifier(value.action);
   requireCondition(
@@ -599,6 +601,7 @@ export function validateScenario(
     return JSON.stringify([
       permission.tool,
       permission.action,
+      permission.sourceId,
       Object.entries(permission.arguments).sort(([left], [right]) =>
         left.localeCompare(right),
       ),
@@ -691,6 +694,14 @@ export function validateScenario(
   unique(stepIds);
   for (const permission of value.permissions) {
     validatePermission(permission);
+    if (permission.sourceId !== undefined)
+      requireCondition(
+        fixture.sources?.some((source) => source.id === permission.sourceId) ||
+          fixture.arrangementSources?.some(
+            (source) => source.id === permission.sourceId,
+          ),
+        "Unknown permission source",
+      );
     for (const id of permission.stepIds ?? [])
       requireCondition(stepIds.includes(id), "Unknown permission step");
   }
@@ -1005,6 +1016,10 @@ export function validateTurn(value: unknown): asserts value is TurnEvidence {
   list(record.captures, 32);
   for (const capture of record.captures) {
     object(capture);
+    if (capture.observation !== undefined)
+      metricAudioObservationSchema.parse(capture.observation);
+    if (capture.toolCausationId !== undefined)
+      identifier(capture.toolCausationId);
     identifier(capture.passId);
     identifier(capture.operationId);
     listenerIdentifier(capture.listenerId);

@@ -27,6 +27,10 @@ import {
   sameArrangementSource,
   type ArrangementMetricRecordExpectation,
 } from "./arrangement.js";
+import {
+  validateListeningComprehension,
+  verifyListeningComprehension,
+} from "./listening-comprehension.js";
 
 export class AssertionRegistry {
   private readonly entries = new Map<
@@ -199,6 +203,28 @@ function registerSmokeAssertions(
 }
 export function createDefaultAssertions(): AssertionRegistry {
   return registerSmokeAssertions(new AssertionRegistry())
+    .register(
+      "listening-comprehension",
+      (input, parameters) => {
+        try {
+          verifyListeningComprehension(input, parameters);
+          return result(
+            true,
+            "ok",
+            "Five complete native listens and exact twenty-measure answer verified",
+          );
+        } catch (error) {
+          return result(
+            false,
+            "listening-comprehension-invalid",
+            error instanceof Error
+              ? error.message
+              : "Invalid listening evidence",
+          );
+        }
+      },
+      validateListeningComprehension,
+    )
     .register(
       "arrangement-persistence",
       ({ turns, evidence, baseline }, parameters) => {

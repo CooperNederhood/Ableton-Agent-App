@@ -125,6 +125,7 @@ import {
 import {
   captureCleanupConfirmed,
   observedSessionSource,
+  sessionCaptureToolCausation,
   restoreFlatnessSmoke,
   restoreSpreadSmoke,
   restoreRolloffSmoke,
@@ -583,15 +584,6 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
       });
     if (this.#bridgeTiming) {
       this.#bridgePort = await this.#bridgeTiming.start();
-      const storage = this.#storage();
-      await mkdir(dirname(storage.preferencesPath), { recursive: true });
-      await writeFile(
-        storage.preferencesPath,
-        JSON.stringify(
-          preferencesSchema.parse({ abletonPort: this.#bridgePort }),
-        ),
-        { flag: "wx", mode: 0o600 },
-      );
       this.#provenance = {
         ...this.#provenance,
         bridgeTimingMode:
@@ -601,6 +593,30 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
         bridgeReadMinimumMs: this.options.bridgeReadMinimumMs ?? 0,
       };
     }
+    const preferences = preferencesSchema.parse({
+      ...(this.#bridgePort === undefined
+        ? {}
+        : { abletonPort: this.#bridgePort }),
+      ...(context.scenario.steps.length === 0
+        ? {}
+        : {
+            agentTurnTimeoutMinutes: Math.ceil(
+              Math.max(
+                ...context.scenario.steps.map((step) => step.timeoutMs),
+              ) / 60_000,
+            ),
+          }),
+    });
+    const storage = this.#storage();
+    await mkdir(dirname(storage.preferencesPath), { recursive: true });
+    await writeFile(storage.preferencesPath, JSON.stringify(preferences), {
+      flag: "wx",
+      mode: 0o600,
+    });
+    this.#provenance = {
+      ...this.#provenance,
+      agentTurnTimeoutMinutes: preferences.agentTurnTimeoutMinutes,
+    };
     await this.#launchDesktop(context);
   }
 
@@ -735,7 +751,10 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
     }
   }
 
-  async #jobs(context: DriverContext): Promise<readonly DesktopListeningJob[]> {
+  async #jobs(
+    context: DriverContext,
+    requireTerminal = false,
+  ): Promise<readonly DesktopListeningJob[]> {
     const identity = required(this.#identity, "session identity");
     const jobs = await this.#getPage().evaluate(
       async (request) => (await window.desktop.listening.list(request)).jobs,
@@ -754,6 +773,31 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
     for (const job of jobs) this.#observedCapturePassIds.add(job.passId);
     if (this.#observedCapturePassIds.size >= 100)
       throw new Error("Run listening inventory exceeds evidence bound");
+    if (
+      requireTerminal &&
+      jobs.some(
+        (job) =>
+          ![
+            "completed",
+            "partial",
+            "failed",
+            "cancelled",
+            "interrupted",
+          ].includes(job.stage),
+      )
+    )
+      throw new Error("Run listening inventory contains a nonterminal job");
+    if (
+      requireTerminal &&
+      [
+        ...context.scenario.assertions,
+        ...context.scenario.steps.flatMap((step) => step.assertions),
+      ].some(({ name }) => name === "listening-comprehension") &&
+      jobs.some((job) => job.stage !== "completed")
+    )
+      throw new Error(
+        "Comprehension inventory contains an unsuccessful listening job",
+      );
     return jobs;
   }
 
@@ -781,8 +825,10 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
       );
       context.signal.throwIfAborted();
       bytes += Buffer.byteLength(JSON.stringify(page.items), "utf8");
-      if (items.length + page.items.length > 10_000 || bytes > 32 * 1024 * 1024)
-        throw new Error("Required product trace exceeded its evidence bound");
+      if (items.length + page.items.length > 32_768 || bytes > 32 * 1024 * 1024)
+        throw new Error(
+          `Required product trace exceeded its evidence bound (${items.length + page.items.length} records, ${bytes} bytes; limits 32768 records, 33554432 bytes)`,
+        );
       items.push(...page.items);
       cursor = page.nextCursor;
       if (cursor && cursors.has(cursor))
@@ -793,7 +839,7 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
     for (const event of items) merged.set(event.id, event);
     if (
       merged.size >
-        10_000 * Math.max(1, Math.min(32, context.scenario.steps.length)) ||
+        32_768 * Math.max(1, Math.min(32, context.scenario.steps.length)) ||
       Buffer.byteLength(JSON.stringify([...merged.values()]), "utf8") >
         32 * 1024 * 1024
     )
@@ -1042,7 +1088,7 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
       throw new Error(
         "Fresh acceptance profile contains an unexpected listening pass",
       );
-    if (context.fixture.arrangementSources?.length) {
+    if (!review && context.fixture.arrangementSources?.length) {
       const contextReadsReady = await this.#getPage().evaluate(() => {
         const api = window.desktop
           .entityContext as unknown as ArrangementContextReadApi;
@@ -1156,17 +1202,26 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
         savedProjectSha256: saved.savedProjectSha256,
         savedClips: saved.savedClips,
         media,
-        before: loadedArrangementState(loaded.before, loaded.clips),
-        after: loadedArrangementState(loaded.after, loaded.clips),
+        before: loadedArrangementState(
+          loaded.before,
+          loaded.clips,
+          context.fixture.baseline.backToArrangement === true,
+        ),
+        after: loadedArrangementState(
+          loaded.after,
+          loaded.clips,
+          context.fixture.baseline.backToArrangement === true,
+        ),
       };
       verifyArrangementSource(context.fixture, definition, evidence);
       this.#arrangementSources[definition.id] = evidence;
-      return {
-        schemaVersion: 1,
-        facts: { ...this.#provenance, ...context.fixture.baseline },
-        arrangementSources: this.#arrangementSources,
-        dependencyHashes: this.#dependencies,
-      };
+      if (!context.fixture.sources?.length)
+        return {
+          schemaVersion: 1,
+          facts: { ...this.#provenance, ...context.fixture.baseline },
+          arrangementSources: this.#arrangementSources,
+          dependencyHashes: this.#dependencies,
+        };
     }
     if (
       !review &&
@@ -1195,10 +1250,25 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
         definition,
         review !== undefined,
       );
+    const arrangementBaseline = Object.values(this.#arrangementSources)[0]
+      ?.after;
     const evidence = {
       schemaVersion: 1 as const,
-      facts: required(Object.values(this.#sources)[0], "source baseline").facts,
+      facts: {
+        ...required(Object.values(this.#sources)[0], "source baseline").facts,
+        ...(arrangementBaseline
+          ? {
+              targetArmed: arrangementBaseline.targetArmed,
+              targetMonitoring: arrangementBaseline.targetMonitoring,
+              loopEnabled: arrangementBaseline.loopEnabled,
+              backToArrangement: arrangementBaseline.backToArrangement,
+            }
+          : {}),
+      },
       sources: this.#sources,
+      ...(!review && Object.keys(this.#arrangementSources).length
+        ? { arrangementSources: this.#arrangementSources }
+        : {}),
       dependencyHashes: this.#dependencies,
     };
     validateBaseline(evidence);
@@ -1915,6 +1985,7 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
   }
 
   async #verifyWorld(context: DriverContext): Promise<Facts> {
+    let arrangementFacts: Facts = {};
     if (context.fixture.arrangementSources?.length) {
       const snapshot = await this.#getPage().evaluate(() =>
         window.desktop.ableton.requestSnapshot(),
@@ -1927,8 +1998,14 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
           "Protected Arrangement Set structure/routing/settings changed",
         );
       if (
-        unrelatedPlaybackFingerprint(snapshot) !==
-        unrelatedPlaybackFingerprint(required(this.#snapshot, "baseline"))
+        unrelatedPlaybackFingerprint(
+          snapshot,
+          Object.values(this.#sources).map((source) => source.source.clipId),
+        ) !==
+        unrelatedPlaybackFingerprint(
+          required(this.#snapshot, "baseline"),
+          Object.values(this.#sources).map((source) => source.source.clipId),
+        )
       )
         throw new Error("Unrelated Session playback changed");
       const read = await this.#readArrangementSource(context, snapshot);
@@ -1943,19 +2020,19 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
           state.targetMonitoring !== 2 ||
           state.arrangementEligible !== true ||
           state.tempoBpm !== context.fixture.arrangementSources[0]!.tempoBpm ||
-          state.playingSessionClips !== 0 ||
-          state.queuedSessionClips !== 0
+          (!Object.keys(this.#sources).length &&
+            (state.playingSessionClips !== 0 || state.queuedSessionClips !== 0))
         )
           throw new Error(
             "Arrangement eligibility/global recording/protected source state changed",
           );
       }
-      return {
+      arrangementFacts = {
         "arrangement.transportPlaying": read.after.transportPlaying,
         "arrangement.currentBeat": read.after.currentBeat,
       };
     }
-    if (!Object.keys(this.#sources).length) return {};
+    if (!Object.keys(this.#sources).length) return arrangementFacts;
     context.signal.throwIfAborted();
     const facts: Record<string, string | boolean> = {};
     const snapshot = await this.#getPage().evaluate(() =>
@@ -2056,7 +2133,13 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
         preflight.recording.state.sessionRecord === false;
     }
     context.signal.throwIfAborted();
-    return { ...facts, stoppedZero, stoppedDeclared, transportStopped };
+    return {
+      ...arrangementFacts,
+      ...facts,
+      stoppedZero,
+      stoppedDeclared,
+      transportStopped,
+    };
   }
 
   async submit(
@@ -2368,7 +2451,7 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
             throw new Error(
               `Listening pass did not publish one complete context: ${job.stage}`,
             );
-          if (context.fixture.arrangementSources?.length) {
+          if (context.fixture.arrangementSources?.length && !job.session) {
             const contextId = job.contextIds[0]!;
             const capture = await this.#readArrangementCapture(
               context,
@@ -2513,6 +2596,18 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
               connectionId: observed.ownership.connectionId,
               connectionEpoch: observed.ownership.connectionEpoch,
             },
+            ...([...link.step.assertions, ...context.scenario.assertions].some(
+              ({ name }) => name === "listening-comprehension",
+            )
+              ? {
+                  observation: observed,
+                  toolCausationId: sessionCaptureToolCausation(
+                    events,
+                    { ...submission, sdkTurnId },
+                    observed,
+                  ),
+                }
+              : {}),
             ...measuredCentroid(observed),
           });
         }
@@ -2617,13 +2712,28 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
           let source =
             this.#sources[step?.sourceId ?? ""] ??
             this.#arrangementSources[step?.sourceId ?? ""];
+          const permissionSources = {
+            ...this.#sources,
+            ...this.#arrangementSources,
+          };
           let approvalArguments = tool.arguments;
           if (
             tool.name === "ableton_context" &&
-            tool.action === "derive-features" &&
-            source &&
-            !("view" in source.source)
+            tool.action === "derive-features"
           ) {
+            const requested = tool.arguments.contextIds;
+            if (
+              !Array.isArray(requested) ||
+              requested.length < 1 ||
+              requested.length > 8 ||
+              !requested.every(
+                (id: unknown): id is string => typeof id === "string",
+              ) ||
+              new Set(requested).size !== requested.length
+            )
+              throw new Error(
+                "Derivation approval requires distinct exact invoking contexts",
+              );
             const sdkTurnId = this.#sdkTurns.get(submission.userMessageId);
             const jobs = (await this.#jobs(context)).filter(
               (job) =>
@@ -2633,28 +2743,38 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
                 job.sessionId === submission.appSessionId &&
                 job.contextIds.length === 1,
             );
-            if (jobs.length !== 1)
-              throw new Error(
-                "Derivation approval requires exactly one completed invoking capture",
+            for (const contextId of requested) {
+              if (
+                jobs.filter((job) => job.contextIds[0] === contextId).length !==
+                1
+              )
+                throw new Error(
+                  "Derivation approval requires exactly one completed invoking capture for each context",
+                );
+              const detail = await this.#readContext(contextId, context);
+              const observed = metricAudioObservationSchema.parse(
+                detail.observation,
               );
-            const contextId = jobs[0]!.contextIds[0]!;
-            const detail = await this.#readContext(contextId, context);
-            const observed = metricAudioObservationSchema.parse(
-              detail.observation,
-            );
-            const matched = observedSessionSource(
-              observed.source,
-              observed.ownership.listenerId,
-              this.#sources,
-            );
-            if (
-              matched.source.clipId !== source.source.clipId ||
-              observed.ownership.traceId !== sdkTurnId
-            )
-              throw new Error(
-                "Derivation approval source does not match the invoking turn",
+              const matched = observedSessionSource(
+                observed.source,
+                observed.ownership.listenerId,
+                this.#sources,
               );
-            source = { ...source, contextId };
+              if (
+                (source &&
+                  ("view" in source.source ||
+                    matched.source.clipId !== source.source.clipId)) ||
+                observed.ownership.traceId !== sdkTurnId
+              )
+                throw new Error(
+                  "Derivation approval source does not match the invoking turn",
+                );
+              const selectedSource = { ...matched, contextId };
+              if (requested.length === 1) source = selectedSource;
+              for (const [id, candidate] of Object.entries(this.#sources))
+                if (candidate.source.clipId === matched.source.clipId)
+                  permissionSources[id] = selectedSource;
+            }
             // Apply only the public derive default; explicit values remain guarded.
             if (!Object.hasOwn(tool.arguments, "includeHistorical"))
               approvalArguments = {
@@ -2677,6 +2797,7 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
             owner,
             source,
             step?.id,
+            permissionSources,
           );
         } catch (error) {
           invalidArguments =
@@ -2701,7 +2822,7 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
 
   async collect(context: DriverContext): Promise<RunEvidence> {
     this.#assertBridgeTimingHealthy();
-    await this.#jobs(context);
+    await this.#jobs(context, true);
     const snapshot = await this.#getPage().evaluate(() =>
       window.desktop.ableton.requestSnapshot(),
     );
@@ -2747,23 +2868,19 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
         ),
       );
     }
+    if (context.fixture.arrangementSources?.length) {
+      const loaded = await this.#readArrangementSource(context, snapshot);
+      beforeSources.push(
+        required(this.#arrangementSourceFingerprint, "Arrangement settings"),
+      );
+      afterSources.push(hash(loaded.clips));
+    }
     if (beforeSources.length)
       unchanged.push({
         scope: "source-settings",
         beforeSha256: hash(beforeSources),
         afterSha256: hash(afterSources),
       });
-    if (context.fixture.arrangementSources?.length) {
-      const loaded = await this.#readArrangementSource(context, snapshot);
-      unchanged.push({
-        scope: "source-settings",
-        beforeSha256: required(
-          this.#arrangementSourceFingerprint,
-          "Arrangement settings",
-        ),
-        afterSha256: hash(loaded.clips),
-      });
-    }
     const mediaBefore: { target: string; sha256: string }[] = [];
     const mediaAfter: { target: string; sha256: string }[] = [];
     for (const resource of context.stagedFixture!.resources) {
@@ -2818,7 +2935,7 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
           required(this.#contextTraces.get(contextId), "context SDK trace"),
         ),
       );
-    await this.#jobs(context);
+    await this.#jobs(context, true);
     await this.#readTrace(context);
     const flatnessSmoke = await restoreFlatnessSmoke(
       [...this.#flatnessSmoke.values()],

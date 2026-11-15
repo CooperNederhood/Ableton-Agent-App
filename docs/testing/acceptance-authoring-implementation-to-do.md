@@ -2,6 +2,46 @@
 
 Companion specification: [Acceptance test authoring](acceptance-authoring.md).
 
+## Session-to-Arrangement comprehension
+
+- [x] Confirm the one-message, exactly-five-listen contract and exact
+      twenty-measure answer with the user; keep the answer runner-only.
+- [x] Obtain explicit approval for the supplied Set and five AIFF files,
+      perform canonical copy-only intake, and independently verify all six
+      copied asset hashes, four short-file headers and the full Arrangement.
+      Verify 69 active Core Library files and two Builtin IRs in place.
+- [x] Complete owned loaded-source review, including exact MIDI/instrument
+      identities and source baseline, without touching the user's running Live.
+      Freeze the actual initial override; no silent source repair.
+- [x] Extend existing source admission, scoped approvals and per-job evidence
+      routing for four Session and one Arrangement capture in one turn.
+      Preserve single-source behavior and ordinary ownership/safety guards.
+- [x] Add independent five-pass coverage/context/cleanup and exact-pattern
+      assertions, with red/green checker regressions and owning-suite coverage.
+- [x] Freeze the reviewed manifest, register the case and validate its inputs.
+- [x] Run the unchanged installed-candidate baseline and preserve its actual
+      sequencing failure. The user subsequently authorized red/green fixes.
+- [x] Reproduce admission and typed evidence defects with deterministic red
+      tests, fix them and run the broader owning suites before new real runs.
+- [x] Reproduce the unsupported single-context derivation restriction in the
+      driver and atomic scoped policy. Admit equivalent batches of independently
+      validated same-turn owned contexts using only existing per-source rules;
+      preserve denial, usage limits and all-or-nothing consumption.
+- [x] Preserve the correct-answer but failed `run-dpVv8M`. Reproduce the timing
+      proxy's 512-record disconnect with a real framed-traffic unit regression;
+      retain 2,048 bounded metadata records and a separate fail-closed overflow
+      test without changing pending-frame/byte, socket or evidence guards.
+- [x] Reproduce `run-JAAhev` exhausting the separate 10,000-event Desktop
+      observer below 4.6 MB. Retain 32,768 original ordered events while keeping
+      its 16-MiB byte guard and explicit malformed/count/byte failures.
+- [ ] Qualify the exact five-capture answer after product sequencing and bounded
+      stream-read improvements. `run-dpVv8M` returned the correct answer but
+      failed final evidence; latest `run-HFt0eC` completed all five captures
+      but exhausted the unchanged analysis deadline. All 2,314 deterministic
+      owning tests pass, not the real case. Preserve the separate failed History
+      cleanup and confirmed owned-resource teardown; do not describe these as
+      a pass or the historical native timeout reproduction.
+
 ## Outcome-based feature evidence
 
 - [x] Reproduce the verifier's unnecessary same-turn pitch-inventory requirement

@@ -54,6 +54,27 @@ describe("bounded acceptance event collection", () => {
     events.receive({ type: "made-up.event" });
     expect(() => events.read()).toThrow();
   });
+  it("retains a complete analysis conversation beyond 10000 events in original order", () => {
+    const events = new AcceptanceEvents();
+    for (let index = 0; index < 10_001; index++)
+      events.receive({
+        type: "agent.message_delta",
+        messageId: "analysis",
+        content: String(index),
+      });
+    expect(events.read()).toHaveLength(10_001);
+    expect(events.read()[0]).toMatchObject({ content: "0" });
+    expect(events.read()[10_000]).toMatchObject({ content: "10000" });
+  });
+  it("still fails explicitly at its finite default event ceiling", () => {
+    const events = new AcceptanceEvents();
+    for (let index = 0; index < 32_768; index++)
+      events.receive({ type: "lifecycle.changed", state: "ready" });
+    expect(events.read()).toHaveLength(32_768);
+    events.receive({ type: "lifecycle.changed", state: "ready" });
+    expect(() => events.read()).toThrow("exceeded");
+    expect(events.diagnostics().events).toHaveLength(32_768);
+  });
   it("never silently truncates required event evidence", () => {
     const events = new AcceptanceEvents(1);
     events.receive({ type: "lifecycle.changed", state: "ready" });

@@ -1,4 +1,7 @@
-import type { SessionListeningPreflightResult } from "@ableton-agent/protocol";
+import type {
+  MetricAudioObservation,
+  SessionListeningPreflightResult,
+} from "@ableton-agent/protocol";
 import type { AgentListeningEvidence } from "./agent-listening-result.js";
 import type { MelSmokeEvidence } from "./mel-smoke.js";
 import type { FeatureSourceEvidence } from "./feature-search.js";
@@ -134,6 +137,7 @@ export interface SetupEvidence extends SessionIdentity {
   };
 }
 export interface ScenarioPermission {
+  readonly sourceId?: string;
   readonly tool: string;
   readonly action: string;
   readonly risk: "low" | "medium";
@@ -176,6 +180,9 @@ export interface MidiContentIdentity {
 export type SourceIdentity = SourceLocation &
   ({ readonly mediaSha256: string } | MidiContentIdentity);
 export interface CaptureEvidence {
+  /** Original typed native observation, required by mixed comprehension checks. */
+  readonly observation?: MetricAudioObservation;
+  readonly toolCausationId?: string;
   readonly passId: string;
   readonly operationId: string;
   readonly source: SourceIdentity;

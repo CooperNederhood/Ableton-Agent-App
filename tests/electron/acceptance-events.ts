@@ -11,7 +11,7 @@ export class AcceptanceEvents {
   #failure: Error | undefined;
 
   constructor(
-    private readonly maximumEvents = 10_000,
+    private readonly maximumEvents = 32_768,
     private readonly maximumBytes = 16 * 1024 * 1024,
   ) {
     if (

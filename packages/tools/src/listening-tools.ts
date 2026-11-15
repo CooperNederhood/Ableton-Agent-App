@@ -26,6 +26,9 @@ import {
   metricRecordStreamDescriptorSchema,
   metricRecordStreamManifestSchema,
   metricContinuousListeningGeometrySchema,
+  melBandAggregationSchema,
+  melBandProfileSchema,
+  metricRecordStreamGapSchema,
 } from "@ableton-agent/protocol";
 import { z } from "zod";
 import {
@@ -53,13 +56,24 @@ const listenerIds = z
 const passTarget = { passId: id };
 const cursor = z.string().min(1).max(2048);
 const streamCursor = z.string().min(1).max(4096);
+const sampleRange = z
+  .strictObject({
+    startSample: z.number().int().nonnegative(),
+    endSample: z.number().int().positive(),
+  })
+  .refine((value) => value.endSample > value.startSample);
 const page = {
   cursor: cursor.optional(),
   limit: z.number().int().min(1).max(100).default(20),
 };
 
-const SESSION_LAUNCH_CASE_GUIDANCE =
-  "Requires stopped transport at a nonnegative position, global None or One Bar, and clip Global or One Bar quantization. This includes remembered active clips while transport is stopped; moving transport is unsupported. Never seek or change launch settings to make a request pass.";
+const SESSION_SEQUENCE_GUIDANCE =
+  'Every successful Session listen leaves playback running. Before the next Session listen, inspect current transport/source state and use ableton_transport action "set-playing" with isPlaying=false, through ordinary approval, if transport is moving. If a different clip remains remembered on the requested track, use ableton_tracks action "stop-clips" with that exact track and quantized=false, through ordinary approval, then verify stopped/nonqueued state. Do not stop unrelated tracks, seek, edit MIDI or change quantization. Prepare the next requested source before submitting its listen; do not intentionally submit a known-invalid capture to discover these prerequisites. This is preparation for a user-requested sequence, not permission to repair or retry a failed pass.';
+
+const PLANNED_ARRANGEMENT_HANDOFF_GUIDANCE =
+  'For a planned Session-to-Arrangement handoff explicitly requested by the user, restore Arrangement before submitting the Arrangement listen: stop moving transport, then call ableton_transport action "back-to-arrangement" through ordinary approval. A completed Session listen leaves a Session source selected; a transport stop does not restore Arrangement, and Live 11 may report the other track source as unknown until the global override is cleared. Do not start a capture to probe this known prerequisite. Inspect and verify the restored source before capture. When the user requests the whole Arrangement without numeric bounds, establish its full range from the actual Arrangement clips on the requested track, for example with ableton_arrangement action "inspect" and its inventory continuations. Transport loop length is not the Arrangement duration; neither cue points nor Session clip lengths establish the Arrangement ending. Never guess a default range or silently omit later material. Switching views or stopping transport alone does not clear a Session override. This planned preparation does not authorize repair or retry after a rejected capture.';
+
+const SESSION_LAUNCH_CASE_GUIDANCE = `Requires stopped transport at a nonnegative position, global None or One Bar, and clip Global or One Bar quantization. This includes remembered active clips while transport is stopped; moving transport is unsupported. Never seek or change launch settings to make a request pass. ${SESSION_SEQUENCE_GUIDANCE} ${PLANNED_ARRANGEMENT_HANDOFF_GUIDANCE}`;
 
 const FAILURE_EVIDENCE_GUIDANCE =
   "inspect-listeners ready:false with native_per_pass_validation_required means fresh validation is required for each capture, not a permanent commissioning failure and not evidence of an identity mismatch or broken listener. An already completed pass can have validated native proof while discovery still reports ready:false. An empty discovery list is not proof that devices were removed or disabled. An error code alone is not a precise cause: report failureEvidence's observed phase/check, actual versus expected values, coverage and diagnostic reference. Partial or unavailable evidence is an observability gap, not proof of a native predicate. Never invent an identity mismatch, automatically retry, edit settings or fall back to another mode to diagnose a rejection.";
@@ -88,13 +102,15 @@ const PERSISTED_FEATURE_READ_GUIDANCE =
 export const METRIC_REPORT_PAGE_GUIDANCE =
   "This is one original-measurement report page. Inspect report.nextOffset: if non-null, call ableton_context report again for the same contextId with offset equal to that exact nextOffset, not offset + limit. Byte limits can return fewer rows than the requested limit. Follow every continuation until nextOffset is null. A request to reread or verify stored analyzer evidence requires fresh complete pages for each requested context, including after restart; earlier-turn pages cannot establish that the evidence remains available and unchanged. Complete these reads even if feature values were read first. Global acquisition metadata and feature values do not replace unread frame validity.";
 
-export const METRIC_STREAM_READ_GUIDANCE =
-  'A returned contextId alone does not identify its storage kind: if the kind is unknown, discover it with a bounded list scoped to the exact returned passId, following only inventory continuations needed for those IDs. Once the kind is known, read its contextId directly without another list. For metric-record-stream-context/v1 use action "stream-overview" first, instead of whole-observation actions. Its independently verified terminal counts, gaps, native status and digests establish retained acquisition coverage without reading all ten minutes of records. For measurement values, use "stream-records" with the same contextId, optional metric and half-open sample range, and copy nextCursor only as needed for the requested evidence. Do not exhaust every page merely to establish coverage. Each page is an explicitly labelled projection of one digest-checked immutable chunk, not a new complete chunk or a digest of the sliced records. Range selection finds intersecting chunks; retained record/gap supports are not clipped and can extend outside the requested range. Records and gaps retain their original indices and supports. The continuation is bound to the context and filters; omit it to begin a different query. Report unavailable values, gaps and unmeasured tails honestly; counts alone do not establish timbre, pitch, rhythm or silence. Stream feature derivation is explicitly unsupported; never recapture or assemble a whole observation to derive it. Arrangement streams may extend to 600 seconds only through the negotiated continuous capability; legacy and Session limits remain unchanged.';
+const METRIC_STREAM_RECORD_GUIDANCE =
+  'A returned contextId alone does not identify its storage kind: if the kind is unknown, discover it with a bounded list scoped to the exact returned passId, following only inventory continuations needed for those IDs. Once the kind is known, read its contextId directly without another list. For metric-record-stream-context/v1 use action "stream-overview" first, instead of whole-observation actions. Its independently verified terminal counts, gaps, native status and digests establish retained acquisition coverage without reading all ten minutes of records. For measurement values, use "stream-records" with the same contextId, optional metric and half-open sample range, and copy nextCursor only as needed for the requested evidence. Range selection filters records and gaps by intersecting support BEFORE pagination, preserving their original values, indices and full supports; boundary supports are not clipped. Empty projections may have nextCursor when a coarse chunk match has no matching entries. For musical beat b, sample position = overview.geometry.startSample + (b - overview.geometry.startBeat) * overview.geometry.sampleRate * 60 / overview.geometry.tempoBpm; round sample bounds to integers. Use narrow musical ranges and limit up to 64 to compare passages without repeated capture or reading an entire long timeline. Do not exhaust every page merely to establish coverage. Each page is an explicitly labelled projection of one digest-checked immutable chunk, not a new complete chunk or a digest of the sliced records. The continuation is bound to the context and filters; omit it to begin a different query. Report unavailable values, gaps and unmeasured tails honestly; counts alone do not establish timbre, pitch, rhythm or silence. Stream feature derivation is explicitly unsupported; never recapture or assemble a whole observation to derive it. Arrangement streams may extend to 600 seconds only through the negotiated continuous capability; legacy and Session limits remain unchanged.';
+
+export const METRIC_STREAM_READ_GUIDANCE = `Stream contexts do not support derive-features; use stream-overview, then bounded stream-summary or stream-records reads instead. For musical passage or sequence comparison, prefer action "stream-summary" with the contextId and each passage's sample range: it returns a complete compact numeric mel summary across chunk boundaries, without raw arrays or manual band arithmetic. Compare the requested extent, not only its first few measures; a locally matching pattern is not evidence that unread later material repeats. Oversized summary queries fail explicitly and must be narrowed. Preserve availability, gaps and full native frame supports. This is bounded read presentation, not persisted feature derivation, a new capture or exclusive clip attribution. ${METRIC_STREAM_RECORD_GUIDANCE}`;
 
 export const FEATURE_VALUE_DETAIL_GUIDANCE =
   "list-features, compare-features and search-features return metadata and distances, not feature value arrays. valueCount is a count, not values; distance is not either input vector. If the user requested values or persisted rereads, use get-feature for each requested featureId in this operation before reporting values; read page.values and needed continuations, not memory or original report rows. Preserve null/unavailable reasons. Comparison/search alone does not require these extra reads.";
 
-export const LISTENING_AGENT_GUIDANCE = `${LISTENING_WORKFLOW_GUIDANCE} ${PERSISTED_FEATURE_READ_GUIDANCE} Wire5 report geometry supports nonzero/fractional Arrangement starts; physical qualification of a particular range remains separate. For a known metric-audio-observation/v1 context, use ableton_context report for stacked musical-row values, availability, gaps and actual native support without joining raw indices. Start offset=0 and limit=8 (maximum 32); follow report.nextOffset until null. Consult metricMetadata.algorithm.units for native level/centroid/attacks and metricMetadata["mel-bands"].profile for mel: metric peak/RMS values are linear amplitudes, not dBFS; attack strength is dB-rise and its timestamp is the detector-window end, not a precise onset. Partial attack coverage cannot establish absence of attacks over the whole clip. Reports do not authorize new capture or convert legacy data. ${MEL_BAND_GUIDANCE} ${FLATNESS_SMOKE_GUIDANCE} ${PITCH_SMOKE_GUIDANCE} ${RHYTHM_EVIDENCE_GUIDANCE} ${ALIGNMENT_EVIDENCE_GUIDANCE} ${FAILURE_EVIDENCE_GUIDANCE} The report instructions above apply to metric-audio-observation/v1, not stream contexts. ${METRIC_STREAM_READ_GUIDANCE}`;
+export const LISTENING_AGENT_GUIDANCE = `Before each listening capture: finish the preceding pass and prepare the requested playback source BEFORE submitting the next listen. For Session followed by Session, stop moving transport through ordinary approval. For Session followed by Arrangement, stop transport AND restore Back to Arrangement through ordinary approval BEFORE calling play-arrangement-and-listen; stopping transport alone is insufficient. This planned user-requested handoff is allowed preparation, not automatic repair of a rejected pass. Determine a whole Arrangement's range from its clips, never its transport loop. Do not send a capture as a probe of these known prerequisites. If a capture actually fails, report it and do not automatically repair or retry. ${LISTENING_WORKFLOW_GUIDANCE} ${PERSISTED_FEATURE_READ_GUIDANCE} Wire5 report geometry supports nonzero/fractional Arrangement starts; physical qualification of a particular range remains separate. For a known metric-audio-observation/v1 context, use ableton_context report for stacked musical-row values, availability, gaps and actual native support without joining raw indices. Start offset=0 and limit=8 (maximum 32); follow report.nextOffset until null. Consult metricMetadata.algorithm.units for native level/centroid/attacks and metricMetadata["mel-bands"].profile for mel: metric peak/RMS values are linear amplitudes, not dBFS; attack strength is dB-rise and its timestamp is the detector-window end, not a precise onset. Partial attack coverage cannot establish absence of attacks over the whole clip. Reports do not authorize new capture or convert legacy data. ${MEL_BAND_GUIDANCE} ${FLATNESS_SMOKE_GUIDANCE} ${PITCH_SMOKE_GUIDANCE} ${RHYTHM_EVIDENCE_GUIDANCE} ${ALIGNMENT_EVIDENCE_GUIDANCE} ${FAILURE_EVIDENCE_GUIDANCE} The report instructions above apply to metric-audio-observation/v1, not stream contexts. ${METRIC_STREAM_READ_GUIDANCE}`;
 
 export const listeningOperationParamsSchema = z.discriminatedUnion("action", [
   z
@@ -147,7 +163,7 @@ export const listeningOperationParamsSchema = z.discriminatedUnion("action", [
       message: "Arrangement end must follow its start",
     })
     .describe(
-      "Capture the exact Arrangement interval [startBeat, endBeat). durationBeats is not accepted. Returns a queued job, not a completed observation.",
+      `Capture the exact Arrangement interval [startBeat, endBeat). durationBeats is not accepted. Waits for terminal capture, publication and cleanup before returning the owned job. ${PLANNED_ARRANGEMENT_HANDOFF_GUIDANCE}`,
     ),
   z
     .object({ action: z.literal("get-pass"), ...passTarget })
@@ -225,7 +241,13 @@ export const listeningOperationResultSchema = z.discriminatedUnion("action", [
       "cancel",
     ] as const
   ).map((action) =>
-    z.object({ action: z.literal(action), job: listeningJobSchema }).strict(),
+    z
+      .object({
+        action: z.literal(action),
+        job: listeningJobSchema,
+        nextCaptureGuidance: z.string().max(4096).optional(),
+      })
+      .strict(),
   ),
   z
     .object({
@@ -246,18 +268,22 @@ export const contextOperationParamsSchema = z.discriminatedUnion("action", [
     .describe(METRIC_STREAM_READ_GUIDANCE),
   z
     .strictObject({
+      action: z.literal("stream-summary"),
+      contextId: id,
+      includeHistorical: z.boolean().default(false),
+      range: sampleRange,
+    })
+    .describe(
+      "Read one complete bounded mel-band passage summary across immutable chunks. Use musical sample bounds from stream-overview geometry. At most 256 matching frames, eight chunks and 1 MiB internally; no raw arrays or recapture. Gaps and provenance remain explicit.",
+    ),
+  z
+    .strictObject({
       action: z.literal("stream-records"),
       contextId: id,
       includeHistorical: z.boolean().default(false),
       metric:
         metricRecordStreamDescriptorSchema.shape.requestedMetrics.element.optional(),
-      range: z
-        .strictObject({
-          startSample: z.number().int().nonnegative(),
-          endSample: z.number().int().positive(),
-        })
-        .refine((value) => value.endSample > value.startSample)
-        .optional(),
+      range: sampleRange.optional(),
       cursor: streamCursor.optional(),
       limit: z.number().int().min(1).max(64).default(8),
     })
@@ -274,7 +300,7 @@ export const contextOperationParamsSchema = z.discriminatedUnion("action", [
       includeHistorical: z.boolean().default(false),
     })
     .describe(
-      "Persist derived features for explicit stored observations. App-session data mutation only; never captures audio or changes Live. Unsupported sources return unavailable.",
+      'Persist derived features for explicit stored non-stream observations. metric-record-stream-context/v1 is unsupported: use "stream-overview", then bounded "stream-summary" or "stream-records" reads instead. App-session data mutation only; never captures audio or changes Live.',
     ),
   z
     .strictObject({
@@ -476,10 +502,11 @@ export const metricStreamRecordPageSchema = z
   .superRefine((value, ctx) => {
     const count = value.records.length + value.gaps.length;
     if (
-      count < 1 ||
       count > 64 ||
-      value.records.length !==
-        Math.min(count, Math.max(0, value.totalRecords - value.entryOffset)) ||
+      (count === 0 && value.entryOffset !== 0) ||
+      value.records.length > value.totalRecords ||
+      value.gaps.length > value.totalGaps ||
+      value.totalRecords + value.totalGaps < 1 ||
       value.totalRecords + value.totalGaps > 256 ||
       value.entryOffset + count > value.totalRecords + value.totalGaps
     )
@@ -530,6 +557,30 @@ const comparisonEvidenceSchema = z.strictObject({
 });
 
 export const contextOperationResultSchema = z.discriminatedUnion("action", [
+  z
+    .strictObject({
+      action: z.literal("stream-summary"),
+      entry: streamEntrySchema,
+      summary: z
+        .strictObject({
+          kind: z.literal("mel-band-range-summary/v1"),
+          descriptorDigest:
+            metricRecordChunkSchema.options[0].shape.descriptorDigest,
+          range: sampleRange,
+          supportPolicy: z.literal("intersecting-native-frames"),
+          availability: z.enum(["available", "unavailable"]),
+          profile: melBandProfileSchema.nullable(),
+          aggregation: melBandAggregationSchema,
+          gaps: z.array(metricRecordStreamGapSchema).max(256),
+          chunkDigests: z
+            .array(metricRecordChunkSchema.options[0].shape.digest)
+            .max(8),
+        })
+        .refine((value) => value.aggregation.frameCount <= 256, {
+          message: "Stream summary exceeds its bounded frame budget",
+        }),
+    })
+    .superRefine(checkContextResponseBudget),
   z
     .strictObject({
       action: z.literal("stream-overview"),
@@ -694,6 +745,18 @@ export function createListeningTools(
         );
         if (result.action !== params.action)
           throw new Error("Listening result action mismatch");
+        if (
+          result.action === "play-session-and-listen" &&
+          result.job.stage === "completed" &&
+          result.job.cleanupPolicy === "leave-running"
+        )
+          return {
+            ...result,
+            nextCaptureGuidance:
+              SESSION_SEQUENCE_GUIDANCE +
+              " " +
+              PLANNED_ARRANGEMENT_HANDOFF_GUIDANCE,
+          };
         return result;
       },
     }),
@@ -716,11 +779,20 @@ export function createListeningTools(
         if (
           ((request.action === "stream-overview" &&
             result.action === "stream-overview") ||
+            (request.action === "stream-summary" &&
+              result.action === "stream-summary") ||
             (request.action === "stream-records" &&
               result.action === "stream-records")) &&
           result.entry.contextId !== request.contextId
         )
           throw new Error("Stream context result does not match request");
+        if (
+          request.action === "stream-summary" &&
+          result.action === "stream-summary" &&
+          (request.range.startSample !== result.summary.range.startSample ||
+            request.range.endSample !== result.summary.range.endSample)
+        )
+          throw new Error("Stream summary does not match request");
         if (
           request.action === "stream-records" &&
           result.action === "stream-records" &&

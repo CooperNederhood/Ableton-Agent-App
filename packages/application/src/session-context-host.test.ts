@@ -186,22 +186,58 @@ async function streamFixture() {
     .spyOn(metrics, "listMetricChunks")
     .mockImplementation(async (query) => {
       const index = (query.afterSequence ?? -1) + 1;
-      const chunk = chunks[index];
-      const items =
-        chunk === undefined ||
-        (query.metric !== undefined && query.metric !== chunk.metric)
-          ? []
-          : [chunk];
+      const items = chunks
+        .slice(index, index + (query.limit ?? 1))
+        .filter(
+          (chunk) =>
+            query.metric === undefined || query.metric === chunk.metric,
+        );
       return {
         items,
         encodedBytes: Buffer.byteLength(JSON.stringify(items)),
-        ...(index === 0 && items.length ? { nextSequence: 0 } : {}),
+        ...(items.length && index + items.length < chunks.length
+          ? { nextSequence: index + items.length - 1 }
+          : {}),
       };
     });
   return { ...seeded, record, chunks, get, inventory, read };
 }
 
 describe("bounded stream context consumers", () => {
+  it("summarizes a complete bounded mel passage across immutable chunk boundaries", async () => {
+    const { host, record, read, chunks } = await streamFixture();
+    read.mockResolvedValueOnce({
+      items: chunks,
+      encodedBytes: Buffer.byteLength(JSON.stringify(chunks)),
+    });
+    const result = await host.executeContextOperation(
+      contextOperationParamsSchema.parse({
+        action: "stream-summary",
+        contextId: record.metadata.id,
+        range: {
+          startSample: 10_000 + 94 * 2048,
+          endSample: 10_000 + 98 * 2048,
+        },
+      }),
+      context,
+    );
+    expect(result).toMatchObject({
+      action: "stream-summary",
+      summary: {
+        kind: "mel-band-range-summary/v1",
+        availability: "available",
+        aggregation: { status: "completed", frameCount: 4 },
+        chunkDigests: chunks.map((chunk) => chunk.digest),
+        gaps: [],
+      },
+    });
+    expect(Buffer.byteLength(JSON.stringify(result))).toBeLessThan(6000);
+    expect(read.mock.calls[0]?.[1]).toMatchObject({
+      trace,
+      activeAgentId: "reader",
+    });
+  });
+
   it("reads a verified 600-second overview without loading records or deriving features", async () => {
     const { host, read, record } = await streamFixture();
     const result = await host.executeContextOperation(
@@ -268,6 +304,226 @@ describe("bounded stream context consumers", () => {
     });
   });
 
+  it("filters a musical sample range before paging across chunk boundaries without clipping supports", async () => {
+    const { host, record, chunks } = await streamFixture();
+    const query = {
+      action: "stream-records" as const,
+      contextId: record.metadata.id,
+      includeHistorical: false,
+      metric: "mel-bands" as const,
+      range: {
+        startSample: 10_000 + 94 * 2048 + 7,
+        endSample: 10_000 + 97 * 2048 + 9,
+      },
+      limit: 2,
+    };
+    const records = [];
+    let cursor: string | undefined;
+    let pages = 0;
+    do {
+      const result = await host.executeContextOperation(
+        { ...query, ...(cursor === undefined ? {} : { cursor }) },
+        context,
+      );
+      if (result.action !== "stream-records" || result.page === null)
+        throw new Error("Expected range projection");
+      expect(result.page.chunkDigest).toBe(
+        chunks[result.page.chunkSequence]!.digest,
+      );
+      records.push(...result.page.records);
+      cursor = result.nextCursor;
+      pages++;
+    } while (cursor !== undefined && pages < 12);
+    expect(cursor).toBeUndefined();
+    expect(records).toEqual([
+      ...chunks[0]!.records.slice(94),
+      ...chunks[1]!.records.slice(0, 2),
+    ]);
+    expect(pages).toBe(2);
+    expect(records[0]!.support.startSample).toBeLessThan(
+      query.range.startSample,
+    );
+    expect(records.at(-1)!.support.endSample).toBeGreaterThan(
+      query.range.endSample,
+    );
+  });
+
+  it("returns an empty bounded projection for a coarse chunk match with no intersecting records", async () => {
+    const { host, record } = await streamFixture();
+    const query = {
+      action: "stream-records" as const,
+      contextId: record.metadata.id,
+      includeHistorical: false,
+      range: { startSample: 1, endSample: 2 },
+      limit: 8,
+    };
+    const first = await host.executeContextOperation(query, context);
+    expect(first).toMatchObject({
+      page: { records: [], gaps: [], entryOffset: 0 },
+    });
+    if (first.action !== "stream-records") throw new Error("Expected records");
+    expect(typeof first.nextCursor).toBe("string");
+    const last = await host.executeContextOperation(
+      { ...query, cursor: first.nextCursor! },
+      context,
+    );
+    expect(last).toMatchObject({ page: { records: [], gaps: [] } });
+    expect("nextCursor" in last).toBe(false);
+  });
+
+  it("preserves intersecting gaps while excluding records touching only the half-open boundaries", async () => {
+    const { host, record, chunks, read } = await streamFixture();
+    const original = chunks[0]!;
+    if (original.metric !== "mel-bands")
+      throw new Error("Expected mel fixture");
+    const missing = original.records.at(-1)!;
+    const gap = {
+      firstIndex: missing.index,
+      count: 1,
+      support: missing.support,
+      reason: "sequence-gap" as const,
+      detail: "Missing retained analyzer frame",
+    };
+    const body = {
+      ...original,
+      records: original.records.slice(0, -1),
+      gaps: [gap],
+    };
+    const chunk = { ...body, digest: await metricRecordChunkDigest(body) };
+    read.mockResolvedValueOnce({
+      items: [chunk],
+      encodedBytes: Buffer.byteLength(JSON.stringify([chunk])),
+    });
+    const result = await host.executeContextOperation(
+      {
+        action: "stream-records",
+        contextId: record.metadata.id,
+        includeHistorical: false,
+        range: missing.support,
+        limit: 64,
+      },
+      context,
+    );
+    expect(result).toMatchObject({
+      page: {
+        chunkDigest: chunk.digest,
+        totalRecords: 95,
+        totalGaps: 1,
+        entryOffset: 0,
+        records: [],
+        gaps: [gap],
+      },
+    });
+    read.mockResolvedValueOnce({
+      items: [chunk],
+      encodedBytes: Buffer.byteLength(JSON.stringify([chunk])),
+    });
+    const summary = await host.executeContextOperation(
+      {
+        action: "stream-summary",
+        contextId: record.metadata.id,
+        includeHistorical: false,
+        range: missing.support,
+      },
+      context,
+    );
+    expect(summary).toMatchObject({
+      summary: {
+        aggregation: { status: "no-frames", frameCount: 0 },
+        gaps: [gap],
+      },
+    });
+  });
+
+  it("summarizes only the selected mel frames with the existing linear regional aggregation", async () => {
+    const { host, record } = await streamFixture();
+    const result = await host.executeContextOperation(
+      {
+        action: "stream-summary",
+        contextId: record.metadata.id,
+        includeHistorical: false,
+        range: {
+          startSample: 10_000 + 12 * 2048,
+          endSample: 10_000 + 16 * 2048,
+        },
+      },
+      context,
+    );
+    expect(result).toMatchObject({
+      summary: {
+        aggregation: {
+          status: "completed",
+          frameCount: 4,
+        },
+      },
+    });
+    if (
+      result.action !== "stream-summary" ||
+      result.summary.aggregation.status !== "completed"
+    )
+      throw new Error("Expected completed mel aggregation");
+    for (const [channel, denominator] of [31, 37].entries()) {
+      const region = result.summary.aggregation.analysis.regions[channel]!;
+      expect(region.low).toBeCloseTo(3 / denominator, 12);
+      expect(region.mid).toBeCloseTo(42 / denominator, 12);
+      expect(region.high).toBeCloseTo(255 / denominator, 12);
+    }
+  });
+
+  it("refuses partial, out-of-range and cancelled summaries instead of returning incomplete means", async () => {
+    const { host, record, read, chunks } = await streamFixture();
+    const query = {
+      action: "stream-summary" as const,
+      contextId: record.metadata.id,
+      includeHistorical: false,
+      range: { startSample: 10_000, endSample: 10_000 + 16 * 2048 },
+    };
+    read.mockResolvedValueOnce({
+      items: chunks,
+      encodedBytes: 2,
+      nextSequence: 1,
+    });
+    await expect(
+      host.executeContextOperation(query, context),
+    ).rejects.toMatchObject({
+      code: "context_response_too_large",
+    });
+    await expect(
+      host.executeContextOperation(
+        { ...query, range: { startSample: 1, endSample: 2 } },
+        context,
+      ),
+    ).rejects.toMatchObject({ code: "invalid_range" });
+    read.mockResolvedValueOnce({
+      items: [...chunks, chunks[0]!],
+      encodedBytes: 2,
+    });
+    await expect(
+      host.executeContextOperation(
+        {
+          ...query,
+          range: { startSample: 10_000, endSample: 10_000 + 200 * 2048 },
+        },
+        context,
+      ),
+    ).rejects.toMatchObject({ code: "context_response_too_large" });
+    read.mockRejectedValueOnce(new Error("stored summary chunk corrupt"));
+    await expect(host.executeContextOperation(query, context)).rejects.toThrow(
+      "stored summary chunk corrupt",
+    );
+    const controller = new AbortController();
+    read.mockImplementationOnce(async () => {
+      controller.abort(new Error("cancelled during summary"));
+      return { items: [], encodedBytes: 2 };
+    });
+    await expect(
+      host.executeContextOperation(query, {
+        ...context,
+        signal: controller.signal,
+      }),
+    ).rejects.toThrow("cancelled during summary");
+  });
+
   it("binds continuations to context, filters and original chunk identity", async () => {
     const { host, record, read, chunks } = await streamFixture();
     const query = {
@@ -281,6 +537,16 @@ describe("bounded stream context consumers", () => {
     await expect(
       host.executeContextOperation(
         { ...query, cursor: first.nextCursor!, metric: "pitch" },
+        context,
+      ),
+    ).rejects.toMatchObject({ code: "invalid_cursor" });
+    await expect(
+      host.executeContextOperation(
+        {
+          ...query,
+          cursor: first.nextCursor!,
+          range: { startSample: 10_000, endSample: 12_048 },
+        },
         context,
       ),
     ).rejects.toMatchObject({ code: "invalid_cursor" });
@@ -348,12 +614,13 @@ describe("bounded stream context consumers", () => {
         includeHistorical: false,
         limit: 20,
       },
-    ])
-      await expect(
-        host.executeContextOperation(query, context),
-      ).rejects.toMatchObject({
+    ]) {
+      const request = host.executeContextOperation(query, context);
+      await expect(request).rejects.toMatchObject({
         code: "incremental_metric_features_unsupported",
       });
+      await expect(request).rejects.toThrow("stream-summary");
+    }
     expect(read).not.toHaveBeenCalled();
     expect(derive).not.toHaveBeenCalled();
   });

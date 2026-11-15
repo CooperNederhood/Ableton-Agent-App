@@ -17,6 +17,7 @@ import { writeScenarioReceipt } from "./scenario-receipts.mjs";
 import { listeningHistoryResult } from "../../packages/runtime/src/listening-history.js";
 import {
   captureCleanupConfirmed,
+  sessionCaptureToolCausation,
   restoreFlatnessSmoke,
   restoreSpreadSmoke,
   restoreRolloffSmoke,
@@ -32,6 +33,106 @@ import {
   recordedFlatnessHistory,
 } from "../../packages/test-support/src/integration/flatness-smoke-test-support.js";
 import { nativeMetricLifecycleSchema } from "../../packages/signal-routing/src/listener-metric-contracts.js";
+import { appEventSchema } from "../../apps/desktop/src/contracts.js";
+
+describe("mixed Session capture tool attribution", () => {
+  function fixture() {
+    const f = agentListeningFixture();
+    const observation = f.context.observation;
+    if (!observation) throw new Error("Expected synthetic observation");
+    const owner = {
+      ...f.turn,
+      appSessionId: "10000000-0000-4000-8000-000000000001",
+      agentId: "10000000-0000-4000-8000-000000000002",
+      operationId: "10000000-0000-4000-8000-000000000003",
+      sdkTurnId: f.owner.sdkTurnId,
+    };
+    if (observation.source.view !== "session")
+      throw new Error("Expected Session source");
+    const event = appEventSchema.parse({
+      type: "approval.requested",
+      operationId: owner.operationId,
+      appSessionId: owner.appSessionId,
+      agentInstanceId: owner.agentId,
+      sdkSessionId: owner.conversationId,
+      trace: {
+        traceId: owner.sdkTurnId,
+        correlationId: owner.sdkTurnId,
+        causationId: observation.ownership.causationId,
+      },
+      approval: {
+        id: "10000000-0000-4000-8000-000000000004",
+        title: "Listen once",
+        risk: "medium",
+        summary: "Exact Session source",
+        changes: [],
+        destructive: false,
+        tool: {
+          name: "ableton_listening",
+          action: "play-session-and-listen",
+          argumentsComplete: true,
+          arguments: {
+            action: "play-session-and-listen",
+            target: observation.source.target,
+            listenerIds: [observation.ownership.listenerId],
+          },
+        },
+      },
+    });
+    if (event.type !== "approval.requested")
+      throw new Error("Expected approval");
+    return { observation, owner, event };
+  }
+  it("binds the independently approved exact source and rejects duplicate calls", () => {
+    const { observation, owner, event } = fixture();
+    expect(sessionCaptureToolCausation([event], owner, observation)).toBe(
+      observation.ownership.causationId,
+    );
+    expect(() =>
+      sessionCaptureToolCausation([event, event], owner, observation),
+    ).toThrow("ambiguous");
+    expect(() => sessionCaptureToolCausation([], owner, observation)).toThrow(
+      "Missing",
+    );
+  });
+  it.each([
+    "operationId",
+    "appSessionId",
+    "agentId",
+    "conversationId",
+    "sdkTurnId",
+  ] as const)("rejects foreign %s", (key) => {
+    const { observation, owner, event } = fixture();
+    expect(() =>
+      sessionCaptureToolCausation(
+        [event],
+        { ...owner, [key]: "foreign" },
+        observation,
+      ),
+    ).toThrow("Missing");
+  });
+  it.each(["cause", "correlation", "source", "listener", "incomplete"])(
+    "rejects mismatched %s",
+    (mode) => {
+      const { observation, owner, event } = fixture();
+      const altered = structuredClone(event);
+      if (mode === "cause") altered.trace!.causationId = "foreign";
+      if (mode === "correlation") altered.trace!.correlationId = "foreign";
+      if (mode === "source")
+        altered.approval.tool!.arguments.target = {
+          view: "session",
+          sceneIndex: 99,
+        };
+      if (mode === "listener")
+        altered.approval.tool!.arguments.listenerIds = ["foreign"];
+      if (mode === "incomplete")
+        altered.approval.tool!.argumentsComplete = false;
+      expect(() =>
+        sessionCaptureToolCausation([altered], owner, observation),
+      ).toThrow("Missing");
+    },
+  );
+});
 
 describe("agent consumption typed History persistence", () => {
   it.each(["baseline", "mel"] as const)(

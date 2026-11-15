@@ -27,6 +27,18 @@ const ATTACK_FLOOR_DBFS = -120;
 // Detector history starts at -120 dBFS; supported RMS can exceed unity.
 export const MAX_METRIC_ATTACK_STRENGTH_DB =
   20 * Math.log10(MAX_METRIC_OBSERVATION_AMPLITUDE) - ATTACK_FLOOR_DBFS;
+
+export function metricAttackStrengthMatches(
+  actual: number,
+  expected: number,
+): boolean {
+  // Two log10 evaluations, scaling and subtraction can round differently across V8 versions.
+  return (
+    Math.abs(actual - expected) <=
+    8 * Number.EPSILON * MAX_METRIC_ATTACK_STRENGTH_DB
+  );
+}
+
 const amplitude = z
   .number()
   .finite()
@@ -760,11 +772,11 @@ export const metricAudioObservationSchema = body.superRefine((value, ctx) => {
       expected
         ? window.events.length !== 1 ||
           actual?.sample !== expected.sample ||
-          actual.strength !== expected.strength
+          !metricAttackStrengthMatches(actual.strength, expected.strength)
         : window.events.length !== 0
     ) {
       issue(
-        "Attack events must exactly match the detector replay over retained input",
+        "Attack events must match the detector replay over retained input within floating-point roundoff",
       );
     }
     events += window.events.length;

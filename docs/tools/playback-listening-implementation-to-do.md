@@ -1,6 +1,104 @@
 # Playback Listening Implementation To-Do
 
+## Installed Session launch incident
+
+- [x] Run unchanged basic Session regressions against the actual installed
+      `4dae4562` app on Live 11.3.43: Drum Rack `run-kO895M`, identification
+      `run-Nw0WQD`, stopped/quantized audio `run-BHME9W`, and MIDI
+      `run-O9URMU`. All selected assertions and terminal cleanup pass.
+- [x] Audit installed app/payload provenance and actual listener resource
+      hashes, not version labels alone. The package matches current source;
+      all 53 installed files and 50 portable resources match expected bytes.
+      The user confirms using the development listener, not obsolete presets.
+- [x] Recover bounded typed History evidence for the failed conversation
+      without changing normal-profile settings or reopening Live. The
+      pre-failure clip has 14 notes versus four in the existing Drum Rack
+      fixture. Preserve this distinction without claiming it caused timeout.
+- [x] Confirm the user's development listener was added/replaced after opening
+      the Set, unlike the runner's pre-load binding. This is a missing execution
+      condition, not a proven root cause.
+- [ ] Record the outcome and detailed evidence of the user's proposed single
+      manual retry. History-enablement instructions were supplied; neither
+      enablement nor a retry result is confirmed.
+- [ ] Reproduce the exact normal-profile launch failure or isolate its missing
+      execution condition. No fix is established by the four fresh-process
+      passes, verified installation, or five-second deadline overlap.
+- [ ] After a concrete reproduction, add an owning deterministic red
+      regression, fix it, and rerun the failing integration case before
+      expanding coverage. Review any new fixture contract with the user.
+
 ## Long-form Arrangement listening
+
+- [x] Reproduce SDK model/context diagnostic loss with controlled compaction
+      success/failure and model-usage events; retain bounded, body-free,
+      redacted timing/token observations with original SDK/turn attribution.
+      Both regressions were red before the fix; all 462 application tests pass.
+- [x] Identify the observed feature-search second-turn stall in unchanged
+      `run-lRMqLv`: threshold compaction took 85.719 seconds during report
+      pagination, after report reads substantially expanded context. Preserve
+      this failed terminal receipt and complete cleanup; restart remained unrun.
+- [x] Apply the user's reviewed budget-only change: second turn 180 to 300
+      seconds and overall run 660 to 780 seconds. Keep report format, model,
+      prompts, permissions, required reads and all correctness assertions.
+      Compaction is neither required nor asserted; this is not an efficiency fix.
+- [x] Obtain a complete terminal feature-search pass under the revised budgets,
+      including restored evidence and cleanup. Preserve the earlier deadline
+      failures as failures under their original contract.
+      Revised-budget `run-PLuc6X` was blocked at source preconditions before
+      any turn: owned Live was already playing at beat 25.346533333333333,
+      rather than stopped at zero. Cause unknown; no baseline repair or silent
+      retry. All turns unrun, final cleanup complete.
+      The explicitly approved fresh attempt `run-F3imcv` completed both
+      assistant turns and both capture assertions, then failed second-turn
+      pitch-grid inventory: no fresh first-context inventory read in that
+      turn, despite prose claiming availability for both. Restored turn
+      remained unrun; cleanup complete. Do not waive this correctness check.
+- [x] Correct the user's identified outcome-contract overconstraint: accept
+      already available same-conversation pitch-grid metadata without requiring
+      another inventory call. Three reproductions red then green; all 209
+      oracle and 917 owning integration-support tests pass, including hostile
+      provenance, contradiction, immutability and restored-read guards.
+      `run-F3imcv` second-turn replay passes the revised assertion without
+      rewriting its failed receipt or claiming its unrun persistence phase.
+- [x] Qualify the complete revised outcome contract in real-host `run-PmT6xJ`:
+      all three turns, ten assertions, exactly two captures, same original
+      contexts after owned restart, protected state and final cleanup pass
+      on Live 11.3.43. Same packaged candidate; no agent/prompt/report changes.
+      Stop at this selected case; MIDI and normal-app installation remain outside
+      this qualification.
+- [x] Execute the subsequently requested remaining MIDI regression unchanged:
+      terminal `run-uOtEk9`, Live 11.3.43, same `4dae4562` app candidate;
+      all four capture/context/count/protected-state assertions and cleanup pass.
+- [x] Install that qualified candidate as the normal arm64 app; update the
+      normal-profile listener bundle through the canonical integration installer,
+      verify all three integrations current, preserve exact signed bundle bytes,
+      and pass installed-path startup/authentication checks in disposable profiles.
+      No user Set changes, public release or follow-up PR yet.
+
+- [x] Preserve red `run-PIBeAH`, reproduce cross-V8 attack-strength roundoff in
+      bounded and chunked replay, and prove deterministic regressions red then
+      green without changing event count, threshold, sample/spacing/history
+      guards, retained strengths or digests.
+- [x] Reproduce real ingress failure evidence losing listener attribution
+      through the Arrangement and Session runtime; include producer instance
+      and connection ownership in emitted evidence without relaxing foreign
+      evidence rejection or cleanup confirmation.
+- [x] Rerun the unchanged three-minute fixture on the fixed candidate; only
+      after it passes, rerun the same three selected Session regressions.
+      Each new failure must first get its own red deterministic regression.
+      Arrangement `run-Xs0pTO` and Session identification `run-O1lJM8` passed.
+      Feature-search `run-HuIUMA` then failed its second-turn agent deadline,
+      despite both captures and compare/search tools completing; no tool
+      failure was recorded. Preserve this failed receipt, do not claim restart
+      qualification, change the timeout or silently retry. The MIDI case
+      remains unrun while the deadline failure is unresolved.
+      One explicitly approved unchanged retry, `run-B6Qwo7`, hit the same
+      second-turn deadline while assistant output was streaming, with no tool
+      failure and complete runner cleanup. Preserve both failures; no further
+      retry or timeout change is approved.
+      Later user-approved contract revisions and terminal `run-PmT6xJ` resolved
+      feature-search qualification. The separately requested remaining MIDI
+      case then passed `run-uOtEk9`; every selected case now has a terminal pass.
 
 - [x] Intake an owned copy and inspect the supplied Arrangement offline:
       `Drums-audio`, beats 0–384 at 128 BPM, exactly 180 seconds. Preserve

@@ -1175,7 +1175,7 @@ describe("same-session peak fundamentals coverage", () => {
     expect(original.steps).toHaveLength(3);
     expect(original.steps[2]!.setupActions).toEqual(["restart-owned-desktop"]);
     expect(original.steps.map((step) => step.timeoutMs)).toEqual([
-      150_000, 180_000, 300_000,
+      150_000, 300_000, 300_000,
     ]);
     expect(original.budget.runMs).toBe(
       original.steps.reduce((total, step) => total + step.timeoutMs, 0) +
@@ -1289,7 +1289,134 @@ function priorFullFixture() {
     omitTool(value.turns[1]!, "get-feature", id);
   return value;
 }
+function priorPitchInventoryFixture() {
+  const value = priorFullFixture();
+  const first = value.turns[0]!;
+  const second = value.turns[1]!;
+  type PitchInventory = {
+    record: {
+      id: string;
+      entryId: string;
+      sessionId: string;
+      sourceFingerprint: string;
+      feature: { type: string; status: string };
+    };
+    source: { passId: string };
+  };
+  let pitch: PitchInventory | undefined;
+  for (const record of second.agentListening!.records) {
+    if (record.kind !== "tool_result") continue;
+    const data = (
+      record.result?.result as { content?: Record<string, unknown> }
+    )?.content;
+    if (data?.action !== "list-features") continue;
+    const features = data.features as PitchInventory[];
+    data.features = features.filter((feature) => {
+      if (
+        feature.record.entryId === first.featureSources![0]!.contextId &&
+        feature.record.feature.type === "pitch-grid/v1"
+      ) {
+        pitch = structuredClone(feature);
+        return false;
+      }
+      return true;
+    });
+  }
+  if (!pitch) throw new Error("Missing synthetic pitch inventory");
+  (result(first, "list-features").features as unknown[]).push(pitch);
+  return { ...value, pitch };
+}
 describe("same-conversation immutable full-feature reads", () => {
+  it("accepts prior pitch availability from a direct feature result instead of inventory", () => {
+    const { input, turns, pitch } = priorPitchInventoryFixture();
+    const call = turns[0]!.agentListening!.records.find(
+      (record) =>
+        record.kind === "tool_call" &&
+        record.arguments.action === "list-features",
+    );
+    if (call?.kind !== "tool_call")
+      throw new Error("Missing synthetic inventory call");
+    const records = turns[0]!.agentListening!.records;
+    const response = records.find(
+      (record) =>
+        record.kind === "tool_result" && record.toolCallId === call.toolCallId,
+    );
+    if (response?.kind !== "tool_result")
+      throw new Error("Missing synthetic inventory result");
+    const data = result(turns[0]!, "list-features");
+    data.features = (data.features as unknown[]).filter(
+      (feature) => feature !== pitch,
+    );
+    const directCall = structuredClone(call);
+    const directResult = structuredClone(response);
+    directCall.id += "-pitch";
+    directCall.toolCallId += "-pitch";
+    directCall.correlationId = directCall.toolCallId;
+    directCall.arguments = {
+      action: "get-feature",
+      featureId: pitch.record.id,
+    };
+    directResult.id += "-pitch";
+    directResult.toolCallId = directCall.toolCallId;
+    directResult.correlationId = directCall.toolCallId;
+    Object.assign(directResult.result!.result!, {
+      content: {
+        action: "get-feature",
+        feature: pitch,
+        page: { offset: 0, nextOffset: null, values: null },
+      },
+    });
+    records.push(directCall, directResult);
+    verifyFeatureSearch(input, "final");
+  });
+  it("does not let earlier availability hide a contradictory later result", () => {
+    const { input, turns, pitch } = priorPitchInventoryFixture();
+    const conflicting = structuredClone(pitch);
+    conflicting.record.feature.status = "ready";
+    (result(turns[1]!, "list-features").features as unknown[]).push(
+      conflicting,
+    );
+    expect(() => verifyFeatureSearch(input, "final")).toThrow();
+  });
+  it.each([false, true])(
+    "accepts pitch availability already established in conversation (projected=%s)",
+    (projected) => {
+      const { input, turns } = priorPitchInventoryFixture();
+      if (projected)
+        for (const turn of turns)
+          Object.assign(turn, {
+            agentListening: projectFeatureSearchHistory(turn.agentListening!),
+          });
+      verifyFeatureSearch(input, "final");
+    },
+  );
+  it.each([
+    "missing",
+    "session",
+    "pass",
+    "fingerprint",
+    "false-ready",
+    "changed-source",
+    "conversation",
+    "restart",
+  ] as const)("rejects invalid reused pitch availability (%s)", (mode) => {
+    const { input, turns, pitch } = priorPitchInventoryFixture();
+    if (mode === "missing")
+      (result(turns[0]!, "list-features").features as unknown[]).pop();
+    if (mode === "session") pitch.record.sessionId = "foreign";
+    if (mode === "pass") pitch.source.passId = "foreign";
+    if (mode === "fingerprint") pitch.record.sourceFingerprint = "c".repeat(64);
+    if (mode === "false-ready") pitch.record.feature.status = "ready";
+    if (mode === "changed-source")
+      Object.assign(turns[1]!.featureSources![0]!, {
+        contentSha256: "c".repeat(64),
+      });
+    if (mode === "conversation")
+      Object.assign(turns[0]!, { conversationId: "foreign" });
+    if (mode === "restart")
+      Object.assign(turns[1]!.agentListening!, { afterOwnedRestart: true });
+    expect(() => verifyFeatureSearch(input, "final")).toThrow();
+  });
   it.each([false, true])(
     "verifies restored acquisition with a fresh report page and independent complete source evidence (changed=%s)",
     (changed) => {

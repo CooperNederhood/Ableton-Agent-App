@@ -1534,32 +1534,43 @@ export function verifyFeatureSearch(
       ),
       "other stored families were not inspected",
     );
+    const knownFeatures = [...toolPairs(turns[0]!), ...pairs].flatMap((pair) =>
+      pair.action === "list-features"
+        ? array(pair.data.features)
+        : pair.action === "get-feature"
+          ? [pair.data.feature]
+          : [],
+    );
     for (const source of sources) {
       check(source.analyzers, "missing authoritative analyzer evidence");
-      const pitch = pairs
-        .filter((pair) => pair.action === "list-features")
-        .flatMap((pair) => array(pair.data.features).map(view))
-        .find(
+      const pitchEvidence = knownFeatures
+        .map(view)
+        .filter(
           (feature) =>
             feature.record.entryId === source.contextId &&
             feature.metadata.type === "pitch-grid/v1",
         );
       check(
-        pitch &&
-          pitch.record.sessionId === selected.appSessionId &&
-          pitch.source.passId === source.passId &&
-          pitch.record.sourceFingerprint === source.contentSha256 &&
-          ((pitch.metadata.status === "unavailable" &&
-            typeof pitch.metadata.reason === "string" &&
-            pitch.metadata.reason.length > 0) ||
-            (pitch.metadata.status === "ready" &&
-              source.analyzers.pitch.frames.some((frame) =>
-                frame.channels.some(
-                  (channel) => channel.state === "accepted-estimate",
-                ),
-              ))),
+        pitchEvidence.length > 0,
         "missing or falsely valid pitch-grid inventory",
       );
+      for (const pitch of pitchEvidence) {
+        check(
+          pitch.record.sessionId === selected.appSessionId &&
+            pitch.source.passId === source.passId &&
+            pitch.record.sourceFingerprint === source.contentSha256 &&
+            ((pitch.metadata.status === "unavailable" &&
+              typeof pitch.metadata.reason === "string" &&
+              pitch.metadata.reason.length > 0) ||
+              (pitch.metadata.status === "ready" &&
+                source.analyzers.pitch.frames.some((frame) =>
+                  frame.channels.some(
+                    (channel) => channel.state === "accepted-estimate",
+                  ),
+                ))),
+          "missing or falsely valid pitch-grid inventory",
+        );
+      }
     }
   }
   if (phase === "restored") {

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   audioObservationSchema,
   audioObservationV2Schema,
@@ -1067,6 +1067,35 @@ describe("independent metric audio observation v1", () => {
     value.rows[0]!.attacks.eventRecordIndices.push(0);
     expectInvalid(value);
   });
+
+  it.each([
+    [-1.2676062401770316, 94.64787519645938],
+    [-1.2676062401770314, 94.64787519645937],
+  ])(
+    "accepts cross-V8 bounded attack strength %s without changing retained values",
+    (log, strength) => {
+      const value = fixture();
+      const window = attackFromSilence(value, 0, 0.054);
+      window.events[0]!.strength = strength;
+      reproject(value);
+      const original = Math.log10;
+      const spy = vi
+        .spyOn(Math, "log10")
+        .mockImplementation((input) =>
+          input === 0.054 ? log : original(input),
+        );
+      try {
+        expect(
+          metricAudioObservationSchema.parse(value).metrics.attacks.records[0]!
+            .events[0]!.strength,
+        ).toBe(strength);
+        window.events[0]!.strength += 1e-10;
+        expectInvalid(reproject(value));
+      } finally {
+        spy.mockRestore();
+      }
+    },
+  );
 
   it.each([65, 90, 120])(
     "retains native %s dB attack rises without an amplitude cap",

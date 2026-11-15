@@ -2,6 +2,20 @@
 
 Companion specification: [Acceptance test authoring](acceptance-authoring.md).
 
+## Outcome-based feature evidence
+
+- [x] Reproduce the verifier's unnecessary same-turn pitch-inventory requirement
+      with three red regressions for prior inventory, compact History and direct
+      feature evidence. Accept attributable same-conversation availability while
+      preserving source/session/pass/fingerprint checks, independent native
+      validity, contradiction rejection and separate restored persistence.
+      All 209 feature-search tests and 917 owning integration-support tests pass.
+- [x] Qualify the full feature-search case under the revised outcome contract
+      in terminal `run-PmT6xJ` on Live 11.3.43: three turns, exactly two captures,
+      original context persistence, independent feature/protected-state
+      assertions and final cleanup pass. Offline second-turn replay alone was
+      not treated as qualification; earlier failed receipts remain preserved.
+
 ## Approved three-minute Arrangement listening
 
 - [x] Complete the separately approved single `back-to-arrangement` source

@@ -500,7 +500,24 @@ flatness, spread and rolloff in the second turn; its peak may instead use the
 exact-equality proof below. Independent numerical/support checks, discovery of
 all fifteen canonical feature types, native acquisition/validity, comparison,
 source-excluding search and every capture/protected-state/cleanup guard remain
-mandatory. No other feature family inherits prior-read permission.
+mandatory.
+
+Pitch-grid availability metadata may likewise come from an earlier attributable
+turn in this same pre-restart conversation. Accept an original `list-features`
+or `get-feature` result; do not mandate a repeated inventory call merely because
+the current turn discusses that context again. Bind the evidence to the exact
+App session, pass, context and unchanged source fingerprint, retain the
+independent native-validity check, and reject contradictory later evidence.
+An assistant claim alone, foreign/stale provenance or an absent original result
+does not establish availability. This user-approved outcome-contract correction
+does not substitute cached values for independent post-restart persistence reads.
+
+Terminal `run-PmT6xJ` qualifies this revised outcome contract on Live 11.3.43:
+all three turns, exactly two captures, original contexts after owned restart,
+independent feature checks, protected state and cleanup passed. The approved
+second-turn budget is now 300 seconds and total run budget 780 seconds, not a
+model-specific latency assertion or a requirement for compaction. Prior failed
+receipts remain preserved; no app/model/prompt/report-format change was needed.
 
 The restored phase never borrows pre-restart reads: it requires fresh,
 post-restart typed reads of every original feature from both sources, plus

@@ -71,6 +71,28 @@ macOS Keychain authorization, its normal installed window was observed ready,
 using the default profile and connected to Live 11.3.43. No user Set was mutated.
 This is startup recovery, not renewed real-Live listening qualification.
 
+### Qualified local listening update
+
+On 2026-11-14 the remaining Session MIDI regression passed in terminal
+`run-uOtEk9` on Live 11.3.43, after full feature-search `run-PmT6xJ`.
+Both used arm64 candidate
+`4dae45621f36861c1f348b3c7ee0918b34a3b9ab602f162cd1224bebc567915f`.
+That exact candidate is installed at `/Applications/Ableton Agent.app` for
+the user's local testing. The normal-profile machine-listening bundle was
+updated through the canonical integration CLI; Remote Script, machine-listening
+and MIDI-capture detection all report current.
+
+The already signed, qualified host bundle was copied to a same-volume staging
+path, compared byte-for-byte, verified with deep/strict signature verification,
+and replaced with a rollback copy retained until startup checks passed.
+No rebuild or recursive re-signing changed pinned native plug-ins.
+Installed-path production startup and authentication/model discovery both
+passed in disposable profiles; the normal-profile window was left for the
+user to launch. Profile data, credentials and user Sets were not replaced.
+The rollback copy was removed after verification. The local evidence receipt is
+`.test-artifacts/qualified-local-install-4dae4562.json`.
+This is not a public release or follow-up PR.
+
 ### Local real-Live release check
 
 Hosted CI and packaging do not run licensed Ableton. A successful build artifact

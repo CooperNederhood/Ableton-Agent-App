@@ -1,5 +1,72 @@
 # Playback Listening and Entity Context
 
+## Installed Session launch incident: investigation still open
+
+The normal-profile Session attempt on `1-808 Core Kit` / `clip-1` failed at
+`2026-11-15T03:31:22.590Z` with `operation_timeout` for
+`listening.launch_session_pass`. Its subsequent cleanup was unconfirmed.
+The later inspection returned the already-latched bridge failure, rather than
+establishing a second independently timed-out host request. The original
+failure remains unresolved; the passing cases below do not qualify it.
+
+The user approved unchanged basic Session regressions against the actual
+installed `/Applications/Ableton Agent.app`, not a rebuilt candidate. All four
+passed on Live Suite 11.3.43 with app SHA-256
+`4dae45621f36861c1f348b3c7ee0918b34a3b9ab602f162cd1224bebc567915f`:
+
+| Scenario                          | Terminal receipt | Bridge launch execution |
+| --------------------------------- | ---------------- | ----------------------- |
+| `session-drum-rack-listening`      | `run-kO895M`     | 500 ms                  |
+| `session-clip-identify`            | `run-Nw0WQD`     | 475 ms                  |
+| `session-stopped-quantized-audio`  | `run-BHME9W`     | 364 ms                  |
+| `session-stopped-quantized-midi`   | `run-O9URMU`     | 448 ms                  |
+
+Every selected turn and independent capture/context/count/protected-state
+assertion passed, including owned-restart persistence where required.
+Terminal receipts confirm cleanup; no Live process remained afterward.
+These cases did not reproduce the user's five-second launch timeout.
+
+The installed app code and executable hashes match the qualified packaged
+candidate; deep/strict signature verification passes. The canonical integration
+inspection reports all three components current. An additional byte audit found
+all 53 installed machine-listening files match their ownership hashes and all
+50 portable companion resources match the installed app's payload. The
+publisher's current-artifact check also confirms that payload and its compiled
+metric protocol match current source. Profile-specific discovery configuration
+and frozen-device bytes are intentionally not identical to an isolated runner's
+profile-bound device.
+
+Two obsolete `Machine-Listening.amxd` presets remain in the User Library, but
+the user confirms using `Machine-Listening-Development`. Do not attribute this
+incident to those obsolete presets. The failed conversation's retained
+`inspect-listeners` result also advertises the new continuous Arrangement
+capability. This is capability evidence, not an exact hash of the device
+already loaded in the user's Set.
+
+The user subsequently confirmed adding or replacing the development listener
+after opening the Set. The regression runner instead binds its candidate
+listener before loading the Set. This is a confirmed execution-condition gap,
+not yet a reproduced failure mechanism. A single manual retry with detailed
+event history enabled was recommended; no retry outcome or confirmation that
+the setting was enabled has been supplied at this checkpoint.
+
+The retained pre-failure Set checkpoint records a four-beat MIDI `clip-1`
+with **14 notes**, at 128 BPM, in an `Untitled` Set. Transport was stopped while
+the clip retained playing status. The existing Drum Rack fixture instead has
+four kick notes; its stopped/remembered-slot baseline already covers the latter
+transport condition. Different note content is a demonstrated fixture
+difference, not an established cause of the launch timeout.
+
+Host logs correlate the exact failed launch request: accepted progress began
+at `03:31:17.790Z`, while completion was logged around `03:31:22.764Z`, after
+the app's timeout. The native observation window and bridge execution timeout
+are both five seconds. The logs do not retain the returned launch status;
+disconnect cleanup can itself settle a pending launch, so late completion is
+not proof that source onset was verified. Max unknown-message errors also
+occurred around earlier passing runs and are not, alone, the root cause.
+Compare the exact failing Set and loaded-device/process conditions before
+changing timeouts, replacing its listener, or claiming the coverage gap fixed.
+
 ## Long-form Arrangement listening
 
 The long-form target is one continuous, fixed-tempo Arrangement pass through
@@ -34,7 +101,7 @@ passing acceptance case. A three-minute
 real-host result, when obtained, must not be described as ten-minute real-host
 qualification or proof of musical recognition.
 
-**Current qualification (2026-11-14):** terminal `run-S4Cl1H` passed the reviewed
+**Earlier candidate qualification (2026-11-14):** terminal `run-S4Cl1H` passed the reviewed
 three-minute fixture on Live Suite 11.3.43 at 48 kHz. One continuous capture
 covered all 8,640,000 samples and all six metric families in 251 immutable,
 digest-verified chunks. Independent assertions verified source/range, exact
@@ -59,6 +126,155 @@ capture coverage, protected state and final runner cleanup. No host processes
 remained after the selected runs. No product fixes or fixture/permission/oracle
 changes were needed. These are three passing single cases, not qualification
 of the entire registered Session suite or additional visual UX coverage.
+
+**Installed-candidate requalification (2026-11-14):** unchanged three-minute
+fixture `run-PIBeAH` failed against the Electron 43 installed app on Live
+11.3.43. Native ready/arm/launch succeeded, but ingress rejected the first
+attack chunk with `metric_stream_attack_replay_mismatch`. Producer and Desktop
+V8 versions can compute the same logarithmic attack rise about
+1.4e-14 dB apart. Both bounded/Session observation and continuous-stream replay
+therefore compare strength with an absolute roundoff bound of
+`8 * Number.EPSILON * MAX_METRIC_ATTACK_STRENGTH_DB` (less than 3e-13 dB).
+Retained strengths and digests are unchanged; event count, detector threshold,
+sample positions, spacing and history continuity remain strict. Missing,
+extra or materially different events still fail.
+
+Ingress-produced failure evidence must include listener, instance, connection
+and connection-epoch identity alongside pass/job/trace attribution. Otherwise
+the runtime correctly refuses to trust it as owned, masking the original
+rejection as `foreign-ingress-failure-evidence`. Real TCP rejection regressions
+cover this producer/consumer boundary for Arrangement and Session, rather than
+only supplying correctly attributed mock evidence. The failed run preserved
+diagnostics and completed runner cleanup; earlier passing receipts do not
+qualify this changed candidate.
+
+The seven deterministic regressions failed before the fix and passed afterward;
+all 1,562 protocol/runtime/signal-routing tests then passed with two workers.
+Fixed candidate `d908b9eaf533b2198e99091ff3399de7ed9ec4665d49b4a3f9131f2a83774b86`
+passed the unchanged three-minute scenario in terminal `run-Xs0pTO`, including
+source/range/coverage, cleanup, protected state and original context after
+restart. The same candidate passed `session-clip-identify` in `run-O1lJM8`.
+
+The next selected case, `session-listening-feature-search`, failed in
+`run-HuIUMA`: its second agent turn exceeded the unchanged 180-second deadline.
+Both listening jobs reached `completed` with separate published context IDs;
+compare/search tools completed and no agent tool failures were retained.
+This is not another observed native capture rejection, but the case remains
+failed: second-turn terminal assertions and restart persistence were not
+established. Runner cleanup completed. `session-stopped-quantized-midi` has
+not yet run on this candidate. No fixture, prompt, deadline or assertion was
+changed.
+
+The user explicitly approved one unchanged feature-search retry.
+`run-B6Qwo7` again exceeded the second-turn deadline while assistant output
+was still streaming; no tool failure was recorded, and runner cleanup
+completed. Both failed receipts remain preserved. This repeatable
+agent-completion deadline is unresolved, not evidence that the earlier
+attack-replay fix failed and not permission to increase the budget or keep
+retrying. The final MIDI case remains unrun.
+
+Feature-search diagnosis retains SDK `assistant.usage`, `session.usage_info`
+and compaction start/complete notifications as attributed
+`agent.sdk.diagnostic` observations. The allowlisted payload is bounded to
+4 KiB and includes model-call duration/time-to-first-output, token counts,
+context limits and compaction status. It omits generated compaction summaries,
+instructions, checkpoint paths and error bodies. These are diagnostic
+observations, not new completion signals, timeout exemptions or proof of a
+latency fix. Controlled success/failure SDK events reproduce the former
+diagnostic loss; the regressions fail before the observer change and pass
+afterward.
+
+Diagnostic candidate
+`4dae45621f36861c1f348b3c7ee0918b34a3b9ab602f162cd1224bebc567915f`
+failed unchanged feature-search `run-lRMqLv` at `turn.second` on Live
+11.3.43, with complete runner cleanup; restart verification remained unrun.
+The retained SDK events identify threshold compaction during report pagination:
+it started at `02:32:48.375Z` and completed at `02:34:14.094Z` (85.719 seconds).
+The SDK estimated 161,113 of 200,000 tokens at compaction start and removed
+76,098 tokens across 28 messages. Ordinary report pagination had increased
+the first turn's estimated context from 42,741 to 118,199 tokens; second-turn
+pagination crossed the compaction threshold. This establishes the observed
+stall's owner, not a new native capture failure or a proven application fix.
+The existing SDK serializes these tool objects as compact JSON; no redundant
+pretty-print expansion was found. Reducing the agent-facing representation
+without losing original measurements requires an explicit delivery-format
+decision, not a fabricated deterministic test of external compaction latency.
+That diagnostic execution kept the fixture, model, deadlines, permissions and
+assertions unchanged.
+
+After reviewing this evidence, the user explicitly approved increasing only
+the second-turn timeout from 180 to 300 seconds and the overall run budget
+from 660 to 780 seconds. This is a correctness smoke, not a model-specific
+latency benchmark: compaction is permitted but never required or asserted.
+Keep prompts, original measurement/feature reads, capture limits, protected
+state and restart assertions unchanged. No compact report format or efficiency
+fix is claimed. Earlier deadline failures remain preserved; any later pass is
+qualification under the newly approved budgets, not a pass of the old deadline.
+
+The first execution with those budgets, `run-PLuc6X`, was blocked before any
+agent turn: source admission independently observed transport already playing
+at beat `25.346533333333333`, instead of the required stopped beat zero.
+This occurred in newly launched, runner-owned Live PID 88908; no pre-existing
+Live process was admitted. Retained baseline requests contain source/audio/
+recording reads, not a runner-requested playback start. The initiating playback
+cause is not established. All three turns remained unrun and final runner
+cleanup completed. This is a setup blocker, neither a listening failure nor
+qualification of the revised timeout. Do not repair the baseline or silently
+retry.
+
+The user explicitly approved one fresh attempt without baseline repair.
+`run-F3imcv` reached terminal assistant completion for both capture turns under
+the revised budgets; both independent capture assertions passed. It then
+failed `assert.second.feature-search`: the second turn inspected pitch-grid
+inventory for the new context but did not freshly inspect that inventory for
+the first context. Its final prose claimed unavailable pitch grids in both,
+which does not replace the required current-turn typed read. The oracle
+reported `missing or falsely valid pitch-grid inventory`; this execution
+exhibited missing inventory, not evidence that native pitch was falsely ready.
+SDK compaction occurred but is not an assertion or success criterion.
+The restored turn remained unrun and final runner cleanup completed. Preserve
+this correctness failure separately from the prior timeout and setup failures;
+the complete feature-search case is still not green.
+
+The user subsequently clarified that redundant retrieval is not a correctness
+requirement when the evidence is already in conversation. The missing repeated
+first-context inventory in `run-F3imcv` was therefore a verifier overconstraint,
+not a demonstrated product defect. Three regressions reproduce the rejection
+of valid earlier inventory/direct-feature metadata, including compact History.
+The corrected oracle accepts that attributable evidence from the same
+pre-restart conversation, binds exact context/session/pass/source fingerprint,
+and still rejects absent, foreign, falsely ready or contradictory evidence.
+Independent source immutability and restored persistence checks remain intact;
+no agent prompt, tool result or report format changes were needed.
+All 209 oracle tests and 917 owning integration-support tests pass.
+Offline evaluation of the preserved `run-F3imcv` second turn now satisfies the
+revised assertion; its original failed receipt is unchanged and its unrun
+restored phase is not qualified by replay.
+
+Full real-host qualification under the user-approved outcome contract and
+revised budgets now passes in terminal `run-PmT6xJ` on Live Suite 11.3.43.
+Candidate remains
+`4dae45621f36861c1f348b3c7ee0918b34a3b9ab602f162cd1224bebc567915f`;
+this verifier correction did not change the app, model, fixture, prompts,
+report format or permission scope. All three turns and ten assertions passed:
+exactly two six-family captures, independent feature arithmetic/comparison/
+source-excluding search, the same original context IDs and content after owned
+Desktop restart, protected Set state and final cleanup. Both owned Desktop
+instances and Live stopped, the reservation closed and the isolated profile
+was removed. Total duration was 458,206 ms. Earlier failed/blocked receipts
+retain their original verdicts. This bounded pass does not qualify the still
+unrun MIDI case or install the candidate as the normal app.
+
+The separately requested remaining Session MIDI regression subsequently passed
+unchanged in terminal `run-uOtEk9`, on that same candidate and Live 11.3.43:
+all four capture/context/count/protected-state assertions and final cleanup
+passed. The validated arm64 candidate is now installed at
+`/Applications/Ableton Agent.app`; the normal-profile machine-listening bundle
+was updated through the canonical installer, and all three integrations report
+current. Installed bytes match the qualified bundle, with no re-signing of
+pinned plug-ins. Actual installed-path startup and authentication/model-discovery
+checks passed in disposable profiles. This is a local installation for user
+testing, not a public release or a follow-up PR, and no user Set was changed.
 
 The following is the historical investigation, including its then-pending gates.
 

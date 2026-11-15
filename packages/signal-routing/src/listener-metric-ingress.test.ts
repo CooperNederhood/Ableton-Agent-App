@@ -1252,6 +1252,12 @@ describe("opt-in authenticated independent metric ingress", () => {
     expect(
       s.events.some((event) => event.name === "output.listener.failed"),
     ).toBe(true);
+    expect(s.received.at(-1)?.failureEvidence?.listener).toEqual({
+      listenerId: s.descriptor.producer.producerId,
+      instanceId: s.descriptor.producer.instanceId,
+      connectionId: s.descriptor.connectionId,
+      connectionEpoch: s.descriptor.registration.connectionEpoch,
+    });
     expect(s.received.at(-1)?.failureEvidence?.facts).toContainEqual({
       field: "metric.config.attackThresholdDb",
       actual: { state: "observed", value: ready.config.attacks.thresholdDb },

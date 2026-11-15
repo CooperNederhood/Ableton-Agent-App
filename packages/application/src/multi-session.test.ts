@@ -346,6 +346,113 @@ function modelInfo(id: string, overrides: Partial<ModelInfo> = {}): ModelInfo {
 }
 
 describe("CopilotAgentService managed sessions", () => {
+  it.each([true, false])(
+    "retains attributable SDK latency and compaction diagnostics (success=%s)",
+    async (success) => {
+      const observed: AgentRuntimeEvent[] = [];
+      const service = new CopilotAgentService(
+        baseOptions({
+          runtimeObserver: { enqueue: (event) => observed.push(event) },
+          clientFactory: () => ({
+            createSession: vi.fn(async () =>
+              createFakeSession("sdk-diagnostics", {
+                onSend: async (_prompt, emit) => {
+                  const base = {
+                    parentId: null,
+                    timestamp: new Date().toISOString(),
+                    ephemeral: true as const,
+                  };
+                  emit({
+                    ...base,
+                    id: "compact-start",
+                    type: "session.compaction_start",
+                    data: {
+                      currentTokens: 120000,
+                      tokenLimit: 160000,
+                      model: "test-model",
+                      trigger: "threshold",
+                    },
+                  });
+                  emit({
+                    ...base,
+                    id: "compact-end",
+                    type: "session.compaction_complete",
+                    data: {
+                      success,
+                      tokensRemoved: 70000,
+                      summaryContent: "private-compaction-body",
+                      ...(success ? {} : { error: "private-error-body" }),
+                    },
+                  });
+                  emit({
+                    ...base,
+                    id: "model-usage",
+                    type: "assistant.usage",
+                    data: {
+                      model:
+                        "Authorization: Bearer synthetic-diagnostic-secret",
+                      duration: 81000,
+                      inputTokens: 70000,
+                      outputTokens: 80,
+                      outputTtftMs: 80000,
+                      finishReason: "tool_calls",
+                    },
+                  });
+                  return { data: { content: "done" } };
+                },
+              }),
+            ),
+            resumeSession: vi.fn(async () => {
+              throw new Error("unused");
+            }),
+            stop: vi.fn(async () => undefined),
+          }),
+        }),
+      );
+      try {
+        await service.start();
+        await service.createManagedAgent(configuration("diagnostics"));
+        await service.sendToManagedAgent(
+          "diagnostics",
+          "Inspect stored features",
+        );
+        const diagnostics = observed.filter(
+          (e) => e.type === "agent.sdk.diagnostic",
+        );
+        expect(diagnostics).toHaveLength(3);
+        expect(diagnostics.map((e) => e.data.kind)).toEqual([
+          "session.compaction_start",
+          "session.compaction_complete",
+          "assistant.usage",
+        ]);
+        expect(diagnostics[1]?.data).toMatchObject({
+          success,
+          tokensRemoved: 70000,
+        });
+        expect(diagnostics[2]?.data).toMatchObject({
+          durationMs: 81000,
+          outputTtftMs: 80000,
+          inputTokens: 70000,
+        });
+        expect(
+          diagnostics.every(
+            (e) =>
+              e.agentInstanceId === "diagnostics" &&
+              e.sessionId === "sdk-diagnostics" &&
+              e.trace?.traceId,
+          ),
+        ).toBe(true);
+        expect(new Set(diagnostics.map((e) => e.trace?.traceId)).size).toBe(1);
+        expect(JSON.stringify(diagnostics)).not.toContain("private-");
+        expect(JSON.stringify(diagnostics)).not.toContain(
+          "synthetic-diagnostic-secret",
+        );
+      } finally {
+        await service.stop();
+      }
+    },
+  );
+
   it.each([
     { label: "full", operations: undefined, actionCount: 6 },
     { label: "launch-only", operations: ["clips.launch"], actionCount: 1 },

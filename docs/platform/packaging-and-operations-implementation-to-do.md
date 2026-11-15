@@ -2,6 +2,20 @@
 
 Companion specification: [Packaging and Operations](packaging-and-operations.md)
 
+## Qualified local listening update
+
+- [x] Pass the remaining unchanged Session MIDI case in terminal `run-uOtEk9`
+      on the same candidate as feature-search `run-PmT6xJ`, with independent
+      capture/context/protected-state and cleanup evidence on Live 11.3.43.
+- [x] Install exact arm64 candidate `4dae4562` without rebuilding or recursively
+      re-signing pinned native binaries; verify staged/installed signature and
+      source-bundle byte equality with rollback preserved until verification.
+- [x] Update the normal-profile listener through the canonical installer,
+      verify all three integrations current, and pass actual installed-path
+      startup and authentication/model-discovery checks in disposable profiles.
+      Preserve user state and leave normal launch to the user; no public release
+      or follow-up PR was created.
+
 ## Native macOS startup recovery
 
 - [x] Match the installed startup crash to the upstream null power-notification

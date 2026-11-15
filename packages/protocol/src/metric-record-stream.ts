@@ -7,6 +7,7 @@ import {
   metricObservationSourceSchema,
   metricSpectralRecordSchema,
   MAX_METRIC_ATTACK_STRENGTH_DB,
+  metricAttackStrengthMatches,
 } from "./metric-observation-schemas.js";
 import {
   pitchTimelineFrameSchema,
@@ -1004,7 +1005,7 @@ export async function acceptMetricRecordChunk(
         detects
           ? record.events.length !== 1 ||
             record.events[0]!.sample !== record.support.endSample ||
-            record.events[0]!.strength !== rise
+            !metricAttackStrengthMatches(record.events[0]!.strength, rise)
           : record.events.length !== 0
       )
         throw new Error("metric_stream_attack_replay_mismatch");

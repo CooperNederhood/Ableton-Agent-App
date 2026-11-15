@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createHash } from "node:crypto";
 import {
   createContinuousMetricListeningGeometry,
@@ -791,6 +791,55 @@ describe("bounded continuous six-metric record stream", () => {
       "not_publishable",
     );
   });
+
+  it.each([
+    [-1.2676062401770316, 94.64787519645938],
+    [-1.2676062401770314, 94.64787519645937],
+  ])(
+    "replays cross-V8 attack strength %s across chunk boundaries",
+    async (log, strength) => {
+      const d = descriptor();
+      let state = await createMetricRecordStreamState(d);
+      state = await acceptMetricRecordChunk(
+        d,
+        state,
+        await chunk(d, state, "attacks", records(d, "attacks", 0, 1)),
+      );
+      const record = {
+        index: 1,
+        support: { startSample: 14_800, endSample: 19_600 },
+        inputLevel: { peak: [0.054, 0.054], rms: [0.054, 0.054] },
+        events: [{ sample: 19_600, strength }],
+      };
+      const valid = await chunk(d, state, "attacks", [record]);
+      const forged = await chunk(d, state, "attacks", [
+        {
+          ...record,
+          events: [{ sample: 19_600, strength: strength + 1e-10 }],
+        },
+      ]);
+      const original = Math.log10;
+      const spy = vi
+        .spyOn(Math, "log10")
+        .mockImplementation((value) =>
+          value === 0.054 ? log : original(value),
+        );
+      try {
+        const next = await acceptMetricRecordChunk(d, state, valid);
+        expect(
+          next.metrics.find((item) => item.metric === "attacks"),
+        ).toMatchObject({
+          nextIndex: 2,
+          attackReplay: { lastAttackSample: 19_600, riseHasAttack: true },
+        });
+        await expect(acceptMetricRecordChunk(d, state, forged)).rejects.toThrow(
+          "attack_replay_mismatch",
+        );
+      } finally {
+        spy.mockRestore();
+      }
+    },
+  );
 
   it("replays exact attack history across chunks and refuses resumption after a history gap", async () => {
     const d = descriptor();

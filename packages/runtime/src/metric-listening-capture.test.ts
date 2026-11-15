@@ -1224,8 +1224,10 @@ describe("real version5 ListenerService orchestration", () => {
   });
 
   for (const mode of ["arrangement", "session"] as const)
-    for (const cancel of [false, true])
-      it(`executes ${mode} ${cancel ? "cancellation" : "completion"} over opt-in TCP ListenerService with coalesced ingress`, async () => {
+    for (const outcome of ["completion", "cancellation", "ingress-rejection"])
+      it(`executes ${mode} ${outcome} over opt-in TCP ListenerService with coalesced ingress`, async () => {
+        const cancel = outcome === "cancellation";
+        const rejectIngress = outcome === "ingress-rejection";
         let data = seed(mode, mode === "arrangement");
         const secret = "synthetic-runtime-metric-test-secret";
         const registry = new InMemoryConnectionRegistry({
@@ -1271,6 +1273,12 @@ describe("real version5 ListenerService orchestration", () => {
                 if (Reflect.get(value, "action") === "hello") hello();
                 continue;
               }
+              if (
+                value !== null &&
+                typeof value === "object" &&
+                Reflect.get(value, "type") === "producer.error"
+              )
+                continue;
               const control = listenerControlMetricSchema.parse(value);
               const wire = listenerMetricWireIdentitySchema.parse(
                 Object.fromEntries(
@@ -1281,6 +1289,11 @@ describe("real version5 ListenerService orchestration", () => {
               );
               if (control.action === "prepare")
                 data = bindMetricFixtureToControl(data, control);
+              if (control.action === "prepare" && rejectIngress) {
+                if (!data.ready.config.attacks)
+                  throw new Error("Missing attack settings");
+                data.ready.config.attacks.thresholdDb++;
+              }
               const progress = () =>
                 listenerResultMetricSchema.parse({
                   ...wire,
@@ -1404,17 +1417,52 @@ describe("real version5 ListenerService orchestration", () => {
           await Promise.race([registered, fault]);
           const descriptor = server.inspectListeners()[0]!;
           const abort = new AbortController();
-          const prepared = await Promise.race([
+          const preparing = Promise.race([
             prepareMetricListenerCapture(server, {
               bindings: [{ descriptor, config: data.config }],
               trace,
               passId: "tcp-pass",
               signal: abort.signal,
               controlTimeoutMs: 1000,
+              cleanupTimeoutMs: 100,
               resultTimeoutMs: 2000,
             }),
             fault,
           ]);
+          if (rejectIngress) {
+            const failure: unknown = await preparing.catch(
+              (cause: unknown) => cause,
+            );
+            const evidence = readListeningFailureEvidence(failure);
+            expect(evidence.status).toBe("present");
+            if (evidence.status !== "present")
+              throw new Error("Missing ingress evidence");
+            expect(evidence.evidence).toMatchObject({
+              code: "route-rejected",
+              checkId: "ingress.native_metric_owner_or_config_mismatch",
+              reference: { ...trace, passId: "tcp-pass" },
+              listener: {
+                listenerId: descriptor.producer.producerId,
+                instanceId: descriptor.producer.instanceId,
+                connectionId: descriptor.connectionId,
+                connectionEpoch: descriptor.registration.connectionEpoch,
+              },
+            });
+            expect(evidence.evidence.facts).toContainEqual({
+              field: "metric.config.attackThresholdDb",
+              actual: {
+                state: "observed",
+                value: data.ready.config.attacks!.thresholdDb,
+              },
+              expected: {
+                state: "observed",
+                value: data.config.attacks!.thresholdDb,
+              },
+              comparison: "equal",
+            });
+            return;
+          }
+          const prepared = await preparing;
           await Promise.race([prepared.nativeLaunch, fault]);
           if (cancel) {
             abort.abort();

@@ -2054,6 +2054,12 @@ export class SignalIngressServer implements ListenerService {
                     ? "launch"
                     : "arming",
           component: "ingress",
+          listener: {
+            listenerId: owner.listenerId,
+            instanceId: state.producer?.instanceId,
+            connectionId: owner.connectionId,
+            connectionEpoch: owner.connectionEpoch,
+          },
           checkId: detail?.checkId ?? `ingress.${reason}`,
           summary: reason,
           coverage: detail?.facts.length

@@ -116,7 +116,8 @@ AbletonAgent/.ableton-agent-token
 ```
 
 The desktop app automatically discovers this token from the configured or
-standard User Library location and stores it in the OS-backed credential vault.
+standard User Library location and reads it into process memory without a
+Keychain copy.
 No manual token copying is required for normal desktop use. If multiple
 installations contain different tokens, select the intended Remote Script
 location in Desktop Settings and restart the app.

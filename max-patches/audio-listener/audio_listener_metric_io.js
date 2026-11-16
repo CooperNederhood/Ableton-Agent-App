@@ -449,7 +449,7 @@ var AudioListenerMetricIO = (function (measurements) {
                 startSample: start,
                 endSample: end,
                 sourceOriginCounter: pass.origin,
-              }, pass.continuous ? "arrangement-continuous" : undefined);
+              }, pass.continuous ? "finite-metric-stream" : undefined);
             } catch (error) {
               if (LOCAL_FAILURES.indexOf(error.message) >= 0)
                 familyFail(name, error.message);

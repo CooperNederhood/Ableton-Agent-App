@@ -27,6 +27,11 @@ import {
   sameArrangementSource,
   type ArrangementMetricRecordExpectation,
 } from "./arrangement.js";
+import {
+  validateListeningComprehension,
+  verifyListeningComprehension,
+} from "./listening-comprehension.js";
+import { verifyStorageShape } from "./storage-shape.js";
 
 export class AssertionRegistry {
   private readonly entries = new Map<
@@ -199,6 +204,57 @@ function registerSmokeAssertions(
 }
 export function createDefaultAssertions(): AssertionRegistry {
   return registerSmokeAssertions(new AssertionRegistry())
+    .register(
+      "storage-shape",
+      (input, parameters) => {
+        try {
+          verifyStorageShape(input, Number(parameters.expectedMeasures));
+          return result(
+            true,
+            "ok",
+            "Verified persisted measurement schemas and canonical measure/feature shapes, counts and original restart inventories",
+          );
+        } catch (error) {
+          return result(
+            false,
+            "storage-shape-invalid",
+            error instanceof Error
+              ? error.message
+              : "Invalid persisted storage shape",
+          );
+        }
+      },
+      (parameters) => {
+        rejectUnknownFields(parameters, ["expectedMeasures"]);
+        requireCondition(
+          parameters.expectedMeasures === 1 ||
+            parameters.expectedMeasures === 20,
+          "Expected one or twenty complete measures",
+        );
+      },
+    )
+    .register(
+      "listening-comprehension",
+      (input, parameters) => {
+        try {
+          verifyListeningComprehension(input, parameters);
+          return result(
+            true,
+            "ok",
+            "Five complete native listens and exact twenty-measure answer verified",
+          );
+        } catch (error) {
+          return result(
+            false,
+            "listening-comprehension-invalid",
+            error instanceof Error
+              ? error.message
+              : "Invalid listening evidence",
+          );
+        }
+      },
+      validateListeningComprehension,
+    )
     .register(
       "arrangement-persistence",
       ({ turns, evidence, baseline }, parameters) => {
@@ -638,7 +694,9 @@ export function createDefaultAssertions(): AssertionRegistry {
       "capture-count",
       ({ evidence, turns }, parameters) => {
         const recorded = turns.flatMap((turn) =>
-          turn.captures.map((entry) => entry.passId),
+          [...turn.captures, ...(turn.arrangementCaptures ?? [])].map(
+            (entry) => entry.passId,
+          ),
         );
         const complete = evidence?.capturePassIds;
         const recordedIds = new Set(recorded);
@@ -668,7 +726,9 @@ export function createDefaultAssertions(): AssertionRegistry {
       "no-capture",
       ({ turn }) =>
         result(
-          !!turn && turn.captures.length === 0,
+          !!turn &&
+            turn.captures.length === 0 &&
+            (turn.arrangementCaptures?.length ?? 0) === 0,
           "unexpected-capture",
           "No capture may start during this turn",
         ),

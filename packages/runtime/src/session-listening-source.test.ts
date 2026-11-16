@@ -102,6 +102,67 @@ function rejection(operation: () => unknown): ListeningRuntimeRejection {
 }
 
 describe("Session source admission and independent transport join", () => {
+  it("consolidation: joins an owned global-16 launch without seeking or relabeling it as clip-local zero", () => {
+    const snapshot = source();
+    snapshot.before.globalBeat = snapshot.after.globalBeat = 16;
+    const before = structuredClone(snapshot);
+    const expected = freezeSessionSourceExpectation(snapshot, target, 4);
+    expect(expected.stoppedBeat).toBe(16);
+    expect(snapshot).toEqual(before);
+    expect(() =>
+      assertTransportCoupledSessionOrigin(expected, {
+        ...origin,
+        clipStartTimeBeats: 16,
+        observedAtGlobalBeat: 16.2,
+      }),
+    ).not.toThrow();
+    expect(() =>
+      assertTransportCoupledSessionOrigin(expected, {
+        ...origin,
+        clipStartTimeBeats: 0,
+        observedAtGlobalBeat: 0.2,
+      }),
+    ).toThrow("session_native_origin_mismatch");
+  });
+
+  it.each(["midi", "warped-audio"] as const)(
+    "consolidation: admits exactly twenty first-iteration measures of %s at 128 BPM",
+    (kind) => {
+      const snapshot = source();
+      snapshot.sourceKind = kind;
+      snapshot.settings.tempoBpm = 128;
+      snapshot.settings.loopEnd = snapshot.settings.endMarker = 80;
+      const before = structuredClone(snapshot);
+      const expected = freezeSessionSourceExpectation(snapshot, target, 80);
+      expect(expected).toMatchObject({
+        startBeat: 0,
+        endBeat: 80,
+        durationBeats: 80,
+        firstIterationEndBeat: 80,
+      });
+      expect(snapshot).toEqual(before);
+      expect(() =>
+        freezeSessionSourceExpectation(structuredClone(before), target, 81),
+      ).toThrow("session_first_iteration_exceeded");
+    },
+  );
+
+  it("consolidation: supports the finite 600-second source ceiling without inventing loop coverage", () => {
+    const snapshot = source();
+    snapshot.settings.loopEnd = snapshot.settings.endMarker = 1200;
+    expect(
+      freezeSessionSourceExpectation(snapshot, target, 1200).durationBeats,
+    ).toBe(1200);
+    const overCeiling = source();
+    overCeiling.settings.loopEnd = overCeiling.settings.endMarker = 1201;
+    expect(() =>
+      freezeSessionSourceExpectation(overCeiling, target, 1201),
+    ).toThrow("native_capture_quota");
+    expect(() => freezeSessionSourceExpectation(source(), target, 80)).toThrow(
+      "session_first_iteration_exceeded",
+    );
+  });
+
   it.each([
     [
       "identity",
@@ -176,11 +237,11 @@ describe("Session source admission and independent transport join", () => {
     ],
     [
       "quota",
-      { settings: { ...source().settings, tempoBpm: 4 } },
+      { settings: { ...source().settings, tempoBpm: 0.2 } },
       "native_capture_quota",
       "capture.durationMs",
-      60_000,
-      30_000,
+      1_200_000,
+      600_000,
     ],
   ] as const)(
     "records exact %s rejection operands at admission",
@@ -526,10 +587,25 @@ describe("Session source admission and independent transport join", () => {
       expect(freezeSessionSourceExpectation(snapshot, target, 4)).toMatchObject(
         {
           stoppedBeat: globalBeat,
-          startBeat: 0,
-          endBeat: 4,
+          startBeat: globalBeat,
+          endBeat: globalBeat + 4,
         },
       );
+      const expected = freezeSessionSourceExpectation(snapshot, target, 4);
+      expect(() =>
+        assertTransportCoupledSessionOrigin(expected, {
+          ...origin,
+          clipStartTimeBeats: globalBeat,
+          observedAtGlobalBeat: globalBeat + 0.1,
+        }),
+      ).not.toThrow();
+      expect(() =>
+        assertTransportCoupledSessionOrigin(expected, {
+          ...origin,
+          clipStartTimeBeats: globalBeat + 1,
+          observedAtGlobalBeat: globalBeat + 1.1,
+        }),
+      ).toThrow("session_native_origin_mismatch");
     },
   );
 
@@ -566,6 +642,10 @@ describe("Session source admission and independent transport join", () => {
       freezeSessionSourceExpectation(snapshot, target, 2.25).durationBeats,
     ).toBe(2.25);
     snapshot.settings.looping = false;
+    expect(freezeSessionSourceExpectation(snapshot, target).durationBeats).toBe(
+      200,
+    );
+    snapshot.settings.endMarker = 1200.01;
     expect(() => freezeSessionSourceExpectation(snapshot, target)).toThrow(
       "native_capture_quota",
     );
@@ -578,7 +658,7 @@ describe("Session source admission and independent transport join", () => {
 
   it("rejects oversized full loops rather than silently truncating", () => {
     const snapshot = source();
-    snapshot.settings.loopEnd = 60.01;
+    snapshot.settings.loopEnd = 1200.01;
     expect(() => freezeSessionSourceExpectation(snapshot, target)).toThrow(
       "native_capture_quota",
     );

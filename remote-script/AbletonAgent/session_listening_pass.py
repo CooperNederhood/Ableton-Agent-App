@@ -24,7 +24,10 @@ FOLLOW_LIMITATION = (
     "Follow-action state is unknown, not independently known disabled; admitted only "
     "under pass-owned message-rate source-change monitoring."
 )
-PASS_SECONDS = 40.0
+MAX_CAPTURE_SECONDS = 600.0
+MAX_PASS_SECONDS = 900.0
+PASS_OVERHEAD_SECONDS = 20.0 + 60.0 + 5.0
+MONITOR_TICKS_PER_SECOND = 30
 LAUNCH_SECONDS = 5.0
 RELEASE_RECEIPTS = 32
 SESSION_PASS_COMMANDS = {
@@ -131,7 +134,7 @@ class _Pass(object):
         self.context, self.params = context, copy.deepcopy(params)
         self.identity_builder, self.clock = identity_builder, clock
         self.created = clock()
-        self.expires = self.created + PASS_SECONDS
+        self.expires = self.created + MAX_PASS_SECONDS
         self.status, self.reason = "prepared", None
         self.invalidation_reason = None
         self.mutation = "not-attempted"
@@ -145,10 +148,15 @@ class _Pass(object):
         self.launch_anchor = params["timingAnchor"]["globalBeat"]
         self.pending_launch = None
         self.monitor_ticks = 0
+        self.boundary_deadline = None
+        self.boundary_tick_deadline = None
         self.track = _resolve_track(context, params["target"]["track"], bounded=True)
         self.clip = _resolve_clip(context, params["target"], scan_limit=256)
         self.slot = self.track.clip_slots[params["target"]["sceneIndex"]]
-        self.admission()
+        duration_seconds = self.admission()
+        pass_seconds = min(MAX_PASS_SECONDS, duration_seconds + PASS_OVERHEAD_SECONDS)
+        self.expires = self.created + pass_seconds
+        self.monitor_tick_limit = int(math.ceil(pass_seconds * MONITOR_TICKS_PER_SECOND))
         self.baseline = self.snapshot()
         self.source_kind = self.baseline["sourceKind"]
         self.follow_unknown = self.baseline["settings"]["followActionEnabled"] is None
@@ -234,11 +242,12 @@ class _Pass(object):
             and settings["launchQuantization"] in (0, 5) and settings["launchMode"] == 0
             and settings["legato"] is False and settings["followActionEnabled"] is not True
             and settings["startMarker"] == settings["loopStart"] == 0
-            and self.params["durationBeats"] * 60 / settings["tempoBpm"] <= 30
+            and self.params["durationBeats"] * 60 / settings["tempoBpm"] <= MAX_CAPTURE_SECONDS
         ):
             _fail("Session source launch settings, first-iteration range or duration are unsafe")
         if not callable(_safe_lom_getattr(self.clip, "fire")):
             _fail("Session Clip.fire is unavailable", "unsupported_capability")
+        return self.params["durationBeats"] * 60 / settings["tempoBpm"]
 
     def subscribe(self):
         song = self.context.song
@@ -325,12 +334,20 @@ class _Pass(object):
                 and (abs(state["playingPosition"] - phase) <= 0.25
                      or phase <= 0.25 and end - 0.25 <= state["playingPosition"] <= end)
             )
+        return self.nonlooping_boundary(state)
+
+    def nonlooping_boundary(self, state):
+        origin = self.epoch["startTimeBeats"]
+        end = self.baseline["settings"]["endMarker"]
+        scene = self.params["target"]["sceneIndex"]
         return (
-            state["playingSlotIndex"] in (-1, scene)
+            (state["playingSlotIndex"] in (-1, scene)
+             or state["playingSlotIndex"] == -2 and state["targetPlaying"] is False)
             and state["selectedClipReference"] == (
-                None if state["playingSlotIndex"] == -1
+                None if state["playingSlotIndex"] < 0
                 else self.params["target"]["expectedClipReference"])
-            and state["startTimeBeats"] == origin
+            and (state["startTimeBeats"] == origin
+                 or state["targetPlaying"] is False and state["startTimeBeats"] == 0)
             and state["playingPosition"] in (0, end)
             and (state["targetPlaying"] is False
                  or state["playingSlotIndex"] == -1 or state["playingPosition"] == end)
@@ -369,11 +386,34 @@ class _Pass(object):
                 if state != self.baseline["after"]:
                     _fail("Session source changed before the one owned launch")
                 return
+            if self.boundary_deadline is not None and (
+                    self.clock() >= self.boundary_deadline
+                    or self.monitor_ticks >= self.boundary_tick_deadline):
+                _fail("Session natural-end clock read did not become coherent")
             if self.covered_boundary(state):
-                self.status = "covered"
+                self.status, self.reason = "covered", None
+                self.boundary_deadline = self.boundary_tick_deadline = None
                 self.last_dynamic = state
                 self.last_position = state["playingPosition"]
                 return
+            settings = self.baseline["settings"]
+            if (self.epoch is not None and not settings["looping"]
+                    and state["transportPlaying"] is True
+                    and state["targetTriggered"] is False and state["firedSlotIndex"] == -1
+                    and state["targetPlaying"] is False and self.nonlooping_boundary(state)
+                    and settings["endMarker"] - 0.25
+                    <= state["globalBeat"] - self.epoch["startTimeBeats"]
+                    < settings["endMarker"]):
+                # Live's clip-stop callback can precede its matching song-clock read.
+                # Keep the original epoch; this does not certify completed coverage.
+                if self.boundary_deadline is None:
+                    self.boundary_deadline = self.clock() + 0.25
+                    self.boundary_tick_deadline = self.monitor_ticks + 3
+                self.reason = "Session natural end is awaiting a coherent clock read"
+                self.last_dynamic = state
+                return
+            if self.boundary_deadline is not None:
+                _fail("Session source changed while its natural-end read was pending")
             previous = self.last_dynamic
             scene = self.params["target"]["sceneIndex"]
             if state["firedSlotIndex"] not in (-1, scene):
@@ -456,7 +496,7 @@ class _Pass(object):
             "followActionState": "unknown" if self.follow_unknown else "known-disabled",
             "limitations": list(LIMITATIONS) + ([FOLLOW_LIMITATION] if self.follow_unknown else []),
             "durationBeats": self.params["durationBeats"],
-            "expiresInMs": min(40000, max(0, int((self.expires - self.clock()) * 1000))),
+            "expiresInMs": min(int(MAX_PASS_SECONDS * 1000), max(0, int((self.expires - self.clock()) * 1000))),
         }
 
     def settle_launch(self):
@@ -493,7 +533,7 @@ class _Pass(object):
         if self.closed:
             return
         self.monitor_ticks += 1
-        if self.clock() >= self.expires or self.monitor_ticks >= 1200:
+        if self.clock() >= self.expires or self.monitor_ticks >= self.monitor_tick_limit:
             self.close("expired", "Bounded Session pass expired")
             return
         self.observe()

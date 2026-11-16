@@ -294,12 +294,109 @@ describe("guarded Session source driver", () => {
         },
       ]) as unknown,
     });
+
     expect(
       f.ableton.sessionListeningPass.mock.calls.map(
         ([params]) => params.action,
       ),
     ).toEqual(["prepare", "release"]);
   });
+
+  it("retains the exact polled boundary and frozen epoch when continuity is invalidated", async () => {
+    const f = fixture();
+    const lease = await f.prepare();
+    await lease.launch(f.controller.signal);
+    f.ableton.sessionListeningPass.mockImplementationOnce(async (params) => ({
+      ...f.receipt(params),
+      status: "invalidated",
+      reason: "Session source retrigger/transition observed: targetPlaying",
+      lastObservedSource: {
+        ...state,
+        globalBeat: 95.95,
+        startTimeBeats: 16,
+        playingPosition: 0,
+        targetPlaying: false,
+        playingSlotIndex: -1,
+        selectedClipReference: null,
+      },
+    }));
+    const { evidence } = await failure(
+      lease.assertCurrent(f.controller.signal),
+    );
+    for (const [field, value] of [
+      ["receipt.lastObservedSource.globalBeat", 95.95],
+      ["receipt.lastObservedSource.startTimeBeats", 16],
+      ["receipt.lastObservedSource.playingPosition", 0],
+      ["receipt.lastObservedSource.targetPlaying", false],
+      ["receipt.lastObservedSource.playingSlotIndex", -1],
+      ["receipt.sourceEpoch.startTimeBeats", 12],
+    ]) {
+      expect(evidence.facts).toContainEqual(
+        expect.objectContaining({
+          field,
+          actual: { state: "observed", value },
+        }),
+      );
+    }
+    await lease.release();
+  });
+
+  it.each(["coherent", "timeout", "cancelled"])(
+    "never seals unresolved stopped-source evidence: %s",
+    async (outcome) => {
+      const f = fixture();
+      const lease = await f.prepare();
+      await lease.launch(f.controller.signal);
+      vi.useFakeTimers();
+      let inspections = 0;
+      f.ableton.sessionListeningPass.mockImplementation(async (params) => {
+        const receipt = f.receipt(params);
+        if (params.action === "release") return receipt;
+        const covered = outcome === "coherent" && ++inspections >= 3;
+        return {
+          ...receipt,
+          status: covered ? "covered" : "playing",
+          lastObservedSource: {
+            ...state,
+            globalBeat: covered ? 16.01 : 15.995,
+            startTimeBeats: 0,
+            playingPosition: 0,
+            targetPlaying: false,
+            playingSlotIndex: -2,
+            selectedClipReference: null,
+          },
+        };
+      });
+      if (outcome === "timeout") {
+        const pending = failure(lease.seal(f.controller.signal));
+        await vi.advanceTimersByTimeAsync(260);
+        const { evidence } = await pending;
+        expect(evidence.code).toBe("session_boundary_unverified");
+      } else if (outcome === "cancelled") {
+        const pending = lease.seal(f.controller.signal);
+        const reason = new Error("cancel boundary read");
+        const rejected = expect(pending).rejects.toMatchObject({
+          name: "AbortError",
+          cause: reason,
+        });
+        await vi.advanceTimersByTimeAsync(1);
+        f.controller.abort(reason);
+        await rejected;
+      } else {
+        const pending = lease.seal(f.controller.signal);
+        await vi.advanceTimersByTimeAsync(30);
+        expect((await pending).origin.clipStartTimeBeats).toBe(12);
+        expect(inspections).toBeGreaterThanOrEqual(3);
+      }
+      await lease.release();
+      expect(vi.getTimerCount()).toBe(0);
+      expect(
+        f.ableton.sessionListeningPass.mock.calls.filter(
+          ([params]) => params.action === "launch",
+        ),
+      ).toHaveLength(1);
+    },
+  );
 
   it("retains immutable initiating evidence when release also rejects", async () => {
     const f = fixture();

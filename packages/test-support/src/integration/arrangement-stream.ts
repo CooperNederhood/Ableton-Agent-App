@@ -3,6 +3,7 @@ import { isDeepStrictEqual } from "node:util";
 import {
   metricRecordStreamDescriptorSchema,
   metricRecordStreamManifestSchema,
+  metricRecordStreamStateSchema,
   metricRecordChunkSchema,
   createContinuousMetricListeningGeometry,
   createMetricRecordStreamState,
@@ -11,6 +12,8 @@ import {
   metricRecordDigest,
   metricRecordStreamExpectedCoverage,
   type MetricRecordStreamDescriptor,
+  type MetricRecordStreamManifest,
+  type MetricRecordStreamMetric,
 } from "@ableton-agent/protocol";
 import type {
   ArrangementSourceEvidence,
@@ -28,6 +31,21 @@ export interface ArrangementStreamProof {
   readonly chunkCount: number;
   readonly afterOwnedRestart: boolean;
 }
+export function streamProofContentSha256(
+  proof: ArrangementStreamProof,
+): string {
+  const { descriptorDigest, manifestSha256, recordsSha256, chunkCount } = proof;
+  return createHash("sha256")
+    .update(
+      JSON.stringify({
+        descriptorDigest,
+        manifestSha256,
+        recordsSha256,
+        chunkCount,
+      }),
+    )
+    .digest("hex");
+}
 /** Rebuild the canonical grid from persisted compact geometry; never accept persisted counters as records. */
 export function expandArrangementDescriptor(
   compact: Omit<MetricRecordStreamDescriptor, "geometry"> & {
@@ -36,7 +54,7 @@ export function expandArrangementDescriptor(
 ): MetricRecordStreamDescriptor {
   const g = compact.geometry;
   const geometry = createContinuousMetricListeningGeometry({
-    captureMode: "arrangement-continuous",
+    captureMode: "finite-metric-stream",
     sampleRate: g.sampleRate,
     vectorSize: g.vectorSize,
     tempoBpm: g.tempoBpm,
@@ -54,13 +72,12 @@ export function expandArrangementDescriptor(
   return metricRecordStreamDescriptorSchema.parse({ ...compact, geometry });
 }
 
-export async function verifyPersistedArrangementStream(input: {
+interface PersistedMetricStreamInput {
   readonly contextId: string;
   readonly descriptor: MetricRecordStreamDescriptor;
   readonly manifest: unknown;
   readonly persistedState: unknown;
   readonly chunks: AsyncIterable<unknown>;
-  readonly baseline: ArrangementSourceEvidence;
   readonly operationId: string;
   readonly expectedTraceId: string;
   readonly expectedCorrelationId: string;
@@ -70,93 +87,41 @@ export async function verifyPersistedArrangementStream(input: {
   readonly afterOwnedRestart: boolean;
   readonly signal: AbortSignal;
   readonly onChunk?: (chunk: unknown) => Promise<void>;
-}): Promise<{
+  readonly requiredMetrics?: readonly MetricRecordStreamMetric[];
+}
+
+export async function verifyPersistedArrangementStream(
+  input: PersistedMetricStreamInput & {
+    readonly baseline: ArrangementSourceEvidence;
+    readonly expectedRange?: {
+      readonly startBeat: number;
+      readonly endBeat: number;
+    };
+  },
+): Promise<{
   capture: ArrangementCaptureEvidence;
   proof: ArrangementStreamProof;
 }> {
   const descriptor = metricRecordStreamDescriptorSchema.parse(input.descriptor);
-  const manifest = metricRecordStreamManifestSchema.parse(input.manifest);
-  const expectedMetrics = [
-    "level",
-    "spectral-centroid",
-    "attacks",
-    "mel-bands",
-    "pitch",
-    "spectral-shape",
-  ];
   const source = input.baseline.source;
+  const range = input.expectedRange ?? source;
   requireCondition(
-    descriptor.source.view === "arrangement" &&
+    Number.isFinite(range.startBeat) &&
+      Number.isFinite(range.endBeat) &&
+      range.startBeat >= source.startBeat &&
+      range.endBeat <= source.endBeat &&
+      range.endBeat > range.startBeat &&
+      descriptor.source.view === "arrangement" &&
       descriptor.source.target.kind === "regular" &&
       descriptor.source.target.index === source.trackIndex &&
       descriptor.source.target.expectedReference === source.trackId &&
-      descriptor.source.transport.startBeat === source.startBeat &&
-      descriptor.source.transport.endBeat === source.endBeat &&
-      descriptor.ownership.listenerId === input.baseline.listenerId &&
-      descriptor.ownership.traceId === input.expectedTraceId &&
-      descriptor.ownership.correlationId === input.expectedCorrelationId &&
-      descriptor.ownership.causationId === input.expectedCausationId &&
-      descriptor.requestedMetrics.length === 6 &&
-      expectedMetrics.every((metric) =>
-        descriptor.requestedMetrics.includes(
-          metric as (typeof descriptor.requestedMetrics)[number],
-        ),
-      ),
+      descriptor.source.transport.startBeat === range.startBeat &&
+      descriptor.source.transport.endBeat === range.endBeat &&
+      descriptor.ownership.listenerId === input.baseline.listenerId,
     "Persisted Arrangement stream source/owner/required metrics differ",
   );
-  let state = await createMetricRecordStreamState(descriptor);
-  const records = createHash("sha256");
-  let chunkCount = 0,
-    nonSilent = false;
-  for await (const raw of input.chunks) {
-    input.signal.throwIfAborted();
-    const chunk = metricRecordChunkSchema.parse(raw);
-    state = await acceptMetricRecordChunk(descriptor, state, chunk);
-    requireCondition(
-      chunk.gaps.length === 0,
-      "Arrangement stream contains explicit gaps",
-    );
-    records.update(JSON.stringify(chunk)).update("\n");
-    if (chunk.metric === "level")
-      nonSilent ||= chunk.records.some((record) =>
-        record.rms.some((value) => value > 0),
-      );
-    chunkCount++;
-    requireCondition(
-      chunkCount <= 4096,
-      "Arrangement chunk inventory exceeds bound",
-    );
-    await input.onChunk?.(chunk);
-  }
-  input.signal.throwIfAborted();
-  await verifyMetricRecordStreamManifest(descriptor, state, manifest);
-  requireCondition(
-    isDeepStrictEqual(state, input.persistedState),
-    "Persisted stream counters differ from original record coverage",
-  );
-  requireCondition(
-    manifest.outcome === "complete" &&
-      manifest.nativeProof.status === "completed" &&
-      manifest.nativeProof.drain === "completed" &&
-      input.sourceReleaseConfirmed &&
-      nonSilent &&
-      manifest.metrics.every(
-        (metric) =>
-          metric.missingRecords === 0 && metric.availability === "available",
-      ) &&
-      chunkCount > 0,
-    "Arrangement stream is incomplete, silent, unavailable or lacks confirmed cleanup",
-  );
-  const proof: ArrangementStreamProof = {
-    contextId: input.contextId,
-    passId: descriptor.ownership.passId,
-    listenerId: descriptor.ownership.listenerId,
-    descriptorDigest: state.descriptorDigest,
-    manifestSha256: await metricRecordDigest(manifest),
-    recordsSha256: records.digest("hex"),
-    chunkCount,
-    afterOwnedRestart: input.afterOwnedRestart,
-  };
+  const { proof, manifest, nonSilent } =
+    await verifyPersistedMetricStream(input);
   const firstFrameEndSample = descriptor.algorithms.find(
     (item) => item.metric === "spectral-centroid",
   )?.algorithm?.firstFrameEndSample;
@@ -196,7 +161,7 @@ export async function verifyPersistedArrangementStream(input: {
     })),
     cleanup: {
       captureReleased:
-        manifest.nativeProof.spectrumCleanup.status === "completed",
+        manifest.nativeProof.spectrumCleanup?.status === "completed",
       sourceRestored: input.sourceReleaseConfirmed,
       transportPlaying: input.playbackPlaying,
       failure: null,
@@ -204,4 +169,91 @@ export async function verifyPersistedArrangementStream(input: {
     stream: proof,
   };
   return { capture, proof };
+}
+
+export async function verifyPersistedMetricStream(
+  input: PersistedMetricStreamInput,
+): Promise<{
+  proof: ArrangementStreamProof;
+  manifest: MetricRecordStreamManifest;
+  nonSilent: boolean;
+}> {
+  const descriptor = metricRecordStreamDescriptorSchema.parse(input.descriptor);
+  const manifest = metricRecordStreamManifestSchema.parse(input.manifest);
+  const requiredMetrics =
+    input.requiredMetrics ??
+    ([
+      "level",
+      "spectral-centroid",
+      "attacks",
+      "mel-bands",
+      "pitch",
+      "spectral-shape",
+    ] as const);
+  requireCondition(
+    descriptor.ownership.traceId === input.expectedTraceId &&
+      descriptor.ownership.correlationId === input.expectedCorrelationId &&
+      descriptor.ownership.causationId === input.expectedCausationId &&
+      descriptor.requestedMetrics.length === requiredMetrics.length &&
+      new Set(requiredMetrics).size === requiredMetrics.length &&
+      requiredMetrics.every((metric) =>
+        descriptor.requestedMetrics.some((name) => name === metric),
+      ),
+    "Persisted stream ownership or required metrics differ",
+  );
+  let state = await createMetricRecordStreamState(descriptor);
+  const records = createHash("sha256");
+  let chunkCount = 0,
+    nonSilent = false;
+  for await (const raw of input.chunks) {
+    input.signal.throwIfAborted();
+    const chunk = metricRecordChunkSchema.parse(raw);
+    state = await acceptMetricRecordChunk(descriptor, state, chunk);
+    requireCondition(
+      chunk.gaps.length === 0,
+      "Metric stream contains explicit gaps",
+    );
+    records.update(JSON.stringify(chunk)).update("\n");
+    if (chunk.metric === "level")
+      nonSilent ||= chunk.records.some((record) =>
+        record.rms.some((value) => value > 0),
+      );
+    chunkCount++;
+    requireCondition(
+      chunkCount <= 4096,
+      "Metric chunk inventory exceeds bound",
+    );
+    await input.onChunk?.(chunk);
+  }
+  input.signal.throwIfAborted();
+  await verifyMetricRecordStreamManifest(descriptor, state, manifest);
+  await verifyMetricRecordStreamManifest(
+    descriptor,
+    metricRecordStreamStateSchema.parse(input.persistedState),
+    manifest,
+  );
+  requireCondition(
+    manifest.outcome === "complete" &&
+      manifest.nativeProof.status === "completed" &&
+      manifest.nativeProof.drain === "completed" &&
+      input.sourceReleaseConfirmed &&
+      nonSilent &&
+      manifest.metrics.every(
+        (metric) =>
+          metric.missingRecords === 0 && metric.availability === "available",
+      ) &&
+      chunkCount > 0,
+    "Metric stream is incomplete, silent, unavailable or lacks confirmed cleanup",
+  );
+  const proof: ArrangementStreamProof = {
+    contextId: input.contextId,
+    passId: descriptor.ownership.passId,
+    listenerId: descriptor.ownership.listenerId,
+    descriptorDigest: state.descriptorDigest,
+    manifestSha256: await metricRecordDigest(manifest),
+    recordsSha256: records.digest("hex"),
+    chunkCount,
+    afterOwnedRestart: input.afterOwnedRestart,
+  };
+  return { proof, manifest, nonSilent };
 }

@@ -52,11 +52,9 @@ export {
   type PreparedProjectContextStoreOptions,
 } from "./prepared-context.js";
 export {
-  prepareMetricListenerCapture,
   prepareMetricListenerStream,
   type PrepareMetricListenerCaptureInput,
   type MetricListeningCaptureProgress,
-  type PreparedMetricListeningCapture,
   type PreparedMetricListeningStream,
 } from "./metric-listening-capture.js";
 export {

@@ -1732,8 +1732,8 @@ export class SignalIngressServer implements ListenerService {
         (capability) =>
           String(capability) === METRIC_CONTINUOUS_LISTENING_CAPABILITY,
       ) ||
-      owner.mode !== "arrangement" ||
-      !owner.config ||
+      owner.config?.scope !== NATIVE_CONTINUOUS_METRIC_LISTENING_SCOPE ||
+      owner.mode !== owner.config.mode ||
       !state.nativeMetricArm ||
       !state.nativeMetricLaunch ||
       state.listenerPhase === "cancelling"
@@ -2054,6 +2054,12 @@ export class SignalIngressServer implements ListenerService {
                     ? "launch"
                     : "arming",
           component: "ingress",
+          listener: {
+            listenerId: owner.listenerId,
+            instanceId: state.producer?.instanceId,
+            connectionId: owner.connectionId,
+            connectionEpoch: owner.connectionEpoch,
+          },
           checkId: detail?.checkId ?? `ingress.${reason}`,
           summary: reason,
           coverage: detail?.facts.length

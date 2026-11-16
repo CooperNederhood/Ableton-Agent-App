@@ -3,6 +3,7 @@ import {
   inspectArrangementListeningSourceParamsSchema,
   inspectArrangementListeningSourceResultSchema,
 } from "./arrangement-listening-source-schemas.js";
+import { sessionPreflightInstrumentChainSchema } from "./session-listening-preflight-schemas.js";
 
 const params = {
   schemaVersion: 1,
@@ -60,6 +61,158 @@ const result = {
   clips: [clip],
 };
 describe("bounded independent Arrangement read contract", () => {
+  function midiResult() {
+    const inventory = { devices: [], total: 0, offset: 0, limit: 8 };
+    return {
+      ...result,
+      range: { startBeat: 4, endBeat: 8 },
+      before: { ...state, currentBeat: 16 },
+      after: { ...state, currentBeat: 16 },
+      clips: [
+        {
+          ...clip,
+          filePath: null,
+          sampleRate: null,
+          sampleLength: null,
+          warped: null,
+          gain: null,
+          pitchCoarse: null,
+          pitchFine: null,
+          midi: {
+            clip: {
+              reference: clip.clipId,
+              trackReference: params.track.expectedReference,
+              trackIndex: params.track.index,
+              name: clip.name,
+              kind: "midi",
+              startTime: 0,
+              endTime: 16,
+              length: 16,
+              noteCount: 1,
+              looping: true,
+            },
+            notes: [
+              {
+                pitch: 60,
+                startTime: 1,
+                duration: 0.25,
+                velocity: 100,
+                mute: false,
+              },
+            ],
+            totalNotes: 1,
+            offset: 0,
+            limit: 2048,
+            truncated: false,
+          },
+        },
+      ],
+      instrumentChain: { before: inventory, devices: [], after: inventory },
+    };
+  }
+
+  it("retains complete loaded MIDI notes and stable chain evidence without clipping the requested subrange", () => {
+    const midi = midiResult();
+    expect(inspectArrangementListeningSourceResultSchema.parse(midi)).toEqual(
+      midi,
+    );
+  });
+
+  it("uses a bounded top-level Arrangement witness while deep Session admission still requires the rack tree", () => {
+    const midi = midiResult();
+    const device = {
+      reference: "10000000-0000-4000-8000-000000000004",
+      trackReference: params.track.expectedReference,
+      trackIndex: params.track.index,
+      index: 0,
+      name: "Rack",
+      className: "InstrumentGroupDevice",
+      classDisplayName: "Instrument Rack",
+      enabled: true,
+      parameterCount: 0,
+      canHaveChains: true,
+      canHaveDrumPads: true,
+    };
+    const inventory = { devices: [device], total: 1, offset: 0, limit: 8 };
+    const chain = {
+      before: inventory,
+      after: inventory,
+      devices: [{ device, parameters: [], total: 0, offset: 0, limit: 256 }],
+    };
+    expect(
+      inspectArrangementListeningSourceResultSchema.safeParse({
+        ...midi,
+        instrumentChain: chain,
+      }).success,
+    ).toBe(true);
+    expect(sessionPreflightInstrumentChainSchema.safeParse(chain).success).toBe(
+      false,
+    );
+    expect(
+      inspectArrangementListeningSourceResultSchema.safeParse({
+        ...midi,
+        instrumentChain: { ...chain, devices: [] },
+      }).success,
+    ).toBe(false);
+    expect(
+      inspectArrangementListeningSourceResultSchema.safeParse({
+        ...midi,
+        instrumentChain: {
+          ...chain,
+          after: { ...inventory, devices: [{ ...device, enabled: false }] },
+        },
+      }).success,
+    ).toBe(false);
+  });
+
+  it.each([
+    { truncated: true },
+    { offset: 1 },
+    { totalNotes: 2 },
+    { notes: [] },
+    {
+      notes: Array.from({ length: 2049 }, () => ({
+        pitch: 60,
+        startTime: 0,
+        duration: 1,
+        velocity: 100,
+        mute: false,
+      })),
+    },
+    { clip: { ...midiResult().clips[0]!.midi.clip, kind: "audio" } },
+    { clip: { ...midiResult().clips[0]!.midi.clip, startTime: 1 } },
+    { clip: { ...midiResult().clips[0]!.midi.clip, trackIndex: 2 } },
+    {
+      clip: { ...midiResult().clips[0]!.midi.clip, reference: params.queryId },
+    },
+  ])("rejects incomplete or foreign loaded MIDI evidence %j", (change) => {
+    const midi = midiResult();
+    expect(
+      inspectArrangementListeningSourceResultSchema.safeParse({
+        ...midi,
+        clips: [
+          { ...midi.clips[0], midi: { ...midi.clips[0]!.midi, ...change } },
+        ],
+      }).success,
+    ).toBe(false);
+  });
+
+  it("requires MIDI chain evidence and refuses chain evidence on an audio-only result", () => {
+    const midi = midiResult();
+    expect(
+      inspectArrangementListeningSourceResultSchema.safeParse({
+        ...midi,
+        instrumentChain: undefined,
+      }).success,
+    ).toBe(false);
+    expect(
+      inspectArrangementListeningSourceResultSchema.safeParse({
+        ...result,
+        instrumentChain: midi.instrumentChain,
+      }).success,
+    ).toBe(false);
+  });
+
   it("preserves exact source identity/range and loaded unavailable evidence", () => {
     expect(inspectArrangementListeningSourceParamsSchema.parse(params)).toEqual(
       params,

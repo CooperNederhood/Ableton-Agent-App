@@ -2,6 +2,38 @@
 
 Companion specification: [Packaging and Operations](packaging-and-operations.md)
 
+## Qualified local listening update
+
+- [x] Pass the remaining unchanged Session MIDI case in terminal `run-uOtEk9`
+      on the same candidate as feature-search `run-PmT6xJ`, with independent
+      capture/context/protected-state and cleanup evidence on Live 11.3.43.
+- [x] Install exact arm64 candidate `4dae4562` without rebuilding or recursively
+      re-signing pinned native binaries; verify staged/installed signature and
+      source-bundle byte equality with rollback preserved until verification.
+- [x] Update the normal-profile listener through the canonical installer,
+      verify all three integrations current, and pass actual installed-path
+      startup and authentication/model-discovery checks in disposable profiles.
+      Preserve user state and leave normal launch to the user; no public release
+      or follow-up PR was created.
+
+## Native macOS startup recovery
+
+- [x] Match the installed startup crash to the upstream null power-notification
+      port failure and pin Electron 43.8.10 with the supported-branch fix.
+- [x] Assert the actual packaged runtime version in the startup smoke.
+- [x] Give the packaged startup smoke its own rejecting bridge and signal ports
+      so it can run without colliding with the user's normal running app.
+- [x] Pin canonical mel metadata against V8 transcendental rounding differences;
+      reproduce with a perturbed-math regression and preserve strict validation.
+- [x] Verify all 23 source-mode Electron tests, 1,016 protocol tests, packaged
+      startup and immutable native-plugin bytes. The wider packaged run was not
+      green: x64 artifacts were absent, integration installation was blocked by
+      the user's running Live, and OS-vault startup awaited Keychain access.
+- [x] Install the arm64 runtime and inspect normal visible startup after the
+      user completed Keychain authorization: default profile, ready composer,
+      connected Live 11.3.43. Preserve the user's profile and project; do not
+      claim a new real-Live capture or full packaged-suite qualification.
+
 ## F4 stock pitch smoke (#95)
 
 - [x] Pin the minimal signed stock pitch bundle and reference from the existing
@@ -258,8 +290,10 @@ did not qualify that functional parent.
 - [x] Detect supported Ableton/User Library locations.
 - [x] Implement Remote Script install, update, backup, and manual-path flow.
 - [x] Generate/store per-installation authentication credentials securely.
-- [x] Auto-provision the installed Remote Script token into the Desktop
-      OS-backed credential vault with conflict and invalid-file diagnostics.
+- [x] Read the installed Remote Script token into Desktop process memory without
+      a redundant OS-backed vault copy. Preserve explicit environment precedence,
+      conflict/invalid-file diagnostics and redacted lifecycle timing; do not
+      migrate or delete old vault/Keychain data.
 
 ## Version and update management
 

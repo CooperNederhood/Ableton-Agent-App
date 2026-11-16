@@ -41,10 +41,10 @@ function config() {
     capability: METRIC_CONTINUOUS_LISTENING_CAPABILITY,
     algorithmVersion: "3.0.0",
     mode: "arrangement",
-    captureMode: "arrangement-continuous",
+    captureMode: "finite-metric-stream",
     sourceEvidence: "transport-only",
     geometry: createContinuousMetricListeningGeometry({
-      captureMode: "arrangement-continuous",
+      captureMode: "finite-metric-stream",
       sampleRate: 48_000,
       vectorSize: 64,
       tempoBpm: 120,
@@ -257,7 +257,7 @@ describe("native continuous Arrangement admission", () => {
   it("bounds maximum-tempo control geometry on wire and restores exact canonical rows", () => {
     const original = config();
     const geometry = createContinuousMetricListeningGeometry({
-      captureMode: "arrangement-continuous",
+      captureMode: "finite-metric-stream",
       sampleRate: 48_000,
       vectorSize: 64,
       tempoBpm: 999,
@@ -360,7 +360,7 @@ describe("native continuous Arrangement admission", () => {
   it("rejects translated source coordinates as native admission", () => {
     const value = config();
     const geometry = createContinuousMetricListeningGeometry({
-      captureMode: "arrangement-continuous",
+      captureMode: "finite-metric-stream",
       sampleRate: 48_000,
       vectorSize: 64,
       tempoBpm: 120,

@@ -148,6 +148,22 @@ class SessionListeningPassTest(unittest.TestCase):
         for callback in callbacks:
             callback()
 
+    def end_nonlooping(self, global_beat, reset_origin=0.0):
+        self.song.tempo = 128.0
+        self.clip.looping = False
+        self.clip.end_marker = self.clip.loop_end = 80.0
+        self.params["durationBeats"] = 80.0
+        self.call()
+        self.launch()
+        self.activate(origin=16.0)
+        self.tick()
+        self.song.current_song_time = global_beat
+        self.clip.start_time = reset_origin
+        self.clip.playing_position = 0.0
+        self.track.playing_slot_index = -2
+        self.clip.change("is_playing", False)
+        return self.call("inspect")
+
     def assert_denied(self):
         with self.assertRaises(ProtocolFailure):
             self.call()
@@ -157,6 +173,81 @@ class SessionListeningPassTest(unittest.TestCase):
     def assert_no_monitors(self):
         for obj in (self.song, self.track, self.clip, self.slot, self.device):
             self.assertTrue(all(not entries for entries in obj.callbacks.values()))
+
+    def test_consolidation_short_capture_lease_also_covers_setup_drain_and_cleanup(self):
+        try:
+            prepared = self.call()
+            duration_ms = self.params["durationBeats"] * 60000 / self.song.tempo
+            self.assertGreaterEqual(
+                prepared["expiresInMs"], duration_ms + 20000 + 60000 + 5000,
+            )
+            self.assertLessEqual(prepared["expiresInMs"], 900000)
+        finally:
+            clear_session_listening_pass(self.context)
+            self.assert_no_monitors()
+
+    def test_consolidation_long_first_iteration_has_owned_finite_lease_and_cleanup(self):
+        self.song.tempo = 128.0
+        self.clip.end_marker = self.clip.loop_end = 80.0
+        self.params["durationBeats"] = 80.0
+        try:
+            prepared = self.call()
+            self.assertEqual(prepared["status"], "prepared")
+            # Cover setup, the 37.5s capture, drain and physical cleanup.
+            self.assertGreaterEqual(prepared["expiresInMs"], 122500)
+            self.assertLessEqual(prepared["expiresInMs"], 900000)
+            self.launch()
+            self.activate()
+            self.tick()
+            self.assertEqual(self.errors, [])
+            self.now = 41.0
+            elapsed_beats = self.now * self.song.tempo / 60.0
+            self.song.current_song_time = 16.0 + elapsed_beats
+            self.clip.playing_position = elapsed_beats % 80.0
+            self.tick()
+            self.assertEqual(self.call("inspect")["status"], "covered")
+            self.assertEqual(self.fires, 1)
+            self.call("release", reason="completed")
+            self.assertTrue(self.song.is_playing)
+            self.assert_no_monitors()
+        finally:
+            clear_session_listening_pass(self.context)
+
+    def test_consolidation_600_second_first_iteration_does_not_expire_at_old_tick_budget(self):
+        self.clip.end_marker = self.clip.loop_end = 1200.0
+        self.params["durationBeats"] = 1200.0
+        try:
+            prepared = self.call()
+            self.assertGreaterEqual(prepared["expiresInMs"], 685000)
+            self.assertLessEqual(prepared["expiresInMs"], 900000)
+            self.launch()
+            self.activate()
+            self.tick()
+            for index in range(1201):
+                self.now = (index + 1) / 10.0
+                position = self.now * self.song.tempo / 60.0
+                self.song.current_song_time = 16.0 + position
+                self.clip.playing_position = position
+                self.tick()
+            self.assertEqual(self.call("inspect")["status"], "playing")
+            self.call("release", reason="cancelled")
+            self.assert_no_monitors()
+        finally:
+            clear_session_listening_pass(self.context)
+
+    def test_finite_duration_above_600_seconds_is_denied_without_monitors(self):
+        self.clip.end_marker = self.clip.loop_end = 1400.0
+        self.params["durationBeats"] = 1200.001
+        self.assert_denied()
+
+    def test_duration_scaled_tick_guard_still_expires_with_a_frozen_clock(self):
+        self.call()
+        active = self.context._session_listening_pass
+        for _index in range(active.monitor_tick_limit):
+            self.tick()
+        self.assertEqual(active.status, "expired")
+        self.assertEqual(self.fires, 0)
+        self.assert_no_monitors()
 
     def test_prepare_launch_midi_and_warped_audio_origin_and_leave_running(self):
         for kind in ("midi", "audio"):
@@ -247,7 +338,7 @@ class SessionListeningPassTest(unittest.TestCase):
             ("song", "is_playing", True), ("song", "record_mode", True),
             ("song", "overdub", None), ("song", "session_record", None),
             ("song", "session_automation_record", True),
-            ("song", "tempo", None), ("song", "tempo", 1.0),
+            ("song", "tempo", None), ("song", "tempo", 0.1),
             ("song", "current_song_time", None), ("song", "signature_denominator", None),
             ("song", "signature_numerator", 3), ("song", "clip_trigger_quantization", 5),
             ("clip", "launch_quantization", 4), ("clip", "launch_quantization", 2),
@@ -335,14 +426,14 @@ class SessionListeningPassTest(unittest.TestCase):
         self.assert_no_monitors()
 
     def test_unverified_timeout_partial_fire_exception_expiry_and_old_pass(self):
-        self.call()
+        prepared = self.call()
         self.launch()
         self.now = 6
         self.tick()
         self.assertEqual(self.results[0]["status"], "unverified")
         self.assertEqual(self.results[0]["mutationState"], "indeterminate")
         self.assertTrue(self.song.is_playing)
-        self.now = 41
+        self.now = prepared["expiresInMs"] / 1000.0 + 1
         self.tick()
         self.assert_no_monitors()
         with self.assertRaises(ProtocolFailure):
@@ -491,9 +582,9 @@ class SessionListeningPassTest(unittest.TestCase):
                 self.assert_no_monitors()
 
     def test_expired_or_cancelled_at_acceptance_before_fire_is_not_dispatched(self):
-        self.call()
+        prepared = self.call()
         deferred = self.call("launch")
-        self.now = 41
+        self.now = prepared["expiresInMs"] / 1000.0 + 1
         results, errors = [], []
         deferred.start(results.append, errors.append)
         self.assertEqual(self.fires, 0)
@@ -676,7 +767,7 @@ class SessionListeningPassTest(unittest.TestCase):
 
     def test_longer_loop_resource_envelope_and_cancellation_are_bounded(self):
         self.clip.loop_end = self.clip.end_marker = 64
-        self.params["durationBeats"] = 64
+        self.params["durationBeats"] = 64.001
         self.assert_denied()
         self.params["durationBeats"] = 8.125
         self.assertEqual(self.call()["status"], "prepared")
@@ -686,6 +777,60 @@ class SessionListeningPassTest(unittest.TestCase):
         self.tick()
         self.assert_no_monitors()
         self.assertTrue(self.song.is_playing)
+
+    def test_completed_nonlooping_clip_can_reset_origin_and_return_live_11_stop_slot(self):
+        for kind in ("midi", "audio"):
+            with self.subTest(kind=kind):
+                self.setUp()
+                if kind == "audio":
+                    self.clip.is_midi_clip, self.clip.is_audio_clip, self.clip.warping = False, True, True
+                result = self.end_nonlooping(96.00964444444445)
+                self.assertEqual(result["status"], "covered")
+                self.assertEqual(result["sourceEpoch"]["startTimeBeats"], 16.0)
+                self.assertEqual(result["lastObservedSource"]["startTimeBeats"], 0.0)
+                self.call("release", reason="completed")
+                self.assertTrue(self.song.is_playing)
+                self.assert_no_monitors()
+
+    def test_nonlooping_reset_before_end_or_with_foreign_origin_remains_invalid(self):
+        for global_beat, reset_origin in ((95.5, 0.0), (95.999, 0.0), (96.01, 96.0)):
+            with self.subTest(global_beat=global_beat, reset_origin=reset_origin):
+                self.setUp()
+                result = self.end_nonlooping(global_beat, reset_origin)
+                self.assertNotEqual(result["status"], "covered")
+                self.now = 0.251
+                self.tick()
+                self.assertEqual(self.call("inspect")["status"], "invalidated")
+                self.call("release", reason="cancelled")
+                self.assert_no_monitors()
+
+    def test_nonlooping_boundary_wait_is_bounded_and_never_early_coverage(self):
+        for outcome in ("coherent", "stalled", "frozen-clock", "retrigger", "cancelled"):
+            with self.subTest(outcome=outcome):
+                self.setUp()
+                pending = self.end_nonlooping(95.99542222222223)
+                self.assertEqual(pending["status"], "playing")
+                self.assertEqual(pending["sourceEpoch"]["startTimeBeats"], 16.0)
+                if outcome == "cancelled":
+                    self.call("release", reason="cancelled")
+                else:
+                    if outcome == "coherent":
+                        self.now = 0.05
+                        self.song.current_song_time = 96.00964444444445
+                    elif outcome == "stalled":
+                        self.now = 0.251
+                    elif outcome == "retrigger":
+                        self.clip.is_playing = True
+                        self.clip.start_time = 16.0
+                        self.track.playing_slot_index = 0
+                    for _index in range(3 if outcome == "frozen-clock" else 1):
+                        self.tick()
+                    result = self.call("inspect")
+                    self.assertEqual(result["status"], "covered" if outcome == "coherent" else "invalidated")
+                    self.assertEqual(result["sourceEpoch"]["startTimeBeats"], 16.0)
+                    self.call("release", reason="completed" if outcome == "coherent" else "cancelled")
+                self.assertTrue(self.song.is_playing)
+                self.assert_no_monitors()
 
     def test_capability_requires_real_monitor_primitives_and_simulator_refuses(self):
         self.assertTrue(session_listening_pass_supported(self.song))

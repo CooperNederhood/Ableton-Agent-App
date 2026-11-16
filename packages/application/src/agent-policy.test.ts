@@ -464,6 +464,9 @@ describe("agent policy", () => {
         "Comparison/search alone does not require these extra reads",
       );
       expect(result?.additionalContext).toContain("page.values");
+      expect(result?.additionalContext).toContain(
+        "A requested complete inventory is incomplete while nextCursor exists",
+      );
       expect(result?.additionalContext?.length).toBeLessThan(800);
       expect(result?.modifiedResult).toBeUndefined();
       expect(toolResult).toEqual(before);
@@ -502,7 +505,41 @@ describe("agent policy", () => {
     expect(toolResult).toEqual(before);
   });
 
-  it.each(["stream-overview", "stream-records"])(
+  it("explains the inverted Back to Arrangement flag without changing observed transport state", async () => {
+    const hooks = createAgentHooks({ getAbletonStatus: async () => connected });
+    const toolResult = {
+      resultType: "success" as const,
+      textResultForLlm: JSON.stringify({
+        action: "get",
+        transport: { isPlaying: false, backToArrangement: true },
+      }),
+    };
+    const before = structuredClone(toolResult);
+    const result = await hooks.onPostToolUse?.(
+      {
+        sessionId: "sdk",
+        timestamp: new Date(),
+        workingDirectory: process.cwd(),
+        toolName: "ableton_transport",
+        toolArgs: { action: "get" },
+        toolResult,
+      },
+      { sessionId: "sdk" },
+    );
+    expect(result?.additionalContext).toContain(
+      "backToArrangement=true means Session override is active",
+    );
+    expect(result?.additionalContext).toContain(
+      "not that Arrangement is active",
+    );
+    expect(result?.additionalContext).toContain(
+      "false clears only the global override",
+    );
+    expect(result?.modifiedResult).toBeUndefined();
+    expect(toolResult).toEqual(before);
+  });
+
+  it.each(["stream-overview", "stream-records", "stream-summary"])(
     "keeps %s guidance coverage-first without demanding exhaustive record reads",
     async (action) => {
       const hooks = createAgentHooks({
@@ -520,7 +557,7 @@ describe("agent policy", () => {
         { sessionId: "sdk" },
       );
       expect(result?.additionalContext).toContain(
-        "Do not exhaust every page merely to establish coverage",
+        "do not exhaust a long timeline merely to establish coverage",
       );
       expect(result?.additionalContext).toContain(
         "digest-checked immutable chunk",

@@ -10,9 +10,7 @@ import type {
 import { createInMemorySessionContextStore } from "@ableton-agent/project-state";
 import {
   inspectListeningContextParamsSchema,
-  metricAudioObservationSchema,
-  METRIC_RECORD_STREAM_CAPABILITY,
-  NATIVE_CONTINUOUS_METRIC_LISTENING_SCOPE,
+  metricRecordStreamContextReferenceSchema,
   type InspectListeningContextParams,
   type InspectListeningContextResult,
 } from "@ableton-agent/protocol";
@@ -26,7 +24,10 @@ import {
   createListeningRuntimeHost,
   type ConcreteListeningRuntimeHost,
 } from "./listening-runtime-host.js";
-import { createSyntheticMetricListenerPeer } from "./metric-listening-test-support.js";
+import {
+  createSyntheticMetricListenerPeer,
+  withSyntheticMetricStreamRegistration,
+} from "./metric-listening-test-support.js";
 
 const uuid = (index: number) =>
   `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`;
@@ -58,6 +59,7 @@ function inspection(
       playing: false,
       currentBeat: 0,
       tempo: 120,
+      timeSignature: { numerator: 4, denominator: 4 },
       recording: {
         recordMode: false,
         sessionRecord: false,
@@ -143,24 +145,26 @@ async function fixture(
       device: { id: "600" },
     },
     binding: { trackId: "500", deviceId: "600" },
-    registration: listenerRegistrationMetricSchema.parse({
-      ...data.registration,
-      ...(analyzers
-        ? {
-            capabilities: [
-              ...data.registration.capabilities,
-              "audio-listener/analyzer-timelines-v1",
-            ],
-            analyzerReadiness: createSyntheticAnalyzerReadiness(),
-          }
-        : {}),
-      nativeStatus: {
-        ...data.registration.nativeStatus,
-        readiness: "BLOCKED",
-        reason: "fresh_per_pass_native_validation_required",
-        executedGen: null,
-      },
-    }),
+    registration: withSyntheticMetricStreamRegistration(
+      listenerRegistrationMetricSchema.parse({
+        ...data.registration,
+        ...(analyzers
+          ? {
+              capabilities: [
+                ...data.registration.capabilities,
+                "audio-listener/analyzer-timelines-v1",
+              ],
+              analyzerReadiness: createSyntheticAnalyzerReadiness(),
+            }
+          : {}),
+        nativeStatus: {
+          ...data.registration.nativeStatus,
+          readiness: "BLOCKED",
+          reason: "fresh_per_pass_native_validation_required",
+          executedGen: null,
+        },
+      }),
+    ),
     phase: "idle",
   };
   const peer = createSyntheticMetricListenerPeer(
@@ -177,7 +181,7 @@ async function fixture(
   stores.push(repository);
   const reservePass = vi.spyOn(repository, "reservePass");
   const releaseReservation = vi.spyOn(repository, "releaseReservation");
-  const appendPass = vi.spyOn(repository, "appendPass");
+  const finalizeMetricCaptures = vi.spyOn(repository, "finalizeMetricCaptures");
   const inspectListeningContext = vi.fn(
     async (input: InspectListeningContextParams) => inspection(input),
   );
@@ -266,7 +270,7 @@ async function fixture(
     dependencies,
     reservePass,
     releaseReservation,
-    appendPass,
+    finalizeMetricCaptures,
     requestListenerControl,
     positionListeningPlayback,
     startListeningPlayback,
@@ -276,28 +280,52 @@ async function fixture(
 }
 
 describe("production v5 Arrangement listening host with synthetic native peer", () => {
+  it("persists monitored Arrangement meter as canonical musical alignment", async () => {
+    const f = await fixture();
+    const result = await f.run();
+    expect(result.stage).toBe("completed");
+    expect(
+      (await f.repository.getEntry(result.contextIds[0]!))?.musicalAlignment,
+    ).toEqual({
+      version: 1,
+      coordinate: "transport-beats",
+      meter: { numerator: 4, denominator: 4 },
+      barOriginBeat: 0,
+      tempoBpm: 120,
+      tempoEvidence: "message-rate-monitored-constant",
+      provenance: "capture-snapshot/v1",
+    });
+  });
+  it("does not invent musical alignment for an unknown Arrangement meter", async () => {
+    const f = await fixture();
+    f.dependencies.ableton.inspectListeningContext = async (input) => {
+      const snapshot = inspection(input);
+      snapshot.transport.timeSignature = null;
+      return snapshot;
+    };
+    const result = await f.run();
+    expect(result.stage).toBe("completed");
+    expect(
+      (await f.repository.getEntry(result.contextIds[0]!))?.musicalAlignment,
+    ).toBeUndefined();
+  });
+  it("rejects meter changes before native capture and releases owned resources", async () => {
+    const f = await fixture();
+    let reads = 0;
+    f.dependencies.ableton.inspectListeningContext = async (input) => {
+      const snapshot = inspection(input);
+      if (++reads > 1)
+        snapshot.transport.timeSignature = { numerator: 3, denominator: 4 };
+      return snapshot;
+    };
+    expect((await f.run()).stage).toBe("failed");
+    expect(f.finalizeMetricCaptures).not.toHaveBeenCalled();
+    expect(f.startListeningPlayback).not.toHaveBeenCalled();
+    expect(f.peer.subscribers.size).toBe(0);
+  });
   it("exposes the authenticated continuous capability without claiming fresh native readiness or starting playback", async () => {
     const f = await fixture(false, true, true, true, true);
-    const continuous = {
-      ...f.listener,
-      registration: listenerRegistrationMetricSchema.parse({
-        ...f.listener.registration,
-        capabilities: [
-          ...f.listener.registration.capabilities,
-          "audio-listener/arrangement-continuous-metric-stream-v1",
-        ],
-        nativeStatus: {
-          ...f.listener.registration.nativeStatus,
-          version: 6,
-          scope: NATIVE_CONTINUOUS_METRIC_LISTENING_SCOPE,
-          maxAudioDurationMs: 600_000,
-          maxSessionAudioDurationMs: 30_000,
-          maxReportRows: 39_961,
-          maxSessionReportRows: 2_000,
-          streamCapability: METRIC_RECORD_STREAM_CAPABILITY,
-        },
-      }),
-    };
+    const continuous = structuredClone(f.listener);
     vi.spyOn(
       f.dependencies.signals.listeners!,
       "inspectListeners",
@@ -348,8 +376,8 @@ describe("production v5 Arrangement listening host with synthetic native peer", 
             listenerId: f.listener.producer.producerId,
             connectionId: f.listener.connectionId,
             connectionEpoch: f.listener.registration.connectionEpoch,
-            generation: null,
-            nativeEpoch: null,
+            generation: f.peer.stream!.descriptor.ownership.generation,
+            nativeEpoch: f.peer.stream!.descriptor.ownership.nativeEpoch,
           },
         ],
       },
@@ -382,7 +410,7 @@ describe("production v5 Arrangement listening host with synthetic native peer", 
     });
     const result = await f.run();
     expect(result.stage).toBe("failed");
-    expect(f.appendPass).not.toHaveBeenCalled();
+    expect(f.finalizeMetricCaptures).not.toHaveBeenCalled();
     expect(
       f.telemetryEnqueue.mock.calls.some(
         ([event]) =>
@@ -401,6 +429,11 @@ describe("production v5 Arrangement listening host with synthetic native peer", 
     "does not advertise or start an unsupported %ss producer pass",
     async (seconds) => {
       const f = await fixture(false, true, true, true, true);
+      Object.assign(f.listener, {
+        registration: listenerRegistrationMetricSchema.parse(
+          f.data.registration,
+        ),
+      });
       const result = await f.host.executeListeningOperation(
         {
           action: "play-arrangement-and-listen",
@@ -417,7 +450,7 @@ describe("production v5 Arrangement listening host with synthetic native peer", 
       expect(f.requestListenerControl).not.toHaveBeenCalled();
       expect(f.positionListeningPlayback).not.toHaveBeenCalled();
       expect(f.startListeningPlayback).not.toHaveBeenCalled();
-      expect(f.appendPass).not.toHaveBeenCalled();
+      expect(f.finalizeMetricCaptures).not.toHaveBeenCalled();
     },
   );
   it("discovers an actual three-capability ABI3 registration and captures all six metric families without dropping readiness", async () => {
@@ -459,9 +492,9 @@ describe("production v5 Arrangement listening host with synthetic native peer", 
     }
     const job = await f.run();
     expect(job.stage, JSON.stringify({ job, log: f.log })).toBe("completed");
-    const observed = metricAudioObservationSchema.parse(
+    const observed = metricRecordStreamContextReferenceSchema.parse(
       (await f.repository.getEntry(job.contextIds[0]!))?.payload,
-    );
+    ).descriptor;
     expect(observed.requestedMetrics).toEqual([
       "level",
       "spectral-centroid",
@@ -470,8 +503,15 @@ describe("production v5 Arrangement listening host with synthetic native peer", 
       "pitch",
       "spectral-shape",
     ]);
-    expect(observed.metrics.pitch?.status).toBe("complete");
-    expect(observed.metrics["spectral-shape"]?.status).toBe("complete");
+    const manifest = (await f.repository.getMetricCapture(job.contextIds[0]!))
+      ?.manifest;
+    expect(
+      manifest?.metrics.find((metric) => metric.metric === "pitch")?.status,
+    ).toBe("complete");
+    expect(
+      manifest?.metrics.find((metric) => metric.metric === "spectral-shape")
+        ?.status,
+    ).toBe("complete");
     expect(f.listener.registration).toHaveProperty(
       "analyzerReadiness",
       createSyntheticAnalyzerReadiness(),
@@ -516,7 +556,7 @@ describe("production v5 Arrangement listening host with synthetic native peer", 
       expect(job.stage).toBe("failed");
       expect(f.requestListenerControl).not.toHaveBeenCalled();
       expect(f.startListeningPlayback).not.toHaveBeenCalled();
-      expect(f.appendPass).not.toHaveBeenCalled();
+      expect(f.finalizeMetricCaptures).not.toHaveBeenCalled();
     },
   );
   it.each([false, true])(
@@ -532,44 +572,64 @@ describe("production v5 Arrangement listening host with synthetic native peer", 
       );
       expect(f.log.indexOf("metric:arm")).toBeLessThan(f.log.indexOf("start"));
       expect(f.positionListeningPlayback).toHaveBeenCalledOnce();
-      expect(f.appendPass).toHaveBeenCalledOnce();
-      expect(f.appendPass.mock.calls[0]?.[0].entries[0]?.kind).toBe(
-        "metric-audio-observation/v1",
+      expect(f.finalizeMetricCaptures).toHaveBeenCalledOnce();
+      expect((await f.repository.getEntry(job.contextIds[0]!))?.kind).toBe(
+        "metric-record-stream-context/v1",
       );
       expect((await f.repository.listEntries({})).items).toHaveLength(1);
       expect(f.jobs.at(-1)?.contextIds).toHaveLength(1);
-      const observed = metricAudioObservationSchema.parse(
+      const observed = metricRecordStreamContextReferenceSchema.parse(
         (await f.repository.getEntry(job.contextIds[0]!))?.payload,
-      );
+      ).descriptor;
       expect(observed).toMatchObject({
         requestedMetrics: [
           "level",
           "spectral-centroid",
           "attacks",
           "mel-bands",
+          "pitch",
+          "spectral-shape",
         ],
-        metrics: {
-          "mel-bands": {
-            status: "complete",
-            profile: { bandCount: 24 },
-          },
-        },
       });
-      expect(observed.metrics["mel-bands"]?.frames[0]?.magnitudes).toEqual([
-        Array(24).fill(0.5),
-        Array(24).fill(0.25),
-      ]);
+      expect(
+        (await f.repository.getMetricCapture(job.contextIds[0]!))?.manifest
+          ?.metrics,
+      ).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ metric: "mel-bands", status: "complete" }),
+        ]),
+      );
+      const [melChunk] = (
+        await f.repository.listMetricChunks({
+          captureId: job.contextIds[0]!,
+          metric: "mel-bands",
+        })
+      ).items;
+      expect(melChunk?.metric).toBe("mel-bands");
+      expect(melChunk?.records).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            magnitudes: [Array<number>(24).fill(0), Array<number>(24).fill(0)],
+          }),
+        ]),
+      );
       expect(f.peer.subscribers.size).toBe(0);
       expect(f.releaseReservation).toHaveBeenCalledOnce();
     },
   );
 
-  it("fails missing mel independently of healthy baseline evidence and releases ownership", async () => {
+  it("publishes honest unavailable mel alongside healthy metrics and releases ownership", async () => {
     const f = await fixture(false, true, true, false);
     const job = await f.run();
-    expect(job.stage).toBe("failed");
+    expect(job.stage).toBe("partial");
     expect(f.startListeningPlayback).toHaveBeenCalledOnce();
-    expect(f.appendPass).not.toHaveBeenCalled();
+    expect(f.finalizeMetricCaptures).toHaveBeenCalledOnce();
+    expect(job.metricResults?.[0]?.metrics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ metric: "mel-bands", status: "failed" }),
+        expect.objectContaining({ metric: "level", status: "complete" }),
+      ]),
+    );
     expect(f.peer.subscribers.size).toBe(0);
     expect(f.releaseReservation).toHaveBeenCalledOnce();
   });
@@ -580,7 +640,7 @@ describe("production v5 Arrangement listening host with synthetic native peer", 
     expect(f.requestListenerControl).not.toHaveBeenCalled();
     expect(f.positionListeningPlayback).not.toHaveBeenCalled();
     expect(f.startListeningPlayback).not.toHaveBeenCalled();
-    expect(f.appendPass).not.toHaveBeenCalled();
+    expect(f.finalizeMetricCaptures).not.toHaveBeenCalled();
     expect(f.peer.subscribers.size).toBe(0);
   });
 
@@ -590,7 +650,7 @@ describe("production v5 Arrangement listening host with synthetic native peer", 
     expect((await f.run()).stage).toBe("failed");
     expect(f.requestListenerControl).not.toHaveBeenCalled();
     expect(f.startListeningPlayback).not.toHaveBeenCalled();
-    expect(f.appendPass).not.toHaveBeenCalled();
+    expect(f.finalizeMetricCaptures).not.toHaveBeenCalled();
     expect(f.peer.subscribers.size).toBe(0);
   });
 
@@ -602,7 +662,7 @@ describe("production v5 Arrangement listening host with synthetic native peer", 
     abort.abort();
     const job = await f.host.waitForListeningPass(passId, context);
     expect(job.stage, JSON.stringify({ job, log: f.log })).toBe("cancelled");
-    expect(f.appendPass).not.toHaveBeenCalled();
+    expect(f.finalizeMetricCaptures).not.toHaveBeenCalled();
     expect(f.log).toContain("metric:cancel");
     expect(f.peer.subscribers.size).toBe(0);
     expect(f.releaseReservation).toHaveBeenCalledOnce();

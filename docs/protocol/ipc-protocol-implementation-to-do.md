@@ -1,5 +1,22 @@
 # IPC Protocol Implementation To-Do
 
+- [x] Classify only explicit full instrument-tree inspection under the existing
+      fifteen-second long request budget. Preserve five-second shallow reads,
+      dispatch-based timing, cancellation and attributed lifecycle events;
+      reproduce the former normal-budget timeout with the existing simulator.
+
+- [x] Bump the bridge to protocol 11 for breaking consolidated source/inspection
+      contracts; regenerate TypeScript/Python constants and golden contracts.
+      Keep listener wire 5/native status 6 separate and preserve explicit
+      handshake rejection rather than a legacy-capture fallback.
+
+- [x] Share stable complete top-level instrument-chain evidence with routine
+      Arrangement MIDI inspection while retaining full Session rack-tree
+      admission. Reject nested trees in the routine aggregate response.
+- [x] Extend Session source-pass lease results to 900,000 ms for the shared
+      finite capture ceiling; cover the 685,000-ms maximum-duration lease and
+      reject nonfinite, negative and over-limit results.
+
 - [x] Require Session native `stoppedBeat` independently of capture geometry;
       pin ready/arm clocks and permit only the initial host-owned zero-origin
       launch reset. Cover mismatched pins and subsequent regression, preserve

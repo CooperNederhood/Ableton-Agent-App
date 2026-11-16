@@ -28,7 +28,6 @@ import { currentCorrelationContext } from "@ableton-agent/correlation";
 import { inspectArrangementListeningSourceResultSchema } from "@ableton-agent/protocol";
 import * as runtimeModule from "@ableton-agent/runtime";
 import { ApprovalCoordinator, ApprovalPolicyController } from "./approvals.js";
-import { bridgeTokenKey } from "./bridge-credentials.js";
 import {
   createDesktopComposition as composeDesktop,
   createSnapshotHistoryRepository,
@@ -972,7 +971,7 @@ describe("desktop composition", () => {
     );
   });
 
-  it("configures the bridge from preferences and the stored token", async () => {
+  it("configures the bridge from preferences and the environment token", async () => {
     const location = await paths();
     await writeFile(
       location.preferencesPath,
@@ -982,8 +981,7 @@ describe("desktop composition", () => {
 
     const { runtime, preferences } = await createDesktopComposition({
       ...location,
-      storedToken: "b".repeat(32),
-      environment: {},
+      environment: { ABLETON_AGENT_TOKEN: "b".repeat(32) },
     });
 
     expect(preferences.abletonPort).toBe(9123);
@@ -1016,25 +1014,16 @@ describe("desktop composition", () => {
       ),
       "utf8",
     );
-    const vault = new Map<string, string>();
-
     const { runtime, service, bridgeToken } = await createDesktopComposition({
       ...location,
       agentsDirectory: resolve("agents"),
       skillsDirectory: resolve("skills"),
       environment: {},
       platform: "darwin",
-      credentialVault: {
-        get: async (key) => vault.get(key),
-        set: async (key, value) => {
-          vault.set(key, value);
-        },
-      },
     });
 
     expect(runtime.abletonConfigured).toBe(true);
     expect(bridgeToken).toBe(installedToken);
-    expect(vault.get(bridgeTokenKey)).toBe(installedToken);
     expect(
       (await service.getDiagnostics()).filter(
         ({ label, status }) =>
@@ -1045,7 +1034,7 @@ describe("desktop composition", () => {
       ({ label }) => label === "Bridge credentials",
     );
     expect(provisioned?.status).toBe("pass");
-    expect(provisioned?.detail).toContain("discovered and stored");
+    expect(provisioned?.detail).toContain("read into process memory");
     expect(JSON.stringify(await service.getDiagnostics())).not.toContain(
       installedToken,
     );
@@ -1159,8 +1148,7 @@ describe("desktop composition", () => {
 
     const { runtime, service } = await createDesktopComposition({
       ...location,
-      storedToken: "too-short",
-      environment: {},
+      environment: { ABLETON_AGENT_TOKEN: "too-short" },
     });
 
     expect(runtime.abletonConfigured).toBe(false);

@@ -3,12 +3,14 @@ import { createAgentHooks } from "@ableton-agent/application";
 import {
   createSyntheticMetricListeningObservation,
   createSyntheticPartialMetricListeningObservation,
+  createSyntheticMetricRecordStreamFixture,
 } from "@ableton-agent/protocol/testing";
 import {
   projectMetricListeningReport,
   summarizeMetricListeningResult,
   extractPeakFeature,
   type MetricAudioObservation,
+  compactMetricRecordStreamDescriptor,
 } from "@ableton-agent/protocol";
 import {
   createListeningTools,
@@ -16,8 +18,11 @@ import {
   contextOperationResultSchema,
   MAX_METRIC_CONTEXT_RESPONSE_BYTES,
   projectListeningFeatureRecord,
+  projectListeningFeatureInventory,
+  contextFeatureViewSchema,
   FEATURE_VALUE_DETAIL_GUIDANCE,
   METRIC_REPORT_PAGE_GUIDANCE,
+  METRIC_STREAM_READ_GUIDANCE,
 } from "@ableton-agent/tools";
 const { denseSyntheticMetricObservation } = await vi.importActual<{
   denseSyntheticMetricObservation(this: void): MetricAudioObservation;
@@ -54,6 +59,81 @@ function context(action: "get" | "report", limit = 32) {
 }
 
 describe("typed listening SDK result History projection", () => {
+  it.each(["stream-overview", "stream-records"] as const)(
+    "retains typed %s with the actual stream guidance hook",
+    async (action) => {
+      const fixture = await createSyntheticMetricRecordStreamFixture();
+      const compact = compactMetricRecordStreamDescriptor(fixture.descriptor);
+      const { rows, ...geometry } = fixture.descriptor.geometry;
+      void rows;
+      const native = fixture.manifest.nativeProof;
+      const body = contextOperationResultSchema.parse({
+        action,
+        entry: {
+          ...context("get").entry,
+          kind: "metric-record-stream-context/v1",
+        },
+        ...(action === "stream-records"
+          ? { page: null }
+          : {
+              overview: {
+                descriptorDigest: fixture.manifest.descriptorDigest,
+                geometry,
+                source: compact.source,
+                timingPolicy: compact.timingPolicy,
+                algorithms: compact.algorithms,
+                metrics: fixture.manifest.metrics,
+                outcome: "complete",
+                nativeStatus: "completed",
+                nativeCoverage: {
+                  capturedSamples: native.capturedSamples,
+                  sourceOrigin: native.sourceOrigin,
+                  sourceEnd: native.sourceEnd,
+                  drain: "completed",
+                },
+                chunkCount: 6,
+                storedBytes: 1000,
+                limitations: [],
+                featureDerivation: "supported",
+              },
+            }),
+      });
+      const hooks = createAgentHooks({
+        getAbletonStatus: async () => ({ state: "disconnected" }),
+      });
+      const hook = await hooks.onPostToolUse?.(
+        {
+          sessionId: "session",
+          timestamp: new Date(),
+          workingDirectory: "/tmp",
+          toolName: "ableton_context",
+          toolArgs: { action, contextId: "context" },
+          toolResult: {
+            resultType: "success",
+            textResultForLlm: JSON.stringify(body),
+          },
+        },
+        { sessionId: "session" },
+      );
+      expect(hook?.additionalContext).toContain(METRIC_STREAM_READ_GUIDANCE);
+      const sdk = {
+        content: `${JSON.stringify(body)}\n\nTool "ableton_context" succeeded. Additional guidance from postToolUse hooks:\n${hook!.additionalContext}`,
+      };
+      expect(listeningHistoryResult("ableton_context", sdk)).toEqual({
+        result: { content: body },
+      });
+      expect(
+        listeningHistoryResult("ableton_context", {
+          content: sdk.content.replace(
+            '"action":"stream-',
+            '"action":"forged-',
+          ),
+        }),
+      ).toMatchObject({
+        result: { content: { error: "history_projection_unavailable" } },
+      });
+    },
+  );
   it("retains typed feature derivation outcomes while redacting embedded credentials", () => {
     const body = {
       action: "derive-features",
@@ -153,7 +233,7 @@ describe("typed listening SDK result History projection", () => {
     async (action) => {
       const observation = createSyntheticMetricListeningObservation();
       const feature = extractPeakFeature(observation);
-      const view = {
+      const view = contextFeatureViewSchema.parse({
         record: projectListeningFeatureRecord({
           id: "feature",
           entryId: "context",
@@ -185,10 +265,10 @@ describe("typed listening SDK result History projection", () => {
           alignmentReason: "musical-bar-alignment-not-established",
         },
         source: context("report").entry,
-      };
+      });
       const body = contextOperationResultSchema.parse(
         action === "list-features"
-          ? { action, features: [view] }
+          ? { action, inventory: projectListeningFeatureInventory([view]) }
           : action === "compare-features"
             ? { action, comparisons: [] }
             : {

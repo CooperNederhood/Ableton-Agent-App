@@ -1,4 +1,4 @@
-import type { MetricAudioObservation } from "./metric-observation-schemas.js";
+import type { ListeningFeatureSource } from "./listening-feature-source.js";
 import { deriveMelBandFrame } from "./mel-band-profile.js";
 import {
   LISTENING_FEATURE_DEFINITIONS,
@@ -45,7 +45,7 @@ function normalize(values: (number | null)[]): (number | null)[] | undefined {
 
 export function extractListeningFeature(
   type: ListeningFeatureType,
-  observation: MetricAudioObservation,
+  observation: ListeningFeatureSource,
   range: ListeningFeatureRange = observation.geometry,
 ): ListeningFeature {
   const definition = listeningFeatureDefinition(type);
@@ -150,7 +150,7 @@ export function extractListeningFeature(
         ? spectral.status === "not-requested"
         : family === "level-window-rise/v1"
           ? attacks.status === "not-requested"
-          : mel === undefined;
+          : !observation.requestedMetrics.includes("mel-bands");
   if (algorithm === null)
     reason =
       family === "sample-grid-peak-rms/v1"
@@ -315,7 +315,7 @@ export function extractListeningFeature(
 }
 
 export function extractListeningFeatures(
-  observation: MetricAudioObservation,
+  observation: ListeningFeatureSource,
   range?: ListeningFeatureRange,
 ): ListeningFeature[] {
   return LISTENING_FEATURE_DEFINITIONS.map((definition) =>

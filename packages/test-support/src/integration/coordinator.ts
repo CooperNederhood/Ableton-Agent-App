@@ -8,11 +8,16 @@ import {
   sanitizeTelemetryAttributes,
 } from "@ableton-agent/observability";
 import { createDefaultAssertions } from "./assertions.js";
-import { verifyArrangementSource } from "./arrangement.js";
+import {
+  verifyArrangementSource,
+  scenarioArrangementSource,
+  declaredArrangementBaseline,
+} from "./arrangement.js";
 import type { AgentListeningEvidence } from "./agent-listening-result.js";
 import {
   validateFixtureSourceEvidence,
   validateMidiSourcePreconditions,
+  scenarioSessionSources,
 } from "./sources.js";
 import {
   dependencyInventoryHashes,
@@ -188,10 +193,28 @@ function sanitizeRunEvidence(value: RunEvidence) {
       : {}),
   };
 }
-function sanitizeResult(value: RunResult) {
-  const { turns, evidence, ...body } = value;
+function sanitizeBaseline(value: BaselineEvidence) {
+  const { sources, arrangementSources, ...body } = value;
+  const sanitizeSources = (entries: Readonly<Record<string, object>>) =>
+    Object.fromEntries(
+      Object.entries(entries).map(([id, source]) => [
+        sanitizePersistedText(id),
+        sanitizeTelemetryAttributes({ ...source }),
+      ]),
+    );
   return {
     ...sanitizeTelemetryAttributes(body),
+    ...(sources ? { sources: sanitizeSources(sources) } : {}),
+    ...(arrangementSources
+      ? { arrangementSources: sanitizeSources(arrangementSources) }
+      : {}),
+  };
+}
+function sanitizeResult(value: RunResult) {
+  const { turns, evidence, baseline, ...body } = value;
+  return {
+    ...sanitizeTelemetryAttributes(body),
+    ...(baseline ? { baseline: sanitizeBaseline(baseline) } : {}),
     turns: turns.map(sanitizeTurn),
     ...(evidence ? { evidence: sanitizeRunEvidence(evidence) } : {}),
   };
@@ -524,15 +547,19 @@ export async function runAcceptance(
           read,
           validateBaseline,
           524_288 + instrumentTreeBytes(read),
+          sanitizeBaseline,
         );
         ensureReportBudget({ baseline: admitted });
         baseline = admitted;
+        const arrangementSources = fixture.arrangementSources?.length
+          ? [scenarioArrangementSource(fixture, scenario)]
+          : [];
         requireCondition(
           Object.keys(baseline.arrangementSources ?? {}).length ===
-            (fixture.arrangementSources?.length ?? 0),
+            arrangementSources.length,
           "Observed Arrangement source inventory differs from fixture",
         );
-        for (const definition of fixture.arrangementSources ?? []) {
+        for (const definition of arrangementSources) {
           const observed = baseline.arrangementSources?.[definition.id];
           requireCondition(
             observed,
@@ -570,15 +597,16 @@ export async function runAcceptance(
             ctx.signal,
           );
         }
+        const sessionSources = scenarioSessionSources(fixture, scenario);
         requireCondition(
-          (fixture.sources ?? []).every((source) =>
+          sessionSources.every((source) =>
             Object.hasOwn(admitted.sources ?? {}, source.id),
           ) &&
             Object.keys(baseline.sources ?? {}).length ===
-              (fixture.sources?.length ?? 0),
-          "Observed source inventory differs from fixture",
+              sessionSources.length,
+          "Observed source inventory differs from scenario-used fixture sources",
         );
-        for (const definition of fixture.sources ?? []) {
+        for (const definition of sessionSources) {
           const observed = admitted.sources![definition.id]!;
           validateFixtureSourceEvidence(fixture, definition, observed);
           validateMidiSourcePreconditions(fixture, observed);
@@ -592,12 +620,15 @@ export async function runAcceptance(
               "Observed media path differs from source declaration",
             );
         }
-        for (const [key, expected] of Object.entries(fixture.baseline))
+        const expectedBaseline = arrangementSources[0]
+          ? declaredArrangementBaseline(fixture, arrangementSources[0])
+          : fixture.baseline;
+        for (const [key, expected] of Object.entries(expectedBaseline))
           requireCondition(
             Object.hasOwn(baseline.facts, key) &&
               baseline.facts[key] ===
                 (key === "clipLaunchQuantization"
-                  ? (fixture.sources?.[0]?.clipLaunchQuantization ?? expected)
+                  ? (sessionSources[0]?.clipLaunchQuantization ?? expected)
                   : expected),
             `Blocked precondition: ${key}`,
           );
@@ -625,7 +656,8 @@ export async function runAcceptance(
           ? initialSetupDeadline
           : Math.min(runDeadline, Date.now() + step.timeoutMs);
       for (const action of step.setupActions ?? []) {
-        if (action === "back-to-arrangement") continue;
+        if (action === "back-to-arrangement" && step.id === firstStep.id)
+          continue;
         await runSetup(action, step, deadline);
       }
       const submission: Submission = await bounded(

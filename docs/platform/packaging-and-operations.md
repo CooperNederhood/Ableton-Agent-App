@@ -51,6 +51,48 @@ installation. The installer deliberately uses the validated host `dir` path.
 
 ## Distribution
 
+### macOS native startup crash
+
+The desktop runtime is pinned to Electron 43.8.10, which includes the upstream
+fix for a native startup crash when macOS refuses sleep/wake notification
+registration (electron/electron#54490, backport electron/electron#54597).
+Electron 37.2.6 can segfault in `IONotificationPortGetRunLoopSource` before
+application JavaScript or logging starts. A successful isolated launch does not
+exclude this intermittent failure. Packaged startup coverage verifies the actual
+runtime version, not just the dependency manifest. This runtime change does not
+alter profiles, credentials, projects, or listening payloads.
+
+Canonical mel profile frequencies are stored as explicit constants rather than
+recomputed using runtime-specific transcendental rounding. Their exact existing
+serialized identity and strict validation are preserved across Node and Electron.
+On 2026-11-14 the updated arm64 app passed all 23 source-mode Electron tests and
+the packaged startup/native-plugin integrity checks. After the user completed
+macOS Keychain authorization, its normal installed window was observed ready,
+using the default profile and connected to Live 11.3.43. No user Set was mutated.
+This is startup recovery, not renewed real-Live listening qualification.
+
+### Qualified local listening update
+
+On 2026-11-14 the remaining Session MIDI regression passed in terminal
+`run-uOtEk9` on Live 11.3.43, after full feature-search `run-PmT6xJ`.
+Both used arm64 candidate
+`4dae45621f36861c1f348b3c7ee0918b34a3b9ab602f162cd1224bebc567915f`.
+That exact candidate is installed at `/Applications/Ableton Agent.app` for
+the user's local testing. The normal-profile machine-listening bundle was
+updated through the canonical integration CLI; Remote Script, machine-listening
+and MIDI-capture detection all report current.
+
+The already signed, qualified host bundle was copied to a same-volume staging
+path, compared byte-for-byte, verified with deep/strict signature verification,
+and replaced with a rollback copy retained until startup checks passed.
+No rebuild or recursive re-signing changed pinned native plug-ins.
+Installed-path production startup and authentication/model discovery both
+passed in disposable profiles; the normal-profile window was left for the
+user to launch. Profile data, credentials and user Sets were not replaced.
+The rollback copy was removed after verification. The local evidence receipt is
+`.test-artifacts/qualified-local-install-4dae4562.json`.
+This is not a public release or follow-up PR.
+
 ### Local real-Live release check
 
 Hosted CI and packaging do not run licensed Ableton. A successful build artifact
@@ -498,9 +540,10 @@ that authentication is required, run:
 gh auth login
 ```
 
-Then choose **Check again** in Ableton Agent. A GitHub CLI sign-in problem is
-separate from macOS Keychain prompts used by Electron `safeStorage` for the
-Ableton Remote Script bridge credential.
+Then choose **Check again** in Ableton Agent. GitHub CLI sign-in is independent
+of the Ableton Remote Script bridge credential. Desktop no longer uses Electron
+`safeStorage` or macOS Keychain for that bridge token; historical Keychain startup
+failures above predate this change.
 
 `electron-builder.yml` produces DMG/ZIP artifacts for Intel and Apple Silicon
 macOS and an assisted, per-user NSIS installer for 64-bit Windows. Signing and
@@ -735,10 +778,13 @@ certify every Live 11 patch or make untested patches unsupported.
 4. Restart the desktop app, open Diagnostics, and confirm the bridge,
    compatibility, and agent-session checks.
 
-The Remote Script token remains in the installed `AbletonAgent` directory, is
-preserved across managed updates, and is automatically provisioned into the
-desktop credential vault. CLI users still provide it through
-`ABLETON_AGENT_TOKEN`. Do not paste it into issues or support bundles.
+The Remote Script token remains in the installed `AbletonAgent` directory with
+owner-only permissions and is preserved across managed updates. Desktop reads
+it into process memory on startup without making a Keychain copy. An explicit
+`ABLETON_AGENT_TOKEN` still takes precedence; CLI users provide that variable.
+Existing vault files and Keychain items are not read, migrated, or deleted.
+Authentication and the owner-only Signal producer credential are unchanged.
+Do not paste tokens into issues or support bundles.
 
 ## Troubleshooting
 

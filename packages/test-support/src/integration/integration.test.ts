@@ -876,7 +876,13 @@ describe("driver-neutral acceptance foundation (synthetic only)", () => {
       },
       {
         ...declared,
-        steps: [...declared.steps, { ...declared.steps[1], id: "third" }],
+        steps: [
+          declared.steps[0],
+          {
+            ...declared.steps[1],
+            setupActions: ["stop-transport", "stop-transport"],
+          },
+        ],
       },
     ])
       expect(() => validateScenario(invalid, fixture)).toThrow();
@@ -2122,6 +2128,36 @@ describe("driver-neutral acceptance foundation (synthetic only)", () => {
       permissions: [{ ...scenario.permissions[0]!, stepIds: ["first"] }],
     };
     validateScenario(scoped, fixture);
+    validateScenario(
+      {
+        ...scoped,
+        permissions: [{ ...scoped.permissions[0]!, sourceId: "a" }],
+      },
+      fixture,
+    );
+    expect(() =>
+      validateScenario(
+        {
+          ...scoped,
+          permissions: [{ ...scoped.permissions[0]!, sourceId: "absent" }],
+        },
+        fixture,
+      ),
+    ).toThrow("Unknown permission source");
+    const mixedFixture = {
+      ...fixture,
+      sources: [declared, { ...declared, id: "b", sceneIndex: 1 }],
+    };
+    validateScenario(
+      {
+        ...scoped,
+        permissions: ["a", "b"].map((sourceId) => ({
+          ...scoped.permissions[0]!,
+          sourceId,
+        })),
+      },
+      mixedFixture,
+    );
     for (const stepIds of [[], ["first", "first"], ["absent"]])
       expect(() =>
         validateScenario(

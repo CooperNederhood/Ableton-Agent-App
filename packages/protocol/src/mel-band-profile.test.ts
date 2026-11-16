@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   aggregateMelBandFrames,
   deriveMelBandFrame,
@@ -20,6 +20,26 @@ const stereo = (left = vector(), right = left) =>
   melBandStereoFrameSchema.parse([left, right]);
 
 describe("deterministic mel-band metadata and arithmetic (not acquisition)", () => {
+  it("keeps serialized metadata identical across runtime transcendental rounding", async () => {
+    const originalExp = Math.exp;
+    const exp = vi
+      .spyOn(Math, "exp")
+      .mockImplementation((value) => originalExp(value) * (1 + Number.EPSILON));
+    try {
+      vi.resetModules();
+      const otherRuntime = await import("./mel-band-profile.js");
+      expect(otherRuntime.MEL_BAND_PROFILE).toEqual(MEL_BAND_PROFILE);
+      expect(
+        otherRuntime.melBandProfileSchema.parse(
+          JSON.parse(JSON.stringify(MEL_BAND_PROFILE)),
+        ),
+      ).toEqual(MEL_BAND_PROFILE);
+    } finally {
+      exp.mockRestore();
+      vi.resetModules();
+    }
+  });
+
   it("pins 24 independent linear magnitude bands and the approved transform settings", () => {
     expect(MEL_BAND_PROFILE).toMatchObject({
       schema: "mel-band-profile/v1",

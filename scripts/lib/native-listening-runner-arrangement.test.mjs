@@ -12,7 +12,10 @@ import {
   resolveNestedSessionStorage,
 } from "@ableton-agent/storage";
 import { createListeningRuntimeHost } from "../../packages/runtime/src/listening-runtime-host.ts";
-import { createSyntheticMetricListenerPeer } from "../../packages/runtime/src/metric-listening-test-support.ts";
+import {
+  createSyntheticMetricListenerPeer,
+  withSyntheticMetricStreamRegistration,
+} from "../../packages/runtime/src/metric-listening-test-support.ts";
 import {
   reviewNativeScenario,
   admitNativeScenarios,
@@ -21,7 +24,6 @@ import {
   metricArrangementSmokePrompt,
   verifyNativeMetricArrangementFixture,
   createMetricArrangementApproval,
-  verifyNativeMetricListeningEvidence,
 } from "./native-metric-scenario.mjs";
 import { createNativeScenarioApproval } from "./native-listening-verification.mjs";
 
@@ -106,6 +108,7 @@ async function runtimeFixture(failure) {
   let repository = await openSessionContextStore({ ...owner, path });
   const releaseReservation = vi.spyOn(repository, "releaseReservation");
   const appendPass = vi.spyOn(repository, "appendPass");
+  const finalizeCaptures = vi.spyOn(repository, "finalizeMetricCaptures");
   cleanup.push(() => repository.close());
   const context = {
     ...owner,
@@ -181,6 +184,7 @@ async function runtimeFixture(failure) {
       playing,
       currentBeat: beat,
       tempo: 120,
+      timeSignature: { numerator: 4, denominator: 4 },
       safeToStart: !playing,
       recording: {
         recordMode: false,
@@ -203,17 +207,19 @@ async function runtimeFixture(failure) {
       device: { id: "600" },
     },
     binding: { trackId: "500", deviceId: "600" },
-    registration: listenerRegistrationMetricSchema.parse({
-      ...data.registration,
-      deviceCanonicalPath: target.canonicalPath,
-      trackCanonicalPath: "live_set tracks 2",
-      nativeStatus: {
-        ...data.registration.nativeStatus,
-        readiness: "BLOCKED",
-        reason: "fresh_per_pass_native_validation_required",
-        executedGen: null,
-      },
-    }),
+    registration: withSyntheticMetricStreamRegistration(
+      listenerRegistrationMetricSchema.parse({
+        ...data.registration,
+        deviceCanonicalPath: target.canonicalPath,
+        trackCanonicalPath: "live_set tracks 2",
+        nativeStatus: {
+          ...data.registration.nativeStatus,
+          readiness: "BLOCKED",
+          reason: "fresh_per_pass_native_validation_required",
+          executedGen: null,
+        },
+      }),
+    ),
     phase: "idle",
   };
   if (failure === "wrong-version") descriptor.registration.version = 4;
@@ -312,6 +318,7 @@ async function runtimeFixture(failure) {
     return result.job.passId;
   };
   const verify = async (job) => {
+    if (job.stage !== "completed") throw new Error("completion mismatch");
     const entries = await Promise.all(
       (await repository.listEntries({ includeHistorical: true })).items.map(
         (e) => repository.getEntry(e.id),
@@ -332,6 +339,12 @@ async function runtimeFixture(failure) {
     };
     const typed = await typedHost.executeContextOperation(params, context);
     const pass = await repository.getPass(job.passId);
+    const capture = await repository.getMetricCapture(entries[0].id);
+    const chunks = await repository.listMetricChunks({
+      captureId: entries[0].id,
+      limit: 16,
+    });
+    expect(chunks.nextSequence).toBeUndefined();
     await repository.close();
     repository = await openSessionContextStore({ ...owner, path });
     const resumed = await typedHost.executeContextOperation(params, context);
@@ -351,6 +364,8 @@ async function runtimeFixture(failure) {
       target,
       expected: { geometry: data.config.geometry },
       metricControls: controls,
+      capture,
+      chunks: chunks.items,
       expectedSpectrum: true,
       expectedOutcome: "complete",
       arrangement: {
@@ -361,7 +376,7 @@ async function runtimeFixture(failure) {
     };
     return {
       input,
-      evidence: verifyNativeMetricListeningEvidence(input, protocol),
+      evidence: await verifyCanonicalPublication(input),
     };
   };
   return {
@@ -378,10 +393,60 @@ async function runtimeFixture(failure) {
     peer,
     releaseReservation,
     appendPass,
+    finalizeCaptures,
   };
 }
 
-it("runs production wire5 fractional Arrangement positioning/metrics/publication and exact typed persistent reopen", async () => {
+async function verifyCanonicalPublication(input) {
+  const { descriptor, state, manifest } = input.capture;
+  const expanded = {
+    ...descriptor,
+    geometry: protocol.createContinuousMetricListeningGeometry({
+      captureMode: "finite-metric-stream",
+      sampleRate: descriptor.geometry.sampleRate,
+      vectorSize: descriptor.geometry.vectorSize,
+      tempoBpm: descriptor.geometry.tempoBpm,
+      startBeat: descriptor.geometry.startBeat,
+      endBeat: descriptor.geometry.endBeat,
+      startSample: descriptor.geometry.startSample,
+    }),
+  };
+  let rebuilt = await protocol.createMetricRecordStreamState(expanded);
+  for (const chunk of input.chunks)
+    rebuilt = await protocol.acceptMetricRecordChunk(expanded, rebuilt, chunk);
+  await protocol.verifyMetricRecordStreamManifest(expanded, rebuilt, manifest);
+  await protocol.verifyMetricRecordStreamManifest(expanded, state, manifest);
+  expect(input.pass.actualRange).toEqual(range);
+  expect(input.pass.trace).toEqual(input.entries[0].trace);
+  expect(input.pass.trace.causationId).toBe(descriptor.ownership.causationId);
+  expect(input.arrangement.positioning).toHaveLength(1);
+  expect(input.arrangement.positioning[0].beforeNativePrepare).toBe(true);
+  expect(input.arrangement.positioning[0].reply.currentBeat).toBe(
+    range.startBeat,
+  );
+  expect(input.final).toEqual(input.baseline);
+  expect(input.typed.observation).toEqual(input.resumed.observation);
+  const reference = protocol.metricRecordStreamContextReferenceSchema.parse(
+    input.resumed.observation,
+  );
+  expect(reference.descriptor).toEqual(descriptor);
+  expect(reference.captureId).toBe(input.entries[0].id);
+  expect(reference.descriptorDigest).toBe(state.descriptorDigest);
+  expect(descriptor.source.transport).toEqual(range);
+  expect(input.received).toHaveLength(1);
+  const terminal = input.received[0].result;
+  expect(terminal.listenerVersion).toBe(5);
+  expect(terminal.metricManifest).toEqual(manifest);
+  expect(manifest.nativeProof.drain).toBe("completed");
+  return {
+    levelRows: state.metrics.find((metric) => metric.metric === "level")
+      .nextRecordOffset,
+    savedAndReopened: true,
+    nativeCleanup: "confirmed-before-terminal-result",
+  };
+}
+
+it("runs production finite-stream fractional Arrangement positioning/publication and exact typed persistent reopen", async () => {
   const f = await runtimeFixture();
   const passId = await f.execute();
   const job = await f.host.waitForListeningPass(passId, f.context);
@@ -399,7 +464,8 @@ it("runs production wire5 fractional Arrangement positioning/metrics/publication
   expect(f.log.indexOf("metric:arm")).toBeLessThan(f.log.indexOf("start"));
   expect(f.position).toHaveBeenCalledOnce();
   expect(f.start).toHaveBeenCalledOnce();
-  expect(f.appendPass).toHaveBeenCalledOnce();
+  expect(f.appendPass).not.toHaveBeenCalled();
+  expect(f.finalizeCaptures).toHaveBeenCalledOnce();
   expect(f.releaseReservation).toHaveBeenCalledOnce();
   expect(f.peer.service.inspectListeners()[0].phase).toBe("idle");
   for (const mutate of [
@@ -419,7 +485,7 @@ it("runs production wire5 fractional Arrangement positioning/metrics/publication
       i.arrangement.positioning.push(i.arrangement.positioning[0]);
     },
     (i) => {
-      i.resumed.observation.source.transport.endBeat = 2;
+      i.resumed.observation.descriptor.source.transport.endBeat = 2;
     },
     (i) => {
       i.final.immutable = false;
@@ -430,9 +496,7 @@ it("runs production wire5 fractional Arrangement positioning/metrics/publication
   ]) {
     const invalid = globalThis.structuredClone(input);
     mutate(invalid);
-    expect(() =>
-      verifyNativeMetricListeningEvidence(invalid, protocol),
-    ).toThrow();
+    await expect(verifyCanonicalPublication(invalid)).rejects.toThrow();
   }
 });
 
@@ -448,6 +512,7 @@ it.each(["position-denied", "position-wrong", "wrong-version"])(
     expect(f.start).not.toHaveBeenCalled();
     expect(f.position.mock.calls.length).toBeLessThanOrEqual(1);
     expect(f.appendPass).not.toHaveBeenCalled();
+    expect(f.finalizeCaptures).not.toHaveBeenCalled();
     expect(
       (await f.repository.listEntries({ includeHistorical: true })).items,
     ).toHaveLength(0);
@@ -468,6 +533,7 @@ it("cancels a launched incomplete fractional capture without publication and rel
   expect(f.log).toContain("metric:cancel");
   expect(f.start).toHaveBeenCalledOnce();
   expect(f.appendPass).not.toHaveBeenCalled();
+  expect(f.finalizeCaptures).not.toHaveBeenCalled();
   expect(f.releaseReservation).toHaveBeenCalledOnce();
   expect(f.peer.service.inspectListeners()[0].phase).toBe("idle");
   expect(

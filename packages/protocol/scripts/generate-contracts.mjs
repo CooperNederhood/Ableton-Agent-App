@@ -128,6 +128,7 @@ function sampleCommandResult(name, schema) {
   const sample = sampleFromSchema(z.toJSONSchema(schema));
   if (name === "listening.inspect_arrangement_source") {
     sample.range.endBeat = 1;
+    delete sample.instrumentChain;
     for (const clip of sample.clips) clip.endBeat = 1;
   }
   if (name === "devices.inspect") {

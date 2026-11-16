@@ -28,7 +28,6 @@ import {
   type DesktopApi,
   type DesktopAppEvent,
 } from "../../apps/desktop/src/contracts.js";
-import { bridgeTokenKey } from "../../apps/desktop/src/main/bridge-credentials.js";
 import {
   closeOwnedPackagedApplication,
   withPackagedFixtureCleanup,
@@ -104,25 +103,55 @@ test("launches the generated production application", async () => {
     environment: { LIVE_AGENT_HOME: join(profile, "live-agent") },
     profile: "default",
   });
-  const application = await electron.launch({
-    executablePath: await packagedExecutable(),
-    args: [`--user-data-dir=${join(profile, "electron")}`],
-    cwd: process.cwd(),
-    env: finderLikeEnvironment({
-      ABLETON_AGENT_TOKEN: syntheticBridgeToken,
-      LIVE_AGENT_HOME: join(profile, "live-agent"),
-      LIVE_AGENT_PROFILE: "default",
-      NODE_ENV: "production",
-    }),
-  });
-
+  const bridge = createServer((socket) => socket.destroy());
+  const signal = createServer();
+  let application: Awaited<ReturnType<typeof electron.launch>> | undefined;
   try {
+    await new Promise<void>((done) => bridge.listen(0, "127.0.0.1", done));
+    await new Promise<void>((done) => signal.listen(0, "127.0.0.1", done));
+    const bridgeAddress = bridge.address();
+    const signalAddress = signal.address();
+    if (
+      !bridgeAddress ||
+      typeof bridgeAddress === "string" ||
+      !signalAddress ||
+      typeof signalAddress === "string"
+    )
+      throw new Error("Missing isolated packaged startup ports");
+    await mkdir(dirname(storage.preferencesPath), { recursive: true });
+    await writeFile(
+      storage.preferencesPath,
+      JSON.stringify(
+        preferencesSchema.parse({
+          abletonPort: bridgeAddress.port,
+          signalPort: signalAddress.port,
+        }),
+      ),
+      { mode: 0o600 },
+    );
+    await new Promise<void>((done, reject) =>
+      signal.close((error) => (error ? reject(error) : done())),
+    );
+    application = await electron.launch({
+      executablePath: await packagedExecutable(),
+      args: [`--user-data-dir=${join(profile, "electron")}`],
+      cwd: process.cwd(),
+      env: finderLikeEnvironment({
+        ABLETON_AGENT_TOKEN: syntheticBridgeToken,
+        ABLETON_AGENT_PORT: String(bridgeAddress.port),
+        LIVE_AGENT_HOME: join(profile, "live-agent"),
+        LIVE_AGENT_PROFILE: "default",
+        NODE_ENV: "production",
+      }),
+    });
     const runtime = await application.evaluate(({ app }) => ({
       appPath: app.getAppPath(),
       isPackaged: app.isPackaged,
       resourcesPath: process.resourcesPath,
+      electronVersion: process.versions.electron,
     }));
     expect(runtime.isPackaged).toBe(true);
+    expect(runtime.electronVersion).toBe("43.8.10");
     expect(runtime.appPath).toMatch(/app\.asar$/u);
     await expect(
       access(join(runtime.resourcesPath, "agents")),
@@ -156,7 +185,15 @@ test("launches the generated production application", async () => {
     );
     expect(descriptor).toMatchObject({ listenerVersions: [5] });
   } finally {
-    await application.close();
+    await application?.close();
+    if (signal.listening)
+      await new Promise<void>((done, reject) =>
+        signal.close((error) => (error ? reject(error) : done())),
+      );
+    if (bridge.listening)
+      await new Promise<void>((done, reject) =>
+        bridge.close((error) => (error ? reject(error) : done())),
+      );
     await expect(
       access(storage.signalIngressDescriptorPath),
     ).rejects.toMatchObject({ code: "ENOENT" });
@@ -630,11 +667,10 @@ test("completes two pinned automation turns with the packaged Default agent", as
   }
 });
 
-test("provisions and decrypts an installed token through the real packaged OS vault without an environment-token override", async () => {
-  test.skip(process.platform !== "darwin", "Requires the macOS Keychain");
+test("reads the installed token on both packaged starts without an environment override or vault copy", async () => {
   test.setTimeout(90_000);
   const profile = await mkdtemp(
-    join(process.cwd(), "ableton-agent-packaged-native-vault-"),
+    join(process.cwd(), "ableton-agent-packaged-token-file-"),
   );
   const bridge = createServer((socket) => socket.destroy());
   const signal = createServer();
@@ -689,13 +725,12 @@ test("provisions and decrypts an installed token through the real packaged OS va
       ),
       { mode: 0o600 },
     );
-    const encryptedTokenPath = join(
+    const redundantTokenPath = join(
       storage.credentialsDirectory,
-      bridgeTokenKey,
+      "ableton-bridge-token",
     );
-    let encrypted: Buffer | undefined;
     const traceIds: string[] = [];
-    for (const source of ["remote-script", "vault"] as const) {
+    for (const attempt of [1, 2]) {
       application = await electron.launch({
         executablePath: await packagedExecutable(),
         args: [
@@ -783,8 +818,8 @@ test("provisions and decrypts an installed token through the real packaged OS va
       ]);
       const completed = credentialEvents.at(-1)!;
       expect(completed.attributes).toMatchObject({
-        source,
-        ...(source === "remote-script" ? { persisted: true } : {}),
+        source: "remote-script",
+        persisted: false,
       });
       expect(completed.durationMs).toBeGreaterThanOrEqual(0);
       expect(completed.trace?.traceId).toBeDefined();
@@ -800,20 +835,20 @@ test("provisions and decrypts an installed token through the real packaged OS va
         false,
       );
       traceIds.push(completed.trace!.traceId);
-      const bytes = await readFile(encryptedTokenPath);
-      expect(bytes.length).toBeGreaterThan(0);
-      expect(bytes.includes(Buffer.from(syntheticBridgeToken))).toBe(false);
-      if (encrypted === undefined) encrypted = bytes;
-      else expect(bytes.equals(encrypted)).toBe(true);
+      await expect(readFile(redundantTokenPath)).rejects.toMatchObject({
+        code: "ENOENT",
+      });
       const receipt = await closeOwnedPackagedApplication(application);
       if (receipt.stopped) application = undefined;
-      await test.info().attach(`owned-packaged-${source}-shutdown`, {
-        body: JSON.stringify(receipt),
-        contentType: "application/json",
-      });
+      await test
+        .info()
+        .attach(`owned-packaged-token-file-${attempt}-shutdown`, {
+          body: JSON.stringify(receipt),
+          contentType: "application/json",
+        });
       if (!receipt.successful)
         throw new Error(
-          "Packaged vault restart shutdown failed; inspect its cleanup receipt",
+          "Packaged token-file restart shutdown failed; inspect its cleanup receipt",
         );
     }
     expect(new Set(traceIds).size).toBe(2);

@@ -1,0 +1,209 @@
+{
+  "schemaVersion": 1,
+  "id": "long-horizon-comprehension",
+  "fixtureId": "long-horizon-comprehension",
+  "requiredCapabilities": ["automation", "session-midi", "arrangement-audio"],
+  "permissions": [
+    {
+      "tool": "ableton_listening",
+      "action": "play-session-and-listen",
+      "risk": "medium",
+      "maxUses": 1,
+      "sourceId": "clip-1",
+      "stepIds": ["comprehend"],
+      "arguments": {
+        "action": "play-session-and-listen",
+        "target.view": "session",
+        "target.track.kind": "regular",
+        "target.track.index": 0,
+        "target.track.expectedReference": "$source.trackId",
+        "target.track.expectedName": "1-808 Core Kit",
+        "target.sceneIndex": "$source.slotIndex",
+        "target.expectedClipReference": "$source.clipId",
+        "target.expectedClipName": "clip-1",
+        "listenerIds.0": "$source.listenerId"
+      }
+    },
+    {
+      "tool": "ableton_listening",
+      "action": "play-session-and-listen",
+      "risk": "medium",
+      "maxUses": 1,
+      "sourceId": "clip-2",
+      "stepIds": ["comprehend"],
+      "arguments": {
+        "action": "play-session-and-listen",
+        "target.view": "session",
+        "target.track.kind": "regular",
+        "target.track.index": 0,
+        "target.track.expectedReference": "$source.trackId",
+        "target.track.expectedName": "1-808 Core Kit",
+        "target.sceneIndex": "$source.slotIndex",
+        "target.expectedClipReference": "$source.clipId",
+        "target.expectedClipName": "clip-2",
+        "listenerIds.0": "$source.listenerId"
+      }
+    },
+    {
+      "tool": "ableton_listening",
+      "action": "play-session-and-listen",
+      "risk": "medium",
+      "maxUses": 1,
+      "sourceId": "clip-3",
+      "stepIds": ["comprehend"],
+      "arguments": {
+        "action": "play-session-and-listen",
+        "target.view": "session",
+        "target.track.kind": "regular",
+        "target.track.index": 0,
+        "target.track.expectedReference": "$source.trackId",
+        "target.track.expectedName": "1-808 Core Kit",
+        "target.sceneIndex": "$source.slotIndex",
+        "target.expectedClipReference": "$source.clipId",
+        "target.expectedClipName": "clip-3",
+        "listenerIds.0": "$source.listenerId"
+      }
+    },
+    {
+      "tool": "ableton_listening",
+      "action": "play-session-and-listen",
+      "risk": "medium",
+      "maxUses": 1,
+      "sourceId": "clip-4",
+      "stepIds": ["comprehend"],
+      "arguments": {
+        "action": "play-session-and-listen",
+        "target.view": "session",
+        "target.track.kind": "regular",
+        "target.track.index": 0,
+        "target.track.expectedReference": "$source.trackId",
+        "target.track.expectedName": "1-808 Core Kit",
+        "target.sceneIndex": "$source.slotIndex",
+        "target.expectedClipReference": "$source.clipId",
+        "target.expectedClipName": "clip-4",
+        "listenerIds.0": "$source.listenerId"
+      }
+    },
+    {
+      "tool": "ableton_listening",
+      "action": "play-arrangement-and-listen",
+      "risk": "medium",
+      "maxUses": 1,
+      "sourceId": "arrangement",
+      "stepIds": ["comprehend"],
+      "arguments": {
+        "action": "play-arrangement-and-listen",
+        "listenerIds.0": "$source.listenerId",
+        "startBeat": "$source.startBeat",
+        "endBeat": "$source.endBeat"
+      }
+    },
+    {
+      "tool": "ableton_context",
+      "action": "derive-features",
+      "risk": "medium",
+      "maxUses": 1,
+      "sourceId": "clip-1",
+      "arguments": {
+        "action": "derive-features",
+        "contextIds.0": "$source.contextId",
+        "includeHistorical": false
+      }
+    },
+    {
+      "tool": "ableton_context",
+      "action": "derive-features",
+      "risk": "medium",
+      "maxUses": 1,
+      "sourceId": "clip-2",
+      "arguments": {
+        "action": "derive-features",
+        "contextIds.0": "$source.contextId",
+        "includeHistorical": false
+      }
+    },
+    {
+      "tool": "ableton_context",
+      "action": "derive-features",
+      "risk": "medium",
+      "maxUses": 1,
+      "sourceId": "clip-3",
+      "arguments": {
+        "action": "derive-features",
+        "contextIds.0": "$source.contextId",
+        "includeHistorical": false
+      }
+    },
+    {
+      "tool": "ableton_context",
+      "action": "derive-features",
+      "risk": "medium",
+      "maxUses": 1,
+      "sourceId": "clip-4",
+      "arguments": {
+        "action": "derive-features",
+        "contextIds.0": "$source.contextId",
+        "includeHistorical": false
+      }
+    },
+    {
+      "tool": "ableton_tracks",
+      "action": "stop-clips",
+      "risk": "medium",
+      "maxUses": 4,
+      "sourceId": "clip-1",
+      "arguments": {
+        "action": "stop-clips",
+        "target.kind": "regular",
+        "target.index": 0,
+        "target.expectedReference": "$source.trackId",
+        "target.expectedName": "1-808 Core Kit",
+        "quantized": false
+      }
+    },
+    {
+      "tool": "ableton_transport",
+      "action": "set-playing",
+      "risk": "medium",
+      "maxUses": 4,
+      "arguments": { "action": "set-playing", "isPlaying": false }
+    },
+    {
+      "tool": "ableton_transport",
+      "action": "back-to-arrangement",
+      "risk": "medium",
+      "maxUses": 1,
+      "arguments": { "action": "back-to-arrangement" }
+    }
+  ],
+  "budget": {
+    "runMs": 1020000,
+    "cleanupMs": 60000,
+    "persistenceMs": 60000
+  },
+  "steps": [
+    {
+      "id": "comprehend",
+      "message": "Listen to clip-1 through clip-4 on 1-808 Core Kit, then listen to the Arrangement on 2-Audio and work out the clip sequence. Reply only with one clip number per measure, using hyphens within groups of four and vertical bars between groups, including a leading and trailing bar. No spaces.",
+      "timeoutMs": 900000,
+      "assertions": []
+    }
+  ],
+  "assertions": [
+    {
+      "name": "listening-comprehension",
+      "parameters": {
+        "sessionSourceIds": "clip-1,clip-2,clip-3,clip-4",
+        "arrangementSourceId": "arrangement",
+        "expectedPattern": "|1-2-3-4|1-1-1-1|2-2-2-2|3-3-3-3|4-4-4-4|",
+        "hostSampleRate": 48000
+      }
+    },
+    {
+      "name": "unchanged",
+      "parameters": {
+        "scopes": "session-structure,source-settings,fixture-media,unrelated-playback,project-file"
+      }
+    }
+  ]
+}

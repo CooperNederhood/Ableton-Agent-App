@@ -244,6 +244,29 @@ export function createSessionSourceDriver(
               ),
               failureFact("receipt.reason", result.reason),
               failureFact("receipt.mutationState", result.mutationState),
+              failureFact("receipt.durationBeats", result.durationBeats),
+              failureFact(
+                "receipt.sourceEpoch.startTimeBeats",
+                result.sourceEpoch?.startTimeBeats,
+              ),
+              ...(
+                [
+                  "transportPlaying",
+                  "globalBeat",
+                  "startTimeBeats",
+                  "playingPosition",
+                  "targetPlaying",
+                  "targetTriggered",
+                  "playingSlotIndex",
+                  "firedSlotIndex",
+                  "selectedClipReference",
+                ] as const
+              ).map((field) =>
+                failureFact(
+                  `receipt.lastObservedSource.${field}`,
+                  result.lastObservedSource[field],
+                ),
+              ),
             ],
             phase,
           );
@@ -519,7 +542,34 @@ export function createSessionSourceDriver(
               [failureFact("launch.requested", Boolean(launchPromise), true)],
             );
           const actualOrigin = await launchPromise;
-          await check(signal);
+          const boundaryStarted = performance.now();
+          let result = await check(signal);
+          while (
+            result.lastObservedSource.targetPlaying !== true &&
+            result.status !== "covered"
+          ) {
+            if (performance.now() - boundaryStarted >= 250)
+              reject(
+                "session_boundary_unverified",
+                "The stopped source did not obtain coherent completed-boundary evidence.",
+                [
+                  failureFact("receipt.status", result.status, "covered"),
+                  failureFact(
+                    "receipt.lastObservedSource.globalBeat",
+                    result.lastObservedSource.globalBeat,
+                    actualOrigin.clipStartTimeBeats + input.durationBeats,
+                  ),
+                  failureFact(
+                    "source.boundary.elapsedMs",
+                    performance.now() - boundaryStarted,
+                    250,
+                    { comparison: "at-most", unit: "ms" },
+                  ),
+                ],
+              );
+            await delay(10, undefined, { signal });
+            result = await check(signal);
+          }
           const source = await correlated(() =>
             inspect(
               { schemaVersion: 1, queryId: randomUUID(), target: input.target },

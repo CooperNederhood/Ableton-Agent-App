@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { gunzipSync } from "node:zlib";
 import {
   verifyArrangementSource,
+  midiNotesSha256,
   type ArrangementFixtureSource,
   type ArrangementSourceEvidence,
   type DriverContext,
@@ -16,7 +17,9 @@ import type {
   InspectArrangementListeningSourceParams,
   TransportOperationResult,
   MetricRecordStreamDescriptor,
+  InspectMidiNotesResult,
 } from "@ableton-agent/protocol";
+import { midiNoteSchema } from "@ableton-agent/protocol";
 import type {
   MetricCaptureRecord,
   MetricChunkPage,
@@ -65,6 +68,29 @@ export function arrangementCaptureToolCausation(
     );
   return causes[0]!;
 }
+export function arrangementSourceStateAllowed(
+  state: Pick<
+    InspectArrangementListeningSourceResult["before"],
+    | "arrangementEligible"
+    | "globalBackToArrangement"
+    | "playingSessionClips"
+    | "queuedSessionClips"
+  >,
+  allowSessionOverride: boolean,
+  ownsStoppedSessionOverride: boolean,
+): boolean {
+  return (
+    state.arrangementEligible === true ||
+    (allowSessionOverride &&
+      (state.arrangementEligible === false ||
+        (ownsStoppedSessionOverride &&
+          state.arrangementEligible === null &&
+          state.globalBackToArrangement === true &&
+          state.playingSessionClips === 0 &&
+          state.queuedSessionClips === 0)))
+  );
+}
+
 export function arrangementOwnerReleased(
   attributes: Readonly<Record<string, unknown>>,
   ownership: MetricRecordStreamDescriptor["ownership"],
@@ -82,13 +108,12 @@ export function arrangementOwnerReleased(
         row !== null &&
         typeof row === "object" &&
         !Array.isArray(row) &&
-        [
-          "listenerId",
-          "connectionId",
-          "connectionEpoch",
-          "generation",
-          "nativeEpoch",
-        ].every(
+        ["listenerId", "connectionId", "connectionEpoch"].every(
+          (field) =>
+            Object.prototype.hasOwnProperty.call(row, field) &&
+            Reflect.get(row, field) === Reflect.get(ownership, field),
+        ) &&
+        ["generation", "nativeEpoch"].every(
           (field) =>
             Object.prototype.hasOwnProperty.call(row, field) &&
             Reflect.get(row, field) === Reflect.get(ownership, field),
@@ -193,6 +218,7 @@ function assertLoadedArrangementState(
   state: InspectArrangementListeningSourceResult["before"],
   clips: InspectArrangementListeningSourceResult["clips"],
   requireArrangementSource = true,
+  rememberedSessionClipCount = 0,
 ): asserts state is InspectArrangementListeningSourceResult["before"] & {
   currentBeat: number;
   tempoBpm: number;
@@ -209,12 +235,15 @@ function assertLoadedArrangementState(
     (requireArrangementSource
       ? state.globalBackToArrangement !== false
       : typeof state.globalBackToArrangement !== "boolean") ||
-    state.targetMonitoring !== 2 ||
+    !(
+      state.targetMonitoring === 2 ||
+      (state.targetMonitoring === 1 && state.targetArmed === false)
+    ) ||
     (requireArrangementSource && state.arrangementEligible !== true) ||
     typeof state.targetArmed !== "boolean" ||
     state.currentBeat === null ||
     state.tempoBpm === null ||
-    state.playingSessionClips !== 0 ||
+    state.playingSessionClips !== rememberedSessionClipCount ||
     state.queuedSessionClips !== 0 ||
     clips.some((clip) => clip.recording !== false)
   )
@@ -233,10 +262,14 @@ export async function handoffArrangementSource(input: {
   read(): Promise<InspectArrangementListeningSourceResult>;
   restore(): Promise<TransportOperationResult>;
   signal: AbortSignal;
+  rememberedSessionClipCount?: number;
 }): Promise<NonNullable<SetupEvidence["arrangementSource"]>> {
   input.signal.throwIfAborted();
+  const remembered = input.rememberedSessionClipCount ?? 0;
+  if (!Number.isInteger(remembered) || remembered < 0 || remembered > 8)
+    throw new Error("Invalid owned remembered Session count");
   const before = await input.read();
-  assertLoadedArrangementState(before.before, before.clips, false);
+  assertLoadedArrangementState(before.before, before.clips, false, remembered);
   if (JSON.stringify(before.before) !== JSON.stringify(before.after))
     throw new Error("Arrangement source changed during handoff admission");
   input.signal.throwIfAborted();
@@ -266,6 +299,7 @@ export async function handoffArrangementSource(input: {
     ...state,
     globalBackToArrangement: false,
     arrangementEligible: false,
+    playingSessionClips: 0,
   });
   if (
     JSON.stringify(before.clips) !== JSON.stringify(after.clips) ||
@@ -291,8 +325,13 @@ export async function handoffArrangementSource(input: {
 export function loadedArrangementState(
   state: InspectArrangementListeningSourceResult["before"],
   clips: InspectArrangementListeningSourceResult["clips"],
+  expectedBackToArrangement = false,
 ): ArrangementSourceEvidence["before"] {
-  assertLoadedArrangementState(state, clips);
+  assertLoadedArrangementState(state, clips, !expectedBackToArrangement);
+  if (state.globalBackToArrangement !== expectedBackToArrangement)
+    throw new Error(
+      "Loaded Arrangement override differs from reviewed baseline",
+    );
   return {
     tempoBpm: state.tempoBpm,
     tempoAutomation: false,
@@ -303,8 +342,8 @@ export function loadedArrangementState(
     sessionRecord: false,
     targetRecording: false,
     targetArmed: state.targetArmed,
-    targetMonitoring: "off",
-    backToArrangement: false,
+    targetMonitoring: state.targetMonitoring === 1 ? "auto" : "off",
+    backToArrangement: state.globalBackToArrangement,
     playingSessionClips: 0,
     queuedSessionClips: 0,
   };
@@ -315,6 +354,7 @@ export function readSavedArrangementSource(
   bytes: Uint8Array,
   trackIndex: number,
   trackName: string,
+  range?: { startBeat: number; endBeat: number },
 ): {
   readonly savedProjectSha256: string;
   readonly creator: string;
@@ -334,11 +374,14 @@ export function readSavedArrangementSource(
   const names: string[] = [];
   const clips: {
     savedClipId: string;
-    mediaTarget: string;
+    mediaTarget: string | null;
+    midiNotesSha256?: string;
     startBeat: number;
     endBeat: number;
   }[] = [];
-  let active: { id: string; values: Map<string, string> } | undefined;
+  let active:
+    | { id: string; kind: string; offset: number; values: Map<string, string> }
+    | undefined;
   for (const match of xml.matchAll(
     /<\/?([A-Za-z][A-Za-z0-9_]*)(?:\s[^<>]*?)?\/?>/gu,
   )) {
@@ -347,22 +390,24 @@ export function readSavedArrangementSource(
     if (tag.startsWith("</")) {
       if (stack.pop() !== name)
         throw new Error("Unbalanced saved Arrangement document");
-      if (name === "AudioClip" && active) {
+      if (active && name === active.kind) {
         const get = (path: string) => {
           const value = active!.values.get(path);
           if (value === undefined)
             throw new Error("Missing saved Arrangement clip field");
           return value;
         };
-        const mediaTarget = get("SampleRef/FileRef/RelativePath");
+        const mediaTarget =
+          name === "MidiClip" ? null : get("SampleRef/FileRef/RelativePath");
         if (
-          get("SampleRef/FileRef/RelativePathType") !== "3" ||
-          !mediaTarget ||
-          /[\\:\0]/u.test(mediaTarget) ||
-          mediaTarget.startsWith("/") ||
-          mediaTarget
-            .split("/")
-            .some((part) => !part || part === "." || part === "..")
+          mediaTarget !== null &&
+          (get("SampleRef/FileRef/RelativePathType") !== "3" ||
+            !mediaTarget ||
+            /[\\:\0]/u.test(mediaTarget) ||
+            mediaTarget.startsWith("/") ||
+            mediaTarget
+              .split("/")
+              .some((part) => !part || part === "." || part === ".."))
         )
           throw new Error("Saved Arrangement media is not project-local");
         const startBeat = Number(get("CurrentStart")),
@@ -375,7 +420,20 @@ export function readSavedArrangementSource(
           endBeat > 1_576_800
         )
           throw new Error("Invalid saved Arrangement clip range");
-        clips.push({ savedClipId: active.id, mediaTarget, startBeat, endBeat });
+        if (!range || (endBeat > range.startBeat && startBeat < range.endBeat))
+          clips.push({
+            savedClipId: active.id,
+            mediaTarget,
+            startBeat,
+            endBeat,
+            ...(name === "MidiClip"
+              ? {
+                  midiNotesSha256: readSavedMidiNotesHash(
+                    xml.slice(active.offset, match.index),
+                  ),
+                }
+              : {}),
+          });
         if (clips.length > 256)
           throw new Error("Saved Arrangement clip bound exceeded");
         active = undefined;
@@ -387,20 +445,25 @@ export function readSavedArrangementSource(
       /^(Audio|Midi|Group)Track$/u.test(name)
     )
       track++;
-    const selected = track === trackIndex && stack[3] === "AudioTrack";
+    const selected =
+      track === trackIndex && /^(Audio|Midi)Track$/u.test(stack[3] ?? "");
     const parent = stack.slice(4).join("/");
     if (selected && parent === "Name" && name === "EffectiveName")
       names.push(decode(/\sValue="([^"]*)"/u.exec(tag)?.[1] ?? ""));
     if (
       selected &&
-      parent === "DeviceChain/MainSequencer/Sample/ArrangerAutomation/Events" &&
-      name === "AudioClip"
+      ((parent ===
+        "DeviceChain/MainSequencer/Sample/ArrangerAutomation/Events" &&
+        name === "AudioClip") ||
+        (parent ===
+          "DeviceChain/MainSequencer/ClipTimeable/ArrangerAutomation/Events" &&
+          name === "MidiClip"))
     ) {
       const id = /\sId="(\d+)"/u.exec(tag)?.[1];
       if (!id || active) throw new Error("Ambiguous saved Arrangement clip");
-      active = { id, values: new Map() };
+      active = { id, kind: name, offset: match.index, values: new Map() };
     } else if (active) {
-      const clipAt = stack.indexOf("AudioClip");
+      const clipAt = stack.indexOf(active.kind);
       const value = /\sValue="([^"]*)"/u.exec(tag)?.[1];
       const path = [...stack.slice(clipAt + 1), name].join("/");
       if (
@@ -436,6 +499,43 @@ export function readSavedArrangementSource(
     savedClips: clips,
   };
 }
+function readSavedMidiNotesHash(xml: string): string {
+  const notes: InspectMidiNotesResult["notes"] = [];
+  for (const match of xml.matchAll(
+    /<KeyTrack\b[^>]*>([\s\S]*?)<\/KeyTrack>/gu,
+  )) {
+    const track = match[1]!;
+    const keys = [...track.matchAll(/<MidiKey Value="([^"]+)"\s*\/>/gu)];
+    if (keys.length !== 1)
+      throw new Error("Missing or ambiguous saved MIDI pitch");
+    for (const note of track.matchAll(/<MidiNoteEvent\b([^>]*)\/>/gu)) {
+      const attr = (name: string) => {
+        const value = new RegExp(`\\b${name}="([^"]+)"`, "u").exec(
+          note[1]!,
+        )?.[1];
+        if (value === undefined)
+          throw new Error("Missing saved MIDI note field");
+        return value;
+      };
+      const enabled = attr("IsEnabled");
+      if (enabled !== "true" && enabled !== "false")
+        throw new Error("Invalid saved MIDI note mute");
+      notes.push(
+        midiNoteSchema.parse({
+          pitch: Number(keys[0]![1]),
+          startTime: Number(attr("Time")),
+          duration: Number(attr("Duration")),
+          velocity: Number(attr("Velocity")),
+          mute: enabled === "false",
+        }),
+      );
+      if (notes.length > 2048)
+        throw new Error("Saved MIDI note bound exceeded");
+    }
+  }
+  return midiNotesSha256(notes);
+}
+
 function decode(value: string): string {
   if (/&(?!amp;|quot;|apos;|lt;|gt;)/u.test(value))
     throw new Error("Unsupported saved Arrangement entity");

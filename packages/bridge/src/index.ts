@@ -2036,7 +2036,7 @@ export class AbletonBridgeService implements AbletonService {
         ? {}
         : { action: correlationContext.action }),
     };
-    const timeoutClass = this.#timeoutClass(command);
+    const timeoutClass = this.#timeoutClass(command, params);
     const timeoutMs =
       timeoutClass === "long"
         ? this.#longRequestTimeoutMs
@@ -2382,7 +2382,12 @@ export class AbletonBridgeService implements AbletonService {
     }
   }
 
-  #timeoutClass(command: string): TimeoutClass {
+  #timeoutClass(
+    command: string,
+    params: Readonly<Record<string, unknown>>,
+  ): TimeoutClass {
+    if (command === "devices.inspect" && params.includeInstrumentTree === true)
+      return "long";
     if (!Object.prototype.hasOwnProperty.call(commandCatalog, command)) {
       return "normal";
     }

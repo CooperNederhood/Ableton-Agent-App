@@ -3,7 +3,7 @@ import type { ListeningJob } from "@ableton-agent/application";
 import { createInMemorySessionContextStore } from "@ableton-agent/project-state";
 import {
   PROTOCOL_VERSION,
-  metricAudioObservationSchema,
+  metricRecordStreamContextReferenceSchema,
   type InspectListeningContextParams,
   type InspectListeningContextResult,
   type InspectSessionListeningSourceParams,
@@ -21,7 +21,10 @@ import {
   createListeningRuntimeHost,
   type ConcreteListeningRuntimeHost,
 } from "./listening-runtime-host.js";
-import { createSyntheticMetricListenerPeer } from "./metric-listening-test-support.js";
+import {
+  createSyntheticMetricListenerPeer,
+  withSyntheticMetricStreamRegistration,
+} from "./metric-listening-test-support.js";
 
 const uuid = (index: number) =>
   `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`;
@@ -59,15 +62,16 @@ async function fixture(
   enabled = true,
   stopped?: { anchor: number; clipQuantization: number; remembered: boolean },
 ) {
+  const launchBeat = stopped && !stopped.remembered ? stopped.anchor : 0;
   const data = createSyntheticMetricWireFixture(
     "session",
     partial,
     stopped
       ? {
           tempoBpm: 128,
-          startBeat: 0,
+          startBeat: launchBeat,
           stoppedBeat: stopped.anchor,
-          endBeat: 4,
+          endBeat: launchBeat + 4,
         }
       : false,
   );
@@ -90,15 +94,17 @@ async function fixture(
       device: { id: "600" },
     },
     binding: { trackId: "500", deviceId: "600" },
-    registration: listenerRegistrationMetricSchema.parse({
-      ...data.registration,
-      nativeStatus: {
-        ...data.registration.nativeStatus,
-        readiness: "BLOCKED",
-        reason: "fresh_per_pass_native_validation_required",
-        executedGen: null,
-      },
-    }),
+    registration: withSyntheticMetricStreamRegistration(
+      listenerRegistrationMetricSchema.parse({
+        ...data.registration,
+        nativeStatus: {
+          ...data.registration.nativeStatus,
+          readiness: "BLOCKED",
+          reason: "fresh_per_pass_native_validation_required",
+          executedGen: null,
+        },
+      }),
+    ),
     phase: "idle",
   };
   const peer = createSyntheticMetricListenerPeer(listener, data, (action) =>
@@ -110,8 +116,8 @@ async function fixture(
   const service = { ...peer.service, requestListenerControl };
   const sourceState = (): InspectSessionListeningSourceResult["after"] => ({
     transportPlaying: playing,
-    globalBeat: playing ? 0.2 : anchor,
-    startTimeBeats: playing ? 0 : stopped?.remembered ? 0 : null,
+    globalBeat: playing ? launchBeat + 0.2 : anchor,
+    startTimeBeats: playing ? launchBeat : stopped?.remembered ? 0 : null,
     playingPosition: playing ? 0.2 : 0,
     targetPlaying: playing || stopped?.remembered === true,
     targetTriggered: false,
@@ -166,6 +172,7 @@ async function fixture(
         playing,
         currentBeat: anchor,
         tempo,
+        timeSignature: { numerator: 4, denominator: 4 },
         safeToStart: !playing,
         recording: {
           recordMode: false,
@@ -234,9 +241,9 @@ async function fixture(
     lastObservedSource: sourceState(),
     sourceEpoch: playing
       ? {
-          startTimeBeats: 0,
+          startTimeBeats: launchBeat,
           clipReference: target.expectedClipReference,
-          observedGlobalBeat: 0.2,
+          observedGlobalBeat: launchBeat + 0.2,
         }
       : null,
     followActionState: "unknown",
@@ -260,7 +267,7 @@ async function fixture(
   });
   const repository = await createInMemorySessionContextStore(owner);
   stores.push(repository);
-  const appendPass = vi.spyOn(repository, "appendPass");
+  const finalizeMetricCaptures = vi.spyOn(repository, "finalizeMetricCaptures");
   const releaseReservation = vi.spyOn(repository, "releaseReservation");
   const stopTransport = vi.fn(async () => {
     throw new Error("Session cleanup must not stop user transport");
@@ -354,7 +361,7 @@ async function fixture(
     jobs,
     peer,
     repository,
-    appendPass,
+    finalizeMetricCaptures,
     releaseReservation,
     requestListenerControl,
     sessionListeningPass,
@@ -369,6 +376,76 @@ async function fixture(
 }
 
 describe("production v5 Session host with synthetic native peer", () => {
+  it.each(["midi", "warped-audio"] as const)(
+    "publishes fresh %s at global beat 16 with clip-local coverage starting at zero",
+    async (kind) => {
+      const f = await fixture(kind, false, true, true, {
+        anchor: 16,
+        clipQuantization: kind === "midi" ? 5 : 0,
+        remembered: false,
+      });
+      const job = await f.run();
+      expect(job.stage, JSON.stringify({ job, log: f.log })).toBe("completed");
+      const observed = metricRecordStreamContextReferenceSchema.parse(
+        (await f.repository.getEntry(job.contextIds[0]!))?.payload,
+      ).descriptor;
+      expect(observed).toMatchObject({
+        source: {
+          coordinate: { startBeat: 0, endBeat: 4 },
+          transport: { startBeat: 16, endBeat: 20 },
+          clipStartTimeBeats: 16,
+        },
+        geometry: { startBeat: 16, endBeat: 20, totalSamples: 90_000 },
+      });
+      expect(f.finalizeMetricCaptures).toHaveBeenCalledOnce();
+      expect(f.log.indexOf("native:arm")).toBeLessThan(
+        f.log.indexOf("session:launch"),
+      );
+      expect(f.log).toContain("session:release");
+      expect(f.peer.subscribers.size).toBe(0);
+      expect(f.stopTransport).not.toHaveBeenCalled();
+      expect(f.positionListeningPlayback).not.toHaveBeenCalled();
+      expect(f.startListeningPlayback).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(["launch", "seal"] as const)(
+    "rejects a wrong global epoch during fresh nonzero %s and releases without publication",
+    async (phase) => {
+      const f = await fixture("warped-audio", false, true, true, {
+        anchor: 16,
+        clipQuantization: 0,
+        remembered: false,
+      });
+      const execute = f.sessionListeningPass.getMockImplementation()!;
+      f.sessionListeningPass.mockImplementation(async (params) => {
+        const result = await execute(params);
+        if (
+          result.sourceEpoch &&
+          params.action === (phase === "launch" ? "launch" : "inspect")
+        )
+          return {
+            ...result,
+            sourceEpoch: { ...result.sourceEpoch, startTimeBeats: 0 },
+          };
+        return result;
+      });
+      const job = await f.run();
+      expect(job.stage).toBe("failed");
+      expect(job.error).toContain(
+        phase === "launch"
+          ? "session_native_origin_mismatch"
+          : "The monitored clip epoch changed.",
+      );
+      expect(job.contextIds).toEqual([]);
+      expect(f.finalizeMetricCaptures).not.toHaveBeenCalled();
+      expect(f.log).toContain("session:release");
+      expect(f.peer.subscribers.size).toBe(0);
+      expect(f.stopTransport).not.toHaveBeenCalled();
+      expect(f.positionListeningPlayback).not.toHaveBeenCalled();
+    },
+  );
+
   it.each(["midi", "warped-audio"] as const)(
     "publishes the supplied nonzero One Bar %s case without stopping or seeking",
     async (kind) => {
@@ -388,13 +465,14 @@ describe("production v5 Session host with synthetic native peer", () => {
           ([p]) => p.action === "launch",
         ),
       ).toHaveLength(1);
-      expect(f.appendPass).toHaveBeenCalledOnce();
-      const publication = f.appendPass.mock.calls[0]![0];
-      expect(publication.pass.actualRange).toEqual({
+      expect(f.finalizeMetricCaptures).toHaveBeenCalledOnce();
+      expect((await f.repository.getPass(job.passId))?.actualRange).toEqual({
         startBeat: 0,
         endBeat: 4,
       });
-      expect(publication.links).toEqual(
+      expect(
+        (await f.repository.listLinks({ passId: job.passId })).items,
+      ).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
             coverage: {
@@ -413,23 +491,18 @@ describe("production v5 Session host with synthetic native peer", () => {
           }),
         ]),
       );
-      const observed = metricAudioObservationSchema.parse(
+      const observed = metricRecordStreamContextReferenceSchema.parse(
         (await f.repository.getEntry(f.jobs.at(-1)!.contextIds[0]!))?.payload,
-      );
+      ).descriptor;
       expect(observed).toMatchObject({
         requestedMetrics: [
           "level",
           "spectral-centroid",
           "attacks",
           "mel-bands",
+          "pitch",
+          "spectral-shape",
         ],
-        metrics: {
-          "mel-bands": {
-            status: "complete",
-            profile: { bandCount: 24 },
-            expectedRecords: 43,
-          },
-        },
         source: {
           coordinate: { startBeat: 0, endBeat: 4 },
           transport: { startBeat: 0, endBeat: 4 },
@@ -441,10 +514,30 @@ describe("production v5 Session host with synthetic native peer", () => {
           totalSamples: 90_000,
         },
       });
-      expect(observed.metrics["mel-bands"]?.frames[0]?.magnitudes).toEqual([
-        Array(24).fill(0.5),
-        Array(24).fill(0.25),
-      ]);
+      const persisted = await f.repository.getMetricCapture(job.contextIds[0]!);
+      expect(persisted?.manifest?.metrics).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            metric: "mel-bands",
+            status: "complete",
+            expectedRecords: 43,
+          }),
+        ]),
+      );
+      const [melChunk] = (
+        await f.repository.listMetricChunks({
+          captureId: job.contextIds[0]!,
+          metric: "mel-bands",
+        })
+      ).items;
+      expect(melChunk?.metric).toBe("mel-bands");
+      expect(melChunk?.records).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            magnitudes: [Array<number>(24).fill(0), Array<number>(24).fill(0)],
+          }),
+        ]),
+      );
       expect(f.log).toContain("session:release");
       expect(f.peer.subscribers.size).toBe(0);
       expect(f.stopTransport).not.toHaveBeenCalled();
@@ -471,13 +564,10 @@ describe("production v5 Session host with synthetic native peer", () => {
       expect(f.log.indexOf("native:arm")).toBeLessThan(
         f.log.indexOf("session:launch"),
       );
-      expect(f.appendPass).toHaveBeenCalledOnce();
-      expect(f.appendPass.mock.calls[0]?.[0].entries[0]?.kind).toBe(
-        "metric-audio-observation/v1",
-      );
-      expect(
-        f.appendPass.mock.calls[0]?.[0].entries[0]?.musicalAlignment,
-      ).toMatchObject({
+      expect(f.finalizeMetricCaptures).toHaveBeenCalledOnce();
+      const entry = await f.repository.getEntry(job.contextIds[0]!);
+      expect(entry?.kind).toBe("metric-record-stream-context/v1");
+      expect(entry?.musicalAlignment).toMatchObject({
         meter: { numerator: 4, denominator: 4 },
         barOriginBeat: 0,
         coordinate: "clip-local-beats",
@@ -515,7 +605,7 @@ describe("production v5 Session host with synthetic native peer", () => {
       expect(f.jobs.at(-1)?.failureEvidence).toMatchObject({
         code: "session_source_changed",
       });
-      expect(f.appendPass).not.toHaveBeenCalled();
+      expect(f.finalizeMetricCaptures).not.toHaveBeenCalled();
       expect(f.log).toContain("session:release");
       expect(f.peer.subscribers.size).toBe(0);
       expect(f.stopTransport).not.toHaveBeenCalled();
@@ -534,7 +624,7 @@ describe("production v5 Session host with synthetic native peer", () => {
     expect((await f.run()).stage).toBe("completed");
     const entry = (await f.repository.listEntries({})).items[0]!;
     expect(entry.musicalAlignment).toBeUndefined();
-    expect(entry.payload.schema).toBe("metric-audio-observation/v1");
+    expect(entry.payload.schema).toBe("metric-record-stream-context/v1");
     expect(f.log).toContain("session:release");
     expect(f.peer.subscribers.size).toBe(0);
   });
@@ -544,7 +634,7 @@ describe("production v5 Session host with synthetic native peer", () => {
     expect((await f.run()).stage).toBe("failed");
     expect(f.sessionListeningPass).not.toHaveBeenCalled();
     expect(f.requestListenerControl).not.toHaveBeenCalled();
-    expect(f.appendPass).not.toHaveBeenCalled();
+    expect(f.finalizeMetricCaptures).not.toHaveBeenCalled();
     expect(f.peer.subscribers.size).toBe(0);
   });
 
@@ -553,14 +643,14 @@ describe("production v5 Session host with synthetic native peer", () => {
     const abort = new AbortController();
     const passId = await f.begin(abort.signal);
     await vi.waitFor(() => expect(f.jobs.at(-1)?.stage).toBe("capturing"));
-    expect(f.appendPass).not.toHaveBeenCalled();
+    expect(f.finalizeMetricCaptures).not.toHaveBeenCalled();
     abort.abort();
     expect((await f.host.waitForListeningPass(passId, context)).stage).toBe(
       "cancelled",
     );
     expect(f.log).toContain("native:cancel");
     expect(f.log).toContain("session:release");
-    expect(f.appendPass).not.toHaveBeenCalled();
+    expect(f.finalizeMetricCaptures).not.toHaveBeenCalled();
     expect(f.peer.subscribers.size).toBe(0);
     expect(f.releaseReservation).toHaveBeenCalledOnce();
     expect(f.stopTransport).not.toHaveBeenCalled();

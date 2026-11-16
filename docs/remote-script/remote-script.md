@@ -1,5 +1,21 @@
 # Ableton Remote Script
 
+Listening context transport snapshots include a required nullable
+`timeSignature` read from Live's signature numerator/denominator. Values are
+bounded to 1-128 with a power-of-two denominator; unavailable/invalid values
+remain null. The meter participates in listener source fingerprints so a
+message-rate-observed meter change cannot publish under an earlier musical
+alignment. This read-only addition does not change playback or launch settings.
+
+Outbound frames are sent in at most 64 KiB writes. The existing 50 ms socket
+poll timeout yields on backpressure while retaining the original frame and exact
+byte offset; it must not truncate the response or resend an already-written
+prefix. One pending frame is bounded by the advertised 4 MiB payload limit.
+Frames retain their original ordering, request and trace IDs, and client
+generation. Completion or client disconnect releases pending queue accounting;
+an old generation never resumes on a new connection. Invalid/oversized frames,
+closed writes and socket failures are explicit errors, not successful delivery.
+
 ## Responsibilities
 
 The Remote Script is a narrow adapter between local protocol commands and the
@@ -287,6 +303,30 @@ See [Live Events](../events/live-events.md).
 
 ### Guarded listening playback
 
+`listening.inspect_arrangement_source` remains a bounded read-only diagnostic
+for an exact regular track and half-open beat range. It returns overlapping
+clips with their original intervals and markers, without seeking, launching,
+trimming notes to the query, or repeating a loop. Audio metadata is unchanged.
+MIDI entries additionally include `clips[].midi`, the existing complete
+`InspectArrangementMidiNotesResult` note representation; per-note IDs are not
+musical content. A query admits at most 2,048 MIDI notes across all returned
+clips. MIDI audio-file/warp/gain/pitch fields are explicitly `null`.
+
+MIDI results also require `instrumentChain: {before, devices, after}`, sharing
+Session preflight's complete eight-device/256-parameter-per-device top-level
+inventory. Routine Arrangement reads exclude nested instrument trees rather
+than duplicating an entire rack in one aggregate response. Full independent
+Session source admission still requires its complete stable rack tree; fixture
+admission compares Arrangement's top-level witness to that audited source.
+Changed, missing, truncated, or foreign
+note/chain evidence fails closed. Consumers reuse the Session normalized
+note/chain identity rules, including listener-runtime parameter exclusions;
+the Remote Script does not invent a separate hash dialect. Query range, clip
+identity/placement, and source-state reads remain explicit message-rate
+evidence, not native timing or an atomic snapshot. Reads use the existing
+executor and traced bridge request lifecycle; they introduce no capture
+authority, persistent observers, source leases, or transport mutations.
+
 `listening.inspect_session_source` is a separate read-only diagnostic. It
 resolves an exact bounded regular-track Session clip, reads source/launch
 metadata, and re-resolves the target before returning. Replacement or movement
@@ -343,7 +383,7 @@ independently resolved same-track listener binding, duration, and the existing
 stopped global beat. It requires known recording-off, no queued launch, MIDI or
 warped audio, trigger mode `0`, legato false, clip launch quantization `0`,
 global None `0` or 1 Bar `4`, 4/4, and start marker/loop start `0`. Duration is
-positive, at most thirty seconds and no longer than the active loop end (when
+positive, at most 600 seconds and no longer than the active loop end (when
 looping) or end marker (when nonlooping). The application resolves an omitted
 tool duration before preparation. Equality is supported: a normal wrap/natural
 end is accepted only with the original observed epoch, elapsed global interval,
@@ -365,7 +405,13 @@ make a candidate pass.
 
 Only one pass is active per runtime context. Public source monitors are
 installed before launch; an unavailable required listenable property refuses
-the pass. The [legacy Max 8 LOM](https://docs.cycling74.com/legacy/max8/vignettes/live_object_model#live_obj_anchor_Clip)
+the pass. Its fixed admission-time lease covers the requested duration plus
+20 seconds of setup, 60 seconds of drain and five seconds of cleanup, bounded
+by 900 seconds. Inspection and launch do not renew it. The independent
+frozen-clock tick guard scales with that same lease; expiry removes monitors
+without stopping playback. This finite admission is not ten-minute real-host
+feature qualification.
+The [legacy Max 8 LOM](https://docs.cycling74.com/legacy/max8/vignettes/live_object_model#live_obj_anchor_Clip)
 lists Clip `start_time` as **get-only**, while `playing_status` is observable
 and `playing_position` supports get/observe. The
 [current Clip reference](https://docs.cycling74.com/apiref/lom/clip/)

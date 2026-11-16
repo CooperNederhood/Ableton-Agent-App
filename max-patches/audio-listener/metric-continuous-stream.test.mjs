@@ -29,7 +29,7 @@ const { createMelBandHandoff } = require("./audio_listener_mel_handoff.js");
 function descriptor(seconds, tempoBpm = 120) {
   const o = createSyntheticMetricListeningObservation();
   const geometry = createContinuousMetricListeningGeometry({
-    captureMode: "arrangement-continuous",
+    captureMode: "finite-metric-stream",
     sampleRate: 48000,
     vectorSize: 64,
     tempoBpm,
@@ -221,7 +221,7 @@ for (const seconds of [180, 600]) {
       epoch: 7,
       sampleRate: 48000,
       totalSamples: total,
-      captureMode: "arrangement-continuous",
+      captureMode: "finite-metric-stream",
       requestedMetrics: Object.keys(counts),
       analyzerReadiness: {
         schema: "analyzer-native-readiness/v1",

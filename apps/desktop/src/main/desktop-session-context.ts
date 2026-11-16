@@ -172,6 +172,9 @@ export function createDesktopSessionContextManager(
           pass,
           operationFor(operation),
         ),
+      finalizeMetricCaptures: (captures, pass, operation) =>
+        deny?.() ??
+        metrics.finalizeMetricCaptures(captures, pass, operationFor(operation)),
       terminateMetricCapture: (owner, status, reason, operation) =>
         deny?.() ??
         metrics.terminateMetricCapture(
@@ -722,7 +725,7 @@ export function createDesktopSessionContextManager(
               mutation: boolean,
               operation: ContextOperationOptions | undefined,
               execute: () => Promise<T>,
-              capture?: MetricCaptureOwner,
+              captures: readonly MetricCaptureOwner[] = [],
               initiatingAgents: readonly string[] = [],
             ): Promise<T> => {
               if (mutation)
@@ -750,7 +753,7 @@ export function createDesktopSessionContextManager(
                       throw new Error(
                         "Context stream caller no longer belongs to the invoking session ownership",
                       );
-                    if (mutation && capture !== undefined) {
+                    for (const capture of mutation ? captures : []) {
                       const record = await repository.getMetricCapture(
                         capture.captureId,
                         operation,
@@ -797,7 +800,7 @@ export function createDesktopSessionContextManager(
                   true,
                   operation,
                   () => repository.appendMetricChunk(owner, chunk, operation),
-                  owner,
+                  [owner],
                 ),
               sealMetricCapture: (owner, manifest, operation) =>
                 metricOperation(
@@ -805,7 +808,7 @@ export function createDesktopSessionContextManager(
                   operation,
                   () =>
                     repository.sealMetricCapture(owner, manifest, operation),
-                  owner,
+                  [owner],
                 ),
               finalizeMetricCapture: (owner, manifest, pass, operation) =>
                 metricOperation(
@@ -818,7 +821,20 @@ export function createDesktopSessionContextManager(
                       pass,
                       operation,
                     ),
-                  owner,
+                  [owner],
+                  [pass.initiatorAgentId],
+                ),
+              finalizeMetricCaptures: (captures, pass, operation) =>
+                metricOperation(
+                  true,
+                  operation,
+                  () =>
+                    repository.finalizeMetricCaptures(
+                      captures,
+                      pass,
+                      operation,
+                    ),
+                  captures.map(({ owner }) => owner),
                   [pass.initiatorAgentId],
                 ),
               terminateMetricCapture: (owner, status, reason, operation) =>
@@ -832,7 +848,7 @@ export function createDesktopSessionContextManager(
                       reason,
                       operation,
                     ),
-                  owner,
+                  [owner],
                 ),
               getMetricCapture: (id, operation) =>
                 metricOperation(false, operation, () =>

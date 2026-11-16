@@ -495,6 +495,22 @@ Tests must catch:
 
 ## Test layers
 
+### Listening consolidation scope
+
+The four Session/Arrangement cases use the established user-message acceptance
+route: actual message submission, real agent/SDK turn, normal production tools
+and independent typed persisted postconditions. A direct-operation test API is
+not part of this strategy. Keep the existing process/profile, source, permission,
+History, restart and cleanup machinery rather than introduce another runner.
+
+Execute short audio, short MIDI, long audio, long MIDI in that order. The
+current milestone is common production storage/feature systems and matching
+persisted schema, expected logical counts and applicable segment/grid geometry.
+Do not hide production representation forks with test-side normalization.
+Numerical value/distance matching and repeatability calibration are deferred,
+not reasons to block the first storage-shape smoke. Structural qualification
+does not establish numerical equivalence or agent comprehension.
+
 ### Entry points and evidence boundaries
 
 | Layer / command | Owns | Does not establish |

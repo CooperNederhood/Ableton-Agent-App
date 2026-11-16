@@ -65,9 +65,16 @@ export class LiveProcessController {
   dismissKnownStartupDialogs(options?: {
     discardRecovery?: boolean;
   }): Promise<string>;
+  hasLoadedFixture(fixturePath: string): Promise<boolean>;
   gracefulStop(timeoutMs?: number): Promise<void>;
   discardAfterFailure(timeoutMs?: number): Promise<void>;
 }
+
+export function hasLoadedLiveFixture(
+  log: string,
+  fixturePath: string,
+  launchedAt: string,
+): boolean;
 
 export function createComputerUseLiveController(options?: {
   hostLease?: LiveHostLease;

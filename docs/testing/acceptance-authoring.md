@@ -1,5 +1,252 @@
 # Acceptance test authoring
 
+## Listening consolidation: message-driven storage shape and counts
+
+All four cases use the **existing user-message integration path**:
+shared acceptance runner -> user-message endpoint -> real Desktop/SDK agent
+turn -> normal listening/context tools -> production persistence -> independent
+typed postconditions. Scenario steps use `message`, not `operation`; no direct
+test dispatch endpoint or simulated agent turn is supported.
+
+Fixture startup waits for the exact runner-owned Set's recent, completed Live
+document-load evidence before accepting the Remote Script port. A template's
+early bridge is not readiness: loading the requested Set can replace that
+Control Surface. This reuses the bounded Live-log reader and existing readiness
+deadline; it does not retry messages, repair the Set or suppress proxy failures.
+
+Final qualification on Live Suite 11.3.43 is green for all four cases:
+short audio `run-J7vvwY`, short MIDI `run-U5xT9Q`, long audio `run-LozNle`
+and long MIDI `run-LkQQml`. All pin the same candidate SHA-256
+`c41d56b9211bf4a912fccd5940ed134d4f535d292e35a9ac4eed7996550bfabd`.
+Each terminal receipt
+includes all three messages, all six assertions, protected state and cleanup.
+Long cases also prove durable appends during capture.
+
+Earlier successes remain candidate-specific. `run-dYcozO`, `run-zO3xFu`,
+`run-GbWqd5` and `run-m1AuKA` retain their actual startup, truncated-response,
+deep-inspection-timeout and template-load failure outcomes. Partial-write
+regressions, explicit full-tree timeout classification and exact-fixture
+readiness address their demonstrated boundaries without attributing every
+historical disconnect to one cause or reclassifying failures as passes.
+
+The supplied Set supports one- and twenty-measure Session/Arrangement pairs
+for audio and MIDI. Execute **short audio, short MIDI, long audio, long MIDI**,
+getting each green before advancing. At 128 BPM the long cases last 37.5
+seconds; they do not qualify ten minutes. Use the existing
+`pnpm live:acceptance --scenario listening-consolidation-short-audio` entry point,
+not another runner. Registration does not establish a passing case.
+
+Each case has two actual captures: one Session user-message turn, declared
+scoped STOP/Back to Arrangement setup, then one Arrangement user-message turn.
+The agent derives features through normal tools. An owned Desktop restart and
+read-only message verify original context/feature identities and inventories
+without recapture or rederivation. Keep ordinary approvals, source/recording
+guards, trace attribution, required native evidence and terminal cleanup.
+
+The current milestone checks shared production storage systems and persisted
+schemas, exactly two contexts, one or twenty complete corresponding measures,
+the canonical fifteen-definition feature inventory/counts, and matching
+applicable channel/vector/grid dimensions. Aligned 4/4 sixteenth grids have
+sixteen cells. Expected counts come from the canonical contract, not just
+another equally empty/truncated output. Do not normalize distinct production
+formats in the test to hide a remaining storage fork.
+
+Both views are verified from original committed descriptor/chunks/manifest
+through typed Desktop reads. Restart fingerprints bind original descriptor,
+manifest and record hashes, not the restart flag or reconstructed observations.
+Fresh-capture consumers reject whole-observation delivery. Existing bounded
+feature-search and diagnostic checks read canonical immutable chunks; their
+historical observation readers remain read-only. Source proofs retain the
+original stream-content fingerprint separately from the manifest-derived
+feature `sourceFingerprint`. Comprehension keeps its four Session/one
+Arrangement contract and exact source, native owner and cleanup guards; this
+does not select another real-host comprehension run.
+Keep failed or denied agent tools unsuccessful even when captures and restart
+completed; do not broaden permissions or ignore a denial to obtain green.
+
+The structural oracle accepts the normal agent's typed read-only Arrangement
+inspection and strips only its exact application-owned post-tool guidance
+suffix. Mutation actions, malformed results, foreign/duplicated suffixes and
+failed tool results still fail. An inspection does not replace original
+capture verification or complete feature pagination; derivation totals and
+catalog descriptions never establish unread inventory membership.
+
+Measurement families retain honest support/gap/availability metadata and each
+stream's existing integrity checks. Physical chunk counts and native window
+counts need not match when batching/timing legitimately differs. Long cases
+also require durable appends before capture ends under the shared ingestion
+model. Capture completion is separate from feature readiness and cleanup.
+
+Numerical value/distance matching, exact mask equality, same-source repeatability
+controls, calibration IDs and tolerance policies are **deferred**. Keep the pure
+numerical checker/tests for later, not as a current pass gate or a reason to
+build a full-value collection subsystem. Existing corruption, owner and
+publication guards are not relaxed.
+
+The fixture's `reviewed-live` status denotes declared-source admission only.
+Owned review `consolidation-source-review-5HHNZT` verified all four Session
+sources and full audio Arrangement on Live 11.3.43. Reuse this evidence without
+claiming successful captures. MIDI Arrangement admission remains separate.
+Saved global beat 16 and reviewed source/processing settings must not be repaired.
+See the fixture README for asset hashes, source slots and remaining coverage.
+
+Deep Session admission and final source audits concern the sources used by the
+selected scenario, resolved from step source IDs and scoped listening
+permissions, not every source declared in a shared fixture. Before each capture,
+deep inspection concerns its selected source. Unscoped listening permissions
+retain the complete source inventory when their target cannot be determined.
+Explicit authoring source review still reads every declared source.
+Whole-Set identity/protected-playback checks, reviewed listener placement,
+fixture/media hashes and selected-source content/settings guards remain.
+The short-audio case must not traverse the unrelated 808 rack at baseline or
+final collection. The existing five-second bridge timeout is unchanged; this
+scope correction does not qualify expensive rack traversal latency.
+Reuse existing bounded typed
+metadata reads and message-turn capture evidence for the structural assertion;
+do not add a capture/derivation API to the test driver.
+
+Declared setup actions may release/reacquire the existing single-client bridge
+sequentially between terminal turns. Each handoff has a distinct causation ID,
+retains queued/started/progress/terminal timing, and rejects replay/concurrent
+entry. Keep the existing finite trace/record bounds and exact per-action
+permissions; a prior successful STOP must not consume the later approved Back
+to Arrangement or persistence STOP.
+
+A naturally ended nonlooping Session clip can leave Live 11's global Back to
+Arrangement flag set while track eligibility is honestly unknown. After a
+published run-owned Session capture on that same track, the protected-state
+audit accepts this idle override only with known zero playing and queued
+Session clips. This does not certify Arrangement eligibility: the normal
+STOP/Back to Arrangement handoff must still establish definite eligibility
+before Arrangement capture. Unknown counts, foreign/unpublished captures and
+other protected-state changes remain failures. Guard errors retain the bounded
+actual state and expected target settings for diagnosis.
+
+Between captures, STOP can leave Session clips marked remembered-playing even
+though transport is stopped. Back to Arrangement may clear only flags for
+clip IDs belonging to already published captures in this run. Independently
+compare complete Session snapshots against baseline excluding only those owned
+IDs, require an exact matching remembered count in both pre-read brackets, and
+require zero playing/queued Session clips after handoff. Moving transport,
+recording, unowned playback, changed structure/media/settings and inconsistent
+counts still deny dispatch. Initial authoring handoff admits no remembered
+clips by default.
+
+Arrangement cleanup has two independent proofs: native release/finalization
+must match the captured generation/epoch, and source release must match the
+authenticated listener connection, pass and agent/session trace. Bounded
+observation source-release rows carry null stream-manifest generation/epoch;
+stream source-release rows carry the original manifest ownership. Verify each
+emitted contract without inventing stream metadata for bounded observations or
+relaxing native cleanup ownership.
+
+The feature oracle accepts only the exact production transport hook framing,
+including its source-flag guidance, before parsing the typed read-only result.
+Additional, duplicated or foreign suffixes remain invalid. `run-BsVhJq`
+completed both captures and owned restart; diagnostic replay after correcting
+that framing exposed missing Arrangement bar alignment, not a passing shape
+comparison. Preserve its failed receipt.
+
+Session sources may declare their full saved `activeLengthBeats` independently
+of requested subranges. Admission of a long clip does not establish that the
+unchanged production Session capture supports it. Fix duration/alignment and
+common feature/storage defects from actual case failures, not speculative
+rewrites before the first short smoke. The unchanged
+`long-horizon-comprehension` case remains a separate follow-on gate.
+
+## Session-to-Arrangement comprehension authoring
+
+The approved `long-horizon-comprehension` contract uses one natural user
+message and exactly five successful listens: MIDI Session `clip-1` through
+`clip-4` on `1-808 Core Kit`, then the complete Arrangement on `2-Audio`.
+Each Session clip is four beats; the Arrangement is beats 0-80 at 128 BPM.
+The terminal answer must contain twenty clip numbers, hyphens within groups
+of four, and leading, trailing and separating vertical bars, without prose or
+internal whitespace. The exact expected sequence is runner-only oracle data.
+Do not inject it into the message or staged project.
+
+The user approved the supplied Set and all five project-local AIFF files as
+repository test assets. Canonical copy-only intake retained Set SHA256
+`0eeb476c4ea3bc8b49f218d268dc507b1524abb6a6d8c7176d044007e3a51e4b`;
+six verified files total 13,118,011 bytes. Original audio paths and bytes
+remain intact. Four files have 90,000 sample frames and the consolidated
+Arrangement has 1,800,000, all stereo 24-bit at 48 kHz. Verify the loaded host
+rate separately. Preserve all MIDI, the audio track's Session clips, both
+returns, Hybrid processing and the Blackhole plug-in. The 69 active factory
+sample and two Builtin IR paths were independently hashed in place; those
+licensed resources are not redistributed.
+
+Owned loaded review on Live Suite 11.3.43 independently froze all four MIDI
+note hashes, the shared instrument-chain hash, recording/source baseline,
+prerequisites and both listener bindings. The registered portable Set changes
+only five project-local FileRef blocks to neutral staged media targets; other
+uncompressed XML and all five original AIFF bytes remain unchanged. The saved
+global Arrangement override is an explicit observed initial condition, not
+repaired by the harness. Final capture guards remain strict.
+
+Mixed admission verifies each source independently, applies Arrangement-only
+baseline fields only to Arrangement evidence, and bounds each rich source
+before applying aggregate evidence limits. Ordinary timestamp brackets in
+Ableton media filenames are permitted; path traversal and control characters
+remain denied. Optional feature derivation binds an exact completed source's
+context, trace and session rather than assuming a turn has only one capture.
+One derivation may contain up to eight distinct contexts. Independently validate
+each against exactly one owned completed job in the invoking turn and its
+admitted source, then atomically consume the existing exact per-source rules.
+Preserve declared step-source constraints and every non-context argument.
+Invalid members, ambiguous ownership, historical access, extra arguments or
+exhausted rules deny the complete batch without spending a valid prefix.
+This permits an equivalent grouping, not additional derivations or sources.
+
+The shared checker must admit both source kinds in one turn, bind scoped
+permissions to each intended source, and attribute every job to its own causal
+tool call. All five passes must have complete source coverage, native evidence,
+original contexts and separately confirmed capture/source cleanup, with no
+extra or hidden recapture. A correct answer cannot excuse one failed listen.
+No harness stop/reset, extra user turn or process restart may separate these
+listens. Ordinary agent-requested non-editing transport handoffs remain scoped
+permissions, not a required tool strategy.
+
+The user subsequently extended the milestone to red/green product debugging.
+The installed-candidate baseline `run-uBaXvT` exposed a second Session capture
+submitted while transport was still moving. The older two-MIDI test uses
+separate turns with a harness transport stop; it did not cover this same-turn
+sequence. Preserve those distinctions and all failed receipts.
+
+Later `run-Jznu9M` completed all four Session captures and one full Arrangement
+capture after ordinary agent-requested source preparation, but attempted extra
+captures during analysis. Its final verdict remains failed; required History
+also exceeded the evidence bound, although owned processes/profile closed.
+No exact-answer qualification is established. Source/range/answer, five-listen
+count and protected-state assertions must not be weakened to obtain green.
+Later `run-tNBn9W` exposed the single-context checker restriction above;
+deterministic red/green regressions now cover policy atomicity and driver-owned
+two-source batches. The unchanged real case must still establish its answer.
+
+`run-dpVv8M` completed exactly five captures and returned the correct terminal
+pattern, but the runner's timing proxy exhausted its 512-record diagnostic
+inventory during final collection and closed the otherwise healthy bridge.
+Its terminal verdict remains failed, including incomplete cleanup evidence.
+The inventory now retains at most 2,048 metadata records, with a reserved close
+receipt and unchanged four-tunnel, 128-pending-frame and 8-MiB pending-byte
+guards. Regression coverage forwards and retains 600 real framed requests and
+responses, and separately proves fail-closed overflow at the new finite cap.
+No timing records, source checks or musical assertions may be dropped.
+
+The subsequent `run-JAAhev` completed five captures but exceeded the separate
+Desktop observer's 10,000-event count at only 4,544,497 bytes, before its final
+answer. The observer now retains up to 32,768 original ordered events while
+keeping the 16-MiB byte ceiling. Count/byte overflow and malformed delivery
+still fail explicitly rather than truncating evidence. Required History and
+Desktop events remain distinct complete inventories, not substitutes.
+
+Latest `run-HFt0eC` preserves a valid executed red after those checker fixes:
+five completed captures, responsive bounded summary reads, but no final answer
+before the unchanged 900-second turn deadline. Required History cleanup timed
+out separately; all owned resources closed. The case is not qualified and the
+normal installed app is unchanged. Earlier correct-answer or capture-only
+outcomes cannot substitute for a complete terminal pass.
+
 The primary interface is the repository development skill
 [`author-integration-test`](../../.github/skills/author-integration-test/SKILL.md),
 not hand-written JSON and not a skill installed in the product's Default agent.
@@ -500,7 +747,24 @@ flatness, spread and rolloff in the second turn; its peak may instead use the
 exact-equality proof below. Independent numerical/support checks, discovery of
 all fifteen canonical feature types, native acquisition/validity, comparison,
 source-excluding search and every capture/protected-state/cleanup guard remain
-mandatory. No other feature family inherits prior-read permission.
+mandatory.
+
+Pitch-grid availability metadata may likewise come from an earlier attributable
+turn in this same pre-restart conversation. Accept an original `list-features`
+or `get-feature` result; do not mandate a repeated inventory call merely because
+the current turn discusses that context again. Bind the evidence to the exact
+App session, pass, context and unchanged source fingerprint, retain the
+independent native-validity check, and reject contradictory later evidence.
+An assistant claim alone, foreign/stale provenance or an absent original result
+does not establish availability. This user-approved outcome-contract correction
+does not substitute cached values for independent post-restart persistence reads.
+
+Terminal `run-PmT6xJ` qualifies this revised outcome contract on Live 11.3.43:
+all three turns, exactly two captures, original contexts after owned restart,
+independent feature checks, protected state and cleanup passed. The approved
+second-turn budget is now 300 seconds and total run budget 780 seconds, not a
+model-specific latency assertion or a requirement for compaction. Prior failed
+receipts remain preserved; no app/model/prompt/report-format change was needed.
 
 The restored phase never borrows pre-restart reads: it requires fresh,
 post-restart typed reads of every original feature from both sources, plus
@@ -528,6 +792,22 @@ the separate source-excluding search must match those immutable views and the
 recomputed distance. Malformed or contradictory actual feature reads still fail,
 even when an otherwise valid equality proof exists. Other analyzer arithmetic
 and explicit unavailable/validity checks are unchanged.
+
+Feature inventories use the production normalized tables (at most 100 records
+and 64 KiB per page), expanded from actual indexed metadata by the existing
+oracle. Generated source-summary prose is not part of structural identity.
+Every continuation must still be consumed; derivation totals and the catalog
+do not establish unread feature IDs or measure coverage.
+The existing structural receipt projection keeps provenance, musical alignment
+and feature shapes shared in bounded tables rather than expanding every feature
+into repeated metadata. Full twenty-measure original/restart inventories must
+fit the coordinator's unchanged 512 KiB combined-turn budget. Reference,
+ownership, definition and grid guards remain mandatory after expansion.
+Feature references use fixed-width rows with explicit ordered column names
+`id`, `provenance`, `segment`, `source`, `metadata`; IDs and table indices remain
+the actual received values. Missing/reordered columns, wrong row widths and
+foreign or invalid references fail closed. No totals or catalog entries stand
+in for unread feature identities.
 
 For full discovery, an actual bounded `list-features` inventory containing all
 fifteen canonical types and their canonical available metadata may replace a
@@ -1433,11 +1713,13 @@ All intervening attempts remain failed, not rewritten as recovered passes:
 | `run-Z5awFn` | All 17 turns passed their assertions, but collection exceeded the single-case 10,000-event aggregate limit. Cleanup also reported that evidence failure, although owned PIDs were subsequently confirmed absent. Not a qualification pass. |
 | `run-gcP1xA` | Additional diagnostic attempt failed during launch: Live never exposed Remote Script port 8765. No turns or captures executed; cleanup confirmed. This does not reproduce or resolve the retained-slot fault. |
 
-History collection now retains up to 10,000 records **per trace**, permits an
-aggregate count of 10,000 per declared turn (at most 32 turns), and keeps the
+History collection now retains up to 32,768 records **per trace**, permits an
+aggregate count of 32,768 per declared turn (at most 32 turns), and keeps the
 unchanged **32 MiB aggregate byte ceiling**. It deduplicates by event ID without
 dropping required traces. Successful collection is not redundantly repeated
 during cleanup; failed collection still attempts bounded diagnostic retrieval.
+The original continuity fix used 10,000 records; the larger comprehension
+conversation exposed that finite row ceiling below the unchanged byte budget.
 The final continuity receipt retains 10,807 typed History events. Count/byte
 overflow, redaction, complete multi-turn retention and owned shutdown have
 controlled regressions; no deadline, completeness or source guard was loosened.
@@ -1617,12 +1899,24 @@ private scenario runner or a weaker oracle.
 
 ## Authoring versus execution
 
-For an approved MIDI intake, `PackagedAcceptanceDriver.reviewMidiSources`
-provides the separate read-only loaded review without invented expected
-instrument hashes. It uses the same owned processes, candidate binding and
-typed preflight as execution, submits no message, requires stopped transport,
-and returns observations for review. It does not qualify a scenario or weaken
-`readBaseline`'s execution-time comparison with independently frozen expectations.
+For an approved Session audio/MIDI intake, construct
+`PackagedAcceptanceDriver` with `purpose: "source-review"`, then use
+`launch`, `ready`, `reviewSessionSources` and `cleanup`. This explicit mode
+can inspect an unqualified owned copy without falsely marking it
+`reviewed-live` or inventing expected instrument hashes. It reuses candidate
+binding and typed preflight, requires stopped transport and owned media, and
+returns observations marked `authoringReview: true`. MIDI selectors omit
+their expected `midi` hashes; audio selectors retain the declared `mediaTarget`.
+For one fully declared Arrangement audio source and any already frozen Session
+sources, `reviewDeclaredSources` reuses the ordinary saved/loaded baseline
+inspector in this same read-only mode. It verifies exact full clip coverage,
+owned media, candidate listeners and source settings without starting capture
+or changing qualification. Unknown or cancelled review requests remain denied.
+Execution baseline reads, setup actions, direct operations and user-message
+submission are denied in review mode. Cancellation before provisioning
+performs no dependency work or launch. Ordinary acceptance still requires
+`reviewed-live` and independently frozen expectations; source review cannot
+qualify a scenario.
 
 Bounded recursive instrument trees have a separate aggregate 4 MiB allowance
 in baseline evidence and the final receipt. Only the actual tree bytes receive

@@ -35,7 +35,7 @@ async function fixture() {
     ownership: f.observation.ownership,
     source: f.observation.source,
     geometry: createContinuousMetricListeningGeometry({
-      captureMode: "arrangement-continuous",
+      captureMode: "finite-metric-stream",
       sampleRate: g.sampleRate,
       vectorSize: g.vectorSize,
       tempoBpm: g.tempoBpm,
@@ -146,7 +146,9 @@ async function fixture() {
             routingHash: "routing",
             dependencyScope: "unknown",
             previousRuntimeBindings: [
-              descriptor.source.target.expectedReference,
+              descriptor.source.view === "arrangement"
+                ? descriptor.source.target.expectedReference
+                : descriptor.source.target.track.expectedReference,
             ],
           },
         }),

@@ -7,6 +7,7 @@ import {
   metricObservationSourceSchema,
   metricSpectralRecordSchema,
   MAX_METRIC_ATTACK_STRENGTH_DB,
+  metricAttackStrengthMatches,
 } from "./metric-observation-schemas.js";
 import {
   pitchTimelineFrameSchema,
@@ -48,9 +49,9 @@ export const MAX_METRIC_RECORD_PENDING_CHUNKS = 8;
 export const MAX_METRIC_RECORD_MANIFEST_BYTES = 128 * 1_024;
 export const metricRecordStreamCapabilitySchema = z.strictObject({
   capability: z.literal(METRIC_CONTINUOUS_LISTENING_CAPABILITY),
-  mode: z.literal("arrangement"),
+  modes: z.tuple([z.literal("session"), z.literal("arrangement")]),
   maxDurationSeconds: z.literal(600),
-  maxListeners: z.literal(1),
+  maxListeners: z.literal(8),
   maxChunkBytes: z.literal(MAX_METRIC_RECORD_CHUNK_BYTES),
   maxChunkRecords: z.literal(MAX_METRIC_RECORD_CHUNK_RECORDS),
   maxPendingChunks: z.literal(MAX_METRIC_RECORD_PENDING_CHUNKS),
@@ -70,9 +71,9 @@ export type MetricRecordStreamCapability = z.infer<
 export const METRIC_RECORD_STREAM_CAPABILITY = Object.freeze(
   metricRecordStreamCapabilitySchema.parse({
     capability: METRIC_CONTINUOUS_LISTENING_CAPABILITY,
-    mode: "arrangement",
+    modes: ["session", "arrangement"],
     maxDurationSeconds: 600,
-    maxListeners: 1,
+    maxListeners: 8,
     maxChunkBytes: MAX_METRIC_RECORD_CHUNK_BYTES,
     maxChunkRecords: MAX_METRIC_RECORD_CHUNK_RECORDS,
     maxPendingChunks: MAX_METRIC_RECORD_PENDING_CHUNKS,
@@ -169,7 +170,7 @@ export const metricRecordStreamDescriptorSchema = z
     schema: z.literal("metric-record-stream/v1"),
     capability: z.literal(METRIC_CONTINUOUS_LISTENING_CAPABILITY),
     ownership,
-    source: metricObservationSourceSchema.options[0],
+    source: metricObservationSourceSchema,
     geometry: metricContinuousListeningGeometrySchema,
     timingPolicy: listeningTimingPolicySchema,
     requestedMetrics: z.array(metricObservationMetricSchema).min(1).max(6),
@@ -192,7 +193,10 @@ export const metricRecordStreamDescriptorSchema = z
       ) ||
       source.transport.startBeat !== g.startBeat ||
       source.transport.endBeat !== g.endBeat ||
-      (source.target.kind === "master") !== (source.target.index === null)
+      (source.view === "arrangement" &&
+        (source.target.kind === "master") !== (source.target.index === null)) ||
+      (source.view === "session" &&
+        Math.abs(source.coordinate.endBeat - (g.endBeat - g.startBeat)) > 1e-8)
     )
       ctx.addIssue({
         code: "custom",
@@ -224,6 +228,23 @@ export const metricRecordStreamDescriptorSchema = z
   });
 export type MetricRecordStreamDescriptor = z.infer<
   typeof metricRecordStreamDescriptorSchema
+>;
+
+const { rows: _summaryRows, ...summaryGeometry } =
+  metricContinuousListeningGeometrySchema.shape;
+void _summaryRows;
+export const metricRecordStreamDescriptorSummarySchema = z.strictObject({
+  ...metricRecordStreamDescriptorSchema.shape,
+  geometry: z.strictObject(summaryGeometry),
+});
+export const metricRecordStreamContextReferenceSchema = z.strictObject({
+  schema: z.literal("metric-record-stream-context/v1"),
+  captureId: z.string().min(1).max(200),
+  descriptorDigest: metricRecordDigestSchema,
+  descriptor: metricRecordStreamDescriptorSummarySchema,
+});
+export type MetricRecordStreamContextReference = z.infer<
+  typeof metricRecordStreamContextReferenceSchema
 >;
 
 /** Compact persisted admission; the complete canonical grid is deterministic. */
@@ -568,7 +589,7 @@ export const metricRecordStreamTerminalProofSchema = z
     sourceOrigin: metricContinuousListeningGeometrySchema.shape.startSample,
     sourceEnd: metricContinuousListeningGeometrySchema.shape.startSample,
     drain: z.enum(["completed", "failed", "cancelled"]),
-    spectrumCleanup: nativeMetricSpectrumCleanupSchema,
+    spectrumCleanup: nativeMetricSpectrumCleanupSchema.nullable(),
     spectrumPhase: nativeMetricSpectrumPhaseSchema.nullable(),
   })
   .superRefine((value, ctx) => {
@@ -593,11 +614,13 @@ export const metricRecordStreamTerminalProofSchema = z
       value.sourceEnd !== value.sourceOrigin + value.capturedSamples ||
       !value.clock.frames.every(isCoherentNativeTransportClock) ||
       value.clock.frames[0]![4] < value.sourceEnd ||
-      value.spectrumCleanup.generation !== value.ownership.generation ||
-      value.spectrumCleanup.nativeEpoch !== value.ownership.nativeEpoch ||
-      value.spectrumCleanup.status !== "completed" ||
-      value.spectrumCleanup.stopWatermark === null ||
-      value.spectrumCleanup.stopWatermark < value.sourceEnd ||
+      (value.spectrumCleanup === null
+        ? value.spectrumPhase !== null
+        : value.spectrumCleanup.generation !== value.ownership.generation ||
+          value.spectrumCleanup.nativeEpoch !== value.ownership.nativeEpoch ||
+          value.spectrumCleanup.status !== "completed" ||
+          value.spectrumCleanup.stopWatermark === null ||
+          value.spectrumCleanup.stopWatermark < value.sourceEnd) ||
       (value.status === "completed" && value.drain !== "completed")
     )
       ctx.addIssue({
@@ -1004,7 +1027,7 @@ export async function acceptMetricRecordChunk(
         detects
           ? record.events.length !== 1 ||
             record.events[0]!.sample !== record.support.endSample ||
-            record.events[0]!.strength !== rise
+            !metricAttackStrengthMatches(record.events[0]!.strength, rise)
           : record.events.length !== 0
       )
         throw new Error("metric_stream_attack_replay_mismatch");
@@ -1106,11 +1129,28 @@ export async function verifyMetricRecordStreamManifest(
             manifest.nativeProof.sourceEnd,
           ),
         ) ||
-      Object.entries(prefix).some(
-        ([key, value]) =>
+      Object.entries(prefix).some(([key, value]) => {
+        if (
+          key === "attackReplay" &&
+          item.attackReplay &&
+          prefix.attackReplay
+        ) {
+          return (
+            item.attackReplay.lastAttackSample !==
+              prefix.attackReplay.lastAttackSample ||
+            item.attackReplay.riseHasAttack !==
+              prefix.attackReplay.riseHasAttack ||
+            !metricAttackStrengthMatches(
+              item.attackReplay.previousLevelDb,
+              prefix.attackReplay.previousLevelDb,
+            )
+          );
+        }
+        return (
           canonicalMetricRecordJson(item[key as keyof typeof item]) !==
-          canonicalMetricRecordJson(value),
-      )
+          canonicalMetricRecordJson(value)
+        );
+      })
     )
       throw new Error("metric_stream_manifest_prefix_or_metadata_mismatch");
   }
@@ -1152,7 +1192,37 @@ export async function verifyMetricRecordStreamManifest(
         g.sampleRate / 10 + g.vectorSize)
   )
     throw new Error("metric_stream_native_configuration_or_launch_mismatch");
-  assertNativeCheckedTransportSourceCoverage({
+  metricRecordStreamAlignment(descriptor, manifest);
+  const spectrum = descriptor.algorithms.find(
+    (item) => item.metric === "spectral-centroid",
+  );
+  if (
+    spectrum?.metric === "spectral-centroid" &&
+    spectrum.availability === "available" &&
+    (proof.spectrumCleanup === null ||
+      proof.spectrumPhase === null ||
+      canonicalMetricRecordJson(proof.spectrumPhase.ownership) !==
+        canonicalMetricRecordJson(descriptor.ownership) ||
+      proof.spectrumPhase.clock.dsp[1] !== g.sampleRate ||
+      proof.spectrumPhase.clock.dsp[2] !== g.vectorSize ||
+      nativeMetricFirstSpectrumEndpoint(proof.spectrumPhase, g.startSample) !==
+        spectrum.algorithm?.firstFrameEndSample)
+  )
+    throw new Error("metric_stream_native_spectrum_phase_mismatch");
+  return manifest;
+}
+
+/** Reuses native clock arithmetic; not a substitute for stream integrity checks. */
+export function metricRecordStreamAlignment(
+  descriptor: MetricRecordStreamDescriptor,
+  manifest: MetricRecordStreamManifest,
+) {
+  const g = descriptor.geometry;
+  const proof = manifest.nativeProof;
+  const before = proof.before;
+  const launch = proof.launch;
+  const hostOffsetSamples = before.frames[0]![2] - before.frames[0]![4];
+  return assertNativeCheckedTransportSourceCoverage({
     policy: descriptor.timingPolicy,
     geometry: { ...g, totalSamples: proof.capturedSamples },
     before,
@@ -1170,22 +1240,9 @@ export async function verifyMetricRecordStreamManifest(
       hostOffsetSamples,
     },
     additionalClocks: [launch.clock],
+    ...(descriptor.source.view === "session"
+      ? { stoppedBeat: before.frames[0]![1] }
+      : {}),
     errorPrefix: "native_metric",
-  });
-  const spectrum = descriptor.algorithms.find(
-    (item) => item.metric === "spectral-centroid",
-  );
-  if (
-    spectrum?.metric === "spectral-centroid" &&
-    spectrum.availability === "available" &&
-    (proof.spectrumPhase === null ||
-      canonicalMetricRecordJson(proof.spectrumPhase.ownership) !==
-        canonicalMetricRecordJson(descriptor.ownership) ||
-      proof.spectrumPhase.clock.dsp[1] !== g.sampleRate ||
-      proof.spectrumPhase.clock.dsp[2] !== g.vectorSize ||
-      nativeMetricFirstSpectrumEndpoint(proof.spectrumPhase, g.startSample) !==
-        spectrum.algorithm?.firstFrameEndSample)
-  )
-    throw new Error("metric_stream_native_spectrum_phase_mismatch");
-  return manifest;
+  }).alignment;
 }

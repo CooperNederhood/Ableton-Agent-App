@@ -269,6 +269,15 @@ export class LiveProcessController {
     });
   }
 
+  async hasLoadedFixture(fixturePath) {
+    await this.validateOwnership();
+    return hasLoadedLiveFixture(
+      await readRecentLiveLog(),
+      fixturePath,
+      this.#owned.recordedAt,
+    );
+  }
+
   async gracefulStop(timeoutMs = 20_000) {
     const owned = await this.validateOwnership();
     await this.#requestQuit(owned);
@@ -484,12 +493,43 @@ async function hasUnresolvedRecentLiveLogMessage(
   resolvedBy,
 ) {
   if (typeof launchedAt !== "string") return false;
+  const lines = (await readRecentLiveLog()).split("\n");
+  const matchingIndex = lines.findLastIndex((line) => line.includes(message));
+  if (!isRecentLiveLogLine(lines[matchingIndex], launchedAt)) return false;
+  return !lines
+    .slice(matchingIndex + 1)
+    .some((line) => resolvedBy.some((marker) => line.includes(marker)));
+}
+
+export function hasLoadedLiveFixture(log, fixturePath, launchedAt) {
+  const lines = log.split("\n");
+  const index = lines.findLastIndex((line) =>
+    line.includes('info: Loading document "'),
+  );
+  if (
+    index < 0 ||
+    !lines[index].endsWith(`"${fixturePath}"`) ||
+    !isRecentLiveLogLine(lines[index], launchedAt)
+  )
+    return false;
+  const remaining = lines.slice(index + 1);
+  return (
+    remaining.findLastIndex((line) =>
+      line.includes("Default App: End ExchangeDocument"),
+    ) >
+    remaining.findLastIndex((line) =>
+      line.includes("Default App: Begin ExchangeDocument"),
+    )
+  );
+}
+
+async function readRecentLiveLog() {
   const preferences = join(homedir(), "Library", "Preferences", "Ableton");
   let directories;
   try {
     directories = await readdir(preferences, { withFileTypes: true });
   } catch {
-    return false;
+    return "";
   }
   const logs = await Promise.all(
     directories
@@ -506,23 +546,21 @@ async function hasUnresolvedRecentLiveLogMessage(
   const newest = logs
     .filter((entry) => entry !== undefined)
     .sort((left, right) => right.modifiedAt - left.modifiedAt)[0];
-  if (newest === undefined) return false;
-  const lines = (await readRecentFile(newest.path)).split("\n");
-  const matchingIndex = lines.findLastIndex((line) => line.includes(message));
-  const matchingLine = lines[matchingIndex];
-  if (matchingLine === undefined) return false;
-  const timestamp = matchingLine.match(
+  if (newest === undefined) return "";
+  return readRecentFile(newest.path);
+}
+
+function isRecentLiveLogLine(line, launchedAt) {
+  if (line === undefined || typeof launchedAt !== "string") return false;
+  const timestamp = line.match(
     /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?)/,
   )?.[1];
   if (timestamp === undefined) return false;
   const normalizedTimestamp = timestamp.replace(/(\.\d{3})\d+$/, "$1");
-  const recent =
+  return (
     new Date(normalizedTimestamp).getTime() >=
-    new Date(launchedAt).getTime() - 2_000;
-  if (!recent) return false;
-  return !lines
-    .slice(matchingIndex + 1)
-    .some((line) => resolvedBy.some((marker) => line.includes(marker)));
+    new Date(launchedAt).getTime() - 2_000
+  );
 }
 
 async function readRecentFile(path, maximumBytes = 256_000) {

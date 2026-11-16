@@ -269,6 +269,7 @@ export {
   formatAgentIdentityContext,
   retryGuidance,
   structuredErrorCode,
+  TRANSPORT_SOURCE_FLAG_GUIDANCE,
   VERIFIED_TOOL_RESULT_GUIDANCE,
   type AgentIdentityContext,
 } from "./agent-policy.js";
@@ -4072,6 +4073,61 @@ export class CopilotAgentService implements AgentService {
           occurredAt: event.timestamp,
           sessionId: session.sessionId,
         });
+      } else if (
+        event.type === "assistant.usage" ||
+        event.type === "session.usage_info" ||
+        event.type === "session.compaction_start" ||
+        event.type === "session.compaction_complete"
+      ) {
+        const fields = [
+          "model",
+          "inputTokens",
+          "outputTokens",
+          "cacheReadTokens",
+          "cacheWriteTokens",
+          "outputTtftMs",
+          "timeToFirstTokenMs",
+          "interTokenLatencyMs",
+          "finishReason",
+          "reasoningEffort",
+          "currentTokens",
+          "tokenLimit",
+          "conversationTokens",
+          "systemTokens",
+          "toolDefinitionsTokens",
+          "trigger",
+          "success",
+          "tokensRemoved",
+          "messagesRemoved",
+          "preCompactionTokens",
+          "postCompactionTokens",
+          "statusCode",
+        ];
+        this.#recordRuntime(
+          state,
+          "agent.sdk.diagnostic",
+          sanitizeTelemetryAttributes(
+            {
+              kind: event.type,
+              sdkEventId: event.id,
+              parentSdkEventId: event.parentId,
+              ...Object.fromEntries(
+                fields.flatMap((key) => {
+                  const value: unknown = Reflect.get(event.data, key);
+                  return value === undefined ? [] : [[key, value]];
+                }),
+              ),
+              ...(event.type === "assistant.usage"
+                ? { durationMs: event.data.duration }
+                : {}),
+            },
+            { maxDepth: 3, maxObjectFields: 32, maxBytes: 4096 },
+          ),
+          {
+            occurredAt: event.timestamp,
+            sessionId: session.sessionId,
+          },
+        );
       } else if (event.type === "model.call_failure") {
         this.#recordRuntime(state, "agent.model.failed", sdkData, {
           occurredAt: event.timestamp,

@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { setImmediate as yieldTurn } from "node:timers/promises";
 import type { BindParams, Database } from "sql.js";
 import { sanitizePersistedText } from "@ableton-agent/observability";
 import {
@@ -14,6 +15,7 @@ import {
   type MetricRecordChunk,
   type MetricRecordStreamManifest,
   type MetricRecordStreamDescriptor,
+  type MetricRecordStreamContextReference,
 } from "@ableton-agent/protocol";
 import type { ContextOperationOptions } from "./context-repository.js";
 import { RepositoryConflictError } from "./repository.js";
@@ -39,8 +41,11 @@ import {
 } from "./metric-capture-schemas.js";
 import {
   listeningPassSchema,
+  contextEntrySchema,
+  contextLinkSchema,
   type ListeningPass,
   type ContextTrace,
+  type ContextEntry,
 } from "./context-schemas.js";
 
 type InternalMetricCaptureRecord = Omit<MetricCaptureRecord, "descriptor"> & {
@@ -74,6 +79,10 @@ export interface MetricCaptureBackend {
   readonly publishSession: (
     pass: ListeningPass,
     options: ContextOperationOptions,
+  ) => Promise<void>;
+  readonly prepareFeatures: (entry: ContextEntry) => void;
+  readonly scheduleFeatures: (
+    entries: readonly ContextEntry[],
   ) => Promise<void>;
 }
 
@@ -126,15 +135,27 @@ export class MetricCaptureRepository {
           descriptor.ownership.causationId !== metadata.trace.causationId ||
           canonicalMetricRecordJson(metadata.trace) !==
             canonicalMetricRecordJson(metadata.pass.trace) ||
-          metadata.pass.listenerIds.length !== 1 ||
+          metadata.pass.requestedMode !== descriptor.source.view ||
           canonicalMetricRecordJson(metadata.pass.requestedRange) !==
             canonicalMetricRecordJson({
-              startBeat: descriptor.geometry.startBeat,
-              endBeat: descriptor.geometry.endBeat,
+              startBeat:
+                descriptor.source.view === "session"
+                  ? descriptor.source.coordinate.startBeat
+                  : descriptor.geometry.startBeat,
+              endBeat:
+                descriptor.source.view === "session"
+                  ? descriptor.source.coordinate.endBeat
+                  : descriptor.geometry.endBeat,
             }) ||
-          canonicalMetricRecordJson(
-            metadata.subject.binding.semanticLocator.arrangementRange,
-          ) !== canonicalMetricRecordJson(metadata.pass.requestedRange)
+          !metadata.subject.binding.previousRuntimeBindings.includes(
+            descriptor.source.view === "session"
+              ? descriptor.source.clipReference
+              : descriptor.source.target.expectedReference,
+          ) ||
+          (descriptor.source.view === "arrangement" &&
+            canonicalMetricRecordJson(
+              metadata.subject.binding.semanticLocator.arrangementRange,
+            ) !== canonicalMetricRecordJson(metadata.pass.requestedRange))
         )
           throw new RepositoryConflictError(
             "Capture descriptor disagrees with frozen context identity or range",
@@ -174,8 +195,8 @@ export class MetricCaptureRepository {
         if (
           select(
             this.backend.database(),
-            "SELECT id FROM context_metric_captures WHERE id = ? OR pass_id = ?",
-            [metadata.id, metadata.pass.id],
+            "SELECT id FROM context_metric_captures WHERE id = ? OR (pass_id = ? AND listener_id = ?)",
+            [metadata.id, metadata.pass.id, metadata.producer.listenerId],
           ).length > 0
         )
           throw new RepositoryConflictError(
@@ -322,6 +343,21 @@ export class MetricCaptureRepository {
     rawPass: ListeningPass,
     options: ContextOperationOptions = {},
   ): Promise<MetricCapturePublication> {
+    return this.finalizeMany(
+      [{ owner: input, manifest: rawManifest }],
+      rawPass,
+      options,
+    ).then((publications) => publications[0]!);
+  }
+
+  public finalizeMany(
+    captures: readonly {
+      readonly owner: MetricCaptureOwner;
+      readonly manifest: MetricRecordStreamManifest;
+    }[],
+    rawPass: ListeningPass,
+    options: ContextOperationOptions = {},
+  ): Promise<readonly MetricCapturePublication[]> {
     return this.backend.operation(
       "metric-finalize",
       {
@@ -330,68 +366,91 @@ export class MetricCaptureRepository {
         activeAgentId: options.activeAgentId ?? rawPass.initiatorAgentId,
       },
       async (progress) => {
-        const owner = metricCaptureOwnerSchema.parse(input);
-        const record = this.decode(this.owned(owner, true).payload);
-        const manifest = metricRecordStreamManifestSchema.parse(rawManifest);
-        this.assertSanitized(manifest);
         const pass = listeningPassSchema.parse(
           this.backend.sanitize(listeningPassSchema.parse(rawPass)),
         );
-        const provisional = record.metadata.pass;
+        const complete = captures.every(
+          (capture) => capture.manifest.outcome === "complete",
+        );
         if (
-          !pass.complete ||
-          pass.status !== "completed" ||
-          pass.actualMode !== "arrangement" ||
-          pass.requestedMode !== provisional.requestedMode ||
-          pass.interruptionReason !== null ||
-          manifest.outcome !== "complete" ||
-          pass.id !== provisional.id ||
-          pass.sessionId !== provisional.sessionId ||
-          pass.liveSetId !== provisional.liveSetId ||
-          pass.initiatorAgentId !== provisional.initiatorAgentId ||
-          pass.createdAt !== provisional.createdAt ||
-          (provisional.startedAt !== null &&
-            pass.startedAt !== provisional.startedAt) ||
-          canonicalMetricRecordJson(pass.trace) !==
-            canonicalMetricRecordJson(provisional.trace) ||
-          canonicalMetricRecordJson(pass.listenerIds) !==
-            canonicalMetricRecordJson(provisional.listenerIds) ||
-          canonicalMetricRecordJson(pass.requestedRange) !==
-            canonicalMetricRecordJson(provisional.requestedRange) ||
-          canonicalMetricRecordJson(pass.actualRange) !==
-            canonicalMetricRecordJson(provisional.requestedRange)
+          pass.complete !== complete ||
+          pass.status !== (complete ? "completed" : "partial")
         )
           throw new RepositoryConflictError(
-            "Only independently complete captures may publish the frozen pass",
+            "Published pass must preserve aggregate metric completeness",
           );
-        const verified = await this.verifyDurable(
-          record,
-          manifest,
-          options,
-          progress,
-        );
+        if (
+          captures.length < 1 ||
+          captures.length > 8 ||
+          captures.length !== pass.listenerIds.length ||
+          new Set(captures.map((item) => item.owner.captureId)).size !==
+            captures.length
+        )
+          throw new RepositoryConflictError(
+            "Publication requires every distinct owned listener capture",
+          );
+        const verifiedCaptures: {
+          owner: MetricCaptureOwner;
+          record: InternalMetricCaptureRecord;
+          manifest: MetricRecordStreamManifest;
+          verified: { verifiedChunks: number; verifiedBytes: number };
+        }[] = [];
+        for (const capture of captures) {
+          const owner = metricCaptureOwnerSchema.parse(capture.owner);
+          const record = this.decode(this.owned(owner, true).payload);
+          const manifest = metricRecordStreamManifestSchema.parse(
+            capture.manifest,
+          );
+          this.assertSanitized(manifest);
+          const provisional = record.metadata.pass;
+          if (
+            !["completed", "partial"].includes(pass.status) ||
+            pass.actualMode !== record.descriptor.source.view ||
+            pass.requestedMode !== provisional.requestedMode ||
+            pass.interruptionReason !== null ||
+            !["complete", "partial"].includes(manifest.outcome) ||
+            manifest.nativeProof.status !== "completed" ||
+            pass.id !== provisional.id ||
+            pass.sessionId !== provisional.sessionId ||
+            pass.liveSetId !== provisional.liveSetId ||
+            pass.initiatorAgentId !== provisional.initiatorAgentId ||
+            pass.createdAt !== provisional.createdAt ||
+            (provisional.startedAt !== null &&
+              pass.startedAt !== provisional.startedAt) ||
+            canonicalMetricRecordJson(pass.trace) !==
+              canonicalMetricRecordJson(provisional.trace) ||
+            canonicalMetricRecordJson(pass.listenerIds) !==
+              canonicalMetricRecordJson(provisional.listenerIds) ||
+            canonicalMetricRecordJson(pass.requestedRange) !==
+              canonicalMetricRecordJson(provisional.requestedRange) ||
+            canonicalMetricRecordJson(pass.actualRange) !==
+              canonicalMetricRecordJson(provisional.requestedRange)
+          )
+            throw new RepositoryConflictError(
+              "Only independently complete captures may publish the frozen pass",
+            );
+          const verified = await this.verifyDurable(
+            record,
+            manifest,
+            options,
+            progress,
+          );
+          verifiedCaptures.push({ owner, record, manifest, verified });
+        }
+        if (
+          new Set(
+            verifiedCaptures.map(
+              ({ record }) => record.metadata.producer.listenerId,
+            ),
+          ).size !== pass.listenerIds.length
+        )
+          throw new RepositoryConflictError(
+            "Publication listener identities must be distinct",
+          );
         await this.backend.publishSession(pass, options);
+        const publishedEntries: ContextEntry[] = [];
         await this.backend.transaction(
           () => {
-            const previousSubject = select(
-              this.backend.database(),
-              "SELECT payload FROM context_subjects WHERE id = ?",
-              [record.metadata.subject.id],
-            )[0];
-            const subjectPayload = JSON.stringify(record.metadata.subject);
-            if (
-              previousSubject !== undefined &&
-              previousSubject.payload !== subjectPayload
-            )
-              throw new RepositoryConflictError(
-                "Immutable metric subject cannot be overwritten",
-              );
-            this.backend
-              .database()
-              .run("INSERT OR IGNORE INTO context_subjects VALUES (?, ?)", [
-                record.metadata.subject.id,
-                subjectPayload,
-              ]);
             this.backend
               .database()
               .run("INSERT INTO context_passes VALUES (?, ?, ?)", [
@@ -399,40 +458,154 @@ export class MetricCaptureRepository {
                 pass.createdAt,
                 JSON.stringify(pass),
               ]);
-            this.backend
-              .database()
-              .run(
-                "UPDATE context_metric_captures SET status = 'completed', owner_token = '', payload = ? WHERE id = ?",
-                [
-                  this.encode({
-                    ...record,
-                    metadata: { ...record.metadata, pass },
-                    status: "completed",
-                    manifest,
-                    updatedAt: this.backend.now(),
-                  }),
-                  owner.captureId,
-                ],
-              );
+            for (const { owner, record, manifest } of verifiedCaptures) {
+              const subjects = [
+                record.metadata.subject,
+                ...(record.metadata.contributors ?? []),
+              ];
+              for (const subject of subjects) {
+                const previousSubject = select(
+                  this.backend.database(),
+                  "SELECT payload FROM context_subjects WHERE id = ?",
+                  [subject.id],
+                )[0];
+                const subjectPayload = JSON.stringify(subject);
+                if (
+                  previousSubject !== undefined &&
+                  previousSubject.payload !== subjectPayload
+                )
+                  throw new RepositoryConflictError(
+                    "Immutable metric subject cannot be overwritten",
+                  );
+                this.backend
+                  .database()
+                  .run("INSERT OR IGNORE INTO context_subjects VALUES (?, ?)", [
+                    subject.id,
+                    subjectPayload,
+                  ]);
+              }
+              const { rows: _rows, ...geometry } = record.descriptor.geometry;
+              void _rows;
+              const entry = contextEntrySchema.parse({
+                id: record.metadata.id,
+                sessionId: pass.sessionId,
+                liveSetId: pass.liveSetId,
+                passId: pass.id,
+                kind: METRIC_CAPTURE_CONTEXT_KIND,
+                producer: record.metadata.producer,
+                createdAt: pass.createdAt,
+                capturedAt: pass.startedAt,
+                trace: record.metadata.trace,
+                payload: {
+                  schema: METRIC_CAPTURE_CONTEXT_KIND,
+                  captureId: record.metadata.id,
+                  descriptorDigest: record.state.descriptorDigest,
+                  descriptor: { ...record.descriptor, geometry },
+                },
+                ...(record.metadata.musicalAlignment
+                  ? { musicalAlignment: record.metadata.musicalAlignment }
+                  : {}),
+              });
+              this.backend
+                .database()
+                .run("INSERT INTO context_entries VALUES (?, ?, ?, ?, ?, ?)", [
+                  entry.id,
+                  entry.passId,
+                  entry.producer.listenerId,
+                  entry.kind,
+                  entry.createdAt,
+                  JSON.stringify(entry),
+                ]);
+              this.backend.prepareFeatures(entry);
+              publishedEntries.push(entry);
+              for (const subject of subjects) {
+                const primary = subject.id === record.metadata.subject.id;
+                const session = record.descriptor.source.view === "session";
+                const link = contextLinkSchema.parse({
+                  id: `link:${entry.id}:${primary ? "primary" : "contributor"}:${subject.id}`,
+                  sessionId: pass.sessionId,
+                  liveSetId: pass.liveSetId,
+                  entryId: entry.id,
+                  subjectId: subject.id,
+                  relationship: primary ? "primary" : "contributor",
+                  coverage: session
+                    ? {
+                        ...(primary
+                          ? pass.actualRange
+                          : record.descriptor.source.transport),
+                        coordinate: primary
+                          ? "clip-local-beats"
+                          : "transport-beats",
+                        ...(primary ? { iteration: 0 } : {}),
+                      }
+                    : record.descriptor.source.transport,
+                  attribution: "unknown",
+                  observedContributorIds: subjects
+                    .filter((item) => item.id !== record.metadata.subject.id)
+                    .map((item) => item.id),
+                  sourceFingerprint: subject.binding,
+                  freshness: {
+                    status: "unknown",
+                    assessedAt: this.backend.now(),
+                    reason:
+                      "Immutable capture; current source identity not revalidated",
+                  },
+                });
+                this.backend
+                  .database()
+                  .run(
+                    "INSERT INTO context_links VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    [
+                      link.id,
+                      link.entryId,
+                      link.subjectId,
+                      link.freshness.status,
+                      link.coverage.startBeat,
+                      link.coverage.endBeat,
+                      JSON.stringify(link),
+                    ],
+                  );
+              }
+              this.backend
+                .database()
+                .run(
+                  "UPDATE context_metric_captures SET status = 'completed', owner_token = '', payload = ? WHERE id = ?",
+                  [
+                    this.encode({
+                      ...record,
+                      metadata: { ...record.metadata, pass },
+                      status: "completed",
+                      manifest,
+                      updatedAt: this.backend.now(),
+                    }),
+                    owner.captureId,
+                  ],
+                );
+            }
           },
           options.signal,
           false,
           pass.id,
         );
-        progress({
-          captureId: owner.captureId,
-          ...verified,
-          published: true,
-        });
-        return {
+        await this.backend.scheduleFeatures(publishedEntries);
+        for (const { owner, verified } of verifiedCaptures)
+          progress({
+            captureId: owner.captureId,
+            ...verified,
+            published: true,
+          });
+        return verifiedCaptures.map(({ record }) => ({
           contextId: record.metadata.id,
           kind: METRIC_CAPTURE_CONTEXT_KIND,
           passId: pass.id,
           subjectId: record.metadata.subject.id,
           listenerId: record.metadata.producer.listenerId,
-        };
+        }));
       },
-      (error) => this.classifyFailure(input, options, error),
+      async (error) => {
+        for (const capture of captures)
+          await this.classifyFailure(capture.owner, options, error);
+      },
     );
   }
 
@@ -494,7 +667,8 @@ export class MetricCaptureRepository {
     progress: (attributes: Record<string, unknown>) => void,
   ): Promise<{ verifiedChunks: number; verifiedBytes: number }> {
     if (
-      manifest.outcome !== "complete" ||
+      !["complete", "partial"].includes(manifest.outcome) ||
+      manifest.nativeProof.status !== "completed" ||
       (record.status === "sealed" &&
         canonicalMetricRecordJson(record.manifest) !==
           canonicalMetricRecordJson(manifest))
@@ -522,12 +696,14 @@ export class MetricCaptureRepository {
       state = await acceptMetricRecordChunk(record.descriptor, state, chunk);
       verifiedBytes += Buffer.byteLength(String(row.payload));
       verifiedChunks++;
-      if (verifiedChunks % 64 === 0)
+      if (verifiedChunks % 64 === 0) {
         progress({
           captureId: record.metadata.id,
           verifiedChunks,
           verifiedBytes,
         });
+        await yieldTurn();
+      }
     }
     const total = select(
       this.backend.database(),
@@ -563,72 +739,110 @@ export class MetricCaptureRepository {
     });
   }
 
+  public async verifyFeatureSourceWithinOperation(
+    reference: MetricRecordStreamContextReference,
+    options: ContextOperationOptions,
+    progress: (attributes: Record<string, unknown>) => void,
+  ): Promise<MetricCaptureRecord> {
+    const row = select(
+      this.backend.database(),
+      "SELECT payload FROM context_metric_captures WHERE id = ?",
+      [reference.captureId],
+    )[0];
+    if (row === undefined)
+      throw new RepositoryConflictError("Missing feature measurement source");
+    const record = this.decode(row.payload);
+    const { rows: _rows, ...geometry } = record.descriptor.geometry;
+    void _rows;
+    if (
+      record.status !== "completed" ||
+      record.manifest === null ||
+      reference.captureId !== record.metadata.id ||
+      reference.descriptorDigest !== record.state.descriptorDigest ||
+      canonicalMetricRecordJson(reference.descriptor) !==
+        canonicalMetricRecordJson({ ...record.descriptor, geometry })
+    )
+      throw new RepositoryConflictError(
+        "Feature measurement source is not the original completed capture",
+      );
+    await this.verifyDurable(record, record.manifest, options, progress);
+    return record;
+  }
+
   public list(
     rawQuery: MetricChunkQuery,
     options: ContextOperationOptions = {},
   ): Promise<MetricChunkPage> {
-    return this.backend.operation("metric-page", options, async () => {
-      const query = metricChunkQuerySchema.parse(rawQuery);
-      const parameters: (string | number)[] = [
-        query.captureId,
-        query.afterSequence,
-      ];
-      let where = "capture_id = ? AND sequence > ?";
-      if (query.metric !== undefined) {
-        where += " AND metric = ?";
-        parameters.push(query.metric);
-      }
-      if (query.range !== undefined) {
-        where += " AND start_sample < ? AND end_sample > ?";
-        parameters.push(query.range.endSample, query.range.startSample);
-      }
-      const items: MetricRecordChunk[] = [];
-      let encodedBytes = 2;
-      let lastSequence = query.afterSequence;
-      // Fetch one row at a time: the byte budget applies before decoding.
-      while (items.length < query.limit) {
-        options.signal?.throwIfAborted();
-        parameters[1] = lastSequence;
-        const row = select(
-          this.backend.database(),
-          `SELECT * FROM context_metric_chunks WHERE ${where} ORDER BY sequence LIMIT 1`,
-          parameters,
-        )[0];
-        if (row === undefined) return { items, encodedBytes };
-        const bytes =
-          Buffer.byteLength(String(row.payload)) + (items.length > 0 ? 1 : 0);
-        if (encodedBytes + bytes > query.maxBytes) {
-          if (items.length === 0)
-            throw this.backend.quotaError(
-              "Metric page budget cannot fit the next immutable chunk",
-            );
-          return { items, encodedBytes, nextSequence: lastSequence };
-        }
-        const chunk = metricRecordChunkSchema.parse(
-          JSON.parse(String(row.payload)),
-        );
-        this.assertChunkIndex(row, chunk);
-        this.assertSanitized(chunk);
-        if ((await metricRecordChunkDigest(chunk)) !== chunk.digest)
-          throw new Error("Stored metric chunk integrity check failed");
-        options.signal?.throwIfAborted();
-        items.push(chunk);
-        encodedBytes += bytes;
-        lastSequence = Number(row.sequence);
-      }
+    return this.backend.operation("metric-page", options, () =>
+      this.readChunksWithinOperation(rawQuery, options),
+    );
+  }
+
+  /** Reuses verified reads from an already serialized repository operation. */
+  public async readChunksWithinOperation(
+    rawQuery: MetricChunkQuery,
+    options: ContextOperationOptions = {},
+  ): Promise<MetricChunkPage> {
+    const query = metricChunkQuerySchema.parse(rawQuery);
+    const parameters: (string | number)[] = [
+      query.captureId,
+      query.afterSequence,
+    ];
+    let where = "capture_id = ? AND sequence > ?";
+    if (query.metric !== undefined) {
+      where += " AND metric = ?";
+      parameters.push(query.metric);
+    }
+    if (query.range !== undefined) {
+      where += " AND start_sample < ? AND end_sample > ?";
+      parameters.push(query.range.endSample, query.range.startSample);
+    }
+    const items: MetricRecordChunk[] = [];
+    let encodedBytes = 2;
+    let lastSequence = query.afterSequence;
+    // Fetch one row at a time: the byte budget applies before decoding.
+    while (items.length < query.limit) {
+      options.signal?.throwIfAborted();
       parameters[1] = lastSequence;
-      const more =
-        select(
-          this.backend.database(),
-          `SELECT sequence FROM context_metric_chunks WHERE ${where} ORDER BY sequence LIMIT 1`,
-          parameters,
-        ).length > 0;
-      return {
-        items,
-        encodedBytes,
-        ...(more ? { nextSequence: lastSequence } : {}),
-      };
-    });
+      const row = select(
+        this.backend.database(),
+        `SELECT * FROM context_metric_chunks WHERE ${where} ORDER BY sequence LIMIT 1`,
+        parameters,
+      )[0];
+      if (row === undefined) return { items, encodedBytes };
+      const bytes =
+        Buffer.byteLength(String(row.payload)) + (items.length > 0 ? 1 : 0);
+      if (encodedBytes + bytes > query.maxBytes) {
+        if (items.length === 0)
+          throw this.backend.quotaError(
+            "Metric page budget cannot fit the next immutable chunk",
+          );
+        return { items, encodedBytes, nextSequence: lastSequence };
+      }
+      const chunk = metricRecordChunkSchema.parse(
+        JSON.parse(String(row.payload)),
+      );
+      this.assertChunkIndex(row, chunk);
+      this.assertSanitized(chunk);
+      if ((await metricRecordChunkDigest(chunk)) !== chunk.digest)
+        throw new Error("Stored metric chunk integrity check failed");
+      options.signal?.throwIfAborted();
+      items.push(chunk);
+      encodedBytes += bytes;
+      lastSequence = Number(row.sequence);
+    }
+    parameters[1] = lastSequence;
+    const more =
+      select(
+        this.backend.database(),
+        `SELECT sequence FROM context_metric_chunks WHERE ${where} ORDER BY sequence LIMIT 1`,
+        parameters,
+      ).length > 0;
+    return {
+      items,
+      encodedBytes,
+      ...(more ? { nextSequence: lastSequence } : {}),
+    };
   }
 
   public listCaptures(
@@ -795,7 +1009,11 @@ export class MetricCaptureRepository {
       throw this.backend.quotaError(
         "Metric capture metadata exceeds bounded allowance",
       );
-    for (const record of [metadata.pass, metadata.subject])
+    for (const record of [
+      metadata.pass,
+      metadata.subject,
+      ...(metadata.contributors ?? []),
+    ])
       if (
         record.sessionId !== this.backend.sessionId ||
         record.liveSetId !== this.backend.liveSetId()
@@ -806,8 +1024,11 @@ export class MetricCaptureRepository {
     if (
       metadata.pass.complete ||
       metadata.pass.status === "completed" ||
-      metadata.pass.requestedMode !== "arrangement" ||
-      metadata.subject.kind !== "arrangement-range" ||
+      !["arrangement", "session"].includes(metadata.pass.requestedMode) ||
+      (metadata.pass.requestedMode === "session"
+        ? metadata.subject.kind !== "clip" ||
+          metadata.subject.location !== "session"
+        : metadata.subject.kind !== "arrangement-range") ||
       !metadata.pass.listenerIds.includes(metadata.producer.listenerId)
     )
       throw new TypeError(

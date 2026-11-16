@@ -80,6 +80,100 @@ afterEach(() => {
 });
 
 describe("AbletonBridgeService", () => {
+  it("reads complete loaded Arrangement MIDI through the traced read-only subrange boundary", async () => {
+    const port = await startSimulator();
+    const telemetry: TelemetryEventEnvelope[] = [];
+    const requests: string[] = [];
+    const service = new AbletonBridgeService({
+      authenticationToken: token,
+      port,
+      events: new InMemoryEventPublisher(),
+      telemetry: { enqueue: (event) => telemetry.push(event) },
+      onRequest: (request) => requests.push(request.command),
+    });
+    await service.start();
+    try {
+      const { track } = await service.createTrack({
+        kind: "midi",
+        name: "Inspection",
+      });
+      const target = {
+        index: track.index,
+        expectedReference: track.reference,
+        expectedName: track.name,
+      };
+      const { clip } = await service.createArrangementMidiClip({
+        ...target,
+        startTime: 16,
+        length: 16,
+        name: "Loaded MIDI",
+      });
+      const notes = [
+        { pitch: 60, startTime: 1, duration: 0.5, velocity: 100, mute: false },
+      ];
+      await service.replaceArrangementMidiNotes({
+        ...target,
+        expectedClipReference: clip.reference,
+        expectedStartTime: 16,
+        allowPerNoteExpressionLoss: false,
+        notes,
+      });
+      const snapshot = await service.inspectSession();
+      const baselineRequests = requests.length;
+      const params = {
+        schemaVersion: 1 as const,
+        queryId: "10000000-0000-4000-8000-000000000073",
+        track: { kind: "regular" as const, ...target },
+        range: { startBeat: 20, endBeat: 24 },
+      };
+      const result = await withCorrelation(
+        {
+          traceId: params.queryId,
+          correlationId: "arrangement-midi-read",
+          causationId: "midi-source-admission",
+        },
+        () => service.inspectArrangementListeningSource(params),
+      );
+      expect(requests.slice(baselineRequests)).toEqual([
+        "listening.inspect_arrangement_source",
+      ]);
+      expect(result.range).toEqual(params.range);
+      expect(result.clips).toHaveLength(1);
+      expect(result.clips[0]).toMatchObject({
+        clipId: clip.reference,
+        startBeat: 16,
+        endBeat: 32,
+        filePath: null,
+        midi: { notes, totalNotes: 1, offset: 0, truncated: false },
+      });
+      expect(result.instrumentChain).toMatchObject({
+        before: { devices: [], total: 0 },
+        devices: [],
+        after: { devices: [], total: 0 },
+      });
+      expect(await service.inspectSession()).toEqual(snapshot);
+      const events = telemetry.filter(
+        (event) =>
+          event.attributes.command === "listening.inspect_arrangement_source",
+      );
+      expect(events.map((event) => event.name)).toEqual([
+        "bridge.request.queued",
+        "bridge.request.dispatched",
+        "bridge.request.completed",
+      ]);
+      expect(
+        events.every(
+          (event) =>
+            event.trace?.traceId === params.queryId &&
+            event.correlationId === "arrangement-midi-read" &&
+            event.causationId === "midi-source-admission",
+        ),
+      ).toBe(true);
+    } finally {
+      await service.stop();
+    }
+  });
+
   it("reads exact Arrangement ranges through the authenticated read-only traced boundary", async () => {
     const port = await startSimulator(token, { listeningFixture: true });
     const telemetry: TelemetryEventEnvelope[] = [];
@@ -2756,6 +2850,59 @@ describe("AbletonBridgeService", () => {
       { eventId, status: "invalidated" },
     ]);
     await service.stop();
+  });
+
+  it("uses the existing long budget only for explicit full instrument-tree inspection", async () => {
+    const port = await startSimulator(token, {
+      delayCommand: "devices.inspect",
+      delayMs: 300,
+    });
+    const telemetry: TelemetryEventEnvelope[] = [];
+    const service = new AbletonBridgeService({
+      authenticationToken: token,
+      events: new InMemoryEventPublisher(),
+      port,
+      requestTimeoutMs: 200,
+      longRequestTimeoutMs: 1_000,
+      telemetry: {
+        enqueue: (event) => {
+          telemetry.push(telemetryEventEnvelopeSchema.parse(event));
+        },
+      },
+    });
+    try {
+      await service.start();
+      const track = (await service.inspectSession()).tracks[0]!;
+      const target = {
+        index: track.index,
+        expectedReference: track.reference,
+        expectedName: track.name,
+        offset: 0,
+        limit: 1,
+      };
+      await expect(
+        service.inspectDevices({ ...target, includeInstrumentTree: true }),
+      ).resolves.toMatchObject({ total: 1 });
+      await expect(
+        service.inspectDevices({ ...target, includeInstrumentTree: false }),
+      ).rejects.toThrow("timed out");
+      const dispatched = telemetry.filter(
+        (event) =>
+          event.name === "bridge.request.dispatched" &&
+          event.attributes.command === "devices.inspect",
+      );
+      expect(
+        dispatched.map(({ attributes }) => ({
+          timeoutClass: attributes.timeoutClass,
+          timeoutMs: attributes.timeoutMs,
+        })),
+      ).toEqual([
+        { timeoutClass: "long", timeoutMs: 1_000 },
+        { timeoutClass: "normal", timeoutMs: 200 },
+      ]);
+    } finally {
+      await service.stop();
+    }
   });
 
   it("serializes concurrent requests and starts timeouts at dispatch", async () => {

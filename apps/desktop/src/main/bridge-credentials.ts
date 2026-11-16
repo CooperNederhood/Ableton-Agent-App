@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto";
 import { open } from "node:fs/promises";
-import { homedir } from "node:os";
 import { posix, win32 } from "node:path";
 
 import {
@@ -17,14 +16,8 @@ import {
   remoteScriptTokenPath,
 } from "./remote-script-install.js";
 
-export const bridgeTokenKey = "ableton-bridge-token";
 const maximumTokenBytes = 4 * 1024;
 const minimumTokenLength = 32;
-
-export interface BridgeCredentialVault {
-  get(key: string): Promise<string | undefined>;
-  set(key: string, value: string): Promise<void>;
-}
 
 export interface BridgeCredentialNotice {
   readonly status: "pass" | "warn" | "fail";
@@ -33,7 +26,7 @@ export interface BridgeCredentialNotice {
 
 export interface BridgeCredentialResolution {
   readonly token?: string;
-  readonly source?: "vault" | "environment" | "remote-script";
+  readonly source?: "environment" | "remote-script";
   readonly notices: readonly BridgeCredentialNotice[];
   readonly traceId: string;
 }
@@ -44,8 +37,6 @@ interface TokenReadResult {
 }
 
 export interface ResolveBridgeCredentialOptions {
-  readonly storedToken?: string;
-  readonly vault?: BridgeCredentialVault;
   readonly environment?: Readonly<Partial<Record<string, string>>>;
   readonly remoteScriptLocation?: string;
   readonly homeDirectory?: string;
@@ -148,12 +139,12 @@ async function candidateTokenPaths(
       ),
     ];
   }
-  if (options.homeDirectory === undefined && options.vault === undefined) {
+  if (options.homeDirectory === undefined) {
     return [];
   }
   const locations = await detectRemoteScriptLocations({
     platform,
-    homeDirectory: options.homeDirectory ?? homedir(),
+    homeDirectory: options.homeDirectory,
     ...(options.environment === undefined
       ? {}
       : { environment: options.environment }),
@@ -164,10 +155,7 @@ async function candidateTokenPaths(
 export async function resolveBridgeCredential(
   options: ResolveBridgeCredentialOptions,
 ): Promise<BridgeCredentialResolution> {
-  const telemetry =
-    options.vault === undefined && options.homeDirectory === undefined
-      ? undefined
-      : options.telemetry;
+  const telemetry = options.telemetry;
   const now = options.now ?? (() => new Date());
   const startedAt = now();
   const traceId = randomUUID();
@@ -226,40 +214,6 @@ export async function resolveBridgeCredential(
       traceId,
     };
   };
-
-  let storedToken = usableToken(options.storedToken);
-  if (options.storedToken !== undefined && storedToken === undefined) {
-    notices.push({
-      status: "fail",
-      detail:
-        "The stored Remote Script token is invalid; attempting another configured credential source.",
-    });
-  }
-  if (storedToken === undefined && options.vault !== undefined) {
-    try {
-      const vaultValue = await options.vault.get(bridgeTokenKey);
-      storedToken = usableToken(vaultValue);
-      if (vaultValue !== undefined && storedToken === undefined) {
-        notices.push({
-          status: "fail",
-          detail:
-            "The Remote Script token in the desktop credential vault is invalid; attempting another configured credential source.",
-        });
-      }
-    } catch {
-      notices.push({
-        status: "fail",
-        detail:
-          "The desktop credential vault could not be read; attempting another configured credential source.",
-      });
-    }
-  }
-  if (storedToken !== undefined) {
-    return complete({ token: storedToken, source: "vault" }, "success", {
-      source: "vault",
-      candidateCount: 0,
-    });
-  }
 
   const environmentValue =
     options.environment?.[TOKEN_ENVIRONMENT_VARIABLE] ?? undefined;
@@ -346,22 +300,10 @@ export async function resolveBridgeCredential(
     });
   }
 
-  if (options.vault !== undefined) {
-    try {
-      await options.vault.set(bridgeTokenKey, discoveredToken);
-      notices.push({
-        status: "pass",
-        detail:
-          "The installed Remote Script token was discovered and stored in the desktop credential vault.",
-      });
-    } catch {
-      notices.push({
-        status: "warn",
-        detail:
-          "The installed Remote Script token was found and will be used now, but it could not be saved to the desktop credential vault.",
-      });
-    }
-  }
+  notices.push({
+    status: "pass",
+    detail: "The installed Remote Script token was read into process memory.",
+  });
   return complete(
     { token: discoveredToken, source: "remote-script" },
     "success",
@@ -369,7 +311,7 @@ export async function resolveBridgeCredential(
       source: "remote-script",
       candidateCount: paths.length,
       validCandidateCount: validTokens.length,
-      persisted: notices.some(({ status }) => status === "pass"),
+      persisted: false,
     },
   );
 }

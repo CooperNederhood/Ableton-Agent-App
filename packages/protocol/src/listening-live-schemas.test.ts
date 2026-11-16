@@ -355,6 +355,7 @@ describe("bounded listening Live contracts", () => {
         playing: null,
         currentBeat: null,
         tempo: null,
+        timeSignature: null,
         recording: {
           recordMode: null,
           sessionRecord: false,

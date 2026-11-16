@@ -2,6 +2,7 @@ import { z } from "zod";
 import {
   audioObservationKindSchema,
   storedAudioObservationSchema,
+  metricRecordStreamContextReferenceSchema,
 } from "@ableton-agent/protocol";
 import type { ContextOperationResult } from "@ableton-agent/tools";
 import {
@@ -92,7 +93,10 @@ export const desktopContextDetailSchema: z.ZodType<
   .strictObject({
     action: z.literal("get"),
     entry: desktopContextSummarySchema,
-    observation: storedAudioObservationSchema,
+    observation: z.union([
+      storedAudioObservationSchema,
+      metricRecordStreamContextReferenceSchema,
+    ]),
   })
   .refine(
     (value) => value.entry.kind === value.observation.schema,

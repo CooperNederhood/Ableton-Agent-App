@@ -4,6 +4,7 @@ import {
   contextOperationResultSchema,
   FEATURE_VALUE_DETAIL_GUIDANCE,
   METRIC_REPORT_PAGE_GUIDANCE,
+  METRIC_STREAM_READ_GUIDANCE,
   listeningOperationResultSchema,
 } from "@ableton-agent/tools";
 
@@ -29,6 +30,7 @@ export function listeningHistoryResult(toolName: string, sdkResult: unknown) {
   let content: unknown = sdkResult.content;
   let featureSummaryGuidance = false;
   let reportPageGuidance = false;
+  let streamReadGuidance = false;
   if (typeof content === "string") {
     if (Buffer.byteLength(content) > MAX_LISTENING_HISTORY_RESULT_BYTES)
       return unavailable("result_byte_limit");
@@ -36,17 +38,22 @@ export function listeningHistoryResult(toolName: string, sdkResult: unknown) {
     const suffix = `\n\nTool "${toolName}" succeeded. Additional guidance from postToolUse hooks:\n${VERIFIED_TOOL_RESULT_GUIDANCE}`;
     const featureSuffix = `${suffix}\n${FEATURE_VALUE_DETAIL_GUIDANCE}`;
     const reportSuffix = `${suffix}\n${METRIC_REPORT_PAGE_GUIDANCE}`;
+    const streamSuffix = `${suffix}\n${METRIC_STREAM_READ_GUIDANCE}`;
     featureSummaryGuidance =
       toolName === "ableton_context" && content.endsWith(featureSuffix);
     reportPageGuidance =
       toolName === "ableton_context" && content.endsWith(reportSuffix);
+    streamReadGuidance =
+      toolName === "ableton_context" && content.endsWith(streamSuffix);
     const json = featureSummaryGuidance
       ? content.slice(0, -featureSuffix.length)
       : reportPageGuidance
         ? content.slice(0, -reportSuffix.length)
-        : content.endsWith(suffix)
-          ? content.slice(0, -suffix.length)
-          : content;
+        : streamReadGuidance
+          ? content.slice(0, -streamSuffix.length)
+          : content.endsWith(suffix)
+            ? content.slice(0, -suffix.length)
+            : content;
     try {
       content = JSON.parse(json);
     } catch (error) {
@@ -61,6 +68,13 @@ export function listeningHistoryResult(toolName: string, sdkResult: unknown) {
   ).safeParse(content);
   if (!parsed.success) return unavailable("invalid_typed_result");
   if (reportPageGuidance && parsed.data.action !== "report")
+    return unavailable("invalid_typed_result");
+  if (
+    streamReadGuidance &&
+    !["stream-overview", "stream-records", "stream-summary"].includes(
+      parsed.data.action,
+    )
+  )
     return unavailable("invalid_typed_result");
   if (
     featureSummaryGuidance &&

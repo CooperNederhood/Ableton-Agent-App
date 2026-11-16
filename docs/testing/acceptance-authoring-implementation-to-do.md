@@ -2,6 +2,205 @@
 
 Companion specification: [Acceptance test authoring](acceptance-authoring.md).
 
+## Listening consolidation
+
+- [x] Reproduce `run-m1AuKA`'s template/fixture bridge startup race. Wait for the
+      exact owned fixture's fresh, completed document exchange before the port;
+      retain readiness deadlines, audio/ownership guards and original failures.
+
+- [x] Qualify all four normal-message cases on the same final production
+      candidate with original/restored inventories and terminal cleanup:
+      `run-J7vvwY`, `run-U5xT9Q`, `run-LozNle`, `run-LkQQml`, Live Suite
+      11.3.43. Long cases prove during-capture appends. Preserve historical
+      successes separately and keep every earlier failure's original verdict.
+- [x] Preserve the 512 KiB combined-turn cap with actual fixed-width feature
+      reference rows and explicit ordered columns. Cover column/width corruption,
+      duplicate/foreign IDs, reference bounds and complete twenty-measure
+      original/restart inventories; keep earlier failed receipts failed.
+- [x] Remove fresh whole-observation capture consumption from the existing
+      adapter. Migrate bounded source/diagnostic projections and comprehension
+      ownership proofs to original canonical streams; retain historical reads
+      without constructing replacement observations. Distinguish original-stream
+      content hashes from manifest-derived feature fingerprints.
+
+- [x] Reproduce the complete-inventory receipt overflow in `run-m6veIG`;
+      preserve all 300 actual feature IDs from each capture and normalize the
+      existing receipt projection instead of expanding shared metadata.
+      Keep the 512 KiB combined-turn bound, including original/restart
+      twenty-measure regression coverage and malformed/foreign-table guards.
+      The run remains failed; its history cleanup timed out and restart was unrun.
+- [x] Migrate existing storage-shape/search oracles to the single normalized
+      production inventory format; preserve complete original/restored
+      enumeration, duplicate/foreign/provenance/shape guards and receipt bounds.
+      No new runner, test endpoint or agent-assertion exception.
+- [x] Reproduce `run-bAO0Cc`'s post-natural-end null Arrangement eligibility;
+      allow only the known idle global override after a published owned capture
+      on the same track. Preserve definite eligibility before Arrangement,
+      zero known playing/queued counts, source checks and cleanup. Owning
+      Arrangement tests pass 75/75 after the controlled regression fails red.
+- [x] Remove observation-kind source-release compatibility; require exact
+      stream generation/epoch ownership for every Arrangement cleanup receipt.
+- [x] Reproduce the valid hook-framed Arrangement inspection in `run-UdL3xV`;
+      validate this existing read-only tool result in the structural oracle.
+      Keep mutation, malformed payload, failed result and suffix-framing guards.
+      Rechecking preserved originals still rejects its incomplete inventories;
+      the historical failed receipt remains unchanged.
+
+- [x] Qualify canonical short audio (`run-1V8iAU`) and short MIDI
+      (`run-MEqqU8`), all three normal-message steps and all six assertions,
+      including original inventories, owned restart and complete cleanup.
+- [x] Extend the existing long-case storage-shape oracle with owned journal
+      append timing and positive durable counts before native capture could
+      finish. Preserve original witnesses across restart; cover missing,
+      late, foreign-owner, zero-count and changed-witness failures.
+
+- [x] Read original canonical stream descriptors/chunks/manifests for both views
+      through typed Desktop IPC; verify terminal/native/source integrity and
+      restart-stable original-record hashes without an observation fallback.
+- [x] Preserve canonical capture/restart failures `run-LV6qfM` (typed History
+      hook framing) and `run-4IJmVo` (denied agent shell no-op). Fix their owning
+      production guidance/projection boundaries without weakening assertions.
+
+- [x] Agree to roll back the direct-execution detour and use the established
+      user-message -> real agent turn -> normal tools path for all four cases.
+      Keep the Keychain removal and approved Set/audio repository rights.
+- [x] Narrow this milestone to common storage systems, schemas and expected
+      context/measure/feature/grid counts. Defer numerical matching, tolerance
+      calibration and repeatability controls.
+- [x] Complete canonical copy-only intake and saved MIDI-content comparison;
+      independently hash the five referenced audio files against approved
+      repository assets. Keep loaded source review separate.
+- [x] Preserve the pure fifteen-definition numerical checker/tests for later,
+      without requiring it for current storage-shape qualification.
+- [x] Finish portable assets and owned declared Session/audio-Arrangement
+      source review in `consolidation-source-review-5HHNZT` on Live 11.3.43.
+      This is not a successful capture or comparison.
+- [x] Reuse saved/loaded baseline inspection for read-only review of one declared
+      Arrangement audio source plus frozen Session sources. Preserve explicit
+      review-purpose, cancellation, owned-media and no-execution guards.
+- [x] Remove direct-only endpoint, Desktop dispatch, scenario/coordinator/receipt
+      plumbing, helper modules, exports/dependencies and tests surgically.
+- [x] Scope deep baseline/final Session audits to scenario-used sources using
+      existing step/permission IDs; preserve unscoped inventory and explicit
+      all-source authoring review. Retain selected-source preflight, whole-Set,
+      unrelated-playback, listener-placement and selected-source final guards.
+      Cover unrelated-source failures, exact inventory, denial, cancellation
+      and cleanup without increasing bridge timeouts.
+- [x] Add a minimal independent `storage-shape` assertion using bounded typed
+      persisted metadata joined to actual message-turn captures, not a new
+      dispatcher or exhaustive numerical-value collector.
+- [x] Cover expected logical counts/geometry, missing/truncated/foreign evidence,
+      ownership, restart and cleanup. Do not equate physical chunk counts.
+- [x] Admit explicitly declared mixed Session active lengths without relaxing
+      production capture limits. Reuse typed original/native/source-cleanup
+      proofs and exact original-measurement rereads after an owned restart.
+- [x] Add read-only Arrangement MIDI note/instrument-chain witnesses with
+      TypeScript, bridge and Python regressions; preserve full clip-local notes,
+      selected subranges, source extents and stopped global beat16 independently.
+      Actual owned loaded review is still pending.
+- [x] Remove circular loaded-review admission through explicit read-only
+      `source-review` purpose: review unqualified owned Session audio/MIDI
+      without changing qualification, deny all execution/setup/message paths,
+      preserve source/media guards and stop cancellation before provisioning.
+- [ ] Qualify short audio through normal messages first, then short MIDI,
+      long audio and long MIDI. Preserve actual receipts and stop on failures.
+- [x] Record valid message-driven short-audio red `run-yh0GVa`: scoped baseline
+      passed, correct Session capture failed with `session_native_origin_mismatch`
+      at global beat 16 versus expected 0; no context published, owned cleanup
+      complete. Existing global-16 runtime regression reproduces it.
+- [x] Correct fresh Session clip-local/global launch anchoring without seeking
+      the fixture or weakening independent alignment/source guards. Real
+      `run-hqGE1A` passed the six-family Session capture and fifteen features.
+- [x] Permit sequential causally distinct bridge handoffs while retaining replay,
+      concurrency, timeout and finite evidence guards. Reproduce real
+      `run-hqGE1A` single-use handoff failure with the existing simulator.
+- [x] Admit only run-owned stopped remembered Session flags for the declared
+      Back to Arrangement handoff, rejecting unrelated playback and requiring
+      flags to clear afterward. Preserve `run-T6q7lP` as the original red.
+- [x] Preserve `run-8yHiej`, where both production captures completed but
+      bounded Arrangement source-cleanup verification incorrectly required
+      stream-manifest ownership. Verify the actual bounded null fields and
+      authenticated source identity separately from exact native-generation
+      release/finalization; retain strict stream checks and foreign-owner guards.
+- [x] Rerun the short-audio case through both captures and owned restart.
+      `run-DrZgBC` passed on Live 11.3.43: all three normal-message steps,
+      six assertions, exactly two contexts/captures, canonical fifteen-feature
+      measure inventories and applicable sixteen-cell grids, original identities
+      after owned restart, unchanged scopes and terminal cleanup. Earlier
+      failures remain preserved; this is recovered short-audio evidence only.
+      Earlier `run-2BwI5M` failed before messages with startup connection refusal;
+      no comparison verdict. All processes/profile closed, but its proxy cleanup
+      correctly remains failed (`upstream_socket_error`). The user explicitly
+      authorized autonomous debugging/restarts until the complete short-audio
+      capture/comparison/restart case is green; no attended-approval gate.
+- [x] Reproduce `run-BsVhJq` transport-hook parsing failure with the actual
+      two-part production guidance; use canonical exported text while retaining
+      duplicate/foreign/unsafe-result guards. Preserve original evidence.
+- [x] Diagnose the same run's missing Arrangement bar alignment from persisted
+      feature metadata: all grid features were unavailable despite completed
+      capture and restart. Keep the sixteen-cell shape assertion unchanged.
+- [ ] Continue short MIDI, then long audio and long MIDI. The passing bounded
+      short-audio representation does not complete shared incremental storage.
+- [ ] Complete MIDI Arrangement admission when reaching the MIDI cases.
+- [ ] Require common persisted systems/schema/counts, original identities after
+      restart, long incremental appends and required native/History/cleanup proof.
+- [ ] Qualify the unchanged agent comprehension case as a separate follow-on.
+      Shape/count qualification is not numerical, ten-minute or realtime proof.
+
+## Session-to-Arrangement comprehension
+
+- [x] Confirm the one-message, exactly-five-listen contract and exact
+      twenty-measure answer with the user; keep the answer runner-only.
+- [x] Obtain explicit approval for the supplied Set and five AIFF files,
+      perform canonical copy-only intake, and independently verify all six
+      copied asset hashes, four short-file headers and the full Arrangement.
+      Verify 69 active Core Library files and two Builtin IRs in place.
+- [x] Complete owned loaded-source review, including exact MIDI/instrument
+      identities and source baseline, without touching the user's running Live.
+      Freeze the actual initial override; no silent source repair.
+- [x] Extend existing source admission, scoped approvals and per-job evidence
+      routing for four Session and one Arrangement capture in one turn.
+      Preserve single-source behavior and ordinary ownership/safety guards.
+- [x] Add independent five-pass coverage/context/cleanup and exact-pattern
+      assertions, with red/green checker regressions and owning-suite coverage.
+- [x] Freeze the reviewed manifest, register the case and validate its inputs.
+- [x] Run the unchanged installed-candidate baseline and preserve its actual
+      sequencing failure. The user subsequently authorized red/green fixes.
+- [x] Reproduce admission and typed evidence defects with deterministic red
+      tests, fix them and run the broader owning suites before new real runs.
+- [x] Reproduce the unsupported single-context derivation restriction in the
+      driver and atomic scoped policy. Admit equivalent batches of independently
+      validated same-turn owned contexts using only existing per-source rules;
+      preserve denial, usage limits and all-or-nothing consumption.
+- [x] Preserve the correct-answer but failed `run-dpVv8M`. Reproduce the timing
+      proxy's 512-record disconnect with a real framed-traffic unit regression;
+      retain 2,048 bounded metadata records and a separate fail-closed overflow
+      test without changing pending-frame/byte, socket or evidence guards.
+- [x] Reproduce `run-JAAhev` exhausting the separate 10,000-event Desktop
+      observer below 4.6 MB. Retain 32,768 original ordered events while keeping
+      its 16-MiB byte guard and explicit malformed/count/byte failures.
+- [ ] Qualify the exact five-capture answer after product sequencing and bounded
+      stream-read improvements. `run-dpVv8M` returned the correct answer but
+      failed final evidence; latest `run-HFt0eC` completed all five captures
+      but exhausted the unchanged analysis deadline. All 2,314 deterministic
+      owning tests pass, not the real case. Preserve the separate failed History
+      cleanup and confirmed owned-resource teardown; do not describe these as
+      a pass or the historical native timeout reproduction.
+
+## Outcome-based feature evidence
+
+- [x] Reproduce the verifier's unnecessary same-turn pitch-inventory requirement
+      with three red regressions for prior inventory, compact History and direct
+      feature evidence. Accept attributable same-conversation availability while
+      preserving source/session/pass/fingerprint checks, independent native
+      validity, contradiction rejection and separate restored persistence.
+      All 209 feature-search tests and 917 owning integration-support tests pass.
+- [x] Qualify the full feature-search case under the revised outcome contract
+      in terminal `run-PmT6xJ` on Live 11.3.43: three turns, exactly two captures,
+      original context persistence, independent feature/protected-state
+      assertions and final cleanup pass. Offline second-turn replay alone was
+      not treated as qualification; earlier failed receipts remain preserved.
+
 ## Approved three-minute Arrangement listening
 
 - [x] Complete the separately approved single `back-to-arrangement` source

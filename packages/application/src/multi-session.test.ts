@@ -346,6 +346,113 @@ function modelInfo(id: string, overrides: Partial<ModelInfo> = {}): ModelInfo {
 }
 
 describe("CopilotAgentService managed sessions", () => {
+  it.each([true, false])(
+    "retains attributable SDK latency and compaction diagnostics (success=%s)",
+    async (success) => {
+      const observed: AgentRuntimeEvent[] = [];
+      const service = new CopilotAgentService(
+        baseOptions({
+          runtimeObserver: { enqueue: (event) => observed.push(event) },
+          clientFactory: () => ({
+            createSession: vi.fn(async () =>
+              createFakeSession("sdk-diagnostics", {
+                onSend: async (_prompt, emit) => {
+                  const base = {
+                    parentId: null,
+                    timestamp: new Date().toISOString(),
+                    ephemeral: true as const,
+                  };
+                  emit({
+                    ...base,
+                    id: "compact-start",
+                    type: "session.compaction_start",
+                    data: {
+                      currentTokens: 120000,
+                      tokenLimit: 160000,
+                      model: "test-model",
+                      trigger: "threshold",
+                    },
+                  });
+                  emit({
+                    ...base,
+                    id: "compact-end",
+                    type: "session.compaction_complete",
+                    data: {
+                      success,
+                      tokensRemoved: 70000,
+                      summaryContent: "private-compaction-body",
+                      ...(success ? {} : { error: "private-error-body" }),
+                    },
+                  });
+                  emit({
+                    ...base,
+                    id: "model-usage",
+                    type: "assistant.usage",
+                    data: {
+                      model:
+                        "Authorization: Bearer synthetic-diagnostic-secret",
+                      duration: 81000,
+                      inputTokens: 70000,
+                      outputTokens: 80,
+                      outputTtftMs: 80000,
+                      finishReason: "tool_calls",
+                    },
+                  });
+                  return { data: { content: "done" } };
+                },
+              }),
+            ),
+            resumeSession: vi.fn(async () => {
+              throw new Error("unused");
+            }),
+            stop: vi.fn(async () => undefined),
+          }),
+        }),
+      );
+      try {
+        await service.start();
+        await service.createManagedAgent(configuration("diagnostics"));
+        await service.sendToManagedAgent(
+          "diagnostics",
+          "Inspect stored features",
+        );
+        const diagnostics = observed.filter(
+          (e) => e.type === "agent.sdk.diagnostic",
+        );
+        expect(diagnostics).toHaveLength(3);
+        expect(diagnostics.map((e) => e.data.kind)).toEqual([
+          "session.compaction_start",
+          "session.compaction_complete",
+          "assistant.usage",
+        ]);
+        expect(diagnostics[1]?.data).toMatchObject({
+          success,
+          tokensRemoved: 70000,
+        });
+        expect(diagnostics[2]?.data).toMatchObject({
+          durationMs: 81000,
+          outputTtftMs: 80000,
+          inputTokens: 70000,
+        });
+        expect(
+          diagnostics.every(
+            (e) =>
+              e.agentInstanceId === "diagnostics" &&
+              e.sessionId === "sdk-diagnostics" &&
+              e.trace?.traceId,
+          ),
+        ).toBe(true);
+        expect(new Set(diagnostics.map((e) => e.trace?.traceId)).size).toBe(1);
+        expect(JSON.stringify(diagnostics)).not.toContain("private-");
+        expect(JSON.stringify(diagnostics)).not.toContain(
+          "synthetic-diagnostic-secret",
+        );
+      } finally {
+        await service.stop();
+      }
+    },
+  );
+
   it.each([
     { label: "full", operations: undefined, actionCount: 6 },
     { label: "launch-only", operations: ["clips.launch"], actionCount: 1 },
@@ -2074,37 +2181,38 @@ describe("CopilotAgentService managed sessions", () => {
       );
       for (const index of [1, 3]) {
         const prompt = configs[index]?.customAgents?.[0]?.prompt;
+        expect(prompt).toContain("Queued or arming is not completion.");
         expect(prompt).toContain(
-          "Queued or arming is not completion or failure",
+          "Start calls wait for terminal capture, durable publication and cleanup",
         );
         expect(prompt).toContain(
-          "Both listening start calls wait for terminal",
+          "no get-pass polling, second capture, bash or sleep is needed to wait",
         );
-        expect(prompt).toContain("No get-pass polling is needed");
-        expect(prompt).toContain("Never use bash or sleep to wait");
-        expect(prompt).toContain("Arrangement capture is not read-only");
+        expect(prompt).toContain(
+          "The App owns Arrangement positioning and playback start; do not seek or start transport separately",
+        );
         expect(prompt).toContain(
           "Back to Arrangement restores the playback source, not the view",
         );
         expect(prompt).toContain(
-          "Switching views, stopping playback or deselecting a clip does not clear this override",
+          "Switching views or stopping transport alone does not clear a Session override",
         );
         expect(prompt).toContain(
-          "never repair source selection or retry automatically",
+          "after a rejected pass do not repair or retry automatically",
         );
-        expect(prompt).toContain("endBeat, not durationBeats");
+        expect(prompt).toContain("absolute endBeat, not durationBeats");
         expect(prompt).toContain(
-          'for metric-audio-observation/v1 use action "report", offset=0, limit=8, then follow report.nextOffset until null',
+          'Historical bounded observations retain action "report"; do not call it on a new stream context',
         );
-        expect(prompt).toContain("A known contextId does not need list first");
+        expect(prompt).toContain("Use its known contextId directly");
         expect(prompt).toContain(
-          "get-feature is derived evidence and does not replace the original-measurement report",
-        );
-        expect(prompt).toContain(
-          "An explicit user instruction to stop on any failure also covers argument-validation and permission failures",
+          '"stream-overview" gives independently verified terminal counts, gaps, native status and digests',
         );
         expect(prompt).toContain(
-          "retryable describes technical recoverability, not permission to retry",
+          "An explicit user instruction to stop on any failure includes argument-validation and permission failures",
+        );
+        expect(prompt).toContain(
+          "retryable is technical recoverability, not permission to retry",
         );
       }
       for (const index of [1, 2, 3]) {
@@ -2117,7 +2225,8 @@ describe("CopilotAgentService managed sessions", () => {
             toolArgs: { action: "list-features" },
             toolResult: {
               resultType: "success",
-              textResultForLlm: '{"action":"list-features","features":[]}',
+              textResultForLlm:
+                '{"action":"list-features","inventory":{"features":[],"provenance":[],"segments":[],"sources":[],"metadata":[]}}',
             },
           },
           { sessionId: `session-${index}` },
@@ -2177,7 +2286,16 @@ describe("CopilotAgentService managed sessions", () => {
         .fn<
           NonNullable<CopilotAgentServiceOptions["executeContextOperation"]>
         >()
-        .mockResolvedValue({ action: "list-features", features: [] });
+        .mockResolvedValue({
+          action: "list-features",
+          inventory: {
+            features: [],
+            provenance: [],
+            segments: [],
+            sources: [],
+            metadata: [],
+          },
+        });
       const service = new CopilotAgentService(
         baseOptions({
           executeContextOperation,

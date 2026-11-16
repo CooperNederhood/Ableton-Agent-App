@@ -1241,7 +1241,7 @@ Select only needed columns; filter narrowly by Live Set, time range, and IDs usi
   });
   const arrangementTool = defineTool("ableton_arrangement", {
     description:
-      "Inspects and mutates exact identity-bound Arrangement clips, including one efficient long-running region-fill action that never decomposes into repeated agent calls.",
+      'Use action "inspect" for read-only Arrangement clip inventories, playback extent, or source verification. Never use "set-clip-properties" as an inspection action: it edits clips and requires exact clip identity plus requested property changes. Other actions mutate exact identity-bound Arrangement clips and require the corresponding user-requested edit. "fill-region" is one efficient long-running region-fill action that never decomposes into repeated agent calls.',
     parameters: abletonArrangementParamsSchema,
     handler: async (params) => {
       switch (params.action) {

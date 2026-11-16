@@ -54,6 +54,13 @@ def build_listening_simulator_context(state):
             "launch_quantization": "launchQuantization", "legato": "legato",
         }
         fields.update({private: data[public] for private, public in mapping.items() if public in data})
+        if data.get("kind") == "midi":
+            fields["get_all_notes_extended"] = lambda: [
+                SimpleNamespace(
+                    pitch=note["pitch"], start_time=note["startTime"],
+                    duration=note["duration"], velocity=note["velocity"], mute=note.get("mute", False),
+                ) for note in data.get("notes", ())
+            ]
         return remember("_clip_references", SimpleNamespace(**fields), data)
 
     def track(data):

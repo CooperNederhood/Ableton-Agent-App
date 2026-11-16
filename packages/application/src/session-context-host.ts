@@ -6,12 +6,12 @@ import type {
   ContextFeature,
   ContextOperationOptions,
   EntityContextRepository,
-  MetricCaptureRecord,
 } from "@ableton-agent/project-state";
 import {
   contextOperationParamsSchema,
   contextOperationResultSchema,
   projectListeningFeatureRecord,
+  projectListeningFeatureInventory,
   projectListeningFeaturePage,
   projectListeningFeatureDerivation,
   type ContextOperationResult,
@@ -34,6 +34,8 @@ import {
   LISTENING_FEATURE_DEFINITIONS,
   compareListeningFeatures,
   MAX_METRIC_RECORD_CHUNK_BYTES,
+  aggregateMelBandFrames,
+  type MetricRecordStreamGap,
 } from "@ableton-agent/protocol";
 
 const continuationSchema = z.strictObject({
@@ -44,11 +46,7 @@ const continuationSchema = z.strictObject({
 });
 const inventoryCursorSchema = z.strictObject({
   binding: z.string().length(64),
-  legacyCursor: z.string().max(2048).optional(),
-  legacyDone: z.boolean(),
-  streamAfterId: z.string().max(256).optional(),
-  streamDone: z.boolean(),
-  next: z.enum(["legacy", "stream"]),
+  cursor: z.string().max(2048),
 });
 function fingerprint(value: unknown): string {
   return createHash("sha256").update(JSON.stringify(value)).digest("hex");
@@ -202,6 +200,43 @@ async function summarize(
       "Context observation no longer exists",
     );
   }
+  if (payload.schema === "metric-record-stream-context/v1") {
+    const { descriptor } = payload;
+    const derivation = await repository.getFeatureDerivation(entry.id, options);
+    const source = descriptor.source;
+    const geometry = descriptor.geometry;
+    return {
+      contextId: entry.id,
+      passId: entry.passId,
+      listenerId: entry.producer.listenerId,
+      subjectId: subject.id,
+      kind: entry.kind,
+      createdAt: entry.createdAt,
+      freshness:
+        includeHistorical && link.freshness.status === "fresh"
+          ? "historical"
+          : link.freshness.status,
+      summary: [
+        `${subject.kind}: ${subject.binding.semanticLocator.name}`,
+        `Derived features ${derivation?.status ?? "not-derived"}${derivation?.reason ? `: ${derivation.reason}` : ""}; discovery and comparisons use typed feature actions, not new capture`,
+        `Observed ${"coordinate" in link.coverage ? link.coverage.coordinate : "beats"} ${link.coverage.startBeat}-${link.coverage.endBeat}`,
+        `${source.view} source; measured global beats ${source.transport.startBeat}-${source.transport.endBeat}; native samples ${geometry.startSample}-${geometry.endSample} at ${geometry.sampleRate} Hz`,
+        ...(source.view === "session"
+          ? [
+              `Session first iteration (0), clip-local beats ${source.coordinate.startBeat}-${source.coordinate.endBeat}`,
+            ]
+          : []),
+        ...descriptor.algorithms.map(
+          (item) =>
+            `${item.metric}: ${item.availability}${item.unavailableReason ? ` (${item.unavailableReason})` : ""}`,
+        ),
+        "Immutable incrementally persisted measurements; original supports remain available through bounded record reads",
+        "Source references are connection-scoped; exclusive audio attribution is not certified",
+      ]
+        .join(". ")
+        .slice(0, 2048),
+    };
+  }
   const coords =
     payload.schema === "metric-audio-observation/v1"
       ? storedObservationCoordinates(payload)
@@ -223,9 +258,7 @@ async function summarize(
       ? "historical"
       : link.freshness.status;
   const quality =
-    entry.payload.schema !== "audio-observation/v1"
-      ? entry.payload.alignment
-      : undefined;
+    payload.schema !== "audio-observation/v1" ? payload.alignment : undefined;
   const observed = (samples: number) =>
     `${samples} samples (${listeningDisagreementMilliseconds(
       samples,
@@ -308,53 +341,6 @@ export function createSessionContextHost(
     }
     return repository;
   };
-  const streamSummary = (
-    repository: EntityContextRepository,
-    record: MetricCaptureRecord,
-    includeHistorical: boolean,
-  ): ContextSummary => {
-    const { metadata, manifest, descriptor } = record;
-    if (
-      metadata.pass.sessionId !== repository.sessionId ||
-      metadata.subject.sessionId !== repository.sessionId
-    )
-      throw new ListeningFailure(
-        "permission_denied",
-        "Stream context belongs to another App session",
-      );
-    if (
-      record.status !== "completed" ||
-      !metadata.pass.complete ||
-      manifest?.outcome !== "complete" ||
-      manifest.nativeProof.status !== "completed" ||
-      (!includeHistorical && metadata.pass.liveSetId !== repository.liveSetId)
-    )
-      throw new ListeningFailure(
-        "not_found",
-        "Completed stream context is unavailable for this Set or historical scope",
-      );
-    return {
-      contextId: metadata.id,
-      passId: metadata.pass.id,
-      listenerId: metadata.producer.listenerId,
-      subjectId: metadata.subject.id,
-      kind: "metric-record-stream-context/v1",
-      createdAt: metadata.pass.createdAt,
-      freshness: includeHistorical ? "historical" : "unknown",
-      summary: [
-        `${metadata.subject.kind}: ${metadata.subject.binding.semanticLocator.name}`,
-        `Verified durable stream; ${record.chunkCount} immutable chunks; beats ${descriptor.geometry.startBeat}-${descriptor.geometry.endBeat}; samples ${descriptor.geometry.startSample}-${descriptor.geometry.endSample} at ${descriptor.geometry.sampleRate} Hz`,
-        ...manifest.metrics.map(
-          (metric) =>
-            `${metric.metric} ${metric.status}: ${metric.nextRecordOffset}/${metric.expectedRecords} retained records; ${metric.missingRecords} missing (${metric.gapReasons.join(", ") || "none"})`,
-        ),
-        "Use stream-overview for verified coverage and stream-records for requested values; feature derivation unsupported",
-        "Source references are connection-scoped; current identity/freshness and exclusive audio attribution are not certified",
-      ]
-        .join(". ")
-        .slice(0, 2048),
-    };
-  };
   const requireStream = async (
     repository: EntityContextRepository,
     id: string,
@@ -368,9 +354,32 @@ export function createSessionContextHost(
     operation.signal?.throwIfAborted();
     if (record === undefined)
       throw new ListeningFailure("not_found", "Stream context is unavailable");
+    if (record.metadata.pass.sessionId !== repository.sessionId)
+      throw new ListeningFailure(
+        "permission_denied",
+        "Stream belongs to another App session",
+      );
+    const available = await repository.listEntries(
+      { entryId: id, includeHistorical, limit: 1 },
+      operation,
+    );
+    if (
+      record.status !== "completed" ||
+      available.items[0] === undefined ||
+      available.items[0].liveSetId !== record.metadata.pass.liveSetId
+    )
+      throw new ListeningFailure(
+        "not_found",
+        "Completed measurement context is unavailable",
+      );
     return {
       record,
-      entry: streamSummary(repository, record, includeHistorical),
+      entry: await summarize(
+        repository,
+        available.items[0],
+        includeHistorical,
+        operation,
+      ),
     };
   };
   const list = async (
@@ -398,89 +407,36 @@ export function createSessionContextHost(
     });
     const continuation =
       query.cursor === undefined
-        ? {
-            binding,
-            legacyDone: false,
-            streamDone: repository.incrementalMetrics === undefined,
-            next: "legacy" as "legacy" | "stream",
-          }
+        ? undefined
         : decodeCursor(query.cursor, inventoryCursorSchema, binding);
-    const state: z.infer<typeof inventoryCursorSchema> = { ...continuation };
+    const page = await repository.listEntries(
+      {
+        ...filters,
+        limit: Math.min(query.limit, 4),
+        ...(continuation ? { cursor: continuation.cursor } : {}),
+      },
+      operation,
+    );
     const entries: ContextSummary[] = [];
-    let scanned = 0;
-    // Four maximally-sized summaries fit the tool budget even with multibyte names.
-    while (
-      entries.length < Math.min(query.limit, 4) &&
-      scanned++ < 8 &&
-      !(state.legacyDone && state.streamDone)
-    ) {
+    for (const item of page.items) {
       operation.signal?.throwIfAborted();
-      const legacy =
-        state.streamDone || (!state.legacyDone && state.next === "legacy");
-      state.next = legacy ? "stream" : "legacy";
-      if (legacy) {
-        const page = await repository.listEntries(
-          {
-            ...filters,
-            limit: 1,
-            ...(state.legacyCursor === undefined
-              ? {}
-              : { cursor: state.legacyCursor }),
-          },
+      entries.push(
+        await summarize(
+          repository,
+          item,
+          query.includeHistorical,
           operation,
-        );
-        state.legacyCursor = page.nextCursor;
-        state.legacyDone = page.nextCursor === undefined;
-        if (page.items[0] !== undefined)
-          entries.push(
-            await summarize(
-              repository,
-              page.items[0],
-              query.includeHistorical,
-              operation,
-              query.subjectId,
-            ),
-          );
-      } else {
-        const page = await repository.incrementalMetrics!.listMetricCaptures(
-          {
-            status: "completed",
-            limit: 1,
-            maxBytes: 256 * 1024 + 2,
-            ...(state.streamAfterId === undefined
-              ? {}
-              : { afterId: state.streamAfterId }),
-            ...(query.subjectId === undefined
-              ? {}
-              : { subjectId: query.subjectId }),
-            ...(query.listenerId === undefined
-              ? {}
-              : { listenerId: query.listenerId }),
-            ...(query.passId === undefined ? {} : { passId: query.passId }),
-          },
-          operation,
-        );
-        state.streamAfterId = page.nextId;
-        state.streamDone = page.nextId === undefined;
-        if (page.items[0] !== undefined) {
-          const record = page.items[0];
-          if (
-            query.includeHistorical ||
-            record.metadata.pass.liveSetId === repository.liveSetId
-          )
-            entries.push(
-              streamSummary(repository, record, query.includeHistorical),
-            );
-        }
-      }
+          query.subjectId,
+        ),
+      );
     }
     operation.signal?.throwIfAborted();
     return contextOperationResultSchema.parse({
       action: "list",
       entries,
-      ...(state.legacyDone && state.streamDone
+      ...(page.nextCursor === undefined
         ? {}
-        : { nextCursor: encodeCursor(state) }),
+        : { nextCursor: encodeCursor({ binding, cursor: page.nextCursor }) }),
     }) as Extract<ContextOperationResult, { action: "list" }>;
   };
   const requireFeatureSource = async (
@@ -489,17 +445,6 @@ export function createSessionContextHost(
     includeHistorical: boolean,
     operation: ContextOperationOptions,
   ) => {
-    const stream = await repository.incrementalMetrics?.getMetricCapture(
-      entryId,
-      operation,
-    );
-    if (stream) {
-      streamSummary(repository, stream, includeHistorical);
-      throw new ListeningFailure(
-        "incremental_metric_features_unsupported",
-        "Feature derivation and feature reads for stream contexts are unsupported; use stream-overview and stream-records",
-      );
-    }
     const available = await repository.listEntries(
       { entryId, includeHistorical, limit: 1 },
       operation,
@@ -616,6 +561,7 @@ export function createSessionContextHost(
       const operation = operationOptions(context, options.signal);
       if (
         query.action === "stream-overview" ||
+        query.action === "stream-summary" ||
         query.action === "stream-records"
       ) {
         const { record, entry } = await requireStream(
@@ -647,9 +593,90 @@ export function createSessionContextHost(
               chunkCount: record.chunkCount,
               storedBytes: record.storedBytes,
               limitations: manifest.limitations,
-              featureDerivation: "unsupported",
+              featureDerivation: "supported",
             },
           });
+        if (query.action === "stream-summary") {
+          const geometry = record.descriptor.geometry;
+          if (
+            query.range.startSample < geometry.startSample ||
+            query.range.endSample > geometry.endSample
+          )
+            throw new ListeningFailure(
+              "invalid_range",
+              "Summary range must remain inside the captured source",
+            );
+          const algorithm = record.descriptor.algorithms.find(
+            (item) => item.metric === "mel-bands",
+          );
+          if (algorithm?.metric !== "mel-bands")
+            throw new ListeningFailure(
+              "unsupported_metric",
+              "This capture did not request mel-band measurements",
+            );
+          const chunks = await repository.incrementalMetrics!.listMetricChunks(
+            {
+              captureId: query.contextId,
+              afterSequence: -1,
+              metric: "mel-bands",
+              range: query.range,
+              limit: 8,
+              maxBytes: 1024 * 1024,
+            },
+            operation,
+          );
+          operation.signal?.throwIfAborted();
+          if (chunks.nextSequence !== undefined)
+            throw new ListeningFailure(
+              "context_response_too_large",
+              "Summary range exceeds eight chunks or 1 MiB; request a narrower passage",
+            );
+          const intersects = (support: {
+            startSample: number;
+            endSample: number;
+          }) =>
+            support.startSample < query.range.endSample &&
+            support.endSample > query.range.startSample;
+          const frames: unknown[] = [];
+          const gaps: MetricRecordStreamGap[] = [];
+          for (const chunk of chunks.items) {
+            if (
+              chunk.metric !== "mel-bands" ||
+              chunk.descriptorDigest !== record.state.descriptorDigest
+            )
+              throw new ListeningFailure(
+                "invalid_capture",
+                "Summary chunk does not match the owned capture and metric",
+              );
+            frames.push(
+              ...chunk.records
+                .filter((item) => intersects(item.support))
+                .map((item) => item.magnitudes),
+            );
+            gaps.push(...chunk.gaps.filter((item) => intersects(item.support)));
+            if (frames.length > 256)
+              throw new ListeningFailure(
+                "context_response_too_large",
+                "Summary range exceeds 256 frames; request a narrower passage",
+              );
+          }
+          operation.signal?.throwIfAborted();
+          return contextOperationResultSchema.parse({
+            action: query.action,
+            entry,
+            summary: {
+              kind: "mel-band-range-summary/v1",
+              descriptorDigest: record.state.descriptorDigest,
+              range: query.range,
+              supportPolicy: "intersecting-native-frames",
+              availability: algorithm.availability,
+              profile: algorithm.algorithm,
+              aggregation: aggregateMelBandFrames(frames),
+              gaps,
+              chunkDigests: chunks.items.map((chunk) => chunk.digest),
+            },
+          });
+        }
         const binding = fingerprint({
           sessionId: repository.sessionId,
           liveSetId: repository.liveSetId,
@@ -694,8 +721,13 @@ export function createSessionContextHost(
             "invalid_cursor",
             "Stream continuation chunk identity changed",
           );
-        const all = [...chunk.records, ...chunk.gaps];
-        if (entryOffset >= all.length)
+        const all = [...chunk.records, ...chunk.gaps].filter(
+          (item) =>
+            query.range === undefined ||
+            (item.support.startSample < query.range.endSample &&
+              item.support.endSample > query.range.startSample),
+        );
+        if (entryOffset >= all.length && entryOffset !== 0)
           throw new ListeningFailure(
             "invalid_cursor",
             "Stream continuation is outside its chunk",
@@ -748,7 +780,11 @@ export function createSessionContextHost(
             MAX_METRIC_CONTEXT_RESPONSE_BYTES
         )
           selected.pop();
-        if (selected.length === 0)
+        if (
+          (selected.length === 0 && all.length > 0) ||
+          Buffer.byteLength(JSON.stringify(result())) >
+            MAX_METRIC_CONTEXT_RESPONSE_BYTES
+        )
           throw new ListeningFailure(
             "context_response_too_large",
             "One retained record cannot fit the 64 KiB response budget",
@@ -831,7 +867,7 @@ export function createSessionContextHost(
             : await repository.getFeatureDerivation(query.contextId, operation);
         return {
           action: query.action,
-          features,
+          inventory: projectListeningFeatureInventory(features),
           ...(derivation === undefined
             ? {}
             : { derivation: projectListeningFeatureDerivation(derivation) }),
@@ -940,16 +976,6 @@ export function createSessionContextHost(
       }
       if (query.action === "list") return list(repository, query, context);
       if (query.action === "get" || query.action === "report") {
-        if (
-          await repository.incrementalMetrics?.getMetricCapture(
-            query.contextId,
-            operation,
-          )
-        )
-          throw new ListeningFailure(
-            "unsupported_context_kind",
-            "Stream contexts use stream-overview and stream-records, not whole-observation get or report",
-          );
         const available = await repository.listEntries(
           {
             entryId: query.contextId,

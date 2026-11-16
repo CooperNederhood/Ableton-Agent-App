@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import type { AudioObservation } from "@ableton-agent/protocol";
-import { createSyntheticPartialMetricListeningObservation } from "@ableton-agent/protocol/testing";
+import type { MetricRecordStreamManifest } from "@ableton-agent/protocol";
+import { createSyntheticMetricRecordStreamManifest } from "@ableton-agent/protocol/testing";
 import type { TelemetryEventEnvelope } from "@ableton-agent/observability";
 import { createListeningTools } from "@ableton-agent/tools";
 import {
@@ -31,32 +31,21 @@ const request = {
   maximumDurationMs: 1000,
 };
 
-function observation(passId: string): AudioObservation {
-  return {
-    schema: "audio-observation/v1",
-    passId,
-    listenerId: "listener",
-    sampleRate: 48_000,
-    startSample: 0,
-    endSample: 192_000,
-    startBeat: 0,
-    endBeat: 8,
-    complete: true,
-    limitations: ["Synthetic tool-host fixture"],
-    algorithm: {
-      name: "synthetic",
-      version: "1",
-      windowSamples: 2048,
-      hopSamples: 4800,
-      settings: { attackThresholdDb: 6, minAttackSpacingSamples: 6000 },
-      units: { amplitude: "linear", rms: "dBFS", centroid: "Hz" },
-      timingUncertaintySamples: 64,
+async function observation(
+  passId: string,
+): Promise<MetricRecordStreamManifest> {
+  return createSyntheticMetricRecordStreamManifest({
+    seconds: 4,
+    ownership: {
+      passId,
+      listenerId: "listener",
+      ...context.trace,
+      connectionId: "00000000-0000-4000-8000-000000000004",
+      connectionEpoch: "00000000-0000-4000-8000-000000000005",
+      generation: "00000000-0000-4000-8000-000000000006",
+      nativeEpoch: 1,
     },
-    summaries: { peak: [0.5, 0.5], rmsDbfs: [-12, -12], centroidHz: 440 },
-    samples: [],
-    attacks: [],
-    reduction: { originalSamples: 0, originalAttacks: 0, truncated: false },
-  };
+  });
 }
 
 function fixture(overrides: Partial<ListeningHostOptions> = {}) {
@@ -76,19 +65,20 @@ function fixture(overrides: Partial<ListeningHostOptions> = {}) {
       async ({
         passId,
       }: Parameters<ListeningHostOptions["services"]["prepare"]>[0]) => ({
-        observations: Promise.resolve([observation(passId)]),
+        observationContract: "metric-record-stream/v1" as const,
+        manifests: Promise.resolve([await observation(passId)]),
         disarm,
       }),
     ),
     startPlayback: vi.fn(async () => ({ isOwned: () => true, stop })),
-    persist: vi.fn(
+    persistStreams: vi.fn(
       async ({
         passId,
-      }: Parameters<ListeningHostOptions["services"]["persist"]>[0]) => [
+      }: Parameters<ListeningHostOptions["services"]["persistStreams"]>[0]) => [
         `entry-${passId}`,
       ],
     ),
-    validateObservations: vi.fn(),
+    validateStreams: vi.fn(),
   };
   const resolveOwner = vi.fn(async () => owner);
   const enqueue = vi.fn<(event: TelemetryEventEnvelope) => void>();
@@ -126,13 +116,22 @@ describe("owned listening tool host", () => {
     const f = fixture();
     vi.mocked(f.services.prepare).mockImplementation(
       async ({ passId, trace }) => {
-        const observation = createSyntheticPartialMetricListeningObservation({
-          endBeat: request.endBeat,
+        const complete = await observation(passId);
+        const partial = await createSyntheticMetricRecordStreamManifest({
+          seconds: 4,
+          ownership: { ...complete.ownership, ...trace },
+          gaps: [
+            {
+              metric: "spectral-centroid",
+              firstIndex: 0,
+              count: 1,
+              reason: "overflow",
+            },
+          ],
         });
-        observation.ownership = { ...observation.ownership, ...trace, passId };
         return {
-          observationContract: "independent-metric-timelines/v1",
-          observations: Promise.resolve([observation]),
+          observationContract: "metric-record-stream/v1",
+          manifests: Promise.resolve([partial]),
           disarm: f.disarm,
         };
       },
@@ -506,7 +505,7 @@ describe("owned listening tool host", () => {
     expect(f.services.startPlayback).toHaveBeenCalledWith(
       expect.objectContaining({ passId, owner, trace: context.trace }),
     );
-    expect(f.services.persist).toHaveBeenCalledWith(
+    expect(f.services.persistStreams).toHaveBeenCalledWith(
       expect.objectContaining({ passId, owner, trace: context.trace }),
     );
     const result = await f.host.executeListeningOperation(
@@ -672,7 +671,8 @@ describe("owned listening tool host", () => {
   it("exposes explicit failures and cleans up cancellation and shutdown", async () => {
     const f = fixture();
     vi.mocked(f.services.prepare).mockImplementation(async () => ({
-      observations: new Promise<readonly AudioObservation[]>(() => {}),
+      observationContract: "metric-record-stream/v1",
+      manifests: new Promise<readonly MetricRecordStreamManifest[]>(() => {}),
       disarm: f.disarm,
     }));
     const result = await f.host.executeListeningOperation(request, context);

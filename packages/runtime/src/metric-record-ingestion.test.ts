@@ -33,7 +33,7 @@ async function fixture() {
       startBeat: g.startBeat,
       endBeat: g.endBeat,
       startSample: g.startSample,
-      captureMode: "arrangement-continuous",
+      captureMode: "finite-metric-stream",
     }),
     requestedMetrics: ["level"],
     algorithms: [
@@ -196,7 +196,7 @@ describe("bounded durable metric ingestion", () => {
         tempoBpm: old.tempoBpm,
         startBeat: old.startBeat,
         startSample: old.startSample,
-        captureMode: "arrangement-continuous",
+        captureMode: "finite-metric-stream",
         endBeat: old.startBeat + (seconds * old.tempoBpm) / 60,
       });
       const descriptor: MetricRecordStreamDescriptor = {

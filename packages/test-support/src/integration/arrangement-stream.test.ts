@@ -14,13 +14,20 @@ import { arrangementTestEvidence } from "./arrangement-test-support.js";
 import {
   expandArrangementDescriptor,
   verifyPersistedArrangementStream,
+  verifyPersistedMetricStream,
 } from "./arrangement-stream.js";
 import { createDefaultAssertions } from "./assertions.js";
 import type { AssertionInput } from "./contracts.js";
 import { verifyArrangementCapture } from "./arrangement.js";
 
-async function fixture(nonSilent = true) {
-  const master = await createSyntheticMetricRecordStreamFixture();
+async function fixture(nonSilent = true, scoped = false) {
+  const master = await createSyntheticMetricRecordStreamFixture(
+    scoped
+      ? { requestedMetrics: ["level", "spectral-centroid", "attacks"] }
+      : {},
+  );
+  if (master.descriptor.source.view !== "arrangement")
+    throw new Error("Expected an Arrangement fixture");
   const descriptor = {
     ...master.descriptor,
     ownership: {
@@ -113,6 +120,104 @@ async function fixture(nonSilent = true) {
   return { stream, input };
 }
 describe("independent persisted Arrangement stream evidence", () => {
+  it("keeps all-six as the default gate and admits only explicitly scoped metric sets", async () => {
+    const { input, stream } = await fixture(true, true);
+    await expect(verifyPersistedMetricStream(input)).rejects.toThrow(
+      "required metrics",
+    );
+    await expect(
+      verifyPersistedMetricStream({
+        ...input,
+        chunks: stream.chunks(),
+        requiredMetrics: ["level", "spectral-centroid", "attacks"],
+      }),
+    ).resolves.toHaveProperty("nonSilent", true);
+    for (const requiredMetrics of [
+      ["level"],
+      ["level", "level", "attacks"],
+      ["level", "spectral-centroid", "pitch"],
+    ] as const)
+      await expect(
+        verifyPersistedMetricStream({
+          ...input,
+          chunks: stream.chunks(),
+          requiredMetrics,
+        }),
+      ).rejects.toThrow("required metrics");
+  });
+  it("uses the canonical cross-V8 replay allowance without weakening persisted counters or history", async () => {
+    const { input, stream } = await fixture();
+    const persistedState = structuredClone(input.persistedState);
+    const replay = persistedState.metrics.find(
+      (metric) => metric.metric === "attacks",
+    )!.attackReplay!;
+    replay.previousLevelDb += Number.EPSILON * Math.abs(replay.previousLevelDb);
+    await expect(
+      verifyPersistedArrangementStream({ ...input, persistedState }),
+    ).resolves.toHaveProperty("proof.chunkCount");
+    for (const change of ["level", "position", "flag", "count"] as const) {
+      const forged = structuredClone(persistedState);
+      const attacks = forged.metrics.find(
+        (metric) => metric.metric === "attacks",
+      )!;
+      if (change === "level") attacks.attackReplay!.previousLevelDb += 1e-8;
+      if (change === "position")
+        attacks.attackReplay!.lastAttackSample =
+          (attacks.attackReplay!.lastAttackSample ?? 0) + 1;
+      if (change === "flag")
+        attacks.attackReplay!.riseHasAttack =
+          !attacks.attackReplay!.riseHasAttack;
+      if (change === "count") attacks.nextRecordOffset++;
+      await expect(
+        verifyPersistedArrangementStream({
+          ...input,
+          persistedState: forged,
+          chunks: stream.chunks(),
+        }),
+      ).rejects.toThrow();
+    }
+  });
+
+  it("verifies the approved subrange without narrowing or rewriting the admitted source inventory", async () => {
+    const { input, stream } = await fixture();
+    const expectedRange = {
+      startBeat: input.descriptor.geometry.startBeat,
+      endBeat: input.descriptor.geometry.endBeat,
+    };
+    const baseline = {
+      ...input.baseline,
+      source: {
+        ...input.baseline.source,
+        endBeat: input.baseline.source.endBeat + 4,
+      },
+    };
+    const verified = await verifyPersistedArrangementStream({
+      ...input,
+      baseline,
+      expectedRange,
+    });
+    expect(verified.capture.source).toEqual(baseline.source);
+    await expect(
+      verifyPersistedArrangementStream({
+        ...input,
+        baseline,
+        chunks: stream.chunks(),
+      }),
+    ).rejects.toThrow("source/owner");
+    for (const range of [
+      { ...expectedRange, startBeat: expectedRange.startBeat - 1 },
+      { ...expectedRange, endBeat: expectedRange.endBeat - 0.25 },
+      { ...expectedRange, endBeat: baseline.source.endBeat + 1 },
+    ])
+      await expect(
+        verifyPersistedArrangementStream({
+          ...input,
+          baseline,
+          chunks: stream.chunks(),
+          expectedRange: range,
+        }),
+      ).rejects.toThrow("source/owner");
+  });
   it("replays original all-six records, counts, digests and complete native proof", async () => {
     const { input, stream } = await fixture();
     const result = await verifyPersistedArrangementStream(input);

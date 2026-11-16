@@ -1,6 +1,244 @@
 # Playback Listening Implementation To-Do
 
+## Shared capture and feature consolidation
+
+- [x] Refresh all four cases on identical final candidate
+      `c41d56b9211bf4a912fccd5940ed134d4f535d292e35a9ac4eed7996550bfabd`:
+      short audio `run-J7vvwY`, short MIDI `run-U5xT9Q`, long audio `run-LozNle`,
+      long MIDI `run-LkQQml`. Each passes three messages, six assertions,
+      original/restart inventories and terminal cleanup on Live 11.3.43;
+      long cases prove incremental durability. Preserve earlier failed receipts.
+
+- [x] Reproduce the final package's premature 600 ms spectrum-phase cutoff with
+      delayed native FFT initialization in both views. Use a two-second bounded
+      FFT window plus the existing clock budget without changing non-FFT arming,
+      the SDK control deadline or pass deadline. Preserve cancellation and honest
+      unavailable/partial results; require real phase and cleanup evidence.
+- [x] Compact the existing production feature inventory into bounded shared
+      provenance/segment/source/metadata tables, default/max 100 entries and
+      64 KiB. Preserve actual feature IDs/shapes, strict references, unavailable
+      states, opaque continuation, stored records and detailed value reads.
+      The six owning tool/host/History/oracle suites pass 400 tests.
+- [x] Qualify the compact production inventory in unchanged long audio
+      (`run-HCPoEN`) and long MIDI (`run-ASzl6t`), with complete original/restart
+      enumeration and terminal cleanup.
+- [x] Qualify canonical short audio (`run-1V8iAU`) and short MIDI
+      (`run-MEqqU8`) with original stream/feature inventories, owned restart,
+      protected scopes and terminal cleanup on Live Suite 11.3.43.
+- [x] Reproduce the long-audio Remote Script preparation failure in
+      `run-XqLfYE`; align Session admission, lease reporting and expiry with
+      finite capture duration. Preserve unchanged source/launch guards.
+- [x] Require existing attributable post-commit append events during native
+      capture for both long shapes; reject absent, late, foreign and empty
+      evidence and changed restart witnesses without another test runner.
+- [x] Reproduce Live 11 non-atomic natural-end reads and bound coherent rereads
+      and sealing without early coverage; preserve frozen source identity,
+      cancellation and frozen-clock failure tests.
+- [x] Delete the native bundle's duplicate source verifier and reuse the
+      canonical protocol implementation, including Session stopped-clock proof.
+- [x] Cover terminal derived attack-level cross-V8 rounding with the existing
+      tight allowance while rejecting changed history, flags, hashes and counts.
+- [x] Verify independently rebuilt and persisted original prefixes against the
+      same manifest, without reintroducing exact equality for derived dB values.
+- [x] Reject post-release native packets while terminal publication awaits ACK;
+      preserve cleanup and pre-release corruption checks.
+- [x] Preserve bounded redacted SDK rejection details before invalidation and
+      actual bounded native launch operands in attributable failure diagnostics.
+      Native controller 78/78 and runtime 17/17 pass; real launch failure
+      `run-lCRObm` remains unqualified pending diagnosis.
+- [x] Reproduce `run-UdL3xV`'s incomplete long feature pagination despite a
+      complete derivation total; reinforce that an existing cursor means an
+      incomplete inventory, without accepting inferred IDs/measures or lowering
+      the complete original/restart inventory requirement.
+- [x] Qualify the terminal correction against the unchanged long-audio case;
+      `run-broqB4` remains preserved red evidence, not a successful capture.
+
+- [x] Agree to combine incremental acquisition/persistence with the existing
+      musical feature model, retaining source-specific playback adapters.
+- [x] Reproduce the completed-stream feature refusal in controlled storage
+      tests without changing production capture behavior.
+- [x] Add an independent, whole-range per-measure stored-value oracle with
+      explicit frozen tolerances and diagnostic-only repeatability measurement.
+      Preserve it for later; numerical equivalence is not the current gate.
+- [x] Narrow the current matrix to common stored systems/schema/counts through
+      normal user-message integration. Keep the Keychain removal.
+- [x] Remove direct-only test dispatch and record the first normal-message
+      short-audio result before changing production listening semantics.
+- [x] Unify native/bridge/runtime streaming for short/long Session/Arrangement
+      while retaining source identity, existing listener multiplicity, finite
+      lifetimes, recording guards and terminal cleanup.
+      Refactor existing implementations and delete the superseded whole-capture
+      storage/publication paths; a facade over two systems is not consolidation.
+      Remove transitional dual-format test/cleanup handling with that fork,
+      rather than retaining compatibility shims.
+- [ ] Derive common musical features from bounded persisted ranges and expose
+      equivalent typed measurement/feature/comparison/search operations.
+      Stream-backed derivation and shared automatic post-publication scheduling
+      are implemented; selected storage/History/Desktop/shape tests pass.
+      Complete broader owning regressions and the canonical real-host matrix.
+- [x] Reproduce missing bounded Arrangement musical alignment and persist the
+      monitored transport meter/tempo through the existing common feature path.
+      Keep unknown meter unaligned, reject changed meter before publication,
+      and retain native/source cleanup and cancellation guards.
+- [ ] Migrate tool guidance, Desktop projections and existing checkers without
+      weakening the five-listen comprehension contract or prescribing analysis.
+- [x] Qualify storage shape/count in order: short audio, short MIDI, long audio,
+      long MIDI, with restart/incremental/cleanup proof. Keep numerical matching
+      deferred and the unchanged comprehension case a separate follow-on.
+      Do not claim ten-minute or real-time qualification from 37.5-second cases.
+
+## Same-turn comprehension
+
+- [x] Preserve the installed-candidate consecutive-Session failure and identify
+      the older regression's hidden between-turn transport stop.
+- [x] Cover shared sequencing/range guidance and completed Session result
+      annotations with red/green regressions; preserve failure/cancel semantics.
+- [x] Reach four Session and one full Arrangement capture in the same turn,
+      with agent-owned approved preparation, not harness resets.
+- [x] Reproduce coarse record-range pagination with red tests; filter original
+      records/gaps before bounded paging without clipping or rehashing evidence.
+      Cover cross-chunk boundaries, empty projections, gaps and cursor binding.
+      All 2,298 combined owning application/tools/checker tests pass.
+- [x] Preserve five-capture/failed-analysis outcomes and reproduce missing
+      complete bounded summaries across chunk boundaries. Reuse existing mel
+      math with explicit range/profile/gaps/provenance and strict frame, chunk,
+      response-byte, failure and cancellation guards. No draft page-only
+      summary mode remains. All 2,302 owning tests and the complete build pass.
+- [x] Reproduce the app's hidden ten-minute timeout; propagate the reviewed
+      step budget to isolated profile settings and provenance, without changing
+      scenario budgets or the normal app.
+- [x] Preserve the incorrect repeated-sequence answer in `run-6BTpzz`;
+      reproduce its complete History exceeding 10,000 records below 32 MiB.
+      Increase finite row capacity to 32,768, retaining both 32-MiB byte guards
+      and every event/assertion.
+- [x] Reproduce the Live 11 `backToArrangement` interpretation defect and explain
+      true/false/unknown semantics at successful transport results without
+      weakening per-listener eligibility or authorizing failed-pass repair.
+- [x] Reproduce the checker's single-context-only derivation restriction.
+      Validate each same-turn owned source/context and atomically consume the
+      existing per-source rules for an equivalent batch; retain all denial and
+      usage guards. All 2,310 owning application/tools/checker tests pass.
+- [x] Preserve `run-aklAjt` and reproduce misleading stream derivation
+      capability metadata. State unsupported stream derivation at its action
+      boundary and expose supported bounded read alternatives in typed
+      refusals; retain no-read/no-write denial. All 2,311 owning tests pass.
+- [x] Reach the exact answer with exactly five completed captures in
+      `run-dpVv8M`, without calling it a pass: final collection lost the bridge
+      when runner timing diagnostics filled 512 records. Reproduce that
+      disconnect and retain a bounded 2,048-record inventory with all existing
+      overflow, pending-traffic, ownership and cleanup guards.
+- [x] Preserve `run-JAAhev` and reproduce the distinct Desktop observer's
+      10,000-event count failure below its byte budget. Retain up to 32,768
+      ordered events, keeping the 16-MiB byte ceiling and explicit failure.
+- [ ] Obtain the exact twenty-measure answer and complete terminal evidence
+      under the unchanged five-capture contract. `run-dpVv8M` answered correctly
+      but failed final evidence. Latest `run-HFt0eC` completed all five captures
+      and bounded reads but exhausted the 900-second analysis turn without an
+      answer; History cleanup also failed while owned resources closed.
+      Blocked on bounded comparison completion, not another unchanged retry.
+      All 2,314 deterministic owning tests pass; the real case remains red.
+- [ ] Qualify and install an updated candidate only after this case passes.
+      The normal installed app remains the earlier `4dae4562` candidate.
+
+## Installed Session launch incident
+
+- [x] Run unchanged basic Session regressions against the actual installed
+      `4dae4562` app on Live 11.3.43: Drum Rack `run-kO895M`, identification
+      `run-Nw0WQD`, stopped/quantized audio `run-BHME9W`, and MIDI
+      `run-O9URMU`. All selected assertions and terminal cleanup pass.
+- [x] Audit installed app/payload provenance and actual listener resource
+      hashes, not version labels alone. The package matches current source;
+      all 53 installed files and 50 portable resources match expected bytes.
+      The user confirms using the development listener, not obsolete presets.
+- [x] Recover bounded typed History evidence for the failed conversation
+      without changing normal-profile settings or reopening Live. The
+      pre-failure clip has 14 notes versus four in the existing Drum Rack
+      fixture. Preserve this distinction without claiming it caused timeout.
+- [x] Confirm the user's development listener was added/replaced after opening
+      the Set, unlike the runner's pre-load binding. This is a missing execution
+      condition, not a proven root cause.
+- [ ] Record the outcome and detailed evidence of the user's proposed single
+      manual retry. History-enablement instructions were supplied; neither
+      enablement nor a retry result is confirmed.
+- [ ] Reproduce the exact normal-profile launch failure or isolate its missing
+      execution condition. No fix is established by the four fresh-process
+      passes, verified installation, or five-second deadline overlap.
+- [ ] After a concrete reproduction, add an owning deterministic red
+      regression, fix it, and rerun the failing integration case before
+      expanding coverage. Review any new fixture contract with the user.
+
 ## Long-form Arrangement listening
+
+- [x] Reproduce SDK model/context diagnostic loss with controlled compaction
+      success/failure and model-usage events; retain bounded, body-free,
+      redacted timing/token observations with original SDK/turn attribution.
+      Both regressions were red before the fix; all 462 application tests pass.
+- [x] Identify the observed feature-search second-turn stall in unchanged
+      `run-lRMqLv`: threshold compaction took 85.719 seconds during report
+      pagination, after report reads substantially expanded context. Preserve
+      this failed terminal receipt and complete cleanup; restart remained unrun.
+- [x] Apply the user's reviewed budget-only change: second turn 180 to 300
+      seconds and overall run 660 to 780 seconds. Keep report format, model,
+      prompts, permissions, required reads and all correctness assertions.
+      Compaction is neither required nor asserted; this is not an efficiency fix.
+- [x] Obtain a complete terminal feature-search pass under the revised budgets,
+      including restored evidence and cleanup. Preserve the earlier deadline
+      failures as failures under their original contract.
+      Revised-budget `run-PLuc6X` was blocked at source preconditions before
+      any turn: owned Live was already playing at beat 25.346533333333333,
+      rather than stopped at zero. Cause unknown; no baseline repair or silent
+      retry. All turns unrun, final cleanup complete.
+      The explicitly approved fresh attempt `run-F3imcv` completed both
+      assistant turns and both capture assertions, then failed second-turn
+      pitch-grid inventory: no fresh first-context inventory read in that
+      turn, despite prose claiming availability for both. Restored turn
+      remained unrun; cleanup complete. Do not waive this correctness check.
+- [x] Correct the user's identified outcome-contract overconstraint: accept
+      already available same-conversation pitch-grid metadata without requiring
+      another inventory call. Three reproductions red then green; all 209
+      oracle and 917 owning integration-support tests pass, including hostile
+      provenance, contradiction, immutability and restored-read guards.
+      `run-F3imcv` second-turn replay passes the revised assertion without
+      rewriting its failed receipt or claiming its unrun persistence phase.
+- [x] Qualify the complete revised outcome contract in real-host `run-PmT6xJ`:
+      all three turns, ten assertions, exactly two captures, same original
+      contexts after owned restart, protected state and final cleanup pass
+      on Live 11.3.43. Same packaged candidate; no agent/prompt/report changes.
+      Stop at this selected case; MIDI and normal-app installation remain outside
+      this qualification.
+- [x] Execute the subsequently requested remaining MIDI regression unchanged:
+      terminal `run-uOtEk9`, Live 11.3.43, same `4dae4562` app candidate;
+      all four capture/context/count/protected-state assertions and cleanup pass.
+- [x] Install that qualified candidate as the normal arm64 app; update the
+      normal-profile listener bundle through the canonical integration installer,
+      verify all three integrations current, preserve exact signed bundle bytes,
+      and pass installed-path startup/authentication checks in disposable profiles.
+      No user Set changes, public release or follow-up PR yet.
+
+- [x] Preserve red `run-PIBeAH`, reproduce cross-V8 attack-strength roundoff in
+      bounded and chunked replay, and prove deterministic regressions red then
+      green without changing event count, threshold, sample/spacing/history
+      guards, retained strengths or digests.
+- [x] Reproduce real ingress failure evidence losing listener attribution
+      through the Arrangement and Session runtime; include producer instance
+      and connection ownership in emitted evidence without relaxing foreign
+      evidence rejection or cleanup confirmation.
+- [x] Rerun the unchanged three-minute fixture on the fixed candidate; only
+      after it passes, rerun the same three selected Session regressions.
+      Each new failure must first get its own red deterministic regression.
+      Arrangement `run-Xs0pTO` and Session identification `run-O1lJM8` passed.
+      Feature-search `run-HuIUMA` then failed its second-turn agent deadline,
+      despite both captures and compare/search tools completing; no tool
+      failure was recorded. Preserve this failed receipt, do not claim restart
+      qualification, change the timeout or silently retry. The MIDI case
+      remains unrun while the deadline failure is unresolved.
+      One explicitly approved unchanged retry, `run-B6Qwo7`, hit the same
+      second-turn deadline while assistant output was streaming, with no tool
+      failure and complete runner cleanup. Preserve both failures; no further
+      retry or timeout change is approved.
+      Later user-approved contract revisions and terminal `run-PmT6xJ` resolved
+      feature-search qualification. The separately requested remaining MIDI
+      case then passed `run-uOtEk9`; every selected case now has a terminal pass.
 
 - [x] Intake an owned copy and inspect the supplied Arrangement offline:
       `Drums-audio`, beats 0–384 at 128 BPM, exactly 180 seconds. Preserve
@@ -598,6 +836,11 @@ Companion specification: [Playback Listening](playback-listening.md).
 - [x] Separate the pinned pre-launch `stoppedBeat` from Live's actual zero-origin
       Session launch. Validate ready/arm clocks against the former and native
       coverage against the latter; retain later-regression and origin guards.
+- [x] Correct fresh stopped Session launches to retain their nonzero global
+      anchor independently of clip-local zero, preserving the reviewed
+      remembered-playing zero-origin path. Global-16 source/host regressions
+      and real Session capture in `run-hqGE1A` pass; retain strict wrong-origin,
+      sealing, publication and cleanup checks. Full comparison remains pending.
 - [x] Pass both unchanged supplied scenarios with exact context/coverage and
       terminal cleanup; retain every prior failed attempt and candidate pins.
       Live 11.3.43: audio `run-6ToPzM`, MIDI `run-DYmu3b`; full candidate hashes

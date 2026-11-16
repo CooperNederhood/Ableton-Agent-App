@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { VERIFIED_TOOL_RESULT_GUIDANCE } from "@ableton-agent/application";
+import {
+  TRANSPORT_SOURCE_FLAG_GUIDANCE,
+  VERIFIED_TOOL_RESULT_GUIDANCE,
+} from "@ableton-agent/application";
 import { readFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import {
   LISTENING_FEATURE_DEFINITIONS,
   metricAudioObservationSchema,
@@ -8,8 +12,19 @@ import {
   pitchTimelineSchema,
   spectralShapeTimelineSchema,
   projectMetricListeningReport,
+  metricRecordDigest,
+  type MetricRecordChunk,
 } from "@ableton-agent/protocol";
-import { withSyntheticAnalyzerTimelines } from "@ableton-agent/protocol/testing";
+import {
+  withSyntheticAnalyzerTimelines,
+  createSyntheticMetricRecordStreamFixture,
+} from "@ableton-agent/protocol/testing";
+import {
+  projectListeningFeatureInventory,
+  expandListeningFeatureInventory,
+  contextFeatureViewSchema,
+  metricStreamRecordPageSchema,
+} from "@ableton-agent/tools";
 import type { AgentHistoryPage } from "@ableton-agent/observability";
 import { melSmokeFixture } from "./mel-smoke-test-support.js";
 import {
@@ -17,10 +32,248 @@ import {
   validateFeatureSources,
   verifyFeatureSearch,
   projectFeatureSearchHistory,
+  readFeatureToolPairs,
+  verifyStreamFeatureReads,
 } from "./feature-search.js";
 import { createDefaultAssertions } from "./assertions.js";
 import { validateFixture, validateScenario } from "./validation.js";
 import type { AssertionInput, TurnEvidence } from "./contracts.js";
+import { streamProofContentSha256 } from "./arrangement-stream.js";
+
+describe("canonical stream feature-source reads", () => {
+  it("binds original records and feature provenance separately and rejects unread or changed measurements", async () => {
+    const base = melSmokeFixture();
+    const native = await createSyntheticMetricRecordStreamFixture({
+      seconds: 1.875,
+      tempoBpm: 128,
+      source: base.observation.source,
+      ownership: base.observation.ownership,
+      sourceOrigin: 100_000,
+      records: {
+        "spectral-shape": Array.from({ length: 43 }, (_, index) => ({
+          index,
+          support: {
+            startSample: 100_000 + index * 2048,
+            endSample: 100_000 + (index + 1) * 2048,
+          },
+          channels: [
+            { state: "valid", flatnessDb: -20, spreadHz: 500, rolloffHz: 1000 },
+            { state: "valid", flatnessDb: -30, spreadHz: 600, rolloffHz: 1200 },
+          ],
+        })),
+      },
+    });
+    const chunks: MetricRecordChunk[] = [];
+    for await (const chunk of native.chunks()) chunks.push(chunk);
+    const { rows, ...geometry } = native.descriptor.geometry;
+    void rows;
+    const reference = {
+      schema: "metric-record-stream-context/v1" as const,
+      captureId: "context-stream",
+      descriptorDigest: native.state.descriptorDigest,
+      descriptor: { ...native.descriptor, geometry },
+    };
+    const proof = {
+      contextId: reference.captureId,
+      passId: native.descriptor.ownership.passId,
+      listenerId: native.descriptor.ownership.listenerId,
+      descriptorDigest: native.state.descriptorDigest,
+      manifestSha256: await metricRecordDigest(native.manifest),
+      recordsSha256: createHash("sha256")
+        .update(chunks.map((chunk) => `${JSON.stringify(chunk)}\n`).join(""))
+        .digest("hex"),
+      chunkCount: chunks.length,
+      afterOwnedRestart: false,
+    };
+    const sourceFingerprint = createHash("sha256")
+      .update(JSON.stringify(native.manifest))
+      .digest("hex");
+    const source = projectFeatureSource(
+      reference.captureId,
+      reference,
+      false,
+      "full",
+      {
+        chunks,
+        contentSha256: streamProofContentSha256(proof),
+        sourceFingerprint,
+      },
+    );
+    expect(source.stream?.sourceFingerprint).toBe(sourceFingerprint);
+    expect(source.contentSha256).not.toBe(sourceFingerprint);
+    expect(source.analyzers?.pitch.frames).toHaveLength(43);
+    const template = readFeatureToolPairs(base.turn).find(
+      (pair) => pair.action === "get",
+    )!;
+    const entry = {
+      ...base.context.entry,
+      contextId: reference.captureId,
+      passId: proof.passId,
+      listenerId: proof.listenerId,
+      kind: "metric-record-stream-context/v1",
+    };
+    const pair = (
+      action: string,
+      data: Record<string, unknown>,
+      metric?: string,
+    ): typeof template => ({
+      ...structuredClone(template),
+      action,
+      call: {
+        ...template.call,
+        arguments: {
+          action,
+          contextId: reference.captureId,
+          ...(metric ? { metric } : {}),
+        },
+      },
+      data: { action, entry, ...data },
+    });
+    const reads = [
+      pair("stream-overview", {
+        overview: {
+          descriptorDigest: reference.descriptorDigest,
+          geometry,
+          source: native.descriptor.source,
+          timingPolicy: native.descriptor.timingPolicy,
+          algorithms: native.descriptor.algorithms,
+          metrics: native.manifest.metrics,
+          outcome: "complete",
+          nativeStatus: "completed",
+          nativeCoverage: {
+            capturedSamples: native.manifest.nativeProof.capturedSamples,
+            sourceOrigin: native.manifest.nativeProof.sourceOrigin,
+            sourceEnd: native.manifest.nativeProof.sourceEnd,
+            drain: "completed",
+          },
+          chunkCount: chunks.length,
+          storedBytes: Buffer.byteLength(JSON.stringify(chunks)),
+          limitations: native.manifest.limitations,
+          featureDerivation: "supported",
+        },
+      }),
+      ...chunks
+        .filter((chunk) =>
+          ["level", "pitch", "spectral-shape"].includes(chunk.metric),
+        )
+        .map((chunk) =>
+          pair(
+            "stream-records",
+            {
+              page: {
+                kind: "metric-record-chunk-projection/v1",
+                metric: chunk.metric,
+                descriptorDigest: chunk.descriptorDigest,
+                chunkDigest: chunk.digest,
+                previousDigest: chunk.previousDigest,
+                chunkSequence: chunk.chunkSequence,
+                recordOffset: chunk.recordOffset,
+                slotOffset: chunk.slotOffset,
+                totalRecords: chunk.records.length,
+                totalGaps: 0,
+                entryOffset: 0,
+                records: chunk.records,
+                gaps: [],
+              },
+            },
+            chunk.metric,
+          ),
+        ),
+    ];
+    const expected = base.input.baseline.sources!.a!.source;
+    for (const phase of ["first", "restored"])
+      expect(() =>
+        verifyStreamFeatureReads(source, reads, expected, phase, "full"),
+      ).not.toThrow();
+    const peak = projectFeatureSource(
+      reference.captureId,
+      reference,
+      false,
+      "peak-only",
+      {
+        chunks,
+        contentSha256: source.contentSha256,
+        sourceFingerprint,
+      },
+    );
+    expect(peak.analyzers).toBeUndefined();
+    expect(() =>
+      verifyStreamFeatureReads(
+        peak,
+        reads.filter(
+          (read) =>
+            read.action === "stream-overview" ||
+            read.call.arguments.metric === "level",
+        ),
+        expected,
+        "first",
+        "peak-only",
+      ),
+    ).not.toThrow();
+    expect(() =>
+      verifyStreamFeatureReads(peak, reads, expected, "first", "peak-only"),
+    ).toThrow("missing authoritative analyzer evidence");
+    expect(() =>
+      verifyStreamFeatureReads(
+        source,
+        reads.slice(0, 1),
+        expected,
+        "first",
+        "full",
+      ),
+    ).toThrow();
+    for (const mutation of [
+      "descriptor",
+      "pass",
+      "peak",
+      "pitch",
+      "truncated",
+    ] as const) {
+      const changed = structuredClone(reads);
+      if (mutation === "descriptor")
+        Object.assign(changed[0]!.data.overview!, {
+          descriptorDigest: "f".repeat(64),
+        });
+      else if (mutation === "pass")
+        Object.assign(changed[0]!.data.entry!, { passId: "foreign" });
+      else {
+        const index = changed.findIndex(
+          (read) =>
+            read.call.arguments.metric ===
+            (mutation === "peak" ? "level" : "pitch"),
+        );
+        const page = metricStreamRecordPageSchema.parse(
+          changed[index]!.data.page,
+        );
+        const first = page.records[0]!;
+        changed[index]!.data.page = {
+          ...page,
+          records:
+            mutation === "truncated"
+              ? page.records.slice(1)
+              : [
+                  {
+                    ...first,
+                    ...(mutation === "peak"
+                      ? { peak: [0.2, 0.3] }
+                      : {
+                          channels: [0, 1].map(() => ({
+                            state: "low-confidence",
+                            hz: 100,
+                            confidence: 0.1,
+                          })),
+                        }),
+                  },
+                  ...page.records.slice(1),
+                ],
+        };
+      }
+      expect(() =>
+        verifyStreamFeatureReads(source, changed, expected, "first", "full"),
+      ).toThrow();
+    }
+  });
+});
 
 function fixture(
   reportPages = false,
@@ -79,6 +332,12 @@ function fixture(
       segmentId: `segment-${index + 1}`,
       sessionId: base.owner.appSessionId,
       liveSetId: "set",
+      createdAt: base.context.entry.createdAt,
+      trace: {
+        traceId: observations[index]!.ownership.traceId,
+        correlationId: observations[index]!.ownership.correlationId,
+        causationId: observations[index]!.ownership.causationId,
+      },
       sourceFingerprint: source.contentSha256,
       feature: {
         ...canonicalMetadata("peak-summary/v1"),
@@ -105,7 +364,11 @@ function fixture(
       sampleRate: 48000,
       alignmentReason: "musical-bar-alignment-not-established",
     },
-    source: { contextId: source.contextId, passId: source.passId },
+    source: {
+      ...base.context.entry,
+      contextId: source.contextId,
+      passId: source.passId,
+    },
   }));
   const values = sources.map((source) => [
     Math.max(...source.records.map((r) => r.peak[0])),
@@ -236,6 +499,16 @@ function fixture(
         return;
       }
       const toolCallId = `tool-${records.length}`;
+      const { features, ...metadata } = data;
+      const content =
+        data.action === "list-features"
+          ? {
+              ...metadata,
+              inventory: projectListeningFeatureInventory(
+                contextFeatureViewSchema.array().parse(features),
+              ),
+            }
+          : data;
       records.push(
         {
           ...recordBase,
@@ -256,7 +529,7 @@ function fixture(
           toolCallId,
           outcome: "success",
           durationMs: 1,
-          result: { result: { content: data } },
+          result: { result: { content } },
           metadata: { toolName },
         },
       );
@@ -564,6 +837,7 @@ function peakFixture(equalPeaks = false) {
             action: string;
             feature?: { record: { feature: { type: string } } };
             features?: { record: { feature: { type: string } } }[];
+            inventory?: Parameters<typeof expandListeningFeatureInventory>[0];
           };
         }
       ).content;
@@ -572,7 +846,7 @@ function peakFixture(equalPeaks = false) {
         (data.action === "get-feature" &&
           data.feature?.record.feature.type !== "peak-summary/v1") ||
         (data.action === "list-features" &&
-          !data.features?.some(
+          !expandListeningFeatureInventory(data.inventory!).some(
             (feature) => feature.record.feature.type === "peak-summary/v1",
           ))
       )
@@ -688,16 +962,29 @@ function canonicalMetadata(type: string) {
 }
 function completeInventory(turn: TurnEvidence) {
   const inventory = result(turn, "list-features");
-  const original = (
-    inventory.features as { record: { id: string; feature: unknown } }[]
-  )[0]!;
-  inventory.features = LISTENING_FEATURE_DEFINITIONS.map((definition) => {
-    const feature = structuredClone(original);
-    if (definition.type !== "peak-summary/v1")
-      feature.record.id += `-${definition.type.split("/")[0]}`;
-    feature.record.feature = canonicalMetadata(definition.type);
-    return feature;
-  });
+  const original = inventoryViews(inventory)[0]!;
+  inventory.inventory = projectListeningFeatureInventory(
+    LISTENING_FEATURE_DEFINITIONS.map((definition) => {
+      const feature = structuredClone(original);
+      if (definition.type !== "peak-summary/v1")
+        feature.record.id += `-${definition.type.split("/")[0]}`;
+      return contextFeatureViewSchema.parse({
+        ...feature,
+        record: {
+          ...feature.record,
+          feature: canonicalMetadata(definition.type),
+        },
+      });
+    }),
+  );
+}
+function inventoryViews(data: Record<string, unknown>) {
+  return expandListeningFeatureInventory(
+    data.inventory as Parameters<typeof expandListeningFeatureInventory>[0],
+  ).map((feature) => ({
+    ...feature,
+    source: { ...feature.source, summary: "Controlled feature inventory" },
+  }));
 }
 function equalityFixture(coverage: "full" | "peak-only") {
   const value =
@@ -829,9 +1116,10 @@ describe("inventory discovery and equality persistence", () => {
   it("establishes target metadata from genuine search when only the first peak appears in the inventory", () => {
     const { input, turns } = equalityFixture("peak-only");
     const second = turns[1]!;
-    result(second, "list-features").features = [
-      result(second, "search-features").query,
-    ];
+    result(second, "list-features").inventory =
+      projectListeningFeatureInventory([
+        contextFeatureViewSchema.parse(result(second, "search-features").query),
+      ]);
     for (const record of second.agentListening!.records)
       if (
         record.kind === "tool_call" &&
@@ -867,31 +1155,39 @@ describe("inventory discovery and equality persistence", () => {
   ] as const)("rejects incomplete or invalid discovery (%s)", (mode) => {
     const { input, turns } = equalityFixture("full");
     const inventory = result(turns[1]!, "list-features");
-    const features = inventory.features as {
+    const indexed = inventory.inventory as ReturnType<
+      typeof projectListeningFeatureInventory
+    >;
+    const features = indexed.features.map((reference) => ({
+      record: indexed.provenance[reference.provenance]!,
+      metadata: indexed.metadata[reference.metadata]!,
+      source: indexed.sources[reference.source]!,
+      segment: indexed.segments[reference.segment]!,
+    })) as {
       record: {
         sessionId: string;
         sourceFingerprint: string;
-        feature: Record<string, unknown>;
       };
+      metadata: Record<string, unknown>;
       source: { passId: string };
       segment: { endSample: number };
     }[];
     const feature = features.find(
-      (feature) => feature.record.feature.type === "mel-shape/v1",
+      (feature) => feature.metadata.type === "mel-shape/v1",
     )!;
-    if (mode === "missing-type") features.splice(features.indexOf(feature), 1);
+    const index = features.indexOf(feature);
+    if (mode === "missing-type") indexed.features.splice(index, 1);
     if (mode === "duplicate-type")
-      features[features.indexOf(feature)] = features[0]!;
+      indexed.features[index] = indexed.features[0]!;
     if (mode === "profile")
-      feature.record.feature.profile = "sample-grid-peak-rms/v1";
-    if (mode === "units") feature.record.feature.units = "Hz";
-    if (mode === "distance")
-      feature.record.feature.distanceDefinition = "rms-hz/v1";
-    if (mode === "normalization") feature.record.feature.normalization = "none";
-    if (mode === "status") feature.record.feature.status = "failed";
-    if (mode === "reason") feature.record.feature.reason = "missing-alignment";
-    if (mode === "count") feature.record.feature.valueCount = 0;
-    if (mode === "sample-rate") feature.record.feature.sampleRate = 44100;
+      feature.metadata.profile = "sample-grid-peak-rms/v1";
+    if (mode === "units") feature.metadata.units = "Hz";
+    if (mode === "distance") feature.metadata.distanceDefinition = "rms-hz/v1";
+    if (mode === "normalization") feature.metadata.normalization = "none";
+    if (mode === "status") feature.metadata.status = "failed";
+    if (mode === "reason") feature.metadata.reason = "missing-alignment";
+    if (mode === "count") feature.metadata.valueCount = 0;
+    if (mode === "sample-rate") feature.metadata.sampleRate = 44100;
     if (mode === "source") feature.source.passId = "foreign";
     if (mode === "hash") feature.record.sourceFingerprint = "b".repeat(64);
     if (mode === "range") feature.segment.endSample++;
@@ -1175,7 +1471,7 @@ describe("same-session peak fundamentals coverage", () => {
     expect(original.steps).toHaveLength(3);
     expect(original.steps[2]!.setupActions).toEqual(["restart-owned-desktop"]);
     expect(original.steps.map((step) => step.timeoutMs)).toEqual([
-      150_000, 180_000, 300_000,
+      150_000, 300_000, 300_000,
     ]);
     expect(original.budget.runMs).toBe(
       original.steps.reduce((total, step) => total + step.timeoutMs, 0) +
@@ -1289,7 +1585,145 @@ function priorFullFixture() {
     omitTool(value.turns[1]!, "get-feature", id);
   return value;
 }
+function priorPitchInventoryFixture() {
+  const value = priorFullFixture();
+  const first = value.turns[0]!;
+  const second = value.turns[1]!;
+  type PitchInventory = ReturnType<typeof inventoryViews>[number];
+  let pitch: PitchInventory | undefined;
+  for (const record of second.agentListening!.records) {
+    if (record.kind !== "tool_result") continue;
+    const data = (
+      record.result?.result as { content?: Record<string, unknown> }
+    )?.content;
+    if (data?.action !== "list-features") continue;
+    const features = inventoryViews(data);
+    data.inventory = projectListeningFeatureInventory(
+      features.filter((feature) => {
+        if (
+          feature.record.entryId === first.featureSources![0]!.contextId &&
+          feature.record.feature.type === "pitch-grid/v1"
+        ) {
+          pitch = structuredClone(feature);
+          return false;
+        }
+        return true;
+      }),
+    );
+  }
+  if (!pitch) throw new Error("Missing synthetic pitch inventory");
+  const firstInventory = result(first, "list-features");
+  firstInventory.inventory = projectListeningFeatureInventory([
+    ...inventoryViews(firstInventory),
+    pitch,
+  ]);
+  return { ...value, pitch };
+}
 describe("same-conversation immutable full-feature reads", () => {
+  it("accepts prior pitch availability from a direct feature result instead of inventory", () => {
+    const { input, turns, pitch } = priorPitchInventoryFixture();
+    const call = turns[0]!.agentListening!.records.find(
+      (record) =>
+        record.kind === "tool_call" &&
+        record.arguments.action === "list-features",
+    );
+    if (call?.kind !== "tool_call")
+      throw new Error("Missing synthetic inventory call");
+    const records = turns[0]!.agentListening!.records;
+    const response = records.find(
+      (record) =>
+        record.kind === "tool_result" && record.toolCallId === call.toolCallId,
+    );
+    if (response?.kind !== "tool_result")
+      throw new Error("Missing synthetic inventory result");
+    const data = result(turns[0]!, "list-features");
+    data.inventory = projectListeningFeatureInventory(
+      inventoryViews(data).filter(
+        (feature) => feature.record.id !== pitch.record.id,
+      ),
+    );
+    const directCall = structuredClone(call);
+    const directResult = structuredClone(response);
+    directCall.id += "-pitch";
+    directCall.toolCallId += "-pitch";
+    directCall.correlationId = directCall.toolCallId;
+    directCall.arguments = {
+      action: "get-feature",
+      featureId: pitch.record.id,
+    };
+    directResult.id += "-pitch";
+    directResult.toolCallId = directCall.toolCallId;
+    directResult.correlationId = directCall.toolCallId;
+    Object.assign(directResult.result!.result!, {
+      content: {
+        action: "get-feature",
+        feature: pitch,
+        page: { offset: 0, nextOffset: null, values: null },
+      },
+    });
+    records.push(directCall, directResult);
+    verifyFeatureSearch(input, "final");
+  });
+  it("does not let earlier availability hide a contradictory later result", () => {
+    const { input, turns, pitch } = priorPitchInventoryFixture();
+    const data = result(turns[1]!, "list-features");
+    data.inventory = projectListeningFeatureInventory([
+      ...inventoryViews(data),
+      pitch,
+    ]);
+    const page = data.inventory as ReturnType<
+      typeof projectListeningFeatureInventory
+    >;
+    page.metadata[page.features.at(-1)!.metadata]!.status = "ready";
+    expect(() => verifyFeatureSearch(input, "final")).toThrow();
+  });
+  it.each([false, true])(
+    "accepts pitch availability already established in conversation (projected=%s)",
+    (projected) => {
+      const { input, turns } = priorPitchInventoryFixture();
+      if (projected)
+        for (const turn of turns)
+          Object.assign(turn, {
+            agentListening: projectFeatureSearchHistory(turn.agentListening!),
+          });
+      verifyFeatureSearch(input, "final");
+    },
+  );
+  it.each([
+    "missing",
+    "session",
+    "pass",
+    "fingerprint",
+    "false-ready",
+    "changed-source",
+    "conversation",
+    "restart",
+  ] as const)("rejects invalid reused pitch availability (%s)", (mode) => {
+    const { input, turns, pitch } = priorPitchInventoryFixture();
+    const page = result(turns[0]!, "list-features").inventory as ReturnType<
+      typeof projectListeningFeatureInventory
+    >;
+    const reference = page.features.find(
+      (feature) => feature.id === pitch.record.id,
+    )!;
+    if (mode === "missing") page.features.pop();
+    if (mode === "session")
+      page.provenance[reference.provenance]!.sessionId = "foreign";
+    if (mode === "pass") page.sources[reference.source]!.passId = "foreign";
+    if (mode === "fingerprint")
+      page.provenance[reference.provenance]!.sourceFingerprint = "c".repeat(64);
+    if (mode === "false-ready")
+      page.metadata[reference.metadata]!.status = "ready";
+    if (mode === "changed-source")
+      Object.assign(turns[1]!.featureSources![0]!, {
+        contentSha256: "c".repeat(64),
+      });
+    if (mode === "conversation")
+      Object.assign(turns[0]!, { conversationId: "foreign" });
+    if (mode === "restart")
+      Object.assign(turns[1]!.agentListening!, { afterOwnedRestart: true });
+    expect(() => verifyFeatureSearch(input, "final")).toThrow();
+  });
   it.each([false, true])(
     "verifies restored acquisition with a fresh report page and independent complete source evidence (changed=%s)",
     (changed) => {
@@ -1451,7 +1885,7 @@ describe("same-conversation immutable full-feature reads", () => {
     );
   });
 });
-const transportReadSuffix = `\n\nTool "ableton_transport" succeeded. Additional guidance from postToolUse hooks:\n${VERIFIED_TOOL_RESULT_GUIDANCE}`;
+const transportReadSuffix = `\n\nTool "ableton_transport" succeeded. Additional guidance from postToolUse hooks:\n${VERIFIED_TOOL_RESULT_GUIDANCE}\n${TRANSPORT_SOURCE_FLAG_GUIDANCE}`;
 
 function addTransportRead(
   turn: TurnEvidence,
@@ -1578,27 +2012,21 @@ describe("bounded independent feature search oracle", () => {
         result(turns[1]!, "search-features").matches as { feature: unknown }[]
       )[0]!.feature,
     ] as { record: { id: string; feature: object } }[];
-    inventory.features = templates.flatMap((template) =>
+    const fullInventory: unknown[] = templates.flatMap((template) =>
       LISTENING_FEATURE_DEFINITIONS.map((definition) => ({
         ...template,
         record: {
           ...template.record,
-          id: `${template.record.id}-${definition.type}`,
-          feature: {
-            ...template.record.feature,
-            ...definition,
-            status: definition.type.endsWith("-grid/v1")
-              ? "unavailable"
-              : "ready",
-            reason: definition.type.endsWith("-grid/v1")
-              ? "missing-alignment"
-              : null,
-          },
+          id: `${template.record.id}-${definition.type.replace("/", "-")}`,
+          feature: canonicalMetadata(definition.type),
         },
       })),
     );
     // Keep the exact peak inventory entry consumed by the frozen oracle.
-    (inventory.features as unknown[]).push(templates[1]);
+    fullInventory.push(templates[1]!);
+    inventory.inventory = projectListeningFeatureInventory(
+      contextFeatureViewSchema.array().parse(fullInventory),
+    );
     const decorate = (value: unknown): void => {
       if (value === null || typeof value !== "object") return;
       const item = value as Record<string, unknown>;
@@ -1876,16 +2304,13 @@ describe("bounded independent feature search oracle", () => {
             record.result?.result as {
               content?: {
                 action: string;
-                features?: {
-                  record: { feature: { type: string; status: string } };
-                }[];
+                inventory?: ReturnType<typeof projectListeningFeatureInventory>;
               };
             }
           )?.content;
           if (data?.action === "list-features")
-            for (const feature of data.features ?? [])
-              if (feature.record.feature.type === "pitch-grid/v1")
-                feature.record.feature.status = "ready";
+            for (const feature of data.inventory!.metadata)
+              if (feature.type === "pitch-grid/v1") feature.status = "ready";
         }
       },
     ],

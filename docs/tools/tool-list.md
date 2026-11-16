@@ -186,7 +186,7 @@ lifecycle identity.
 | `ableton_mixer_routing` | Mixer `inspect`; bounded `meters`; combined `set-track-mixer`; volume, pan, sends, activator, crossfade assignment, master crossfader, and cue volume updates; routing option discovery and exact snapshot-token assignment |
 | `ableton_transport` | Full state `get`; tempo and playback; Arrangement loop/cue inspection and mutation; seek/jump, time signature, metronome, launch/record quantization, Link when exposed, cue rename/jump, and Back to Arrangement |
 | `ableton_session_clips` | MIDI clip creation; destructive note replacement; launch, duplicate, delete, and conservative property updates |
-| `ableton_arrangement` | Bounded inspection; MIDI clip creation; destructive clip deletion/note replacement; isolated duplication; transactional `fill-region`; conservative clip property updates |
+| `ableton_arrangement` | Read-only `inspect` for bounded inventories, source verification and playback extent; MIDI clip creation; destructive clip deletion/note replacement; isolated duplication; transactional `fill-region`; conservative clip property updates. `set-clip-properties` is an edit, never an inspection action. |
 | `ableton_midi_notes` | Modern note-ID `query`, `add`, `update`, exact destructive `remove`, `duplicate`, and `quantize`, preserving probability, velocity deviation, and release velocity |
 | `ableton_audio_clips` | Metadata `inspect`, including currently available warp modes; gain, pitch, warp state/mode, start/end/loop markers, and RAM mode updates; bounded warp-marker reads |
 | `ableton_devices` | Bounded device/parameter/rack/chain/Drum Rack inspection; parameter and enabled state mutation; chain mixer/properties; exact device position validation and movement |

@@ -1,4 +1,4 @@
-import type { MetricAudioObservation } from "./metric-observation-schemas.js";
+import type { ListeningFeatureSource } from "./listening-feature-source.js";
 import { extractListeningFeature } from "./listening-feature-arithmetic.js";
 import {
   listeningFeatureComparisonSchema,
@@ -9,9 +9,10 @@ import {
 export * from "./listening-feature-contracts.js";
 export * from "./listening-feature-arithmetic.js";
 export * from "./listening-feature-segmentation.js";
+export type { ListeningFeatureSource } from "./listening-feature-source.js";
 
 export function extractPeakFeature(
-  observation: MetricAudioObservation,
+  observation: ListeningFeatureSource,
 ): ListeningFeature {
   return extractListeningFeature("peak-summary/v1", observation);
 }

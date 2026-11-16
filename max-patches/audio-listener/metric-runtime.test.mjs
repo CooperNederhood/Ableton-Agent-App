@@ -8,6 +8,60 @@ import { nativeMetricLifecycleSchema } from "../../packages/signal-routing/src/l
 import { LISTENER_CAPABILITY_ANALYZER_TIMELINES } from "../../packages/protocol/src/analyzer-profile.ts";
 import * as actualProtocol from "./audio_listener_metric_protocol.mjs";
 
+test("SDK failure evidence precedes invalidation and preserves the owned native cause", async () => {
+  for (const accepted of [true, false]) {
+    const h = metricRuntimeHarness({ sendListenerDiagnostic: () => accepted });
+    const control = { generation: "11111111-1111-4111-8111-111111111111" };
+    const lifecycle = {
+      eventId: "22222222-2222-4222-8222-222222222222",
+      causationId: "33333333-3333-4333-8333-333333333333",
+      generation: control.generation,
+      nativeEpoch: 1,
+      stage: "progress",
+      scope: "finite-metric-stream/v1",
+      elapsedMs: 100,
+      frames: 13,
+    };
+    h.controllerOptions.onEvent({ control, nativeLifecycle: lifecycle });
+    h.advance(50);
+    h.clientOptions.onListenerFailure(
+      "invalid_metric_listener_payload",
+      control,
+      {
+        validationDetail: "x".repeat(2000),
+      },
+    );
+    assert.equal(h.diagnostics.length, 1);
+    const evidence = h.diagnostics[0].payload;
+    nativeMetricLifecycleSchema.parse(evidence);
+    assert.equal(evidence.causationId, lifecycle.eventId);
+    assert.equal(evidence.elapsedMs, 150);
+    assert.equal(evidence.generation, control.generation);
+    assert.equal(evidence.reason, "sdk_publication_failure_evidence");
+    assert.equal(evidence.facts[1].field, "capture.sdk.validationDetail");
+    assert.ok(evidence.facts[1].actual.value.length <= 256);
+    assert.deepEqual(h.stops, ["client"]);
+    await h.runtime.stop();
+  }
+});
+
+test("consolidation: actual native registration supports the same finite Session and Arrangement stream ceiling", async () => {
+  const h = metricRuntimeHarness({ runtime: { protocol: actualProtocol } });
+  try {
+    const registration = actualProtocol.listenerRegistrationMetricSchema.parse(
+      h.clientOptions.listener,
+    );
+    assert.equal(registration.nativeStatus.maxSessionAudioDurationMs, 600000);
+    assert.equal(
+      registration.nativeStatus.maxSessionReportRows,
+      registration.nativeStatus.maxReportRows,
+    );
+    assert.ok(registration.nativeStatus.supportedModes.includes("session"));
+  } finally {
+    await h.runtime.stop();
+  }
+});
+
 test("actual consumer schema accepts source-perform ABI3 registration and its receipt", async () => {
   const h = metricRuntimeHarness({ runtime: { protocol: actualProtocol } });
   const registration = actualProtocol.listenerRegistrationMetricSchema.parse(
@@ -16,7 +70,7 @@ test("actual consumer schema accepts source-perform ABI3 registration and its re
   assert.equal(registration.analyzerReadiness.producerAbi, 3);
   assert.equal(registration.nativeStatus.version, 6);
   assert.equal(registration.nativeStatus.maxAudioDurationMs, 600000);
-  assert.equal(registration.nativeStatus.maxSessionAudioDurationMs, 30000);
+  assert.equal(registration.nativeStatus.maxSessionAudioDurationMs, 600000);
   assert.ok(
     registration.capabilities.includes(
       actualProtocol.METRIC_CONTINUOUS_LISTENING_CAPABILITY,
@@ -100,6 +154,58 @@ test("runtime routes mel controls and native receipts without a second listener 
   );
   await h.runtime.stop();
 });
+
+for (const accepted of [true, false])
+  test(`launch failure evidence retains bounded binding operands; delivery accepted=${accepted}`, async () => {
+    const timing = [1, 128, 0, 1, 64, 4096, 4160, 0];
+    const clock = [1, 16, 804159, 31, 4159, 0, 4159, 1, 16, 804159, 31];
+    const h = metricRuntimeHarness({
+      sendListenerDiagnostic: (_control, payload) =>
+        payload.reason !== "native_launch_failure_evidence" || accepted,
+      controller: {
+        snapshot: () => ({
+          state: "failed",
+          cleanup: "completed",
+          launchTiming: [...timing, "not part of the timing tuple"],
+          launchClock: [...clock, "not part of the clock tuple"],
+          armCounter: 4096,
+        }),
+      },
+    });
+    const control = { generation: "11111111-1111-4111-8111-111111111111" };
+    const lifecycle = {
+      eventId: "22222222-2222-4222-8222-222222222222",
+      generation: control.generation,
+      nativeEpoch: 1,
+      stage: "failed",
+      scope: "finite-metric-stream/v1",
+      elapsedMs: 125,
+      frames: 1,
+    };
+    h.controllerOptions.onEvent({ control, nativeLifecycle: lifecycle });
+    const diagnostic = h.diagnostics.find(
+      ({ payload }) => payload.reason === "native_launch_failure_evidence",
+    );
+    assert.ok(diagnostic);
+    assert.equal(diagnostic.control, control);
+    assert.equal(diagnostic.payload.causationId, lifecycle.eventId);
+    assert.equal(diagnostic.payload.elapsedMs, 125);
+    assert.equal(
+      nativeMetricLifecycleSchema.safeParse(diagnostic.payload).success,
+      true,
+      JSON.stringify(diagnostic.payload),
+    );
+    assert.deepEqual(
+      diagnostic.payload.facts.map(({ actual }) => actual.value),
+      [...timing, ...clock, 4096],
+    );
+    assert.deepEqual(h.stops, accepted ? [] : ["client"]);
+    assert.equal(
+      h.diagnostics.some(({ payload }) => payload.stage === "completed"),
+      false,
+    );
+    await h.runtime.stop();
+  });
 
 test("complete spectral failure snapshots preserve every fact within the lifecycle quota", async () => {
   let cleanup = "pending";

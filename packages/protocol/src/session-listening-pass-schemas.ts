@@ -97,7 +97,7 @@ export const sessionListeningPassResultSchema = z
     followActionState: z.enum(["known-disabled", "unknown"]),
     limitations: z.array(z.string().min(1).max(512)).min(1).max(4),
     durationBeats,
-    expiresInMs: z.number().int().min(0).max(40_000),
+    expiresInMs: z.number().int().min(0).max(900_000),
   })
   .refine(
     (value) =>

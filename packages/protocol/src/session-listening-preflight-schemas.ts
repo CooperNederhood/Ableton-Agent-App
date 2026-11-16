@@ -64,7 +64,7 @@ export const sessionPreflightDeviceParametersSchema =
       "MIDI preflight requires complete parameters for the inspected device",
     );
 
-const instrumentChainSchema = z
+export const listeningTopLevelInstrumentChainSchema = z
   .strictObject({
     before: sessionPreflightDeviceInventorySchema,
     devices: z
@@ -81,8 +81,10 @@ const instrumentChainSchema = z
           JSON.stringify(device) === JSON.stringify(before.devices[index]),
       ),
     "MIDI device inventory changed during preflight",
-  )
-  .refine(({ before, after }) => {
+  );
+
+export const sessionPreflightInstrumentChainSchema =
+  listeningTopLevelInstrumentChainSchema.refine(({ before, after }) => {
     const required = before.devices.some(
       (device) => device.canHaveChains || device.canHaveDrumPads,
     );
@@ -112,6 +114,9 @@ const instrumentChainSchema = z
       )
     );
   }, "MIDI rack preflight requires a complete stable instrument tree");
+export type SessionPreflightInstrumentChain = z.infer<
+  typeof sessionPreflightInstrumentChainSchema
+>;
 
 export const sessionListeningPreflightResultSchema = z.union([
   z
@@ -130,7 +135,7 @@ export const sessionListeningPreflightResultSchema = z.union([
     .strictObject({
       ...common,
       midi: inspectMidiNotesResultSchema,
-      instrumentChain: instrumentChainSchema,
+      instrumentChain: sessionPreflightInstrumentChainSchema,
     })
     .refine(
       ({ source, midi }) =>

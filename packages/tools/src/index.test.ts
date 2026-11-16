@@ -9,6 +9,7 @@ import {
   createAbletonTools,
   deprecatedAbletonToolNames,
   parseAbletonToolFailure,
+  projectListeningFeatureInventory,
   resolveAbletonToolMetadata,
   resolveAbletonOperation,
   scopeAbletonTools,
@@ -2302,10 +2303,13 @@ describe("Ableton tools", () => {
         .fn<NonNullable<AbletonToolServices["executeContextOperation"]>>()
         .mockResolvedValueOnce({
           action: "list-features",
-          features: [],
+          inventory: projectListeningFeatureInventory([]),
           nextCursor,
         })
-        .mockResolvedValueOnce({ action: "list-features", features: [] });
+        .mockResolvedValueOnce({
+          action: "list-features",
+          inventory: projectListeningFeatureInventory([]),
+        });
       const set = createAbletonTools({
         ...services(),
         executeContextOperation,
@@ -2362,7 +2366,7 @@ describe("Ableton tools", () => {
         "returned nextCursor unchanged",
       );
       expect(inventory?.properties?.limit?.description).toContain(
-        "default 10, maximum 20",
+        "default and maximum 100",
       );
       expect(inventory?.properties).not.toHaveProperty("offset");
       expect(inventory?.additionalProperties).toBe(false);
@@ -2392,14 +2396,26 @@ describe("Ableton tools", () => {
       expect(executeContextOperation).not.toHaveBeenCalled();
       await expect(invoke(args, "first-page")).resolves.toEqual({
         action: "list-features",
-        features: [],
+        inventory: {
+          features: [],
+          provenance: [],
+          segments: [],
+          sources: [],
+          metadata: [],
+        },
         nextCursor,
       });
       await expect(
         invoke({ ...args, cursor: nextCursor }, "second-page"),
       ).resolves.toEqual({
         action: "list-features",
-        features: [],
+        inventory: {
+          features: [],
+          provenance: [],
+          segments: [],
+          sources: [],
+          metadata: [],
+        },
       });
       expect(
         executeContextOperation.mock.calls.map(([request]) => request),
@@ -2466,6 +2482,12 @@ describe("Ableton tools", () => {
     };
 
     expect(scoped).toHaveLength(1);
+    expect(scoped[0]?.description).toContain(
+      'Use action "inspect" for read-only Arrangement clip inventories, playback extent, or source verification',
+    );
+    expect(scoped[0]?.description).toContain(
+      'Never use "set-clip-properties" as an inspection action',
+    );
     expect(
       parameters.safeParse({ action: "inspect", offset: 0, limit: 10 }).success,
     ).toBe(true);

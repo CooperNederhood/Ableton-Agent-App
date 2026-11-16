@@ -134,6 +134,28 @@ describe("independent Desktop source evidence", () => {
       unrelatedPlaybackFingerprint(after, [sourceId]),
     );
   });
+  it("excludes all four admitted Session sources together while retaining unrelated playback protection", () => {
+    const before = snapshot();
+    const source = before.sessionClips![0]!;
+    before.sessionClips = Array.from({ length: 5 }, (_, index) => ({
+      ...source,
+      id: `clip-${index + 1}`,
+      sceneIndex: index,
+    }));
+    const after = structuredClone(before);
+    const admitted = before.sessionClips.slice(0, 4).map((clip) => clip.id);
+    for (const clip of after.sessionClips!.slice(0, 4)) clip.status = "playing";
+    expect(unrelatedPlaybackFingerprint(before, admitted)).toBe(
+      unrelatedPlaybackFingerprint(after, admitted),
+    );
+    expect(unrelatedPlaybackFingerprint(before, [admitted[0]!])).not.toBe(
+      unrelatedPlaybackFingerprint(after, [admitted[0]!]),
+    );
+    after.sessionClips![4]!.status = "queued";
+    expect(unrelatedPlaybackFingerprint(before, admitted)).not.toBe(
+      unrelatedPlaybackFingerprint(after, admitted),
+    );
+  });
   it("binds the reviewed selector to actual host references", () => {
     const state = snapshot();
     expect(resolveSessionSource(state, selector).target).toMatchObject({

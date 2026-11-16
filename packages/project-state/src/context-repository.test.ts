@@ -1112,7 +1112,7 @@ describe("typed descriptive context history", () => {
     ).toEqual([4.001, 104.001]);
   });
 
-  it("retains old store references and additively registers all four bounded observation kinds", () => {
+  it("retains historical store references and registers canonical stream contexts", () => {
     expect(
       sessionContextStoreReferenceSchema.parse({
         ...SESSION_CONTEXT_STORE_REFERENCE,
@@ -1137,6 +1137,7 @@ describe("typed descriptive context history", () => {
       "audio-observation/v2",
       "session-audio-observation/v1",
       "metric-audio-observation/v1",
+      "metric-record-stream-context/v1",
     ]);
     expect(
       sessionContextStoreReferenceSchema.safeParse({
@@ -1164,9 +1165,7 @@ describe("typed descriptive context history", () => {
       rawClipName,
     ).slice(0, 128);
     const quality = structuredClone(payload.alignment);
-    value.entries[0]!.payload.limitations = [
-      "Authorization: Bearer secret-session-token",
-    ];
+    payload.limitations = ["Authorization: Bearer secret-session-token"];
     await store.appendPass(value);
     const page = await store.listEntries({
       kind: "session-audio-observation/v1",
@@ -1244,10 +1243,12 @@ describe("typed descriptive context history", () => {
       if (failure === "fresh") value.links[0]!.freshness.status = "fresh";
       if (failure === "binding")
         value.subjects[0]!.binding.previousRuntimeBindings = ["unrelated"];
-      if (failure === "quota")
-        value.entries[0]!.payload.limitations = [
-          "x".repeat(CONTEXT_LIMITS.entryBytes),
-        ];
+      if (failure === "quota") {
+        const payload = value.entries[0]!.payload;
+        if (payload.schema !== "session-audio-observation/v1")
+          throw new Error("Expected Session payload");
+        payload.limitations = ["x".repeat(CONTEXT_LIMITS.entryBytes)];
+      }
       const controller = new AbortController();
       if (failure === "cancelled") controller.abort(new Error("cancelled"));
       await expect(

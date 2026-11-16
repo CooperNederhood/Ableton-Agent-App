@@ -94,6 +94,7 @@ function inspection(): InspectListeningContextResult {
       playing: false,
       currentBeat: 0,
       tempo: 120,
+      timeSignature: { numerator: 4, denominator: 4 },
       recording: {
         recordMode: false,
         sessionRecord: false,
@@ -199,9 +200,9 @@ describe("authenticated v5 metric listener binding metadata", () => {
       version: 6,
       scope: NATIVE_CONTINUOUS_METRIC_LISTENING_SCOPE,
       maxAudioDurationMs: 600_000,
-      maxSessionAudioDurationMs: 30_000,
+      maxSessionAudioDurationMs: 600_000,
       maxReportRows: MAX_CONTINUOUS_METRIC_REPORT_ROWS,
-      maxSessionReportRows: 2_000,
+      maxSessionReportRows: MAX_CONTINUOUS_METRIC_REPORT_ROWS,
       streamCapability: METRIC_RECORD_STREAM_CAPABILITY,
     });
     const continuous: ListenerBindingDescriptor = {

@@ -18,6 +18,28 @@ import type {
 } from "./contracts.js";
 
 describe("fixed-tempo single-track Arrangement evidence", () => {
+  it("admits only the independently declared initial Arrangement override", () => {
+    const { fixture, definition, baseline } = arrangementTestEvidence();
+    const overridden = {
+      ...baseline,
+      before: { ...baseline.before, backToArrangement: true },
+      after: { ...baseline.after, backToArrangement: true },
+    };
+    expect(() =>
+      verifyArrangementSource(
+        {
+          ...fixture,
+          baseline: { ...fixture.baseline, backToArrangement: true },
+        },
+        definition,
+        overridden,
+      ),
+    ).not.toThrow();
+    expect(() =>
+      verifyArrangementSource(fixture, definition, overridden),
+    ).toThrow("no repair");
+  });
+
   it.each([
     [512, 4219],
     [2048, 4218],

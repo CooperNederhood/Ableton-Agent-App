@@ -65,7 +65,6 @@ never sufficient and no flat session-state compatibility path is exposed.
     │   │   ├── live-projects.json
     │   │   └── signal-ingress.json
     │   ├── credentials/
-    │   │   ├── {credential-key}
     │   │   └── signal-ingress-secret.json
     │   ├── copilot/
     │   │   ├── {Copilot SDK-owned data}
@@ -364,10 +363,28 @@ ten-minute record timeline. `stream-records` reads at most one immutable
 128-KiB chunk internally and returns an explicitly labelled original-record/gap
 projection under the **64-KiB total UTF-8 tool response budget**. It returns at
 most 64 entries, trimming further by encoded bytes without altering records.
-Query-bound continuations preserve within-chunk offsets and next-chunk identity.
+Query-bound continuations preserve filtered within-chunk offsets and next-chunk identity.
 The chunk digest identifies the original immutable chunk, not a hash of the
-sliced projection. Sample-range filters select intersecting chunks; original
-record/gap support is not clipped.
+sliced projection. Storage sample-range filters select intersecting immutable
+chunks; the tool projection additionally filters records and gaps by half-open
+support intersection before pagination. Original record/gap supports are not
+clipped. `totalRecords`/`totalGaps` still describe the original chunk, not the
+filtered projection; `entryOffset` addresses its filtered entries. Empty
+projections may retain a continuation when a coarse chunk match has no
+intersecting entries. This changes neither persisted bytes nor storage ownership,
+retention or native evidence verification.
+
+`stream-summary` provides a complete bounded mel-band range summary across
+chunk boundaries, using the existing equal-weight linear frame aggregation,
+regional sums and ratios. Each request remains inside the captured source and
+reads at most eight chunks/1 MiB and 256 matching frames. A continuation or
+larger frame count is an explicit error, never a partial mean. The typed result
+retains the requested range, original chunk digests, descriptor identity,
+availability, profile, full intersecting gaps and an explicit native-frame
+support policy, under the same 64-KiB tool budget. No raw arrays are returned.
+This is read presentation, not feature derivation or a new persisted object.
+Record paging remains available independently; no draft page-only summary or
+raw-array omission mode is retained.
 
 Completed stream summaries share bounded discovery and bootstrap inventory with
 legacy observations. A query-bound composite cursor alternates both sources,
@@ -629,8 +646,13 @@ journal and typed History; no new journal location or upload path is introduced.
 ## Data that intentionally remains outside the root
 
 - The installed Remote Script token remains in the managed Ableton Remote
-  Script directory because Live must read it. Desktop may copy it into the
-  encrypted credential vault.
+  Script directory because Live must read it. Desktop reads this bounded,
+  validated owner-only file into process memory when composing the connection,
+  unless an explicit environment token overrides it. Desktop does not create,
+  read, decrypt, or migrate an OS-backed vault copy. Existing vault files and
+  operating-system Keychain items are left untouched. This does not change
+  authenticated loopback traffic or the resolver-owned, owner-only Signal
+  producer credential described above.
 - Host-consumed Machine-Listening-Development and Midi-Capture bundles, their
   hash/installation manifests and owner-only discovery path configuration reside
   in their dedicated preset folders in the selected Ableton User Library.
@@ -648,8 +670,6 @@ journal and typed History; no new journal location or upload path is introduced.
   destination selected by the user.
 - Build, test, and release artifacts remain in their repository-defined or
   temporary locations and are not runtime application state.
-- Operating-system keychain material used by Electron `safeStorage` remains
-  operating-system managed.
 
 ### Packaged acceptance isolation
 

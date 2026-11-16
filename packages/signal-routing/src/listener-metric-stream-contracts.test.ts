@@ -38,7 +38,7 @@ describe("installed incremental metric wire union", () => {
     const f = createSyntheticMetricWireFixture();
     if (f.observation.source.view !== "arrangement") throw new Error("source");
     const geometry = createContinuousMetricListeningGeometry({
-      captureMode: "arrangement-continuous",
+      captureMode: "finite-metric-stream",
       sampleRate: 48_000,
       vectorSize: 64,
       tempoBpm: 999,
@@ -112,14 +112,14 @@ describe("installed incremental metric wire union", () => {
     const value = message();
     expect(producerMessageSchema.parse(value)).toEqual(value);
   });
-  it.each(["session", "completed", "partial", "failed", "cancelled"])(
+  it.each(["unknown", "completed", "partial", "failed", "cancelled"])(
     "rejects a chunk carrying incompatible mode/stage %s",
     (value) => {
       const chunk = message();
       expect(
         listenerResultMetricSchema.safeParse({
           ...chunk,
-          ...(value === "session" ? { mode: value } : { status: value }),
+          ...(value === "unknown" ? { mode: value } : { status: value }),
         }).success,
       ).toBe(false);
     },

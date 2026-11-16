@@ -11,9 +11,23 @@ The protocol must provide:
 - Capability discovery.
 - Optional events from Ableton.
 - Cross-platform local operation.
-- Backward-compatible evolution.
+- Explicit versioning of breaking changes.
+
+Protocol **11** carries the consolidated finite-listening source contracts:
+shared Session duration/lease bounds, Arrangement musical meter and scoped MIDI
+source evidence. TypeScript, embedded Python and generated wire contracts move
+together; a protocol-10 peer must renegotiate or fail, not enter a legacy
+capture path. Listener metric wire version 5 and native stream status version 6
+are separate version namespaces and are not changed by this bridge bump.
 
 ## Transport
+
+Client requests retain the existing five-second normal and fifteen-second long
+budgets, measured from dispatch rather than queue admission. `devices.inspect`
+uses the long class only when `includeInstrumentTree` is explicitly `true`:
+complete rack traversal is deeper work than ordinary top-level inspection.
+Default and explicitly shallow inspection retain the normal class. This changes
+no wire schema, FIFO ordering, cancellation, trace attribution or retry policy.
 
 ### Listening placement state
 
@@ -271,6 +285,11 @@ references, noncontiguous indexes, foreign track/device identities, changed
 inventory metadata, missing children and out-of-bound hierarchies fail closed. Empty chains
 remain observable for diagnostics, not proof of an audible instrument.
 
+Routine Arrangement MIDI source inspection shares the complete stable
+top-level chain schema but excludes nested trees. It does not replace the full
+Session rack audit or repeat that potentially large hierarchy twice in an
+aggregate Arrangement response.
+
 This adds no Remote Script command or native timing authority. The bracketed
 inventory and parameter reads are message-rate, not an atomic snapshot or an
 opaque preset/plugin-state dump. They do not prove rendered audio timing,
@@ -304,7 +323,7 @@ Prepare additionally requires `expectedLiveSetId`, `expectedProjectRevision`,
 the diagnostic's exact bounded Session `target`, one full same-track `listener`
 binding (device index `0..31`), positive resolved `durationBeats`, and
 `timingAnchor:{globalBeat}`. The anchor must equal the existing stopped global
-position; no seek occurs. Physical admission also requires at most thirty
+position; no seek occurs. Physical admission also requires at most 600
 seconds, known recording-off, no pending launch, MIDI/warped source, supported
 launch settings and tempo, global None/1 Bar in 4/4, and
 `durationBeats <= (looping ? loopEnd : endMarker)`. The tool may omit duration
@@ -313,8 +332,8 @@ number. Exact natural-end/wrap equality is supported; no silent range trimming
 is allowed. Admission accepts nonnegative stopped positions, global None/One Bar,
 and clip Global/One Bar. A remembered active target is safe only when both read
 brackets agree on its exact slot/reference and stopped, unqueued, recording-off
-state. Running transport remains refused. Native configuration retains the
-thirty-second/300-window envelope.
+state. Running transport remains refused. Both views use the same finite
+native stream and 600-second admission envelope.
 Release additionally requires `reason:"completed"|"cancelled"`.
 
 Session native metric configuration requires `stoppedBeat`, distinct from capture
@@ -331,7 +350,11 @@ The shared result echoes owner/pass and carries `status` (`prepared`,
 `accepted`, `queued`, `playing`, `covered`, `unverified`, `invalidated`, `released`,
 `cancelled`, or `expired`), `mutationState` (`not-attempted`, `indeterminate`,
 or `observed-playing`), nullable `reason`, `durationBeats`, `expiresInMs`
-(`0..40000`), and the diagnostic's bounded `lastObservedSource` state.
+(`0..900000`), and the diagnostic's bounded `lastObservedSource` state.
+The nonrenewable source lease is capture duration plus 85 seconds for
+preparation, drain and cleanup, capped at 900 seconds; its frozen-clock tick
+guard scales with the same bound. These are source-monitor limits, not native
+timing authority or real-host ten-minute qualification.
 `sourceEpoch` is null until actual `Clip.start_time` and exact active clip
 identity agree, then contains `startTimeBeats`, `clipReference`, and
 `observedGlobalBeat`. First origin and invalidation reason remain latched.

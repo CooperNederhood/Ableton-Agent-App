@@ -122,7 +122,7 @@ function createMetricListeningGeometry(input) {
   );
   const { sampleRate, vectorSize, tempoBpm, startBeat, endBeat, startSample } =
     input;
-  const continuous = input.captureMode === "arrangement-continuous";
+  const continuous = input.captureMode === "finite-metric-stream";
   invariant(
     Object.keys(input).every((key) =>
       [
@@ -232,7 +232,7 @@ function createMusicalGrid(input) {
     "capture_endpoint_mismatch",
   );
   const rowLimit =
-    input.captureMode === "arrangement-continuous"
+    input.captureMode === "finite-metric-stream"
       ? 39961
       : METRIC_LIMITS.reportRows;
   const maxRows = budget(input.maxReportRows, rowLimit, rowLimit);
@@ -518,7 +518,7 @@ function missingRanges(expected, records, supportAt, reason, lastSequence) {
  * into that native-counter frame, never legacy host-derived timestamps.
  */
 function createMetricTimelines(input, options = {}) {
-  const streaming = input.captureMode === "arrangement-continuous";
+  const streaming = input.captureMode === "finite-metric-stream";
   invariant(
     !streaming || typeof options.onRecord === "function",
     "metric_stream_sink_required",

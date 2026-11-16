@@ -62,10 +62,7 @@ import {
 } from "../contracts.js";
 import { AgentCatalogService } from "./agent-catalog.js";
 import { ApprovalCoordinator, ApprovalPolicyController } from "./approvals.js";
-import {
-  resolveBridgeCredential,
-  type BridgeCredentialVault,
-} from "./bridge-credentials.js";
+import { resolveBridgeCredential } from "./bridge-credentials.js";
 import { JsonPreferencesStore, JsonSessionStore } from "./desktop-service.js";
 import {
   HeadlessDesktopService,
@@ -96,9 +93,6 @@ export interface DesktopCompositionOptions {
   copilotRuntimeEnvironment?: Record<string, string | undefined>;
   copilotCliAvailable?: boolean;
   copilotCliSource?: "environment-path" | "explicit" | "standard-location";
-  /** Token from OS-backed secure storage, when one has been provisioned. */
-  storedToken?: string | undefined;
-  credentialVault?: BridgeCredentialVault;
   homeDirectory?: string;
   platform?: NodeJS.Platform;
   environment?: Readonly<Partial<Record<string, string>>>;
@@ -815,12 +809,6 @@ export async function createDesktopComposition(
     retention: RetentionPolicy,
   ): Promise<void> => journalHost.reconfigure(retention);
   const credential = await resolveBridgeCredential({
-    ...(options.storedToken === undefined
-      ? {}
-      : { storedToken: options.storedToken }),
-    ...(options.credentialVault === undefined
-      ? {}
-      : { vault: options.credentialVault }),
     environment,
     remoteScriptLocation: preferences.remoteScriptLocation,
     ...(options.homeDirectory === undefined

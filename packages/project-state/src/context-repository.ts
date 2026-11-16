@@ -16,12 +16,15 @@ import {
   storedObservationIdentity,
   extractListeningFeatures,
   segmentListeningObservation,
+  projectMetricFeatureSource,
   LISTENING_FEATURE_LIMITS,
   LISTENING_FEATURE_DEFINITION_SET,
   listeningFeatureDefinition,
   compareListeningFeatures,
   type MetricRecordChunk,
   type MetricRecordStreamManifest,
+  type MetricRecordStreamContextReference,
+  type ListeningFeatureRange,
 } from "@ableton-agent/protocol";
 import {
   contextSegmentSchema,
@@ -259,6 +262,14 @@ export interface IncrementalMetricContextRepository {
     pass: ListeningPass,
     options?: ContextOperationOptions,
   ): Promise<MetricCapturePublication>;
+  finalizeMetricCaptures(
+    captures: readonly {
+      readonly owner: MetricCaptureOwner;
+      readonly manifest: MetricRecordStreamManifest;
+    }[],
+    pass: ListeningPass,
+    options?: ContextOperationOptions,
+  ): Promise<readonly MetricCapturePublication[]>;
   terminateMetricCapture(
     owner: MetricCaptureOwner,
     status: Exclude<MetricCaptureStatus, "staging" | "sealed" | "completed">,
@@ -397,6 +408,8 @@ function summarizeObservation(
     };
   }
   switch (observation.schema) {
+    case "metric-record-stream-context/v1":
+      return observation;
     case "session-audio-observation/v1":
       return omitFields(observation, "samples", "attacks");
     case "audio-observation/v2":
@@ -514,7 +527,7 @@ function migrate(
   const version = Number(
     rows(database, "PRAGMA user_version")[0]?.user_version ?? 0,
   );
-  if (version > 4)
+  if (version > 5)
     throw new Error("Context store schema version is unsupported");
   database.run("PRAGMA foreign_keys = ON");
   if (version === 0) {
@@ -612,6 +625,39 @@ function migrate(
       COMMIT;
     `);
   }
+  if (version < 5) {
+    database.run(`
+      BEGIN IMMEDIATE;
+      CREATE TEMP TABLE context_metric_chunks_migration AS SELECT * FROM context_metric_chunks;
+      DROP TABLE context_metric_chunks;
+      CREATE TABLE context_metric_captures_next (
+        id TEXT PRIMARY KEY, pass_id TEXT NOT NULL,
+        subject_id TEXT NOT NULL, listener_id TEXT NOT NULL,
+        status TEXT NOT NULL, owner_token TEXT NOT NULL,
+        stored_bytes INTEGER NOT NULL DEFAULT 0, payload TEXT NOT NULL,
+        UNIQUE(pass_id, listener_id)
+      );
+      INSERT INTO context_metric_captures_next SELECT * FROM context_metric_captures;
+      DROP TABLE context_metric_captures;
+      ALTER TABLE context_metric_captures_next RENAME TO context_metric_captures;
+      CREATE TABLE context_metric_chunks (
+        capture_id TEXT NOT NULL REFERENCES context_metric_captures(id) ON DELETE CASCADE,
+        sequence INTEGER NOT NULL, metric TEXT NOT NULL, metric_sequence INTEGER NOT NULL,
+        start_sample INTEGER NOT NULL, end_sample INTEGER NOT NULL,
+        digest TEXT NOT NULL, payload TEXT NOT NULL,
+        PRIMARY KEY(capture_id, sequence),
+        UNIQUE(capture_id, metric, metric_sequence)
+      );
+      INSERT INTO context_metric_chunks SELECT * FROM context_metric_chunks_migration;
+      DROP TABLE context_metric_chunks_migration;
+      CREATE INDEX context_metric_chunk_range
+        ON context_metric_chunks(capture_id, metric, start_sample, sequence);
+      CREATE INDEX context_metric_capture_subject
+        ON context_metric_captures(subject_id, status, id);
+      PRAGMA user_version = 5;
+      COMMIT;
+    `);
+  }
   const owner = rows(
     database,
     "SELECT session_id, live_set_id FROM context_owner",
@@ -676,6 +722,9 @@ export class SessionContextStore implements EntityContextRepository {
     this.#maxPending =
       options.maxPendingOperations ?? CONTEXT_LIMITS.pendingOperations;
     this.#metricCaptures = new MetricCaptureRepository({
+      prepareFeatures: (entry) =>
+        this.#putDerivation(derivationState(entry.id, "pending")),
+      scheduleFeatures: (entries) => this.#scheduleFeatureDerivations(entries),
       database: () => this.#database,
       sessionId: this.sessionId,
       liveSetId: () => this.liveSetId,
@@ -884,6 +933,22 @@ export class SessionContextStore implements EntityContextRepository {
       });
   }
 
+  public finalizeMetricCaptures(
+    captures: readonly {
+      readonly owner: MetricCaptureOwner;
+      readonly manifest: MetricRecordStreamManifest;
+    }[],
+    pass: ListeningPass,
+    options: ContextOperationOptions = {},
+  ): Promise<readonly MetricCapturePublication[]> {
+    return this.#metricCaptures
+      .finalizeMany(captures, pass, options)
+      .then((publications) => {
+        this.#reservations.delete(pass.id);
+        return publications;
+      });
+  }
+
   public sealMetricCapture(
     owner: MetricCaptureOwner,
     manifest: MetricRecordStreamManifest,
@@ -1005,51 +1070,59 @@ export class SessionContextStore implements EntityContextRepository {
           parsed.pass.id,
         );
         this.#reservations.delete(parsed.pass.id);
-        for (const entry of parsed.entries) {
-          if (entry.kind === "metric-audio-observation/v1") {
-            // Publication is already durable. Derivation has independent lifecycle/failure.
-            const denied = this.#closing || this.#pending >= this.#maxPending;
-            void this.deriveFeatures(entry.id, {
-              trace: entry.trace,
-              activeAgentId: entry.producer.agentId,
-            }).catch(() => undefined);
-            if (denied) {
-              // Already inside the serialized publication: do not create an overflow cleanup queue.
-              const startedAt = performance.now();
-              const emit = lifecycleEmitter(
-                this.#recorder,
-                this,
-                "derive-status",
-                entry.trace,
-                () => this.#now(),
-                entry.producer.agentId,
-              );
-              emit("queued");
-              emit("started", 0);
-              try {
-                emit("progress", 0, { phase: "persisting-admission-failure" });
-                await this.#transaction(() =>
-                  this.#putDerivation(
-                    derivationState(
-                      entry.id,
-                      this.#closing ? "cancelled" : "failed",
-                      this.#closing
-                        ? "derivation-cancelled"
-                        : "derivation-queue-full",
-                    ),
-                  ),
-                );
-                emit("completed", performance.now() - startedAt);
-              } catch (error) {
-                emit("failed", performance.now() - startedAt, { error });
-              }
-            }
-          }
-        }
+        await this.#scheduleFeatureDerivations(
+          parsed.entries.filter(
+            (entry) => entry.kind === "metric-audio-observation/v1",
+          ),
+        );
       },
       false,
       input.pass.initiatorAgentId,
     );
+  }
+
+  async #scheduleFeatureDerivations(
+    entries: readonly ContextEntry[],
+  ): Promise<void> {
+    for (const entry of entries) {
+      // Publication is already durable. Derivation has independent lifecycle/failure.
+      const denied = this.#closing || this.#pending >= this.#maxPending;
+      void this.deriveFeatures(entry.id, {
+        trace: entry.trace,
+        activeAgentId: entry.producer.agentId,
+      }).catch(() => undefined);
+      if (denied) {
+        // Already inside the serialized publication: do not create an overflow cleanup queue.
+        const startedAt = performance.now();
+        const emit = lifecycleEmitter(
+          this.#recorder,
+          this,
+          "derive-status",
+          entry.trace,
+          () => this.#now(),
+          entry.producer.agentId,
+        );
+        emit("queued");
+        emit("started", 0);
+        try {
+          emit("progress", 0, { phase: "persisting-admission-failure" });
+          await this.#transaction(() =>
+            this.#putDerivation(
+              derivationState(
+                entry.id,
+                this.#closing ? "cancelled" : "failed",
+                this.#closing
+                  ? "derivation-cancelled"
+                  : "derivation-queue-full",
+              ),
+            ),
+          );
+          emit("completed", performance.now() - startedAt);
+        } catch (error) {
+          emit("failed", performance.now() - startedAt, { error });
+        }
+      }
+    }
   }
 
   public getPass(
@@ -1078,7 +1151,7 @@ export class SessionContextStore implements EntityContextRepository {
       options.trace,
       signal,
       async (progress) => {
-        this.#assertLegacyFeatureSource(entryId);
+        this.#assertFeatureSource(entryId);
         const entry = this.#featureSource(entryId);
         if (entry === undefined || owner !== this.liveSetId)
           throw new RepositoryConflictError(
@@ -1096,7 +1169,10 @@ export class SessionContextStore implements EntityContextRepository {
         );
         await yieldTurn();
         signal.throwIfAborted();
-        if (entry.payload.schema !== "metric-audio-observation/v1") {
+        if (
+          entry.payload.schema !== "metric-audio-observation/v1" &&
+          entry.payload.schema !== "metric-record-stream-context/v1"
+        ) {
           const unavailable = derivationState(
             entryId,
             "unavailable",
@@ -1108,7 +1184,22 @@ export class SessionContextStore implements EntityContextRepository {
           );
           return unavailable;
         }
-        const observation = entry.payload;
+        const reference =
+          entry.payload.schema === "metric-record-stream-context/v1"
+            ? entry.payload
+            : undefined;
+        const stream =
+          reference === undefined
+            ? undefined
+            : await this.#metricCaptures.verifyFeatureSourceWithinOperation(
+                reference,
+                { ...options, signal },
+                progress,
+              );
+        const observation =
+          entry.payload.schema === "metric-record-stream-context/v1"
+            ? projectMetricFeatureSource(entry.payload, [])
+            : entry.payload;
         // Fingerprint the immutable persisted measurement, never a derived or summarized view.
         const stored = rows(
           this.#database,
@@ -1116,7 +1207,8 @@ export class SessionContextStore implements EntityContextRepository {
           [entryId],
         )[0];
         const sourceFingerprint = hashIdentity(
-          (JSON.parse(String(stored?.payload)) as ContextEntry).payload,
+          stream?.manifest ??
+            (JSON.parse(String(stored?.payload)) as ContextEntry).payload,
         );
         const segments: ContextSegment[] = [];
         const features: ContextFeature[] = [];
@@ -1127,6 +1219,13 @@ export class SessionContextStore implements EntityContextRepository {
         );
         for (const range of ranges) {
           signal.throwIfAborted();
+          const measurements =
+            reference === undefined
+              ? observation
+              : await this.#readFeatureRange(reference, range, {
+                  ...options,
+                  signal,
+                });
           const segmentData = {
             entryId,
             sessionId: this.sessionId,
@@ -1139,7 +1238,7 @@ export class SessionContextStore implements EntityContextRepository {
           });
           segments.push(segment);
           batchBytes += Buffer.byteLength(JSON.stringify(segment));
-          for (const value of extractListeningFeatures(observation, range)) {
+          for (const value of extractListeningFeatures(measurements, range)) {
             const feature = contextFeatureSchema.parse({
               id: `feature:${hashIdentity([entryId, sourceFingerprint, segment.id, value.type, value.profileKey, value.normalization])}`,
               entryId,
@@ -1288,7 +1387,7 @@ export class SessionContextStore implements EntityContextRepository {
     options: ContextOperationOptions = {},
   ): Promise<ContextFeatureDerivation | undefined> {
     return this.#read("get-feature-derivation", options, () => {
-      this.#assertLegacyFeatureSource(entryId);
+      this.#assertFeatureSource(entryId);
       return this.#featureSource(entryId) === undefined
         ? undefined
         : this.#getDerivation(entryId);
@@ -1339,8 +1438,7 @@ export class SessionContextStore implements EntityContextRepository {
   ): Promise<ContextPage<ContextFeature>> {
     return this.#read("list-features", options, async (readOptions) => {
       const query = contextFeatureQuerySchema.parse(input);
-      if (query.entryId !== undefined)
-        this.#assertLegacyFeatureSource(query.entryId);
+      if (query.entryId !== undefined) this.#assertFeatureSource(query.entryId);
       const filters = hashIdentity([
         query.entryId ?? null,
         query.featureType ?? null,
@@ -1598,18 +1696,60 @@ export class SessionContextStore implements EntityContextRepository {
       : undefined;
   }
 
-  #assertLegacyFeatureSource(entryId: string): void {
+  #assertFeatureSource(entryId: string): void {
     contextSubjectSchema.shape.id.parse(entryId);
     if (
       rows(
         this.#database,
         "SELECT id FROM context_metric_captures WHERE id = ?",
         [entryId],
-      ).length > 0
+      ).length > 0 &&
+      this.#featureSource(entryId) === undefined
     )
-      throw new IncrementalMetricFeaturesUnsupportedError();
+      throw new RepositoryConflictError(
+        "Feature source is not a completed published context",
+      );
   }
 
+  async #readFeatureRange(
+    reference: MetricRecordStreamContextReference,
+    range: ListeningFeatureRange,
+    options: ContextOperationOptions,
+  ) {
+    const chunks: MetricRecordChunk[] = [];
+    let afterSequence = -1;
+    let bytes = 0;
+    for (;;) {
+      const page = await this.#metricCaptures.readChunksWithinOperation(
+        {
+          captureId: reference.captureId,
+          afterSequence,
+          limit: 4,
+          range: {
+            startSample: Math.max(
+              reference.descriptor.geometry.startSample,
+              range.startSample - 1,
+            ),
+            endSample: range.endSample,
+          },
+        },
+        options,
+      );
+      bytes += page.encodedBytes;
+      if (bytes > LISTENING_FEATURE_LIMITS.featureBytes)
+        throw new ContextQuotaError(
+          "Feature measurement range exceeds bounded read quota",
+        );
+      chunks.push(...page.items);
+      if (page.nextSequence === undefined) break;
+      if (page.nextSequence <= afterSequence)
+        throw new RepositoryConflictError(
+          "Feature measurement pagination did not advance",
+        );
+      afterSequence = page.nextSequence;
+    }
+    return projectMetricFeatureSource(reference, chunks, range);
+  }
   #getFeature(id: string): ContextFeature | undefined {
     contextSubjectSchema.shape.id.parse(id);
     const row = rows(
@@ -2211,6 +2351,10 @@ export class SessionContextStore implements EntityContextRepository {
       }
     }
     for (const entry of entries) {
+      if (entry.payload.schema === "metric-record-stream-context/v1")
+        throw new RepositoryConflictError(
+          "Measurement references require verified incremental publication",
+        );
       const identity = storedObservationIdentity(entry.payload);
       const coordinates = storedObservationCoordinates(entry.payload);
       const complete =
@@ -2354,7 +2498,9 @@ export class SessionContextStore implements EntityContextRepository {
             entry.payload.source.view === "session")) &&
         link.relationship === "contributor"
           ? entry.payload.source.transport
-          : storedObservationCoordinates(entry.payload);
+          : entry.payload.schema === "metric-record-stream-context/v1"
+            ? entry.payload.descriptor.source.transport
+            : storedObservationCoordinates(entry.payload);
       if (
         link.coverage.startBeat < measured.startBeat ||
         link.coverage.endBeat > measured.endBeat ||

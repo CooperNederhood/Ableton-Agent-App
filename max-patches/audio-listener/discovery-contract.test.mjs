@@ -132,7 +132,7 @@ test("isolated artifact consumes shared generated profile configuration without 
     assert.equal(result.trackCanonicalPath, "live_set tracks 0");
     assert.equal(result.nativeStatus.version, 6);
     assert.equal(result.nativeStatus.maxAudioDurationMs, 600000);
-    assert.equal(result.nativeStatus.maxSessionAudioDurationMs, 30000);
+    assert.equal(result.nativeStatus.maxSessionAudioDurationMs, 600000);
     assert.equal(result.nativeStatus.readiness, "BLOCKED");
     assert.equal(result.nativeStatus.alignment, "approximate");
     assert.equal(result.nativeStatus.verifiedAbsoluteErrorBoundSamples, null);

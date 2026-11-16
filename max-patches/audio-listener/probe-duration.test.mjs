@@ -38,7 +38,7 @@ function setup(spec, seconds) {
   const control = {
     generation,
     config: {
-      scope: "arrangement-continuous-metric-stream/v1",
+      scope: "finite-metric-stream/v1",
       geometry: { totalSamples: seconds * 48_000, sampleRate: 48_000 },
     },
   };

@@ -251,7 +251,7 @@ describe("AcceptanceBridgeTimingProxy", () => {
     await expect(desktop.ping()).resolves.toBeDefined();
   });
 
-  it("hands off the real protocol socket for exactly one guarded STOP and restores the same Desktop client", async () => {
+  it("serializes separately attributed guarded STOPs, denies replay and restores the same Desktop client", async () => {
     const upstream = await simulatorPort();
     const events: AcceptanceBridgeTimingEvent[] = [];
     const proxy = new AcceptanceBridgeTimingProxy({
@@ -301,6 +301,38 @@ describe("AcceptanceBridgeTimingProxy", () => {
         trace,
       ),
     ).rejects.toThrow("not_admitted");
+    for (let index = 0; index < 2; index++) {
+      const nextTrace = handoffTrace();
+      await expect(
+        proxy.withExclusiveUpstream(
+          AbortSignal.timeout(3000),
+          () =>
+            withCorrelation(nextTrace, async () => {
+              await runner.start();
+              try {
+                return await runner.setPlaying(false);
+              } finally {
+                await runner.stop();
+              }
+            }),
+          nextTrace,
+        ),
+      ).resolves.toMatchObject({ afterIsPlaying: false, verified: true });
+      await desktop.start();
+      expect(await desktop.getStatus()).toMatchObject({ state: "connected" });
+      expect(desktop.getCurrentLiveIdentity()).toEqual(identity);
+    }
+    expect(commands).toEqual([
+      "system.hello",
+      "transport.set_playing",
+      "system.hello",
+      "transport.set_playing",
+      "system.hello",
+      "transport.set_playing",
+    ]);
+    expect(
+      proxy.snapshot().records.filter((record) => record.stage === "handoff"),
+    ).toHaveLength(3);
     const handoff = proxy
       .snapshot()
       .records.find((record) => record.stage === "handoff");
@@ -311,7 +343,9 @@ describe("AcceptanceBridgeTimingProxy", () => {
     expect(handoff?.startedMs).toBeTypeOf("number");
     expect(handoff?.endedMs).toBeGreaterThanOrEqual(handoff!.startedMs!);
     const handoffEvents = events.filter(
-      (event) => event.record.stage === "handoff",
+      (event) =>
+        event.record.stage === "handoff" &&
+        event.record.causationId === trace.causationId,
     );
     expect(handoffEvents.map((event) => event.phase)).toEqual([
       "queued",
@@ -777,18 +811,49 @@ describe("AcceptanceBridgeTimingProxy", () => {
     expect(h.proxy.snapshot().activeTunnels).toBe(0);
   });
 
+  it("retains a complete multi-source conversation beyond 512 diagnostic records without closing the bridge", async () => {
+    const h = await harness(0);
+    const requests = Array.from({ length: 600 }, () => request("system.ping"));
+    h.client.write(Buffer.concat(requests.map(rawFrame)));
+    await waitFor(() => expect(h.messages.length).toBe(requests.length));
+    const frames = requests.map((item) => rawFrame(response(item.requestId)));
+    const responses = Buffer.concat(frames);
+    let delivered = 0;
+    for (let offset = 0; offset < frames.length; offset += 32) {
+      const batch = Buffer.concat(frames.slice(offset, offset + 32));
+      h.upstream.write(batch);
+      delivered += batch.length;
+      await waitFor(() => expect(h.received().length).toBe(delivered));
+    }
+    expect(h.received().equals(responses)).toBe(true);
+    const snapshot = h.proxy.snapshot();
+    expect(snapshot.state).toBe("listening");
+    expect(snapshot.failure).toBeUndefined();
+    const retained = snapshot.records.filter(
+      (record) => record.stage === "request",
+    );
+    expect(retained).toHaveLength(requests.length);
+    expect(retained.every((record) => record.state === "completed")).toBe(true);
+    await h.proxy.close();
+    expect(h.proxy.snapshot().records.at(-1)?.stage).toBe("close");
+  });
+
   it("bounds retained receipts and fails closed rather than dropping evidence", async () => {
     const h = await harness();
     h.client.write(
       Buffer.concat(
-        Array.from({ length: 512 }, () => rawFrame(request("system.ping"))),
+        Array.from({ length: ACCEPTANCE_BRIDGE_TIMING_LIMITS.records }, () =>
+          rawFrame(request("system.ping")),
+        ),
       ),
     );
     await waitFor(() =>
       expect(h.proxy.snapshot().failure).toBe("evidence_limit_exceeded"),
     );
     await h.proxy.close();
-    expect(h.proxy.snapshot().records.length).toBeLessThanOrEqual(512);
+    expect(h.proxy.snapshot().records.length).toBeLessThanOrEqual(
+      ACCEPTANCE_BRIDGE_TIMING_LIMITS.records,
+    );
     expect(h.proxy.snapshot().records.at(-1)?.stage).toBe("close");
   });
 

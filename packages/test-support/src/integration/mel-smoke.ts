@@ -4,6 +4,14 @@ import {
   metricAudioObservationSchema,
   projectMetricListeningReport,
   type MetricAudioObservation,
+  metricRecordStreamContextReferenceSchema,
+  metricRecordStreamDescriptorSchema,
+  metricRecordChunkSchema,
+  metricRecordStreamExpectedCoverage,
+  canonicalMetricRecordJson,
+  projectMetricFeatureSource,
+  type MetricRecordStreamDescriptor,
+  type MetricRecordChunk,
 } from "@ableton-agent/protocol";
 import type { AssertionInput, Facts } from "./contracts.js";
 import {
@@ -16,9 +24,15 @@ import {
   type MelLifecycleReceipt,
   type MelHistoryEvent,
 } from "./mel-lifecycle.js";
+import {
+  expandArrangementDescriptor,
+  streamProofContentSha256,
+  type ArrangementStreamProof,
+} from "./arrangement-stream.js";
+import { validateArrangementStreamProof } from "./validation.js";
 
 /** Typed context projection, not evidence that the agent requested every page. */
-export interface MelSmokeEvidence {
+export interface HistoricalMelSmokeEvidence {
   readonly contextId: string;
   readonly afterOwnedRestart: boolean;
   readonly cleanupComplete: boolean;
@@ -32,6 +46,119 @@ export interface MelSmokeEvidence {
       readonly rowCount: number;
       readonly sha256: string;
     }[];
+  };
+}
+export interface StreamMelSmokeEvidence {
+  readonly contextId: string;
+  readonly afterOwnedRestart: boolean;
+  readonly cleanupComplete: boolean;
+  readonly nativeLifecycle: readonly MelLifecycleReceipt[];
+  readonly observation: MetricRecordStreamDescriptor;
+  readonly chunks: readonly MetricRecordChunk[];
+  readonly stream: ArrangementStreamProof;
+}
+export type MelSmokeEvidence =
+  HistoricalMelSmokeEvidence | StreamMelSmokeEvidence;
+
+function streamMelSource(
+  evidence: Omit<StreamMelSmokeEvidence, "nativeLifecycle">,
+) {
+  const descriptor = metricRecordStreamDescriptorSchema.parse(
+    evidence.observation,
+  );
+  validateArrangementStreamProof(evidence.stream);
+  const digest = (value: unknown) =>
+    createHash("sha256").update(canonicalMetricRecordJson(value)).digest("hex");
+  requireMel(
+    descriptor.source.view === "session" &&
+      descriptor.geometry.sampleRate === 48_000 &&
+      descriptor.geometry.totalSamples === 90_000 &&
+      evidence.stream.contextId === evidence.contextId &&
+      evidence.stream.passId === descriptor.ownership.passId &&
+      evidence.stream.listenerId === descriptor.ownership.listenerId &&
+      evidence.stream.afterOwnedRestart === evidence.afterOwnedRestart &&
+      evidence.stream.descriptorDigest === digest(descriptor) &&
+      evidence.chunks.length === evidence.stream.chunkCount &&
+      evidence.chunks.length > 0 &&
+      evidence.chunks.length <= 256,
+    "foreign or unbounded original mel stream",
+  );
+  const counts = new Map<
+    string,
+    { records: number; sequence: number; digest: string }
+  >();
+  const records = createHash("sha256");
+  for (const raw of evidence.chunks) {
+    const chunk = metricRecordChunkSchema.parse(raw);
+    const { digest: chunkDigest, ...body } = chunk;
+    const prior = counts.get(chunk.metric) ?? {
+      records: 0,
+      sequence: 0,
+      digest: evidence.stream.descriptorDigest,
+    };
+    requireMel(
+      descriptor.requestedMetrics.includes(chunk.metric) &&
+        chunk.descriptorDigest === evidence.stream.descriptorDigest &&
+        isDeepStrictEqual(chunk.ownership, descriptor.ownership) &&
+        chunk.gaps.length === 0 &&
+        chunk.chunkSequence === prior.sequence &&
+        chunk.recordOffset === prior.records &&
+        chunk.slotOffset === prior.records &&
+        chunk.previousDigest === prior.digest &&
+        chunkDigest === digest(body) &&
+        chunk.records.every(
+          (record, index) => record.index === prior.records + index,
+        ),
+      "changed, missing or reordered original mel stream records",
+    );
+    counts.set(chunk.metric, {
+      records: prior.records + chunk.records.length,
+      sequence: prior.sequence + 1,
+      digest: chunkDigest,
+    });
+    records.update(JSON.stringify(chunk)).update("\n");
+  }
+  requireMel(
+    records.digest("hex") === evidence.stream.recordsSha256 &&
+      descriptor.requestedMetrics.every(
+        (metric) =>
+          counts.get(metric)?.records ===
+          metricRecordStreamExpectedCoverage(descriptor, metric)
+            .expectedRecords,
+      ) &&
+      (["level", "spectral-centroid", "attacks", "mel-bands"] as const).every(
+        (metric) =>
+          descriptor.algorithms.some(
+            (algorithm) =>
+              algorithm.metric === metric &&
+              algorithm.availability === "available",
+          ),
+      ),
+    "incomplete original mel stream or changed content fingerprint",
+  );
+  const { rows, ...geometry } = descriptor.geometry;
+  void rows;
+  const reference = {
+    schema: "metric-record-stream-context/v1" as const,
+    captureId: evidence.contextId,
+    descriptorDigest: evidence.stream.descriptorDigest,
+    descriptor: { ...descriptor, geometry },
+  };
+  const projected = projectMetricFeatureSource(reference, evidence.chunks);
+  const mel = projected.metrics["mel-bands"];
+  requireMel(mel, "missing original mel records");
+  requireMel(
+    mel.frames.length === 43 &&
+      [0, 1].every((channel) =>
+        mel.frames.some((frame) =>
+          frame.magnitudes[channel]!.some((magnitude) => magnitude > 0),
+        ),
+      ),
+    "requires complete nonzero independent stereo mel and baseline timelines",
+  );
+  return {
+    ownership: descriptor.ownership,
+    metrics: { "mel-bands": { ...mel, expectedRecords: 43 } },
   };
 }
 function requireMel(value: unknown, detail: string): asserts value {
@@ -80,8 +207,9 @@ export function validateMelBinaryProof(
 
 function pages(
   observation: MetricAudioObservation,
-): MelSmokeEvidence["reportProjection"]["pages"] {
-  const result: MelSmokeEvidence["reportProjection"]["pages"][number][] = [];
+): HistoricalMelSmokeEvidence["reportProjection"]["pages"] {
+  const result: HistoricalMelSmokeEvidence["reportProjection"]["pages"][number][] =
+    [];
   let offset: number | null = 0;
   do {
     const page = projectMetricListeningReport(observation, {
@@ -104,14 +232,65 @@ function pages(
 }
 
 export function projectMelSmoke(
+  observation: MetricAudioObservation,
+  contextId: string,
+  cleanupComplete: boolean,
+  history: readonly MelHistoryEvent[],
+  afterOwnedRestart?: boolean,
+): HistoricalMelSmokeEvidence;
+export function projectMelSmoke(
+  observation: unknown,
+  contextId: string,
+  cleanupComplete: boolean,
+  history: readonly MelHistoryEvent[],
+  afterOwnedRestart?: boolean,
+): MelSmokeEvidence;
+export function projectMelSmoke(
   observation: unknown,
   contextId: string,
   cleanupComplete: boolean,
   history: readonly MelHistoryEvent[],
   afterOwnedRestart = false,
 ): MelSmokeEvidence {
+  if (
+    observation &&
+    typeof observation === "object" &&
+    "reference" in observation
+  ) {
+    requireMel(
+      "chunks" in observation &&
+        "proof" in observation &&
+        Array.isArray(observation.chunks),
+      "missing original mel stream records",
+    );
+    validateArrangementStreamProof(observation.proof);
+    const reference = metricRecordStreamContextReferenceSchema.parse(
+      observation.reference,
+    );
+    const base = {
+      contextId,
+      afterOwnedRestart,
+      cleanupComplete,
+      observation: expandArrangementDescriptor(reference.descriptor),
+      chunks: observation.chunks.map((chunk: unknown) =>
+        metricRecordChunkSchema.parse(chunk),
+      ),
+      stream: observation.proof,
+    };
+    requireMel(
+      reference.captureId === contextId &&
+        reference.descriptorDigest === base.stream.descriptorDigest,
+      "foreign mel stream reference",
+    );
+    const projected = {
+      ...base,
+      nativeLifecycle: projectMelLifecycle(history, streamMelSource(base)),
+    };
+    validateMelSmoke(projected);
+    return projected;
+  }
   const parsed = metricAudioObservationSchema.parse(observation);
-  const evidence: MelSmokeEvidence = {
+  const evidence: HistoricalMelSmokeEvidence = {
     contextId,
     afterOwnedRestart,
     cleanupComplete,
@@ -131,6 +310,28 @@ export function validateMelSmoke(
 ): asserts value is MelSmokeEvidence {
   requireMel(value && typeof value === "object", "missing evidence");
   const evidence = value as MelSmokeEvidence;
+  if ("chunks" in evidence) {
+    requireMel(
+      Object.keys(evidence).every((key) =>
+        [
+          "contextId",
+          "afterOwnedRestart",
+          "cleanupComplete",
+          "nativeLifecycle",
+          "observation",
+          "chunks",
+          "stream",
+        ].includes(key),
+      ) &&
+        typeof evidence.contextId === "string" &&
+        /^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,255}$/u.test(evidence.contextId) &&
+        typeof evidence.afterOwnedRestart === "boolean" &&
+        evidence.cleanupComplete === true,
+      "invalid stream context provenance or cleanup",
+    );
+    validateMelLifecycle(evidence.nativeLifecycle, streamMelSource(evidence));
+    return;
+  }
   requireMel(
     Object.keys(evidence).every((key) =>
       [
@@ -254,15 +455,19 @@ export function verifyMelSmoke(
         ([key, value]) => Reflect.get(owner, key) === value,
       ) &&
       capture.sampleRate === observation.geometry.sampleRate &&
-      capture.startSample === observation.sourceCoverage.startSample &&
-      capture.endSample === observation.sourceCoverage.endSample &&
+      capture.startSample === observation.geometry.startSample &&
+      capture.endSample === observation.geometry.endSample &&
       context?.readable &&
       context.passId === capture.passId &&
       isDeepStrictEqual(context.source, source.source) &&
       context.afterOwnedRestart === afterRestart &&
       evidence.afterOwnedRestart === afterRestart &&
       context.contentSha256 ===
-        createHash("sha256").update(JSON.stringify(observation)).digest("hex"),
+        ("stream" in evidence
+          ? streamProofContentSha256(evidence.stream)
+          : createHash("sha256")
+              .update(JSON.stringify(observation))
+              .digest("hex")),
     "foreign ownership or typed context content",
   );
   if (afterRestart)
@@ -270,6 +475,16 @@ export function verifyMelSmoke(
       isDeepStrictEqual(evidence, {
         ...selected.melSmoke?.[0],
         afterOwnedRestart: true,
+        ...("stream" in evidence &&
+        selected.melSmoke?.[0] &&
+        "stream" in selected.melSmoke[0]
+          ? {
+              stream: {
+                ...selected.melSmoke[0].stream,
+                afterOwnedRestart: true,
+              },
+            }
+          : {}),
       }),
       "persisted mel content changed after owned restart",
     );

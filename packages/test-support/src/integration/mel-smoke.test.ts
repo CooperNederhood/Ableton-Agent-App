@@ -12,7 +12,7 @@ import {
   projectMelSmoke,
   validateMelSmoke,
   verifyMelSmoke,
-  type MelSmokeEvidence,
+  type HistoricalMelSmokeEvidence,
 } from "./mel-smoke.js";
 import {
   validateEvidence,
@@ -25,7 +25,7 @@ import type {
   ScenarioManifest,
 } from "./contracts.js";
 
-function reportPages(evidence: MelSmokeEvidence) {
+function reportPages(evidence: HistoricalMelSmokeEvidence) {
   return evidence.reportProjection.pages.map(({ offset }) =>
     projectMetricListeningReport(evidence.observation, { offset, limit: 32 }),
   );

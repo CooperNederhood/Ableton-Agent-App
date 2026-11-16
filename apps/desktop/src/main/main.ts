@@ -9,7 +9,6 @@ import {
   clipboard,
   dialog,
   ipcMain,
-  safeStorage,
   shell,
   type WebContents,
 } from "electron";
@@ -27,7 +26,6 @@ import {
   startDesktopLifecycle,
   stopDesktopLifecycle,
 } from "./lifecycle.js";
-import { OsCredentialVault } from "./secure-store.js";
 import { publishSignalSecrets } from "./signal-credentials.js";
 import {
   ensureLiveAgentStorage,
@@ -134,12 +132,6 @@ const environmentLoggingLevel = parseLogLevel(
 let logger = new DesktopFileLogger(logPath, environmentLoggingLevel ?? "info");
 let activeLoggingLevel: DesktopPreferences["loggingLevel"] =
   environmentLoggingLevel ?? "info";
-// Constructed here so any application-managed credential remains outside
-// preferences and encrypted through Electron's OS-backed safeStorage.
-export let credentialVault = new OsCredentialVault(
-  storage.credentialsDirectory,
-  safeStorage,
-);
 let diagnostics: DiagnosticsActions | undefined;
 // Composed after `app.whenReady()` because preferences and credentials come
 // from Electron-managed paths; every handler below runs after that point.
@@ -308,10 +300,6 @@ async function composeProfile(
   const legacyDiscoveryEnabled =
     launchOptions.automation === undefined &&
     process.env.LIVE_AGENT_HOME === undefined;
-  credentialVault = new OsCredentialVault(
-    layout.credentialsDirectory,
-    safeStorage,
-  );
   const next = await createDesktopComposition({
     preferencesPath: layout.preferencesPath,
     sessionsPath: layout.sessionsPath,
@@ -341,7 +329,6 @@ async function composeProfile(
           legacySignalDescriptorPath: layout.legacySignalIngressDescriptorPath,
         }
       : {}),
-    credentialVault,
     homeDirectory: homedir(),
     platform: process.platform,
     environment: process.env,

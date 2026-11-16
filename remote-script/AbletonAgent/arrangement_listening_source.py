@@ -2,8 +2,37 @@
 
 from .core_domain_commands import _clip_reference, _integer, _number, _resolve_track, _strict, _track_target, _uuid
 from .errors import ProtocolFailure
-from .system_commands import _safe_lom_getattr
+from .system_commands import _safe_lom_getattr, _same_lom_object, inspect_arrangement_midi_notes
+from .device_commands import inspect_devices, inspect_device_parameters
 from .listening_commands import _source_evidence
+
+MAX_MIDI_NOTES = 2048
+MAX_MIDI_DEVICES = 8
+
+
+def _instrument_chain(context, target):
+    track = _resolve_track(context, target, bounded=True)
+    devices = _safe_lom_getattr(track, "devices")
+    if devices is None or len(devices) > MAX_MIDI_DEVICES:
+        raise ProtocolFailure("unsupported_capability", "Arrangement MIDI instrument inventory missing or truncated")
+    request = {key: target[key] for key in ("index", "expectedReference", "expectedName")}
+    inventory_request = dict(request, offset=0, limit=MAX_MIDI_DEVICES)
+    before = inspect_devices(context, inventory_request)
+    parameters = []
+    for device in before["devices"]:
+        if device["parameterCount"] > 256:
+            raise ProtocolFailure("unsupported_capability", "Arrangement MIDI parameter inventory truncated")
+        parameters.append(inspect_device_parameters(context, dict(
+            request, deviceIndex=device["index"], expectedDeviceReference=device["reference"],
+            expectedDeviceName=device["name"], offset=0, limit=256,
+        )))
+    after = inspect_devices(context, inventory_request)
+    if before != after or any(
+        item["total"] != len(item["parameters"]) or item["device"] != before["devices"][index]
+        for index, item in enumerate(parameters)
+    ):
+        raise ProtocolFailure("conflict", "Arrangement MIDI instrument inventory changed during inspection")
+    return {"before": before, "devices": parameters, "after": after}
 
 
 def validate_arrangement_listening_source(params):
@@ -87,15 +116,20 @@ def inspect_arrangement_listening_source(context, params):
     collection = _safe_lom_getattr(track, "arrangement_clips")
     if collection is None or len(collection) > 256:
         raise ProtocolFailure("unsupported_capability", "Arrangement inventory missing or truncated")
-    clips = []
+    collection = tuple(collection)
+    clips, inventory = [], []
+    midi_notes = 0
     for clip in collection:
         start, end = _numeric(clip, "start_time"), _numeric(clip, "end_time")
         if start is None or end is None or end <= start:
             raise ProtocolFailure("unsupported_capability", "Arrangement interval unavailable")
+        inventory.append((clip, start, end))
         if end <= params["range"]["startBeat"] or start >= params["range"]["endBeat"]:
             continue
-        if _boolean(clip, "is_audio_clip") is not True:
-            raise ProtocolFailure("unsupported_capability", "Expected Arrangement audio source")
+        audio, midi = _boolean(clip, "is_audio_clip"), _boolean(clip, "is_midi_clip")
+        is_midi = midi is True and audio is False
+        if not is_midi and (audio is not True or midi is True):
+            raise ProtocolFailure("unsupported_capability", "Expected known Arrangement audio or MIDI source")
         path = _safe_lom_getattr(clip, "file_path")
         item = {
             "clipId": _clip_reference(context, clip, bounded=True),
@@ -112,13 +146,37 @@ def inspect_arrangement_listening_source(context, params):
                                 ("loopStart", "loop_start"), ("loopEnd", "loop_end"),
                                 ("gain", "gain"), ("pitchCoarse", "pitch_coarse"), ("pitchFine", "pitch_fine")):
             item[public] = _numeric(clip, private)
+        if is_midi:
+            request = {key: params["track"][key] for key in ("index", "expectedReference", "expectedName")}
+            notes = inspect_arrangement_midi_notes(context, dict(
+                request, expectedClipReference=item["clipId"], expectedStartTime=start,
+                offset=0, limit=MAX_MIDI_NOTES,
+            ))
+            midi_notes += notes["totalNotes"]
+            if (notes["truncated"] or notes["totalNotes"] != len(notes["notes"])
+                    or notes["clip"]["noteCount"] != notes["totalNotes"] or midi_notes > MAX_MIDI_NOTES):
+                raise ProtocolFailure("unsupported_capability", "Arrangement MIDI note inventory missing or truncated")
+            for key in ("filePath", "sampleRate", "sampleLength", "warped", "gain", "pitchCoarse", "pitchFine"):
+                item[key] = None
+            item["midi"] = notes
         clips.append(item)
+    instrument = _instrument_chain(context, params["track"]) if any("midi" in item for item in clips) else None
+    current = _safe_lom_getattr(track, "arrangement_clips")
+    if current is None or len(current) != len(collection) or any(
+        not any(_same_lom_object(clip, candidate) for candidate in current)
+        or _numeric(clip, "start_time") != start or _numeric(clip, "end_time") != end
+        for clip, start, end in inventory
+    ):
+        raise ProtocolFailure("conflict", "Arrangement source changed during inspection")
     after = _state(context, track)
     _resolve_track(context, params["track"], bounded=True)
     project_path = _safe_lom_getattr(context.song, "file_path")
-    return dict(params, projectRevision=context.project_revision, evidence="message-rate-only",
+    result = dict(params, projectRevision=context.project_revision, evidence="message-rate-only",
                 projectPath=project_path if isinstance(project_path, str) and 0 < len(project_path) <= 4096 else None,
                 before=before, after=after, clips=sorted(clips, key=lambda clip: (clip["startBeat"], clip["clipId"])))
+    if instrument is not None:
+        result["instrumentChain"] = instrument
+    return result
 
 
 def register_arrangement_listening_source(registry):

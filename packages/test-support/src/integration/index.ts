@@ -1,4 +1,5 @@
 export * from "./contracts.js";
+export * from "./storage-shape.js";
 export * from "./project-binding.js";
 export * from "./validation.js";
 export * from "./assertions.js";

@@ -251,7 +251,7 @@ describe("AcceptanceBridgeTimingProxy", () => {
     await expect(desktop.ping()).resolves.toBeDefined();
   });
 
-  it("hands off the real protocol socket for exactly one guarded STOP and restores the same Desktop client", async () => {
+  it("serializes separately attributed guarded STOPs, denies replay and restores the same Desktop client", async () => {
     const upstream = await simulatorPort();
     const events: AcceptanceBridgeTimingEvent[] = [];
     const proxy = new AcceptanceBridgeTimingProxy({
@@ -301,6 +301,38 @@ describe("AcceptanceBridgeTimingProxy", () => {
         trace,
       ),
     ).rejects.toThrow("not_admitted");
+    for (let index = 0; index < 2; index++) {
+      const nextTrace = handoffTrace();
+      await expect(
+        proxy.withExclusiveUpstream(
+          AbortSignal.timeout(3000),
+          () =>
+            withCorrelation(nextTrace, async () => {
+              await runner.start();
+              try {
+                return await runner.setPlaying(false);
+              } finally {
+                await runner.stop();
+              }
+            }),
+          nextTrace,
+        ),
+      ).resolves.toMatchObject({ afterIsPlaying: false, verified: true });
+      await desktop.start();
+      expect(await desktop.getStatus()).toMatchObject({ state: "connected" });
+      expect(desktop.getCurrentLiveIdentity()).toEqual(identity);
+    }
+    expect(commands).toEqual([
+      "system.hello",
+      "transport.set_playing",
+      "system.hello",
+      "transport.set_playing",
+      "system.hello",
+      "transport.set_playing",
+    ]);
+    expect(
+      proxy.snapshot().records.filter((record) => record.stage === "handoff"),
+    ).toHaveLength(3);
     const handoff = proxy
       .snapshot()
       .records.find((record) => record.stage === "handoff");
@@ -311,7 +343,9 @@ describe("AcceptanceBridgeTimingProxy", () => {
     expect(handoff?.startedMs).toBeTypeOf("number");
     expect(handoff?.endedMs).toBeGreaterThanOrEqual(handoff!.startedMs!);
     const handoffEvents = events.filter(
-      (event) => event.record.stage === "handoff",
+      (event) =>
+        event.record.stage === "handoff" &&
+        event.record.causationId === trace.causationId,
     );
     expect(handoffEvents.map((event) => event.phase)).toEqual([
       "queued",

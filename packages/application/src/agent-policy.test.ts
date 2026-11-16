@@ -464,6 +464,9 @@ describe("agent policy", () => {
         "Comparison/search alone does not require these extra reads",
       );
       expect(result?.additionalContext).toContain("page.values");
+      expect(result?.additionalContext).toContain(
+        "A requested complete inventory is incomplete while nextCursor exists",
+      );
       expect(result?.additionalContext?.length).toBeLessThan(800);
       expect(result?.modifiedResult).toBeUndefined();
       expect(toolResult).toEqual(before);
@@ -554,7 +557,7 @@ describe("agent policy", () => {
         { sessionId: "sdk" },
       );
       expect(result?.additionalContext).toContain(
-        "Do not exhaust every page merely to establish coverage",
+        "do not exhaust a long timeline merely to establish coverage",
       );
       expect(result?.additionalContext).toContain(
         "digest-checked immutable chunk",

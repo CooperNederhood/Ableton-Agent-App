@@ -202,7 +202,7 @@ var AudioListenerMeasurements = (function () {
   function normalizeMetricRecord(value, declaration, expected, captureMode) {
     var d = validateDeclaration(declaration);
     var record = validateRecord(value, d);
-    var continuous = captureMode === "arrangement-continuous";
+    var continuous = captureMode === "finite-metric-stream";
     if (
       d.version !== 2 ||
       !keys(expected, [

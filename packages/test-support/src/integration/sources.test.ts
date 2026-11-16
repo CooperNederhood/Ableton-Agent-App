@@ -5,7 +5,9 @@ import { resolve, join } from "node:path";
 import { sessionListeningPreflightResultSchema } from "@ableton-agent/protocol";
 import {
   midiContentIdentity,
+  midiSourceIdentity,
   declaredSourceBaseline,
+  scenarioSessionSources,
   validateFixtureSourceEvidence,
 } from "./sources.js";
 import {
@@ -23,6 +25,7 @@ import type {
   AcceptanceDriver,
   FixtureManifest,
   LifecycleEvent,
+  ScenarioManifest,
 } from "./contracts.js";
 
 const ref = (n: number) =>
@@ -215,6 +218,28 @@ function admitted() {
 }
 
 describe("bounded independently declared MIDI source identity", () => {
+  it("preserves the declared source region independently of a shorter requested listen and the stopped global beat", () => {
+    const { manifest, definition } = admitted();
+    const selected = declaredSourceBaseline(
+      {
+        ...manifest,
+        baseline: {
+          ...SUPPORTED_AUDIO_BASELINE,
+          clipWarped: false,
+          currentSongTime: 16,
+        },
+      },
+      { ...definition, activeLengthBeats: 80 },
+    );
+    expect(selected).toMatchObject({
+      activeLengthBeats: 80,
+      loopEnd: 80,
+      currentSongTime: 16,
+    });
+    expect(() =>
+      validateSupportedSessionBaseline(selected, "midi"),
+    ).not.toThrow();
+  });
   it("keeps Arrangement target arm baseline separate from mixed Session selectors", () => {
     const { manifest, definition } = admitted();
     expect(
@@ -306,6 +331,12 @@ describe("bounded independently declared MIDI source identity", () => {
       },
     };
     const expected = midiContentIdentity(value, placement);
+    const topLevel = midiSourceIdentity(
+      value.midi.notes,
+      value.instrumentChain,
+      placement,
+      false,
+    );
     for (const mutate of [
       (nodes: typeof instrumentTree) => {
         nodes[2]!.parameters[0]!.value = 0.75;
@@ -323,6 +354,14 @@ describe("bounded independently declared MIDI source identity", () => {
         changed.instrumentChain.before,
       );
       const actual = midiContentIdentity(changed, placement);
+      expect(
+        midiSourceIdentity(
+          changed.midi.notes,
+          changed.instrumentChain,
+          placement,
+          false,
+        ),
+      ).toEqual(topLevel);
       expect(actual.midiNotesSha256).toBe(expected.midiNotesSha256);
       expect(actual.instrumentChainSha256).not.toBe(
         expected.instrumentChainSha256,
@@ -337,7 +376,81 @@ describe("bounded independently declared MIDI source identity", () => {
       renamed.instrumentChain.before,
     );
     expect(midiContentIdentity(renamed, placement)).toEqual(expected);
+    renamed.instrumentChain.devices[0]!.parameters[0]!.value = 0.4;
+    expect(
+      midiSourceIdentity(
+        renamed.midi.notes,
+        renamed.instrumentChain,
+        placement,
+        false,
+      ).instrumentChainSha256,
+    ).not.toBe(topLevel.instrumentChainSha256);
   });
+  it.each([
+    ["step", ["a"]],
+    ["permission", ["b"]],
+    ["both", ["a", "b"]],
+    ["unscoped", ["a", "b"]],
+    ["scoped-step-rule", ["a"]],
+  ] as const)(
+    "selects scenario source declarations from %s scope",
+    (mode, expected) => {
+      const { manifest, definition } = admitted();
+      const sources = [
+        { ...definition, id: "a" },
+        { ...definition, id: "b", sceneIndex: 2 },
+      ];
+      const scenario: ScenarioManifest = {
+        schemaVersion: 1,
+        id: "source-scope",
+        fixtureId: manifest.id,
+        requiredCapabilities: ["session-midi"],
+        permissions:
+          mode === "step"
+            ? []
+            : [
+                {
+                  tool: "ableton_listening",
+                  action: "play-session-and-listen",
+                  risk: "medium",
+                  maxUses: 1,
+                  arguments: {},
+                  stepIds: ["listen"],
+                  ...(mode === "permission" || mode === "both"
+                    ? { sourceId: "b" }
+                    : {}),
+                },
+              ],
+        budget: { runMs: 2000, cleanupMs: 1000, persistenceMs: 1000 },
+        steps: [
+          {
+            id: "listen",
+            message: "Listen",
+            timeoutMs: 1000,
+            assertions: [],
+            ...(mode === "step" ||
+            mode === "both" ||
+            mode === "scoped-step-rule"
+              ? { sourceId: "a" }
+              : {}),
+          },
+          {
+            id: "read",
+            message: "Read original context",
+            timeoutMs: 1000,
+            assertions: [],
+          },
+        ],
+        assertions: [],
+      };
+      expect(
+        scenarioSessionSources({ ...manifest, sources }, scenario).map(
+          ({ id }) => id,
+        ),
+      ).toEqual(expected);
+    },
+  );
+
   it("supports one combined fixture with common type-specific baseline facts omitted", () => {
     const { manifest, definition } = admitted();
     const common = Object.fromEntries(
@@ -424,6 +537,9 @@ describe("bounded independently declared MIDI source identity", () => {
     "source-quantization",
     "nested-tree",
     "multiple-nested-trees",
+    "unused-declaration",
+    "extra-unselected",
+    "missing-selected",
     "oversized-tree",
     "wrong-notes",
     "wrong-instrument",
@@ -439,7 +555,8 @@ describe("bounded independently declared MIDI source identity", () => {
         mode === "success" ||
         mode === "source-quantization" ||
         mode === "nested-tree" ||
-        mode === "multiple-nested-trees";
+        mode === "multiple-nested-trees" ||
+        mode === "unused-declaration";
       if (
         mode === "nested-tree" ||
         mode === "multiple-nested-trees" ||
@@ -505,6 +622,16 @@ describe("bounded independently declared MIDI source identity", () => {
       }
       const definitions = [definition];
       const sourceEvidence = { [definition.id]: evidence };
+      if (mode === "unused-declaration" || mode === "extra-unselected") {
+        definitions.push({
+          ...definition,
+          id: "unused",
+          sceneIndex: 2,
+          clipName: "Unused clip",
+        });
+        if (mode === "extra-unselected") sourceEvidence.unused = evidence;
+      }
+      if (mode === "missing-selected") delete sourceEvidence[definition.id];
       if (mode === "multiple-nested-trees") {
         for (let index = 1; index < 4; index++) {
           const id = `midi-source-${index}`;
@@ -668,7 +795,9 @@ describe("bounded independently declared MIDI source identity", () => {
             steps: [
               {
                 id: "listen",
-                sourceId: definition.id,
+                ...(mode === "multiple-nested-trees"
+                  ? {}
+                  : { sourceId: definition.id }),
                 message: "Listen",
                 timeoutMs: 1000,
                 assertions: [],

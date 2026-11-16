@@ -29,6 +29,7 @@ import {
 import {
   createSyntheticNativeListeningFixtureV2,
   createSyntheticMetricListeningObservation,
+  createSyntheticMetricRecordStreamFixture,
 } from "@ableton-agent/protocol/testing";
 import {
   contextOperationParamsSchema,
@@ -48,25 +49,30 @@ const stores: EntityContextRepository[] = [];
 const reportDefaults = { includeHistorical: false, offset: 0, limit: 8 };
 const featurePageDefaults = { offset: 0, supportOffset: 0, limit: 8 };
 
-async function streamFixture() {
+async function streamFixture(persist = false) {
   const seeded = await fixture();
   const observation = createSyntheticMetricListeningObservation();
   const geometry = createContinuousMetricListeningGeometry({
-    captureMode: "arrangement-continuous",
+    captureMode: "finite-metric-stream",
     sampleRate: 48_000,
     vectorSize: 64,
     tempoBpm: 120,
     startBeat: 0,
-    endBeat: 1200,
+    endBeat: persist ? 4 : 1200,
     startSample: 10_000,
   });
   const descriptor = metricRecordStreamDescriptorSchema.parse({
     schema: "metric-record-stream/v1",
     capability: METRIC_CONTINUOUS_LISTENING_CAPABILITY,
-    ownership: { ...observation.ownership, passId: "stream-pass" },
+    ownership: {
+      ...observation.ownership,
+      ...trace,
+      passId: "stream-pass",
+      listenerId: "listener",
+    },
     source: {
       ...observation.source,
-      transport: { startBeat: 0, endBeat: 1200 },
+      transport: { startBeat: 0, endBeat: geometry.endBeat },
     },
     geometry,
     timingPolicy: DEFAULT_LISTENING_TIMING_POLICY,
@@ -143,22 +149,38 @@ async function streamFixture() {
       drain: "completed",
     },
   } as unknown as MetricRecordStreamManifest;
-  const record: MetricCaptureRecord = {
+  let record: MetricCaptureRecord = {
     kind: "metric-record-stream-context/v1",
     metadata: {
       id: "stream-context",
       pass: {
         ...pass,
         id: "stream-pass",
-        requestedRange: { startBeat: 0, endBeat: 1200 },
-        actualRange: { startBeat: 0, endBeat: 1200 },
+        requestedRange: { startBeat: 0, endBeat: geometry.endBeat },
+        actualRange: { startBeat: 0, endBeat: geometry.endBeat },
       },
-      subject: { ...subject, id: "stream-subject", kind: "arrangement-range" },
+      subject: {
+        ...subject,
+        id: "stream-subject",
+        kind: "arrangement-range",
+        binding: {
+          ...subject.binding,
+          semanticLocator: {
+            ...subject.binding.semanticLocator,
+            arrangementRange: { startBeat: 0, endBeat: geometry.endBeat },
+          },
+          previousRuntimeBindings: [
+            descriptor.source.view === "arrangement"
+              ? descriptor.source.target.expectedReference
+              : descriptor.source.clipReference,
+          ],
+        },
+      },
       producer: {
         listenerId: "listener",
         deviceId: "device",
         agentId: "writer",
-        connectionEpoch: "epoch",
+        connectionEpoch: descriptor.ownership.connectionEpoch,
         version: "fixture",
       },
       trace,
@@ -173,18 +195,102 @@ async function streamFixture() {
     manifest,
   };
   const metrics = seeded.store.incrementalMetrics!;
-  const get = vi
-    .spyOn(metrics, "getMetricCapture")
-    .mockImplementation(async (id) =>
+  if (persist) {
+    const stream = await createSyntheticMetricRecordStreamFixture({
+      seconds: 2,
+      sourceOrigin: geometry.startSample,
+      source: descriptor.source,
+      ownership: descriptor.ownership,
+      timingPolicy: descriptor.timingPolicy,
+      requestedMetrics: ["mel-bands"],
+      recordsPerChunk: 96,
+    });
+    const owner = await metrics.beginMetricCapture({
+      descriptor: stream.descriptor,
+      metadata: {
+        ...record.metadata,
+        pass: {
+          ...record.metadata.pass,
+          status: "partial",
+          complete: false,
+          actualRange: null,
+        },
+      },
+    });
+    for await (const chunk of stream.chunks())
+      await metrics.appendMetricChunk(owner, chunk);
+    await metrics.finalizeMetricCapture(
+      owner,
+      stream.manifest,
+      record.metadata.pass,
+    );
+    record = (await metrics.getMetricCapture(record.metadata.id))!;
+  } else {
+    const listEntries = seeded.store.listEntries.bind(seeded.store);
+    vi.spyOn(seeded.store, "listEntries").mockImplementation(
+      async (query, options) => {
+        if (query?.entryId !== record.metadata.id)
+          return listEntries(query, options);
+        const page = await listEntries({ ...query, entryId: "entry" }, options);
+        if (
+          !query.includeHistorical &&
+          record.metadata.pass.liveSetId !== "set-a"
+        )
+          return { ...page, items: [] };
+        return {
+          ...page,
+          items: page.items.map((entry) => ({
+            ...entry,
+            id: record.metadata.id,
+            passId: record.metadata.pass.id,
+            liveSetId: record.metadata.pass.liveSetId,
+            kind: record.kind,
+            payload: {
+              schema: record.kind,
+              captureId: record.metadata.id,
+              descriptorDigest: record.state.descriptorDigest,
+              descriptor: record.descriptor,
+            },
+          })),
+        };
+      },
+    );
+    const listLinks = seeded.store.listLinks.bind(seeded.store);
+    vi.spyOn(seeded.store, "listLinks").mockImplementation(
+      async (query, options) => {
+        const page = await listLinks(
+          query?.entryId === record.metadata.id
+            ? { ...query, entryId: "entry" }
+            : query,
+          options,
+        );
+        return query?.entryId === record.metadata.id &&
+          record.metadata.pass.liveSetId !== "set-a"
+          ? {
+              ...page,
+              items: page.items.map((link) => ({
+                ...link,
+                freshness: { ...link.freshness, status: "historical" as const },
+              })),
+            }
+          : page;
+      },
+    );
+  }
+  const get = vi.spyOn(metrics, "getMetricCapture");
+  if (!persist)
+    get.mockImplementation(async (id) =>
       id === record.metadata.id ? record : undefined,
     );
-  const inventory = vi.spyOn(metrics, "listMetricCaptures").mockResolvedValue({
-    items: [record],
-    encodedBytes: Buffer.byteLength(JSON.stringify([record])),
-  });
-  const read = vi
-    .spyOn(metrics, "listMetricChunks")
-    .mockImplementation(async (query) => {
+  const inventory = vi.spyOn(metrics, "listMetricCaptures");
+  if (!persist)
+    inventory.mockResolvedValue({
+      items: [record],
+      encodedBytes: Buffer.byteLength(JSON.stringify([record])),
+    });
+  const read = vi.spyOn(metrics, "listMetricChunks");
+  if (!persist)
+    read.mockImplementation(async (query) => {
       const index = (query.afterSequence ?? -1) + 1;
       const items = chunks
         .slice(index, index + (query.limit ?? 1))
@@ -254,7 +360,7 @@ describe("bounded stream context consumers", () => {
       overview: {
         geometry: { totalSamples: 28_800_000, sampleRate: 48_000 },
         metrics: [{ expectedRecords: 14062 }],
-        featureDerivation: "unsupported",
+        featureDerivation: "supported",
       },
     });
     expect(JSON.stringify(result)).not.toContain('"rows"');
@@ -565,8 +671,8 @@ describe("bounded stream context consumers", () => {
     ).rejects.toMatchObject({ code: "invalid_cursor" });
   });
 
-  it("includes completed streams alongside legacy inventory and rejects whole-observation/feature access", async () => {
-    const { host, store, record, read, inventory } = await streamFixture();
+  it("discovers published streams in the normal registry and derives their canonical features without whole observations", async () => {
+    const { host, store, record, read, inventory } = await streamFixture(true);
     const derive = vi.spyOn(store, "deriveFeatures");
     const result = await host.executeContextOperation(
       { action: "list", includeHistorical: false, limit: 20 },
@@ -575,17 +681,24 @@ describe("bounded stream context consumers", () => {
     expect(result).toMatchObject({
       entries: [{ kind: "audio-observation/v1" }, { kind: record.kind }],
     });
-    expect(inventory.mock.calls[0]?.[0]).toMatchObject({
-      status: "completed",
-      limit: 1,
-    });
+    expect(inventory).not.toHaveBeenCalled();
     const bootstrap: unknown = JSON.parse(
       await host.getSessionContextInventory(context.sessionId, context),
     );
     expect(bootstrap).toMatchObject({
       entries: [{ contextId: "entry" }, { contextId: record.metadata.id }],
     });
-    for (const action of ["get", "report"] as const)
+    expect(
+      await host.executeContextOperation(
+        {
+          action: "get",
+          contextId: record.metadata.id,
+          includeHistorical: false,
+        },
+        context,
+      ),
+    ).toMatchObject({ observation: { schema: record.kind } });
+    for (const action of ["report"] as const)
       await expect(
         host.executeContextOperation(
           contextOperationParamsSchema.parse({
@@ -597,32 +710,34 @@ describe("bounded stream context consumers", () => {
           context,
         ),
       ).rejects.toMatchObject({ code: "unsupported_context_kind" });
-    for (const query of [
-      {
-        action: "derive-features" as const,
-        contextIds: [record.metadata.id],
-        includeHistorical: false,
-      },
-      {
-        action: "derive-features" as const,
-        contextIds: ["entry", record.metadata.id],
-        includeHistorical: false,
-      },
+    expect(read).not.toHaveBeenCalled();
+    expect(
+      await host.executeContextOperation(
+        {
+          action: "derive-features" as const,
+          contextIds: [record.metadata.id],
+          includeHistorical: false,
+        },
+        context,
+      ),
+    ).toMatchObject({
+      action: "derive-features",
+      derivations: [{ status: "ready" }],
+    });
+    const features = await host.executeContextOperation(
       {
         action: "list-features" as const,
         contextId: record.metadata.id,
         includeHistorical: false,
         limit: 20,
       },
-    ]) {
-      const request = host.executeContextOperation(query, context);
-      await expect(request).rejects.toMatchObject({
-        code: "incremental_metric_features_unsupported",
-      });
-      await expect(request).rejects.toThrow("stream-summary");
-    }
-    expect(read).not.toHaveBeenCalled();
-    expect(derive).not.toHaveBeenCalled();
+      context,
+    );
+    expect(features.action).toBe("list-features");
+    expect(
+      "inventory" in features && Array.isArray(features.inventory.features),
+    ).toBe(true);
+    expect(derive).toHaveBeenCalledOnce();
   });
 
   it("denies provisional, foreign and wrong-Set contexts and forwards cancellation without reads", async () => {
@@ -653,11 +768,10 @@ describe("bounded stream context consumers", () => {
         pass: { ...record.metadata.pass, liveSetId: "old-set" },
       },
     };
-    get.mockResolvedValueOnce(historical);
+    record.metadata.pass.liveSetId = historical.metadata.pass.liveSetId;
     await expect(
       host.executeContextOperation(query, context),
     ).rejects.toMatchObject({ code: "not_found" });
-    get.mockResolvedValueOnce(historical);
     expect(
       await host.executeContextOperation(
         { ...query, includeHistorical: true },
@@ -695,8 +809,8 @@ describe("bounded stream context consumers", () => {
 });
 
 describe("stream range and cancellation boundaries", () => {
-  it("continues mixed discovery across both repositories and binds inventory filters", async () => {
-    const { host, record } = await streamFixture();
+  it("continues canonical and historical discovery through one context registry and binds inventory filters", async () => {
+    const { host, record } = await streamFixture(true);
     const query = {
       action: "list" as const,
       includeHistorical: false,

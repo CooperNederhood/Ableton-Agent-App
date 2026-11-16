@@ -5,6 +5,7 @@ import {
   listenerMetricWireIdentitySchema,
   listenerReplyMetricSchema,
   listenerResultMetricSchema,
+  listenerRegistrationMetricSchema,
   type ListenerControlInput,
   type ListenerControlMetric,
   type ListenerDescriptor,
@@ -13,16 +14,52 @@ import {
   type ListenerResultMetric,
   type ListenerService,
 } from "@ableton-agent/signal-routing";
+import type { SyntheticMetricWireFixture } from "@ableton-agent/signal-routing/testing";
 import {
-  bindMetricFixtureToControl,
-  type SyntheticMetricWireFixture,
-} from "@ableton-agent/signal-routing/testing";
-import {
-  createMetricObservationReportRows,
-  MEL_BAND_PROFILE,
-  melBandTimelineSchema,
+  METRIC_RECORD_STREAM_CAPABILITY,
+  METRIC_CONTINUOUS_LISTENING_CAPABILITY,
+  NATIVE_CONTINUOUS_METRIC_LISTENING_SCOPE,
+  nativeMetricOwnershipSchema,
+  nativeContinuousMetricListeningConfigSchema,
+  compactMetricRecordStreamDescriptor,
+  metricObservationMetricSchema,
   type ListeningFailureEvidence,
 } from "@ableton-agent/protocol";
+import {
+  createSyntheticAnalyzerReadiness,
+  createSyntheticMetricRecordStreamFixture,
+  type SyntheticMetricRecordStreamFixture,
+} from "@ableton-agent/protocol/testing";
+
+export function withSyntheticMetricStreamRegistration(
+  registration: ListenerDescriptor["registration"],
+) {
+  const base = listenerRegistrationMetricSchema.parse(registration);
+  return listenerRegistrationMetricSchema.parse({
+    ...base,
+    capabilities: [
+      ...new Set([
+        ...base.capabilities,
+        "audio-listener/analyzer-timelines-v1",
+        METRIC_CONTINUOUS_LISTENING_CAPABILITY,
+      ]),
+    ],
+    analyzerReadiness: createSyntheticAnalyzerReadiness(),
+    nativeStatus: {
+      ...base.nativeStatus,
+      version: 6,
+      scope: NATIVE_CONTINUOUS_METRIC_LISTENING_SCOPE,
+      readiness: "BLOCKED",
+      executedGen: null,
+      reason: "fresh_per_pass_native_validation_required",
+      maxAudioDurationMs: 600_000,
+      maxSessionAudioDurationMs: 600_000,
+      maxReportRows: 39_961,
+      maxSessionReportRows: 39_961,
+      streamCapability: METRIC_RECORD_STREAM_CAPABILITY,
+    },
+  });
+}
 
 type MutableDescriptor = {
   -readonly [K in keyof ListenerDescriptor]: ListenerDescriptor[K];
@@ -47,6 +84,7 @@ export class SyntheticMetricListenerPeer implements ListenerService {
   cancelHook?: () => void | Promise<void>;
   unsubscribeHook?: () => void;
   #current: ListenerControlMetric | undefined;
+  stream: SyntheticMetricRecordStreamFixture | undefined;
 
   constructor(
     descriptor: ListenerDescriptor,
@@ -96,61 +134,67 @@ export class SyntheticMetricListenerPeer implements ListenerService {
     this.controls.push(control);
     this.options.recordControl?.(input.action);
     if (control.action === "prepare") {
+      const rawConfig = control.config;
       if (this.subscribers.size === 0)
         throw new Error("Synthetic peer requires subscription before prepare");
       if (
-        !control.config?.sourceContext ||
-        control.config.scope !== "independent-metric-timelines/v1" ||
-        !isDeepStrictEqual(
-          control.config.geometry,
-          this.data.config.geometry,
+        !rawConfig?.sourceContext ||
+        rawConfig.scope !== NATIVE_CONTINUOUS_METRIC_LISTENING_SCOPE ||
+        !["sampleRate", "vectorSize", "tempoBpm", "startBeat", "endBeat"].every(
+          (key) =>
+            Reflect.get(rawConfig.geometry, key) ===
+            Reflect.get(this.data.config.geometry, key),
         ) ||
         !isDeepStrictEqual(
-          control.config.timingPolicy,
+          rawConfig.timingPolicy,
           this.data.config.timingPolicy,
         )
       )
         throw new Error(
           "Synthetic peer requires its declared geometry, policy and actual inspected source",
         );
-      this.data = bindMetricFixtureToControl(this.data, control);
-      this.data.ready.config = structuredClone(control.config);
-      this.data.proof.armed.config = structuredClone(control.config);
-      this.data.observation.source = structuredClone(
-        control.config.sourceContext,
-      );
-      this.data.observation.requestedMetrics = [
-        ...control.config.requestedMetrics,
-      ];
-      if (
-        control.config.requestedMetrics.includes("mel-bands") &&
-        this.options.provideMelBands !== false
-      ) {
-        const observation = this.data.observation;
-        const support = observation.sourceCoverage;
-        const expectedRecords = Math.floor(
-          (support.endSample - support.startSample) / 2048,
-        );
-        observation.metrics["mel-bands"] ??= melBandTimelineSchema.parse({
-          schema: "mel-band-timeline/v1",
-          status: "complete",
-          sampleRate: observation.geometry.sampleRate,
-          profile: MEL_BAND_PROFILE,
-          sourceSupport: support,
-          expectedRecords,
-          frames: Array.from({ length: expectedRecords }, (_, index) => ({
-            index,
-            support: {
-              startSample: support.startSample + index * 2048,
-              endSample: support.startSample + (index + 1) * 2048,
-            },
-            magnitudes: [Array(24).fill(0.5), Array(24).fill(0.25)],
-          })),
-          gaps: [],
-        });
-        observation.rows = createMetricObservationReportRows(observation);
-      }
       this.#current = control;
+      const config =
+        nativeContinuousMetricListeningConfigSchema.parse(rawConfig);
+      this.stream = await createSyntheticMetricRecordStreamFixture({
+        source: rawConfig.sourceContext,
+        ownership: nativeMetricOwnershipSchema.parse({
+          listenerId: control.listenerId,
+          passId: control.passId,
+          connectionId: control.connectionId,
+          connectionEpoch: control.connectionEpoch,
+          generation: control.generation,
+          traceId: control.traceId,
+          correlationId: control.correlationId,
+          causationId: control.causationId,
+          nativeEpoch:
+            this.data.ready.ownership.nativeEpoch +
+            this.controls.filter((item) => item.action === "prepare").length -
+            1,
+        }),
+        seconds: config.geometry.totalSamples / config.geometry.sampleRate,
+        sampleRate: config.geometry.sampleRate,
+        vectorSize: config.geometry.vectorSize,
+        tempoBpm: config.geometry.tempoBpm,
+        startBeat: config.geometry.startBeat,
+        timingPolicy: config.timingPolicy,
+        requestedMetrics: config.requestedMetrics,
+        gaps: Object.entries(this.data.observation.metrics).flatMap(
+          ([metric, timeline]) =>
+            timeline?.gaps.map((gap) => ({
+              metric: metricObservationMetricSchema.parse(metric),
+              firstIndex: gap.firstIndex,
+              count: gap.count,
+              reason: gap.reason,
+            })) ?? [],
+        ),
+        ...(this.options.provideMelBands === false
+          ? { unavailableMetrics: ["mel-bands"] }
+          : {}),
+        ...(config.stoppedBeat === undefined
+          ? {}
+          : { stoppedBeat: config.stoppedBeat }),
+      });
       this.descriptor.phase = "preparing";
       this.descriptor.jobId = input.jobId;
       this.descriptor.passId = input.passId;
@@ -168,17 +212,20 @@ export class SyntheticMetricListenerPeer implements ListenerService {
       ...this.wire(),
       requestId: control.requestId,
       type: "listener.reply",
-      sequence: ++this.sequence,
+      sequence: this.sequence + 1,
       status:
         control.action === "prepare"
           ? "ready"
           : control.action === "arm"
             ? "armed"
             : "cancelled",
-      ...(control.action === "prepare" ? { nativeReady: this.data.ready } : {}),
-      ...(control.action === "arm" ? { nativeArm: this.data.proof.armed } : {}),
+      ...(control.action === "prepare"
+        ? { nativeReady: this.stream?.ready }
+        : {}),
+      ...(control.action === "arm" ? { nativeArm: this.stream?.armed } : {}),
       ...(control.action === "cancel" ? { reason: "cancelled" } : {}),
     });
+    this.sequence = reply.sequence;
     if (control.action === "arm") await this.armHook?.(reply);
     return reply;
   }
@@ -206,10 +253,11 @@ export class SyntheticMetricListenerPeer implements ListenerService {
       ...this.wire(),
       type: "listener.result",
       requestId: randomUUID(),
-      sequence: ++this.sequence,
+      sequence: this.sequence + 1,
       status: "progress",
       ...patch,
     });
+    this.sequence = result.sequence;
     return result;
   }
   emit(
@@ -254,9 +302,11 @@ export class SyntheticMetricListenerPeer implements ListenerService {
     return {
       eventId: randomUUID(),
       causationId: this.#current.causationId,
-      scope: "independent-metric-timelines/v1" as const,
+      scope: NATIVE_CONTINUOUS_METRIC_LISTENING_SCOPE,
       generation: this.#current.generation,
-      nativeEpoch: this.data.ready.ownership.nativeEpoch,
+      nativeEpoch:
+        this.stream?.descriptor.ownership.nativeEpoch ??
+        this.data.ready.ownership.nativeEpoch,
       stage: "progress" as const,
       phase: "preflight" as const,
       elapsedMs: 10,
@@ -265,20 +315,44 @@ export class SyntheticMetricListenerPeer implements ListenerService {
     };
   }
   launch() {
+    if (!this.stream) throw new Error("Synthetic launch before prepare");
     this.emit(
       this.event({
-        nativeLaunch: this.data.proof.launched,
+        nativeLaunch: this.stream.manifest.nativeProof.launch,
       }),
     );
   }
   complete() {
-    this.emit(
-      this.event({
-        status:
-          this.data.observation.outcome === "partial" ? "partial" : "completed",
-        observation: this.data.observation,
-        nativeSourceCoverage: this.data.proof,
-      }),
+    const stream = this.stream;
+    if (!stream) throw new Error("Synthetic completion before prepare");
+    const deliver = async () => {
+      await this.emitDurable(
+        this.event({
+          metricStream: compactMetricRecordStreamDescriptor(stream.descriptor),
+        }),
+      );
+      for await (const chunk of stream.chunks())
+        await this.emitDurable(this.event({ metricChunk: chunk }));
+      await this.emitDurable(
+        this.event({
+          status:
+            stream.manifest.outcome === "complete"
+              ? "completed"
+              : stream.manifest.outcome,
+          metricManifest: stream.manifest,
+        }),
+      );
+    };
+    void deliver().catch((error: unknown) =>
+      this.emit(
+        this.event({
+          status: "failed",
+          reason:
+            error instanceof Error
+              ? error.message.slice(0, 500)
+              : "Synthetic stream delivery failed",
+        }),
+      ),
     );
   }
 }
@@ -303,6 +377,9 @@ export function createSyntheticMetricListenerPeer(
   };
   return {
     service,
+    get stream() {
+      return peer.stream;
+    },
     subscribers: peer.subscribers,
     emit: (patch: Partial<ListenerResultMetric>) =>
       peer.emit(peer.event(patch)),

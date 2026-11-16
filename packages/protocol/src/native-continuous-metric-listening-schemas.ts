@@ -27,6 +27,7 @@ import {
   type NativeMetricListeningExpectation,
 } from "./native-metric-listening-schemas.js";
 import { listeningTimingPolicySchema } from "./listening-timing-schemas.js";
+import { sessionNativeSourceSchema } from "./native-session-listening-schemas.js";
 import {
   MAX_METRIC_RECORD_CHUNK_BYTES,
   MAX_METRIC_RECORD_PENDING_CHUNKS,
@@ -35,7 +36,7 @@ import {
 } from "./metric-record-stream.js";
 
 export const NATIVE_CONTINUOUS_METRIC_LISTENING_SCOPE =
-  "arrangement-continuous-metric-stream/v1" as const;
+  "finite-metric-stream/v1" as const;
 
 /** Admission uses local counters; the verified descriptor pins the native origin. */
 export const nativeContinuousMetricListeningConfigSchema = z
@@ -43,9 +44,11 @@ export const nativeContinuousMetricListeningConfigSchema = z
     scope: z.literal(NATIVE_CONTINUOUS_METRIC_LISTENING_SCOPE),
     capability: z.literal(METRIC_CONTINUOUS_LISTENING_CAPABILITY),
     algorithmVersion: z.literal(NATIVE_METRIC_ALGORITHM_VERSION),
-    mode: z.literal("arrangement"),
-    captureMode: z.literal("arrangement-continuous"),
-    sourceEvidence: z.literal("transport-only"),
+    mode: z.enum(["arrangement", "session"]),
+    captureMode: z.literal("finite-metric-stream"),
+    sourceEvidence: z.enum(["transport-only", "expected-context-only"]),
+    stoppedBeat: z.number().finite().min(0).max(1_576_800).optional(),
+    source: sessionNativeSourceSchema.optional(),
     geometry: metricContinuousListeningGeometrySchema,
     timingPolicy: listeningTimingPolicySchema,
     grid: z.strictObject({
@@ -59,7 +62,7 @@ export const nativeContinuousMetricListeningConfigSchema = z
       .min(1)
       .max(6)
       .refine((metrics) => new Set(metrics).size === metrics.length),
-    sourceContext: metricObservationSourceSchema.options[0].optional(),
+    sourceContext: metricObservationSourceSchema.optional(),
     attacks: nativeMetricAttackSettingsSchema.nullable().optional(),
     maxPendingChunks: z
       .number()
@@ -98,15 +101,31 @@ export const nativeContinuousMetricListeningConfigSchema = z
       });
     const source = value.sourceContext;
     if (
-      source !== undefined &&
-      (source.transport.startBeat !== g.startBeat ||
-        source.transport.endBeat !== g.endBeat ||
-        (source.target.kind === "master") !== (source.target.index === null))
+      source === undefined ||
+      source.view !== value.mode ||
+      source.transport.startBeat !== g.startBeat ||
+      source.transport.endBeat !== g.endBeat ||
+      (source.view === "arrangement" &&
+        (source.target.kind === "master") !== (source.target.index === null)) ||
+      (value.mode === "session"
+        ? value.sourceEvidence !== "expected-context-only" ||
+          value.stoppedBeat === undefined ||
+          value.source === undefined ||
+          source?.view !== "session" ||
+          Math.abs(source.coordinate.endBeat - (g.endBeat - g.startBeat)) >
+            1e-8 ||
+          source.clipReference !== value.source.target.expectedClipReference ||
+          canonicalMetricRecordJson(source.target) !==
+            canonicalMetricRecordJson(value.source.target)
+        : value.sourceEvidence !== "transport-only" ||
+          value.stoppedBeat !== undefined ||
+          value.source !== undefined)
     )
       ctx.addIssue({
         code: "custom",
         path: ["sourceContext"],
-        message: "Continuous source context must match the admitted range",
+        message:
+          "Stream source must match the admitted mode, exact target and range",
       });
   });
 

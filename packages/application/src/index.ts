@@ -269,6 +269,7 @@ export {
   formatAgentIdentityContext,
   retryGuidance,
   structuredErrorCode,
+  TRANSPORT_SOURCE_FLAG_GUIDANCE,
   VERIFIED_TOOL_RESULT_GUIDANCE,
   type AgentIdentityContext,
 } from "./agent-policy.js";

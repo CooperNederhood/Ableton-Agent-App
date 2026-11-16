@@ -4,12 +4,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   metricListeningResultSummariesSchema,
-  type StoredAudioObservation,
+  type MetricRecordStreamManifest,
 } from "@ableton-agent/protocol";
-import {
-  createSyntheticMetricListeningObservation,
-  createSyntheticPartialMetricListeningObservation,
-} from "@ableton-agent/protocol/testing";
+import { createSyntheticMetricRecordStreamManifest } from "@ableton-agent/protocol/testing";
 import {
   LocalObservabilityJournal,
   telemetryEventEnvelopeSchema,
@@ -43,19 +40,17 @@ function fixture(
   options: {
     partial?: boolean;
     negotiated?: boolean;
-    mutate?: (
-      observation: ReturnType<typeof createSyntheticMetricListeningObservation>,
-    ) => void;
+    mutate?: (observation: MetricRecordStreamManifest) => void;
     disarm?: () => Promise<void>;
   } = {},
 ) {
   const events: TelemetryEventEnvelope[] = [];
-  let published: readonly StoredAudioObservation[] = [];
+  let published: readonly MetricRecordStreamManifest[] = [];
   const disarm = vi.fn(options.disarm ?? (async () => {}));
   const release = vi.fn(async () => {});
-  const persist = vi.fn<ListeningCoordinatorServices["persist"]>(
+  const persistStreams = vi.fn<ListeningCoordinatorServices["persistStreams"]>(
     async (input) => {
-      published = input.observations;
+      published = input.manifests;
       return ["context"];
     },
   );
@@ -71,24 +66,42 @@ function fixture(
       }),
       reservePublication: async () => ({ release }),
       prepare: async ({ passId }) => {
-        const observation = options.partial
-          ? createSyntheticPartialMetricListeningObservation()
-          : createSyntheticMetricListeningObservation();
-        observation.ownership = { ...observation.ownership, ...trace, passId };
+        const observation = await createSyntheticMetricRecordStreamManifest({
+          ownership: {
+            ...trace,
+            passId,
+            listenerId: "listener",
+            connectionId: "00000000-0000-4000-8000-000000000004",
+            connectionEpoch: "00000000-0000-4000-8000-000000000005",
+            generation: "00000000-0000-4000-8000-000000000006",
+            nativeEpoch: 1,
+          },
+          ...(options.partial
+            ? {
+                gaps: [
+                  {
+                    metric: "spectral-centroid",
+                    firstIndex: 0,
+                    count: 1,
+                    reason: "overflow",
+                  },
+                ],
+              }
+            : {}),
+        });
         options.mutate?.(observation);
-        return {
-          ...(options.negotiated === false
-            ? {}
-            : {
-                observationContract: "independent-metric-timelines/v1" as const,
-              }),
-          observations: Promise.resolve([observation]),
+        const prepared = {
+          observationContract: "metric-record-stream/v1" as const,
+          manifests: Promise.resolve([observation]),
           disarm,
         };
+        if (options.negotiated === false)
+          Reflect.deleteProperty(prepared, "observationContract");
+        return prepared;
       },
       startPlayback: async () => ({ cleanupPolicy: "leave-running", release }),
-      persist,
-      validateObservations: () => {},
+      persistStreams,
+      validateStreams: () => {},
     },
   });
   const start = () => coordinator.start(request, owner, trace);
@@ -97,7 +110,7 @@ function fixture(
     events,
     disarm,
     release,
-    persist,
+    persistStreams,
     start,
     published: () => published,
   };
@@ -125,9 +138,9 @@ describe("explicit independent metric coordinator contract", () => {
           missingRecords: partial ? 1 : 0,
         }),
       );
-      expect(f.published()[0]!.schema).toBe("metric-audio-observation/v1");
+      expect(f.published()[0]!.schema).toBe("metric-record-stream-manifest/v1");
       expect(f.disarm.mock.invocationCallOrder[0]).toBeLessThan(
-        f.persist.mock.invocationCallOrder[0]!,
+        f.persistStreams.mock.invocationCallOrder[0]!,
       );
       const terminal = f.events.filter((event) =>
         [
@@ -216,7 +229,7 @@ describe("explicit independent metric coordinator contract", () => {
     const job = await f.coordinator.wait(f.start().passId, owner);
     expect(job.stage).toBe("failed");
     expect(job.contextIds).toEqual([]);
-    expect(f.persist).not.toHaveBeenCalled();
+    expect(f.persistStreams).not.toHaveBeenCalled();
     await f.coordinator.shutdown();
   });
 
@@ -241,7 +254,7 @@ describe("explicit independent metric coordinator contract", () => {
       const job = await f.coordinator.wait(f.start().passId, owner);
       expect(job.stage).toBe("failed");
       expect(job.contextIds).toEqual([]);
-      expect(f.persist).not.toHaveBeenCalled();
+      expect(f.persistStreams).not.toHaveBeenCalled();
       await f.coordinator.shutdown();
     },
   );
@@ -256,7 +269,7 @@ describe("explicit independent metric coordinator contract", () => {
     const job = await f.coordinator.wait(f.start().passId, owner);
     expect(job.stage).toBe("failed");
     expect(job.contextIds).toEqual([]);
-    expect(f.persist).not.toHaveBeenCalled();
+    expect(f.persistStreams).not.toHaveBeenCalled();
     expect(job.error).toContain("Unconfirmed DSP cleanup");
     await f.coordinator.shutdown();
   });
@@ -284,7 +297,7 @@ describe("explicit independent metric coordinator contract", () => {
     const job = await cancelled;
     expect(job.stage).toBe("cancelled");
     expect(job.contextIds).toEqual([]);
-    expect(f.persist).not.toHaveBeenCalled();
+    expect(f.persistStreams).not.toHaveBeenCalled();
     expect(f.events.some((event) => event.name === "listening.partial")).toBe(
       false,
     );

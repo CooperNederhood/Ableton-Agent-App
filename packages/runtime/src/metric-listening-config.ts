@@ -1,22 +1,16 @@
-import { isDeepStrictEqual } from "node:util";
 import {
-  createMetricListeningGeometry,
   createContinuousMetricListeningGeometry,
   METRIC_CONTINUOUS_LISTENING_CAPABILITY,
-  metricAudioObservationSchema,
-  nativeMetricControlConfigSchema as nativeMetricListeningConfigSchema,
+  nativeContinuousMetricListeningConfigSchema as nativeMetricListeningConfigSchema,
   NATIVE_CONTINUOUS_METRIC_LISTENING_SCOPE,
   MAX_METRIC_RECORD_CHUNK_BYTES,
   MAX_METRIC_RECORD_PENDING_CHUNKS,
   NATIVE_METRIC_ALGORITHM_VERSION,
-  NATIVE_METRIC_LISTENING_SCOPE,
   LISTENER_CAPABILITY_ANALYZER_TIMELINES,
   type ListeningTimingPolicy,
   type MetricAudioObservation,
-  type NativeMetricControlConfig as NativeMetricListeningConfig,
-  type StoredAudioObservation,
+  type NativeContinuousMetricListeningConfig as NativeMetricListeningConfig,
 } from "@ableton-agent/protocol";
-import type { ListeningPassContext } from "@ableton-agent/application";
 import {
   listenerRegistrationMetricSchema,
   type ListenerDescriptor,
@@ -55,10 +49,21 @@ export function createMetricCaptureBinding(input: {
     ]);
   listenerRegistrationMetricSchema.parse(registration);
   if (
-    ![
-      NATIVE_METRIC_LISTENING_SCOPE,
-      NATIVE_CONTINUOUS_METRIC_LISTENING_SCOPE,
-    ].includes(registration.nativeStatus.scope) ||
+    !registration.capabilities.some(
+      (capability) =>
+        String(capability) === METRIC_CONTINUOUS_LISTENING_CAPABILITY,
+    )
+  )
+    deny("continuous_metric_stream_unavailable", undefined, [
+      failureFact(
+        "listener.requiredCapability",
+        METRIC_CONTINUOUS_LISTENING_CAPABILITY,
+      ),
+      failureFact("listener.requestedMode", input.source.view),
+    ]);
+  if (
+    registration.nativeStatus.scope !==
+      NATIVE_CONTINUOUS_METRIC_LISTENING_SCOPE ||
     !registration.nativeStatus.supportedModes.includes(input.source.view) ||
     (registration.nativeStatus.readiness !== "READY" &&
       registration.nativeStatus.reason !==
@@ -68,7 +73,7 @@ export function createMetricCaptureBinding(input: {
       failureFact(
         "listener.scope",
         registration.nativeStatus.scope,
-        NATIVE_METRIC_LISTENING_SCOPE,
+        NATIVE_CONTINUOUS_METRIC_LISTENING_SCOPE,
       ),
       failureFact("listener.requestedMode", input.source.view),
       failureFact(
@@ -76,25 +81,6 @@ export function createMetricCaptureBinding(input: {
         registration.nativeStatus.readiness,
         "READY|fresh-per-pass",
       ),
-    ]);
-  const durationSeconds =
-    ((input.source.transport.endBeat - input.source.transport.startBeat) * 60) /
-    input.tempoBpm;
-  const continuous = durationSeconds > 30;
-  if (
-    continuous &&
-    (input.source.view !== "arrangement" ||
-      !registration.capabilities.some(
-        (capability) =>
-          String(capability) === METRIC_CONTINUOUS_LISTENING_CAPABILITY,
-      ))
-  )
-    deny("continuous_metric_stream_unavailable", undefined, [
-      failureFact(
-        "listener.requiredCapability",
-        METRIC_CONTINUOUS_LISTENING_CAPABILITY,
-      ),
-      failureFact("listener.requestedMode", input.source.view, "arrangement"),
     ]);
   const geometryInput = {
     sampleRate:
@@ -113,24 +99,18 @@ export function createMetricCaptureBinding(input: {
     endBeat: input.source.transport.endBeat,
     startSample: 0,
   } as const;
-  const geometry = continuous
-    ? createContinuousMetricListeningGeometry({
-        ...geometryInput,
-        captureMode: "arrangement-continuous",
-      })
-    : createMetricListeningGeometry(geometryInput);
+  const geometry = createContinuousMetricListeningGeometry({
+    ...geometryInput,
+    captureMode: "finite-metric-stream",
+  });
   const requestedMetrics = [
     ...(input.requestedMetrics ?? [
       "level",
       "spectral-centroid",
       "attacks",
       "mel-bands",
-      ...(continuous ||
-      registration.capabilities.some(
-        (capability) => capability === LISTENER_CAPABILITY_ANALYZER_TIMELINES,
-      )
-        ? (["pitch", "spectral-shape"] as const)
-        : []),
+      "pitch",
+      "spectral-shape",
     ]),
   ];
   if (
@@ -148,9 +128,11 @@ export function createMetricCaptureBinding(input: {
       ),
     ]);
   const shared = {
-    scope: continuous
-      ? NATIVE_CONTINUOUS_METRIC_LISTENING_SCOPE
-      : NATIVE_METRIC_LISTENING_SCOPE,
+    scope: NATIVE_CONTINUOUS_METRIC_LISTENING_SCOPE,
+    capability: METRIC_CONTINUOUS_LISTENING_CAPABILITY,
+    captureMode: "finite-metric-stream",
+    maxPendingChunks: MAX_METRIC_RECORD_PENDING_CHUNKS,
+    maxChunkBytes: MAX_METRIC_RECORD_CHUNK_BYTES,
     algorithmVersion: NATIVE_METRIC_ALGORITHM_VERSION,
     geometry,
     timingPolicy: input.timingPolicy,
@@ -188,115 +170,7 @@ export function createMetricCaptureBinding(input: {
           ...shared,
           mode: "arrangement",
           sourceEvidence: "transport-only",
-          ...(continuous
-            ? {
-                capability: METRIC_CONTINUOUS_LISTENING_CAPABILITY,
-                captureMode: "arrangement-continuous",
-                maxPendingChunks: MAX_METRIC_RECORD_PENDING_CHUNKS,
-                maxChunkBytes: MAX_METRIC_RECORD_CHUNK_BYTES,
-              }
-            : {}),
         },
   );
   return freeze({ descriptor, config });
-}
-
-/** Defense at publication, after the control driver has authenticated native proofs. */
-export function validateMetricCaptureObservations(
-  observations: readonly StoredAudioObservation[],
-  bindings: readonly MetricCaptureBinding[],
-  pass: Pick<ListeningPassContext, "passId" | "trace">,
-): readonly MetricAudioObservation[] {
-  if (observations.length !== bindings.length)
-    deny("invalid_metric_capture_observation", undefined, [
-      failureFact("observation.count", observations.length, bindings.length),
-    ]);
-  const seen = new Set<string>();
-  return freeze(
-    observations.map((raw) => {
-      const observation = metricAudioObservationSchema.parse(raw);
-      const owner = observation.ownership;
-      const binding = bindings.find(
-        (item) => item.descriptor.producer.producerId === owner.listenerId,
-      );
-      if (!binding || seen.has(owner.listenerId))
-        deny("invalid_metric_capture_observation", undefined, [
-          failureFact("observation.listenerKnown", Boolean(binding), true),
-          failureFact(
-            "observation.duplicateListener",
-            seen.has(owner.listenerId),
-            false,
-          ),
-        ]);
-      seen.add(owner.listenerId);
-      const { config, descriptor } = binding;
-      if (config.scope === NATIVE_CONTINUOUS_METRIC_LISTENING_SCOPE)
-        deny("continuous_metric_legacy_publication_forbidden");
-      const local = config.geometry;
-      const expectedGeometry = createMetricListeningGeometry({
-        sampleRate: local.sampleRate,
-        vectorSize: local.vectorSize,
-        tempoBpm: local.tempoBpm,
-        startBeat: local.startBeat,
-        endBeat: local.endBeat,
-        startSample: observation.geometry.startSample,
-      });
-      const attack = observation.metrics.attacks.algorithm;
-      if (
-        owner.passId !== pass.passId ||
-        owner.connectionId !== descriptor.connectionId ||
-        owner.connectionEpoch !== descriptor.registration.connectionEpoch ||
-        owner.traceId !== pass.trace.traceId ||
-        owner.correlationId !== pass.trace.correlationId ||
-        owner.causationId !== pass.trace.causationId ||
-        !isDeepStrictEqual(observation.source, config.sourceContext) ||
-        !isDeepStrictEqual(observation.geometry, expectedGeometry) ||
-        !isDeepStrictEqual(observation.alignment.policy, config.timingPolicy) ||
-        observation.alignment.vectorSize !== local.vectorSize ||
-        !isDeepStrictEqual(
-          observation.requestedMetrics,
-          config.requestedMetrics,
-        ) ||
-        (config.requestedMetrics.includes("attacks") &&
-          (!attack ||
-            attack.thresholdDb !== config.attacks?.thresholdDb ||
-            attack.minSpacingSamples !== config.attacks?.minSpacingSamples))
-      )
-        deny("invalid_metric_capture_observation", undefined, [
-          failureFact("observation.passId", owner.passId, pass.passId),
-          failureFact(
-            "observation.connectionId",
-            owner.connectionId,
-            descriptor.connectionId,
-          ),
-          failureFact(
-            "observation.connectionEpoch",
-            owner.connectionEpoch,
-            descriptor.registration.connectionEpoch,
-          ),
-          failureFact(
-            "observation.sourceMatches",
-            isDeepStrictEqual(observation.source, config.sourceContext),
-            true,
-          ),
-          failureFact(
-            "observation.geometryMatches",
-            isDeepStrictEqual(observation.geometry, expectedGeometry),
-            true,
-          ),
-          failureFact("observation.traceId", owner.traceId, pass.trace.traceId),
-          failureFact(
-            "observation.correlationId",
-            owner.correlationId,
-            pass.trace.correlationId,
-          ),
-          failureFact(
-            "observation.causationId",
-            owner.causationId,
-            pass.trace.causationId,
-          ),
-        ]);
-      return observation;
-    }),
-  );
 }

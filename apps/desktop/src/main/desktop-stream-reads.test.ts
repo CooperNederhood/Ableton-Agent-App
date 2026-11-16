@@ -99,6 +99,10 @@ async function seed() {
     startBeat: fixture.descriptor.geometry.startBeat,
     endBeat: fixture.descriptor.geometry.endBeat,
   };
+  const previousRuntimeBinding: unknown =
+    fixture.descriptor.source.target.expectedReference;
+  if (typeof previousRuntimeBinding !== "string")
+    throw new Error("Synthetic source is missing its runtime binding");
   const start: MetricCaptureStart = {
     descriptor: fixture.descriptor,
     metadata: {
@@ -148,7 +152,7 @@ async function seed() {
           upstreamProcessingHash: "synthetic",
           routingHash: "synthetic",
           dependencyScope: "unknown",
-          previousRuntimeBindings: [],
+          previousRuntimeBindings: [previousRuntimeBinding],
         },
       },
     },

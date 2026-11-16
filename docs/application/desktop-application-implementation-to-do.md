@@ -62,18 +62,19 @@ Companion specification: [Desktop Application](desktop-application.md)
   Electron restart coverage remains distinct from these real Session captures
   and is not a fresh physical legacy-native regression claim.
 
-- [x] Add a real packaged OS-vault regression without an environment-token or
-  mock-Keychain bypass: require installed-token provisioning, encrypted
-  persistence, same-profile restart/decrypt and typed credential lifecycle.
-  Capture a bounded native sample on first-window failure.
-- [x] Cover adapter encryption unavailability, encryption/decryption denial,
-  encrypted-byte preservation, missing credentials and invalid-key guards.
+- [x] Replace the former OS-vault packaged regression with installed-file
+  startup and same-profile restart, no environment-token or mock-Keychain
+  bypass, no redundant credential copy, and typed redacted lifecycle timing.
+  Retain bounded native samples on first-window failure.
+- [x] Remove the unused encryption adapter and its obsolete tests; cover
+  memory-only resolution, rotation, missing/invalid files and environment
+  precedence instead.
 - [x] Include packaged Electron tests in strict TypeScript project checking,
   rather than ESLint's default inferred project.
-- [ ] Resolve intermittent native-vault startup. The first real regression run
+- [x] Remove native-vault access from bridge startup. The historical regression
   timed out before the first window; a later run passed provision/restart/decrypt
-  with the unchanged package. No production fix explains that transition.
-  Do not count the later pass as proof of a repaired startup or package listening.
+  with the unchanged package. That transition remains unexplained; the current
+  fix removes the redundant vault rather than claiming the OS stall was repaired.
 
 - [x] Reconcile first connection after disconnected startup: adopt an untouched
   orphan transactionally; require a decision for offline history or an existing
@@ -105,10 +106,10 @@ Companion specification: [Desktop Application](desktop-application.md)
 Electron main now composes `createAgentRuntime` from `packages/runtime`, the
 same composition root the CLI uses, and adapts it through
 `HeadlessDesktopService`. The bridge port, model, and reasoning effort come
-from persisted preferences. The bridge token resolves from the OS-backed
-credential vault, `ABLETON_AGENT_TOKEN`, or the configured/auto-detected Remote
-Script installation. A discovered installation token is persisted to the vault
-and shared with Signal ingress without entering renderer state. Because bridge
+from persisted preferences. The bridge token resolves from `ABLETON_AGENT_TOKEN`
+or the configured/auto-detected Remote Script installation. A discovered token
+is read into memory and shared with Signal ingress without entering renderer
+state or an OS-backed vault. Because bridge
 credentials and locations are read while the composition is built, changing
 the location takes effect on the next launch, which the app states explicitly
 when that preference is saved.

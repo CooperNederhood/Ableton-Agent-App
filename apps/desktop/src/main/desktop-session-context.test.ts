@@ -57,7 +57,10 @@ import {
   type ListenerDescriptor,
 } from "@ableton-agent/signal-routing";
 import { createSyntheticMetricWireFixture } from "@ableton-agent/signal-routing/testing";
-import { SyntheticMetricListenerPeer } from "../../../../packages/runtime/src/metric-listening-test-support.js";
+import {
+  SyntheticMetricListenerPeer,
+  withSyntheticMetricStreamRegistration,
+} from "../../../../packages/runtime/src/metric-listening-test-support.js";
 import {
   telemetryEventEnvelopeSchema,
   type TelemetryEventEnvelope,
@@ -264,7 +267,7 @@ function streamStart(
     },
     source: source.source,
     geometry: createContinuousMetricListeningGeometry({
-      captureMode: "arrangement-continuous",
+      captureMode: "finite-metric-stream",
       sampleRate: 48000,
       vectorSize: 64,
       tempoBpm: 120,
@@ -284,6 +287,8 @@ function streamStart(
     ],
     maxPendingChunks: 8,
   });
+  if (descriptor.source.view !== "arrangement")
+    throw new Error("Expected an Arrangement stream fixture");
   return {
     descriptor,
     metadata: {
@@ -308,6 +313,7 @@ function streamStart(
         location: "arrangement",
         binding: {
           ...input.subjects[0]!.binding,
+          previousRuntimeBindings: [descriptor.source.target.expectedReference],
           semanticLocator: {
             ...input.subjects[0]!.binding.semanticLocator,
             arrangementRange: range,
@@ -441,9 +447,10 @@ async function stagedCapture(mode: "session" | "arrangement") {
     },
     binding: { trackId: "500", deviceId: "600" },
     registration: listenerRegistrationMetricSchema.parse({
-      ...data.registration,
+      ...withSyntheticMetricStreamRegistration(data.registration),
       nativeStatus: {
-        ...data.registration.nativeStatus,
+        ...withSyntheticMetricStreamRegistration(data.registration)
+          .nativeStatus,
         readiness: "BLOCKED",
         reason: "fresh_per_pass_native_validation_required",
         executedGen: null,
@@ -478,6 +485,7 @@ async function stagedCapture(mode: "session" | "arrangement") {
       playing,
       currentBeat: 0,
       tempo: data.config.geometry.tempoBpm,
+      timeSignature: { numerator: 4, denominator: 4 },
       safeToStart: !playing,
       recording: {
         recordMode: false,
@@ -733,7 +741,7 @@ describe("Desktop repository identity through real staged runtime orchestration"
       );
       expect((await repository.listPasses()).items).toHaveLength(1);
       expect(await repository.getEntry(job.contextIds[0]!)).toMatchObject({
-        kind: "metric-audio-observation/v1",
+        kind: "metric-record-stream-context/v1",
       });
       expect(
         (await repository.getFeatureDerivation(job.contextIds[0]!))?.status,
@@ -750,15 +758,15 @@ describe("Desktop repository identity through real staged runtime orchestration"
       };
       const job = await f.run();
       expect(job.stage).toBe("failed");
-      expect(JSON.stringify(job)).toContain("invalid_publication_lifecycle");
+      expect(job.failureEvidence?.code).toBe("metric-stream-write-failed");
       expect(job.failureEvidence?.facts).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
-            field:
-              mode === "session"
-                ? "publication.sameRepository"
-                : "publication.repositoryMatches",
-            actual: { state: "observed", value: false },
+            field: "validation.reason",
+            actual: {
+              state: "observed",
+              value: "Session context store is closed",
+            },
           }),
         ]),
       );

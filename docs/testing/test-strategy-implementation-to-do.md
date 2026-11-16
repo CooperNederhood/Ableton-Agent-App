@@ -1,5 +1,15 @@
 # Test Strategy Implementation To-Do
 
+## Listening consolidation
+
+- [x] Require the existing user-message -> real agent/SDK turn -> normal tools
+      path for all four cases, retaining owned process/profile and postconditions.
+- [x] Narrow the gate to common persisted systems/schema/counts and applicable
+      segment/grid geometry; defer numerical matching and calibration.
+- [ ] Remove direct-only testing infrastructure while keeping Keychain removal.
+- [ ] Qualify short audio, short MIDI, long audio and long MIDI in that order;
+      preserve actual failure receipts, restart and terminal cleanup evidence.
+
 ## Measurement features (#113)
 
 - [x] Establish missing-feature red regression and exact peak arithmetic,

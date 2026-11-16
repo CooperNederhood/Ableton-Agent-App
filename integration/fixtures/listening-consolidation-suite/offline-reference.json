@@ -1,0 +1,1141 @@
+{
+  "schemaVersion": 1,
+  "status": "offline-not-admitted",
+  "originalSetSha256": "2598679f4044b75e09ecb9c0105214f2c2d3b36754ea21036646bac0880c9ef5",
+  "intakeReceiptSha256": "385825f2267bbef59682446cdc2ee32c24693fe16e1ba92fa8f4a01d153f9252",
+  "portableSetSha256": "8653f285d73eeb33bbf4762ec72017fb5a470776b26de96baf35881b6267dde4",
+  "audioProvenance": [
+    {
+      "repositorySource": "integration/fixtures/long-horizon-comprehension/Samples/Processed/Crop/2-Audio 1 [2026-11-14 231228].aif",
+      "target": "Samples/Imported/resource-001.aif",
+      "bytes": 540054,
+      "sha256": "49a1abf6c7ecb8cc64c468f5dede541aa667381d02eccb76c026db079ccf0747"
+    },
+    {
+      "repositorySource": "integration/fixtures/long-horizon-comprehension/Samples/Processed/Crop/2-Audio 2 [2026-11-14 231225].aif",
+      "target": "Samples/Imported/resource-002.aif",
+      "bytes": 540054,
+      "sha256": "736cafa1edd5f4624d9ed0565925a70daed5363dd1956ae76cae3e95a478e55d"
+    },
+    {
+      "repositorySource": "integration/fixtures/long-horizon-comprehension/Samples/Processed/Crop/2-Audio 4 [2026-11-14 231222].aif",
+      "target": "Samples/Imported/resource-003.aif",
+      "bytes": 540054,
+      "sha256": "be5db8138f06be3f7d2813ff3bf977956bf7d387c040bc6fc2a63ab83ced0a90"
+    },
+    {
+      "repositorySource": "integration/fixtures/long-horizon-comprehension/Samples/Processed/Crop/2-Audio 5 [2026-11-14 231220].aif",
+      "target": "Samples/Imported/resource-004.aif",
+      "bytes": 540054,
+      "sha256": "745b41f4abc29374cf83720425435ec0fc2879b922b91b9d69b71459c884cb7b"
+    },
+    {
+      "repositorySource": "integration/fixtures/long-horizon-comprehension/Samples/Processed/Consolidate/audio-1 [2026-11-14 231616].aif",
+      "target": "Samples/Imported/resource-005.aif",
+      "bytes": 10800054,
+      "sha256": "7c7b8f3c3d5d905ef02cec6fa310541cf1106be9330f2aa0df4f984959887c18"
+    }
+  ],
+  "audioHeaders": {
+    "Samples/Imported/resource-001.aif": {
+      "channels": 2,
+      "frames": 90000,
+      "bits": 24,
+      "sampleRate": 48000
+    },
+    "Samples/Imported/resource-002.aif": {
+      "channels": 2,
+      "frames": 90000,
+      "bits": 24,
+      "sampleRate": 48000
+    },
+    "Samples/Imported/resource-003.aif": {
+      "channels": 2,
+      "frames": 90000,
+      "bits": 24,
+      "sampleRate": 48000
+    },
+    "Samples/Imported/resource-004.aif": {
+      "channels": 2,
+      "frames": 90000,
+      "bits": 24,
+      "sampleRate": 48000
+    },
+    "Samples/Imported/resource-005.aif": {
+      "channels": 2,
+      "frames": 1800000,
+      "bits": 24,
+      "sampleRate": 48000
+    }
+  },
+  "audioRelocations": [
+    {
+      "originalFileRef": "<FileRef>\n\t\t\t\t\t\t\t\t\t\t\t\t\t<RelativePathType Value=\"1\" />\n\t\t\t\t\t\t\t\t\t\t\t\t\t<RelativePath Value=\"../long-horizon-comprehension Project/Samples/Processed/Crop/2-Audio 1 [2026-11-14 231228].aif\" />\n\t\t\t\t\t\t\t\t\t\t\t\t\t<Path Value=\"/Users/cooper/Music/Ableton_projects/app-testing/long-horizon-comprehension Project/Samples/Processed/Crop/2-Audio 1 [2026-11-14 231228].aif\" />\n\t\t\t\t\t\t\t\t\t\t\t\t\t<Type Value=\"2\" />\n\t\t\t\t\t\t\t\t\t\t\t\t\t<LivePackName Value=\"\" />\n\t\t\t\t\t\t\t\t\t\t\t\t\t<LivePackId Value=\"\" />\n\t\t\t\t\t\t\t\t\t\t\t\t\t<OriginalFileSize Value=\"540054\" />\n\t\t\t\t\t\t\t\t\t\t\t\t\t<OriginalCrc Value=\"17233\" />\n\t\t\t\t\t\t\t\t\t\t\t\t</FileRef>",
+      "portableFileRef": "<FileRef>\n\t\t\t\t\t\t\t\t\t\t\t\t\t<RelativePathType Value=\"3\" />\n\t\t\t\t\t\t\t\t\t\t\t\t\t<RelativePath Value=\"Samples/Imported/resource-001.aif\" />\n\t\t\t\t\t\t\t\t\t\t\t\t\t<Path Value=\"\" />\n\t\t\t\t\t\t\t\t\t\t\t\t\t<Type Value=\"2\" />\n\t\t\t\t\t\t\t\t\t\t\t\t\t<LivePackName Value=\"\" />\n\t\t\t\t\t\t\t\t\t\t\t\t\t<LivePackId Value=\"\" />\n\t\t\t\t\t\t\t\t\t\t\t\t\t<OriginalFileSize Value=\"540054\" />\n\t\t\t\t\t\t\t\t\t\t\t\t\t<OriginalCrc Value=\"17233\" />\n\t\t\t\t\t\t\t\t\t\t\t\t</FileRef>",
+      "occurrences": 1,
+      "mediaTarget": "Samples/Imported/resource-001.aif"
+    },
+    {
+      "originalFileRef": "<FileRef>\n\t\t\t\t\t\t\t\t\t\t\t\t\t<RelativePathType Value=\"1\" />\n\t\t\t\t\t\t\t\t\t\t\t\t\t<RelativePath Value=\"../long-horizon-comprehension Project/Samples/Processed/Crop/2-Audio 2 [2026-11-14 231225].aif\" />\n\t\t\t\t\t\t\t\t\t\t\t\t\t<Path Value=\"/Users/cooper/Music/Ableton_projects/app-testing/long-horizon-comprehension Project/Samples/Processed/Crop/2-Audio 2 [2026-11-14 231225].aif\" />\n\t\t\t\t\t\t\t\t\t\t\t\t\t<Type Value=\"2\" />\n\t\t\t\t\t\t\t\t\t\t\t\t\t<LivePackName Value=\"\" />\n\t\t\t\t\t\t\t\t\t\t\t\t\t<LivePackId Value=\"\" />\n\t\t\t\t\t\t\t\t\t\t\t\t\t<OriginalFileSize Value=\"540054\" />\n\t\t\t\t\t\t\t\t\t\t\t\t\t<OriginalCrc Value=\"29623\" />\n\t\t\t\t\t\t\t\t\t\t\t\t</FileRef>",
+      "portableFileRef": "<FileRef>\n\t\t\t\t\t\t\t\t\t\t\t\t\t<RelativePathType Value=\"3\" />\n\t\t\t\t\t\t\t\t\t\t\t\t\t<RelativePath Value=\"Samples/Imported/resource-002.aif\" />\n\t\t\t\t\t\t\t\t\t\t\t\t\t<Path Value=\"\" />\n\t\t\t\t\t\t\t\t\t\t\t\t\t<Type Value=\"2\" />\n\t\t\t\t\t\t\t\t\t\t\t\t\t<LivePackName Value=\"\" />\n\t\t\t\t\t\t\t\t\t\t\t\t\t<LivePackId Value=\"\" />\n\t\t\t\t\t\t\t\t\t\t\t\t\t<OriginalFileSize Value=\"540054\" />\n\t\t\t\t\t\t\t\t\t\t\t\t\t<OriginalCrc Value=\"29623\" />\n\t\t\t\t\t\t\t\t\t\t\t\t</FileRef>",
+      "occurrences": 1,
+      "mediaTarget": "Samples/Imported/resource-002.aif"
+    },
+    {
+      "originalFileRef": "<FileRef>\n\t\t\t\t\t\t\t\t\t\t\t\t\t<RelativePathType Value=\"1\" />\n\t\t\t\t\t\t\t\t\t\t\t\t\t<RelativePath Value=\"../long-horizon-comprehension Project/Samples/Processed/Crop/2-Audio 4 [2026-11-14 231222].aif\" />\n\t\t\t\t\t\t\t\t\t\t\t\t\t<Path Value=\"/Users/cooper/Music/Ableton_projects/app-testing/long-horizon-comprehension Project/Samples/Processed/Crop/2-Audio 4 [2026-11-14 231222].aif\" />\n\t\t\t\t\t\t\t\t\t\t\t\t\t<Type Value=\"2\" />\n\t\t\t\t\t\t\t\t\t\t\t\t\t<LivePackName Value=\"\" />\n\t\t\t\t\t\t\t\t\t\t\t\t\t<LivePackId Value=\"\" />\n\t\t\t\t\t\t\t\t\t\t\t\t\t<OriginalFileSize Value=\"540054\" />\n\t\t\t\t\t\t\t\t\t\t\t\t\t<OriginalCrc Value=\"54220\" />\n\t\t\t\t\t\t\t\t\t\t\t\t</FileRef>",
+      "portableFileRef": "<FileRef>\n\t\t\t\t\t\t\t\t\t\t\t\t\t<RelativePathType Value=\"3\" />\n\t\t\t\t\t\t\t\t\t\t\t\t\t<RelativePath Value=\"Samples/Imported/resource-003.aif\" />\n\t\t\t\t\t\t\t\t\t\t\t\t\t<Path Value=\"\" />\n\t\t\t\t\t\t\t\t\t\t\t\t\t<Type Value=\"2\" />\n\t\t\t\t\t\t\t\t\t\t\t\t\t<LivePackName Value=\"\" />\n\t\t\t\t\t\t\t\t\t\t\t\t\t<LivePackId Value=\"\" />\n\t\t\t\t\t\t\t\t\t\t\t\t\t<OriginalFileSize Value=\"540054\" />\n\t\t\t\t\t\t\t\t\t\t\t\t\t<OriginalCrc Value=\"54220\" />\n\t\t\t\t\t\t\t\t\t\t\t\t</FileRef>",
+      "occurrences": 1,
+      "mediaTarget": "Samples/Imported/resource-003.aif"
+    },
+    {
+      "originalFileRef": "<FileRef>\n\t\t\t\t\t\t\t\t\t\t\t\t\t<RelativePathType Value=\"1\" />\n\t\t\t\t\t\t\t\t\t\t\t\t\t<RelativePath Value=\"../long-horizon-comprehension Project/Samples/Processed/Crop/2-Audio 5 [2026-11-14 231220].aif\" />\n\t\t\t\t\t\t\t\t\t\t\t\t\t<Path Value=\"/Users/cooper/Music/Ableton_projects/app-testing/long-horizon-comprehension Project/Samples/Processed/Crop/2-Audio 5 [2026-11-14 231220].aif\" />\n\t\t\t\t\t\t\t\t\t\t\t\t\t<Type Value=\"2\" />\n\t\t\t\t\t\t\t\t\t\t\t\t\t<LivePackName Value=\"\" />\n\t\t\t\t\t\t\t\t\t\t\t\t\t<LivePackId Value=\"\" />\n\t\t\t\t\t\t\t\t\t\t\t\t\t<OriginalFileSize Value=\"540054\" />\n\t\t\t\t\t\t\t\t\t\t\t\t\t<OriginalCrc Value=\"6577\" />\n\t\t\t\t\t\t\t\t\t\t\t\t</FileRef>",
+      "portableFileRef": "<FileRef>\n\t\t\t\t\t\t\t\t\t\t\t\t\t<RelativePathType Value=\"3\" />\n\t\t\t\t\t\t\t\t\t\t\t\t\t<RelativePath Value=\"Samples/Imported/resource-004.aif\" />\n\t\t\t\t\t\t\t\t\t\t\t\t\t<Path Value=\"\" />\n\t\t\t\t\t\t\t\t\t\t\t\t\t<Type Value=\"2\" />\n\t\t\t\t\t\t\t\t\t\t\t\t\t<LivePackName Value=\"\" />\n\t\t\t\t\t\t\t\t\t\t\t\t\t<LivePackId Value=\"\" />\n\t\t\t\t\t\t\t\t\t\t\t\t\t<OriginalFileSize Value=\"540054\" />\n\t\t\t\t\t\t\t\t\t\t\t\t\t<OriginalCrc Value=\"6577\" />\n\t\t\t\t\t\t\t\t\t\t\t\t</FileRef>",
+      "occurrences": 1,
+      "mediaTarget": "Samples/Imported/resource-004.aif"
+    },
+    {
+      "originalFileRef": "<FileRef>\n\t\t\t\t\t\t\t\t\t\t\t\t\t<RelativePathType Value=\"1\" />\n\t\t\t\t\t\t\t\t\t\t\t\t\t<RelativePath Value=\"../long-horizon-comprehension Project/Samples/Processed/Consolidate/audio-1 [2026-11-14 231616].aif\" />\n\t\t\t\t\t\t\t\t\t\t\t\t\t<Path Value=\"/Users/cooper/Music/Ableton_projects/app-testing/long-horizon-comprehension Project/Samples/Processed/Consolidate/audio-1 [2026-11-14 231616].aif\" />\n\t\t\t\t\t\t\t\t\t\t\t\t\t<Type Value=\"2\" />\n\t\t\t\t\t\t\t\t\t\t\t\t\t<LivePackName Value=\"\" />\n\t\t\t\t\t\t\t\t\t\t\t\t\t<LivePackId Value=\"\" />\n\t\t\t\t\t\t\t\t\t\t\t\t\t<OriginalFileSize Value=\"10800054\" />\n\t\t\t\t\t\t\t\t\t\t\t\t\t<OriginalCrc Value=\"53879\" />\n\t\t\t\t\t\t\t\t\t\t\t\t</FileRef>",
+      "portableFileRef": "<FileRef>\n\t\t\t\t\t\t\t\t\t\t\t\t\t<RelativePathType Value=\"3\" />\n\t\t\t\t\t\t\t\t\t\t\t\t\t<RelativePath Value=\"Samples/Imported/resource-005.aif\" />\n\t\t\t\t\t\t\t\t\t\t\t\t\t<Path Value=\"\" />\n\t\t\t\t\t\t\t\t\t\t\t\t\t<Type Value=\"2\" />\n\t\t\t\t\t\t\t\t\t\t\t\t\t<LivePackName Value=\"\" />\n\t\t\t\t\t\t\t\t\t\t\t\t\t<LivePackId Value=\"\" />\n\t\t\t\t\t\t\t\t\t\t\t\t\t<OriginalFileSize Value=\"10800054\" />\n\t\t\t\t\t\t\t\t\t\t\t\t\t<OriginalCrc Value=\"53879\" />\n\t\t\t\t\t\t\t\t\t\t\t\t</FileRef>",
+      "occurrences": 1,
+      "mediaTarget": "Samples/Imported/resource-005.aif"
+    },
+    {
+      "originalFileRef": "<FileRef>\n\t\t\t\t\t\t\t\t\t\t\t\t<RelativePathType Value=\"1\" />\n\t\t\t\t\t\t\t\t\t\t\t\t<RelativePath Value=\"../long-horizon-comprehension Project/Samples/Processed/Crop/2-Audio 1 [2026-11-14 231228].aif\" />\n\t\t\t\t\t\t\t\t\t\t\t\t<Path Value=\"/Users/cooper/Music/Ableton_projects/app-testing/long-horizon-comprehension Project/Samples/Processed/Crop/2-Audio 1 [2026-11-14 231228].aif\" />\n\t\t\t\t\t\t\t\t\t\t\t\t<Type Value=\"2\" />\n\t\t\t\t\t\t\t\t\t\t\t\t<LivePackName Value=\"\" />\n\t\t\t\t\t\t\t\t\t\t\t\t<LivePackId Value=\"\" />\n\t\t\t\t\t\t\t\t\t\t\t\t<OriginalFileSize Value=\"540054\" />\n\t\t\t\t\t\t\t\t\t\t\t\t<OriginalCrc Value=\"17233\" />\n\t\t\t\t\t\t\t\t\t\t\t</FileRef>",
+      "portableFileRef": "<FileRef>\n\t\t\t\t\t\t\t\t\t\t\t\t<RelativePathType Value=\"3\" />\n\t\t\t\t\t\t\t\t\t\t\t\t<RelativePath Value=\"Samples/Imported/resource-001.aif\" />\n\t\t\t\t\t\t\t\t\t\t\t\t<Path Value=\"\" />\n\t\t\t\t\t\t\t\t\t\t\t\t<Type Value=\"2\" />\n\t\t\t\t\t\t\t\t\t\t\t\t<LivePackName Value=\"\" />\n\t\t\t\t\t\t\t\t\t\t\t\t<LivePackId Value=\"\" />\n\t\t\t\t\t\t\t\t\t\t\t\t<OriginalFileSize Value=\"540054\" />\n\t\t\t\t\t\t\t\t\t\t\t\t<OriginalCrc Value=\"17233\" />\n\t\t\t\t\t\t\t\t\t\t\t</FileRef>",
+      "occurrences": 1,
+      "mediaTarget": "Samples/Imported/resource-001.aif"
+    },
+    {
+      "originalFileRef": "<FileRef>\n\t\t\t\t\t\t\t\t\t\t\t\t<RelativePathType Value=\"1\" />\n\t\t\t\t\t\t\t\t\t\t\t\t<RelativePath Value=\"../long-horizon-comprehension Project/Samples/Processed/Crop/2-Audio 2 [2026-11-14 231225].aif\" />\n\t\t\t\t\t\t\t\t\t\t\t\t<Path Value=\"/Users/cooper/Music/Ableton_projects/app-testing/long-horizon-comprehension Project/Samples/Processed/Crop/2-Audio 2 [2026-11-14 231225].aif\" />\n\t\t\t\t\t\t\t\t\t\t\t\t<Type Value=\"2\" />\n\t\t\t\t\t\t\t\t\t\t\t\t<LivePackName Value=\"\" />\n\t\t\t\t\t\t\t\t\t\t\t\t<LivePackId Value=\"\" />\n\t\t\t\t\t\t\t\t\t\t\t\t<OriginalFileSize Value=\"540054\" />\n\t\t\t\t\t\t\t\t\t\t\t\t<OriginalCrc Value=\"29623\" />\n\t\t\t\t\t\t\t\t\t\t\t</FileRef>",
+      "portableFileRef": "<FileRef>\n\t\t\t\t\t\t\t\t\t\t\t\t<RelativePathType Value=\"3\" />\n\t\t\t\t\t\t\t\t\t\t\t\t<RelativePath Value=\"Samples/Imported/resource-002.aif\" />\n\t\t\t\t\t\t\t\t\t\t\t\t<Path Value=\"\" />\n\t\t\t\t\t\t\t\t\t\t\t\t<Type Value=\"2\" />\n\t\t\t\t\t\t\t\t\t\t\t\t<LivePackName Value=\"\" />\n\t\t\t\t\t\t\t\t\t\t\t\t<LivePackId Value=\"\" />\n\t\t\t\t\t\t\t\t\t\t\t\t<OriginalFileSize Value=\"540054\" />\n\t\t\t\t\t\t\t\t\t\t\t\t<OriginalCrc Value=\"29623\" />\n\t\t\t\t\t\t\t\t\t\t\t</FileRef>",
+      "occurrences": 1,
+      "mediaTarget": "Samples/Imported/resource-002.aif"
+    },
+    {
+      "originalFileRef": "<FileRef>\n\t\t\t\t\t\t\t\t\t\t\t\t<RelativePathType Value=\"1\" />\n\t\t\t\t\t\t\t\t\t\t\t\t<RelativePath Value=\"../long-horizon-comprehension Project/Samples/Processed/Crop/2-Audio 4 [2026-11-14 231222].aif\" />\n\t\t\t\t\t\t\t\t\t\t\t\t<Path Value=\"/Users/cooper/Music/Ableton_projects/app-testing/long-horizon-comprehension Project/Samples/Processed/Crop/2-Audio 4 [2026-11-14 231222].aif\" />\n\t\t\t\t\t\t\t\t\t\t\t\t<Type Value=\"2\" />\n\t\t\t\t\t\t\t\t\t\t\t\t<LivePackName Value=\"\" />\n\t\t\t\t\t\t\t\t\t\t\t\t<LivePackId Value=\"\" />\n\t\t\t\t\t\t\t\t\t\t\t\t<OriginalFileSize Value=\"540054\" />\n\t\t\t\t\t\t\t\t\t\t\t\t<OriginalCrc Value=\"54220\" />\n\t\t\t\t\t\t\t\t\t\t\t</FileRef>",
+      "portableFileRef": "<FileRef>\n\t\t\t\t\t\t\t\t\t\t\t\t<RelativePathType Value=\"3\" />\n\t\t\t\t\t\t\t\t\t\t\t\t<RelativePath Value=\"Samples/Imported/resource-003.aif\" />\n\t\t\t\t\t\t\t\t\t\t\t\t<Path Value=\"\" />\n\t\t\t\t\t\t\t\t\t\t\t\t<Type Value=\"2\" />\n\t\t\t\t\t\t\t\t\t\t\t\t<LivePackName Value=\"\" />\n\t\t\t\t\t\t\t\t\t\t\t\t<LivePackId Value=\"\" />\n\t\t\t\t\t\t\t\t\t\t\t\t<OriginalFileSize Value=\"540054\" />\n\t\t\t\t\t\t\t\t\t\t\t\t<OriginalCrc Value=\"54220\" />\n\t\t\t\t\t\t\t\t\t\t\t</FileRef>",
+      "occurrences": 1,
+      "mediaTarget": "Samples/Imported/resource-003.aif"
+    },
+    {
+      "originalFileRef": "<FileRef>\n\t\t\t\t\t\t\t\t\t\t\t\t<RelativePathType Value=\"1\" />\n\t\t\t\t\t\t\t\t\t\t\t\t<RelativePath Value=\"../long-horizon-comprehension Project/Samples/Processed/Crop/2-Audio 5 [2026-11-14 231220].aif\" />\n\t\t\t\t\t\t\t\t\t\t\t\t<Path Value=\"/Users/cooper/Music/Ableton_projects/app-testing/long-horizon-comprehension Project/Samples/Processed/Crop/2-Audio 5 [2026-11-14 231220].aif\" />\n\t\t\t\t\t\t\t\t\t\t\t\t<Type Value=\"2\" />\n\t\t\t\t\t\t\t\t\t\t\t\t<LivePackName Value=\"\" />\n\t\t\t\t\t\t\t\t\t\t\t\t<LivePackId Value=\"\" />\n\t\t\t\t\t\t\t\t\t\t\t\t<OriginalFileSize Value=\"540054\" />\n\t\t\t\t\t\t\t\t\t\t\t\t<OriginalCrc Value=\"6577\" />\n\t\t\t\t\t\t\t\t\t\t\t</FileRef>",
+      "portableFileRef": "<FileRef>\n\t\t\t\t\t\t\t\t\t\t\t\t<RelativePathType Value=\"3\" />\n\t\t\t\t\t\t\t\t\t\t\t\t<RelativePath Value=\"Samples/Imported/resource-004.aif\" />\n\t\t\t\t\t\t\t\t\t\t\t\t<Path Value=\"\" />\n\t\t\t\t\t\t\t\t\t\t\t\t<Type Value=\"2\" />\n\t\t\t\t\t\t\t\t\t\t\t\t<LivePackName Value=\"\" />\n\t\t\t\t\t\t\t\t\t\t\t\t<LivePackId Value=\"\" />\n\t\t\t\t\t\t\t\t\t\t\t\t<OriginalFileSize Value=\"540054\" />\n\t\t\t\t\t\t\t\t\t\t\t\t<OriginalCrc Value=\"6577\" />\n\t\t\t\t\t\t\t\t\t\t\t</FileRef>",
+      "occurrences": 1,
+      "mediaTarget": "Samples/Imported/resource-004.aif"
+    },
+    {
+      "originalFileRef": "<FileRef>\n\t\t\t\t\t\t\t\t\t\t\t\t<RelativePathType Value=\"1\" />\n\t\t\t\t\t\t\t\t\t\t\t\t<RelativePath Value=\"../long-horizon-comprehension Project/Samples/Processed/Consolidate/audio-1 [2026-11-14 231616].aif\" />\n\t\t\t\t\t\t\t\t\t\t\t\t<Path Value=\"/Users/cooper/Music/Ableton_projects/app-testing/long-horizon-comprehension Project/Samples/Processed/Consolidate/audio-1 [2026-11-14 231616].aif\" />\n\t\t\t\t\t\t\t\t\t\t\t\t<Type Value=\"2\" />\n\t\t\t\t\t\t\t\t\t\t\t\t<LivePackName Value=\"\" />\n\t\t\t\t\t\t\t\t\t\t\t\t<LivePackId Value=\"\" />\n\t\t\t\t\t\t\t\t\t\t\t\t<OriginalFileSize Value=\"10800054\" />\n\t\t\t\t\t\t\t\t\t\t\t\t<OriginalCrc Value=\"53879\" />\n\t\t\t\t\t\t\t\t\t\t\t</FileRef>",
+      "portableFileRef": "<FileRef>\n\t\t\t\t\t\t\t\t\t\t\t\t<RelativePathType Value=\"3\" />\n\t\t\t\t\t\t\t\t\t\t\t\t<RelativePath Value=\"Samples/Imported/resource-005.aif\" />\n\t\t\t\t\t\t\t\t\t\t\t\t<Path Value=\"\" />\n\t\t\t\t\t\t\t\t\t\t\t\t<Type Value=\"2\" />\n\t\t\t\t\t\t\t\t\t\t\t\t<LivePackName Value=\"\" />\n\t\t\t\t\t\t\t\t\t\t\t\t<LivePackId Value=\"\" />\n\t\t\t\t\t\t\t\t\t\t\t\t<OriginalFileSize Value=\"10800054\" />\n\t\t\t\t\t\t\t\t\t\t\t\t<OriginalCrc Value=\"53879\" />\n\t\t\t\t\t\t\t\t\t\t\t</FileRef>",
+      "occurrences": 1,
+      "mediaTarget": "Samples/Imported/resource-005.aif"
+    }
+  ],
+  "saved": {
+    "creator": "Ableton Live 11.3.43",
+    "savedTransportBeat": "16",
+    "savedTransportLoopOn": "false",
+    "savedGlobalQuantisationOrdinal": "4",
+    "savedTempoBpm": "128",
+    "tracks": [
+      {
+        "index": 0,
+        "kind": "MidiTrack",
+        "savedTrackId": "175",
+        "name": "1-808 Core Kit",
+        "topLevelDevices": [
+          {
+            "index": 0,
+            "class": "DrumGroupDevice",
+            "savedDeviceId": "0"
+          },
+          {
+            "index": 1,
+            "class": "MxDeviceAudioEffect",
+            "savedDeviceId": "1"
+          }
+        ],
+        "session": [
+          {
+            "sceneIndex": 0,
+            "kind": "MidiClip",
+            "savedClipId": "0",
+            "savedTime": "0",
+            "name": "clip-1",
+            "settings": {
+              "CurrentStart": "0",
+              "CurrentEnd": "4",
+              "Loop/LoopStart": "0",
+              "Loop/LoopEnd": "4",
+              "Loop/StartRelative": "0",
+              "Loop/LoopOn": "true",
+              "Loop/OutMarker": "4",
+              "LaunchMode": "0",
+              "LaunchQuantisation": "5",
+              "Legato": "false",
+              "FollowAction/FollowActionEnabled": "false",
+              "IsWarped": "true"
+            },
+            "noteCount": 14,
+            "savedNotesExcludingNoteIdSha256": "f4f66546fc2288c3eabf2de9f343d41b017896fdd52b99387ed285f93434dca0",
+            "protocolNotesSha256": "dfec2d24c812bbdfc353330ca10c12c43a6e42636ca1915344d12125513b959f"
+          },
+          {
+            "sceneIndex": 1,
+            "kind": "MidiClip",
+            "savedClipId": "0",
+            "savedTime": "0",
+            "name": "clip-2",
+            "settings": {
+              "CurrentStart": "0",
+              "CurrentEnd": "4",
+              "Loop/LoopStart": "0",
+              "Loop/LoopEnd": "4",
+              "Loop/StartRelative": "0",
+              "Loop/LoopOn": "true",
+              "Loop/OutMarker": "4",
+              "LaunchMode": "0",
+              "LaunchQuantisation": "5",
+              "Legato": "false",
+              "FollowAction/FollowActionEnabled": "false",
+              "IsWarped": "true"
+            },
+            "noteCount": 6,
+            "savedNotesExcludingNoteIdSha256": "920b4df40a71d8dbc127e521a38bac3b578607cd8d3823876897599fb55da64b",
+            "protocolNotesSha256": "ee88c69d0c3360d043b4b0b40cd1e902a04ab4376f91993e691f7429cee99c40"
+          },
+          {
+            "sceneIndex": 2,
+            "kind": "MidiClip",
+            "savedClipId": "0",
+            "savedTime": "0",
+            "name": "clip-3",
+            "settings": {
+              "CurrentStart": "0",
+              "CurrentEnd": "4",
+              "Loop/LoopStart": "0",
+              "Loop/LoopEnd": "4",
+              "Loop/StartRelative": "0",
+              "Loop/LoopOn": "true",
+              "Loop/OutMarker": "4",
+              "LaunchMode": "0",
+              "LaunchQuantisation": "5",
+              "Legato": "false",
+              "FollowAction/FollowActionEnabled": "false",
+              "IsWarped": "true"
+            },
+            "noteCount": 10,
+            "savedNotesExcludingNoteIdSha256": "b97447418cd8aa53877e7c2cf2b634855e0ff2d748b3d4e7b73aa67283764fb6",
+            "protocolNotesSha256": "2c5946e408c22a5479bab7bf2dd77c2b31b6e98a52afdbaff034c9767c3fa656"
+          },
+          {
+            "sceneIndex": 3,
+            "kind": "MidiClip",
+            "savedClipId": "0",
+            "savedTime": "0",
+            "name": "clip-4",
+            "settings": {
+              "CurrentStart": "0",
+              "CurrentEnd": "4",
+              "Loop/LoopStart": "0",
+              "Loop/LoopEnd": "4",
+              "Loop/StartRelative": "0",
+              "Loop/LoopOn": "true",
+              "Loop/OutMarker": "4",
+              "LaunchMode": "0",
+              "LaunchQuantisation": "5",
+              "Legato": "false",
+              "FollowAction/FollowActionEnabled": "false",
+              "IsWarped": "true"
+            },
+            "noteCount": 10,
+            "savedNotesExcludingNoteIdSha256": "b1dd73fb32d9e1f7d4c488a87cef1494c597bc56f0985504050f611a023c2c25",
+            "protocolNotesSha256": "c609c84da33d298145947452afc6814e91a525d1644a7d3bf29b38e9b0a571f7"
+          },
+          {
+            "sceneIndex": 4,
+            "kind": "MidiClip",
+            "savedClipId": "1",
+            "savedTime": "0",
+            "name": "long-clip",
+            "settings": {
+              "CurrentStart": "0",
+              "CurrentEnd": "80",
+              "Loop/LoopStart": "0",
+              "Loop/LoopEnd": "80",
+              "Loop/StartRelative": "0",
+              "Loop/LoopOn": "false",
+              "Loop/OutMarker": "80",
+              "LaunchMode": "0",
+              "LaunchQuantisation": "5",
+              "Legato": "false",
+              "FollowAction/FollowActionEnabled": "false",
+              "IsWarped": "true"
+            },
+            "noteCount": 200,
+            "savedNotesExcludingNoteIdSha256": "908d41c7c5c5fc9e61ebb161fe2bff4146655e196d66b966dca2a209f58ca804",
+            "protocolNotesSha256": "5ad10167b343f041f4118e31ec89ded7e625b9cb3d14da61b687e3fcc98114bf"
+          }
+        ],
+        "arrangement": [
+          {
+            "kind": "MidiClip",
+            "savedClipId": "0",
+            "savedTime": "0",
+            "name": "clip",
+            "settings": {
+              "CurrentStart": "0",
+              "CurrentEnd": "4",
+              "Loop/LoopStart": "0",
+              "Loop/LoopEnd": "4",
+              "Loop/StartRelative": "0",
+              "Loop/LoopOn": "true",
+              "Loop/OutMarker": "4",
+              "LaunchMode": "0",
+              "LaunchQuantisation": "5",
+              "Legato": "false",
+              "FollowAction/FollowActionEnabled": "false",
+              "IsWarped": "true"
+            },
+            "noteCount": 14,
+            "savedNotesExcludingNoteIdSha256": "f4f66546fc2288c3eabf2de9f343d41b017896fdd52b99387ed285f93434dca0",
+            "protocolNotesSha256": "dfec2d24c812bbdfc353330ca10c12c43a6e42636ca1915344d12125513b959f"
+          },
+          {
+            "kind": "MidiClip",
+            "savedClipId": "1",
+            "savedTime": "4",
+            "name": "clip",
+            "settings": {
+              "CurrentStart": "4",
+              "CurrentEnd": "8",
+              "Loop/LoopStart": "0",
+              "Loop/LoopEnd": "4",
+              "Loop/StartRelative": "0",
+              "Loop/LoopOn": "true",
+              "Loop/OutMarker": "4",
+              "LaunchMode": "0",
+              "LaunchQuantisation": "5",
+              "Legato": "false",
+              "FollowAction/FollowActionEnabled": "false",
+              "IsWarped": "true"
+            },
+            "noteCount": 6,
+            "savedNotesExcludingNoteIdSha256": "920b4df40a71d8dbc127e521a38bac3b578607cd8d3823876897599fb55da64b",
+            "protocolNotesSha256": "ee88c69d0c3360d043b4b0b40cd1e902a04ab4376f91993e691f7429cee99c40"
+          },
+          {
+            "kind": "MidiClip",
+            "savedClipId": "2",
+            "savedTime": "8",
+            "name": "clip",
+            "settings": {
+              "CurrentStart": "8",
+              "CurrentEnd": "12",
+              "Loop/LoopStart": "0",
+              "Loop/LoopEnd": "4",
+              "Loop/StartRelative": "0",
+              "Loop/LoopOn": "true",
+              "Loop/OutMarker": "4",
+              "LaunchMode": "0",
+              "LaunchQuantisation": "5",
+              "Legato": "false",
+              "FollowAction/FollowActionEnabled": "false",
+              "IsWarped": "true"
+            },
+            "noteCount": 10,
+            "savedNotesExcludingNoteIdSha256": "b97447418cd8aa53877e7c2cf2b634855e0ff2d748b3d4e7b73aa67283764fb6",
+            "protocolNotesSha256": "2c5946e408c22a5479bab7bf2dd77c2b31b6e98a52afdbaff034c9767c3fa656"
+          },
+          {
+            "kind": "MidiClip",
+            "savedClipId": "3",
+            "savedTime": "12",
+            "name": "clip",
+            "settings": {
+              "CurrentStart": "12",
+              "CurrentEnd": "16",
+              "Loop/LoopStart": "0",
+              "Loop/LoopEnd": "4",
+              "Loop/StartRelative": "0",
+              "Loop/LoopOn": "true",
+              "Loop/OutMarker": "4",
+              "LaunchMode": "0",
+              "LaunchQuantisation": "5",
+              "Legato": "false",
+              "FollowAction/FollowActionEnabled": "false",
+              "IsWarped": "true"
+            },
+            "noteCount": 10,
+            "savedNotesExcludingNoteIdSha256": "b1dd73fb32d9e1f7d4c488a87cef1494c597bc56f0985504050f611a023c2c25",
+            "protocolNotesSha256": "c609c84da33d298145947452afc6814e91a525d1644a7d3bf29b38e9b0a571f7"
+          },
+          {
+            "kind": "MidiClip",
+            "savedClipId": "4",
+            "savedTime": "16",
+            "name": "clip",
+            "settings": {
+              "CurrentStart": "16",
+              "CurrentEnd": "20",
+              "Loop/LoopStart": "0",
+              "Loop/LoopEnd": "4",
+              "Loop/StartRelative": "0",
+              "Loop/LoopOn": "true",
+              "Loop/OutMarker": "4",
+              "LaunchMode": "0",
+              "LaunchQuantisation": "5",
+              "Legato": "false",
+              "FollowAction/FollowActionEnabled": "false",
+              "IsWarped": "true"
+            },
+            "noteCount": 14,
+            "savedNotesExcludingNoteIdSha256": "f4f66546fc2288c3eabf2de9f343d41b017896fdd52b99387ed285f93434dca0",
+            "protocolNotesSha256": "dfec2d24c812bbdfc353330ca10c12c43a6e42636ca1915344d12125513b959f"
+          },
+          {
+            "kind": "MidiClip",
+            "savedClipId": "8",
+            "savedTime": "20",
+            "name": "clip",
+            "settings": {
+              "CurrentStart": "20",
+              "CurrentEnd": "24",
+              "Loop/LoopStart": "0",
+              "Loop/LoopEnd": "4",
+              "Loop/StartRelative": "0",
+              "Loop/LoopOn": "true",
+              "Loop/OutMarker": "4",
+              "LaunchMode": "0",
+              "LaunchQuantisation": "5",
+              "Legato": "false",
+              "FollowAction/FollowActionEnabled": "false",
+              "IsWarped": "true"
+            },
+            "noteCount": 14,
+            "savedNotesExcludingNoteIdSha256": "f4f66546fc2288c3eabf2de9f343d41b017896fdd52b99387ed285f93434dca0",
+            "protocolNotesSha256": "dfec2d24c812bbdfc353330ca10c12c43a6e42636ca1915344d12125513b959f"
+          },
+          {
+            "kind": "MidiClip",
+            "savedClipId": "9",
+            "savedTime": "24",
+            "name": "clip",
+            "settings": {
+              "CurrentStart": "24",
+              "CurrentEnd": "28",
+              "Loop/LoopStart": "0",
+              "Loop/LoopEnd": "4",
+              "Loop/StartRelative": "0",
+              "Loop/LoopOn": "true",
+              "Loop/OutMarker": "4",
+              "LaunchMode": "0",
+              "LaunchQuantisation": "5",
+              "Legato": "false",
+              "FollowAction/FollowActionEnabled": "false",
+              "IsWarped": "true"
+            },
+            "noteCount": 14,
+            "savedNotesExcludingNoteIdSha256": "f4f66546fc2288c3eabf2de9f343d41b017896fdd52b99387ed285f93434dca0",
+            "protocolNotesSha256": "dfec2d24c812bbdfc353330ca10c12c43a6e42636ca1915344d12125513b959f"
+          },
+          {
+            "kind": "MidiClip",
+            "savedClipId": "10",
+            "savedTime": "28",
+            "name": "clip",
+            "settings": {
+              "CurrentStart": "28",
+              "CurrentEnd": "32",
+              "Loop/LoopStart": "0",
+              "Loop/LoopEnd": "4",
+              "Loop/StartRelative": "0",
+              "Loop/LoopOn": "true",
+              "Loop/OutMarker": "4",
+              "LaunchMode": "0",
+              "LaunchQuantisation": "5",
+              "Legato": "false",
+              "FollowAction/FollowActionEnabled": "false",
+              "IsWarped": "true"
+            },
+            "noteCount": 14,
+            "savedNotesExcludingNoteIdSha256": "f4f66546fc2288c3eabf2de9f343d41b017896fdd52b99387ed285f93434dca0",
+            "protocolNotesSha256": "dfec2d24c812bbdfc353330ca10c12c43a6e42636ca1915344d12125513b959f"
+          },
+          {
+            "kind": "MidiClip",
+            "savedClipId": "5",
+            "savedTime": "32",
+            "name": "clip",
+            "settings": {
+              "CurrentStart": "32",
+              "CurrentEnd": "36",
+              "Loop/LoopStart": "0",
+              "Loop/LoopEnd": "4",
+              "Loop/StartRelative": "0",
+              "Loop/LoopOn": "true",
+              "Loop/OutMarker": "4",
+              "LaunchMode": "0",
+              "LaunchQuantisation": "5",
+              "Legato": "false",
+              "FollowAction/FollowActionEnabled": "false",
+              "IsWarped": "true"
+            },
+            "noteCount": 6,
+            "savedNotesExcludingNoteIdSha256": "920b4df40a71d8dbc127e521a38bac3b578607cd8d3823876897599fb55da64b",
+            "protocolNotesSha256": "ee88c69d0c3360d043b4b0b40cd1e902a04ab4376f91993e691f7429cee99c40"
+          },
+          {
+            "kind": "MidiClip",
+            "savedClipId": "11",
+            "savedTime": "36",
+            "name": "clip",
+            "settings": {
+              "CurrentStart": "36",
+              "CurrentEnd": "40",
+              "Loop/LoopStart": "0",
+              "Loop/LoopEnd": "4",
+              "Loop/StartRelative": "0",
+              "Loop/LoopOn": "true",
+              "Loop/OutMarker": "4",
+              "LaunchMode": "0",
+              "LaunchQuantisation": "5",
+              "Legato": "false",
+              "FollowAction/FollowActionEnabled": "false",
+              "IsWarped": "true"
+            },
+            "noteCount": 6,
+            "savedNotesExcludingNoteIdSha256": "920b4df40a71d8dbc127e521a38bac3b578607cd8d3823876897599fb55da64b",
+            "protocolNotesSha256": "ee88c69d0c3360d043b4b0b40cd1e902a04ab4376f91993e691f7429cee99c40"
+          },
+          {
+            "kind": "MidiClip",
+            "savedClipId": "12",
+            "savedTime": "40",
+            "name": "clip",
+            "settings": {
+              "CurrentStart": "40",
+              "CurrentEnd": "44",
+              "Loop/LoopStart": "0",
+              "Loop/LoopEnd": "4",
+              "Loop/StartRelative": "0",
+              "Loop/LoopOn": "true",
+              "Loop/OutMarker": "4",
+              "LaunchMode": "0",
+              "LaunchQuantisation": "5",
+              "Legato": "false",
+              "FollowAction/FollowActionEnabled": "false",
+              "IsWarped": "true"
+            },
+            "noteCount": 6,
+            "savedNotesExcludingNoteIdSha256": "920b4df40a71d8dbc127e521a38bac3b578607cd8d3823876897599fb55da64b",
+            "protocolNotesSha256": "ee88c69d0c3360d043b4b0b40cd1e902a04ab4376f91993e691f7429cee99c40"
+          },
+          {
+            "kind": "MidiClip",
+            "savedClipId": "13",
+            "savedTime": "44",
+            "name": "clip",
+            "settings": {
+              "CurrentStart": "44",
+              "CurrentEnd": "48",
+              "Loop/LoopStart": "0",
+              "Loop/LoopEnd": "4",
+              "Loop/StartRelative": "0",
+              "Loop/LoopOn": "true",
+              "Loop/OutMarker": "4",
+              "LaunchMode": "0",
+              "LaunchQuantisation": "5",
+              "Legato": "false",
+              "FollowAction/FollowActionEnabled": "false",
+              "IsWarped": "true"
+            },
+            "noteCount": 6,
+            "savedNotesExcludingNoteIdSha256": "920b4df40a71d8dbc127e521a38bac3b578607cd8d3823876897599fb55da64b",
+            "protocolNotesSha256": "ee88c69d0c3360d043b4b0b40cd1e902a04ab4376f91993e691f7429cee99c40"
+          },
+          {
+            "kind": "MidiClip",
+            "savedClipId": "6",
+            "savedTime": "48",
+            "name": "clip",
+            "settings": {
+              "CurrentStart": "48",
+              "CurrentEnd": "52",
+              "Loop/LoopStart": "0",
+              "Loop/LoopEnd": "4",
+              "Loop/StartRelative": "0",
+              "Loop/LoopOn": "true",
+              "Loop/OutMarker": "4",
+              "LaunchMode": "0",
+              "LaunchQuantisation": "5",
+              "Legato": "false",
+              "FollowAction/FollowActionEnabled": "false",
+              "IsWarped": "true"
+            },
+            "noteCount": 10,
+            "savedNotesExcludingNoteIdSha256": "b97447418cd8aa53877e7c2cf2b634855e0ff2d748b3d4e7b73aa67283764fb6",
+            "protocolNotesSha256": "2c5946e408c22a5479bab7bf2dd77c2b31b6e98a52afdbaff034c9767c3fa656"
+          },
+          {
+            "kind": "MidiClip",
+            "savedClipId": "14",
+            "savedTime": "52",
+            "name": "clip",
+            "settings": {
+              "CurrentStart": "52",
+              "CurrentEnd": "56",
+              "Loop/LoopStart": "0",
+              "Loop/LoopEnd": "4",
+              "Loop/StartRelative": "0",
+              "Loop/LoopOn": "true",
+              "Loop/OutMarker": "4",
+              "LaunchMode": "0",
+              "LaunchQuantisation": "5",
+              "Legato": "false",
+              "FollowAction/FollowActionEnabled": "false",
+              "IsWarped": "true"
+            },
+            "noteCount": 10,
+            "savedNotesExcludingNoteIdSha256": "b97447418cd8aa53877e7c2cf2b634855e0ff2d748b3d4e7b73aa67283764fb6",
+            "protocolNotesSha256": "2c5946e408c22a5479bab7bf2dd77c2b31b6e98a52afdbaff034c9767c3fa656"
+          },
+          {
+            "kind": "MidiClip",
+            "savedClipId": "15",
+            "savedTime": "56",
+            "name": "clip",
+            "settings": {
+              "CurrentStart": "56",
+              "CurrentEnd": "60",
+              "Loop/LoopStart": "0",
+              "Loop/LoopEnd": "4",
+              "Loop/StartRelative": "0",
+              "Loop/LoopOn": "true",
+              "Loop/OutMarker": "4",
+              "LaunchMode": "0",
+              "LaunchQuantisation": "5",
+              "Legato": "false",
+              "FollowAction/FollowActionEnabled": "false",
+              "IsWarped": "true"
+            },
+            "noteCount": 10,
+            "savedNotesExcludingNoteIdSha256": "b97447418cd8aa53877e7c2cf2b634855e0ff2d748b3d4e7b73aa67283764fb6",
+            "protocolNotesSha256": "2c5946e408c22a5479bab7bf2dd77c2b31b6e98a52afdbaff034c9767c3fa656"
+          },
+          {
+            "kind": "MidiClip",
+            "savedClipId": "16",
+            "savedTime": "60",
+            "name": "clip",
+            "settings": {
+              "CurrentStart": "60",
+              "CurrentEnd": "64",
+              "Loop/LoopStart": "0",
+              "Loop/LoopEnd": "4",
+              "Loop/StartRelative": "0",
+              "Loop/LoopOn": "true",
+              "Loop/OutMarker": "4",
+              "LaunchMode": "0",
+              "LaunchQuantisation": "5",
+              "Legato": "false",
+              "FollowAction/FollowActionEnabled": "false",
+              "IsWarped": "true"
+            },
+            "noteCount": 10,
+            "savedNotesExcludingNoteIdSha256": "b97447418cd8aa53877e7c2cf2b634855e0ff2d748b3d4e7b73aa67283764fb6",
+            "protocolNotesSha256": "2c5946e408c22a5479bab7bf2dd77c2b31b6e98a52afdbaff034c9767c3fa656"
+          },
+          {
+            "kind": "MidiClip",
+            "savedClipId": "7",
+            "savedTime": "64",
+            "name": "clip",
+            "settings": {
+              "CurrentStart": "64",
+              "CurrentEnd": "68",
+              "Loop/LoopStart": "0",
+              "Loop/LoopEnd": "4",
+              "Loop/StartRelative": "0",
+              "Loop/LoopOn": "true",
+              "Loop/OutMarker": "4",
+              "LaunchMode": "0",
+              "LaunchQuantisation": "5",
+              "Legato": "false",
+              "FollowAction/FollowActionEnabled": "false",
+              "IsWarped": "true"
+            },
+            "noteCount": 10,
+            "savedNotesExcludingNoteIdSha256": "b1dd73fb32d9e1f7d4c488a87cef1494c597bc56f0985504050f611a023c2c25",
+            "protocolNotesSha256": "c609c84da33d298145947452afc6814e91a525d1644a7d3bf29b38e9b0a571f7"
+          },
+          {
+            "kind": "MidiClip",
+            "savedClipId": "17",
+            "savedTime": "68",
+            "name": "clip",
+            "settings": {
+              "CurrentStart": "68",
+              "CurrentEnd": "72",
+              "Loop/LoopStart": "0",
+              "Loop/LoopEnd": "4",
+              "Loop/StartRelative": "0",
+              "Loop/LoopOn": "true",
+              "Loop/OutMarker": "4",
+              "LaunchMode": "0",
+              "LaunchQuantisation": "5",
+              "Legato": "false",
+              "FollowAction/FollowActionEnabled": "false",
+              "IsWarped": "true"
+            },
+            "noteCount": 10,
+            "savedNotesExcludingNoteIdSha256": "b1dd73fb32d9e1f7d4c488a87cef1494c597bc56f0985504050f611a023c2c25",
+            "protocolNotesSha256": "c609c84da33d298145947452afc6814e91a525d1644a7d3bf29b38e9b0a571f7"
+          },
+          {
+            "kind": "MidiClip",
+            "savedClipId": "18",
+            "savedTime": "72",
+            "name": "clip",
+            "settings": {
+              "CurrentStart": "72",
+              "CurrentEnd": "76",
+              "Loop/LoopStart": "0",
+              "Loop/LoopEnd": "4",
+              "Loop/StartRelative": "0",
+              "Loop/LoopOn": "true",
+              "Loop/OutMarker": "4",
+              "LaunchMode": "0",
+              "LaunchQuantisation": "5",
+              "Legato": "false",
+              "FollowAction/FollowActionEnabled": "false",
+              "IsWarped": "true"
+            },
+            "noteCount": 10,
+            "savedNotesExcludingNoteIdSha256": "b1dd73fb32d9e1f7d4c488a87cef1494c597bc56f0985504050f611a023c2c25",
+            "protocolNotesSha256": "c609c84da33d298145947452afc6814e91a525d1644a7d3bf29b38e9b0a571f7"
+          },
+          {
+            "kind": "MidiClip",
+            "savedClipId": "19",
+            "savedTime": "76",
+            "name": "clip",
+            "settings": {
+              "CurrentStart": "76",
+              "CurrentEnd": "80",
+              "Loop/LoopStart": "0",
+              "Loop/LoopEnd": "4",
+              "Loop/StartRelative": "0",
+              "Loop/LoopOn": "true",
+              "Loop/OutMarker": "4",
+              "LaunchMode": "0",
+              "LaunchQuantisation": "5",
+              "Legato": "false",
+              "FollowAction/FollowActionEnabled": "false",
+              "IsWarped": "true"
+            },
+            "noteCount": 10,
+            "savedNotesExcludingNoteIdSha256": "b1dd73fb32d9e1f7d4c488a87cef1494c597bc56f0985504050f611a023c2c25",
+            "protocolNotesSha256": "c609c84da33d298145947452afc6814e91a525d1644a7d3bf29b38e9b0a571f7"
+          }
+        ]
+      },
+      {
+        "index": 1,
+        "kind": "AudioTrack",
+        "savedTrackId": "176",
+        "name": "2-Audio",
+        "topLevelDevices": [
+          {
+            "index": 0,
+            "class": "MxDeviceAudioEffect",
+            "savedDeviceId": "0"
+          }
+        ],
+        "session": [
+          {
+            "sceneIndex": 0,
+            "kind": "AudioClip",
+            "savedClipId": "1",
+            "savedTime": "0",
+            "name": "audio-1",
+            "settings": {
+              "CurrentStart": "0",
+              "CurrentEnd": "4",
+              "Loop/LoopStart": "0",
+              "Loop/LoopEnd": "4",
+              "Loop/StartRelative": "0",
+              "Loop/LoopOn": "true",
+              "Loop/OutMarker": "4",
+              "LaunchMode": "0",
+              "LaunchQuantisation": "5",
+              "Legato": "false",
+              "FollowAction/FollowActionEnabled": "false",
+              "IsWarped": "true",
+              "WarpMode": "0",
+              "SampleVolume": "1",
+              "PitchCoarse": "0",
+              "PitchFine": "0",
+              "SampleRef/DefaultDuration": "90000",
+              "SampleRef/DefaultSampleRate": "48000"
+            },
+            "mediaTarget": "Samples/Imported/resource-001.aif",
+            "savedWarpMarkersSha256": "3ec7de509d2ba4e871e7974c74cefd705a5e4a4197bbf09eb165fbf8e0b5e3b6",
+            "savedFadesSha256": "7e1dca17a5ba37649826caa127dfe672714a5a006ff488eabac458644575fc11",
+            "savedOnsetsSha256": "ee71dcb68835693274a3987c7ba23cfa5c3f66440bd92ed5c90d81cfad31609c"
+          },
+          {
+            "sceneIndex": 1,
+            "kind": "AudioClip",
+            "savedClipId": "1",
+            "savedTime": "0",
+            "name": "audio-2",
+            "settings": {
+              "CurrentStart": "0",
+              "CurrentEnd": "4",
+              "Loop/LoopStart": "0",
+              "Loop/LoopEnd": "4",
+              "Loop/StartRelative": "0",
+              "Loop/LoopOn": "true",
+              "Loop/OutMarker": "4",
+              "LaunchMode": "0",
+              "LaunchQuantisation": "5",
+              "Legato": "false",
+              "FollowAction/FollowActionEnabled": "false",
+              "IsWarped": "true",
+              "WarpMode": "0",
+              "SampleVolume": "1",
+              "PitchCoarse": "0",
+              "PitchFine": "0",
+              "SampleRef/DefaultDuration": "90000",
+              "SampleRef/DefaultSampleRate": "48000"
+            },
+            "mediaTarget": "Samples/Imported/resource-002.aif",
+            "savedWarpMarkersSha256": "3ec7de509d2ba4e871e7974c74cefd705a5e4a4197bbf09eb165fbf8e0b5e3b6",
+            "savedFadesSha256": "7e1dca17a5ba37649826caa127dfe672714a5a006ff488eabac458644575fc11",
+            "savedOnsetsSha256": "fa685b7520f24ef51e9b98b2e488de98ed339c2f48b081606b225b59ebcec3eb"
+          },
+          {
+            "sceneIndex": 2,
+            "kind": "AudioClip",
+            "savedClipId": "2",
+            "savedTime": "0",
+            "name": "audio-3",
+            "settings": {
+              "CurrentStart": "0",
+              "CurrentEnd": "4",
+              "Loop/LoopStart": "0",
+              "Loop/LoopEnd": "4",
+              "Loop/StartRelative": "0",
+              "Loop/LoopOn": "true",
+              "Loop/OutMarker": "4",
+              "LaunchMode": "0",
+              "LaunchQuantisation": "5",
+              "Legato": "false",
+              "FollowAction/FollowActionEnabled": "false",
+              "IsWarped": "true",
+              "WarpMode": "0",
+              "SampleVolume": "1",
+              "PitchCoarse": "0",
+              "PitchFine": "0",
+              "SampleRef/DefaultDuration": "90000",
+              "SampleRef/DefaultSampleRate": "48000"
+            },
+            "mediaTarget": "Samples/Imported/resource-003.aif",
+            "savedWarpMarkersSha256": "3ec7de509d2ba4e871e7974c74cefd705a5e4a4197bbf09eb165fbf8e0b5e3b6",
+            "savedFadesSha256": "7e1dca17a5ba37649826caa127dfe672714a5a006ff488eabac458644575fc11",
+            "savedOnsetsSha256": "3dbd5fd5eb5c4e574fbc0668744611218c936b29f0086f2ccaf7c7118e02e647"
+          },
+          {
+            "sceneIndex": 3,
+            "kind": "AudioClip",
+            "savedClipId": "1",
+            "savedTime": "0",
+            "name": "audio-4",
+            "settings": {
+              "CurrentStart": "0",
+              "CurrentEnd": "4",
+              "Loop/LoopStart": "0",
+              "Loop/LoopEnd": "4",
+              "Loop/StartRelative": "0",
+              "Loop/LoopOn": "true",
+              "Loop/OutMarker": "4",
+              "LaunchMode": "0",
+              "LaunchQuantisation": "5",
+              "Legato": "false",
+              "FollowAction/FollowActionEnabled": "false",
+              "IsWarped": "true",
+              "WarpMode": "0",
+              "SampleVolume": "1",
+              "PitchCoarse": "0",
+              "PitchFine": "0",
+              "SampleRef/DefaultDuration": "90000",
+              "SampleRef/DefaultSampleRate": "48000"
+            },
+            "mediaTarget": "Samples/Imported/resource-004.aif",
+            "savedWarpMarkersSha256": "3ec7de509d2ba4e871e7974c74cefd705a5e4a4197bbf09eb165fbf8e0b5e3b6",
+            "savedFadesSha256": "7e1dca17a5ba37649826caa127dfe672714a5a006ff488eabac458644575fc11",
+            "savedOnsetsSha256": "0c3258473f69f7da119144874c5c66f28d277a80e8022ca58232a226fc34e715"
+          },
+          {
+            "sceneIndex": 4,
+            "kind": "AudioClip",
+            "savedClipId": "0",
+            "savedTime": "0",
+            "name": "long-audio",
+            "settings": {
+              "CurrentStart": "0",
+              "CurrentEnd": "80",
+              "Loop/LoopStart": "0",
+              "Loop/LoopEnd": "80",
+              "Loop/StartRelative": "0",
+              "Loop/LoopOn": "false",
+              "Loop/OutMarker": "80",
+              "LaunchMode": "0",
+              "LaunchQuantisation": "5",
+              "Legato": "false",
+              "FollowAction/FollowActionEnabled": "false",
+              "IsWarped": "true",
+              "WarpMode": "0",
+              "SampleVolume": "0.3545654118",
+              "PitchCoarse": "0",
+              "PitchFine": "0",
+              "SampleRef/DefaultDuration": "1800000",
+              "SampleRef/DefaultSampleRate": "48000"
+            },
+            "mediaTarget": "Samples/Imported/resource-005.aif",
+            "savedWarpMarkersSha256": "e29435282e66ae736783b901fd3a1226ccd8e1bc0ad41ebb30b01e1a3d2809ef",
+            "savedFadesSha256": "7e1dca17a5ba37649826caa127dfe672714a5a006ff488eabac458644575fc11",
+            "savedOnsetsSha256": "90582ed26caf0dd3fa5d5df113c0196645f9c701ff64871ffdf916bd70b92929"
+          }
+        ],
+        "arrangement": [
+          {
+            "kind": "AudioClip",
+            "savedClipId": "17",
+            "savedTime": "0",
+            "name": "audio",
+            "settings": {
+              "CurrentStart": "0",
+              "CurrentEnd": "4",
+              "Loop/LoopStart": "0",
+              "Loop/LoopEnd": "4",
+              "Loop/StartRelative": "0",
+              "Loop/LoopOn": "true",
+              "Loop/OutMarker": "4",
+              "LaunchMode": "0",
+              "LaunchQuantisation": "5",
+              "Legato": "false",
+              "FollowAction/FollowActionEnabled": "false",
+              "IsWarped": "true",
+              "WarpMode": "0",
+              "SampleVolume": "1",
+              "PitchCoarse": "0",
+              "PitchFine": "0",
+              "SampleRef/DefaultDuration": "90000",
+              "SampleRef/DefaultSampleRate": "48000"
+            },
+            "mediaTarget": "Samples/Imported/resource-001.aif",
+            "savedWarpMarkersSha256": "b06a551e7ac483df96eb620fd29f4993f0330ac067321439f24ebbfc13681d58",
+            "savedFadesSha256": "39abdf7eefb8d93c329b6880d6337d4c48399489385fa696559b09aea27edaf5",
+            "savedOnsetsSha256": "b77f962e77b90f6214d4090b9e3c87c80dc8b231855ac9bb4ac8fdbced9675a0"
+          },
+          {
+            "kind": "AudioClip",
+            "savedClipId": "16",
+            "savedTime": "4",
+            "name": "audio",
+            "settings": {
+              "CurrentStart": "4",
+              "CurrentEnd": "8",
+              "Loop/LoopStart": "0",
+              "Loop/LoopEnd": "4",
+              "Loop/StartRelative": "0",
+              "Loop/LoopOn": "true",
+              "Loop/OutMarker": "4",
+              "LaunchMode": "0",
+              "LaunchQuantisation": "5",
+              "Legato": "false",
+              "FollowAction/FollowActionEnabled": "false",
+              "IsWarped": "true",
+              "WarpMode": "0",
+              "SampleVolume": "1",
+              "PitchCoarse": "0",
+              "PitchFine": "0",
+              "SampleRef/DefaultDuration": "90000",
+              "SampleRef/DefaultSampleRate": "48000"
+            },
+            "mediaTarget": "Samples/Imported/resource-002.aif",
+            "savedWarpMarkersSha256": "b06a551e7ac483df96eb620fd29f4993f0330ac067321439f24ebbfc13681d58",
+            "savedFadesSha256": "39abdf7eefb8d93c329b6880d6337d4c48399489385fa696559b09aea27edaf5",
+            "savedOnsetsSha256": "cde8f0ba1b5f4fb6809df8a667d5f0f0a1688e3fd0c93e3785c7ca47a514030a"
+          },
+          {
+            "kind": "AudioClip",
+            "savedClipId": "15",
+            "savedTime": "8",
+            "name": "audio",
+            "settings": {
+              "CurrentStart": "8",
+              "CurrentEnd": "12",
+              "Loop/LoopStart": "0",
+              "Loop/LoopEnd": "4",
+              "Loop/StartRelative": "0",
+              "Loop/LoopOn": "true",
+              "Loop/OutMarker": "4",
+              "LaunchMode": "0",
+              "LaunchQuantisation": "5",
+              "Legato": "false",
+              "FollowAction/FollowActionEnabled": "false",
+              "IsWarped": "true",
+              "WarpMode": "0",
+              "SampleVolume": "1",
+              "PitchCoarse": "0",
+              "PitchFine": "0",
+              "SampleRef/DefaultDuration": "90000",
+              "SampleRef/DefaultSampleRate": "48000"
+            },
+            "mediaTarget": "Samples/Imported/resource-003.aif",
+            "savedWarpMarkersSha256": "b06a551e7ac483df96eb620fd29f4993f0330ac067321439f24ebbfc13681d58",
+            "savedFadesSha256": "39abdf7eefb8d93c329b6880d6337d4c48399489385fa696559b09aea27edaf5",
+            "savedOnsetsSha256": "bbe9509946eaeab7347624d9bdb9db623aaeeeb74a1e72d731b51279c1ba196d"
+          },
+          {
+            "kind": "AudioClip",
+            "savedClipId": "14",
+            "savedTime": "12",
+            "name": "audio",
+            "settings": {
+              "CurrentStart": "12",
+              "CurrentEnd": "16",
+              "Loop/LoopStart": "0",
+              "Loop/LoopEnd": "4",
+              "Loop/StartRelative": "0",
+              "Loop/LoopOn": "true",
+              "Loop/OutMarker": "4",
+              "LaunchMode": "0",
+              "LaunchQuantisation": "5",
+              "Legato": "false",
+              "FollowAction/FollowActionEnabled": "false",
+              "IsWarped": "true",
+              "WarpMode": "0",
+              "SampleVolume": "1",
+              "PitchCoarse": "0",
+              "PitchFine": "0",
+              "SampleRef/DefaultDuration": "90000",
+              "SampleRef/DefaultSampleRate": "48000"
+            },
+            "mediaTarget": "Samples/Imported/resource-004.aif",
+            "savedWarpMarkersSha256": "b06a551e7ac483df96eb620fd29f4993f0330ac067321439f24ebbfc13681d58",
+            "savedFadesSha256": "39abdf7eefb8d93c329b6880d6337d4c48399489385fa696559b09aea27edaf5",
+            "savedOnsetsSha256": "aa7ee1470974ce9c758a08fd1e1306d34f3a332d516ed05ccb434f5a063b8f32"
+          },
+          {
+            "kind": "AudioClip",
+            "savedClipId": "8",
+            "savedTime": "16",
+            "name": "audio",
+            "settings": {
+              "CurrentStart": "16",
+              "CurrentEnd": "80",
+              "Loop/LoopStart": "16",
+              "Loop/LoopEnd": "80",
+              "Loop/StartRelative": "0",
+              "Loop/LoopOn": "false",
+              "Loop/OutMarker": "80",
+              "LaunchMode": "0",
+              "LaunchQuantisation": "5",
+              "Legato": "false",
+              "FollowAction/FollowActionEnabled": "false",
+              "IsWarped": "true",
+              "WarpMode": "0",
+              "SampleVolume": "0.3545654118",
+              "PitchCoarse": "0",
+              "PitchFine": "0",
+              "SampleRef/DefaultDuration": "1800000",
+              "SampleRef/DefaultSampleRate": "48000"
+            },
+            "mediaTarget": "Samples/Imported/resource-005.aif",
+            "savedWarpMarkersSha256": "5fe930e5ba1e8caf7816e59b03022332bdc7e2826d301a3e4f54584c2238c87e",
+            "savedFadesSha256": "6bfb8d4dd585cdb58655ff69328b5424747ab70953af8f971c669862b5bf8b54",
+            "savedOnsetsSha256": "152d600c11caf91ad2877903a31f44856ec79dab30ef2eb4dea9024ba92136d3"
+          }
+        ]
+      },
+      {
+        "index": 2,
+        "kind": "ReturnTrack",
+        "savedTrackId": "3",
+        "name": "A-Lively Resonant",
+        "topLevelDevices": [
+          {
+            "index": 0,
+            "class": "Hybrid",
+            "savedDeviceId": "1"
+          }
+        ],
+        "session": [],
+        "arrangement": []
+      },
+      {
+        "index": 3,
+        "kind": "ReturnTrack",
+        "savedTrackId": "139",
+        "name": "B-Blackhole",
+        "topLevelDevices": [
+          {
+            "index": 0,
+            "class": "PluginDevice",
+            "savedDeviceId": "0"
+          }
+        ],
+        "session": [],
+        "arrangement": []
+      }
+    ],
+    "midiParity": {
+      "shortNoteCount": 14,
+      "longNoteCount": 200,
+      "excludedField": "NoteId",
+      "includes": "Every other saved MidiNoteEvent attribute and pitch; Arrangement time translated to beats from zero"
+    }
+  },
+  "unresolvedLoadedAdmission": [
+    "Independently observed capture host sample rate and terminal acquisition evidence for each executed case",
+    "Loaded MIDI Arrangement notes and instrument-chain admission for the short and long MIDI cases",
+    "Per-run current-candidate binding, protected baseline and installed prerequisites remain verified by the shared runner",
+    "Actual message-driven Session/Arrangement captures, persisted storage shape/counts, restart and cleanup are not qualified by source review"
+  ],
+  "loadedReviews": [
+    {
+      "status": "reviewed-source-admission",
+      "evidence": "consolidation-source-review-5HHNZT",
+      "runId": "b3b0c521-b40e-4b90-beb0-d6c50affc631",
+      "liveVersion": "11.3.43",
+      "sessionSourceIds": [
+        "session-short-midi",
+        "session-long-midi",
+        "session-short-audio",
+        "session-long-audio"
+      ],
+      "arrangementSourceIds": ["arrangement-audio"]
+    },
+    {
+      "status": "reviewed-source-admission",
+      "evidence": "consolidation-source-review-xLQVW1",
+      "runId": "88369718-bd7e-4275-be71-f0accd616d5d",
+      "liveVersion": "11.3.43",
+      "sessionSourceIds": ["session-short-midi"],
+      "arrangementSourceIds": ["arrangement-short-midi"]
+    },
+    {
+      "status": "reviewed-source-admission",
+      "evidence": "consolidation-source-review-xA63fb",
+      "runId": "a7b40c03-0ff0-4237-a27c-3df84c365b33",
+      "liveVersion": "11.3.43",
+      "sessionSourceIds": ["session-long-midi"],
+      "arrangementSourceIds": ["arrangement-long-midi"]
+    }
+  ],
+  "qualificationScope": "storage-shape-and-count",
+  "numericalEquivalence": "deferred"
+}

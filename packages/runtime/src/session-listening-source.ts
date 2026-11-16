@@ -14,6 +14,7 @@ import {
   type NativeListeningGeometry,
   readListeningFailureEvidence,
   type ListeningFailureEvidence,
+  MAX_CONTINUOUS_METRIC_LISTENING_SECONDS,
 } from "@ableton-agent/protocol";
 
 type Source = InspectSessionListeningSourceResult;
@@ -349,7 +350,9 @@ export function freezeSessionSourceExpectation(
       ),
     ]);
   const stoppedBeat = after.globalBeat!;
-  const startBeat = 0;
+  // Remembered Session playback restarts at zero; a fresh launch retains the
+  // stopped song position. Neither is the clip-local coordinate origin.
+  const startBeat = after.targetPlaying ? 0 : stoppedBeat;
   if (
     settings.tempoBpm === null ||
     settings.signatureNumerator !== 4 ||
@@ -420,15 +423,18 @@ export function freezeSessionSourceExpectation(
         ),
       ],
     );
-  if ((durationBeats * 60) / settings.tempoBpm > 30)
+  if (
+    (durationBeats * 60) / settings.tempoBpm >
+    MAX_CONTINUOUS_METRIC_LISTENING_SECONDS
+  )
     deny(
       "native_capture_quota",
-      "The full requested range exceeds thirty seconds; it was not truncated.",
+      "The full requested range exceeds the finite ten-minute ceiling; it was not truncated.",
       [
         failureFact(
           "capture.durationMs",
           (durationBeats * 60_000) / settings.tempoBpm,
-          30_000,
+          MAX_CONTINUOUS_METRIC_LISTENING_SECONDS * 1000,
           { comparison: "at-most", unit: "ms" },
         ),
         failureFact("request.durationBeats", durationBeats, undefined, {

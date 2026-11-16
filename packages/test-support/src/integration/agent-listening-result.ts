@@ -11,7 +11,13 @@ import {
   metricAudioObservationSchema,
   metricListeningReportSchema,
   projectMetricListeningReport,
+  metricRecordStreamContextReferenceSchema,
 } from "@ableton-agent/protocol";
+import {
+  metricStreamOverviewSchema,
+  metricStreamRecordPageSchema,
+} from "@ableton-agent/tools";
+import { streamProofContentSha256 } from "./arrangement-stream.js";
 import type {
   AssertionInput,
   SessionIdentity,
@@ -346,10 +352,111 @@ export function verifyAgentListeningResult(
   const reads = pairs.filter(
     ({ call }) =>
       call.toolName === "ableton_context" &&
-      ["get", "report"].includes(String(call.arguments.action)),
+      ["get", "report", "stream-overview", "stream-records"].includes(
+        String(call.arguments.action),
+      ),
   );
   requireEvidence(reads.length > 0, "missing agent context consumption");
   const melSmoke = turn.melSmoke?.[0];
+  if (melSmoke && "chunks" in melSmoke)
+    requireEvidence(
+      capture.stream,
+      "stream mel evidence lacks its original capture proof",
+    );
+  if (capture.stream) {
+    requireEvidence(
+      capture.stream.contextId === context.contextId &&
+        capture.stream.passId === capture.passId &&
+        context.contentSha256 === streamProofContentSha256(capture.stream) &&
+        reads.some(({ data }) => data.action === "stream-overview"),
+      "missing matching original stream overview",
+    );
+    const melFrames =
+      melSmoke && "chunks" in melSmoke
+        ? melSmoke.chunks.flatMap((chunk) =>
+            chunk.metric === "mel-bands" ? chunk.records : [],
+          )
+        : undefined;
+    const consumed = new Set<number>();
+    let valueRecords = 0;
+    for (const read of reads) {
+      const entry = object(read.data.entry);
+      requireEvidence(
+        read.call.arguments.contextId === context.contextId &&
+          read.data.action === read.call.arguments.action &&
+          entry.contextId === context.contextId &&
+          entry.passId === capture.passId &&
+          entry.listenerId === capture.listenerId &&
+          entry.kind === "metric-record-stream-context/v1" &&
+          Date.parse(read.result.occurredAt) - read.result.durationMs! >=
+            Date.parse(start.result.occurredAt),
+        "foreign context or stream read before delivery",
+      );
+      if (read.data.action === "get") {
+        const reference = metricRecordStreamContextReferenceSchema.parse(
+          read.data.observation,
+        );
+        requireEvidence(
+          reference.captureId === context.contextId &&
+            reference.descriptorDigest === capture.stream.descriptorDigest,
+          "foreign immutable stream reference",
+        );
+      } else if (read.data.action === "stream-overview") {
+        const overview = metricStreamOverviewSchema.parse(read.data.overview);
+        requireEvidence(
+          overview.descriptorDigest === capture.stream.descriptorDigest &&
+            overview.source.view === "session" &&
+            overview.source.target.track.expectedReference ===
+              source.source.trackId &&
+            overview.source.clipReference === source.source.clipId &&
+            overview.source.target.sceneIndex === source.source.slotIndex &&
+            overview.outcome === "complete" &&
+            overview.geometry.sampleRate === capture.sampleRate &&
+            overview.geometry.startSample === capture.startSample &&
+            overview.geometry.endSample === capture.endSample &&
+            capture.metricFamilies.every((family) =>
+              overview.metrics.some(
+                (metric) =>
+                  metric.metric === family &&
+                  metric.availability === "available" &&
+                  metric.missingRecords === 0,
+              ),
+            ),
+          "original stream overview differs from captured source",
+        );
+      } else {
+        requireEvidence(
+          read.data.action === "stream-records",
+          "historical report cannot consume a new stream",
+        );
+        if (read.data.page === null) continue;
+        const page = metricStreamRecordPageSchema.parse(read.data.page);
+        requireEvidence(
+          page.descriptorDigest === capture.stream.descriptorDigest &&
+            page.metric === read.call.arguments.metric &&
+            page.gaps.length === 0,
+          "foreign or incomplete original stream page",
+        );
+        valueRecords += page.records.length;
+        if (page.metric === "mel-bands" && melFrames)
+          for (const frame of page.records) {
+            requireEvidence(
+              isDeepStrictEqual(
+                frame,
+                melFrames.find((original) => original.index === frame.index),
+              ),
+              "agent stream read did not consume matching mel vectors",
+            );
+            consumed.add(frame.index);
+          }
+      }
+    }
+    requireEvidence(
+      valueRecords > 0 && (!melFrames || consumed.size === melFrames.length),
+      "agent did not consume original stream measurements",
+    );
+    return;
+  }
   for (const read of reads) {
     const entry = object(read.data.entry);
     requireEvidence(
@@ -377,7 +484,7 @@ export function verifyAgentListeningResult(
       "measurement source mismatch",
     );
     if ("ownership" in measurement) {
-      if (melSmoke)
+      if (melSmoke && "reportProjection" in melSmoke)
         requireEvidence(
           isDeepStrictEqual(measurement, melSmoke.observation),
           "agent context did not consume matching mel vectors",
@@ -409,7 +516,7 @@ export function verifyAgentListeningResult(
           ),
         "missing measurement report content",
       );
-      if (melSmoke)
+      if (melSmoke && "reportProjection" in melSmoke)
         requireEvidence(
           isDeepStrictEqual(
             measurement,

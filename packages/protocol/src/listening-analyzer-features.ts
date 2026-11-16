@@ -1,9 +1,5 @@
-import type { MetricAudioObservation } from "./metric-observation-schemas.js";
-import {
-  pitchTimelineSchema,
-  spectralShapeTimelineSchema,
-  type PitchChannel,
-} from "./analyzer-timeline.js";
+import type { ListeningFeatureSource } from "./listening-feature-source.js";
+import type { PitchChannel } from "./analyzer-timeline.js";
 import {
   MIN_SPECTRAL_FLATNESS_DB,
   MAX_SPECTRAL_FLATNESS_DB,
@@ -59,19 +55,19 @@ function pitchValue(
 
 export function extractAnalyzerListeningFeature(
   type: ListeningFeatureType,
-  observation: MetricAudioObservation,
+  observation: ListeningFeatureSource,
   range: ListeningFeatureRange,
 ): ListeningFeature {
   const definition = listeningFeatureDefinition(type);
   const pitch =
     definition.profile === "pitch-profile/v1" &&
     observation.metrics.pitch !== undefined
-      ? pitchTimelineSchema.parse(observation.metrics.pitch)
+      ? observation.metrics.pitch
       : undefined;
   const shape =
     definition.profile === "spectral-shape-profile/v1" &&
     observation.metrics["spectral-shape"] !== undefined
-      ? spectralShapeTimelineSchema.parse(observation.metrics["spectral-shape"])
+      ? observation.metrics["spectral-shape"]
       : undefined;
   const timeline = pitch ?? shape;
   const expectedSamples = range.endSample - range.startSample;
@@ -82,7 +78,13 @@ export function extractAnalyzerListeningFeature(
       timeline.sourceSupport.endSample === observation.geometry.endSample);
   const baseReason: Reason | null =
     timeline === undefined
-      ? "not-requested"
+      ? observation.requestedMetrics.includes(
+          definition.profile === "pitch-profile/v1"
+            ? "pitch"
+            : "spectral-shape",
+        )
+        ? "unsupported-profile"
+        : "not-requested"
       : !sourceCompatible
         ? "incompatible-source-support"
         : null;

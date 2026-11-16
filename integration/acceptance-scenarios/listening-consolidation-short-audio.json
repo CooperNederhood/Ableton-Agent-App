@@ -1,0 +1,136 @@
+{
+  "schemaVersion": 1,
+  "id": "listening-consolidation-short-audio",
+  "fixtureId": "listening-consolidation-suite",
+  "requiredCapabilities": [
+    "automation",
+    "session-audio",
+    "arrangement-audio",
+    "persistence"
+  ],
+  "permissions": [
+    {
+      "sourceId": "session-short-audio",
+      "tool": "ableton_listening",
+      "action": "play-session-and-listen",
+      "risk": "medium",
+      "maxUses": 1,
+      "stepIds": ["listen-session"],
+      "arguments": {
+        "action": "play-session-and-listen",
+        "target.view": "session",
+        "target.track.kind": "regular",
+        "target.track.index": 1,
+        "target.track.expectedReference": "$source.trackId",
+        "target.track.expectedName": "2-Audio",
+        "target.sceneIndex": "$source.slotIndex",
+        "target.expectedClipReference": "$source.clipId",
+        "target.expectedClipName": "audio-1",
+        "listenerIds.0": "$source.listenerId",
+        "durationBeats": 4
+      }
+    },
+    {
+      "sourceId": "arrangement-audio",
+      "tool": "ableton_listening",
+      "action": "play-arrangement-and-listen",
+      "risk": "medium",
+      "maxUses": 1,
+      "stepIds": ["listen-arrangement"],
+      "arguments": {
+        "action": "play-arrangement-and-listen",
+        "listenerIds.0": "$source.listenerId",
+        "startBeat": 0,
+        "endBeat": 4
+      }
+    },
+    {
+      "sourceId": "session-short-audio",
+      "tool": "ableton_context",
+      "action": "derive-features",
+      "risk": "medium",
+      "maxUses": 1,
+      "stepIds": ["listen-session"],
+      "arguments": {
+        "action": "derive-features",
+        "contextIds.0": "$source.contextId",
+        "includeHistorical": false
+      }
+    },
+    {
+      "sourceId": "arrangement-audio",
+      "tool": "ableton_context",
+      "action": "derive-features",
+      "risk": "medium",
+      "maxUses": 1,
+      "stepIds": ["listen-arrangement"],
+      "arguments": {
+        "action": "derive-features",
+        "contextIds.0": "$source.contextId",
+        "includeHistorical": false
+      }
+    },
+    {
+      "tool": "ableton_transport",
+      "action": "set-playing",
+      "risk": "medium",
+      "maxUses": 2,
+      "stepIds": ["listen-arrangement", "restored"],
+      "arguments": { "action": "set-playing", "isPlaying": false }
+    },
+    {
+      "tool": "ableton_transport",
+      "action": "back-to-arrangement",
+      "risk": "medium",
+      "maxUses": 1,
+      "stepIds": ["listen-arrangement"],
+      "arguments": { "action": "back-to-arrangement" }
+    }
+  ],
+  "budget": { "runMs": 900000, "cleanupMs": 60000, "persistenceMs": 120000 },
+  "steps": [
+    {
+      "id": "listen-session",
+      "sourceId": "session-short-audio",
+      "message": "Listen exactly once to Session clip audio-1 on track 2-Audio, scene 0, for durationBeats 4 using that track's existing listener and all six metric families. Read the resulting original stored measurement report and derive its canonical stored features if needed. List the complete feature inventory, following pagination, and report its context ID, measure count, feature definitions/counts and grid dimensions. This is a storage-shape check: do not compare numerical values or make another capture. Preserve all source, launch, device and routing settings. Leave playback running. Stop immediately on any failure without repairing or retrying.",
+      "timeoutMs": 240000,
+      "assertions": [
+        {
+          "name": "capture",
+          "parameters": {
+            "sourceId": "session-short-audio",
+            "sampleRate": 48000,
+            "expectedFrames": 90000,
+            "metricFamilies": "level,spectral-centroid,attacks,mel-bands,pitch,spectral-shape"
+          }
+        }
+      ]
+    },
+    {
+      "id": "listen-arrangement",
+      "sourceId": "arrangement-audio",
+      "setupActions": ["stop-transport", "back-to-arrangement"],
+      "message": "Listen exactly once to the Arrangement on track 2-Audio from startBeat 0 through endBeat 4 using that track's existing listener and all six metric families. The runner has stopped transport and restored Back to Arrangement; the normal listening operation may position and start it. Read the original stored measurement report and derive canonical stored features for this new context if needed. List the complete feature inventory, following pagination, and report context ID, measure count, feature definitions/counts and grid dimensions. Do not compare numerical values, recapture, change settings, or stop/reset transport. Leave playback running. Stop immediately on any failure without repairing or retrying.",
+      "timeoutMs": 240000,
+      "assertions": []
+    },
+    {
+      "id": "restored",
+      "setupActions": ["stop-transport", "restart-owned-desktop"],
+      "message": "Without capturing, deriving, editing or changing transport, read the two original stored contexts and their complete feature inventories from the preceding Session and Arrangement listens. Use includeHistorical=true where needed and follow pagination. Report original context/feature IDs, stored schema, measure counts, feature definitions/counts and grid dimensions. Do not compare numerical values or treat assistant text as proof. Stop immediately if an original context or inventory is missing or changed; do not repair, rederive or recapture.",
+      "timeoutMs": 240000,
+      "assertions": [{ "name": "no-capture", "parameters": {} }]
+    }
+  ],
+  "assertions": [
+    { "name": "storage-shape", "parameters": { "expectedMeasures": 1 } },
+    { "name": "capture-count", "parameters": { "expected": 2 } },
+    { "name": "context", "parameters": { "afterRestart": true } },
+    {
+      "name": "unchanged",
+      "parameters": {
+        "scopes": "session-structure,source-settings,fixture-media,unrelated-playback"
+      }
+    }
+  ]
+}

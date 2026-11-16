@@ -12,6 +12,54 @@ import {
 import { nativeMetricFirstSpectrumEndpoint } from "./native-metric-listening-schemas.js";
 
 describe("bounded synthetic stream fixtures", () => {
+  it("replays supplied measurements without fabricating missing or duplicate records", async () => {
+    const base = await createSyntheticMetricRecordStreamFixture({
+      requestedMetrics: ["level"],
+    });
+    const values = [];
+    for await (const chunk of base.chunks())
+      if (chunk.metric === "level")
+        values.push(
+          ...chunk.records.map((record) => ({
+            ...record,
+            peak: [0.2, 0.3] as [number, number],
+            rms: [0.1, 0.1] as [number, number],
+          })),
+        );
+    const options = {
+      requestedMetrics: ["level"] as const,
+      records: { level: values },
+    };
+    const supplied = await createSyntheticMetricRecordStreamFixture(options);
+    const first = await supplied.chunks().next();
+    if (first.done) throw new Error("Missing synthetic records");
+    expect(first.value.records).toEqual(values);
+    expect(supplied.state).not.toEqual(base.state);
+    await expect(
+      verifyMetricRecordStreamManifest(
+        supplied.descriptor,
+        supplied.state,
+        supplied.manifest,
+      ),
+    ).resolves.toEqual(supplied.manifest);
+    for (const level of [
+      values.slice(1),
+      [...values, values[0]!],
+      [...values, { ...values[0]!, index: 100 }],
+    ])
+      await expect(
+        createSyntheticMetricRecordStreamFixture({
+          ...options,
+          records: { level },
+        }),
+      ).rejects.toThrow();
+    await expect(
+      createSyntheticMetricRecordStreamFixture({
+        requestedMetrics: ["pitch"],
+        records: { level: values },
+      }),
+    ).rejects.toThrow("unrequested_records");
+  });
   it("preserves supplied regular-track source identity while retaining the master default", async () => {
     const target = {
       kind: "regular" as const,
@@ -34,7 +82,10 @@ describe("bounded synthetic stream fixtures", () => {
     const defaultFixture = await createSyntheticMetricRecordStreamFixture({
       requestedMetrics: ["level"],
     });
-    expect(defaultFixture.descriptor.source.target.kind).toBe("master");
+    expect(defaultFixture.descriptor.source).toMatchObject({
+      view: "arrangement",
+      target: { kind: "master" },
+    });
     expect(fixture.state.descriptorDigest).not.toBe(
       defaultFixture.state.descriptorDigest,
     );
@@ -108,9 +159,9 @@ describe("bounded synthetic stream fixtures", () => {
       expect(fixture.manifest.nativeProof.configuration[2]).toBe(
         sampleRate / 10,
       );
-      expect(fixture.manifest.nativeProof.spectrumCleanup.phase).toBe(
-        "disabled-confirmed",
-      );
+      expect(fixture.manifest.nativeProof.spectrumCleanup).toMatchObject({
+        phase: "disabled-confirmed",
+      });
     },
   );
 

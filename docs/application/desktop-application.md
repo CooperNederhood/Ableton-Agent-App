@@ -407,10 +407,11 @@ cancelled state with relevant timing.
 Startup order:
 
 1. Initialize logging and configuration.
-2. Load preferences and resolve the Remote Script credential from the OS vault,
-   an explicit environment override, or the configured/detected installation.
-3. Persist a discovered installation token in OS-backed storage and compose the
-   Ableton bridge and Signal ingress with the same credential.
+2. Load preferences and resolve the Remote Script credential from an explicit
+   environment override or the configured/detected installation token file.
+3. Keep the resolved credential in process memory and compose the Ableton bridge
+   and Signal ingress with it. Do not read or write a redundant OS-vault copy;
+   retain existing owner-only Signal producer credential publication.
 4. Load App sessions and saved Live Set associations.
 5. Start the Ableton bridge and read the current dynamic Live Set identity.
 6. Resume the canonical App session for that saved Live Set, or create
@@ -593,19 +594,17 @@ being exposed to renderer state or IPC. Multiple discovered installations with
 different tokens are an explicit configuration error rather than an
 auto-selection.
 
-Packaged startup qualification must exercise both credential boundaries.
-Environment-token startup/authentication checks do not test installed-token
-provisioning or native OS encryption. The macOS packaged regression therefore
-uses an isolated profile and synthetic Remote Script installation with no
-`ABLETON_AGENT_TOKEN`, mock Keychain, or basic password-store override. It must
-open the window, persist encrypted bytes, and then restart the same profile and
-decrypt through the real OS vault. Typed Desktop History must attribute ordered,
-redacted credential lifecycles to discovery and subsequent vault retrieval.
-A first-window timeout is a failed qualification, not an automatic skip; the
-test retains an exact-owned-process native sample before teardown. OS
-authentication remains a developer action. Ad-hoc builds have hash-bound
-signing identities, so another build's successful Keychain authorization does
-not qualify a newly signed package.
+Packaged startup qualification must exercise environment-token and installed-file
+credential resolution separately. The installed-file regression uses an isolated
+profile and synthetic Remote Script installation with no `ABLETON_AGENT_TOKEN`,
+mock Keychain, or basic password-store override. It must open the window, restart
+the same profile, and read the installed file on both launches without creating a
+vault copy. Typed Desktop History must attribute ordered, timed, redacted
+credential lifecycles to the Remote Script source with `persisted: false`.
+A first-window timeout remains a failed qualification, not an automatic skip;
+the test retains an exact-owned-process native sample before teardown.
+Historical native-vault stalls remain recorded but are no longer part of the
+bridge credential path. Other system authentication remains a developer action.
 
 ### Scoped automatic approval
 

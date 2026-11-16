@@ -1,5 +1,129 @@
 # Playback Listening and Entity Context
 
+## Consolidation target: shared measurements and musical features
+
+Both playback adapters now use the shared finite native measurement stream,
+incremental persistence and canonical feature path below. The four approved
+message-driven storage-shape cases pass on the same final production candidate.
+
+Finite capture's FFT phase preflight has a bounded two-second initialization
+window. FFT-equipped arming composes that with the existing two-second clock
+preflight budget, within the SDK's default five-second control deadline;
+non-FFT arming keeps its two-second limit. Both remain capped by the original
+pass deadline. Late initialization must still supply genuine phase, clock,
+ownership and cleanup proofs; timeout is not permission to fabricate spectrum
+records, retry a capture, or present unavailable metrics as complete.
+
+| Layer | Retain and share |
+| --- | --- |
+| Playback/source control | Separate Session exact-clip launch/continuity and Arrangement range/transport adapters, with existing approvals and source guards |
+| Native acquisition | Existing metric families, analyzer profiles, sample supports, availability and gaps |
+| Delivery/storage | Continuous capture's bounded immutable chunks, durable append acknowledgements and verified terminal publication for both sources and all supported durations |
+| Musical representation | Short capture's established alignment, measures/partial measures, sixteenth-note grids where defined and segment summaries |
+| Analysis/query | One stored-feature model and bounded report, inventory, value, comparison and search semantics regardless of source or duration |
+
+```text
+Session source adapter -----+
+                            +--> shared measurements --> incremental persistence
+Arrangement source adapter -+                                  |
+                                                               v
+                                             musical segments and features
+                                                               |
+                                                               v
+                                                  query / compare / search
+```
+
+Physical chunks are not musical measures. Feature derivation must read the
+original support-intersecting records across chunk boundaries, retain source
+coordinates/provenance, and use the same weighting, normalization and validity
+rules. Features supplement original measurements; they do not replace them.
+A grid has sixteenth-note cells only when alignment is established; this is
+not a claim of equivalent native timing accuracy.
+
+Both views admit the same finite-stream contract. Finalization atomically
+publishes normal context entries and pending feature state, then uses the
+existing independently queued feature scheduler. Chunk-backed derivation uses
+the same segmentation/math and queue, failure/cancellation and trace semantics
+as historical contexts. This does not qualify ten-minute feature grids.
+
+Typed History recognizes the exact application-owned stream-read hook before
+validating results; an arbitrary suffix or mismatched action is still rejected.
+For stored shape/count requests, agents use typed stream overviews and complete
+feature inventories, not shell scratch calculations or no-op checks.
+
+The approved real-host matrix is one and twenty measures for MIDI and audio,
+each comparing Session and Arrangement through production application services.
+The supplied Set is 128 BPM, making the long cases 37.5 seconds. Use the existing
+user-message integration route, in order: short audio, short MIDI, long audio,
+long MIDI. The current gate is common production storage systems, persisted
+schemas and expected context/measure/feature/grid counts, with normal ownership,
+restart and cleanup checks. Numerical matching and repeatability calibration
+are deferred; do not build a direct test dispatcher or require exhaustive value
+collection. See [acceptance authoring](../testing/acceptance-authoring.md).
+
+All four final cases passed on Live Suite 11.3.43: short audio (`run-J7vvwY`),
+short MIDI (`run-U5xT9Q`), long audio (`run-LozNle`) and long MIDI (`run-LkQQml`).
+Each independently verifies the same packaged candidate SHA-256:
+`c41d56b9211bf4a912fccd5940ed134d4f535d292e35a9ac4eed7996550bfabd`.
+Every case passed both normal-message captures, complete original/restored
+feature inventories, all six assertions, owned restart, protected state and
+terminal cleanup. Short cases retain fifteen features per context; long cases
+retain 300 per context across twenty measures. The long-case storage check also
+requires an exactly attributed durable-chunk progress event after pass start
+but before admission time plus the native duration. Because DSP starts after
+admission, this conservatively excludes post-capture bulk persistence. Original
+chunk verification and restart-stable witnesses remain mandatory.
+
+Earlier successes and failures retain their original verdicts. Final
+qualification includes the cold-FFT readiness correction, bounded partial-write
+transport and explicit full-rack long-budget selection. Actual full-rack reads
+in `run-LkQQml` took 4.94-5.53 seconds, explaining the former five-second cutoff;
+shallow requests retain five seconds. `run-m1AuKA` preserves the separate
+template-to-fixture startup failure: the existing harness now waits for the
+exact owned fixture's completed load before accepting the port. No capture,
+permission, storage assertion or cleanup guard was relaxed.
+
+The Session source adapter uses the same 600-second finite ceiling. Its
+nonrenewable monitor lease includes 85 seconds for setup, drain and cleanup,
+with a 900-second maximum and duration-scaled frozen-clock expiry. It no longer
+has an independent thirty-second admission or fixed forty-second lifetime.
+Live 11 can reset a naturally ended nonlooping clip's source origin/position
+before its separately read song clock reaches the endpoint. Only an otherwise
+unchanged terminal source within the final quarter beat may await coherent
+coverage, for at most 250 ms or three monitor polls. Neither that pending state
+nor the bounded source seal certifies early coverage; stalled clocks,
+retriggering, changed sources, cancellation and expiry still fail closed.
+
+The native bundle exports the canonical finite-stream source verifier rather
+than maintaining a second implementation. Terminal attack-history comparison
+uses the existing cross-V8 rounding allowance solely for its derived previous
+level in dB. Original chunk digests, replay flags, attack sample positions and
+all other prefix fields remain exact. FFT cleanup/phase are explicitly null
+only when no FFT ownership is claimed; an available centroid still requires
+genuine matching phase and cleanup evidence.
+
+The original-state oracle independently rebuilds original chunks and verifies
+both that prefix and the persisted prefix against the original manifest. It
+does not impose a second exact-equality rule on independently computed derived
+dB values. Physical native release ends readback ownership even when terminal
+publication is still awaiting acknowledgement; late released packets cannot
+invalidate that pending publication. Before SDK publication invalidation, the
+existing native diagnostic lifecycle retains bounded, redacted rejection
+details. Native failures also retain bounded launch timing, clock and arm
+operands when available, separately from stopped/preflight clock evidence.
+These diagnostics preserve the native event's ownership, causation and timing;
+rejected diagnostic delivery remains an explicit failure, never success.
+
+For a requested complete feature inventory, `list-features.nextCursor` means
+the inventory is incomplete. Follow its continuations until absent; a complete
+derivation count or feature-definition catalog cannot establish unread feature
+IDs or measure membership. The application-owned post-tool guidance reinforces
+this distinction on metadata reads without rewriting their observed results.
+
+Real-time agent consumption, public provisional context reads, indefinite
+capture and ten-minute real-host qualification are not established by this
+matrix. Incremental persistence is a foundation, not a live-analysis interface.
+
 ## Same-turn Session-to-Arrangement comprehension
 
 The five-listen fixture covers a sequence absent from the older two-MIDI test:
@@ -928,12 +1052,19 @@ the exact application-owned suffix for those actions; altered or mismatched
 suffixes remain unavailable evidence.
 
 No action captures audio, repairs Live, imports files or performs
-hidden backfill. Inventory and search default to 10 results, at most 20 enriched
-tool results and 64 KiB per response. Their feature records are compact metadata,
-not full value arrays. `list-features` uses opaque cursor pagination, not numeric
+hidden backfill. Search defaults to 10 results, at most 20 enriched
+tool results. `list-features` defaults to and permits at most 100 records.
+Both responses are bounded to 64 KiB. Inventory returns normalized `inventory`
+tables: feature IDs reference zero-based provenance, segment, source and metadata
+indices. Tables contain actual stored metadata, including unavailable states;
+they never infer missing features from the catalog or derivation totals.
+Shared metadata is emitted once per page; generated source-summary prose is
+omitted. Stored records, feature values and `get-feature` remain unchanged.
+Responses exceeding the byte bound fail explicitly rather than truncating.
+`list-features` uses opaque cursor pagination, not numeric
 offsets: omit `cursor` on the first request, copy `nextCursor` unchanged on the
 next request with the same filters, and stop when `nextCursor` is absent.
-`limit` defaults to 10, at most 20 feature records. Neither `offset` nor
+Neither `offset` nor
 `supportOffset` is accepted for feature inventory. This distinction is carried
 by the action and field descriptions in full, mixed and single-action SDK
 schemas; strict validation continues to reject unsupported pagination fields
@@ -1713,6 +1844,18 @@ and the user confirmed that the installed fix works. This does not retroactively
 qualify the earlier ephemeral candidate's Keychain startup or extend the
 registered scenario's timing coverage.
 
+## Arrangement musical alignment
+
+Arrangement publication now carries canonical transport-beat musical alignment
+from the independently inspected, message-rate-monitored tempo and meter.
+The existing listening snapshot includes nullable `timeSignature`; meter changes
+invalidate the source fingerprint and publication, while unknown meter remains
+explicitly unaligned. Known constant meter uses the song's beat-zero bar origin.
+This feeds the same existing measure segmentation and fifteen-feature derivation
+as Session; it does not fabricate grid values or qualify meter/tempo automation.
+The short-audio consolidation fixture exposed the missing metadata in
+`run-BsVhJq`: Arrangement grids were unavailable despite successful acquisition.
+
 ## Quantized stopped-launch work (#81)
 
 The user supplied one combined Set and replaced the earlier matrix with two
@@ -1744,6 +1887,21 @@ track links retain transport beats. Actual source origin must still match the
 independently frozen native anchor; a delayed source cannot publish an earlier
 capture. Existing arm-before-launch, traced stages and leave-running cleanup
 remain unchanged.
+
+The zero-origin launch above is the reviewed **remembered-playing Session**
+case, not a requirement for every stopped Session launch. The consolidation
+fixture exposed a fresh launch at saved global beat 16 in `run-yh0GVa`.
+Source expectations now retain the stopped global anchor for a fresh target,
+while preserving the independently observed zero-origin remembered-target
+path. Native geometry/source transport use the global range (16-20 here);
+clip coordinates remain 0-4. Ready/arm clocks still use the pinned stopped
+position, and launch plus final sealing must match the frozen global origin.
+Neither path seeks, edits launch settings, or substitutes message-rate evidence
+for native coverage. Wrong origins remain failures before publication.
+Synthetic host regressions cover fresh audio/MIDI, wrong launch/seal epochs,
+publication and cleanup. Real `run-hqGE1A` passed the six-family Session capture
+and derived fifteen features, then failed the runner's one-handoff restriction
+before Arrangement; it is not a passing consolidation comparison.
 
 Both unchanged packaged cases now pass on **Live Suite 11.3.43**, with one
 90,000-frame capture, all three metric families, retained context, protected

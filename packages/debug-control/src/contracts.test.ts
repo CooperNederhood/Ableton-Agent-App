@@ -25,6 +25,30 @@ const request = {
 };
 
 describe("bounded automation target contract", () => {
+  it("only admits user-message submission, never an operation dispatcher", () => {
+    expect(
+      sendUserMessageRequestSchema.safeParse({
+        ...request,
+        method: "execute_direct_operation",
+        params: {
+          operation: {
+            kind: "context",
+            request: { action: "feature-definitions" },
+          },
+          expectedTarget: target,
+        },
+      }).success,
+    ).toBe(false);
+    expect(
+      sendUserMessageRequestSchema.safeParse({
+        ...request,
+        params: {
+          ...request.params,
+          operation: { kind: "transport", action: "stop" },
+        },
+      }).success,
+    ).toBe(false);
+  });
   it("accepts legacy unpinned and complete pinned requests", () => {
     expect(
       sendUserMessageRequestSchema.parse(request).params.expectedTarget,

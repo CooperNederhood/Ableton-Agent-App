@@ -6,10 +6,7 @@ import { randomUUID } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { TelemetryEventEnvelope } from "@ableton-agent/observability";
 
-import {
-  bridgeTokenKey,
-  resolveBridgeCredential,
-} from "./bridge-credentials.js";
+import { resolveBridgeCredential } from "./bridge-credentials.js";
 
 const directories: string[] = [];
 
@@ -38,12 +35,13 @@ afterEach(async () => {
 });
 
 describe("bridge credential resolution", () => {
-  it("discovers, persists, and records a redacted lifecycle", async () => {
+  it("reads into memory without consulting or populating a vault", async () => {
     const root = await workspace();
     const remoteScriptsPath = join(root, "User Library", "Remote Scripts");
     const token = "d".repeat(64);
     await writeInstalledToken(remoteScriptsPath, `${token}\n`);
-    const persisted = new Map<string, string>();
+    const get = vi.fn(async () => undefined);
+    const set = vi.fn(async () => undefined);
     const events: TelemetryEventEnvelope[] = [];
     const times = [
       new Date("2026-09-14T20:00:00.000Z"),
@@ -51,22 +49,23 @@ describe("bridge credential resolution", () => {
       new Date("2026-09-14T20:00:00.025Z"),
     ];
 
-    const result = await resolveBridgeCredential({
+    const options = {
       environment: {},
       remoteScriptLocation: join(root, "User Library"),
-      platform: "darwin",
+      platform: "darwin" as const,
       vault: {
-        get: async () => undefined,
-        set: async (key, value) => {
-          persisted.set(key, value);
-        },
+        get,
+        set,
       },
       telemetry: {
-        enqueue: (event) => events.push(event),
+        enqueue: (event: TelemetryEventEnvelope) => events.push(event),
       },
       now: () => times.shift() ?? new Date("2026-09-14T20:00:00.025Z"),
-    });
+    };
+    const result = await resolveBridgeCredential(options);
 
+    expect(get).not.toHaveBeenCalled();
+    expect(set).not.toHaveBeenCalled();
     expect(result).toMatchObject({
       token,
       source: "remote-script",
@@ -74,11 +73,10 @@ describe("bridge credential resolution", () => {
         {
           status: "pass",
           detail:
-            "The installed Remote Script token was discovered and stored in the desktop credential vault.",
+            "The installed Remote Script token was read into process memory.",
         },
       ],
     });
-    expect(persisted.get(bridgeTokenKey)).toBe(token);
     expect(events.map(({ name }) => name)).toEqual([
       "desktop.bridge_credentials.queued",
       "desktop.bridge_credentials.started",
@@ -92,7 +90,7 @@ describe("bridge credential resolution", () => {
         source: "remote-script",
         candidateCount: 1,
         validCandidateCount: 1,
-        persisted: true,
+        persisted: false,
       },
     });
     expect(events.every(({ trace }) => trace?.traceId === result.traceId)).toBe(
@@ -103,38 +101,23 @@ describe("bridge credential resolution", () => {
     expect(serialized).not.toContain(root);
   });
 
-  it("preserves vault and environment precedence without persisting overrides", async () => {
+  it("preserves explicit environment precedence over the installed file", async () => {
     const root = await workspace();
     const discovered = "d".repeat(64);
     const environment = "e".repeat(64);
-    const vault = "v".repeat(64);
     await writeInstalledToken(
       join(root, "User Library", "Remote Scripts"),
       discovered,
     );
-    const set = vi.fn();
-
-    const fromVault = await resolveBridgeCredential({
-      storedToken: vault,
-      environment: { ABLETON_AGENT_TOKEN: environment },
-      remoteScriptLocation: join(root, "User Library"),
-      platform: "darwin",
-      vault: { get: vi.fn(), set },
-    });
-    expect(fromVault).toMatchObject({ token: vault, source: "vault" });
-    expect(set).not.toHaveBeenCalled();
-
     const fromEnvironment = await resolveBridgeCredential({
       environment: { ABLETON_AGENT_TOKEN: environment },
       remoteScriptLocation: join(root, "User Library"),
       platform: "darwin",
-      vault: { get: async () => undefined, set },
     });
     expect(fromEnvironment).toMatchObject({
       token: environment,
       source: "environment",
     });
-    expect(set).not.toHaveBeenCalled();
   });
 
   it("rejects conflicting auto-detected tokens without exposing them", async () => {
@@ -228,25 +211,45 @@ describe("bridge credential resolution", () => {
     expect(result.notices[0]?.detail).toContain("invalid or unreadable");
   });
 
-  it("uses a discovered token for the current process when vault persistence fails", async () => {
+  it("rereads a rotated token and does not reuse it when its file disappears", async () => {
     const root = await workspace();
     const token = "c".repeat(64);
     await writeInstalledToken(join(root, "Remote Scripts"), token);
 
-    const result = await resolveBridgeCredential({
+    const options = {
       environment: {},
       remoteScriptLocation: join(root, "Remote Scripts"),
-      platform: "darwin",
-      vault: {
-        get: async () => undefined,
-        set: async () => {
-          throw new Error("encryption unavailable");
-        },
-      },
-    });
+    };
 
-    expect(result).toMatchObject({ token, source: "remote-script" });
-    expect(result.notices[0]?.status).toBe("warn");
-    expect(result.notices[0]?.detail).toContain("could not be saved");
+    const first = await resolveBridgeCredential(options);
+    expect(first).toMatchObject({ token, source: "remote-script" });
+    const rotated = "r".repeat(64);
+    await writeInstalledToken(join(root, "Remote Scripts"), rotated);
+    const second = await resolveBridgeCredential(options);
+    expect(second).toMatchObject({ token: rotated, source: "remote-script" });
+    expect(second.traceId).not.toBe(first.traceId);
+
+    await rm(
+      join(root, "Remote Scripts", "AbletonAgent", ".ableton-agent-token"),
+    );
+    const events: TelemetryEventEnvelope[] = [];
+    const missing = await resolveBridgeCredential({
+      ...options,
+      telemetry: { enqueue: (event) => events.push(event) },
+    });
+    expect(missing.token).toBeUndefined();
+    expect(missing.notices[0]?.detail).toContain("No Remote Script token");
+    expect(events.map(({ name }) => name)).toEqual([
+      "desktop.bridge_credentials.queued",
+      "desktop.bridge_credentials.started",
+      "desktop.bridge_credentials.failed",
+    ]);
+    expect(events[2]).toMatchObject({
+      outcome: "failure",
+      correlationId: missing.traceId,
+      attributes: { failureCategory: "missing" },
+    });
+    expect(typeof events[2]?.durationMs).toBe("number");
+    expect(JSON.stringify(events)).not.toContain(rotated);
   });
 });

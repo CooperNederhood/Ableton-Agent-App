@@ -24,7 +24,7 @@ function fixture(seconds: number) {
   const f = createSyntheticMetricWireFixture("arrangement");
   if (f.observation.source.view !== "arrangement") throw new Error("source");
   const geometry = createContinuousMetricListeningGeometry({
-    captureMode: "arrangement-continuous",
+    captureMode: "finite-metric-stream",
     sampleRate: 48_000,
     vectorSize: 64,
     tempoBpm: 120,
@@ -36,7 +36,7 @@ function fixture(seconds: number) {
     ...f.config,
     scope: NATIVE_CONTINUOUS_METRIC_LISTENING_SCOPE,
     capability: METRIC_CONTINUOUS_LISTENING_CAPABILITY,
-    captureMode: "arrangement-continuous",
+    captureMode: "finite-metric-stream",
     requestedMetrics: [
       "level",
       "spectral-centroid",

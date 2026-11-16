@@ -398,6 +398,9 @@ importers:
       '@ableton-agent/shared':
         specifier: workspace:*
         version: link:../shared
+      '@ableton-agent/tools':
+        specifier: workspace:*
+        version: link:../tools
 
   packages/tools:
     dependencies:

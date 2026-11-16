@@ -5262,9 +5262,161 @@ class ServerTests(unittest.TestCase):
         self.assertEqual(message["sequence"], 0)
         self.assertEqual(message["projectRevision"], 4)
 
+    def test_outbound_backpressure_resumes_exact_bytes_and_preserves_frame_order(self):
+        server = RemoteScriptServer(ImmediateExecutor(), self.token, {})
+
+        class BackpressuredClient(object):
+            def __init__(self):
+                self.wire = bytearray()
+                self.calls = 0
+
+            def sendall(self, payload):
+                self.wire.extend(payload[:7])
+                raise socket.timeout("controlled backpressure")
+
+            def send(self, payload):
+                self.calls += 1
+                if self.calls == 2:
+                    raise socket.timeout("controlled backpressure")
+                count = min(len(payload), 65536 if self.calls > 2 else 7)
+                self.wire.extend(payload[:count])
+                return count
+
+        first = success(request("system.ping"), {"payload": "x" * 200000})
+        second = success(request("system.ping"), {"message": "second"})
+        second["requestId"] += "-second"
+        server._enqueue(first)
+        server._enqueue(second)
+        client = BackpressuredClient()
+        self.assertTrue(server._flush_outbound(client))
+        self.assertEqual(bytes(client.wire), encode_frame(first)[:7])
+        self.assertEqual(server._outbound.unfinished_tasks, 2)
+        self.assertTrue(server._flush_outbound(client))
+        self.assertEqual(
+            bytes(client.wire), encode_frame(first) + encode_frame(second)
+        )
+        self.assertEqual(FrameDecoder().push(bytes(client.wire)), [first, second])
+        self.assertEqual(server._outbound.unfinished_tasks, 0)
+
+    def test_outbound_partial_frame_never_crosses_client_generations(self):
+        server = RemoteScriptServer(ImmediateExecutor(), self.token, {})
+
+        class BlockedClient(object):
+            def __init__(self):
+                self.wire = bytearray()
+
+            def sendall(self, _payload):
+                raise socket.timeout("controlled backpressure")
+
+            def send(self, payload):
+                if self.wire:
+                    raise socket.timeout("controlled backpressure")
+                self.wire.extend(payload[:7])
+                return 7
+
+        class RecordingClient(object):
+            def __init__(self):
+                self.wire = bytearray()
+
+            def send(self, payload):
+                self.wire.extend(payload)
+                return len(payload)
+
+        server._enqueue({"message": "old"})
+        self.assertTrue(server._flush_outbound(BlockedClient()))
+        server._client_generation += 1
+        current = {"message": "current"}
+        server._enqueue(current)
+        client = RecordingClient()
+        self.assertTrue(server._flush_outbound(client))
+        self.assertEqual(bytes(client.wire), encode_frame(current))
+        self.assertEqual(server._outbound.unfinished_tasks, 0)
+
+    def test_outbound_zero_write_fails_and_releases_pending_frame(self):
+        messages = []
+        server = RemoteScriptServer(
+            ImmediateExecutor(), self.token, {}, logger=messages.append
+        )
+
+        class ClosedClient(object):
+            def send(self, _payload):
+                return 0
+
+        server._enqueue({"message": "unsent"})
+        self.assertFalse(server._flush_outbound(ClosedClient()))
+        self.assertIsNone(server._pending_outbound)
+        self.assertEqual(server._outbound.unfinished_tasks, 0)
+        self.assertEqual(messages, ["Outbound socket closed during write"])
+
+    def test_outbound_partial_frame_is_released_on_client_disconnect(self):
+        server = RemoteScriptServer(
+            ImmediateExecutor(), self.token, {},
+            on_client_disconnect=lambda: server._stop_event.set(),
+        )
+        message = {"message": "cancelled"}
+
+        class DisconnectingClient(object):
+            wire = bytearray()
+            closed = False
+
+            def settimeout(self, _timeout):
+                server._enqueue(message)
+
+            def send(self, payload):
+                if self.wire:
+                    raise socket.timeout("controlled backpressure")
+                self.wire.extend(payload[:7])
+                return 7
+
+            def recv(self, _size):
+                return b""
+
+            def close(self):
+                self.closed = True
+
+        client = DisconnectingClient()
+
+        class ListeningSocket(object):
+            def accept(self):
+                return client, (LOOPBACK_HOST, 12345)
+
+        server._server_socket = ListeningSocket()
+        server._run()
+        self.assertTrue(client.closed)
+        self.assertEqual(bytes(client.wire), encode_frame(message)[:7])
+        self.assertIsNone(server._pending_outbound)
+        self.assertEqual(server._outbound.unfinished_tasks, 0)
+
+    def test_outbound_invalid_frame_fails_explicitly_without_pending_work(self):
+        messages = []
+        server = RemoteScriptServer(
+            ImmediateExecutor(), self.token, {}, logger=messages.append
+        )
+        server._enqueue({"message": object()})
+        self.assertFalse(server._flush_outbound(None))
+        self.assertIsNone(server._pending_outbound)
+        self.assertEqual(server._outbound.unfinished_tasks, 0)
+        self.assertEqual(messages, ["Outbound protocol frame encoding failed"])
+
+    def test_outbound_oversized_frame_fails_before_socket_write(self):
+        messages = []
+        server = RemoteScriptServer(
+            ImmediateExecutor(), self.token, {}, logger=messages.append
+        )
+
+        class UnusedClient(object):
+            def send(self, _payload):
+                raise AssertionError("Oversized frame must not reach the socket")
+
+        server._enqueue({"message": "x" * (4 * 1024 * 1024)})
+        self.assertFalse(server._flush_outbound(UnusedClient()))
+        self.assertIsNone(server._pending_outbound)
+        self.assertEqual(server._outbound.unfinished_tasks, 0)
+        self.assertEqual(messages, ["Outbound protocol frame exceeds byte limit"])
+
     def test_send_failure_does_not_escape_outbound_flush(self):
         class FailingClient(object):
-            def sendall(self, _payload):
+            def send(self, _payload):
                 raise OSError("client disconnected")
 
         self.server._enqueue({"message": "will fail"})
@@ -5276,8 +5428,9 @@ class ServerTests(unittest.TestCase):
             def __init__(self):
                 self.payloads = []
 
-            def sendall(self, payload):
+            def send(self, payload):
                 self.payloads.append(payload)
+                return len(payload)
 
         client = RecordingClient()
         self.server._enqueue({"message": "old"}, self.server._client_generation)

@@ -304,7 +304,8 @@ export const listenerResultMetricSchema = z
     if (streamedBody !== undefined) {
       const owner = streamedBody.ownership;
       if (
-        value.mode !== "arrangement" ||
+        (value.metricStream !== undefined &&
+          value.metricStream.source.view !== value.mode) ||
         value.observation !== undefined ||
         value.nativeSourceCoverage !== undefined ||
         value.nativeLaunch !== undefined ||

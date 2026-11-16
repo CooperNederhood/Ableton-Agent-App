@@ -57,6 +57,8 @@ function createMetricRuntime({
   let stopWaiter = null;
   let nativeEpoch = 0;
   let clockLease = null;
+  let lastNativeEvent = null;
+  let lastNativeEventAt = 0;
   let heartbeatEnabled = true;
   const analyzerProbeToken = require("node:crypto").randomInt(1, 2 ** 40);
   let analyzerProbeStarted = null;
@@ -193,6 +195,8 @@ function createMetricRuntime({
         client.sendListenerDiagnostic(control, lifecycle),
       beforeCleanup: stopSmokes,
       onEvent: (event) => {
+        lastNativeEvent = event;
+        lastNativeEventAt = now();
         if (
           event.phase === "launch" &&
           event.nativeLifecycle.stage === "completed" &&
@@ -301,6 +305,34 @@ function createMetricRuntime({
         });
         if (accepted !== true)
           invalidate("native_failure_diagnostic_delivery_failed");
+        if (snapshot.launchTiming && snapshot.launchClock) {
+          const launchFacts = [];
+          for (const [field, values, limit] of [
+            ["timing", snapshot.launchTiming, 8],
+            ["clock", snapshot.launchClock, 11],
+            ["armCounter", [snapshot.armCounter], 1],
+          ])
+            values.slice(0, limit).forEach((value, index) => {
+              launchFacts.push({
+                field: `capture.launch.${field}.${index}`,
+                actual:
+                  typeof value === "number" && Number.isFinite(value)
+                    ? { state: "observed", value }
+                    : { state: "unavailable", reason: "invalid" },
+              });
+            });
+          if (
+            client.sendListenerDiagnostic(event.control, {
+              ...event.nativeLifecycle,
+              eventId: require("node:crypto").randomUUID(),
+              causationId: event.nativeLifecycle.eventId,
+              stage: "progress",
+              reason: "native_launch_failure_evidence",
+              facts: launchFacts,
+            }) !== true
+          )
+            invalidate("native_failure_diagnostic_delivery_failed");
+        }
         if (snapshot.spectrum) {
           const spectralFacts = [];
           const add = (field, value) =>
@@ -414,8 +446,8 @@ function createMetricRuntime({
           maxReportRows: analyzerReadiness ? 39961 : 2000,
           ...(analyzerReadiness
             ? {
-                maxSessionAudioDurationMs: 30000,
-                maxSessionReportRows: 2000,
+                maxSessionAudioDurationMs: 600000,
+                maxSessionReportRows: 39961,
                 streamCapability: protocol.METRIC_RECORD_STREAM_CAPABILITY,
               }
             : {}),
@@ -445,7 +477,7 @@ function createMetricRuntime({
             control.traceId,
             control.correlationId,
             control.causationId,
-            ...(control.config.geometry.captureMode === "arrangement-continuous"
+            ...(control.config.geometry.captureMode === "finite-metric-stream"
               ? [
                   (control.config.geometry.totalSamples /
                     control.config.geometry.sampleRate) *
@@ -463,8 +495,58 @@ function createMetricRuntime({
         } else if (control.action === "arm") controller.arm(control);
         else if (controller.cancel(control)) stopSmokes(control, true);
       },
-      onListenerFailure: () =>
-        invalidate("sdk_publication_failed_requires_reload"),
+      onListenerFailure: (reason, control, diagnostic) => {
+        if (
+          lastNativeEvent &&
+          lastNativeEvent.control.generation === control?.generation
+        ) {
+          client.sendListenerDiagnostic(lastNativeEvent.control, {
+            ...lastNativeEvent.nativeLifecycle,
+            eventId: require("node:crypto").randomUUID(),
+            causationId: lastNativeEvent.nativeLifecycle.eventId,
+            elapsedMs:
+              lastNativeEvent.nativeLifecycle.elapsedMs +
+              Math.max(0, now() - lastNativeEventAt),
+            stage: "progress",
+            reason: "sdk_publication_failure_evidence",
+            facts: [
+              {
+                field: "capture.sdk.reason",
+                actual: {
+                  state: "observed",
+                  value: String(reason).slice(0, 256),
+                },
+              },
+              ...[
+                "validationDetail",
+                "encodedBytes",
+                "frameLimit",
+                "sequence",
+                "ownerMatches",
+                "connected",
+                "epochMatches",
+              ].flatMap((field) => {
+                const value = diagnostic?.[field];
+                return ["string", "number", "boolean"].includes(typeof value)
+                  ? [
+                      {
+                        field: `capture.sdk.${field}`,
+                        actual: {
+                          state: "observed",
+                          value:
+                            typeof value === "string"
+                              ? value.slice(0, 256)
+                              : value,
+                        },
+                      },
+                    ]
+                  : [];
+              }),
+            ],
+          });
+        }
+        invalidate("sdk_publication_failed_requires_reload");
+      },
       onStatus: (_sink, state) => {
         if (state === "disconnected")
           invalidate("disconnected_requires_reload");

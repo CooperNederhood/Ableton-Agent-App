@@ -1722,8 +1722,12 @@ class AgentSignalClient {
         (!continuous || !phase?.armed || !phase?.launched)
       )
         throw new Error("metric_stream_without_native_launch");
-    } catch {
-      deliveryFailure("invalid_metric_listener_payload");
+    } catch (error) {
+      deliveryFailure(
+        "invalid_metric_listener_payload",
+        null,
+        this.listenerErrorReason(error)
+      );
       return false;
     }
     const socket = this.socket;
@@ -1822,7 +1826,11 @@ class AgentSignalClient {
       );
       return false;
     }
-    const deliveryFailure = (reason, encodedBytes = null) => {
+    const deliveryFailure = (
+      reason,
+      encodedBytes = null,
+      validationDetail = null
+    ) => {
       if (diagnosticOnly)
         return this.emitStatus("live", "native_diagnostic_gap", reason);
       let armGeometry;
@@ -1860,6 +1868,7 @@ class AgentSignalClient {
         sequence: this.listenerSequence,
         encodedBytes,
         frameLimit: this.maxFrameBytes(),
+        ...(validationDetail === null ? {} : { validationDetail }),
         ...(armGeometry ? { armGeometry } : {})
       });
     };

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { NATIVE_LISTENER_SCOPE } from "./native-listening-schemas.js";
+import { listeningMusicalAlignmentSchema } from "./listening-musical-alignment.js";
 import {
   workflowClipTargetSchema,
   workflowDeviceTargetSchema,
@@ -227,6 +228,7 @@ export const inspectListeningContextResultSchema = z
         playing: z.boolean().nullable(),
         currentBeat: beat.nullable(),
         tempo: z.number().finite().positive().nullable(),
+        timeSignature: listeningMusicalAlignmentSchema.shape.meter.nullable(),
         recording: z
           .object({
             recordMode: z.boolean().nullable(),

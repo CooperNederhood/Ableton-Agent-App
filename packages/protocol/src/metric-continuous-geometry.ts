@@ -12,11 +12,11 @@ export const MAX_CONTINUOUS_METRIC_REPORT_ROWS = 39_961;
 export const MAX_CONTINUOUS_METRIC_SPECTRUM_RECORDS = 14_065;
 export const MAX_CONTINUOUS_METRIC_ATTACK_RECORDS = 6_000;
 export const METRIC_CONTINUOUS_LISTENING_CAPABILITY =
-  "audio-listener/arrangement-continuous-metric-stream-v1" as const;
+  "audio-listener/finite-metric-stream-v1" as const;
 
 export const metricContinuousListeningGeometryInputSchema =
   metricListeningGeometryInputSchema.extend({
-    captureMode: z.literal("arrangement-continuous"),
+    captureMode: z.literal("finite-metric-stream"),
   });
 
 function calculate(
@@ -134,7 +134,7 @@ export type MetricContinuousListeningGeometry = z.infer<
   typeof metricContinuousListeningGeometrySchema
 >;
 
-/** Separate admission contract: this never widens Session or v1 observations. */
+/** Finite capture geometry shared by Session and Arrangement playback adapters. */
 export function createContinuousMetricListeningGeometry(
   input: z.input<typeof metricContinuousListeningGeometryInputSchema>,
 ): Readonly<MetricContinuousListeningGeometry> {

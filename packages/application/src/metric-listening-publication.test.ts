@@ -11,7 +11,10 @@ import {
   withSyntheticAnalyzerTimelines,
 } from "@ableton-agent/protocol/testing";
 import { createInMemorySessionContextStore } from "@ableton-agent/project-state";
-import { contextOperationResultSchema } from "@ableton-agent/tools";
+import {
+  contextOperationResultSchema,
+  expandListeningFeatureInventory,
+} from "@ableton-agent/tools";
 import { createSessionContextHost } from "./session-context-host.js";
 import {
   buildListeningPublication,
@@ -206,9 +209,10 @@ describe("explicit independent metric publication", () => {
           );
           if (result.action !== "list-features")
             throw new Error("Expected inventory");
-          expect(result.features).toHaveLength(1);
-          expect(result.features[0]!.record.feature.status).toBe("ready");
-          features.push(result.features[0]!.record);
+          const inventory = expandListeningFeatureInventory(result.inventory);
+          expect(inventory).toHaveLength(1);
+          expect(inventory[0]!.record.feature.status).toBe("ready");
+          features.push(inventory[0]!.record);
         }
         const detail = contextOperationResultSchema.parse(
           await host.executeContextOperation(
@@ -374,8 +378,9 @@ describe("explicit independent metric publication", () => {
         );
         if (page.action !== "list-features")
           throw new Error("Expected feature inventory");
-        expect(page.features).toHaveLength(1);
-        features.push(page.features[0]!.record);
+        const inventory = expandListeningFeatureInventory(page.inventory);
+        expect(inventory).toHaveLength(1);
+        features.push(inventory[0]!.record);
       }
       const comparison = await host.executeContextOperation(
         {

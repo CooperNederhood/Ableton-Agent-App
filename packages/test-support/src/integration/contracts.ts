@@ -1,11 +1,12 @@
 import type {
-  MetricAudioObservation,
+  MetricRecordStreamDescriptor,
   SessionListeningPreflightResult,
 } from "@ableton-agent/protocol";
 import type { AgentListeningEvidence } from "./agent-listening-result.js";
 import type { MelSmokeEvidence } from "./mel-smoke.js";
 import type { FeatureSourceEvidence } from "./feature-search.js";
 import type { ArrangementStreamProof } from "./arrangement-stream.js";
+import type { StorageShapeEvidence } from "./storage-shape.js";
 import type {
   ArrangementFixtureSource,
   ArrangementSourceEvidence,
@@ -64,6 +65,8 @@ export type FixtureSource = {
   readonly clipName: string;
   readonly sceneIndex: number;
   readonly clipLaunchQuantization?: ClipLaunchQuantization;
+  /** Full saved active region, independent of a shorter requested listen range. */
+  readonly activeLengthBeats?: number;
 } & (
   | { readonly mediaTarget: string }
   | {
@@ -180,8 +183,9 @@ export interface MidiContentIdentity {
 export type SourceIdentity = SourceLocation &
   ({ readonly mediaSha256: string } | MidiContentIdentity);
 export interface CaptureEvidence {
-  /** Original typed native observation, required by mixed comprehension checks. */
-  readonly observation?: MetricAudioObservation;
+  /** Original stream descriptor and verified immutable-record identity. */
+  readonly observation?: MetricRecordStreamDescriptor;
+  readonly stream?: ArrangementStreamProof;
   readonly toolCausationId?: string;
   readonly passId: string;
   readonly operationId: string;
@@ -281,6 +285,7 @@ export interface AudioBaselineEvidence extends BaselineEvidence {
   readonly sources: Readonly<Record<string, AudioSourceEvidence>>;
 }
 export interface TurnEvidence extends Submission {
+  readonly storageShapes?: readonly StorageShapeEvidence[];
   readonly arrangementCaptures?: readonly ArrangementCaptureEvidence[];
   readonly featureSources?: readonly FeatureSourceEvidence[];
   readonly pitchSmoke?: readonly PitchSmokeEvidence[];
@@ -299,6 +304,7 @@ export interface TurnEvidence extends Submission {
   readonly facts: Facts;
 }
 export interface RunEvidence {
+  readonly storageShapes?: readonly StorageShapeEvidence[];
   readonly arrangementContexts?: readonly ArrangementStreamProof[];
   readonly featureSources?: readonly FeatureSourceEvidence[];
   readonly setupActions?: readonly SetupEvidence[];

@@ -65,7 +65,6 @@ never sufficient and no flat session-state compatibility path is exposed.
     │   │   ├── live-projects.json
     │   │   └── signal-ingress.json
     │   ├── credentials/
-    │   │   ├── {credential-key}
     │   │   └── signal-ingress-secret.json
     │   ├── copilot/
     │   │   ├── {Copilot SDK-owned data}
@@ -647,8 +646,13 @@ journal and typed History; no new journal location or upload path is introduced.
 ## Data that intentionally remains outside the root
 
 - The installed Remote Script token remains in the managed Ableton Remote
-  Script directory because Live must read it. Desktop may copy it into the
-  encrypted credential vault.
+  Script directory because Live must read it. Desktop reads this bounded,
+  validated owner-only file into process memory when composing the connection,
+  unless an explicit environment token overrides it. Desktop does not create,
+  read, decrypt, or migrate an OS-backed vault copy. Existing vault files and
+  operating-system Keychain items are left untouched. This does not change
+  authenticated loopback traffic or the resolver-owned, owner-only Signal
+  producer credential described above.
 - Host-consumed Machine-Listening-Development and Midi-Capture bundles, their
   hash/installation manifests and owner-only discovery path configuration reside
   in their dedicated preset folders in the selected Ableton User Library.
@@ -666,8 +670,6 @@ journal and typed History; no new journal location or upload path is introduced.
   destination selected by the user.
 - Build, test, and release artifacts remain in their repository-defined or
   temporary locations and are not runtime application state.
-- Operating-system keychain material used by Electron `safeStorage` remains
-  operating-system managed.
 
 ### Packaged acceptance isolation
 

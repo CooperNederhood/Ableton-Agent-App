@@ -34,7 +34,7 @@ async function statusFixture(seconds = 600, allMetrics = true) {
   const fixture = await createSyntheticMetricRecordStreamFixture();
   const native = fixture.manifest.nativeProof;
   const geometry = createContinuousMetricListeningGeometry({
-    captureMode: "arrangement-continuous",
+    captureMode: "finite-metric-stream",
     sampleRate: 48_000,
     vectorSize: 64,
     tempoBpm: 120,
@@ -47,8 +47,15 @@ async function statusFixture(seconds = 600, allMetrics = true) {
     capability: METRIC_CONTINUOUS_LISTENING_CAPABILITY,
     algorithmVersion: "3.0.0",
     mode: "arrangement",
-    captureMode: "arrangement-continuous",
+    captureMode: "finite-metric-stream",
     sourceEvidence: "transport-only",
+    sourceContext: {
+      ...fixture.descriptor.source,
+      transport: {
+        startBeat: geometry.startBeat,
+        endBeat: geometry.endBeat,
+      },
+    },
     geometry,
     timingPolicy: fixture.descriptor.timingPolicy,
     grid: {
@@ -106,9 +113,9 @@ async function statusFixture(seconds = 600, allMetrics = true) {
     timingModes: ["descriptive", "strict"],
     maxClockDisagreementSamples: 480,
     maxAudioDurationMs: 600_000,
-    maxSessionAudioDurationMs: 30_000,
+    maxSessionAudioDurationMs: 600_000,
     maxReportRows: 39_961,
-    maxSessionReportRows: 2_000,
+    maxSessionReportRows: 39_961,
     streamCapability: METRIC_RECORD_STREAM_CAPABILITY,
     executedGen,
   };
@@ -189,8 +196,8 @@ describe("explicit continuous producer registration metadata", () => {
     for (const invalid of [
       { ...qualified, executedGen: null },
       { ...qualified, version: 5 },
-      { ...qualified, maxSessionAudioDurationMs: 600_000 },
-      { ...qualified, maxSessionReportRows: 39_961 },
+      { ...qualified, maxSessionAudioDurationMs: 30_000 },
+      { ...qualified, maxSessionReportRows: 2_000 },
       await statusFixture(30),
       await statusFixture(600, false),
     ])

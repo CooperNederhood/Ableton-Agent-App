@@ -10,10 +10,8 @@ import {
   type ListenerDescriptor,
 } from "@ableton-agent/signal-routing";
 import { createSyntheticMetricWireFixture } from "@ableton-agent/signal-routing/testing";
-import {
-  createMetricCaptureBinding,
-  validateMetricCaptureObservations,
-} from "./metric-listening-config.js";
+import { createMetricCaptureBinding } from "./metric-listening-config.js";
+import { withSyntheticMetricStreamRegistration } from "./metric-listening-test-support.js";
 
 function fixture(mode: "arrangement" | "session", partial = false) {
   const data = createSyntheticMetricWireFixture(mode, partial);
@@ -40,18 +38,107 @@ function fixture(mode: "arrangement" | "session", partial = false) {
     tempoBpm: data.config.geometry.tempoBpm,
     timingPolicy: data.config.timingPolicy,
   };
-  const pass = {
-    passId: data.wire.passId,
-    trace: {
-      traceId: data.wire.traceId,
-      correlationId: data.wire.correlationId,
-      causationId: data.wire.causationId,
-    },
-  };
-  return { data, input, pass };
+  return { data, input };
+}
+
+function admittedFixture(mode: "arrangement" | "session") {
+  const value = fixture(mode);
+  value.input.descriptor.registration = withSyntheticMetricStreamRegistration(
+    value.input.descriptor.registration,
+  );
+  return value;
 }
 
 describe("application-owned metric capture configuration", () => {
+  it.each([
+    ["arrangement", 1.875],
+    ["arrangement", 30],
+    ["arrangement", 30.001],
+    ["arrangement", 37.5],
+    ["session", 1.875],
+    ["session", 30],
+    ["session", 30.001],
+    ["session", 37.5],
+  ] as const)(
+    "consolidation: %s %ss uses the canonical stream and identical analyzer request",
+    (mode, seconds) => {
+      const { input } = fixture(mode);
+      input.tempoBpm = 128;
+      input.source.transport.startBeat = mode === "session" ? 16 : 0;
+      input.source.transport.endBeat =
+        input.source.transport.startBeat + (seconds * input.tempoBpm) / 60;
+      if (input.source.view === "session") {
+        input.source.coordinate.startBeat = 0;
+        input.source.coordinate.endBeat = (seconds * input.tempoBpm) / 60;
+        input.source.clipStartTimeBeats = 16;
+      }
+      input.descriptor.registration = listenerRegistrationMetricSchema.parse({
+        ...input.descriptor.registration,
+        capabilities: [
+          ...input.descriptor.registration.capabilities,
+          "audio-listener/analyzer-timelines-v1",
+          METRIC_CONTINUOUS_LISTENING_CAPABILITY,
+        ],
+        analyzerReadiness: createSyntheticAnalyzerReadiness(),
+        nativeStatus: {
+          ...input.descriptor.registration.nativeStatus,
+          version: 6,
+          scope: NATIVE_CONTINUOUS_METRIC_LISTENING_SCOPE,
+          readiness: "BLOCKED",
+          reason: "fresh_per_pass_native_validation_required",
+          executedGen: null,
+          maxAudioDurationMs: 600_000,
+          maxSessionAudioDurationMs: 600_000,
+          maxReportRows: 39_961,
+          maxSessionReportRows: 39_961,
+          streamCapability: METRIC_RECORD_STREAM_CAPABILITY,
+        },
+      });
+      const binding = createMetricCaptureBinding({
+        ...input,
+        ...(mode === "session" ? { stoppedBeat: 16 } : {}),
+      });
+      expect(binding.config.scope).toBe(
+        NATIVE_CONTINUOUS_METRIC_LISTENING_SCOPE,
+      );
+      expect(binding.config.mode).toBe(mode);
+      expect(binding.config.sourceContext).toEqual(input.source);
+      expect(binding.config.geometry.startBeat).toBe(
+        input.source.transport.startBeat,
+      );
+      expect(binding.config.geometry.endBeat).toBe(
+        input.source.transport.endBeat,
+      );
+      if (binding.config.mode === "session") {
+        expect(binding.config.stoppedBeat).toBe(16);
+        expect(binding.config.sourceContext).toMatchObject({
+          coordinate: {
+            unit: "beats",
+            iteration: 0,
+            startBeat: 0,
+            endBeat: (seconds * input.tempoBpm) / 60,
+          },
+          clipStartTimeBeats: 16,
+          synchronization: "transport-coupled-first-iteration",
+        });
+      }
+      expect(binding.config.geometry.totalSamples).toBe(
+        Math.round(seconds * 48_000),
+      );
+      expect(binding.config.requestedMetrics).toEqual([
+        "level",
+        "spectral-centroid",
+        "attacks",
+        "mel-bands",
+        "pitch",
+        "spectral-shape",
+      ]);
+      expect(binding.config.attacks).toEqual({
+        thresholdDb: 6,
+        minSpacingSamples: 4800,
+      });
+    },
+  );
   it.each([180, 600])(
     "builds a %ss all-six continuous config only from explicit producer status",
     (seconds) => {
@@ -74,9 +161,9 @@ describe("application-owned metric capture configuration", () => {
           reason: "fresh_per_pass_native_validation_required",
           executedGen: null,
           maxAudioDurationMs: 600_000,
-          maxSessionAudioDurationMs: 30_000,
+          maxSessionAudioDurationMs: 600_000,
           maxReportRows: 39_961,
-          maxSessionReportRows: 2_000,
+          maxSessionReportRows: 39_961,
           streamCapability: METRIC_RECORD_STREAM_CAPABILITY,
         },
       });
@@ -101,15 +188,7 @@ describe("application-owned metric capture configuration", () => {
     },
   );
   it("requests authoritative analyzers by default only after producer capability admission", () => {
-    const { input } = fixture("session");
-    input.descriptor.registration = listenerRegistrationMetricSchema.parse({
-      ...input.descriptor.registration,
-      analyzerReadiness: createSyntheticAnalyzerReadiness(),
-      capabilities: [
-        ...input.descriptor.registration.capabilities,
-        "audio-listener/analyzer-timelines-v1",
-      ],
-    });
+    const { input } = admittedFixture("session");
     const binding = createMetricCaptureBinding(input);
     expect(binding.descriptor.registration).toHaveProperty(
       "analyzerReadiness",
@@ -145,13 +224,13 @@ describe("application-owned metric capture configuration", () => {
       const { input } = fixture("arrangement");
       expect(() =>
         createMetricCaptureBinding({ ...input, requestedMetrics: [metric] }),
-      ).toThrow("analyzer_timelines_unavailable");
+      ).toThrow("continuous_metric_stream_unavailable");
     },
   );
   it.each(["arrangement", "session"] as const)(
     "freezes an explicit level-only %s request without silently dropping admitted analyzers",
     (mode) => {
-      const { input } = fixture(mode);
+      const { input } = admittedFixture(mode);
       const requestedMetrics: ("level" | "attacks")[] = ["level"];
       const binding = createMetricCaptureBinding({
         ...input,
@@ -166,15 +245,23 @@ describe("application-owned metric capture configuration", () => {
   it.each(["arrangement", "session"] as const)(
     "freezes the %s source, grid and unchanged detector cadence",
     (mode) => {
-      const { input, data } = fixture(mode);
+      const { input, data } = admittedFixture(mode);
       const binding = createMetricCaptureBinding(input);
       expect(binding.config.sourceContext).toEqual(data.observation.source);
-      expect(binding.config.geometry).toEqual(data.config.geometry);
+      expect(binding.config.geometry).toMatchObject({
+        sampleRate: data.config.geometry.sampleRate,
+        totalSamples: data.config.geometry.totalSamples,
+        startBeat: data.config.geometry.startBeat,
+        endBeat: data.config.geometry.endBeat,
+        captureMode: "finite-metric-stream",
+      });
       expect(binding.config.requestedMetrics).toEqual([
         "level",
         "spectral-centroid",
         "attacks",
         "mel-bands",
+        "pitch",
+        "spectral-shape",
       ]);
       expect(binding.config.attacks).toEqual({
         thresholdDb: 6,
@@ -192,10 +279,14 @@ describe("application-owned metric capture configuration", () => {
   );
 
   it("uses the actual supported rate for the physical attack cadence", () => {
-    const { input } = fixture("arrangement");
+    const { input } = admittedFixture("arrangement");
     input.descriptor.registration = listenerRegistrationMetricSchema.parse({
       ...input.descriptor.registration,
       sampleRate: 44_100,
+      analyzerReadiness: {
+        ...createSyntheticAnalyzerReadiness(),
+        sampleRate: 44_100,
+      },
       nativeStatus: {
         ...input.descriptor.registration.nativeStatus,
         readiness: "BLOCKED",
@@ -220,7 +311,7 @@ describe("application-owned metric capture configuration", () => {
   });
 
   it("does not bypass an analyzer-independent shared readiness failure", () => {
-    const { input } = fixture("session");
+    const { input } = admittedFixture("session");
     input.descriptor.registration = listenerRegistrationMetricSchema.parse({
       ...input.descriptor.registration,
       nativeStatus: {
@@ -235,84 +326,9 @@ describe("application-owned metric capture configuration", () => {
     );
   });
 
-  it("does not extend the thirty-second capture ceiling", () => {
-    const { input } = fixture("arrangement");
-    input.source.transport.endBeat = 61;
+  it("rejects ranges beyond the finite 600-second acquisition ceiling", () => {
+    const { input } = admittedFixture("arrangement");
+    input.source.transport.endBeat = 1200.001;
     expect(() => createMetricCaptureBinding(input)).toThrow();
-  });
-});
-
-describe("metric observation publication binding", () => {
-  it.each([
-    ["arrangement", false],
-    ["arrangement", true],
-    ["session", false],
-    ["session", true],
-  ] as const)("retains honest %s partial=%s data", (mode, partial) => {
-    const { input, data, pass } = fixture(mode, partial);
-    const binding = createMetricCaptureBinding({
-      ...input,
-      requestedMetrics: data.config.requestedMetrics,
-    });
-    const validated = validateMetricCaptureObservations(
-      [data.observation],
-      [binding],
-      pass,
-    );
-    expect(validated).toEqual([data.observation]);
-    expect(Object.isFrozen(validated)).toBe(true);
-    expect(Object.isFrozen(validated[0]?.metrics.level.records)).toBe(true);
-  });
-
-  it("rejects baseline-only evidence for a default four-metric capture", () => {
-    const { input, data, pass } = fixture("session");
-    const binding = createMetricCaptureBinding(input);
-    expect(binding.config.requestedMetrics).toContain("mel-bands");
-    expect(() =>
-      validateMetricCaptureObservations([data.observation], [binding], pass),
-    ).toThrow("invalid_metric_capture_observation");
-  });
-
-  it.each([
-    "passId",
-    "connectionId",
-    "connectionEpoch",
-    "traceId",
-    "correlationId",
-    "causationId",
-  ] as const)("rejects an otherwise valid foreign %s", (key) => {
-    const { input, data, pass } = fixture("arrangement");
-    const binding = createMetricCaptureBinding(input);
-    data.observation.ownership[key] = "10000000-0000-4000-8000-000000000001";
-    expect(() =>
-      validateMetricCaptureObservations([data.observation], [binding], pass),
-    ).toThrow("invalid_metric_capture_observation");
-  });
-
-  it("rejects a self-consistent different Bridge source", () => {
-    const { input, data, pass } = fixture("arrangement");
-    const binding = createMetricCaptureBinding(input);
-    if (data.observation.source.view !== "arrangement")
-      throw new Error("Expected an Arrangement fixture");
-    data.observation.source.target.expectedReference =
-      "10000000-0000-4000-8000-000000000001";
-    expect(() =>
-      validateMetricCaptureObservations([data.observation], [binding], pass),
-    ).toThrow("invalid_metric_capture_observation");
-  });
-
-  it("requires exactly one result per owned listener", () => {
-    const { input, data, pass } = fixture("arrangement");
-    const binding = createMetricCaptureBinding(input);
-    expect(() =>
-      validateMetricCaptureObservations([], [binding], pass),
-    ).toThrow("invalid_metric_capture_observation");
-    expect(() =>
-      validateMetricCaptureObservations(
-        [data.observation, data.observation],
-        [binding, binding],
-        pass,
-      ),
-    ).toThrow("invalid_metric_capture_observation");
   });
 });

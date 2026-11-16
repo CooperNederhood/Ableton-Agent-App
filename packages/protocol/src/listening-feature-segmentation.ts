@@ -1,4 +1,4 @@
-import type { MetricAudioObservation } from "./metric-observation-schemas.js";
+import type { ListeningFeatureSource } from "./listening-feature-source.js";
 import {
   listeningMusicalAlignmentSchema,
   type ListeningMusicalAlignment,
@@ -20,10 +20,18 @@ export interface ListeningFeatureSegment extends ListeningFeatureRange {
 
 /** Pure coordinate arithmetic; only a privileged capture may supply alignment evidence. */
 export function segmentListeningObservation(
-  observation: MetricAudioObservation,
+  observation: Pick<ListeningFeatureSource, "source" | "geometry">,
   evidence?: ListeningMusicalAlignment,
 ): ListeningFeatureSegment[] {
-  const geometry = observation.geometry;
+  const nativeGeometry = observation.geometry;
+  const geometry =
+    observation.source.view === "session"
+      ? {
+          ...nativeGeometry,
+          startBeat: observation.source.coordinate.startBeat,
+          endBeat: observation.source.coordinate.endBeat,
+        }
+      : nativeGeometry;
   const coordinate: ListeningFeatureSegment["coordinate"] =
     observation.source.view === "session"
       ? "clip-local-beats"

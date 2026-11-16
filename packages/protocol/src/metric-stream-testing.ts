@@ -17,6 +17,7 @@ import {
   type MetricRecordStreamTerminalProof,
   type MetricRecordStreamAdmission,
   type MetricRecordStreamManifest,
+  type MetricRecordStreamGap,
 } from "./metric-record-stream.js";
 import {
   createContinuousMetricListeningGeometry,
@@ -29,6 +30,15 @@ import {
 import { MEL_BAND_PROFILE } from "./mel-band-profile.js";
 import { PITCH_PROFILE, SPECTRAL_SHAPE_PROFILE } from "./analyzer-profile.js";
 import type { NativeMetricLaunchProof } from "./native-metric-listening-schemas.js";
+import {
+  NATIVE_CONTINUOUS_METRIC_LISTENING_SCOPE,
+  nativeContinuousMetricListeningConfigSchema,
+  nativeContinuousMetricReadyProofSchema,
+  nativeContinuousMetricArmProofSchema,
+  type NativeContinuousMetricListeningConfig,
+  type NativeContinuousMetricReadyProof,
+  type NativeContinuousMetricArmProof,
+} from "./native-continuous-metric-listening-schemas.js";
 
 /** Synthetic counters only, never actual DSP, transport or readiness evidence. */
 export function createSyntheticMetricRecordStreamTerminalProof(
@@ -36,6 +46,7 @@ export function createSyntheticMetricRecordStreamTerminalProof(
   options: {
     status?: MetricRecordStreamTerminalProof["status"];
     capturedSamples?: number;
+    stoppedBeat?: number;
   } = {},
 ): MetricRecordStreamTerminalProof {
   const d = metricRecordStreamDescriptorSchema.parse(descriptor);
@@ -58,7 +69,7 @@ export function createSyntheticMetricRecordStreamTerminalProof(
   const row = (counter: number, playing: boolean): Row => {
     const beat = playing
       ? g.startBeat + (counter - origin) / samplesPerBeat
-      : g.startBeat;
+      : (options.stoppedBeat ?? g.startBeat);
     return [
       playing ? 1 : 0,
       beat,
@@ -246,15 +257,74 @@ function syntheticRecord(
 async function* syntheticChunks(
   descriptor: MetricRecordStreamDescriptor,
   recordsPerChunk: number,
+  missing: NonNullable<SyntheticMetricRecordStreamOptions["gaps"]>,
+  suppliedRecords: SyntheticMetricRecordStreamOptions["records"],
 ): AsyncGenerator<MetricRecordChunk, MetricRecordStreamState> {
   let state = await createMetricRecordStreamState(descriptor);
   for (const metric of descriptor.requestedMetrics) {
+    const supplied = suppliedRecords?.[metric];
+    const byIndex = new Map(supplied?.map((record) => [record.index, record]));
+    if (supplied && byIndex.size !== supplied.length)
+      throw new RangeError("synthetic_metric_stream_duplicate_record");
     const expected = metricRecordStreamExpectedCoverage(
       descriptor,
       metric,
     ).expectedRecords;
+    if (
+      supplied &&
+      [...byIndex.keys()].some(
+        (index) =>
+          !Number.isSafeInteger(index) ||
+          index < 0 ||
+          index >= expected ||
+          missing.some(
+            (gap) =>
+              gap.metric === metric &&
+              index >= gap.firstIndex &&
+              index < gap.firstIndex + gap.count,
+          ),
+      )
+    )
+      throw new RangeError("synthetic_metric_stream_supplied_record_range");
     for (let from = 0; from < expected; from += recordsPerChunk) {
       const prefix = state.metrics.find((item) => item.metric === metric)!;
+      const end = Math.min(from + recordsPerChunk, expected);
+      const records = [];
+      const gaps = [];
+      const reasonAt = (index: number) =>
+        missing.find(
+          (gap) =>
+            gap.metric === metric &&
+            index >= gap.firstIndex &&
+            index < gap.firstIndex + gap.count,
+        )?.reason;
+      for (let index = from; index < end;) {
+        const reason = reasonAt(index);
+        if (reason === undefined) {
+          const record = supplied
+            ? byIndex.get(index)
+            : syntheticRecord(descriptor, metric, index);
+          if (!record)
+            throw new RangeError("synthetic_metric_stream_missing_record");
+          records.push(record);
+          index++;
+          continue;
+        }
+        const firstIndex = index++;
+        while (index < end && reasonAt(index) === reason) index++;
+        gaps.push({
+          firstIndex,
+          count: index - firstIndex,
+          reason,
+          detail: "Synthetic explicit measurement gap.",
+          support: {
+            startSample: syntheticRecord(descriptor, metric, firstIndex).support
+              .startSample,
+            endSample: syntheticRecord(descriptor, metric, index - 1).support
+              .endSample,
+          },
+        });
+      }
       const value = metricRecordChunkSchema.parse({
         schema: "metric-record-chunk/v1",
         descriptorDigest: state.descriptorDigest,
@@ -265,11 +335,8 @@ async function* syntheticChunks(
         slotOffset: prefix.nextIndex,
         previousDigest: prefix.lastDigest,
         digest: "0".repeat(64),
-        gaps: [],
-        records: Array.from(
-          { length: Math.min(recordsPerChunk, expected - from) },
-          (_, offset) => syntheticRecord(descriptor, metric, from + offset),
-        ),
+        gaps,
+        records,
       });
       value.digest = await metricRecordChunkDigest(value);
       state = await acceptMetricRecordChunk(descriptor, state, value);
@@ -285,10 +352,22 @@ export interface SyntheticMetricRecordStreamFixture {
   chunks: () => AsyncGenerator<MetricRecordChunk, MetricRecordStreamState>;
   state: MetricRecordStreamState;
   manifest: MetricRecordStreamManifest;
+  config: NativeContinuousMetricListeningConfig;
+  ready: NativeContinuousMetricReadyProof;
+  armed: NativeContinuousMetricArmProof;
 }
 
 export interface SyntheticMetricRecordStreamOptions {
-  target?: MetricRecordStreamDescriptor["source"]["target"];
+  records?: {
+    readonly [K in MetricRecordStreamMetric]?: readonly Extract<
+      MetricRecordChunk,
+      { metric: K }
+    >["records"][number][];
+  };
+  target?: Extract<
+    MetricRecordStreamDescriptor["source"],
+    { view: "arrangement" }
+  >["target"];
   seconds?: number;
   requestedMetrics?: readonly MetricRecordStreamMetric[];
   sampleRate?: 44_100 | 48_000;
@@ -296,6 +375,18 @@ export interface SyntheticMetricRecordStreamOptions {
   startBeat?: number;
   sourceOrigin?: number;
   recordsPerChunk?: number;
+  source?: MetricRecordStreamDescriptor["source"];
+  ownership?: MetricRecordStreamDescriptor["ownership"];
+  timingPolicy?: MetricRecordStreamDescriptor["timingPolicy"];
+  stoppedBeat?: number;
+  vectorSize?: number;
+  gaps?: readonly (Pick<
+    MetricRecordStreamGap,
+    "firstIndex" | "count" | "reason"
+  > & {
+    metric: MetricRecordStreamMetric;
+  })[];
+  unavailableMetrics?: readonly MetricRecordStreamMetric[];
 }
 
 /** Synthetic contract evidence only, never actual audio or native qualification. */
@@ -322,9 +413,9 @@ export async function createSyntheticMetricRecordStreamFixture(
     throw new RangeError("synthetic_metric_stream_chunk_record_limit");
   const base = createSyntheticMetricListeningObservation();
   const geometry = createContinuousMetricListeningGeometry({
-    captureMode: "arrangement-continuous",
+    captureMode: "finite-metric-stream",
     sampleRate,
-    vectorSize: 64,
+    vectorSize: options.vectorSize ?? 64,
     tempoBpm,
     startBeat,
     endBeat: startBeat + (seconds * tempoBpm) / 60,
@@ -340,6 +431,12 @@ export async function createSyntheticMetricRecordStreamFixture(
       "spectral-shape",
     ]),
   ];
+  if (
+    Object.keys(options.records ?? {}).some(
+      (metric) => !requestedMetrics.some((requested) => requested === metric),
+    )
+  )
+    throw new RangeError("synthetic_metric_stream_unrequested_records");
   const algorithms = [
     { metric: "level", algorithm: base.metrics.level.algorithm },
     {
@@ -366,46 +463,226 @@ export async function createSyntheticMetricRecordStreamFixture(
     )
     .map((item) => ({
       ...item,
-      availability: "available",
-      unavailableReason: null,
+      availability: options.unavailableMetrics?.includes(
+        item.metric as MetricRecordStreamMetric,
+      )
+        ? "unavailable"
+        : "available",
+      unavailableReason: options.unavailableMetrics?.includes(
+        item.metric as MetricRecordStreamMetric,
+      )
+        ? "Synthetic unavailable metric."
+        : null,
     }));
   const descriptor = metricRecordStreamDescriptorSchema.parse({
     schema: "metric-record-stream/v1",
     capability: METRIC_CONTINUOUS_LISTENING_CAPABILITY,
-    ownership: base.ownership,
-    source: {
+    ownership: options.ownership ?? base.ownership,
+    source: options.source ?? {
       ...base.source,
       target: options.target ?? base.source.target,
       transport: { startBeat: geometry.startBeat, endBeat: geometry.endBeat },
     },
     geometry,
-    timingPolicy: { mode: "descriptive", maxClockDisagreementSamples: 64 },
+    timingPolicy: options.timingPolicy ?? {
+      mode: "descriptive",
+      maxClockDisagreementSamples: 64,
+    },
     requestedMetrics,
     algorithms,
     maxPendingChunks: 8,
   });
-  const iterator = syntheticChunks(descriptor, recordsPerChunk);
+  const gaps = [
+    ...(options.gaps ?? []),
+    ...descriptor.algorithms.flatMap((algorithm) => {
+      const count = metricRecordStreamExpectedCoverage(
+        descriptor,
+        algorithm.metric,
+      ).expectedRecords;
+      return algorithm.availability === "unavailable" && count > 0
+        ? [
+            {
+              metric: algorithm.metric,
+              firstIndex: 0,
+              count,
+              reason: "dependency-unavailable" as const,
+            },
+          ]
+        : [];
+    }),
+  ];
+  for (const gap of gaps) {
+    if (
+      !requestedMetrics.includes(gap.metric) ||
+      !Number.isSafeInteger(gap.firstIndex) ||
+      gap.firstIndex < 0 ||
+      !Number.isSafeInteger(gap.count) ||
+      gap.count < 1 ||
+      gap.firstIndex + gap.count >
+        metricRecordStreamExpectedCoverage(descriptor, gap.metric)
+          .expectedRecords ||
+      gaps.some(
+        (other) =>
+          other !== gap &&
+          other.metric === gap.metric &&
+          other.firstIndex < gap.firstIndex + gap.count &&
+          gap.firstIndex < other.firstIndex + other.count,
+      )
+    )
+      throw new RangeError("synthetic_metric_stream_gap_range");
+  }
+  const iterator = syntheticChunks(
+    descriptor,
+    recordsPerChunk,
+    gaps,
+    options.records,
+  );
   let next = await iterator.next();
   while (!next.done) next = await iterator.next();
   const state = next.value;
-  const nativeProof =
-    createSyntheticMetricRecordStreamTerminalProof(descriptor);
+  const nativeProof = createSyntheticMetricRecordStreamTerminalProof(
+    descriptor,
+    {
+      ...(options.stoppedBeat === undefined
+        ? {}
+        : { stoppedBeat: options.stoppedBeat }),
+    },
+  );
+  const config = nativeContinuousMetricListeningConfigSchema.parse({
+    scope: NATIVE_CONTINUOUS_METRIC_LISTENING_SCOPE,
+    capability: METRIC_CONTINUOUS_LISTENING_CAPABILITY,
+    algorithmVersion: "3.0.0",
+    mode: descriptor.source.view,
+    captureMode: geometry.captureMode,
+    sourceEvidence:
+      descriptor.source.view === "session"
+        ? "expected-context-only"
+        : "transport-only",
+    ...(descriptor.source.view === "session"
+      ? {
+          stoppedBeat: options.stoppedBeat ?? startBeat,
+          source: {
+            mode: "session",
+            synchronization: "transport-coupled-first-iteration",
+            target: descriptor.source.target,
+          },
+        }
+      : {}),
+    geometry: createContinuousMetricListeningGeometry({
+      captureMode: geometry.captureMode,
+      sampleRate,
+      vectorSize: geometry.vectorSize,
+      tempoBpm,
+      startBeat,
+      endBeat: geometry.endBeat,
+      startSample: 0,
+    }),
+    timingPolicy: descriptor.timingPolicy,
+    grid: {
+      beats: 0.25,
+      anchor: "global-beat-grid",
+      rounding: "nearest-sample",
+      coordinates: "capture-local",
+    },
+    sourceContext: descriptor.source,
+    requestedMetrics,
+    ...(requestedMetrics.includes("attacks")
+      ? {
+          attacks: {
+            thresholdDb: 6,
+            minSpacingSamples: Math.round(sampleRate / 10),
+          },
+        }
+      : {}),
+    maxPendingChunks: 8,
+    maxChunkBytes: 128 * 1024,
+  });
+  const before = nativeProof.before;
+  const first = before.frames[0]![4];
+  const configurationCounter = before.frames[8]![4];
+  const idleFields = Array<number>(12).fill(0);
+  const idleTiming = [0, -1, 0, 0, -1, first - 1, -1, 3];
+  const ready = nativeContinuousMetricReadyProofSchema.parse({
+    scope: NATIVE_CONTINUOUS_METRIC_LISTENING_SCOPE,
+    analyzerProducerAbi: 3,
+    phase: "idle-preflight",
+    configurationEvidence: "admitted-not-executed",
+    ownership: descriptor.ownership,
+    config,
+    before,
+    disarmCounter: first - 1,
+    elapsedMs: 100,
+    idle: {
+      fields: idleFields,
+      confirmedFields: idleFields,
+      timing: idleTiming,
+      confirmedTiming: idleTiming,
+      configurationCounter,
+      confirmedConfigurationCounter: configurationCounter + 1,
+      timingCounter: configurationCounter + 2,
+      confirmedTimingCounter: configurationCounter + 3,
+      elapsedMs: 20,
+    },
+  });
+  const timing = [
+    descriptor.ownership.nativeEpoch,
+    -1,
+    0,
+    0,
+    -1,
+    nativeProof.launch.timing[5],
+    -1,
+    3,
+  ];
+  const armed = nativeContinuousMetricArmProofSchema.parse({
+    scope: NATIVE_CONTINUOUS_METRIC_LISTENING_SCOPE,
+    analyzerProducerAbi: 3,
+    ownership: descriptor.ownership,
+    config,
+    before,
+    receipt: {
+      fields: nativeProof.configuration,
+      confirmedFields: nativeProof.configuration,
+      timing,
+      confirmedTiming: timing,
+      elapsedMs: 20,
+    },
+  });
+  const metrics = state.metrics.map((prefix) => ({
+    ...prefix,
+    ...metricRecordStreamExpectedCoverage(descriptor, prefix.metric),
+    trailingSupport: metricRecordStreamCapturedTrailingSupport(
+      descriptor,
+      prefix.metric,
+    ),
+    availability: descriptor.algorithms.find(
+      (algorithm) => algorithm.metric === prefix.metric,
+    )!.availability,
+    status:
+      descriptor.algorithms.find(
+        (algorithm) => algorithm.metric === prefix.metric,
+      )!.availability === "unavailable"
+        ? "failed"
+        : prefix.missingRecords === 0
+          ? "complete"
+          : prefix.nextRecordOffset === 0
+            ? "failed"
+            : "partial",
+  }));
   const manifest = metricRecordStreamManifestSchema.parse({
     schema: "metric-record-stream-manifest/v1",
     descriptorDigest: state.descriptorDigest,
     ownership: descriptor.ownership,
-    outcome: "complete",
+    outcome: metrics.every((metric) => metric.status === "complete")
+      ? "complete"
+      : metrics.some(
+            (metric) =>
+              metric.nextRecordOffset > 0 || metric.status === "complete",
+          )
+        ? "partial"
+        : "failed",
     algorithms: descriptor.algorithms,
-    metrics: state.metrics.map((prefix) => ({
-      ...prefix,
-      ...metricRecordStreamExpectedCoverage(descriptor, prefix.metric),
-      trailingSupport: metricRecordStreamCapturedTrailingSupport(
-        descriptor,
-        prefix.metric,
-      ),
-      availability: "available",
-      status: "complete",
-    })),
+    metrics,
     nativeProof,
     limitations: [
       "Synthetic contract evidence only; not actual audio or Live qualification.",
@@ -415,8 +692,12 @@ export async function createSyntheticMetricRecordStreamFixture(
   return {
     descriptor,
     admission: compactMetricRecordStreamDescriptor(descriptor),
-    chunks: () => syntheticChunks(descriptor, recordsPerChunk),
+    chunks: () =>
+      syntheticChunks(descriptor, recordsPerChunk, gaps, options.records),
     state,
     manifest,
+    config,
+    ready,
+    armed,
   };
 }

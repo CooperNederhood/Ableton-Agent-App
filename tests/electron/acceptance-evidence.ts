@@ -26,7 +26,7 @@ import type { MetricAudioObservation } from "@ableton-agent/protocol";
 export function sessionCaptureToolCausation(
   events: readonly DesktopAppEvent[],
   owner: Submission & { sdkTurnId: string },
-  observation: MetricAudioObservation,
+  observation: Pick<MetricAudioObservation, "source" | "ownership">,
 ): string {
   const source = observation.source;
   if (source.view !== "session")
@@ -247,6 +247,7 @@ export function captureCleanupConfirmed(
     sessionId: string;
     agentId: string;
     native: NonNullable<CaptureEvidence["native"]>;
+    sourceView?: "session" | "arrangement";
   },
 ): boolean {
   const owned = events.filter(
@@ -302,7 +303,8 @@ export function captureCleanupConfirmed(
     (actions.has("release") && actions.has("finalization"));
   const source = successful.some(
     (event) =>
-      event.name === "listening.runtime.session-source-cleanup.completed" &&
+      event.name ===
+        `listening.runtime.${owner.sourceView ?? "session"}-source-cleanup.completed` &&
       event.sessionId === owner.sessionId &&
       event.activeAgentId === owner.agentId,
   );

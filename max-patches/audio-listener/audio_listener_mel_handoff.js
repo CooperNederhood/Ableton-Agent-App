@@ -36,7 +36,7 @@ function createMelBandHandoff({
   onRecord,
   onGap,
 }) {
-  const streaming = captureMode === "arrangement-continuous";
+  const streaming = captureMode === "finite-metric-stream";
   requireValue(
     integer(epoch, 1000000) &&
       epoch > 0 &&

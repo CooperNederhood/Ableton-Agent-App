@@ -11,7 +11,7 @@ import {
 import { nativeMetricListeningConfigSchema } from "./native-metric-listening-schemas.js";
 
 const input = {
-  captureMode: "arrangement-continuous" as const,
+  captureMode: "finite-metric-stream" as const,
   sampleRate: 48_000 as const,
   vectorSize: 64,
   tempoBpm: 120,
@@ -112,7 +112,7 @@ describe("explicit continuous Arrangement geometry", () => {
       false,
     );
     const { captureMode: _mode, ...legacyInput } = input;
-    expect(_mode).toBe("arrangement-continuous");
+    expect(_mode).toBe("finite-metric-stream");
     expect(() => createMetricListeningGeometry(legacyInput)).toThrow(
       "unsupported_metric_listening_duration",
     );

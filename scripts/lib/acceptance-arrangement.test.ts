@@ -1,14 +1,22 @@
 import { gzipSync } from "node:zlib";
+import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 import type {
   DriverContext,
   LifecycleEvent,
+} from "@ableton-agent/test-support/integration";
+import {
+  validateFixture,
+  validateScenario,
+  scenarioArrangementSource,
+  verifyArrangementSource,
 } from "@ableton-agent/test-support/integration";
 import { arrangementTestEvidence } from "../../packages/test-support/src/integration/arrangement-test-support.js";
 import {
   loadedArrangementState,
   handoffArrangementSource,
   arrangementOwnerReleased,
+  arrangementSourceStateAllowed,
   arrangementCaptureToolCausation,
   readArrangementAcceptanceSource,
   readSavedArrangementSource,
@@ -25,6 +33,118 @@ import {
 import { appEventSchema } from "../../apps/desktop/src/contracts.js";
 
 describe("Arrangement capture tool attribution", () => {
+  it("scopes shared-fixture Arrangement admission and independently reads saved audio/MIDI identities", () => {
+    const root = new URL("../../integration/", import.meta.url);
+    const fixture: unknown = JSON.parse(
+      readFileSync(
+        new URL("fixtures/listening-consolidation-suite/fixture.json", root),
+        "utf8",
+      ),
+    );
+    validateFixture(fixture);
+    const bytes = readFileSync(
+      new URL("fixtures/listening-consolidation-suite/project.als", root),
+    );
+    for (const id of ["short-audio", "short-midi", "long-audio", "long-midi"]) {
+      const scenario: unknown = JSON.parse(
+        readFileSync(
+          new URL(
+            `acceptance-scenarios/listening-consolidation-${id}.json`,
+            root,
+          ),
+          "utf8",
+        ),
+      );
+      validateScenario(scenario, fixture);
+      const source = scenarioArrangementSource(fixture, scenario);
+      expect(source.id).toBe(
+        id.endsWith("audio") ? "arrangement-audio" : `arrangement-${id}`,
+      );
+      const saved = readSavedArrangementSource(
+        bytes,
+        source.trackIndex,
+        source.trackName,
+        source,
+      );
+      expect(saved.savedClips).toEqual(source.clips);
+      if (id === "short-midi") expect(saved.savedClips).toHaveLength(1);
+      if (id === "long-midi") expect(saved.savedClips).toHaveLength(20);
+    }
+  });
+
+  it("admits independently witnessed MIDI notes without fabricated audio assets and rejects drift", () => {
+    const { fixture, definition, baseline } = arrangementTestEvidence();
+    const slot = definition.listenerBindingSlot.replace(
+      "AudioTrack:",
+      "MidiTrack:",
+    );
+    const notes = "c".repeat(64);
+    const midi = {
+      ...definition,
+      listenerBindingSlot: slot,
+      targetArmed: false,
+      targetMonitoring: "auto" as const,
+      clips: definition.clips.map((clip) => ({
+        ...clip,
+        mediaTarget: null,
+        midiNotesSha256: notes,
+      })),
+    };
+    const owned = {
+      ...fixture,
+      listenerBindings: fixture.listenerBindings!.map((binding) => ({
+        ...binding,
+        slot,
+      })),
+      arrangementSources: [midi],
+    };
+    const evidence = {
+      ...baseline,
+      savedClips: midi.clips,
+      media: [],
+      before: {
+        ...baseline.before,
+        targetArmed: false,
+        targetMonitoring: "auto" as const,
+      },
+      after: {
+        ...baseline.after,
+        targetArmed: false,
+        targetMonitoring: "auto" as const,
+      },
+      source: {
+        ...baseline.source,
+        clips: baseline.source.clips.map((clip) => ({
+          ...clip,
+          mediaSha256: null,
+          midiNotesSha256: notes,
+        })),
+      },
+    };
+    expect(() => verifyArrangementSource(owned, midi, evidence)).not.toThrow();
+    for (const fault of [
+      {
+        ...evidence,
+        source: {
+          ...evidence.source,
+          clips: evidence.source.clips.map((clip) => ({
+            ...clip,
+            midiNotesSha256: "d".repeat(64),
+          })),
+        },
+      },
+      {
+        ...evidence,
+        savedClips: evidence.savedClips.map((clip) => ({
+          ...clip,
+          midiNotesSha256: "d".repeat(64),
+        })),
+      },
+      { ...evidence, media: baseline.media },
+      { ...evidence, after: { ...evidence.after, targetArmed: true } },
+    ])
+      expect(() => verifyArrangementSource(owned, midi, fault)).toThrow();
+  });
   function fixture() {
     const owner = {
       appSessionId: "10000000-0000-4000-8000-000000000001",
@@ -125,6 +245,14 @@ describe("authenticated Arrangement owner release", () => {
     h.attributes.listenerOwnerReleased = false;
     expect(arrangementOwnerReleased(h.attributes, h.ownership)).toBe(false);
   });
+  it("rejects source release without its exact native stream ownership", async () => {
+    const h = await fixture();
+    h.row.generation = null;
+    h.row.nativeEpoch = null;
+    expect(arrangementOwnerReleased(h.attributes, h.ownership)).toBe(false);
+    h.row.connectionEpoch = "foreign";
+    expect(arrangementOwnerReleased(h.attributes, h.ownership)).toBe(false);
+  });
   it.each([
     "listenerId",
     "connectionId",
@@ -142,6 +270,59 @@ describe("authenticated Arrangement owner release", () => {
     expect(arrangementOwnerReleased(h.attributes, h.ownership)).toBe(false);
     h.attributes.listeners = [];
     expect(arrangementOwnerReleased(h.attributes, h.ownership)).toBe(false);
+  });
+});
+
+describe("protected Arrangement source state after a Session listen", () => {
+  const idleOverride = {
+    arrangementEligible: null,
+    globalBackToArrangement: true,
+    playingSessionClips: 0,
+    queuedSessionClips: 0,
+  };
+  it("allows Live 11's unclassified idle override only after a published owned Session capture", () => {
+    expect(arrangementSourceStateAllowed(idleOverride, true, true)).toBe(true);
+    expect(arrangementSourceStateAllowed(idleOverride, false, true)).toBe(
+      false,
+    );
+    expect(arrangementSourceStateAllowed(idleOverride, true, false)).toBe(
+      false,
+    );
+  });
+  it.each([
+    { globalBackToArrangement: false },
+    { globalBackToArrangement: null },
+    { playingSessionClips: 1 },
+    { playingSessionClips: null },
+    { queuedSessionClips: 1 },
+    { queuedSessionClips: null },
+  ])("rejects unaccounted or unavailable override state: %j", (change) => {
+    expect(
+      arrangementSourceStateAllowed({ ...idleOverride, ...change }, true, true),
+    ).toBe(false);
+  });
+  it("still requires definite eligibility before Arrangement capture", () => {
+    expect(
+      arrangementSourceStateAllowed(
+        { ...idleOverride, arrangementEligible: true },
+        false,
+        false,
+      ),
+    ).toBe(true);
+    expect(
+      arrangementSourceStateAllowed(
+        { ...idleOverride, arrangementEligible: false },
+        false,
+        true,
+      ),
+    ).toBe(false);
+    expect(
+      arrangementSourceStateAllowed(
+        { ...idleOverride, arrangementEligible: false, playingSessionClips: 1 },
+        true,
+        false,
+      ),
+    ).toBe(true);
   });
 });
 
@@ -275,6 +456,59 @@ describe("declared Arrangement source handoff", () => {
     );
     expect(h.restore).not.toHaveBeenCalled();
   });
+  it("clears exactly the declared stopped remembered Session count during handoff", async () => {
+    const h = fixture();
+    h.before.before.playingSessionClips = 1;
+    h.before.after.playingSessionClips = 1;
+    await expect(
+      handoffArrangementSource({
+        ...h.input,
+        rememberedSessionClipCount: 1,
+      }),
+    ).resolves.toMatchObject({ verified: true, transportStopped: true });
+    expect(h.restore).toHaveBeenCalledOnce();
+    expect(h.read).toHaveBeenCalledTimes(2);
+  });
+  it("requires the remembered Session flags to clear after handoff", async () => {
+    const h = fixture();
+    for (const observed of [h.before, h.after]) {
+      observed.before.playingSessionClips = 1;
+      observed.after.playingSessionClips = 1;
+    }
+    await expect(
+      handoffArrangementSource({ ...h.input, rememberedSessionClipCount: 1 }),
+    ).rejects.toThrow("Loaded Arrangement state");
+    expect(h.restore).toHaveBeenCalledOnce();
+  });
+  it.each([-1, 1.5, 9, NaN])(
+    "rejects invalid remembered Session count %s before reads or mutation",
+    async (rememberedSessionClipCount) => {
+      const h = fixture();
+      await expect(
+        handoffArrangementSource({ ...h.input, rememberedSessionClipCount }),
+      ).rejects.toThrow("Invalid owned remembered Session count");
+      expect(h.read).not.toHaveBeenCalled();
+      expect(h.restore).not.toHaveBeenCalled();
+    },
+  );
+  it.each([
+    "transportPlaying",
+    "queuedSessionClips",
+    "playingSessionClips",
+  ] as const)(
+    "retains stopped remembered handoff guards for %s",
+    async (field) => {
+      const h = fixture();
+      h.before.before.playingSessionClips = 1;
+      h.before.after.playingSessionClips = 1;
+      if (field === "transportPlaying") h.before.before[field] = true;
+      else h.before.before[field] = 2;
+      await expect(
+        handoffArrangementSource({ ...h.input, rememberedSessionClipCount: 1 }),
+      ).rejects.toThrow("Loaded Arrangement state");
+      expect(h.restore).not.toHaveBeenCalled();
+    },
+  );
   it("does not retry a rejected mutation", async () => {
     const h = fixture();
     h.restore.mockRejectedValueOnce(new Error("bridge failure"));

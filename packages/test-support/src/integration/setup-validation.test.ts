@@ -67,6 +67,121 @@ function checkEvidence(value: unknown) {
   });
 }
 describe("explicit first-step Back to Arrangement contract", () => {
+  it("requires normal messages and rejects operation steps and the removed capability", () => {
+    const { fixture, scenario } = setupCase();
+    const step = {
+      ...scenario.steps[0]!,
+      operation: { kind: "transport", action: "stop" },
+    };
+    Reflect.deleteProperty(step, "message");
+    expect(() =>
+      validateScenario({ ...scenario, steps: [step] }, fixture),
+    ).toThrow();
+    expect(() =>
+      validateScenario(
+        {
+          ...scenario,
+          requiredCapabilities: ["arrangement-audio", "direct-operations"],
+        },
+        fixture,
+        createDefaultAssertions().names,
+        ["arrangement-audio"],
+      ),
+    ).toThrow();
+  });
+  it("admits a declared ordered Session handoff and a separate stopped owned restart", () => {
+    const { fixture, scenario } = setupCase();
+    const session = {
+      id: "session",
+      message: "Listen once to Session",
+      timeoutMs: 1000,
+      assertions: [
+        {
+          name: "capture",
+          parameters: {
+            sourceId: "session",
+            metricFamilies: "level",
+            sampleRate: 48000,
+            expectedFrames: 90000,
+          },
+        },
+      ],
+    };
+    const selected = {
+      ...scenario,
+      requiredCapabilities: [
+        "session-audio",
+        "arrangement-audio",
+        "persistence",
+      ],
+      steps: [
+        session,
+        {
+          ...scenario.steps[0]!,
+          setupActions: ["stop-transport", "back-to-arrangement"],
+        },
+        {
+          id: "restored",
+          message: "Read originals",
+          timeoutMs: 1000,
+          setupActions: ["stop-transport", "restart-owned-desktop"],
+          assertions: [],
+        },
+      ],
+    };
+    expect(() =>
+      validateScenario(selected, fixture, createDefaultAssertions().names),
+    ).not.toThrow();
+    for (const actions of [
+      ["back-to-arrangement", "stop-transport"],
+      ["back-to-arrangement"],
+      ["stop-transport", "stop-transport"],
+    ])
+      expect(() =>
+        validateScenario(
+          {
+            ...selected,
+            steps: [session, { ...selected.steps[1], setupActions: actions }],
+          },
+          fixture,
+          createDefaultAssertions().names,
+        ),
+      ).toThrow();
+    const stop = {
+      ...setupEvidence(),
+      action: "stop-transport",
+      stepId: "listen",
+      transport: {
+        command: "transport.set_playing",
+        dispatchedCount: 1,
+        beforePlaying: true,
+        afterPlaying: false,
+        verified: true,
+      },
+    };
+    Reflect.deleteProperty(stop, "arrangementSource");
+    const evidence = {
+      schemaVersion: 1,
+      facts: {},
+      contexts: [],
+      unchanged: [],
+      setupActions: [
+        stop,
+        setupEvidence(),
+        { ...stop, stepId: "restored" },
+        {
+          ...setupEvidence(),
+          action: "restart-owned-desktop",
+          stepId: "restored",
+        },
+      ],
+    };
+    Reflect.deleteProperty(evidence.setupActions[3]!, "arrangementSource");
+    expect(() => validateEvidence(evidence)).not.toThrow();
+    expect(() =>
+      validateEvidence({ ...evidence, setupActions: [stop, stop] }),
+    ).toThrow();
+  });
   it("admits exactly one declared Arrangement handoff and either independently read prior flag", () => {
     const { fixture, scenario } = setupCase();
     validateScenario(scenario, fixture, createDefaultAssertions().names, [
@@ -82,52 +197,63 @@ describe("explicit first-step Back to Arrangement contract", () => {
       },
     });
   });
-  it.each([
-    "late",
-    "duplicate",
-    "missing-capability",
-    "no-source",
-    "multiple-sources",
-  ] as const)("denies %s declaration", (mode) => {
+  it.each(["late", "duplicate", "missing-capability", "no-source"] as const)(
+    "denies %s declaration",
+    (mode) => {
+      const { fixture, scenario } = setupCase();
+      const first = scenario.steps[0]!;
+      const input = {
+        ...scenario,
+        ...(mode === "late"
+          ? {
+              steps: [
+                { ...first, id: "prior", setupActions: undefined },
+                first,
+              ],
+            }
+          : {}),
+        ...(mode === "duplicate"
+          ? {
+              steps: [
+                {
+                  ...first,
+                  setupActions: ["back-to-arrangement", "back-to-arrangement"],
+                },
+              ],
+            }
+          : {}),
+        ...(mode === "missing-capability"
+          ? { requiredCapabilities: ["session-audio"] }
+          : {}),
+      };
+      const selectedFixture = {
+        ...fixture,
+        ...(mode === "no-source" ? { arrangementSources: [] } : {}),
+      };
+      expect(() =>
+        validateScenario(
+          input,
+          selectedFixture,
+          createDefaultAssertions().names,
+          ["arrangement-audio", "session-audio"],
+        ),
+      ).toThrow();
+    },
+  );
+  it("admits a declared source without inspecting unrelated sources in the same fixture", () => {
     const { fixture, scenario } = setupCase();
-    const first = scenario.steps[0]!;
-    const input = {
-      ...scenario,
-      ...(mode === "late"
-        ? { steps: [{ ...first, id: "prior", setupActions: undefined }, first] }
-        : {}),
-      ...(mode === "duplicate"
-        ? {
-            steps: [
-              {
-                ...first,
-                setupActions: ["back-to-arrangement", "back-to-arrangement"],
-              },
-            ],
-          }
-        : {}),
-      ...(mode === "missing-capability"
-        ? { requiredCapabilities: ["session-audio"] }
-        : {}),
-    };
     const sources = fixture.arrangementSources!;
-    const selectedFixture = {
-      ...fixture,
-      ...(mode === "no-source" ? { arrangementSources: [] } : {}),
-      ...(mode === "multiple-sources"
-        ? {
-            arrangementSources: [sources[0]!, { ...sources[0]!, id: "second" }],
-          }
-        : {}),
-    };
     expect(() =>
       validateScenario(
-        input,
-        selectedFixture,
+        scenario,
+        {
+          ...fixture,
+          arrangementSources: [sources[0]!, { ...sources[0]!, id: "second" }],
+        },
         createDefaultAssertions().names,
-        ["arrangement-audio", "session-audio"],
+        ["arrangement-audio"],
       ),
-    ).toThrow();
+    ).not.toThrow();
   });
   it.each(["stop-transport", "restart-owned-desktop"] as const)(
     "still requires a preceding turn for %s",

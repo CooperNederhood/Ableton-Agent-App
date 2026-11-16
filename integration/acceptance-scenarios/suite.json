@@ -15,6 +15,10 @@
     "session-drum-rack-listening",
     "session-two-midi-listening",
     "arrangement-long-form-listening",
-    "long-horizon-comprehension"
+    "long-horizon-comprehension",
+    "listening-consolidation-short-audio",
+    "listening-consolidation-short-midi",
+    "listening-consolidation-long-audio",
+    "listening-consolidation-long-midi"
   ]
 }

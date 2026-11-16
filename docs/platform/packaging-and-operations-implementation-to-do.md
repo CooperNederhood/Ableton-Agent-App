@@ -290,8 +290,10 @@ did not qualify that functional parent.
 - [x] Detect supported Ableton/User Library locations.
 - [x] Implement Remote Script install, update, backup, and manual-path flow.
 - [x] Generate/store per-installation authentication credentials securely.
-- [x] Auto-provision the installed Remote Script token into the Desktop
-      OS-backed credential vault with conflict and invalid-file diagnostics.
+- [x] Read the installed Remote Script token into Desktop process memory without
+      a redundant OS-backed vault copy. Preserve explicit environment precedence,
+      conflict/invalid-file diagnostics and redacted lifecycle timing; do not
+      migrate or delete old vault/Keychain data.
 
 ## Version and update management
 

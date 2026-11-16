@@ -1,7 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
 import {
-  persistMetricListeningObservations,
   reserveListeningPublication,
   type ConnectedListenerBinding,
   type ListeningCoordinatorServices,
@@ -14,13 +13,11 @@ import {
 import { sanitizePersistedText } from "@ableton-agent/observability";
 import {
   listeningTimingPolicySchema,
-  metricAudioObservationSchema,
   type InspectListeningContextResult,
   type InspectSessionListeningSourceResult,
   type ListeningTimingPolicy,
-  type MetricListeningGeometry,
-  type NativeMetricListeningConfig,
-  type StoredAudioObservation,
+  type MetricContinuousListeningGeometry,
+  type NativeMetricControlConfig,
   type SessionListeningLaunchDetail,
   type ListeningFailureEvidence,
   readListeningFailureEvidence,
@@ -32,10 +29,14 @@ import {
   type ListenerService,
 } from "@ableton-agent/signal-routing";
 import type { ListeningRuntimeDependencies } from "./composition.js";
-import { prepareMetricListenerCapture } from "./metric-listening-capture.js";
+import { prepareMetricListenerStream } from "./metric-listening-capture.js";
+import { createStorageMetricStreamPublication } from "./metric-stream-publication.js";
+import type {
+  ListeningRuntimeHostOptions,
+  MetricStreamPublication,
+} from "./listening-runtime-host.js";
 import {
   createMetricCaptureBinding,
-  validateMetricCaptureObservations,
   type MetricCaptureBinding,
 } from "./metric-listening-config.js";
 import {
@@ -87,9 +88,10 @@ export interface SessionSourceLease {
 export interface SessionListeningServicesOptions {
   readonly independentMetricListeners?: boolean;
   readonly requestedMetrics?: Readonly<
-    NativeMetricListeningConfig["requestedMetrics"]
+    NativeMetricControlConfig["requestedMetrics"]
   >;
   readonly dependencies: ListeningRuntimeDependencies;
+  readonly createMetricStreamPublication?: ListeningRuntimeHostOptions["createMetricStreamPublication"];
   readonly resolveTimingPolicy: () => ListeningTimingPolicy;
   readonly resolveRepository: (input: PassInput) => Promise<Repository>;
   readonly listeners: () => ListenerService;
@@ -130,7 +132,8 @@ type SessionState = SessionBindingSnapshot & {
   endedAt?: string;
   validatedDigest?: string;
   release?: () => Promise<void>;
-  readonly geometry: Readonly<MetricListeningGeometry>;
+  streamPublication?: MetricStreamPublication;
+  readonly geometry: Readonly<MetricContinuousListeningGeometry>;
   readonly metricBinding: MetricCaptureBinding;
 };
 
@@ -255,6 +258,77 @@ export function createSessionListeningServices(
     assertSessionSignal(signal, "runtime.source-snapshot.after-inspection");
     return snapshot;
   };
+
+  function publicationBinding(
+    cached: SessionState,
+  ): ListeningPublicationBinding {
+    const listener = cached.inspection.listeners[0]!;
+    const target = cached.request.target!;
+    const inspectedTrack = options.trackSubject(cached.owner, listener, {
+      startBeat: cached.expected.startBeat,
+      endBeat: cached.expected.endBeat,
+    });
+    if (
+      inspectedTrack.kind !== "track" ||
+      !inspectedTrack.binding.previousRuntimeBindings.includes(
+        target.track.expectedReference,
+      )
+    )
+      deny("session_same_track_native_listener_required");
+    const trackId = inspectedTrack.id;
+    const contributor = {
+      ...inspectedTrack,
+      trackId,
+      binding: {
+        ...inspectedTrack.binding,
+        semanticLocator: { ...inspectedTrack.binding.semanticLocator, trackId },
+      },
+    };
+    const binding: ListeningPublicationBinding["primary"]["binding"] = {
+      version: 1,
+      semanticLocator: {
+        name: sanitizePersistedText(target.expectedClipName).slice(0, 128),
+        trackId,
+        sceneIndex: target.sceneIndex,
+      },
+      sourceIdentity: `live-connection:${target.expectedClipReference}`,
+      playbackSettingsHash: cached.expected.fingerprint,
+      upstreamProcessingHash: listener.fingerprint.digest,
+      routingHash: digest({
+        scope: "unknown",
+        reasons: listener.unknownReasons,
+      }),
+      dependencyScope: "unknown",
+      previousRuntimeBindings: [target.expectedClipReference],
+    };
+    const musicalAlignment = sessionMusicalAlignment(
+      cached.expected.source.settings,
+    );
+    return {
+      listenerId: cached.request.listenerIds[0]!,
+      deviceReference: listener.binding.expectedDeviceReference,
+      connectionEpoch: cached.connections[0]!.connectionEpoch,
+      version: cached.descriptors[0]!.registration.algorithmVersion,
+      primary: {
+        id: digest({
+          sessionId: cached.owner.sessionId,
+          liveSetId: cached.owner.liveSetId,
+          target,
+          trackId,
+          binding,
+        }),
+        sessionId: cached.owner.sessionId,
+        liveSetId: cached.owner.liveSetId,
+        kind: "clip",
+        location: "session",
+        trackId,
+        binding,
+      },
+      contributors: [contributor],
+      attribution: "unknown",
+      ...(musicalAlignment === undefined ? {} : { musicalAlignment }),
+    };
+  }
 
   const services = {
     async inspect(
@@ -626,7 +700,7 @@ export function createSessionListeningServices(
         captureController.abort(cached.captureFailure);
       });
       let native:
-        Awaited<ReturnType<typeof prepareMetricListenerCapture>> | undefined;
+        Awaited<ReturnType<typeof prepareMetricListenerStream>> | undefined;
       let cleanup: Promise<void> | undefined;
       const release = () =>
         (cleanup ??= (async () => {
@@ -762,9 +836,35 @@ export function createSessionListeningServices(
             ? { telemetry: dependencies.telemetry }
             : {}),
         };
-        native = await prepareMetricListenerCapture(options.listeners(), {
+        const createPublication =
+          options.createMetricStreamPublication ??
+          createStorageMetricStreamPublication;
+        cached.streamPublication = await stage(
+          "stream-publication-preparation",
+          input,
+          async () =>
+            createPublication(
+              await options.resolveRepository(input),
+              {
+                passId: input.passId,
+                owner: input.owner,
+                trace: input.trace,
+                requestedRange: {
+                  startBeat: 0,
+                  endBeat: cached.expected.durationBeats,
+                },
+                createdAt: cached.createdAt,
+                bindings: [publicationBinding(cached)],
+              },
+              captureSignal,
+            ),
+          (publication) => publication.sink.abort("cancelled"),
+        );
+        native = await prepareMetricListenerStream(options.listeners(), {
           ...captureInput,
           bindings: [cached.metricBinding],
+          streamSink: cached.streamPublication.sink,
+          ...(input.onProgress ? { onStreamProgress: input.onProgress } : {}),
         });
         void native.result.catch((cause: unknown) => {
           cached.captureFailure ??= observedFailure(
@@ -782,47 +882,30 @@ export function createSessionListeningServices(
             ),
           ]);
         cached.nativeLaunch = native.nativeLaunch;
-        const sealedObservations = native.result.then((raw) =>
-          stage("session-source-observation-validation", input, async () => {
+        const sealedManifests = native.result.then((manifests) =>
+          stage("session-source-validation", input, async () => {
             const seal = await stage("session-source-seal", input, () =>
               lease.seal(captureSignal),
             );
             assertSessionSourceUnchanged(cached.expected, seal.source);
             assertTransportCoupledSessionOrigin(cached.expected, seal.origin);
-            const validated = validateMetricCaptureObservations(
-              raw,
-              [cached.metricBinding],
-              cached.pass,
-            );
-            const enriched = validated.map((observation) =>
-              metricAudioObservationSchema.parse({
-                ...observation,
-                limitations: [
-                  ...new Set([
-                    ...observation.limitations,
-                    ...cached.expected.limitations,
-                  ]),
-                ],
-              }),
-            );
-            cached.validatedDigest = digest(enriched);
-            return enriched;
+            cached.validatedDigest = digest(manifests);
+            return manifests;
           }),
         );
-        const observations = Promise.race([
-          sealedObservations,
-          invalidation,
-        ]).catch((cause: unknown) => {
-          cached.captureFailure ??= observedFailure(
-            cause,
-            "capture_failed",
-            "Session source sealing failed",
-          );
-          throw cached.captureFailure;
-        });
-        void observations.catch(() => {});
+        const manifests = Promise.race([sealedManifests, invalidation]).catch(
+          (cause: unknown) => {
+            cached.captureFailure ??= observedFailure(
+              cause,
+              "capture_failed",
+              "Session source sealing failed",
+            );
+            throw cached.captureFailure;
+          },
+        );
+        void manifests.catch(() => {});
         return {
-          observations,
+          manifests,
           disarm: release,
           observationContract: native.observationContract,
         };
@@ -873,8 +956,10 @@ export function createSessionListeningServices(
       };
     },
 
-    validateObservations(
-      observations: readonly StoredAudioObservation[],
+    validateStreams(
+      manifests: Parameters<
+        NonNullable<ListeningCoordinatorServices["validateStreams"]>
+      >[0],
       request: ListeningRequest,
       passId: string,
     ) {
@@ -884,7 +969,10 @@ export function createSessionListeningServices(
         request.mode !== "session" ||
         cached.captureFailure ||
         !cached.startedAt ||
-        digest(observations) !== cached.validatedDigest
+        digest(manifests) !== cached.validatedDigest ||
+        manifests.length !== 1 ||
+        !["complete", "partial"].includes(manifests[0]?.outcome ?? "") ||
+        manifests[0]?.nativeProof.status !== "completed"
       )
         deny("invalid_session_capture_observation", undefined, [
           failureFact("pass.cached", Boolean(cached), true),
@@ -893,27 +981,16 @@ export function createSessionListeningServices(
           failureFact("capture.started", Boolean(cached?.startedAt), true),
           failureFact(
             "observation.digest",
-            digest(observations),
+            digest(manifests),
             cached?.validatedDigest,
           ),
         ]);
-      if (observations.length !== 1)
-        deny("invalid_session_capture_observation", undefined, [
-          failureFact("observation.count", observations.length, 1, {
-            unit: "count",
-          }),
-        ]);
-      validateMetricCaptureObservations(
-        observations,
-        [cached.metricBinding],
-        cached.pass,
-      );
       cached.endedAt = new Date().toISOString();
       return;
     },
 
-    async persist(
-      input: Parameters<ListeningCoordinatorServices["persist"]>[0],
+    async persistStreams(
+      input: Parameters<ListeningCoordinatorServices["persistStreams"]>[0],
     ) {
       const cached = state(input);
       const repository = await options.resolveRepository(input);
@@ -925,7 +1002,9 @@ export function createSessionListeningServices(
         cached.captureFailure ||
         !sameRepository ||
         !cached.startedAt ||
-        !cached.endedAt
+        !cached.endedAt ||
+        !cached.streamPublication ||
+        digest(input.manifests) !== cached.validatedDigest
       )
         deny("invalid_publication_lifecycle", undefined, [
           failureFact("publication.reserved", cached.reserved, true),
@@ -934,114 +1013,12 @@ export function createSessionListeningServices(
           failureFact("capture.started", Boolean(cached.startedAt), true),
           failureFact("capture.ended", Boolean(cached.endedAt), true),
         ]);
-      const listener = cached.inspection.listeners[0]!;
-      const target = cached.request.target!;
-      const inspectedTrack = options.trackSubject(input.owner, listener, {
-        startBeat: cached.expected.startBeat,
-        endBeat: cached.expected.endBeat,
+      return cached.streamPublication.publish({
+        manifests: input.manifests,
+        startedAt: cached.startedAt,
+        endedAt: cached.endedAt,
+        signal: input.signal,
       });
-      if (
-        inspectedTrack.kind !== "track" ||
-        !inspectedTrack.binding.previousRuntimeBindings.includes(
-          target.track.expectedReference,
-        )
-      )
-        deny("session_same_track_native_listener_required", undefined, [
-          failureFact("publication.track.kind", inspectedTrack.kind, "track"),
-          failureFact(
-            "publication.track.targetBound",
-            inspectedTrack.binding.previousRuntimeBindings.includes(
-              target.track.expectedReference,
-            ),
-            true,
-          ),
-          failureFact(
-            "publication.target.trackReference",
-            target.track.expectedReference,
-          ),
-        ]);
-      const trackId = inspectedTrack.id;
-      const contributor = {
-        ...inspectedTrack,
-        trackId,
-        binding: {
-          ...inspectedTrack.binding,
-          semanticLocator: {
-            ...inspectedTrack.binding.semanticLocator,
-            trackId,
-          },
-        },
-      };
-      const binding: ListeningPublicationBinding["primary"]["binding"] = {
-        version: 1,
-        semanticLocator: {
-          name: sanitizePersistedText(target.expectedClipName).slice(0, 128),
-          trackId,
-          sceneIndex: target.sceneIndex,
-        },
-        sourceIdentity: `live-connection:${target.expectedClipReference}`,
-        playbackSettingsHash: cached.expected.fingerprint,
-        upstreamProcessingHash: listener.fingerprint.digest,
-        routingHash: digest({
-          scope: "unknown",
-          reasons: listener.unknownReasons,
-        }),
-        dependencyScope: "unknown",
-        previousRuntimeBindings: [target.expectedClipReference],
-      };
-      const primary: ListeningPublicationBinding["primary"] = {
-        id: digest({
-          sessionId: cached.owner.sessionId,
-          liveSetId: cached.owner.liveSetId,
-          target,
-          trackId,
-          binding,
-        }),
-        sessionId: input.owner.sessionId,
-        liveSetId: input.owner.liveSetId,
-        kind: "clip",
-        location: "session",
-        trackId,
-        binding,
-      };
-      const musicalAlignment = sessionMusicalAlignment(
-        cached.expected.source.settings,
-      );
-      return persistMetricListeningObservations(
-        repository,
-        {
-          passId: input.passId,
-          owner: input.owner,
-          trace: input.trace,
-          requestedMode: "session",
-          actualMode: "session",
-          requestedRange: {
-            startBeat: 0,
-            endBeat: cached.expected.durationBeats,
-          },
-          createdAt: cached.createdAt,
-          startedAt: cached.startedAt,
-          endedAt: cached.endedAt,
-          observations: validateMetricCaptureObservations(
-            input.observations,
-            [cached.metricBinding],
-            { passId: input.passId, trace: input.trace },
-          ),
-          bindings: [
-            {
-              listenerId: cached.request.listenerIds[0]!,
-              deviceReference: listener.binding.expectedDeviceReference,
-              connectionEpoch: cached.connections[0]!.connectionEpoch,
-              version: cached.descriptors[0]!.registration.algorithmVersion,
-              primary,
-              contributors: [contributor],
-              attribution: "unknown",
-              ...(musicalAlignment === undefined ? {} : { musicalAlignment }),
-            },
-          ],
-        },
-        input.signal,
-      );
     },
   } satisfies ListeningCoordinatorServices;
 
@@ -1056,12 +1033,12 @@ export function createSessionListeningServices(
         guard(input, "preparation", () => services.prepare(input)),
       startPlayback: (input) =>
         guard(input, "launch", () => services.startPlayback(input)),
-      validateObservations: (observations, request, passId) =>
+      validateStreams: (manifests, request, passId) =>
         guard(states.get(passId)?.pass, "capture", () =>
-          services.validateObservations(observations, request, passId),
+          services.validateStreams(manifests, request, passId),
         ),
-      persist: (input) =>
-        guard(input, "publication", () => services.persist(input)),
+      persistStreams: (input) =>
+        guard(input, "publication", () => services.persistStreams(input)),
     } satisfies ListeningCoordinatorServices,
     forget: (passId: string) => {
       states.delete(passId);

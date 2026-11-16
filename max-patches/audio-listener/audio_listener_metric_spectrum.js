@@ -135,8 +135,7 @@ function createMetricSpectrumHandoff(config, options) {
     "invalid_handoff_options",
   );
   const { collector } = options;
-  const streaming =
-    collector?.envelope?.captureMode === "arrangement-continuous";
+  const streaming = collector?.envelope?.captureMode === "finite-metric-stream";
   requireValue(
     collector &&
       typeof collector.ingestSpectrum === "function" &&

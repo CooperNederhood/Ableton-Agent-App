@@ -5,7 +5,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { acquireLiveHostLease } from "./live-host-lease.mjs";
 import { resolveLiveHostAutomationStorage } from "../../packages/storage/dist/index.js";
-import { LiveProcessController as ProductionLiveProcessController } from "./live-process-controller.mjs";
+import {
+  hasLoadedLiveFixture,
+  LiveProcessController as ProductionLiveProcessController,
+} from "./live-process-controller.mjs";
 
 const owned = {
   pid: 4242,
@@ -33,6 +36,56 @@ afterEach(async () => {
 });
 
 describe("LiveProcessController", () => {
+  it("refuses fixture-readiness inspection without an owned process", async () => {
+    const controller = new LiveProcessController({});
+    await expect(
+      controller.hasLoadedFixture("/owned/prepared.als"),
+    ).rejects.toThrow("No runner-owned Live process");
+  });
+
+  it.each([
+    ["", false],
+    ['Loading document "/owned/prepared.als"', false],
+    [
+      'Loading document "/owned/template.als"\nDefault App: End ExchangeDocument',
+      false,
+    ],
+    [
+      'Loading document "/owned/prepared.als"\nDefault App: Begin ExchangeDocument',
+      false,
+    ],
+    [
+      'Loading document "/owned/prepared.als"\nDefault App: End ExchangeDocument\nDefault App: Begin ExchangeDocument',
+      false,
+    ],
+    [
+      'Loading document "/owned/prepared.als"\nDefault App: Begin ExchangeDocument\nDefault App: End ExchangeDocument',
+      true,
+    ],
+  ])(
+    "requires the exact fixture's completed document exchange: %s",
+    (text, expected) => {
+      const log = text
+        .split("\n")
+        .map((line) => `2026-01-01T00:00:01.000: info: ${line}`)
+        .join("\n");
+      expect(
+        hasLoadedLiveFixture(
+          log,
+          "/owned/prepared.als",
+          "2026-01-01T00:00:00.000",
+        ),
+      ).toBe(expected);
+      expect(
+        hasLoadedLiveFixture(
+          log,
+          "/owned/prepared.als",
+          "2026-01-02T00:00:00.000",
+        ),
+      ).toBe(false);
+    },
+  );
+
   it("holds one suite lease across sequential controllers and rejects overlapping controllers", async () => {
     const homeDirectory = resolve(
       ".test-artifacts",

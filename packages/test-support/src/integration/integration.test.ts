@@ -876,7 +876,13 @@ describe("driver-neutral acceptance foundation (synthetic only)", () => {
       },
       {
         ...declared,
-        steps: [...declared.steps, { ...declared.steps[1], id: "third" }],
+        steps: [
+          declared.steps[0],
+          {
+            ...declared.steps[1],
+            setupActions: ["stop-transport", "stop-transport"],
+          },
+        ],
       },
     ])
       expect(() => validateScenario(invalid, fixture)).toThrow();

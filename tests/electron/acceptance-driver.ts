@@ -19,11 +19,14 @@ import { metricCaptureRecordSchema } from "@ableton-agent/project-state";
 import { resolveBridgeCredential } from "../../apps/desktop/src/main/bridge-credentials.js";
 import { preferencesSchema } from "../../apps/desktop/src/contracts.js";
 import {
-  metricAudioObservationSchema,
+  metricRecordStreamContextReferenceSchema,
+  metricRecordChunkSchema,
+  metricRecordStreamExpectedCoverage,
   sessionListeningPreflightResultSchema,
   type InspectSessionListeningSourceParams,
   type InspectArrangementListeningSourceResult,
   type MetricAudioObservation,
+  type MetricRecordChunk,
 } from "@ableton-agent/protocol";
 import type {
   AcceptanceDriver,
@@ -58,6 +61,9 @@ import type {
 import {
   validateSupportedSessionBaseline,
   declaredSourceBaseline,
+  scenarioSessionSources,
+  scenarioArrangementSource,
+  midiSourceIdentity,
   sessionClipQuantizationName,
   validateBaseline,
   validateFixtureSourceEvidence,
@@ -79,6 +85,11 @@ import {
   verifyArrangementSource,
   expandArrangementDescriptor,
   verifyPersistedArrangementStream,
+  verifyPersistedMetricStream,
+  projectStreamStorageShape,
+  projectIncrementalDurability,
+  projectStorageShapeHistory,
+  type StorageShapeEvidence,
 } from "@ableton-agent/test-support/integration";
 import type { DesktopListeningJob } from "../../apps/desktop/src/listening-contracts.js";
 import type { DesktopContextDetail } from "../../apps/desktop/src/context-contracts.js";
@@ -138,6 +149,7 @@ import {
   readSavedArrangementSource,
   handoffArrangementSource,
   arrangementOwnerReleased,
+  arrangementSourceStateAllowed,
   arrangementCaptureToolCausation,
   readArrangementMetricChunks,
   verifySavedArrangementTempo,
@@ -172,18 +184,6 @@ function required<T>(value: T | undefined, label: string): T {
   if (value === undefined) throw new Error(`Missing acceptance ${label}`);
   return value;
 }
-function measuredCentroid(observation: MetricAudioObservation): {
-  spectralCentroidHz?: number;
-} {
-  let energy = 0;
-  let weighted = 0;
-  for (const record of observation.metrics["spectral-centroid"].records) {
-    if (record.centroidHz === null) continue;
-    energy += record.spectralEnergy;
-    weighted += record.centroidHz * record.spectralEnergy;
-  }
-  return energy > 0 ? { spectralCentroidHz: weighted / energy } : {};
-}
 async function pause(context: DriverContext): Promise<void> {
   context.signal.throwIfAborted();
   if (Date.now() >= context.deadlineAt)
@@ -214,16 +214,25 @@ async function observe<T>(
 
 export interface PackagedAcceptanceOptions {
   readonly runDirectory: string;
+  readonly purpose?: "acceptance" | "source-review";
   readonly executablePath?: string;
   readonly liveApplicationPath?: string;
   readonly bridgeReadMinimumMs?: number;
   readonly hostLease?: LiveHostLease;
 }
 
-export type MidiSourceReview = Omit<
-  Extract<NonNullable<FixtureManifest["sources"]>[number], { midi: unknown }>,
-  "midi"
->;
+export type SessionSourceReview =
+  | Extract<
+      NonNullable<FixtureManifest["sources"]>[number],
+      { mediaTarget: string }
+    >
+  | Omit<
+      Extract<
+        NonNullable<FixtureManifest["sources"]>[number],
+        { midi: unknown }
+      >,
+      "midi"
+    >;
 
 /** Real Desktop ingress only; no runtime construction or model substitution. */
 export class PackagedAcceptanceDriver implements AcceptanceDriver {
@@ -233,6 +242,7 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
     "session-audio",
     "session-midi",
     "arrangement-audio",
+    "arrangement-midi",
     "persistence",
   ] as const;
   readonly #live: LiveProcessController;
@@ -270,6 +280,7 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
   #arrangementSourceFingerprint: string | undefined;
   readonly #arrangementCaptures = new Map<string, ArrangementCaptureEvidence>();
   readonly #arrangementProofs = new Map<string, ArrangementStreamProof>();
+  readonly #storageShapes = new Map<string, StorageShapeEvidence>();
   #targets = new Map<string, InspectSessionListeningSourceParams>();
   #snapshot: DesktopLiveSetSnapshot | undefined;
   #sourceSettingsHashes = new Map<string, string>();
@@ -286,10 +297,24 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
   #rolloffSmoke = new Map<string, RolloffSmokeEvidence>();
   #pitchSmoke = new Map<string, PitchSmokeEvidence>();
   #melSmoke = new Map<string, MelSmokeEvidence>();
+  #metricRecords = new Map<
+    string,
+    {
+      record: ReturnType<typeof metricCaptureRecordSchema.parse>;
+      proof: ArrangementStreamProof;
+      chunks: readonly MetricRecordChunk[];
+      nonSilent: boolean;
+      spectralCentroidHz?: number;
+    }
+  >();
   #historyCollected = false;
   #agentListening: AgentListeningEvidence[] = [];
   #restoredAgentListening: AgentListeningEvidence[] = [];
-  readonly #setupExecuted = new Set<SetupAction>();
+  readonly #setupExecuted = new Set<string>();
+  readonly #approvedArrangementRanges = new Map<
+    string,
+    { startBeat: number; endBeat: number }
+  >();
   #afterOwnedRestart = false;
   #desktopCleanupReceipts: PackagedCleanupReceipt[] = [];
   #omittedDesktopCleanupReceipts = 0;
@@ -431,6 +456,7 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
   }
 
   async provision(context: DriverContext): Promise<DependencyInventory> {
+    context.signal.throwIfAborted();
     if (this.#ownedRunId && this.#ownedRunId !== context.runId)
       throw new Error(
         "Packaged driver cannot be reused across independent cases",
@@ -442,7 +468,10 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
 
   async #provision(context: DriverContext): Promise<DependencyInventory> {
     const staged = required(context.stagedFixture, "staged fixture");
-    if (context.fixture.qualification !== "reviewed-live")
+    if (
+      this.options.purpose !== "source-review" &&
+      context.fixture.qualification !== "reviewed-live"
+    )
       throw new Error("Synthetic fixtures cannot qualify real Live");
     if (
       context.fixture.dependencies.includes("machine-listening") &&
@@ -564,6 +593,7 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
     );
     context.signal.throwIfAborted();
     await waitForRunnerOwnedLiveReady(this.#live, {
+      fixturePath: required(this.#preparedProject, "prepared project"),
       timeoutMs: Math.max(
         1,
         Math.min(120_000, context.deadlineAt - Date.now()),
@@ -880,6 +910,10 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
     context: DriverContext,
     history: AgentListeningEvidence,
   ): AgentListeningEvidence {
+    if (
+      context.scenario.assertions.some(({ name }) => name === "storage-shape")
+    )
+      return projectStorageShapeHistory(projectFeatureSearchHistory(history));
     return context.scenario.assertions.some(
       (assertion) =>
         assertion.name === "feature-search" &&
@@ -890,7 +924,15 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
   }
 
   async readBaseline(context: DriverContext): Promise<BaselineEvidence> {
+    this.#assertAcceptanceExecution();
     return this.#readBaseline(context);
+  }
+
+  #assertAcceptanceExecution(): void {
+    if (this.options.purpose === "source-review")
+      throw new Error(
+        "Source-review mode cannot execute acceptance operations",
+      );
   }
 
   async #verifyFlatnessBinary(
@@ -1033,10 +1075,37 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
     }
   }
 
-  async reviewMidiSources(
+  async reviewDeclaredSources(
     context: DriverContext,
-    sources: readonly MidiSourceReview[],
   ): Promise<BaselineEvidence> {
+    if (this.options.purpose !== "source-review")
+      throw new Error("Source review requires explicit source-review purpose");
+    context.signal.throwIfAborted();
+    const selected = scenarioArrangementSource(
+      context.fixture,
+      context.scenario,
+    );
+    this.#provenance = { ...this.#provenance, authoringReview: true };
+    const baseline = await this.#readBaseline(context);
+    if (
+      baseline.arrangementSources?.[selected.id] === undefined ||
+      !(
+        scenarioSessionSources(context.fixture, context.scenario).every(
+          ({ id }) => baseline.sources?.[id] !== undefined,
+        ) ?? true
+      )
+    )
+      throw new Error("Source review did not return every declared source");
+    return baseline;
+  }
+
+  async reviewSessionSources(
+    context: DriverContext,
+    sources: readonly SessionSourceReview[],
+  ): Promise<BaselineEvidence> {
+    if (this.options.purpose !== "source-review")
+      throw new Error("Source review requires explicit source-review purpose");
+    context.signal.throwIfAborted();
     if (
       !sources.length ||
       sources.length > 8 ||
@@ -1045,13 +1114,15 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
       throw new Error(
         "Authoring review requires one to eight distinct sources",
       );
+    this.#provenance = { ...this.#provenance, authoringReview: true };
     return this.#readBaseline(context, sources);
   }
 
   async #readBaseline(
     context: DriverContext,
-    review?: readonly MidiSourceReview[],
+    review?: readonly SessionSourceReview[],
   ): Promise<BaselineEvidence> {
+    let arrangementMidiChain: { trackId: string; sha256: string } | undefined;
     this.#assertBridgeTimingHealthy();
     const snapshot = await this.#getPage().evaluate(() =>
       window.desktop.ableton.requestSnapshot(),
@@ -1104,7 +1175,10 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
         throw new Error(
           "Typed Desktop getMetricCapture/listMetricChunks read boundary is not available",
         );
-      const definition = context.fixture.arrangementSources[0]!;
+      const definition = scenarioArrangementSource(
+        context.fixture,
+        context.scenario,
+      );
       const loaded = await this.#readArrangementSource(context, snapshot);
       this.#arrangementSourceFingerprint = hash(loaded.clips);
       const staged = required(context.stagedFixture, "staged fixture");
@@ -1121,6 +1195,7 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
         bytes,
         definition.trackIndex,
         definition.trackName,
+        definition,
       );
       verifySavedArrangementTempo(bytes, definition.tempoBpm);
       const binding = context.fixture.listenerBindings!.find(
@@ -1150,6 +1225,43 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
         throw new Error("Loaded Arrangement clip count differs");
       for (const [index, clip] of loaded.clips.entries()) {
         const expected = definition.clips[index]!;
+        if (expected.mediaTarget === null) {
+          if (!clip.midi || !loaded.instrumentChain)
+            throw new Error(
+              "Missing independently loaded Arrangement MIDI evidence",
+            );
+          const device = snapshot.devices?.find(
+            (device) =>
+              device.trackIndex === binding.trackIndex &&
+              device.index === binding.deviceIndex,
+          );
+          const identity = midiSourceIdentity(
+            clip.midi.notes,
+            loaded.instrumentChain,
+            {
+              trackIndex: binding.trackIndex,
+              deviceIndex: binding.deviceIndex,
+              deviceReference: required(device, "MIDI listener device").id,
+            },
+          );
+          arrangementMidiChain = {
+            trackId: loaded.track.expectedReference,
+            sha256: identity.instrumentChainSha256,
+          };
+          if (identity.midiNotesSha256 !== expected.midiNotesSha256)
+            throw new Error(
+              "Loaded Arrangement MIDI notes differ from the frozen source",
+            );
+          clips.push({
+            clipId: clip.clipId,
+            savedClipId: expected.savedClipId,
+            startBeat: clip.startBeat,
+            endBeat: clip.endBeat,
+            mediaSha256: null,
+            midiNotesSha256: identity.midiNotesSha256,
+          });
+          continue;
+        }
         const resource = context.fixture.resources.find(
           (entry) => entry.target === expected.mediaTarget,
         )!;
@@ -1239,7 +1351,8 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
         dependencyHashes: this.#dependencies,
       };
     }
-    const definitions = review ?? context.fixture.sources;
+    const definitions =
+      review ?? scenarioSessionSources(context.fixture, context.scenario);
     if (!definitions?.length)
       throw new Error("Session fixture requires declared sources");
     sessionStructureFingerprint(snapshot);
@@ -1250,6 +1363,24 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
         definition,
         review !== undefined,
       );
+    if (arrangementMidiChain) {
+      const { trackId, sha256 } = arrangementMidiChain;
+      const session = Object.values(this.#sources)
+        .filter((source) => "midi" in source)
+        .find((source) => source.source.trackId === trackId);
+      if (
+        !session ||
+        midiSourceIdentity(
+          session.midi.midi.notes,
+          session.midi.instrumentChain,
+          session.listenerPlacement,
+          false,
+        ).instrumentChainSha256 !== sha256
+      )
+        throw new Error(
+          "Arrangement top-level instrument differs from the independently audited Session source",
+        );
+    }
     const arrangementBaseline = Object.values(this.#arrangementSources)[0]
       ?.after;
     const evidence = {
@@ -1276,14 +1407,15 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
   }
 
   #arrangementQuery(context: DriverContext, snapshot: DesktopLiveSetSnapshot) {
-    const definition = required(
-      context.fixture.arrangementSources?.[0],
-      "Arrangement definition",
+    const definition = scenarioArrangementSource(
+      context.fixture,
+      context.scenario,
     );
     const tracks = snapshot.tracks.filter(
       (track) =>
         track.index === definition.trackIndex &&
-        track.kind === "audio" &&
+        track.kind ===
+          (definition.clips[0]!.mediaTarget === null ? "midi" : "audio") &&
         track.name === definition.trackName,
     );
     if (tracks.length !== 1)
@@ -1330,6 +1462,28 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
     causationId: string,
     afterOwnedRestart: boolean,
   ): Promise<ArrangementCaptureEvidence> {
+    const result = await this.#readMetricCapture(
+      context,
+      contextId,
+      operationId,
+      traceId,
+      causationId,
+      afterOwnedRestart,
+    );
+    if (!("capture" in result.verified))
+      throw new Error("Expected an Arrangement capture");
+    this.#arrangementProofs.set(contextId, result.verified.proof);
+    return result.verified.capture;
+  }
+
+  async #readMetricCapture(
+    context: DriverContext,
+    contextId: string,
+    operationId: string,
+    traceId: string,
+    causationId: string,
+    afterOwnedRestart: boolean,
+  ) {
     const identity = required(this.#identity, "session identity");
     const raw = await this.#getPage().evaluate(
       async (request) => {
@@ -1348,33 +1502,94 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
       throw new Error(
         "Stream context is missing or not independently committed",
       );
-    const baseline = required(
-      this.#arrangementSources[context.fixture.arrangementSources![0]!.id],
-      "Arrangement baseline",
-    );
     const descriptor = expandArrangementDescriptor(record.descriptor);
-    const world = await this.#verifyWorld(context);
-    const trace = await this.#readTrace(context, traceId);
-    const sourceReleaseConfirmed = trace.some(
-      (event) =>
-        event.name ===
-          "listening.runtime.arrangement-source-cleanup.completed" &&
-        event.trace?.traceId === traceId &&
-        event.correlationId === traceId &&
-        event.sessionId === identity.appSessionId &&
-        event.activeAgentId === identity.agentId &&
-        arrangementOwnerReleased(event.attributes, descriptor.ownership) &&
-        event.outcome === "success" &&
-        event.durationMs !== undefined &&
-        event.durationMs >= 0,
+    const retainRecords = [
+      ...context.scenario.assertions,
+      ...context.scenario.steps.flatMap((step) => step.assertions),
+    ].some(
+      ({ name }) =>
+        name === "feature-search" ||
+        name === "melbands-smoke" ||
+        name === "listening-comprehension",
     );
+    if (
+      retainRecords &&
+      (descriptor.geometry.rows.length > 128 ||
+        descriptor.requestedMetrics.some(
+          (metric) =>
+            ["mel-bands", "pitch", "spectral-shape"].includes(metric) &&
+            metricRecordStreamExpectedCoverage(descriptor, metric)
+              .expectedRecords > 64,
+        ))
+    )
+      throw new Error(
+        "Bounded diagnostic/source evidence exceeds its short-case limits",
+      );
+    const chunks: MetricRecordChunk[] = [];
+    let centroidEnergy = 0,
+      centroidWeighted = 0;
+    const arrangementBaseline =
+      descriptor.source.view === "arrangement"
+        ? required(
+            this.#arrangementSources[
+              this.#submissions.get(operationId)?.step.sourceId ??
+                scenarioArrangementSource(context.fixture, context.scenario).id
+            ],
+            "Arrangement baseline",
+          )
+        : undefined;
+    const baseline =
+      arrangementBaseline ??
+      observedSessionSource(
+        descriptor.source,
+        descriptor.ownership.listenerId,
+        this.#sources,
+      );
+    const sourceId = Object.entries(
+      descriptor.source.view === "arrangement"
+        ? this.#arrangementSources
+        : this.#sources,
+    ).find(([, source]) => source === baseline)?.[0];
+    const world = arrangementBaseline
+      ? await this.#verifyWorld(context, sourceId)
+      : undefined;
+    const trace = await this.#readTrace(context, traceId);
+    const sourceReleaseConfirmed =
+      captureCleanupConfirmed(trace, {
+        traceId,
+        correlationId: traceId,
+        passId: descriptor.ownership.passId,
+        listenerId: descriptor.ownership.listenerId,
+        sessionId: identity.appSessionId,
+        agentId: identity.agentId,
+        native: descriptor.ownership,
+        sourceView: descriptor.source.view,
+      }) &&
+      (descriptor.source.view !== "arrangement" ||
+        trace.some(
+          (event) =>
+            event.name ===
+              "listening.runtime.arrangement-source-cleanup.completed" &&
+            event.trace?.traceId === traceId &&
+            event.correlationId === traceId &&
+            event.sessionId === identity.appSessionId &&
+            event.activeAgentId === identity.agentId &&
+            arrangementOwnerReleased(event.attributes, descriptor.ownership) &&
+            event.outcome === "success" &&
+            event.durationMs !== undefined &&
+            event.durationMs >= 0,
+        ));
     if (!/^[a-zA-Z0-9._:-]{1,256}$/u.test(contextId))
       throw new Error("Unsafe stream context identity");
     const path = join(
       this.options.runDirectory,
-      `arrangement-stream-${contextId}${afterOwnedRestart ? "-restored" : ""}.jsonl`,
+      `metric-stream-${contextId}${afterOwnedRestart ? "-restored" : ""}.jsonl`,
     );
-    const file = await open(path, "wx", 0o600);
+    const previousShape = this.#storageShapes.get(contextId);
+    const file =
+      previousShape?.afterOwnedRestart === afterOwnedRestart
+        ? undefined
+        : await open(path, "wx", 0o600);
     let bytes = 0;
     const page = this.#getPage();
     const pages = readArrangementMetricChunks(
@@ -1392,37 +1607,91 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
       },
     );
     try {
-      const verified = await verifyPersistedArrangementStream({
+      const input = {
         contextId,
         descriptor,
         manifest: record.manifest,
         persistedState: record.state,
         chunks: pages,
-        baseline,
+        ...(this.#approvedArrangementRanges.has(operationId)
+          ? { expectedRange: this.#approvedArrangementRanges.get(operationId)! }
+          : {}),
         operationId,
         expectedTraceId: traceId,
         expectedCausationId: causationId,
         expectedCorrelationId: traceId,
-        playbackPlaying: world["arrangement.transportPlaying"] === true,
+        playbackPlaying: world?.["arrangement.transportPlaying"] === true,
         sourceReleaseConfirmed,
         afterOwnedRestart,
         signal: context.signal,
-        onChunk: async (chunk) => {
+        onChunk: async (chunk: unknown) => {
+          const parsed = metricRecordChunkSchema.parse(chunk);
+          if (retainRecords) chunks.push(parsed);
+          if (parsed.metric === "spectral-centroid")
+            for (const record of parsed.records) {
+              if (record.centroidHz === null) continue;
+              centroidEnergy += record.spectralEnergy;
+              centroidWeighted += record.centroidHz * record.spectralEnergy;
+            }
           const line = `${JSON.stringify(chunk)}\n`;
           bytes += Buffer.byteLength(line);
           if (bytes > 32 * 1024 * 1024)
             throw new Error(
               "Arrangement original record evidence exceeds bound",
             );
-          await file.write(line);
+          await file?.write(line);
         },
-      });
+        ...(context.scenario.assertions.some(
+          ({ name }) => name === "storage-shape",
+        )
+          ? {}
+          : { requiredMetrics: descriptor.requestedMetrics }),
+      };
+      const verified = arrangementBaseline
+        ? await verifyPersistedArrangementStream({
+            ...input,
+            baseline: arrangementBaseline,
+          })
+        : await verifyPersistedMetricStream(input);
       if (verified.proof.chunkCount !== record.chunkCount)
         throw new Error("Persisted chunk inventory is incomplete");
-      this.#arrangementProofs.set(contextId, verified.proof);
-      return verified.capture;
+      const shape = projectStreamStorageShape(
+        descriptor,
+        record.manifest,
+        verified.proof,
+        projectIncrementalDurability(descriptor, {
+          captureId: contextId,
+          startedAt: record.metadata.pass.startedAt,
+          sessionId: identity.appSessionId,
+          agentId: identity.agentId,
+          events: trace,
+        }),
+      );
+      if (
+        afterOwnedRestart &&
+        previousShape?.contentSha256 !== shape.contentSha256
+      )
+        throw new Error(
+          "Original persisted measurement stream changed after owned restart",
+        );
+      this.#storageShapes.set(contextId, shape);
+      this.#metricRecords.set(contextId, {
+        record,
+        proof: verified.proof,
+        chunks,
+        nonSilent:
+          "nonSilent" in verified
+            ? verified.nonSilent
+            : verified.capture.metrics.some(
+                (metric) => metric.name === "level" && metric.nonSilent,
+              ),
+        ...(centroidEnergy > 0
+          ? { spectralCentroidHz: centroidWeighted / centroidEnergy }
+          : {}),
+      });
+      return { descriptor, record, verified };
     } finally {
-      await file.close();
+      await file?.close();
     }
   }
 
@@ -1430,7 +1699,7 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
     context: DriverContext,
     snapshot: DesktopLiveSetSnapshot,
     definition:
-      NonNullable<FixtureManifest["sources"]>[number] | MidiSourceReview,
+      NonNullable<FixtureManifest["sources"]>[number] | SessionSourceReview,
     review = false,
   ): Promise<SessionSourceEvidence> {
     const target = resolveSessionSource(
@@ -1811,16 +2080,25 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
     step: ScenarioStep,
     context: DriverContext,
   ): Promise<SetupEvidence> {
+    this.#assertAcceptanceExecution();
     context.signal.throwIfAborted();
     if (
       !(action === "restart-owned-desktop"
         ? context.scenario.requiredCapabilities.includes("persistence")
         : action === "back-to-arrangement"
-          ? context.scenario.requiredCapabilities.includes(
+          ? (context.scenario.requiredCapabilities.includes(
               "arrangement-audio",
-            ) &&
-            context.fixture.arrangementSources?.length === 1 &&
-            context.scenario.steps[0]?.id === step.id
+            ) ||
+              context.scenario.requiredCapabilities.includes(
+                "arrangement-midi",
+              )) &&
+            (context.fixture.arrangementSources?.length ?? 0) > 0 &&
+            (context.scenario.steps[0]?.id === step.id ||
+              (this.#contexts.size > 0 &&
+                this.#setupExecuted.has("stop-transport") &&
+                step.sourceId ===
+                  scenarioArrangementSource(context.fixture, context.scenario)
+                    .id))
           : context.scenario.requiredCapabilities.includes("session-audio") ||
             context.scenario.requiredCapabilities.includes("session-midi")) ||
       !step.setupActions?.includes(action) ||
@@ -1828,7 +2106,9 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
         (declared) =>
           declared.id === step.id && declared.setupActions?.includes(action),
       ) ||
-      this.#setupExecuted.has(action) ||
+      this.#setupExecuted.has(
+        action === "stop-transport" ? `${step.id}:${action}` : action,
+      ) ||
       !this.#live.publicRecord() ||
       !this.#application
     )
@@ -1837,6 +2117,8 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
       );
     const identity = required(this.#identity, "session identity");
     this.#setupExecuted.add(action);
+    if (action === "stop-transport")
+      this.#setupExecuted.add(`${step.id}:${action}`);
     let transport: SetupEvidence["transport"];
     let arrangementSource: SetupEvidence["arrangementSource"];
     if (action === "restart-owned-desktop") {
@@ -1844,7 +2126,8 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
         throw new Error("Owned restart requires persistence admission");
       await this.#restartDesktop(context);
     } else {
-      if (action !== "back-to-arrangement") await this.#verifyWorld(context);
+      if (action !== "back-to-arrangement")
+        await this.#verifyWorld(context, step.sourceId, true);
       const sourceSnapshot =
         action === "back-to-arrangement"
           ? await observe(
@@ -1855,6 +2138,25 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
               context.signal,
             )
           : undefined;
+      let rememberedSessionClipCount = 0;
+      if (sourceSnapshot) {
+        const ownedClipIds = [...this.#contexts.values()].map(
+          (entry) => entry.source.clipId,
+        );
+        const baseline = required(this.#snapshot, "baseline");
+        if (
+          sessionStructureFingerprint(sourceSnapshot) !==
+            sessionStructureFingerprint(baseline) ||
+          unrelatedPlaybackFingerprint(sourceSnapshot, ownedClipIds) !==
+            unrelatedPlaybackFingerprint(baseline, ownedClipIds)
+        )
+          throw new Error(
+            "Arrangement handoff changed unrelated Session state",
+          );
+        rememberedSessionClipCount = sourceSnapshot.sessionClips!.filter(
+          (clip) => clip.status === "playing",
+        ).length;
+      }
       const credential = await resolveBridgeCredential({
         environment: process.env,
         homeDirectory: homedir(),
@@ -1895,6 +2197,7 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
                   );
                 if (action === "back-to-arrangement")
                   return await handoffArrangementSource({
+                    rememberedSessionClipCount,
                     read: () =>
                       observe(
                         () =>
@@ -1953,7 +2256,8 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
         );
       if (
         action !== "back-to-arrangement" &&
-        (await this.#verifyWorld(context)).transportStopped !== true
+        (await this.#verifyWorld(context, step.sourceId, true))
+          .transportStopped !== true
       )
         throw new Error("Source inspection did not confirm stopped transport");
     }
@@ -1984,7 +2288,27 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
     this.#afterOwnedRestart = true;
   }
 
-  async #verifyWorld(context: DriverContext): Promise<Facts> {
+  async #verifyWorld(
+    context: DriverContext,
+    selectedSourceId?: string,
+    allowSessionOverride = false,
+  ): Promise<Facts> {
+    if (
+      selectedSourceId !== undefined &&
+      !this.#sources[selectedSourceId] &&
+      !this.#arrangementSources[selectedSourceId]
+    )
+      throw new Error("Protected-state check requires an admitted source");
+    const allowedClipIds = Object.entries(this.#sources)
+      .filter(
+        ([id, source]) =>
+          selectedSourceId === undefined ||
+          id === selectedSourceId ||
+          [...this.#contexts.values()].some(
+            (context) => context.source.clipId === source.source.clipId,
+          ),
+      )
+      .map(([, source]) => source.source.clipId);
     let arrangementFacts: Facts = {};
     if (context.fixture.arrangementSources?.length) {
       const snapshot = await this.#getPage().evaluate(() =>
@@ -1998,17 +2322,20 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
           "Protected Arrangement Set structure/routing/settings changed",
         );
       if (
-        unrelatedPlaybackFingerprint(
-          snapshot,
-          Object.values(this.#sources).map((source) => source.source.clipId),
-        ) !==
+        unrelatedPlaybackFingerprint(snapshot, allowedClipIds) !==
         unrelatedPlaybackFingerprint(
           required(this.#snapshot, "baseline"),
-          Object.values(this.#sources).map((source) => source.source.clipId),
+          allowedClipIds,
         )
       )
         throw new Error("Unrelated Session playback changed");
       const read = await this.#readArrangementSource(context, snapshot);
+      const admitted = required(
+        this.#arrangementSources[
+          scenarioArrangementSource(context.fixture, context.scenario).id
+        ],
+        "admitted Arrangement source",
+      );
       if (hash(read.clips) !== this.#arrangementSourceFingerprint)
         throw new Error("Arrangement source content/settings changed");
       for (const state of [read.before, read.after]) {
@@ -2016,15 +2343,37 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
           state.arrangementRecord !== false ||
           state.sessionRecord !== false ||
           state.loopEnabled !== false ||
-          state.targetArmed !== context.fixture.baseline.targetArmed ||
-          state.targetMonitoring !== 2 ||
-          state.arrangementEligible !== true ||
-          state.tempoBpm !== context.fixture.arrangementSources[0]!.tempoBpm ||
+          state.targetArmed !== admitted.before.targetArmed ||
+          state.targetMonitoring !==
+            (admitted.before.targetMonitoring === "auto" ? 1 : 2) ||
+          !arrangementSourceStateAllowed(
+            state,
+            allowSessionOverride,
+            [...this.#contexts.values()].some(
+              (entry) => entry.source.trackId === admitted.source.trackId,
+            ),
+          ) ||
+          state.tempoBpm !==
+            scenarioArrangementSource(context.fixture, context.scenario)
+              .tempoBpm ||
           (!Object.keys(this.#sources).length &&
             (state.playingSessionClips !== 0 || state.queuedSessionClips !== 0))
         )
           throw new Error(
-            "Arrangement eligibility/global recording/protected source state changed",
+            `Arrangement eligibility/global recording/protected source state changed: ${JSON.stringify(
+              {
+                state,
+                expected: {
+                  targetArmed: admitted.before.targetArmed,
+                  targetMonitoring: admitted.before.targetMonitoring,
+                  tempoBpm: scenarioArrangementSource(
+                    context.fixture,
+                    context.scenario,
+                  ).tempoBpm,
+                  allowSessionOverride,
+                },
+              },
+            )}`,
           );
       }
       arrangementFacts = {
@@ -2045,14 +2394,11 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
       throw new Error(
         "Protected Session structure changed during the conversation",
       );
-    const allowed = Object.values(this.#sources).map(
-      (source) => source.source.clipId,
-    );
     if (
-      unrelatedPlaybackFingerprint(snapshot, allowed) !==
+      unrelatedPlaybackFingerprint(snapshot, allowedClipIds) !==
       unrelatedPlaybackFingerprint(
         required(this.#snapshot, "baseline"),
-        allowed,
+        allowedClipIds,
       )
     )
       throw new Error("Unrelated playback changed during the conversation");
@@ -2064,7 +2410,8 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
     let stoppedZero = snapshot.sessionClips!.every(
       (clip) => clip.status !== "playing" && clip.status !== "queued",
     );
-    let transportStopped = true;
+    let transportStopped =
+      arrangementFacts["arrangement.transportPlaying"] !== true;
     const remembered =
       context.fixture.baseline.rememberedSessionClips ??
       context.fixture.baseline.playingSessionClips;
@@ -2092,6 +2439,7 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
           }) !== this.#listenerIdentities.get(id))
       )
         throw new Error("Listener instance or connection changed");
+      if (selectedSourceId !== undefined && id !== selectedSourceId) continue;
       const request = {
         ...required(this.#targets.get(id), "source target"),
         queryId: randomUUID(),
@@ -2146,6 +2494,7 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
     step: ScenarioStep,
     context: DriverContext,
   ): Promise<Submission> {
+    this.#assertAcceptanceExecution();
     this.#assertBridgeTimingHealthy(true);
     context.signal.throwIfAborted();
     if (step.assertions.some((assertion) => assertion.name === "capture")) {
@@ -2155,7 +2504,7 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
         );
       if (!step.sourceId || !this.#sources[step.sourceId])
         throw new Error("Capture turn requires an admitted source");
-      const state = await this.#verifyWorld(context);
+      const state = await this.#verifyWorld(context, step.sourceId);
       const originalBaseline =
         context.fixture.baseline.currentSongTime === 0 &&
         (context.fixture.baseline.rememberedSessionClips ??
@@ -2172,6 +2521,15 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
             ? "Capture requires the explicit stopped-zero transition"
             : "Capture requires the declared stopped transport and remembered clip state",
         );
+    }
+    if (step.sourceId && this.#arrangementSources[step.sourceId]) {
+      if (this.#afterOwnedRestart)
+        throw new Error(
+          "Capture after the owned persistence restart is forbidden",
+        );
+      if (!step.sourceId || !this.#arrangementSources[step.sourceId])
+        throw new Error("Arrangement capture turn requires an admitted source");
+      await this.#verifyWorld(context, step.sourceId);
     }
     const identity = required(this.#identity, "session identity");
     const priorPasses = new Set(
@@ -2244,10 +2602,11 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
     const sources = [];
     for (const contextId of this.#contexts.keys()) {
       const detail = await this.#readContext(contextId, context);
-      this.#context(
+      await this.#context(
         detail,
         this.#afterOwnedRestart,
         required(this.#contextTraces.get(contextId), "context SDK trace"),
+        context,
       );
       sources.push(
         projectFeatureSource(
@@ -2255,18 +2614,45 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
           detail.observation,
           this.#afterOwnedRestart,
           coverage,
+          {
+            chunks: required(
+              this.#metricRecords.get(contextId),
+              "original stream records",
+            ).chunks,
+            contentSha256: required(
+              this.#storageShapes.get(contextId)?.contentSha256,
+              "original stream identity",
+            ),
+            sourceFingerprint: hash(
+              required(
+                this.#metricRecords.get(contextId)?.record.manifest,
+                "original stream manifest",
+              ),
+            ),
+          },
         ),
       );
     }
     return sources;
   }
 
-  #context(
+  async #context(
     detail: DesktopContextDetail,
     afterOwnedRestart: boolean,
     trace: { traceId: string; correlationId: string },
-  ): ContextEvidence {
-    const observation = metricAudioObservationSchema.parse(detail.observation);
+    context: DriverContext,
+  ): Promise<ContextEvidence> {
+    const reference = metricRecordStreamContextReferenceSchema.parse(
+      detail.observation,
+    );
+    const { descriptor: observation, record } = await this.#readMetricCapture(
+      context,
+      detail.entry.contextId,
+      reference.captureId,
+      trace.traceId,
+      reference.descriptor.ownership.causationId,
+      afterOwnedRestart,
+    );
     if (
       observation.source.view !== "session" ||
       (observation.source.kind !== "warped-audio" &&
@@ -2285,6 +2671,13 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
       observation.ownership.listenerId,
       this.#sources,
     );
+    if (
+      reference.captureId !== detail.entry.contextId ||
+      reference.descriptorDigest !== record.state.descriptorDigest
+    )
+      throw new Error(
+        "Context reference differs from verified persisted capture",
+      );
     return {
       contextId: detail.entry.contextId,
       passId: detail.entry.passId,
@@ -2294,7 +2687,10 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
         clipId: observation.source.clipReference,
         slotIndex: observation.source.target.sceneIndex,
       },
-      contentSha256: hash(observation),
+      contentSha256: required(
+        this.#storageShapes.get(detail.entry.contextId)?.contentSha256,
+        "original stream fingerprint",
+      ),
       readable: true,
       afterOwnedRestart,
     };
@@ -2432,13 +2828,14 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
         const trace = jobs.length
           ? await this.#readTrace(context, sdkTurnId)
           : [];
-        const arrangementCausationId = context.fixture.arrangementSources
-          ?.length
-          ? arrangementCaptureToolCausation(events, {
-              ...submission,
-              sdkTurnId,
-            })
-          : undefined;
+        const arrangementCausationId =
+          context.fixture.arrangementSources?.length &&
+          jobs.some((job) => !job.session)
+            ? arrangementCaptureToolCausation(events, {
+                ...submission,
+                sdkTurnId,
+              })
+            : undefined;
         for (const job of jobs) {
           if (
             job.trace.traceId !== sdkTrace.traceId ||
@@ -2471,72 +2868,38 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
             continue;
           }
           const detail = await this.#readContext(job.contextIds[0]!, context);
-          const observed = metricAudioObservationSchema.parse(
-            detail.observation,
-          );
-          const persisted = this.#context(detail, false, sdkTrace);
-          if (
-            observed.ownership.passId !== job.passId ||
-            detail.entry.listenerId !== observed.ownership.listenerId ||
-            observed.ownership.causationId !== job.trace.causationId
-          )
-            throw new Error("Listening context attribution mismatch");
-          const cleanupComplete = captureCleanupConfirmed(trace, {
-            ...sdkTrace,
-            passId: job.passId,
-            listenerId: observed.ownership.listenerId,
-            sessionId: submission.appSessionId,
-            agentId: submission.agentId,
-            native: observed.ownership,
-          });
-          if (!cleanupComplete) {
-            await pause(context);
-            continue turnLoop;
-          }
-          await this.#verifyFlatnessBinary(context, "capture-completed");
-          await this.#verifyDiagnosticBinary(
-            context,
-            "capture-completed",
-            "mel",
-            observed.ownership,
-          );
-          await this.#verifyDiagnosticBinary(
-            context,
-            "capture-completed",
-            "pitch",
-            observed.ownership,
-          );
-          for (const [name, project, entries, retained] of [
-            [
-              "flatness-smoke",
-              projectFlatnessSmoke,
-              flatnessSmoke,
-              this.#flatnessSmoke,
-            ],
-            [
-              "spread-smoke",
-              projectSpreadSmoke,
-              spreadSmoke,
-              this.#spreadSmoke,
-            ],
-            [
-              "rolloff-smoke",
-              projectRolloffSmoke,
-              rolloffSmoke,
-              this.#rolloffSmoke,
-            ],
-            ["pitch-smoke", projectPitchSmoke, pitchSmoke, this.#pitchSmoke],
-          ] as const) {
+          {
+            const reference = metricRecordStreamContextReferenceSchema.parse(
+              detail.observation,
+            );
+            const observed = reference.descriptor;
             if (
-              !context.scenario.steps.some((step) =>
-                step.assertions.some((assertion) => assertion.name === name),
-              )
+              observed.source.view !== "session" ||
+              observed.ownership.passId !== job.passId ||
+              observed.ownership.causationId !== job.trace.causationId
             )
-              continue;
-            const smoke = project(trace, {
+              throw new Error(
+                "Listening stream attribution differs from the invoking job",
+              );
+            const toolCausationId = [
+              ...link.step.assertions,
+              ...context.scenario.assertions,
+            ].some(
+              ({ name }) =>
+                name === "storage-shape" || name === "listening-comprehension",
+            )
+              ? sessionCaptureToolCausation(
+                  events,
+                  { ...submission, sdkTurnId },
+                  observed,
+                )
+              : observed.ownership.causationId;
+            const cleanupComplete = captureCleanupConfirmed(trace, {
               ...sdkTrace,
               passId: job.passId,
               listenerId: observed.ownership.listenerId,
+              sessionId: submission.appSessionId,
+              agentId: submission.agentId,
               native: {
                 generation: observed.ownership.generation,
                 nativeEpoch: observed.ownership.nativeEpoch,
@@ -2544,91 +2907,163 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
                 connectionEpoch: observed.ownership.connectionEpoch,
               },
             });
-            entries.push(smoke);
-            retained.set(job.passId, smoke);
-          }
-          this.#contexts.set(persisted.contextId, persisted);
-          this.#contextTraces.set(persisted.contextId, sdkTrace);
-          if (
-            context.scenario.steps.some((step) =>
-              step.assertions.some(
-                (assertion) => assertion.name === "melbands-smoke",
-              ),
-            )
-          ) {
-            const smoke = projectMelSmoke(
-              observed,
-              persisted.contextId,
-              cleanupComplete,
-              trace,
+            if (!cleanupComplete) {
+              await pause(context);
+              continue turnLoop;
+            }
+            const persisted = await this.#context(
+              detail,
+              false,
+              sdkTrace,
+              context,
             );
-            melSmoke.push(smoke);
-            this.#melSmoke.set(persisted.contextId, smoke);
+            this.#contexts.set(persisted.contextId, persisted);
+            this.#contextTraces.set(persisted.contextId, sdkTrace);
+            const retained = required(
+              this.#metricRecords.get(persisted.contextId),
+              "verified stream records",
+            );
+            const { record } = retained;
+            const manifest = required(
+              record.manifest,
+              "committed stream manifest",
+            );
+            if (!manifest) throw new Error("Missing committed stream manifest");
+            await this.#verifyFlatnessBinary(context, "capture-completed");
+            for (const diagnostic of ["mel", "pitch"] as const)
+              await this.#verifyDiagnosticBinary(
+                context,
+                "capture-completed",
+                diagnostic,
+                observed.ownership,
+              );
+            for (const [name, project, entries, saved] of [
+              [
+                "flatness-smoke",
+                projectFlatnessSmoke,
+                flatnessSmoke,
+                this.#flatnessSmoke,
+              ],
+              [
+                "spread-smoke",
+                projectSpreadSmoke,
+                spreadSmoke,
+                this.#spreadSmoke,
+              ],
+              [
+                "rolloff-smoke",
+                projectRolloffSmoke,
+                rolloffSmoke,
+                this.#rolloffSmoke,
+              ],
+              ["pitch-smoke", projectPitchSmoke, pitchSmoke, this.#pitchSmoke],
+            ] as const) {
+              if (
+                !context.scenario.steps.some((step) =>
+                  step.assertions.some((assertion) => assertion.name === name),
+                )
+              )
+                continue;
+              const smoke = project(trace, {
+                ...sdkTrace,
+                passId: job.passId,
+                listenerId: observed.ownership.listenerId,
+                native: {
+                  generation: observed.ownership.generation,
+                  nativeEpoch: observed.ownership.nativeEpoch,
+                  connectionId: observed.ownership.connectionId,
+                  connectionEpoch: observed.ownership.connectionEpoch,
+                },
+              });
+              entries.push(smoke);
+              saved.set(job.passId, smoke);
+            }
+            if (
+              context.scenario.steps.some((step) =>
+                step.assertions.some(({ name }) => name === "melbands-smoke"),
+              )
+            ) {
+              const smoke = projectMelSmoke(
+                { reference, chunks: retained.chunks, proof: retained.proof },
+                persisted.contextId,
+                cleanupComplete,
+                trace,
+              );
+              melSmoke.push(smoke);
+              this.#melSmoke.set(persisted.contextId, smoke);
+            }
+            captures.push({
+              passId: job.passId,
+              operationId: submission.operationId,
+              source: persisted.source,
+              listenerId: observed.ownership.listenerId,
+              complete: manifest.outcome === "complete",
+              nonSilent: retained.nonSilent,
+              truncated: false,
+              missingRecords: manifest.metrics.reduce(
+                (sum, metric) => sum + metric.missingRecords,
+                0,
+              ),
+              metricFamilies: manifest.metrics
+                .filter(
+                  (metric) =>
+                    metric.availability === "available" &&
+                    metric.missingRecords === 0,
+                )
+                .map((metric) => metric.metric),
+              sampleRate: observed.geometry.sampleRate,
+              startSample: observed.geometry.startSample,
+              endSample: observed.geometry.endSample,
+              cleanupComplete,
+              failure: job.error ?? null,
+              stream: retained.proof,
+              native: {
+                generation: observed.ownership.generation,
+                nativeEpoch: observed.ownership.nativeEpoch,
+                connectionId: observed.ownership.connectionId,
+                connectionEpoch: observed.ownership.connectionEpoch,
+              },
+              ...(retained.spectralCentroidHz === undefined
+                ? {}
+                : {
+                    spectralCentroidHz: retained.spectralCentroidHz,
+                  }),
+              ...([
+                ...link.step.assertions,
+                ...context.scenario.assertions,
+              ].some(({ name }) => name === "listening-comprehension")
+                ? {
+                    observation: expandArrangementDescriptor(record.descriptor),
+                    toolCausationId,
+                  }
+                : {}),
+            });
+            continue;
           }
-          captures.push({
-            passId: job.passId,
-            operationId: submission.operationId,
-            source: persisted.source,
-            listenerId: observed.ownership.listenerId,
-            complete: observed.outcome === "complete",
-            nonSilent: observed.metrics.level.records.some((record) =>
-              record.rms.some((value) => value > 0.0001),
-            ),
-            truncated: observed.reduction.mode !== "none",
-            missingRecords: Object.values(observed.metrics).reduce(
-              (sum, metric) =>
-                sum +
-                (metric?.gaps.reduce((count, gap) => count + gap.count, 0) ??
-                  0),
-              0,
-            ),
-            metricFamilies: observed.requestedMetrics.filter(
-              (metric) => observed.metrics[metric]?.status === "complete",
-            ),
-            sampleRate: observed.geometry.sampleRate,
-            startSample: observed.geometry.startSample,
-            endSample: observed.sourceCoverage.endSample,
-            cleanupComplete,
-            failure: job.error ?? null,
-            native: {
-              generation: observed.ownership.generation,
-              nativeEpoch: observed.ownership.nativeEpoch,
-              connectionId: observed.ownership.connectionId,
-              connectionEpoch: observed.ownership.connectionEpoch,
-            },
-            ...([...link.step.assertions, ...context.scenario.assertions].some(
-              ({ name }) => name === "listening-comprehension",
-            )
-              ? {
-                  observation: observed,
-                  toolCausationId: sessionCaptureToolCausation(
-                    events,
-                    { ...submission, sdkTurnId },
-                    observed,
-                  ),
-                }
-              : {}),
-            ...measuredCentroid(observed),
-          });
         }
         for (const contextId of this.#contexts.keys())
           contexts.push(
-            this.#context(
+            await this.#context(
               await this.#readContext(contextId, context),
               this.#afterOwnedRestart,
               required(this.#contextTraces.get(contextId), "context SDK trace"),
+              context,
             ),
           );
-        const agentListening = link.step.assertions.some(
-          ({ name }) =>
-            name === "agent-listening-result" || name === "feature-search",
-        )
-          ? await this.#readAgentListening(
-              context,
-              { ...submission, sdkTurnId },
-              this.#afterOwnedRestart,
-            )
-          : undefined;
+        const agentListening =
+          context.scenario.assertions.some(
+            ({ name }) => name === "storage-shape",
+          ) ||
+          link.step.assertions.some(
+            ({ name }) =>
+              name === "agent-listening-result" || name === "feature-search",
+          )
+            ? await this.#readAgentListening(
+                context,
+                { ...submission, sdkTurnId },
+                this.#afterOwnedRestart,
+              )
+            : undefined;
         if (agentListening) this.#agentListening.push(agentListening);
         return {
           schemaVersion: 1,
@@ -2650,6 +3085,15 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
           ...(pitchSmoke.length ? { pitchSmoke } : {}),
           ...(melSmoke.length ? { melSmoke } : {}),
           contexts,
+          ...(context.scenario.assertions.some(
+            ({ name }) => name === "storage-shape",
+          )
+            ? {
+                storageShapes: [...this.#storageShapes.values()].filter(
+                  (shape) => jobs.some((job) => job.passId === shape.passId),
+                ),
+              }
+            : {}),
           ...(link.step.assertions.some(({ name }) => name === "feature-search")
             ? { featureSources: await this.#featureSources(context) }
             : {}),
@@ -2668,7 +3112,11 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
                   key.startsWith("pitchLoadedBinary"),
               ),
             ),
-            ...(await this.#verifyWorld(context)),
+            ...(await this.#verifyWorld(
+              context,
+              link.step.sourceId,
+              captures.length > 0,
+            )),
           },
         };
       }
@@ -2751,10 +3199,50 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
                 throw new Error(
                   "Derivation approval requires exactly one completed invoking capture for each context",
                 );
+              const job = jobs.find((job) => job.contextIds[0] === contextId)!;
+              if (context.fixture.arrangementSources?.length && !job.session) {
+                const admitted = this.#arrangementSources[step?.sourceId ?? ""];
+                const raw = await this.#getPage().evaluate(
+                  (request) =>
+                    window.desktop.entityContext.getMetricCapture(request),
+                  { sessionId: submission.appSessionId, contextId },
+                );
+                const record = metricCaptureRecordSchema.parse(raw);
+                const expectedRange = this.#approvedArrangementRanges.get(
+                  submission.operationId,
+                );
+                if (
+                  !admitted ||
+                  !expectedRange ||
+                  record.descriptor.source.view !== "arrangement" ||
+                  record.status !== "completed" ||
+                  record.metadata.id !== contextId ||
+                  record.descriptor.ownership.passId !== job.passId ||
+                  record.descriptor.ownership.listenerId !==
+                    admitted.listenerId ||
+                  record.descriptor.ownership.traceId !== sdkTurnId ||
+                  record.descriptor.ownership.correlationId !== sdkTurnId ||
+                  record.descriptor.ownership.causationId !==
+                    job.trace.causationId ||
+                  record.descriptor.source.target.expectedReference !==
+                    admitted.source.trackId ||
+                  record.descriptor.geometry.startBeat !==
+                    expectedRange.startBeat ||
+                  record.descriptor.geometry.endBeat !== expectedRange.endBeat
+                )
+                  throw new Error(
+                    "Derivation approval stream source does not match the invoking turn",
+                  );
+                const selectedSource = { ...admitted, contextId };
+                source = selectedSource;
+                permissionSources[step!.sourceId!] = selectedSource;
+                continue;
+              }
               const detail = await this.#readContext(contextId, context);
-              const observed = metricAudioObservationSchema.parse(
-                detail.observation,
-              );
+              const { descriptor: observed } =
+                metricRecordStreamContextReferenceSchema.parse(
+                  detail.observation,
+                );
               const matched = observedSessionSource(
                 observed.source,
                 observed.ownership.listenerId,
@@ -2799,7 +3287,27 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
             step?.id,
             permissionSources,
           );
+          if (
+            permitted &&
+            tool.name === "ableton_listening" &&
+            tool.action === "play-arrangement-and-listen"
+          ) {
+            const { startBeat, endBeat } = tool.arguments;
+            if (
+              typeof startBeat !== "number" ||
+              typeof endBeat !== "number" ||
+              !Number.isFinite(startBeat) ||
+              !Number.isFinite(endBeat) ||
+              endBeat <= startBeat
+            )
+              throw new Error("Approved Arrangement range is invalid");
+            this.#approvedArrangementRanges.set(submission.operationId, {
+              startBeat,
+              endBeat,
+            });
+          }
         } catch (error) {
+          permitted = false;
           invalidArguments =
             error instanceof Error
               ? error
@@ -2909,6 +3417,7 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
     if (afterRestart && !this.#afterOwnedRestart)
       await this.#restartDesktop(context);
     for (const [contextId, original] of this.#arrangementCaptures) {
+      if (!afterRestart) continue;
       await this.#readArrangementCapture(
         context,
         contextId,
@@ -2919,22 +3428,33 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
       );
     }
     const contexts: ContextEvidence[] = [];
+    for (const contextId of this.#contexts.keys())
+      contexts.push(
+        await this.#context(
+          await this.#readContext(contextId, context),
+          afterRestart,
+          required(this.#contextTraces.get(contextId), "context SDK trace"),
+          context,
+        ),
+      );
     const melSmoke = await restoreMelSmoke(
       [...this.#melSmoke.values()],
       afterRestart,
       previous,
-      async (contextId) =>
-        (await this.#readContext(contextId, context)).observation,
+      async (contextId) => {
+        const detail = await this.#readContext(contextId, context);
+        const original = required(
+          this.#metricRecords.get(contextId),
+          "fresh original stream records",
+        );
+        return {
+          reference: detail.observation,
+          chunks: original.chunks,
+          proof: original.proof,
+        };
+      },
       (traceId) => this.#readTrace(context, traceId),
     );
-    for (const contextId of this.#contexts.keys())
-      contexts.push(
-        this.#context(
-          await this.#readContext(contextId, context),
-          afterRestart,
-          required(this.#contextTraces.get(contextId), "context SDK trace"),
-        ),
-      );
     await this.#jobs(context, true);
     await this.#readTrace(context);
     const flatnessSmoke = await restoreFlatnessSmoke(
@@ -2991,6 +3511,11 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
       capturePassIds: [...this.#observedCapturePassIds],
       facts: { ...this.#provenance, persistedContexts: contexts.length },
       contexts,
+      ...(context.scenario.assertions.some(
+        ({ name }) => name === "storage-shape",
+      )
+        ? { storageShapes: [...this.#storageShapes.values()] }
+        : {}),
       ...(this.#arrangementProofs.size
         ? { arrangementContexts: [...this.#arrangementProofs.values()] }
         : {}),
@@ -2999,7 +3524,8 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
       )
         ? { featureSources: await this.#featureSources(context) }
         : {}),
-      ...(this.#restoredAgentListening.length
+      ...(this.#restoredAgentListening.length &&
+      !context.scenario.assertions.some(({ name }) => name === "storage-shape")
         ? {
             agentListening: this.#restoredAgentListening.map((history) =>
               this.#receiptHistory(context, history),

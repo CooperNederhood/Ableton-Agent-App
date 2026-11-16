@@ -5,6 +5,7 @@ import {
   createMetricRecordStreamState,
   metricRecordChunkSchema,
   metricRecordStreamDescriptorSchema,
+  metricRecordStreamAlignment,
   verifyMetricRecordStreamManifest,
   type MetricRecordChunk,
   type MetricRecordStreamDescriptor,
@@ -32,6 +33,7 @@ export class MetricRecordIngestion {
   >;
   #descriptor: MetricRecordStreamDescriptor | undefined;
   #state: MetricRecordStreamState | undefined;
+  #alignment: ReturnType<typeof metricRecordStreamAlignment> | undefined;
   #busy = false;
   #terminal = false;
   #failed = false;
@@ -64,6 +66,10 @@ export class MetricRecordIngestion {
         0,
       ),
     });
+  }
+
+  get alignment() {
+    return this.#alignment;
   }
 
   get coverage(): ListeningCaptureProgress | undefined {
@@ -171,10 +177,14 @@ export class MetricRecordIngestion {
         this.#state,
         raw,
       );
-      if (manifest.outcome !== "complete")
+      if (
+        !["complete", "partial"].includes(manifest.outcome) ||
+        manifest.nativeProof.status !== "completed"
+      )
         throw new Error("metric-stream-incomplete");
       await this.sink.finalize(manifest);
       if (this.#failed) throw new Error("metric-stream-aborted");
+      this.#alignment = metricRecordStreamAlignment(this.#descriptor, manifest);
       this.#terminal = true;
       return manifest;
     } catch (error) {

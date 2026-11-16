@@ -1124,6 +1124,24 @@ test("no publication before pinned arm+launch, nor from a self-consistent differ
   assert.equal(complete(f), true);
 });
 
+test("SDK payload rejection retains bounded redacted validation details", () => {
+  const f = setup();
+  admitArm(f);
+  launch(f);
+  assert.equal(
+    f.client.sendListenerResult(f.prepare, {
+      status: "completed",
+      metricManifest: { schema: "invalid" }
+    }),
+    false
+  );
+  const failure = f.failures.at(-1);
+  assert.equal(failure.reason, "invalid_metric_listener_payload");
+  assert.match(failure.diagnostic.validationDetail, /metricManifest/);
+  assert(failure.diagnostic.validationDetail.length <= 512);
+  assert(!failure.diagnostic.validationDetail.includes(SECRET));
+});
+
 test("metric-local failed/cancelled progress continues; global failures/unknown family/epoch cannot hide in progress", () => {
   const f = setup();
   admitArm(f);

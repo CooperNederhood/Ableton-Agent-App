@@ -1,7 +1,8 @@
 import { createHash } from "node:crypto";
 import {
   createContinuousMetricListeningGeometry,
-  metricAudioObservationSchema,
+  canonicalMetricRecordJson,
+  metricRecordStreamDescriptorSchema,
 } from "@ableton-agent/protocol";
 import type { AssertionInput, Facts } from "./contracts.js";
 import { sameSource } from "./assertions.js";
@@ -19,6 +20,7 @@ import {
   requireCondition,
   validateArrangementStreamProof,
 } from "./validation.js";
+import { streamProofContentSha256 } from "./arrangement-stream.js";
 
 export function validateListeningComprehension(parameters: Facts): void {
   rejectUnknownFields(parameters, [
@@ -131,7 +133,22 @@ export function verifyListeningComprehension(
       "Missing, duplicate or wrong-source Session capture",
     );
     const capture = matches[0]!;
-    const observation = metricAudioObservationSchema.parse(capture.observation);
+    const observation = metricRecordStreamDescriptorSchema.parse(
+      capture.observation,
+    );
+    const original = capture.stream;
+    requireCondition(original, "Missing original Session stream proof");
+    validateArrangementStreamProof(original);
+    requireCondition(
+      original.passId === capture.passId &&
+        original.listenerId === capture.listenerId &&
+        !original.afterOwnedRestart &&
+        original.descriptorDigest ===
+          createHash("sha256")
+            .update(canonicalMetricRecordJson(observation))
+            .digest("hex"),
+      "Original Session stream descriptor or ownership differs",
+    );
     const native = capture.native;
     requireCondition(
       native && !generations.has(native.generation),
@@ -172,14 +189,12 @@ export function verifyListeningComprehension(
         capture.failure === null &&
         capture.sampleRate === 48_000 &&
         capture.endSample - capture.startSample === 90_000 &&
-        observation.outcome === "complete" &&
-        observation.reduction.mode === "none" &&
         observation.geometry.sampleRate === 48_000 &&
         observation.geometry.tempoBpm === 128 &&
         observation.geometry.endSample - observation.geometry.startSample ===
           90_000 &&
         observation.geometry.startSample === capture.startSample &&
-        observation.sourceCoverage.endSample === capture.endSample &&
+        observation.geometry.endSample === capture.endSample &&
         observation.ownership.passId === capture.passId &&
         observation.ownership.listenerId === capture.listenerId &&
         observation.ownership.traceId === turn.facts.sdkTurnId &&
@@ -193,8 +208,11 @@ export function verifyListeningComprehension(
         ) &&
         observation.requestedMetrics.every(
           (metric) =>
-            observation.metrics[metric]?.status === "complete" &&
-            capture.metricFamilies.includes(metric),
+            observation.algorithms.some(
+              (algorithm) =>
+                algorithm.metric === metric &&
+                algorithm.availability === "available",
+            ) && capture.metricFamilies.includes(metric),
         ),
       "Session native outcome, coverage, ownership or cleanup differs",
     );
@@ -216,12 +234,10 @@ export function verifyListeningComprehension(
     );
     requireCondition(
       context.readable &&
+        context.contextId === original.contextId &&
         !context.afterOwnedRestart &&
         sameSource(context.source, baseline.source) &&
-        context.contentSha256 ===
-          createHash("sha256")
-            .update(JSON.stringify(observation))
-            .digest("hex") &&
+        context.contentSha256 === streamProofContentSha256(original) &&
         (!input.evidence ||
           (retained?.length === 1 &&
             JSON.stringify(retained[0]) === JSON.stringify(context))) &&
@@ -275,7 +291,7 @@ export function verifyListeningComprehension(
     "Arrangement capture reused a Session tool call",
   );
   const geometry = createContinuousMetricListeningGeometry({
-    captureMode: "arrangement-continuous",
+    captureMode: "finite-metric-stream",
     sampleRate: 48_000,
     vectorSize: 64,
     tempoBpm: 128,

@@ -1,5 +1,10 @@
 # Tool List Implementation To-Do
 
+- [x] Make Arrangement's SDK description explicitly distinguish read-only
+      `inspect` from `set-clip-properties` edits. Cover the actual scoped schema
+      after `run-hBR3As` attempted an invalid edit while intending inspection.
+      Keep identity guards, approvals and explicit failure semantics unchanged.
+
 Companion reference: [Ableton Tool List](tool-list.md)
 
 - [x] List every registered Ableton tool.

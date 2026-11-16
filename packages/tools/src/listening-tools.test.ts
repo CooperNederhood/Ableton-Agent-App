@@ -96,8 +96,22 @@ describe("optional listening tool contracts", () => {
     },
   );
 
+  it("uses typed stream and feature reads for count checks, not shell scratch work", () => {
+    expect(LISTENING_AGENT_GUIDANCE).toContain(
+      'For "list-features", omit limit to use its default and maximum 100',
+    );
+    expect(LISTENING_AGENT_GUIDANCE).toContain(
+      'For stored schema, shape and count checks, use "stream-overview" and complete "list-features" inventories',
+    );
+    expect(LISTENING_AGENT_GUIDANCE).toContain(
+      "Never use bash for scratch calculations, output formatting, progress markers or no-op checks",
+    );
+  });
+
   it("explains safe consecutive-listen preparation before submitting another capture", () => {
-    expect(LISTENING_AGENT_GUIDANCE).toMatch(/^Before each listening capture:/);
+    expect(LISTENING_AGENT_GUIDANCE).toMatch(
+      /^Before each capture finish the preceding pass/,
+    );
     const [listening] = createListeningTools({
       executeListeningOperation: async () => ({
         action: "inspect-listeners",
@@ -106,6 +120,7 @@ describe("optional listening tool contracts", () => {
       }),
       executeContextOperation: async () => ({ action: "list", entries: [] }),
     });
+
     for (const guidance of [
       LISTENING_AGENT_GUIDANCE,
       listening.description,
@@ -135,21 +150,19 @@ describe("optional listening tool contracts", () => {
     );
   });
 
-  it("distinguishes negotiated continuous Arrangement admission from the Session duration ceiling", () => {
+  it("shares finite streaming admission across Session and Arrangement", () => {
     expect(LISTENING_AGENT_GUIDANCE).toContain(
-      "Fixed-tempo Arrangement listening may span up to 600 seconds",
+      "Session and Arrangement use the same incrementally persisted six-metric capture pipeline",
     );
     expect(LISTENING_AGENT_GUIDANCE).toContain(
-      "audio-listener/arrangement-continuous-metric-stream-v1",
+      "audio-listener/finite-metric-stream-v1",
     );
-    expect(LISTENING_AGENT_GUIDANCE).toContain(
+    expect(LISTENING_AGENT_GUIDANCE).toContain("up to 600 seconds");
+    expect(LISTENING_AGENT_GUIDANCE).not.toContain(
       "Session requests exceeding thirty seconds are rejected",
     );
-    expect(LISTENING_AGENT_GUIDANCE).not.toContain(
-      " Requests exceeding thirty seconds are rejected",
-    );
     expect(LISTENING_AGENT_GUIDANCE).toContain(
-      "Do not call a separate transport seek or start before it",
+      "do not seek or start transport separately",
     );
   });
   it("classifies feature derivation as local mutation, while comparisons and search are reads", () => {
@@ -180,7 +193,7 @@ describe("optional listening tool contracts", () => {
       });
     }
   });
-  it("states the stream derivation limitation at the action boundary with supported read alternatives", () => {
+  it("advertises shared stream derivation and bounded original reads", () => {
     const [, tool] = createListeningTools({
       executeListeningOperation: async () => ({
         action: "list-passes",
@@ -190,14 +203,18 @@ describe("optional listening tool contracts", () => {
     });
     expect(
       tool.description?.startsWith(
-        "Stream contexts do not support derive-features;",
+        "All completed captures support the same derive-features",
       ),
     ).toBe(true);
     const derive = contextOperationParamsSchema.options.find(
       (option) => option.shape.action.value === "derive-features",
     );
-    expect(derive?.description).toContain("metric-record-stream-context/v1");
-    expect(derive?.description).toContain('"stream-summary"');
+    expect(derive?.description).toContain(
+      "either playback view and any supported capture duration",
+    );
+    expect(derive?.description).toContain(
+      "bounded immutable measurement ranges across chunks",
+    );
     expect(derive?.description).not.toContain(
       "Unsupported sources return unavailable",
     );
@@ -247,7 +264,7 @@ describe("optional listening tool contracts", () => {
   });
   it("distinguishes authoritative pitch from historical diagnostics and limits accuracy claims", () => {
     for (const statement of [
-      "monophonic-pitch smoke diagnostics",
+      "not historical smoke diagnostics",
       "YinFFT",
       "50-2000 Hz",
       "0 Hz is the undefined sentinel",
@@ -270,10 +287,10 @@ describe("optional listening tool contracts", () => {
   });
   it("directs pitch requests to bounded authoritative reports without filesystem fallback or retries", () => {
     expect(LISTENING_AGENT_GUIDANCE).toContain(
-      'For pitch requests, use ableton_context action "report"',
+      'use ableton_context action "stream-records"',
     );
     expect(LISTENING_AGENT_GUIDANCE).toContain(
-      "read authoritative pitch frames and their paired Hz/confidence when present",
+      'metric "pitch" and a narrow native sample range for original paired Hz/confidence',
     );
     expect(LISTENING_AGENT_GUIDANCE).toContain(
       "If authoritative pitch is absent or unavailable, report that rather than inventing fields or retrying",
@@ -285,7 +302,7 @@ describe("optional listening tool contracts", () => {
   it("directs mel reads to typed contexts without promoting SpectralShape diagnostics", () => {
     expect(LISTENING_AGENT_GUIDANCE).toContain("all 24 bands");
     expect(LISTENING_AGENT_GUIDANCE).toContain(
-      'metricMetadata["mel-bands"].profile',
+      "full frame supports, exact gaps and the pinned profile",
     );
     expect(LISTENING_AGENT_GUIDANCE).toContain(
       "uncalibrated linear FFT magnitudes",
@@ -361,10 +378,10 @@ describe("optional listening tool contracts", () => {
         }).success,
       ).toBe(false);
     expect(LISTENING_AGENT_GUIDANCE).toContain(
-      "Do not exhaust every page merely to establish coverage",
+      "do not exhaust a long timeline merely to establish coverage",
     );
     expect(LISTENING_AGENT_GUIDANCE).toContain(
-      "feature derivation is explicitly unsupported",
+      "All completed captures support the same derive-features",
     );
   });
   it("validates explicitly labelled stream projections, context identity and the total UTF8 tool budget", async () => {
@@ -894,29 +911,29 @@ describe("optional listening tool contracts", () => {
 
   it("guides the agent to read usable partial context without inventing evidence or retrying", () => {
     expect(LISTENING_AGENT_GUIDANCE).toContain(
-      "stage=completed or stage=partial",
+      "Report unavailable metrics, gaps and unmeasured tails",
     );
     expect(LISTENING_AGENT_GUIDANCE).toContain(
-      "not full success or a failed tool",
+      "Shared source, clock, ownership or cleanup failures prevent publication",
     );
     expect(LISTENING_AGENT_GUIDANCE).toContain(
-      "disclose missing metrics and intervals",
+      "Report unavailable metrics, gaps and unmeasured tails",
     );
     expect(LISTENING_AGENT_GUIDANCE).toContain(
-      "silence and empty attack lists are evidence",
+      "Valid measured zeros and empty attack lists are evidence",
     );
     expect(LISTENING_AGENT_GUIDANCE).toContain(
-      "not a universal 300-row assumption",
+      "Musical measures are not storage chunks",
     );
     expect(LISTENING_AGENT_GUIDANCE).toContain(
-      "retry automatically to fill gaps",
+      "rather than inferring silence or recapturing",
     );
     expect(LISTENING_AGENT_GUIDANCE).toContain("linear amplitudes, not dBFS");
     expect(LISTENING_AGENT_GUIDANCE).toContain(
-      "detector-window end, not a precise onset",
+      "detector-window end, not precise onset",
     );
     expect(LISTENING_AGENT_GUIDANCE).toContain(
-      "Partial attack coverage cannot establish absence",
+      "Partial coverage cannot establish absence of attacks",
     );
     expect(LISTENING_AGENT_GUIDANCE).toContain(
       "Descriptive mode can accept disagreement above that advisory target",
@@ -943,7 +960,7 @@ describe("optional listening tool contracts", () => {
       "not an extra capture or invented requestedMetrics argument",
     );
     expect(LISTENING_AGENT_GUIDANCE).toContain(
-      "read the authoritative spectral-shape timeline and bounded report when present",
+      'bounded original "stream-records" for metric "spectral-shape"',
     );
     expect(LISTENING_AGENT_GUIDANCE).toContain(
       "Complete acquisition does not imply defined descriptors",
@@ -1127,29 +1144,34 @@ describe("optional listening tool contracts", () => {
       executeContextOperation: async () => ({ action: "list", entries: [] }),
     });
     expect(listening.description).toContain(
-      "play-arrangement-and-listen requires listenerIds, startBeat and endBeat",
-    );
-    expect(listening.description).toContain("durationBeats is Session-only");
-    expect(listening.description).toContain(
-      "Queued or arming is not completion or failure",
+      "play-arrangement-and-listen requires listenerIds, startBeat and the absolute endBeat, not durationBeats",
     );
     expect(listening.description).toContain(
-      "Both listening start calls wait for terminal",
+      "play-session-and-listen explicitly fires one exact MIDI or warped-audio clip",
     );
-    expect(listening.description).toContain("No get-pass polling is needed");
-    expect(listening.description).toContain("before answering");
-    expect(listening.description).toContain("Never use bash or sleep to wait");
     expect(listening.description).toContain(
-      "Arrangement capture is not read-only",
+      "Queued or arming is not completion",
+    );
+    expect(listening.description).toContain(
+      "Start calls wait for terminal capture, durable publication and cleanup",
+    );
+    expect(listening.description).toContain(
+      "no get-pass polling, second capture, bash or sleep is needed to wait",
+    );
+    expect(listening.description).toContain(
+      "Read the returned stored contexts before drawing musical conclusions",
+    );
+    expect(listening.description).toContain(
+      "The App owns Arrangement positioning and playback start",
     );
     expect(listening.description).toContain(
       "Back to Arrangement restores the playback source, not the view",
     );
     expect(listening.description).toContain(
-      "Switching views, stopping playback or deselecting a clip does not clear this override",
+      "Switching views or stopping transport alone does not clear a Session override",
     );
     expect(listening.description).toContain(
-      "never repair source selection or retry automatically",
+      "do not repair or retry automatically",
     );
     expect(context.description).toContain(
       "For other or small contexts, use get",
@@ -1159,15 +1181,15 @@ describe("optional listening tool contracts", () => {
       "list-features uses singular contextId, not contextIds",
     );
     expect(context.description).toContain(
-      'read the original stored metric-audio-observation/v1 measurement with action "report"',
+      'use "stream-overview" with its returned contextId to read original persisted coverage',
     );
     expect(context.description).not.toContain("get or report");
     expect(listening.description).not.toContain("get or report");
     expect(listening.description).toContain(
-      'for metric-audio-observation/v1 use action "report", offset=0, limit=8',
+      "Every new Session or Arrangement capture returns metric-record-stream-context/v1",
     );
     expect(context.description).toContain(
-      "get-feature reads derived values and does not replace",
+      "Canonical feature metadata and values use the same shared actions for both playback views",
     );
     expect(context.description).toContain(
       "derive-features uses the contextIds array",
@@ -1210,17 +1232,17 @@ describe("optional listening tool contracts", () => {
       }),
     });
     expect(tool.description).toContain(
-      "Playback continues after completion, cancellation, failure, or timeout",
+      "Playback continues after completion, cancellation, failure or timeout",
     );
     expect(tool.description).toContain("cancel stops capture, not transport");
     expect(tool.description).toContain(
-      "Session requires a matching native listener supporting explicit Session mode (wire5)",
+      "Discover the negotiated audio-listener/finite-metric-stream-v1 capability",
     );
     expect(tool.description).toContain(
-      "independent level, spectral-centroid and attack timelines during one playback",
+      "same incrementally persisted six-metric capture pipeline",
     );
     expect(tool.description).toContain(
-      "A locally unavailable analyzer does not block healthy metrics",
+      "Report unavailable metrics, gaps and unmeasured tails",
     );
     expect(tool.description).not.toContain("wire3 or wire4");
     expect(tool.description).toContain(
@@ -1237,32 +1259,42 @@ describe("optional listening tool contracts", () => {
       "one-bar and nonzero stopped anchors are not qualified",
     );
     expect(tool.description).toContain(
-      "unknown follow-action settings remain explicit",
+      "unknown settings remain explicit and monitored",
     );
     expect(tool.description).toContain(
-      "does not retract an accepted or queued launch",
+      "does not retract an accepted or queued Session launch",
     );
-    expect(tool.description).toContain("otherwise no context is published");
+    expect(tool.description).toContain(
+      "Shared source, clock, ownership or cleanup failures prevent publication",
+    );
     expect(tool.description).toContain("native_per_pass_validation_required");
-    expect(tool.description).toContain("nonzero/fractional Arrangement starts");
-    expect(tool.description).toContain("through 30 seconds");
     expect(tool.description).toContain(
-      "Tempo stability is assumed, not independently verified",
+      "globally anchored quarter-beat level grid",
     );
-    expect(tool.description).toContain("tempo automation is unsupported");
+    expect(tool.description).toContain("up to 600 seconds");
+    expect(tool.description).toContain(
+      "Source, tempo and meter monitoring are message-rate evidence",
+    );
+    expect(tool.description).toContain("unsupported changes deny publication");
     expect(tool.description).toContain("not absolute accuracy");
-    expect(tool.description).toContain("There is no automatic legacy fallback");
-    expect(tool.description).toContain("trusted Settings once per pass");
+    expect(tool.description).toContain(
+      "There is no whole-observation capture fallback",
+    );
+    expect(tool.description).toContain(
+      "Timing policy is frozen from trusted Settings",
+    );
     expect(tool.description).toContain("even while ready=false");
     expect(tool.description).toContain(
-      "genuine per-pass arm proof is required before playback",
-    );
-    expect(tool.description).toContain("complete coverage before publication");
-    expect(tool.description).toContain(
-      "Unsupported or unbound listeners remain denied",
+      "Fresh generation-bound arm, launch, source coverage and cleanup proof are required",
     );
     expect(tool.description).toContain(
-      "globally anchored quarter-beat report grid",
+      "contexts publish only after verified durable publication",
+    );
+    expect(tool.description).toContain(
+      "unsupported or unbound listeners remain denied",
+    );
+    expect(tool.description).toContain(
+      "globally anchored quarter-beat level grid",
     );
     expect(tool.description).toContain(
       "independent 100 ms attack-detector cadence",
@@ -1275,7 +1307,7 @@ describe("optional listening tool contracts", () => {
 
   it("requires exact Session identity and defaults bounded capture", () => {
     expect(listeningOperationParamsSchema.parse(sessionInput)).toMatchObject({
-      maximumDurationMs: 300_000,
+      maximumDurationMs: 900_000,
     });
     expect(
       listeningOperationParamsSchema.parse(sessionInput),
@@ -1294,7 +1326,7 @@ describe("optional listening tool contracts", () => {
     ).toBe(false);
   });
 
-  it("admits a finite ten-minute Arrangement execution allowance without enlarging Session budgets", () => {
+  it("shares a finite execution allowance without an unbounded capture escape", () => {
     const arrangement = {
       action: "play-arrangement-and-listen",
       listenerIds: ["tap-after"],
@@ -1315,14 +1347,14 @@ describe("optional listening tool contracts", () => {
         ...sessionInput,
         maximumDurationMs: 900_000,
       }).success,
-    ).toBe(false);
+    ).toBe(true);
   });
 
   it.each([
     { listenerIds: [] },
     { listenerIds: ["tap", "tap"] },
     { listenerIds: Array.from({ length: 9 }, (_, index) => `tap-${index}`) },
-    { maximumDurationMs: 300_001 },
+    { maximumDurationMs: 900_001 },
     { durationBeats: -1 },
     { listenerIds: ["tap-before", "tap-after"] },
     { durationBeats: Infinity },

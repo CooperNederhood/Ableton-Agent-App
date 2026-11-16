@@ -2,8 +2,7 @@
 "use strict";
 
 function diagnosticDeliveryLimit(control) {
-  if (control.config?.scope !== "arrangement-continuous-metric-stream/v1")
-    return 400;
+  if (control.config?.scope !== "finite-metric-stream/v1") return 400;
   const { totalSamples, sampleRate } = control.config.geometry;
   const seconds = totalSamples / sampleRate;
   if (!Number.isFinite(seconds) || seconds <= 0 || seconds > 600)

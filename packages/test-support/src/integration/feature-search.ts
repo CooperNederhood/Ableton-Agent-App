@@ -1,8 +1,14 @@
 import { createHash } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
-import { VERIFIED_TOOL_RESULT_GUIDANCE } from "@ableton-agent/application";
+import {
+  TRANSPORT_SOURCE_FLAG_GUIDANCE,
+  VERIFIED_TOOL_RESULT_GUIDANCE,
+} from "@ableton-agent/application";
 import {
   metricAudioObservationSchema,
+  metricRecordStreamContextReferenceSchema,
+  projectMetricFeatureSource,
+  metricRecordStreamExpectedCoverage,
   metricListeningReportSchema,
   contextSegmentSchema,
   listeningFeatureDefinitionSchema,
@@ -15,15 +21,31 @@ import {
   spectralShapeTimelineSchema,
   transportInspectParamsSchema,
   transportOperationResultSchema,
+  inspectArrangementParamsSchema,
+  inspectArrangementResultSchema,
+  sessionSnapshotSchema,
   type PitchTimeline,
   type SpectralShapeTimeline,
   type MetricListeningReport,
+  type MetricRecordChunk,
 } from "@ableton-agent/protocol";
-import type { AssertionInput, TurnEvidence } from "./contracts.js";
+import {
+  sessionInspectParamsSchema,
+  contextOperationResultSchema,
+  expandListeningFeatureInventory,
+  metricStreamOverviewSchema,
+  metricStreamRecordPageSchema,
+} from "@ableton-agent/tools";
+import type {
+  AssertionInput,
+  TurnEvidence,
+  SourceIdentity,
+} from "./contracts.js";
 import {
   validateAgentListeningEvidence,
   type AgentListeningEvidence,
 } from "./agent-listening-result.js";
+import { expandArrangementDescriptor } from "./arrangement-stream.js";
 
 export function projectFeatureSearchHistory(
   history: AgentListeningEvidence,
@@ -59,10 +81,7 @@ export function projectFeatureSearchHistory(
       } else if (data.action === "get-feature") {
         content = { ...data, feature: immutableFeature(data.feature) };
       } else if (data.action === "list-features") {
-        content = {
-          ...data,
-          features: array(data.features).map(immutableFeature),
-        };
+        return record;
       } else if (data.action === "search-features") {
         content = {
           ...data,
@@ -211,6 +230,10 @@ export interface FeatureSourceEvidence {
   readonly contentSha256: string;
   readonly afterOwnedRestart: boolean;
   readonly sampleRate: number;
+  readonly stream?: {
+    readonly descriptorDigest: string;
+    readonly sourceFingerprint: string;
+  };
   readonly analyzers?: {
     readonly pitch: PitchTimeline;
     readonly spectralShape: SpectralShapeTimeline;
@@ -249,29 +272,107 @@ export function projectFeatureSource(
   raw: unknown,
   afterOwnedRestart: boolean,
   coverage: FeatureSearchCoverage = "full",
+  stream?: {
+    readonly chunks: readonly MetricRecordChunk[];
+    readonly contentSha256: string;
+    readonly sourceFingerprint: string;
+  },
 ): FeatureSourceEvidence {
   check(
     coverage === "full" || coverage === "peak-only",
     "invalid feature coverage",
   );
-  const observation = metricAudioObservationSchema.parse(raw);
+  const reference = metricRecordStreamContextReferenceSchema.safeParse(raw);
+  const observation = reference.success
+    ? (() => {
+        check(stream, "missing original stream records");
+        const descriptor = expandArrangementDescriptor(
+          reference.data.descriptor,
+        );
+        check(
+          (coverage === "peak-only"
+            ? (["level"] as const)
+            : metricFamilies
+          ).every(
+            (metric) =>
+              descriptor.requestedMetrics.includes(metric) &&
+              descriptor.algorithms.some(
+                (algorithm) =>
+                  algorithm.metric === metric &&
+                  algorithm.availability === "available",
+              ),
+          ),
+          "missing or incomplete authoritative metric family",
+        );
+        const projected = projectMetricFeatureSource(
+          reference.data,
+          stream.chunks,
+        );
+        const timeline = (metric: "pitch" | "spectral-shape") => ({
+          schema:
+            metric === "pitch"
+              ? "pitch-timeline/v1"
+              : "spectral-shape-timeline/v1",
+          ...projected.metrics[metric],
+          ...metricRecordStreamExpectedCoverage(descriptor, metric),
+          status: "complete",
+          gaps: [],
+        });
+        return {
+          ...projected,
+          ownership: descriptor.ownership,
+          metrics: {
+            ...projected.metrics,
+            pitch:
+              coverage === "full"
+                ? pitchTimelineSchema.parse(timeline("pitch"))
+                : undefined,
+            "spectral-shape":
+              coverage === "full"
+                ? spectralShapeTimelineSchema.parse(timeline("spectral-shape"))
+                : undefined,
+          },
+        };
+      })()
+    : metricAudioObservationSchema.parse(raw);
   check(observation.source.view === "session", "not a Session source");
   check(
     (coverage === "peak-only" ? (["level"] as const) : metricFamilies).every(
       (family) =>
         observation.requestedMetrics.includes(family) &&
-        observation.metrics[family]?.status === "complete",
+        (reference.success
+          ? reference.data.descriptor.algorithms.some(
+              (algorithm) =>
+                algorithm.metric === family &&
+                algorithm.availability === "available",
+            )
+          : (() => {
+              const timeline = observation.metrics[family];
+              return (
+                timeline !== undefined &&
+                "status" in timeline &&
+                timeline.status === "complete"
+              );
+            })()),
     ),
     "missing or incomplete authoritative metric family",
   );
   const value = {
     contextId,
     passId: observation.ownership.passId,
-    contentSha256: createHash("sha256")
-      .update(JSON.stringify(observation))
-      .digest("hex"),
+    contentSha256: reference.success
+      ? stream!.contentSha256
+      : createHash("sha256").update(JSON.stringify(observation)).digest("hex"),
     afterOwnedRestart,
     sampleRate: observation.geometry.sampleRate,
+    ...(reference.success
+      ? {
+          stream: {
+            descriptorDigest: reference.data.descriptorDigest,
+            sourceFingerprint: stream!.sourceFingerprint,
+          },
+        }
+      : {}),
     ...(coverage === "full"
       ? {
           analyzers: {
@@ -309,6 +410,7 @@ export function validateFeatureSources(
           "sampleRate",
           "records",
           "analyzers",
+          "stream",
         ].includes(key),
       ),
       "unknown source field",
@@ -321,6 +423,18 @@ export function validateFeatureSources(
       );
     check(!ids.has(source.contextId), "duplicate source");
     ids.add(source.contextId);
+    if (source.stream !== undefined) {
+      const stream = object(source.stream);
+      check(
+        Object.keys(stream).sort().join() ===
+          "descriptorDigest,sourceFingerprint" &&
+          typeof stream.descriptorDigest === "string" &&
+          /^[a-f0-9]{64}$/u.test(stream.descriptorDigest) &&
+          typeof stream.sourceFingerprint === "string" &&
+          /^[a-f0-9]{64}$/u.test(stream.sourceFingerprint),
+        "invalid stream source provenance",
+      );
+    }
     check(
       typeof source.contentSha256 === "string" &&
         /^[a-f0-9]{64}$/u.test(source.contentSha256),
@@ -398,7 +512,7 @@ export function validateFeatureSources(
     );
   }
 }
-function toolPairs(turn: TurnEvidence) {
+export function readFeatureToolPairs(turn: TurnEvidence, storageShape = false) {
   const history = turn.agentListening;
   validateAgentListeningEvidence(history);
   check(
@@ -459,19 +573,54 @@ function toolPairs(turn: TurnEvidence) {
     let content = envelope.content;
     if (transportRead) {
       transportInspectParamsSchema.parse(call.arguments);
-      const suffix = `\n\nTool "ableton_transport" succeeded. Additional guidance from postToolUse hooks:\n${VERIFIED_TOOL_RESULT_GUIDANCE}`;
+      const suffix = `\n\nTool "ableton_transport" succeeded. Additional guidance from postToolUse hooks:\n${VERIFIED_TOOL_RESULT_GUIDANCE}\n${TRANSPORT_SOURCE_FLAG_GUIDANCE}`;
+      if (typeof content === "string" && content.endsWith(suffix))
+        content = content.slice(0, -suffix.length);
+    } else {
+      const suffix = `\n\nTool "${call.toolName}" succeeded. Additional guidance from postToolUse hooks:\n${VERIFIED_TOOL_RESULT_GUIDANCE}`;
       if (typeof content === "string" && content.endsWith(suffix))
         content = content.slice(0, -suffix.length);
     }
-    const data = object(
+    let data = object(
       typeof content === "string" ? JSON.parse(content) : content,
     );
+    if (
+      !storageShape &&
+      data.action === "list-features" &&
+      data.projection !== "acceptance-storage-inventory/v1"
+    ) {
+      const page = contextOperationResultSchema.parse(data);
+      check(
+        page.action === "list-features",
+        "invalid feature inventory action",
+      );
+      data = {
+        ...data,
+        features: expandListeningFeatureInventory(page.inventory),
+      };
+    }
     if (transportRead) transportOperationResultSchema.options[0].parse(data);
+    const arrangementRead =
+      storageShape &&
+      call.toolName === "ableton_arrangement" &&
+      call.arguments.action === "inspect";
+    if (arrangementRead) {
+      inspectArrangementParamsSchema.parse(call.arguments);
+      inspectArrangementResultSchema.parse(data);
+    }
+    const sessionRead =
+      call.toolName === "ableton_session" &&
+      call.arguments.action === "inspect";
+    if (sessionRead) {
+      sessionInspectParamsSchema.parse(call.arguments);
+      sessionSnapshotSchema.parse(data);
+    }
     check(
       data.error === undefined &&
         data.resultType !== "failure" &&
         data.isError !== true &&
-        data.action === call.arguments.action,
+        (data.action === call.arguments.action ||
+          ((arrangementRead || sessionRead) && data.action === undefined)),
       "structured tool failure",
     );
     const action = String(call.arguments.action);
@@ -487,6 +636,9 @@ function toolPairs(turn: TurnEvidence) {
           "get",
           "report",
           "list",
+          "stream-overview",
+          "stream-records",
+          "stream-summary",
         ].includes(action)) ||
         (call.toolName === "ableton_listening" &&
           [
@@ -494,14 +646,17 @@ function toolPairs(turn: TurnEvidence) {
             "inspect-listeners",
             "get-pass",
             "list-passes",
+            ...(storageShape ? ["play-arrangement-and-listen"] : []),
           ].includes(action)) ||
-        (call.toolName === "ableton_session" && action === "inspect") ||
-        transportRead,
+        sessionRead ||
+        transportRead ||
+        arrangementRead,
       "forbidden capture/reset/mutation tool",
     );
     return { call, data, action };
   });
 }
+const toolPairs = (turn: TurnEvidence) => readFeatureToolPairs(turn);
 function view(value: unknown) {
   const feature = object(value);
   const record = object(feature.record);
@@ -667,7 +822,8 @@ function boundFeature(
       typeof feature.record.id === "string" &&
       feature.record.id.length > 0 &&
       feature.source.passId === source.passId &&
-      feature.record.sourceFingerprint === source.contentSha256 &&
+      feature.record.sourceFingerprint ===
+        (source.stream?.sourceFingerprint ?? source.contentSha256) &&
       feature.segment.sampleRate === source.sampleRate &&
       feature.segment.startSample >= source.records[0]!.startSample &&
       feature.segment.endSample <= source.records.at(-1)!.endSample,
@@ -676,6 +832,108 @@ function boundFeature(
   return { feature, source };
 }
 type ToolPair = ReturnType<typeof toolPairs>[number];
+
+export function verifyStreamFeatureReads(
+  source: FeatureSourceEvidence,
+  pairs: readonly ToolPair[],
+  expectedSource: SourceIdentity,
+  phase: string,
+  coverage: FeatureSearchCoverage,
+): void {
+  check(source.stream, "missing stream source provenance");
+  const reads = pairs.filter(
+    (pair) =>
+      pair.call.arguments.contextId === source.contextId &&
+      ["stream-overview", "stream-records"].includes(pair.action),
+  );
+  const overviews = reads.filter((read) => read.action === "stream-overview");
+  check(overviews.length > 0, "agent did not read stored stream overview");
+  for (const read of reads) {
+    const entry = object(read.data.entry);
+    check(
+      entry.contextId === source.contextId && entry.passId === source.passId,
+      "foreign measurement tool result",
+    );
+  }
+  for (const read of overviews) {
+    const overview = metricStreamOverviewSchema.parse(read.data.overview);
+    check(
+      overview.descriptorDigest === source.stream.descriptorDigest &&
+        overview.source.view === "session" &&
+        overview.source.target.track.expectedReference ===
+          expectedSource.trackId &&
+        overview.source.clipReference === expectedSource.clipId &&
+        overview.geometry.sampleRate === source.sampleRate &&
+        overview.geometry.startSample === source.records[0]!.startSample &&
+        overview.geometry.endSample === source.records.at(-1)!.endSample &&
+        overview.outcome === "complete" &&
+        (coverage === "peak-only" ? ["level"] : metricFamilies).every(
+          (family) =>
+            overview.metrics.some(
+              (metric) =>
+                metric.metric === family &&
+                metric.availability === "available" &&
+                metric.missingRecords === 0,
+            ),
+        ),
+      "stream overview differs from original measured source",
+    );
+  }
+  const consumed = {
+    level: new Set<number>(),
+    pitch: new Set<number>(),
+    "spectral-shape": new Set<number>(),
+  };
+  for (const read of reads.filter((read) => read.action === "stream-records")) {
+    if (read.data.page === null) continue;
+    const page = metricStreamRecordPageSchema.parse(read.data.page);
+    check(
+      page.descriptorDigest === source.stream.descriptorDigest &&
+        page.metric === read.call.arguments.metric &&
+        page.gaps.length === 0,
+      "foreign or incomplete original stream page",
+    );
+    if (page.metric === "level")
+      for (const record of page.records) {
+        check("peak" in record, "invalid original level record");
+        check(
+          isDeepStrictEqual(source.records[record.index], {
+            ...record.support,
+            peak: record.peak,
+          }),
+          "stream level differs from original measurement",
+        );
+        consumed.level.add(record.index);
+      }
+    else if (page.metric === "pitch" || page.metric === "spectral-shape") {
+      const timeline =
+        page.metric === "pitch"
+          ? source.analyzers?.pitch
+          : source.analyzers?.spectralShape;
+      check(timeline, "missing authoritative analyzer evidence");
+      for (const frame of page.records) {
+        check(
+          isDeepStrictEqual(
+            timeline.frames.find((item) => item.index === frame.index),
+            frame,
+          ),
+          "stream analyzer differs from original measurement",
+        );
+        consumed[page.metric].add(frame.index);
+      }
+    }
+  }
+  check(
+    consumed.level.size === source.records.length &&
+      (coverage === "peak-only" ||
+        (phase === "restored"
+          ? consumed.pitch.size > 0 && consumed["spectral-shape"].size > 0
+          : consumed.pitch.size === source.analyzers?.pitch.frames.length &&
+            consumed["spectral-shape"].size ===
+              source.analyzers?.spectralShape.frames.length)),
+    "agent did not consume required original stream records",
+  );
+}
 type EstablishedPeak = {
   id: string;
   feature: unknown;
@@ -899,7 +1157,8 @@ function verifyAnalyzerFeatures(
           definition &&
             feature.record.sessionId === sessionId &&
             pair.call.arguments.featureId === feature.record.id &&
-            feature.record.sourceFingerprint === source.contentSha256 &&
+            feature.record.sourceFingerprint ===
+              (source.stream?.sourceFingerprint ?? source.contentSha256) &&
             feature.source.passId === source.passId &&
             feature.metadata.profile === definition.profile &&
             feature.metadata.distanceDefinition ===
@@ -1171,6 +1430,11 @@ export function verifyFeatureSearch(
     );
   }
   for (const source of phase === "restored" ? sources : [sources.at(-1)!]) {
+    if (source.stream) {
+      verifyStreamFeatureReads(source, pairs, expectedSource, phase, coverage);
+      continue;
+    }
+
     const reads = pairs.filter(
       (pair) =>
         ["get", "report"].includes(pair.action) &&
@@ -1558,7 +1822,8 @@ export function verifyFeatureSearch(
         check(
           pitch.record.sessionId === selected.appSessionId &&
             pitch.source.passId === source.passId &&
-            pitch.record.sourceFingerprint === source.contentSha256 &&
+            pitch.record.sourceFingerprint ===
+              (source.stream?.sourceFingerprint ?? source.contentSha256) &&
             ((pitch.metadata.status === "unavailable" &&
               typeof pitch.metadata.reason === "string" &&
               pitch.metadata.reason.length > 0) ||

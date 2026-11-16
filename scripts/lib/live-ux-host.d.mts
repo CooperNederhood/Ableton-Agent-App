@@ -6,6 +6,7 @@ export function waitForRunnerOwnedLiveReady(
     coordinatedStartup?: boolean;
     discardRecovery?: boolean;
     requireAudio?: boolean;
+    fixturePath?: string;
     host?: string;
     port?: number;
     timeoutMs?: number;

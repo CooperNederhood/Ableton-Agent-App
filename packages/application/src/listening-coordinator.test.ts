@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-  audioObservationSchema,
   type ListeningFailureEvidence,
-  type AudioObservation,
+  type MetricRecordStreamManifest,
 } from "@ableton-agent/protocol";
+import { createSyntheticMetricRecordStreamManifest } from "@ableton-agent/protocol/testing";
 import {
   telemetryEventEnvelopeSchema,
   type TelemetryEventEnvelope,
@@ -37,41 +37,21 @@ const request: ListeningRequest = {
   maximumDurationMs: 1000,
 };
 
-function observation(
+async function observation(
   passId: string,
   listenerId = "listener",
-): AudioObservation {
-  const sample = (index: number) => ({
-    sample: index * 48_000,
-    beat: index * 2,
-    peak: [0.5, 0.25],
-    rmsDbfs: [-12, -18],
-    centroidHz: 1000,
-  });
-  return audioObservationSchema.parse({
-    schema: "audio-observation/v1",
-    listenerId,
-    passId,
-    sampleRate: 48_000,
-    startSample: 0,
-    endSample: 384_000,
-    startBeat: 0,
-    endBeat: 16,
-    complete: true,
-    limitations: ["Synthetic coordinator fixture; not real-device validation"],
-    algorithm: {
-      name: "synthetic-test",
-      version: "fixture-v1",
-      windowSamples: 48_000,
-      hopSamples: 48_000,
-      settings: { attackThresholdDb: 6, minAttackSpacingSamples: 480 },
-      units: { amplitude: "linear", rms: "dBFS", centroid: "Hz" },
-      timingUncertaintySamples: 0,
+): Promise<MetricRecordStreamManifest> {
+  return createSyntheticMetricRecordStreamManifest({
+    seconds: 8,
+    ownership: {
+      passId,
+      listenerId,
+      ...trace,
+      connectionId: "00000000-0000-4000-8000-000000000004",
+      connectionEpoch: "00000000-0000-4000-8000-000000000005",
+      generation: "00000000-0000-4000-8000-000000000006",
+      nativeEpoch: 1,
     },
-    summaries: { peak: [0.5, 0.25], rmsDbfs: [-12, -18], centroidHz: 1000 },
-    samples: Array.from({ length: 8 }, (_, index) => sample(index)),
-    attacks: [],
-    reduction: { originalSamples: 8, originalAttacks: 0, truncated: false },
   });
 }
 
@@ -80,11 +60,13 @@ function fixture(
   onChange?: ListeningCoordinatorOptions["onChange"],
 ) {
   let resolveCapture: (
-    observations: readonly AudioObservation[],
+    manifests: readonly MetricRecordStreamManifest[],
   ) => void = () => {};
-  const observations = new Promise<readonly AudioObservation[]>((resolve) => {
-    resolveCapture = resolve;
-  });
+  const manifests = new Promise<readonly MetricRecordStreamManifest[]>(
+    (resolve) => {
+      resolveCapture = resolve;
+    },
+  );
   const stop = vi.fn(async () => {});
   const disarm = vi.fn(async () => {});
   const releaseReservation = vi.fn(async () => {});
@@ -97,10 +79,14 @@ function fixture(
       identityVerified: true,
     })),
     reservePublication: vi.fn(async () => ({ release: releaseReservation })),
-    prepare: vi.fn(async () => ({ observations, disarm })),
+    prepare: vi.fn(async () => ({
+      observationContract: "metric-record-stream/v1" as const,
+      manifests,
+      disarm,
+    })),
     startPlayback: vi.fn(async () => ({ isOwned: () => true, stop })),
-    persist: vi.fn(async () => ["entry"]),
-    validateObservations: vi.fn(),
+    persistStreams: vi.fn(async () => ["entry"]),
+    validateStreams: vi.fn(),
     ...overrides,
   };
   const enqueue = vi.fn<(event: TelemetryEventEnvelope) => void>();
@@ -157,13 +143,13 @@ describe("headless listening coordinator", () => {
     expect(disarm).toHaveBeenCalledOnce();
     expect(release).toHaveBeenCalledOnce();
     expect(f.stop).not.toHaveBeenCalled();
-    expect(f.services.persist).not.toHaveBeenCalled();
+    expect(f.services.persistStreams).not.toHaveBeenCalled();
     expect(persistStreams).not.toHaveBeenCalled();
     expect(f.releaseReservation).toHaveBeenCalledOnce();
   });
 
   it.each(["empty", "rejected"] as const)(
-    "rejects %s continuous results without falling back to whole observations",
+    "rejects %s continuous results without falling back to whole manifests",
     async (failure) => {
       const disarm = vi.fn(async () => {});
       const persistStreams = vi.fn(async () => ["stream-context"]);
@@ -185,7 +171,7 @@ describe("headless listening coordinator", () => {
       expect(result.contextIds).toEqual([]);
       expect(result.metricResults).toBeUndefined();
       expect(disarm).toHaveBeenCalledOnce();
-      expect(f.services.persist).not.toHaveBeenCalled();
+      expect(f.services.persistStreams).not.toHaveBeenCalled();
       expect(persistStreams).not.toHaveBeenCalled();
       expect(f.releaseReservation).toHaveBeenCalledOnce();
       await f.coordinator.shutdown();
@@ -229,7 +215,7 @@ describe("headless listening coordinator", () => {
     );
     input.onProgress!({ ...progress, persistedSamples: 8_640_000 });
     expect(f.coordinator.get(job.passId, owner).stage).toBe("cancelled");
-    expect(f.services.persist).not.toHaveBeenCalled();
+    expect(f.services.persistStreams).not.toHaveBeenCalled();
   });
 
   it.each(["regressed", "out-of-bounds", "identity"] as const)(
@@ -262,7 +248,7 @@ describe("headless listening coordinator", () => {
       );
       expect(f.disarm).toHaveBeenCalledOnce();
       expect(f.releaseReservation).toHaveBeenCalledOnce();
-      expect(f.services.persist).not.toHaveBeenCalled();
+      expect(f.services.persistStreams).not.toHaveBeenCalled();
     },
   );
 
@@ -276,7 +262,7 @@ describe("headless listening coordinator", () => {
     );
     await vi.advanceTimersByTimeAsync(600_000);
     expect(f.coordinator.get(job.passId, owner).stage).toBe("capturing");
-    f.resolveCapture([observation(job.passId)]);
+    f.resolveCapture([await observation(job.passId)]);
     expect((await f.coordinator.wait(job.passId, owner)).stage).toBe(
       "completed",
     );
@@ -298,10 +284,10 @@ describe("headless listening coordinator", () => {
     );
     expect(f.disarm).toHaveBeenCalledOnce();
     expect(f.releaseReservation).toHaveBeenCalledOnce();
-    expect(f.services.persist).not.toHaveBeenCalled();
+    expect(f.services.persistStreams).not.toHaveBeenCalled();
   });
 
-  it("does not extend the Session execution budget with the Arrangement allowance", () => {
+  it("enforces the shared finite execution ceiling for Session", () => {
     const f = fixture();
     expect(() =>
       f.coordinator.start(
@@ -310,12 +296,12 @@ describe("headless listening coordinator", () => {
           listenerIds: ["listener"],
           clipReference: "clip",
           trackReference: "track",
-          maximumDurationMs: 300_001,
+          maximumDurationMs: 900_001,
         },
         owner,
         trace,
       ),
-    ).toThrow("300 seconds");
+    ).toThrow("900 seconds");
     expect(f.services.inspect).not.toHaveBeenCalled();
   });
 
@@ -335,7 +321,7 @@ describe("headless listening coordinator", () => {
     );
     expect(f.disarm).toHaveBeenCalledOnce();
     expect(f.releaseReservation).toHaveBeenCalledOnce();
-    expect(f.services.persist).not.toHaveBeenCalled();
+    expect(f.services.persistStreams).not.toHaveBeenCalled();
   });
 
   it("keeps omitted Session duration and absent failure evidence genuinely absent from queued snapshots", async () => {
@@ -530,7 +516,7 @@ describe("headless listening coordinator", () => {
         },
       });
       expect(accessor).not.toHaveBeenCalled();
-      expect(f.services.persist).not.toHaveBeenCalled();
+      expect(f.services.persistStreams).not.toHaveBeenCalled();
     },
   );
 
@@ -590,7 +576,8 @@ describe("headless listening coordinator", () => {
     });
     expect(seen.at(-1)?.failureEvidence).toEqual(result.failureEvidence);
     f.services.prepare = async ({ passId }) => ({
-      observations: Promise.resolve([observation(passId)]),
+      observationContract: "metric-record-stream/v1",
+      manifests: Promise.resolve([await observation(passId)]),
       disarm: async () => {},
     });
     f.services.reservePublication = async () => ({ release: async () => {} });
@@ -809,12 +796,8 @@ describe("headless listening coordinator", () => {
     ["reservePublication", "application.publication.reserve", "publication"],
     ["prepare", "application.capture.prepare", "preparation"],
     ["startPlayback", "application.playback.start", "launch"],
-    [
-      "validateObservations",
-      "application.observation.validate",
-      "post-binding",
-    ],
-    ["persist", "application.publication.persist", "publication"],
+    ["validateStreams", "application.stream.validate", "post-binding"],
+    ["persistStreams", "application.publication.persist", "publication"],
   ] as const)(
     "records the exact application boundary for %s rejection without inventing its source predicate",
     async (method, checkId, phase) => {
@@ -826,7 +809,7 @@ describe("headless listening coordinator", () => {
         );
       };
       const job = f.coordinator.start(request, owner, trace);
-      f.resolveCapture([observation(job.passId)]);
+      f.resolveCapture([await observation(job.passId)]);
       const result = await f.coordinator.wait(job.passId, owner);
       expect(result).toMatchObject({
         stage: "failed",
@@ -849,18 +832,19 @@ describe("headless listening coordinator", () => {
   it("records application schema rejection counts without publishing or retaining malformed observation bodies", async () => {
     const f = fixture({
       prepare: async () => ({
-        observations: Promise.resolve([{}] as never),
+        observationContract: "metric-record-stream/v1",
+        manifests: Promise.resolve([{}] as never),
         disarm: async () => {},
       }),
     });
     const job = f.coordinator.start(request, owner, trace);
     const result = await f.coordinator.wait(job.passId, owner);
     expect(result.failureEvidence).toMatchObject({
-      checkId: "application.observation.schema",
+      checkId: "application.stream.schema",
       coverage: "complete",
     });
     expect(result.failureEvidence?.facts).toContainEqual({
-      field: "observationCount",
+      field: "manifestCount",
       actual: { state: "observed", value: 1 },
       expected: { state: "observed", value: 1 },
       comparison: "equal",
@@ -870,7 +854,7 @@ describe("headless listening coordinator", () => {
         ({ field }) => field === "schemaIssueCount",
       )?.actual,
     ).toMatchObject({ state: "observed" });
-    expect(f.services.persist).not.toHaveBeenCalled();
+    expect(f.services.persistStreams).not.toHaveBeenCalled();
   });
 
   it.each(["disarm", "playback", "quota-release"] as const)(
@@ -1038,7 +1022,7 @@ describe("headless listening coordinator", () => {
         durationMs: 500,
       });
       expect(result.error).toContain("including setup and launch");
-      expect(f.services.persist).not.toHaveBeenCalled();
+      expect(f.services.persistStreams).not.toHaveBeenCalled();
       expect(f.stop).not.toHaveBeenCalled();
       expect(release).toHaveBeenCalledTimes(boundary === "capture" ? 1 : 0);
       await f.coordinator.shutdown();
@@ -1111,7 +1095,8 @@ describe("headless listening coordinator", () => {
       await vi.waitFor(() =>
         expect(f.coordinator.get(job.passId, owner).stage).toBe("capturing"),
       );
-      if (stage === "completed") f.resolveCapture([observation(job.passId)]);
+      if (stage === "completed")
+        f.resolveCapture([await observation(job.passId)]);
       else await f.coordinator.cancel(job.passId, owner);
       expect(await f.coordinator.wait(job.passId, owner)).toMatchObject({
         stage,
@@ -1121,7 +1106,7 @@ describe("headless listening coordinator", () => {
       expect(f.stop).not.toHaveBeenCalled();
       expect(f.disarm).toHaveBeenCalledOnce();
       expect(f.releaseReservation).toHaveBeenCalledOnce();
-      expect(f.services.persist).toHaveBeenCalledTimes(
+      expect(f.services.persistStreams).toHaveBeenCalledTimes(
         stage === "completed" ? 1 : 0,
       );
     },
@@ -1138,13 +1123,13 @@ describe("headless listening coordinator", () => {
     await vi.waitFor(() =>
       expect(f.coordinator.get(job.passId, owner).stage).toBe("capturing"),
     );
-    f.resolveCapture([observation(job.passId)]);
+    f.resolveCapture([await observation(job.passId)]);
     expect(await f.coordinator.wait(job.passId, owner)).toMatchObject({
       stage: "failed",
       cleanupPolicy: "leave-running",
     });
     expect(f.stop).not.toHaveBeenCalled();
-    expect(f.services.persist).not.toHaveBeenCalled();
+    expect(f.services.persistStreams).not.toHaveBeenCalled();
     expect(f.releaseReservation).toHaveBeenCalledOnce();
   });
 
@@ -1162,7 +1147,7 @@ describe("headless listening coordinator", () => {
           stop,
           isOwned,
         }),
-        validateObservations: () => {
+        validateStreams: () => {
           throw new Error("Source timing could not be verified");
         },
       });
@@ -1170,7 +1155,7 @@ describe("headless listening coordinator", () => {
       await vi.advanceTimersByTimeAsync(0);
       expect(f.coordinator.get(job.passId, owner).stage).toBe("capturing");
       if (reason === "failure") {
-        f.resolveCapture([observation(job.passId)]);
+        f.resolveCapture([await observation(job.passId)]);
       } else if (reason === "timeout") {
         await vi.advanceTimersByTimeAsync(request.maximumDurationMs);
       } else {
@@ -1187,7 +1172,7 @@ describe("headless listening coordinator", () => {
       expect(isOwned).not.toHaveBeenCalled();
       expect(f.disarm).toHaveBeenCalledOnce();
       expect(f.releaseReservation).toHaveBeenCalledOnce();
-      expect(f.services.persist).not.toHaveBeenCalled();
+      expect(f.services.persistStreams).not.toHaveBeenCalled();
       const terminalEvent = telemetryEventEnvelopeSchema.parse(
         f.enqueue.mock.calls.at(-1)?.[0],
       );
@@ -1244,7 +1229,7 @@ describe("headless listening coordinator", () => {
     expect(f.disarm).toHaveBeenCalledOnce();
     expect(f.stop).toHaveBeenCalledOnce();
     expect(f.releaseReservation).toHaveBeenCalledOnce();
-    expect(f.services.persist).not.toHaveBeenCalled();
+    expect(f.services.persistStreams).not.toHaveBeenCalled();
   });
 
   it("fails quota reservation before listener controls or playback", async () => {
@@ -1260,7 +1245,7 @@ describe("headless listening coordinator", () => {
     });
     expect(f.services.prepare).not.toHaveBeenCalled();
     expect(f.services.startPlayback).not.toHaveBeenCalled();
-    expect(f.services.persist).not.toHaveBeenCalled();
+    expect(f.services.persistStreams).not.toHaveBeenCalled();
   });
 
   it("retains quota through publication and releases it after terminal cleanup", async () => {
@@ -1270,7 +1255,7 @@ describe("headless listening coordinator", () => {
       expect(f.services.startPlayback).toHaveBeenCalledOnce(),
     );
     expect(f.releaseReservation).not.toHaveBeenCalled();
-    f.resolveCapture([observation(job.passId)]);
+    f.resolveCapture([await observation(job.passId)]);
     expect((await f.coordinator.wait(job.passId, owner)).stage).toBe(
       "completed",
     );
@@ -1279,7 +1264,7 @@ describe("headless listening coordinator", () => {
       vi.mocked(f.services.reservePublication).mock.invocationCallOrder[0],
     ).toBeLessThan(vi.mocked(f.services.prepare).mock.invocationCallOrder[0]!);
     expect(f.releaseReservation.mock.invocationCallOrder[0]).toBeGreaterThan(
-      vi.mocked(f.services.persist).mock.invocationCallOrder[0]!,
+      vi.mocked(f.services.persistStreams).mock.invocationCallOrder[0]!,
     );
   });
 
@@ -1406,7 +1391,7 @@ describe("headless listening coordinator", () => {
     expect(f.services.startPlayback).not.toHaveBeenCalled();
     expect(f.disarm).toHaveBeenCalledOnce();
     expect(f.stop).not.toHaveBeenCalled();
-    expect(f.services.persist).not.toHaveBeenCalled();
+    expect(f.services.persistStreams).not.toHaveBeenCalled();
   });
 
   it("observes an adapter rejection when cancellation races the arming transition", async () => {
@@ -1455,7 +1440,7 @@ describe("headless listening coordinator", () => {
     expect(result.stage).toBe("cancelled");
     expect(f.disarm).toHaveBeenCalledOnce();
     expect(f.stop).toHaveBeenCalledOnce();
-    expect(f.services.persist).not.toHaveBeenCalled();
+    expect(f.services.persistStreams).not.toHaveBeenCalled();
     const events = f.enqueue.mock.calls.map(([event]) =>
       telemetryEventEnvelopeSchema.parse(event),
     );
@@ -1511,10 +1496,10 @@ describe("headless listening coordinator", () => {
     f.disarm.mockImplementation(async () => {
       order.push("disarm");
     });
-    vi.mocked(f.services.validateObservations).mockImplementation(() => {
+    vi.mocked(f.services.validateStreams).mockImplementation(() => {
       order.push("verify");
     });
-    vi.mocked(f.services.persist).mockImplementation(async () => {
+    vi.mocked(f.services.persistStreams).mockImplementation(async () => {
       order.push("persist");
       return ["entry"];
     });
@@ -1526,18 +1511,20 @@ describe("headless listening coordinator", () => {
     await vi.waitFor(() =>
       expect(f.services.startPlayback).toHaveBeenCalledOnce(),
     );
-    const measured = observation(job.passId);
+    const measured = await observation(job.passId);
     f.resolveCapture([measured]);
     expect(await f.coordinator.wait(job.passId, owner)).toMatchObject({
       stage: "completed",
       contextIds: ["entry"],
     });
     expect(order).toEqual(["verify", "stop", "disarm", "persist"]);
-    expect(vi.mocked(f.services.persist).mock.lastCall?.[0]).toMatchObject({
+    expect(
+      vi.mocked(f.services.persistStreams).mock.lastCall?.[0],
+    ).toMatchObject({
       passId: job.passId,
       owner,
       trace,
-      observations: [measured],
+      manifests: [measured],
     });
     expect(
       telemetryEventEnvelopeSchema.parse(f.enqueue.mock.lastCall?.[0]).name,
@@ -1546,7 +1533,7 @@ describe("headless listening coordinator", () => {
 
   it("keeps before/after listeners separate in a single atomic publication", async () => {
     const f = fixture({
-      persist: vi.fn(async () => ["before-entry", "after-entry"]),
+      persistStreams: vi.fn(async () => ["before-entry", "after-entry"]),
     });
     const job = f.coordinator.start(
       {
@@ -1561,17 +1548,17 @@ describe("headless listening coordinator", () => {
       expect(f.services.startPlayback).toHaveBeenCalledOnce(),
     );
     f.resolveCapture([
-      observation(job.passId, "before"),
-      observation(job.passId, "after"),
+      await observation(job.passId, "before"),
+      await observation(job.passId, "after"),
     ]);
     expect(await f.coordinator.wait(job.passId, owner)).toMatchObject({
       stage: "completed",
       contextIds: ["before-entry", "after-entry"],
     });
-    expect(f.services.persist).toHaveBeenCalledOnce();
+    expect(f.services.persistStreams).toHaveBeenCalledOnce();
   });
 
-  it.each(["missing", "duplicate", "wrong-pass", "partial"] as const)(
+  it.each(["missing", "duplicate", "wrong-pass", "cancelled"] as const)(
     "rejects %s multi-listener evidence without publication",
     async (failure) => {
       const f = fixture();
@@ -1586,65 +1573,60 @@ describe("headless listening coordinator", () => {
       await vi.waitFor(() =>
         expect(f.services.startPlayback).toHaveBeenCalledOnce(),
       );
-      const before = observation(job.passId, "before");
-      const after = observation(
+      const before = await observation(job.passId, "before");
+      const after = await observation(
         failure === "wrong-pass" ? "other-pass" : job.passId,
         "after",
       );
+      if (failure === "cancelled") {
+        after.outcome = "cancelled";
+        after.nativeProof.status = "cancelled";
+        after.nativeProof.drain = "cancelled";
+      }
       f.resolveCapture(
         failure === "missing"
           ? [before]
-          : [
-              before,
-              failure === "duplicate"
-                ? before
-                : { ...after, complete: failure !== "partial" },
-            ],
+          : [before, failure === "duplicate" ? before : after],
       );
       const result = await f.coordinator.wait(job.passId, owner);
       expect(result).toMatchObject({
         stage: "failed",
         failureEvidence: {
-          checkId: "application.observation.coverage",
+          checkId: "application.stream.coverage",
           coverage: "complete",
         },
       });
       expect(result.failureEvidence?.facts).toContainEqual({
-        field: "observationCount",
+        field: "manifestCount",
         actual: { state: "observed", value: failure === "missing" ? 1 : 2 },
         expected: { state: "observed", value: 2 },
         comparison: "equal",
       });
-      expect(f.services.persist).not.toHaveBeenCalled();
+      expect(f.services.persistStreams).not.toHaveBeenCalled();
       expect(f.stop).toHaveBeenCalledOnce();
       expect(f.disarm).toHaveBeenCalledOnce();
     },
   );
 
-  it("rejects zero-coverage observations even when their complete flag is set", async () => {
+  it("rejects zero-coverage manifests even when their complete flag is set", async () => {
     const f = fixture();
     const job = f.coordinator.start(request, owner, trace);
     await vi.waitFor(() =>
       expect(f.services.startPlayback).toHaveBeenCalledOnce(),
     );
-    f.resolveCapture([
-      audioObservationSchema.parse({
-        ...observation(job.passId),
-        endSample: 0,
-        endBeat: 0,
-        samples: [],
-        reduction: { originalSamples: 0, originalAttacks: 0, truncated: false },
-      }),
-    ]);
+    const empty = await observation(job.passId);
+    empty.nativeProof.capturedSamples = 0;
+    empty.nativeProof.sourceEnd = empty.nativeProof.sourceOrigin;
+    f.resolveCapture([empty]);
     expect((await f.coordinator.wait(job.passId, owner)).stage).toBe("failed");
-    expect(f.services.persist).not.toHaveBeenCalled();
+    expect(f.services.persistStreams).not.toHaveBeenCalled();
     expect(f.stop).toHaveBeenCalledOnce();
     expect(f.disarm).toHaveBeenCalledOnce();
   });
 
   it("surfaces atomic persistence failure without claiming published context", async () => {
     const f = fixture({
-      persist: vi.fn(async () => {
+      persistStreams: vi.fn(async () => {
         throw new Error("Context quota exceeded");
       }),
     });
@@ -1652,7 +1634,7 @@ describe("headless listening coordinator", () => {
     await vi.waitFor(() =>
       expect(f.services.startPlayback).toHaveBeenCalledOnce(),
     );
-    f.resolveCapture([observation(job.passId)]);
+    f.resolveCapture([await observation(job.passId)]);
     const result = await f.coordinator.wait(job.passId, owner);
     expect(result.stage).toBe("failed");
     expect(result.contextIds).toEqual([]);
@@ -1666,10 +1648,10 @@ describe("headless listening coordinator", () => {
     async (failure) => {
       vi.useFakeTimers();
       const f = fixture({
-        persist: vi.fn(() => new Promise<readonly string[]>(() => {})),
+        persistStreams: vi.fn(() => new Promise<readonly string[]>(() => {})),
       });
       const job = f.coordinator.start(request, owner, trace);
-      f.resolveCapture([observation(job.passId)]);
+      f.resolveCapture([await observation(job.passId)]);
       await vi.advanceTimersByTimeAsync(0);
       expect(f.coordinator.get(job.passId, owner).stage).toBe("persisting");
       const finished =
@@ -1703,7 +1685,7 @@ describe("headless listening coordinator", () => {
 
   it("rejects duplicate publication receipts without returning misleading context IDs", async () => {
     const f = fixture({
-      persist: vi.fn(async () => ["same-entry", "same-entry"]),
+      persistStreams: vi.fn(async () => ["same-entry", "same-entry"]),
     });
     const job = f.coordinator.start(
       {
@@ -1717,8 +1699,8 @@ describe("headless listening coordinator", () => {
       expect(f.services.startPlayback).toHaveBeenCalledOnce(),
     );
     f.resolveCapture([
-      observation(job.passId, "before"),
-      observation(job.passId, "after"),
+      await observation(job.passId, "before"),
+      await observation(job.passId, "after"),
     ]);
     const result = await f.coordinator.wait(job.passId, owner);
     expect(result.stage).toBe("failed");
@@ -1736,7 +1718,7 @@ describe("headless listening coordinator", () => {
     });
   });
 
-  it("interrupts complete observations after takeover rather than stopping user playback", async () => {
+  it("interrupts complete manifests after takeover rather than stopping user playback", async () => {
     const stop = vi.fn(async () => {});
     const f = fixture({
       startPlayback: async () => ({ isOwned: () => false, stop }),
@@ -1745,7 +1727,7 @@ describe("headless listening coordinator", () => {
     await vi.waitFor(() =>
       expect(f.coordinator.get(job.passId, owner).stage).toBe("capturing"),
     );
-    f.resolveCapture([observation(job.passId)]);
+    f.resolveCapture([await observation(job.passId)]);
     const result = await f.coordinator.wait(job.passId, owner);
     expect(result).toMatchObject({
       stage: "interrupted",
@@ -1762,7 +1744,7 @@ describe("headless listening coordinator", () => {
     });
     expect(stop).not.toHaveBeenCalled();
     expect(f.disarm).toHaveBeenCalledOnce();
-    expect(f.services.persist).not.toHaveBeenCalled();
+    expect(f.services.persistStreams).not.toHaveBeenCalled();
   });
 
   it("fails an incomplete capture without persisting and performs cleanup", async () => {
@@ -1777,8 +1759,10 @@ describe("headless listening coordinator", () => {
       stage: "failed",
       contextIds: [],
     });
-    expect(result.error).toContain("complete observation");
-    expect(f.services.persist).not.toHaveBeenCalled();
+    expect(result.error).toBe(
+      "Native capture returned invalid metric manifests",
+    );
+    expect(f.services.persistStreams).not.toHaveBeenCalled();
     expect(f.disarm).toHaveBeenCalledOnce();
     expect(f.stop).toHaveBeenCalledOnce();
   });
@@ -1851,14 +1835,13 @@ describe("headless listening coordinator", () => {
       await delay(500);
       return { release: f.releaseReservation };
     };
-    f.services.prepare = async ({ passId }) => {
+    const prepare = f.services.prepare;
+    f.services.prepare = async (input) => {
       await delay(6500);
-      return {
-        observations: Promise.resolve([observation(passId)]),
-        disarm: f.disarm,
-      };
+      return prepare(input);
     };
     const job = f.coordinator.start(request, owner, trace);
+    f.resolveCapture([await observation(job.passId)]);
     await vi.advanceTimersByTimeAsync(11_500);
     expect(await f.coordinator.wait(job.passId, owner)).toMatchObject({
       stage: "completed",
@@ -1886,7 +1869,11 @@ describe("headless listening coordinator", () => {
     };
     f.services.prepare = async () => {
       await delay(6500);
-      return { observations: new Promise(() => {}), disarm: f.disarm };
+      return {
+        observationContract: "metric-record-stream/v1",
+        manifests: new Promise(() => {}),
+        disarm: f.disarm,
+      };
     };
     const job = f.coordinator.start(request, owner, trace);
     await vi.advanceTimersByTimeAsync(13_000);
@@ -1897,7 +1884,7 @@ describe("headless listening coordinator", () => {
       durationMs: 13_000,
     });
     expect(f.services.startPlayback).not.toHaveBeenCalled();
-    expect(f.services.persist).not.toHaveBeenCalled();
+    expect(f.services.persistStreams).not.toHaveBeenCalled();
     expect(f.disarm).toHaveBeenCalledOnce();
     expect(f.releaseReservation).toHaveBeenCalledOnce();
     const terminal = telemetryEventEnvelopeSchema.parse(
@@ -1938,7 +1925,7 @@ describe("headless listening coordinator", () => {
         durationMs: 10_000,
       });
       expect(f.services.startPlayback).not.toHaveBeenCalled();
-      expect(f.services.persist).not.toHaveBeenCalled();
+      expect(f.services.persistStreams).not.toHaveBeenCalled();
       expect(f.disarm).not.toHaveBeenCalled();
       expect(f.releaseReservation).toHaveBeenCalledTimes(
         boundary === "listener-preparation" ? 1 : 0,
@@ -1971,7 +1958,7 @@ describe("headless listening coordinator", () => {
       contextIds: [],
     });
     expect(f.services.startPlayback).not.toHaveBeenCalled();
-    expect(f.services.persist).not.toHaveBeenCalled();
+    expect(f.services.persistStreams).not.toHaveBeenCalled();
     expect(f.disarm).toHaveBeenCalledOnce();
     expect(f.releaseReservation).toHaveBeenCalledOnce();
     expect(f.enqueue.mock.calls.at(-1)?.[0]).toMatchObject({
@@ -1979,7 +1966,7 @@ describe("headless listening coordinator", () => {
       attributes: { readinessBoundary: "post-arm-inspection" },
     });
     const next = f.coordinator.start(request, owner, trace);
-    f.resolveCapture([observation(next.passId)]);
+    f.resolveCapture([await observation(next.passId)]);
     expect(await f.coordinator.wait(next.passId, owner)).toMatchObject({
       stage: "completed",
       contextIds: ["entry"],
@@ -2012,7 +1999,7 @@ describe("headless listening coordinator", () => {
       expect(result.error).toContain(
         stage === "inspection" ? "readiness timed out" : "exceeded its budget",
       );
-      expect(f.services.persist).not.toHaveBeenCalled();
+      expect(f.services.persistStreams).not.toHaveBeenCalled();
       expect(f.stop).toHaveBeenCalledTimes(stage === "capture" ? 1 : 0);
     },
   );
@@ -2030,7 +2017,7 @@ describe("headless listening coordinator", () => {
     expect(result.stage).toBe("failed");
     expect(result.error).toContain("cleanup timed out");
     expect(f.stop).toHaveBeenCalledOnce();
-    expect(f.services.persist).not.toHaveBeenCalled();
+    expect(f.services.persistStreams).not.toHaveBeenCalled();
   });
 
   it("never stops playback after the user takes ownership", async () => {
@@ -2045,7 +2032,7 @@ describe("headless listening coordinator", () => {
     await f.coordinator.cancel(job.passId, owner);
     expect(stop).not.toHaveBeenCalled();
     expect(f.disarm).toHaveBeenCalledOnce();
-    expect(f.services.persist).not.toHaveBeenCalled();
+    expect(f.services.persistStreams).not.toHaveBeenCalled();
   });
 
   it("shutdown cancels work before closing and never reuses the coordinator", async () => {

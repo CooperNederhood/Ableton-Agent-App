@@ -59,7 +59,7 @@ afterEach(async () => {
 function fixture(seconds = 0.5): MetricCaptureStart {
   const observation = createSyntheticMetricListeningObservation();
   const geometry = createContinuousMetricListeningGeometry({
-    captureMode: "arrangement-continuous",
+    captureMode: "finite-metric-stream",
     sampleRate: 48_000,
     vectorSize: 64,
     tempoBpm: 120,
@@ -165,7 +165,11 @@ function fixture(seconds = 0.5): MetricCaptureStart {
           upstreamProcessingHash: "upstream:1",
           routingHash: "routing:1",
           dependencyScope: "unknown",
-          previousRuntimeBindings: [],
+          previousRuntimeBindings: [
+            descriptor.source.view === "arrangement"
+              ? descriptor.source.target.expectedReference
+              : descriptor.source.clipReference,
+          ],
         },
       },
     },
@@ -924,7 +928,7 @@ describe("incremental metric context", () => {
     expect(await cancelled.getMetricCapture(start.metadata.id)).toBeUndefined();
   });
 
-  it("explicitly guards unsupported stream feature requests without flattening or claiming absent features", async () => {
+  it("derives canonical stream features without flattening the original measurements", async () => {
     const store = await memory();
     const start = fixture();
     const { owner, state } = await fill(store, start);
@@ -936,17 +940,18 @@ describe("incremental metric context", () => {
     expect((await store.getMetricCapture(publication.contextId))?.kind).toBe(
       "metric-record-stream-context/v1",
     );
-    for (const request of [
-      () => store.deriveFeatures(publication.contextId),
-      () => store.getFeatureDerivation(publication.contextId),
-      () => store.listFeatures({ entryId: publication.contextId }),
-    ])
-      await expect(request()).rejects.toMatchObject({
-        name: "IncrementalMetricFeaturesUnsupportedError",
-        code: "incremental_metric_features_unsupported",
-      });
-    expect((await store.listFeatures()).items).toEqual([]);
-    expect(await store.getEntry(publication.contextId)).toBeUndefined();
+    expect((await store.deriveFeatures(publication.contextId)).status).toBe(
+      "ready",
+    );
+    expect(
+      (await store.getFeatureDerivation(publication.contextId))?.status,
+    ).toBe("ready");
+    expect(
+      (await store.listFeatures({ entryId: publication.contextId })).items,
+    ).toHaveLength(15);
+    expect((await store.getEntry(publication.contextId))?.payload.schema).toBe(
+      "metric-record-stream-context/v1",
+    );
     expect((await store.listMetricCaptures()).items).toHaveLength(1);
   });
 

@@ -4,10 +4,11 @@ import {
   metricRecordStreamStateSchema,
   metricRecordStreamManifestSchema,
   metricRecordChunkSchema,
-  metricContinuousListeningGeometrySchema,
+  metricRecordStreamDescriptorSummarySchema,
   type MetricRecordStreamManifest,
   type MetricRecordStreamState,
   type MetricRecordChunk,
+  listeningMusicalAlignmentSchema,
 } from "@ableton-agent/protocol";
 import {
   contextEntrySchema,
@@ -45,8 +46,10 @@ export const metricCaptureMetadataSchema = z.strictObject({
   id: contextSubjectSchema.shape.id,
   pass: listeningPassSchema,
   subject: contextSubjectSchema,
+  contributors: z.array(contextSubjectSchema).max(8).optional(),
   producer: contextEntrySchema.shape.producer,
   trace: contextTraceSchema,
+  musicalAlignment: listeningMusicalAlignmentSchema.optional(),
 });
 export type MetricCaptureMetadata = z.infer<typeof metricCaptureMetadataSchema>;
 
@@ -107,13 +110,8 @@ export const metricCaptureStartSchema = z.strictObject({
 });
 export type MetricCaptureStart = z.infer<typeof metricCaptureStartSchema>;
 
-const { rows: _geometryRows, ...geometrySummaryShape } =
-  metricContinuousListeningGeometrySchema.shape;
-void _geometryRows;
-export const metricCaptureDescriptorSummarySchema = z.strictObject({
-  ...metricRecordStreamDescriptorSchema.shape,
-  geometry: z.strictObject(geometrySummaryShape),
-});
+export const metricCaptureDescriptorSummarySchema =
+  metricRecordStreamDescriptorSummarySchema;
 export type MetricCaptureDescriptorSummary = z.infer<
   typeof metricCaptureDescriptorSummarySchema
 >;
@@ -134,8 +132,14 @@ export const metricCaptureRecordSchema = z
   .superRefine((value, context) => {
     if (
       (value.status === "completed" || value.status === "sealed") !==
-        (value.manifest?.outcome === "complete") ||
-      value.metadata.pass.complete !== (value.status === "completed")
+        (value.manifest !== null &&
+          ["complete", "partial"].includes(value.manifest.outcome) &&
+          value.manifest.nativeProof.status === "completed") ||
+      (value.status !== "completed" && value.metadata.pass.complete) ||
+      (value.status === "completed" &&
+        (!["completed", "partial"].includes(value.metadata.pass.status) ||
+          (value.metadata.pass.complete &&
+            value.manifest?.outcome !== "complete")))
     )
       context.addIssue({
         code: "custom",

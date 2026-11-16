@@ -4,12 +4,17 @@ import {
   audioObservationKindSchema,
   storedAudioObservationSchema,
   listeningMusicalAlignmentSchema,
+  metricRecordStreamContextReferenceSchema,
 } from "@ableton-agent/protocol";
 
 const listenersPerPass = 8;
 const metricEntryMetadataBytes = 16 * 1_024;
 const metricEntryBytes =
   MAX_METRIC_OBSERVATION_BYTES + metricEntryMetadataBytes;
+export const contextKindSchema = z.union([
+  audioObservationKindSchema,
+  z.literal("metric-record-stream-context/v1"),
+]);
 
 export const CONTEXT_LIMITS = Object.freeze({
   listenersPerPass,
@@ -31,9 +36,9 @@ export const sessionContextStoreReferenceSchema = z
       .transform(() => 4 as const),
     relativePath: z.literal("context/entity-context.sqlite"),
     kinds: z
-      .array(audioObservationKindSchema)
+      .array(contextKindSchema)
       .min(1)
-      .max(4)
+      .max(5)
       .refine((values) => new Set(values).size === values.length)
       .readonly(),
   })
@@ -48,6 +53,7 @@ export const SESSION_CONTEXT_STORE_REFERENCE =
       "audio-observation/v2",
       "session-audio-observation/v1",
       "metric-audio-observation/v1",
+      "metric-record-stream-context/v1",
     ],
   });
 
@@ -206,7 +212,10 @@ export const listeningPassSchema = z
   });
 
 // New kinds extend this discriminated union with a reviewed, bounded schema.
-export const contextPayloadSchema = storedAudioObservationSchema;
+export const contextPayloadSchema = z.union([
+  storedAudioObservationSchema,
+  metricRecordStreamContextReferenceSchema,
+]);
 
 export const contextEntrySchema = z
   .strictObject({
@@ -214,7 +223,7 @@ export const contextEntrySchema = z
     sessionId: id,
     liveSetId: id,
     passId: id,
-    kind: audioObservationKindSchema,
+    kind: contextKindSchema,
     producer: z.strictObject({
       listenerId: id,
       deviceId: id,
@@ -233,7 +242,10 @@ export const contextEntrySchema = z
   })
   .superRefine((entry, context) => {
     if (entry.musicalAlignment === undefined) return;
-    if (entry.payload.schema !== "metric-audio-observation/v1") {
+    if (
+      entry.payload.schema !== "metric-audio-observation/v1" &&
+      entry.payload.schema !== "metric-record-stream-context/v1"
+    ) {
       context.addIssue({
         code: "custom",
         message:
@@ -241,13 +253,17 @@ export const contextEntrySchema = z
       });
       return;
     }
+    const measurement =
+      entry.payload.schema === "metric-record-stream-context/v1"
+        ? entry.payload.descriptor
+        : entry.payload;
     const coordinate =
-      entry.payload.source.view === "session"
+      measurement.source.view === "session"
         ? "clip-local-beats"
         : "transport-beats";
     if (
       entry.musicalAlignment.coordinate !== coordinate ||
-      entry.musicalAlignment.tempoBpm !== entry.payload.geometry.tempoBpm ||
+      entry.musicalAlignment.tempoBpm !== measurement.geometry.tempoBpm ||
       (entry.musicalAlignment.provenance === "session-clip-markers/v1" &&
         coordinate !== "clip-local-beats")
     )
@@ -271,7 +287,7 @@ export const contextLinkSchema = z.strictObject({
       coordinate: z.literal("clip-local-beats"),
       iteration: z.literal(0),
       startBeat: z.literal(0),
-      endBeat: z.number().finite().positive().max(499.501),
+      endBeat: beat.positive(),
     }),
     z
       .strictObject({
@@ -295,7 +311,7 @@ export const appendContextPassSchema = z.strictObject({
 });
 
 export const contextQuerySchema = z.strictObject({
-  kind: audioObservationKindSchema.optional(),
+  kind: contextKindSchema.optional(),
   subjectId: id.optional(),
   entryId: id.optional(),
   listenerId: id.optional(),

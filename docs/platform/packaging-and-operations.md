@@ -540,9 +540,10 @@ that authentication is required, run:
 gh auth login
 ```
 
-Then choose **Check again** in Ableton Agent. A GitHub CLI sign-in problem is
-separate from macOS Keychain prompts used by Electron `safeStorage` for the
-Ableton Remote Script bridge credential.
+Then choose **Check again** in Ableton Agent. GitHub CLI sign-in is independent
+of the Ableton Remote Script bridge credential. Desktop no longer uses Electron
+`safeStorage` or macOS Keychain for that bridge token; historical Keychain startup
+failures above predate this change.
 
 `electron-builder.yml` produces DMG/ZIP artifacts for Intel and Apple Silicon
 macOS and an assisted, per-user NSIS installer for 64-bit Windows. Signing and
@@ -777,10 +778,13 @@ certify every Live 11 patch or make untested patches unsupported.
 4. Restart the desktop app, open Diagnostics, and confirm the bridge,
    compatibility, and agent-session checks.
 
-The Remote Script token remains in the installed `AbletonAgent` directory, is
-preserved across managed updates, and is automatically provisioned into the
-desktop credential vault. CLI users still provide it through
-`ABLETON_AGENT_TOKEN`. Do not paste it into issues or support bundles.
+The Remote Script token remains in the installed `AbletonAgent` directory with
+owner-only permissions and is preserved across managed updates. Desktop reads
+it into process memory on startup without making a Keychain copy. An explicit
+`ABLETON_AGENT_TOKEN` still takes precedence; CLI users provide that variable.
+Existing vault files and Keychain items are not read, migrated, or deleted.
+Authentication and the owner-only Signal producer credential are unchanged.
+Do not paste tokens into issues or support bundles.
 
 ## Troubleshooting
 

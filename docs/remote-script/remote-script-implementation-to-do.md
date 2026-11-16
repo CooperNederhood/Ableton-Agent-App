@@ -1,5 +1,15 @@
 # Remote Script Implementation To-Do
 
+- [x] Resume bounded partial socket writes across the unchanged 50 ms polling
+      timeout instead of closing a partially sent frame. Preserve exact bytes,
+      ordering, trace/request IDs, generation ownership and queue accounting.
+      Cover backpressure, reconnect isolation, disconnect cleanup, failed/zero
+      writes and invalid/oversized frame denial without replaying requests.
+
+- [x] Carry bounded nullable song meter in existing listening snapshots and
+      source fingerprints; cover known/unknown/invalid meter and changed-source
+      identity without adding commands or playback mutations.
+
 ## Full-active-region Session source monitoring
 
 - [x] Accept positive resolved durations beyond four beats within thirty seconds
@@ -25,6 +35,27 @@ Companion specification: [Remote Script](remote-script.md)
 - [x] Implement bounded socket, client, request, and response queues.
 
 ## Protocol and execution
+
+- [x] Extend read-only Arrangement inspection with complete loaded MIDI notes
+  and Session-compatible instrument/processing evidence. Preserve audio fields,
+  exact half-open subranges and original clip coordinates; reject aggregate
+  note/device/parameter truncation and observed source replacement.
+- [x] Cover MIDI, nested instruments, subrange exclusion, limits, source changes,
+  read-only traced bridge delivery, and unchanged audio inspection in TypeScript
+  and Python. This inspection prerequisite does not change capture dispatch.
+- [x] Keep routine Arrangement witnesses top-level-only; preserve independently
+  audited full Session rack trees and exact MIDI note identity. Cover absence
+  of duplicate deep traversal in Python and the shared TypeScript schemas.
+- [x] Qualify short MIDI Arrangement inspection in owned
+  `consolidation-source-review-xLQVW1` on Live 11.3.43; the normal-message
+  short-MIDI capture/restart case also passed in `run-MEqqU8`.
+- [ ] Qualify the declared long MIDI Arrangement range independently.
+- [x] Replace the remaining thirty-second/fixed-forty-second Session guard
+  with finite 600-second admission and a nonrenewable duration + 85-second
+  source lease capped at 900 seconds. Scale frozen-clock tick expiry; cover
+  admission limits, long continuity, expiry, cancellation and monitor removal.
+- [ ] Qualify the corrected long Session source lease through both long cases;
+  preserve `run-XqLfYE` as the original real-host preparation failure.
 
 - [x] Register and validate exact bounded read-only Session source inspection;
   retain unknown values and signed origins, report selected/queued identities,

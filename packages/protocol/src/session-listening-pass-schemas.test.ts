@@ -70,6 +70,25 @@ const result = {
 };
 
 describe("bounded Session pass authority", () => {
+  it("consolidation: admits a finite lease covering capture, setup, drain and cleanup at the supported ceiling", () => {
+    const leaseMs = 600_000 + 20_000 + 60_000 + 5_000;
+    expect(
+      sessionListeningPassResultSchema.safeParse({
+        ...result,
+        durationBeats: 1200,
+        expiresInMs: leaseMs,
+      }).success,
+    ).toBe(true);
+    for (const expiresInMs of [-1, Number.POSITIVE_INFINITY, 900_001]) {
+      expect(
+        sessionListeningPassResultSchema.safeParse({
+          ...result,
+          expiresInMs,
+        }).success,
+      ).toBe(false);
+    }
+  });
+
   it("classifies only the physical launch as a project mutation", () => {
     const entries = [
       ["listening.prepare_session_pass", "prepare", false],
@@ -164,7 +183,7 @@ describe("bounded Session pass authority", () => {
       { nativeAlignment: "verified" },
       { cleanupPolicy: "stop" },
       { evidence: "sample-accurate" },
-      { expiresInMs: 40_001 },
+      { expiresInMs: 900_001 },
       { limitations: [] },
       { followActionState: "disabled" },
       { status: "playing" },

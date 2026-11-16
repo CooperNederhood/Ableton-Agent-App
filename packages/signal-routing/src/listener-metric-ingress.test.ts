@@ -269,7 +269,7 @@ async function session(
     "audio-listener/independent-metric-timelines-v1",
     "audio-listener/mel-band-timelines-v1",
     "audio-listener/analyzer-timelines-v1",
-    "audio-listener/arrangement-continuous-metric-stream-v1",
+    "audio-listener/finite-metric-stream-v1",
   ]);
   const input = {
     jobId: f.wire.jobId,
@@ -409,9 +409,9 @@ describe("durable metric result delivery", () => {
           version: 6,
           scope: NATIVE_CONTINUOUS_METRIC_LISTENING_SCOPE,
           maxAudioDurationMs: 600_000,
-          maxSessionAudioDurationMs: 30_000,
+          maxSessionAudioDurationMs: 600_000,
           maxReportRows: 39_961,
-          maxSessionReportRows: 2_000,
+          maxSessionReportRows: 39_961,
           streamCapability: METRIC_RECORD_STREAM_CAPABILITY,
         },
       }),
@@ -429,9 +429,10 @@ describe("durable metric result delivery", () => {
         ...f.config,
         scope: NATIVE_CONTINUOUS_METRIC_LISTENING_SCOPE,
         capability: METRIC_CONTINUOUS_LISTENING_CAPABILITY,
-        captureMode: "arrangement-continuous",
+        captureMode: "finite-metric-stream",
+        sourceContext: f.observation.source,
         geometry: createContinuousMetricListeningGeometry({
-          captureMode: "arrangement-continuous",
+          captureMode: "finite-metric-stream",
           sampleRate: 48_000,
           vectorSize: 64,
           tempoBpm: 120,

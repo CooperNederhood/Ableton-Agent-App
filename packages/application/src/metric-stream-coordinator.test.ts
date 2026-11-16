@@ -37,7 +37,6 @@ async function harness(
   const synthetic = await createSyntheticMetricRecordStreamFixture();
   const release = vi.fn(async () => {});
   const disarm = vi.fn(options.disarm ?? (async () => {}));
-  const persist = vi.fn(async () => ["wrong-observation-path"]);
   const publish = vi.fn(options.publish ?? (async () => ["stream-context"]));
   const validate = vi.fn(options.validate ?? (() => {}));
   const events: string[] = [];
@@ -71,8 +70,6 @@ async function harness(
         };
       },
       startPlayback: async () => ({ cleanupPolicy: "leave-running", release }),
-      validateObservations: vi.fn(),
-      persist,
       validateStreams: validate,
       persistStreams: publish,
     },
@@ -83,7 +80,6 @@ async function harness(
     start,
     release,
     disarm,
-    persist,
     publish,
     validate,
     events,
@@ -91,7 +87,7 @@ async function harness(
 }
 
 describe("continuous coordinator publication gate", () => {
-  it("publishes only after validation and cleanup, without reassembling observations", async () => {
+  it("publishes only after validation and cleanup, without reassembling manifests", async () => {
     const f = await harness();
     const job = await f.coordinator.wait(f.start().passId, owner);
     expect(job).toMatchObject({
@@ -102,7 +98,6 @@ describe("continuous coordinator publication gate", () => {
     expect(job.metricResults?.[0]?.metrics).toHaveLength(6);
     expect(f.validate).toHaveBeenCalledOnce();
     expect(f.publish).toHaveBeenCalledOnce();
-    expect(f.persist).not.toHaveBeenCalled();
     expect(f.validate.mock.invocationCallOrder[0]).toBeLessThan(
       f.disarm.mock.invocationCallOrder[0]!,
     );
@@ -134,7 +129,6 @@ describe("continuous coordinator publication gate", () => {
     expect(job.stage).toBe("failed");
     expect(job.contextIds).toEqual([]);
     expect(f.publish).not.toHaveBeenCalled();
-    expect(f.persist).not.toHaveBeenCalled();
     expect(f.disarm).toHaveBeenCalledOnce();
     await f.coordinator.shutdown();
   });
@@ -155,7 +149,6 @@ describe("continuous coordinator publication gate", () => {
       expect(job.contextIds).toEqual([]);
       expect(job.metricResults).toBeUndefined();
       if (stage !== "publication") expect(f.publish).not.toHaveBeenCalled();
-      expect(f.persist).not.toHaveBeenCalled();
       await f.coordinator.shutdown();
     },
   );

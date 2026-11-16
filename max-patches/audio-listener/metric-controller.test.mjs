@@ -45,11 +45,13 @@ async function controllerHarness({
   requestedMetrics = ["level", "attacks"],
   spectrumEnabled = false,
   spectrumPollMs = 10,
+  spectrumWarmupMs = 0,
   spectrumReadsPerTick = 2,
   unavailableSpectrum = false,
   suppressSpectrumCleanup = false,
   engineeringRuntime = false,
   session = false,
+  sessionStartBeat = 0,
   melEnabled = false,
   analyzerEnabled = false,
   malformedPitchFrame = false,
@@ -70,22 +72,16 @@ async function controllerHarness({
   clockHoldHostAdvance = false,
   totalSamples = 9000,
   deadlineMs = 10000,
-  maxObservationBytes = 512 * 1024,
-  continuous = false,
   streamSend,
 } = {}) {
   const codec = await loadCodec();
   const sampleRate = 48000,
     vectorSize = 64,
     tempoBpm = 128;
-  const startBeat = session ? 0 : 5.13;
+  const startBeat = session ? sessionStartBeat : 5.13;
   const endBeat = startBeat + (totalSamples * tempoBpm) / (sampleRate * 60);
-  const geometry = (
-    continuous
-      ? codec.createContinuousMetricListeningGeometry
-      : codec.createMetricListeningGeometry
-  )({
-    ...(continuous ? { captureMode: "arrangement-continuous" } : {}),
+  const geometry = codec.createContinuousMetricListeningGeometry({
+    captureMode: "finite-metric-stream",
     sampleRate,
     vectorSize,
     tempoBpm,
@@ -94,17 +90,11 @@ async function controllerHarness({
     startSample: 0,
   });
   const config = {
-    scope: continuous
-      ? codec.NATIVE_CONTINUOUS_METRIC_LISTENING_SCOPE
-      : "independent-metric-timelines/v1",
-    ...(continuous
-      ? {
-          capability: codec.METRIC_CONTINUOUS_LISTENING_CAPABILITY,
-          captureMode: "arrangement-continuous",
-          maxPendingChunks: 8,
-          maxChunkBytes: 131072,
-        }
-      : {}),
+    scope: codec.NATIVE_CONTINUOUS_METRIC_LISTENING_SCOPE,
+    capability: codec.METRIC_CONTINUOUS_LISTENING_CAPABILITY,
+    captureMode: "finite-metric-stream",
+    maxPendingChunks: 8,
+    maxChunkBytes: 131072,
     algorithmVersion: "3.0.0",
     mode: "arrangement",
     sourceEvidence: "transport-only",
@@ -140,7 +130,7 @@ async function controllerHarness({
       expectedClipName: "Clip",
     };
     config.mode = "session";
-    config.stoppedBeat = 2.059377861721612;
+    config.stoppedBeat = sessionStartBeat || 2.059377861721612;
     config.sourceEvidence = "expected-context-only";
     config.source = {
       mode: "session",
@@ -152,9 +142,14 @@ async function controllerHarness({
       target,
       clipReference: GENERATION,
       kind: "midi",
-      coordinate: { unit: "beats", iteration: 0, startBeat: 0, endBeat },
+      coordinate: {
+        unit: "beats",
+        iteration: 0,
+        startBeat: 0,
+        endBeat: endBeat - startBeat,
+      },
       transport: { startBeat, endBeat },
-      clipStartTimeBeats: 0,
+      clipStartTimeBeats: startBeat,
       synchronization: "transport-coupled-first-iteration",
     };
   }
@@ -261,6 +256,7 @@ async function controllerHarness({
   const pcmLeft = new Float64Array(2048),
     pcmRight = new Float64Array(2048);
   let spectrumOutput,
+    spectrumStartedCounter = null,
     spectrumPolling = false;
   const spectrumIO = spectrumEnabled
     ? new NativeMessageIO(
@@ -406,7 +402,7 @@ async function controllerHarness({
   controller = createMetricController({
     codec,
     melEnabled,
-    continuousEnabled: continuous,
+    continuousEnabled: true,
     ...(analyzerEnabled
       ? {
           analyzerReadiness: {
@@ -482,8 +478,10 @@ async function controllerHarness({
       if (target === "metric_spectrum") {
         controls.push({ selector, args, counter, target });
         let accepted;
-        if (selector === "begin") accepted = spectrumIO.begin(...args);
-        else if (selector === "request_spectrum_stop")
+        if (selector === "begin") {
+          spectrumStartedCounter = counter;
+          accepted = spectrumIO.begin(...args);
+        } else if (selector === "request_spectrum_stop")
           accepted = spectrumIO.requestSpectrumStop(...args);
         else if (selector === "release") accepted = spectrumIO.release(...args);
         else if (selector === "spectrum_cleanup_tick") {
@@ -560,7 +558,6 @@ async function controllerHarness({
     controller.prepare(prepare, {
       nativeEpoch: 7,
       deadlineMs,
-      maxObservationBytes,
     }),
     true,
   );
@@ -722,7 +719,13 @@ async function controllerHarness({
         ]);
       }
     }
-    if (spectrumModel) {
+    if (
+      spectrumModel &&
+      (spectrumWarmupMs === 0 ||
+        (spectrumStartedCounter !== null &&
+          counter - spectrumStartedCounter >=
+            (spectrumWarmupMs * sampleRate) / 1000))
+    ) {
       const bin = counter % 2048;
       pcmLeft[bin] = inCapture ? 0.25 : 0;
       pcmRight[bin] = inCapture ? 0.125 : 0;
@@ -829,7 +832,14 @@ async function controllerHarness({
     cancel,
     config,
     step,
-    until,
+    until(predicate, budget = 160000) {
+      return untilAsync(
+        { step, controller },
+        predicate,
+        64,
+        Math.ceil(budget / 64),
+      );
+    },
     launch,
     startPlayback() {
       playingOrigin = counter + 1;
@@ -846,125 +856,201 @@ async function controllerHarness({
   };
 }
 
-async function untilAsync(h, predicate, samplesPerYield = 64) {
-  for (let block = 0; block < 2500 && !predicate(); block++) {
+async function untilAsync(
+  h,
+  predicate,
+  samplesPerYield = 64,
+  maximumBlocks = 2500,
+) {
+  for (let block = 0; block < maximumBlocks && !predicate(); block++) {
     for (let sample = 0; sample < samplesPerYield; sample++) h.step();
-    await Promise.resolve();
+    await new Promise((resolve) => setImmediate(resolve));
   }
   assert.ok(predicate(), JSON.stringify(h.controller.snapshot()));
 }
 
-test("31s continuous controller uses executed native proofs and emits only bounded chunks and a compact manifest", async () => {
-  let descriptor,
-    receiver,
-    verified = false,
-    h;
-  h = await controllerHarness({
-    continuous: true,
-    runtimeBridge: true,
-    sdkStreamBridge: true,
-    analyzerEnabled: true,
-    melEnabled: true,
-    spectrumEnabled: true,
-    totalSamples: 31 * 48000,
-    deadlineMs: 60000,
-    streamSend: async (payload) => {
-      await new Promise((resolve) => setImmediate(resolve));
-      if (payload.metricStream) {
-        descriptor = h.codec.expandMetricRecordStreamAdmission(
-          payload.metricStream,
-        );
-        receiver = await h.codec.createMetricRecordStreamState(descriptor);
-      } else if (payload.metricChunk) {
-        receiver = await h.codec.acceptMetricRecordChunk(
-          descriptor,
-          receiver,
-          payload.metricChunk,
-        );
-      } else {
-        await h.codec.verifyMetricRecordStreamManifest(
-          descriptor,
-          receiver,
-          payload.metricManifest,
-        );
-        verified = true;
-      }
-      return true;
+async function verifiedStream(h) {
+  const admission = h.results.find(({ payload }) => payload.metricStream)
+    ?.payload.metricStream;
+  const manifest = h.results.find(({ payload }) => payload.metricManifest)
+    ?.payload.metricManifest;
+  assert.ok(admission, JSON.stringify(h.controller.snapshot()));
+  assert.ok(manifest, JSON.stringify(h.controller.snapshot()));
+  const descriptor = h.codec.expandMetricRecordStreamAdmission(admission);
+  const chunks = h.results.flatMap(({ payload }) =>
+    payload.metricChunk ? [payload.metricChunk] : [],
+  );
+  let state = await h.codec.createMetricRecordStreamState(descriptor);
+  for (const chunk of chunks) {
+    assert.ok(
+      Buffer.byteLength(JSON.stringify(chunk)) <= h.config.maxChunkBytes,
+    );
+    state = await h.codec.acceptMetricRecordChunk(descriptor, state, chunk);
+  }
+  await h.codec.verifyMetricRecordStreamManifest(descriptor, state, manifest);
+  assert.ok(
+    h.results.every(({ payload }) => !Object.hasOwn(payload, "observation")),
+  );
+  return {
+    descriptor,
+    manifest,
+    metric(name) {
+      const metric = manifest.metrics.find(({ metric }) => metric === name);
+      assert.ok(metric, `Missing requested metric ${name}`);
+      return metric;
     },
-    requestedMetrics: [
-      "level",
-      "spectral-centroid",
-      "attacks",
-      "mel-bands",
-      "pitch",
-      "spectral-shape",
-    ],
+    records(name) {
+      return chunks
+        .filter(({ metric }) => metric === name)
+        .flatMap(({ records }) => records);
+    },
+    gaps(name) {
+      return chunks
+        .filter(({ metric }) => metric === name)
+        .flatMap(({ gaps }) => gaps);
+    },
+  };
+}
+
+for (const session of [false, true])
+  test(`${session ? "37.5s Session" : "31s Arrangement"} controller uses executed native proofs and emits only bounded chunks and a compact manifest`, async () => {
+    let descriptor,
+      receiver,
+      verified = false,
+      h;
+    h = await controllerHarness({
+      session,
+      sessionStartBeat: 16,
+      runtimeBridge: true,
+      sdkStreamBridge: true,
+      analyzerEnabled: true,
+      melEnabled: true,
+      spectrumEnabled: true,
+      totalSamples: (session ? 37.5 : 31) * 48000,
+      deadlineMs: 60000,
+      streamSend: async (payload) => {
+        await new Promise((resolve) => setImmediate(resolve));
+        if (payload.metricStream) {
+          descriptor = h.codec.expandMetricRecordStreamAdmission(
+            payload.metricStream,
+          );
+          receiver = await h.codec.createMetricRecordStreamState(descriptor);
+        } else if (payload.metricChunk) {
+          receiver = await h.codec.acceptMetricRecordChunk(
+            descriptor,
+            receiver,
+            payload.metricChunk,
+          );
+        } else {
+          await h.codec.verifyMetricRecordStreamManifest(
+            descriptor,
+            receiver,
+            payload.metricManifest,
+          );
+          verified = true;
+        }
+        return true;
+      },
+      requestedMetrics: [
+        "level",
+        "spectral-centroid",
+        "attacks",
+        "mel-bands",
+        "pitch",
+        "spectral-shape",
+      ],
+    });
+    h.launch();
+    for (let block = 0; block < 20000 && !verified; block++) {
+      for (let i = 0; i < 128; i++) h.step();
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+    const terminal = h.results.find((r) => r.payload.metricManifest);
+    assert.ok(
+      terminal,
+      JSON.stringify({
+        snapshot: h.controller.snapshot(),
+        results: h.results.map((r) => r.payload.status),
+        sdkStatuses: h.sdkStatuses,
+      }),
+    );
+    assert.equal(terminal.payload.status, "completed");
+    assert.equal(terminal.payload.observation, undefined);
+    assert.equal(terminal.payload.nativeSourceCoverage, undefined);
+    assert.ok(h.results.some((r) => r.payload.metricStream));
+    assert.ok(h.results.some((r) => r.payload.metricChunk));
+    assert.equal(
+      h.controls.filter(
+        ({ selector, target }) => selector === "arm" && target !== "metric_mel",
+      ).length,
+      1,
+    );
+    assert.equal(
+      h.controls.filter(
+        ({ selector, target }) => selector === "arm" && target === "metric_mel",
+      ).length,
+      1,
+    );
+    assert.equal(verified, true);
+    const native = terminal.payload.metricManifest.nativeProof;
+    assert.ok(native.clock.frames[0][4] > native.after.frames.at(-1)[4]);
+    assert.ok(native.clock.frames[0][4] > native.spectrumCleanup.stopWatermark);
+    const sourceProof = {
+      armed: h.replies.find((r) => r.payload.nativeArm).payload.nativeArm,
+      launched: native.launch,
+      completion: {
+        fields: native.configuration,
+        confirmedFields: native.confirmedConfiguration,
+        timing: native.timing,
+        confirmedTiming: native.confirmedTiming,
+        elapsedMs: 0,
+      },
+      after: native.after,
+      timingWitnesses: native.timingWitnesses,
+      postElapsedMs: 0,
+    };
+    const expected = { ...native.ownership, config: h.config };
+    assert.equal(
+      h.codec.assertNativeContinuousMetricSourceCoverage(sourceProof, expected)
+        .endSample,
+      native.sourceEnd,
+    );
+    const changed = JSON.parse(JSON.stringify(sourceProof));
+    changed.completion.fields[1]++;
+    changed.completion.confirmedFields[1] = changed.completion.fields[1];
+    assert.throws(() =>
+      h.codec.assertNativeContinuousMetricSourceCoverage(changed, expected),
+    );
+    const stopped = JSON.parse(JSON.stringify(sourceProof));
+    stopped.after.frames[0][0] = 0;
+    assert.throws(() =>
+      h.codec.assertNativeContinuousMetricSourceCoverage(stopped, expected),
+    );
+  });
+
+test("released native IO cannot invalidate a stream awaiting its terminal acknowledgement", async () => {
+  let acknowledge;
+  const pending = new Promise((resolve) => {
+    acknowledge = resolve;
+  });
+  let manifestSent = false;
+  const h = await controllerHarness({
+    streamSend: (payload) => {
+      if (!payload.metricManifest) return true;
+      manifestSent = true;
+      return pending;
+    },
   });
   h.launch();
-  for (let block = 0; block < 20000 && !verified; block++) {
-    for (let i = 0; i < 128; i++) h.step();
-    await new Promise((resolve) => setImmediate(resolve));
-  }
-  const terminal = h.results.find((r) => r.payload.metricManifest);
-  assert.ok(
-    terminal,
-    JSON.stringify({
-      snapshot: h.controller.snapshot(),
-      results: h.results.map((r) => r.payload.status),
-    }),
-  );
-  assert.equal(terminal.payload.status, "completed");
-  assert.equal(terminal.payload.observation, undefined);
-  assert.equal(terminal.payload.nativeSourceCoverage, undefined);
-  assert.ok(h.results.some((r) => r.payload.metricStream));
-  assert.ok(h.results.some((r) => r.payload.metricChunk));
-  assert.equal(
-    h.controls.filter(
-      ({ selector, target }) => selector === "arm" && target !== "metric_mel",
-    ).length,
-    1,
-  );
-  assert.equal(
-    h.controls.filter(
-      ({ selector, target }) => selector === "arm" && target === "metric_mel",
-    ).length,
-    1,
-  );
-  assert.equal(verified, true);
-  const native = terminal.payload.metricManifest.nativeProof;
-  assert.ok(native.clock.frames[0][4] > native.after.frames.at(-1)[4]);
-  assert.ok(native.clock.frames[0][4] > native.spectrumCleanup.stopWatermark);
-  const sourceProof = {
-    armed: h.replies.find((r) => r.payload.nativeArm).payload.nativeArm,
-    launched: native.launch,
-    completion: {
-      fields: native.configuration,
-      confirmedFields: native.confirmedConfiguration,
-      timing: native.timing,
-      confirmedTiming: native.confirmedTiming,
-      elapsedMs: 0,
-    },
-    after: native.after,
-    timingWitnesses: native.timingWitnesses,
-    postElapsedMs: 0,
-  };
-  const expected = { ...native.ownership, config: h.config };
-  assert.equal(
-    h.codec.assertNativeContinuousMetricSourceCoverage(sourceProof, expected)
-      .endSample,
-    native.sourceEnd,
-  );
-  const changed = JSON.parse(JSON.stringify(sourceProof));
-  changed.completion.fields[1]++;
-  changed.completion.confirmedFields[1] = changed.completion.fields[1];
-  assert.throws(() =>
-    h.codec.assertNativeContinuousMetricSourceCoverage(changed, expected),
-  );
-  const stopped = JSON.parse(JSON.stringify(sourceProof));
-  stopped.after.frames[0][0] = 0;
-  assert.throws(() =>
-    h.codec.assertNativeContinuousMetricSourceCoverage(stopped, expected),
-  );
+  await h.until(() => manifestSent);
+  const before = h.controller.snapshot();
+  assert.equal(before.cleanup, "completed");
+  assert.notEqual(before.state, "completed");
+  h.controller.receiveNative("metric_envelope", ["late-released-readback"]);
+  assert.deepEqual(h.controller.snapshot(), before);
+  acknowledge(true);
+  await h.until(() => h.controller.snapshot().state === "completed");
+  await verifiedStream(h);
 });
 
 for (const session of [false, true])
@@ -984,7 +1070,7 @@ for (const session of [false, true])
       ],
     });
     h.launch();
-    h.until(() =>
+    await h.until(() =>
       ["completed", "partial", "failed"].includes(
         h.controller.snapshot().state,
       ),
@@ -997,16 +1083,23 @@ for (const session of [false, true])
       "completed",
       JSON.stringify(h.controller.snapshot()),
     );
-    assert.equal(result.observation.metrics.pitch.frames.length, 4);
-    assert.equal(result.observation.metrics["spectral-shape"].frames.length, 4);
-    assert.equal(result.observation.metrics["mel-bands"].frames.length, 4);
+    const stream = await verifiedStream(h);
+    assert.equal(stream.records("pitch").length, 4);
+    assert.equal(stream.records("spectral-shape").length, 4);
+    assert.equal(stream.records("mel-bands").length, 4);
+    assert.equal(stream.records("pitch")[0].channels[1].hz, null);
     assert.equal(
-      result.observation.metrics.pitch.frames[0].channels[1].hz,
-      null,
+      stream.manifest.nativeProof.sourceEnd,
+      stream.descriptor.geometry.endSample,
     );
-    assert.deepEqual(
-      result.observation.metrics.pitch.sourceSupport,
-      result.observation.sourceCoverage,
+    assert.ok(
+      stream
+        .records("pitch")
+        .every(
+          ({ support }) =>
+            support.startSample >= stream.descriptor.geometry.startSample &&
+            support.endSample <= stream.manifest.nativeProof.sourceEnd,
+        ),
     );
     assert.equal(h.controller.snapshot().cleanup, "completed");
   });
@@ -1017,18 +1110,22 @@ test("ABI3 analyzer-only requests do not invent mel or baseline measurements", a
     requestedMetrics: ["pitch", "spectral-shape"],
   });
   h.launch();
-  h.until(() =>
+  await h.until(() =>
     ["completed", "partial", "failed"].includes(h.controller.snapshot().state),
   );
-  const result = h.results.find(({ payload }) => payload.observation)?.payload;
-  assert.ok(result, JSON.stringify(h.controller.snapshot()));
-  assert.equal(result.status, "completed");
-  assert.deepEqual(result.observation.requestedMetrics, [
+  const stream = await verifiedStream(h);
+  assert.equal(stream.manifest.outcome, "complete");
+  assert.deepEqual(stream.descriptor.requestedMetrics, [
     "pitch",
     "spectral-shape",
   ]);
-  assert.equal(result.observation.metrics["mel-bands"], undefined);
-  assert.equal(result.observation.metrics.level.status, "not-requested");
+  for (const metric of ["mel-bands", "level", "attacks", "spectral-centroid"]) {
+    assert.equal(
+      stream.manifest.metrics.some((entry) => entry.metric === metric),
+      false,
+    );
+    assert.deepEqual(stream.records(metric), []);
+  }
 });
 
 test("ABI3 malformed descriptor families preserve each other and later supported samples", async () => {
@@ -1041,23 +1138,19 @@ test("ABI3 malformed descriptor families preserve each other and later supported
     requestedMetrics: ["level", "mel-bands", "pitch", "spectral-shape"],
   });
   h.launch();
-  h.until(() =>
+  await h.until(() =>
     ["completed", "partial", "failed"].includes(h.controller.snapshot().state),
   );
-  const result = h.results.find(({ payload }) => payload.observation)?.payload;
-  assert.ok(result, JSON.stringify(h.controller.snapshot()));
-  assert.equal(result.status, "partial");
-  assert.equal(result.observation.metrics.level.status, "complete");
+  const stream = await verifiedStream(h);
+  assert.equal(stream.manifest.outcome, "partial");
+  assert.equal(stream.metric("level").missingRecords, 0);
   for (const [metric, missing] of [
     ["pitch", 0],
     ["spectral-shape", 1],
     ["mel-bands", 2],
   ]) {
-    assert.equal(result.observation.metrics[metric].frames.length, 3);
-    assert.equal(
-      result.observation.metrics[metric].gaps[0].firstIndex,
-      missing,
-    );
+    assert.equal(stream.records(metric).length, 3);
+    assert.equal(stream.gaps(metric)[0].firstIndex, missing);
   }
 });
 for (const session of [false, true])
@@ -1069,7 +1162,7 @@ for (const session of [false, true])
       requestedMetrics: ["level", "spectral-centroid", "attacks", "mel-bands"],
     });
     h.launch();
-    h.until(() =>
+    await h.until(() =>
       ["completed", "partial", "failed"].includes(
         h.controller.snapshot().state,
       ),
@@ -1082,17 +1175,25 @@ for (const session of [false, true])
       "completed",
       JSON.stringify(h.controller.snapshot()),
     );
+    const stream = await verifiedStream(h);
     assert.deepEqual(
-      result.observation.requestedMetrics,
+      stream.descriptor.requestedMetrics,
       h.config.requestedMetrics,
     );
-    const mel = result.observation.metrics["mel-bands"];
-    assert.equal(mel.status, "complete");
-    assert.equal(mel.frames.length, 4);
-    assert.equal(mel.profile.bandCount, 24);
-    assert.deepEqual(mel.sourceSupport, result.observation.sourceCoverage);
-    assert.deepEqual(mel.frames[0].magnitudes[0], Array(24).fill(0.5));
-    assert.deepEqual(mel.frames[0].magnitudes[1], Array(24).fill(0.25));
+    const mel = stream.records("mel-bands");
+    assert.equal(stream.metric("mel-bands").missingRecords, 0);
+    assert.equal(mel.length, 4);
+    assert.equal(
+      stream.descriptor.algorithms.find(({ metric }) => metric === "mel-bands")
+        .algorithm.bandCount,
+      24,
+    );
+    assert.equal(
+      stream.manifest.nativeProof.sourceEnd,
+      stream.descriptor.geometry.endSample,
+    );
+    assert.deepEqual(mel[0].magnitudes[0], Array(24).fill(0.5));
+    assert.deepEqual(mel[0].magnitudes[1], Array(24).fill(0.25));
     assert.equal(h.controller.snapshot().cleanup, "completed");
     assert.equal(h.controller.snapshot().mel.completed, true);
     const ready = h.events.find(
@@ -1134,47 +1235,7 @@ for (const session of [false, true])
     assert.ok(h.events.indexOf(clean) < h.events.indexOf(sharedCleanup));
   });
 
-test("six-metric thirty-second capture is denied by the shared worst-case budget before native ownership", async () => {
-  let lifecycleEvents = 0;
-  await assert.rejects(
-    controllerHarness({
-      melEnabled: true,
-      analyzerEnabled: true,
-      spectrumEnabled: true,
-      requestedMetrics: [
-        "level",
-        "spectral-centroid",
-        "attacks",
-        "mel-bands",
-        "pitch",
-        "spectral-shape",
-      ],
-      totalSamples: 1440000,
-      deadlineMs: 40000,
-      maxObservationBytes: 2 * 1024 * 1024,
-      onEvent: () => {
-        lifecycleEvents++;
-      },
-    }),
-    (error) => {
-      assert.equal(error.code, "metric_result_budget_exceeded");
-      assert.equal(error.budget.admitted, false);
-      assert.equal(error.budget.limits.observationBytes, 2 * 1024 * 1024);
-      assert.ok(
-        error.budget.upperBounds.partial.observationBytes > 2 * 1024 * 1024,
-      );
-      assert.ok(
-        error.budget.violations.some(
-          (violation) => violation.outcome === "partial",
-        ),
-      );
-      return true;
-    },
-  );
-  assert.equal(lifecycleEvents, 0);
-});
-
-test("admitted maximum-duration five-metric capture retains all frames without silently requesting mel", async () => {
+test("thirty-second five-metric stream retains all frames without silently requesting mel", async () => {
   const h = await controllerHarness({
     analyzerEnabled: true,
     spectrumEnabled: true,
@@ -1187,10 +1248,9 @@ test("admitted maximum-duration five-metric capture retains all frames without s
     ],
     totalSamples: 1440000,
     deadlineMs: 40000,
-    maxObservationBytes: 2 * 1024 * 1024,
   });
   h.launch();
-  h.until(
+  await h.until(
     () =>
       ["completed", "partial", "failed"].includes(
         h.controller.snapshot().state,
@@ -1205,18 +1265,29 @@ test("admitted maximum-duration five-metric capture retains all frames without s
     "completed",
     JSON.stringify(h.controller.snapshot()),
   );
-  assert.equal(result.observation.metrics["mel-bands"], undefined);
-  assert.equal(result.observation.metrics.pitch.frames.length, 703);
-  assert.equal(result.observation.metrics["spectral-shape"].frames.length, 703);
-  assert.ok(
-    Buffer.byteLength(JSON.stringify(result.observation)) <= 2 * 1024 * 1024,
+  const stream = await verifiedStream(h);
+  assert.equal(
+    stream.manifest.metrics.some(({ metric }) => metric === "mel-bands"),
+    false,
   );
+  assert.equal(stream.records("pitch").length, 703);
+  assert.equal(stream.records("spectral-shape").length, 703);
   assert.ok(
     h.events.filter(
       (event) =>
         event.nativeLifecycle.metric === "pitch" &&
-        event.nativeLifecycle.stage === "progress",
+        event.nativeLifecycle.stage === "progress" &&
+        event.nativeLifecycle.reason !== "metric_stream_chunk_delivered",
     ).length <= 61,
+  );
+  assert.equal(
+    h.events.filter(
+      (event) =>
+        event.nativeLifecycle.metric === "pitch" &&
+        event.nativeLifecycle.reason === "metric_stream_chunk_delivered",
+    ).length,
+    h.results.filter(({ payload }) => payload.metricChunk?.metric === "pitch")
+      .length,
   );
   assert.equal(h.controller.snapshot().cleanup, "completed");
   for (const event of h.events)
@@ -1310,7 +1381,7 @@ for (const outcome of ["cancelled", "rejected", "denied"]) {
         "metric_control_delivery_failed",
       );
     assert.equal(
-      h.results.some((r) => r.payload.observation),
+      h.results.some((r) => r.payload.metricManifest),
       false,
     );
   });
@@ -1322,7 +1393,7 @@ test("mel-only capture does not invent requested baseline metrics", async () => 
     requestedMetrics: ["mel-bands"],
   });
   h.launch();
-  h.until(() =>
+  await h.until(() =>
     ["completed", "partial", "failed"].includes(h.controller.snapshot().state),
   );
   const result = h.results.find(({ payload }) =>
@@ -1333,23 +1404,27 @@ test("mel-only capture does not invent requested baseline metrics", async () => 
     "completed",
     JSON.stringify(h.controller.snapshot()),
   );
-  assert.deepEqual(result.observation.requestedMetrics, ["mel-bands"]);
-  assert.equal(result.observation.metrics["mel-bands"].frames.length, 4);
+  const stream = await verifiedStream(h);
+  assert.deepEqual(stream.descriptor.requestedMetrics, ["mel-bands"]);
+  assert.equal(stream.records("mel-bands").length, 4);
   for (const metric of ["level", "spectral-centroid", "attacks"]) {
-    assert.equal(result.observation.metrics[metric].status, "not-requested");
-    assert.equal(result.observation.metrics[metric].records.length, 0);
+    assert.equal(
+      stream.manifest.metrics.some((entry) => entry.metric === metric),
+      false,
+    );
+    assert.deepEqual(stream.records(metric), []);
   }
   assert.equal(h.controller.snapshot().cleanup, "completed");
 });
 
-test("valid mel survives unavailable native metrics as an honest partial observation", async () => {
+test("valid mel survives unavailable native metrics as an honest partial stream", async () => {
   const h = await controllerHarness({
     melEnabled: true,
     suppressDetector: true,
     requestedMetrics: ["attacks", "mel-bands"],
   });
   h.launch();
-  h.until(() =>
+  await h.until(() =>
     ["completed", "partial", "failed"].includes(h.controller.snapshot().state),
   );
   const result = h.results.find(({ payload }) =>
@@ -1360,26 +1435,30 @@ test("valid mel survives unavailable native metrics as an honest partial observa
     "partial",
     JSON.stringify(h.controller.snapshot()),
   );
-  assert.equal(result.observation.metrics["mel-bands"].frames.length, 4);
-  assert.equal(result.observation.metrics.attacks.records.length, 0);
+  const stream = await verifiedStream(h);
+  assert.equal(stream.records("mel-bands").length, 4);
+  assert.equal(stream.records("attacks").length, 0);
+  assert.ok(stream.metric("attacks").missingRecords > 0);
   assert.equal(h.controller.snapshot().cleanup, "completed");
 });
 
-test("mel-only malformed acquisition without useful frames never publishes", async () => {
+test("mel-only malformed acquisition reports a failed stream without publishable frames", async () => {
   const h = await controllerHarness({
     melEnabled: true,
     malformedMelFrame: 1,
     requestedMetrics: ["mel-bands"],
   });
   h.launch();
-  h.until(() =>
+  await h.until(() =>
     ["completed", "partial", "failed"].includes(h.controller.snapshot().state),
   );
   assert.equal(h.controller.snapshot().state, "failed");
   assert.equal(h.controller.snapshot().cleanup, "completed");
-  assert.ok(
-    h.results.every(({ payload }) => payload.observation === undefined),
-  );
+  const stream = await verifiedStream(h);
+  assert.equal(stream.manifest.outcome, "failed");
+  assert.equal(stream.metric("mel-bands").status, "failed");
+  assert.equal(stream.records("mel-bands").length, 0);
+  assert.ok(stream.metric("mel-bands").missingRecords > 0);
 });
 
 test("mel-local malformed values publish explicit partial coverage with healthy native metrics", async () => {
@@ -1389,7 +1468,9 @@ test("mel-local malformed values publish explicit partial coverage with healthy 
     requestedMetrics: ["level", "attacks", "mel-bands"],
   });
   h.launch();
-  h.until(() => ["partial", "failed"].includes(h.controller.snapshot().state));
+  await h.until(() =>
+    ["partial", "failed"].includes(h.controller.snapshot().state),
+  );
   const result = h.results.find(({ payload }) =>
     ["partial", "failed"].includes(payload.status),
   ).payload;
@@ -1398,14 +1479,15 @@ test("mel-local malformed values publish explicit partial coverage with healthy 
     "partial",
     JSON.stringify(h.controller.snapshot()),
   );
-  assert.equal(result.observation.metrics.level.status, "complete");
-  assert.equal(result.observation.metrics.attacks.status, "complete");
-  assert.equal(result.observation.metrics["mel-bands"].frames.length, 1);
-  assert.equal(result.observation.metrics["mel-bands"].gaps[0].count, 3);
+  const stream = await verifiedStream(h);
+  assert.equal(stream.metric("level").missingRecords, 0);
+  assert.equal(stream.metric("attacks").missingRecords, 0);
+  assert.equal(stream.records("mel-bands").length, 1);
   assert.equal(
-    result.observation.metrics["mel-bands"].gaps[0].reason,
-    "malformed-record",
+    stream.gaps("mel-bands").reduce((sum, gap) => sum + gap.count, 0),
+    3,
   );
+  assert.equal(stream.gaps("mel-bands")[0].reason, "malformed-record");
   assert.equal(h.controller.snapshot().cleanup, "completed");
 });
 
@@ -1416,11 +1498,11 @@ test("missing mel physical terminal denies publication even when native metrics 
     requestedMetrics: ["level", "attacks", "mel-bands"],
   });
   h.launch();
-  h.until(() => h.controller.snapshot().state === "failed", 300000);
+  await h.until(() => h.controller.snapshot().state === "failed", 300000);
   assert.equal(h.controller.snapshot().cleanup, "failed");
   assert.equal(h.controller.snapshot().reason, "metric_cleanup_unconfirmed");
   assert.ok(
-    h.results.every(({ payload }) => payload.observation === undefined),
+    h.results.every(({ payload }) => payload.metricManifest === undefined),
   );
 });
 
@@ -1442,12 +1524,13 @@ test("pending native arm drains survive the runtime boundary and complete a genu
     ],
   });
   h.launch();
-  h.until(() => h.controller.snapshot().state === "completed", 300000);
+  await h.until(() => h.controller.snapshot().state === "completed", 300000);
   assert.equal(h.controller.snapshot().cleanup, "completed");
   assert.equal(
-    h.results.filter(({ payload }) => payload.observation).length,
+    h.results.filter(({ payload }) => payload.metricManifest).length,
     1,
   );
+  await verifiedStream(h);
   assert.ok(
     h.diagnosticWrites.every(
       (message) =>
@@ -1464,9 +1547,11 @@ test("rejected drain operands traverse the runtime and diagnostic SDK without pu
     invalidMelDrain: true,
     requestedMetrics: ["mel-bands", "pitch", "spectral-shape"],
   });
-  h.until(() => h.replies.some((reply) => reply.payload.status === "ready"));
+  await h.until(() =>
+    h.replies.some((reply) => reply.payload.status === "ready"),
+  );
   h.controller.arm(h.arm);
-  h.until(() => h.controller.snapshot().state === "failed", 300000);
+  await h.until(() => h.controller.snapshot().state === "failed", 300000);
   const wire = h.diagnosticWrites.filter(
     (message) =>
       message.nativeLifecycle?.reason === "mel_rejected_drain_receipt",
@@ -1491,7 +1576,7 @@ test("rejected drain operands traverse the runtime and diagnostic SDK without pu
     facts["mel.expected.recordsDrained"] + 1,
   );
   assert.ok(
-    h.results.every(({ payload }) => payload.observation === undefined),
+    h.results.every(({ payload }) => payload.metricManifest === undefined),
   );
 });
 
@@ -1507,7 +1592,7 @@ for (const nonfiniteIdentity of [false, true])
       requestedMetrics: ["mel-bands", "pitch", "spectral-shape"],
     });
     h.launch();
-    h.until(() => h.controller.snapshot().state === "failed", 300000);
+    await h.until(() => h.controller.snapshot().state === "failed", 300000);
     const reasons = [
       "mel_native_source_identity",
       "mel_native_stopped_receipt",
@@ -1558,7 +1643,7 @@ for (const nonfiniteIdentity of [false, true])
       h.results.every(
         ({ payload }) =>
           !reasons.includes(payload.nativeLifecycle?.reason) &&
-          payload.observation === undefined,
+          payload.metricManifest === undefined,
       ),
     );
     const snapshot = h.controller.snapshot();
@@ -1609,7 +1694,7 @@ test("foreign source identity cannot cross runtime and SDK diagnostic boundary",
     requestedMetrics: ["mel-bands", "pitch"],
   });
   h.launch();
-  h.until(() => h.controller.snapshot().state === "failed", 300000);
+  await h.until(() => h.controller.snapshot().state === "failed", 300000);
   assert.equal(
     h.controller.snapshot().reason,
     "mel_foreign_source_identity_evidence",
@@ -1634,7 +1719,7 @@ test("refused diagnostic delivery fails the pass without hiding a source fault o
     requestedMetrics: ["mel-bands", "pitch"],
   });
   h.launch();
-  h.until(() => h.controller.snapshot().state === "failed", 300000);
+  await h.until(() => h.controller.snapshot().state === "failed", 300000);
   assert.equal(
     h.controller.snapshot().reason,
     "metric_diagnostic_delivery_failed",
@@ -1646,7 +1731,7 @@ test("refused diagnostic delivery fails the pass without hiding a source fault o
   );
   assert.equal(h.controller.snapshot().mel.receipt, null);
   assert.ok(
-    h.results.every(({ payload }) => payload.observation === undefined),
+    h.results.every(({ payload }) => payload.metricManifest === undefined),
   );
   assert.ok(
     h.sdkStatuses.some(([, state]) => state === "native_diagnostic_gap"),
@@ -1669,7 +1754,7 @@ test("owned ABI3 fault operands and refused drain survive observability; cleanup
     ],
   });
   h.launch();
-  h.until(() => h.controller.snapshot().state === "failed", 300000);
+  await h.until(() => h.controller.snapshot().state === "failed", 300000);
   const snapshot = h.controller.snapshot();
   assert.equal(snapshot.reason, "mel_native_integrity_failure_4");
   assert.equal(snapshot.inputFailureReason, "mel_native_integrity_failure_4");
@@ -1682,7 +1767,7 @@ test("owned ABI3 fault operands and refused drain survive observability; cleanup
   assert.equal(result.payload.reason, "mel_native_integrity_failure_4");
   assert.equal(result.payload.status, "failed");
   assert.ok(
-    h.results.every(({ payload }) => payload.observation === undefined),
+    h.results.every(({ payload }) => payload.metricManifest === undefined),
   );
   assert.ok(
     result.payload.nativeLifecycle.facts.some(
@@ -1717,15 +1802,17 @@ test("missing actual mel readiness prevents armed reply and source launch", asyn
     suppressMelReady: true,
     requestedMetrics: ["level", "attacks", "mel-bands"],
   });
-  h.until(() => h.replies.some(({ payload }) => payload.status === "ready"));
+  await h.until(() =>
+    h.replies.some(({ payload }) => payload.status === "ready"),
+  );
   h.controller.arm(h.arm);
-  h.until(() => h.controller.snapshot().state === "failed", 300000);
+  await h.until(() => h.controller.snapshot().state === "failed", 300000);
   assert.equal(
     h.replies.some(({ payload }) => payload.status === "armed"),
     false,
   );
   assert.ok(
-    h.results.every(({ payload }) => payload.observation === undefined),
+    h.results.every(({ payload }) => payload.metricManifest === undefined),
   );
 });
 
@@ -1742,12 +1829,12 @@ test("mel lifecycle delivery failure preserves physical cleanup and cannot publi
     },
   });
   h.launch();
-  h.until(() => h.controller.snapshot().state === "failed");
+  await h.until(() => h.controller.snapshot().state === "failed");
   assert.equal(h.controller.snapshot().reason, "metric_event_delivery_failed");
   assert.equal(h.controller.snapshot().cleanup, "completed");
   assert.equal(h.controller.snapshot().mel.completed, true);
   assert.ok(
-    h.results.every(({ payload }) => payload.observation === undefined),
+    h.results.every(({ payload }) => payload.metricManifest === undefined),
   );
 });
 
@@ -1757,12 +1844,12 @@ test("mel cancellation waits for physical termination and retains cancelled life
     requestedMetrics: ["level", "attacks", "mel-bands"],
   });
   h.launch();
-  h.until(() => h.controller.snapshot().mel.frames === 1);
+  await h.until(() => h.controller.snapshot().mel.frames === 1);
   h.controller.cancel(h.cancel);
-  h.until(() => h.controller.snapshot().state === "cancelled");
+  await h.until(() => h.controller.snapshot().state === "cancelled");
   assert.equal(h.controller.snapshot().cleanup, "completed");
   assert.ok(
-    h.results.every(({ payload }) => payload.observation === undefined),
+    h.results.every(({ payload }) => payload.metricManifest === undefined),
   );
   assert.ok(
     h.events.some(
@@ -1803,7 +1890,7 @@ test("the first spectral reader rejection remains attributable after the routine
     requestedMetrics: ["level", "spectral-centroid", "attacks"],
   });
   h.launch();
-  h.until(() => h.controller.snapshot().state === "capturing");
+  await h.until(() => h.controller.snapshot().state === "capturing");
   for (let count = 0; count < 1000; count++)
     h.controller.receiveNative("clock", [
       "native",
@@ -1898,7 +1985,8 @@ for (const { capturing, packet, detail } of [
       requestedMetrics: ["level", "spectral-centroid", "attacks"],
     });
     h.launch();
-    if (capturing) h.until(() => h.controller.snapshot().state === "capturing");
+    if (capturing)
+      await h.until(() => h.controller.snapshot().state === "capturing");
     h.runtimeHarness.handlers.native_spectrum("native", GENERATION, ...packet);
     assert.equal(
       h.controller.snapshot().inputFailureReason,
@@ -1929,7 +2017,7 @@ for (const { capturing, packet, detail } of [
       7,
       SPECTRUM_CLEANUP_REASONS.indexOf("owner_mismatch"),
     );
-    h.until(() => h.controller.snapshot().state === "failed");
+    await h.until(() => h.controller.snapshot().state === "failed");
     const snapshot = h.controller.snapshot();
     assert.equal(snapshot.reason, "metric_spectrum_shared_failure");
     assert.equal(snapshot.inputFailureDetail, detail);
@@ -1937,7 +2025,7 @@ for (const { capturing, packet, detail } of [
     assert.equal(snapshot.cleanup, "completed");
     assert.equal(h.spectrumIO.generation, null);
     assert.ok(
-      h.results.every(({ payload }) => payload.observation === undefined),
+      h.results.every(({ payload }) => payload.metricManifest === undefined),
     );
     const evidence = h.diagnosticWrites.filter(
       ({ nativeLifecycle }) =>
@@ -1992,7 +2080,7 @@ for (const [value, last] of [
     );
     assert.equal(typeof packet[6], "string");
     const expected = `spectrum-input-rejection: counter_incoherent (4) ${packet[6]}`;
-    h.until(() => h.controller.snapshot().state === "failed");
+    await h.until(() => h.controller.snapshot().state === "failed");
     assert.equal(
       h.controller.snapshot().reason,
       "metric_spectrum_shared_failure",
@@ -2000,7 +2088,7 @@ for (const [value, last] of [
     assert.equal(h.controller.snapshot().inputFailureDetail, expected);
     assert.equal(h.controller.snapshot().cleanup, "completed");
     assert.ok(
-      h.results.every(({ payload }) => payload.observation === undefined),
+      h.results.every(({ payload }) => payload.metricManifest === undefined),
     );
     const evidence = h.diagnosticWrites.find(
       ({ nativeLifecycle }) =>
@@ -2024,12 +2112,16 @@ for (const [value, last] of [
 
 test("a stopped clock scheduling pause requires a fresh bracket rather than parsing old samples as a new proof", async () => {
   const h = await controllerHarness();
-  h.until(() => h.replies.some((reply) => reply.payload.status === "ready"));
+  await h.until(() =>
+    h.replies.some((reply) => reply.payload.status === "ready"),
+  );
   h.pauseClock(48064);
   for (let sample = 0; sample < 48064; sample++) h.step();
   assert.equal(h.controller.snapshot().reason, null);
   assert.equal(h.controller.arm(h.arm), true);
-  h.until(() => h.replies.some((reply) => reply.payload.status === "armed"));
+  await h.until(() =>
+    h.replies.some((reply) => reply.payload.status === "armed"),
+  );
   assert.equal(h.controller.snapshot().reason, null);
   assert(
     h.events.some(
@@ -2056,7 +2148,7 @@ test("one-vector-old coherent level snapshots complete without disarming the sha
     ],
   });
   h.launch();
-  h.until(() =>
+  await h.until(() =>
     ["completed", "partial", "failed"].includes(h.controller.snapshot().state),
   );
   assert.equal(h.controller.snapshot().state, "completed");
@@ -2067,11 +2159,11 @@ test("one-vector-old coherent level snapshots complete without disarming the sha
         selector === "metric_level_sample" && counter - bank[0] === 64,
     ),
   );
-  const result = h.results.find(({ payload }) => payload.observation)?.payload;
-  assert.equal(result.observation.metrics.level.status, "complete");
-  assert.equal(result.observation.metrics.attacks.status, "complete");
-  assert.equal(result.observation.metrics.pitch.frames.length, 43);
-  assert.equal(result.observation.metrics["spectral-shape"].frames.length, 43);
+  const stream = await verifiedStream(h);
+  assert.equal(stream.metric("level").status, "complete");
+  assert.equal(stream.metric("attacks").status, "complete");
+  assert.equal(stream.records("pitch").length, 43);
+  assert.equal(stream.records("spectral-shape").length, 43);
   assert.ok(
     h.events.every(({ nativeLifecycle }) => nativeLifecycle.stage !== "failed"),
   );
@@ -2090,12 +2182,16 @@ test("production spectrum polling survives 30 ms scheduling and six seconds of p
     spectrumReadsPerTick: readPair?.numoutlets ?? 1,
     requestedMetrics: ["level", "spectral-centroid", "attacks"],
   });
-  f.until(() => f.replies.some((reply) => reply.payload.status === "ready"));
+  await f.until(() =>
+    f.replies.some((reply) => reply.payload.status === "ready"),
+  );
   f.controller.arm(f.arm);
-  f.until(() => f.replies.some((reply) => reply.payload.status === "armed"));
+  await f.until(() =>
+    f.replies.some((reply) => reply.payload.status === "armed"),
+  );
   for (let sample = 0; sample < 6 * 48000; sample++) f.step();
   f.startPlayback();
-  f.until(() =>
+  await f.until(() =>
     f.results.some((result) =>
       ["completed", "partial", "failed"].includes(result.payload.status),
     ),
@@ -2104,11 +2200,9 @@ test("production spectrum polling survives 30 ms scheduling and six seconds of p
     ["completed", "partial", "failed"].includes(result.payload.status),
   ).payload;
   assert.equal(result.status, "completed");
-  assert.equal(
-    result.observation.metrics["spectral-centroid"].status,
-    "complete",
-  );
-  assert.equal(result.nativeSourceCoverage.spectrumCleanup.status, "completed");
+  const stream = await verifiedStream(f);
+  assert.equal(stream.metric("spectral-centroid").status, "complete");
+  assert.equal(stream.manifest.nativeProof.spectrumCleanup.status, "completed");
 });
 
 for (const session of [false, true])
@@ -2119,7 +2213,7 @@ for (const session of [false, true])
       requestedMetrics: ["level", "spectral-centroid", "attacks"],
     });
     f.launch();
-    f.until(() =>
+    await f.until(() =>
       f.results.some((r) =>
         ["completed", "partial", "failed"].includes(r.payload.status),
       ),
@@ -2132,11 +2226,19 @@ for (const session of [false, true])
       "completed",
       JSON.stringify({ result, snapshot: f.controller.snapshot() }),
     );
-    const spectrum = result.observation.metrics["spectral-centroid"];
+    const stream = await verifiedStream(f);
+    const spectrum = stream.metric("spectral-centroid");
     assert.equal(spectrum.status, "complete");
-    assert.equal(spectrum.records.length, spectrum.expectedRecords);
-    assert(spectrum.records.length > 0);
-    assert(spectrum.records.some((record) => record.spectralEnergy > 0));
+    assert.equal(
+      stream.records("spectral-centroid").length,
+      spectrum.expectedRecords,
+    );
+    assert(stream.records("spectral-centroid").length > 0);
+    assert(
+      stream
+        .records("spectral-centroid")
+        .some((record) => record.spectralEnergy > 0),
+    );
     const retention = f.events.filter(
       (event) =>
         event.nativeLifecycle.reason === "native_spectrum_retention_evidence",
@@ -2157,9 +2259,9 @@ for (const session of [false, true])
       assert.equal(facts["capture.spectrum.retention.fault"].value, 0);
       assert(facts["capture.spectrum.retention.backlog"].value >= 0);
     }
-    assert(result.nativeSourceCoverage.spectrumPhase);
+    assert(stream.manifest.nativeProof.spectrumPhase);
     assert.equal(
-      result.nativeSourceCoverage.spectrumCleanup.status,
+      stream.manifest.nativeProof.spectrumCleanup.status,
       "completed",
     );
     assert.equal(f.spectrumIO.generation, null);
@@ -2180,9 +2282,13 @@ test("retention diagnostic delivery failure remains an explicit failure with own
         throw new Error("controlled diagnostic rejection");
     },
   });
-  f.until(() => f.replies.some((reply) => reply.payload.status === "ready"));
+  await f.until(() =>
+    f.replies.some((reply) => reply.payload.status === "ready"),
+  );
   f.controller.arm(f.arm);
-  f.until(() => f.replies.some((reply) => reply.payload.status === "failed"));
+  await f.until(() =>
+    f.replies.some((reply) => reply.payload.status === "failed"),
+  );
   assert.equal(f.controller.snapshot().reason, "metric_event_delivery_failed");
   assert.equal(f.controller.snapshot().cleanup, "completed");
   assert.equal(f.spectrumIO.generation, null);
@@ -2195,7 +2301,7 @@ test("unavailable FFT declaration remains a local partial result with genuine FF
     requestedMetrics: ["level", "spectral-centroid", "attacks"],
   });
   f.launch();
-  f.until(() =>
+  await f.until(() =>
     f.results.some((r) =>
       ["completed", "partial", "failed"].includes(r.payload.status),
     ),
@@ -2208,14 +2314,84 @@ test("unavailable FFT declaration remains a local partial result with genuine FF
     "partial",
     JSON.stringify({ result, snapshot: f.controller.snapshot() }),
   );
-  assert.equal(result.observation.metrics.level.status, "complete");
+  const stream = await verifiedStream(f);
+  assert.equal(stream.metric("level").status, "complete");
+  assert.equal(stream.metric("spectral-centroid").availability, "unavailable");
   assert.equal(
-    result.observation.metrics["spectral-centroid"].algorithm
-      .firstFrameEndSample,
+    stream.descriptor.algorithms.find(
+      ({ metric }) => metric === "spectral-centroid",
+    ).algorithm.firstFrameEndSample,
     null,
   );
-  assert.equal(result.nativeSourceCoverage.spectrumCleanup.status, "completed");
+  assert.equal(stream.manifest.nativeProof.spectrumCleanup.status, "completed");
   assert.equal(f.spectrumIO.generation, null);
+});
+
+for (const session of [false, true])
+  test(`cold spectrum preparation retains genuine phase proof for ${session ? "Session" : "Arrangement"}`, async () => {
+    const h = await controllerHarness({
+      session,
+      sessionStartBeat: 16,
+      spectrumEnabled: true,
+      spectrumWarmupMs: 1700,
+      melEnabled: true,
+      analyzerEnabled: true,
+      requestedMetrics: [
+        "level",
+        "spectral-centroid",
+        "attacks",
+        "mel-bands",
+        "pitch",
+        "spectral-shape",
+      ],
+    });
+    h.launch();
+    await h.until(() => h.controller.snapshot().state === "completed");
+    const stream = await verifiedStream(h);
+    assert.equal(stream.manifest.metrics.length, 6);
+    assert(
+      stream.manifest.metrics.every((metric) => metric.status === "complete"),
+    );
+    assert(stream.manifest.nativeProof.spectrumPhase);
+    assert.equal(
+      stream.manifest.nativeProof.spectrumCleanup.status,
+      "completed",
+    );
+    assert.equal(h.controller.snapshot().cleanup, "completed");
+    const phase = h.events.find(
+      (event) => event.nativeLifecycle.reason === "native_spectrum_phase_bound",
+    );
+    assert(phase.nativeLifecycle.durationMs >= 1700);
+    assert(phase.nativeLifecycle.durationMs < 2000);
+    assert(
+      !h.events.some(
+        (event) => event.nativeLifecycle.reason === "native_phase_unavailable",
+      ),
+    );
+  });
+
+test("cold spectrum preparation cancellation releases the owned FFT without publication", async () => {
+  const h = await controllerHarness({
+    spectrumEnabled: true,
+    spectrumWarmupMs: 1700,
+    requestedMetrics: ["level", "spectral-centroid", "attacks"],
+    onEvent(event, controller, command) {
+      if (
+        event.nativeLifecycle.metric === "spectral-centroid" &&
+        event.nativeLifecycle.phase === "preflight" &&
+        event.nativeLifecycle.stage === "started"
+      )
+        controller.cancel(command);
+    },
+  });
+  await h.until(() =>
+    h.replies.some((reply) => reply.payload.status === "ready"),
+  );
+  h.controller.arm(h.arm);
+  await h.until(() => h.controller.snapshot().state === "cancelled");
+  assert.equal(h.controller.snapshot().cleanup, "completed");
+  assert.equal(h.spectrumIO.generation, null);
+  assert(!h.results.some(({ payload }) => payload.metricManifest));
 });
 
 test("requested spectrum without proven phase publishes honest partial data without blocking level or attacks", async () => {
@@ -2224,42 +2400,36 @@ test("requested spectrum without proven phase publishes honest partial data with
     engineeringRuntime: true,
   });
   h.launch();
-  h.until(() => h.controller.snapshot().state === "partial");
-  const result = h.results.find((r) => r.payload.status === "partial").payload;
-  assert.equal(result.observation.metrics.level.status, "complete");
-  assert.equal(result.observation.metrics.attacks.status, "complete");
+  await h.until(() => h.controller.snapshot().state === "partial");
+  const stream = await verifiedStream(h);
+  assert.equal(stream.metric("level").status, "complete");
+  assert.equal(stream.metric("attacks").status, "complete");
+  assert.equal(stream.metric("spectral-centroid").status, "failed");
+  assert.equal(stream.metric("spectral-centroid").availability, "unavailable");
   assert.equal(
-    result.observation.metrics["spectral-centroid"].status,
-    "failed",
-  );
-  assert.equal(
-    result.observation.metrics["spectral-centroid"].algorithm
-      .firstFrameEndSample,
+    stream.descriptor.algorithms.find(
+      ({ metric }) => metric === "spectral-centroid",
+    ).algorithm.firstFrameEndSample,
     null,
-  );
-  assert.ok(
-    result.observation.rows.every(
-      (row) => row["spectral-centroid"].availability === "unknown-phase",
-    ),
   );
   assert.equal(h.controller.snapshot().cleanup, "completed");
   assert.equal(
     h.controls.some((control) => control.target === "metric_spectrum"),
     false,
   );
-  assert.ok(result.observation.metrics.level.records.length > 0);
-  assert.ok(result.observation.metrics.attacks.records.length > 0);
-  for (const record of result.observation.metrics.level.records) {
+  assert.ok(stream.records("level").length > 0);
+  assert.ok(stream.records("attacks").length > 0);
+  for (const record of stream.records("level")) {
     assert.deepEqual(record.peak, [0.25, 0.125]);
     assert.deepEqual(record.rms, [0.25, 0.125]);
   }
-  assert.deepEqual(result.observation.metrics["spectral-centroid"].records, []);
+  assert.deepEqual(stream.records("spectral-centroid"), []);
   assert.equal(h.controller.snapshot().spectrum.started, false);
   assert.equal(h.controller.snapshot().spectrum.receivedRecords, 0);
   assert.equal(h.controller.snapshot().spectrum.acceptedRecords, 0);
-  assert.equal(result.nativeSourceCoverage.spectrumCleanup, undefined);
-  assert.equal(result.nativeSourceCoverage.spectrumPhase, undefined);
-  for (const record of result.observation.metrics.attacks.records) {
+  assert.equal(stream.manifest.nativeProof.spectrumCleanup, null);
+  assert.equal(stream.manifest.nativeProof.spectrumPhase, null);
+  for (const record of stream.records("attacks")) {
     assert.deepEqual(record.inputLevel.rms, [0.25, 0.125]);
   }
   assert.ok(
@@ -2292,7 +2462,7 @@ test("engineering unavailable-spectrum fixture cancellation still executes real 
       if (
         !cancelled &&
         event.nativeLifecycle.metric === "level" &&
-        event.nativeLifecycle.stage === "completed"
+        event.nativeLifecycle.stage === "progress"
       ) {
         cancelled = true;
         controller.cancel(command);
@@ -2300,11 +2470,11 @@ test("engineering unavailable-spectrum fixture cancellation still executes real 
     },
   });
   h.launch();
-  h.until(() => h.controller.snapshot().state === "cancelled");
+  await h.until(() => h.controller.snapshot().state === "cancelled");
   assert.equal(h.controller.snapshot().cleanup, "completed");
   assert.equal(h.controller.snapshot().spectrum.started, false);
   assert.equal(
-    h.results.some(({ payload }) => payload.observation),
+    h.results.some(({ payload }) => payload.metricManifest),
     false,
   );
   assert.equal(h.controls.at(-1).selector, "release");
@@ -2316,7 +2486,7 @@ test("a spectrum-only request with unavailable phase fails before arming and con
     requestedMetrics: ["spectral-centroid"],
     engineeringRuntime: true,
   });
-  h.until(() => h.controller.snapshot().state === "failed");
+  await h.until(() => h.controller.snapshot().state === "failed");
   assert.equal(
     h.controller.snapshot().inputFailureReason,
     "metric_no_requested_metric_available",
@@ -2333,7 +2503,7 @@ test("a spectrum-only request with unavailable phase fails before arming and con
     false,
   );
   assert.equal(
-    h.results.some((r) => r.payload.observation),
+    h.results.some((r) => r.payload.metricManifest),
     false,
   );
   await h.runtimeHarness.runtime.stop();
@@ -2346,11 +2516,11 @@ test("engineering partial fixture cannot publish healthy data when actual envelo
     suppressCleanup: true,
   });
   h.launch();
-  h.until(() => h.controller.snapshot().state === "failed");
+  await h.until(() => h.controller.snapshot().state === "failed");
   assert.equal(h.controller.snapshot().cleanup, "failed");
   assert.equal(h.controller.snapshot().spectrum.started, false);
   assert.equal(
-    h.results.some(({ payload }) => payload.observation),
+    h.results.some(({ payload }) => payload.metricManifest),
     false,
   );
   await assert.rejects(
@@ -2395,7 +2565,7 @@ test("asynchronous query rejection remains fatal and preserves executed cleanup"
   );
   assert.equal(h.controller.snapshot().cleanup, "completed");
   assert.equal(
-    h.results.some((r) => r.payload.observation),
+    h.results.some((r) => r.payload.metricManifest),
     false,
   );
 });
@@ -2411,14 +2581,14 @@ test("cancellation with asynchronous query delivery releases the real native own
   await untilAsync(h, () => h.controller.snapshot().state === "cancelled");
   assert.equal(h.controller.snapshot().cleanup, "completed");
   assert.equal(
-    h.results.some((r) => r.payload.observation),
+    h.results.some((r) => r.payload.metricManifest),
     false,
   );
 });
 
 test("musical acquisition skip diagnostics preserve bounded operands, ownership and trace", async () => {
   const h = await controllerHarness();
-  h.until(() => h.replies.some((r) => r.payload.status === "ready"));
+  await h.until(() => h.replies.some((r) => r.payload.status === "ready"));
   const body = {
     owner: h.adapter.snapshot().owner,
     nativeEpoch: h.controller.snapshot().nativeEpoch,
@@ -2452,7 +2622,7 @@ test("musical acquisition skip diagnostics preserve bounded operands, ownership 
     ]),
     false,
   );
-  h.until(() => h.controller.snapshot().state === "failed");
+  await h.until(() => h.controller.snapshot().state === "failed");
   assert.equal(
     h.controller.snapshot().inputFailureReason,
     "metric_invalid_readback_skip_evidence",
@@ -2463,42 +2633,44 @@ test("musical acquisition skip diagnostics preserve bounded operands, ownership 
 test("controller real retained Gen and Max prefix -> canonical ready/arm/source/complete level+attacks, then genuine cleanup", async () => {
   const h = await controllerHarness();
   h.launch();
-  h.until(() =>
+  await h.until(() =>
     ["completed", "partial", "failed"].includes(h.controller.snapshot().state),
   );
   assert.equal(h.controller.snapshot().state, "completed");
   assert.equal(h.controller.snapshot().cleanup, "completed");
   const final = h.results.find((r) => r.payload.status === "completed");
   assert.ok(final);
-  const observation = final.payload.observation;
-  assert.deepEqual(observation.requestedMetrics, ["level", "attacks"]);
-  assert.equal(observation.metrics.level.status, "complete");
-  assert.equal(observation.metrics.attacks.status, "complete");
+  const stream = await verifiedStream(h);
+  assert.deepEqual(stream.descriptor.requestedMetrics, ["level", "attacks"]);
+  assert.equal(stream.metric("level").status, "complete");
+  assert.equal(stream.metric("attacks").status, "complete");
   assert.equal(
-    observation.metrics["spectral-centroid"].status,
-    "not-requested",
+    stream.manifest.metrics.some(
+      ({ metric }) => metric === "spectral-centroid",
+    ),
+    false,
   );
   assert.equal(
-    observation.sourceCoverage.endSample -
-      observation.sourceCoverage.startSample,
+    stream.manifest.nativeProof.sourceEnd -
+      stream.manifest.nativeProof.sourceOrigin,
     9000,
   );
-  for (const record of observation.metrics.level.records) {
+  for (const record of stream.records("level")) {
     assert.deepEqual(record.peak, [0.25, 0.125]);
     assert.deepEqual(record.rms, [0.25, 0.125]);
   }
   assert.equal(
-    observation.metrics.level.records.reduce(
-      (n, r) => n + r.support.endSample - r.support.startSample,
-      0,
-    ),
+    stream
+      .records("level")
+      .reduce((n, r) => n + r.support.endSample - r.support.startSample, 0),
     9000,
   );
   assert.deepEqual(
-    final.payload.nativeSourceCoverage.armed,
-    h.replies.find((r) => r.payload.status === "armed").payload.nativeArm,
+    stream.manifest.nativeProof.ownership,
+    h.replies.find((r) => r.payload.status === "armed").payload.nativeArm
+      .ownership,
   );
-  assert.equal(final.payload.nativeSourceCoverage.after.frames.length, 32);
+  assert.equal(stream.manifest.nativeProof.after.frames.length, 32);
   assert.ok(h.controls.some((c) => c.selector === "metric_prefix_record"));
   assert.equal(h.controls.filter((c) => c.selector === "arm").length, 1);
   assert.equal(h.controls.at(-1).selector, "release");
@@ -2525,7 +2697,9 @@ test("controller real retained Gen and Max prefix -> canonical ready/arm/source/
 
 test("primary envelope reader fault coordinates cross the runtime codec before secondary cleanup failures", async () => {
   const h = await controllerHarness({ runtimeBridge: true });
-  h.until(() => h.replies.some((reply) => reply.payload.status === "ready"));
+  await h.until(() =>
+    h.replies.some((reply) => reply.payload.status === "ready"),
+  );
   const owner = Object.fromEntries(
     [
       "generation",
@@ -2558,7 +2732,7 @@ test("primary envelope reader fault coordinates cross the runtime codec before s
       progress,
     }),
   ]);
-  h.until(() => h.controller.snapshot().state === "failed");
+  await h.until(() => h.controller.snapshot().state === "failed");
   assert.equal(h.controller.snapshot().reason, "shared_dsp_control");
   assert.equal(h.controller.snapshot().cleanup, "completed");
   const evidence = h.diagnosticWrites.find(
@@ -2582,7 +2756,9 @@ test("primary envelope reader fault coordinates cross the runtime codec before s
       value,
     );
   assert(evidence.nativeLifecycle.facts.length <= 24);
-  assert(h.results.every(({ payload }) => payload.observation === undefined));
+  assert(
+    h.results.every(({ payload }) => payload.metricManifest === undefined),
+  );
 });
 
 for (const [selector, fields] of [
@@ -2595,7 +2771,9 @@ for (const [selector, fields] of [
 ])
   test(`controller preserves the owned IO failure reason from ${selector}`, async () => {
     const h = await controllerHarness();
-    h.until(() => h.replies.some((reply) => reply.payload.status === "ready"));
+    await h.until(() =>
+      h.replies.some((reply) => reply.payload.status === "ready"),
+    );
     const owner = Object.fromEntries(
       [
         "generation",
@@ -2615,29 +2793,34 @@ for (const [selector, fields] of [
         reason: "invalid_timing_abi",
       }),
     ]);
-    h.until(() => h.controller.snapshot().state === "failed");
+    await h.until(() => h.controller.snapshot().state === "failed");
     assert.equal(
       h.controller.snapshot().inputFailureReason,
       "invalid_timing_abi",
     );
     assert.equal(h.controller.snapshot().cleanup, "completed");
-    assert.ok(!h.results.some(({ payload }) => payload.observation));
+    assert.ok(!h.results.some(({ payload }) => payload.metricManifest));
   });
 
 test("controller retains complete loudness when the independent detector is unavailable, with honest partial context", async () => {
   const h = await controllerHarness({ suppressDetector: true });
   h.launch();
-  h.until(() => ["partial", "failed"].includes(h.controller.snapshot().state));
+  await h.until(() =>
+    ["partial", "failed"].includes(h.controller.snapshot().state),
+  );
   assert.equal(h.controller.snapshot().state, "partial");
   assert.equal(h.controller.snapshot().cleanup, "completed");
   const final = h.results.find((r) => r.payload.status === "partial");
   assert.ok(final);
-  assert.equal(final.payload.observation.metrics.level.status, "complete");
-  assert.equal(final.payload.observation.metrics.attacks.status, "failed");
-  assert.equal(final.payload.observation.metrics.level.records.length, 3);
+  const stream = await verifiedStream(h);
+  assert.equal(stream.metric("level").status, "complete");
+  assert.equal(stream.metric("attacks").status, "failed");
+  assert.equal(stream.records("level").length, 3);
   assert.equal(
-    final.payload.observation.metrics["spectral-centroid"].status,
-    "not-requested",
+    stream.manifest.metrics.some(
+      ({ metric }) => metric === "spectral-centroid",
+    ),
+    false,
   );
 });
 
@@ -2656,7 +2839,7 @@ test("controller cancel before publication keeps real cleanup and delivers cance
     },
   });
   h.launch();
-  h.until(() =>
+  await h.until(() =>
     ["cancelled", "failed", "completed"].includes(
       h.controller.snapshot().state,
     ),
@@ -2682,7 +2865,7 @@ test("controller cancel before publication keeps real cleanup and delivers cance
 test("controller never publishes when a stop setter executes but its genuine cleanup readback is missing", async () => {
   const h = await controllerHarness({ suppressCleanup: true });
   h.launch();
-  h.until(() => h.controller.snapshot().state === "failed");
+  await h.until(() => h.controller.snapshot().state === "failed");
   assert.equal(h.controller.snapshot().cleanup, "failed");
   assert.equal(h.controller.snapshot().reason, "metric_cleanup_unconfirmed");
   assert.equal(
@@ -2710,7 +2893,7 @@ test("unconfirmed shared SpectralShape message-gate cleanup blocks otherwise hea
   });
 
   h.launch();
-  h.until(() => h.controller.snapshot().state === "failed");
+  await h.until(() => h.controller.snapshot().state === "failed");
   assert.ok(attempts > 0);
   assert.equal(h.controller.snapshot().reason, "metric_cleanup_unconfirmed");
   assert.equal(h.controller.snapshot().cleanup, "failed");
@@ -2791,10 +2974,10 @@ test("production smoke coordination preserves native results and executes native
       },
     });
     h.launch();
-    h.until(() => smokeControls.includes("begin"));
+    await h.until(() => smokeControls.includes("begin"));
     if (mode === "cancel") h.controller.cancel(h.cancel);
     if (mode === "dispose") h.controller.dispose();
-    h.until(() =>
+    await h.until(() =>
       ["completed", "partial", "failed", "cancelled"].includes(
         h.controller.snapshot().state,
       ),
@@ -2818,7 +3001,8 @@ test("production smoke coordination preserves native results and executes native
         ({ payload }) => payload.status === "completed",
       );
       assert.ok(result, mode);
-      assert.deepEqual(Object.keys(result.payload.observation.metrics).sort(), [
+      const stream = await verifiedStream(h);
+      assert.deepEqual([...stream.descriptor.requestedMetrics].sort(), [
         "attacks",
         "level",
         "spectral-centroid",
@@ -2866,7 +3050,7 @@ test("throwing diagnostic cleanup cannot bypass native stop or the cleanup deadl
     },
   });
   h.launch();
-  h.until(() => h.controller.snapshot().state === "failed");
+  await h.until(() => h.controller.snapshot().state === "failed");
   assert.equal(
     h.controller.snapshot().reason,
     "metric_diagnostic_cleanup_failed",
@@ -2898,7 +3082,7 @@ test("a diagnostic rejection stays failed even when physical cleanup subsequentl
     },
   });
   h.launch();
-  h.until(() => h.controller.snapshot().state === "failed");
+  await h.until(() => h.controller.snapshot().state === "failed");
   assert.equal(
     h.controller.snapshot().reason,
     "metric_diagnostic_cleanup_failed",
@@ -2920,7 +3104,7 @@ test("Session capture completes with independently advancing host-clock snapshot
     clockHoldHostAdvance: true,
   });
   h.launch();
-  h.until(() => h.controller.snapshot().state === "completed");
+  await h.until(() => h.controller.snapshot().state === "completed");
   assert.equal(h.controller.snapshot().cleanup, "completed");
   assert.ok(h.results.some((r) => r.payload.status === "completed"));
   const skipped = h.events
@@ -2934,7 +3118,7 @@ test("Session capture completes with independently advancing host-clock snapshot
 
 test("changed clock hold retains fault operands through cleanup without publishing", async () => {
   const h = await controllerHarness({ session: true });
-  h.until(() => h.replies.some((r) => r.payload.status === "ready"));
+  await h.until(() => h.replies.some((r) => r.payload.status === "ready"));
   const previous = h.controller.snapshot().clockReadback;
   const row = [...previous];
   row[2] += 64;
@@ -2948,7 +3132,7 @@ test("changed clock hold retains fault operands through cleanup without publishi
     ]),
     false,
   );
-  h.until(() => h.controller.snapshot().state === "failed");
+  await h.until(() => h.controller.snapshot().state === "failed");
   const snapshot = h.controller.snapshot();
   assert.equal(snapshot.reason, "metric_changed_clock_hold");
   assert.equal(snapshot.cleanup, "completed");
@@ -2990,7 +3174,7 @@ test("controller rejects a foreign clock owner and confirms its own cleanup with
     ]),
     false,
   );
-  h.until(() => h.controller.snapshot().state === "failed");
+  await h.until(() => h.controller.snapshot().state === "failed");
   assert.equal(h.controller.snapshot().reason, "metric_foreign_clock");
   assert.equal(h.controller.snapshot().cleanup, "completed");
   assert.equal(
@@ -3003,7 +3187,7 @@ test("controller terminal transport failure stays failed and bounded after genui
   const h = await controllerHarness({ terminalThrow: true });
   h.launch();
   h.controller.cancel(h.cancel);
-  h.until(() => h.controller.snapshot().state === "failed");
+  await h.until(() => h.controller.snapshot().state === "failed");
   assert.equal(
     h.controller.snapshot().reason,
     "metric_terminal_delivery_failed",

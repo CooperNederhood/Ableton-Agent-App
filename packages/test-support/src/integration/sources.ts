@@ -1,5 +1,9 @@
 import { createHash } from "node:crypto";
-import { sessionListeningPreflightResultSchema } from "@ableton-agent/protocol";
+import {
+  sessionListeningPreflightResultSchema,
+  type InspectMidiNotesResult,
+  type SessionPreflightInstrumentChain,
+} from "@ableton-agent/protocol";
 import type {
   FixtureManifest,
   Facts,
@@ -8,11 +12,42 @@ import type {
   ListenerPlacement,
   MidiContentIdentity,
   SessionSourceEvidence,
+  ScenarioManifest,
 } from "./contracts.js";
 
 const hash = (value: unknown) =>
   createHash("sha256").update(JSON.stringify(value)).digest("hex");
 const listenerRuntimeParameters = new Set(["Attack rise dB", "Attack gap ms"]);
+
+export function scenarioSessionSources(
+  fixture: FixtureManifest,
+  scenario: ScenarioManifest,
+): readonly FixtureSource[] {
+  const definitions = fixture.sources ?? [];
+  const ids = new Set(
+    scenario.steps.flatMap((step) => (step.sourceId ? [step.sourceId] : [])),
+  );
+  for (const permission of scenario.permissions) {
+    if (
+      permission.tool !== "ableton_listening" ||
+      permission.action !== "play-session-and-listen"
+    )
+      continue;
+    if (permission.sourceId) {
+      ids.add(permission.sourceId);
+      continue;
+    }
+    if (
+      scenario.steps.some(
+        (step) =>
+          (!permission.stepIds || permission.stepIds.includes(step.id)) &&
+          !step.sourceId,
+      )
+    )
+      return definitions;
+  }
+  return definitions.filter((source) => ids.size === 0 || ids.has(source.id));
+}
 
 /** Protocol-normalized public enum, never a saved XML LaunchQuantisation ordinal. */
 export function sessionClipQuantizationName(
@@ -42,6 +77,12 @@ export function declaredSourceBaseline(
       delete baseline[key];
   return {
     ...baseline,
+    ...(source.activeLengthBeats === undefined
+      ? {}
+      : {
+          activeLengthBeats: source.activeLengthBeats,
+          loopEnd: source.activeLengthBeats,
+        }),
     ...(source.clipLaunchQuantization === undefined
       ? {}
       : { clipLaunchQuantization: source.clipLaunchQuantization }),
@@ -55,7 +96,41 @@ export function midiContentIdentity(
 ): MidiContentIdentity {
   const parsed = sessionListeningPreflightResultSchema.parse(input);
   if (!("midi" in parsed)) throw new Error("Expected complete MIDI preflight");
-  const device = parsed.instrumentChain.before.devices[listener.deviceIndex];
+  return midiSourceIdentity(
+    parsed.midi.notes,
+    parsed.instrumentChain,
+    listener,
+  );
+}
+
+export function midiNotesSha256(
+  input: readonly InspectMidiNotesResult["notes"][number][],
+): string {
+  return hash(
+    input
+      .map(
+        ({ pitch, startTime, duration, velocity, mute }) =>
+          [pitch, startTime, duration, velocity, mute] as const,
+      )
+      .sort(
+        (a, b) =>
+          a[0] - b[0] ||
+          a[1] - b[1] ||
+          a[2] - b[2] ||
+          a[3] - b[3] ||
+          Number(a[4]) - Number(b[4]),
+      ),
+  );
+}
+
+export function midiSourceIdentity(
+  notes: readonly InspectMidiNotesResult["notes"][number][],
+  instrumentChain: SessionPreflightInstrumentChain,
+  listener: ListenerPlacement,
+  includeInstrumentTree = true,
+): MidiContentIdentity {
+  const parsed = { instrumentChain };
+  const device = instrumentChain.before.devices[listener.deviceIndex];
   if (
     !device ||
     !Number.isInteger(listener.deviceIndex) ||
@@ -66,19 +141,6 @@ export function midiContentIdentity(
     !device.enabled
   )
     throw new Error("MIDI listener requires an exact enabled device slot");
-  const notes = parsed.midi.notes
-    .map(
-      ({ pitch, startTime, duration, velocity, mute }) =>
-        [pitch, startTime, duration, velocity, mute] as const,
-    )
-    .sort(
-      (a, b) =>
-        a[0] - b[0] ||
-        a[1] - b[1] ||
-        a[2] - b[2] ||
-        a[3] - b[3] ||
-        Number(a[4]) - Number(b[4]),
-    );
   const describeDevice = (
     {
       device,
@@ -126,11 +188,11 @@ export function midiContentIdentity(
     describeDevice(entry, entry.device.index === listener.deviceIndex),
   );
   return {
-    midiNotesSha256: hash(notes),
+    midiNotesSha256: midiNotesSha256(notes),
     instrumentChainSha256: hash({
       listenerIndex: listener.deviceIndex,
       devices,
-      ...(parsed.instrumentChain.before.instrumentTree
+      ...(includeInstrumentTree && parsed.instrumentChain.before.instrumentTree
         ? {
             tree: parsed.instrumentChain.before.instrumentTree.map((node) => ({
               path: node.path,

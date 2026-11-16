@@ -1,6 +1,17 @@
 import type { TelemetryEventPage } from "@ableton-agent/observability";
 import type { MetricAudioObservation } from "@ableton-agent/protocol";
 import { NATIVE_MEL_PRODUCER } from "@ableton-agent/shared/m4l-devices";
+type MelLifecycleSource = {
+  readonly ownership: MetricAudioObservation["ownership"];
+  readonly metrics: {
+    readonly "mel-bands"?:
+      | Pick<
+          NonNullable<MetricAudioObservation["metrics"]["mel-bands"]>,
+          "sampleRate" | "sourceSupport" | "expectedRecords" | "frames"
+        >
+      | undefined;
+  };
+};
 
 type HistoryEvent = TelemetryEventPage["items"][number];
 export type MelHistoryEvent = Pick<HistoryEvent, "name" | "attributes"> &
@@ -97,7 +108,7 @@ function integer(value: unknown, min = 0): value is number {
 /** Project actual typed native events, never infer cleanup from a complete timeline. */
 export function projectMelLifecycle(
   history: readonly MelHistoryEvent[],
-  observation: MetricAudioObservation,
+  observation: MelLifecycleSource,
 ): readonly MelLifecycleReceipt[] {
   const owner = observation.ownership;
   const events = history.filter(
@@ -232,7 +243,7 @@ export function projectMelLifecycle(
 
 export function validateMelLifecycle(
   value: unknown,
-  observation: MetricAudioObservation,
+  observation: MelLifecycleSource,
 ): asserts value is readonly MelLifecycleReceipt[] {
   check(Array.isArray(value) && value.length > 0 && value.length <= 1024);
   const mel = observation.metrics["mel-bands"];

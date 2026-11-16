@@ -2,7 +2,11 @@ import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { createSyntheticMetricListeningObservation } from "@ableton-agent/protocol/testing";
 import {
-  metricAudioObservationSchema,
+  metricRecordStreamDescriptorSchema,
+  canonicalMetricRecordJson,
+  createContinuousMetricListeningGeometry,
+  METRIC_CONTINUOUS_LISTENING_CAPABILITY,
+  DEFAULT_LISTENING_TIMING_POLICY,
   sessionListeningPreflightResultSchema,
 } from "@ableton-agent/protocol";
 import { agentListeningFixture } from "./agent-listening-test-support.js";
@@ -15,6 +19,7 @@ import type {
   MidiSourceEvidence,
 } from "./contracts.js";
 import { midiContentIdentity } from "./sources.js";
+import { streamProofContentSha256 } from "./arrangement-stream.js";
 
 const pattern = "|1-2-3-4|1-1-1-1|2-2-2-2|3-3-3-3|4-4-4-4|";
 const assertion = {
@@ -82,13 +87,52 @@ function fixture(): AssertionInput {
       clipStartTimeBeats: 0,
       synchronization: "transport-coupled-first-iteration",
     };
+    const observation = metricRecordStreamDescriptorSchema.parse({
+      schema: "metric-record-stream/v1",
+      capability: METRIC_CONTINUOUS_LISTENING_CAPABILITY,
+      ownership: raw.ownership,
+      source: raw.source,
+      geometry: createContinuousMetricListeningGeometry({
+        captureMode: "finite-metric-stream",
+        sampleRate: raw.geometry.sampleRate,
+        vectorSize: raw.geometry.vectorSize,
+        tempoBpm: raw.geometry.tempoBpm,
+        startBeat: raw.geometry.startBeat,
+        endBeat: raw.geometry.endBeat,
+        startSample: raw.geometry.startSample,
+      }),
+      timingPolicy: DEFAULT_LISTENING_TIMING_POLICY,
+      requestedMetrics: raw.requestedMetrics,
+      algorithms: (["level", "spectral-centroid", "attacks"] as const).map(
+        (metric) => ({
+          metric,
+          availability: "available",
+          unavailableReason: null,
+          algorithm: raw.metrics[metric]?.algorithm,
+        }),
+      ),
+      maxPendingChunks: 8,
+    });
+    const stream = {
+      contextId: `context-${index}`,
+      passId,
+      listenerId: raw.ownership.listenerId,
+      descriptorDigest: createHash("sha256")
+        .update(canonicalMetricRecordJson(observation))
+        .digest("hex"),
+      manifestSha256: "c".repeat(64),
+      recordsSha256: "d".repeat(64),
+      chunkCount: 6,
+      afterOwnedRestart: false,
+    };
     return {
       ...session.turn.captures[0]!,
       passId,
       source: identity,
       listenerId: raw.ownership.listenerId,
       native,
-      observation: metricAudioObservationSchema.parse(raw),
+      observation,
+      stream,
       toolCausationId: raw.ownership.causationId,
       metricFamilies: [...raw.requestedMetrics],
     };
@@ -98,9 +142,7 @@ function fixture(): AssertionInput {
     contextId: `context-${index}`,
     passId: capture.passId,
     source: capture.source,
-    contentSha256: createHash("sha256")
-      .update(JSON.stringify(capture.observation))
-      .digest("hex"),
+    contentSha256: streamProofContentSha256(capture.stream),
   }));
   const sources = Object.fromEntries(
     captures.map((capture, index) => {

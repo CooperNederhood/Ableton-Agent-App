@@ -262,6 +262,13 @@ Companion specification: [Local Storage Layout](local-storage.md)
   relocating them into custom roots or implicitly publishing them at bootstrap.
 - [x] Cover owned credential cleanup, publication failure/cancellation,
   redacted lifecycle events and isolated Electron profile discovery.
+- [x] Remove the redundant Desktop bridge-token vault and Electron `safeStorage`
+  dependency. Read the bounded installed token into memory on each composition;
+  preserve environment overrides, authentication, conflict diagnostics and
+  redacted lifecycle timing. Leave old vault/Keychain data untouched, and retain
+  resolver-owned Signal producer credentials.
+- [x] Cover ignored vault injection, token rotation, missing files and failure
+  attribution without cached credential reuse.
 - [ ] Complete real installed-device and cross-profile compatibility validation
   without reusing the user's Live process.
 

@@ -9,8 +9,15 @@ import { FrameDecoder } from "../../packages/protocol/src/framing.js";
 import { gzipSync } from "node:zlib";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resolveLiveAgentStorage } from "@ableton-agent/storage";
-import { withSyntheticAnalyzerTimelines } from "../../packages/protocol/src/testing.js";
-import { projectMetricListeningReport } from "@ableton-agent/protocol";
+import {
+  withSyntheticAnalyzerTimelines,
+  createSyntheticMetricRecordStreamFixture,
+} from "../../packages/protocol/src/testing.js";
+import {
+  projectMetricListeningReport,
+  metricRecordChunkSchema,
+} from "@ableton-agent/protocol";
+import { metricCaptureRecordSchema } from "@ableton-agent/project-state";
 import type {
   ResolveBridgeCredentialOptions,
   resolveBridgeCredential,
@@ -41,6 +48,7 @@ import type {
   InspectSessionListeningSourceParams,
   InspectSessionListeningSourceResult,
   MetricAudioObservation,
+  MetricRecordChunk,
 } from "@ableton-agent/protocol";
 
 const mocks = vi.hoisted(() => ({
@@ -88,7 +96,8 @@ vi.mock("../../apps/desktop/src/main/bridge-credentials.js", () => ({
   resolveBridgeCredential: mocks.credential,
 }));
 vi.mock("@playwright/test", () => ({ _electron: { launch: mocks.launch } }));
-vi.mock("@ableton-agent/debug-control", () => ({
+vi.mock("@ableton-agent/debug-control", async (original) => ({
+  ...(await original<object>()),
   sendAutomationMessage: mocks.send,
 }));
 vi.mock("../../tests/electron/acceptance-dependencies.js", () => ({
@@ -148,6 +157,7 @@ vi.mock("../../scripts/lib/live-process-controller.mjs", () => ({
 import { PackagedAcceptanceDriver } from "../../tests/electron/acceptance-driver.js";
 import { ScopedApprovalPolicy } from "../../tests/electron/acceptance-approvals.js";
 import * as arrangementHelpers from "../../tests/electron/acceptance-arrangement.js";
+import { expandArrangementDescriptor } from "../../packages/test-support/src/integration/arrangement-stream.js";
 
 let directory: string;
 let context: DriverContext;
@@ -221,9 +231,194 @@ const application = {
   firstWindow: async () => page,
   process: () => ({ pid: 98765 }),
 };
+const streamFixtures = new Map<
+  string,
+  {
+    record: ReturnType<typeof metricCaptureRecordSchema.parse>;
+    chunks: MetricRecordChunk[];
+  }
+>();
+
+async function streamFixture(
+  observation: MetricAudioObservation,
+  contextId: string,
+) {
+  const offset = Math.max(0, 100_000 - observation.geometry.startSample);
+  const seen = new Set<object>();
+  const shift = (value: object) => {
+    if (seen.has(value)) return;
+    seen.add(value);
+    const entries: [string, unknown][] = Object.entries(value);
+    for (const [key, child] of entries) {
+      if (
+        typeof child === "number" &&
+        ["startSample", "endSample", "firstFrameEndSample", "sample"].includes(
+          key,
+        )
+      )
+        Reflect.set(value, key, child + offset);
+      else if (child && typeof child === "object") shift(child);
+    }
+  };
+  const shifted = structuredClone(observation);
+  shift(shifted);
+  Object.assign(observation, shifted);
+  const records = {
+    level: observation.metrics.level.records,
+    "spectral-centroid": observation.metrics["spectral-centroid"].records,
+    attacks: observation.metrics.attacks.records,
+    ...(observation.metrics["mel-bands"]
+      ? { "mel-bands": observation.metrics["mel-bands"].frames }
+      : {}),
+    ...(observation.metrics.pitch
+      ? { pitch: observation.metrics.pitch.frames }
+      : {}),
+    ...(observation.metrics["spectral-shape"]
+      ? { "spectral-shape": observation.metrics["spectral-shape"].frames }
+      : {}),
+  };
+  const fixture = await createSyntheticMetricRecordStreamFixture({
+    source: observation.source,
+    ownership: observation.ownership,
+    seconds:
+      observation.geometry.totalSamples / observation.geometry.sampleRate,
+    sampleRate: observation.geometry.sampleRate,
+    vectorSize: observation.geometry.vectorSize,
+    tempoBpm: observation.geometry.tempoBpm,
+    startBeat: observation.geometry.startBeat,
+    sourceOrigin: observation.geometry.startSample,
+    requestedMetrics: observation.requestedMetrics,
+    records,
+  });
+  const chunks = [];
+  for await (const chunk of fixture.chunks())
+    chunks.push(metricRecordChunkSchema.parse(chunk));
+  const { rows, ...geometry } = fixture.descriptor.geometry;
+  void rows;
+  const descriptor = { ...fixture.descriptor, geometry };
+  const owner = descriptor.ownership;
+  const trace = {
+    traceId: owner.traceId,
+    correlationId: owner.correlationId,
+    causationId: owner.causationId,
+  };
+  const range =
+    observation.source.view === "session"
+      ? observation.source.coordinate
+      : observation.source.transport;
+  const musicalRange = { startBeat: range.startBeat, endBeat: range.endBeat };
+  const timestamp = new Date().toISOString();
+  const target =
+    observation.source.view === "session"
+      ? observation.source.target.track
+      : observation.source.target;
+  const record = metricCaptureRecordSchema.parse({
+    kind: "metric-record-stream-context/v1",
+    descriptor,
+    state: fixture.state,
+    manifest: fixture.manifest,
+    status: "completed",
+    chunkCount: chunks.length,
+    storedBytes: Buffer.byteLength(JSON.stringify(chunks)),
+    updatedAt: timestamp,
+    reason: null,
+    metadata: {
+      id: contextId,
+      trace,
+      producer: {
+        listenerId: owner.listenerId,
+        deviceId: "device",
+        agentId: identity.agentId,
+        connectionEpoch: owner.connectionEpoch,
+        version: "synthetic",
+      },
+      pass: {
+        id: owner.passId,
+        sessionId: identity.appSessionId,
+        liveSetId: "set",
+        initiatorAgentId: identity.agentId,
+        listenerIds: [owner.listenerId],
+        requestedMode: observation.source.view,
+        actualMode: observation.source.view,
+        requestedRange: musicalRange,
+        actualRange: musicalRange,
+        status: "completed",
+        complete: true,
+        createdAt: timestamp,
+        startedAt: timestamp,
+        endedAt: timestamp,
+        interruptionReason: null,
+        trace,
+      },
+      subject: {
+        id: "subject",
+        sessionId: identity.appSessionId,
+        liveSetId: "set",
+        kind:
+          observation.source.view === "session" ? "clip" : "arrangement-range",
+        trackId: target.expectedReference,
+        location: observation.source.view,
+        binding: {
+          version: 1,
+          semanticLocator: {
+            name: "Synthetic source",
+            trackId: target.expectedReference,
+            ...(observation.source.view === "arrangement"
+              ? { arrangementRange: musicalRange }
+              : {}),
+          },
+          sourceIdentity: "synthetic",
+          playbackSettingsHash: "synthetic",
+          upstreamProcessingHash: "synthetic",
+          routingHash: "synthetic",
+          dependencyScope: "unknown",
+          previousRuntimeBindings: [
+            observation.source.view === "session"
+              ? observation.source.clipReference
+              : target.expectedReference,
+          ],
+        },
+      },
+    },
+  });
+  streamFixtures.set(contextId, { record, chunks });
+  return {
+    schema: "metric-record-stream-context/v1" as const,
+    captureId: contextId,
+    descriptorDigest: fixture.state.descriptorDigest,
+    descriptor,
+  };
+}
 
 beforeEach(async () => {
   vi.resetAllMocks();
+  streamFixtures.clear();
+  api.entityContext.getMetricCapture.mockImplementation(
+    async ({ contextId }: { contextId: string }) =>
+      streamFixtures.get(contextId)?.record,
+  );
+  api.entityContext.listMetricChunks.mockImplementation(
+    async ({
+      captureId,
+      afterSequence = -1,
+      limit = 16,
+    }: {
+      captureId: string;
+      afterSequence?: number;
+      limit?: number;
+    }) => {
+      const chunks = streamFixtures.get(captureId)?.chunks;
+      if (!chunks) throw new Error("Missing synthetic capture");
+      const items = chunks.slice(afterSequence + 1, afterSequence + 1 + limit);
+      return {
+        items,
+        encodedBytes: Buffer.byteLength(JSON.stringify(items)),
+        ...(afterSequence + items.length + 1 < chunks.length
+          ? { nextSequence: afterSequence + items.length }
+          : {}),
+      };
+    },
+  );
   mocks.melLoading.mockResolvedValue(melBinaryFacts("baseline"));
   mocks.bridgeStart.mockResolvedValue(54321);
   mocks.bridgeSnapshot.mockReturnValue({ records: [] });
@@ -631,6 +826,18 @@ async function twoSources() {
   return { a, b, connections };
 }
 
+function sessionCaptureStep(sourceId: string) {
+  const source = context.fixture.sources?.find(({ id }) => id === sourceId);
+  if (!source) throw new Error("Missing controlled source");
+  return {
+    id: `listen-${sourceId}`,
+    sourceId,
+    message: `Listen to ${source.trackName} / ${source.clipName}`,
+    timeoutMs: 120000,
+    assertions: [{ name: "capture", parameters: {} }],
+  };
+}
+
 async function midiBaseline() {
   const audio = await audioBaseline();
   const snapshot = liveSetSnapshotSchema.parse(
@@ -934,7 +1141,7 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
         options.environment?.ABLETON_AGENT_TOKEN ===
           process.env.ABLETON_AGENT_TOKEN,
       ).toBe(true);
-      expect(options.vault).toBeUndefined();
+      expect(options).not.toHaveProperty("vault");
       expect(mocks.send).not.toHaveBeenCalled();
       await expect(
         driver.setup("stop-transport", step, context),
@@ -1201,6 +1408,133 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
     ).rejects.toThrow("single-use");
     await driver.cleanup(context);
   });
+  it.each(["audio", "midi"] as const)(
+    "reviews unqualified %s assets only in explicit read-only source-review mode",
+    async (kind) => {
+      if (kind === "audio") await audioBaseline();
+      else await midiBaseline();
+      const source = context.fixture.sources![0]!;
+      const review =
+        "midi" in source
+          ? {
+              id: source.id,
+              trackName: source.trackName,
+              clipName: source.clipName,
+              sceneIndex: source.sceneIndex,
+              trackIndex: source.trackIndex,
+              listenerBindingSlot: source.listenerBindingSlot,
+            }
+          : source;
+      context = {
+        ...context,
+        fixture: { ...context.fixture, qualification: "synthetic-only" },
+      };
+      driver = new PackagedAcceptanceDriver({
+        runDirectory: directory,
+        purpose: "source-review",
+      });
+      await driver.launch(context);
+      await driver.ready(context);
+      const observed = await driver.reviewSessionSources(context, [review]);
+      expect(observed.sources?.[source.id]).toBeDefined();
+      expect(observed.facts.authoringReview).toBe(true);
+      expect(context.fixture.qualification).toBe("synthetic-only");
+      const step = {
+        id: "forbidden",
+        message: "Must not submit",
+        timeoutMs: 1000,
+        assertions: [],
+      };
+      await expect(driver.readBaseline(context)).rejects.toThrow(
+        "Source-review mode cannot execute",
+      );
+      await expect(driver.submit(step, context)).rejects.toThrow(
+        "Source-review mode cannot execute",
+      );
+      await expect(
+        driver.setup("restart-owned-desktop", step, context),
+      ).rejects.toThrow("Source-review mode cannot execute");
+      expect(mocks.send).not.toHaveBeenCalled();
+      expect(mocks.runnerSetPlaying).not.toHaveBeenCalled();
+      await driver.cleanup(context);
+      expect(mocks.stop).toHaveBeenCalledOnce();
+      expect(mocks.liveStop).toHaveBeenCalledOnce();
+    },
+  );
+
+  it("still refuses unqualified assets in ordinary acceptance mode", async () => {
+    context = {
+      ...context,
+      fixture: { ...context.fixture, qualification: "synthetic-only" },
+    };
+    await expect(driver.launch(context)).rejects.toThrow(
+      "Synthetic fixtures cannot qualify real Live",
+    );
+    expect(mocks.provision).not.toHaveBeenCalled();
+    expect(mocks.liveLaunch).not.toHaveBeenCalled();
+    expect(mocks.launch).not.toHaveBeenCalled();
+    await driver.cleanup(context);
+  });
+
+  it("does not provision or launch cancelled source review", async () => {
+    driver = new PackagedAcceptanceDriver({
+      runDirectory: directory,
+      purpose: "source-review",
+    });
+    context = {
+      ...context,
+      signal: AbortSignal.abort(new Error("Cancelled source review")),
+    };
+    await expect(driver.launch(context)).rejects.toThrow(
+      "Cancelled source review",
+    );
+    await expect(driver.reviewDeclaredSources(context)).rejects.toThrow(
+      "Cancelled source review",
+    );
+    expect(mocks.provision).not.toHaveBeenCalled();
+    expect(mocks.liveLaunch).not.toHaveBeenCalled();
+    expect(mocks.launch).not.toHaveBeenCalled();
+    await driver.cleanup(context);
+  });
+
+  it("requires explicit review purpose before reading unfrozen source identities", async () => {
+    await expect(driver.reviewSessionSources(context, [])).rejects.toThrow(
+      "requires explicit source-review purpose",
+    );
+    await expect(driver.reviewDeclaredSources(context)).rejects.toThrow(
+      "requires explicit source-review purpose",
+    );
+    expect(api.ableton.inspectSessionListeningPreflight).not.toHaveBeenCalled();
+  });
+
+  it.each(["foreign-media", "playing"] as const)(
+    "keeps %s admission guards in source-review mode",
+    async (fault) => {
+      const source = await audioBaseline();
+      if (fault === "foreign-media")
+        source.audio.filePath = join(directory, "foreign.wav");
+      else source.sourceState.transportPlaying = true;
+      context = {
+        ...context,
+        fixture: { ...context.fixture, qualification: "synthetic-only" },
+      };
+      driver = new PackagedAcceptanceDriver({
+        runDirectory: directory,
+        purpose: "source-review",
+      });
+      await driver.launch(context);
+      await driver.ready(context);
+      await expect(
+        driver.reviewSessionSources(context, context.fixture.sources!),
+      ).rejects.toThrow(
+        fault === "foreign-media" ? "declared media target" : "stoppedPosition",
+      );
+      expect(mocks.send).not.toHaveBeenCalled();
+      expect(mocks.runnerSetPlaying).not.toHaveBeenCalled();
+      await driver.cleanup(context);
+    },
+  );
+
   it("reviews owned MIDI evidence without invented expected hashes or a user-message submission", async () => {
     const { preflight, expected } = await midiBaseline();
     const source = context.fixture.sources![0]!;
@@ -1220,19 +1554,23 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
       scenario: { ...context.scenario, requiredCapabilities: ["automation"] },
       fixture: { ...assets, baseline: {} },
     };
+    driver = new PackagedAcceptanceDriver({
+      runDirectory: directory,
+      purpose: "source-review",
+    });
     await driver.launch(context);
     await driver.ready(context);
-    const observed = await driver.reviewMidiSources(context, [review]);
+    const observed = await driver.reviewSessionSources(context, [review]);
     expect(observed.sources?.midi?.source).toMatchObject(expected);
     expect(observed.sources?.midi?.facts.currentSongTime).toBe(5.5);
     expect(mocks.send).not.toHaveBeenCalled();
-    await expect(driver.reviewMidiSources(context, [])).rejects.toThrow(
+    await expect(driver.reviewSessionSources(context, [])).rejects.toThrow(
       "distinct sources",
     );
     preflight.source.after.transportPlaying = true;
-    await expect(driver.reviewMidiSources(context, [review])).rejects.toThrow(
-      /stoppedPosition.*"afterPlaying":true/,
-    );
+    await expect(
+      driver.reviewSessionSources(context, [review]),
+    ).rejects.toThrow(/stoppedPosition.*"afterPlaying":true/);
     await driver.cleanup(context);
     expect(mocks.stop).toHaveBeenCalled();
     expect(mocks.liveStop).toHaveBeenCalled();
@@ -1268,9 +1606,13 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
         ],
       },
     };
+    driver = new PackagedAcceptanceDriver({
+      runDirectory: directory,
+      purpose: "source-review",
+    });
     await driver.launch(context);
     await driver.ready(context);
-    const observed = await driver.reviewMidiSources(context, [review]);
+    const observed = await driver.reviewSessionSources(context, [review]);
     expect(observed.sources?.midi).toBeDefined();
     expect(observed.arrangementSources).toBeUndefined();
     expect(mocks.send).not.toHaveBeenCalled();
@@ -1345,9 +1687,18 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
     }
     await driver.cleanup(context);
   });
-  it.each(["step", "final"])(
+  it.each([
+    "step",
+    "final",
+    "source-review",
+    "whole-observation",
+    "whole-derive",
+    "whole-derive-foreign",
+    "whole-foreign-native",
+  ])(
     "admits both Session and Arrangement baseline inventories without conflating target arm scope (%s)",
     async (placement) => {
+      const whole = placement.startsWith("whole-");
       const midi = await midiBaseline();
       const snapshot = liveSetSnapshotSchema.parse(
         await api.ableton.requestSnapshot(),
@@ -1481,8 +1832,9 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
         ...context,
         scenario: {
           ...context.scenario,
-          assertions:
-            placement === "final"
+          assertions: whole
+            ? [{ name: "storage-shape", parameters: { expectedMeasures: 1 } }]
+            : placement === "final"
               ? [{ name: "listening-comprehension", parameters: {} }]
               : [],
           requiredCapabilities: [
@@ -1501,9 +1853,25 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
                 action: "play-arrangement-and-listen",
                 "listenerIds.0": "$source.listenerId",
                 startBeat: "$source.startBeat",
-                endBeat: "$source.endBeat",
+                endBeat: whole ? 4 : "$source.endBeat",
               },
             },
+            ...(whole
+              ? [
+                  {
+                    sourceId: "arrangement",
+                    tool: "ableton_context",
+                    action: "derive-features",
+                    risk: "medium" as const,
+                    maxUses: 1,
+                    arguments: {
+                      action: "derive-features",
+                      "contextIds.0": "$source.contextId",
+                      includeHistorical: false,
+                    },
+                  },
+                ]
+              : []),
             {
               sourceId: "midi",
               tool: "ableton_listening",
@@ -1558,10 +1926,23 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
           ],
         },
       };
+      if (placement === "source-review") {
+        context = {
+          ...context,
+          fixture: { ...context.fixture, qualification: "synthetic-only" },
+        };
+        driver = new PackagedAcceptanceDriver({
+          runDirectory: directory,
+          purpose: "source-review",
+        });
+      }
       try {
         await driver.launch(context);
         await driver.ready(context);
-        const observed = await driver.readBaseline(context);
+        const observed =
+          placement === "source-review"
+            ? await driver.reviewDeclaredSources(context)
+            : await driver.readBaseline(context);
         expect(Object.keys(observed.sources ?? {})).toEqual(["midi"]);
         expect(Object.keys(observed.arrangementSources ?? {})).toEqual([
           "arrangement",
@@ -1574,8 +1955,18 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
           backToArrangement: false,
         });
         expect(mocks.send).not.toHaveBeenCalled();
+        if (placement === "source-review") {
+          expect(observed.facts.authoringReview).toBe(true);
+          expect(context.fixture.qualification).toBe("synthetic-only");
+          await expect(driver.readBaseline(context)).rejects.toThrow(
+            "Source-review mode cannot execute",
+          );
+          expect(mocks.runnerSetPlaying).not.toHaveBeenCalled();
+          return;
+        }
         const step = {
           id: "mixed",
+          ...(whole ? { sourceId: "arrangement" } : {}),
           message: "Listen naturally",
           timeoutMs: 1000,
           assertions:
@@ -1586,7 +1977,7 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
         const subscription = await driver.subscribe();
         const submission = await driver.submit(step, context);
         const f = agentListeningFixture();
-        const observation = structuredClone(f.context.observation);
+        let observation = structuredClone(f.context.observation);
         if (!observation || observation.source.view !== "session")
           throw new Error("Expected synthetic observation");
         const sdkTurnId = randomUUID();
@@ -1598,7 +1989,45 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
           traceId: sdkTurnId,
           correlationId: sdkTurnId,
         });
-        api.entityContext.get.mockResolvedValue({ ...f.context, observation });
+        if (whole) {
+          observation = withSyntheticAnalyzerTimelines(
+            melSmokeFixture().observation,
+          );
+          observation.source = {
+            view: "arrangement",
+            target: { kind: "regular", index: 1, expectedReference: trackId },
+            transport: { startBeat: 0, endBeat: 4 },
+          };
+          Object.assign(observation.ownership, {
+            traceId: sdkTurnId,
+            correlationId: sdkTurnId,
+            listenerId: observed.arrangementSources!.arrangement!.listenerId,
+          });
+        }
+        const reference = await streamFixture(observation, f.contextId);
+        api.entityContext.get.mockResolvedValue({
+          ...f.context,
+          entry: {
+            ...f.context.entry,
+            kind: "metric-record-stream-context/v1",
+            passId: observation.ownership.passId,
+            listenerId: observation.ownership.listenerId,
+          },
+          observation: reference,
+        });
+        if (whole) {
+          for (const record of f.records) {
+            record.appSessionId = identity.appSessionId;
+            record.agentSessionId = identity.conversationId;
+            record.activeAgentId = identity.agentId;
+            if ("turnId" in record) record.turnId = sdkTurnId;
+            record.traceId = sdkTurnId;
+            if (record.kind === "tool_call" || record.kind === "tool_result")
+              record.causationId = sdkTurnId;
+            else record.correlationId = sdkTurnId;
+          }
+          api.eventHistory.agent.mockResolvedValue(agentHistoryPage(f.records));
+        }
         api.listening.list.mockResolvedValue({
           jobs: [
             {
@@ -1612,11 +2041,15 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
                 correlationId: sdkTurnId,
                 causationId: observation.ownership.causationId,
               },
-              session: {
-                clipName: "Clip 1",
-                trackName: "Source 1",
-                sceneIndex: 0,
-              },
+              ...(whole
+                ? {}
+                : {
+                    session: {
+                      clipName: "Clip 1",
+                      trackName: "Source 1",
+                      sceneIndex: 0,
+                    },
+                  }),
             },
           ],
         });
@@ -1633,20 +2066,41 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
               attributes: {
                 passId: observation.ownership.passId,
                 action: "cleanup",
-                listeners: [{ ...observation.ownership }],
+                listeners: [
+                  {
+                    ...observation.ownership,
+                    ...(placement === "whole-foreign-native"
+                      ? { generation: randomUUID() }
+                      : {}),
+                  },
+                ],
               },
             },
             {
               id: "source-cleanup",
               sequence: 2,
-              name: "listening.runtime.session-source-cleanup.completed",
+              name: `listening.runtime.${whole ? "arrangement" : "session"}-source-cleanup.completed`,
               trace: { traceId: sdkTurnId },
               correlationId: sdkTurnId,
               outcome: "success",
               durationMs: 1,
               sessionId: identity.appSessionId,
               activeAgentId: identity.agentId,
-              attributes: { passId: observation.ownership.passId },
+              attributes: {
+                passId: observation.ownership.passId,
+                ...(whole
+                  ? {
+                      cleanupPolicy: "leave-running",
+                      sourceOwnership: "authenticated-listener-registry",
+                      listenerOwnerReleased: true,
+                      listeners: [
+                        {
+                          ...observation.ownership,
+                        },
+                      ],
+                    }
+                  : {}),
+              },
             },
           ],
         });
@@ -1684,23 +2138,20 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
         });
         for (const [action, args, cause] of [
           [
-            "play-session-and-listen",
-            {
-              action: "play-session-and-listen",
-              target: preflight.source.target,
-              listenerIds: [observation.ownership.listenerId],
-            },
+            whole ? "play-arrangement-and-listen" : "play-session-and-listen",
+            whole
+              ? {
+                  action: "play-arrangement-and-listen",
+                  startBeat: 0,
+                  endBeat: 4,
+                  listenerIds: [observation.ownership.listenerId],
+                }
+              : {
+                  action: "play-session-and-listen",
+                  target: preflight.source.target,
+                  listenerIds: [observation.ownership.listenerId],
+                },
             observation.ownership.causationId,
-          ],
-          [
-            "play-arrangement-and-listen",
-            {
-              action: "play-arrangement-and-listen",
-              listenerIds: ["arrangement-listener"],
-              startBeat: 0,
-              endBeat: 80,
-            },
-            "arrangement-tool",
           ],
         ] as const) {
           emit({
@@ -1730,6 +2181,39 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
             },
           });
         }
+        if (placement.startsWith("whole-derive")) {
+          if (placement === "whole-derive-foreign") {
+            observation.ownership.causationId = "foreign-capture";
+            streamFixtures.get(
+              f.contextId,
+            )!.record.descriptor.ownership.causationId = "foreign-capture";
+          }
+          emit({
+            type: "approval.requested",
+            operationId: submission.operationId,
+            appSessionId: identity.appSessionId,
+            agentInstanceId: identity.agentId,
+            sdkSessionId: identity.conversationId,
+            approval: {
+              id: randomUUID(),
+              title: "Derive",
+              risk: "medium",
+              summary: "Stored source",
+              changes: [],
+              destructive: false,
+              tool: {
+                name: "ableton_context",
+                action: "derive-features",
+                argumentsComplete: true,
+                arguments: {
+                  action: "derive-features",
+                  contextIds: [f.contextId],
+                  includeHistorical: false,
+                },
+              },
+            },
+          });
+        }
         emit({
           type: "agent.message_complete",
           messageId: assistantMessageId,
@@ -1748,14 +2232,53 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
           agentInstanceId: identity.agentId,
           sdkSessionId: identity.conversationId,
         });
+        if (
+          placement === "whole-derive-foreign" ||
+          placement === "whole-foreign-native"
+        ) {
+          await expect(
+            subscription.waitForTurn(submission, context),
+          ).rejects.toThrow();
+          if (placement === "whole-derive-foreign")
+            expect(api.approvals.resolve.mock.calls.at(-1)?.[1]).toBe("deny");
+          return;
+        }
         const turn = await subscription.waitForTurn(submission, context);
+        if (whole) {
+          expect(step.assertions).toEqual([]);
+          expect(turn.captures).toEqual([]);
+          expect(turn.arrangementCaptures).toHaveLength(1);
+          expect(turn.arrangementCaptures![0]).toMatchObject({
+            passId: observation.ownership.passId,
+            source: { startBeat: 0, endBeat: 80 },
+            complete: true,
+            cleanup: { captureReleased: true, sourceRestored: true },
+          });
+          expect(turn.arrangementCaptures![0]!.stream?.contextId).toBe(
+            f.contextId,
+          );
+          expect(turn.storageShapes![0]).toMatchObject({
+            contextId: f.contextId,
+            schema: "metric-record-stream-context/v1",
+            startBeat: 0,
+            endBeat: 4,
+            afterOwnedRestart: false,
+          });
+          expect(api.approvals.resolve).toHaveBeenCalledTimes(
+            placement === "whole-derive" ? 2 : 1,
+          );
+          return;
+        }
         expect(turn.captures).toHaveLength(1);
-        expect(turn.captures[0]!.observation).toEqual(observation);
+        expect(turn.captures[0]!.observation).toEqual(
+          expandArrangementDescriptor(reference.descriptor),
+        );
         expect(turn.captures[0]!.toolCausationId).toBe(
           observation.ownership.causationId,
         );
         expect(turn.arrangementCaptures).toBeUndefined();
-        expect(api.entityContext.getMetricCapture).not.toHaveBeenCalled();
+        expect(api.approvals.resolve).toHaveBeenCalledOnce();
+        expect(api.entityContext.getMetricCapture).toHaveBeenCalled();
       } finally {
         saved.mockRestore();
         tempo.mockRestore();
@@ -1780,6 +2303,7 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
             signal?: AbortSignal;
             discardRecovery?: boolean;
             requireAudio?: boolean;
+            fixturePath?: string;
           },
         ) => {
           const maximum = Math.min(120_000, remainingMs);
@@ -1788,6 +2312,7 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
           expect(options.signal).toBe(context.signal);
           expect(options.discardRecovery).toBe(false);
           expect(options.requireAudio).toBe(true);
+          expect(options.fixturePath).toBe(join(directory, "project.als"));
         },
       );
       await driver.launch(context);
@@ -1795,6 +2320,266 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
       expect(mocks.liveStop).toHaveBeenCalledOnce();
     },
   );
+
+  it.each(["unowned-remembered-clip", "structure"] as const)(
+    "denies Arrangement handoff before bridge dispatch for %s",
+    async (fault) => {
+      await twoSources();
+      await driver.launch(context);
+      await driver.ready(context);
+      await driver.readBaseline(context);
+      const step = {
+        ...sessionCaptureStep("a"),
+        sourceId: "arrangement",
+        setupActions: ["back-to-arrangement"] as const,
+      };
+      context = {
+        ...context,
+        scenario: {
+          ...context.scenario,
+          requiredCapabilities: [
+            ...context.scenario.requiredCapabilities,
+            "arrangement-audio",
+          ],
+          steps: [step],
+        },
+        fixture: {
+          ...context.fixture,
+          arrangementSources: [
+            {
+              id: "arrangement",
+              view: "arrangement",
+              trackIndex: 0,
+              trackName: "Source 1",
+              listenerBindingSlot: listenerBinding.slot,
+              tempoBpm: 120,
+              startBeat: 0,
+              endBeat: 4,
+              clips: [
+                {
+                  savedClipId: "1",
+                  mediaTarget: "media/resource-001.wav",
+                  startBeat: 0,
+                  endBeat: 4,
+                },
+              ],
+            },
+          ],
+        },
+      };
+      const snapshot = liveSetSnapshotSchema.parse(
+        await api.ableton.requestSnapshot(),
+      );
+      if (fault === "unowned-remembered-clip")
+        snapshot.sessionClips![0]!.status = "playing";
+      else snapshot.tracks[0]!.muted = true;
+      api.ableton.requestSnapshot.mockResolvedValue(snapshot);
+      try {
+        await expect(
+          driver.setup("back-to-arrangement", step, context),
+        ).rejects.toThrow("unrelated Session state");
+        expect(mocks.bridgeHandoff).not.toHaveBeenCalled();
+        expect(mocks.runnerBridgeStart).not.toHaveBeenCalled();
+      } finally {
+        await driver.cleanup(context);
+      }
+    },
+  );
+
+  it("limits baseline, message and final deep inspection to scenario-used sources", async () => {
+    await twoSources();
+    const step = sessionCaptureStep("a");
+    context = {
+      ...context,
+      scenario: { ...context.scenario, steps: [step] },
+    };
+    const read =
+      api.ableton.inspectSessionListeningPreflight.getMockImplementation()!;
+    api.ableton.inspectSessionListeningPreflight.mockClear();
+    api.ableton.inspectSessionListeningPreflight.mockImplementation(
+      async (request) => {
+        if (request.target.track.index === 1)
+          throw new Error("Unrelated deep device inspection");
+        return read(request);
+      },
+    );
+    try {
+      await driver.launch(context);
+      await driver.ready(context);
+      const baseline = await driver.readBaseline(context);
+      expect(Object.keys(baseline.sources!)).toEqual(["a"]);
+      expect(
+        api.ableton.inspectSessionListeningPreflight.mock.calls.map(
+          ([request]) => request.target.track.index,
+        ),
+      ).toEqual([0]);
+      api.ableton.inspectSessionListeningPreflight.mockClear();
+      mocks.send.mockRejectedValue(new Error("Reached message submission"));
+      await expect(driver.submit(step, context)).rejects.toThrow(
+        "Reached message submission",
+      );
+      expect(mocks.send).toHaveBeenCalledOnce();
+      api.ableton.inspectSessionListeningPreflight.mockClear();
+      await driver.collect(context);
+      expect(
+        api.ableton.inspectSessionListeningPreflight.mock.calls.map(
+          ([request]) => request.target.track.index,
+        ),
+      ).toEqual([0]);
+    } finally {
+      await driver.cleanup(context);
+    }
+  });
+
+  it("scopes message pre-capture deep inspection but retains the full final audit", async () => {
+    await twoSources();
+    await driver.launch(context);
+    await driver.ready(context);
+    await driver.readBaseline(context);
+    const read =
+      api.ableton.inspectSessionListeningPreflight.getMockImplementation()!;
+    api.ableton.inspectSessionListeningPreflight.mockClear();
+    api.ableton.inspectSessionListeningPreflight.mockImplementation(
+      async (request) => {
+        if (request.target.track.index === 1)
+          throw new Error("Unrelated deep device inspection");
+        return read(request);
+      },
+    );
+    mocks.send.mockRejectedValue(new Error("Reached message submission"));
+    const step = sessionCaptureStep("a");
+    try {
+      await expect(driver.submit(step, context)).rejects.toThrow(
+        "Reached message submission",
+      );
+      expect(
+        api.ableton.inspectSessionListeningPreflight.mock.calls.map(
+          ([request]) => request.target.track.index,
+        ),
+      ).toEqual([0]);
+      expect(mocks.send).toHaveBeenCalledOnce();
+      api.ableton.inspectSessionListeningPreflight.mockClear();
+      await expect(driver.collect(context)).rejects.toThrow(
+        "Unrelated deep device inspection",
+      );
+      expect(
+        api.ableton.inspectSessionListeningPreflight.mock.calls.map(
+          ([request]) => request.target.track.index,
+        ),
+      ).toEqual([0, 1]);
+    } finally {
+      await driver.cleanup(context);
+    }
+  });
+
+  it.each([
+    "source",
+    "structure",
+    "unrelated-playback",
+    "unrelated-listener",
+    "cancelled",
+  ] as const)(
+    "retains message selected-source and protected-state guards: %s",
+    async (fault) => {
+      const { a, connections } = await twoSources();
+      await driver.launch(context);
+      await driver.ready(context);
+      await driver.readBaseline(context);
+      api.ableton.inspectSessionListeningPreflight.mockClear();
+      if (fault === "source") a.audio.gain = 0.5;
+      if (fault === "structure" || fault === "unrelated-playback") {
+        const snapshot = liveSetSnapshotSchema.parse(
+          await api.ableton.requestSnapshot(),
+        );
+        if (fault === "structure") snapshot.tracks[1]!.muted = true;
+        else snapshot.sessionClips![1]!.status = "playing";
+        api.ableton.requestSnapshot.mockResolvedValue(snapshot);
+      }
+      if (fault === "unrelated-listener")
+        connections[1]!.state = "disconnected";
+      if (fault === "cancelled")
+        context = {
+          ...context,
+          signal: AbortSignal.abort(new Error("Cancelled scoped capture")),
+        };
+      try {
+        await expect(
+          driver.submit(sessionCaptureStep("a"), context),
+        ).rejects.toThrow(
+          fault === "source"
+            ? "Protected source settings changed"
+            : fault === "structure"
+              ? "Protected Session structure"
+              : fault === "unrelated-playback"
+                ? "Unrelated playback"
+                : fault === "unrelated-listener"
+                  ? "Listener instance or connection changed"
+                  : "Cancelled scoped capture",
+        );
+        expect(mocks.send).not.toHaveBeenCalled();
+        if (fault === "cancelled")
+          expect(
+            api.ableton.inspectSessionListeningPreflight,
+          ).not.toHaveBeenCalled();
+      } finally {
+        await driver.cleanup({
+          ...context,
+          signal: new AbortController().signal,
+        });
+      }
+    },
+  );
+
+  it("retains the selected MIDI source's deep verification", async () => {
+    const { preflight } = await midiBaseline();
+    await driver.launch(context);
+    await driver.ready(context);
+    await driver.readBaseline(context);
+    preflight.source.settings.launchQuantization = 5;
+    try {
+      await expect(
+        driver.submit(sessionCaptureStep("midi"), context),
+      ).rejects.toThrow(
+        "Observed source clip quantization differs from fixture",
+      );
+      expect(mocks.send).not.toHaveBeenCalled();
+    } finally {
+      await driver.cleanup(context);
+    }
+  });
+
+  it("rejects a message capture whose selected source fails deep preflight", async () => {
+    await twoSources();
+    await driver.launch(context);
+    await driver.ready(context);
+    await driver.readBaseline(context);
+    const read =
+      api.ableton.inspectSessionListeningPreflight.getMockImplementation()!;
+    api.ableton.inspectSessionListeningPreflight.mockImplementation(
+      async (request) => {
+        if (request.target.track.index === 0)
+          throw new Error("Selected source preflight retained");
+        return read(request);
+      },
+    );
+    try {
+      await expect(
+        driver.submit(
+          {
+            id: "agent-listen",
+            sourceId: "a",
+            message: "Listen",
+            timeoutMs: 1000,
+            assertions: [{ name: "capture", parameters: {} }],
+          },
+          context,
+        ),
+      ).rejects.toThrow("Selected source preflight retained");
+      expect(mocks.send).not.toHaveBeenCalled();
+    } finally {
+      await driver.cleanup(context);
+    }
+  });
 
   it("admits a source with omitted common kind and quantization facts and an explicit stopped playing count", async () => {
     const { preflight } = await midiBaseline();
@@ -3094,15 +3879,33 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
         });
         secondObservation.source.clipReference = second.clipId;
       }
+      const firstReference = await streamFixture(observation, f.contextId);
+      const secondReference = await streamFixture(
+        secondObservation,
+        secondContextId,
+      );
       api.entityContext.get.mockImplementation(
         async (request: { contextId: string }) =>
           request.contextId === secondContextId
             ? {
                 ...f.context,
-                entry: { ...f.context.entry, contextId: secondContextId },
-                observation: secondObservation,
+                entry: {
+                  ...f.context.entry,
+                  contextId: secondContextId,
+                  passId: secondObservation.ownership.passId,
+                  listenerId: secondObservation.ownership.listenerId,
+                  kind: "metric-record-stream-context/v1",
+                },
+                observation: secondReference,
               }
-            : { ...f.context, observation },
+            : {
+                ...f.context,
+                entry: {
+                  ...f.context.entry,
+                  kind: "metric-record-stream-context/v1",
+                },
+                observation: firstReference,
+              },
       );
       api.listening.list.mockResolvedValue({
         jobs:
@@ -3504,7 +4307,7 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
           requiredCapabilities: ["automation", "session-audio"],
         },
       }),
-    ).rejects.toThrow("Unsupported audio baseline");
+    ).rejects.toThrow("Unsupported Session active source region");
     expect(mocks.preexisting).not.toHaveBeenCalled();
     expect(mocks.launch).not.toHaveBeenCalled();
     expect(mocks.liveLaunch).not.toHaveBeenCalled();
@@ -3954,6 +4757,7 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
             expectedClipName: "Clip 1",
           });
           Object.assign(observation.source, { clipReference: source.clipId });
+          const reference = await streamFixture(observation, f.contextId);
           Object.assign(f.context, { observation });
           if (activity === "mel-feature-report") {
             const call = f.records.find(
@@ -3981,7 +4785,14 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
               },
             };
           }
-          api.entityContext.get.mockResolvedValue(f.context);
+          api.entityContext.get.mockResolvedValue({
+            ...f.context,
+            entry: {
+              ...f.context.entry,
+              kind: "metric-record-stream-context/v1",
+            },
+            observation: reference,
+          });
           api.listening.list.mockResolvedValue({
             jobs: [
               {
@@ -4170,9 +4981,15 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
               : []),
           ]);
           expect(result.melSmoke).toHaveLength(1);
+          const melEvidence = result.melSmoke![0]!;
+          if (!("chunks" in melEvidence))
+            throw new Error("Expected canonical stream diagnostic evidence");
           expect(
-            result.melSmoke![0]!.observation.metrics["mel-bands"]!.frames,
+            melEvidence.chunks.flatMap((chunk) =>
+              chunk.metric === "mel-bands" ? chunk.records : [],
+            ),
           ).toHaveLength(43);
+          expect(melEvidence.stream).toEqual(result.captures[0]!.stream);
           expect(result.melSmoke![0]!.cleanupComplete).toBe(true);
           expect(mocks.melLoading).toHaveBeenCalledTimes(2);
           expect(mocks.flatnessLoading).toHaveBeenCalledTimes(peakOnly ? 0 : 2);
@@ -4263,6 +5080,11 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
                 result.melSmoke!.map((entry) => ({
                   ...entry,
                   afterOwnedRestart: true,
+                  ...("stream" in entry
+                    ? {
+                        stream: { ...entry.stream, afterOwnedRestart: true },
+                      }
+                    : {}),
                 })),
               );
               expect(mocks.launch).toHaveBeenCalledTimes(2);

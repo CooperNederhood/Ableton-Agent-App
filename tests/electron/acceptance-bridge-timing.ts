@@ -141,7 +141,7 @@ export class AcceptanceBridgeTimingProxy {
   #failure?: string;
   #proxyRecord?: AcceptanceBridgeTimingRecord;
   #exclusive = false;
-  #handoffUsed = false;
+  readonly #handoffCauses = new Set<string>();
 
   public constructor(options: AcceptanceBridgeTimingOptions) {
     if (
@@ -458,7 +458,11 @@ export class AcceptanceBridgeTimingProxy {
     trace: { traceId: string; correlationId: string; causationId: string },
   ): Promise<T> {
     signal.throwIfAborted();
-    if (this.#state !== "listening" || this.#handoffUsed || this.#exclusive)
+    if (
+      this.#state !== "listening" ||
+      this.#handoffCauses.has(trace.causationId) ||
+      this.#exclusive
+    )
       throw new Error("runner_handoff_not_admitted");
     if (
       Object.values(trace).some(
@@ -466,10 +470,13 @@ export class AcceptanceBridgeTimingProxy {
       )
     )
       throw new Error("runner_handoff_invalid_trace");
-    this.#handoffUsed = true;
+    this.#handoffCauses.add(trace.causationId);
+    this.#exclusive = true;
     const record = this.#record("handoff", trace);
-    if (!record || this.#failure)
+    if (!record || this.#failure) {
+      this.#exclusive = false;
       throw new Error(this.#failure ?? "runner_handoff_failed");
+    }
     this.#transition(record, "started");
     try {
       const deadline = performance.now() + 5000;
@@ -491,7 +498,6 @@ export class AcceptanceBridgeTimingProxy {
       signal.throwIfAborted();
       if (this.#state !== "listening")
         throw new Error("runner_handoff_proxy_closed");
-      this.#exclusive = true;
       const closed: Promise<void>[] = [];
       for (const tunnel of this.#tunnels) {
         for (const socket of [tunnel.client, tunnel.upstream])

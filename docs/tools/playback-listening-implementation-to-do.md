@@ -1,5 +1,92 @@
 # Playback Listening Implementation To-Do
 
+## Shared capture and feature consolidation
+
+- [x] Refresh all four cases on identical final candidate
+      `c41d56b9211bf4a912fccd5940ed134d4f535d292e35a9ac4eed7996550bfabd`:
+      short audio `run-J7vvwY`, short MIDI `run-U5xT9Q`, long audio `run-LozNle`,
+      long MIDI `run-LkQQml`. Each passes three messages, six assertions,
+      original/restart inventories and terminal cleanup on Live 11.3.43;
+      long cases prove incremental durability. Preserve earlier failed receipts.
+
+- [x] Reproduce the final package's premature 600 ms spectrum-phase cutoff with
+      delayed native FFT initialization in both views. Use a two-second bounded
+      FFT window plus the existing clock budget without changing non-FFT arming,
+      the SDK control deadline or pass deadline. Preserve cancellation and honest
+      unavailable/partial results; require real phase and cleanup evidence.
+- [x] Compact the existing production feature inventory into bounded shared
+      provenance/segment/source/metadata tables, default/max 100 entries and
+      64 KiB. Preserve actual feature IDs/shapes, strict references, unavailable
+      states, opaque continuation, stored records and detailed value reads.
+      The six owning tool/host/History/oracle suites pass 400 tests.
+- [x] Qualify the compact production inventory in unchanged long audio
+      (`run-HCPoEN`) and long MIDI (`run-ASzl6t`), with complete original/restart
+      enumeration and terminal cleanup.
+- [x] Qualify canonical short audio (`run-1V8iAU`) and short MIDI
+      (`run-MEqqU8`) with original stream/feature inventories, owned restart,
+      protected scopes and terminal cleanup on Live Suite 11.3.43.
+- [x] Reproduce the long-audio Remote Script preparation failure in
+      `run-XqLfYE`; align Session admission, lease reporting and expiry with
+      finite capture duration. Preserve unchanged source/launch guards.
+- [x] Require existing attributable post-commit append events during native
+      capture for both long shapes; reject absent, late, foreign and empty
+      evidence and changed restart witnesses without another test runner.
+- [x] Reproduce Live 11 non-atomic natural-end reads and bound coherent rereads
+      and sealing without early coverage; preserve frozen source identity,
+      cancellation and frozen-clock failure tests.
+- [x] Delete the native bundle's duplicate source verifier and reuse the
+      canonical protocol implementation, including Session stopped-clock proof.
+- [x] Cover terminal derived attack-level cross-V8 rounding with the existing
+      tight allowance while rejecting changed history, flags, hashes and counts.
+- [x] Verify independently rebuilt and persisted original prefixes against the
+      same manifest, without reintroducing exact equality for derived dB values.
+- [x] Reject post-release native packets while terminal publication awaits ACK;
+      preserve cleanup and pre-release corruption checks.
+- [x] Preserve bounded redacted SDK rejection details before invalidation and
+      actual bounded native launch operands in attributable failure diagnostics.
+      Native controller 78/78 and runtime 17/17 pass; real launch failure
+      `run-lCRObm` remains unqualified pending diagnosis.
+- [x] Reproduce `run-UdL3xV`'s incomplete long feature pagination despite a
+      complete derivation total; reinforce that an existing cursor means an
+      incomplete inventory, without accepting inferred IDs/measures or lowering
+      the complete original/restart inventory requirement.
+- [x] Qualify the terminal correction against the unchanged long-audio case;
+      `run-broqB4` remains preserved red evidence, not a successful capture.
+
+- [x] Agree to combine incremental acquisition/persistence with the existing
+      musical feature model, retaining source-specific playback adapters.
+- [x] Reproduce the completed-stream feature refusal in controlled storage
+      tests without changing production capture behavior.
+- [x] Add an independent, whole-range per-measure stored-value oracle with
+      explicit frozen tolerances and diagnostic-only repeatability measurement.
+      Preserve it for later; numerical equivalence is not the current gate.
+- [x] Narrow the current matrix to common stored systems/schema/counts through
+      normal user-message integration. Keep the Keychain removal.
+- [x] Remove direct-only test dispatch and record the first normal-message
+      short-audio result before changing production listening semantics.
+- [x] Unify native/bridge/runtime streaming for short/long Session/Arrangement
+      while retaining source identity, existing listener multiplicity, finite
+      lifetimes, recording guards and terminal cleanup.
+      Refactor existing implementations and delete the superseded whole-capture
+      storage/publication paths; a facade over two systems is not consolidation.
+      Remove transitional dual-format test/cleanup handling with that fork,
+      rather than retaining compatibility shims.
+- [ ] Derive common musical features from bounded persisted ranges and expose
+      equivalent typed measurement/feature/comparison/search operations.
+      Stream-backed derivation and shared automatic post-publication scheduling
+      are implemented; selected storage/History/Desktop/shape tests pass.
+      Complete broader owning regressions and the canonical real-host matrix.
+- [x] Reproduce missing bounded Arrangement musical alignment and persist the
+      monitored transport meter/tempo through the existing common feature path.
+      Keep unknown meter unaligned, reject changed meter before publication,
+      and retain native/source cleanup and cancellation guards.
+- [ ] Migrate tool guidance, Desktop projections and existing checkers without
+      weakening the five-listen comprehension contract or prescribing analysis.
+- [x] Qualify storage shape/count in order: short audio, short MIDI, long audio,
+      long MIDI, with restart/incremental/cleanup proof. Keep numerical matching
+      deferred and the unchanged comprehension case a separate follow-on.
+      Do not claim ten-minute or real-time qualification from 37.5-second cases.
+
 ## Same-turn comprehension
 
 - [x] Preserve the installed-candidate consecutive-Session failure and identify
@@ -749,6 +836,11 @@ Companion specification: [Playback Listening](playback-listening.md).
 - [x] Separate the pinned pre-launch `stoppedBeat` from Live's actual zero-origin
       Session launch. Validate ready/arm clocks against the former and native
       coverage against the latter; retain later-regression and origin guards.
+- [x] Correct fresh stopped Session launches to retain their nonzero global
+      anchor independently of clip-local zero, preserving the reviewed
+      remembered-playing zero-origin path. Global-16 source/host regressions
+      and real Session capture in `run-hqGE1A` pass; retain strict wrong-origin,
+      sealing, publication and cleanup checks. Full comparison remains pending.
 - [x] Pass both unchanged supplied scenarios with exact context/coverage and
       terminal cleanup; retain every prior failed attempt and candidate pins.
       Live 11.3.43: audio `run-6ToPzM`, MIDI `run-DYmu3b`; full candidate hashes

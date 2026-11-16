@@ -21,6 +21,7 @@ export async function waitForRunnerOwnedLiveReady(
     coordinatedStartup = false,
     discardRecovery = !coordinatedStartup,
     requireAudio = false,
+    fixturePath,
     host = "127.0.0.1",
     port = 8765,
     timeoutMs = coordinatedStartup ? 600_000 : 120_000,
@@ -45,13 +46,16 @@ export async function waitForRunnerOwnedLiveReady(
     if (dismissed !== "none" && !dismissedDialogs.includes(dismissed)) {
       dismissedDialogs.push(dismissed);
     }
-    const ready = await isReady();
+    const fixtureReady =
+      fixturePath === undefined ||
+      (await controller.hasLoadedFixture(fixturePath));
+    const ready = fixtureReady && (await isReady());
     signal?.throwIfAborted();
     if (ready) return { dismissedDialogs };
     await sleep(1_000);
   }
   throw new Error(
-    `Runner-owned Live did not expose the Remote Script port ${host}:${port}`,
+    `Runner-owned Live did not ${fixturePath === undefined ? "" : "finish loading the requested fixture and "}expose the Remote Script port ${host}:${port}`,
   );
 }
 

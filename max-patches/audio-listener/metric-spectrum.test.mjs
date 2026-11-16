@@ -75,9 +75,7 @@ function make(input = collectorInput(), binding = {}) {
   let ms = 0;
   const collector = createMetricTimelines(
     input,
-    input.captureMode === "arrangement-continuous"
-      ? { onRecord: () => {} }
-      : {},
+    input.captureMode === "finite-metric-stream" ? { onRecord: () => {} } : {},
   );
   const expected = {
     sampleRate: input.sampleRate,
@@ -889,11 +887,11 @@ test("actual immutable retained-slot mutation fails FFT only and never ACKs the 
 
 test("continuous retention diagnostics honor the finite long-pass deadline without widening bounded captures", () => {
   for (const [mode, elapsedMs, accepted] of [
-    ["arrangement-continuous", 180000, true],
-    ["arrangement-continuous", 600000, true],
-    ["arrangement-continuous", 720000, true],
-    ["arrangement-continuous", 720001, false],
-    ["arrangement-continuous", -1, false],
+    ["finite-metric-stream", 180000, true],
+    ["finite-metric-stream", 600000, true],
+    ["finite-metric-stream", 720000, true],
+    ["finite-metric-stream", 720001, false],
+    ["finite-metric-stream", -1, false],
     [undefined, 120000, true],
     [undefined, 120001, false],
   ]) {

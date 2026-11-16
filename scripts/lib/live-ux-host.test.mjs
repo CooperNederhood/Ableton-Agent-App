@@ -23,6 +23,60 @@ describe("Live UX host fixture selection", () => {
 });
 
 describe("Live UX host readiness", () => {
+  it("does not accept the template bridge before the requested fixture finishes loading", async () => {
+    let time = 0;
+    const hasLoadedFixture = vi
+      .fn()
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(true);
+    const isReady = vi.fn(async () => true);
+    await expect(
+      waitForRunnerOwnedLiveReady(
+        {
+          dismissKnownStartupDialogs: vi.fn(async () => "none"),
+          hasLoadedFixture,
+        },
+        {
+          fixturePath: "/owned/prepared.als",
+          isReady,
+          now: () => time,
+          sleep: async (milliseconds) => {
+            time += milliseconds;
+          },
+        },
+      ),
+    ).resolves.toEqual({ dismissedDialogs: [] });
+    expect(hasLoadedFixture).toHaveBeenCalledTimes(3);
+    expect(hasLoadedFixture).toHaveBeenCalledWith("/owned/prepared.als");
+    expect(isReady).toHaveBeenCalledOnce();
+    expect(time).toBe(2_000);
+  });
+
+  it("keeps a missing fixture bounded even when the template bridge is ready", async () => {
+    let time = 0;
+    const isReady = vi.fn(async () => true);
+    await expect(
+      waitForRunnerOwnedLiveReady(
+        {
+          dismissKnownStartupDialogs: vi.fn(async () => "none"),
+          hasLoadedFixture: vi.fn(async () => false),
+        },
+        {
+          fixturePath: "/owned/prepared.als",
+          timeoutMs: 2_000,
+          isReady,
+          now: () => time,
+          sleep: async (milliseconds) => {
+            time += milliseconds;
+          },
+        },
+      ),
+    ).rejects.toThrow("finish loading the requested fixture");
+    expect(time).toBe(2_000);
+    expect(isReady).not.toHaveBeenCalled();
+  });
+
   it.each([false, true])(
     "rejects disabled audio before polling the bridge when listening requires DSP (port ready: %s)",
     async (portReady) => {

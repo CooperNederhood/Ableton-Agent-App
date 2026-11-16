@@ -29,6 +29,8 @@ vi.mock("./staging.js", async (original) => {
 describe("Arrangement coordinator admission and bounded receipts (synthetic only)", () => {
   it.each([
     "success",
+    "unrelated-source",
+    "source-state",
     "missing-source",
     "saved-range",
     "global-record",
@@ -67,6 +69,25 @@ describe("Arrangement coordinator admission and bounded receipts (synthetic only
         mediaSha256 = digest("synthetic-audio");
       const fixture = {
         ...inputs.fixture,
+        ...(mode === "unrelated-source"
+          ? {
+              arrangementSources: [
+                inputs.definition,
+                { ...inputs.definition, id: "unrelated" },
+              ],
+            }
+          : {}),
+        ...(mode === "source-state"
+          ? {
+              arrangementSources: [
+                {
+                  ...inputs.definition,
+                  targetArmed: false,
+                  targetMonitoring: "auto" as const,
+                },
+              ],
+            }
+          : {}),
         resources: [
           {
             path: "input.als",
@@ -141,6 +162,19 @@ describe("Arrangement coordinator admission and bounded receipts (synthetic only
         ),
       );
       const observed = structuredClone(inputs.baseline);
+      if (mode === "source-state")
+        Object.assign(observed, {
+          before: {
+            ...observed.before,
+            targetArmed: false,
+            targetMonitoring: "auto",
+          },
+          after: {
+            ...observed.after,
+            targetArmed: false,
+            targetMonitoring: "auto",
+          },
+        });
       Object.assign(observed, {
         savedProjectSha256: projectSha256,
         loadedProjectSha256: projectSha256,
@@ -255,7 +289,14 @@ describe("Arrangement coordinator admission and bounded receipts (synthetic only
             });
           const baseline: BaselineEvidence = {
             schemaVersion: 1,
-            facts: fixture.baseline,
+            facts:
+              mode === "source-state"
+                ? {
+                    ...fixture.baseline,
+                    targetArmed: observed.before.targetArmed,
+                    targetMonitoring: observed.before.targetMonitoring,
+                  }
+                : fixture.baseline,
             dependencyHashes: dependencyInventoryHashes(inventory),
             arrangementSources:
               mode === "missing-source"
@@ -329,6 +370,8 @@ describe("Arrangement coordinator admission and bounded receipts (synthetic only
         expect(persisted).toBeDefined();
         if (
           mode === "success" ||
+          mode === "unrelated-source" ||
+          mode === "source-state" ||
           mode === "back-success" ||
           mode === "back-idempotent"
         ) {

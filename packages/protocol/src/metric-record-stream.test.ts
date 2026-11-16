@@ -39,11 +39,16 @@ import { PITCH_PROFILE, SPECTRAL_SHAPE_PROFILE } from "./analyzer-profile.js";
 import type { NativeMetricLaunchProof } from "./native-metric-listening-schemas.js";
 import { nativeCheckedTransportClockBindingSchema } from "./native-listening-v2-schemas.js";
 import { summarizeMetricListeningStreamManifest } from "./metric-listening-job-schemas.js";
+import { metricObservationSourceSchema } from "./metric-observation-schemas.js";
+import {
+  createSyntheticMetricRecordStreamFixture,
+  createSyntheticMetricRecordStreamTerminalProof,
+} from "./metric-stream-testing.js";
 
 function descriptor(seconds = 0.5): MetricRecordStreamDescriptor {
   const observation = createSyntheticMetricListeningObservation();
   const geometry = createContinuousMetricListeningGeometry({
-    captureMode: "arrangement-continuous",
+    captureMode: "finite-metric-stream",
     sampleRate: 48_000,
     vectorSize: 64,
     startBeat: 0,
@@ -87,6 +92,142 @@ function descriptor(seconds = 0.5): MetricRecordStreamDescriptor {
     maxPendingChunks: 8,
   });
 }
+
+function sessionSource(
+  transport: { startBeat: number; endBeat: number },
+  kind: "midi" | "warped-audio" = "midi",
+) {
+  const reference = "00000000-0000-4000-8000-000000000001";
+  return metricObservationSourceSchema.options[1].parse({
+    view: "session",
+    target: {
+      view: "session",
+      track: {
+        kind: "regular",
+        index: 0,
+        expectedReference: reference,
+        expectedName: "Track",
+      },
+      sceneIndex: 0,
+      expectedClipReference: reference,
+      expectedClipName: "Clip",
+    },
+    clipReference: reference,
+    kind,
+    coordinate: {
+      unit: "beats",
+      iteration: 0,
+      startBeat: 0,
+      endBeat: transport.endBeat - transport.startBeat,
+    },
+    transport,
+    clipStartTimeBeats: transport.startBeat,
+    synchronization: "transport-coupled-first-iteration",
+  });
+}
+
+describe("consolidated source admission", () => {
+  it.each(["midi", "warped-audio"] as const)(
+    "preserves global 16..96 native proof and explicit clip-local 0..80 mapping for %s",
+    (kind) => {
+      const base = descriptor(37.5);
+      const transport = { startBeat: 16, endBeat: 96 };
+      const geometry = createContinuousMetricListeningGeometry({
+        captureMode: "finite-metric-stream",
+        sampleRate: 48_000,
+        vectorSize: 64,
+        tempoBpm: 128,
+        ...transport,
+        startSample: 100_000,
+      });
+      const nativeDescriptor = metricRecordStreamDescriptorSchema.parse({
+        ...base,
+        geometry,
+        source: { ...base.source, transport },
+        algorithms: base.algorithms.map((item) =>
+          item.metric === "spectral-centroid" && item.algorithm !== null
+            ? {
+                ...item,
+                algorithm: {
+                  ...item.algorithm,
+                  firstFrameEndSample: geometry.startSample + 2048,
+                },
+              }
+            : item,
+        ),
+      });
+      const nativeProof =
+        createSyntheticMetricRecordStreamTerminalProof(nativeDescriptor);
+      expect(nativeProof.configuration.slice(7, 9)).toEqual([16, 96]);
+      expect(nativeProof.before.frames.every((clock) => clock[1] === 16)).toBe(
+        true,
+      );
+      expect(nativeProof.sourceOrigin).toBe(100_000);
+      expect(nativeProof.sourceEnd).toBe(1_900_000);
+      const source = sessionSource(transport, kind);
+      const session = metricRecordStreamDescriptorSchema.parse({
+        ...nativeDescriptor,
+        source,
+      });
+      expect(session.source).toEqual(source);
+      expect(source.coordinate).toEqual({
+        unit: "beats",
+        iteration: 0,
+        startBeat: 0,
+        endBeat: 80,
+      });
+      expect(source.clipStartTimeBeats).toBe(16);
+      expect(source.synchronization).toBe("transport-coupled-first-iteration");
+      expect(createSyntheticMetricRecordStreamTerminalProof(session)).toEqual(
+        nativeProof,
+      );
+      const toClipBeat = (sample: number) =>
+        session.geometry.startBeat +
+        ((sample - session.geometry.startSample) * 128) / (48_000 * 60) -
+        source.clipStartTimeBeats;
+      expect(toClipBeat(nativeProof.sourceOrigin)).toBe(0);
+      expect(toClipBeat(nativeProof.sourceEnd)).toBe(80);
+      expect(
+        expandMetricRecordStreamAdmission(
+          compactMetricRecordStreamDescriptor(session),
+        ),
+      ).toEqual(session);
+    },
+  );
+
+  it.each([1.875, 37.5])(
+    "admits a Session source into the same %ss canonical descriptor without changing profiles",
+    (seconds) => {
+      const arrangement = descriptor(seconds);
+      const source = sessionSource(arrangement.source.transport);
+      const session = metricRecordStreamDescriptorSchema.parse({
+        ...arrangement,
+        source,
+      });
+      expect(session.source).toEqual(source);
+      expect(session.algorithms).toEqual(arrangement.algorithms);
+      expect(session.geometry).toEqual(arrangement.geometry);
+      expect(session.requestedMetrics).toEqual(arrangement.requestedMetrics);
+      expect(
+        expandMetricRecordStreamAdmission(
+          compactMetricRecordStreamDescriptor(session),
+        ),
+      ).toEqual(session);
+      expect(
+        metricRecordStreamDescriptorSchema.safeParse({
+          ...session,
+          source: {
+            ...source,
+            transport: {
+              ...source.transport,
+              endBeat: source.transport.endBeat + 1,
+            },
+          },
+        }).success,
+      ).toBe(false);
+    },
+  );
+});
 
 function records(
   d: MetricRecordStreamDescriptor,
@@ -350,6 +491,86 @@ async function complete(d: MetricRecordStreamDescriptor) {
 }
 
 describe("bounded continuous six-metric record stream", () => {
+  it("accepts cross-V8 rounding only in the derived attack replay level", async () => {
+    const fixture = await createSyntheticMetricRecordStreamFixture({
+      requestedMetrics: ["level", "attacks"],
+    });
+    const manifest = structuredClone(fixture.manifest);
+    const replay = manifest.metrics.find(
+      (item) => item.metric === "attacks",
+    )!.attackReplay!;
+    replay.previousLevelDb += Number.EPSILON * Math.abs(replay.previousLevelDb);
+    expect(replay.previousLevelDb).not.toBe(
+      fixture.state.metrics.find((item) => item.metric === "attacks")!
+        .attackReplay!.previousLevelDb,
+    );
+    await expect(
+      verifyMetricRecordStreamManifest(
+        fixture.descriptor,
+        fixture.state,
+        manifest,
+      ),
+    ).resolves.toEqual(manifest);
+
+    for (const change of [
+      { previousLevelDb: replay.previousLevelDb + 1e-8 },
+      { lastAttackSample: (replay.lastAttackSample ?? 0) + 1 },
+      { riseHasAttack: !replay.riseHasAttack },
+    ]) {
+      const forged = structuredClone(manifest);
+      Object.assign(
+        forged.metrics.find((item) => item.metric === "attacks")!.attackReplay!,
+        change,
+      );
+      await expect(
+        verifyMetricRecordStreamManifest(
+          fixture.descriptor,
+          fixture.state,
+          forged,
+        ),
+      ).rejects.toThrow("prefix_or_metadata");
+    }
+  });
+
+  it("does not require or fabricate FFT ownership for an independent metric subset", async () => {
+    const fixture = await createSyntheticMetricRecordStreamFixture({
+      requestedMetrics: ["level", "attacks"],
+    });
+    const manifest = metricRecordStreamManifestSchema.parse({
+      ...fixture.manifest,
+      nativeProof: {
+        ...fixture.manifest.nativeProof,
+        spectrumCleanup: null,
+        spectrumPhase: null,
+      },
+    });
+    await expect(
+      verifyMetricRecordStreamManifest(
+        fixture.descriptor,
+        fixture.state,
+        manifest,
+      ),
+    ).resolves.toEqual(manifest);
+  });
+
+  it("still requires genuine FFT phase and cleanup for an available centroid", async () => {
+    const fixture = await createSyntheticMetricRecordStreamFixture();
+    const manifest = metricRecordStreamManifestSchema.parse({
+      ...fixture.manifest,
+      nativeProof: {
+        ...fixture.manifest.nativeProof,
+        spectrumCleanup: null,
+        spectrumPhase: null,
+      },
+    });
+    await expect(
+      verifyMetricRecordStreamManifest(
+        fixture.descriptor,
+        fixture.state,
+        manifest,
+      ),
+    ).rejects.toThrow("metric_stream_native_spectrum_phase_mismatch");
+  });
   it("binds stable canonical SHA256 independently of insertion order", async () => {
     expect(
       canonicalMetricRecordJson({ z: [1, { b: 2, a: "é" }], a: null }),
@@ -421,7 +642,9 @@ describe("bounded continuous six-metric record stream", () => {
     const state = await complete(d);
     const final = manifest(d, state);
     expect(final.nativeProof.timing[3]).toBe(0);
-    expect(final.nativeProof.spectrumCleanup.phase).toBe("disabled-confirmed");
+    expect(final.nativeProof.spectrumCleanup).toMatchObject({
+      phase: "disabled-confirmed",
+    });
     expect(final.nativeProof.clock.frames.every((row) => row[0] === 1)).toBe(
       true,
     );
@@ -518,6 +741,8 @@ describe("bounded continuous six-metric record stream", () => {
           ownership: { ...value.ownership, [field]: "changed" },
         }),
       ).rejects.toThrow();
+    if (d.source.view !== "arrangement")
+      throw new Error("Expected Arrangement fixture");
     for (const changed of [
       {
         ...d,
@@ -532,7 +757,7 @@ describe("bounded continuous six-metric record stream", () => {
       {
         ...d,
         geometry: createContinuousMetricListeningGeometry({
-          captureMode: "arrangement-continuous",
+          captureMode: "finite-metric-stream",
           sampleRate: 48_000,
           vectorSize: 64,
           tempoBpm: 120,
@@ -933,7 +1158,7 @@ describe("bounded continuous six-metric record stream", () => {
     const changed = metricRecordStreamDescriptorSchema.parse({
       ...d,
       geometry: createContinuousMetricListeningGeometry({
-        captureMode: "arrangement-continuous",
+        captureMode: "finite-metric-stream",
         sampleRate: 44100,
         vectorSize: 64,
         tempoBpm: 120,
@@ -1085,11 +1310,11 @@ describe("bounded continuous six-metric record stream", () => {
     ).rejects.toThrow("prefix_or_metadata");
   });
 
-  it("exposes one-listener Arrangement-only capability and attributed lifecycle failure/cleanup", () => {
+  it("exposes the shared finite capability and attributed lifecycle failure/cleanup", () => {
     expect(METRIC_RECORD_STREAM_CAPABILITY).toMatchObject({
-      mode: "arrangement",
+      modes: ["session", "arrangement"],
       maxDurationSeconds: 600,
-      maxListeners: 1,
+      maxListeners: 8,
       maxPendingChunks: 8,
       maxChunkBytes: 131072,
       terminal: "manifest-only",

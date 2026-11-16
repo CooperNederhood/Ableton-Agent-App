@@ -19,6 +19,7 @@ export * from "./native-listening-geometry.js";
 export * from "./metric-listening-geometry.js";
 export * from "./metric-continuous-geometry.js";
 export * from "./metric-record-stream.js";
+export * from "./metric-record-feature-source.js";
 export * from "./native-continuous-metric-listening-schemas.js";
 export * from "./listening-features.js";
 export * from "./listening-musical-alignment.js";

@@ -18,7 +18,9 @@ from .messages import (
     success,
     validate_request,
 )
-from .protocol import FrameDecodeError, FrameDecoder, encode_frame
+from .protocol import (
+    DEFAULT_MAX_FRAME_BYTES, FrameDecodeError, FrameDecoder, encode_frame,
+)
 
 LOOPBACK_HOST = "127.0.0.1"
 
@@ -41,6 +43,7 @@ class RemoteScriptServer(object):
         self._logger = logger or (lambda _message: None)
         self._on_client_disconnect = on_client_disconnect
         self._outbound = queue.Queue(maxsize=max_outbound)
+        self._pending_outbound = None
         self._stop_event = threading.Event()
         self._thread = None
         self._server_socket = None
@@ -105,6 +108,7 @@ class RemoteScriptServer(object):
             try:
                 self._serve_client(client)
             finally:
+                self._clear_pending_outbound()
                 try:
                     client.close()
                 except OSError:
@@ -219,17 +223,51 @@ class RemoteScriptServer(object):
         except queue.Full:
             self._logger("Dropping response because outbound queue is full")
 
+    def _clear_pending_outbound(self):
+        if self._pending_outbound is not None:
+            self._pending_outbound = None
+            self._outbound.task_done()
+
     def _flush_outbound(self, client):
-        while True:
-            try:
-                generation, message = self._outbound.get_nowait()
-            except queue.Empty:
-                return True
-            try:
+        while not self._stop_event.is_set():
+            if self._pending_outbound is None:
+                try:
+                    generation, message = self._outbound.get_nowait()
+                except queue.Empty:
+                    return True
                 if generation != self._client_generation:
+                    self._outbound.task_done()
                     continue
-                client.sendall(encode_frame(message))
+                try:
+                    frame = encode_frame(message)
+                except (TypeError, ValueError):
+                    self._outbound.task_done()
+                    self._logger("Outbound protocol frame encoding failed")
+                    return False
+                if len(frame) > DEFAULT_MAX_FRAME_BYTES + 4:
+                    self._outbound.task_done()
+                    self._logger("Outbound protocol frame exceeds byte limit")
+                    return False
+                self._pending_outbound = (generation, frame, 0)
+            generation, frame, offset = self._pending_outbound
+            if generation != self._client_generation:
+                self._clear_pending_outbound()
+                continue
+            try:
+                written = client.send(memoryview(frame)[offset:offset + 65536])
+            except socket.timeout:
+                return True
             except OSError:
+                self._clear_pending_outbound()
+                self._logger("Outbound socket write failed")
                 return False
-            finally:
-                self._outbound.task_done()
+            if written <= 0:
+                self._clear_pending_outbound()
+                self._logger("Outbound socket closed during write")
+                return False
+            offset += written
+            if offset == len(frame):
+                self._clear_pending_outbound()
+            else:
+                self._pending_outbound = (generation, frame, offset)
+        return True

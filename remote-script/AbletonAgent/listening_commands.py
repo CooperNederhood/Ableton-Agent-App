@@ -445,6 +445,7 @@ def _listener(context, target, params, transport):
     evidence = {
         "binding": target, "track": track_evidence, "upstream": upstream,
         "clips": [item["fingerprint"] for item in clips], "tempo": transport["tempo"],
+        "timeSignature": transport["timeSignature"],
     }
     return {
         "binding": target, "verified": True,
@@ -472,10 +473,18 @@ def inspect_listening_context(context, params):
             ("sessionAutomationRecord", "session_automation_record"),
         )
     }
+    numerator = _read(song, "signature_numerator")
+    denominator = _read(song, "signature_denominator")
+    meter = (
+        {"numerator": numerator, "denominator": denominator}
+        if _integer(numerator, 1, 128) and _integer(denominator, 1, 128)
+        and denominator & (denominator - 1) == 0 else None
+    )
     transport = {
         "playing": _boolean(song, "is_playing"),
         "currentBeat": _beat(song, "current_song_time"),
         "tempo": _read(song, "tempo") if _number(_read(song, "tempo"), positive=True) else None,
+        "timeSignature": meter,
         "recording": recording, "safeToStart": False,
     }
     listeners = [_listener(context, target, params, transport) for target in params["listeners"]]

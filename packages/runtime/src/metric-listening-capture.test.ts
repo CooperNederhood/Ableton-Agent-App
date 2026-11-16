@@ -1,16 +1,20 @@
 import { randomUUID } from "node:crypto";
 import {
   withSyntheticAnalyzerTimelines,
-  createSyntheticAnalyzerReadiness,
+  createSyntheticMetricRecordStreamFixture,
+  type SyntheticMetricRecordStreamFixture,
 } from "@ableton-agent/protocol/testing";
 import { connect } from "node:net";
 import { afterEach, describe, expect, expectTypeOf, it, vi } from "vitest";
 import {
   createMetricObservationReportRows,
   MAX_METRIC_RESULT_FRAME_BYTES,
-  metricAudioObservationSchema,
+  metricRecordStreamManifestSchema,
   nativeMetricListeningConfigSchema,
   nativeMetricObservationMetricSchema,
+  nativeContinuousMetricListeningConfigSchema,
+  compactMetricRecordStreamDescriptor,
+  metricObservationMetricSchema,
   MEL_BAND_PROFILE,
   melBandTimelineSchema,
   readListeningFailureEvidence,
@@ -28,22 +32,19 @@ import {
   type ListenerDescriptor,
   type ListenerService,
 } from "@ableton-agent/signal-routing";
-import {
-  bindMetricFixtureToControl,
-  createSyntheticMetricWireFixture,
-} from "@ableton-agent/signal-routing/testing";
+import { createSyntheticMetricWireFixture } from "@ableton-agent/signal-routing/testing";
 import { captureFailureEvidence, failureFact } from "./listening-failure.js";
 import {
   createSyntheticMetricListenerPeer,
   SyntheticMetricListenerPeer,
+  withSyntheticMetricStreamRegistration,
 } from "./metric-listening-test-support.js";
 import {
-  MetricListeningBudgetError,
-  prepareMetricListenerCapture,
   prepareMetricListenerStream,
   type MetricListeningCaptureProgress,
   type PrepareMetricListenerCaptureInput,
 } from "./metric-listening-capture.js";
+import { createMetricCaptureBinding } from "./metric-listening-config.js";
 
 type Fixture = ReturnType<typeof createSyntheticMetricWireFixture>;
 const trace = {
@@ -80,13 +81,42 @@ function seed(
 class Service extends SyntheticMetricListenerPeer {
   readonly telemetry: TelemetryEventEnvelope[] = [];
   readonly abort = new AbortController();
-  readonly input: PrepareMetricListenerCaptureInput;
+  readonly streamSink = {
+    begin: vi.fn(async () => {}),
+    append: vi.fn(async () => {}),
+    finalize: vi.fn(async () => {}),
+    abort: vi.fn(async () => {}),
+  };
+  readonly #input: Omit<PrepareMetricListenerCaptureInput, "bindings">;
+  binding() {
+    return createMetricCaptureBinding({
+      descriptor: this.descriptor,
+      source: this.data.observation.source,
+      tempoBpm: this.data.config.geometry.tempoBpm,
+      timingPolicy: this.data.config.timingPolicy,
+      requestedMetrics: this.data.config.requestedMetrics,
+      ...(this.data.config.mode === "session"
+        ? { stoppedBeat: this.data.config.stoppedBeat }
+        : {}),
+    });
+  }
+  get input(): PrepareMetricListenerCaptureInput {
+    return { ...this.#input, bindings: [this.binding()] };
+  }
   constructor(
     mode: "arrangement" | "session" = "arrangement",
     partial = false,
     geometry: false | { tempoBpm: number; endBeat: number } = false,
   ) {
     const data = seed(mode, partial, geometry);
+    data.config.requestedMetrics = [
+      "level",
+      "spectral-centroid",
+      "attacks",
+      "mel-bands",
+      "pitch",
+      "spectral-shape",
+    ];
     const descriptor: ListenerDescriptor = {
       connectionId: randomUUID(),
       binding: { trackId: "17", deviceId: "29" },
@@ -99,32 +129,29 @@ class Service extends SyntheticMetricListenerPeer {
         track: { id: "17" },
         device: { id: "29" },
       },
-      registration: listenerRegistrationMetricSchema.parse({
-        ...data.registration,
-        connectionEpoch: randomUUID(),
-        nativeStatus: {
-          ...data.registration.nativeStatus,
-          readiness: "BLOCKED",
-          executedGen: null,
-          reason: "fresh_per_pass_native_validation_required",
-        },
-      }),
+      registration: withSyntheticMetricStreamRegistration(
+        listenerRegistrationMetricSchema.parse({
+          ...data.registration,
+          connectionEpoch: randomUUID(),
+          nativeStatus: {
+            ...data.registration.nativeStatus,
+            readiness: "BLOCKED",
+            executedGen: null,
+            reason: "fresh_per_pass_native_validation_required",
+          },
+        }),
+      ),
       phase: "idle",
     };
     super(descriptor, data);
-    this.input = {
-      bindings: [
-        {
-          descriptor: structuredClone(this.descriptor),
-          config: this.data.config,
-        },
-      ],
+    this.#input = {
       trace,
       passId: "metric-pass",
       signal: this.abort.signal,
-      controlTimeoutMs: 200,
+      controlTimeoutMs: 2000,
       cleanupTimeoutMs: 100,
-      resultTimeoutMs: 1000,
+      resultTimeoutMs: 10_000,
+      streamSink: this.streamSink,
       telemetry: {
         enqueue: (event) => {
           this.telemetry.push(event);
@@ -136,8 +163,31 @@ class Service extends SyntheticMetricListenerPeer {
 }
 
 describe("real version5 ListenerService orchestration", () => {
+  it.each(["session", "arrangement"] as const)(
+    "consolidation: %s delivers all six families through durable chunks and a terminal manifest",
+    async (mode) => {
+      const peer = new Service(mode);
+      const capture = await prepareMetricListenerStream(peer, peer.input);
+      peer.launch();
+      await capture.nativeLaunch;
+      peer.complete();
+      const [manifest] = await capture.result;
+      expect(manifest?.outcome).toBe("complete");
+      expect(manifest?.metrics).toHaveLength(6);
+      expect(peer.streamSink.begin).toHaveBeenCalledOnce();
+      expect(peer.streamSink.append).toHaveBeenCalled();
+      expect(peer.streamSink.finalize).toHaveBeenCalledWith(manifest);
+      await capture.disarm();
+      expect(peer.subscribers.size).toBe(0);
+    },
+  );
   it("denies continuous capture without an actual producer capability before controls and journals the attributed failure", async () => {
     const s = new Service();
+    const input = s.input;
+    const descriptor = {
+      ...structuredClone(input.bindings[0]!.descriptor),
+      registration: listenerRegistrationMetricSchema.parse(s.data.registration),
+    };
     const sink = {
       begin: vi.fn(async () => {}),
       append: vi.fn(async () => {}),
@@ -145,7 +195,11 @@ describe("real version5 ListenerService orchestration", () => {
       abort: vi.fn(async () => {}),
     };
     await expect(
-      prepareMetricListenerStream(s, { ...s.input, streamSink: sink }),
+      prepareMetricListenerStream(s, {
+        ...input,
+        bindings: [{ ...input.bindings[0]!, descriptor }],
+        streamSink: sink,
+      }),
     ).rejects.toThrow("continuous-metric-stream-unavailable");
     expect(s.calls).toEqual([]);
     expect(sink.begin).not.toHaveBeenCalled();
@@ -171,20 +225,6 @@ describe("real version5 ListenerService orchestration", () => {
       reason,
     );
     s.data.config.requestedMetrics = [...s.data.observation.requestedMetrics];
-    s.data.ready.analyzerProducerAbi = 3;
-    s.data.proof.armed.analyzerProducerAbi = 3;
-    for (const descriptor of [s.descriptor, s.input.bindings[0]!.descriptor]) {
-      Object.assign(descriptor, {
-        registration: listenerRegistrationMetricSchema.parse({
-          ...descriptor.registration,
-          analyzerReadiness: createSyntheticAnalyzerReadiness(),
-          capabilities: [
-            ...descriptor.registration.capabilities,
-            "audio-listener/analyzer-timelines-v1",
-          ],
-        }),
-      });
-    }
     return s;
   }
   it.each(["pitch", "spectral-shape"] as const)(
@@ -210,20 +250,25 @@ describe("real version5 ListenerService orchestration", () => {
         };
       }
       observation.rows = createMetricObservationReportRows(observation);
-      const prepared = await prepareMetricListenerCapture(s, s.input);
+      const prepared = await prepareMetricListenerStream(s, s.input);
       s.launch();
       await prepared.nativeLaunch;
       s.complete();
       const [result] = await prepared.result;
-      expect(result?.metrics[metric]).toMatchObject({
+      expect(
+        result?.metrics.find((item) => item.metric === metric),
+      ).toMatchObject({
         status: "complete",
         expectedRecords: 0,
-        frames: [],
-        gaps: [],
+        nextRecordOffset: 0,
+        missingRecords: 0,
       });
-      expect(result?.metrics[metric]?.trailingSupport).toEqual(
-        result?.sourceCoverage,
-      );
+      expect(
+        result?.metrics.find((item) => item.metric === metric)?.trailingSupport,
+      ).toEqual({
+        startSample: result?.nativeProof.sourceOrigin,
+        endSample: result?.nativeProof.sourceEnd,
+      });
       await prepared.disarm();
       expect(s.subscribers.size).toBe(0);
     },
@@ -232,16 +277,21 @@ describe("real version5 ListenerService orchestration", () => {
     "publishes synthetic authoritative analyzers with isolated failure %s and terminal cleanup",
     async (reason) => {
       const s = analyzerService(reason);
-      const prepared = await prepareMetricListenerCapture(s, s.input);
+      const prepared = await prepareMetricListenerStream(s, s.input);
       s.launch();
       await prepared.nativeLaunch;
       s.complete();
       const [observation] = await prepared.result;
-      expect(observation?.metrics.pitch?.status).toBe(
-        reason ? "failed" : "complete",
-      );
-      expect(observation?.metrics["spectral-shape"]?.status).toBe("complete");
-      expect(observation?.metrics.level.status).toBe("complete");
+      expect(
+        observation?.metrics.find((item) => item.metric === "pitch")?.status,
+      ).toBe(reason ? "failed" : "complete");
+      expect(
+        observation?.metrics.find((item) => item.metric === "spectral-shape")
+          ?.status,
+      ).toBe("complete");
+      expect(
+        observation?.metrics.find((item) => item.metric === "level")?.status,
+      ).toBe("complete");
       expect(observation?.ownership).toMatchObject(trace);
       await prepared.disarm();
       expect(s.subscribers.size).toBe(0);
@@ -255,19 +305,30 @@ describe("real version5 ListenerService orchestration", () => {
   );
   it("denies analyzer captures without producer capability even when bypassing binding creation", async () => {
     const s = new Service();
-    s.data.config.requestedMetrics.push("pitch");
-    await expect(prepareMetricListenerCapture(s, s.input)).rejects.toThrow(
-      "analyzer-timelines-unavailable",
+    const input = s.input;
+    const descriptor = structuredClone(input.bindings[0]!.descriptor);
+    Reflect.set(
+      descriptor.registration,
+      "capabilities",
+      descriptor.registration.capabilities.filter(
+        (capability) => capability !== "audio-listener/analyzer-timelines-v1",
+      ),
     );
+    await expect(
+      prepareMetricListenerStream(s, {
+        ...input,
+        bindings: [{ ...input.bindings[0]!, descriptor }],
+      }),
+    ).rejects.toThrow();
     expect(s.calls).toHaveLength(0);
     expect(s.subscribers.size).toBe(0);
   });
   it("denies capability-advertised analyzers without a fresh ABI3 receipt and cleans up before arm", async () => {
     const s = analyzerService();
     s.prepareHook = () => {
-      delete s.data.ready.analyzerProducerAbi;
+      delete s.stream!.ready.analyzerProducerAbi;
     };
-    await expect(prepareMetricListenerCapture(s, s.input)).rejects.toThrow();
+    await expect(prepareMetricListenerStream(s, s.input)).rejects.toThrow();
     expect(s.calls.some((call) => call.action === "arm")).toBe(false);
     expect(s.calls.at(-1)?.action).toBe("cancel");
     expect(s.subscribers.size).toBe(0);
@@ -275,7 +336,7 @@ describe("real version5 ListenerService orchestration", () => {
   });
   it("cancels analyzer captures without publishing and releases all ownership", async () => {
     const s = analyzerService();
-    const prepared = await prepareMetricListenerCapture(s, s.input);
+    const prepared = await prepareMetricListenerStream(s, s.input);
     const result = expect(prepared.result).rejects.toThrow();
     s.abort.abort();
     await result;
@@ -323,15 +384,18 @@ describe("real version5 ListenerService orchestration", () => {
         gaps: [],
       });
       observation.rows = createMetricObservationReportRows(observation);
-      const prepared = await prepareMetricListenerCapture(s, s.input);
+      const prepared = await prepareMetricListenerStream(s, s.input);
       s.launch();
       await prepared.nativeLaunch;
       s.complete();
       const [result] = await prepared.result;
-      expect(result?.metrics["mel-bands"]?.expectedRecords).toBe(
-        expectedRecords,
+      expect(
+        result?.metrics.find((item) => item.metric === "mel-bands")
+          ?.expectedRecords,
+      ).toBe(expectedRecords);
+      expect(result?.metrics.some((item) => item.metric === "level")).toBe(
+        false,
       );
-      expect(result?.metrics.level.status).toBe("not-requested");
       await prepared.disarm();
       expect(s.subscribers.size).toBe(0);
     },
@@ -346,13 +410,13 @@ describe("real version5 ListenerService orchestration", () => {
       expect(
         Buffer.byteLength(JSON.stringify(s.data.observation)),
       ).toBeGreaterThan(128 * 1024);
-      const prepared = await prepareMetricListenerCapture(s, s.input);
+      const prepared = await prepareMetricListenerStream(s, s.input);
       s.launch();
       await prepared.nativeLaunch;
       s.complete();
       const [observation] = await prepared.result;
-      expect(observation?.rows).toHaveLength(256);
-      expect(observation?.metrics).toEqual(s.data.observation.metrics);
+      expect(s.stream?.descriptor.geometry.rows).toHaveLength(256);
+      expect(observation?.metrics).toEqual(s.stream?.manifest.metrics);
       expect(observation?.ownership.traceId).toBe(trace.traceId);
       expect(observation?.outcome).toBe(partial ? "partial" : "complete");
       await prepared.disarm();
@@ -370,20 +434,18 @@ describe("real version5 ListenerService orchestration", () => {
     for (const partial of [false, true])
       it(`${mode} retains ${partial ? "partial" : "complete"} canonical independent metrics`, async () => {
         const s = new Service(mode, partial);
-        const prepared = await prepareMetricListenerCapture(s, s.input);
+        const prepared = await prepareMetricListenerStream(s, s.input);
         expect(s.calls.map((c) => c.action)).toEqual(["prepare", "arm"]);
-        expect(prepared.observationContract).toBe(
-          "independent-metric-timelines/v1",
-        );
+        expect(prepared.observationContract).toBe("metric-record-stream/v1");
         s.launch();
         await prepared.nativeLaunch;
         s.complete();
         const [observation] = await prepared.result;
         expect(observation?.outcome).toBe(partial ? "partial" : "complete");
-        expect(observation?.source).toEqual(
+        expect(s.stream?.descriptor.source).toEqual(
           s.input.bindings[0]!.config.sourceContext,
         );
-        expect(Object.isFrozen(observation?.metrics.level.records)).toBe(true);
+        expect(Object.isFrozen(observation?.metrics)).toBe(true);
         await prepared.disarm();
         await prepared.disarm();
         expect(s.subscribers.size).toBe(0);
@@ -399,7 +461,7 @@ describe("real version5 ListenerService orchestration", () => {
           s.data,
           (action) => controls.push(action),
         );
-        const prepared = await prepareMetricListenerCapture(
+        const prepared = await prepareMetricListenerStream(
           { ...peer.service },
           s.input,
         );
@@ -422,7 +484,7 @@ describe("real version5 ListenerService orchestration", () => {
       s.data,
       (action) => controls.push(action),
     );
-    const prepared = await prepareMetricListenerCapture(peer.service, s.input);
+    const prepared = await prepareMetricListenerStream(peer.service, s.input);
     s.abort.abort();
     await expect(prepared.result).rejects.toMatchObject({ code: "cancelled" });
     await prepared.disarm();
@@ -439,7 +501,7 @@ describe("real version5 ListenerService orchestration", () => {
     );
     const generations: string[] = [];
     for (const passId of ["shared-pass-1", "shared-pass-2"]) {
-      const prepared = await prepareMetricListenerCapture(peer.service, {
+      const prepared = await prepareMetricListenerStream(peer.service, {
         ...s.input,
         passId,
       });
@@ -498,7 +560,7 @@ describe("real version5 ListenerService orchestration", () => {
       s.launch();
       s.complete();
     };
-    const prepared = await prepareMetricListenerCapture(s, s.input);
+    const prepared = await prepareMetricListenerStream(s, s.input);
     await expect(prepared.nativeLaunch).resolves.toBeUndefined();
     await expect(prepared.result).resolves.toMatchObject([
       { outcome: "partial" },
@@ -523,10 +585,25 @@ describe("real version5 ListenerService orchestration", () => {
     s.data.observation.rows = createMetricObservationReportRows(
       s.data.observation,
     );
-    const prepared = await prepareMetricListenerCapture(s, s.input);
+    const prepared = await prepareMetricListenerStream(s, s.input);
     s.launch();
     s.complete();
-    expect((await prepared.result)[0]?.metrics.attacks.status).toBe("complete");
+    const [manifest] = await prepared.result;
+    expect(
+      manifest?.metrics.find((metric) => metric.metric === "attacks")?.status,
+    ).toBe("complete");
+    for await (const chunk of s.stream!.chunks()) {
+      if (chunk.metric === "attacks")
+        expect(
+          chunk.records.every((record) => record.events.length === 0),
+        ).toBe(true);
+      if (chunk.metric === "level")
+        expect(
+          chunk.records.every((record) =>
+            record.rms.every((value) => value === 0),
+          ),
+        ).toBe(true);
+    }
     await prepared.disarm();
   });
 
@@ -554,7 +631,7 @@ describe("real version5 ListenerService orchestration", () => {
       ],
     ]) {
       await expect(
-        prepareMetricListenerCapture(s, {
+        prepareMetricListenerStream(s, {
           ...s.input,
           bindings: bindings as PrepareMetricListenerCaptureInput["bindings"],
         }),
@@ -565,24 +642,14 @@ describe("real version5 ListenerService orchestration", () => {
 
   it("rejects terminal self-consistent source replacement against the frozen Bridge-inspected intent", async () => {
     const s = new Service();
-    const prepared = await prepareMetricListenerCapture(s, s.input);
+    const prepared = await prepareMetricListenerStream(s, s.input);
     s.launch();
     await prepared.nativeLaunch;
-    const foreign = structuredClone(s.data);
-    if (foreign.observation.source.view !== "arrangement")
-      throw new Error("fixture");
-    foreign.observation.source.target.expectedReference = randomUUID();
-    foreign.proof.armed.config.sourceContext = structuredClone(
-      foreign.observation.source,
-    );
-    const message = listenerResultMetricSchema.parse({
-      ...s.event({
-        status: "completed",
-        observation: s.data.observation,
-        nativeSourceCoverage: s.data.proof,
-      }),
-      observation: foreign.observation,
-      nativeSourceCoverage: foreign.proof,
+    const foreign = structuredClone(s.stream!.descriptor);
+    if (foreign.source.view !== "arrangement") throw new Error("fixture");
+    foreign.source.target.expectedReference = randomUUID();
+    const message = s.event({
+      metricStream: compactMetricRecordStreamDescriptor(foreign),
     });
     s.emit(message);
     await expect(prepared.result).rejects.toBeInstanceOf(Error);
@@ -592,7 +659,7 @@ describe("real version5 ListenerService orchestration", () => {
   it("rejects exact duplicate progress, sequence gaps and foreign generations", async () => {
     for (const change of ["duplicate", "gap", "generation"] as const) {
       const s = new Service();
-      const prepared = await prepareMetricListenerCapture(s, s.input);
+      const prepared = await prepareMetricListenerStream(s, s.input);
       const message = s.event({ nativeLifecycle: s.lifecycle() });
       if (change === "duplicate") {
         s.emit(message);
@@ -618,18 +685,18 @@ describe("real version5 ListenerService orchestration", () => {
     const before = new Service();
     before.abort.abort();
     await expect(
-      prepareMetricListenerCapture(before, before.input),
+      prepareMetricListenerStream(before, before.input),
     ).rejects.toBeInstanceOf(Error);
     expect(before.calls).toHaveLength(0);
     const s = new Service();
-    const prepared = await prepareMetricListenerCapture(s, s.input);
+    const prepared = await prepareMetricListenerStream(s, s.input);
     s.abort.abort();
     await expect(prepared.result).rejects.toBeInstanceOf(Error);
     await prepared.disarm();
     await prepared.disarm();
     expect(s.calls.filter((c) => c.action === "cancel")).toHaveLength(1);
     const ended = new Service();
-    const done = await prepareMetricListenerCapture(ended, ended.input);
+    const done = await prepareMetricListenerStream(ended, ended.input);
     ended.launch();
     ended.complete();
     const result = await done.result;
@@ -641,11 +708,19 @@ describe("real version5 ListenerService orchestration", () => {
   it("has one absolute deadline covering prepare and arm without progress resets", async () => {
     vi.useFakeTimers();
     const s = new Service();
-    s.prepareHook = () => new Promise((resolve) => setTimeout(resolve, 60));
-    const pending = prepareMetricListenerCapture(s, {
+    let enter!: () => void;
+    const entered = new Promise<void>((resolve) => {
+      enter = resolve;
+    });
+    s.prepareHook = () => {
+      enter();
+      return new Promise((resolve) => setTimeout(resolve, 60));
+    };
+    const pending = prepareMetricListenerStream(s, {
       ...s.input,
       resultTimeoutMs: 100,
     });
+    await entered;
     await vi.advanceTimersByTimeAsync(60);
     const prepared = await pending;
     s.emit(s.event({ nativeLifecycle: s.lifecycle() }));
@@ -662,7 +737,7 @@ describe("real version5 ListenerService orchestration", () => {
       s.emit(s.event({ status: "failed", reason: "native_global_failure" }));
       return new Promise(() => {});
     };
-    const failure = prepareMetricListenerCapture(s, {
+    const failure = prepareMetricListenerStream(s, {
       ...s.input,
       controlTimeoutMs: 1000,
     });
@@ -676,17 +751,23 @@ describe("real version5 ListenerService orchestration", () => {
     vi.useFakeTimers();
     const s = new Service();
     let late!: () => void;
+    let enter!: () => void;
+    const entered = new Promise<void>((resolve) => {
+      enter = resolve;
+    });
     s.armHook = () =>
       new Promise((resolve) => {
         late = resolve;
+        enter();
       });
-    const pending = prepareMetricListenerCapture(s, {
+    const pending = prepareMetricListenerStream(s, {
       ...s.input,
       controlTimeoutMs: 20,
     });
     const rejected = expect(pending).rejects.toMatchObject({
       code: "metric-capture-cleanup-uncertain",
     });
+    await entered;
     await vi.advanceTimersByTimeAsync(21);
     await rejected;
     late();
@@ -700,7 +781,7 @@ describe("real version5 ListenerService orchestration", () => {
   it("rejects uncertain cleanup and never cancels a reconnected/replacement instance", async () => {
     vi.useFakeTimers();
     const s = new Service();
-    const prepared = await prepareMetricListenerCapture(s, s.input);
+    const prepared = await prepareMetricListenerStream(s, s.input);
     s.descriptor.producer = {
       ...s.descriptor.producer,
       instanceId: randomUUID(),
@@ -714,7 +795,7 @@ describe("real version5 ListenerService orchestration", () => {
 
   it("keeps owned ingress failure facts, redacted and attributable, after source disconnect", async () => {
     const s = new Service();
-    const prepared = await prepareMetricListenerCapture(s, s.input);
+    const prepared = await prepareMetricListenerStream(s, s.input);
     const evidence = captureFailureEvidence({
       code: "output-backpressure",
       message: "output-backpressure",
@@ -749,7 +830,7 @@ describe("real version5 ListenerService orchestration", () => {
 
   it("emits stage-owned timings and terminal outcomes, never queued/progress success", async () => {
     const s = new Service();
-    const prepared = await prepareMetricListenerCapture(s, s.input);
+    const prepared = await prepareMetricListenerStream(s, s.input);
     for (let index = 0; index < 100; index++)
       s.emit(s.event({ nativeLifecycle: s.lifecycle() }));
     s.launch();
@@ -771,12 +852,12 @@ describe("real version5 ListenerService orchestration", () => {
       s.telemetry.filter((e) => e.name.endsWith(".progress")).length,
     ).toBeLessThan(20);
     expect(
-      metricAudioObservationSchema.safeParse((await prepared.result)[0])
+      metricRecordStreamManifestSchema.safeParse((await prepared.result)[0])
         .success,
     ).toBe(true);
   });
 
-  it("exposes typed canonical budget denial before arm without reducing capture", async () => {
+  it("streams a full high-density capture without the old whole-observation byte ceiling", async () => {
     const s = new Service();
     const large = createSyntheticMetricWireFixture("arrangement", false, {
       tempoBpm: 999,
@@ -788,13 +869,14 @@ describe("real version5 ListenerService orchestration", () => {
     large.ready.config = structuredClone(large.config);
     large.proof.armed.config = structuredClone(large.config);
     s.data = large;
-    const failed = await prepareMetricListenerCapture(s, {
-      ...s.input,
-      bindings: [{ descriptor: s.descriptor, config: large.config }],
-    }).catch((cause: unknown) => cause);
-    expect(failed).toBeInstanceOf(MetricListeningBudgetError);
-    expect(s.calls.map((c) => c.action)).not.toContain("arm");
-    expect(s.calls.map((c) => c.action)).toContain("cancel");
+    const prepared = await prepareMetricListenerStream(s, s.input);
+    s.launch();
+    s.complete();
+    const [manifest] = await prepared.result;
+    expect(manifest?.outcome).toBe("complete");
+    expect(s.stream?.descriptor.geometry.rows).toHaveLength(1998);
+    expect(s.streamSink.append).toHaveBeenCalled();
+    await prepared.disarm();
   });
 
   it("prepares every independent Arrangement binding before arming any listener", async () => {
@@ -839,12 +921,9 @@ describe("real version5 ListenerService orchestration", () => {
         return s.requestListenerControl(connection, input);
       },
     };
-    const prepared = await prepareMetricListenerCapture(service, {
+    const prepared = await prepareMetricListenerStream(service, {
       ...a.input,
-      bindings: [a, b].map((s) => ({
-        descriptor: s.descriptor,
-        config: s.data.config,
-      })),
+      bindings: [a, b].map((s) => s.binding()),
     });
     expect(order).toEqual([
       "metric-listener:prepare",
@@ -864,12 +943,12 @@ describe("real version5 ListenerService orchestration", () => {
   it("does not accept a self-consistent different ready configuration", async () => {
     const s = new Service();
     s.prepareHook = () => {
-      const source = s.data.ready.config.sourceContext;
+      const source = s.stream!.ready.config.sourceContext;
       if (source?.view !== "arrangement") throw new Error("fixture");
       source.target.expectedReference = randomUUID();
     };
     await expect(
-      prepareMetricListenerCapture(s, s.input),
+      prepareMetricListenerStream(s, s.input),
     ).rejects.toBeInstanceOf(Error);
     expect(s.calls.some((c) => c.action === "arm")).toBe(false);
   });
@@ -894,12 +973,12 @@ describe("real version5 ListenerService orchestration", () => {
         };
       if (stage === "arm") {
         await expect(
-          prepareMetricListenerCapture(s, s.input),
+          prepareMetricListenerStream(s, s.input),
         ).rejects.toBeInstanceOf(Error);
       } else {
-        const prepared = await prepareMetricListenerCapture(s, s.input);
-        s.data.proof.launched.ownership.nativeEpoch++;
-        s.data.proof.launched.timing[0]++;
+        const prepared = await prepareMetricListenerStream(s, s.input);
+        s.stream!.manifest.nativeProof.launch.ownership.nativeEpoch++;
+        s.stream!.manifest.nativeProof.launch.timing[0]++;
         s.launch();
         await expect(prepared.result).rejects.toBeInstanceOf(Error);
         await expect(prepared.disarm()).resolves.toBeUndefined();
@@ -916,24 +995,23 @@ describe("real version5 ListenerService orchestration", () => {
     s.data.ready.config = structuredClone(s.data.config);
     s.data.proof.armed.config = structuredClone(s.data.config);
     s.prepareHook = () => {
-      const row = s.data.ready.before.frames[1]!;
+      const row = s.stream!.ready.before.frames[1]!;
       row[2]++;
       row[9]++;
     };
     await expect(
-      prepareMetricListenerCapture(s, s.input),
+      prepareMetricListenerStream(s, s.input),
     ).rejects.toBeInstanceOf(Error);
     expect(s.calls.some((c) => c.action === "arm")).toBe(false);
   });
 
   it("rejects terminal claims with no useful timelines instead of promoting state/readiness", async () => {
     const s = new Service();
-    const prepared = await prepareMetricListenerCapture(s, s.input);
+    const prepared = await prepareMetricListenerStream(s, s.input);
     s.launch();
     const terminal = s.event({
       status: "completed",
-      observation: s.data.observation,
-      nativeSourceCoverage: s.data.proof,
+      metricManifest: s.stream!.manifest,
     });
     const empty = structuredClone(s.data.observation);
     for (const name of nativeMetricObservationMetricSchema.options)
@@ -945,7 +1023,7 @@ describe("real version5 ListenerService orchestration", () => {
 
   it("never resolves success after unsubscribe failure and drops its retained late callback", async () => {
     const s = new Service();
-    const prepared = await prepareMetricListenerCapture(s, s.input);
+    const prepared = await prepareMetricListenerStream(s, s.input);
     s.unsubscribeHook = () => {
       throw new Error("controlled unsubscribe failure");
     };
@@ -967,7 +1045,7 @@ describe("real version5 ListenerService orchestration", () => {
         missing
           ? new Promise(() => {})
           : Promise.reject(new Error("cancel failed"));
-      const prepared = await prepareMetricListenerCapture(s, s.input);
+      const prepared = await prepareMetricListenerStream(s, s.input);
       const result = expect(prepared.result).rejects.toMatchObject({
         code: "metric-capture-cleanup-uncertain",
       });
@@ -983,7 +1061,7 @@ describe("real version5 ListenerService orchestration", () => {
 
   it("confirms SDK-style cancellation when owned results precede the cancel reply", async () => {
     const s = new Service();
-    const prepared = await prepareMetricListenerCapture(s, s.input);
+    const prepared = await prepareMetricListenerStream(s, s.input);
     s.cancelHook = () => {
       s.emit(
         s.event({
@@ -1018,7 +1096,7 @@ describe("real version5 ListenerService orchestration", () => {
     async (fault, code) => {
       const s = new Service();
       const progress = vi.fn();
-      const prepared = await prepareMetricListenerCapture(s, {
+      const prepared = await prepareMetricListenerStream(s, {
         ...s.input,
         onProgress: progress,
       });
@@ -1071,7 +1149,7 @@ describe("real version5 ListenerService orchestration", () => {
 
   it("retains attributed redacted ingress cleanup evidence instead of trusting a later cancel ACK", async () => {
     const s = new Service();
-    const prepared = await prepareMetricListenerCapture(s, s.input);
+    const prepared = await prepareMetricListenerStream(s, s.input);
     s.cancelHook = () => {
       s.emit(
         s.event({ status: "failed", reason: "native_cleanup_unconfirmed" }),
@@ -1128,7 +1206,7 @@ describe("real version5 ListenerService orchestration", () => {
         s.emit(s.event({ nativeLifecycle: s.lifecycle() }));
     };
     await expect(
-      prepareMetricListenerCapture(s, s.input),
+      prepareMetricListenerStream(s, s.input),
     ).rejects.toBeInstanceOf(Error);
     expect(s.calls.some((c) => c.action === "arm")).toBe(false);
   });
@@ -1138,11 +1216,11 @@ describe("real version5 ListenerService orchestration", () => {
     s.prepareHook = () => {
       s.abort.abort();
     };
-    await expect(
-      prepareMetricListenerCapture(s, s.input),
-    ).rejects.toMatchObject({
-      code: "metric-capture-cleanup-uncertain",
-    });
+    await expect(prepareMetricListenerStream(s, s.input)).rejects.toMatchObject(
+      {
+        code: "metric-capture-cleanup-uncertain",
+      },
+    );
     expect(s.calls.map((control) => control.action)).toEqual([
       "prepare",
       "cancel",
@@ -1152,7 +1230,7 @@ describe("real version5 ListenerService orchestration", () => {
 
   it("honors cancellation from the completion callback before sealing the result", async () => {
     const s = new Service();
-    const prepared = await prepareMetricListenerCapture(s, {
+    const prepared = await prepareMetricListenerStream(s, {
       ...s.input,
       onProgress: (progress) => {
         if (progress.stage === "completed") s.abort.abort();
@@ -1173,12 +1251,11 @@ describe("real version5 ListenerService orchestration", () => {
 
   it("does not accept an old terminal after a foreign job has replaced its owner", async () => {
     const s = new Service();
-    const prepared = await prepareMetricListenerCapture(s, s.input);
+    const prepared = await prepareMetricListenerStream(s, s.input);
     s.launch();
     const terminal = s.event({
       status: "completed",
-      observation: s.data.observation,
-      nativeSourceCoverage: s.data.proof,
+      metricManifest: s.stream!.manifest,
     });
     s.descriptor.jobId = "replacement-job";
     s.descriptor.passId = "replacement-pass";
@@ -1198,9 +1275,9 @@ describe("real version5 ListenerService orchestration", () => {
 
   it("freezes configuration/trace and the public handle without freezing or reinterpreting caller data", async () => {
     const s = new Service();
-    const original = structuredClone(s.data.config);
+    const original = structuredClone(s.input.bindings[0]!.config);
     const mutableTrace = { ...trace };
-    const prepared = await prepareMetricListenerCapture(s, {
+    const prepared = await prepareMetricListenerStream(s, {
       ...s.input,
       trace: mutableTrace,
       bindings: [{ descriptor: s.descriptor, config: original }],
@@ -1213,12 +1290,10 @@ describe("real version5 ListenerService orchestration", () => {
     s.complete();
     const [observation] = await prepared.result;
     expect(Object.isFrozen(prepared)).toBe(true);
-    expect(observation?.source).not.toEqual(original.sourceContext);
+    expect(s.stream?.descriptor.source).not.toEqual(original.sourceContext);
     expect(observation?.ownership.correlationId).toBe(trace.correlationId);
     expect(() =>
-      observation!.metrics.level.records.push(
-        structuredClone(observation!.metrics.level.records[0]!),
-      ),
+      observation!.metrics.push(structuredClone(observation!.metrics[0]!)),
     ).toThrow();
     await prepared.disarm();
   });
@@ -1228,7 +1303,8 @@ describe("real version5 ListenerService orchestration", () => {
       it(`executes ${mode} ${outcome} over opt-in TCP ListenerService with coalesced ingress`, async () => {
         const cancel = outcome === "cancellation";
         const rejectIngress = outcome === "ingress-rejection";
-        let data = seed(mode, mode === "arrangement");
+        const data = seed(mode, mode === "arrangement");
+        let stream: SyntheticMetricRecordStreamFixture | undefined;
         const secret = "synthetic-runtime-metric-test-secret";
         const registry = new InMemoryConnectionRegistry({
           staleAfterMs: 100_000,
@@ -1259,7 +1335,7 @@ describe("real version5 ListenerService orchestration", () => {
         };
         socket.setEncoding("utf8");
         socket.on("error", failed);
-        socket.on("data", (chunk: string) => {
+        const handleData = async (chunk: string) => {
           try {
             buffered += chunk;
             for (let end; (end = buffered.indexOf("\n")) >= 0;) {
@@ -1287,12 +1363,53 @@ describe("real version5 ListenerService orchestration", () => {
                   ),
                 ),
               );
-              if (control.action === "prepare")
-                data = bindMetricFixtureToControl(data, control);
+              if (control.action === "prepare") {
+                const config =
+                  nativeContinuousMetricListeningConfigSchema.parse(
+                    control.config,
+                  );
+                if (!config.sourceContext)
+                  throw new Error("Missing inspected source");
+                stream = await createSyntheticMetricRecordStreamFixture({
+                  source: config.sourceContext,
+                  ownership: {
+                    listenerId: wire.listenerId,
+                    passId: wire.passId,
+                    connectionId: wire.connectionId,
+                    connectionEpoch: wire.connectionEpoch,
+                    generation: wire.generation,
+                    nativeEpoch: 7,
+                    traceId: wire.traceId,
+                    correlationId: wire.correlationId,
+                    causationId: wire.causationId,
+                  },
+                  seconds:
+                    config.geometry.totalSamples / config.geometry.sampleRate,
+                  sampleRate: config.geometry.sampleRate,
+                  vectorSize: config.geometry.vectorSize,
+                  startBeat: config.geometry.startBeat,
+                  tempoBpm: config.geometry.tempoBpm,
+                  requestedMetrics: config.requestedMetrics,
+                  timingPolicy: config.timingPolicy,
+                  ...(config.stoppedBeat === undefined
+                    ? {}
+                    : { stoppedBeat: config.stoppedBeat }),
+                  gaps: Object.entries(data.observation.metrics).flatMap(
+                    ([metric, timeline]) =>
+                      timeline?.gaps.map((gap) => ({
+                        metric: metricObservationMetricSchema.parse(metric),
+                        firstIndex: gap.firstIndex,
+                        count: gap.count,
+                        reason: gap.reason,
+                      })) ?? [],
+                  ),
+                });
+              }
+              if (!stream) throw new Error("Missing prepared stream");
               if (control.action === "prepare" && rejectIngress) {
-                if (!data.ready.config.attacks)
+                if (!stream.ready.config.attacks)
                   throw new Error("Missing attack settings");
-                data.ready.config.attacks.thresholdDb++;
+                stream.ready.config.attacks.thresholdDb++;
               }
               const progress = () =>
                 listenerResultMetricSchema.parse({
@@ -1304,10 +1421,10 @@ describe("real version5 ListenerService orchestration", () => {
                   nativeLifecycle: {
                     eventId: randomUUID(),
                     causationId: trace.causationId,
-                    scope: "independent-metric-timelines/v1",
+                    scope: "finite-metric-stream/v1",
                     stage: "progress",
                     generation: wire.generation,
-                    nativeEpoch: data.ready.ownership.nativeEpoch,
+                    nativeEpoch: stream!.descriptor.ownership.nativeEpoch,
                     phase: "preflight",
                     metric: "level",
                     elapsedMs: 10,
@@ -1338,50 +1455,75 @@ describe("real version5 ListenerService orchestration", () => {
                       ? "armed"
                       : "cancelled",
                 ...(control.action === "prepare"
-                  ? { nativeReady: data.ready }
+                  ? { nativeReady: stream.ready }
                   : {}),
                 ...(control.action === "arm"
-                  ? { nativeArm: data.proof.armed }
+                  ? { nativeArm: stream.armed }
                   : {}),
                 ...(control.action === "cancel" ? { reason: "cancelled" } : {}),
               });
               if (control.action === "prepare")
                 write([preReady, reply, progress()]);
               else if (control.action !== "arm") write([cancelled, reply]);
-              else
-                write([
-                  reply,
-                  listenerResultMetricSchema.parse({
-                    ...wire,
-                    type: "listener.result",
-                    requestId: randomUUID(),
-                    sequence: sequence++,
-                    status: "progress",
-                    nativeLaunch: data.proof.launched,
-                  }),
-                  ...(!cancel
-                    ? [
-                        listenerResultMetricSchema.parse({
-                          ...wire,
-                          type: "listener.result",
-                          requestId: randomUUID(),
-                          sequence: sequence++,
-                          status:
-                            data.observation.outcome === "partial"
-                              ? "partial"
-                              : "completed",
-                          observation: data.observation,
-                          nativeSourceCoverage: data.proof,
-                        }),
-                      ]
-                    : []),
-                ]);
+              else {
+                const launch = listenerResultMetricSchema.parse({
+                  ...wire,
+                  type: "listener.result",
+                  requestId: randomUUID(),
+                  sequence: sequence++,
+                  status: "progress",
+                  nativeLaunch: stream.manifest.nativeProof.launch,
+                });
+                const delivery: unknown[] = [];
+                if (!cancel) {
+                  delivery.push(
+                    listenerResultMetricSchema.parse({
+                      ...wire,
+                      type: "listener.result",
+                      requestId: randomUUID(),
+                      sequence: sequence++,
+                      status: "progress",
+                      metricStream: compactMetricRecordStreamDescriptor(
+                        stream.descriptor,
+                      ),
+                    }),
+                  );
+                  for await (const metricChunk of stream.chunks())
+                    delivery.push(
+                      listenerResultMetricSchema.parse({
+                        ...wire,
+                        type: "listener.result",
+                        requestId: randomUUID(),
+                        sequence: sequence++,
+                        status: "progress",
+                        metricChunk,
+                      }),
+                    );
+                  delivery.push(
+                    listenerResultMetricSchema.parse({
+                      ...wire,
+                      type: "listener.result",
+                      requestId: randomUUID(),
+                      sequence: sequence++,
+                      status:
+                        stream.manifest.outcome === "complete"
+                          ? "completed"
+                          : stream.manifest.outcome,
+                      metricManifest: stream.manifest,
+                    }),
+                  );
+                }
+                write([reply, launch, ...delivery]);
+              }
             }
           } catch (cause) {
             failed(
               cause instanceof Error ? cause : new Error("TCP peer failed"),
             );
           }
+        };
+        socket.on("data", (chunk: string) => {
+          void handleData(chunk).catch(failed);
         });
         try {
           await Promise.race([
@@ -1403,29 +1545,47 @@ describe("real version5 ListenerService orchestration", () => {
                 track: { id: "17" },
                 device: { id: "29" },
               },
-              listener: listenerRegistrationMetricSchema.parse({
-                ...data.registration,
-                nativeStatus: {
-                  ...data.registration.nativeStatus,
-                  readiness: "BLOCKED",
-                  executedGen: null,
-                  reason: "fresh_per_pass_native_validation_required",
-                },
-              }),
+              listener: withSyntheticMetricStreamRegistration(
+                listenerRegistrationMetricSchema.parse({
+                  ...data.registration,
+                  nativeStatus: {
+                    ...data.registration.nativeStatus,
+                    readiness: "BLOCKED",
+                    executedGen: null,
+                    reason: "fresh_per_pass_native_validation_required",
+                  },
+                }),
+              ),
             },
           ]);
           await Promise.race([registered, fault]);
           const descriptor = server.inspectListeners()[0]!;
           const abort = new AbortController();
           const preparing = Promise.race([
-            prepareMetricListenerCapture(server, {
-              bindings: [{ descriptor, config: data.config }],
+            prepareMetricListenerStream(server, {
+              bindings: [
+                createMetricCaptureBinding({
+                  descriptor,
+                  source: data.observation.source,
+                  tempoBpm: data.config.geometry.tempoBpm,
+                  timingPolicy: data.config.timingPolicy,
+                  ...(data.config.mode === "session"
+                    ? { stoppedBeat: data.config.stoppedBeat }
+                    : {}),
+                }),
+              ],
               trace,
               passId: "tcp-pass",
               signal: abort.signal,
               controlTimeoutMs: 1000,
               cleanupTimeoutMs: 100,
               resultTimeoutMs: 2000,
+              streamSink: {
+                begin: vi.fn(async () => {}),
+                append: vi.fn(async () => {}),
+                finalize: vi.fn(async () => {}),
+                abort: vi.fn(async () => {}),
+              },
             }),
             fault,
           ]);
@@ -1452,11 +1612,11 @@ describe("real version5 ListenerService orchestration", () => {
               field: "metric.config.attackThresholdDb",
               actual: {
                 state: "observed",
-                value: data.ready.config.attacks!.thresholdDb,
+                value: stream!.ready.config.attacks!.thresholdDb,
               },
               expected: {
                 state: "observed",
-                value: data.config.attacks!.thresholdDb,
+                value: stream!.config.attacks!.thresholdDb,
               },
               comparison: "equal",
             });

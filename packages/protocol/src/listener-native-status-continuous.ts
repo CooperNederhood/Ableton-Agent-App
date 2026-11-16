@@ -21,9 +21,9 @@ export const listenerNativeContinuousMetricStatusSchema = z
     version: z.literal(6),
     scope: z.literal(NATIVE_CONTINUOUS_METRIC_LISTENING_SCOPE),
     maxAudioDurationMs: z.literal(600_000),
-    maxSessionAudioDurationMs: z.literal(30_000),
+    maxSessionAudioDurationMs: z.literal(600_000),
     maxReportRows: z.literal(MAX_CONTINUOUS_METRIC_REPORT_ROWS),
-    maxSessionReportRows: z.literal(2_000),
+    maxSessionReportRows: z.literal(MAX_CONTINUOUS_METRIC_REPORT_ROWS),
     streamCapability: metricRecordStreamCapabilitySchema,
     executedGen: nativeContinuousMetricArmProofSchema.nullable().optional(),
   })

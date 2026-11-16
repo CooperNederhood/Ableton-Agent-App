@@ -6,8 +6,14 @@ import {
   requireCondition,
   safeRelativePath,
 } from "./validation.js";
-import type { AssertionInput, FixtureManifest } from "./contracts.js";
+import type {
+  AssertionInput,
+  FixtureManifest,
+  ScenarioManifest,
+  Facts,
+} from "./contracts.js";
 import type { ArrangementStreamProof } from "./arrangement-stream.js";
+import { metricAudioObservationSchema } from "@ableton-agent/protocol";
 
 /** Dedicated Arrangement capability; Session source and duration contracts remain unchanged. */
 export const ARRANGEMENT_AUDIO_CAPABILITY = "arrangement-audio" as const;
@@ -22,9 +28,12 @@ export interface ArrangementFixtureSource extends ArrangementRange {
   readonly trackName: string;
   readonly listenerBindingSlot: string;
   readonly tempoBpm: number;
+  readonly targetArmed?: boolean;
+  readonly targetMonitoring?: "off" | "auto";
   readonly clips: readonly (ArrangementRange & {
     readonly savedClipId: string;
-    readonly mediaTarget: string;
+    readonly mediaTarget: string | null;
+    readonly midiNotesSha256?: string;
   })[];
 }
 export interface ArrangementSourceIdentity extends ArrangementRange {
@@ -34,7 +43,8 @@ export interface ArrangementSourceIdentity extends ArrangementRange {
   readonly clips: readonly (ArrangementRange & {
     readonly clipId: string;
     readonly savedClipId: string;
-    readonly mediaSha256: string;
+    readonly mediaSha256: string | null;
+    readonly midiNotesSha256?: string;
   })[];
 }
 export interface ArrangementSourceEvidence {
@@ -47,7 +57,8 @@ export interface ArrangementSourceEvidence {
   readonly savedProjectSha256: string;
   readonly savedClips: readonly (ArrangementRange & {
     readonly savedClipId: string;
-    readonly mediaTarget: string;
+    readonly mediaTarget: string | null;
+    readonly midiNotesSha256?: string;
   })[];
   readonly media: readonly {
     readonly target: string;
@@ -59,6 +70,22 @@ export interface ArrangementSourceEvidence {
   readonly before: ArrangementLoadedState;
   readonly after: ArrangementLoadedState;
 }
+export function scenarioArrangementSource(
+  fixture: FixtureManifest,
+  scenario: ScenarioManifest,
+): ArrangementFixtureSource {
+  const ids = new Set(
+    scenario.steps.flatMap((step) => (step.sourceId ? [step.sourceId] : [])),
+  );
+  const definitions = fixture.arrangementSources ?? [];
+  const selected = definitions.filter((source) => ids.has(source.id));
+  if (selected.length === 0 && definitions.length === 1) return definitions[0]!;
+  requireCondition(
+    selected.length === 1,
+    "Scenario requires exactly one declared Arrangement source",
+  );
+  return selected[0]!;
+}
 export interface ArrangementLoadedState {
   readonly tempoBpm: number;
   readonly tempoAutomation: false;
@@ -69,12 +96,13 @@ export interface ArrangementLoadedState {
   readonly sessionRecord: false;
   readonly targetRecording: false;
   readonly targetArmed: boolean;
-  readonly targetMonitoring: "off";
+  readonly targetMonitoring: "off" | "auto";
   readonly backToArrangement: boolean;
   readonly playingSessionClips: 0;
   readonly queuedSessionClips: 0;
 }
 export interface ArrangementCaptureEvidence {
+  readonly contextId?: string;
   readonly stream?: ArrangementStreamProof;
   readonly passId: string;
   readonly operationId: string;
@@ -101,13 +129,139 @@ export interface ArrangementCaptureEvidence {
     readonly startSample: number;
     readonly endSample: number;
     readonly source: ArrangementSourceIdentity;
-    readonly nonSilent: boolean;
+    readonly nonSilent?: boolean;
   }[];
   readonly cleanup: {
     readonly captureReleased: boolean;
     readonly sourceRestored: boolean;
     readonly transportPlaying: boolean;
     readonly failure: string | null;
+  };
+}
+export interface ArrangementObservationOwner {
+  readonly baseline: ArrangementSourceEvidence;
+  readonly expectedRange: ArrangementRange;
+  readonly passId: string;
+  readonly traceId: string;
+  readonly correlationId: string;
+  readonly causationId: string;
+}
+
+export function verifyArrangementObservationSource(
+  input: unknown,
+  owner: ArrangementObservationOwner,
+) {
+  const observation = metricAudioObservationSchema.parse(input);
+  const {
+    baseline,
+    expectedRange,
+    passId,
+    traceId,
+    correlationId,
+    causationId,
+  } = owner;
+  const source = observation.source;
+  requireCondition(
+    source.view === "arrangement" &&
+      source.target.kind === "regular" &&
+      source.target.index === baseline.source.trackIndex &&
+      source.target.expectedReference === baseline.source.trackId &&
+      expectedRange.startBeat >= baseline.source.startBeat &&
+      expectedRange.endBeat <= baseline.source.endBeat &&
+      expectedRange.endBeat > expectedRange.startBeat &&
+      source.transport.startBeat === expectedRange.startBeat &&
+      source.transport.endBeat === expectedRange.endBeat &&
+      observation.geometry.startBeat === expectedRange.startBeat &&
+      observation.geometry.endBeat === expectedRange.endBeat &&
+      observation.ownership.passId === passId &&
+      observation.ownership.listenerId === baseline.listenerId &&
+      observation.ownership.traceId === traceId &&
+      observation.ownership.correlationId === correlationId &&
+      observation.ownership.causationId === causationId,
+    "Persisted Arrangement observation source, approved range or owner differs",
+  );
+  const metrics = [
+    "level",
+    "spectral-centroid",
+    "attacks",
+    "mel-bands",
+    "pitch",
+    "spectral-shape",
+  ] as const;
+  requireCondition(
+    observation.outcome === "complete" &&
+      observation.reduction.mode === "none" &&
+      observation.requestedMetrics.length === metrics.length &&
+      metrics.every(
+        (name) =>
+          observation.requestedMetrics.includes(name) &&
+          observation.metrics[name]?.status === "complete" &&
+          observation.metrics[name]?.gaps.length === 0,
+      ),
+    "Arrangement observation is incomplete, truncated or missing metric families",
+  );
+  return observation;
+}
+
+export function projectArrangementObservationCapture(
+  input: unknown,
+  owner: ArrangementObservationOwner & {
+    readonly contextId: string;
+    readonly operationId: string;
+    readonly nativeCleanupConfirmed: boolean;
+    readonly sourceCleanupConfirmed: boolean;
+    readonly playbackPlaying: boolean;
+  },
+): ArrangementCaptureEvidence {
+  const observation = verifyArrangementObservationSource(input, owner);
+  requireCondition(
+    owner.nativeCleanupConfirmed && owner.sourceCleanupConfirmed,
+    "Arrangement native/source cleanup is not independently confirmed",
+  );
+  return {
+    contextId: owner.contextId,
+    passId: owner.passId,
+    operationId: owner.operationId,
+    traceId: owner.traceId,
+    correlationId: owner.correlationId,
+    causationId: owner.causationId,
+    listenerId: observation.ownership.listenerId,
+    source: owner.baseline.source,
+    sampleRate: observation.geometry.sampleRate,
+    startSample: observation.geometry.startSample,
+    endSample: observation.geometry.endSample,
+    ...(observation.metrics["spectral-centroid"].algorithm
+      ?.firstFrameEndSample == null
+      ? {}
+      : {
+          spectralCentroidFirstFrameEndSample:
+            observation.metrics["spectral-centroid"].algorithm
+              .firstFrameEndSample,
+        }),
+    complete: true,
+    truncated: false,
+    failure: null,
+    metrics: observation.requestedMetrics.map((name) => {
+      const metric = observation.metrics[name]!;
+      return {
+        name,
+        passId: owner.passId,
+        listenerId: observation.ownership.listenerId,
+        expectedRecords: metric.expectedRecords,
+        receivedRecords:
+          "records" in metric ? metric.records.length : metric.frames.length,
+        missingRecords: metric.gaps.reduce((sum, gap) => sum + gap.count, 0),
+        startSample: observation.geometry.startSample,
+        endSample: observation.geometry.endSample,
+        source: owner.baseline.source,
+      };
+    }),
+    cleanup: {
+      captureReleased: true,
+      sourceRestored: true,
+      transportPlaying: owner.playbackPlaying,
+      failure: null,
+    },
   };
 }
 export type ArrangementMetricRecordExpectation = number | "verified-fft-phase";
@@ -180,6 +334,8 @@ export function validateArrangementDefinition(
     "trackName",
     "listenerBindingSlot",
     "tempoBpm",
+    "targetArmed",
+    "targetMonitoring",
     "startBeat",
     "endBeat",
     "clips",
@@ -194,28 +350,47 @@ export function validateArrangementDefinition(
     "Invalid Arrangement selector",
   );
   arrangementExpectedFrames(value, value.tempoBpm, 48_000);
+  requireCondition(
+    value.targetArmed === undefined || typeof value.targetArmed === "boolean",
+    "Invalid source-specific Arrangement armed state",
+  );
+  requireCondition(
+    value.targetMonitoring === undefined ||
+      value.targetMonitoring === "off" ||
+      value.targetMonitoring === "auto",
+    "Invalid source-specific Arrangement monitoring state",
+  );
   adjacent(value.clips, value);
   const ids = new Set<string>();
   for (const clip of value.clips) {
     rejectUnknownFields(clip as unknown as Record<string, unknown>, [
       "savedClipId",
       "mediaTarget",
+      "midiNotesSha256",
       "startBeat",
       "endBeat",
     ]);
     identifier(clip.savedClipId);
-    safeRelativePath(clip.mediaTarget);
+    if (clip.mediaTarget === null) hash(clip.midiNotesSha256);
+    else {
+      safeRelativePath(clip.mediaTarget);
+      requireCondition(
+        clip.midiNotesSha256 === undefined,
+        "Audio source cannot declare MIDI notes",
+      );
+    }
     requireCondition(
       !ids.has(clip.savedClipId),
       "Duplicate saved Arrangement clip identity",
     );
     ids.add(clip.savedClipId);
     requireCondition(
-      fixture.resources.some(
-        (item) =>
-          item.target === clip.mediaTarget &&
-          /\.(wav|aiff?)$/u.test(item.target),
-      ),
+      clip.mediaTarget === null ||
+        fixture.resources.some(
+          (item) =>
+            item.target === clip.mediaTarget &&
+            /\.(wav|aiff?)$/u.test(item.target),
+        ),
       "Undeclared Arrangement media",
     );
   }
@@ -224,10 +399,19 @@ export function validateArrangementDefinition(
       (binding) =>
         binding.slot === value.listenerBindingSlot &&
         binding.trackIndex === value.trackIndex &&
-        binding.slot.startsWith("AudioTrack:") &&
+        binding.slot.startsWith(
+          value.clips[0]!.mediaTarget === null ? "MidiTrack:" : "AudioTrack:",
+        ) &&
         binding.deviceIndex < 8,
     ),
-    "Arrangement requires an exact top-level audio listener binding",
+    "Arrangement requires an exact same-kind top-level listener binding",
+  );
+  requireCondition(
+    value.clips.every(
+      (clip) =>
+        (clip.mediaTarget === null) === (value.clips[0]!.mediaTarget === null),
+    ),
+    "Arrangement source mixes audio and MIDI clips",
   );
 }
 export function validateArrangementIdentity(
@@ -255,12 +439,20 @@ export function validateArrangementIdentity(
       "clipId",
       "savedClipId",
       "mediaSha256",
+      "midiNotesSha256",
       "startBeat",
       "endBeat",
     ]);
     identifier(clip.clipId);
     identifier(clip.savedClipId);
-    hash(clip.mediaSha256);
+    if (clip.mediaSha256 === null) hash(clip.midiNotesSha256);
+    else {
+      hash(clip.mediaSha256);
+      requireCondition(
+        clip.midiNotesSha256 === undefined,
+        "Audio identity cannot declare MIDI notes",
+      );
+    }
     requireCondition(
       !liveIds.has(clip.clipId) && !savedIds.has(clip.savedClipId),
       "Duplicate Arrangement source identity",
@@ -287,12 +479,28 @@ export function sameArrangementSource(
         clip.clipId === other.clipId &&
         clip.savedClipId === other.savedClipId &&
         clip.mediaSha256 === other.mediaSha256 &&
+        clip.midiNotesSha256 === other.midiNotesSha256 &&
         clip.startBeat === other.startBeat &&
         clip.endBeat === other.endBeat
       );
     })
   );
 }
+export function declaredArrangementBaseline(
+  fixture: FixtureManifest,
+  definition: ArrangementFixtureSource,
+): Facts {
+  return {
+    ...fixture.baseline,
+    ...(definition.targetArmed === undefined
+      ? {}
+      : { targetArmed: definition.targetArmed }),
+    ...(definition.targetMonitoring === undefined
+      ? {}
+      : { targetMonitoring: definition.targetMonitoring }),
+  };
+}
+
 export function verifyArrangementSource(
   fixture: FixtureManifest,
   definition: ArrangementFixtureSource,
@@ -310,6 +518,7 @@ export function verifyArrangementSource(
   const binding = fixture.listenerBindings!.find(
     (item) => item.slot === definition.listenerBindingSlot,
   )!;
+  const expectedState = declaredArrangementBaseline(fixture, definition);
   requireCondition(
     evidence.source.trackIndex === definition.trackIndex &&
       evidence.trackName === definition.trackName &&
@@ -337,11 +546,18 @@ export function verifyArrangementSource(
         loaded.savedClipId === expected.savedClipId &&
         loaded.startBeat === expected.startBeat &&
         loaded.endBeat === expected.endBeat &&
-        loaded.mediaSha256 === resource.sha256,
+        loaded.mediaSha256 ===
+          (expected.mediaTarget === null ? null : resource.sha256) &&
+        saved.midiNotesSha256 === expected.midiNotesSha256 &&
+        loaded.midiNotesSha256 === expected.midiNotesSha256,
       "Independent saved/loaded Arrangement clip evidence differs",
     );
   }
-  const targets = new Set(definition.clips.map((clip) => clip.mediaTarget));
+  const targets = new Set(
+    definition.clips.flatMap((clip) =>
+      clip.mediaTarget === null ? [] : [clip.mediaTarget],
+    ),
+  );
   requireCondition(
     evidence.media.length === targets.size,
     "Missing or additional loaded Arrangement media",
@@ -371,13 +587,14 @@ export function verifyArrangementSource(
         state.tempoBpm === definition.tempoBpm &&
         state.tempoAutomation === false &&
         state.currentBeat === fixture.baseline.currentSongTime &&
-        state.targetArmed === fixture.baseline.targetArmed &&
+        state.targetArmed === expectedState.targetArmed &&
         state.transportPlaying === false &&
         state.loopEnabled === false &&
         state.arrangementRecord === false &&
         state.sessionRecord === false &&
         state.targetRecording === false &&
-        state.targetMonitoring === "off" &&
+        state.targetMonitoring === (expectedState.targetMonitoring ?? "off") &&
+        (state.targetMonitoring === "off" || state.targetArmed === false) &&
         state.backToArrangement ===
           (fixture.baseline.backToArrangement ?? false) &&
         state.playingSessionClips === 0 &&

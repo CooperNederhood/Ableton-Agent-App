@@ -1088,9 +1088,14 @@ export const desktopSessionContextStoreReferenceSchema = z
     schemaVersion: z.union([z.literal(2), z.literal(3), z.literal(4)]),
     relativePath: z.literal("context/entity-context.sqlite"),
     kinds: z
-      .array(audioObservationKindSchema)
+      .array(
+        z.union([
+          audioObservationKindSchema,
+          z.literal("metric-record-stream-context/v1"),
+        ]),
+      )
       .min(1)
-      .max(audioObservationKindSchema.options.length)
+      .max(audioObservationKindSchema.options.length + 1)
       .refine((values) => new Set(values).size === values.length)
       .readonly(),
   })

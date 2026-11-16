@@ -1,5 +1,159 @@
 # Acceptance test authoring
 
+## Listening consolidation: message-driven storage shape and counts
+
+All four cases use the **existing user-message integration path**:
+shared acceptance runner -> user-message endpoint -> real Desktop/SDK agent
+turn -> normal listening/context tools -> production persistence -> independent
+typed postconditions. Scenario steps use `message`, not `operation`; no direct
+test dispatch endpoint or simulated agent turn is supported.
+
+Fixture startup waits for the exact runner-owned Set's recent, completed Live
+document-load evidence before accepting the Remote Script port. A template's
+early bridge is not readiness: loading the requested Set can replace that
+Control Surface. This reuses the bounded Live-log reader and existing readiness
+deadline; it does not retry messages, repair the Set or suppress proxy failures.
+
+Final qualification on Live Suite 11.3.43 is green for all four cases:
+short audio `run-J7vvwY`, short MIDI `run-U5xT9Q`, long audio `run-LozNle`
+and long MIDI `run-LkQQml`. All pin the same candidate SHA-256
+`c41d56b9211bf4a912fccd5940ed134d4f535d292e35a9ac4eed7996550bfabd`.
+Each terminal receipt
+includes all three messages, all six assertions, protected state and cleanup.
+Long cases also prove durable appends during capture.
+
+Earlier successes remain candidate-specific. `run-dYcozO`, `run-zO3xFu`,
+`run-GbWqd5` and `run-m1AuKA` retain their actual startup, truncated-response,
+deep-inspection-timeout and template-load failure outcomes. Partial-write
+regressions, explicit full-tree timeout classification and exact-fixture
+readiness address their demonstrated boundaries without attributing every
+historical disconnect to one cause or reclassifying failures as passes.
+
+The supplied Set supports one- and twenty-measure Session/Arrangement pairs
+for audio and MIDI. Execute **short audio, short MIDI, long audio, long MIDI**,
+getting each green before advancing. At 128 BPM the long cases last 37.5
+seconds; they do not qualify ten minutes. Use the existing
+`pnpm live:acceptance --scenario listening-consolidation-short-audio` entry point,
+not another runner. Registration does not establish a passing case.
+
+Each case has two actual captures: one Session user-message turn, declared
+scoped STOP/Back to Arrangement setup, then one Arrangement user-message turn.
+The agent derives features through normal tools. An owned Desktop restart and
+read-only message verify original context/feature identities and inventories
+without recapture or rederivation. Keep ordinary approvals, source/recording
+guards, trace attribution, required native evidence and terminal cleanup.
+
+The current milestone checks shared production storage systems and persisted
+schemas, exactly two contexts, one or twenty complete corresponding measures,
+the canonical fifteen-definition feature inventory/counts, and matching
+applicable channel/vector/grid dimensions. Aligned 4/4 sixteenth grids have
+sixteen cells. Expected counts come from the canonical contract, not just
+another equally empty/truncated output. Do not normalize distinct production
+formats in the test to hide a remaining storage fork.
+
+Both views are verified from original committed descriptor/chunks/manifest
+through typed Desktop reads. Restart fingerprints bind original descriptor,
+manifest and record hashes, not the restart flag or reconstructed observations.
+Fresh-capture consumers reject whole-observation delivery. Existing bounded
+feature-search and diagnostic checks read canonical immutable chunks; their
+historical observation readers remain read-only. Source proofs retain the
+original stream-content fingerprint separately from the manifest-derived
+feature `sourceFingerprint`. Comprehension keeps its four Session/one
+Arrangement contract and exact source, native owner and cleanup guards; this
+does not select another real-host comprehension run.
+Keep failed or denied agent tools unsuccessful even when captures and restart
+completed; do not broaden permissions or ignore a denial to obtain green.
+
+The structural oracle accepts the normal agent's typed read-only Arrangement
+inspection and strips only its exact application-owned post-tool guidance
+suffix. Mutation actions, malformed results, foreign/duplicated suffixes and
+failed tool results still fail. An inspection does not replace original
+capture verification or complete feature pagination; derivation totals and
+catalog descriptions never establish unread inventory membership.
+
+Measurement families retain honest support/gap/availability metadata and each
+stream's existing integrity checks. Physical chunk counts and native window
+counts need not match when batching/timing legitimately differs. Long cases
+also require durable appends before capture ends under the shared ingestion
+model. Capture completion is separate from feature readiness and cleanup.
+
+Numerical value/distance matching, exact mask equality, same-source repeatability
+controls, calibration IDs and tolerance policies are **deferred**. Keep the pure
+numerical checker/tests for later, not as a current pass gate or a reason to
+build a full-value collection subsystem. Existing corruption, owner and
+publication guards are not relaxed.
+
+The fixture's `reviewed-live` status denotes declared-source admission only.
+Owned review `consolidation-source-review-5HHNZT` verified all four Session
+sources and full audio Arrangement on Live 11.3.43. Reuse this evidence without
+claiming successful captures. MIDI Arrangement admission remains separate.
+Saved global beat 16 and reviewed source/processing settings must not be repaired.
+See the fixture README for asset hashes, source slots and remaining coverage.
+
+Deep Session admission and final source audits concern the sources used by the
+selected scenario, resolved from step source IDs and scoped listening
+permissions, not every source declared in a shared fixture. Before each capture,
+deep inspection concerns its selected source. Unscoped listening permissions
+retain the complete source inventory when their target cannot be determined.
+Explicit authoring source review still reads every declared source.
+Whole-Set identity/protected-playback checks, reviewed listener placement,
+fixture/media hashes and selected-source content/settings guards remain.
+The short-audio case must not traverse the unrelated 808 rack at baseline or
+final collection. The existing five-second bridge timeout is unchanged; this
+scope correction does not qualify expensive rack traversal latency.
+Reuse existing bounded typed
+metadata reads and message-turn capture evidence for the structural assertion;
+do not add a capture/derivation API to the test driver.
+
+Declared setup actions may release/reacquire the existing single-client bridge
+sequentially between terminal turns. Each handoff has a distinct causation ID,
+retains queued/started/progress/terminal timing, and rejects replay/concurrent
+entry. Keep the existing finite trace/record bounds and exact per-action
+permissions; a prior successful STOP must not consume the later approved Back
+to Arrangement or persistence STOP.
+
+A naturally ended nonlooping Session clip can leave Live 11's global Back to
+Arrangement flag set while track eligibility is honestly unknown. After a
+published run-owned Session capture on that same track, the protected-state
+audit accepts this idle override only with known zero playing and queued
+Session clips. This does not certify Arrangement eligibility: the normal
+STOP/Back to Arrangement handoff must still establish definite eligibility
+before Arrangement capture. Unknown counts, foreign/unpublished captures and
+other protected-state changes remain failures. Guard errors retain the bounded
+actual state and expected target settings for diagnosis.
+
+Between captures, STOP can leave Session clips marked remembered-playing even
+though transport is stopped. Back to Arrangement may clear only flags for
+clip IDs belonging to already published captures in this run. Independently
+compare complete Session snapshots against baseline excluding only those owned
+IDs, require an exact matching remembered count in both pre-read brackets, and
+require zero playing/queued Session clips after handoff. Moving transport,
+recording, unowned playback, changed structure/media/settings and inconsistent
+counts still deny dispatch. Initial authoring handoff admits no remembered
+clips by default.
+
+Arrangement cleanup has two independent proofs: native release/finalization
+must match the captured generation/epoch, and source release must match the
+authenticated listener connection, pass and agent/session trace. Bounded
+observation source-release rows carry null stream-manifest generation/epoch;
+stream source-release rows carry the original manifest ownership. Verify each
+emitted contract without inventing stream metadata for bounded observations or
+relaxing native cleanup ownership.
+
+The feature oracle accepts only the exact production transport hook framing,
+including its source-flag guidance, before parsing the typed read-only result.
+Additional, duplicated or foreign suffixes remain invalid. `run-BsVhJq`
+completed both captures and owned restart; diagnostic replay after correcting
+that framing exposed missing Arrangement bar alignment, not a passing shape
+comparison. Preserve its failed receipt.
+
+Session sources may declare their full saved `activeLengthBeats` independently
+of requested subranges. Admission of a long clip does not establish that the
+unchanged production Session capture supports it. Fix duration/alignment and
+common feature/storage defects from actual case failures, not speculative
+rewrites before the first short smoke. The unchanged
+`long-horizon-comprehension` case remains a separate follow-on gate.
+
 ## Session-to-Arrangement comprehension authoring
 
 The approved `long-horizon-comprehension` contract uses one natural user
@@ -638,6 +792,22 @@ the separate source-excluding search must match those immutable views and the
 recomputed distance. Malformed or contradictory actual feature reads still fail,
 even when an otherwise valid equality proof exists. Other analyzer arithmetic
 and explicit unavailable/validity checks are unchanged.
+
+Feature inventories use the production normalized tables (at most 100 records
+and 64 KiB per page), expanded from actual indexed metadata by the existing
+oracle. Generated source-summary prose is not part of structural identity.
+Every continuation must still be consumed; derivation totals and the catalog
+do not establish unread feature IDs or measure coverage.
+The existing structural receipt projection keeps provenance, musical alignment
+and feature shapes shared in bounded tables rather than expanding every feature
+into repeated metadata. Full twenty-measure original/restart inventories must
+fit the coordinator's unchanged 512 KiB combined-turn budget. Reference,
+ownership, definition and grid guards remain mandatory after expansion.
+Feature references use fixed-width rows with explicit ordered column names
+`id`, `provenance`, `segment`, `source`, `metadata`; IDs and table indices remain
+the actual received values. Missing/reordered columns, wrong row widths and
+foreign or invalid references fail closed. No totals or catalog entries stand
+in for unread feature identities.
 
 For full discovery, an actual bounded `list-features` inventory containing all
 fifteen canonical types and their canonical available metadata may replace a
@@ -1729,12 +1899,24 @@ private scenario runner or a weaker oracle.
 
 ## Authoring versus execution
 
-For an approved MIDI intake, `PackagedAcceptanceDriver.reviewMidiSources`
-provides the separate read-only loaded review without invented expected
-instrument hashes. It uses the same owned processes, candidate binding and
-typed preflight as execution, submits no message, requires stopped transport,
-and returns observations for review. It does not qualify a scenario or weaken
-`readBaseline`'s execution-time comparison with independently frozen expectations.
+For an approved Session audio/MIDI intake, construct
+`PackagedAcceptanceDriver` with `purpose: "source-review"`, then use
+`launch`, `ready`, `reviewSessionSources` and `cleanup`. This explicit mode
+can inspect an unqualified owned copy without falsely marking it
+`reviewed-live` or inventing expected instrument hashes. It reuses candidate
+binding and typed preflight, requires stopped transport and owned media, and
+returns observations marked `authoringReview: true`. MIDI selectors omit
+their expected `midi` hashes; audio selectors retain the declared `mediaTarget`.
+For one fully declared Arrangement audio source and any already frozen Session
+sources, `reviewDeclaredSources` reuses the ordinary saved/loaded baseline
+inspector in this same read-only mode. It verifies exact full clip coverage,
+owned media, candidate listeners and source settings without starting capture
+or changing qualification. Unknown or cancelled review requests remain denied.
+Execution baseline reads, setup actions, direct operations and user-message
+submission are denied in review mode. Cancellation before provisioning
+performs no dependency work or launch. Ordinary acceptance still requires
+`reviewed-live` and independently frozen expectations; source review cannot
+qualify a scenario.
 
 Bounded recursive instrument trees have a separate aggregate 4 MiB allowance
 in baseline evidence and the final receipt. Only the actual tree bytes receive

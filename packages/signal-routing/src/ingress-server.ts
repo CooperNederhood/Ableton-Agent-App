@@ -1732,8 +1732,8 @@ export class SignalIngressServer implements ListenerService {
         (capability) =>
           String(capability) === METRIC_CONTINUOUS_LISTENING_CAPABILITY,
       ) ||
-      owner.mode !== "arrangement" ||
-      !owner.config ||
+      owner.config?.scope !== NATIVE_CONTINUOUS_METRIC_LISTENING_SCOPE ||
+      owner.mode !== owner.config.mode ||
       !state.nativeMetricArm ||
       !state.nativeMetricLaunch ||
       state.listenerPhase === "cancelling"

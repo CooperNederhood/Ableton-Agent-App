@@ -43,6 +43,7 @@ class ListeningCommandsTest(unittest.TestCase):
             tracks=[self.track], return_tracks=[],
             master_track=types.SimpleNamespace(name="Master", devices=[]),
             is_playing=False, current_song_time=4.0, tempo=120.0,
+            signature_numerator=4, signature_denominator=4,
             record_mode=False, session_record=False, overdub=False,
             session_automation_record=False,
         )
@@ -64,6 +65,20 @@ class ListeningCommandsTest(unittest.TestCase):
 
     def inspect(self):
         return inspect_listening_context(self.context, self.params)
+
+    def test_meter_is_read_only_bounded_and_included_in_source_fingerprint(self):
+        baseline = self.inspect()["listeners"][0]["fingerprint"]["digest"]
+        self.song.signature_numerator = 3
+        self.assertEqual(self.inspect()["transport"]["timeSignature"], {
+            "numerator": 3, "denominator": 4,
+        })
+        self.assertNotEqual(
+            self.inspect()["listeners"][0]["fingerprint"]["digest"], baseline,
+        )
+        for value in (None, True, 0, 3, 256):
+            with self.subTest(denominator=value):
+                self.song.signature_denominator = value
+                self.assertIsNone(self.inspect()["transport"]["timeSignature"])
 
     def test_native_version_and_readiness_claims_are_not_lom_attestation(self):
         baseline = self.inspect()
@@ -110,6 +125,9 @@ class ListeningCommandsTest(unittest.TestCase):
         result = self.inspect()
         self.assertEqual(result["projectRevision"], 7)
         self.assertTrue(result["transport"]["safeToStart"])
+        self.assertEqual(result["transport"]["timeSignature"], {
+            "numerator": 4, "denominator": 4,
+        })
         listener = result["listeners"][0]
         self.assertEqual(listener["canonicalPath"], "live_set tracks 0 devices 0")
         clip = listener["clips"][0]

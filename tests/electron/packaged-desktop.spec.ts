@@ -28,7 +28,6 @@ import {
   type DesktopApi,
   type DesktopAppEvent,
 } from "../../apps/desktop/src/contracts.js";
-import { bridgeTokenKey } from "../../apps/desktop/src/main/bridge-credentials.js";
 import {
   closeOwnedPackagedApplication,
   withPackagedFixtureCleanup,
@@ -668,11 +667,10 @@ test("completes two pinned automation turns with the packaged Default agent", as
   }
 });
 
-test("provisions and decrypts an installed token through the real packaged OS vault without an environment-token override", async () => {
-  test.skip(process.platform !== "darwin", "Requires the macOS Keychain");
+test("reads the installed token on both packaged starts without an environment override or vault copy", async () => {
   test.setTimeout(90_000);
   const profile = await mkdtemp(
-    join(process.cwd(), "ableton-agent-packaged-native-vault-"),
+    join(process.cwd(), "ableton-agent-packaged-token-file-"),
   );
   const bridge = createServer((socket) => socket.destroy());
   const signal = createServer();
@@ -727,13 +725,12 @@ test("provisions and decrypts an installed token through the real packaged OS va
       ),
       { mode: 0o600 },
     );
-    const encryptedTokenPath = join(
+    const redundantTokenPath = join(
       storage.credentialsDirectory,
-      bridgeTokenKey,
+      "ableton-bridge-token",
     );
-    let encrypted: Buffer | undefined;
     const traceIds: string[] = [];
-    for (const source of ["remote-script", "vault"] as const) {
+    for (const attempt of [1, 2]) {
       application = await electron.launch({
         executablePath: await packagedExecutable(),
         args: [
@@ -821,8 +818,8 @@ test("provisions and decrypts an installed token through the real packaged OS va
       ]);
       const completed = credentialEvents.at(-1)!;
       expect(completed.attributes).toMatchObject({
-        source,
-        ...(source === "remote-script" ? { persisted: true } : {}),
+        source: "remote-script",
+        persisted: false,
       });
       expect(completed.durationMs).toBeGreaterThanOrEqual(0);
       expect(completed.trace?.traceId).toBeDefined();
@@ -838,20 +835,20 @@ test("provisions and decrypts an installed token through the real packaged OS va
         false,
       );
       traceIds.push(completed.trace!.traceId);
-      const bytes = await readFile(encryptedTokenPath);
-      expect(bytes.length).toBeGreaterThan(0);
-      expect(bytes.includes(Buffer.from(syntheticBridgeToken))).toBe(false);
-      if (encrypted === undefined) encrypted = bytes;
-      else expect(bytes.equals(encrypted)).toBe(true);
+      await expect(readFile(redundantTokenPath)).rejects.toMatchObject({
+        code: "ENOENT",
+      });
       const receipt = await closeOwnedPackagedApplication(application);
       if (receipt.stopped) application = undefined;
-      await test.info().attach(`owned-packaged-${source}-shutdown`, {
-        body: JSON.stringify(receipt),
-        contentType: "application/json",
-      });
+      await test
+        .info()
+        .attach(`owned-packaged-token-file-${attempt}-shutdown`, {
+          body: JSON.stringify(receipt),
+          contentType: "application/json",
+        });
       if (!receipt.successful)
         throw new Error(
-          "Packaged vault restart shutdown failed; inspect its cleanup receipt",
+          "Packaged token-file restart shutdown failed; inspect its cleanup receipt",
         );
     }
     expect(new Set(traceIds).size).toBe(2);

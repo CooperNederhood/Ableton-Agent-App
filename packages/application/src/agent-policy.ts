@@ -5,6 +5,7 @@ import type { SessionHooks } from "@github/copilot-sdk";
 import {
   BROWSER_IDENTITY_GUIDANCE,
   SESSION_TRANSPORT_GUIDANCE,
+  SESSION_SEQUENCE_GUIDANCE,
   abletonToolMetadata,
   parseAbletonToolFailure,
   resolveAbletonOperation,
@@ -362,15 +363,21 @@ export function createAgentPolicy(services: AgentPolicyServices): AgentPolicy {
         return;
       }
       blockedAttempts.delete(attemptKey(input.toolName, input.toolArgs));
+      const operationId = resolveInvocationOperation(
+        input.toolName,
+        input.toolArgs,
+      )?.metadata.operationId;
       return {
         additionalContext: [
           VERIFIED_TOOL_RESULT_GUIDANCE,
           ...(input.toolName === "ableton_transport"
             ? [TRANSPORT_SOURCE_FLAG_GUIDANCE]
             : []),
-          ...(resolveInvocationOperation(input.toolName, input.toolArgs)
-            ?.metadata.operationId === "tracks.stop_clips"
+          ...(operationId === "tracks.stop_clips"
             ? [SESSION_TRANSPORT_GUIDANCE]
+            : []),
+          ...(operationId === "listening.play_session_and_listen"
+            ? [SESSION_SEQUENCE_GUIDANCE]
             : []),
           ...(input.toolName === "ableton_browser"
             ? [BROWSER_IDENTITY_GUIDANCE]

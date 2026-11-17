@@ -568,6 +568,89 @@ describe("agent policy", () => {
     },
   );
 
+  it("reinforces stopped transport immediately after a Session listen without modifying results or authorizing replay", async () => {
+    const hooks = createAgentHooks({ getAbletonStatus: async () => connected });
+    const toolResult = {
+      resultType: "success" as const,
+      textResultForLlm: JSON.stringify({
+        action: "play-session-and-listen",
+        job: { phase: "completed", cleanupPolicy: "leave-running" },
+      }),
+    };
+    const before = structuredClone(toolResult);
+    const input = {
+      sessionId: "sdk",
+      timestamp: new Date(),
+      workingDirectory: "/tmp",
+      toolName: "ableton_listening",
+      toolArgs: {
+        action: "play-session-and-listen",
+        target: {
+          view: "session",
+          track: {
+            kind: "regular",
+            index: 0,
+            expectedReference: "00000000-0000-4000-8000-000000000001",
+            expectedName: "track",
+          },
+          sceneIndex: 0,
+          expectedClipReference: "00000000-0000-4000-8000-000000000002",
+          expectedClipName: "clip",
+        },
+      },
+      toolResult,
+    };
+    const result = await hooks.onPostToolUse?.(input, { sessionId: "sdk" });
+    expect(result?.additionalContext).toContain(
+      "Before the next Session listen",
+    );
+    expect(result?.additionalContext).toContain("FIRST stop transport");
+    expect(result?.additionalContext).toContain("isPlaying=false");
+    expect(result?.additionalContext).toContain("through ordinary approval");
+    expect(result?.additionalContext).toContain(
+      "Otherwise leave playback running",
+    );
+    expect(result?.additionalContext).toContain(
+      "repair or retry a failed pass",
+    );
+    expect(result?.additionalContext?.length).toBeLessThan(1100);
+    expect(result?.modifiedResult).toBeUndefined();
+    expect(toolResult).toEqual(before);
+    for (const action of ["play-arrangement-and-listen", "cancel", "get-pass"])
+      expect(
+        (
+          await hooks.onPostToolUse?.(
+            { ...input, toolArgs: { action } },
+            { sessionId: "sdk" },
+          )
+        )?.additionalContext,
+      ).not.toContain("FIRST stop transport");
+    await hooks.onPostToolUseFailure?.(
+      {
+        ...input,
+        error: serializeAbletonToolFailure(
+          Object.assign(new Error("Transport must be stopped"), {
+            code: "session_launch_state_unknown_or_active",
+            retryable: false,
+          }),
+        ),
+      },
+      { sessionId: "sdk" },
+    );
+    await hooks.onPostToolUse?.(
+      {
+        ...input,
+        toolName: "ableton_transport",
+        toolArgs: { action: "set-playing", isPlaying: false },
+      },
+      { sessionId: "sdk" },
+    );
+    expect(
+      (await hooks.onPreToolUse?.(input, { sessionId: "sdk" }))
+        ?.permissionDecision,
+    ).toBe("deny");
+  });
+
   it.each(["stream-overview", "stream-records", "stream-summary"])(
     "keeps %s guidance coverage-first without demanding exhaustive record reads",
     async (action) => {

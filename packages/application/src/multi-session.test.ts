@@ -2279,6 +2279,39 @@ describe("CopilotAgentService managed sessions", () => {
         expect(prompt).toContain(
           "Never repair/retry a rejected pass automatically",
         );
+        const postListen = await configs[index]?.hooks?.onPostToolUse?.(
+          {
+            sessionId: `session-${index}`,
+            timestamp: new Date(),
+            workingDirectory: "/tmp",
+            toolName: "ableton_listening",
+            toolArgs: {
+              action: "play-session-and-listen",
+              target: {
+                view: "session",
+                track: {
+                  kind: "regular",
+                  index: 0,
+                  expectedReference: "00000000-0000-4000-8000-000000000001",
+                  expectedName: "track",
+                },
+                sceneIndex: 0,
+                expectedClipReference: "00000000-0000-4000-8000-000000000002",
+                expectedClipName: "clip",
+              },
+            },
+            toolResult: {
+              resultType: "success",
+              textResultForLlm:
+                '{"action":"play-session-and-listen","job":{"phase":"completed","cleanupPolicy":"leave-running"}}',
+            },
+          },
+          { sessionId: `session-${index}` },
+        );
+        expect(postListen?.additionalContext).toContain("FIRST stop transport");
+        expect(postListen?.additionalContext).toContain("isPlaying=false");
+        expect(postListen?.additionalContext).not.toContain("derive-features");
+        expect(postListen?.modifiedResult).toBeUndefined();
         expect(prompt).toContain("source/range");
         expect(prompt).toContain(
           "Read stored values with ableton_context read",

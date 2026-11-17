@@ -29,6 +29,10 @@ Successful Session results put preparation guidance before the value payload:
 stop moving transport before the next requested capture, never probe a known
 invalid launch or repair/retry a rejected pass. This does not authorize an
 automatic stop or change leave-running cleanup.
+The existing post-tool policy hook also repeats the short Session preparation
+prerequisite immediately after listening, outside the large musical payload.
+It reuses the result guidance, does not rewrite measurements or execute a stop,
+and does not clear a failed capture's retry barrier after a later transport edit.
 
 Stored reads accept ordinary inspected clip/track targets and musical ranges.
 An unpinned request selects the newest positively fresh capture covering the

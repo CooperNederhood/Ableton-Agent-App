@@ -2150,6 +2150,44 @@ describe("Ableton tools", () => {
     expect(tool?.handler).toBe(original.handler);
   });
 
+  it.each([["read", "compare", "search", "prune"], ["read"], ["prune"]])(
+    "advertises the context action alternatives for scope %j",
+    (...actions) => {
+      const [tool] = scopeAbletonTools(
+        createAbletonTools({
+          ...services(),
+          executeListeningOperation:
+            vi.fn<
+              NonNullable<AbletonToolServices["executeListeningOperation"]>
+            >(),
+          executeContextOperation:
+            vi.fn<
+              NonNullable<AbletonToolServices["executeContextOperation"]>
+            >(),
+        }),
+        {
+          allowedToolNames: ["ableton_context"],
+          allowedOperationIds: actions.map((action) => `context.${action}`),
+        },
+      );
+      expect(tool?.description).toContain(
+        `Allowed action values in this scope: ${actions.join(", ")}.`,
+      );
+      expect(tool?.description).toContain(
+        "Each schema variant is an alternative selected by action, not a restriction to only the final variant.",
+      );
+      expect(tool?.description).not.toContain("Discover listenerIds");
+      if (!actions.includes("prune"))
+        expect(tool?.description).not.toMatch(/\bprune\b/iu);
+      const parameters = tool?.parameters as {
+        toJSONSchema(): Record<string, unknown>;
+      };
+      const schema = JSON.stringify(parameters.toJSONSchema());
+      for (const action of ["read", "compare", "search", "prune"])
+        expect(schema.includes(`"${action}"`)).toBe(actions.includes(action));
+    },
+  );
+
   it("explicitly advertises every scoped listening action without widening its runtime schema", () => {
     const scoped = scopeAbletonTools(
       createAbletonTools({

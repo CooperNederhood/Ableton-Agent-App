@@ -27,7 +27,16 @@ requested source and extent in the invoking App session and Live Set. Unknown
 freshness, duplicate names, missing listeners and incomplete coverage do not
 permit guessing, stitching separate captures or automatic playback. A pinned
 reference reads the exact observation that produced it, even after newer captures
-arrive; ordinary ownership and freshness authorization still applies.
+arrive. Exact captured evidence (including the automatic listen result) may have
+`freshness: "unknown"`: this means the recording is readable, not that the live
+source is proven unchanged. Native publication deliberately cannot certify all
+source-content and routing dependencies, so requiring positive current freshness
+for an exact recording would make every native listen lose its analysis.
+Unknown freshness is never promoted to fresh. Unpinned source selection still
+requires positive freshness; stale, unresolved and historical evidence still
+requires explicit historical access, and ownership checks always apply. A
+source-only fresh lookup can therefore be unavailable even while a returned
+capture target remains readable.
 
 ### Results organized by musical time
 
@@ -59,6 +68,9 @@ fifteen feature definitions. The agent need not call a catalog tool to learn
 what can be measured. Availability is still observation-specific; this catalog
 does not promise transcription, source recognition, LUFS, perceptual identity
 or sample-accurate synchronization.
+Scoped context descriptions explicitly enumerate the allowed action alternatives,
+as listening descriptions already do. The final union variant (`prune`) is not
+the only available action and is never a way to inspect recorded analysis.
 
 ### Bounded results and composable targets
 

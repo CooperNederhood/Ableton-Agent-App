@@ -981,6 +981,93 @@ async function analysisFixture() {
 }
 
 describe("musical analysis host", () => {
+  it("returns automatically derived native capture values without asserting current-source freshness", async () => {
+    const { host, record } = await streamFixture(true, ["level", "mel-bands"]);
+    const result = await host.executeContextOperation(
+      { action: "read-captures", contextIds: [record.metadata.id] },
+      context,
+    );
+    if (result.action !== "read-captures")
+      throw new Error("Expected automatic capture analysis");
+    expect(result.failures).toEqual([]);
+    expect(result.analyses).toHaveLength(1);
+    const analysis = result.analyses[0]!;
+    expect(analysis.source.freshness).toBe("unknown");
+    expect(
+      analysis.timeline.some((item) =>
+        item.features.some((feature) =>
+          feature.values?.some((value) => value !== null),
+        ),
+      ),
+    ).toBe(true);
+    const read = await host.executeContextOperation(
+      { action: "read", target: analysis.readTarget, includeHistorical: false },
+      context,
+    );
+    expect(read).toMatchObject({
+      action: "read",
+      analyses: [
+        { source: { freshness: "unknown" }, readTarget: analysis.readTarget },
+      ],
+    });
+    const source = record.descriptor.source;
+    if (source.view !== "arrangement" || source.target.kind !== "master")
+      throw new Error("Expected Arrangement master fixture");
+    await expect(
+      host.executeContextOperation(
+        {
+          action: "read",
+          target: {
+            kind: "source",
+            source: {
+              view: "arrangement",
+              track: {
+                kind: "master",
+                expectedReference: source.target.expectedReference,
+                expectedName:
+                  record.metadata.subject.binding.semanticLocator.name,
+              },
+            },
+          },
+          includeHistorical: false,
+        },
+        context,
+      ),
+    ).rejects.toMatchObject({ code: "analysis_not_found" });
+  });
+
+  it.each(["stale", "unresolved", "historical"] as const)(
+    "does not let unknown capture freshness hide %s feature evidence",
+    async (status) => {
+      const { host, store, record } = await streamFixture(true, ["level"]);
+      await store.waitForFeatureDerivation(record.metadata.id);
+      const page = await store.listFeatures({ entryId: record.metadata.id });
+      expect(page.items.length).toBeGreaterThan(0);
+      vi.spyOn(store, "listFeatures").mockResolvedValue({
+        ...page,
+        items: page.items.map((item) => ({
+          ...item,
+          freshness: {
+            status,
+            assessedAt: timestamp,
+            reason: "Changed binding",
+          },
+        })),
+      });
+      const result = await host.executeContextOperation(
+        { action: "read-captures", contextIds: [record.metadata.id] },
+        context,
+      );
+      expect(result).toMatchObject({
+        action: "read-captures",
+        analyses: [],
+        failures: [
+          { contextId: record.metadata.id, code: "analysis_not_fresh" },
+        ],
+      });
+    },
+  );
+
   it("retains unavailable segment reasons beside valid segments without inventing grid cells", async () => {
     const { host, store, record, segment, target } = await analysisFixture();
     const observation = createSyntheticMetricListeningObservation();
@@ -1419,7 +1506,10 @@ describe("musical analysis host", () => {
         { ...request, includeHistorical: false },
         context,
       ),
-    ).rejects.toMatchObject({ code: "analysis_not_fresh" });
+    ).resolves.toMatchObject({
+      action: "read",
+      originalMeasurements: { source: { freshness: "unknown" } },
+    });
   });
 
   it("reads authoritative original acquisition and every native frame through bounded pinned reads", async () => {
@@ -1980,7 +2070,7 @@ describe("musical analysis host", () => {
     vi.spyOn(store, "listLinks").mockResolvedValue({
       items: links.items.map((link) => ({
         ...link,
-        freshness: { ...link.freshness, status: "unknown" },
+        freshness: { ...link.freshness, status: "stale" },
       })),
     });
     await expect(read(target)).rejects.toMatchObject({

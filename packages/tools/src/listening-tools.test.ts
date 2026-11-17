@@ -69,7 +69,7 @@ function createListeningTools(services: ListeningToolServices) {
 
 describe("optional listening tool contracts", () => {
   it("binds feature selection to the stored type rather than inventory position", () => {
-    const [, tool] = createListeningTools({
+    const [listening, tool] = createListeningTools({
       executeListeningOperation: async () => ({
         action: "inspect-listeners",
         listeners: [],
@@ -81,6 +81,13 @@ describe("optional listening tool contracts", () => {
       expect(guidance).toContain("readTarget");
       expect(guidance).toContain("level-grid/v1");
       expect(guidance).not.toContain("list-features");
+    }
+    for (const guidance of [listening.description, tool.description]) {
+      expect(guidance).toContain("freshness is unknown");
+      expect(guidance).toContain("does not prove the live source unchanged");
+      expect(guidance).toContain(
+        "Ordinary source lookups require positive freshness",
+      );
     }
   });
   it.each(["completed", "failed", "cancelled"] as const)(

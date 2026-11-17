@@ -839,12 +839,15 @@ export interface ListeningToolServices {
   ): Promise<ContextOperationResult>;
 }
 
+const CAPTURE_FRESHNESS_GUIDANCE =
+  "Exact capture targets read recorded evidence even when freshness is unknown; this does not prove the live source unchanged. Ordinary source lookups require positive freshness. Stale, unresolved or historical evidence requires explicit includeHistorical.";
+
 export function createListeningTools(
   services: ListeningToolServices,
 ): [Tool<ListeningOperationParams>, Tool<AgentContextOperationParams>] {
   return [
     defineTool("ableton_listening", {
-      description: LISTENING_AGENT_GUIDANCE,
+      description: `${LISTENING_AGENT_GUIDANCE} ${CAPTURE_FRESHNESS_GUIDANCE}`,
       parameters: listeningOperationParamsSchema,
       handler: async (params, invocation) => {
         const result = listeningOperationResultSchema.parse(
@@ -868,7 +871,7 @@ export function createListeningTools(
       },
     }),
     defineTool("ableton_context", {
-      description: `Read stored musical analysis by inspected source and optional beat range, or copy a returned readTarget unchanged for one-call drill-down. Ordinary source reads choose the newest positively fresh covering capture; never recapture. Default read pages prioritize actual musical values and coverage without repeated storage identities, definitions or full support arrays. For optional canonical metadata and complete native support, request detail="evidence" with the same target; original-measurements instead reads original analyzer frames. Select range/featureTypes on the target to narrow either detail stream. Compare returns separate canonical feature distances across the complete requested extent, not identity probabilities. Search defaults to mel-grid/v1 spectral content, topK=10 (maximum 20), excludes its query capture unless withinCapture=true, and scans the complete bounded scope before ranking. Results contain actual canonical values, temporal coverage and pinned continuations within 64 KiB. Follow nextCursor with the same request, including detail; no discovery or Bash is needed. Null/unavailable is not zero. Prune requires approval and only deletes explicitly named App-session evidence. ${LISTENING_FEATURE_CATALOG}`,
+      description: `Read stored musical analysis by inspected source and optional beat range, or copy a returned readTarget unchanged for one-call drill-down. Ordinary source reads choose the newest positively fresh covering capture; never recapture. Default read pages prioritize actual musical values and coverage without repeated storage identities, definitions or full support arrays. For optional canonical metadata and complete native support, request detail="evidence" with the same target; original-measurements instead reads original analyzer frames. Select range/featureTypes on the target to narrow either detail stream. Compare returns separate canonical feature distances across the complete requested extent, not identity probabilities. Search defaults to mel-grid/v1 spectral content, topK=10 (maximum 20), excludes its query capture unless withinCapture=true, and scans the complete bounded scope before ranking. Results contain actual canonical values, temporal coverage and pinned continuations within 64 KiB. Follow nextCursor with the same request, including detail; no discovery or Bash is needed. Null/unavailable is not zero. Prune requires approval and only deletes explicitly named App-session evidence. ${CAPTURE_FRESHNESS_GUIDANCE} ${LISTENING_FEATURE_CATALOG}`,
       parameters: agentContextOperationParamsSchema,
       handler: async (params, invocation) =>
         executeContextDiagnosticOperation(

@@ -1522,22 +1522,22 @@ export function scopeAbletonTools(
           options.capabilities[descriptor.requiredCapability] === true),
     );
     if (selected.length === 0) return [];
-    const listeningDescription = (tool.description ?? "")
+    const scopedDescription = (tool.description ?? "")
       .split(/(?<=[.!?])\s+/u)
       .filter(
         (sentence) =>
           !descriptors.some(
             (descriptor) =>
               !selected.includes(descriptor) &&
-              new RegExp(`\\b${descriptor.action}\\b`, "u").test(sentence),
+              new RegExp(`\\b${descriptor.action}\\b`, "iu").test(sentence),
           ),
       )
       .join(" ");
     const scopedTool =
-      tool.name === "ableton_listening"
+      tool.name === "ableton_listening" || tool.name === "ableton_context"
         ? {
             ...tool,
-            description: `${listeningDescription}\nAllowed action values in this scope: ${selected.map((descriptor) => descriptor.action).join(", ")}. Each schema variant is an alternative selected by action, not a restriction to only the final variant. Use the arguments required by the selected action.${selected.some((descriptor) => descriptor.action === "inspect-listeners") ? " Discover listenerIds with inspect-listeners before the first capture; never guess them from track or device references." : ""}`,
+            description: `${scopedDescription}\nAllowed action values in this scope: ${selected.map((descriptor) => descriptor.action).join(", ")}. Each schema variant is an alternative selected by action, not a restriction to only the final variant. Use the arguments required by the selected action.${selected.some((descriptor) => descriptor.action === "inspect-listeners") ? " Discover listenerIds with inspect-listeners before the first capture; never guess them from track or device references." : ""}`,
           }
         : tool.name === "ableton_transport"
           ? {

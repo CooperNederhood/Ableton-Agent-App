@@ -10,6 +10,11 @@
       read, compare and search while preserving typed diagnostic consumers.
 - [x] Resolve the newest positively fresh covering capture; preserve exact
       source/owner guards and pin returned references to immutable evidence.
+- [x] Read exact native captures with honestly unknown current-source freshness,
+      without weakening fresh source selection or stale/ownership guards.
+      Preserve `run-IP1P9O`: capture succeeded but automatic analysis was denied;
+      the subsequent unsolicited prune request was denied with no deletion.
+      Cover real repository publication/derivation rather than mocking freshness.
 - [x] Resolve capture arguments before the actual SDK human-approval callback;
       bind frozen canonical arguments to the tool-call ID and invocation trace,
       with no playback after denial, cancellation or mismatch.

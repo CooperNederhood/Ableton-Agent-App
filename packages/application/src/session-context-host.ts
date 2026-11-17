@@ -714,6 +714,7 @@ export function createSessionContextHost(
     operation: ContextOperationOptions,
     requested?: CaptureAnalysisTarget,
     expectedName?: string,
+    requireFresh = false,
   ): Promise<AnalysisSource> => {
     if (
       requested &&
@@ -767,7 +768,11 @@ export function createSessionContextHost(
         "permission_denied",
         "Recorded source binding belongs to another observation or owner",
       );
-    if (!includeHistorical && link.freshness.status !== "fresh")
+    if (
+      !includeHistorical &&
+      link.freshness.status !== "fresh" &&
+      (requireFresh || link.freshness.status !== "unknown")
+    )
       throw new ListeningFailure(
         "analysis_not_fresh",
         "The recorded source is not positively fresh; inspect the source or explicitly request historical evidence",
@@ -940,6 +945,7 @@ export function createSessionContextHost(
           target.source.view === "session"
             ? target.source.expectedClipName
             : target.source.track.expectedName,
+          true,
         );
         const readTarget = {
           ...source.readTarget,
@@ -1022,6 +1028,7 @@ export function createSessionContextHost(
       original.source.view === "session"
         ? original.source.expectedClipName
         : original.source.track.expectedName,
+      true,
     );
   };
   const loadAnalysis = async (
@@ -1068,7 +1075,14 @@ export function createSessionContextHost(
             "permission_denied",
             "Feature ownership does not match the selected observation",
           );
-        if (!includeHistorical && record.freshness?.status !== "fresh")
+        if (
+          !includeHistorical &&
+          record.freshness?.status !== "fresh" &&
+          !(
+            source.freshness === "unknown" &&
+            record.freshness?.status === "unknown"
+          )
+        )
           throw new ListeningFailure(
             "analysis_not_fresh",
             "Feature freshness changed while reading the selected observation",

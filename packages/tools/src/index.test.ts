@@ -2286,6 +2286,9 @@ describe("Ableton tools", () => {
         "captures available metric families automatically",
       );
       expect(listening.description).toContain(
+        "never batch or parallelize listening calls",
+      );
+      expect(listening.description).toContain(
         "Normally omit listenerIds; these identify installed devices, not metric or feature names",
       );
       interface Schema {

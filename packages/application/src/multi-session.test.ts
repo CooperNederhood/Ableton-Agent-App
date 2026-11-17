@@ -2270,6 +2270,7 @@ describe("CopilotAgentService managed sessions", () => {
         const prompt = configs[index]?.customAgents?.[0]?.prompt;
         expect(prompt).toContain("automatically derived musical values");
         expect(prompt).toContain("Listen returns capture status");
+        expect(prompt).toContain("never batch or parallelize listening calls");
         expect(prompt).toContain(
           "no playback, derivation or inventory call is needed",
         );

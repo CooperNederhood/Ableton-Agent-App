@@ -33,6 +33,9 @@ The existing post-tool policy hook also repeats the short Session preparation
 prerequisite immediately after listening, outside the large musical payload.
 It reuses the result guidance, does not rewrite measurements or execute a stop,
 and does not clear a failed capture's retry barrier after a later transport edit.
+Initial tool and agent guidance also forbids batching or parallelizing listening
+calls: they share song transport and need approved preparation between captures.
+Post-result guidance cannot correct multiple calls submitted before any result.
 
 Stored reads accept ordinary inspected clip/track targets and musical ranges.
 An unpinned request selects the newest positively fresh capture covering the

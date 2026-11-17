@@ -48,6 +48,8 @@
 - [x] Reuse concise next-Session preparation guidance in the post-tool policy
       hook, including fresh/resumed SDK sessions. Preserve result bytes,
       leave-running behavior, approvals and failed-capture retry barriers.
+- [x] Put shared-transport serialization and between-capture preparation in
+      initial Default/scoped guidance, before any captures can be batched.
 - [x] Continue reads with a self-contained signed cursor, retaining the original
       target/detail/history scope and rechecking ownership, freshness and expiry.
       Keep exact byte bounds, complete reconstruction and tamper denial.

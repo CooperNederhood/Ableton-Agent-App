@@ -41,6 +41,13 @@ Qualification, candidate pins and preserved failures are maintained in the
 
 ## Shared capture and feature consolidation
 
+- [x] Make Desktop stored-context contracts, rendering and persistence tests
+      stream-only. Remove obsolete observation renderers and restore fixtures
+      rather than adding a compatibility adapter; retain bounded typed reads,
+      source ownership, error recovery and late-result isolation.
+- [x] Assert the shared finite-stream startup capability in both normal and
+      automation Electron tests.
+
 - [x] Refresh all four cases on identical final candidate
       `c41d56b9211bf4a912fccd5940ed134d4f535d292e35a9ac4eed7996550bfabd`:
       short audio `run-J7vvwY`, short MIDI `run-U5xT9Q`, long audio `run-LozNle`,

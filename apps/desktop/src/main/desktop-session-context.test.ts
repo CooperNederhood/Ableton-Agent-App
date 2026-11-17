@@ -420,6 +420,9 @@ async function stagedCapture(mode: "session" | "arrangement") {
   const context = invocation(desktopOwner);
   const controller = new AbortController();
   const data = createSyntheticMetricWireFixture(mode);
+  const registration = withSyntheticMetricStreamRegistration(
+    listenerRegistrationMetricSchema.parse(data.registration),
+  );
   const uuid = (index: number) =>
     `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`;
   const target = {
@@ -447,10 +450,9 @@ async function stagedCapture(mode: "session" | "arrangement") {
     },
     binding: { trackId: "500", deviceId: "600" },
     registration: listenerRegistrationMetricSchema.parse({
-      ...withSyntheticMetricStreamRegistration(data.registration),
+      ...registration,
       nativeStatus: {
-        ...withSyntheticMetricStreamRegistration(data.registration)
-          .nativeStatus,
+        ...registration.nativeStatus,
         readiness: "BLOCKED",
         reason: "fresh_per_pass_native_validation_required",
         executedGen: null,

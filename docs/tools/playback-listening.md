@@ -774,6 +774,16 @@ state. Desktop shows retained seconds separately from lifecycle completion;
 even full progress is not terminal source/metric/cleanup verification. No audio
 or measurement vectors are included in these progress events.
 
+Desktop stored-context contracts and rendering accept only the shared
+`metric-record-stream-context/v1` format. Obsolete observation renderers and
+version-restoration fixtures are removed rather than adapted. The detail shows
+the bounded capture reference, source view, geometry and requested metrics;
+it does not fabricate whole-observation summaries or infer completion from a
+reference. Original values and terminal evidence remain available through the
+existing typed, bounded capture/chunk queries. Current-stream persistence,
+foreign-identity rejection, error recovery and late-result isolation retain
+component, contract and Electron coverage.
+
 The coordinator distinguishes prepared `metric-record-stream/v1` captures from
 whole observations. A stream returns manifests, never an empty observation
 array standing in for success. Before publication it checks Arrangement scope,
@@ -1549,8 +1559,9 @@ smoke verifier checks the owned process's exact path, inode/device and pinned
 bytes independently of SpectralShape. Dependency inventory checking is confined
 to the pinned dependency tree, not a changing snapshot of unrelated source
 files; unexpected dependency siblings, substitutions and symlinks remain denied.
-The Desktop detail exposes complete stereo vectors, frequencies, frame paging,
-ratio reasons and gaps through the existing typed context path.
+That earlier observation-based Desktop detail exposed stereo vectors,
+frequencies, frame paging, ratio reasons and gaps. It is superseded by the
+shared stream-reference detail and bounded capture/chunk queries described above.
 
 Latest offline checkpoints: 5,119 TypeScript tests across 237 files, 928 Max
 tests, workspace build/lint, and two Electron context-persistence tests pass.

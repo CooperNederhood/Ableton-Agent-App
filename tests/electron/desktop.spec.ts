@@ -31,14 +31,8 @@ import type {
   RequestOf,
 } from "../../apps/desktop/src/contracts.js";
 import {
-  listeningFixturePassId,
   listeningFixtureSessionId,
   seedListeningContext,
-  seedMixedListeningContext,
-  descriptiveFixturePassId,
-  sessionFixturePassId,
-  seedMelListeningContext,
-  melFixturePassId,
 } from "./listening-context-fixture.js";
 import {
   createDesktopTestEnvironment,
@@ -1328,23 +1322,20 @@ for (const action of [
   }
 }
 
-test("renders and reopens persisted mel and analyzer detail through typed IPC without starting Live", async () => {
+test("reopens the current stream context through typed IPC after restart", async () => {
   const launched = await launchIsolatedDesktop(
     {},
     undefined,
-    seedMelListeningContext,
+    seedListeningContext,
   );
-  let application: Awaited<ReturnType<typeof electron.launch>> | undefined =
+  const { profile } = launched;
+  let application: typeof launched.application | undefined =
     launched.application;
-  let savedId: string | undefined;
-  let savedPayload: string | undefined;
+  let original: string | undefined;
   try {
     for (let cycle = 0; cycle < 2; cycle++) {
       application ??= await electron.launch({
-        args: [
-          desktopPath,
-          `--user-data-dir=${join(launched.profile, "electron")}`,
-        ],
+        args: [desktopPath, `--user-data-dir=${join(profile, "electron")}`],
         cwd: process.cwd(),
         env: launched.environment,
       });
@@ -1358,14 +1349,9 @@ test("renders and reopens persisted mel and analyzer detail through typed IPC wi
       await window
         .getByRole("button", { name: "Refresh Outputs", exact: true })
         .click();
-      await expect(
-        window.getByRole("button", { name: "Refresh Outputs", exact: true }),
-      ).toBeEnabled();
       const sessions = await window.evaluate(() =>
         globalThis.window.desktop.agent.getSessions(),
       );
-      // The persisted fixture intentionally has no live agent. Select its UI
-      // session using the existing typed event; list/get remain real IPC reads.
       await application.evaluate(
         ({ BrowserWindow }, event: DesktopAppEvent) => {
           for (const target of BrowserWindow.getAllWindows())
@@ -1377,337 +1363,38 @@ test("renders and reopens persisted mel and analyzer detail through typed IPC wi
           activeSessionId: listeningFixtureSessionId,
         },
       );
-      await window
-        .getByRole("checkbox", {
-          name: "Include historical context",
-          exact: true,
-        })
-        .check();
-      const details = await window.evaluate(async (sessionId) => {
+      await window.getByLabel("Include historical context").check();
+      const result = await window.evaluate(async (sessionId) => {
         const api = globalThis.window.desktop.entityContext;
-        const page = await api.list({
-          sessionId,
-          includeHistorical: true,
-          limit: 20,
-        });
-        const entry = page.entries.find(
-          (item) => item.kind === "metric-audio-observation/v1",
-        );
-        if (!entry) throw new Error("Missing persisted mel fixture");
+        const page = await api.list({ sessionId, includeHistorical: true });
+        if (page.entries.length !== 1)
+          throw new Error("Expected one stream context");
         return api.get({
           sessionId,
-          contextId: entry.contextId,
+          contextId: page.entries[0]!.contextId,
           includeHistorical: true,
         });
       }, listeningFixtureSessionId);
-      expect(details.entry.passId).toBe(melFixturePassId);
-      expect(details.entry.summary).toContain("Derived features ready");
-      if (details.observation.schema !== "metric-audio-observation/v1")
-        throw new Error("Expected metric fixture");
-      expect(
-        details.observation.metrics["mel-bands"]?.frames[0]?.magnitudes[1][23],
-      ).toBe(124);
-      expect(details.observation.metrics.pitch?.frames[0]?.channels[1]).toEqual(
-        {
-          state: "undefined",
-          hz: 0,
-          confidence: 0,
-        },
-      );
-      expect(
-        details.observation.metrics["spectral-shape"]?.frames[0]?.channels[0],
-      ).toEqual({
-        state: "valid",
-        flatnessDb: -120,
-        spreadHz: 0,
-        rolloffHz: 1000,
-      });
-      if (cycle === 0) {
-        savedId = details.entry.contextId;
-        savedPayload = JSON.stringify(details.observation);
-      } else {
-        expect(details.entry.contextId).toBe(savedId);
-        expect(JSON.stringify(details.observation)).toBe(savedPayload);
-      }
-      await expect(window.locator(".entity-context-panel")).toContainText(
-        details.entry.contextId,
-        { timeout: 5_000 },
-      );
+      expect(result.observation.schema).toBe("metric-record-stream-context/v1");
+      if (cycle === 0) original = JSON.stringify(result.observation);
+      else expect(JSON.stringify(result.observation)).toBe(original);
       await window
         .getByRole("button", {
-          name: `View observation ${details.entry.contextId}`,
-          exact: true,
+          name: `View observation ${result.entry.contextId}`,
         })
         .click();
-      const mel = window.getByRole("region", {
-        name: "mel-bands metric",
-        exact: true,
-      });
-      await expect(mel).toContainText("Uncalibrated linear FFT magnitudes");
-      await expect(mel).toContainText("2/2 retained frames");
-      await expect(mel).toContainText("samples [14096, 14800)");
-      const table = mel.getByRole("table", {
-        name: "Mel-band magnitudes",
-        exact: true,
-      });
-      await expect(table.locator("tbody tr")).toHaveCount(24);
-      await expect(table.locator("tbody tr").last()).toContainText("124.00000");
-      await expect(
-        mel.getByRole("button", {
-          name: "Previous mel-band frame",
-          exact: true,
-        }),
-      ).toBeDisabled();
-      await mel
-        .getByRole("button", { name: "Next mel-band frame", exact: true })
-        .click();
-      await expect(mel.getByRole("status")).toContainText("Frame 1");
-      await expect(mel).toContainText("Unavailable (zero-denominator)");
-      await expect(mel).toContainText("Unavailable (below-floor)");
-      await expect(table.locator("tbody tr")).toHaveCount(24);
-      const pitch = window.getByRole("region", {
-        name: "pitch metric",
-        exact: true,
-      });
-      await expect(pitch).toContainText("2/2 validated acquisition frames");
-      await expect(pitch).toContainText("0 (undefined sentinel)");
-      await expect(pitch).toContainText("not verified pitch");
-      await expect(pitch).toContainText("known 2000 Hz sine");
-      await expect(
-        pitch.getByRole("button", {
-          name: "Previous pitch frame",
-          exact: true,
-        }),
-      ).toBeDisabled();
-      await pitch
-        .getByRole("button", { name: "Next pitch frame", exact: true })
-        .click();
-      await expect(pitch).toContainText("Low confidence estimate");
-      await expect(pitch).toContainText("0.25");
-      const shape = window.getByRole("region", {
-        name: "spectral-shape metric",
-        exact: true,
-      });
-      await expect(shape).toContainText("-120");
-      await expect(shape).toContainText("Unavailable");
-      await shape
-        .getByRole("button", { name: "Next spectral-shape frame", exact: true })
-        .click();
-      await expect(shape).toContainText("-119");
-      expect(
-        await window.evaluate(() =>
-          Object.keys(globalThis.window.desktop.entityContext),
-        ),
-      ).toEqual(["getMetricCapture", "listMetricChunks", "list", "get"]);
+      const view = window.getByRole("region", { name: "Observation detail" });
+      await expect(view).toContainText("electron-stream-capture");
+      await expect(view).toContainText("48000 Hz");
+      await expect(view).toContainText("mel-bands");
+      await expect(view).toContainText("not a measurement summary");
+      await expect(view).not.toContainText("RMS (dBFS");
       await application.close();
       application = undefined;
     }
   } finally {
     await application?.close();
-    await rm(launched.profile, { recursive: true, force: true });
-  }
-});
-
-test("restores typed v1/v2/Session context and approximate quality across Electron restarts without renderer filesystem access", async () => {
-  const bridge = createServer((socket) => socket.destroy());
-  const reservation = createServer();
-  let application: Awaited<ReturnType<typeof electron.launch>> | undefined;
-  let profile: string | undefined;
-  try {
-    await new Promise<void>((resolve) =>
-      bridge.listen(0, "127.0.0.1", resolve),
-    );
-    const address = bridge.address();
-    if (address === null || typeof address === "string")
-      throw new Error("Expected owned bridge port");
-    await new Promise<void>((resolve) =>
-      reservation.listen(0, "127.0.0.1", resolve),
-    );
-    const signalAddress = reservation.address();
-    if (signalAddress === null || typeof signalAddress === "string")
-      throw new Error("Expected owned signal port");
-    await new Promise<void>((resolve, reject) =>
-      reservation.close((error) => (error ? reject(error) : resolve())),
-    );
-    const environment = {
-      ABLETON_AGENT_TOKEN: "isolated-context-authentication-fixture",
-      ABLETON_AGENT_PORT: String(address.port),
-    };
-    const launched = await launchIsolatedDesktop(
-      environment,
-      signalAddress.port,
-      seedMixedListeningContext,
-    );
-    application = launched.application;
-    profile = launched.profile;
-    let firstContextId: string | undefined;
-    let firstDescriptiveId: string | undefined;
-    let firstSessionId: string | undefined;
-    let firstSessionPayload: string | undefined;
-    for (let cycle = 0; cycle < 2; cycle += 1) {
-      if (application === undefined) {
-        application = await electron.launch({
-          args: [desktopPath, `--user-data-dir=${join(profile, "electron")}`],
-          cwd: process.cwd(),
-          env: launched.environment,
-        });
-      }
-      const pageWindow = await application.firstWindow();
-      await pageWindow
-        .getByRole("button", { name: "Outputs", exact: true })
-        .click();
-      await expect(
-        pageWindow.getByText("Stored listening context", { exact: true }),
-      ).toBeVisible();
-      const page = await pageWindow.evaluate(async (sessionId) => {
-        const desktop = globalThis.window.desktop;
-        return desktop.entityContext.list({
-          sessionId,
-          includeHistorical: true,
-          limit: 20,
-        });
-      }, listeningFixtureSessionId);
-      expect(page.entries).toHaveLength(3);
-      const legacy = page.entries.find(
-        (entry) => entry.kind === "audio-observation/v1",
-      );
-      const descriptive = page.entries.find(
-        (entry) => entry.kind === "audio-observation/v2",
-      );
-      expect(legacy).toMatchObject({
-        passId: listeningFixturePassId,
-        listenerId: "fixture-listener",
-        freshness: "unknown",
-      });
-      expect(legacy?.summary).toContain("Known sine persistence fixture");
-      const contextId = legacy?.contextId;
-      if (contextId === undefined)
-        throw new Error("Missing restored context ID");
-      if (cycle === 0) firstContextId = contextId;
-      else expect(contextId).toBe(firstContextId);
-      const detail = await pageWindow.evaluate(
-        async ({ sessionId, contextId }) => {
-          const desktop = globalThis.window.desktop;
-          return desktop.entityContext.get({
-            sessionId,
-            contextId,
-            includeHistorical: true,
-          });
-        },
-        { sessionId: listeningFixtureSessionId, contextId },
-      );
-      if (detail.observation.schema !== "audio-observation/v1")
-        throw new Error("Expected the restored legacy observation fixture");
-      expect(detail.observation.summaries.peak).toEqual([0.5, 0.5]);
-      expect(detail.observation.summaries.centroidHz).toBe(440);
-      expect(detail.observation.limitations).toContain(
-        "Synthetic persistence fixture, not measured listener output",
-      );
-      const descriptiveId = descriptive?.contextId;
-      if (descriptiveId === undefined)
-        throw new Error("Missing descriptive context");
-      if (cycle === 0) firstDescriptiveId = descriptiveId;
-      else expect(descriptiveId).toBe(firstDescriptiveId);
-      const approximate = await pageWindow.evaluate(
-        async ({ sessionId, contextId }) =>
-          globalThis.window.desktop.entityContext.get({
-            sessionId,
-            contextId,
-            includeHistorical: true,
-          }),
-        { sessionId: listeningFixtureSessionId, contextId: descriptiveId },
-      );
-      expect(approximate.entry.passId).toBe(descriptiveFixturePassId);
-      expect(approximate.observation).toMatchObject({
-        schema: "audio-observation/v2",
-        sampleRate: 44_100,
-        startBeat: 5.25,
-        endBeat: 9.5,
-        alignment: {
-          alignment: "approximate",
-          intendedUse: "descriptive-only",
-          policy: { mode: "descriptive", maxClockDisagreementSamples: 64 },
-          observedClockDisagreementSamples: 64,
-          observedBeatDisagreementSamples: 32,
-          estimatedAbsoluteErrorSamples: null,
-          verifiedAbsoluteErrorBoundSamples: null,
-        },
-      });
-      expect(descriptive?.summary).toContain("1.451");
-      expect(descriptive?.summary).toContain("absolute");
-      const sessionEntry = page.entries.find(
-        (entry) => entry.kind === "session-audio-observation/v1",
-      );
-      if (!sessionEntry) throw new Error("Missing Session context");
-      expect(sessionEntry.passId).toBe(sessionFixturePassId);
-      expect(sessionEntry.summary).toContain("unknown");
-      const sessionDetail = await pageWindow.evaluate(
-        async ({ sessionId, contextId }) =>
-          globalThis.window.desktop.entityContext.get({
-            sessionId,
-            contextId,
-            includeHistorical: true,
-          }),
-        {
-          sessionId: listeningFixtureSessionId,
-          contextId: sessionEntry.contextId,
-        },
-      );
-      expect(sessionDetail.observation).toMatchObject({
-        schema: "session-audio-observation/v1",
-        startBeat: 0,
-        endBeat: 4,
-        source: {
-          view: "session",
-          kind: "midi",
-          coordinate: { unit: "beats", iteration: 0, startBeat: 0, endBeat: 4 },
-          transport: { startBeat: 12, endBeat: 16 },
-          continuity: {
-            evidence: "message-rate-monitored",
-            followActions: "unknown",
-          },
-        },
-      });
-      if (cycle === 0) {
-        firstSessionId = sessionEntry.contextId;
-        firstSessionPayload = JSON.stringify(sessionDetail.observation);
-      } else {
-        expect(sessionEntry.contextId).toBe(firstSessionId);
-        expect(JSON.stringify(sessionDetail.observation)).toBe(
-          firstSessionPayload,
-        );
-      }
-      await expect(
-        pageWindow.evaluate(async () => {
-          const desktop = globalThis.window.desktop;
-          return desktop.entityContext.list({
-            sessionId: "foreign-session",
-            includeHistorical: true,
-            limit: 20,
-          });
-        }),
-      ).rejects.toThrow();
-      expect(
-        await pageWindow.evaluate(() => {
-          const desktop = globalThis.window.desktop;
-          return Object.keys(desktop.entityContext);
-        }),
-      ).toEqual(["getMetricCapture", "listMetricChunks", "list", "get"]);
-      await application.close();
-      application = undefined;
-    }
-  } finally {
-    await application?.close();
-    if (reservation.listening) {
-      await new Promise<void>((resolve, reject) =>
-        reservation.close((error) => (error ? reject(error) : resolve())),
-      );
-    }
-    await new Promise<void>((resolve, reject) =>
-      bridge.close((error) => (error ? reject(error) : resolve())),
-    );
-    if (profile !== undefined)
-      await rm(profile, { recursive: true, force: true });
+    await rm(profile, { recursive: true, force: true });
   }
 });
 
@@ -1786,7 +1473,7 @@ test("normal startup advertises metric listening and keeps producer credentials 
         "audio-listener/independent-metric-timelines-v1",
         "audio-listener/mel-band-timelines-v1",
         "audio-listener/analyzer-timelines-v1",
-        "audio-listener/arrangement-continuous-metric-stream-v1",
+        "audio-listener/finite-metric-stream-v1",
       ],
     });
     expect(JSON.stringify(descriptor)).not.toContain(token);
@@ -2269,7 +1956,7 @@ test("accepts an MCP-style user message in the visible desktop session", async (
           "audio-listener/independent-metric-timelines-v1",
           "audio-listener/mel-band-timelines-v1",
           "audio-listener/analyzer-timelines-v1",
-          "audio-listener/arrangement-continuous-metric-stream-v1",
+          "audio-listener/finite-metric-stream-v1",
         ],
       });
     await expect

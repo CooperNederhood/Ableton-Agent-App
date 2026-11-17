@@ -40,6 +40,8 @@
 - [x] Advertise accepted input schemas so default deadlines are optional;
       enumerate capture action arguments and put sequence preparation ahead of
       musical values without changing playback or retry authorization.
+- [x] Disambiguate Session location `target.view` from track/analysis `kind` in
+      Default and scoped descriptions; preserve strict malformed-target denial.
 - [x] Continue reads with a self-contained signed cursor, retaining the original
       target/detail/history scope and rechecking ownership, freshness and expiry.
       Keep exact byte bounds, complete reconstruction and tamper denial.

@@ -2261,6 +2261,80 @@ describe("Ableton tools", () => {
     });
   });
 
+  it.each(["default", "full", "session-only"] as const)(
+    "advertises the Session location discriminator and denies a kind-based target (%s)",
+    async (scope) => {
+      const executeListeningOperation =
+        vi.fn<NonNullable<AbletonToolServices["executeListeningOperation"]>>();
+      const set = createAbletonTools({
+        ...services(),
+        executeListeningOperation,
+      });
+      const listening =
+        scope === "default"
+          ? toolByName(set, "ableton_listening")
+          : scopeAbletonTools(set, {
+              allowedToolNames: ["ableton_listening"],
+              ...(scope === "session-only"
+                ? { allowedOperationIds: ["listening.play_session_and_listen"] }
+                : {}),
+            })[0]!;
+      expect(listening.description).toContain(
+        'play-session-and-listen requires target.view="session", not target.kind',
+      );
+      interface Schema {
+        const?: unknown;
+        properties?: Record<string, Schema>;
+        oneOf?: Schema[];
+        anyOf?: Schema[];
+      }
+      const parameters = listening.parameters as {
+        toJSONSchema(): Schema;
+        safeParse(value: unknown): { success: boolean };
+      };
+      const wire = parameters.toJSONSchema();
+      const variants = wire.properties?.action?.const
+        ? [wire]
+        : (wire.oneOf ?? wire.anyOf ?? []);
+      const targetSchema = variants.find(
+        (variant) =>
+          variant.properties?.action?.const === "play-session-and-listen",
+      )?.properties?.target;
+      expect(targetSchema?.properties?.view?.const).toBe("session");
+      expect(targetSchema?.properties).not.toHaveProperty("kind");
+      const target = {
+        view: "session",
+        track: {
+          kind: "regular",
+          index: 0,
+          expectedReference: "00000000-0000-4000-8000-000000000001",
+          expectedName: "audio-track",
+        },
+        sceneIndex: 0,
+        expectedClipReference: "00000000-0000-4000-8000-000000000010",
+        expectedClipName: "clip-1",
+      };
+      expect(
+        parameters.safeParse({ action: "play-session-and-listen", target })
+          .success,
+      ).toBe(true);
+      const { view, ...location } = target;
+      const args = {
+        action: "play-session-and-listen",
+        target: { kind: view, ...location },
+      };
+      await expect(
+        listening.handler?.(args, {
+          sessionId: "session",
+          toolCallId: "wrong-location-discriminator",
+          toolName: "ableton_listening",
+          arguments: args,
+        }),
+      ).resolves.toMatchObject({ resultType: "failure" });
+      expect(executeListeningOperation).not.toHaveBeenCalled();
+    },
+  );
+
   it.each(["default", "scoped"] as const)(
     "preserves action-specific listening guidance in the %s SDK schema and rejects the recorded invalid calls before execution",
     async (scope) => {

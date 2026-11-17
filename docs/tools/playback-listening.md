@@ -84,6 +84,9 @@ SDK schemas describe accepted **inputs**, not normalized outputs: defaulted
 fields such as the capture safety deadline are optional, not values the agent
 must invent. Listening variants also enumerate their own argument names; Session
 uses `target`, while ordinary Arrangement sources use `sources`.
+Session locations use `target.view: "session"`, distinct from the nested
+`target.track.kind: "regular"` and recorded analysis targets' `kind` field.
+The tool description states this distinction; malformed locations remain denied.
 `run-Qj2b8P` preserved both correct captures but failed the strict peak oracle
 after a rejected plural search argument; the failure remains recorded rather
 than excusing an invalid call or weakening the stop-on-failure contract.

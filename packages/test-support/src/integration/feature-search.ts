@@ -674,7 +674,7 @@ export function readFeatureToolPairs(turn: TurnEvidence, storageShape = false) {
   });
 }
 export interface CompleteAnalysis {
-  detail?: "evidence";
+  detail?: "evidence" | "feature-shapes";
   source: AnalysisPage["source"];
   readTarget: AnalysisPage["readTarget"];
   overview: AnalysisPage["overview"];
@@ -694,6 +694,7 @@ export function immutableDeliveredAnalysis(analysis: CompleteAnalysis) {
 export function readCompleteAnalyses(
   turns: readonly TurnEvidence[],
   storageShape = false,
+  requiredDetail?: "feature-shapes",
 ): CompleteAnalysis[] {
   type Chain = {
     request: Record<string, unknown>;
@@ -707,6 +708,7 @@ export function readCompleteAnalyses(
     supplied: Record<string, unknown>,
     cursor: string | undefined,
     nextCursor: string | null,
+    afterOwnedRestart: boolean,
   ) => {
     const chain = cursor ? pending.get(cursor) : undefined;
     const request: Record<string, unknown> = {
@@ -719,6 +721,11 @@ export function readCompleteAnalyses(
       !cursor || (chain && isDeepStrictEqual(chain.request, request)),
       "analysis continuation changed its request or skipped a page",
     );
+    if (request.detail === "feature-shapes")
+      check(
+        request.includeHistorical === afterOwnedRestart,
+        "feature-shape read changed its historical scope",
+      );
     if (cursor) pending.delete(cursor);
     const target = object(request.target);
     const targets =
@@ -727,8 +734,8 @@ export function readCompleteAnalyses(
     const state: Chain = chain ?? {
       request,
       analyses: pages.map((page) => ({
-        ...(request.detail === "evidence"
-          ? { detail: "evidence" as const }
+        ...(request.detail === "evidence" || request.detail === "feature-shapes"
+          ? { detail: request.detail }
           : {}),
         source: page.source,
         readTarget: page.readTarget,
@@ -807,6 +814,7 @@ export function readCompleteAnalyses(
             },
             undefined,
             page.detail.nextCursor,
+            turn.agentListening!.afterOwnedRestart,
           );
         }
       } else if (
@@ -821,14 +829,40 @@ export function readCompleteAnalyses(
         );
         if (result.originalMeasurements) continue;
         const { cursor, ...request } = query;
-        accept(result.analyses, request, cursor, result.nextCursor);
+        if (
+          requiredDetail === "feature-shapes" &&
+          pair.call.liveSetId !== undefined
+        )
+          check(
+            result.analyses.every(
+              (page) => page.readTarget.liveSetId === pair.call.liveSetId,
+            ),
+            "analysis target belongs to another Live Set",
+          );
+        accept(
+          result.analyses,
+          request,
+          cursor,
+          result.nextCursor,
+          turn.agentListening!.afterOwnedRestart,
+        );
       }
     }
   }
-  check(pending.size === 0, "analysis continuation was not consumed");
-  return complete;
+  check(
+    [...pending.values()].every(
+      (chain) =>
+        requiredDetail !== undefined && chain.request.detail !== requiredDetail,
+    ),
+    "analysis continuation was not consumed",
+  );
+  return complete.filter((analysis) =>
+    requiredDetail === undefined
+      ? analysis.detail !== "feature-shapes"
+      : analysis.detail === requiredDetail,
+  );
 }
-export function deliveredAnalysisFeatures(analysis: CompleteAnalysis) {
+export function deliveredAnalysisRowGroups(analysis: CompleteAnalysis) {
   const grouped = new Map<string, AnalysisTimelineItem[]>();
   for (const row of analysis.timeline) {
     check(
@@ -894,7 +928,7 @@ export function deliveredAnalysisFeatures(analysis: CompleteAnalysis) {
     group.push(row);
     grouped.set(key, group);
   }
-  const rows = [...grouped.values()].map((fragments) => {
+  return [...grouped.values()].map((fragments) => {
     const first = fragments[0]!;
     const count = first.fragmentCount ?? 1;
     check(
@@ -916,6 +950,12 @@ export function deliveredAnalysisFeatures(analysis: CompleteAnalysis) {
         ),
       "analysis row fragments are missing, duplicated or reordered",
     );
+    return fragments;
+  });
+}
+export function deliveredAnalysisFeatures(analysis: CompleteAnalysis) {
+  const rows = deliveredAnalysisRowGroups(analysis).map((fragments) => {
+    const first = fragments[0]!;
     const byType = new Map<string, AnalysisTimelineItem["features"]>();
     for (const row of fragments)
       for (const block of row.features) {

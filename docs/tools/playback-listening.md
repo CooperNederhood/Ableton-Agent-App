@@ -123,6 +123,26 @@ repeated storage identities, full definitions or native support arrays.
 `read` with `detail: "evidence"` returns the corresponding paged definitions,
 feature metadata and complete supports; `detail: "original-measurements"`
 returns original measurement evidence. Both use the same source target.
+For storage structure checks, `detail: "feature-shapes"` returns a compact
+per-segment report of every selected persisted feature: its type, units,
+normalization, dimension count, actual stored value count, grid geometry/cell
+count, coverage and availability reason. Each feature also carries `contentSha256`:
+SHA-256 of canonical JSON `{schema:"stored-listening-feature/v1", feature}`,
+where `feature` is the full persisted feature, including every numeric value,
+grid validity/support and profile field. This compact commitment detects changes
+after restart without requiring the agent to read the vectors. It is not
+independently recomputed DSP ground truth. Sizes come from stored metadata,
+not estimates from an overview or recomputed measurements.
+Shape rows explicitly describe the **whole stored segment** overlapping the
+requested range, even when the range is narrower. They contain no numeric
+feature arrays. Shape fields alone cannot establish numerical equality;
+the content checksum establishes unchanged feature content, not musical similarity.
+Use the full capture target to check all measures, and follow any continuation
+until null; fragments retain segment bounds and completeness.
+The same selection, ownership, freshness, cancellation, lifecycle attribution,
+64-KiB paging and typed/redacted History paths apply. No new persisted store,
+derivation queue, capture or discovery call is introduced. Default numeric reads
+and independent numerical/native-evidence checks are unchanged.
 A compact `supportExtent` is only a bounding interval, not a claim that every
 sample inside it was measured. Detailed provenance can also be paged, but the
 tool is not a full native-proof or storage-manifest export. Preserve all stored

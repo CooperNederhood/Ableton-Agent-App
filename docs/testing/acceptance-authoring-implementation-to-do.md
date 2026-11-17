@@ -43,6 +43,23 @@ Companion specification: [Acceptance test authoring](acceptance-authoring.md).
       migration. Do not grant the denied extra transport or recapture actions.
 - [x] Preserve complete original/restarted long-consolidation page requirements;
       actual missing continuations in `suite-3kErcF` are failures, not oracle bugs.
+- [x] Restore the user-approved structural scope from `930d3063^`: all four
+      consolidation prompts request complete `detail: "feature-shapes"` reads
+      of each original and restarted source, not exhaustive numeric arrays.
+      Keep budgets, permissions, assets and musical answers unchanged.
+- [x] Reuse typed result attribution, authentic cursor chaining, pinned scope
+      and fragment validation for shape reports. Require every measure/type,
+      canonical dimensions/units/counts/ranges and native support coverage;
+      reject omitted late detail, duplicates, foreign ownership, incomplete
+      cursors, failures/cancellation and restored omissions/tampering.
+- [x] Keep numeric feature-search consumption strict and distinguish native
+      persisted-stream integrity from independent derived numerical truth.
+      Do not reclassify historical failures or substitute summaries/samples.
+- [x] Preserve the former tool-delivered original/restored value equality
+      boundary with required producer SHA-256 checksums of each full persisted
+      feature (vectors, masks, support and profile), not metadata-only hashes.
+      Reject missing/malformed/mutant checksums and an actual projected stored
+      value change with unchanged shape fields; keep native hashes separate.
 - [ ] Run simple listening regressions followed by every registered packaged
       message scenario and the terminal suite verifier on the final candidate.
 - [ ] Invoke final code review, resolve findings and requalify any changed

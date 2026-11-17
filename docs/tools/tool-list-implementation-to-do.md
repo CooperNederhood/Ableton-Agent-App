@@ -83,3 +83,10 @@ Companion reference: [Ableton Tool List](tool-list.md)
 - [x] Document the agent-facing Drum Rack pad and Session MIDI creation
   actions, direct versus destination track identities, explicit note-expression
   loss choice, and exact parameter-name handoff.
+
+## Compact feature-shape reads
+
+- [x] Document the existing read tool's `feature-shapes` detail projection,
+      without another tool, calculation or feature-ID discovery workflow.
+- [x] Preserve persisted numerical-content equality through full-feature
+      checksums, while keeping numeric reads and musical comparisons distinct.

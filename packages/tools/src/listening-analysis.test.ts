@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
+import { createHash } from "node:crypto";
 import {
+  canonicalMetricRecordJson,
   LISTENING_FEATURE_DEFINITIONS,
   extractListeningFeature,
   listeningFeatureDefinition,
@@ -9,6 +11,7 @@ import { createSyntheticMetricListeningObservation } from "@ableton-agent/protoc
 import { createListeningTools } from "./listening-tools.js";
 import {
   analysisOperationParamsSchema,
+  analysisTimelineItemSchema,
   LISTENING_FEATURE_CATALOG,
   projectListeningTimeline,
   projectListeningOverview,
@@ -71,6 +74,13 @@ describe("musical listening contract", () => {
         detail: "evidence",
       }),
     ).toMatchObject({ action: "read", detail: "evidence" });
+    expect(
+      analysisOperationParamsSchema.parse({
+        action: "read",
+        target,
+        detail: "feature-shapes",
+      }),
+    ).toMatchObject({ action: "read", detail: "feature-shapes" });
   });
 
   it("retains empty timelines rather than manufacturing a musical grid", () => {
@@ -270,6 +280,127 @@ describe("musical listening contract", () => {
     });
     expect(
       mixed.some((row) => row.kind === "interval" && row.startBeat >= 9),
+    ).toBe(false);
+
+    const shapeViews = [...views, unavailable];
+    const beforeShapes = structuredClone(shapeViews);
+    const shapes = projectListeningTimeline(
+      shapeViews,
+      segment!.startSample,
+      mixedTarget,
+      "feature-shapes",
+    );
+    expect(shapeViews).toEqual(beforeShapes);
+    expect(shapes).toHaveLength(2);
+    for (const row of shapes) {
+      expect(analysisTimelineItemSchema.safeParse(row).success).toBe(true);
+      expect(row.kind).toBe("feature-shapes");
+      expect(row.shapeScope).toBe("whole-stored-segment");
+      expect(row.features).toEqual([]);
+      for (const shape of row.featureShapes!) {
+        const stored = shapeViews.find(
+          (view) =>
+            view.segment.startBeat === row.startBeat &&
+            view.record.feature.type === shape.type,
+        )!.record.feature;
+        expect(shape).toMatchObject({
+          dimensions: listeningFeatureDefinition(stored.type).dimensions,
+          valueCount: stored.values?.length ?? 0,
+          units: stored.units,
+          normalization: stored.normalization,
+          status: stored.status,
+          reason: stored.reason,
+        });
+        expect(shape.grid?.cellCount ?? null).toBe(
+          stored.grid?.cells.length ?? null,
+        );
+        expect(shape.contentSha256).toBe(
+          createHash("sha256")
+            .update(
+              canonicalMetricRecordJson({
+                schema: "stored-listening-feature/v1",
+                feature: stored,
+              }),
+            )
+            .digest("hex"),
+        );
+        expect(shape).not.toHaveProperty("values");
+      }
+    }
+    expect(shapes[1]!.featureShapes).toMatchObject([
+      {
+        type: "level-grid/v1",
+        status: "unavailable",
+        valueCount: 0,
+        grid: null,
+      },
+    ]);
+    expect(
+      projectListeningTimeline(
+        views,
+        segment!.startSample,
+        partialTarget,
+        "feature-shapes",
+      )[0],
+    ).toMatchObject({
+      shapeScope: "whole-stored-segment",
+      startBeat: views[0]!.segment.startBeat,
+      endBeat: views[0]!.segment.endBeat,
+      featureShapes: shapes[0]!.featureShapes,
+    });
+    expect(
+      analysisTimelineItemSchema.safeParse({
+        ...shapes[0],
+        featureShapes: undefined,
+      }).success,
+    ).toBe(false);
+    for (const change of [
+      "value",
+      "grid-support",
+      "grid-validity",
+      "profile",
+    ] as const) {
+      const changed = structuredClone(views);
+      const feature = changed[0]!.record.feature;
+      if (change === "value") feature.values![0] = feature.values![0]! + 0.01;
+      else if (change === "grid-support")
+        feature.grid!.cells[0]!.coveredSamples--;
+      else if (change === "grid-validity")
+        feature.grid!.cells[0]!.reason = "insufficient-support";
+      else feature.profileKey += ":changed";
+      const updated = projectListeningTimeline(
+        changed,
+        segment!.startSample,
+        mixedTarget,
+        "feature-shapes",
+      );
+      const { contentSha256: originalHash, ...originalShape } =
+        shapes[0]!.featureShapes![0]!;
+      const { contentSha256: updatedHash, ...updatedShape } =
+        updated[0]!.featureShapes![0]!;
+      expect(updatedShape).toEqual(originalShape);
+      expect(updatedHash).not.toBe(originalHash);
+    }
+    const reordered = shapeViews.map((view) => {
+      const { values, ...rest } = view.record.feature;
+      return {
+        ...view,
+        record: { ...view.record, feature: { values, ...rest } },
+      };
+    });
+    expect(
+      projectListeningTimeline(
+        reordered,
+        segment!.startSample,
+        mixedTarget,
+        "feature-shapes",
+      ),
+    ).toEqual(shapes);
+    expect(
+      analysisTimelineItemSchema.safeParse({
+        ...shapes[0],
+        kind: "interval",
+      }).success,
     ).toBe(false);
 
     expect(

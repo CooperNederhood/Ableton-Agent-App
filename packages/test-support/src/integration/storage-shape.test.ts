@@ -29,12 +29,14 @@ import type {
 } from "@ableton-agent/observability";
 import { OBSERVABILITY_CONTRACT_VERSION } from "@ableton-agent/observability";
 import { agentListeningFixture } from "./agent-listening-test-support.js";
+import { MAX_AGENT_LISTENING_EVIDENCE_BYTES } from "./agent-listening-result.js";
 import { arrangementTestEvidence } from "./arrangement-test-support.js";
 import { melSmokeFixture } from "./mel-smoke-test-support.js";
 import {
   projectFeatureSearchHistory,
   readCompleteAnalyses,
   deliveredAnalysisFeatures,
+  deliveredAnalysisRowGroups,
 } from "./feature-search.js";
 import { createDefaultAssertions } from "./assertions.js";
 import {
@@ -48,7 +50,7 @@ import type { AssertionInput, TurnEvidence } from "./contracts.js";
 
 function fixture(
   measures = 1,
-  modern = false,
+  modern: boolean | "feature-shapes" = "feature-shapes",
   unavailablePitch: boolean | "first-measure" = false,
 ) {
   const base = agentListeningFixture();
@@ -258,7 +260,7 @@ function fixture(
     groups: typeof featureGroups,
     restored: boolean,
     side?: number,
-    detail?: "evidence",
+    detail?: "evidence" | "feature-shapes",
   ) {
     const records: AgentHistoryPage["items"] = [];
     function pair(
@@ -270,6 +272,7 @@ function fixture(
       records.push(
         {
           ...callTemplate,
+          liveSetId: "set",
           id: `call-${toolCallId}`,
           toolCallId,
           toolName,
@@ -278,6 +281,7 @@ function fixture(
         },
         {
           ...resultTemplate,
+          liveSetId: "set",
           id: `result-${toolCallId}`,
           toolCallId,
           result: {
@@ -307,7 +311,12 @@ function fixture(
             range: { startBeat: 0, endBeat: measures * 4 },
           };
           const records = analysisGroups[sourceSide]!;
-          const timeline = projectListeningTimeline(records, 0, target, detail);
+          const timeline = projectListeningTimeline(
+            records,
+            0,
+            target,
+            detail ?? (modern === "feature-shapes" ? modern : undefined),
+          );
           const chunks: (typeof timeline)[] = [[]];
           for (const row of timeline) {
             let chunk = chunks.at(-1)!;
@@ -378,20 +387,45 @@ function fixture(
             stage: "completed",
             contextIds: [`context-${side}`],
           },
-          ...(modern ? { analyses: analyses.map((pages) => pages[0]!) } : {}),
+          ...(modern
+            ? {
+                analyses: analyses.map((pages) =>
+                  modern === "feature-shapes"
+                    ? {
+                        ...pages[0]!,
+                        timeline: projectListeningTimeline(
+                          analysisGroups[side]!,
+                          0,
+                          pages[0]!.readTarget,
+                        ).slice(0, 1),
+                        detail: {
+                          offset: 0,
+                          returnedItems: 1,
+                          totalItems: 100,
+                          truncated: true,
+                          nextCursor: `unread-numeric-${side}`,
+                        },
+                      }
+                    : pages[0]!,
+                ),
+              }
+            : {}),
         },
       );
     if (modern)
       for (const pages of analyses)
         for (const [index, page] of pages.entries()) {
-          if (side !== undefined && index === 0) continue;
+          if (side !== undefined && index === 0 && modern !== "feature-shapes")
+            continue;
           pair(
             "ableton_context",
             {
               action: "read",
               target: page.readTarget,
               includeHistorical: restored,
-              ...(detail ? { detail } : {}),
+              ...(detail || modern === "feature-shapes"
+                ? { detail: detail ?? "feature-shapes" }
+                : {}),
               ...(index > 0
                 ? { cursor: pages[index - 1]!.detail.nextCursor }
                 : {}),
@@ -478,6 +512,7 @@ function fixture(
     restoredShapes,
     featureGroups,
     restoredFeatures,
+    analysisGroups,
     session,
     other,
     restart,
@@ -486,22 +521,302 @@ function fixture(
 }
 
 describe("message-driven storage shape acceptance", () => {
-  it("verifies mixed unavailable measures but rejects an extra missing measured range", () => {
-    const f = fixture(20, true, "first-measure");
+  it.each(["missing", "malformed", "changed"] as const)(
+    "rejects %s full-feature checksums",
+    (fault) => {
+      const f = fixture(20);
+      expect(() => verifyStorageShape(f.input, 20)).not.toThrow();
+      for (const turn of fault === "changed" ? [f.restart] : f.input.turns)
+        for (const record of turn.agentListening!.records) {
+          if (record.kind !== "tool_result") continue;
+          const content = (
+            record.result?.result as {
+              content: { analyses?: AnalysisPage[] };
+            }
+          ).content;
+          for (const page of content.analyses ?? [])
+            for (const row of page.timeline)
+              if (row.segment.startBeat === 76)
+                for (const shape of row.featureShapes ?? []) {
+                  if (fault === "missing")
+                    Reflect.deleteProperty(shape, "contentSha256");
+                  if (fault === "malformed")
+                    shape.contentSha256 = "metadata-only";
+                  if (fault === "changed")
+                    shape.contentSha256 =
+                      (shape.contentSha256[0] === "a" ? "b" : "a") +
+                      shape.contentSha256.slice(1);
+                }
+        }
+      expect(() => verifyStorageShape(f.input, 20)).toThrow();
+    },
+  );
+  it("rejects a stored value change after restart even when every reported shape field is unchanged", () => {
+    const f = fixture(20);
     expect(() => verifyStorageShape(f.input, 20)).not.toThrow();
-    const pitch = deliveredAnalysisFeatures(
-      readCompleteAnalyses([f.session], true)[0]!,
-    ).filter((feature) => feature.definition.type === "pitch-grid/v1");
-    expect(pitch[0]!.blocks).toEqual([]);
-    expect(pitch[0]!.supports).toEqual([]);
-    expect(pitch[0]!.availability).toHaveLength(1);
+    const original = f.analysisGroups[0]!.find(
+      (item) =>
+        item.segment.startBeat === 76 &&
+        item.record.feature.type === "peak-summary/v1",
+    )!;
+    const changed = structuredClone(original);
+    const values = changed.record.feature.values;
+    if (values === null || typeof values[0] !== "number")
+      throw new Error("Missing measured fixture value");
+    values[0] += 0.001;
+    let replaced = 0;
+    for (const record of f.restart.agentListening!.records) {
+      if (record.kind !== "tool_result") continue;
+      const content = (
+        record.result?.result as {
+          content: { analyses?: AnalysisPage[] };
+        }
+      ).content;
+      for (const page of content.analyses ?? []) {
+        if (page.readTarget.contextId !== original.record.entryId) continue;
+        const projected = projectListeningTimeline(
+          [changed],
+          0,
+          page.readTarget,
+          "feature-shapes",
+        ).flatMap((row) => row.featureShapes ?? [])[0]!;
+        for (const row of page.timeline) {
+          if (row.segment.startBeat !== 76) continue;
+          const index =
+            row.featureShapes?.findIndex(
+              (shape) => shape.type === "peak-summary/v1",
+            ) ?? -1;
+          if (index < 0) continue;
+          const { contentSha256: beforeHash, ...beforeShape } =
+            row.featureShapes![index]!;
+          const { contentSha256: afterHash, ...afterShape } = projected;
+          expect(afterShape).toEqual(beforeShape);
+          expect(afterHash).not.toBe(beforeHash);
+          row.featureShapes![index] = projected;
+          replaced++;
+        }
+      }
+    }
+    expect(replaced).toBe(1);
+    expect(() => verifyStorageShape(f.input, 20)).toThrow(
+      "Original pinned analysis values, coverage or shapes changed after restart",
+    );
+  });
+  it.each([1, 20])(
+    "requires complete explicit shape reads for %i measures, not unrelated numeric pages",
+    (measures) => {
+      const f = fixture(measures, "feature-shapes");
+      expect(() => verifyStorageShape(f.input, measures)).not.toThrow();
+      expect(() => readCompleteAnalyses([f.session], true)).toThrow(
+        "analysis continuation was not consumed",
+      );
+      const shapes = readCompleteAnalyses([f.session], true, "feature-shapes");
+      expect(shapes).toHaveLength(1);
+      expect(deliveredAnalysisRowGroups(shapes[0]!)).toHaveLength(measures);
+      expect(
+        shapes[0]!.timeline.flatMap((row) => row.featureShapes!),
+      ).toHaveLength(measures * 15);
+    },
+  );
+  it.each([
+    "late-segment",
+    "late-type",
+    "duplicate-type",
+    "range",
+    "elapsed",
+    "fragment",
+    "fragment-count",
+    "incomplete-fragment",
+    "status",
+    "grid-step",
+    "grid-phase",
+    "grid-meter",
+    "normalization",
+    "foreign-segment",
+    "live-set",
+    "source-schema",
+    "requested-range",
+  ] as const)(
+    "rejects identical original/restored shape corruption: %s",
+    (fault) => {
+      const f = fixture(20, "feature-shapes");
+      for (const turn of f.input.turns) {
+        const bySource = new Map<string, AnalysisPage[]>();
+        for (const record of turn.agentListening!.records) {
+          if (
+            fault === "live-set" &&
+            record.kind === "tool_call" &&
+            record.toolName === "ableton_context"
+          )
+            Reflect.set(
+              record.arguments.target as object,
+              "liveSetId",
+              "foreign",
+            );
+          if (record.kind !== "tool_result") continue;
+          const content = (
+            record.result?.result as {
+              content: { action: string; analyses?: AnalysisPage[] };
+            }
+          ).content;
+          if (content.action !== "read") continue;
+          for (const page of content.analyses ?? []) {
+            if (fault === "live-set") {
+              page.readTarget.liveSetId = "foreign";
+              page.source.readTarget.liveSetId = "foreign";
+              for (const row of page.timeline)
+                row.segment.liveSetId = "foreign";
+            }
+            if (fault === "source-schema") delete page.source.schema;
+            if (fault === "requested-range")
+              page.source.requestedRange.endBeat = 79;
+            const pages = bySource.get(page.readTarget.contextId) ?? [];
+            pages.push(page);
+            bySource.set(page.readTarget.contextId, pages);
+            if (fault === "late-segment")
+              page.timeline = page.timeline.filter(
+                (row) => row.segment.startBeat !== 76,
+              );
+            for (const row of page.timeline) {
+              if (row.segment.startBeat !== 76) continue;
+              if (fault === "range") {
+                row.segment.endBeat = 79;
+                row.endBeat = 79;
+              }
+              if (fault === "elapsed") row.elapsedEndSeconds++;
+              if (fault === "fragment") row.fragment++;
+              if (fault === "fragment-count") row.fragmentCount!++;
+              if (fault === "incomplete-fragment") row.complete = false;
+              if (fault === "foreign-segment") row.segment.entryId = "foreign";
+              if (fault === "late-type")
+                row.featureShapes = row.featureShapes!.filter(
+                  (shape) => shape.type !== "peak-summary/v1",
+                );
+              if (fault === "duplicate-type") {
+                const peak = row.featureShapes!.find(
+                  (shape) => shape.type === "peak-summary/v1",
+                );
+                if (peak) row.featureShapes![1] = structuredClone(peak);
+              }
+              for (const shape of row.featureShapes!) {
+                if (fault === "status" && shape.type === "peak-summary/v1") {
+                  shape.status = "unavailable";
+                  shape.valueCount = 0;
+                  shape.reason = "silence";
+                }
+                if (fault === "normalization") shape.normalization = "none";
+                if (shape.grid) {
+                  if (fault === "grid-step")
+                    Reflect.set(shape.grid, "stepBeats", 0.5);
+                  if (fault === "grid-phase") shape.grid.phaseBeats = 1;
+                  if (fault === "grid-meter") shape.grid.meter.numerator = 3;
+                }
+              }
+            }
+          }
+        }
+        if (fault === "late-segment")
+          for (const pages of bySource.values()) {
+            const totalItems = pages.reduce(
+              (sum, page) => sum + page.timeline.length,
+              0,
+            );
+            let offset = 0;
+            for (const page of pages) {
+              page.detail.totalItems = totalItems;
+              page.detail.offset = offset;
+              page.detail.returnedItems = page.timeline.length;
+              offset += page.timeline.length;
+            }
+          }
+      }
+      expect(() => verifyStorageShape(f.input, 20)).toThrow();
+    },
+  );
+  it.each([
+    "unread-cursor",
+    "forged-cursor",
+    "changed-detail",
+    "changed-target",
+    "historical",
+    "missing-source",
+    "missing-original",
+    "failure",
+    "cancelled",
+  ] as const)("rejects incomplete or unbound shape chains: %s", (fault) => {
+    const f = fixture(20, "feature-shapes");
+    const turn = fault === "missing-original" ? f.session : f.restart;
+    const records = turn.agentListening!.records;
+    const calls = records
+      .filter((record) => record.kind === "tool_call")
+      .filter((record) => record.toolName === "ableton_context");
+    const call = calls.at(-1)!;
+    if (fault === "forged-cursor") call.arguments.cursor = "never-returned";
+    if (fault === "changed-detail") call.arguments.detail = "evidence";
+    if (fault === "changed-target")
+      call.arguments.target = {
+        ...(call.arguments.target as object),
+        contextId: "foreign",
+      };
+    if (fault === "historical")
+      for (const entry of calls) entry.arguments.includeHistorical = false;
+    if (fault === "failure") {
+      const result = records.find(
+        (record) =>
+          record.kind === "tool_result" &&
+          record.toolCallId === call.toolCallId,
+      )!;
+      Reflect.set(result, "outcome", "failure");
+    }
+    if (fault === "cancelled") Reflect.set(turn, "status", "cancelled");
+    if (
+      ["unread-cursor", "missing-source", "missing-original"].includes(fault)
+    ) {
+      const removed = new Set(
+        (fault === "unread-cursor"
+          ? [call]
+          : calls.filter(
+              (entry) =>
+                (entry.arguments.target as { contextId: string }).contextId ===
+                (fault === "missing-source" ? "context-1" : "context-0"),
+            )
+        ).map((entry) => entry.toolCallId),
+      );
+      Reflect.set(
+        turn.agentListening!,
+        "records",
+        records.filter(
+          (record) =>
+            !("toolCallId" in record) ||
+            record.toolCallId === undefined ||
+            !removed.has(record.toolCallId),
+        ),
+      );
+    }
+    expect(() => verifyStorageShape(f.input, 20)).toThrow();
+  });
+  it("accepts cursor-only shape continuations without re-requesting their signed scope", () => {
+    const f = fixture(20, "feature-shapes");
+    for (const turn of f.input.turns)
+      for (const record of turn.agentListening!.records)
+        if (record.kind === "tool_call" && record.arguments.cursor)
+          record.arguments = {
+            action: "read",
+            cursor: record.arguments.cursor,
+          };
+    expect(() => verifyStorageShape(f.input, 20)).not.toThrow();
+  });
+  it("verifies mixed unavailable measures but rejects an extra missing measured range", () => {
+    const f = fixture(20, "feature-shapes", "first-measure");
+    expect(() => verifyStorageShape(f.input, 20)).not.toThrow();
+    const pitch = readCompleteAnalyses([f.session], true, "feature-shapes")[0]!
+      .timeline.flatMap((row) => row.featureShapes ?? [])
+      .filter((shape) => shape.type === "pitch-grid/v1");
+    expect(pitch[0]).toMatchObject({ status: "unavailable", valueCount: 0 });
     expect(
       pitch
         .slice(1)
-        .every(
-          (feature) =>
-            feature.blocks.length === 16 && feature.availability.length === 0,
-        ),
+        .every((shape) => shape.status === "ready" && shape.valueCount === 32),
     ).toBe(true);
     for (const turn of f.input.turns)
       for (const record of turn.agentListening!.records) {
@@ -511,24 +826,26 @@ describe("message-driven storage shape acceptance", () => {
         ).content;
         for (const page of content.analyses ?? [])
           for (const row of page.timeline)
-            if (row.segment.startBeat === 4)
-              row.features = row.features.filter(
+            if (row.kind === "feature-shapes" && row.segment.startBeat === 4)
+              row.featureShapes = row.featureShapes!.filter(
                 (block) => block.type !== "pitch-grid/v1",
               );
       }
     expect(() => verifyStorageShape(f.input, 20)).toThrow(
-      "Missing explicit unavailable feature shape",
+      "Missing or duplicate delivered canonical feature shape",
     );
   }, 30_000);
   it("verifies declared unavailable pitch layout without inventing measured pitch cells", () => {
-    const f = fixture(1, true, true);
+    const f = fixture(1, "feature-shapes", true);
     expect(() => verifyStorageShape(f.input, 1)).not.toThrow();
-    const pitch = deliveredAnalysisFeatures(
-      readCompleteAnalyses([f.session], true)[0]!,
-    ).find((feature) => feature.definition.type === "pitch-grid/v1")!;
-    expect(pitch.blocks).toEqual([]);
-    expect(pitch.supports).toEqual([]);
-    expect(pitch.availability).toHaveLength(1);
+    const pitch = readCompleteAnalyses([f.session], true, "feature-shapes")[0]!
+      .timeline.flatMap((row) => row.featureShapes ?? [])
+      .find((shape) => shape.type === "pitch-grid/v1")!;
+    expect(pitch).toMatchObject({
+      status: "unavailable",
+      valueCount: 0,
+      grid: { cellCount: 16 },
+    });
     for (const turn of f.input.turns)
       for (const record of turn.agentListening!.records) {
         if (record.kind !== "tool_result") continue;
@@ -536,12 +853,14 @@ describe("message-driven storage shape acceptance", () => {
           record.result?.result as { content: { analyses?: AnalysisPage[] } }
         ).content;
         for (const page of content.analyses ?? [])
-          page.overview = page.overview.filter(
-            (item) => item.type !== "pitch-grid/v1",
-          );
+          for (const row of page.timeline)
+            if (row.featureShapes)
+              row.featureShapes = row.featureShapes.filter(
+                (item) => item.type !== "pitch-grid/v1",
+              );
       }
     expect(() => verifyStorageShape(f.input, 1)).toThrow(
-      "Missing explicit unavailable feature shape",
+      "Missing or duplicate delivered canonical feature shape",
     );
   });
   it.each([
@@ -553,13 +872,12 @@ describe("message-driven storage shape acceptance", () => {
     "time",
     "expected",
     "covered",
-    "support-extent",
     "channel",
     "missing",
   ] as const)(
     "rejects identical unavailable pitch marker %s tampering",
     (mode) => {
-      const f = fixture(1, true, true);
+      const f = fixture(1, "feature-shapes", true);
       expect(() => verifyStorageShape(f.input, 1)).not.toThrow();
       let changed = 0;
       for (const turn of f.input.turns)
@@ -570,24 +888,25 @@ describe("message-driven storage shape acceptance", () => {
           ).content;
           for (const page of content.analyses ?? [])
             for (const row of page.timeline) {
-              if (row.kind !== "availability") continue;
-              const block = row.features.find(
+              if (row.kind !== "feature-shapes") continue;
+              const block = row.featureShapes!.find(
                 (item) => item.type === "pitch-grid/v1",
               );
               if (!block) continue;
               changed++;
-              if (mode === "numeric") block.values = [50, 50];
+              if (mode === "numeric") block.valueCount = 32;
               if (mode === "status") block.status = "ready";
               if (mode === "units") block.units = "linear-amplitude";
-              if (mode === "reason") block.reason = "silence";
+              if (mode === "reason") block.reason = null;
               if (mode === "owner") row.segment.entryId = "foreign";
               if (mode === "time") row.endBeat -= 0.25;
               if (mode === "expected") block.expectedSamples++;
               if (mode === "covered") block.coveredSamples--;
-              if (mode === "support-extent") block.supportExtent = null;
               if (mode === "channel") block.channelReasons = [null, null];
               if (mode === "missing")
-                row.features = row.features.filter((item) => item !== block);
+                row.featureShapes = row.featureShapes!.filter(
+                  (item) => item !== block,
+                );
             }
         }
       expect(changed).toBeGreaterThan(0);
@@ -623,13 +942,13 @@ describe("message-driven storage shape acceptance", () => {
     "expected",
     "covered",
     "both",
-    "channel",
-    "support-extent",
-    "ready-values",
+    "dimensions",
+    "grid",
+    "value-count",
   ] as const)(
     "rejects identically corrupted original/restored %s coverage without storage IDs",
     (mode) => {
-      const f = fixture(1, true);
+      const f = fixture(1, "feature-shapes");
       for (const turn of f.input.turns)
         for (const record of turn.agentListening!.records) {
           if (record.kind !== "tool_result") continue;
@@ -639,28 +958,25 @@ describe("message-driven storage shape acceptance", () => {
           for (const page of content.analyses ?? [])
             for (const row of page.timeline) {
               delete row.featureRecord;
-              for (const block of row.features) {
+              for (const block of row.featureShapes ?? []) {
                 if (mode === "expected" || mode === "both")
                   block.expectedSamples = 1e9;
                 if (mode === "covered" || mode === "both")
                   block.coveredSamples = 0;
-                if (mode === "channel" && block.channelCoveredSamples)
-                  block.channelCoveredSamples = [0, 0];
-                if (mode === "support-extent" && block.supportExtent)
-                  block.supportExtent = [0, 1e9];
-                if (mode === "ready-values" && block.type === "mel-shape/v1")
-                  block.values = block.values!.map(() => null);
+                if (mode === "dimensions") block.dimensions = 1;
+                if (mode === "grid" && block.grid) block.grid.cellCount = 15;
+                if (mode === "value-count") block.valueCount = 0;
               }
             }
         }
-      expect(() => verifyStorageShape(f.input, 1)).toThrow(
-        /coverage|validity/u,
-      );
+      expect(() => verifyStorageShape(f.input, 1)).toThrow();
     },
   );
-  it("verifies genuine automatic analyses and restored pinned reads without inventory tool calls", () => {
+  it("does not substitute even complete numeric analyses for explicit shape reads", () => {
     const f = fixture(1, true);
-    expect(() => verifyStorageShape(f.input, 1)).not.toThrow();
+    expect(() => verifyStorageShape(f.input, 1)).toThrow(
+      "Missing delivered original analysis",
+    );
     expect(
       JSON.stringify(f.input.turns.map((turn) => turn.agentListening)),
     ).not.toContain("list-features");
@@ -697,7 +1013,7 @@ describe("message-driven storage shape acceptance", () => {
     );
   });
   it("verifies all twenty measures from actual paged analyses without storage identity discovery", () => {
-    const f = fixture(20, true);
+    const f = fixture(20, "feature-shapes");
     for (const turn of f.input.turns)
       for (const record of turn.agentListening!.records) {
         if (record.kind !== "tool_result") continue;
@@ -722,7 +1038,7 @@ describe("message-driven storage shape acceptance", () => {
     expect(() => verifyStorageShape(f.input, 20)).not.toThrow();
   }, 30_000);
   it.each([
-    "values",
+    "count",
     "units",
     "extent",
     "owner",
@@ -730,7 +1046,7 @@ describe("message-driven storage shape acceptance", () => {
     "definition",
     "dimensions",
   ] as const)("rejects modern delivered %s corruption", (mode) => {
-    const f = fixture(1, true);
+    const f = fixture(1, "feature-shapes");
     const results = f.restart.agentListening!.records.filter(
       (record) => record.kind === "tool_result",
     );
@@ -756,17 +1072,17 @@ describe("message-driven storage shape acceptance", () => {
     else if (mode === "definition") {
       const block = pages
         .flatMap((page) => page.timeline)
-        .flatMap((row) => row.features)[0]!;
+        .flatMap((row) => row.featureShapes ?? [])[0]!;
       block.type =
         block.type === "peak-summary/v1" ? "level-grid/v1" : "peak-summary/v1";
     } else {
       const block = pages
         .flatMap((page) => page.timeline)
-        .flatMap((row) => row.features)
+        .flatMap((row) => row.featureShapes ?? [])
         .find((block) => block.type === "peak-summary/v1")!;
-      if (mode === "values") block.values![0] = 999;
+      if (mode === "count") block.valueCount = 999;
       if (mode === "units") Reflect.set(block, "units", "hz");
-      if (mode === "dimensions") block.dimensions[0] = "wrong";
+      if (mode === "dimensions") block.dimensions = 1;
     }
     expect(() => verifyStorageShape(f.input, 1)).toThrow();
   });
@@ -1114,7 +1430,28 @@ describe("message-driven storage shape acceptance", () => {
       };
       expect(
         Buffer.byteLength(JSON.stringify(input.turns)),
-      ).toBeLessThanOrEqual(524_288);
+      ).toBeLessThanOrEqual(MAX_AGENT_LISTENING_EVIDENCE_BYTES);
+      for (const turn of input.turns) {
+        const reports = new Map<string, { bytes: number; pages: number }>();
+        for (const record of turn.agentListening.records) {
+          if (record.kind !== "tool_result") continue;
+          const content = (
+            record.result?.result as {
+              content: { action: string; analyses?: AnalysisPage[] };
+            }
+          ).content;
+          if (content.action !== "read") continue;
+          const contextId = content.analyses![0]!.readTarget.contextId;
+          const report = reports.get(contextId) ?? { bytes: 0, pages: 0 };
+          report.bytes += Buffer.byteLength(JSON.stringify(content));
+          report.pages++;
+          reports.set(contextId, report);
+        }
+        for (const report of reports.values()) {
+          expect(report.bytes).toBeLessThan(160_000);
+          expect(report.pages).toBeLessThanOrEqual(4);
+        }
+      }
       expect(Buffer.byteLength(JSON.stringify(input))).toBeLessThan(1_500_000);
       expect(() => verifyStorageShape(input, measures)).not.toThrow();
       expect(
@@ -1125,17 +1462,8 @@ describe("message-driven storage shape acceptance", () => {
       ).toBe(true);
     },
   );
-  it.each([
-    "index",
-    "width",
-    "columns",
-    "alignment",
-    "metadata",
-    "duplicate",
-    "owner",
-    "pass",
-  ])("rejects changed compact inventory tables (%s)", (fault) => {
-    const f = fixture(20);
+  it("does not substitute inventory tables for explicit original and restored shape reads", () => {
+    const f = fixture(20, false);
     const input = {
       ...f.input,
       turns: f.input.turns.map((turn) => ({
@@ -1143,32 +1471,9 @@ describe("message-driven storage shape acceptance", () => {
         agentListening: projectStorageShapeHistory(turn.agentListening!),
       })),
     };
-    const result = input.turns[0]!.agentListening.records.find(
-      (record) =>
-        record.kind === "tool_result" &&
-        (record.result?.result as { content?: { action?: string } })?.content
-          ?.action === "list-features",
-    )!;
-    if (result.kind !== "tool_result")
-      throw new Error("Missing inventory result");
-    const content = (
-      result.result?.result as {
-        content: { inventory: Record<string, unknown[]> };
-      }
-    ).content;
-    const table = content.inventory;
-    const rows = table.features as unknown[][];
-    const first = (name: string) => table[name]![0] as Record<string, unknown>;
-    if (fault === "index") rows[0]![4] = 100;
-    if (fault === "width") rows[0]!.pop();
-    if (fault === "columns") table.featureFields!.reverse();
-    if (fault === "alignment") first("segments").alignment = 100;
-    if (fault === "metadata")
-      (first("metadata").shape as Record<string, unknown>).units = "wrong";
-    if (fault === "duplicate") rows[1]![0] = rows[0]![0];
-    if (fault === "owner") first("provenance").entryId = "foreign";
-    if (fault === "pass") first("sources").passId = "foreign";
-    expect(() => verifyStorageShape(input, 20)).toThrow();
+    expect(() => verifyStorageShape(input, 20)).toThrow(
+      "Missing delivered original analysis",
+    );
   });
   it("allows different native acquisition counts and support values while validating each inventory", () => {
     const f = fixture();
@@ -1235,26 +1540,27 @@ describe("message-driven storage shape acceptance", () => {
       )!;
       result.result = { result: { content: "[truncated]" } };
     }
-    const inventory = (turn: TurnEvidence) => {
+    const analysis = (turn: TurnEvidence) => {
       for (const record of turn.agentListening!.records) {
         if (record.kind !== "tool_result") continue;
         const content = (record.result?.result as { content?: unknown })
           ?.content as {
           action: string;
-          inventory: ReturnType<typeof projectListeningFeatureInventory>;
+          analyses: AnalysisPage[];
         };
-        if (content.action === "list-features") return content.inventory;
+        if (content.action === "read") return content.analyses[0]!;
       }
-      throw new Error("Missing controlled feature inventory");
+      throw new Error("Missing controlled feature shapes");
     };
     if (fault === "definition")
-      inventory(f.session).metadata[0]!.type = "level-grid/v1";
+      analysis(f.session).timeline[0]!.featureShapes![0]!.type =
+        "level-grid/v1";
     if (fault === "grid")
-      inventory(f.session).metadata.find(
-        (feature) => feature.grid,
-      )!.grid!.cellCount = 15;
+      analysis(f.session)
+        .timeline.flatMap((row) => row.featureShapes!)
+        .find((feature) => feature.grid)!.grid!.cellCount = 15;
     if (fault === "restart-id")
-      inventory(f.restart).features[0]!.id = "changed";
+      analysis(f.restart).source.capturedAt = "2026-11-16T00:00:00.000Z";
     if (fault === "restart-count")
       f.restoredShapes[0]!.metrics[0]!.retainedRecords--;
     if (fault === "restart-missing")

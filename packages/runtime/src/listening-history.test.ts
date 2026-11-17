@@ -9,6 +9,7 @@ import {
   projectMetricListeningReport,
   summarizeMetricListeningResult,
   extractPeakFeature,
+  listeningFeatureDefinition,
   type MetricAudioObservation,
   compactMetricRecordStreamDescriptor,
 } from "@ableton-agent/protocol";
@@ -608,6 +609,102 @@ describe("typed listening SDK result History projection", () => {
       });
       expect(JSON.stringify(body)).toBe(serialized);
       expect(view.record.feature).not.toHaveProperty("values");
+      if (action === "read") {
+        const shapeTimeline = projectListeningTimeline(
+          values,
+          0,
+          readTarget,
+          "feature-shapes",
+        );
+        const shapeBody = contextOperationResultSchema.parse({
+          action: "read",
+          nextCursor: null,
+          analyses: [
+            {
+              ...analysis,
+              source: {
+                ...analysis.source,
+                name: "Measured token=history-shape-secret",
+              },
+              timeline: shapeTimeline,
+              detail: {
+                offset: 0,
+                returnedItems: shapeTimeline.length,
+                totalItems: shapeTimeline.length,
+                truncated: false,
+                nextCursor: null,
+              },
+            },
+          ],
+        });
+        const shapeHook = await hooks.onPostToolUse?.(
+          {
+            sessionId: "sdk",
+            timestamp: new Date(),
+            workingDirectory: "/tmp",
+            toolName: "ableton_context",
+            toolArgs: {
+              action: "read",
+              target: readTarget,
+              detail: "feature-shapes",
+            },
+            toolResult: {
+              resultType: "success",
+              textResultForLlm: JSON.stringify(shapeBody),
+            },
+          },
+          { sessionId: "sdk" },
+        );
+        expect(shapeHook?.additionalContext).toBe(guidance);
+        const projected = listeningHistoryResult("ableton_context", {
+          content:
+            JSON.stringify(shapeBody) +
+            `\n\nTool "ableton_context" succeeded. Additional guidance from postToolUse hooks:\n${shapeHook?.additionalContext}`,
+        });
+        expect(projected).toMatchObject({
+          result: { content: { analyses: [{ timeline: shapeTimeline }] } },
+        });
+        expect(JSON.stringify(projected)).not.toContain("history-shape-secret");
+        expect(JSON.stringify(projected)).toContain("REDACTED");
+        if (shapeBody.action !== "read") throw new Error("Expected shape read");
+        const pitchDefinition = listeningFeatureDefinition("pitch-grid/v1");
+        for (const alteration of [
+          { valueCount: 3 },
+          { contentSha256: "not-a-content-hash" },
+          { contentSha256: undefined },
+          { contentSha256: "A".repeat(64) },
+          { type: "level-grid/v1", grid: null, valueCount: 0 },
+          { status: "unavailable", reason: null, valueCount: 0 },
+          { reason: "missing-alignment" },
+          { channelReasons: [null, null] },
+          {
+            type: pitchDefinition.type,
+            units: pitchDefinition.units,
+            normalization: pitchDefinition.normalization,
+            status: "unavailable",
+            reason: "missing-alignment",
+            valueCount: 0,
+            grid: null,
+            channelReasons: undefined,
+          },
+        ]) {
+          const corrupted = structuredClone(shapeBody);
+          Object.assign(
+            corrupted.analyses[0]!.timeline[0]!.featureShapes![0]!,
+            alteration,
+          );
+          expect(
+            listeningHistoryResult("ableton_context", { content: corrupted }),
+          ).toMatchObject({
+            result: {
+              content: {
+                error: "history_projection_unavailable",
+                reason: "invalid_typed_result",
+              },
+            },
+          });
+        }
+      }
       for (const altered of [
         frame + "\nUnexpected guidance",
         frame + suffix("ableton_context"),

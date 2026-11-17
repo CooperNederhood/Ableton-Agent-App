@@ -2545,6 +2545,7 @@ describe("Ableton tools", () => {
       expect(tool.description).toContain(
         "Overview counts and sampled measures do not replace unread values",
       );
+      expect(tool.description).toContain('read detail="feature-shapes"');
       expect(tool.description).toContain(
         "copy a returned readTarget unchanged",
       );
@@ -2566,6 +2567,9 @@ describe("Ableton tools", () => {
         action: "read",
         target,
       };
+      expect(
+        parameters.safeParse({ ...args, detail: "feature-shapes" }).success,
+      ).toBe(true);
       const invoke = (
         arguments_: Record<string, unknown>,
         toolCallId: string,

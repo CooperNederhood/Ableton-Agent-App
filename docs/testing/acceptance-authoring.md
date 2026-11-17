@@ -26,9 +26,10 @@ transport; the three-minute Arrangement listen starts playback itself, rather
 than a separate Play command; comprehension listens once to each of five sources
 and reuses recorded analysis. Permissions, counts, musical answers and fixture
 assets are unchanged. Both long consolidation failures genuinely omitted most
-value pages; their complete-value oracles remain unchanged. Leading pagination
-metadata and explicit exhaustion guidance address presentation, not acceptance
-of sampled evidence. Preserve this failed suite separately from qualification.
+value pages, not an oracle paging-equivalence bug. Preserve this failed suite
+separately from qualification. The subsequent user-approved structural-report
+migration below restores the original consolidation intent; it does not
+reclassify those historical failures or relax feature-search numerical checks.
 
 Pre-approval capture resolution inserts the tool schema's default
 `maximumDurationMs`. The scoped approval matcher treats that exact current
@@ -51,7 +52,8 @@ requiring the model to reread or echo those raw records. Bind delivered
 features through the pinned context, musical extent and canonical feature
 type; literal storage feature IDs are not a required agent interaction.
 Restart checks must still compare the original pinned source and actual
-returned values, not just a successful tool status.
+returned values for numerical scenarios, or complete returned per-measure
+metadata for structural scenarios, not just a successful tool status.
 The acceptance-only History collector permits at most 1,024 records and
 24 MiB per turn, so complete multi-page twenty-measure evidence can be retained
 through restart. This replaces the 256-record/8-MiB limit; neither the product's
@@ -122,6 +124,60 @@ applicable channel/vector/grid dimensions. Aligned 4/4 sixteenth grids have
 sixteen cells. Expected counts come from the canonical contract, not just
 another equally empty/truncated output. Do not normalize distinct production
 formats in the test to hide a remaining storage fork.
+
+On 2026-11-17 the user approved a compact, complete per-measure structural
+report and restoration of the original consolidation scope. The pre-redesign
+long-audio scenario at `930d3063^` requested complete inventory, definitions,
+counts and grid dimensions, explicitly excluding numerical comparisons.
+All four prompts now request `ableton_context read` with
+`detail: "feature-shapes"` on each original pinned capture and again with
+`includeHistorical: true` after the owned restart. Exhaust every authentic
+returned shape cursor to `nextCursor: null`; never replace late measures or
+feature types with overview totals, repeated templates or sampled rows.
+An unfinished default numeric timeline from the listening response does not
+invalidate an otherwise complete, explicit structural read. Numeric
+feature-search consumption remains strict: a shape report cannot satisfy it.
+Budgets, permissions, source assets, musical answers, capture/native proofs,
+persisted-stream integrity and cleanup requirements do not change.
+
+Structural rows describe whole stored segments, not estimates of cropped
+features. The oracle joins complete row fragments, requires all fifteen
+canonical types on every one or twenty complete 4/4 measures, and verifies
+musical/sample ranges, elapsed timing, units, normalization, channel/vector
+dimensions, actual stored value counts, applicable sixteen-cell grid metadata,
+availability and native acquired-support coverage. Unavailable features remain
+explicit with zero measured values; they never become fabricated cells.
+Original and restored reports must agree for each pinned source, including
+availability, coverage and every feature's required `contentSha256`. Complete
+shape reads must come from successful,
+attributable turns with unchanged target/detail/historical cursor scope.
+
+The checksum is SHA-256 over
+`canonicalMetricRecordJson({schema: "stored-listening-feature/v1", feature: record.feature})`:
+the full persisted feature, including numeric vectors, grid validity/masks,
+supports and profile metadata, not merely its reported dimensions/counts.
+Require an original/restored checksum match for every exact pinned source,
+segment and canonical type. This retains the previous tool-delivered numerical
+change-detection boundary without requiring the agent to page all vectors.
+It relies on the same trusted product producer as the previous numeric result
+comparison; it is not an independent stored-vector IPC read or a DSP oracle.
+A changed value with identical shape metadata must fail restart equality.
+
+Independent `storageShapes` evidence establishes original source/pass binding,
+geometry, six-family expected/retained/missing record counts, acquired-support
+unions, restart-stable content fingerprints and (for long captures) attributed
+durable appends during capture. It does not independently recompute every
+derived value, per-channel validity mask or availability classification, and
+its native-record hash does not cover derived-feature values. The structural
+report supplies persisted metadata and producer-bound full-feature equality
+checksums, not numerical ground truth. Separate feature-search/equivalence
+mathematics and native
+tests remain responsible for numerical correctness; their required value
+pages and original-frame comparisons are not waived by this migration.
+Bounded regressions retain each twenty-measure report within four pages and
+160,000 bytes. Combined typed histories use the already-established shared
+24-MiB allowance, not the superseded 512-KiB inventory-only fixture threshold;
+adding full-feature checksums does not change configured retention budgets.
 
 Both views are verified from original committed descriptor/chunks/manifest
 through typed Desktop reads. Restart fingerprints bind original descriptor,

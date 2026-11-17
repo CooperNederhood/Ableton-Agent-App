@@ -1043,7 +1043,7 @@ export function createSessionContextHost(
     source: AnalysisSource,
     includeHistorical: boolean,
     operation: ContextOperationOptions,
-    detail?: "evidence",
+    detail?: "evidence" | "feature-shapes",
   ) => {
     const derivation = await analysisStage(
       "wait",
@@ -1449,8 +1449,8 @@ export function createSessionContextHost(
         ),
         query.includeHistorical,
         operation,
-        query.action === "read" && query.detail === "evidence"
-          ? "evidence"
+        query.action === "read" && query.detail !== "original-measurements"
+          ? query.detail
           : undefined,
       );
     if (query.action === "read" || query.action === "compare") {

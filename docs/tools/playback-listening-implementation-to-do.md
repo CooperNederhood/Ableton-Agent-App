@@ -55,6 +55,16 @@
 - [x] Put existing pagination/truncation fields before bulk SDK value arrays;
       distinguish exhaustive detail consumption from overview counts or samples.
       Keep exact cursors, byte limits, values and independent oracles unchanged.
+- [x] Add user-approved `read.detail: "feature-shapes"` by projecting existing
+      stored metadata into complete per-segment feature shapes. Keep defaults
+      numeric, label whole-segment scope, preserve unavailable reasons and use
+      the existing signed paging, lifecycle, cancellation and History paths.
+- [x] Cover all fifteen feature types across twenty measures within four pages
+      and 160 KiB, exact vector/cell counts, fragments, historical cursor binding,
+      wrong-owner/stale/range denial, failure, cancellation and credential redaction.
+- [x] Include a canonical full-feature SHA-256 commitment in compact reports;
+      preserve original/restored numeric-content equality without agent vector
+      paging. Regress value, grid-support and profile changes with unchanged shapes.
 - [x] Round-trip actual Session post-tool hooks through typed History using the
       shared guidance builder and exact action binding; reject altered, duplicated,
       foreign-tool and mismatched-action suffixes without losing valid values.

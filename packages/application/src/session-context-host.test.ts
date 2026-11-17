@@ -27,6 +27,7 @@ import {
   DEFAULT_LISTENING_TIMING_POLICY,
   MEL_BAND_PROFILE,
   LISTENING_FEATURE_DEFINITIONS,
+  listeningFeatureDefinition,
   projectMetricFeatureSource,
   classifyPitchEstimate,
   melBandTimelineFrameSchema,
@@ -1379,6 +1380,89 @@ describe("musical analysis host", () => {
       40 + aligned.startSample / aligned.sampleRate,
       10,
     );
+    for (const includeHistorical of [false, true]) {
+      const shapes = new Map<
+        string,
+        NonNullable<AnalysisTimelineItem["featureShapes"]>[number]
+      >();
+      let shapePages = 0;
+      let shapeBytes = 0;
+      let shapeOffset = 0;
+      const fragments = new Map<number, number>();
+      do {
+        const result = await host.executeContextOperation(
+          cursor
+            ? { action: "read", cursor }
+            : {
+                action: "read",
+                target: selected,
+                detail: "feature-shapes",
+                includeHistorical,
+              },
+          context,
+        );
+        if (result.action !== "read") throw new Error("Expected shape read");
+        const page = result.analyses[0]!;
+        expect(page.detail.offset).toBe(shapeOffset);
+        expect(page.detail.returnedItems).toBe(page.timeline.length);
+        expect(page.timeline.length).toBeGreaterThan(0);
+        shapeOffset += page.timeline.length;
+        for (const row of page.timeline) {
+          expect(row.kind).toBe("feature-shapes");
+          expect(row.shapeScope).toBe("whole-stored-segment");
+          expect(row.features).toEqual([]);
+          expect(row.fragment).toBe(fragments.get(row.startBeat) ?? 0);
+          fragments.set(row.startBeat, row.fragment + 1);
+          expect(row.complete).toBe(
+            row.fragment + 1 === (row.fragmentCount ?? 1),
+          );
+          for (const shape of row.featureShapes!) {
+            const key = `${row.segment.startBeat}:${shape.type}`;
+            expect(shapes.has(key)).toBe(false);
+            shapes.set(key, shape);
+          }
+        }
+        const bytes = Buffer.byteLength(JSON.stringify(result));
+        expect(bytes).toBeLessThanOrEqual(MAX_METRIC_CONTEXT_RESPONSE_BYTES);
+        shapeBytes += bytes;
+        cursor = result.nextCursor ?? undefined;
+        if (cursor && shapePages === 0) {
+          await expect(
+            host.executeContextOperation(
+              { action: "read", cursor, detail: "evidence" },
+              context,
+            ),
+          ).rejects.toThrow();
+          await expect(
+            host.executeContextOperation(
+              { action: "read", cursor, includeHistorical: !includeHistorical },
+              context,
+            ),
+          ).rejects.toThrow();
+        }
+        if (!cursor) expect(shapeOffset).toBe(page.detail.totalItems);
+        expect(++shapePages).toBeLessThanOrEqual(4);
+      } while (cursor);
+      expect(shapeBytes).toBeLessThan(160_000);
+      expect(shapes.size).toBe(300);
+      for (const [index, item] of records.entries()) {
+        const shape = shapes.get(
+          `${Math.floor(index / 15) * 4}:${item.feature.type}`,
+        );
+        expect(shape).toMatchObject({
+          valueCount: item.feature.values!.length,
+          dimensions: listeningFeatureDefinition(item.feature.type).dimensions,
+          units: item.feature.units,
+          normalization: item.feature.normalization,
+          status: item.feature.status,
+          coveredSamples: item.feature.coveredSamples,
+          expectedSamples: item.feature.expectedSamples,
+        });
+        expect(shape?.grid?.cellCount ?? null).toBe(
+          item.feature.grid?.cells.length ?? null,
+        );
+      }
+    }
     const metadata = new Map<
       string,
       NonNullable<AnalysisTimelineItem["featureRecord"]>
@@ -2038,46 +2122,92 @@ describe("musical analysis host", () => {
         (item) => item.features.length === 0,
       ),
     ).toBe(true);
+    const enqueue = vi.fn<NonBlockingObservabilityRecorder["enqueue"]>();
+    const shapeHost = createSessionContextHost({
+      resolveRepository: async () => store,
+      telemetry: { enqueue },
+    });
+    const shaped = await shapeHost.executeContextOperation(
+      {
+        action: "read",
+        target: featureTarget,
+        includeHistorical: false,
+        detail: "feature-shapes",
+      },
+      context,
+    );
+    if (shaped.action !== "read") throw new Error("Expected shape read");
+    expect(
+      shaped.analyses[0]!.timeline.flatMap((row) => row.featureShapes ?? []),
+    ).toMatchObject([
+      { type: "level-grid/v1", valueCount: record.feature.values!.length },
+    ]);
+    expect(derive).not.toHaveBeenCalled();
+    const events = enqueue.mock.calls.map(([event]) => event);
+    expect(
+      events
+        .filter((event) => event.name.startsWith("listening.analysis.read."))
+        .map((event) => event.name.split(".").at(-1)),
+    ).toEqual(["queued", "started", "progress", "completed"]);
+    expect(
+      events.some(
+        (event) => event.name === "listening.analysis.projection.completed",
+      ),
+    ).toBe(true);
+    for (const event of events) {
+      expect(event).toMatchObject({
+        sessionId: context.sessionId,
+        liveSetId: "set-a",
+        activeAgentId: "reader",
+        correlationId: trace.correlationId,
+        causationId: trace.causationId,
+        trace: { traceId: trace.traceId },
+      });
+      expect(event.durationMs).toBeGreaterThanOrEqual(0);
+    }
   });
 
-  it("rejects foreign, stale, and uncovered targets without derivation", async () => {
-    const { host, store, target, wait } = await analysisFixture();
-    const read = (next: CaptureAnalysisTarget) =>
-      host.executeContextOperation(
-        { action: "read", target: next, includeHistorical: false },
-        context,
-      );
-    await expect(
-      read({ ...target, sessionId: "foreign" }),
-    ).rejects.toMatchObject({ code: "permission_denied" });
-    await expect(
-      read({ ...target, range: { startBeat: 0, endBeat: 5 } }),
-    ).rejects.toMatchObject({ code: "analysis_range_not_covered" });
-    const available = await store.listEntries({ entryId: target.contextId });
-    const entries = vi.spyOn(store, "listEntries");
-    for (const mismatch of [
-      { sessionId: "foreign" },
-      { id: "another-capture" },
-    ]) {
-      entries.mockResolvedValueOnce({
-        items: available.items.map((entry) => ({ ...entry, ...mismatch })),
+  it.each([undefined, "feature-shapes"] as const)(
+    "rejects foreign, stale, and uncovered targets without derivation (detail=%s)",
+    async (detail) => {
+      const { host, store, target, wait } = await analysisFixture();
+      const read = (next: CaptureAnalysisTarget) =>
+        host.executeContextOperation(
+          { action: "read", target: next, includeHistorical: false, detail },
+          context,
+        );
+      await expect(
+        read({ ...target, sessionId: "foreign" }),
+      ).rejects.toMatchObject({ code: "permission_denied" });
+      await expect(
+        read({ ...target, range: { startBeat: 0, endBeat: 5 } }),
+      ).rejects.toMatchObject({ code: "analysis_range_not_covered" });
+      const available = await store.listEntries({ entryId: target.contextId });
+      const entries = vi.spyOn(store, "listEntries");
+      for (const mismatch of [
+        { sessionId: "foreign" },
+        { id: "another-capture" },
+      ]) {
+        entries.mockResolvedValueOnce({
+          items: available.items.map((entry) => ({ ...entry, ...mismatch })),
+        });
+        await expect(read(target)).rejects.toMatchObject({
+          code: "permission_denied",
+        });
+      }
+      const links = await store.listLinks({ entryId: "entry" });
+      vi.spyOn(store, "listLinks").mockResolvedValue({
+        items: links.items.map((link) => ({
+          ...link,
+          freshness: { ...link.freshness, status: "stale" },
+        })),
       });
       await expect(read(target)).rejects.toMatchObject({
-        code: "permission_denied",
+        code: "analysis_not_fresh",
       });
-    }
-    const links = await store.listLinks({ entryId: "entry" });
-    vi.spyOn(store, "listLinks").mockResolvedValue({
-      items: links.items.map((link) => ({
-        ...link,
-        freshness: { ...link.freshness, status: "stale" },
-      })),
-    });
-    await expect(read(target)).rejects.toMatchObject({
-      code: "analysis_not_fresh",
-    });
-    expect(wait).not.toHaveBeenCalled();
-  });
+      expect(wait).not.toHaveBeenCalled();
+    },
+  );
 
   it.each([false, true])(
     "pages oversized support losslessly using only its signed cursor (historical=%s)",
@@ -2305,46 +2435,49 @@ describe("musical analysis host", () => {
     }
   });
 
-  it("keeps unavailable derivation explicit and emits attributed lifecycle timing", async () => {
-    const { store, target, wait } = await analysisFixture();
-    wait.mockResolvedValue({
-      entryId: "entry",
-      status: "failed",
-      reason: "quota",
-      definitionSet: "qualified-listening/v1",
-      featureIds: [],
-    });
-    vi.spyOn(store, "listFeatures").mockResolvedValue({ items: [] });
-    const enqueue = vi.fn<NonBlockingObservabilityRecorder["enqueue"]>();
-    const host = createSessionContextHost({
-      resolveRepository: async () => store,
-      telemetry: { enqueue },
-    });
-    const result = await host.executeContextOperation(
-      { action: "read", target, includeHistorical: false },
-      context,
-    );
-    expect(result).toMatchObject({
-      analyses: [{ status: "failed", reason: "quota", timeline: [] }],
-    });
-    const events = enqueue.mock.calls.map(([event]) => event);
-    expect(
-      events
-        .filter((event) => event.name.startsWith("listening.analysis.read."))
-        .map((event) => event.name.split(".").at(-1)),
-    ).toEqual(["queued", "started", "progress", "completed"]);
-    for (const event of events) {
-      expect(event).toMatchObject({
-        sessionId: context.sessionId,
-        liveSetId: "set-a",
-        activeAgentId: "reader",
-        correlationId: trace.correlationId,
-        causationId: trace.causationId,
-        trace: { traceId: trace.traceId },
+  it.each([undefined, "feature-shapes"] as const)(
+    "keeps unavailable derivation explicit and emits attributed lifecycle timing (detail=%s)",
+    async (detail) => {
+      const { store, target, wait } = await analysisFixture();
+      wait.mockResolvedValue({
+        entryId: "entry",
+        status: "failed",
+        reason: "quota",
+        definitionSet: "qualified-listening/v1",
+        featureIds: [],
       });
-      expect(event.durationMs).toBeGreaterThanOrEqual(0);
-    }
-  });
+      vi.spyOn(store, "listFeatures").mockResolvedValue({ items: [] });
+      const enqueue = vi.fn<NonBlockingObservabilityRecorder["enqueue"]>();
+      const host = createSessionContextHost({
+        resolveRepository: async () => store,
+        telemetry: { enqueue },
+      });
+      const result = await host.executeContextOperation(
+        { action: "read", target, includeHistorical: false, detail },
+        context,
+      );
+      expect(result).toMatchObject({
+        analyses: [{ status: "failed", reason: "quota", timeline: [] }],
+      });
+      const events = enqueue.mock.calls.map(([event]) => event);
+      expect(
+        events
+          .filter((event) => event.name.startsWith("listening.analysis.read."))
+          .map((event) => event.name.split(".").at(-1)),
+      ).toEqual(["queued", "started", "progress", "completed"]);
+      for (const event of events) {
+        expect(event).toMatchObject({
+          sessionId: context.sessionId,
+          liveSetId: "set-a",
+          activeAgentId: "reader",
+          correlationId: trace.correlationId,
+          causationId: trace.causationId,
+          trace: { traceId: trace.traceId },
+        });
+        expect(event.durationMs).toBeGreaterThanOrEqual(0);
+      }
+    },
+  );
 
   it("selects topK after the complete scan, including late matches, and compares all query segments", async () => {
     const { host, store, record, segment, target } = await analysisFixture();
@@ -2692,30 +2825,33 @@ describe("musical analysis host", () => {
     },
   );
 
-  it("cancels the reader with attributed failure rather than requesting a new derivation", async () => {
-    const { store, target, wait } = await analysisFixture();
-    const controller = new AbortController();
-    const enqueue = vi.fn();
-    wait.mockImplementation(async (_id, options) => {
-      controller.abort(new Error("reader detached"));
-      options?.signal?.throwIfAborted();
-      throw new Error("Expected cancellation");
-    });
-    const host = createSessionContextHost({
-      resolveRepository: async () => store,
-      telemetry: { enqueue },
-    });
-    await expect(
-      host.executeContextOperation(
-        { action: "read", target, includeHistorical: false },
-        { ...context, signal: controller.signal },
-      ),
-    ).rejects.toThrow("reader detached");
-    expect(enqueue.mock.calls.at(-1)?.[0]).toMatchObject({
-      name: "listening.analysis.read.cancelled",
-      outcome: "cancelled",
-    });
-  });
+  it.each([undefined, "feature-shapes"] as const)(
+    "cancels the reader with attributed failure rather than requesting a new derivation (detail=%s)",
+    async (detail) => {
+      const { store, target, wait } = await analysisFixture();
+      const controller = new AbortController();
+      const enqueue = vi.fn();
+      wait.mockImplementation(async (_id, options) => {
+        controller.abort(new Error("reader detached"));
+        options?.signal?.throwIfAborted();
+        throw new Error("Expected cancellation");
+      });
+      const host = createSessionContextHost({
+        resolveRepository: async () => store,
+        telemetry: { enqueue },
+      });
+      await expect(
+        host.executeContextOperation(
+          { action: "read", target, includeHistorical: false, detail },
+          { ...context, signal: controller.signal },
+        ),
+      ).rejects.toThrow("reader detached");
+      expect(enqueue.mock.calls.at(-1)?.[0]).toMatchObject({
+        name: "listening.analysis.read.cancelled",
+        outcome: "cancelled",
+      });
+    },
+  );
 
   it("finds the newest fresh covering capture across ID-ordered pages and pins continuations", async () => {
     const { host, store, record: feature, segment } = await analysisFixture();

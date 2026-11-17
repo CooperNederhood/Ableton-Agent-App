@@ -51,6 +51,8 @@ or a catalog/inventory/value-discovery sequence:
 Results contain an overview and actual values grouped by musical time, with
 separate segment summaries, units, channels, availability and native support.
 Defaults omit bulky technical repetition. Use the same target with
+`read.detail: "feature-shapes"` for complete per-segment stored feature dimensions,
+value/cell counts, availability and full-feature content checksums without numeric arrays,
 `read.detail: "evidence"` for full definitions and supports, or
 `read.detail: "original-measurements"` for original measured records.
 Oversized results automatically paginate rather than fail. Search, feature and

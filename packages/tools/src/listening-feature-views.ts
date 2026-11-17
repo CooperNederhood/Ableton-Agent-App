@@ -1,4 +1,6 @@
+import { createHash } from "node:crypto";
 import {
+  canonicalMetricRecordJson,
   contextFeatureSchema,
   contextFeatureDerivationSchema,
   listeningFeatureDefinition,
@@ -77,10 +79,10 @@ export const analysisReadParamsSchema = z.strictObject({
   includeHistorical: z.boolean().default(false),
   cursor: analysisCursor.optional(),
   detail: z
-    .enum(["evidence", "original-measurements"])
+    .enum(["feature-shapes", "evidence", "original-measurements"])
     .optional()
     .describe(
-      "Omit for compact musical values and coverage. Use evidence for canonical metadata, definitions and complete native support intervals, or original-measurements for original analyzer frames. A continuation cursor retains the original target, detail and historical scope.",
+      "Omit for compact musical values and coverage. Use feature-shapes for complete per-segment feature types, dimensions, actual stored value/cell counts and availability without numeric arrays. Shapes describe whole stored segments overlapping the target, not cropped or recomputed features. Use evidence for canonical metadata, definitions and complete native support intervals, or original-measurements for original analyzer frames. A continuation cursor retains the original target, detail and historical scope.",
     ),
 });
 export const analysisOperationParamsSchema = z.discriminatedUnion("action", [
@@ -175,54 +177,110 @@ const analysisFeatureBlockSchema = z.strictObject({
       "Bounding native support intersecting this interval, in segment-relative samples; not a claim of continuous support. Use read detail=evidence for complete support intervals.",
     ),
 });
-export const analysisTimelineItemSchema = z.strictObject({
-  kind: z.enum([
-    "segment-summary",
-    "interval",
-    "availability",
-    "support",
-    "feature-metadata",
-  ]),
-  segment: z.strictObject({
-    id: analysisId.optional(),
-    entryId: analysisId.optional(),
-    sessionId: analysisId.optional(),
-    liveSetId: analysisId.optional(),
-    order: z.number().int().nonnegative().optional(),
-    coordinate: captureAnalysisTargetSchema.shape.coordinate.optional(),
+const analysisFeatureShapeSchema = z
+  .strictObject({
+    type: listeningFeatureTypeSchema,
+    units: listeningFeatureSchema.shape.units,
+    normalization: listeningFeatureSchema.shape.normalization,
+    status: listeningFeatureSchema.shape.status,
+    reason: listeningFeatureSchema.shape.reason,
+    dimensions: z.number().int().min(1).max(48),
+    valueCount: z
+      .number()
+      .int()
+      .min(0)
+      .max(2000 * 48),
+    contentSha256: z
+      .string()
+      .regex(/^[a-f0-9]{64}$/u)
+      .describe(
+        "SHA-256 of the canonical full stored feature, including numeric values, grid validity and supports. An equality fingerprint, not independently recomputed DSP ground truth.",
+      ),
+    grid: z.lazy(() => gridMetadataSchema).nullable(),
+    coveredSamples: listeningFeatureSchema.shape.coveredSamples,
+    expectedSamples: listeningFeatureSchema.shape.expectedSamples,
+    channelReasons: listeningFeatureSchema.shape.channelReasons,
+  })
+  .superRefine((shape, context) => {
+    const definition = listeningFeatureDefinition(shape.type);
+    if (
+      shape.dimensions !== definition.dimensions ||
+      !featureShapeMetadataValid(shape)
+    )
+      context.addIssue({
+        code: "custom",
+        message: "Invalid stored feature shape",
+      });
+  });
+export const analysisTimelineItemSchema = z
+  .strictObject({
+    kind: z.enum([
+      "segment-summary",
+      "interval",
+      "availability",
+      "support",
+      "feature-metadata",
+      "feature-shapes",
+    ]),
+    segment: z.strictObject({
+      id: analysisId.optional(),
+      entryId: analysisId.optional(),
+      sessionId: analysisId.optional(),
+      liveSetId: analysisId.optional(),
+      order: z.number().int().nonnegative().optional(),
+      coordinate: captureAnalysisTargetSchema.shape.coordinate.optional(),
+      startBeat: z.number().finite(),
+      endBeat: z.number().finite(),
+      startSample: z.number().nonnegative(),
+      endSample: z.number().nonnegative(),
+      sampleRate: z.number().positive(),
+      kind: z.enum(["unaligned", "short", "bar", "partial"]),
+      alignment: listeningMusicalAlignmentSchema.nullable().optional(),
+      meter: listeningMusicalAlignmentSchema.shape.meter.optional(),
+      barOriginBeat:
+        listeningMusicalAlignmentSchema.shape.barOriginBeat.optional(),
+      alignmentReason: z.string().max(128).nullable(),
+    }),
     startBeat: z.number().finite(),
     endBeat: z.number().finite(),
-    startSample: z.number().nonnegative(),
-    endSample: z.number().nonnegative(),
-    sampleRate: z.number().positive(),
-    kind: z.enum(["unaligned", "short", "bar", "partial"]),
-    alignment: listeningMusicalAlignmentSchema.nullable().optional(),
-    meter: listeningMusicalAlignmentSchema.shape.meter.optional(),
-    barOriginBeat:
-      listeningMusicalAlignmentSchema.shape.barOriginBeat.optional(),
-    alignmentReason: z.string().max(128).nullable(),
-  }),
-  startBeat: z.number().finite(),
-  endBeat: z.number().finite(),
-  elapsedStartSeconds: z.number().finite(),
-  elapsedEndSeconds: z.number().finite(),
-  fragment: z.number().int().nonnegative(),
-  fragmentCount: z.number().int().positive().optional(),
-  complete: z.boolean(),
-  features: z.array(analysisFeatureBlockSchema).max(15),
-  featureType: listeningFeatureTypeSchema.optional(),
-  featureRecord: z.lazy(() => contextFeatureMetadataSchema).optional(),
-  definition: listeningFeatureDefinitionSchema.optional(),
-  featureStatus: listeningFeatureSchema.shape.status.optional(),
-  reason: z.string().max(512).nullable().optional(),
-  readTarget: captureAnalysisTargetSchema.optional(),
-  support: z.tuple([z.number(), z.number()]).optional(),
-  supportCoordinate: z.literal("segment-relative-samples").optional(),
-  supportChannel: z.enum(["aggregate", "left", "right"]).optional(),
-  supportOffset: z.number().int().nonnegative().optional(),
-  profileKey: z.string().max(1024).optional(),
-  limitations: z.array(z.string().max(256)).max(8).optional(),
-});
+    elapsedStartSeconds: z.number().finite(),
+    elapsedEndSeconds: z.number().finite(),
+    fragment: z.number().int().nonnegative(),
+    fragmentCount: z.number().int().positive().optional(),
+    complete: z.boolean(),
+    features: z.array(analysisFeatureBlockSchema).max(15),
+    shapeScope: z.literal("whole-stored-segment").optional(),
+    featureShapes: z
+      .array(analysisFeatureShapeSchema)
+      .min(1)
+      .max(15)
+      .optional(),
+    featureType: listeningFeatureTypeSchema.optional(),
+    featureRecord: z.lazy(() => contextFeatureMetadataSchema).optional(),
+    definition: listeningFeatureDefinitionSchema.optional(),
+    featureStatus: listeningFeatureSchema.shape.status.optional(),
+    reason: z.string().max(512).nullable().optional(),
+    readTarget: captureAnalysisTargetSchema.optional(),
+    support: z.tuple([z.number(), z.number()]).optional(),
+    supportCoordinate: z.literal("segment-relative-samples").optional(),
+    supportChannel: z.enum(["aggregate", "left", "right"]).optional(),
+    supportOffset: z.number().int().nonnegative().optional(),
+    profileKey: z.string().max(1024).optional(),
+    limitations: z.array(z.string().max(256)).max(8).optional(),
+  })
+  .superRefine((row, context) => {
+    if (
+      row.kind === "feature-shapes"
+        ? row.featureShapes === undefined ||
+          row.shapeScope === undefined ||
+          row.features.length !== 0
+        : row.featureShapes !== undefined || row.shapeScope !== undefined
+    )
+      context.addIssue({
+        code: "custom",
+        message: "Feature shapes require an explicit shape row",
+      });
+  });
 export const analysisOverviewSchema = z
   .array(
     z.strictObject({
@@ -508,7 +566,7 @@ export function projectListeningTimeline(
   views: readonly ListeningAnalysisFeature[],
   captureStartSample: number,
   target?: CaptureAnalysisTarget,
-  detail?: "evidence",
+  detail?: "evidence" | "feature-shapes",
 ): AnalysisTimelineItem[] {
   const rows = new Map<string, AnalysisTimelineItem>();
   const details: AnalysisTimelineItem[] = [];
@@ -576,6 +634,43 @@ export function projectListeningTimeline(
           (segment.endBeat - segment.startBeat)) *
           feature.durationSeconds,
     });
+    if (detail === "feature-shapes") {
+      const metadata = projectListeningFeatureRecord(record).feature;
+      const key = `${segment.id}:feature-shapes`;
+      const row: AnalysisTimelineItem = rows.get(key) ?? {
+        ...base,
+        ...bounds(segment.startBeat, segment.endBeat),
+        kind: "feature-shapes",
+        features: [],
+        shapeScope: "whole-stored-segment",
+        featureShapes: [],
+      };
+      row.featureShapes!.push({
+        type: metadata.type,
+        units: metadata.units,
+        normalization: metadata.normalization,
+        status: metadata.status,
+        reason: metadata.reason,
+        dimensions: definition.dimensions,
+        valueCount: metadata.valueCount,
+        contentSha256: createHash("sha256")
+          .update(
+            canonicalMetricRecordJson({
+              schema: "stored-listening-feature/v1",
+              feature,
+            }),
+          )
+          .digest("hex"),
+        grid: metadata.grid,
+        coveredSamples: metadata.coveredSamples,
+        expectedSamples: metadata.expectedSamples,
+        ...(metadata.channelReasons
+          ? { channelReasons: metadata.channelReasons }
+          : {}),
+      });
+      rows.set(key, row);
+      continue;
+    }
     const partialSummary =
       feature.values !== null &&
       !definition.grid &&
@@ -720,6 +815,7 @@ export function projectListeningTimeline(
     interval: 1,
     availability: 2,
     "feature-metadata": 3,
+    "feature-shapes": 3,
     support: 4,
   };
   const ordered = [...rows.values(), ...details].sort(
@@ -731,6 +827,33 @@ export function projectListeningTimeline(
   return ordered.flatMap((row) => {
     if (new TextEncoder().encode(JSON.stringify(row)).byteLength <= 2048)
       return [row];
+    const groupBlocks = <T>(
+      blocks: readonly T[],
+      build: (items: T[]) => AnalysisTimelineItem,
+    ): AnalysisTimelineItem[] => {
+      const groups: T[][] = [];
+      for (const block of blocks) {
+        const last = groups.at(-1);
+        if (
+          last &&
+          new TextEncoder().encode(JSON.stringify(build([...last, block])))
+            .byteLength <= 1984
+        )
+          last.push(block);
+        else groups.push([block]);
+      }
+      return groups.map((items, index) => ({
+        ...build(items),
+        fragment: index,
+        fragmentCount: groups.length,
+        complete: index === groups.length - 1,
+      }));
+    };
+    if (row.featureShapes)
+      return groupBlocks(row.featureShapes, (featureShapes) => ({
+        ...row,
+        featureShapes,
+      }));
     if (row.kind === "feature-metadata") {
       const fragments = [
         { ...row, limitations: [] },
@@ -775,19 +898,7 @@ export function projectListeningTimeline(
       }
       return fragments;
     });
-    const groups: (typeof row.features)[] = [];
-    for (const block of blocks) {
-      const last = groups.at(-1);
-      if (last && size([...last, block]) <= 1984) last.push(block);
-      else groups.push([block]);
-    }
-    return groups.map((features, index) => ({
-      ...row,
-      features,
-      fragment: index,
-      fragmentCount: groups.length,
-      complete: index === groups.length - 1,
-    }));
+    return groupBlocks(blocks, (features) => ({ ...row, features }));
   });
 }
 
@@ -915,6 +1026,38 @@ const gridMetadataSchema = z
   .extend({
     cellCount: index,
   });
+function featureShapeMetadataValid(
+  feature: Pick<
+    ListeningFeature,
+    | "type"
+    | "units"
+    | "normalization"
+    | "status"
+    | "reason"
+    | "coveredSamples"
+    | "expectedSamples"
+    | "channelReasons"
+  > & { valueCount: number; grid: { cellCount: number } | null },
+): boolean {
+  const definition = listeningFeatureDefinition(feature.type);
+  const count = definition.grid ? (feature.grid?.cellCount ?? 0) : 1;
+  const channelAware =
+    definition.profile === "pitch-profile/v1" ||
+    definition.profile === "spectral-shape-profile/v1";
+  return (
+    feature.units === definition.units &&
+    feature.normalization === definition.normalization &&
+    channelAware === (feature.channelReasons !== undefined) &&
+    feature.coveredSamples <= feature.expectedSamples &&
+    (definition.grid || feature.grid === null) &&
+    (feature.status !== "ready" ||
+      (feature.reason === null &&
+        count > 0 &&
+        feature.valueCount === count * definition.dimensions)) &&
+    (feature.status !== "unavailable" ||
+      (feature.reason !== null && feature.valueCount === 0))
+  );
+}
 const featureIdentitySchema = z
   .strictObject(listeningFeatureSchema.shape)
   .omit({
@@ -938,26 +1081,15 @@ const featureMetadataSchema = featureIdentitySchema
   })
   .superRefine((feature, context) => {
     const definition = listeningFeatureDefinition(feature.type);
-    const count = definition.grid ? (feature.grid?.cellCount ?? 0) : 1;
     const channelAware =
       definition.profile === "pitch-profile/v1" ||
       definition.profile === "spectral-shape-profile/v1";
     if (
       feature.distanceDefinition !== definition.distanceDefinition ||
-      feature.units !== definition.units ||
       feature.distanceUnits !== definition.distanceUnits ||
       feature.profile !== definition.profile ||
-      feature.normalization !== definition.normalization ||
       channelAware !== (feature.channelSupportIntervalCounts !== undefined) ||
-      channelAware !== (feature.channelReasons !== undefined) ||
-      feature.coveredSamples > feature.expectedSamples ||
-      (!definition.grid && feature.grid !== null) ||
-      (feature.status === "ready" &&
-        (feature.reason !== null ||
-          count === 0 ||
-          feature.valueCount !== count * definition.dimensions)) ||
-      (feature.status === "unavailable" &&
-        (feature.reason === null || feature.valueCount !== 0))
+      !featureShapeMetadataValid(feature)
     )
       context.addIssue({
         code: "custom",

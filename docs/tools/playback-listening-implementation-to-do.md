@@ -1,5 +1,11 @@
 # Playback Listening Implementation To-Do
 
+- [x] Retain bounded metric launch-binding operands through the existing
+      lifecycle before validation, with actual runtime/SDK delivery, failure
+      and cancellation cleanup regressions.
+- [ ] Diagnose the native third-Session launch refusal in `run-6mxmAH`
+      using recorded operands; do not treat an uninstrumented rerun as a fix.
+
 ## Musical analysis tool topology
 
 - [x] Return automatically derived analysis in the terminal listening result,

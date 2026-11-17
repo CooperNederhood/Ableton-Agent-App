@@ -4397,6 +4397,15 @@ introduced. Controller and real-SDK regressions cover the missing diagnostic,
 trace attribution, immutable operands, no publication, disarm confirmation or
 timeout, cancellation and replacement-generation isolation.
 
+The current metric controller records `native_launch_binding_operands` before
+validating each launch. Its existing attributed lifecycle carries nineteen
+bounded scalar facts: owner equality, arm/launch counters, timing markers,
+clock witnesses, geometry and timing mode. They are immutable diagnostic inputs,
+not accepted launch authority. This closes the missing-operand gap exposed by
+the third Session capture in `run-6mxmAH`; that native binding refusal remains
+unresolved until its actual operands identify the cause. Observer failure or
+cancellation still prevents launch publication and performs owned cleanup.
+
 The #57 timing investigation also identified a clock-acquisition hazard:
 [`snapshot~`](https://docs.cycling74.com/reference/snapshot~/) with offset zero
 can select the scheduler's sub-vector sample when Scheduler in Audio Interrupt

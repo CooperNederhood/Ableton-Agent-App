@@ -70,6 +70,7 @@ async function controllerHarness({
   initialMelDrains = 0,
   delayedLevelBank = false,
   clockHoldHostAdvance = false,
+  timingPolicy = { mode: "descriptive", maxClockDisagreementSamples: 64 },
   totalSamples = 9000,
   deadlineMs = 10000,
   streamSend,
@@ -99,7 +100,7 @@ async function controllerHarness({
     mode: "arrangement",
     sourceEvidence: "transport-only",
     geometry,
-    timingPolicy: { mode: "descriptive", maxClockDisagreementSamples: 64 },
+    timingPolicy,
     grid: {
       beats: 0.25,
       anchor: "global-beat-grid",
@@ -2107,6 +2108,106 @@ for (const [value, last] of [
     assert.equal(evidence.traceId, h.prepare.traceId);
     assert.equal(evidence.passId, h.prepare.passId);
     assert.ok(expected.length <= 256);
+  });
+}
+
+for (const delayed of [false, true]) {
+  test(`launch binding operands survive actual runtime delivery before validation (delayed=${delayed})`, async () => {
+    const h = await controllerHarness({
+      session: true,
+      runtimeBridge: true,
+      sdkStreamBridge: true,
+      streamSend: () => true,
+      timingPolicy: { mode: "strict", maxClockDisagreementSamples: 0 },
+    });
+    h.launch();
+    if (delayed) h.pauseClock(6000);
+    await h.until(() =>
+      ["completed", "failed"].includes(h.controller.snapshot().state),
+    );
+    assert.equal(
+      h.controller.snapshot().state,
+      delayed ? "failed" : "completed",
+    );
+    if (delayed)
+      assert.equal(
+        h.controller.snapshot().reason,
+        "native_metric_launch_binding_mismatch",
+      );
+    assert.equal(h.controller.snapshot().cleanup, "completed");
+    const diagnostic = h.events.find(
+      (event) =>
+        event.nativeLifecycle.reason === "native_launch_binding_operands",
+    );
+    assert.ok(diagnostic);
+    assert.equal(diagnostic.phase, "launch");
+    assert.equal(diagnostic.nativeLifecycle.generation, GENERATION);
+    assert.ok(Object.isFrozen(diagnostic.nativeLifecycle.facts));
+    assert.equal(diagnostic.nativeLifecycle.facts.length, 19);
+    const facts = Object.fromEntries(
+      diagnostic.nativeLifecycle.facts.map((fact) => [
+        fact.field,
+        fact.actual.value,
+      ]),
+    );
+    assert.equal(facts["native.launch.ownershipMatches"], true);
+    assert.equal(facts["native.launch.sampleRate"], 48000);
+    assert.equal(facts["native.launch.vectorSize"], 64);
+    assert.equal(facts["native.launch.timingMode"], "strict");
+    const wire = h.diagnosticWrites.find(
+      (message) =>
+        message.nativeLifecycle?.reason === "native_launch_binding_operands",
+    );
+    assert.ok(wire, "operands must cross the actual runtime/SDK wire");
+    h.codec.listenerResultMetricSchema.parse(wire);
+    assert.equal(wire.traceId, h.prepare.traceId);
+    assert.equal(wire.passId, h.prepare.passId);
+    assert.deepEqual(
+      wire.nativeLifecycle.facts,
+      diagnostic.nativeLifecycle.facts,
+    );
+    if (delayed) {
+      assert.ok(
+        h.results.every(({ payload }) => payload.metricManifest === undefined),
+      );
+      const start =
+        facts["native.launch.armCounter"] +
+        facts["native.launch.elapsedSamples"] -
+        facts["native.launch.offsetSamples"] +
+        facts["native.launch.armHostSample"] -
+        facts["native.launch.armNativeCounter"];
+      assert.ok(facts["native.launch.hostSample"] - start > 4800 + 64);
+    }
+  });
+}
+
+for (const interruption of ["cancel", "observer-failure"]) {
+  test(`launch binding operands preserve ${interruption} cleanup without publishing launch authority`, async () => {
+    const h = await controllerHarness({
+      session: true,
+      onEvent(event, controller, cancel) {
+        if (event.nativeLifecycle.reason !== "native_launch_binding_operands")
+          return;
+        if (interruption === "cancel") controller.cancel(cancel);
+        else throw new Error("controlled_observer_failure");
+      },
+    });
+    h.launch();
+    const state = interruption === "cancel" ? "cancelled" : "failed";
+    await h.until(() => h.controller.snapshot().state === state);
+    assert.equal(h.controller.snapshot().cleanup, "completed");
+    assert.ok(
+      h.results.every(
+        ({ payload }) =>
+          payload.nativeLaunch === undefined &&
+          payload.metricManifest === undefined,
+      ),
+    );
+    if (interruption === "observer-failure")
+      assert.equal(
+        h.controller.snapshot().reason,
+        "metric_event_delivery_failed",
+      );
   });
 }
 

@@ -2019,6 +2019,42 @@ function createMetricController(options) {
         clock: p.lastClock,
         elapsedMs: now - p.armStarted,
       });
+      emit(
+        p,
+        "launch",
+        "progress",
+        undefined,
+        "native_launch_binding_operands",
+        undefined,
+        Object.entries({
+          ownershipMatches: [...OWNER, "nativeEpoch"].every(
+            (field) =>
+              p.armProof.ownership[field] === p.launch.ownership[field],
+          ),
+          armCounter: p.armProof.receipt.timing[5],
+          launchArmCounter: timing[5],
+          elapsedSamples: timing[1],
+          offsetSamples: timing[4],
+          originCounter: timing[6],
+          active: timing[3],
+          hostSample: p.launch.clock[2],
+          nativeCounter: p.launch.clock[4],
+          beat: p.launch.clock[1],
+          playing: p.launch.clock[0],
+          armHostSample: p.armProof.before.frames[0][2],
+          armNativeCounter: p.armProof.before.frames[0][4],
+          totalSamples: p.config.geometry.totalSamples,
+          sampleRate: p.config.geometry.sampleRate,
+          vectorSize: p.config.geometry.vectorSize,
+          startBeat: p.config.geometry.startBeat,
+          tempoBpm: p.config.geometry.tempoBpm,
+          timingMode: p.config.timingPolicy.mode,
+        }).map(([field, value]) => ({
+          field: `native.launch.${field}`,
+          actual: { state: "observed", value },
+        })),
+      );
+      if (p.wantCleanup) return;
       p.coordinates = codec.nativeContinuousMetricLaunchCoordinates(
         p.armProof,
         p.launch,

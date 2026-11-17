@@ -36,6 +36,10 @@ and does not clear a failed capture's retry barrier after a later transport edit
 Initial tool and agent guidance also forbids batching or parallelizing listening
 calls: they share song transport and need approved preparation between captures.
 Post-result guidance cannot correct multiple calls submitted before any result.
+Typed History validates SDK-appended guidance against the same application-owned
+builder and the parsed result action. Session preparation text cannot be attached
+to Arrangement or context results; altered, duplicated and foreign-tool suffixes
+remain explicit projection failures. Measurements remain typed, bounded and redacted.
 
 Stored reads accept ordinary inspected clip/track targets and musical ranges.
 An unpinned request selects the newest positively fresh capture covering the

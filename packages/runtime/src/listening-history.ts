@@ -1,4 +1,4 @@
-import { VERIFIED_TOOL_RESULT_GUIDANCE } from "@ableton-agent/application";
+import { postToolUseGuidance } from "@ableton-agent/application";
 import { sanitizeTelemetryAttributes } from "@ableton-agent/observability";
 import {
   contextOperationResultSchema,
@@ -25,14 +25,17 @@ export function listeningHistoryResult(toolName: string, sdkResult: unknown) {
   if (!sdkResult || typeof sdkResult !== "object" || !("content" in sdkResult))
     return unavailable("missing_sdk_content");
   let content: unknown = sdkResult.content;
+  let appendedGuidance: string | undefined;
   if (typeof content === "string") {
     if (Buffer.byteLength(content) > MAX_LISTENING_HISTORY_RESULT_BYTES)
       return unavailable("result_byte_limit");
-    // The SDK appends this application-owned post-tool hook to model-visible JSON.
-    const suffix = `\n\nTool "${toolName}" succeeded. Additional guidance from postToolUse hooks:\n${VERIFIED_TOOL_RESULT_GUIDANCE}`;
-    const json = content.endsWith(suffix)
-      ? content.slice(0, -suffix.length)
-      : content;
+    // Validate the entire SDK suffix against the typed action below.
+    const separator = `\n\nTool "${toolName}" succeeded. Additional guidance from postToolUse hooks:\n`;
+    const guidanceOffset = content.lastIndexOf(separator);
+    const json =
+      guidanceOffset === -1 ? content : content.slice(0, guidanceOffset);
+    if (guidanceOffset !== -1)
+      appendedGuidance = content.slice(guidanceOffset + separator.length);
     try {
       content = JSON.parse(json);
     } catch (error) {
@@ -46,6 +49,18 @@ export function listeningHistoryResult(toolName: string, sdkResult: unknown) {
       : contextOperationResultSchema
   ).safeParse(content);
   if (!parsed.success) return unavailable("invalid_typed_result");
+  if (
+    appendedGuidance !== undefined &&
+    appendedGuidance !==
+      postToolUseGuidance(
+        toolName,
+        toolName === "ableton_listening" &&
+          parsed.data.action === "play-session-and-listen"
+          ? "listening.play_session_and_listen"
+          : undefined,
+      )
+  )
+    return unavailable("malformed_json");
   if (
     Buffer.byteLength(JSON.stringify(parsed.data)) >
     MAX_LISTENING_HISTORY_RESULT_BYTES

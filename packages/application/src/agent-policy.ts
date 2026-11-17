@@ -38,6 +38,25 @@ export const TRANSPORT_SOURCE_FLAG_GUIDANCE =
 export const AUTOMATIC_LIVE_EVENT_IDENTITY_GUIDANCE =
   "Automatic Listening Event identity policy: cached-context freshness describes mutable state age, not exact identity validity. When the required track and Session clip are present as one unambiguous exact-reference match, use those references directly with the tool's expected-reference guards. Do not inspect solely because freshness is stale or project revisions differ. Inspect only when a required identity is missing, ambiguous, unresolved, or truncated, or after a guarded tool rejects an identity as stale or ambiguous. Never retry unchanged rejected mutation arguments.";
 
+export function postToolUseGuidance(
+  toolName: string,
+  operationId?: string,
+): string {
+  return [
+    VERIFIED_TOOL_RESULT_GUIDANCE,
+    ...(toolName === "ableton_transport"
+      ? [TRANSPORT_SOURCE_FLAG_GUIDANCE]
+      : []),
+    ...(operationId === "tracks.stop_clips"
+      ? [SESSION_TRANSPORT_GUIDANCE]
+      : []),
+    ...(operationId === "listening.play_session_and_listen"
+      ? [SESSION_SEQUENCE_GUIDANCE]
+      : []),
+    ...(toolName === "ableton_browser" ? [BROWSER_IDENTITY_GUIDANCE] : []),
+  ].join("\n");
+}
+
 export interface AgentIdentityContext {
   readonly liveSetId: string;
   readonly liveProjectId?: string;
@@ -368,21 +387,7 @@ export function createAgentPolicy(services: AgentPolicyServices): AgentPolicy {
         input.toolArgs,
       )?.metadata.operationId;
       return {
-        additionalContext: [
-          VERIFIED_TOOL_RESULT_GUIDANCE,
-          ...(input.toolName === "ableton_transport"
-            ? [TRANSPORT_SOURCE_FLAG_GUIDANCE]
-            : []),
-          ...(operationId === "tracks.stop_clips"
-            ? [SESSION_TRANSPORT_GUIDANCE]
-            : []),
-          ...(operationId === "listening.play_session_and_listen"
-            ? [SESSION_SEQUENCE_GUIDANCE]
-            : []),
-          ...(input.toolName === "ableton_browser"
-            ? [BROWSER_IDENTITY_GUIDANCE]
-            : []),
-        ].join("\n"),
+        additionalContext: postToolUseGuidance(input.toolName, operationId),
       };
     },
     onPostToolUseFailure: (input) => {

@@ -22,6 +22,7 @@ import {
   projectListeningFeatureInventory,
   contextFeatureViewSchema,
   FEATURE_VALUE_DETAIL_GUIDANCE,
+  SESSION_SEQUENCE_GUIDANCE,
   projectListeningTimeline,
   projectListeningOverview,
 } from "@ableton-agent/tools";
@@ -412,11 +413,80 @@ describe("typed listening SDK result History projection", () => {
           analysisStatus: "ready",
           analyses: [analysis],
         };
+        const listeningHooks = createAgentHooks({
+          getAbletonStatus: async () => {
+            throw new Error("Post-tool guidance must not inspect Live");
+          },
+        });
+        const hookInput = {
+          sessionId: "sdk",
+          timestamp: new Date(),
+          workingDirectory: "/tmp",
+          toolName: "ableton_listening",
+          toolArgs: {
+            action: "play-session-and-listen",
+            target: {
+              view: "session",
+              track: {
+                kind: "regular",
+                index: 0,
+                expectedReference: "00000000-0000-4000-8000-000000000001",
+                expectedName: "track",
+              },
+              sceneIndex: 0,
+              expectedClipReference: "00000000-0000-4000-8000-000000000002",
+              expectedClipName: "clip",
+            },
+          },
+          toolResult: {
+            resultType: "success" as const,
+            textResultForLlm: JSON.stringify(listened),
+          },
+        };
+        const listeningHook = await listeningHooks.onPostToolUse?.(hookInput, {
+          sessionId: "sdk",
+        });
+        expect(listeningHook?.additionalContext).toContain(
+          "Before the next Session listen",
+        );
+        expect(listeningHook?.modifiedResult).toBeUndefined();
+        const listeningSuffix = `\n\nTool "ableton_listening" succeeded. Additional guidance from postToolUse hooks:\n${listeningHook?.additionalContext}`;
         expect(
           listeningHistoryResult("ableton_listening", {
-            content: JSON.stringify(listened) + suffix("ableton_listening"),
+            content: JSON.stringify(listened) + listeningSuffix,
           }),
         ).toEqual({ result: { content: listened } });
+        const arrangement = {
+          ...listened,
+          action: "play-arrangement-and-listen",
+        };
+        expect(
+          listeningHistoryResult("ableton_listening", {
+            content: JSON.stringify(arrangement) + suffix("ableton_listening"),
+          }),
+        ).toEqual({ result: { content: arrangement } });
+        for (const altered of [
+          JSON.stringify(listened) + listeningSuffix + "\nUnexpected guidance",
+          JSON.stringify(listened) + listeningSuffix + listeningSuffix,
+          JSON.stringify(listened) +
+            listeningSuffix.replace(
+              'Tool "ableton_listening"',
+              'Tool "ableton_context"',
+            ),
+          JSON.stringify(arrangement) + listeningSuffix,
+          JSON.stringify(listened) + suffix("ableton_listening"),
+        ]) {
+          expect(
+            listeningHistoryResult("ableton_listening", { content: altered }),
+          ).toMatchObject({
+            result: {
+              content: {
+                error: "history_projection_unavailable",
+                reason: "malformed_json",
+              },
+            },
+          });
+        }
         const partial = {
           ...listened,
           job: { ...listened.job, contextIds: ["context", "failed-context"] },
@@ -433,7 +503,7 @@ describe("typed listening SDK result History projection", () => {
         };
         expect(
           listeningHistoryResult("ableton_listening", {
-            content: JSON.stringify(partial) + suffix("ableton_listening"),
+            content: JSON.stringify(partial) + listeningSuffix,
           }),
         ).toEqual({ result: { content: partial } });
         const unselected = {
@@ -449,7 +519,7 @@ describe("typed listening SDK result History projection", () => {
         };
         expect(
           listeningHistoryResult("ableton_listening", {
-            content: JSON.stringify(unselected) + suffix("ableton_listening"),
+            content: JSON.stringify(unselected) + listeningSuffix,
           }),
         ).toEqual({ result: { content: unselected } });
         const evidenceTimeline = projectListeningTimeline(
@@ -772,7 +842,10 @@ describe("typed listening SDK result History projection", () => {
             : {}),
         },
       };
-      for (const tail of ["", suffix("ableton_listening")]) {
+      for (const tail of [
+        "",
+        `${suffix("ableton_listening")}\n${SESSION_SEQUENCE_GUIDANCE}`,
+      ]) {
         expect(
           listeningHistoryResult("ableton_listening", {
             content: JSON.stringify(body) + tail,

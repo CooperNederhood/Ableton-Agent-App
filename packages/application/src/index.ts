@@ -269,6 +269,7 @@ export {
   createAgentHooks,
   createAgentPolicy,
   formatAgentIdentityContext,
+  postToolUseGuidance,
   retryGuidance,
   structuredErrorCode,
   TRANSPORT_SOURCE_FLAG_GUIDANCE,

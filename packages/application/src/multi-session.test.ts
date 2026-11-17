@@ -2345,16 +2345,7 @@ describe("CopilotAgentService managed sessions", () => {
         .fn<
           NonNullable<CopilotAgentServiceOptions["executeContextOperation"]>
         >()
-        .mockResolvedValue({
-          action: "list-features",
-          inventory: {
-            features: [],
-            provenance: [],
-            segments: [],
-            sources: [],
-            metadata: [],
-          },
-        });
+        .mockResolvedValue(musicalReadFixture());
       const service = new CopilotAgentService(
         baseOptions({
           executeContextOperation,
@@ -2390,7 +2381,7 @@ describe("CopilotAgentService managed sessions", () => {
           JSON.stringify({ description: tool.description }),
         ) as { description: string };
         expect(sdkDescription.description).toContain(
-          "Follow nextCursor with the same request",
+          'Read continuations need only {action:"read",cursor:nextCursor}',
         );
         expect(sdkDescription.description).toContain("pinned continuations");
         expect(sdkDescription.description).toContain(
@@ -2412,9 +2403,11 @@ describe("CopilotAgentService managed sessions", () => {
         const wire = JSON.parse(
           JSON.stringify(parameters.toJSONSchema()),
         ) as Variant;
-        const inventory = (wire.oneOf ?? wire.anyOf ?? [wire]).find(
-          (variant) => variant.properties?.action?.const === "read",
-        );
+        const inventory = (
+          wire.properties?.action?.const === "read"
+            ? [wire]
+            : (wire.oneOf ?? wire.anyOf ?? [])
+        ).find((variant) => variant.properties?.action?.const === "read");
         expect(inventory?.properties).toHaveProperty("cursor");
         expect(inventory?.properties).toHaveProperty("target");
         expect(inventory?.properties).not.toHaveProperty("offset");
@@ -2458,6 +2451,19 @@ describe("CopilotAgentService managed sessions", () => {
             },
           },
         });
+        const continuation = { action: "read", cursor: "signed-cursor" };
+        await expect(
+          tool.handler?.(continuation, {
+            sessionId: "feature-pages-2",
+            toolCallId: "cursor-read",
+            toolName: "ableton_context",
+            arguments: continuation,
+          }),
+        ).resolves.toEqual(musicalReadFixture());
+        expect(executeContextOperation).toHaveBeenCalledOnce();
+        expect(executeContextOperation.mock.lastCall?.[0]).toEqual(
+          continuation,
+        );
         expect(failures[0]?.data.durationMs).toEqual(expect.any(Number));
       } finally {
         await service.stop();
@@ -2647,10 +2653,9 @@ describe("CopilotAgentService managed sessions", () => {
         agentId: "metric-reader",
         trace: { causationId: "report-call" },
       });
-      expect(executeContextOperation.mock.lastCall?.[0]).toMatchObject({
+      expect(executeContextOperation.mock.lastCall?.[0]).toEqual({
         action: "read",
         target: read.analyses[0]!.readTarget,
-        includeHistorical: false,
       });
       const events = runtimeEvents.filter((event) =>
         event.type.startsWith("agent.operation."),

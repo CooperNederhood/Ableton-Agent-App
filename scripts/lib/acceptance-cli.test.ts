@@ -683,7 +683,7 @@ describe("acceptance catalog admission", () => {
     await fixture(async (root, output, errors) => {
       const parent = join(root, ".test-artifacts/acceptance");
       await mkdir(parent, { recursive: true });
-      for (let i = 0; i < 16; i++)
+      for (let i = 0; i < acceptanceArtifactRetention.directories; i++)
         await writeFile(join(parent, `unrelated-${i}.txt`), "keep");
       const fake = fakeBoundary();
       expect(
@@ -692,9 +692,45 @@ describe("acceptance catalog admission", () => {
           dependencies: fake.dependencies,
         }),
       ).toBe(1);
-      expect(await readdir(parent)).toHaveLength(16);
+      expect(await readdir(parent)).toHaveLength(
+        acceptanceArtifactRetention.directories,
+      );
       expect(errors.join("\n")).toContain("retention limit");
       expect(fake.dependencies.run).not.toHaveBeenCalled();
+    });
+  });
+  it("admits preserved attempts up to 32 entries, then refuses without deleting evidence", async () => {
+    await fixture(async (root) => {
+      const parent = join(root, ".test-artifacts/acceptance");
+      await mkdir(parent, { recursive: true });
+      const prior = Array.from(
+        { length: 16 },
+        (_, index) => `preserved-${index}.txt`,
+      );
+      for (const name of prior) await writeFile(join(parent, name), name);
+      const admitted = await allocateAcceptanceRun(root, "suite-");
+      expect(await readdir(admitted)).toEqual([]);
+      expect(acceptanceArtifactRetention).toEqual({
+        directories: 32,
+        entries: 8192,
+        totalBytes: 8 * 1024 ** 3,
+        reservedRunBytes: 256 * 1024 ** 2,
+      });
+      for (
+        let count = prior.length + 1;
+        count < acceptanceArtifactRetention.directories;
+        count++
+      )
+        await allocateAcceptanceRun(root, "run-");
+      const inventory = (await readdir(parent)).sort();
+      expect(inventory).toHaveLength(acceptanceArtifactRetention.directories);
+      await expect(allocateAcceptanceRun(root, "run-")).rejects.toThrow(
+        "directory retention limit",
+      );
+      expect((await readdir(parent)).sort()).toEqual(inventory);
+      for (const name of prior)
+        expect(await readFile(join(parent, name), "utf8")).toBe(name);
+      expect(inventory).not.toContain(".admission-lock");
     });
   });
 

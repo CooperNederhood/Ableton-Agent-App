@@ -2313,9 +2313,11 @@ describe("Ableton tools", () => {
       expect(arrangement?.properties?.endBeat?.description).toContain(
         "absolute ending beat",
       );
-      expect(arrangement?.required).toEqual(
-        expect.arrayContaining(["action", "maximumDurationMs"]),
-      );
+      expect(arrangement?.required).toEqual(expect.arrayContaining(["action"]));
+      expect(arrangement?.required).not.toContain("maximumDurationMs");
+      expect(arrangement?.properties?.maximumDurationMs).toMatchObject({
+        default: 900000,
+      });
       expect(arrangement?.properties).toHaveProperty("sources");
       expect(arrangement?.required).not.toContain("listenerIds");
       const invalidCalls = [
@@ -2426,7 +2428,7 @@ describe("Ableton tools", () => {
       };
       expect(tool.description).toContain("pinned continuations");
       expect(tool.description).toContain(
-        "Follow nextCursor with the same request",
+        'Read continuations need only {action:"read",cursor:nextCursor}',
       );
       expect(tool.description).toContain("no discovery or Bash is needed");
       expect(tool.description).toContain(
@@ -2436,9 +2438,11 @@ describe("Ableton tools", () => {
         JSON.stringify(parameters.toJSONSchema()),
       ) as Variant;
       expect(wire.properties).not.toHaveProperty("offset");
-      const inventory = (wire.oneOf ?? wire.anyOf ?? [wire]).find(
-        (variant) => variant.properties?.action?.const === "read",
-      );
+      const inventory = (
+        wire.properties?.action?.const === "read"
+          ? [wire]
+          : (wire.oneOf ?? wire.anyOf ?? [wire])
+      ).find((variant) => variant.properties?.action?.const === "read");
       expect(inventory?.properties).toHaveProperty("cursor");
       expect(inventory?.properties).toHaveProperty("target");
       expect(inventory?.properties).not.toHaveProperty("limit");
@@ -2472,7 +2476,7 @@ describe("Ableton tools", () => {
         nextCursor,
       });
       await expect(
-        invoke({ ...args, cursor: nextCursor }, "second-page"),
+        invoke({ action: "read", cursor: nextCursor }, "second-page"),
       ).resolves.toEqual({
         action: "read",
         analyses: [analysis],
@@ -2480,10 +2484,7 @@ describe("Ableton tools", () => {
       });
       expect(
         executeContextOperation.mock.calls.map(([request]) => request),
-      ).toEqual([
-        { ...args, includeHistorical: false },
-        { ...args, cursor: nextCursor, includeHistorical: false },
-      ]);
+      ).toEqual([args, { action: "read", cursor: nextCursor }]);
     },
   );
 

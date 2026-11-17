@@ -71,24 +71,32 @@ export const analysisTargetSchema = z.union([
   comparisonAnalysisTargetSchema,
 ]);
 const analysisCursor = z.string().min(1).max(32768);
+export const analysisReadParamsSchema = z.strictObject({
+  action: z.literal("read"),
+  target: analysisTargetSchema,
+  includeHistorical: z.boolean().default(false),
+  cursor: analysisCursor.optional(),
+  detail: z
+    .enum(["evidence", "original-measurements"])
+    .optional()
+    .describe(
+      "Omit for compact musical values and coverage. Use evidence for canonical metadata, definitions and complete native support intervals, or original-measurements for original analyzer frames. A continuation cursor retains the original target, detail and historical scope.",
+    ),
+});
 export const analysisOperationParamsSchema = z.discriminatedUnion("action", [
-  z
-    .strictObject({
-      action: z.literal("read"),
-      target: analysisTargetSchema,
-      includeHistorical: z.boolean().default(false),
-      cursor: analysisCursor.optional(),
-      detail: z
-        .enum(["evidence", "original-measurements"])
-        .optional()
-        .describe(
-          "Omit for compact musical values and coverage. Use evidence for canonical metadata, definitions and complete native support intervals, or original-measurements for original analyzer frames. Reuse the same target and follow nextCursor for the requested detail only.",
-        ),
+  analysisReadParamsSchema
+    .extend({
+      target: analysisTargetSchema.optional(),
+      includeHistorical: z.boolean().optional(),
     })
+    .refine(
+      (value) => value.target !== undefined || value.cursor !== undefined,
+      "Read requires a target or a continuation cursor",
+    )
     .refine(
       (value) =>
         value.detail !== "original-measurements" ||
-        value.target.kind !== "comparison",
+        value.target?.kind !== "comparison",
       "Original measurements require a single source or capture target",
     ),
   z.strictObject({

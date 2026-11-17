@@ -120,6 +120,10 @@ Companion specification: [Local Storage Layout](local-storage.md)
 - [x] Share the 256 MiB per-case reservation between single and suite admission;
   use a finite 8 GiB aggregate budget so all 19 registered cases fit alongside
   prior evidence. Preserve count, ownership, exhaustion and no-deletion guards.
+- [x] Apply the explicitly authorized immediate-entry bound of 32 instead of 16
+  for retained acceptance attempts/suites. Share the exported retention policy
+  with admission/exhaustion/no-deletion regressions; preserve the 8 GiB total,
+  256 MiB per-case reservation, 8,192 recursive entries and existing ownership.
 - [ ] Qualify the acceptance storage/cleanup contract with the jointly reviewed
   real fixture; controlled lifecycle and CLI tests do not establish physical
   host qualification.

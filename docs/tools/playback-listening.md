@@ -23,6 +23,10 @@ For multi-source captures, retain successful analyses and their pinned targets
 alongside typed source-local failures. A mixed outcome is partial analysis, not
 an empty generic failure. Invocation cancellation and global ownership failures
 still stop the operation rather than being downgraded to source-local warnings.
+Successful Session results put preparation guidance before the value payload:
+stop moving transport before the next requested capture, never probe a known
+invalid launch or repair/retry a rejected pass. This does not authorize an
+automatic stop or change leave-running cleanup.
 
 Stored reads accept ordinary inspected clip/track targets and musical ranges.
 An unpinned request selects the newest positively fresh capture covering the
@@ -76,6 +80,10 @@ as listening descriptions already do. The final union variant (`prune`) is not
 the only available action and is never a way to inspect recorded analysis.
 Per-action argument names are generated from those same scoped schemas:
 comparison's `featureTypes` array is not search's single `featureType`.
+SDK schemas describe accepted **inputs**, not normalized outputs: defaulted
+fields such as the capture safety deadline are optional, not values the agent
+must invent. Listening variants also enumerate their own argument names; Session
+uses `target`, while ordinary Arrangement sources use `sources`.
 `run-Qj2b8P` preserved both correct captures but failed the strict peak oracle
 after a rejected plural search argument; the failure remains recorded rather
 than excusing an invalid call or weakening the stop-on-failure contract.
@@ -98,6 +106,15 @@ evidence and indicate which detail remains unread. The full-extent overview is
 not proof that all detailed values have been returned.
 Continuation payloads are authenticated, including search rankings and
 statistics; callers cannot edit them to invent distances or change candidates.
+Read continuations also contain the signed original request. Send only
+`{ action: "read", cursor: nextCursor }`; the source, detail mode and historical
+scope remain pinned. Resupplied fields must match. This works for musical values,
+technical evidence, comparison bundles and original measurements without
+reconstructing target IDs. Every use still checks current ownership, existence
+and applicable freshness. Compare/search continuations retain their existing
+same-arguments contract.
+Page sizing includes the encoded continuation at every occurrence in the final
+response, including both source pages and comparison evidence in a bundle.
 They are ephemeral to the running host. After a host restart, begin a new read
 using the durable pinned target instead of reusing an old cursor.
 Overview extrema are aggregate values rather than precisely located events;

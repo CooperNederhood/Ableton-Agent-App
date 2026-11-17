@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import {
+  resolvePermissionArguments,
+  type FixtureManifest,
+  type ScenarioManifest,
+  type ArrangementSourceEvidence,
+} from "@ableton-agent/test-support/integration";
+import { arrangementTestEvidence } from "../../packages/test-support/src/integration/arrangement-test-support.js";
+import {
   ScopedApprovalPolicy,
   type ScopedApproval,
   type ScopedPermission,
@@ -41,7 +48,263 @@ const request: ScopedApproval = {
   destructive: false,
   arguments: { target: { track: "track", clip: "clip" }, beats: 4 },
 };
+function reviewedArrangement(scenarioId: string) {
+  const scenario = JSON.parse(
+    readFileSync(
+      new URL(
+        `../../integration/acceptance-scenarios/${scenarioId}.json`,
+        import.meta.url,
+      ),
+      "utf8",
+    ),
+  ) as ScenarioManifest;
+  const fixture = JSON.parse(
+    readFileSync(
+      new URL(
+        `../../integration/fixtures/${scenario.fixtureId}/fixture.json`,
+        import.meta.url,
+      ),
+      "utf8",
+    ),
+  ) as FixtureManifest;
+  const permission = scenario.permissions.find(
+    (item) => item.action === "play-arrangement-and-listen",
+  )!;
+  const step = scenario.steps.find((item) =>
+    permission.stepIds!.includes(item.id),
+  )!;
+  const definition = fixture.arrangementSources!.find(
+    (item) => item.id === (permission.sourceId ?? step.sourceId),
+  )!;
+  const binding = fixture.listenerBindings!.find(
+    (item) => item.slot === definition.listenerBindingSlot,
+  )!;
+  const bound: ArrangementSourceEvidence = {
+    ...arrangementTestEvidence().baseline,
+    source: {
+      view: "arrangement",
+      trackId: "fd9711d3-85e3-4209-bfe8-c8d9a5e3627b",
+      trackIndex: definition.trackIndex,
+      startBeat: definition.startBeat,
+      endBeat: definition.endBeat,
+      clips: definition.clips.map((clip, index) => ({
+        startBeat: clip.startBeat,
+        endBeat: clip.endBeat,
+        savedClipId: clip.savedClipId,
+        ...(clip.midiNotesSha256 === undefined
+          ? {}
+          : { midiNotesSha256: clip.midiNotesSha256 }),
+        clipId: `live-clip-${index}`,
+        mediaSha256: clip.mediaTarget === null ? null : "a".repeat(64),
+      })),
+    },
+    trackName: definition.trackName,
+    listenerDeviceIndex: binding.deviceIndex,
+  };
+  const resolved = resolvePermissionArguments(permission, bound);
+  const capture = {
+    ...request,
+    tool: "ableton_listening",
+    action: "play-arrangement-and-listen",
+    arguments: {
+      action: "play-arrangement-and-listen",
+      listenerIds: [bound.listenerId],
+      sources: [
+        {
+          track: {
+            kind: "regular",
+            index: bound.source.trackIndex,
+            expectedReference: bound.source.trackId,
+            expectedName: bound.trackName,
+          },
+        },
+      ],
+      startBeat: resolved.startBeat,
+      endBeat: resolved.endBeat,
+      maximumDurationMs: 900_000,
+    },
+  };
+  return {
+    permission,
+    bound,
+    capture,
+    stepId: step.id,
+    sources: { [definition.id]: bound },
+  };
+}
 describe("reviewed scoped approvals", () => {
+  describe.each([
+    "arrangement-long-form-listening",
+    "listening-consolidation-short-audio",
+    "listening-consolidation-short-midi",
+    "listening-consolidation-long-audio",
+    "listening-consolidation-long-midi",
+  ])("canonical Arrangement selectors for %s", (scenarioId) => {
+    it("admits reviewed selectors once without changing the manifest or request", () => {
+      const f = reviewedArrangement(scenarioId);
+      const before = structuredClone(f);
+      const policy = new ScopedApprovalPolicy([f.permission]);
+      expect(
+        policy.decide(f.capture, owner, f.bound, f.stepId, f.sources),
+      ).toBe(true);
+      expect(
+        policy.decide(f.capture, owner, f.bound, f.stepId, f.sources),
+      ).toBe(false);
+      expect(f).toEqual(before);
+    });
+    it("preserves listener-only requests without optional source selectors", () => {
+      const f = reviewedArrangement(scenarioId);
+      Reflect.deleteProperty(f.capture.arguments, "sources");
+      expect(
+        new ScopedApprovalPolicy([f.permission]).decide(
+          f.capture,
+          owner,
+          f.bound,
+          f.stepId,
+          f.sources,
+        ),
+      ).toBe(true);
+    });
+    it.each([
+      "reference",
+      "name",
+      "missing-reference",
+      "missing-name",
+      "index",
+      "kind",
+      "listener",
+      "second-listener",
+      "duplicate-source",
+      "foreign-source",
+      "device-reference",
+      "device-index",
+      "extra-track",
+      "extra-source",
+      "extra-argument",
+      "object-not-array",
+      "start",
+      "end",
+      "deadline",
+      "owner",
+      "step",
+      "missing-binding",
+    ])("denies %s without spending the valid source's use", (mode) => {
+      const f = reviewedArrangement(scenarioId);
+      const invalid = structuredClone(f.capture);
+      const args = invalid.arguments;
+      const selector = args.sources[0]!;
+      if (mode === "reference") selector.track.expectedReference = "foreign";
+      if (mode === "name") selector.track.expectedName = "foreign";
+      if (mode === "missing-reference")
+        Reflect.deleteProperty(selector.track, "expectedReference");
+      if (mode === "missing-name")
+        Reflect.deleteProperty(selector.track, "expectedName");
+      if (mode === "index") selector.track.index++;
+      if (mode === "kind") selector.track.kind = "return";
+      if (mode === "listener") args.listenerIds[0] = "foreign";
+      if (mode === "second-listener") args.listenerIds.push("foreign");
+      if (mode === "duplicate-source")
+        args.sources.push(structuredClone(selector));
+      if (mode === "foreign-source")
+        args.sources.push({
+          track: { ...selector.track, expectedReference: "foreign" },
+        });
+      if (mode === "device-reference")
+        Reflect.set(selector, "listenerDeviceReference", "unverified-device");
+      if (mode === "device-index")
+        Reflect.set(
+          selector,
+          "listenerDeviceIndex",
+          f.bound.listenerDeviceIndex,
+        );
+      if (mode === "extra-track") Reflect.set(selector.track, "extra", true);
+      if (mode === "extra-source") Reflect.set(selector, "extra", true);
+      if (mode === "extra-argument") Reflect.set(args, "extra", true);
+      if (mode === "object-not-array")
+        Reflect.set(args, "sources", { 0: selector });
+      if (mode === "start") args.startBeat = Number(args.startBeat) + 1;
+      if (mode === "end") args.endBeat = Number(args.endBeat) + 1;
+      if (mode === "deadline") args.maximumDurationMs = 30_000;
+      if (mode === "owner") invalid.conversationId = "foreign";
+      const policy = new ScopedApprovalPolicy([f.permission]);
+      expect(
+        policy.decide(
+          invalid,
+          owner,
+          mode === "missing-binding" ? undefined : f.bound,
+          mode === "step" ? "unreviewed-step" : f.stepId,
+          mode === "missing-binding" ? {} : f.sources,
+        ),
+      ).toBe(false);
+      expect(
+        policy.decide(f.capture, owner, f.bound, f.stepId, f.sources),
+      ).toBe(true);
+    });
+    it("preserves explicit deadlines and per-step guards independently of maxUses", () => {
+      const f = reviewedArrangement(scenarioId);
+      const policy = new ScopedApprovalPolicy([
+        {
+          ...f.permission,
+          maxUses: 2,
+          arguments: { ...f.permission.arguments, maximumDurationMs: 30_000 },
+        },
+      ]);
+      expect(
+        policy.decide(f.capture, owner, f.bound, f.stepId, f.sources),
+      ).toBe(false);
+      Reflect.deleteProperty(f.capture.arguments, "maximumDurationMs");
+      expect(
+        policy.decide(f.capture, owner, f.bound, f.stepId, f.sources),
+      ).toBe(false);
+      f.capture.arguments.maximumDurationMs = 30_000;
+      expect(
+        policy.decide(f.capture, owner, f.bound, f.stepId, f.sources),
+      ).toBe(true);
+      expect(
+        policy.decide(f.capture, owner, f.bound, f.stepId, f.sources),
+      ).toBe(false);
+    });
+  });
+  it("keeps the saved case-13 explicit 30000-ms Session deadline denied", () => {
+    const scenario = JSON.parse(
+      readFileSync(
+        new URL(
+          "../../integration/acceptance-scenarios/session-two-midi-listening.json",
+          import.meta.url,
+        ),
+        "utf8",
+      ),
+    ) as ScenarioManifest;
+    const policy = new ScopedApprovalPolicy(scenario.permissions);
+    const capture = {
+      ...request,
+      tool: "ableton_listening",
+      action: "play-session-and-listen",
+      arguments: {
+        action: "play-session-and-listen",
+        target: {
+          view: "session",
+          track: {
+            kind: "regular",
+            index: 0,
+            expectedReference: "track",
+            expectedName: "1-Operator",
+          },
+          sceneIndex: 0,
+          expectedClipReference: "clip",
+          expectedClipName: "clip-1",
+        },
+        listenerIds: ["listener"],
+        durationBeats: 4,
+        maximumDurationMs: 30_000,
+      },
+    };
+    expect(policy.decide(capture, owner, source, "listen-operator")).toBe(
+      false,
+    );
+    capture.arguments.maximumDurationMs = 900_000;
+    expect(policy.decide(capture, owner, source, "listen-operator")).toBe(true);
+  });
   it.each([false, true])(
     "admits only the canonical default listening deadline (named source=%s)",
     (namedSource) => {

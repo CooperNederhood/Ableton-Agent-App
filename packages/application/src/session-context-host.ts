@@ -31,6 +31,7 @@ import {
   projectListeningTimeline,
   projectListeningOverview,
   analysisOperationResultSchema,
+  analysisReadParamsSchema,
   type CaptureAnalysisTarget,
   type PassageAnalysisTarget,
   type AnalysisSource,
@@ -61,6 +62,10 @@ import {
   type MetricRecordStreamGap,
   type ListeningFeatureType,
 } from "@ableton-agent/protocol";
+
+type CompleteAnalysisOperationParams =
+  | Exclude<AnalysisOperationParams, { action: "read" }>
+  | z.infer<typeof analysisReadParamsSchema>;
 
 const continuationSchema = z.strictObject({
   binding: z.string().length(64),
@@ -361,7 +366,7 @@ export function createSessionContextHost(
   const decodeAnalysisCursor = <T>(
     value: string,
     schema: z.ZodType<T>,
-    binding: string,
+    binding?: string,
   ): T => {
     try {
       const { signature, ...payload } = z
@@ -375,7 +380,9 @@ export function createSessionContextHost(
         )
       )
         throw new Error("Invalid signature");
-      return decodeCursor(encodeCursor(payload), schema, binding);
+      return binding === undefined
+        ? schema.parse(payload)
+        : decodeCursor(encodeCursor(payload), schema, binding);
     } catch {
       throw new ListeningFailure(
         "invalid_cursor",
@@ -1160,8 +1167,12 @@ export function createSessionContextHost(
     return { source, derivation, views, timeline };
   };
   type LoadedAnalysis = Awaited<ReturnType<typeof loadAnalysis>>;
+  const readContinuationRequestSchema = analysisReadParamsSchema.omit({
+    cursor: true,
+  });
   const analysisCursorSchema = z.strictObject({
     binding: z.string().length(64),
+    request: readContinuationRequestSchema.optional(),
     targets: z.array(captureAnalysisTargetSchema).min(1).max(22),
     offsets: z.array(z.number().int().nonnegative()).max(24),
     ranking: z.array(z.number().nonnegative()).max(20).optional(),
@@ -1411,7 +1422,7 @@ export function createSessionContextHost(
   };
   const executeAnalysis = async (
     repository: EntityContextRepository,
-    query: AnalysisOperationParams,
+    query: CompleteAnalysisOperationParams,
     operation: ContextOperationOptions,
     responseBudget = MAX_METRIC_CONTEXT_RESPONSE_BYTES,
     embedded = false,
@@ -1545,18 +1556,25 @@ export function createSessionContextHost(
         Buffer.byteLength(JSON.stringify(fullResult)) <= responseBudget
       )
         return fullResult;
-      const continuationReserve = comparison
-        ? Math.min(16000, responseBudget / 4)
-        : 512 +
-          (embedded ? 1 : 2) *
-            Buffer.byteLength(
-              encodeAnalysisCursor({
-                binding,
-                targets: loaded.map(({ source }) => source.readTarget),
-                overviewConsumed: true,
-                offsets: loaded.map(({ timeline }) => timeline.length),
-              }),
-            );
+      const reservedCursor = encodeAnalysisCursor({
+        binding,
+        request,
+        targets: loaded.map(({ source }) => source.readTarget),
+        overviewConsumed: true,
+        offsets: [
+          ...loaded.map(({ timeline }) => timeline.length),
+          ...(comparison ? [comparison.comparisons.length] : []),
+        ],
+      });
+      const continuationReserve =
+        512 +
+        (loaded.length + (comparison ? 1 : 0) + (embedded ? 0 : 1)) *
+          Buffer.byteLength(reservedCursor) +
+        (comparison
+          ? Buffer.byteLength(
+              JSON.stringify({ ...comparison, comparisons: [] }),
+            )
+          : 0);
       const analyses = loaded.map((item, index) =>
         analysisPage(
           item,
@@ -1565,6 +1583,14 @@ export function createSessionContextHost(
           continuation?.overviewConsumed !== true,
         ),
       );
+      for (const page of analyses) page.detail.nextCursor = reservedCursor;
+      if (comparison) comparison.nextCursor = reservedCursor;
+      const result: Extract<AnalysisOperationResult, { action: "read" }> = {
+        action: "read",
+        analyses,
+        ...(comparison ? { comparison } : {}),
+        nextCursor: reservedCursor,
+      };
       // Comparison evidence is paged with the values, using the same immutable binding.
       if (comparison) {
         const offset = continuation?.offsets[2] ?? 0;
@@ -1572,15 +1598,7 @@ export function createSessionContextHost(
         comparison.comparisons = all.slice(offset);
         while (
           comparison.comparisons.length > 0 &&
-          Buffer.byteLength(
-            JSON.stringify({
-              action: "read",
-              analyses,
-              comparison,
-              nextCursor: null,
-            }),
-          ) >
-            responseBudget - 12000
+          Buffer.byteLength(JSON.stringify(result)) > responseBudget
         )
           comparison.comparisons.pop();
         comparison.truncated =
@@ -1591,6 +1609,7 @@ export function createSessionContextHost(
       const nextCursor = truncated
         ? encodeAnalysisCursor({
             binding,
+            request,
             targets: loaded.map(({ source }) => source.readTarget),
             overviewConsumed: true,
             offsets: [
@@ -1608,12 +1627,8 @@ export function createSessionContextHost(
         : null;
       for (const page of analyses) page.detail.nextCursor = nextCursor;
       if (comparison) comparison.nextCursor = nextCursor;
-      return {
-        action: "read",
-        analyses,
-        ...(comparison ? { comparison } : {}),
-        nextCursor,
-      };
+      result.nextCursor = nextCursor;
+      return result;
     }
     if (
       query.query.featureTypes &&
@@ -1875,6 +1890,7 @@ export function createSessionContextHost(
   };
   const originalCursorSchema = z.strictObject({
     binding: z.string().length(64),
+    request: readContinuationRequestSchema,
     target: captureAnalysisTargetSchema,
     kind: z.enum(["stream-records", "report"]),
     descriptorDigest: z.string().length(64).optional(),
@@ -1883,7 +1899,7 @@ export function createSessionContextHost(
   });
   const readOriginalMeasurements = async (
     repository: EntityContextRepository,
-    query: Extract<AnalysisOperationParams, { action: "read" }>,
+    query: z.infer<typeof analysisReadParamsSchema>,
     context: ListeningExecutionContext,
     operation: ContextOperationOptions,
   ): Promise<Extract<AnalysisOperationResult, { action: "read" }>> => {
@@ -1920,8 +1936,17 @@ export function createSessionContextHost(
       );
     const base = { action: "read" as const, analyses: [] };
     const next = (
-      state: Omit<z.infer<typeof originalCursorSchema>, "binding" | "target">,
-    ) => encodeAnalysisCursor({ binding, target: source.readTarget, ...state });
+      state: Omit<
+        z.infer<typeof originalCursorSchema>,
+        "binding" | "target" | "request"
+      >,
+    ) =>
+      encodeAnalysisCursor({
+        binding,
+        request,
+        target: source.readTarget,
+        ...state,
+      });
     if (source.schema === "metric-record-stream-context/v1") {
       const { record } = await requireStream(
         repository,
@@ -2085,19 +2110,42 @@ export function createSessionContextHost(
       const query = contextOperationParamsSchema.parse(input);
       const repository = await repositoryFor(context);
       const operation = operationOptions(context, options.signal);
-      if (query.action === "read" && query.detail === "original-measurements")
+      if (query.action === "read")
         return analysisOperationResultSchema.parse(
-          await analysisStage("read", repository, operation, () =>
-            analysisStage("original-measurements", repository, operation, () =>
-              readOriginalMeasurements(repository, query, context, operation),
-            ),
-          ),
+          await analysisStage("read", repository, operation, () => {
+            const previous = query.cursor
+              ? decodeAnalysisCursor(
+                  query.cursor,
+                  z
+                    .object({ request: readContinuationRequestSchema })
+                    .passthrough(),
+                ).request
+              : undefined;
+            const complete = analysisReadParamsSchema.parse({
+              ...previous,
+              ...Object.fromEntries(
+                Object.entries(query).filter(
+                  ([, value]) => value !== undefined,
+                ),
+              ),
+            });
+            return complete.detail === "original-measurements"
+              ? analysisStage(
+                  "original-measurements",
+                  repository,
+                  operation,
+                  () =>
+                    readOriginalMeasurements(
+                      repository,
+                      complete,
+                      context,
+                      operation,
+                    ),
+                )
+              : executeAnalysis(repository, complete, operation);
+          }),
         );
-      if (
-        query.action === "read" ||
-        query.action === "compare" ||
-        query.action === "search"
-      )
+      if (query.action === "compare" || query.action === "search")
         return analysisOperationResultSchema.parse(
           await analysisStage(query.action, repository, operation, () =>
             executeAnalysis(repository, query, operation),

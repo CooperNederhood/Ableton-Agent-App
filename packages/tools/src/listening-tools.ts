@@ -102,6 +102,16 @@ export const FEATURE_VALUE_DETAIL_GUIDANCE =
 
 export const LISTENING_AGENT_GUIDANCE = `Listen returns capture status and automatically derived musical values. Read stored values with ableton_context read using a source/range or a returned readTarget; no playback, derivation or inventory call is needed. Default pages contain compact musical values, units, normalization, channel validity and coverage. Segment-level availability rows preserve unavailable ranges and reasons with null values; they are not grid cells or measured zeros. Follow nextCursor for remaining values. Only when needed, use the same target with detail="evidence" for full canonical metadata and support intervals, or detail="original-measurements" for native analyzer frames; these are separate optional detail streams, not prerequisites for musical interpretation. Missing evidence never authorizes replay. Prepare stopped transport and the requested source through ordinary approvals. Session clips and Arrangement are distinct; a planned Session-to-Arrangement handoff requires STOP and Back to Arrangement. Never repair/retry a rejected pass automatically. Capture leaves playback running. Source attribution is not exclusive and timing is descriptive, not sample-accurate. ${LISTENING_FEATURE_CATALOG}`;
 
+const captureDeadlineSchema = z
+  .number()
+  .int()
+  .min(1)
+  .max(900_000)
+  .default(900_000)
+  .describe(
+    "Optional wall-clock safety deadline, not musical duration. Normally omit to use the application default; do not invent a shorter deadline for a request expressed in beats.",
+  );
+
 export const listeningOperationParamsSchema = z.discriminatedUnion("action", [
   z
     .object({ action: z.literal("inspect-listeners") })
@@ -127,7 +137,7 @@ export const listeningOperationParamsSchema = z.discriminatedUnion("action", [
         .describe(
           "Omit to capture exactly one active loop, or the active nonlooping start/end region. An explicit duration may be shorter, never longer. Ranges exceeding 600 seconds or bounded native acquisition limits are rejected, not truncated.",
         ),
-      maximumDurationMs: z.number().int().min(1).max(900_000).default(900_000),
+      maximumDurationMs: captureDeadlineSchema,
     })
     .strict()
     .describe(
@@ -163,7 +173,7 @@ export const listeningOperationParamsSchema = z.discriminatedUnion("action", [
           "The absolute ending beat, not a duration; must be greater than startBeat.",
         )
         .optional(),
-      maximumDurationMs: z.number().int().min(1).max(900_000).default(900_000),
+      maximumDurationMs: captureDeadlineSchema,
     })
     .strict()
     .refine(
@@ -839,15 +849,15 @@ export interface ListeningToolServices {
   ): Promise<ContextOperationResult>;
 }
 
-const CAPTURE_FRESHNESS_GUIDANCE =
-  "Exact capture targets read recorded evidence even when freshness is unknown; this does not prove the live source unchanged. Ordinary source lookups require positive freshness. Stale, unresolved or historical evidence requires explicit includeHistorical.";
+const CAPTURE_READ_GUIDANCE =
+  'Exact capture targets read recorded evidence even when freshness is unknown; this does not prove the live source unchanged. Ordinary source lookups require positive freshness. Stale, unresolved or historical evidence requires explicit includeHistorical. Read continuations need only {action:"read",cursor:nextCursor}; the signed cursor retains target, detail and historical scope. Any resupplied fields must match; no discovery or Bash is needed.';
 
 export function createListeningTools(
   services: ListeningToolServices,
 ): [Tool<ListeningOperationParams>, Tool<AgentContextOperationParams>] {
   return [
     defineTool("ableton_listening", {
-      description: `${LISTENING_AGENT_GUIDANCE} ${CAPTURE_FRESHNESS_GUIDANCE}`,
+      description: `${LISTENING_AGENT_GUIDANCE} ${CAPTURE_READ_GUIDANCE}`,
       parameters: listeningOperationParamsSchema,
       handler: async (params, invocation) => {
         const result = listeningOperationResultSchema.parse(
@@ -861,17 +871,17 @@ export function createListeningTools(
           result.job.cleanupPolicy === "leave-running"
         )
           return {
-            ...result,
             nextCaptureGuidance:
               SESSION_SEQUENCE_GUIDANCE +
               " " +
               PLANNED_ARRANGEMENT_HANDOFF_GUIDANCE,
+            ...result,
           };
         return result;
       },
     }),
     defineTool("ableton_context", {
-      description: `Read stored musical analysis by inspected source and optional beat range, or copy a returned readTarget unchanged for one-call drill-down. Ordinary source reads choose the newest positively fresh covering capture; never recapture. Default read pages prioritize actual musical values and coverage without repeated storage identities, definitions or full support arrays. For optional canonical metadata and complete native support, request detail="evidence" with the same target; original-measurements instead reads original analyzer frames. Select range/featureTypes on the target to narrow either detail stream. Compare returns separate canonical feature distances across the complete requested extent, not identity probabilities. Search defaults to mel-grid/v1 spectral content, topK=10 (maximum 20), excludes its query capture unless withinCapture=true, and scans the complete bounded scope before ranking. Results contain actual canonical values, temporal coverage and pinned continuations within 64 KiB. Follow nextCursor with the same request, including detail; no discovery or Bash is needed. Null/unavailable is not zero. Prune requires approval and only deletes explicitly named App-session evidence. ${CAPTURE_FRESHNESS_GUIDANCE} ${LISTENING_FEATURE_CATALOG}`,
+      description: `Read stored musical analysis by inspected source and optional beat range, or copy a returned readTarget unchanged for one-call drill-down. Ordinary source reads choose the newest positively fresh covering capture; never recapture. Default read pages prioritize actual musical values and coverage without repeated storage identities, definitions or full support arrays. For optional canonical metadata and complete native support, request detail="evidence" with the same target; original-measurements instead reads original analyzer frames. Select range/featureTypes on the target to narrow either detail stream. Compare returns separate canonical feature distances across the complete requested extent, not identity probabilities. Search defaults to mel-grid/v1 spectral content, topK=10 (maximum 20), excludes its query capture unless withinCapture=true, and scans the complete bounded scope before ranking. Results contain actual canonical values, temporal coverage and pinned continuations within 64 KiB. Compare/search continuations reuse the original arguments with nextCursor; no discovery or Bash is needed. Null/unavailable is not zero. Prune requires approval and only deletes explicitly named App-session evidence. ${CAPTURE_READ_GUIDANCE} ${LISTENING_FEATURE_CATALOG}`,
       parameters: agentContextOperationParamsSchema,
       handler: async (params, invocation) =>
         executeContextDiagnosticOperation(

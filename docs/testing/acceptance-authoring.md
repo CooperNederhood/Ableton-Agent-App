@@ -1971,6 +1971,24 @@ arguments with no extras, actual metadata/risk, ownership and pending operation,
 and consume the declared usage budget. Declarations cannot override high,
 destructive, or unknown runtime metadata.
 
+For `play-arrangement-and-listen`, canonical `sources` may accompany the exact
+reviewed listener and bounds without changing the permission manifest. The
+matcher first validates the public argument schema and requires exactly one
+source and one listener bound by `$source.listenerId`. Every supplied selector
+leaf must match the independently reviewed Arrangement source: regular-track
+kind, index, runtime reference and track name. Only these verified leaves
+extend the exact comparison; explicit manifest fields still take precedence.
+Multiple, foreign, malformed or extra selectors remain denied. An explicit
+`listenerDeviceReference` is not inferred from a listener ID or device index:
+the existing source evidence cannot independently bind that device reference,
+so such ambiguous requests remain denied. Listener-only requests remain valid.
+Schema-default deadline insertion is equivalent to omission, but arbitrary
+explicit deadlines are not: the saved `suite-uDqogv` case-13 `30000`-ms request
+remains denied when the manifest did not grant it. Bounds, ownership, step
+guards and usage counts remain exact. These matcher regressions replay the
+reviewed case-14 and case-16–19 manifest contracts without changing musical
+fixtures, prompts or allowlists; they are not new real-host qualification.
+
 Review the mutation oracle's actual extent. `session-structure` hashes public
 snapshot track/clip/device identities and exposed mixer/routing fields, with
 scenes/Arrangement/cues when present; it does not enumerate every plug-in/device
@@ -2243,12 +2261,18 @@ and run evidence and reports their paths. Retained directory/byte limits reject
 new admission rather than automatically deleting old evidence.
 
 The CLI uses the existing `.test-artifacts/acceptance/` tooling location, not a
-second application-profile layout. Admission limits are 16 immediate entries,
+second application-profile layout. Admission limits are 32 immediate entries,
 8,192 recursive entries, and 8 GiB with a shared 256 MiB reservation per selected
 case. The 19-case suite reserves 4.75 GiB before launching anything, leaving
 3.25 GiB for earlier evidence. The former 2 GiB budget rejected the entire
 registered suite before any case could run. This finite budget increase uses
 the user's explicit authorization; it changes no case, oracle or cleanup guard.
+The separately authorized increase from 16 to 32 immediate entries admits
+preserved prior attempts alongside new suites; it leaves the 8 GiB total,
+256 MiB per-case reservation and 8,192 recursive-entry bounds unchanged.
+The shared exported `acceptanceArtifactRetention` governs single/suite admission
+and its boundary tests. At 32 retained entries, further allocation fails without
+deleting or altering prior evidence.
 Working-tree retention is bounded to 256 MiB, 8,192 inventory entries, and 256
 allowlisted paths. An atomic admission lock protects concurrent allocations;
 inspect a stale lock and retained evidence before any manual cleanup. There is

@@ -220,13 +220,18 @@ describe("delivered musical analysis evidence", () => {
     fixture.setPairs(pairs);
     return { ...fixture, pairs, first, last };
   }
-  it("counts listen's delivered analysis and its actual pinned continuation as consumption", () => {
-    const { turn, first, last } = pagedFixture();
-    expect(readCompleteAnalyses([turn])[0]!.timeline).toEqual([
-      ...first.timeline,
-      ...last.timeline,
-    ]);
-  });
+  it.each([false, true])(
+    "counts actual pinned continuation consumption (cursor-only=%s)",
+    (cursorOnly) => {
+      const { turn, first, last, pairs, setPairs } = pagedFixture();
+      if (cursorOnly) Reflect.deleteProperty(pairs[1]!.arguments, "target");
+      setPairs(pairs);
+      expect(readCompleteAnalyses([turn])[0]!.timeline).toEqual([
+        ...first.timeline,
+        ...last.timeline,
+      ]);
+    },
+  );
   it.each([
     [
       "unread continuation",
@@ -238,6 +243,19 @@ describe("delivered musical analysis evidence", () => {
       "wrong cursor",
       (f: ReturnType<typeof pagedFixture>) => {
         Reflect.set(f.pairs[1]!.arguments, "cursor", "wrong-page");
+        Reflect.deleteProperty(f.pairs[1]!.arguments, "target");
+      },
+    ],
+    [
+      "changed historical scope",
+      (f: ReturnType<typeof pagedFixture>) => {
+        Reflect.set(f.pairs[1]!.arguments, "includeHistorical", true);
+      },
+    ],
+    [
+      "changed detail",
+      (f: ReturnType<typeof pagedFixture>) => {
+        Reflect.set(f.pairs[1]!.arguments, "detail", "evidence");
       },
     ],
     [

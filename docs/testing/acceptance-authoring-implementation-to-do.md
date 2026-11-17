@@ -21,10 +21,19 @@ Companion specification: [Acceptance test authoring](acceptance-authoring.md).
 - [x] Match schema-inserted capture deadlines equivalently to omission for
       single/named source grants; reject non-default, foreign-listener and reused
       requests. Preserve explicit deadlines and all source/capture guards.
+- [x] Reproduce the saved suite's valid Arrangement selector denials against
+      actual reviewed manifests; validate each selector against the existing
+      source binding before exact matching. Reject foreign/multiple/extra or
+      device-ambiguous selectors, altered bounds/deadlines, wrong owners/steps
+      and reuse. Keep case 13's ungranted explicit 30000-ms deadline denied.
 - [x] Admit the complete registered suite within a finite 8 GiB aggregate
       artifact budget, sharing the existing 256 MiB per-case reservation.
       Cover admission alongside prior evidence and retain invalid-reservation,
       capacity-exhaustion, ownership, lock and no-deletion checks.
+- [x] Raise only the user-authorized immediate-entry admission bound from 16 to
+      32 using shared `acceptanceArtifactRetention`; demonstrate admission after
+      sixteen preserved attempts and exhaustion at 32 without deletion. Keep
+      8 GiB total, 256 MiB per case and 8,192 recursive entries unchanged.
 - [ ] Run simple listening regressions followed by every registered packaged
       message scenario and the terminal suite verifier on the final candidate.
 - [ ] Invoke final code review, resolve findings and requalify any changed

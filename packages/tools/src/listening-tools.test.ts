@@ -127,6 +127,9 @@ describe("optional listening tool contracts", () => {
       });
       expect(execute).toHaveBeenCalledTimes(1);
       if (stage === "completed") {
+        if (result === null || typeof result !== "object")
+          throw new Error("Expected a structured capture result");
+        expect(Object.keys(result)[0]).toBe("nextCaptureGuidance");
         expect(result).toHaveProperty(
           "nextCaptureGuidance",
           expect.stringContaining("Before the next Session listen"),
@@ -860,7 +863,9 @@ describe("optional listening tool contracts", () => {
       report: { offset: 8, nextOffset: 10 },
     });
     expect(executeContextOperation).toHaveBeenCalledWith(params, invocation);
-    expect(tool.description).toContain("Follow nextCursor");
+    expect(tool.description).toContain(
+      'Read continuations need only {action:"read",cursor:nextCursor}',
+    );
     expect(tool.description).toContain("Null/unavailable is not zero");
     expect(
       JSON.stringify(await tool.handler?.(params, invocation)),

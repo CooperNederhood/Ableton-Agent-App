@@ -132,6 +132,36 @@ export class ScopedApprovalPolicy {
         const operation = listeningOperationParamsSchema.options.find(
           ({ shape }) => shape.action.value === rule.action,
         );
+        const selectors = Object.entries(actual).filter(([key]) =>
+          key.startsWith("sources."),
+        );
+        if (
+          rule.action === "play-arrangement-and-listen" &&
+          selectors.length > 0
+        ) {
+          const parsed = operation?.safeParse(request.arguments);
+          if (
+            !selected ||
+            !("trackName" in selected) ||
+            selected.source.view !== "arrangement" ||
+            rule.arguments["listenerIds.0"] !== "$source.listenerId" ||
+            !parsed?.success ||
+            parsed.data.action !== "play-arrangement-and-listen" ||
+            parsed.data.sources?.length !== 1 ||
+            parsed.data.listenerIds?.length !== 1 ||
+            parsed.data.listenerIds[0] !== selected.listenerId
+          )
+            return [];
+          const expected: Facts = {
+            "sources.0.track.kind": "regular",
+            "sources.0.track.index": selected.source.trackIndex,
+            "sources.0.track.expectedReference": selected.source.trackId,
+            "sources.0.track.expectedName": selected.trackName,
+          };
+          if (selectors.some(([key, value]) => expected[key] !== value))
+            return [];
+          resolved = { ...Object.fromEntries(selectors), ...resolved };
+        }
         const defaultDuration =
           operation && "maximumDurationMs" in operation.shape
             ? operation.shape.maximumDurationMs.parse(undefined)

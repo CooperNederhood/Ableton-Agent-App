@@ -704,11 +704,17 @@ export function readCompleteAnalyses(
   const complete: CompleteAnalysis[] = [];
   const accept = (
     pages: AnalysisPage[],
-    request: Record<string, unknown>,
+    supplied: Record<string, unknown>,
     cursor: string | undefined,
     nextCursor: string | null,
   ) => {
     const chain = cursor ? pending.get(cursor) : undefined;
+    const request: Record<string, unknown> = {
+      ...(chain?.request ?? { includeHistorical: false }),
+      ...Object.fromEntries(
+        Object.entries(supplied).filter(([, value]) => value !== undefined),
+      ),
+    };
     check(
       !cursor || (chain && isDeepStrictEqual(chain.request, request)),
       "analysis continuation changed its request or skipped a page",

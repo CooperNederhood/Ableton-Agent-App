@@ -1534,7 +1534,7 @@ export function scopeAbletonTools(
       )
       .join(" ");
     const actionArguments =
-      tool.name === "ableton_context"
+      tool.name === "ableton_context" || tool.name === "ableton_listening"
         ? ` Action arguments: ${selected
             .map(
               (descriptor) =>

@@ -37,6 +37,15 @@
 - [x] Remove the obsolete mandatory listener-discovery instruction from the
       Default scoped description; preserve automatic resolution and optional
       inventory for disambiguation.
+- [x] Advertise accepted input schemas so default deadlines are optional;
+      enumerate capture action arguments and put sequence preparation ahead of
+      musical values without changing playback or retry authorization.
+- [x] Continue reads with a self-contained signed cursor, retaining the original
+      target/detail/history scope and rechecking ownership, freshness and expiry.
+      Keep exact byte bounds, complete reconstruction and tamper denial.
+- [x] Reserve the actual encoded cursor at every comparison-bundle occurrence,
+      size the complete response, and preserve progress and lossless values and
+      technical evidence across continuations.
 - [x] Prove red/green regressions and owning deterministic suites.
 - [ ] Run basic simple listening cases as message-driven regressions, then all
       registered packaged acceptance scenarios on a clean committed candidate

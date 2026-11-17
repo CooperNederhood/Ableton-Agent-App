@@ -1411,7 +1411,7 @@ describe("musical analysis host", () => {
       if (cursor && evidencePages === 0)
         await expect(
           host.executeContextOperation(
-            { ...request, detail: undefined, cursor },
+            { ...request, detail: "original-measurements", cursor },
             context,
           ),
         ).rejects.toMatchObject({ code: "invalid_cursor" });
@@ -1478,7 +1478,7 @@ describe("musical analysis host", () => {
       throw new Error("Expected original typed report");
     expect(first.originalMeasurements.report).toEqual(expectedFirst.report);
     const second = await host.executeContextOperation(
-      { ...request, cursor: first.nextCursor },
+      { action: "read", cursor: first.nextCursor },
       context,
     );
     if (
@@ -2079,45 +2079,121 @@ describe("musical analysis host", () => {
     expect(wait).not.toHaveBeenCalled();
   });
 
-  it("pages oversized support losslessly with one pinned continuation and a whole-extent overview", async () => {
-    const { host, store, record, target } = await analysisFixture();
-    const dense = structuredClone(record);
-    dense.feature.support = Array.from({ length: 2000 }, (_, index) => [
-      index * 2,
-      index * 2 + 1,
-    ]);
-    vi.spyOn(store, "listFeatures").mockResolvedValue({ items: [dense] });
-    const intervals: number[][] = [];
-    let cursor: string | undefined;
-    let pages = 0;
-    do {
-      const result = await host.executeContextOperation(
-        {
-          action: "read",
-          target,
-          detail: "evidence",
-          includeHistorical: false,
-          ...(cursor ? { cursor } : {}),
-        },
-        context,
-      );
-      if (result.action !== "read") throw new Error("Expected read");
-      expect(Buffer.byteLength(JSON.stringify(result))).toBeLessThanOrEqual(
-        MAX_METRIC_CONTEXT_RESPONSE_BYTES,
-      );
-      expect(result.analyses[0]!.overviewExtent).toEqual(target.range);
-      expect(result.analyses[0]!.detail.returnedItems).toBeGreaterThan(0);
-      intervals.push(
-        ...result.analyses[0]!.timeline.flatMap((item) =>
-          item.support ? [item.support] : [],
-        ),
-      );
-      cursor = result.nextCursor ?? undefined;
-      expect(++pages).toBeLessThan(100);
-    } while (cursor);
-    expect(pages).toBeGreaterThan(1);
-    expect(intervals).toEqual(dense.feature.support);
-  });
+  it.each([false, true])(
+    "pages oversized support losslessly using only its signed cursor (historical=%s)",
+    async (includeHistorical) => {
+      const { store, record, target } = await analysisFixture();
+      const enqueue = vi.fn<NonBlockingObservabilityRecorder["enqueue"]>();
+      const host = createSessionContextHost({
+        resolveRepository: async () => store,
+        telemetry: { enqueue },
+      });
+      const dense = structuredClone(record);
+      dense.feature.support = Array.from({ length: 2000 }, (_, index) => [
+        index * 2,
+        index * 2 + 1,
+      ]);
+      vi.spyOn(store, "listFeatures").mockResolvedValue({ items: [dense] });
+      const intervals: number[][] = [];
+      let cursor: string | undefined;
+      let pages = 0;
+      do {
+        const result = await host.executeContextOperation(
+          {
+            action: "read",
+            ...(cursor
+              ? { cursor }
+              : {
+                  target,
+                  detail: "evidence",
+                  includeHistorical,
+                }),
+          },
+          context,
+        );
+        if (result.action !== "read") throw new Error("Expected read");
+        expect(Buffer.byteLength(JSON.stringify(result))).toBeLessThanOrEqual(
+          MAX_METRIC_CONTEXT_RESPONSE_BYTES,
+        );
+        expect(result.analyses[0]!.overviewExtent).toEqual(target.range);
+        expect(result.analyses).toHaveLength(1);
+        expect(result.analyses[0]!.detail.returnedItems).toBeGreaterThan(0);
+        intervals.push(
+          ...result.analyses[0]!.timeline.flatMap((item) =>
+            item.support ? [item.support] : [],
+          ),
+        );
+        cursor = result.nextCursor ?? undefined;
+        if (pages === 0 && cursor) {
+          const request = { action: "read" as const, cursor };
+          const restarted = createSessionContextHost({
+            resolveRepository: async () => store,
+          });
+          await expect(
+            restarted.executeContextOperation(request, context),
+          ).rejects.toMatchObject({
+            code: "invalid_cursor",
+          });
+          await expect(
+            host.executeContextOperation(
+              {
+                ...request,
+                includeHistorical: !includeHistorical,
+              },
+              context,
+            ),
+          ).rejects.toMatchObject({ code: "invalid_cursor" });
+          await expect(
+            host.executeContextOperation(
+              {
+                ...request,
+                detail: "original-measurements",
+              },
+              context,
+            ),
+          ).rejects.toMatchObject({ code: "invalid_cursor" });
+          const tampered = JSON.parse(
+            Buffer.from(cursor, "base64url").toString("utf8"),
+          ) as {
+            request: { includeHistorical: boolean };
+          };
+          tampered.request.includeHistorical = !includeHistorical;
+          await expect(
+            host.executeContextOperation(
+              {
+                action: "read",
+                cursor: Buffer.from(JSON.stringify(tampered)).toString(
+                  "base64url",
+                ),
+              },
+              context,
+            ),
+          ).rejects.toMatchObject({ code: "invalid_cursor" });
+        }
+        expect(++pages).toBeLessThan(100);
+      } while (cursor);
+      expect(pages).toBeGreaterThan(1);
+      expect(intervals).toEqual(dense.feature.support);
+      const events = enqueue.mock.calls
+        .map(([event]) => event)
+        .filter((event) => event.name.startsWith("listening.analysis.read."));
+      expect(
+        events.filter((event) => event.name.endsWith(".completed")),
+      ).toHaveLength(pages);
+      expect(
+        events.filter((event) => event.name.endsWith(".failed")),
+      ).toHaveLength(3);
+      for (const event of events) {
+        expect(event).toMatchObject({
+          sessionId: context.sessionId,
+          correlationId: trace.correlationId,
+          causationId: trace.causationId,
+          trace: { traceId: trace.traceId },
+        });
+        expect(event.durationMs).toBeGreaterThanOrEqual(0);
+      }
+    },
+  );
 
   it("compares entire extents and reads both sides through the returned bundle", async () => {
     const { host, target, record } = await analysisFixture();
@@ -2349,210 +2425,272 @@ describe("musical analysis host", () => {
     ]);
   });
 
-  it("byte-pages complete comparisons and pinned top-k evidence without rescanning or dropping features", async () => {
-    const { host, store, record, segment, target } = await analysisFixture();
-    const observation = createSyntheticMetricListeningObservation();
-    const aligned = segmentListeningObservation(observation, {
-      version: 1,
-      coordinate: "transport-beats",
-      meter: { numerator: 4, denominator: 4 },
-      barOriginBeat: 0,
-      tempoBpm: observation.geometry.tempoBpm,
-      tempoEvidence: "message-rate-monitored-constant",
-      provenance: "capture-snapshot/v1",
-    })[0]!;
-    const records = Array.from({ length: 20 }, (_, index) =>
-      LISTENING_FEATURE_DEFINITIONS.map(({ type }) => ({
-        ...record,
-        id: `${type.replace("/", "-")}:${index}`,
-        segmentId: `segment-${index}`,
-        feature: extractListeningFeature(type, observation, aligned),
-      })),
-    ).flat();
-    vi.spyOn(store, "listFeatures").mockImplementation(async (query) => {
-      const offset = Number(query?.cursor ?? 0);
-      return {
-        items: records.slice(offset, offset + 100),
-        ...(offset + 100 < records.length
-          ? { nextCursor: String(offset + 100) }
-          : {}),
-      };
-    });
-    vi.spyOn(store, "getSegment").mockImplementation(async (id) => {
-      const index = Number(id.split("-").at(-1));
-      return {
-        ...segment,
-        id,
-        order: index,
-        startBeat: index,
-        endBeat: index + 1,
-        startSample: segment.startSample + index * 24000,
-        endSample: segment.endSample + index * 24000,
-      };
-    });
-    const links = await store.listLinks({ entryId: "entry" });
-    vi.spyOn(store, "listLinks").mockResolvedValue({
-      items: links.items.map((link) => ({
-        ...link,
-        coverage: { startBeat: 0, endBeat: 20 },
-      })),
-    });
-    const full = { ...target, range: { startBeat: 0, endBeat: 20 } };
-    let cursor: string | undefined;
-    let comparisons = 0,
-      pages = 0;
-    do {
-      const result = await host.executeContextOperation(
-        {
-          action: "compare",
-          left: full,
-          right: full,
-          includeHistorical: false,
-          ...(cursor ? { cursor } : {}),
-        },
-        context,
-      );
-      if (result.action !== "compare") throw new Error("Expected compare");
-      expect(result.completeExtent).toBe(true);
-      expect(Buffer.byteLength(JSON.stringify(result))).toBeLessThanOrEqual(
-        MAX_METRIC_CONTEXT_RESPONSE_BYTES,
-      );
-      expect(result.comparisons.length).toBeGreaterThan(0);
-      comparisons += result.comparisons.length;
-      cursor = result.nextCursor ?? undefined;
-      if (cursor && pages === 0) {
-        const payload = JSON.parse(
-          Buffer.from(cursor, "base64url").toString("utf8"),
-        ) as Record<string, unknown>;
-        await expect(
-          host.executeContextOperation(
-            {
-              action: "compare",
-              left: full,
-              right: full,
-              includeHistorical: false,
-              cursor: Buffer.from(
-                JSON.stringify({ ...payload, offsets: [299] }),
-              ).toString("base64url"),
-            },
-            context,
-          ),
-        ).rejects.toMatchObject({ code: "invalid_cursor" });
-      }
-      expect(++pages).toBeLessThan(30);
-    } while (cursor);
-    expect(pages).toBeGreaterThan(1);
-    expect(comparisons).toBe(300);
-    const ranks = new Map<number, number>();
-    cursor = undefined;
-    pages = 0;
-    do {
-      const result = await host.executeContextOperation(
-        {
-          action: "search",
-          query: target,
-          scope: [full],
-          topK: 20,
-          withinCapture: true,
-          featureType: "level-grid/v1",
-          includeHistorical: false,
-          ...(cursor ? { cursor } : {}),
-        },
-        context,
-      );
-      if (result.action !== "search") throw new Error("Expected search");
-      expect(result).toMatchObject({
-        requestedTopK: 20,
-        selectedCount: 20,
-        scannedCount: 20,
-        exhaustive: true,
+  it.each([undefined, "evidence"] as const)(
+    "byte-pages complete comparisons and pinned top-k evidence without rescanning or dropping features (detail=%s)",
+    async (detail) => {
+      const { host, store, record, segment, target } = await analysisFixture();
+      const observation = createSyntheticMetricListeningObservation();
+      const aligned = segmentListeningObservation(observation, {
+        version: 1,
+        coordinate: "transport-beats",
+        meter: { numerator: 4, denominator: 4 },
+        barOriginBeat: 0,
+        tempoBpm: observation.geometry.tempoBpm,
+        tempoEvidence: "message-rate-monitored-constant",
+        provenance: "capture-snapshot/v1",
+      })[0]!;
+      const records = Array.from({ length: 20 }, (_, index) =>
+        LISTENING_FEATURE_DEFINITIONS.map(({ type }) => ({
+          ...record,
+          id: `${type.replace("/", "-")}:${index}`,
+          segmentId: `segment-${index}`,
+          feature: extractListeningFeature(type, observation, aligned),
+        })),
+      ).flat();
+      vi.spyOn(store, "listFeatures").mockImplementation(async (query) => {
+        const offset = Number(query?.cursor ?? 0);
+        return {
+          items: records.slice(offset, offset + 100),
+          ...(offset + 100 < records.length
+            ? { nextCursor: String(offset + 100) }
+            : {}),
+        };
       });
-      expect(Buffer.byteLength(JSON.stringify(result))).toBeLessThanOrEqual(
-        MAX_METRIC_CONTEXT_RESPONSE_BYTES,
-      );
-      expect(result.matches.length).toBeGreaterThan(0);
-      for (const match of result.matches) {
-        expect(match.evidence.offset).toBe(ranks.get(match.rank) ?? 0);
-        ranks.set(match.rank, match.evidence.offset + match.comparisons.length);
-        expect(match.distance).toBe(0);
-      }
-      cursor = result.nextCursor ?? undefined;
-      if (cursor && pages === 0) {
-        const request = {
-          action: "search" as const,
-          query: target,
-          scope: [full],
-          topK: 20,
-          withinCapture: true,
-          featureType: "level-grid/v1" as const,
-          includeHistorical: false,
+      vi.spyOn(store, "getSegment").mockImplementation(async (id) => {
+        const index = Number(id.split("-").at(-1));
+        return {
+          ...segment,
+          id,
+          order: index,
+          startBeat: index,
+          endBeat: index + 1,
+          startSample: segment.startSample + index * 24000,
+          endSample: segment.endSample + index * 24000,
         };
-        const payload = JSON.parse(
-          Buffer.from(cursor, "base64url").toString("utf8"),
-        ) as {
-          ranking: number[];
-          targets: CaptureAnalysisTarget[];
-          offsets: number[];
-          scanned: number;
-          skipped: number;
-          exhaustive: boolean;
-        };
-        for (const patch of [
-          { ranking: payload.ranking.map(() => 12345) },
+      });
+      const links = await store.listLinks({ entryId: "entry" });
+      vi.spyOn(store, "listLinks").mockResolvedValue({
+        items: links.items.map((link) => ({
+          ...link,
+          coverage: { startBeat: 0, endBeat: 20 },
+        })),
+      });
+      const full = {
+        ...target,
+        range: { startBeat: 0, endBeat: 20 },
+        featureTypes: LISTENING_FEATURE_DEFINITIONS.map(({ type }) => type),
+      };
+      let cursor: string | undefined;
+      let comparisons = 0,
+        pages = 0;
+      do {
+        const result = await host.executeContextOperation(
           {
-            targets: payload.targets.map((item, index) =>
-              index === 0 ? { ...item, contextId: "forged-query" } : item,
-            ),
+            action: "compare",
+            left: full,
+            right: full,
+            includeHistorical: false,
+            ...(cursor ? { cursor } : {}),
           },
-          {
-            targets: payload.targets.map((item, index) =>
-              index === 1
-                ? { ...item, range: { startBeat: 0, endBeat: 20 } }
-                : item,
-            ),
-          },
-          { offsets: [19, 0] },
-          { scanned: 12345 },
-          { skipped: 12345 },
-          { exhaustive: false },
-          { scopeIndices: payload.ranking.map(() => 99) },
-          {
-            scopeRanges: payload.ranking.map(() => ({
-              startBeat: 0,
-              endBeat: 19,
-            })),
-          },
-          { signature: "0".repeat(64) },
-        ]) {
-          const forged = Buffer.from(
-            JSON.stringify({ ...payload, ...patch }),
-          ).toString("base64url");
+          context,
+        );
+        if (result.action !== "compare") throw new Error("Expected compare");
+        expect(result.completeExtent).toBe(true);
+        expect(Buffer.byteLength(JSON.stringify(result))).toBeLessThanOrEqual(
+          MAX_METRIC_CONTEXT_RESPONSE_BYTES,
+        );
+        expect(result.comparisons.length).toBeGreaterThan(0);
+        comparisons += result.comparisons.length;
+        cursor = result.nextCursor ?? undefined;
+        if (cursor && pages === 0) {
+          const payload = JSON.parse(
+            Buffer.from(cursor, "base64url").toString("utf8"),
+          ) as Record<string, unknown>;
           await expect(
             host.executeContextOperation(
-              { ...request, cursor: forged },
+              {
+                action: "compare",
+                left: full,
+                right: full,
+                includeHistorical: false,
+                cursor: Buffer.from(
+                  JSON.stringify({ ...payload, offsets: [299] }),
+                ).toString("base64url"),
+              },
               context,
             ),
           ).rejects.toMatchObject({ code: "invalid_cursor" });
         }
-        await expect(
-          host.executeContextOperation(
-            { ...request, cursor, withinCapture: false },
-            context,
-          ),
-        ).rejects.toMatchObject({ code: "invalid_cursor" });
-        await expect(
-          host.executeContextOperation(
-            { ...request, cursor, scope: [target] },
-            context,
-          ),
-        ).rejects.toMatchObject({ code: "invalid_cursor" });
-      }
-      expect(++pages).toBeLessThan(60);
-    } while (cursor);
-    expect(pages).toBeGreaterThan(1);
-    expect(ranks.size).toBe(20);
-    expect([...ranks.values()]).toEqual(Array(20).fill(15));
-  });
+        expect(++pages).toBeLessThan(30);
+      } while (cursor);
+      expect(pages).toBeGreaterThan(1);
+      expect(comparisons).toBe(300);
+      cursor = undefined;
+      pages = 0;
+      const received = [0, 0];
+      let totals: number[] = [];
+      let bundledComparisons = 0;
+      const bundleTarget = detail
+        ? { ...full, range: { startBeat: 0, endBeat: 2 } }
+        : full;
+      do {
+        const result = await host.executeContextOperation(
+          cursor
+            ? { action: "read", cursor }
+            : {
+                action: "read",
+                target: {
+                  kind: "comparison",
+                  left: bundleTarget,
+                  right: bundleTarget,
+                },
+                ...(detail ? { detail } : {}),
+              },
+          context,
+        );
+        if (result.action !== "read")
+          throw new Error("Expected comparison bundle");
+        expect(result.analyses).toHaveLength(2);
+        expect(Buffer.byteLength(JSON.stringify(result))).toBeLessThanOrEqual(
+          MAX_METRIC_CONTEXT_RESPONSE_BYTES,
+        );
+        if (pages === 0)
+          totals = result.analyses.map((page) => page.detail.totalItems);
+        result.analyses.forEach((page, index) => {
+          expect(page.detail.offset).toBe(received[index]);
+          received[index]! += page.timeline.length;
+        });
+        bundledComparisons += result.comparison?.comparisons.length ?? 0;
+        expect(
+          result.analyses.reduce(
+            (count, page) => count + page.timeline.length,
+            0,
+          ) + (result.comparison?.comparisons.length ?? 0),
+          JSON.stringify({ pages, received, totals, bundledComparisons }),
+        ).toBeGreaterThan(0);
+        cursor = result.nextCursor ?? undefined;
+        expect(
+          ++pages,
+          JSON.stringify({ received, totals, bundledComparisons }),
+        ).toBeLessThan(100);
+      } while (cursor);
+      expect(pages).toBeGreaterThan(1);
+      expect(received).toEqual(totals);
+      expect(bundledComparisons).toBe(detail ? 30 : 300);
+      const ranks = new Map<number, number>();
+      cursor = undefined;
+      pages = 0;
+      do {
+        const result = await host.executeContextOperation(
+          {
+            action: "search",
+            query: target,
+            scope: [full],
+            topK: 20,
+            withinCapture: true,
+            featureType: "level-grid/v1",
+            includeHistorical: false,
+            ...(cursor ? { cursor } : {}),
+          },
+          context,
+        );
+        if (result.action !== "search") throw new Error("Expected search");
+        expect(result).toMatchObject({
+          requestedTopK: 20,
+          selectedCount: 20,
+          scannedCount: 20,
+          exhaustive: true,
+        });
+        expect(Buffer.byteLength(JSON.stringify(result))).toBeLessThanOrEqual(
+          MAX_METRIC_CONTEXT_RESPONSE_BYTES,
+        );
+        expect(result.matches.length).toBeGreaterThan(0);
+        for (const match of result.matches) {
+          expect(match.evidence.offset).toBe(ranks.get(match.rank) ?? 0);
+          ranks.set(
+            match.rank,
+            match.evidence.offset + match.comparisons.length,
+          );
+          expect(match.distance).toBe(0);
+        }
+        cursor = result.nextCursor ?? undefined;
+        if (cursor && pages === 0) {
+          const request = {
+            action: "search" as const,
+            query: target,
+            scope: [full],
+            topK: 20,
+            withinCapture: true,
+            featureType: "level-grid/v1" as const,
+            includeHistorical: false,
+          };
+          const payload = JSON.parse(
+            Buffer.from(cursor, "base64url").toString("utf8"),
+          ) as {
+            ranking: number[];
+            targets: CaptureAnalysisTarget[];
+            offsets: number[];
+            scanned: number;
+            skipped: number;
+            exhaustive: boolean;
+          };
+          for (const patch of [
+            { ranking: payload.ranking.map(() => 12345) },
+            {
+              targets: payload.targets.map((item, index) =>
+                index === 0 ? { ...item, contextId: "forged-query" } : item,
+              ),
+            },
+            {
+              targets: payload.targets.map((item, index) =>
+                index === 1
+                  ? { ...item, range: { startBeat: 0, endBeat: 20 } }
+                  : item,
+              ),
+            },
+            { offsets: [19, 0] },
+            { scanned: 12345 },
+            { skipped: 12345 },
+            { exhaustive: false },
+            { scopeIndices: payload.ranking.map(() => 99) },
+            {
+              scopeRanges: payload.ranking.map(() => ({
+                startBeat: 0,
+                endBeat: 19,
+              })),
+            },
+            { signature: "0".repeat(64) },
+          ]) {
+            const forged = Buffer.from(
+              JSON.stringify({ ...payload, ...patch }),
+            ).toString("base64url");
+            await expect(
+              host.executeContextOperation(
+                { ...request, cursor: forged },
+                context,
+              ),
+            ).rejects.toMatchObject({ code: "invalid_cursor" });
+          }
+          await expect(
+            host.executeContextOperation(
+              { ...request, cursor, withinCapture: false },
+              context,
+            ),
+          ).rejects.toMatchObject({ code: "invalid_cursor" });
+          await expect(
+            host.executeContextOperation(
+              { ...request, cursor, scope: [target] },
+              context,
+            ),
+          ).rejects.toMatchObject({ code: "invalid_cursor" });
+        }
+        expect(++pages).toBeLessThan(60);
+      } while (cursor);
+      expect(pages).toBeGreaterThan(1);
+      expect(ranks.size).toBe(20);
+      expect([...ranks.values()]).toEqual(Array(20).fill(15));
+    },
+  );
 
   it("cancels the reader with attributed failure rather than requesting a new derivation", async () => {
     const { store, target, wait } = await analysisFixture();
@@ -2668,7 +2806,7 @@ describe("musical analysis host", () => {
     });
     if (
       request.action !== "read" ||
-      request.target.kind !== "source" ||
+      request.target?.kind !== "source" ||
       request.target.source.view !== "arrangement"
     )
       throw new Error("Expected source read request");

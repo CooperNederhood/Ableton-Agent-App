@@ -16,6 +16,9 @@ another calculation or asking the agent to poll. Capture and analysis outcomes
 are separate: an analysis quota, cancellation or integrity failure does not erase
 an already durable capture or authorize replay. Playback preparation, source
 guards, approvals and leave-running cleanup are unchanged.
+An ordinary source with one eligible listener resolves automatically before
+approval. Listener inventory is optional for disambiguation, not a prerequisite
+added by the Default agent's scoped tool description.
 For multi-source captures, retain successful analyses and their pinned targets
 alongside typed source-local failures. A mixed outcome is partial analysis, not
 an empty generic failure. Invocation cancellation and global ownership failures

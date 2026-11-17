@@ -34,6 +34,9 @@
 - [x] Generate scoped context action argument names from canonical schemas so
       compare filters and the single search ranking feature are explicit.
       Keep the rejected-call oracle and original peak failure receipt intact.
+- [x] Remove the obsolete mandatory listener-discovery instruction from the
+      Default scoped description; preserve automatic resolution and optional
+      inventory for disambiguation.
 - [x] Prove red/green regressions and owning deterministic suites.
 - [ ] Run basic simple listening cases as message-driven regressions, then all
       registered packaged acceptance scenarios on a clean committed candidate

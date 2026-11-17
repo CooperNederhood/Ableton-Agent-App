@@ -2130,7 +2130,7 @@ describe("Ableton tools", () => {
     }
   });
 
-  it("advertises listener discovery in the full Default scope without changing its serialized schema", () => {
+  it("advertises automatic listener resolution in the full Default scope without changing its serialized schema", () => {
     const set = createAbletonTools({
       ...services(),
       executeListeningOperation:
@@ -2144,8 +2144,9 @@ describe("Ableton tools", () => {
       "Allowed action values in this scope: inspect-listeners, play-session-and-listen, play-arrangement-and-listen, get-pass, list-passes, cancel.",
     );
     expect(tool?.description).toContain(
-      "Discover listenerIds with inspect-listeners before the first capture; never guess them from track or device references.",
+      "Eligible listeners are resolved automatically from the requested source; inspect-listeners is optional for disambiguation, never a prerequisite.",
     );
+    expect(tool?.description).not.toContain("before the first capture");
     expect(tool?.parameters).toBe(original.parameters);
     expect(tool?.handler).toBe(original.handler);
   });

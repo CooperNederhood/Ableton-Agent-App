@@ -38,6 +38,8 @@ and pitch appear together, with units, channel/dimension labels and validity.
 Keep segment-wide peak, spectral energy, mel summaries, pitch confidence and
 spectral-shape summaries at segment level, with their full temporal extent.
 Do not repeat a segment summary as if it were an instantaneous row measurement.
+Explicit unavailable-segment markers retain their reason when neighboring
+segments have valid values. They are not measurements or fabricated grid cells.
 
 Session clip-local beats and Arrangement transport beats are different
 coordinate systems. Preserve the recorded origin and geometry; include
@@ -154,7 +156,7 @@ not qualify any of the **19 registered user-message scenarios**. Their final
 candidate qualification and visible UX gate remain open until the host
 precondition is resolved; preserve these failed attempts alongside later runs.
 After compact-result and review fixes, the full deterministic suites passed:
-**6,813 TypeScript, 1,096 Max, and 321 Python tests**, plus workspace build and
+**6,836 TypeScript, 1,096 Max, and 321 Python tests**, plus workspace build and
 typechecks. Code review rechecked and resolved cursor integrity, mixed-source
 failure delivery, restart provenance, and sample-coverage findings. The global
 format check still reports two unchanged pre-existing `.github` Markdown files;

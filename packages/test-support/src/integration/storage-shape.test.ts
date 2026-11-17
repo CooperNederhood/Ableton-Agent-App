@@ -489,6 +489,20 @@ describe("message-driven storage shape acceptance", () => {
   it("verifies mixed unavailable measures but rejects an extra missing measured range", () => {
     const f = fixture(20, true, "first-measure");
     expect(() => verifyStorageShape(f.input, 20)).not.toThrow();
+    const pitch = deliveredAnalysisFeatures(
+      readCompleteAnalyses([f.session], true)[0]!,
+    ).filter((feature) => feature.definition.type === "pitch-grid/v1");
+    expect(pitch[0]!.blocks).toEqual([]);
+    expect(pitch[0]!.supports).toEqual([]);
+    expect(pitch[0]!.availability).toHaveLength(1);
+    expect(
+      pitch
+        .slice(1)
+        .every(
+          (feature) =>
+            feature.blocks.length === 16 && feature.availability.length === 0,
+        ),
+    ).toBe(true);
     for (const turn of f.input.turns)
       for (const record of turn.agentListening!.records) {
         if (record.kind !== "tool_result") continue;
@@ -509,6 +523,12 @@ describe("message-driven storage shape acceptance", () => {
   it("verifies declared unavailable pitch layout without inventing measured pitch cells", () => {
     const f = fixture(1, true, true);
     expect(() => verifyStorageShape(f.input, 1)).not.toThrow();
+    const pitch = deliveredAnalysisFeatures(
+      readCompleteAnalyses([f.session], true)[0]!,
+    ).find((feature) => feature.definition.type === "pitch-grid/v1")!;
+    expect(pitch.blocks).toEqual([]);
+    expect(pitch.supports).toEqual([]);
+    expect(pitch.availability).toHaveLength(1);
     for (const turn of f.input.turns)
       for (const record of turn.agentListening!.records) {
         if (record.kind !== "tool_result") continue;
@@ -524,6 +544,56 @@ describe("message-driven storage shape acceptance", () => {
       "Missing explicit unavailable feature shape",
     );
   });
+  it.each([
+    "numeric",
+    "status",
+    "units",
+    "reason",
+    "owner",
+    "time",
+    "expected",
+    "covered",
+    "support-extent",
+    "channel",
+    "missing",
+  ] as const)(
+    "rejects identical unavailable pitch marker %s tampering",
+    (mode) => {
+      const f = fixture(1, true, true);
+      expect(() => verifyStorageShape(f.input, 1)).not.toThrow();
+      let changed = 0;
+      for (const turn of f.input.turns)
+        for (const record of turn.agentListening!.records) {
+          if (record.kind !== "tool_result") continue;
+          const content = (
+            record.result?.result as { content: { analyses?: AnalysisPage[] } }
+          ).content;
+          for (const page of content.analyses ?? [])
+            for (const row of page.timeline) {
+              if (row.kind !== "availability") continue;
+              const block = row.features.find(
+                (item) => item.type === "pitch-grid/v1",
+              );
+              if (!block) continue;
+              changed++;
+              if (mode === "numeric") block.values = [50, 50];
+              if (mode === "status") block.status = "ready";
+              if (mode === "units") block.units = "linear-amplitude";
+              if (mode === "reason") block.reason = "silence";
+              if (mode === "owner") row.segment.entryId = "foreign";
+              if (mode === "time") row.endBeat -= 0.25;
+              if (mode === "expected") block.expectedSamples++;
+              if (mode === "covered") block.coveredSamples--;
+              if (mode === "support-extent") block.supportExtent = null;
+              if (mode === "channel") block.channelReasons = [null, null];
+              if (mode === "missing")
+                row.features = row.features.filter((item) => item !== block);
+            }
+        }
+      expect(changed).toBeGreaterThan(0);
+      expect(() => verifyStorageShape(f.input, 1)).toThrow();
+    },
+  );
   it("preserves independently acquired native support and excludes the unmeasured FFT tail", async () => {
     const native = await createSyntheticMetricRecordStreamFixture({
       seconds: 1.875,

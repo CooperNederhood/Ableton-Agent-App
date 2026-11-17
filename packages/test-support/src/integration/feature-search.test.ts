@@ -42,6 +42,7 @@ import {
   projectFeatureSearchHistory,
   readFeatureToolPairs,
   readCompleteAnalyses,
+  deliveredAnalysisFeatures,
   verifyStreamFeatureReads,
 } from "./feature-search.js";
 import { createDefaultAssertions } from "./assertions.js";
@@ -1285,6 +1286,88 @@ describe("direct musical feature-search evidence", () => {
   it("accepts explicitly unavailable confidence without inventing empty measured rows", () => {
     const f = deliveredFeatureFixture(true);
     expect(() => verifyFeatureSearch(f.input, "final")).not.toThrow();
+    const feature = deliveredAnalysisFeatures(
+      readCompleteAnalyses([f.turns[0]!])[0]!,
+    ).find((item) => item.definition.type === "pitch-confidence-summary/v1")!;
+    expect(feature.blocks).toEqual([]);
+    expect(feature.supports).toEqual([]);
+    expect(feature.availability).toHaveLength(1);
+    expect(feature.availability[0]!.block.values).toBeNull();
+  });
+  it.each([
+    "numeric",
+    "status",
+    "units",
+    "reason",
+    "canonical-reason",
+    "owner",
+    "time",
+    "expected",
+    "covered",
+    "missing",
+  ] as const)(
+    "rejects identical unavailable confidence marker %s tampering",
+    (mode) => {
+      const f = deliveredFeatureFixture(true);
+      expect(() => verifyFeatureSearch(f.input, "final")).not.toThrow();
+      let changed = 0;
+      for (const turn of f.turns)
+        for (const pair of readFeatureToolPairs(turn))
+          for (const page of (pair.data.analyses ?? []) as AnalysisPage[]) {
+            if (mode === "canonical-reason")
+              for (const overview of page.overview)
+                if (overview.type === "pitch-confidence-summary/v1")
+                  overview.reason = "low-confidence";
+            for (const row of page.timeline) {
+              if (row.kind !== "availability") continue;
+              const block = row.features.find(
+                (item) => item.type === "pitch-confidence-summary/v1",
+              );
+              if (!block) continue;
+              changed++;
+              if (mode === "numeric") block.values = [0.2, 0.3];
+              if (mode === "status") block.status = "ready";
+              if (mode === "units") block.units = "Hz";
+              if (mode === "reason") block.reason = "";
+              if (mode === "canonical-reason") {
+                block.reason = "low-confidence";
+                block.channelReasons = ["low-confidence", "low-confidence"];
+              }
+              if (mode === "owner") row.segment.sessionId = "foreign";
+              if (mode === "time") row.startBeat += 0.25;
+              if (mode === "expected") block.expectedSamples++;
+              if (mode === "covered") block.coveredSamples--;
+              if (mode === "missing")
+                row.features = row.features.filter((item) => item !== block);
+            }
+          }
+      expect(changed).toBeGreaterThan(0);
+      expect(() => verifyFeatureSearch(f.input, "final")).toThrow();
+    },
+  );
+  it("rejects unavailable confidence markers when independent native confidence is measured", () => {
+    const f = deliveredFeatureFixture(true);
+    expect(() => verifyFeatureSearch(f.input, "final")).not.toThrow();
+    for (const turn of f.turns)
+      for (const source of turn.featureSources ?? []) {
+        const pitch = source.analyzers!.pitch;
+        Reflect.set(source, "analyzers", {
+          ...source.analyzers,
+          pitch: pitchTimelineSchema.parse({
+            ...pitch,
+            frames: pitch.frames.map((frame) => ({
+              ...frame,
+              channels: [
+                { state: "low-confidence", hz: 100, confidence: 0.2 },
+                { state: "low-confidence", hz: 100, confidence: 0.3 },
+              ],
+            })),
+          }),
+        });
+      }
+    expect(() => verifyFeatureSearch(f.input, "final")).toThrow(
+      /native measurements|channel validity|missing delivered/u,
+    );
   });
   it("requires explicit unavailable grid evidence even when default unaligned analysis has no grid rows", () => {
     const f = deliveredFeatureFixture();

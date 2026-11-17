@@ -190,6 +190,18 @@ describe("musical listening contract", () => {
       ),
     ).toBe(false);
     expect(
+      projectListeningTimeline(views, segment!.startSample, partialTarget).find(
+        ({ kind }) => kind === "availability",
+      )?.features,
+    ).toMatchObject([
+      {
+        type: "peak-summary/v1",
+        status: "unavailable",
+        reason: "partial-segment-summary-not-aggregated",
+        values: null,
+      },
+    ]);
+    expect(
       projectListeningOverview(views, partialTarget).find(
         (item) => item.type === "peak-summary/v1",
       ),
@@ -207,7 +219,11 @@ describe("musical listening contract", () => {
     const unavailable = structuredClone(views[0]!);
     unavailable.record.id = "unavailable-feature";
     unavailable.record.segmentId = "unavailable-segment";
-    unavailable.record.feature = extractListeningFeature("level-grid/v1", observation, unaligned);
+    unavailable.record.feature = extractListeningFeature(
+      "level-grid/v1",
+      observation,
+      unaligned,
+    );
     unavailable.segment = {
       ...unavailable.segment,
       ...unaligned,
@@ -216,12 +232,25 @@ describe("musical listening contract", () => {
       startBeat: 9,
       endBeat: 10,
       startSample: views[0]!.segment.endSample,
-      endSample: views[0]!.segment.endSample + (unaligned.endSample - unaligned.startSample),
+      endSample:
+        views[0]!.segment.endSample +
+        (unaligned.endSample - unaligned.startSample),
       alignment: unaligned.alignment,
     };
-    const mixedTarget = { ...partialTarget, range: { startBeat: 8, endBeat: 10 } };
-    const mixed = projectListeningTimeline([views[0]!, unavailable], segment!.startSample, mixedTarget);
-    expect(projectListeningOverview([views[0]!, unavailable], mixedTarget).find(({ type }) => type === "level-grid/v1")).toMatchObject({
+    const mixedTarget = {
+      ...partialTarget,
+      range: { startBeat: 8, endBeat: 10 },
+    };
+    const mixed = projectListeningTimeline(
+      [views[0]!, unavailable],
+      segment!.startSample,
+      mixedTarget,
+    );
+    expect(
+      projectListeningOverview([views[0]!, unavailable], mixedTarget).find(
+        ({ type }) => type === "level-grid/v1",
+      ),
+    ).toMatchObject({
       availableSegments: 1,
       totalSegments: 2,
       reason: null,
@@ -230,14 +259,18 @@ describe("musical listening contract", () => {
       kind: "availability",
       startBeat: 9,
       endBeat: 10,
-      features: [{
-        type: "level-grid/v1",
-        status: "unavailable",
-        reason: "missing-alignment",
-        values: null,
-      }],
+      features: [
+        {
+          type: "level-grid/v1",
+          status: "unavailable",
+          reason: "missing-alignment",
+          values: null,
+        },
+      ],
     });
-    expect(mixed.some((row) => row.kind === "interval" && row.startBeat >= 9)).toBe(false);
+    expect(
+      mixed.some((row) => row.kind === "interval" && row.startBeat >= 9),
+    ).toBe(false);
 
     expect(
       rows.some(

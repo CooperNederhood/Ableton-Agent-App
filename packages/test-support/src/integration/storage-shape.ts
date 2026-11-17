@@ -1191,35 +1191,10 @@ export function verifyStorageShape(
               feature.definition.type === definition.type &&
               isDeepStrictEqual(feature.row.segment, segment),
           );
-          if (matches.length === 0) {
-            const cells = definition.grid ? 16 : 1;
-            requireCondition(
-              !["peak-summary/v1", "level-grid/v1"].includes(definition.type) &&
-                declaresUnavailableFeature(
-                  before,
-                  features,
-                  definition,
-                  expectedMeasures,
-                  expectedMeasures * cells * definition.dimensions,
-                ),
-              "Missing explicit unavailable feature shape",
-            );
-            // This is the declared canonical layout, not fabricated measured cells.
-            return {
-              type: definition.type,
-              units: definition.units,
-              normalization: definition.normalization,
-              dimensions: definition.dimensions,
-              sampleRate: segment.sampleRate,
-              durationSeconds:
-                (segment.endSample - segment.startSample) / segment.sampleRate,
-              cells: Array.from({ length: cells }, (_, cell) => ({
-                startBeat: definition.grid ? cell * 0.25 : 0,
-                endBeat: definition.grid ? (cell + 1) * 0.25 : 4,
-                dimensions: definition.dimensions,
-              })),
-            };
-          }
+          requireCondition(
+            matches.length > 0,
+            "Missing explicit unavailable feature shape",
+          );
           requireCondition(
             matches.length === 1,
             "Missing or duplicate delivered canonical definition",
@@ -1257,18 +1232,22 @@ export function verifyStorageShape(
               0,
             );
           requireCondition(
-            feature.blocks.length === (definition.grid ? 16 : 1) &&
-              feature.blocks.every(
-                (value, cell) =>
-                  value.startBeat ===
-                    segment.startBeat + (definition.grid ? cell * 0.25 : 0) &&
-                  value.endBeat ===
-                    segment.startBeat +
-                      (definition.grid ? (cell + 1) * 0.25 : 4),
-              ),
+            feature.status === "unavailable" ||
+              (feature.blocks.length === (definition.grid ? 16 : 1) &&
+                feature.blocks.every(
+                  (value, cell) =>
+                    value.startBeat ===
+                      segment.startBeat + (definition.grid ? cell * 0.25 : 0) &&
+                    value.endBeat ===
+                      segment.startBeat +
+                        (definition.grid ? (cell + 1) * 0.25 : 4),
+                )),
             "Delivered canonical grid is incomplete or not sixteenth-note cells",
           );
-          for (const { block, startBeat, endBeat } of feature.blocks) {
+          for (const { block, startBeat, endBeat } of [
+            ...feature.blocks,
+            ...feature.availability,
+          ]) {
             const start = sample(startBeat),
               end = sample(endBeat);
             requireCondition(
@@ -1311,6 +1290,35 @@ export function verifyStorageShape(
                 );
               }
             }
+          }
+          if (feature.status === "unavailable") {
+            const cells = definition.grid ? 16 : 1;
+            requireCondition(
+              !["peak-summary/v1", "level-grid/v1"].includes(definition.type) &&
+                declaresUnavailableFeature(
+                  before,
+                  features,
+                  definition,
+                  expectedMeasures,
+                  expectedMeasures * cells * definition.dimensions,
+                ),
+              "Missing explicit unavailable feature shape",
+            );
+            // This is the declared canonical layout, not fabricated measured cells.
+            return {
+              type: definition.type,
+              units: definition.units,
+              normalization: definition.normalization,
+              dimensions: definition.dimensions,
+              sampleRate: segment.sampleRate,
+              durationSeconds:
+                (segment.endSample - segment.startSample) / segment.sampleRate,
+              cells: Array.from({ length: cells }, (_, cell) => ({
+                startBeat: definition.grid ? cell * 0.25 : 0,
+                endBeat: definition.grid ? (cell + 1) * 0.25 : 4,
+                dimensions: definition.dimensions,
+              })),
+            };
           }
           const actual = feature.row.featureRecord?.feature;
           if (actual)

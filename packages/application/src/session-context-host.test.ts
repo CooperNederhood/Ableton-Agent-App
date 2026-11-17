@@ -981,6 +981,95 @@ async function analysisFixture() {
 }
 
 describe("musical analysis host", () => {
+  it("retains unavailable segment reasons beside valid segments without inventing grid cells", async () => {
+    const { host, store, record, segment, target } = await analysisFixture();
+    const observation = createSyntheticMetricListeningObservation();
+    const unaligned = segmentListeningObservation(observation)[0]!;
+    const missing = {
+      ...record,
+      id: "unavailable-feature",
+      segmentId: "unavailable-segment",
+      feature: extractListeningFeature("level-grid/v1", observation, unaligned),
+    };
+    vi.spyOn(store, "listFeatures").mockResolvedValue({
+      items: [record, missing],
+    });
+    vi.spyOn(store, "getSegment").mockImplementation(async (id) =>
+      id === segment.id
+        ? segment
+        : {
+            ...segment,
+            ...unaligned,
+            id,
+            order: 1,
+            startBeat: 1,
+            endBeat: 2,
+            startSample: segment.endSample,
+            endSample:
+              segment.endSample + (unaligned.endSample - unaligned.startSample),
+            alignment: unaligned.alignment,
+          },
+    );
+    const links = await store.listLinks({ entryId: "entry" });
+    vi.spyOn(store, "listLinks").mockResolvedValue({
+      items: links.items.map((link) => ({
+        ...link,
+        coverage: { startBeat: 0, endBeat: 2 },
+      })),
+    });
+    const result = await host.executeContextOperation(
+      {
+        action: "read",
+        target: { ...target, range: { startBeat: 0, endBeat: 2 } },
+        includeHistorical: false,
+      },
+      context,
+    );
+    if (result.action !== "read") throw new Error("Expected read");
+    const page = result.analyses[0]!;
+    expect(
+      page.overview.find(({ type }) => type === "level-grid/v1"),
+    ).toMatchObject({
+      availableSegments: 1,
+      totalSegments: 2,
+      reason: null,
+    });
+    expect(
+      page.timeline.filter(({ kind }) => kind === "availability"),
+    ).toMatchObject([
+      {
+        startBeat: 1,
+        endBeat: 2,
+        segment: {
+          kind: "unaligned",
+          sampleRate: 48000,
+          alignmentReason: unaligned.alignmentReason,
+        },
+        features: [
+          {
+            type: "level-grid/v1",
+            units: "linear-amplitude",
+            status: "unavailable",
+            reason: "missing-alignment",
+            values: null,
+          },
+        ],
+      },
+    ]);
+    expect(
+      page.timeline
+        .filter(({ kind }) => kind === "interval")
+        .flatMap(({ features }) =>
+          features.flatMap(({ values }) => values ?? []),
+        ),
+    ).toEqual(record.feature.values);
+    expect(
+      page.timeline.some(
+        (row) => row.kind === "interval" && row.startBeat >= 1,
+      ),
+    ).toBe(false);
+  });
+
   it("delivers twenty complete measures through compact musical pages rather than mandatory provenance pages", async () => {
     const { host, store, record, segment, target } = await analysisFixture();
     const seed = await createSyntheticMetricRecordStreamFixture({

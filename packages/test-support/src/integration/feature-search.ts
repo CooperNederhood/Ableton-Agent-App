@@ -826,6 +826,17 @@ export function deliveredAnalysisFeatures(analysis: CompleteAnalysis) {
   const grouped = new Map<string, AnalysisTimelineItem[]>();
   for (const row of analysis.timeline) {
     check(
+      (row.segment.entryId === undefined ||
+        row.segment.entryId === analysis.readTarget.contextId) &&
+        (row.segment.sessionId === undefined ||
+          row.segment.sessionId === analysis.readTarget.sessionId) &&
+        (row.segment.liveSetId === undefined ||
+          row.segment.liveSetId === analysis.readTarget.liveSetId) &&
+        (row.segment.coordinate === undefined ||
+          row.segment.coordinate === analysis.readTarget.coordinate),
+      "analysis segment has foreign source ownership",
+    );
+    check(
       row.segment.startBeat >= analysis.readTarget.range.startBeat &&
         row.segment.endBeat <= analysis.readTarget.range.endBeat &&
         row.startBeat >= row.segment.startBeat &&
@@ -834,6 +845,17 @@ export function deliveredAnalysisFeatures(analysis: CompleteAnalysis) {
         row.segment.startSample < row.segment.endSample,
       "analysis row exceeds its pinned segment or capture",
     );
+    if (row.kind === "availability")
+      check(
+        row.startBeat === row.segment.startBeat &&
+          row.endBeat === row.segment.endBeat &&
+          row.features.length > 0 &&
+          row.supportCoordinate === "segment-relative-samples" &&
+          row.support === undefined &&
+          row.featureRecord === undefined &&
+          row.definition === undefined,
+        "invalid segment availability marker",
+      );
     if (analysis.source.geometry) {
       const start =
         (row.segment.startSample -
@@ -1038,10 +1060,33 @@ export function deliveredAnalysisFeatures(analysis: CompleteAnalysis) {
       });
     } else {
       check(
-        row.kind === "segment-summary" || row.kind === "interval",
+        row.kind === "segment-summary" ||
+          row.kind === "interval" ||
+          row.kind === "availability",
         "default analysis contains unrequested verbose evidence",
       );
       for (const block of row.features) {
+        check(
+          row.kind === "availability"
+            ? block.status === "unavailable" &&
+                block.values === null &&
+                block.reason !== null &&
+                listeningFeatureSchema.shape.reason.safeParse(block.reason)
+                  .success &&
+                block.expectedSamples ===
+                  row.segment.endSample - row.segment.startSample &&
+                block.supportExtent !== undefined &&
+                block.channelCoveredSamples === undefined &&
+                (block.channelReasons === undefined ||
+                  block.channelReasons.every(
+                    (reason) =>
+                      reason !== null &&
+                      listeningFeatureSchema.shape.reason.safeParse(reason)
+                        .success,
+                  ))
+            : block.status === "ready",
+          "invalid availability marker status, values, reason or coverage",
+        );
         const key = JSON.stringify([row.segment, block.type]);
         const previous = identities.get(key);
         check(
@@ -1075,18 +1120,39 @@ export function deliveredAnalysisFeatures(analysis: CompleteAnalysis) {
             isDeepStrictEqual(row.definition, definition)),
         "analysis feature target or canonical definition changed",
       );
-    const blocks = rows.flatMap((value) =>
-      isDeepStrictEqual(value.segment, row.segment) &&
-      value.kind === (definition.grid ? "interval" : "segment-summary")
-        ? value.features
-            .filter((block) => block.type === type)
-            .map((block) => ({
-              startBeat: value.startBeat,
-              endBeat: value.endBeat,
-              block,
-            }))
-        : [],
+    const matchingBlocks = (kind: AnalysisTimelineItem["kind"]) =>
+      rows.flatMap((value) =>
+        isDeepStrictEqual(value.segment, row.segment) && value.kind === kind
+          ? value.features
+              .filter((block) => block.type === type)
+              .map((block) => ({
+                startBeat: value.startBeat,
+                endBeat: value.endBeat,
+                block,
+              }))
+          : [],
+      );
+    const blocks = matchingBlocks(
+      definition.grid ? "interval" : "segment-summary",
     );
+    const availability = matchingBlocks("availability");
+    check(
+      availability.every(
+        ({ block }) =>
+          ["pitch-profile/v1", "spectral-shape-profile/v1"].includes(
+            definition.profile,
+          ) ===
+          (block.channelReasons !== undefined),
+      ),
+      "availability marker omitted or changed canonical channel validity",
+    );
+    if (analysis.detail !== "evidence")
+      check(
+        status === "unavailable"
+          ? availability.length === 1 && blocks.length === 0
+          : availability.length === 0,
+        "contradictory measured values and segment availability",
+      );
     const supports = rows.filter(
       (value) =>
         value.kind === "support" &&
@@ -1129,7 +1195,7 @@ export function deliveredAnalysisFeatures(analysis: CompleteAnalysis) {
         "feature intervals omit the requested extent",
       );
     }
-    return { row, definition, status, blocks, supports };
+    return { row, definition, status, blocks, availability, supports };
   });
   for (const row of rows)
     for (const block of row.features)
@@ -1162,8 +1228,16 @@ export function declaresUnavailableFeature(
     (item) => item.type === definition.type,
   );
   const summary = summaries[0];
+  const reasons = [
+    ...new Set(
+      observed.flatMap((feature) =>
+        feature.availability.map(({ block }) => block.reason),
+      ),
+    ),
+  ].sort();
   return (
     summaries.length === 1 &&
+    observed.length === expectedSegments &&
     summary !== undefined &&
     summary.units === definition.units &&
     summary.basis === (definition.grid ? "grid-cells" : "segment-summaries") &&
@@ -1179,7 +1253,8 @@ export function declaresUnavailableFeature(
       (values.length ? values.reduce((a, b) => Math.max(a, b)) : null) &&
     (values.length
       ? summary.reason === null
-      : typeof summary.reason === "string" && summary.reason.length > 0)
+      : typeof summary.reason === "string" &&
+        isDeepStrictEqual(summary.reason.split("; ").sort(), reasons))
   );
 }
 const toolPairs = (turn: TurnEvidence) => readFeatureToolPairs(turn);
@@ -1907,11 +1982,13 @@ function verifyDeliveredFeatures(
       );
       check(
         coverage === "peak-only" ||
-          LISTENING_FEATURE_DEFINITIONS.every(
-            (definition) =>
-              onSegment.some(
-                (feature) => feature.definition.type === definition.type,
-              ) || explicitlyUnavailable(definition.type),
+          LISTENING_FEATURE_DEFINITIONS.every((definition) =>
+            onSegment.some(
+              (feature) =>
+                feature.definition.type === definition.type &&
+                (feature.status === "ready" ||
+                  explicitlyUnavailable(definition.type)),
+            ),
           ),
         "missing delivered canonical feature families",
       );
@@ -1933,9 +2010,11 @@ function verifyDeliveredFeatures(
         ...(coverage === "full" ? analyzerFeatureTypes : []),
       ]) {
         const feature = onSegment.find((item) => item.definition.type === type);
-        const block = feature?.blocks[0]?.block;
+        const block =
+          feature?.blocks[0]?.block ?? feature?.availability[0]?.block;
         let expected: (number | null)[];
         let covered: number;
+        const expectedReasons: (string | null)[] = [];
         if (type === "peak-summary/v1") {
           expected = measuredPeak(
             source,
@@ -1961,8 +2040,11 @@ function verifyDeliveredFeatures(
           expected = [0, 1].map((channelIndex) => {
             let sum = 0,
               weight = 0;
+            let reason: string | null = null;
             for (const frame of timeline.frames) {
               const channel = frame.channels[channelIndex]!;
+              const n = overlap(frame.support);
+              if (n === 0) continue;
               const value =
                 "confidence" in channel
                   ? channel.state === "invalid"
@@ -1976,11 +2058,21 @@ function verifyDeliveredFeatures(
                         ? channel.spreadHz
                         : channel.rolloffHz;
               if (value !== null) {
-                const n = overlap(frame.support);
                 sum += value * n;
                 weight += n;
-              }
+              } else
+                reason ??=
+                  channel.state === "silence" ||
+                  channel.state === "low-confidence" ||
+                  channel.state === "outside-qualified-range"
+                    ? channel.state
+                    : channel.state === "undefined"
+                      ? "undefined-descriptor"
+                      : "invalid-output";
             }
+            expectedReasons.push(
+              weight ? null : (reason ?? "insufficient-support"),
+            );
             return weight ? sum / weight : null;
           });
           covered = timeline.frames.reduce(
@@ -1989,24 +2081,18 @@ function verifyDeliveredFeatures(
           );
           if (block)
             check(
-              block.channelReasons?.every((reason, index) =>
-                expected[index] === null
-                  ? typeof reason === "string" && reason.length > 0
-                  : reason === null,
-              ),
+              isDeepStrictEqual(block.channelReasons, expectedReasons),
               "delivered analyzer channel validity changed",
             );
         }
         const ready = expected.some((value) => value !== null);
-        if (!feature && !ready) {
-          check(
-            explicitlyUnavailable(type),
-            `missing explicit unavailable ${type} evidence`,
-          );
-          continue;
-        }
         check(
-          feature && feature.blocks.length === 1 && block,
+          feature &&
+            block &&
+            (ready
+              ? feature.blocks.length === 1
+              : feature.availability.length === 1 &&
+                explicitlyUnavailable(type)),
           `missing delivered ${type} values`,
         );
         check(
@@ -2022,9 +2108,7 @@ function verifyDeliveredFeatures(
                     ? value === null
                     : close(value, expected[index]!),
                 )
-              : block.values === null &&
-                typeof block.reason === "string" &&
-                block.reason.length > 0),
+              : block.values === null && block.reason === expectedReasons[0]),
           "delivered values, acquisition coverage or validity differ from independent native measurements",
         );
       }

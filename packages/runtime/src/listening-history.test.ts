@@ -478,6 +478,38 @@ describe("typed listening SDK result History projection", () => {
             content: JSON.stringify(evidenceRead) + suffix("ableton_context"),
           }),
         ).toEqual({ result: { content: evidenceRead } });
+        const availabilityRead = contextOperationResultSchema.parse({
+          action: "read",
+          analyses: [
+            {
+              ...analysis,
+              timeline: [
+                {
+                  ...analysis.timeline[0]!,
+                  kind: "availability",
+                  features: [
+                    {
+                      ...analysis.timeline[0]!.features[0]!,
+                      status: "unavailable",
+                      reason: "no-level-records",
+                      values: null,
+                      coveredSamples: 0,
+                      supportExtent: null,
+                    },
+                  ],
+                },
+              ],
+              detail: { ...analysis.detail, returnedItems: 1, totalItems: 1 },
+            },
+          ],
+          nextCursor: null,
+        });
+        expect(
+          listeningHistoryResult("ableton_context", {
+            content:
+              JSON.stringify(availabilityRead) + suffix("ableton_context"),
+          }),
+        ).toEqual({ result: { content: availabilityRead } });
       }
       const hooks = createAgentHooks({
         getAbletonStatus: async () => {

@@ -168,7 +168,13 @@ const analysisFeatureBlockSchema = z.strictObject({
     ),
 });
 export const analysisTimelineItemSchema = z.strictObject({
-  kind: z.enum(["segment-summary", "interval", "availability", "support", "feature-metadata"]),
+  kind: z.enum([
+    "segment-summary",
+    "interval",
+    "availability",
+    "support",
+    "feature-metadata",
+  ]),
   segment: z.strictObject({
     id: analysisId.optional(),
     entryId: analysisId.optional(),
@@ -562,7 +568,13 @@ export function projectListeningTimeline(
           (segment.endBeat - segment.startBeat)) *
           feature.durationSeconds,
     });
-    const unavailable = feature.values === null;
+    const partialSummary =
+      feature.values !== null &&
+      !definition.grid &&
+      target !== undefined &&
+      (segment.startBeat < target.range.startBeat ||
+        segment.endBeat > target.range.endBeat);
+    const unavailable = feature.values === null || partialSummary;
     const cells =
       detail === "evidence"
         ? []
@@ -579,16 +591,11 @@ export function projectListeningTimeline(
         (endBeat <= target.range.startBeat || startBeat >= target.range.endBeat)
       )
         continue;
-      // Segment summaries cannot be relabelled as aggregates of a clipped extent.
-      if (
-        !unavailable &&
-        !definition.grid &&
-        target &&
-        (segment.startBeat < target.range.startBeat ||
-          segment.endBeat > target.range.endBeat)
-      )
-        continue;
-      const kind = unavailable ? "availability" : definition.grid ? "interval" : "segment-summary";
+      const kind = unavailable
+        ? "availability"
+        : definition.grid
+          ? "interval"
+          : "segment-summary";
       const key = `${segment.id}:${kind}:${startBeat}:${endBeat}`;
       const row: AnalysisTimelineItem = rows.get(key) ?? {
         ...base,
@@ -622,13 +629,16 @@ export function projectListeningTimeline(
         units: feature.units,
         normalization: feature.normalization,
         dimensions: dimensionLabels(feature),
-        status: feature.status,
-        reason: cell?.reason ?? feature.reason,
-        values:
-          feature.values?.slice(
-            index * definition.dimensions,
-            (index + 1) * definition.dimensions,
-          ) ?? null,
+        status: partialSummary ? "unavailable" : feature.status,
+        reason: partialSummary
+          ? "partial-segment-summary-not-aggregated"
+          : (cell?.reason ?? feature.reason),
+        values: unavailable
+          ? null
+          : (feature.values?.slice(
+              index * definition.dimensions,
+              (index + 1) * definition.dimensions,
+            ) ?? null),
         coveredSamples: cell?.coveredSamples ?? feature.coveredSamples,
         expectedSamples: cell?.expectedSamples ?? feature.expectedSamples,
         supportExtent: extent(feature.support),
@@ -648,11 +658,6 @@ export function projectListeningTimeline(
       features: [],
       featureType: feature.type,
     };
-    const partialSummary =
-      !definition.grid &&
-      target !== undefined &&
-      (segment.startBeat < target.range.startBeat ||
-        segment.endBeat > target.range.endBeat);
     details.push({
       ...detailBase,
       kind: "feature-metadata",

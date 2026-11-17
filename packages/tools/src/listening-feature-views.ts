@@ -240,6 +240,13 @@ export const analysisOverviewSchema = z
   )
   .max(15);
 export const analysisPageSchema = z.strictObject({
+  detail: z.strictObject({
+    offset: z.number().int().nonnegative(),
+    returnedItems: z.number().int().nonnegative(),
+    totalItems: z.number().int().nonnegative(),
+    truncated: z.boolean(),
+    nextCursor: analysisCursor.nullable(),
+  }),
   source: analysisSourceSchema,
   readTarget: captureAnalysisTargetSchema,
   status: z.enum([
@@ -255,13 +262,6 @@ export const analysisPageSchema = z.strictObject({
   overviewIncluded: z.boolean(),
   timeline: z.array(analysisTimelineItemSchema),
   overviewExtent: analysisRangeSchema,
-  detail: z.strictObject({
-    offset: z.number().int().nonnegative(),
-    returnedItems: z.number().int().nonnegative(),
-    totalItems: z.number().int().nonnegative(),
-    truncated: z.boolean(),
-    nextCursor: analysisCursor.nullable(),
-  }),
 });
 export const captureAnalysisFailureSchema = z.strictObject({
   contextId: captureAnalysisTargetSchema.shape.contextId,
@@ -400,18 +400,19 @@ export const analysisComparisonItemSchema = z.strictObject({
     .optional(),
 });
 const comparisonResultFields = {
+  nextCursor: analysisCursor.nullable(),
+  truncated: z.boolean(),
   readTarget: comparisonAnalysisTargetSchema,
   left: analysisSourceSchema,
   right: analysisSourceSchema,
   comparisons: z.array(analysisComparisonItemSchema),
   completeExtent: z.boolean(),
-  nextCursor: analysisCursor.nullable(),
-  truncated: z.boolean(),
 };
 export const analysisOperationResultSchema = z.discriminatedUnion("action", [
   z
     .strictObject({
       action: z.literal("read"),
+      nextCursor: analysisCursor.nullable(),
       analyses: z.array(analysisPageSchema).max(2),
       originalMeasurements: originalMeasurementsSchema.optional(),
       comparison: z
@@ -420,7 +421,6 @@ export const analysisOperationResultSchema = z.discriminatedUnion("action", [
           ...comparisonResultFields,
         })
         .optional(),
-      nextCursor: analysisCursor.nullable(),
     })
     .refine(
       (value) =>
@@ -432,6 +432,8 @@ export const analysisOperationResultSchema = z.discriminatedUnion("action", [
   z.strictObject({ action: z.literal("compare"), ...comparisonResultFields }),
   z.strictObject({
     action: z.literal("search"),
+    nextCursor: analysisCursor.nullable(),
+    truncated: z.boolean(),
     query: analysisSourceSchema,
     featureType: listeningFeatureTypeSchema,
     distanceUnits: listeningFeatureSchema.shape.distanceUnits,
@@ -458,8 +460,6 @@ export const analysisOperationResultSchema = z.discriminatedUnion("action", [
         }),
       )
       .max(20),
-    nextCursor: analysisCursor.nullable(),
-    truncated: z.boolean(),
   }),
 ]);
 export type CaptureAnalysisTarget = z.infer<typeof captureAnalysisTargetSchema>;

@@ -2275,7 +2275,7 @@ describe("CopilotAgentService managed sessions", () => {
           "no playback, derivation or inventory call is needed",
         );
         expect(prompt).toContain("through ordinary approvals");
-        expect(prompt).toContain("STOP and Back to Arrangement");
+        expect(prompt).toContain("stopped transport and Back to Arrangement");
         expect(prompt).toContain("Session clips and Arrangement are distinct");
         expect(prompt).toContain(
           "Never repair/retry a rejected pass automatically",
@@ -2310,6 +2310,8 @@ describe("CopilotAgentService managed sessions", () => {
           { sessionId: `session-${index}` },
         );
         expect(postListen?.additionalContext).toContain("FIRST stop transport");
+        expect(postListen?.additionalContext).toContain("only if it is moving");
+        expect(postListen?.additionalContext).toContain("already stopped");
         expect(postListen?.additionalContext).toContain("isPlaying=false");
         expect(postListen?.additionalContext).not.toContain("derive-features");
         expect(postListen?.modifiedResult).toBeUndefined();

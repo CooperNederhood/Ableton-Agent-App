@@ -38,6 +38,11 @@ Companion specification: [Acceptance test authoring](acceptance-authoring.md).
       final evidence and receipt sanitization with a shared finite 24-MiB
       aggregate cap. Preserve generic wrapper limits and prove lossless success,
       aggregate rejection, redaction and cleanup without discarding earlier turns.
+- [x] Clarify already-stopped two-MIDI setup, tool-owned Arrangement playback
+      start and exactly-five-source comprehension under the authorized prompt
+      migration. Do not grant the denied extra transport or recapture actions.
+- [x] Preserve complete original/restarted long-consolidation page requirements;
+      actual missing continuations in `suite-3kErcF` are failures, not oracle bugs.
 - [ ] Run simple listening regressions followed by every registered packaged
       message scenario and the terminal suite verifier on the final candidate.
 - [ ] Invoke final code review, resolve findings and requalify any changed

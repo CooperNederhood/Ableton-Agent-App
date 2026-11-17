@@ -10,6 +10,7 @@ import {
   deprecatedAbletonToolNames,
   parseAbletonToolFailure,
   analysisPageSchema,
+  analysisOperationResultSchema,
   resolveAbletonToolMetadata,
   resolveAbletonOperation,
   scopeAbletonTools,
@@ -2289,6 +2290,12 @@ describe("Ableton tools", () => {
         "never batch or parallelize listening calls",
       );
       expect(listening.description).toContain(
+        "stop transport only if it is moving",
+      );
+      expect(listening.description).toContain(
+        "Do not start playback separately",
+      );
+      expect(listening.description).toContain(
         "Normally omit listenerIds; these identify installed devices, not metric or feature names",
       );
       interface Schema {
@@ -2536,6 +2543,9 @@ describe("Ableton tools", () => {
       );
       expect(tool.description).toContain("no discovery or Bash is needed");
       expect(tool.description).toContain(
+        "Overview counts and sampled measures do not replace unread values",
+      );
+      expect(tool.description).toContain(
         "copy a returned readTarget unchanged",
       );
       const wire = JSON.parse(
@@ -2574,11 +2584,19 @@ describe("Ableton tools", () => {
         expect.stringContaining("invalid_tool_arguments"),
       );
       expect(executeContextOperation).not.toHaveBeenCalled();
-      await expect(invoke(args, "first-page")).resolves.toEqual({
+      const firstPage = await invoke(args, "first-page");
+      expect(firstPage).toEqual({
         action: "read",
         analyses: [analysis],
         nextCursor,
       });
+      const encoded = JSON.stringify(firstPage);
+      expect(encoded.indexOf('"nextCursor"')).toBeLessThan(
+        encoded.indexOf('"analyses"'),
+      );
+      expect(encoded.indexOf('"detail"')).toBeLessThan(
+        encoded.indexOf('"timeline"'),
+      );
       await expect(
         invoke({ action: "read", cursor: nextCursor }, "second-page"),
       ).resolves.toEqual({
@@ -2589,6 +2607,22 @@ describe("Ableton tools", () => {
       expect(
         executeContextOperation.mock.calls.map(([request]) => request),
       ).toEqual([args, { action: "read", cursor: nextCursor }]);
+    },
+  );
+
+  it.each([
+    ["read", "analyses"],
+    ["compare", "comparisons"],
+    ["search", "matches"],
+  ] as const)(
+    "puts %s continuation before bulk %s in the wire schema",
+    (action, collection) => {
+      const schema = analysisOperationResultSchema.options.find(
+        (option) => option.shape.action.value === action,
+      )!;
+      const keys = Object.keys(schema.shape);
+      expect(keys.indexOf("nextCursor")).toBeGreaterThanOrEqual(0);
+      expect(keys.indexOf("nextCursor")).toBeLessThan(keys.indexOf(collection));
     },
   );
 

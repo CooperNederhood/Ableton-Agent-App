@@ -197,7 +197,7 @@
   "steps": [
     {
       "id": "comprehend",
-      "message": "Listen to clip-1 through clip-4 on 1-808 Core Kit, then listen to the Arrangement on 2-Audio and work out the clip sequence. Reply only with one clip number per measure, using hyphens within groups of four and vertical bars between groups, including a leading and trailing bar. No spaces.",
+      "message": "Listen exactly once to each of clip-1 through clip-4 on 1-808 Core Kit, then exactly once to the whole Arrangement on 2-Audio and work out the clip sequence. Reuse those five captures' stored analysis for matching; do not recapture a source to recover forgotten context or obtain more detail. Reply only with one clip number per measure, using hyphens within groups of four and vertical bars between groups, including a leading and trailing bar. No spaces.",
       "timeoutMs": 1800000,
       "assertions": []
     }

@@ -50,6 +50,11 @@
       leave-running behavior, approvals and failed-capture retry barriers.
 - [x] Put shared-transport serialization and between-capture preparation in
       initial Default/scoped guidance, before any captures can be batched.
+- [x] Make preparation conditional on current moving transport, not remembered
+      capture state; neither listening action needs a separate playback start.
+- [x] Put existing pagination/truncation fields before bulk SDK value arrays;
+      distinguish exhaustive detail consumption from overview counts or samples.
+      Keep exact cursors, byte limits, values and independent oracles unchanged.
 - [x] Round-trip actual Session post-tool hooks through typed History using the
       shared guidance builder and exact action binding; reject altered, duplicated,
       foreign-tool and mismatched-action suffixes without losing valid values.

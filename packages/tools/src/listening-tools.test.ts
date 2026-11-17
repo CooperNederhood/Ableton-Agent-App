@@ -193,7 +193,9 @@ describe("optional listening tool contracts", () => {
     expect(listeningOperationParamsSchema.options[2].description).not.toContain(
       "Returns a queued job",
     );
-    expect(listening.description).toContain("STOP and Back to Arrangement");
+    expect(listening.description).toContain(
+      "stopped transport and Back to Arrangement",
+    );
   });
 
   it("shares finite streaming admission across Session and Arrangement", () => {
@@ -1157,7 +1159,9 @@ describe("optional listening tool contracts", () => {
     );
     expect(listening.description).toContain("Read stored values");
     expect(listening.description).toContain("through ordinary approvals");
-    expect(listening.description).toContain("STOP and Back to Arrangement");
+    expect(listening.description).toContain(
+      "stopped transport and Back to Arrangement",
+    );
     expect(listening.description).toContain(
       "Session clips and Arrangement are distinct",
     );

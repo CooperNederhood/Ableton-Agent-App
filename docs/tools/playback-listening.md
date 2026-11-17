@@ -36,6 +36,10 @@ and does not clear a failed capture's retry barrier after a later transport edit
 Initial tool and agent guidance also forbids batching or parallelizing listening
 calls: they share song transport and need approved preparation between captures.
 Post-result guidance cannot correct multiple calls submitted before any result.
+Preparation uses current state: inspect transport and stop only when moving,
+not because an earlier listen left it playing. Both listening actions start
+playback themselves. Stored compare/search is preferred for multi-measure
+matching; forgotten context is not permission to capture a source again.
 Typed History validates SDK-appended guidance against the same application-owned
 builder and the parsed result action. Session preparation text cannot be attached
 to Arrangement or context results; altered, duplicated and foreign-tool suffixes
@@ -66,6 +70,10 @@ half-open beat interval: RMS level, centroid, attack activity/strength, mel band
 and pitch appear together, with units, channel/dimension labels and validity.
 Keep segment-wide peak, spectral energy, mel summaries, pitch confidence and
 spectral-shape summaries at segment level, with their full temporal extent.
+Continuation and truncation metadata precede bulk value arrays in SDK results.
+Complete-value and shape requests require every continuation through a null
+cursor, independently for each original or restarted read. Whole-range overview
+counts and sampled measures do not establish that unread detail was consumed.
 Do not repeat a segment summary as if it were an instantaneous row measurement.
 Explicit unavailable-segment markers retain their reason when neighboring
 segments have valid values. They are not measurements or fabricated grid cells.

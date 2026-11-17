@@ -605,6 +605,8 @@ describe("agent policy", () => {
       "Before the next Session listen",
     );
     expect(result?.additionalContext).toContain("FIRST stop transport");
+    expect(result?.additionalContext).toContain("only if it is moving");
+    expect(result?.additionalContext).toContain("already stopped");
     expect(result?.additionalContext).toContain("isPlaying=false");
     expect(result?.additionalContext).toContain("through ordinary approval");
     expect(result?.additionalContext).toContain(

@@ -18,6 +18,18 @@ ownership/native checks, skip registered cases or ignore cleanup failures.
 Final qualification requires all registered user-message scenarios and the
 independent suite verifier green on the final candidate, after code review.
 
+`suite-3kErcF` completed all nineteen cases with fourteen passes, five failures
+and complete cleanup. Three failures were correctly denied ungranted actions,
+not approval-matcher equivalence bugs. The authorized prompt corrections make
+existing scope explicit: the second two-MIDI turn starts with already stopped
+transport; the three-minute Arrangement listen starts playback itself, rather
+than a separate Play command; comprehension listens once to each of five sources
+and reuses recorded analysis. Permissions, counts, musical answers and fixture
+assets are unchanged. Both long consolidation failures genuinely omitted most
+value pages; their complete-value oracles remain unchanged. Leading pagination
+metadata and explicit exhaustion guidance address presentation, not acceptance
+of sampled evidence. Preserve this failed suite separately from qualification.
+
 Pre-approval capture resolution inserts the tool schema's default
 `maximumDurationMs`. The scoped approval matcher treats that exact current
 default as equivalent to omission for both single-source and named-source

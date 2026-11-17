@@ -693,8 +693,10 @@ does not prune resources still potentially in use. Such a private run directory
 is not an exportable support bundle. Successful and failed allowlisted project
 copies are retained under bounded admission, not silently expired or deleted.
 Admission requires fewer than 16 existing top-level entries, at most 8,192
-recursive entries, and at most 1.75 GiB of existing data (256 MiB headroom below
-2 GiB). A retained working copy is limited to 256 MiB, 8,192 entries, and 256
+recursive entries, and an 8 GiB admission budget with 256 MiB reserved per
+selected case. A single run leaves at most 7.75 GiB for existing data; the
+19-case suite reserves 4.75 GiB and leaves 3.25 GiB for preserved earlier runs.
+A retained working copy is limited to 256 MiB, 8,192 entries, and 256
 allowlisted paths. These are admission and preservation limits, not permission
 to delete old runs. Allocation uses an atomic admission lock; a stale lock
 requires explicit inspection.

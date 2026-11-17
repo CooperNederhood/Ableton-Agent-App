@@ -34,10 +34,10 @@ function id(value: unknown): asserts value is string {
   if (typeof value !== "string" || !/^[a-z0-9][a-z0-9_-]{0,127}$/u.test(value))
     throw new Error("Invalid acceptance catalog ID");
 }
-const retention = Object.freeze({
+export const acceptanceArtifactRetention = Object.freeze({
   directories: 16,
   entries: 8192,
-  totalBytes: 2 * 1024 * 1024 * 1024,
+  totalBytes: 8 * 1024 * 1024 * 1024,
   reservedRunBytes: 256 * 1024 * 1024,
 });
 const receiptOwnership = Object.freeze({
@@ -241,7 +241,7 @@ async function inventory(directory: string, maximumBytes: number) {
     count = 0;
   async function visit(path: string): Promise<void> {
     for (const entry of await readdir(path, { withFileTypes: true })) {
-      if (++count > retention.entries)
+      if (++count > acceptanceArtifactRetention.entries)
         throw new Error(
           "Artifact entry retention limit reached; review retained evidence manually",
         );
@@ -273,7 +273,7 @@ async function inventory(directory: string, maximumBytes: number) {
 export async function allocateAcceptanceRun(
   root: string,
   prefix: string,
-  reservedBytes = retention.reservedRunBytes,
+  reservedBytes = acceptanceArtifactRetention.reservedRunBytes,
 ): Promise<string> {
   const parent = join(root, ".test-artifacts", "acceptance");
   await ownedDirectory(parent);
@@ -289,19 +289,22 @@ export async function allocateAcceptanceRun(
     const entries = (await readdir(parent)).filter(
       (entry) => entry !== ".admission-lock",
     );
-    if (entries.length >= retention.directories)
+    if (entries.length >= acceptanceArtifactRetention.directories)
       throw new Error(
         "Artifact directory retention limit reached; review retained evidence manually",
       );
     if (
       !Number.isSafeInteger(reservedBytes) ||
       reservedBytes < 1 ||
-      reservedBytes >= retention.totalBytes
+      reservedBytes >= acceptanceArtifactRetention.totalBytes
     )
       throw new Error(
         "Selected suite exceeds bounded acceptance evidence capacity",
       );
-    await inventory(parent, retention.totalBytes - reservedBytes);
+    await inventory(
+      parent,
+      acceptanceArtifactRetention.totalBytes - reservedBytes,
+    );
     return await mkdtemp(join(parent, prefix));
   } finally {
     await rm(lock, { recursive: true });
@@ -352,7 +355,7 @@ async function retainReviewedFiles(
     throw new Error("Driver preservation inventory exceeded its bound");
   const snapshot = await inventory(
     staged.workingDirectory,
-    retention.reservedRunBytes,
+    acceptanceArtifactRetention.reservedRunBytes,
   );
   // The checkpoint is already durable and all processes have settled before this plan is applied.
   for (const path of snapshot.files) {
@@ -425,7 +428,7 @@ export async function acceptanceCli(
   let pruned = false;
   const omissions: ArtifactOmission[] = [];
   const retentionEvidence = () => ({
-    ...retention,
+    ...acceptanceArtifactRetention,
     policy: "reviewed-allowlist-no-automatic-expiry",
     omissionReason: "Outside reviewed file allowlist or empty after pruning",
     pruned,

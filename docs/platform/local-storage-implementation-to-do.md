@@ -117,6 +117,9 @@ Companion specification: [Local Storage Layout](local-storage.md)
   successful or failed attempts, and refuse pruning while owned process shutdown
   is unconfirmed. Keep credential-bearing profiles out of ordinary preserved
   artifacts and remove them only after both owned applications stop.
+- [x] Share the 256 MiB per-case reservation between single and suite admission;
+  use a finite 8 GiB aggregate budget so all 19 registered cases fit alongside
+  prior evidence. Preserve count, ownership, exhaustion and no-deletion guards.
 - [ ] Qualify the acceptance storage/cleanup contract with the jointly reviewed
   real fixture; controlled lifecycle and CLI tests do not establish physical
   host qualification.

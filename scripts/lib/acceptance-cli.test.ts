@@ -12,6 +12,7 @@ import {
 } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
 import { join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it, vi } from "vitest";
 import {
   SUPPORTED_AUDIO_BASELINE,
@@ -23,6 +24,9 @@ import {
 } from "../../packages/test-support/src/integration/index.js";
 import {
   acceptanceCli,
+  acceptanceArtifactRetention,
+  acceptanceCatalog,
+  allocateAcceptanceRun,
   type AcceptanceCliDriver,
   type AcceptanceCliEnvironment,
 } from "./acceptance-cli.js";
@@ -700,7 +704,7 @@ describe("acceptance catalog admission", () => {
       await mkdir(parent, { recursive: true });
       const retained = await open(join(parent, "retained.txt"), "wx");
       try {
-        await retained.truncate(2 * 1024 * 1024 * 1024);
+        await retained.truncate(acceptanceArtifactRetention.totalBytes);
       } finally {
         await retained.close();
       }
@@ -714,6 +718,48 @@ describe("acceptance catalog admission", () => {
       expect(errors.join("\n")).toContain("byte retention limit");
     });
   });
+
+  it("admits the entire registered suite while preserving earlier bounded evidence", async () => {
+    const catalog = await acceptanceCatalog(
+      fileURLToPath(new URL("../../", import.meta.url)),
+    );
+    expect(catalog.length).toBeGreaterThanOrEqual(19);
+    await fixture(async (root) => {
+      const parent = join(root, ".test-artifacts/acceptance");
+      await mkdir(parent, { recursive: true });
+      const retainedPath = join(parent, "retained.bin");
+      const retained = await open(retainedPath, "wx");
+      try {
+        await retained.truncate(2 * 1024 ** 3);
+      } finally {
+        await retained.close();
+      }
+      const directory = await allocateAcceptanceRun(
+        root,
+        "suite-",
+        catalog.length * acceptanceArtifactRetention.reservedRunBytes,
+      );
+      expect(directory.startsWith(join(parent, "suite-"))).toBe(true);
+      expect(await readdir(parent)).toContain("retained.bin");
+      expect(await readdir(parent)).not.toContain(".admission-lock");
+    });
+  });
+
+  it.each([0, -1, 0.5, NaN, Infinity, acceptanceArtifactRetention.totalBytes])(
+    "rejects invalid or excessive suite reservation %s without acquiring resources",
+    async (reservation) => {
+      await fixture(async (root) => {
+        await expect(
+          allocateAcceptanceRun(root, "suite-", reservation),
+        ).rejects.toThrow(
+          "Selected suite exceeds bounded acceptance evidence capacity",
+        );
+        expect(await readdir(join(root, ".test-artifacts/acceptance"))).toEqual(
+          [],
+        );
+      });
+    },
+  );
 
   it("never removes or bypasses another allocator's admission lock", async () => {
     await fixture(async (root, output, errors) => {

@@ -21,6 +21,10 @@ Companion specification: [Acceptance test authoring](acceptance-authoring.md).
 - [x] Match schema-inserted capture deadlines equivalently to omission for
       single/named source grants; reject non-default, foreign-listener and reused
       requests. Preserve explicit deadlines and all source/capture guards.
+- [x] Admit the complete registered suite within a finite 8 GiB aggregate
+      artifact budget, sharing the existing 256 MiB per-case reservation.
+      Cover admission alongside prior evidence and retain invalid-reservation,
+      capacity-exhaustion, ownership, lock and no-deletion checks.
 - [ ] Run simple listening regressions followed by every registered packaged
       message scenario and the terminal suite verifier on the final candidate.
 - [ ] Invoke final code review, resolve findings and requalify any changed

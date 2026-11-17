@@ -2244,7 +2244,11 @@ new admission rather than automatically deleting old evidence.
 
 The CLI uses the existing `.test-artifacts/acceptance/` tooling location, not a
 second application-profile layout. Admission limits are 16 immediate entries,
-8,192 recursive entries, and 2 GiB with a 256 MiB reservation for a new run.
+8,192 recursive entries, and 8 GiB with a shared 256 MiB reservation per selected
+case. The 19-case suite reserves 4.75 GiB before launching anything, leaving
+3.25 GiB for earlier evidence. The former 2 GiB budget rejected the entire
+registered suite before any case could run. This finite budget increase uses
+the user's explicit authorization; it changes no case, oracle or cleanup guard.
 Working-tree retention is bounded to 256 MiB, 8,192 inventory entries, and 256
 allowlisted paths. An atomic admission lock protects concurrent allocations;
 inspect a stale lock and retained evidence before any manual cleanup. There is

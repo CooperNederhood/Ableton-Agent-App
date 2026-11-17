@@ -86,6 +86,7 @@
   11 patch changed. Preserve historical version provenance and investigate
   actual compatibility or capability failures.
 
-# Reminders
+# Reminders and rules
 
-- We are **developing** this App. So there is absolutely no concern about supporting legacy paths or functionality or backwards compatibility. When we make changes to the codebase we should always just fix forward and assume a clean break. **DO NOT** maintain code for backwards compatibility alone.
+- **NO BACKWARDS COMPATIBILITY CODE.** We are **developing** this App. So there is absolutely no concern about supporting legacy paths or functionality or backwards compatibility. When we make changes to the codebase we should always just fix forward and assume a clean break. **DO NOT** maintain code for backwards compatibility alone.
+- **NO CODE SPRAWL, EXTEND EXISTING CODE.** Any time you are adding a new file or a new function/class/etc you must check that there isn't already existing solutions that you can build off of. 

@@ -19,6 +19,8 @@ guards, approvals and leave-running cleanup are unchanged.
 An ordinary source with one eligible listener resolves automatically before
 approval. Listener inventory is optional for disambiguation, not a prerequisite
 added by the Default agent's scoped tool description.
+Available metric families are captured automatically. Normally omit `listenerIds`;
+they identify installed listener devices, not metric families or derived features.
 For multi-source captures, retain successful analyses and their pinned targets
 alongside typed source-local failures. A mixed outcome is partial analysis, not
 an empty generic failure. Invocation cancellation and global ownership failures

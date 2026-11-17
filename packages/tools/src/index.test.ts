@@ -2282,6 +2282,12 @@ describe("Ableton tools", () => {
       expect(listening.description).toContain(
         'play-session-and-listen requires target.view="session", not target.kind',
       );
+      expect(listening.description).toContain(
+        "captures available metric families automatically",
+      );
+      expect(listening.description).toContain(
+        "Normally omit listenerIds; these identify installed devices, not metric or feature names",
+      );
       interface Schema {
         const?: unknown;
         properties?: Record<string, Schema>;
@@ -2329,6 +2335,27 @@ describe("Ableton tools", () => {
           toolCallId: "wrong-location-discriminator",
           toolName: "ableton_listening",
           arguments: args,
+        }),
+      ).resolves.toMatchObject({ resultType: "failure" });
+      expect(executeListeningOperation).not.toHaveBeenCalled();
+      const metricNames = {
+        action: "play-session-and-listen",
+        target,
+        listenerIds: [
+          "level",
+          "spectral-centroid",
+          "attacks",
+          "mel-bands",
+          "pitch",
+          "spectral-shape",
+        ],
+      };
+      await expect(
+        listening.handler?.(metricNames, {
+          sessionId: "session",
+          toolCallId: "metric-names-are-not-listeners",
+          toolName: "ableton_listening",
+          arguments: metricNames,
         }),
       ).resolves.toMatchObject({ resultType: "failure" });
       expect(executeListeningOperation).not.toHaveBeenCalled();

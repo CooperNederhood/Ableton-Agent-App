@@ -42,6 +42,9 @@
       musical values without changing playback or retry authorization.
 - [x] Disambiguate Session location `target.view` from track/analysis `kind` in
       Default and scoped descriptions; preserve strict malformed-target denial.
+- [x] State automatic metric-family acquisition and optional installed-device
+      listener identity explicitly; keep metric-name arrays rejected before
+      playback and retain the original six-family acceptance assertions.
 - [x] Continue reads with a self-contained signed cursor, retaining the original
       target/detail/history scope and rechecking ownership, freshness and expiry.
       Keep exact byte bounds, complete reconstruction and tamper denial.

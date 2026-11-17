@@ -2185,6 +2185,16 @@ describe("Ableton tools", () => {
       const schema = JSON.stringify(parameters.toJSONSchema());
       for (const action of ["read", "compare", "search", "prune"])
         expect(schema.includes(`"${action}"`)).toBe(actions.includes(action));
+      if (actions.includes("search")) {
+        expect(tool?.description).toContain(
+          "search(query, scope, featureType, topK, withinCapture, includeHistorical, cursor)",
+        );
+        expect(tool?.description).toContain(
+          "compare(left, right, featureTypes, includeHistorical, cursor)",
+        );
+      } else {
+        expect(tool?.description).not.toContain("search(query");
+      }
     },
   );
 

@@ -71,6 +71,11 @@ or sample-accurate synchronization.
 Scoped context descriptions explicitly enumerate the allowed action alternatives,
 as listening descriptions already do. The final union variant (`prune`) is not
 the only available action and is never a way to inspect recorded analysis.
+Per-action argument names are generated from those same scoped schemas:
+comparison's `featureTypes` array is not search's single `featureType`.
+`run-Qj2b8P` preserved both correct captures but failed the strict peak oracle
+after a rejected plural search argument; the failure remains recorded rather
+than excusing an invalid call or weakening the stop-on-failure contract.
 
 ### Bounded results and composable targets
 

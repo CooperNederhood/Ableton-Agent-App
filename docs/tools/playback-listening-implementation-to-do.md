@@ -31,6 +31,9 @@
       correspondence, canonical distances and configurable `topK`.
 - [x] Update scoped tool descriptions, permission metadata, typed History,
       lifecycle timing, redaction and trace propagation.
+- [x] Generate scoped context action argument names from canonical schemas so
+      compare filters and the single search ranking feature are explicit.
+      Keep the rejected-call oracle and original peak failure receipt intact.
 - [x] Prove red/green regressions and owning deterministic suites.
 - [ ] Run basic simple listening cases as message-driven regressions, then all
       registered packaged acceptance scenarios on a clean committed candidate

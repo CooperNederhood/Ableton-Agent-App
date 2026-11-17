@@ -1533,11 +1533,24 @@ export function scopeAbletonTools(
           ),
       )
       .join(" ");
+    const actionArguments =
+      tool.name === "ableton_context"
+        ? ` Action arguments: ${selected
+            .map(
+              (descriptor) =>
+                `${descriptor.action}(${Object.keys(
+                  descriptor.inputSchema.toJSONSchema().properties ?? {},
+                )
+                  .filter((name) => name !== "action")
+                  .join(", ")})`,
+            )
+            .join("; ")}.`
+        : "";
     const scopedTool =
       tool.name === "ableton_listening" || tool.name === "ableton_context"
         ? {
             ...tool,
-            description: `${scopedDescription}\nAllowed action values in this scope: ${selected.map((descriptor) => descriptor.action).join(", ")}. Each schema variant is an alternative selected by action, not a restriction to only the final variant. Use the arguments required by the selected action.${selected.some((descriptor) => descriptor.action === "inspect-listeners") ? " Discover listenerIds with inspect-listeners before the first capture; never guess them from track or device references." : ""}`,
+            description: `${scopedDescription}\nAllowed action values in this scope: ${selected.map((descriptor) => descriptor.action).join(", ")}. Each schema variant is an alternative selected by action, not a restriction to only the final variant. Use the arguments required by the selected action.${actionArguments}${selected.some((descriptor) => descriptor.action === "inspect-listeners") ? " Discover listenerIds with inspect-listeners before the first capture; never guess them from track or device references." : ""}`,
           }
         : tool.name === "ableton_transport"
           ? {

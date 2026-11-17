@@ -18,6 +18,16 @@ ownership/native checks, skip registered cases or ignore cleanup failures.
 Final qualification requires all registered user-message scenarios and the
 independent suite verifier green on the final candidate, after code review.
 
+Pre-approval capture resolution inserts the tool schema's default
+`maximumDurationMs`. The scoped approval matcher treats that exact current
+default as equivalent to omission for both single-source and named-source
+grants. It reads the default from the canonical schema rather than maintaining
+a second timeout constant. Explicit non-default deadlines, source/listener
+identities, extra arguments, step scopes and finite use counts remain exact.
+This fixes `run-lk3EFX`, which reached the actual listening request but was denied
+before capture by the older matcher; it is not permission to increase a
+reviewed explicit deadline or replay a capture.
+
 Typed analysis pagination differs from lost History content. A validated result
 may explicitly mark remaining detail and return a continuation; journal-level
 truncation, invalid continuation and omitted binary/audio bodies still cannot

@@ -18,6 +18,9 @@ Companion specification: [Acceptance test authoring](acceptance-authoring.md).
       native support-union and channel-validity checks.
 - [x] Reconcile the migrated oracles with the compact default projection and
       explicitly requested technical-detail pages.
+- [x] Match schema-inserted capture deadlines equivalently to omission for
+      single/named source grants; reject non-default, foreign-listener and reused
+      requests. Preserve explicit deadlines and all source/capture guards.
 - [ ] Run simple listening regressions followed by every registered packaged
       message scenario and the terminal suite verifier on the final candidate.
 - [ ] Invoke final code review, resolve findings and requalify any changed

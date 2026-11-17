@@ -42,6 +42,119 @@ const request: ScopedApproval = {
   arguments: { target: { track: "track", clip: "clip" }, beats: 4 },
 };
 describe("reviewed scoped approvals", () => {
+  it.each([false, true])(
+    "admits only the canonical default listening deadline (named source=%s)",
+    (namedSource) => {
+      const scenario = JSON.parse(
+        readFileSync(
+          new URL(
+            "../../integration/acceptance-scenarios/session-clip-identify.json",
+            import.meta.url,
+          ),
+          "utf8",
+        ),
+      ) as { permissions: ScopedPermission[] };
+      const captureRule = {
+        ...scenario.permissions[0]!,
+        ...(namedSource ? { sourceId: "a" } : {}),
+      };
+      const arguments_ = {
+        action: "play-session-and-listen",
+        target: {
+          view: "session",
+          track: {
+            kind: "regular",
+            index: 0,
+            expectedReference: "track",
+            expectedName: "audio-track",
+          },
+          sceneIndex: 0,
+          expectedClipReference: "clip",
+          expectedClipName: "clip-1",
+        },
+        listenerIds: ["listener"],
+      };
+      const captureRequest = {
+        ...request,
+        tool: "ableton_listening",
+        action: "play-session-and-listen",
+      };
+      const policy = new ScopedApprovalPolicy([captureRule]);
+      for (const maximumDurationMs of [300_000, 900_001, 120_000]) {
+        expect(
+          policy.decide(
+            {
+              ...captureRequest,
+              arguments: { ...arguments_, maximumDurationMs },
+            },
+            owner,
+            source,
+            "listen",
+            { a: source },
+          ),
+        ).toBe(false);
+      }
+      const normalized = {
+        ...captureRequest,
+        arguments: { ...arguments_, maximumDurationMs: 900_000 },
+      };
+      expect(
+        policy.decide(
+          {
+            ...normalized,
+            arguments: {
+              ...normalized.arguments,
+              listenerIds: ["foreign-listener"],
+            },
+          },
+          owner,
+          source,
+          "listen",
+          { a: source },
+        ),
+      ).toBe(false);
+      expect(
+        policy.decide(normalized, owner, source, "listen", { a: source }),
+      ).toBe(true);
+      expect(
+        policy.decide(normalized, owner, source, "listen", { a: source }),
+      ).toBe(false);
+      expect(
+        new ScopedApprovalPolicy([captureRule]).decide(
+          { ...captureRequest, arguments: arguments_ },
+          owner,
+          source,
+          "listen",
+          { a: source },
+        ),
+      ).toBe(true);
+      const boundedRule = {
+        ...captureRule,
+        arguments: { ...captureRule.arguments, maximumDurationMs: 120_000 },
+      };
+      expect(
+        new ScopedApprovalPolicy([boundedRule]).decide(
+          { ...captureRequest, arguments: arguments_ },
+          owner,
+          source,
+          "listen",
+          { a: source },
+        ),
+      ).toBe(false);
+      expect(
+        new ScopedApprovalPolicy([boundedRule]).decide(
+          {
+            ...captureRequest,
+            arguments: { ...arguments_, maximumDurationMs: 120_000 },
+          },
+          owner,
+          source,
+          "listen",
+          { a: source },
+        ),
+      ).toBe(true);
+    },
+  );
   it("allows the reviewed three-minute case's exact single seek only in its listen step", () => {
     const scenario = JSON.parse(
       readFileSync(

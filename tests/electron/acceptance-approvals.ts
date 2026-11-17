@@ -6,6 +6,7 @@ import {
   type SessionSourceEvidence,
   type ArrangementSourceEvidence,
 } from "@ableton-agent/test-support/integration";
+import { listeningOperationParamsSchema } from "@ableton-agent/tools";
 
 export type ScopedPermission = ScenarioPermission;
 export interface ScopedApproval {
@@ -127,13 +128,14 @@ export class ScopedApprovalPolicy {
         return [];
       }
       const normalized = { ...actual };
-      if (rule.sourceId && rule.tool === "ableton_listening") {
+      if (rule.tool === "ableton_listening") {
+        const operation = listeningOperationParamsSchema.options.find(
+          ({ shape }) => shape.action.value === rule.action,
+        );
         const defaultDuration =
-          rule.action === "play-session-and-listen"
-            ? 300_000
-            : rule.action === "play-arrangement-and-listen"
-              ? 900_000
-              : undefined;
+          operation && "maximumDurationMs" in operation.shape
+            ? operation.shape.maximumDurationMs.parse(undefined)
+            : undefined;
         if (
           defaultDuration !== undefined &&
           !Object.hasOwn(resolved, "maximumDurationMs") &&
@@ -147,6 +149,7 @@ export class ScopedApprovalPolicy {
         )
           normalized.maximumDurationMs = defaultDuration;
         if (
+          rule.sourceId &&
           rule.action === "play-session-and-listen" &&
           selected &&
           "midi" in selected

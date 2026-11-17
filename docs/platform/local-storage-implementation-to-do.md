@@ -83,6 +83,10 @@ Companion specification: [Local Storage Layout](local-storage.md)
 
 ## Canonical layout
 
+- [x] Separate the authorized 16,384-entry aggregate acceptance allowance from
+  the unchanged 8,192-entry working-copy bound; verify admission/exhaustion,
+  failure receipts, lock release and preservation without deleting prior evidence.
+
 - [x] Keep initial FluCoMa flatness snapshots in the existing bounded/redacted
   metric lifecycle journal, with explicitly unqualified support and validity.
   Reuse typed History and existing ownership/retention; do not insert diagnostic

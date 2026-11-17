@@ -125,6 +125,7 @@ function reviewedArrangement(scenarioId: string) {
     },
   };
   return {
+    scenario,
     permission,
     bound,
     capture,
@@ -133,6 +134,95 @@ function reviewedArrangement(scenarioId: string) {
   };
 }
 describe("reviewed scoped approvals", () => {
+  it("allows flexible bounded comprehension preparation without allowing recapture or unrelated mutations", () => {
+    const f = reviewedArrangement("long-horizon-comprehension");
+    const policy = new ScopedApprovalPolicy(f.scenario.permissions);
+    const sources = { ...f.sources, "clip-1": source };
+    const stop = {
+      ...request,
+      tool: "ableton_transport",
+      action: "set-playing",
+      arguments: { action: "set-playing", isPlaying: false },
+    };
+    const handoff = {
+      ...stop,
+      action: "back-to-arrangement",
+      arguments: { action: "back-to-arrangement" },
+    };
+    const stopClips = {
+      ...request,
+      tool: "ableton_tracks",
+      action: "stop-clips",
+      arguments: {
+        action: "stop-clips",
+        target: {
+          kind: "regular",
+          index: 0,
+          expectedReference: source.source.trackId,
+          expectedName: "1-808 Core Kit",
+        },
+        quantized: false,
+      },
+    };
+    for (const denied of [
+      { ...stop, arguments: { action: "set-playing", isPlaying: true } },
+      { ...stop, arguments: { ...stop.arguments, currentSongTime: 0 } },
+      { ...handoff, destructive: true },
+      { ...handoff, agentId: "foreign-agent" },
+      {
+        ...stopClips,
+        arguments: {
+          ...stopClips.arguments,
+          target: { ...stopClips.arguments.target, index: 1 },
+        },
+      },
+    ])
+      expect(policy.decide(denied, owner, undefined, f.stepId, sources)).toBe(
+        false,
+      );
+    for (let count = 0; count < 16; count++) {
+      for (const preparation of [handoff, stopClips, stop])
+        expect(
+          policy.decide(preparation, owner, undefined, f.stepId, sources),
+        ).toBe(true);
+    }
+    for (const preparation of [handoff, stopClips, stop])
+      expect(
+        policy.decide(preparation, owner, undefined, f.stepId, sources),
+      ).toBe(false);
+    for (const captureRule of f.scenario.permissions.filter(
+      (permission) => permission.tool === "ableton_listening",
+    ))
+      expect(captureRule.maxUses).toBe(1);
+    expect(policy.decide(f.capture, owner, f.bound, f.stepId, sources)).toBe(
+      true,
+    );
+    expect(policy.decide(f.capture, owner, f.bound, f.stepId, sources)).toBe(
+      false,
+    );
+    const sessionCapture = {
+      ...request,
+      tool: "ableton_listening",
+      action: "play-session-and-listen",
+      arguments: {
+        action: "play-session-and-listen",
+        target: {
+          view: "session",
+          track: stopClips.arguments.target,
+          sceneIndex: source.source.slotIndex,
+          expectedClipReference: source.source.clipId,
+          expectedClipName: "clip-1",
+        },
+        listenerIds: [source.listenerId],
+      },
+    };
+    expect(
+      policy.decide(sessionCapture, owner, undefined, f.stepId, sources),
+    ).toBe(true);
+    expect(
+      policy.decide(sessionCapture, owner, undefined, f.stepId, sources),
+    ).toBe(false);
+  });
   describe.each([
     "arrangement-long-form-listening",
     "listening-consolidation-short-audio",

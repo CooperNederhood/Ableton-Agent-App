@@ -699,7 +699,7 @@ diagnostic receipts. If shutdown is unconfirmed, it reports failed cleanup and
 does not prune resources still potentially in use. Such a private run directory
 is not an exportable support bundle. Successful and failed allowlisted project
 copies are retained under bounded admission, not silently expired or deleted.
-Admission requires fewer than 64 existing top-level entries, at most 8,192
+Admission requires fewer than 64 existing top-level entries, at most 16,384
 recursive entries, and an 8 GiB admission budget with 256 MiB reserved per
 selected case. A single run leaves at most 7.75 GiB for existing data; the
 19-case suite reserves 4.75 GiB and leaves 3.25 GiB for preserved earlier runs.
@@ -708,8 +708,10 @@ allowlisted paths. These are admission and preservation limits, not permission
 to delete old runs. Allocation uses an atomic admission lock; a stale lock
 requires explicit inspection.
 The user-authorized immediate-entry increases from 16 through 32 to 64 accommodate
-preserved attempts and suites without changing byte limits, recursive-entry
-limits, ownership or cleanup policy. Single/suite allocators and regression
+preserved attempts and suites without changing byte limits, ownership or cleanup
+policy. Aggregate recursive-entry admission subsequently increased from 8,192
+to 16,384 after the preserved suites reached 9,616 entries (2.08 GiB).
+The individual working-copy limit remains 8,192 entries. Single/suite allocators and regression
 tests share `acceptanceArtifactRetention`; exhaustion preserves existing files
 and releases only the allocator's own admission lock, never old evidence.
 The [acceptance authoring guide](../testing/acceptance-authoring.md) defines the

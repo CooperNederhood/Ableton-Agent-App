@@ -712,7 +712,8 @@ describe("acceptance catalog admission", () => {
       expect(await readdir(admitted)).toEqual([]);
       expect(acceptanceArtifactRetention).toEqual({
         directories: 64,
-        entries: 8192,
+        entries: 16384,
+        workingCopyEntries: 8192,
         totalBytes: 8 * 1024 ** 3,
         reservedRunBytes: 256 * 1024 ** 2,
       });
@@ -733,6 +734,79 @@ describe("acceptance catalog admission", () => {
       expect(inventory).not.toContain(".admission-lock");
     });
   });
+
+  it("admits aggregate evidence beyond one working-copy inventory and rejects exact entry exhaustion without deletion", async () => {
+    await fixture(async (root) => {
+      const parent = join(root, ".test-artifacts/acceptance");
+      const retained = join(parent, "preserved");
+      await mkdir(retained, { recursive: true });
+      async function addEntries(start: number, end: number) {
+        for (let offset = start; offset < end; offset += 64)
+          await Promise.all(
+            Array.from({ length: Math.min(64, end - offset) }, (_, index) =>
+              writeFile(join(retained, `entry-${offset + index}`), "keep"),
+            ),
+          );
+      }
+      await addEntries(0, 8191);
+      await allocateAcceptanceRun(root, "run-");
+      await addEntries(8191, acceptanceArtifactRetention.entries - 3);
+      await allocateAcceptanceRun(root, "suite-");
+      const before = (await readdir(parent)).sort();
+      await expect(allocateAcceptanceRun(root, "run-")).rejects.toThrow(
+        "entry retention limit",
+      );
+      expect((await readdir(parent)).sort()).toEqual(before);
+      expect(await readdir(retained)).toHaveLength(
+        acceptanceArtifactRetention.entries - 3,
+      );
+      expect(await readFile(join(retained, "entry-0"), "utf8")).toBe("keep");
+      expect(before).not.toContain(".admission-lock");
+    });
+  }, 30000);
+
+  it("keeps the working-copy entry ceiling smaller than aggregate admission and preserves overflow evidence", async () => {
+    await fixture(async (root, output, errors) => {
+      await register(root);
+      const fake = fakeBoundary();
+      const stage = fake.dependencies.stage.getMockImplementation()!;
+      let workingDirectory = "";
+      fake.dependencies.stage.mockImplementation(async (options) => {
+        const staged = await stage(options);
+        workingDirectory = staged.workingDirectory;
+        for (let offset = 0; offset < 8192; offset += 64)
+          await Promise.all(
+            Array.from({ length: 64 }, (_, index) =>
+              writeFile(
+                join(workingDirectory, `entry-${offset + index}`),
+                "keep",
+              ),
+            ),
+          );
+        return staged;
+      });
+      expect(
+        await acceptanceCli(["run", "--scenario", "example"], {
+          ...environment(root, output, errors),
+          dependencies: fake.dependencies,
+        }),
+      ).toBe(1);
+      const summary = JSON.parse(output.at(-1)!) as { receiptPath: string };
+      const receipt = JSON.parse(
+        await readFile(summary.receiptPath, "utf8"),
+      ) as RecordedReceipt;
+      expect(receipt.result?.finalizationFailures).toContainEqual({
+        stage: "artifact-retention",
+        message:
+          "Artifact entry retention limit reached; review retained evidence manually",
+      });
+      expect(receipt.result?.cleanupComplete).toBe(true);
+      expect(await readFile(join(workingDirectory, "entry-0"), "utf8")).toBe(
+        "keep",
+      );
+      expect(await readdir(workingDirectory)).toHaveLength(8194);
+    });
+  }, 30000);
 
   it("rejects byte-budget exhaustion without deleting retained artifacts", async () => {
     await fixture(async (root, output, errors) => {

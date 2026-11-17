@@ -36,7 +36,8 @@ function id(value: unknown): asserts value is string {
 }
 export const acceptanceArtifactRetention = Object.freeze({
   directories: 64,
-  entries: 8192,
+  entries: 16384,
+  workingCopyEntries: 8192,
   totalBytes: 8 * 1024 * 1024 * 1024,
   reservedRunBytes: 256 * 1024 * 1024,
 });
@@ -233,7 +234,11 @@ function argumentsFor(argv: readonly string[]) {
   return { command, options };
 }
 
-async function inventory(directory: string, maximumBytes: number) {
+async function inventory(
+  directory: string,
+  maximumBytes: number,
+  maximumEntries: number,
+) {
   await noSymlinks(directory);
   const files: string[] = [],
     directories: string[] = [];
@@ -241,7 +246,7 @@ async function inventory(directory: string, maximumBytes: number) {
     count = 0;
   async function visit(path: string): Promise<void> {
     for (const entry of await readdir(path, { withFileTypes: true })) {
-      if (++count > acceptanceArtifactRetention.entries)
+      if (++count > maximumEntries)
         throw new Error(
           "Artifact entry retention limit reached; review retained evidence manually",
         );
@@ -304,6 +309,7 @@ export async function allocateAcceptanceRun(
     await inventory(
       parent,
       acceptanceArtifactRetention.totalBytes - reservedBytes,
+      acceptanceArtifactRetention.entries,
     );
     return await mkdtemp(join(parent, prefix));
   } finally {
@@ -356,6 +362,7 @@ async function retainReviewedFiles(
   const snapshot = await inventory(
     staged.workingDirectory,
     acceptanceArtifactRetention.reservedRunBytes,
+    acceptanceArtifactRetention.workingCopyEntries,
   );
   // The checkpoint is already durable and all processes have settled before this plan is applied.
   for (const path of snapshot.files) {

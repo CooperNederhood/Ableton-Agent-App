@@ -318,8 +318,21 @@ Do not inject it into the message or staged project.
 The approved budgets are thirty minutes for the agent turn, thirty-five minutes
 overall and two minutes each for cleanup/persistence. Propagate the same turn
 allowance into the isolated Desktop's agent setting. The scoped rules permit
-five Stops and one derivation per original source context; they do not authorize
-seeking, recapture or a changed answer.
+up to sixteen uses each of Stop, Back to Arrangement and unquantized stop-clips
+on the authorized Session track. These are finite safety ceilings, not a required
+execution sequence. The user explicitly approved flexible setup/read paths while
+retaining exactly one capture per source. Repeated source preparation and the
+choice/order of read-only analysis, comparisons and searches are not comprehension
+failures. The twenty-measure answer, all five attributable native captures,
+unchanged musical content and cleanup remain the scoring requirements.
+Standalone Play, seeking, foreign-track actions, destructive edits and recapture
+remain unauthorized. Existing capture-specific tests retain their tighter policies.
+
+The prior one-use Back-to-Arrangement allowance failed `suite-x9zfXS` case 15:
+the agent cleared an initial override, captured four Session clips, then correctly
+needed to clear the new override before Arrangement listening. All other eighteen
+cases passed and the suite reclaimed its resources. Preserve that failed receipt;
+the revised contract requires a new run rather than reclassifying the old result.
 
 Arrangement derivation reuses the canonical scenario source selector when a
 step has no explicit source. It still checks the admitted track/listener and
@@ -2339,20 +2352,25 @@ new admission rather than automatically deleting old evidence.
 
 The CLI uses the existing `.test-artifacts/acceptance/` tooling location, not a
 second application-profile layout. Admission limits are 64 immediate entries,
-8,192 recursive entries, and 8 GiB with a shared 256 MiB reservation per selected
+16,384 recursive entries, and 8 GiB with a shared 256 MiB reservation per selected
 case. The 19-case suite reserves 4.75 GiB before launching anything, leaving
 3.25 GiB for earlier evidence. The former 2 GiB budget rejected the entire
 registered suite before any case could run. This finite budget increase uses
 the user's explicit authorization; it changes no case, oracle or cleanup guard.
 The separately authorized increases from 16 through 32 to 64 immediate entries admit
 preserved prior attempts alongside new suites; it leaves the 8 GiB total,
-256 MiB per-case reservation and 8,192 recursive-entry bounds unchanged.
+256 MiB per-case reservation unchanged.
 The shared exported `acceptanceArtifactRetention` governs single/suite admission
 and its boundary tests. The 32-entry limit blocked a new comprehension run before
 execution with only 1.48 GiB retained; the finite 64-entry allowance preserves
 those earlier receipts while admitting focused regressions and another suite.
 At 64 retained entries, further allocation fails without
 deleting or altering prior evidence.
+The aggregate recursive-entry allowance increased separately from 8,192 to 16,384
+under the same finite-budget authorization after preserved evidence reached
+9,616 entries (2.08 GiB). It is distinct from the unchanged per-working-copy
+8,192-entry ceiling; overflow still preserves evidence and releases only the
+allocator's own lock.
 Working-tree retention is bounded to 256 MiB, 8,192 inventory entries, and 256
 allowlisted paths. An atomic admission lock protects concurrent allocations;
 inspect a stale lock and retained evidence before any manual cleanup. There is

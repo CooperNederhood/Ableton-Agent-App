@@ -163,7 +163,7 @@
       "tool": "ableton_tracks",
       "action": "stop-clips",
       "risk": "medium",
-      "maxUses": 4,
+      "maxUses": 16,
       "sourceId": "clip-1",
       "arguments": {
         "action": "stop-clips",
@@ -178,14 +178,14 @@
       "tool": "ableton_transport",
       "action": "set-playing",
       "risk": "medium",
-      "maxUses": 5,
+      "maxUses": 16,
       "arguments": { "action": "set-playing", "isPlaying": false }
     },
     {
       "tool": "ableton_transport",
       "action": "back-to-arrangement",
       "risk": "medium",
-      "maxUses": 1,
+      "maxUses": 16,
       "arguments": { "action": "back-to-arrangement" }
     }
   ],

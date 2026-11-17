@@ -34,6 +34,9 @@ Companion specification: [Acceptance test authoring](acceptance-authoring.md).
       32, then 64 using shared `acceptanceArtifactRetention`; demonstrate admission after
       thirty-two preserved attempts and exhaustion at 64 without deletion. Keep
       8 GiB total, 256 MiB per case and 8,192 recursive entries unchanged.
+- [x] Subsequently expand only aggregate recursive-entry admission to 16,384
+      under the authorized finite budget; retain the 8,192-entry working-copy
+      bound and test both boundaries with real retained files and no deletion.
 - [x] Carry the existing typed-History byte allowance through coordinator turns,
       final evidence and receipt sanitization with a shared finite 24-MiB
       aggregate cap. Preserve generic wrapper limits and prove lossless success,
@@ -41,6 +44,11 @@ Companion specification: [Acceptance test authoring](acceptance-authoring.md).
 - [x] Clarify already-stopped two-MIDI setup, tool-owned Arrangement playback
       start and exactly-five-source comprehension under the authorized prompt
       migration. Do not grant the denied extra transport or recapture actions.
+- [x] Apply the subsequent user-approved comprehension-only relaxation: permit
+      bounded repeated Stop, Back to Arrangement and source-track stop-clips
+      without prescribing a setup/read sequence. Keep exactly one capture per
+      source, exact answer, ownership, unchanged-content and cleanup checks;
+      regress actual-manifest allowance, exhaustion, recapture and unsafe-action denial.
 - [x] Preserve complete original/restarted long-consolidation page requirements;
       actual missing continuations in `suite-3kErcF` are failures, not oracle bugs.
 - [x] Restore the user-approved structural scope from `930d3063^`: all four

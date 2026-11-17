@@ -4,6 +4,7 @@ import {
   listeningFeatureTypeSchema,
   MAX_CONTEXT_FEATURES_PER_DERIVATION,
   listeningFeatureDefinition,
+  type ListeningFeatureComparisonCoverage,
 } from "./listening-features.js";
 import { listeningMusicalAlignmentSchema } from "./listening-musical-alignment.js";
 
@@ -153,6 +154,7 @@ export interface ContextFeatureSearchResult {
   readonly matches: readonly {
     readonly feature: ContextFeature;
     readonly distance: number;
+    readonly coverage?: ListeningFeatureComparisonCoverage;
   }[];
   readonly scannedCount: number;
   readonly comparableCount: number;

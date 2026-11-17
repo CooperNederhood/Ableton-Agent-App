@@ -16,6 +16,15 @@
         "startBeat": "$source.startBeat",
         "endBeat": "$source.endBeat"
       }
+    },
+    {
+      "tool": "ableton_transport",
+      "action": "seek",
+      "risk": "medium",
+      "maxUses": 1,
+      "sourceId": "arrangement-source",
+      "stepIds": ["listen"],
+      "arguments": { "action": "seek", "time": 0 }
     }
   ],
   "budget": { "runMs": 900000, "cleanupMs": 60000, "persistenceMs": 60000 },

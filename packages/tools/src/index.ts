@@ -150,6 +150,7 @@ import { z, type ZodType } from "zod";
 import type { MutationTarget } from "./mutation-policy.js";
 import {
   createListeningTools,
+  SESSION_TRANSPORT_GUIDANCE,
   type ContextOperationParams,
   type ListeningOperationParams,
   type ListeningToolServices,
@@ -1451,7 +1452,7 @@ function tracksDescription(canStopClips: boolean): string {
     "Performs the available Live 11 track actions with exact identity checks. It does not provide arbitrary track reordering.",
     ...(canStopClips
       ? [
-          'Stop Session clips on an explicitly requested regular track with action: "stop-clips" and its exact target. Use quantized: false for an immediate stop without quantization. Do not change global quantization. When asked to stop clips and transport, stop those clips before stopping transport; stopping transport alone leaves them selected for playback. Never stop unrelated tracks or repair playback state without the user requesting it.',
+          `Stop Session clips on an explicitly requested regular track with action: "stop-clips" and its exact target. Use quantized: false for an immediate stop without quantization. Do not change global quantization. ${SESSION_TRANSPORT_GUIDANCE} When asked to stop clips and transport, stop those clips before stopping transport; stopping transport alone leaves them selected for playback. Never stop unrelated tracks or repair playback state without the user requesting it.`,
         ]
       : []),
   ].join(" ");

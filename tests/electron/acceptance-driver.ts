@@ -1507,10 +1507,7 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
       ...context.scenario.assertions,
       ...context.scenario.steps.flatMap((step) => step.assertions),
     ].some(
-      ({ name }) =>
-        name === "feature-search" ||
-        name === "melbands-smoke" ||
-        name === "listening-comprehension",
+      ({ name }) => name === "feature-search" || name === "melbands-smoke",
     );
     if (
       retainRecords &&
@@ -2138,24 +2135,30 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
               context.signal,
             )
           : undefined;
+      const ownedClipIds = [...this.#contexts.values()].map(
+        (entry) => entry.source.clipId,
+      );
+      const protectedSessionState = (snapshot: DesktopLiveSetSnapshot) =>
+        JSON.stringify([
+          sessionStructureFingerprint(snapshot),
+          unrelatedPlaybackFingerprint(snapshot, ownedClipIds),
+        ]);
+      const beforeState = sourceSnapshot
+        ? protectedSessionState(sourceSnapshot)
+        : undefined;
       let rememberedSessionClipCount = 0;
       if (sourceSnapshot) {
-        const ownedClipIds = [...this.#contexts.values()].map(
-          (entry) => entry.source.clipId,
-        );
-        const baseline = required(this.#snapshot, "baseline");
+        rememberedSessionClipCount = sourceSnapshot.sessionClips!.filter(
+          (clip) => clip.status === "playing",
+        ).length;
         if (
-          sessionStructureFingerprint(sourceSnapshot) !==
-            sessionStructureFingerprint(baseline) ||
-          unrelatedPlaybackFingerprint(sourceSnapshot, ownedClipIds) !==
-            unrelatedPlaybackFingerprint(baseline, ownedClipIds)
+          this.#snapshot
+            ? beforeState !== protectedSessionState(this.#snapshot)
+            : rememberedSessionClipCount !== 0
         )
           throw new Error(
             "Arrangement handoff changed unrelated Session state",
           );
-        rememberedSessionClipCount = sourceSnapshot.sessionClips!.filter(
-          (clip) => clip.status === "playing",
-        ).length;
       }
       const credential = await resolveBridgeCredential({
         environment: process.env,
@@ -2254,6 +2257,19 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
         throw new Error(
           "Owned Desktop bridge did not reconnect after source setup",
         );
+      if (sourceSnapshot) {
+        const after = await observe(
+          () =>
+            this.#getPage().evaluate(() =>
+              window.desktop.ableton.requestSnapshot(),
+            ),
+          context.signal,
+        );
+        if (protectedSessionState(after) !== beforeState)
+          throw new Error(
+            "Arrangement handoff changed unrelated Session state",
+          );
+      }
       if (
         action !== "back-to-arrangement" &&
         (await this.#verifyWorld(context, step.sourceId, true))
@@ -3201,13 +3217,17 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
                 );
               const job = jobs.find((job) => job.contextIds[0] === contextId)!;
               if (context.fixture.arrangementSources?.length && !job.session) {
-                const admitted = this.#arrangementSources[step?.sourceId ?? ""];
                 const raw = await this.#getPage().evaluate(
                   (request) =>
                     window.desktop.entityContext.getMetricCapture(request),
                   { sessionId: submission.appSessionId, contextId },
                 );
                 const record = metricCaptureRecordSchema.parse(raw);
+                const sourceId =
+                  step?.sourceId ??
+                  scenarioArrangementSource(context.fixture, context.scenario)
+                    .id;
+                const admitted = this.#arrangementSources[sourceId];
                 const expectedRange = this.#approvedArrangementRanges.get(
                   submission.operationId,
                 );
@@ -3234,8 +3254,8 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
                     "Derivation approval stream source does not match the invoking turn",
                   );
                 const selectedSource = { ...admitted, contextId };
-                source = selectedSource;
-                permissionSources[step!.sourceId!] = selectedSource;
+                if (requested.length === 1) source = selectedSource;
+                permissionSources[sourceId] = selectedSource;
                 continue;
               }
               const detail = await this.#readContext(contextId, context);
@@ -3287,6 +3307,29 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
             step?.id,
             permissionSources,
           );
+          if (
+            permitted &&
+            tool.name === "ableton_transport" &&
+            tool.action === "seek" &&
+            source &&
+            "before" in source
+          ) {
+            if ((await this.#jobs(context)).length !== 0)
+              throw new Error(
+                "Arrangement seek requires stopped initial transport before any capture",
+              );
+            const read = await this.#readArrangementSource(
+              context,
+              required(this.#snapshot, "baseline"),
+            );
+            for (const state of [read.before, read.after]) {
+              const stopped = loadedArrangementState(state, read.clips);
+              if (stopped.currentBeat !== source.before.currentBeat)
+                throw new Error(
+                  "Arrangement seek requires its unchanged stopped initial position",
+                );
+            }
+          }
           if (
             permitted &&
             tool.name === "ableton_listening" &&
@@ -3591,7 +3634,7 @@ export class PackagedAcceptanceDriver implements AcceptanceDriver {
     ) {
       const signal = AbortSignal.any([
         context.signal,
-        AbortSignal.timeout(5_000),
+        AbortSignal.timeout(Math.max(1, context.deadlineAt - Date.now())),
       ]);
       await cleanup.attempt("history", async () => {
         await observe(async () => {

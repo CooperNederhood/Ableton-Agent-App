@@ -216,7 +216,7 @@ export const LISTENING_FEATURE_DEFINITIONS: readonly Definition[] =
       "linear-amplitude",
       2,
       "sample-grid-peak-rms/v1",
-      "Independent-channel RMS reconstructed from complete unsplit record energy and sample counts",
+      "Independent-channel RMS reconstructed from complete unsplit record energy and sample counts; measures the loudness envelope, not timbre or source identity",
       true,
     ),
     definition(
@@ -276,7 +276,7 @@ export const LISTENING_FEATURE_DEFINITIONS: readonly Definition[] =
       "normalized-magnitude",
       48,
       "mel-band-profile/v1",
-      "Support-weighted stereo cell vectors with one joint L2 normalization across the sequence",
+      "Support-weighted stereo cell vectors with one joint L2 normalization across the sequence; compares time-varying spectral content, not only the loudness envelope",
       true,
       "joint-l2",
     ),
@@ -674,12 +674,31 @@ export const listeningFeatureSchema = z
     }
   });
 export type ListeningFeature = z.infer<typeof listeningFeatureSchema>;
+export const listeningFeatureComparisonCoverageSchema = z
+  .strictObject({
+    policy: z.literal("shared-valid-musical-cells"),
+    comparedValues: z
+      .number()
+      .int()
+      .positive()
+      .max(2000 * 48),
+    totalValues: z
+      .number()
+      .int()
+      .positive()
+      .max(2000 * 48),
+  })
+  .refine((value) => value.comparedValues <= value.totalValues);
+export type ListeningFeatureComparisonCoverage = z.infer<
+  typeof listeningFeatureComparisonCoverageSchema
+>;
 export const listeningFeatureComparisonSchema = z.discriminatedUnion("status", [
   z.strictObject({
     status: z.literal("comparable"),
     distanceDefinition: listeningFeatureDistanceSchema,
     units: listeningFeatureDistanceUnitsSchema,
     distance: z.number().finite().nonnegative(),
+    coverage: listeningFeatureComparisonCoverageSchema.optional(),
   }),
   z.strictObject({
     status: z.literal("not-comparable"),

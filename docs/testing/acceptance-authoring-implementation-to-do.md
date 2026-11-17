@@ -2,6 +2,38 @@
 
 Companion specification: [Acceptance test authoring](acceptance-authoring.md).
 
+## User-authorized comprehension follow-on
+
+Qualification and preserved failures are maintained in the
+[fixture record](../../integration/fixtures/long-horizon-comprehension/README.md).
+
+- [x] Qualify the exact five-capture comprehension contract, including answer,
+      protected state, persistence and complete cleanup.
+- [x] Propagate the approved finite turn budget into the isolated Desktop;
+      retain scoped five-Stop and once-per-source derivation rules.
+- [x] Bind Arrangement derivation with the canonical scenario source selector
+      and exact invoking ownership/range guards, including natural turns.
+- [x] Separate baseline, source-review, derivation, native-proof and dense-stream
+      regressions using shared local setup instead of string-parsed test modes.
+- [x] Verify original comprehension chunks without unused diagnostic retention.
+- [x] Regress delayed History success beyond five seconds, deadline expiry,
+      cancellation and read failure; require explicit lifecycle evidence and
+      complete owned-resource teardown.
+- [x] Keep detailed follow-on run history in the fixture record, not duplicated
+      across specifications and implementation checklists.
+- [x] Reproduce the original three-minute case's pre-baseline handoff failure;
+      pin before/after protected Session fingerprints without requiring an
+      admitted baseline. Cover success, remembered/unrelated state, read failure
+      and cancellation while preserving later admitted-baseline checks.
+- [x] Apply the user's reviewed single stopped `seek(0)` permission to the
+      original three-minute case. Regress exact arguments, step/source binding,
+      use limits and running/moved/post-capture denial in existing policy/driver tests.
+- [x] Complete the requested final real-host qualification on the cleaned
+      candidate before preparing the follow-on PR: comprehension `run-V9AxDB`
+      and original three-minute `run-RVpd1e` pass on the same final package,
+      with exact postconditions, owned restart where required, persisted evidence
+      and full cleanup. Preserve earlier failures and their denied recoveries.
+
 ## Listening consolidation
 
 - [x] Reproduce `run-m1AuKA`'s template/fixture bridge startup race. Wait for the
@@ -144,7 +176,7 @@ Companion specification: [Acceptance test authoring](acceptance-authoring.md).
 - [ ] Complete MIDI Arrangement admission when reaching the MIDI cases.
 - [ ] Require common persisted systems/schema/counts, original identities after
       restart, long incremental appends and required native/History/cleanup proof.
-- [ ] Qualify the unchanged agent comprehension case as a separate follow-on.
+- [x] Qualify the unchanged agent comprehension case separately in `run-V9AxDB`.
       Shape/count qualification is not numerical, ten-minute or realtime proof.
 
 ## Session-to-Arrangement comprehension
@@ -179,13 +211,11 @@ Companion specification: [Acceptance test authoring](acceptance-authoring.md).
 - [x] Reproduce `run-JAAhev` exhausting the separate 10,000-event Desktop
       observer below 4.6 MB. Retain 32,768 original ordered events while keeping
       its 16-MiB byte guard and explicit malformed/count/byte failures.
-- [ ] Qualify the exact five-capture answer after product sequencing and bounded
-      stream-read improvements. `run-dpVv8M` returned the correct answer but
-      failed final evidence; latest `run-HFt0eC` completed all five captures
-      but exhausted the unchanged analysis deadline. All 2,314 deterministic
-      owning tests pass, not the real case. Preserve the separate failed History
-      cleanup and confirmed owned-resource teardown; do not describe these as
-      a pass or the historical native timeout reproduction.
+- [x] Qualify the exact five-capture answer after product sequencing and bounded
+      stream-read improvements: `run-EPE87H` passes exact-answer, original native
+      evidence, protected-state and terminal cleanup checks. Earlier
+      `run-dpVv8M` and `run-HFt0eC` remain failed; do not describe their failed
+      evidence/History cleanup as a pass or historical timeout reproduction.
 
 ## Outcome-based feature evidence
 

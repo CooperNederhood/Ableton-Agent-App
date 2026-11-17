@@ -60,9 +60,15 @@ async function fixture(
   partial = false,
   completeOnLaunch = true,
   enabled = true,
-  stopped?: { anchor: number; clipQuantization: number; remembered: boolean },
+  stopped?: {
+    anchor: number;
+    clipQuantization: number;
+    remembered: boolean;
+    clipStop?: boolean;
+  },
 ) {
-  const launchBeat = stopped && !stopped.remembered ? stopped.anchor : 0;
+  const launchBeat =
+    stopped && !stopped.remembered && !stopped.clipStop ? stopped.anchor : 0;
   const data = createSyntheticMetricWireFixture(
     "session",
     partial,
@@ -122,7 +128,8 @@ async function fixture(
     targetPlaying: playing || stopped?.remembered === true,
     targetTriggered: false,
     targetRecording: false,
-    playingSlotIndex: playing || stopped?.remembered === true ? 0 : -1,
+    playingSlotIndex:
+      playing || stopped?.remembered === true ? 0 : stopped?.clipStop ? -2 : -1,
     firedSlotIndex: -1,
     selectedClipReference: target.expectedClipReference,
   });
@@ -376,6 +383,41 @@ async function fixture(
 }
 
 describe("production v5 Session host with synthetic native peer", () => {
+  it.each(["midi", "warped-audio"] as const)(
+    "publishes the next %s clip after a Session Clip Stop without seeking or reusing its stopped song beat",
+    async (kind) => {
+      const anchor = 15.974400000000001;
+      const f = await fixture(kind, false, true, true, {
+        anchor,
+        clipQuantization: 0,
+        remembered: false,
+        clipStop: true,
+      });
+      const job = await f.run();
+      expect(job.stage, JSON.stringify({ job, log: f.log })).toBe("completed");
+      const entry = metricRecordStreamContextReferenceSchema.parse(
+        (await f.repository.getEntry(job.contextIds[0]!))?.payload,
+      );
+      expect(entry.descriptor).toMatchObject({
+        source: {
+          coordinate: { startBeat: 0, endBeat: 4 },
+          transport: { startBeat: 0, endBeat: 4 },
+          clipStartTimeBeats: 0,
+        },
+        geometry: { startBeat: 0, endBeat: 4, totalSamples: 90_000 },
+      });
+      expect(f.finalizeMetricCaptures).toHaveBeenCalledOnce();
+      expect(f.log.indexOf("native:arm")).toBeLessThan(
+        f.log.indexOf("session:launch"),
+      );
+      expect(f.log).toContain("session:release");
+      expect(f.peer.subscribers.size).toBe(0);
+      expect(f.stopTransport).not.toHaveBeenCalled();
+      expect(f.positionListeningPlayback).not.toHaveBeenCalled();
+      expect(f.startListeningPlayback).not.toHaveBeenCalled();
+    },
+  );
+
   it.each(["midi", "warped-audio"] as const)(
     "publishes fresh %s at global beat 16 with clip-local coverage starting at zero",
     async (kind) => {

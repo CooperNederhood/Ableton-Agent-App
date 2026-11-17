@@ -29,6 +29,8 @@ test("SDK failure evidence precedes invalidation and preserves the owned native 
       control,
       {
         validationDetail: "x".repeat(2000),
+        messageType: "listener.result",
+        payloadStatus: "failed",
       },
     );
     assert.equal(h.diagnostics.length, 1);
@@ -40,6 +42,15 @@ test("SDK failure evidence precedes invalidation and preserves the owned native 
     assert.equal(evidence.reason, "sdk_publication_failure_evidence");
     assert.equal(evidence.facts[1].field, "capture.sdk.validationDetail");
     assert.ok(evidence.facts[1].actual.value.length <= 256);
+    for (const [field, value] of [
+      ["messageType", "listener.result"],
+      ["payloadStatus", "failed"],
+    ])
+      assert.equal(
+        evidence.facts.find((fact) => fact.field === `capture.sdk.${field}`)
+          ?.actual.value,
+        value,
+      );
     assert.deepEqual(h.stops, ["client"]);
     await h.runtime.stop();
   }

@@ -147,6 +147,19 @@
       }
     },
     {
+      "tool": "ableton_context",
+      "action": "derive-features",
+      "risk": "medium",
+      "maxUses": 1,
+      "sourceId": "arrangement",
+      "stepIds": ["comprehend"],
+      "arguments": {
+        "action": "derive-features",
+        "contextIds.0": "$source.contextId",
+        "includeHistorical": false
+      }
+    },
+    {
       "tool": "ableton_tracks",
       "action": "stop-clips",
       "risk": "medium",
@@ -165,7 +178,7 @@
       "tool": "ableton_transport",
       "action": "set-playing",
       "risk": "medium",
-      "maxUses": 4,
+      "maxUses": 5,
       "arguments": { "action": "set-playing", "isPlaying": false }
     },
     {
@@ -177,15 +190,15 @@
     }
   ],
   "budget": {
-    "runMs": 1020000,
-    "cleanupMs": 60000,
-    "persistenceMs": 60000
+    "runMs": 2100000,
+    "cleanupMs": 120000,
+    "persistenceMs": 120000
   },
   "steps": [
     {
       "id": "comprehend",
       "message": "Listen to clip-1 through clip-4 on 1-808 Core Kit, then listen to the Arrangement on 2-Audio and work out the clip sequence. Reply only with one clip number per measure, using hyphens within groups of four and vertical bars between groups, including a leading and trailing bar. No spaces.",
-      "timeoutMs": 900000,
+      "timeoutMs": 1800000,
       "assertions": []
     }
   ],

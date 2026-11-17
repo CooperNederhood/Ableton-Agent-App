@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
 import {
   ScopedApprovalPolicy,
   type ScopedApproval,
@@ -41,6 +42,61 @@ const request: ScopedApproval = {
   arguments: { target: { track: "track", clip: "clip" }, beats: 4 },
 };
 describe("reviewed scoped approvals", () => {
+  it("allows the reviewed three-minute case's exact single seek only in its listen step", () => {
+    const scenario = JSON.parse(
+      readFileSync(
+        new URL(
+          "../../integration/acceptance-scenarios/arrangement-long-form-listening.json",
+          import.meta.url,
+        ),
+        "utf8",
+      ),
+    ) as { permissions: ScopedPermission[] };
+    const rules = scenario.permissions.filter(
+      ({ action }) => action === "seek",
+    );
+    expect(rules).toHaveLength(1);
+    expect(rules[0]).toMatchObject({
+      tool: "ableton_transport",
+      risk: "medium",
+      maxUses: 1,
+      sourceId: "arrangement-source",
+      stepIds: ["listen"],
+      arguments: { action: "seek", time: 0 },
+    });
+    const policy = new ScopedApprovalPolicy(rules);
+    const seek = {
+      ...request,
+      tool: "ableton_transport",
+      action: "seek",
+      arguments: { action: "seek", time: 0 },
+    };
+    const sources = { "arrangement-source": source };
+    expect(
+      policy.decide(
+        { ...seek, arguments: { action: "seek", time: 1 } },
+        owner,
+        source,
+        "listen",
+        sources,
+      ),
+    ).toBe(false);
+    expect(
+      policy.decide(
+        { ...seek, arguments: { action: "seek", time: 0, extra: true } },
+        owner,
+        source,
+        "listen",
+        sources,
+      ),
+    ).toBe(false);
+    expect(policy.decide(seek, owner, source, "another-step", sources)).toBe(
+      false,
+    );
+    expect(policy.decide(seek, owner, source, "listen")).toBe(false);
+    expect(policy.decide(seek, owner, source, "listen", sources)).toBe(true);
+    expect(policy.decide(seek, owner, source, "listen", sources)).toBe(false);
+  });
   it.each(["valid", "foreign", "duplicate", "historical", "extra-argument"])(
     "admits an equivalent batch of source-scoped derivations atomically (%s)",
     (mode) => {

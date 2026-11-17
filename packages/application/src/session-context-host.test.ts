@@ -15,6 +15,8 @@ import {
   contextFeatureSchema,
   contextSegmentSchema,
   extractPeakFeature,
+  extractListeningFeature,
+  segmentListeningObservation,
   createContinuousMetricListeningGeometry,
   createMetricRecordStreamState,
   metricRecordStreamDescriptorSchema,
@@ -871,9 +873,18 @@ describe("stream range and cancellation boundaries", () => {
   });
 });
 
-async function featureFixture() {
+async function featureFixture(grid = false) {
   const seeded = await fixture();
   const source = createSyntheticMetricListeningObservation();
+  const aligned = segmentListeningObservation(source, {
+    version: 1,
+    coordinate: "transport-beats",
+    meter: { numerator: 4, denominator: 4 },
+    barOriginBeat: 0,
+    tempoBpm: source.geometry.tempoBpm,
+    tempoEvidence: "message-rate-monitored-constant",
+    provenance: "capture-snapshot/v1",
+  })[0]!;
   const record = contextFeatureSchema.parse({
     id: "feature-1",
     entryId: "entry",
@@ -889,7 +900,9 @@ async function featureFixture() {
     },
     createdAt: timestamp,
     trace,
-    feature: extractPeakFeature(source),
+    feature: grid
+      ? extractListeningFeature("level-grid/v1", source, aligned)
+      : extractPeakFeature(source),
   });
   const segment = contextSegmentSchema.parse({
     id: "segment-1",
@@ -905,6 +918,13 @@ async function featureFixture() {
     endSample: 34_000,
     sampleRate: 48_000,
     alignmentReason: "musical-bar-alignment-not-established",
+    ...(grid
+      ? {
+          kind: aligned.kind,
+          alignment: aligned.alignment,
+          alignmentReason: aligned.alignmentReason,
+        }
+      : {}),
   });
   const getFeature = vi
     .spyOn(seeded.store, "getFeature")
@@ -933,41 +953,60 @@ describe("typed listening feature host", () => {
     });
   });
 
-  it("returns source-linked features and application-computed pairwise distances", async () => {
-    const { host, getFeature } = await featureFixture();
-    const detail = await host.executeContextOperation(
-      {
+  it.each([false, true])(
+    "returns source-linked features and computed distances with grid=%s",
+    async (grid) => {
+      const { host, getFeature, record } = await featureFixture(grid);
+      const detail = await host.executeContextOperation(
+        {
+          action: "get-feature",
+          featureId: "feature-1",
+          includeHistorical: false,
+          ...featurePageDefaults,
+        },
+        context,
+      );
+      expect(contextOperationResultSchema.parse(detail)).toMatchObject({
         action: "get-feature",
-        featureId: "feature-1",
-        includeHistorical: false,
-        ...featurePageDefaults,
-      },
-      context,
-    );
-    expect(contextOperationResultSchema.parse(detail)).toMatchObject({
-      action: "get-feature",
-      feature: {
-        record: { id: "feature-1" },
-        segment: { kind: "unaligned" },
-        source: { contextId: "entry" },
-      },
-    });
-    const result = await host.executeContextOperation(
-      {
-        action: "compare-features",
-        pairs: [{ leftFeatureId: "feature-1", rightFeatureId: "feature-1" }],
-        includeHistorical: false,
-      },
-      context,
-    );
-    expect(result).toMatchObject({
-      comparisons: [{ result: { status: "comparable", distance: 0 } }],
-    });
-    expect(getFeature).toHaveBeenCalledWith(
-      "feature-1",
-      expect.objectContaining({ trace, activeAgentId: "reader" }),
-    );
-  });
+        feature: {
+          record: { id: "feature-1" },
+          segment: { kind: grid ? "short" : "unaligned" },
+          source: { contextId: "entry" },
+        },
+      });
+      const result = await host.executeContextOperation(
+        {
+          action: "compare-features",
+          pairs: [{ leftFeatureId: "feature-1", rightFeatureId: "feature-1" }],
+          includeHistorical: false,
+        },
+        context,
+      );
+      expect(result).toMatchObject({
+        comparisons: [
+          {
+            result: {
+              status: "comparable",
+              distance: 0,
+              ...(grid
+                ? {
+                    coverage: {
+                      policy: "shared-valid-musical-cells",
+                      comparedValues: record.feature.values!.length,
+                      totalValues: record.feature.values!.length,
+                    },
+                  }
+                : {}),
+            },
+          },
+        ],
+      });
+      expect(getFeature).toHaveBeenCalledWith(
+        "feature-1",
+        expect.objectContaining({ trace, activeAgentId: "reader" }),
+      );
+    },
+  );
 
   it("denies missing sources and read-only derivation, and forwards cancellation", async () => {
     const { host, store } = await featureFixture();
@@ -1009,9 +1048,14 @@ describe("typed listening feature host", () => {
   });
 
   it("preserves search scope, exclusions and non-exhaustive evidence", async () => {
-    const { host, store, record } = await featureFixture();
+    const { host, store, record } = await featureFixture(true);
+    const coverage = {
+      policy: "shared-valid-musical-cells" as const,
+      comparedValues: record.feature.values!.length,
+      totalValues: record.feature.values!.length,
+    };
     const search = vi.spyOn(store, "searchFeatures").mockResolvedValue({
-      matches: [{ feature: record, distance: 0 }],
+      matches: [{ feature: record, distance: 0, coverage }],
       scannedCount: 1,
       comparableCount: 1,
       eligibleCount: 2,
@@ -1036,8 +1080,10 @@ describe("typed listening feature host", () => {
       scannedCount: 1,
       limitsHit: ["candidates"],
       exclusionReasons: {},
-      distanceDefinition: "euclidean-linear-amplitude/v1",
-      matches: [{ distance: 0, feature: { source: { contextId: "entry" } } }],
+      distanceDefinition: "rms-linear-amplitude/v1",
+      matches: [
+        { distance: 0, coverage, feature: { source: { contextId: "entry" } } },
+      ],
     });
     expect(search).toHaveBeenCalledWith(
       expect.objectContaining({

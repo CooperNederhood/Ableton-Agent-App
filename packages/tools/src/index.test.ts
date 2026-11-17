@@ -1327,6 +1327,7 @@ describe("Ableton tools", () => {
     expect(tracks.description).toContain('action: "stop-clips"');
     expect(tracks.description).toContain("quantized: false");
     expect(tracks.description).toContain("Do not change global quantization");
+    expect(tracks.description).toContain("does not stop song transport");
     expect(transport.description).toContain(
       "Stopping transport does not stop or deselect Session clips",
     );
@@ -1341,6 +1342,7 @@ describe("Ableton tools", () => {
       allowedOperationIds: ["tracks.stop_clips"],
     });
     expect(stopOnly?.description).toContain("quantized: false");
+    expect(stopOnly?.description).toContain("does not stop song transport");
   });
 
   it("exposes strict root action schemas for every canonical tool", () => {

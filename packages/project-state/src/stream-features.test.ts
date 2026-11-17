@@ -1,6 +1,14 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { LISTENING_FEATURE_DEFINITIONS } from "@ableton-agent/protocol";
-import { createSyntheticMetricRecordStreamFixture } from "@ableton-agent/protocol/testing";
+import {
+  LISTENING_FEATURE_DEFINITIONS,
+  MEL_BAND_PROFILE,
+  metricStreamMelBandRecordSchema,
+  compareListeningFeatures,
+} from "@ableton-agent/protocol";
+import {
+  createSyntheticMetricRecordStreamFixture,
+  type SyntheticMetricRecordStreamOptions,
+} from "@ableton-agent/protocol/testing";
 import {
   createInMemorySessionContextStore,
   type SessionContextStore,
@@ -12,9 +20,18 @@ afterEach(async () => {
   await Promise.all(stores.splice(0).map((store) => store.close()));
 });
 
-async function fixture(recordsPerChunk = 8) {
+async function fixture(
+  recordsPerChunk = 8,
+  {
+    aligned = false,
+    ...options
+  }: SyntheticMetricRecordStreamOptions & {
+    aligned?: boolean;
+  } = {},
+) {
   const stream = await createSyntheticMetricRecordStreamFixture({
     seconds: 2,
+    ...options,
     recordsPerChunk,
   });
   const { descriptor, manifest } = stream;
@@ -32,6 +49,19 @@ async function fixture(recordsPerChunk = 8) {
     metadata: {
       id: "stream-context",
       trace,
+      ...(aligned
+        ? {
+            musicalAlignment: {
+              version: 1 as const,
+              coordinate: "transport-beats" as const,
+              meter: { numerator: 4, denominator: 4 },
+              barOriginBeat: 0,
+              tempoBpm: descriptor.geometry.tempoBpm,
+              tempoEvidence: "message-rate-monitored-constant" as const,
+              provenance: "capture-snapshot/v1" as const,
+            },
+          }
+        : {}),
       pass: {
         id: descriptor.ownership.passId,
         sessionId: "session",
@@ -98,6 +128,66 @@ async function fixture(recordsPerChunk = 8) {
 }
 
 describe("features backed by persisted measurement streams", () => {
+  it("searches stored musical grids across acquisition phases and preserves comparison coverage", async () => {
+    const sourceOrigin = 100_000;
+    const { store, owner, publish } = await fixture(8, {
+      seconds: 4,
+      aligned: true,
+      sourceOrigin,
+      records: {
+        "mel-bands": Array.from(
+          { length: Math.floor((4 * 48000) / MEL_BAND_PROFILE.hopSamples) },
+          (_, index) =>
+            metricStreamMelBandRecordSchema.parse({
+              index,
+              support: {
+                startSample: sourceOrigin + index * MEL_BAND_PROFILE.hopSamples,
+                endSample:
+                  sourceOrigin + (index + 1) * MEL_BAND_PROFILE.hopSamples,
+              },
+              magnitudes: [
+                Array.from({ length: 24 }, (_, band) => band + 1),
+                Array.from({ length: 24 }, (_, band) => band + 1),
+              ],
+            }),
+        ),
+      },
+    });
+    await publish();
+    await store.deriveFeatures(owner.captureId);
+    const page = await store.listFeatures({
+      entryId: owner.captureId,
+      featureType: "mel-grid/v1",
+      limit: 100,
+    });
+    expect(page.items).toHaveLength(2);
+    const [left, right] = page.items;
+    expect(left!.feature.profileKey).not.toEqual(right!.feature.profileKey);
+    const comparison = compareListeningFeatures(left!.feature, right!.feature);
+    const result = await store.searchFeatures({ featureId: left!.id });
+    expect(result.exclusionReasons).toEqual({});
+    expect(result).toMatchObject({
+      comparableCount: 1,
+      excludedCount: 0,
+      exhaustive: true,
+      matches: [{ feature: { id: right!.id } }],
+    });
+    expect(comparison.status).toBe("comparable");
+    if (comparison.status === "comparable")
+      expect(result.matches[0]).toMatchObject({
+        distance: comparison.distance,
+        coverage: comparison.coverage,
+      });
+    expect(
+      (
+        await store.searchFeatures({
+          featureId: left!.id,
+          excludeEntryIds: [owner.captureId],
+        })
+      ).matches,
+    ).toEqual([]);
+  });
+
   it("derives the complete feature catalog without recapture or whole-observation publication", async () => {
     const { store, owner, publish } = await fixture();
     await publish();

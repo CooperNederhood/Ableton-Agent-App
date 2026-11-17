@@ -11,18 +11,25 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resolveLiveAgentStorage } from "@ableton-agent/storage";
 import {
   withSyntheticAnalyzerTimelines,
+  createSyntheticMetricListeningObservation,
   createSyntheticMetricRecordStreamFixture,
 } from "../../packages/protocol/src/testing.js";
 import {
   projectMetricListeningReport,
   metricRecordChunkSchema,
+  inspectArrangementListeningSourceResultSchema,
 } from "@ableton-agent/protocol";
 import { metricCaptureRecordSchema } from "@ableton-agent/project-state";
 import type {
   ResolveBridgeCredentialOptions,
   resolveBridgeCredential,
 } from "../../apps/desktop/src/main/bridge-credentials.js";
-import type { DriverContext } from "../../packages/test-support/src/integration/contracts.js";
+import type {
+  AssertionReference,
+  DriverContext,
+  LifecycleEvent,
+  RunFailure,
+} from "../../packages/test-support/src/integration/contracts.js";
 import {
   liveSetSnapshotSchema,
   desktopSessionListeningPreflightSchema,
@@ -238,6 +245,12 @@ const streamFixtures = new Map<
     chunks: MetricRecordChunk[];
   }
 >();
+
+type CleanupEvidence = {
+  events: LifecycleEvent[];
+  failures: RunFailure[];
+  resources: Record<string, boolean>;
+};
 
 async function streamFixture(
   observation: MetricAudioObservation,
@@ -1687,24 +1700,17 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
     }
     await driver.cleanup(context);
   });
-  it.each([
-    "step",
-    "final",
-    "source-review",
-    "whole-observation",
-    "whole-derive",
-    "whole-derive-foreign",
-    "whole-foreign-native",
-  ])(
-    "admits both Session and Arrangement baseline inventories without conflating target arm scope (%s)",
-    async (placement) => {
-      const whole = placement.startsWith("whole-");
-      const midi = await midiBaseline();
+  describe("mixed Session and Arrangement sources", () => {
+    let midi: Awaited<ReturnType<typeof midiBaseline>>;
+    let trackId: string;
+
+    beforeEach(async () => {
+      midi = await midiBaseline();
       const snapshot = liveSetSnapshotSchema.parse(
         await api.ableton.requestSnapshot(),
       );
-      const trackId = randomUUID(),
-        deviceId = randomUUID(),
+      trackId = randomUUID();
+      const deviceId = randomUUID(),
         clipId = randomUUID();
       const binding = {
         slot: "AudioTrack:176/DeviceChain/DeviceChain/Devices/MxDeviceAudioEffect:0",
@@ -1748,16 +1754,18 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
           endBeat: 80,
         },
       ];
-      const saved = vi
-        .spyOn(arrangementHelpers, "readSavedArrangementSource")
-        .mockReturnValue({
-          creator: "Ableton Live 11.3.43",
-          savedProjectSha256: projectSha256,
-          savedClips: clips,
-        });
-      const tempo = vi
-        .spyOn(arrangementHelpers, "verifySavedArrangementTempo")
-        .mockImplementation(() => undefined);
+      vi.spyOn(
+        arrangementHelpers,
+        "readSavedArrangementSource",
+      ).mockReturnValue({
+        creator: "Ableton Live 11.3.43",
+        savedProjectSha256: projectSha256,
+        savedClips: clips,
+      });
+      vi.spyOn(
+        arrangementHelpers,
+        "verifySavedArrangementTempo",
+      ).mockImplementation(() => undefined);
       const state = {
         transportPlaying: false,
         currentBeat: 5.5,
@@ -1832,11 +1840,7 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
         ...context,
         scenario: {
           ...context.scenario,
-          assertions: whole
-            ? [{ name: "storage-shape", parameters: { expectedMeasures: 1 } }]
-            : placement === "final"
-              ? [{ name: "listening-comprehension", parameters: {} }]
-              : [],
+          assertions: [],
           requiredCapabilities: [
             "automation",
             "session-midi",
@@ -1853,25 +1857,21 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
                 action: "play-arrangement-and-listen",
                 "listenerIds.0": "$source.listenerId",
                 startBeat: "$source.startBeat",
-                endBeat: whole ? 4 : "$source.endBeat",
+                endBeat: 4,
               },
             },
-            ...(whole
-              ? [
-                  {
-                    sourceId: "arrangement",
-                    tool: "ableton_context",
-                    action: "derive-features",
-                    risk: "medium" as const,
-                    maxUses: 1,
-                    arguments: {
-                      action: "derive-features",
-                      "contextIds.0": "$source.contextId",
-                      includeHistorical: false,
-                    },
-                  },
-                ]
-              : []),
+            {
+              sourceId: "arrangement",
+              tool: "ableton_context",
+              action: "derive-features",
+              risk: "medium",
+              maxUses: 1,
+              arguments: {
+                action: "derive-features",
+                "contextIds.0": "$source.contextId",
+                includeHistorical: false,
+              },
+            },
             {
               sourceId: "midi",
               tool: "ableton_listening",
@@ -1926,224 +1926,364 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
           ],
         },
       };
-      if (placement === "source-review") {
+    });
+
+    afterEach(async () => {
+      try {
+        await driver.cleanup(context);
+      } finally {
+        vi.restoreAllMocks();
+      }
+    });
+
+    it.each([
+      "none",
+      "remembered",
+      "mutation",
+      "cancelled",
+      "read-failure",
+    ] as const)(
+      "runs initial Arrangement handoff before baseline admission (fault=%s)",
+      async (fault) => {
+        const step = {
+          id: "listen",
+          sourceId: "arrangement",
+          message: "Listen",
+          timeoutMs: 1000,
+          setupActions: ["back-to-arrangement"] as const,
+          assertions: [],
+        };
         context = {
           ...context,
-          fixture: { ...context.fixture, qualification: "synthetic-only" },
+          scenario: { ...context.scenario, steps: [step] },
         };
-        driver = new PackagedAcceptanceDriver({
-          runDirectory: directory,
-          purpose: "source-review",
-        });
-      }
-      try {
+        const snapshot = liveSetSnapshotSchema.parse(
+          await api.ableton.requestSnapshot(),
+        );
+        api.ableton.requestSnapshot.mockResolvedValue(snapshot);
+        if (fault === "remembered")
+          snapshot.sessionClips![0]!.status = "playing";
+        const handoff = vi
+          .spyOn(arrangementHelpers, "handoffArrangementSource")
+          .mockImplementation(async () => {
+            if (fault === "mutation") snapshot.tracks[0]!.muted = true;
+            if (fault === "read-failure")
+              api.ableton.requestSnapshot.mockRejectedValueOnce(
+                new Error("Snapshot unavailable"),
+              );
+            return {
+              command: "transport.back_to_arrangement",
+              dispatchedCount: 1,
+              beforeBackToArrangement: false,
+              afterBackToArrangement: false,
+              transportStopped: true,
+              verified: true,
+            };
+          });
         await driver.launch(context);
         await driver.ready(context);
-        const observed =
-          placement === "source-review"
-            ? await driver.reviewDeclaredSources(context)
-            : await driver.readBaseline(context);
-        expect(Object.keys(observed.sources ?? {})).toEqual(["midi"]);
-        expect(Object.keys(observed.arrangementSources ?? {})).toEqual([
-          "arrangement",
-        ]);
-        expect(observed.sources!.midi!.source).toMatchObject(midi.expected);
-        expect(observed.facts).toMatchObject({
-          targetArmed: false,
-          targetMonitoring: "off",
-          loopEnabled: false,
-          backToArrangement: false,
-        });
-        expect(mocks.send).not.toHaveBeenCalled();
-        if (placement === "source-review") {
-          expect(observed.facts.authoringReview).toBe(true);
-          expect(context.fixture.qualification).toBe("synthetic-only");
-          await expect(driver.readBaseline(context)).rejects.toThrow(
-            "Source-review mode cannot execute",
+        const setup = driver.setup(
+          "back-to-arrangement",
+          step,
+          fault === "cancelled"
+            ? {
+                ...context,
+                signal: AbortSignal.abort(new Error("Setup cancelled")),
+              }
+            : context,
+        );
+        if (fault === "none") {
+          await expect(setup).resolves.toMatchObject({
+            completed: true,
+            arrangementSource: { verified: true, dispatchedCount: 1 },
+          });
+          expect(
+            (await driver.readBaseline(context)).arrangementSources,
+          ).toHaveProperty("arrangement");
+        } else {
+          await expect(setup).rejects.toThrow(
+            fault === "cancelled"
+              ? "Setup cancelled"
+              : fault === "read-failure"
+                ? "Snapshot unavailable"
+                : "unrelated Session state",
           );
-          expect(mocks.runnerSetPlaying).not.toHaveBeenCalled();
-          return;
+          if (fault === "remembered" || fault === "cancelled") {
+            expect(handoff).not.toHaveBeenCalled();
+            expect(mocks.bridgeHandoff).not.toHaveBeenCalled();
+          }
         }
-        const step = {
-          id: "mixed",
-          ...(whole ? { sourceId: "arrangement" } : {}),
-          message: "Listen naturally",
-          timeoutMs: 1000,
-          assertions:
-            placement === "step"
-              ? [{ name: "listening-comprehension", parameters: {} }]
-              : [],
+        expect(mocks.send).not.toHaveBeenCalled();
+      },
+    );
+
+    async function startCapture(
+      view: "session" | "arrangement",
+      options: {
+        sourceId?: string;
+        endBeat?: number;
+        includeSession?: boolean;
+        assertions?: readonly AssertionReference[];
+        observation?: MetricAudioObservation;
+      } = {},
+    ) {
+      const arrangement = view === "arrangement";
+      const endBeat = options.endBeat ?? 4;
+      if (arrangement)
+        context = {
+          ...context,
+          scenario: {
+            ...context.scenario,
+            assertions: [
+              ...context.scenario.assertions,
+              {
+                name: "storage-shape",
+                parameters: { expectedMeasures: endBeat / 4 },
+              },
+            ],
+            permissions: context.scenario.permissions.map((permission) =>
+              permission.action === "play-arrangement-and-listen"
+                ? {
+                    ...permission,
+                    arguments: { ...permission.arguments, endBeat },
+                  }
+                : permission,
+            ),
+          },
         };
-        const subscription = await driver.subscribe();
-        const submission = await driver.submit(step, context);
-        const f = agentListeningFixture();
-        let observation = structuredClone(f.context.observation);
-        if (!observation || observation.source.view !== "session")
-          throw new Error("Expected synthetic observation");
-        const sdkTurnId = randomUUID();
-        observation.source.kind = "midi";
-        observation.source.target = preflight.source.target;
-        observation.source.clipReference =
-          preflight.source.target.expectedClipReference;
+      await driver.launch(context);
+      await driver.ready(context);
+      const observed = await driver.readBaseline(context);
+      const preflight = midi.preflight;
+      const step = {
+        id: "mixed",
+        ...(options.sourceId ? { sourceId: options.sourceId } : {}),
+        message: "Listen naturally",
+        timeoutMs: 1000,
+        assertions: options.assertions ?? [],
+      };
+      const subscription = await driver.subscribe();
+      const submission = await driver.submit(step, context);
+      const f = agentListeningFixture();
+      const sessionObservation = structuredClone(f.context.observation);
+      if (!sessionObservation || sessionObservation.source.view !== "session")
+        throw new Error("Expected synthetic observation");
+      const sdkTurnId = randomUUID();
+      sessionObservation.source.kind = "midi";
+      sessionObservation.source.target = preflight.source.target;
+      sessionObservation.source.clipReference =
+        preflight.source.target.expectedClipReference;
+      Object.assign(sessionObservation.ownership, {
+        traceId: sdkTurnId,
+        correlationId: sdkTurnId,
+        passId: randomUUID(),
+        listenerId: observed.sources!.midi!.listenerId,
+      });
+      const sessionContextId = randomUUID();
+      const sessionReference = options.includeSession
+        ? await streamFixture(sessionObservation, sessionContextId)
+        : undefined;
+      const observation = arrangement
+        ? (options.observation ??
+          withSyntheticAnalyzerTimelines(melSmokeFixture().observation))
+        : sessionObservation;
+      if (arrangement) {
+        observation.source = {
+          view: "arrangement",
+          target: { kind: "regular", index: 1, expectedReference: trackId },
+          transport: { startBeat: 0, endBeat },
+        };
         Object.assign(observation.ownership, {
           traceId: sdkTurnId,
           correlationId: sdkTurnId,
+          listenerId: observed.arrangementSources!.arrangement!.listenerId,
         });
-        if (whole) {
-          observation = withSyntheticAnalyzerTimelines(
-            melSmokeFixture().observation,
-          );
-          observation.source = {
-            view: "arrangement",
-            target: { kind: "regular", index: 1, expectedReference: trackId },
-            transport: { startBeat: 0, endBeat: 4 },
+      }
+      const reference = await streamFixture(observation, f.contextId);
+      const references = new Map([[f.contextId, reference]]);
+      if (sessionReference) references.set(sessionContextId, sessionReference);
+      api.entityContext.get.mockImplementation(
+        async ({ contextId }: { contextId: string }) => {
+          const selected = references.get(contextId);
+          if (!selected) throw new Error("Unknown synthetic context");
+          return {
+            ...f.context,
+            entry: {
+              ...f.context.entry,
+              contextId,
+              kind: "metric-record-stream-context/v1",
+              passId: selected.descriptor.ownership.passId,
+              listenerId: selected.descriptor.ownership.listenerId,
+            },
+            observation: selected,
           };
-          Object.assign(observation.ownership, {
-            traceId: sdkTurnId,
-            correlationId: sdkTurnId,
-            listenerId: observed.arrangementSources!.arrangement!.listenerId,
-          });
+        },
+      );
+      if (arrangement) {
+        for (const record of f.records) {
+          record.appSessionId = identity.appSessionId;
+          record.agentSessionId = identity.conversationId;
+          record.activeAgentId = identity.agentId;
+          if ("turnId" in record) record.turnId = sdkTurnId;
+          record.traceId = sdkTurnId;
+          if (record.kind === "tool_call" || record.kind === "tool_result")
+            record.causationId = sdkTurnId;
+          else record.correlationId = sdkTurnId;
         }
-        const reference = await streamFixture(observation, f.contextId);
-        api.entityContext.get.mockResolvedValue({
-          ...f.context,
-          entry: {
-            ...f.context.entry,
-            kind: "metric-record-stream-context/v1",
+        api.eventHistory.agent.mockResolvedValue(agentHistoryPage(f.records));
+      }
+      api.listening.list.mockResolvedValue({
+        jobs: [
+          {
             passId: observation.ownership.passId,
-            listenerId: observation.ownership.listenerId,
-          },
-          observation: reference,
-        });
-        if (whole) {
-          for (const record of f.records) {
-            record.appSessionId = identity.appSessionId;
-            record.agentSessionId = identity.conversationId;
-            record.activeAgentId = identity.agentId;
-            if ("turnId" in record) record.turnId = sdkTurnId;
-            record.traceId = sdkTurnId;
-            if (record.kind === "tool_call" || record.kind === "tool_result")
-              record.causationId = sdkTurnId;
-            else record.correlationId = sdkTurnId;
-          }
-          api.eventHistory.agent.mockResolvedValue(agentHistoryPage(f.records));
-        }
-        api.listening.list.mockResolvedValue({
-          jobs: [
-            {
-              passId: observation.ownership.passId,
-              sessionId: identity.appSessionId,
-              agentId: identity.agentId,
-              stage: "completed",
-              contextIds: [f.contextId],
-              trace: {
-                traceId: sdkTurnId,
-                correlationId: sdkTurnId,
-                causationId: observation.ownership.causationId,
-              },
-              ...(whole
-                ? {}
-                : {
-                    session: {
-                      clipName: "Clip 1",
-                      trackName: "Source 1",
-                      sceneIndex: 0,
-                    },
-                  }),
-            },
-          ],
-        });
-        api.eventHistory.trace.mockResolvedValue({
-          items: [
-            {
-              id: "native-cleanup",
-              sequence: 1,
-              name: "listening.metric-capture.completed",
-              trace: { traceId: sdkTurnId },
+            sessionId: identity.appSessionId,
+            agentId: identity.agentId,
+            stage: "completed",
+            contextIds: [f.contextId],
+            trace: {
+              traceId: sdkTurnId,
               correlationId: sdkTurnId,
-              outcome: "success",
-              durationMs: 1,
-              attributes: {
-                passId: observation.ownership.passId,
-                action: "cleanup",
-                listeners: [
-                  {
-                    ...observation.ownership,
-                    ...(placement === "whole-foreign-native"
-                      ? { generation: randomUUID() }
-                      : {}),
+              causationId: observation.ownership.causationId,
+            },
+            ...(arrangement
+              ? {}
+              : {
+                  session: {
+                    clipName: "Clip 1",
+                    trackName: "Source 1",
+                    sceneIndex: 0,
                   },
-                ],
-              },
-            },
-            {
-              id: "source-cleanup",
-              sequence: 2,
-              name: `listening.runtime.${whole ? "arrangement" : "session"}-source-cleanup.completed`,
-              trace: { traceId: sdkTurnId },
-              correlationId: sdkTurnId,
-              outcome: "success",
-              durationMs: 1,
-              sessionId: identity.appSessionId,
-              activeAgentId: identity.agentId,
-              attributes: {
-                passId: observation.ownership.passId,
-                ...(whole
-                  ? {
-                      cleanupPolicy: "leave-running",
-                      sourceOwnership: "authenticated-listener-registry",
-                      listenerOwnerReleased: true,
-                      listeners: [
-                        {
-                          ...observation.ownership,
-                        },
-                      ],
-                    }
-                  : {}),
-              },
-            },
-          ],
-        });
-        const emit = mocks.subscriber.mock.calls[0]![0];
-        emit({
-          type: "agent.user_message_submitted",
-          messageId: userMessageId,
-          content: step.message,
-          agentInstanceId: identity.agentId,
-          agentMode: "interactive",
-          origin: "automation",
-          timestamp: Date.now(),
-          traceId: context.traceId,
-          correlationId: context.correlationId,
-          causationId: context.causationId,
-          turn: {
-            assistantMessageId,
-            target: {
-              appSessionId: identity.appSessionId,
-              agentInstanceId: identity.agentId,
-              sdkSessionId: identity.conversationId,
+                }),
+          },
+          ...(options.includeSession
+            ? [
+                {
+                  passId: sessionObservation.ownership.passId,
+                  sessionId: identity.appSessionId,
+                  agentId: identity.agentId,
+                  stage: "completed",
+                  contextIds: [sessionContextId],
+                  trace: {
+                    traceId: sdkTurnId,
+                    correlationId: sdkTurnId,
+                    causationId: sessionObservation.ownership.causationId,
+                  },
+                  session: {
+                    clipName: "Clip 1",
+                    trackName: "Source 1",
+                    sceneIndex: 0,
+                  },
+                },
+              ]
+            : []),
+        ],
+      });
+      const nativeOwnership = { ...observation.ownership };
+      api.eventHistory.trace.mockResolvedValue({
+        items: [
+          {
+            id: "native-cleanup",
+            sequence: 1,
+            name: "listening.metric-capture.completed",
+            trace: { traceId: sdkTurnId },
+            correlationId: sdkTurnId,
+            outcome: "success",
+            durationMs: 1,
+            attributes: {
+              passId: observation.ownership.passId,
+              action: "cleanup",
+              listeners: [nativeOwnership],
             },
           },
-        });
-        emit({
-          type: "agent.working_update",
-          messageId: assistantMessageId,
-          agentInstanceId: identity.agentId,
-          sdkSessionId: identity.conversationId,
-          update: {
-            kind: "started",
-            activityId: sdkTurnId,
-            occurredAt: new Date().toISOString(),
+          {
+            id: "source-cleanup",
+            sequence: 2,
+            name: `listening.runtime.${view}-source-cleanup.completed`,
+            trace: { traceId: sdkTurnId },
+            correlationId: sdkTurnId,
+            outcome: "success",
+            durationMs: 1,
+            sessionId: identity.appSessionId,
+            activeAgentId: identity.agentId,
+            attributes: {
+              passId: observation.ownership.passId,
+              ...(arrangement
+                ? {
+                    cleanupPolicy: "leave-running",
+                    sourceOwnership: "authenticated-listener-registry",
+                    listenerOwnerReleased: true,
+                    listeners: [
+                      {
+                        ...observation.ownership,
+                      },
+                    ],
+                  }
+                : {}),
+            },
           },
-        });
-        for (const [action, args, cause] of [
-          [
-            whole ? "play-arrangement-and-listen" : "play-session-and-listen",
-            whole
+        ],
+      });
+      const emit = mocks.subscriber.mock.calls[0]![0];
+      emit({
+        type: "agent.user_message_submitted",
+        messageId: userMessageId,
+        content: step.message,
+        agentInstanceId: identity.agentId,
+        agentMode: "interactive",
+        origin: "automation",
+        timestamp: Date.now(),
+        traceId: context.traceId,
+        correlationId: context.correlationId,
+        causationId: context.causationId,
+        turn: {
+          assistantMessageId,
+          target: {
+            appSessionId: identity.appSessionId,
+            agentInstanceId: identity.agentId,
+            sdkSessionId: identity.conversationId,
+          },
+        },
+      });
+      emit({
+        type: "agent.working_update",
+        messageId: assistantMessageId,
+        agentInstanceId: identity.agentId,
+        sdkSessionId: identity.conversationId,
+        update: {
+          kind: "started",
+          activityId: sdkTurnId,
+          occurredAt: new Date().toISOString(),
+        },
+      });
+      emit({
+        type: "approval.requested",
+        operationId: submission.operationId,
+        appSessionId: identity.appSessionId,
+        agentInstanceId: identity.agentId,
+        sdkSessionId: identity.conversationId,
+        trace: {
+          traceId: sdkTurnId,
+          correlationId: sdkTurnId,
+          causationId: observation.ownership.causationId,
+        },
+        approval: {
+          id: randomUUID(),
+          title: "Listen",
+          risk: "medium",
+          summary: "Exact source",
+          changes: [],
+          destructive: false,
+          tool: {
+            name: "ableton_listening",
+            action: arrangement
+              ? "play-arrangement-and-listen"
+              : "play-session-and-listen",
+            argumentsComplete: true,
+            arguments: arrangement
               ? {
                   action: "play-arrangement-and-listen",
                   startBeat: 0,
-                  endBeat: 4,
+                  endBeat,
                   listenerIds: [observation.ownership.listenerId],
                 }
               : {
@@ -2151,69 +2291,37 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
                   target: preflight.source.target,
                   listenerIds: [observation.ownership.listenerId],
                 },
-            observation.ownership.causationId,
-          ],
-        ] as const) {
-          emit({
-            type: "approval.requested",
-            operationId: submission.operationId,
-            appSessionId: identity.appSessionId,
-            agentInstanceId: identity.agentId,
-            sdkSessionId: identity.conversationId,
-            trace: {
-              traceId: sdkTurnId,
-              correlationId: sdkTurnId,
-              causationId: cause,
-            },
-            approval: {
-              id: randomUUID(),
-              title: "Listen",
-              risk: "medium",
-              summary: "Exact source",
-              changes: [],
-              destructive: false,
-              tool: {
-                name: "ableton_listening",
-                action,
-                argumentsComplete: true,
-                arguments: args,
-              },
-            },
-          });
-        }
-        if (placement.startsWith("whole-derive")) {
-          if (placement === "whole-derive-foreign") {
-            observation.ownership.causationId = "foreign-capture";
-            streamFixtures.get(
-              f.contextId,
-            )!.record.descriptor.ownership.causationId = "foreign-capture";
-          }
-          emit({
-            type: "approval.requested",
-            operationId: submission.operationId,
-            appSessionId: identity.appSessionId,
-            agentInstanceId: identity.agentId,
-            sdkSessionId: identity.conversationId,
-            approval: {
-              id: randomUUID(),
-              title: "Derive",
-              risk: "medium",
-              summary: "Stored source",
-              changes: [],
-              destructive: false,
-              tool: {
-                name: "ableton_context",
+          },
+        },
+      });
+      function derive(contextIds: string[]) {
+        emit({
+          type: "approval.requested",
+          operationId: submission.operationId,
+          appSessionId: identity.appSessionId,
+          agentInstanceId: identity.agentId,
+          sdkSessionId: identity.conversationId,
+          approval: {
+            id: randomUUID(),
+            title: "Derive",
+            risk: "medium",
+            summary: "Stored source",
+            changes: [],
+            destructive: false,
+            tool: {
+              name: "ableton_context",
+              action: "derive-features",
+              argumentsComplete: true,
+              arguments: {
                 action: "derive-features",
-                argumentsComplete: true,
-                arguments: {
-                  action: "derive-features",
-                  contextIds: [f.contextId],
-                  includeHistorical: false,
-                },
+                contextIds,
+                includeHistorical: false,
               },
             },
-          });
-        }
+          },
+        });
+      }
+      function complete() {
         emit({
           type: "agent.message_complete",
           messageId: assistantMessageId,
@@ -2232,58 +2340,444 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
           agentInstanceId: identity.agentId,
           sdkSessionId: identity.conversationId,
         });
-        if (
-          placement === "whole-derive-foreign" ||
-          placement === "whole-foreign-native"
-        ) {
-          await expect(
-            subscription.waitForTurn(submission, context),
-          ).rejects.toThrow();
-          if (placement === "whole-derive-foreign")
-            expect(api.approvals.resolve.mock.calls.at(-1)?.[1]).toBe("deny");
-          return;
-        }
-        const turn = await subscription.waitForTurn(submission, context);
-        if (whole) {
-          expect(step.assertions).toEqual([]);
-          expect(turn.captures).toEqual([]);
-          expect(turn.arrangementCaptures).toHaveLength(1);
-          expect(turn.arrangementCaptures![0]).toMatchObject({
-            passId: observation.ownership.passId,
-            source: { startBeat: 0, endBeat: 80 },
-            complete: true,
-            cleanup: { captureReleased: true, sourceRestored: true },
-          });
-          expect(turn.arrangementCaptures![0]!.stream?.contextId).toBe(
-            f.contextId,
-          );
-          expect(turn.storageShapes![0]).toMatchObject({
-            contextId: f.contextId,
-            schema: "metric-record-stream-context/v1",
-            startBeat: 0,
-            endBeat: 4,
-            afterOwnedRestart: false,
-          });
-          expect(api.approvals.resolve).toHaveBeenCalledTimes(
-            placement === "whole-derive" ? 2 : 1,
-          );
-          return;
-        }
+      }
+      return {
+        observed,
+        subscription,
+        submission,
+        contextId: f.contextId,
+        sessionContextId,
+        observation,
+        reference,
+        nativeOwnership,
+        emit,
+        derive,
+        complete,
+      };
+    }
+
+    it.each(["step", "final"] as const)(
+      "admits both baselines with a %s comprehension assertion and independent arm scope",
+      async (placement) => {
+        const assertions = [
+          { name: "listening-comprehension", parameters: {} },
+        ];
+        context = {
+          ...context,
+          scenario: {
+            ...context.scenario,
+            assertions: placement === "final" ? assertions : [],
+          },
+        };
+        const capture = await startCapture("session", {
+          assertions: placement === "step" ? assertions : [],
+        });
+        expect(Object.keys(capture.observed.sources ?? {})).toEqual(["midi"]);
+        expect(Object.keys(capture.observed.arrangementSources ?? {})).toEqual([
+          "arrangement",
+        ]);
+        expect(capture.observed.sources!.midi!.source).toMatchObject(
+          midi.expected,
+        );
+        expect(capture.observed.facts).toMatchObject({
+          targetArmed: false,
+          targetMonitoring: "off",
+          loopEnabled: false,
+          backToArrangement: false,
+        });
+        capture.complete();
+        const turn = await capture.subscription.waitForTurn(
+          capture.submission,
+          context,
+        );
         expect(turn.captures).toHaveLength(1);
         expect(turn.captures[0]!.observation).toEqual(
-          expandArrangementDescriptor(reference.descriptor),
+          expandArrangementDescriptor(capture.reference.descriptor),
         );
         expect(turn.captures[0]!.toolCausationId).toBe(
-          observation.ownership.causationId,
+          capture.observation.ownership.causationId,
         );
         expect(turn.arrangementCaptures).toBeUndefined();
         expect(api.approvals.resolve).toHaveBeenCalledOnce();
         expect(api.entityContext.getMetricCapture).toHaveBeenCalled();
-      } finally {
-        saved.mockRestore();
-        tempo.mockRestore();
-        await driver.cleanup(context);
-      }
+      },
+    );
+
+    it("reviews both declared sources without permitting execution or transport repair", async () => {
+      context = {
+        ...context,
+        fixture: { ...context.fixture, qualification: "synthetic-only" },
+      };
+      driver = new PackagedAcceptanceDriver({
+        runDirectory: directory,
+        purpose: "source-review",
+      });
+      await driver.launch(context);
+      await driver.ready(context);
+      const observed = await driver.reviewDeclaredSources(context);
+      expect(Object.keys(observed.sources ?? {})).toEqual(["midi"]);
+      expect(Object.keys(observed.arrangementSources ?? {})).toEqual([
+        "arrangement",
+      ]);
+      expect(observed.sources!.midi!.source).toMatchObject(midi.expected);
+      expect(observed.facts.authoringReview).toBe(true);
+      expect(context.fixture.qualification).toBe("synthetic-only");
+      await expect(driver.readBaseline(context)).rejects.toThrow(
+        "Source-review mode cannot execute",
+      );
+      expect(mocks.send).not.toHaveBeenCalled();
+      expect(mocks.runnerSetPlaying).not.toHaveBeenCalled();
+    });
+
+    it.each(["none", "running", "moved", "captured"] as const)(
+      "permits a single Arrangement seek only from its stopped initial state (fault=%s)",
+      async (fault) => {
+        context = {
+          ...context,
+          scenario: {
+            ...context.scenario,
+            permissions: [
+              ...context.scenario.permissions,
+              {
+                tool: "ableton_transport",
+                action: "seek",
+                risk: "medium",
+                maxUses: 1,
+                sourceId: "arrangement",
+                stepIds: ["mixed"],
+                arguments: { action: "seek", time: 0 },
+              },
+            ],
+          },
+        };
+        const capture = await startCapture("arrangement", {
+          sourceId: "arrangement",
+        });
+        if (fault !== "captured")
+          api.listening.list.mockResolvedValue({ jobs: [] });
+        if (fault === "running" || fault === "moved") {
+          const read =
+            api.ableton.inspectArrangementListeningSource.getMockImplementation()!;
+          api.ableton.inspectArrangementListeningSource.mockImplementation(
+            async (request: unknown) => {
+              const result =
+                inspectArrangementListeningSourceResultSchema.parse(
+                  await read(request),
+                );
+              for (const state of [result.before, result.after])
+                if (fault === "running") state.transportPlaying = true;
+                else state.currentBeat = 10;
+              return result;
+            },
+          );
+        }
+        const seek = {
+          type: "approval.requested",
+          operationId: capture.submission.operationId,
+          appSessionId: identity.appSessionId,
+          agentInstanceId: identity.agentId,
+          sdkSessionId: identity.conversationId,
+          approval: {
+            id: randomUUID(),
+            title: "Seek",
+            risk: "medium",
+            destructive: false,
+            summary: "Reviewed initial positioning",
+            changes: [],
+            tool: {
+              name: "ableton_transport",
+              action: "seek",
+              argumentsComplete: true,
+              arguments: { action: "seek", time: 0 },
+            },
+          },
+        };
+        capture.emit(seek);
+        capture.emit({
+          ...seek,
+          approval: { ...seek.approval, id: randomUUID() },
+        });
+        await expect(
+          capture.subscription.waitForTurn(capture.submission, context),
+        ).rejects.toThrow();
+        expect(
+          api.approvals.resolve.mock.calls.map(
+            ([, decision]): unknown => decision,
+          ),
+        ).toEqual(
+          fault === "none"
+            ? ["approve", "approve", "deny"]
+            : ["approve", "deny"],
+        );
+      },
+    );
+
+    it.each([
+      { sourceId: "arrangement", foreign: false },
+      { sourceId: "arrangement", foreign: true },
+      { sourceId: undefined, foreign: false },
+      { sourceId: undefined, foreign: true },
+    ])(
+      "binds Arrangement derivation to the invoking capture (sourceId=$sourceId, foreign=$foreign)",
+      async ({ sourceId, foreign }) => {
+        const capture = await startCapture(
+          "arrangement",
+          sourceId ? { sourceId } : {},
+        );
+        if (foreign)
+          streamFixtures.get(
+            capture.contextId,
+          )!.record.descriptor.ownership.causationId = "foreign-capture";
+        capture.derive([capture.contextId]);
+        capture.complete();
+        const turn = capture.subscription.waitForTurn(
+          capture.submission,
+          context,
+        );
+        if (foreign) {
+          await expect(turn).rejects.toThrow(
+            "Derivation approval stream source does not match the invoking turn",
+          );
+          expect(api.approvals.resolve.mock.calls.at(-1)?.[1]).toBe("deny");
+        } else {
+          expect((await turn).arrangementCaptures?.[0]?.stream?.contextId).toBe(
+            capture.contextId,
+          );
+          expect(
+            api.approvals.resolve.mock.calls.map(
+              ([, decision]): unknown => decision,
+            ),
+          ).toEqual(["approve", "approve"]);
+        }
+      },
+    );
+
+    it.each([
+      { order: "session-first", reviewed: true },
+      { order: "arrangement-first", reviewed: true },
+      { order: "session-first", reviewed: false },
+    ])(
+      "enforces scoped mixed derivation and use limits (order=$order, reviewed=$reviewed)",
+      async ({ order, reviewed }) => {
+        if (reviewed) {
+          const permission = context.scenario.permissions.find(
+            ({ action }) => action === "derive-features",
+          )!;
+          context = {
+            ...context,
+            scenario: {
+              ...context.scenario,
+              permissions: [
+                ...context.scenario.permissions,
+                { ...permission, sourceId: "midi" },
+              ],
+            },
+          };
+        }
+        const capture = await startCapture("arrangement", {
+          includeSession: true,
+        });
+        const ids =
+          order === "session-first"
+            ? [capture.sessionContextId, capture.contextId]
+            : [capture.contextId, capture.sessionContextId];
+        capture.derive(ids);
+        if (reviewed) capture.derive(ids);
+        await expect(
+          capture.subscription.waitForTurn(capture.submission, context),
+        ).rejects.toThrow("Unexpected approval");
+        expect(
+          api.approvals.resolve.mock.calls.map(
+            ([, decision]): unknown => decision,
+          ),
+        ).toEqual(
+          reviewed ? ["approve", "approve", "deny"] : ["approve", "deny"],
+        );
+      },
+    );
+
+    it.each([false, true])(
+      "verifies original Arrangement streams and native cleanup ownership (foreign=%s)",
+      async (foreign) => {
+        const capture = await startCapture("arrangement", {
+          sourceId: "arrangement",
+        });
+        if (foreign) capture.nativeOwnership.generation = randomUUID();
+        capture.complete();
+        const result = capture.subscription.waitForTurn(
+          capture.submission,
+          context,
+        );
+        if (foreign) {
+          await expect(result).rejects.toThrow();
+          return;
+        }
+        const turn = await result;
+        expect(turn.captures).toEqual([]);
+        expect(turn.arrangementCaptures).toHaveLength(1);
+        expect(turn.arrangementCaptures![0]).toMatchObject({
+          passId: capture.observation.ownership.passId,
+          source: { startBeat: 0, endBeat: 80 },
+          complete: true,
+          stream: { contextId: capture.contextId },
+          cleanup: { captureReleased: true, sourceRestored: true },
+        });
+        expect(turn.storageShapes![0]).toMatchObject({
+          contextId: capture.contextId,
+          schema: "metric-record-stream-context/v1",
+          startBeat: 0,
+          endBeat: 4,
+          afterOwnedRestart: false,
+        });
+        expect(api.approvals.resolve).toHaveBeenCalledOnce();
+      },
+    );
+
+    it("verifies dense six-metric comprehension streams beyond short diagnostic limits", async () => {
+      const observation = withSyntheticAnalyzerTimelines(
+        createSyntheticMetricListeningObservation({
+          startSample: 0,
+          endBeat: 40,
+        }),
+      );
+      const mel = melSmokeFixture().observation.metrics["mel-bands"]!;
+      const frames = observation.metrics.pitch!.frames;
+      observation.metrics["mel-bands"] = {
+        ...mel,
+        sourceSupport: observation.sourceCoverage,
+        expectedRecords: frames.length,
+        frames: frames.map(({ index, support }) => ({
+          index,
+          support,
+          magnitudes: structuredClone(mel.frames[0]!.magnitudes),
+        })),
+      };
+      observation.requestedMetrics.push("mel-bands");
+      expect(observation.requestedMetrics).toHaveLength(6);
+      expect(observation.geometry.rows.length).toBeGreaterThan(128);
+      expect(frames.length).toBeGreaterThan(64);
+      context = {
+        ...context,
+        scenario: {
+          ...context.scenario,
+          assertions: [{ name: "listening-comprehension", parameters: {} }],
+        },
+      };
+      const capture = await startCapture("arrangement", {
+        sourceId: "arrangement",
+        endBeat: 40,
+        observation,
+      });
+      capture.complete();
+      const turn = await capture.subscription.waitForTurn(
+        capture.submission,
+        context,
+      );
+      expect(turn.storageShapes?.[0]).toMatchObject({
+        contextId: capture.contextId,
+        schema: "metric-record-stream-context/v1",
+        startBeat: 0,
+        endBeat: 40,
+        afterOwnedRestart: false,
+      });
+      expect(turn.arrangementCaptures?.[0]?.cleanup).toMatchObject({
+        captureReleased: true,
+        sourceRestored: true,
+      });
+    });
+  });
+  it("collects History after five seconds within the reviewed cleanup deadline", async () => {
+    await audioBaseline();
+    await driver.launch(context);
+    await driver.ready(context);
+    await driver.readBaseline(context);
+    const event = { id: "slow-history", sequence: 1, name: "controlled.event" };
+    api.eventHistory.trace.mockImplementationOnce(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 6_000));
+      return { items: [event] };
+    });
+    await driver.cleanup({ ...context, deadlineAt: Date.now() + 60_000 });
+    const product = JSON.parse(
+      await readFile(join(directory, "product-evidence.json"), "utf8"),
+    ) as { history: unknown[] };
+    expect(product.history).toContainEqual(event);
+    const cleanup = JSON.parse(
+      await readFile(join(directory, "cleanup-evidence.json"), "utf8"),
+    ) as CleanupEvidence;
+    expect(cleanup.failures).toEqual([]);
+    const history = cleanup.events.filter(
+      ({ stage }) => stage === "cleanup.history",
+    );
+    expect(history.map(({ phase }) => phase)).toEqual([
+      "queued",
+      "started",
+      "completed",
+    ]);
+    const completed = history.at(-1);
+    expect(completed).toMatchObject({
+      traceId: context.traceId,
+      correlationId: context.correlationId,
+      causationId: context.causationId,
+    });
+    expect(completed?.durationMs).toBeGreaterThanOrEqual(6_000);
+    expect(cleanup.resources).toEqual({
+      desktopStopped: true,
+      liveStopped: true,
+      hostReservationClosed: true,
+      profileRemoved: true,
+    });
+  });
+  it.each(["deadline", "cancellation", "read failure"] as const)(
+    "reports History cleanup %s without abandoning owned resources",
+    async (failure) => {
+      await audioBaseline();
+      await driver.launch(context);
+      await driver.ready(context);
+      await driver.readBaseline(context);
+      const cancellation = new AbortController();
+      api.eventHistory.trace.mockImplementationOnce(async () => {
+        if (failure === "read failure") throw new Error("History unavailable");
+        if (failure === "cancellation")
+          cancellation.abort(new Error("History cancelled"));
+        return new Promise<never>(() => undefined);
+      });
+      await expect(
+        driver.cleanup({
+          ...context,
+          signal: cancellation.signal,
+          deadlineAt: Date.now() + (failure === "deadline" ? 20 : 60_000),
+        }),
+      ).rejects.toThrow("Acceptance cleanup failed: history:");
+      const cleanup = JSON.parse(
+        await readFile(join(directory, "cleanup-evidence.json"), "utf8"),
+      ) as CleanupEvidence;
+      expect(cleanup.failures).toHaveLength(1);
+      expect(cleanup.failures[0]?.stage).toBe("history");
+      expect(cleanup.failures[0]?.message).toMatch(
+        failure === "deadline"
+          ? /timeout/i
+          : failure === "cancellation"
+            ? /History cancelled/
+            : /History unavailable/,
+      );
+      expect(
+        cleanup.events
+          .filter((event) => event.stage === "cleanup.history")
+          .map((event) => event.phase),
+      ).toEqual([
+        "queued",
+        "started",
+        failure === "cancellation" ? "cancelled" : "failed",
+      ]);
+      expect(cleanup.resources).toEqual({
+        desktopStopped: true,
+        liveStopped: true,
+        hostReservationClosed: true,
+        profileRemoved: true,
+      });
+      expect(mocks.stop).toHaveBeenCalledOnce();
+      expect(mocks.liveStop).toHaveBeenCalledOnce();
+      expect(mocks.liveClose).toHaveBeenCalledOnce();
     },
   );
   it.each([900_000, 180_000, 30_000])(
@@ -3133,56 +3627,61 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
     );
     await driver.cleanup(context);
   });
-  it("paces only an explicitly selected owned bridge and retains diagnostic provenance", async () => {
-    context = {
-      ...context,
-      scenario: {
-        ...context.scenario,
-        steps: [{ ...context.scenario.steps[0]!, timeoutMs: 900_000 }],
-      },
-    };
-    driver = new PackagedAcceptanceDriver({
-      runDirectory: directory,
-      bridgeReadMinimumMs: 550,
-    });
-    await driver.launch(context);
-    expect(mocks.bridgeOptions).toHaveBeenCalledWith({ minimumReadMs: 550 });
-    expect(mocks.liveReady.mock.invocationCallOrder[0]).toBeLessThan(
-      mocks.bridgeStart.mock.invocationCallOrder[0]!,
-    );
-    expect(mocks.bridgeStart.mock.invocationCallOrder[0]).toBeLessThan(
-      mocks.launch.mock.invocationCallOrder[0]!,
-    );
-    const storage = resolveLiveAgentStorage({
-      environment: {
-        LIVE_AGENT_HOME: join(directory, "profile/live-agent"),
-        LIVE_AGENT_PROFILE: "automation",
-      },
-    });
-    const preferences: unknown = JSON.parse(
-      await readFile(storage.preferencesPath, "utf8"),
-    );
-    expect(preferences).toMatchObject({
-      abletonPort: 54321,
-      eventHistoryEnabled: true,
-      agentTurnTimeoutMinutes: 15,
-    });
-    await driver.cleanup(context);
-    expect(mocks.bridgeClose).toHaveBeenCalledOnce();
-    const receipt: unknown = JSON.parse(
-      await readFile(join(directory, "product-evidence.json"), "utf8"),
-    );
-    expect(receipt).toMatchObject({
-      runId: context.runId,
-      scenarioId: context.scenario.id,
-      traceId: context.traceId,
-      provenance: {
+  it.each([15, 30])(
+    "paces only an explicitly selected owned bridge and propagates a %i-minute turn budget",
+    async (turnMinutes) => {
+      context = {
+        ...context,
+        scenario: {
+          ...context.scenario,
+          steps: [
+            { ...context.scenario.steps[0]!, timeoutMs: turnMinutes * 60_000 },
+          ],
+        },
+      };
+      driver = new PackagedAcceptanceDriver({
+        runDirectory: directory,
         bridgeReadMinimumMs: 550,
-        bridgeTimingMode: "read-response-minimum",
-      },
-      bridgeTiming: { records: [] },
-    });
-  });
+      });
+      await driver.launch(context);
+      expect(mocks.bridgeOptions).toHaveBeenCalledWith({ minimumReadMs: 550 });
+      expect(mocks.liveReady.mock.invocationCallOrder[0]).toBeLessThan(
+        mocks.bridgeStart.mock.invocationCallOrder[0]!,
+      );
+      expect(mocks.bridgeStart.mock.invocationCallOrder[0]).toBeLessThan(
+        mocks.launch.mock.invocationCallOrder[0]!,
+      );
+      const storage = resolveLiveAgentStorage({
+        environment: {
+          LIVE_AGENT_HOME: join(directory, "profile/live-agent"),
+          LIVE_AGENT_PROFILE: "automation",
+        },
+      });
+      const preferences: unknown = JSON.parse(
+        await readFile(storage.preferencesPath, "utf8"),
+      );
+      expect(preferences).toMatchObject({
+        abletonPort: 54321,
+        eventHistoryEnabled: true,
+        agentTurnTimeoutMinutes: turnMinutes,
+      });
+      await driver.cleanup(context);
+      expect(mocks.bridgeClose).toHaveBeenCalledOnce();
+      const receipt: unknown = JSON.parse(
+        await readFile(join(directory, "product-evidence.json"), "utf8"),
+      );
+      expect(receipt).toMatchObject({
+        runId: context.runId,
+        scenarioId: context.scenario.id,
+        traceId: context.traceId,
+        provenance: {
+          bridgeReadMinimumMs: 550,
+          bridgeTimingMode: "read-response-minimum",
+        },
+        bridgeTiming: { records: [] },
+      });
+    },
+  );
   it("rejects an unused timing proxy before submitting the user message", async () => {
     driver = new PackagedAcceptanceDriver({
       runDirectory: directory,

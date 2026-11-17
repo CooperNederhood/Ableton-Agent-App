@@ -519,6 +519,8 @@ function createMetricRuntime({
               },
               ...[
                 "validationDetail",
+                "messageType",
+                "payloadStatus",
                 "encodedBytes",
                 "frameLimit",
                 "sequence",

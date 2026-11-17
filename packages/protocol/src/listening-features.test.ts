@@ -4,9 +4,34 @@ import {
   compareListeningFeatures,
   extractPeakFeature,
   listeningFeatureSchema,
+  listeningFeatureComparisonCoverageSchema,
 } from "./listening-features.js";
 
 describe("peak-summary/v1", () => {
+  it("bounds shared-grid comparison coverage without accepting empty or impossible evidence", () => {
+    for (const [comparedValues, totalValues] of [
+      [0, 768],
+      [769, 768],
+      [1, 0],
+      [1.5, 768],
+      [1, 96001],
+    ])
+      expect(
+        listeningFeatureComparisonCoverageSchema.safeParse({
+          policy: "shared-valid-musical-cells",
+          comparedValues,
+          totalValues,
+        }).success,
+      ).toBe(false);
+    expect(
+      listeningFeatureComparisonCoverageSchema.parse({
+        policy: "shared-valid-musical-cells",
+        comparedValues: 720,
+        totalValues: 768,
+      }),
+    ).toMatchObject({ comparedValues: 720, totalValues: 768 });
+  });
+
   it("preserves the source and computes independent retained channel maxima", () => {
     const observation = createSyntheticMetricListeningObservation();
     const before = JSON.stringify(observation);

@@ -31,8 +31,8 @@ Companion specification: [Acceptance test authoring](acceptance-authoring.md).
       Cover admission alongside prior evidence and retain invalid-reservation,
       capacity-exhaustion, ownership, lock and no-deletion checks.
 - [x] Raise only the user-authorized immediate-entry admission bound from 16 to
-      32 using shared `acceptanceArtifactRetention`; demonstrate admission after
-      sixteen preserved attempts and exhaustion at 32 without deletion. Keep
+      32, then 64 using shared `acceptanceArtifactRetention`; demonstrate admission after
+      thirty-two preserved attempts and exhaustion at 64 without deletion. Keep
       8 GiB total, 256 MiB per case and 8,192 recursive entries unchanged.
 - [x] Carry the existing typed-History byte allowance through coordinator turns,
       final evidence and receipt sanitization with a shared finite 24-MiB

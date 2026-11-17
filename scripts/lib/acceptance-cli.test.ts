@@ -699,19 +699,19 @@ describe("acceptance catalog admission", () => {
       expect(fake.dependencies.run).not.toHaveBeenCalled();
     });
   });
-  it("admits preserved attempts up to 32 entries, then refuses without deleting evidence", async () => {
+  it("admits preserved attempts up to 64 entries, then refuses without deleting evidence", async () => {
     await fixture(async (root) => {
       const parent = join(root, ".test-artifacts/acceptance");
       await mkdir(parent, { recursive: true });
       const prior = Array.from(
-        { length: 16 },
+        { length: 32 },
         (_, index) => `preserved-${index}.txt`,
       );
       for (const name of prior) await writeFile(join(parent, name), name);
       const admitted = await allocateAcceptanceRun(root, "suite-");
       expect(await readdir(admitted)).toEqual([]);
       expect(acceptanceArtifactRetention).toEqual({
-        directories: 32,
+        directories: 64,
         entries: 8192,
         totalBytes: 8 * 1024 ** 3,
         reservedRunBytes: 256 * 1024 ** 2,

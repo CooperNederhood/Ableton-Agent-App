@@ -35,7 +35,7 @@ function id(value: unknown): asserts value is string {
     throw new Error("Invalid acceptance catalog ID");
 }
 export const acceptanceArtifactRetention = Object.freeze({
-  directories: 32,
+  directories: 64,
   entries: 8192,
   totalBytes: 8 * 1024 * 1024 * 1024,
   reservedRunBytes: 256 * 1024 * 1024,

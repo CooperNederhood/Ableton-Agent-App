@@ -2338,17 +2338,20 @@ and run evidence and reports their paths. Retained directory/byte limits reject
 new admission rather than automatically deleting old evidence.
 
 The CLI uses the existing `.test-artifacts/acceptance/` tooling location, not a
-second application-profile layout. Admission limits are 32 immediate entries,
+second application-profile layout. Admission limits are 64 immediate entries,
 8,192 recursive entries, and 8 GiB with a shared 256 MiB reservation per selected
 case. The 19-case suite reserves 4.75 GiB before launching anything, leaving
 3.25 GiB for earlier evidence. The former 2 GiB budget rejected the entire
 registered suite before any case could run. This finite budget increase uses
 the user's explicit authorization; it changes no case, oracle or cleanup guard.
-The separately authorized increase from 16 to 32 immediate entries admits
+The separately authorized increases from 16 through 32 to 64 immediate entries admit
 preserved prior attempts alongside new suites; it leaves the 8 GiB total,
 256 MiB per-case reservation and 8,192 recursive-entry bounds unchanged.
 The shared exported `acceptanceArtifactRetention` governs single/suite admission
-and its boundary tests. At 32 retained entries, further allocation fails without
+and its boundary tests. The 32-entry limit blocked a new comprehension run before
+execution with only 1.48 GiB retained; the finite 64-entry allowance preserves
+those earlier receipts while admitting focused regressions and another suite.
+At 64 retained entries, further allocation fails without
 deleting or altering prior evidence.
 Working-tree retention is bounded to 256 MiB, 8,192 inventory entries, and 256
 allowlisted paths. An atomic admission lock protects concurrent allocations;

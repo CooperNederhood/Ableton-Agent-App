@@ -12,6 +12,7 @@ import {
 import { dirname, join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { melSmokeFixture } from "./mel-smoke-test-support.js";
+import { writeScenarioReceipt } from "../../../../scripts/lib/scenario-receipts.mjs";
 import {
   SUPPORTED_AUDIO_BASELINE,
   createDefaultAssertions,
@@ -1443,6 +1444,73 @@ describe("driver-neutral acceptance foundation (synthetic only)", () => {
       expect(JSON.stringify(result)).not.toContain("acceptance-test-secret");
       expect(result.persisted && result.cleanupComplete).toBe(true);
     },
+  );
+
+  it.each([
+    { copies: 32, expected: "passed" },
+    { copies: 300, expected: "failed" },
+  ] as const)(
+    "retains complete typed listening pages within a finite aggregate allowance ($expected)",
+    async ({ copies, expected }) => {
+      const driver = new ControlledDriver();
+      const original = melSmokeFixture("report").turn.agentListening!;
+      const template = original.records[0]!;
+      if (template.kind !== "tool_call")
+        throw new Error("Expected fixture tool call");
+      const metadata = Object.fromEntries(
+        Array.from({ length: 8 }, (_, index) => [
+          `evidence${index}`,
+          "x".repeat(4000),
+        ]),
+      );
+      const agentListening = {
+        ...original,
+        records: [
+          ...original.records,
+          ...Array.from({ length: copies }, () => ({
+            ...template,
+            id: randomUUID(),
+            metadata: { ...template.metadata, ...metadata },
+          })),
+        ],
+      };
+      expect(Buffer.byteLength(JSON.stringify(agentListening))).toBeGreaterThan(
+        524_288,
+      );
+      driver.extraTurnFields = { agentListening };
+      driver.collected = {
+        ...driver.collected,
+        agentListening: [agentListening],
+      };
+      const result = await execute(driver, {
+        scenario: {
+          ...scenario,
+          budget: { runMs: 90_000, cleanupMs: 3000, persistenceMs: 30_000 },
+          steps: scenario.steps.map((step) => ({ ...step, timeoutMs: 30_000 })),
+        },
+      });
+      expect(result.status).toBe(expected);
+      expect(result.turns).toHaveLength(2);
+      for (const turn of result.turns)
+        expect(turn.agentListening).toEqual(agentListening);
+      if (expected === "passed") {
+        expect(result.primaryFailure).toBeUndefined();
+        expect(result.evidence?.agentListening).toEqual([agentListening]);
+      } else {
+        expect(result.primaryFailure).toMatchObject({
+          stage: "collect",
+          message: "Agent listening history exceeds report budget",
+        });
+        expect(result.evidence).toBeUndefined();
+      }
+      expect(result.persisted && result.cleanupComplete).toBe(true);
+      const path = join(root, "typed-history-receipt.json");
+      await writeScenarioReceipt(path, result);
+      expect(JSON.parse(await readFile(path, "utf8"))).toEqual(
+        JSON.parse(JSON.stringify(result)),
+      );
+    },
+    60_000,
   );
 
   it("redacts credentials from persisted and returned evidence", async () => {

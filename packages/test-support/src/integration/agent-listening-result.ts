@@ -38,7 +38,7 @@ export interface AgentListeningEvidence extends SessionIdentity {
 }
 
 const MAX_RECORDS = 1024;
-const MAX_BYTES = 24 * 1024 * 1024;
+export const MAX_AGENT_LISTENING_EVIDENCE_BYTES = 24 * 1024 * 1024;
 function requireEvidence(value: unknown, detail: string): asserts value {
   if (!value) throw new Error(`Agent listening evidence: ${detail}`);
 }
@@ -126,7 +126,8 @@ export function validateAgentListeningEvidence(
     "missing or excessive records",
   );
   requireEvidence(
-    Buffer.byteLength(JSON.stringify(value)) <= MAX_BYTES,
+    Buffer.byteLength(JSON.stringify(value)) <=
+      MAX_AGENT_LISTENING_EVIDENCE_BYTES,
     "oversize history",
   );
   const items = evidence.records.map((record) =>
@@ -193,7 +194,8 @@ export async function collectAgentListeningEvidence(
     records.push(...page.items);
     requireEvidence(
       records.length <= MAX_RECORDS &&
-        Buffer.byteLength(JSON.stringify(records)) <= MAX_BYTES,
+        Buffer.byteLength(JSON.stringify(records)) <=
+          MAX_AGENT_LISTENING_EVIDENCE_BYTES,
       "history bound exceeded",
     );
     cursor = page.nextCursor;

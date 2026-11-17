@@ -120,6 +120,9 @@ Companion specification: [Local Storage Layout](local-storage.md)
 - [x] Share the 256 MiB per-case reservation between single and suite admission;
   use a finite 8 GiB aggregate budget so all 19 registered cases fit alongside
   prior evidence. Preserve count, ownership, exhaustion and no-deletion guards.
+- [x] Bound retained typed listening histories separately from generic receipt
+  fields, sharing the existing 24-MiB limit across all retained copies. Preserve
+  complete pages, redaction, cleanup, durable failure and existing storage paths.
 - [x] Apply the explicitly authorized immediate-entry bound of 32 instead of 16
   for retained acceptance attempts/suites. Share the exported retention policy
   with admission/exhaustion/no-deletion regressions; preserve the 8 GiB total,

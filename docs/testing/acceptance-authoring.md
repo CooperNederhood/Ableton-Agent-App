@@ -46,6 +46,15 @@ through restart. This replaces the 256-record/8-MiB limit; neither the product's
 64-KiB analysis response budget nor journal redaction/truncation rules change.
 Boundary regressions admit a complete 720-record history and reject excess
 records or bytes instead of silently dropping pages.
+The receipt coordinator gives these validated typed histories a separate
+24-MiB aggregate allowance across retained turns and final collected evidence,
+including repeated copies. It no longer forces complete musical pages into
+the older 512-KiB generic turn-history budget. Generic facts, assertions,
+redaction, structural completeness and instrument-tree limits stay unchanged.
+`run-wngPT7` passed both capture/feature-search phases, then failed while retaining
+the restored turn under that old wrapper limit; the failed receipt is preserved.
+The user-authorized correction admits complete histories, rejects aggregate
+exhaustion, and retains cleanup and durable failed-receipt behavior.
 For mel analysis, independently aggregate original linear frame magnitudes over
 the reported segment supports, then verify the full stereo normalized shape,
 regional sums and ratios. Do not compare normalized features to raw frame units

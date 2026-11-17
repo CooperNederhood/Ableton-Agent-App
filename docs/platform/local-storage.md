@@ -686,6 +686,13 @@ the runner gains raw application-database access or an upload path. Packaged
 producer discovery contains isolated descriptor/secret **paths**, not credential
 bodies.
 
+Complete acceptance-only typed listening histories have a separate 24-MiB
+aggregate receipt allowance across retained turns and final collected evidence;
+repeated copies count toward that cap. Generic receipt fields retain their
+existing smaller limits. This carries the existing History collector bound
+through finalization without truncating musical pages or changing application
+journal limits, tool-response limits, redaction, paths or access permissions.
+
 After confirmed owned Desktop and Live shutdown, the runner removes the
 credential-bearing profile before preserving allowlisted project assets and
 diagnostic receipts. If shutdown is unconfirmed, it reports failed cleanup and

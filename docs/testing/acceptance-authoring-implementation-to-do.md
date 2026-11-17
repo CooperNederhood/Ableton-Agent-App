@@ -34,6 +34,10 @@ Companion specification: [Acceptance test authoring](acceptance-authoring.md).
       32 using shared `acceptanceArtifactRetention`; demonstrate admission after
       sixteen preserved attempts and exhaustion at 32 without deletion. Keep
       8 GiB total, 256 MiB per case and 8,192 recursive entries unchanged.
+- [x] Carry the existing typed-History byte allowance through coordinator turns,
+      final evidence and receipt sanitization with a shared finite 24-MiB
+      aggregate cap. Preserve generic wrapper limits and prove lossless success,
+      aggregate rejection, redaction and cleanup without discarding earlier turns.
 - [ ] Run simple listening regressions followed by every registered packaged
       message scenario and the terminal suite verifier on the final candidate.
 - [ ] Invoke final code review, resolve findings and requalify any changed

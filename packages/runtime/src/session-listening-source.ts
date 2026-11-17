@@ -350,9 +350,10 @@ export function freezeSessionSourceExpectation(
       ),
     ]);
   const stoppedBeat = after.globalBeat!;
-  // Remembered Session playback restarts at zero; a fresh launch retains the
-  // stopped song position. Neither is the clip-local coordinate origin.
-  const startBeat = after.targetPlaying ? 0 : stoppedBeat;
+  // A Session slot or Clip Stop (-2) retains zero-origin restart semantics,
+  // even when the next target is not playing. Only idle/Arrangement (-1)
+  // retains the stopped song position; neither is the clip-local coordinate.
+  const startBeat = after.playingSlotIndex === -1 ? stoppedBeat : 0;
   if (
     settings.tempoBpm === null ||
     settings.signatureNumerator !== 4 ||

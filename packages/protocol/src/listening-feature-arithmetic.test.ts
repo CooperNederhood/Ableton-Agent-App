@@ -88,7 +88,204 @@ function healthy() {
   return { observation, range };
 }
 
+function melCapture(endBeat: number, measure = 0) {
+  const observation = createSyntheticMetricListeningObservation({
+    tempoBpm: 128,
+    endBeat,
+    startSample: 64,
+  });
+  const { startSample, endSample } = observation.geometry;
+  const count = Math.floor((endSample - startSample) / 2048);
+  observation.metrics["mel-bands"] = melBandTimelineSchema.parse({
+    schema: "mel-band-timeline/v1",
+    status: "complete",
+    sampleRate: 48000,
+    profile: MEL_BAND_PROFILE,
+    sourceSupport: observation.sourceCoverage,
+    expectedRecords: count,
+    gaps: [],
+    frames: Array.from({ length: count }, (_, index) => ({
+      index,
+      support: {
+        startSample: startSample + index * 2048,
+        endSample: startSample + (index + 1) * 2048,
+      },
+      magnitudes: [
+        Array.from({ length: 24 }, (_, band) => band + 1),
+        Array.from({ length: 24 }, (_, band) => 2 * (band + 1)),
+      ],
+    })),
+  });
+  const cells = observation.geometry.rows.slice(
+    measure * 16,
+    (measure + 1) * 16,
+  );
+  const range: ListeningFeatureRange = {
+    startBeat: cells[0]!.startBeat,
+    endBeat: cells.at(-1)!.endBeat,
+    startSample: cells[0]!.startSample,
+    endSample: cells.at(-1)!.endSample,
+    grid: {
+      meter: { numerator: 4, denominator: 4 },
+      phaseBeats: 0,
+      cells,
+    },
+  };
+  return extractListeningFeature("mel-grid/v1", observation, range);
+}
+
 describe("stored listening feature arithmetic", () => {
+  it.each([
+    ["different analysis phase", 1],
+    ["different capture-edge mask", 0],
+  ] as const)(
+    "compares a separately captured bar with an Arrangement bar despite %s",
+    (_reason, measure) => {
+      const clip = melCapture(4);
+      const arrangement = melCapture(8, measure);
+      const before = structuredClone([clip, arrangement]);
+      expect(
+        measure === 1
+          ? clip.profileKey !== arrangement.profileKey
+          : clip.grid!.cells.at(-1)!.reason !==
+              arrangement.grid!.cells.at(-1)!.reason,
+      ).toBe(true);
+      const result = compareListeningFeatures(clip, arrangement);
+      expect(result).toMatchObject({
+        status: "comparable",
+        coverage: {
+          policy: "shared-valid-musical-cells",
+          comparedValues: 15 * 48,
+          totalValues: 16 * 48,
+        },
+      });
+      if (result.status === "comparable")
+        expect(result.distance).toBeCloseTo(0, 12);
+      expect(compareListeningFeatures(arrangement, clip)).toEqual(result);
+      expect([clip, arrangement]).toEqual(before);
+    },
+  );
+
+  it("does not mistake identical level envelopes for identical spectral content", () => {
+    const { observation, range } = healthy();
+    const differentTimbre = structuredClone(observation);
+    differentTimbre.metrics["mel-bands"] = melBandTimelineSchema.parse({
+      ...observation.metrics["mel-bands"],
+      frames: observation.metrics["mel-bands"]!.frames.map((frame) => ({
+        ...frame,
+        magnitudes: frame.magnitudes.map((channel) =>
+          channel.map((value, band) => value * (band + 1)),
+        ),
+      })),
+    });
+    const compare = (type: "level-grid/v1" | "mel-grid/v1") =>
+      compareListeningFeatures(
+        extractListeningFeature(type, observation, range),
+        extractListeningFeature(type, differentTimbre, range),
+      );
+    expect(compare("level-grid/v1")).toMatchObject({
+      status: "comparable",
+      distance: 0,
+    });
+    const spectral = compare("mel-grid/v1");
+    expect(spectral.status).toBe("comparable");
+    if (spectral.status === "comparable")
+      expect(spectral.distance).toBeGreaterThan(0.01);
+  });
+
+  it("still rejects different algorithms, rates, units, meters and musical extents", () => {
+    const clip = melCapture(4);
+    for (const profileKey of [
+      "different-settings",
+      JSON.stringify({
+        profile: "mel-band-profile/v2",
+        sampleRate: 48000,
+        phaseSamples: 112,
+      }),
+      JSON.stringify({
+        profile: "mel-band-profile/v1",
+        sampleRate: 44100,
+        phaseSamples: 112,
+      }),
+    ])
+      expect(
+        compareListeningFeatures(clip, { ...clip, profileKey }),
+      ).toMatchObject({
+        status: "not-comparable",
+        reason: "incompatible-profile",
+      });
+    expect(() =>
+      compareListeningFeatures(clip, { ...clip, units: "Hz" }),
+    ).toThrow();
+    expect(
+      compareListeningFeatures(clip, {
+        ...clip,
+        grid: { ...clip.grid!, meter: { numerator: 3, denominator: 4 } },
+      }),
+    ).toMatchObject({ reason: "incompatible-grid" });
+    expect(
+      compareListeningFeatures(clip, {
+        ...clip,
+        grid: { ...clip.grid!, phaseBeats: 0.25 },
+      }),
+    ).toMatchObject({ reason: "incompatible-grid" });
+    const { observation, range } = healthy();
+    const short = {
+      ...range,
+      endBeat: 0.5,
+      endSample: range.grid!.cells[1]!.endSample,
+      grid: { ...range.grid!, cells: range.grid!.cells.slice(0, 2) },
+    };
+    expect(
+      compareListeningFeatures(
+        extractListeningFeature("level-grid/v1", observation, range),
+        extractListeningFeature("level-grid/v1", observation, short),
+      ),
+    ).toMatchObject({ reason: "incompatible-grid" });
+    expect(
+      compareListeningFeatures(
+        extractListeningFeature("level-grid/v1", observation, range),
+        extractListeningFeature("mel-grid/v1", observation, range),
+      ),
+    ).toMatchObject({ reason: "incompatible-type" });
+  });
+
+  it("does not turn a zero-norm shared subset into a perfect normalized match", () => {
+    const { observation, range } = healthy();
+    const base = extractListeningFeature("mel-grid/v1", observation, range);
+    const masked = (missing: number, nonzero: number) =>
+      listeningFeatureSchema.parse({
+        ...base,
+        coveredSamples: 6144,
+        support:
+          missing === 0
+            ? [[2048, 8192]]
+            : [
+                [0, 2048],
+                [4096, 8192],
+              ],
+        values: base.values!.map((_, index) =>
+          Math.floor(index / 48) === missing
+            ? null
+            : index === nonzero * 48
+              ? 1
+              : 0,
+        ),
+        grid: {
+          ...base.grid!,
+          cells: base.grid!.cells.map((cell, index) => ({
+            ...cell,
+            coveredSamples: index === missing ? 0 : cell.expectedSamples,
+            reason: index === missing ? "insufficient-support" : null,
+          })),
+        },
+      });
+    expect(compareListeningFeatures(masked(0, 1), masked(1, 0))).toMatchObject({
+      status: "not-comparable",
+      reason: "unavailable",
+    });
+  });
+
   it("extracts all fifteen healthy features with one canonical distance each and no source mutation", () => {
     const { observation, range } = healthy();
     const before = JSON.stringify(observation);
@@ -290,7 +487,7 @@ describe("stored listening feature arithmetic", () => {
     });
   });
 
-  it("compares identical partial masks over defined cells only and rejects wholly undefined vectors", () => {
+  it("compares shared defined cells, never fills gaps with zeros and rejects wholly undefined vectors", () => {
     const { observation, range } = healthy();
     observation.metrics["spectral-centroid"].records[0]!.centroidHz = null;
     observation.metrics["spectral-centroid"].records[0]!.spectralEnergy = 0;
@@ -319,8 +516,24 @@ describe("stored listening feature arithmetic", () => {
       },
     });
     expect(compareListeningFeatures(first, differentMask)).toMatchObject({
+      status: "comparable",
+      distance: 0,
+      coverage: { comparedValues: 2, totalValues: 4 },
+    });
+    const disjoint = listeningFeatureSchema.parse({
+      ...first,
+      values: [500, null, null, null],
+      grid: {
+        ...first.grid,
+        cells: first.grid!.cells.map((cell, index) => ({
+          ...cell,
+          reason: index === 0 ? null : "undefined-descriptor",
+        })),
+      },
+    });
+    expect(compareListeningFeatures(first, disjoint)).toMatchObject({
       status: "not-comparable",
-      reason: "incompatible-support",
+      reason: "insufficient-support",
     });
     for (const record of observation.metrics["spectral-centroid"].records) {
       record.centroidHz = null;
@@ -478,7 +691,7 @@ describe("stored listening feature arithmetic", () => {
         .values,
     ).toEqual([0, 0, 10, 0]);
   });
-  it("retains summary acquisition gaps and rejects different support masks rather than intersecting them", () => {
+  it("preserves strict summary support and renormalizes grids over shared valid cells", () => {
     const { observation, range } = healthy();
     const full = extractListeningFeature("mel-shape/v1", observation, range);
     const timeline = observation.metrics["mel-bands"]!;
@@ -522,8 +735,12 @@ describe("stored listening feature arithmetic", () => {
         masked,
       ),
     ).toMatchObject({
-      status: "not-comparable",
-      reason: "incompatible-support",
+      status: "comparable",
+      coverage: {
+        policy: "shared-valid-musical-cells",
+        comparedValues: 3 * 48,
+        totalValues: 4 * 48,
+      },
     });
   });
 

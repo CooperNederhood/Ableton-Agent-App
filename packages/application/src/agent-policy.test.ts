@@ -539,6 +539,53 @@ describe("agent policy", () => {
     expect(toolResult).toEqual(before);
   });
 
+  it.each([false, true])(
+    "distinguishes a successful quantized=%s Clip Stop from stopping song transport",
+    async (quantized) => {
+      const hooks = createAgentHooks({
+        getAbletonStatus: async () => connected,
+      });
+      const toolResult = {
+        resultType: "success" as const,
+        textResultForLlm: JSON.stringify({
+          action: "stop-clips",
+          trackIndex: 0,
+          quantized,
+        }),
+      };
+      const before = structuredClone(toolResult);
+      const result = await hooks.onPostToolUse?.(
+        {
+          sessionId: "sdk",
+          timestamp: new Date(),
+          workingDirectory: process.cwd(),
+          toolName: "ableton_tracks",
+          toolArgs: {
+            action: "stop-clips",
+            target: {
+              kind: "regular",
+              index: 0,
+              expectedReference: snapshot.tracks[0]!.reference,
+              expectedName: snapshot.tracks[0]!.name,
+            },
+            quantized,
+          },
+          toolResult,
+        },
+        { sessionId: "sdk" },
+      );
+      expect(result?.additionalContext).toContain(
+        "does not stop song transport",
+      );
+      expect(result?.additionalContext).toContain("isPlaying=false");
+      expect(result?.additionalContext).toContain(
+        "do not start transport separately",
+      );
+      expect(result?.modifiedResult).toBeUndefined();
+      expect(toolResult).toEqual(before);
+    },
+  );
+
   it.each(["stream-overview", "stream-records", "stream-summary"])(
     "keeps %s guidance coverage-first without demanding exhaustive record reads",
     async (action) => {

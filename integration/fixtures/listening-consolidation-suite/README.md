@@ -16,12 +16,12 @@ passing capture, storage-shape comparison or numerical result.
 
 **Final storage-shape qualification is green on Live Suite 11.3.43.**
 
-| Case | Terminal receipt | Measures / features per context |
-| --- | --- | --- |
-| Short audio | `run-J7vvwY` | 1 / 15 |
-| Short MIDI | `run-U5xT9Q` | 1 / 15 |
-| Long audio | `run-LozNle` | 20 / 300 |
-| Long MIDI | `run-LkQQml` | 20 / 300 |
+| Case        | Terminal receipt | Measures / features per context |
+| ----------- | ---------------- | ------------------------------- |
+| Short audio | `run-J7vvwY`     | 1 / 15                          |
+| Short MIDI  | `run-U5xT9Q`     | 1 / 15                          |
+| Long audio  | `run-LozNle`     | 20 / 300                        |
+| Long MIDI   | `run-LkQQml`     | 20 / 300                        |
 
 All four independently pin packaged candidate SHA-256
 `c41d56b9211bf4a912fccd5940ed134d4f535d292e35a9ac4eed7996550bfabd`.

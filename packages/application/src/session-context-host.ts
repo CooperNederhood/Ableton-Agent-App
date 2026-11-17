@@ -962,6 +962,9 @@ export function createSessionContextHost(
               ),
             ),
             distance: match.distance,
+            ...(match.coverage === undefined
+              ? {}
+              : { coverage: match.coverage }),
           });
         }
         return {

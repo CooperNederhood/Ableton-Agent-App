@@ -264,7 +264,7 @@ describe("qualified analyzer feature arithmetic", () => {
     });
   });
 
-  it("keeps acquisition gaps and descriptor masks distinct and never intersects non-identical masks", () => {
+  it("keeps acquisition and channel masks explicit while comparing shared valid grid channels", () => {
     const base = fixture();
     const gap = fixture({ gap: 1 });
     const gapped = extractListeningFeature(
@@ -285,7 +285,11 @@ describe("qualified analyzer feature arithmetic", () => {
         extractListeningFeature("pitch-grid/v1", base.observation, base.range),
         gapped,
       ),
-    ).toMatchObject({ reason: "incompatible-support" });
+    ).toMatchObject({
+      status: "comparable",
+      distance: 0,
+      coverage: { comparedValues: 6, totalValues: 8 },
+    });
     const rejected = fixture({
       pitch: (index) => [
         index === 1 ? classifyPitchEstimate(440, 0.2) : accepted,
@@ -306,7 +310,9 @@ describe("qualified analyzer feature arithmetic", () => {
       [[0, 8192]],
     ]);
     expect(compareListeningFeatures(mask, gapped)).toMatchObject({
-      reason: "incompatible-support",
+      status: "comparable",
+      distance: 0,
+      coverage: { comparedValues: 6, totalValues: 8 },
     });
     const a = fixture({
       shape: (index) => [

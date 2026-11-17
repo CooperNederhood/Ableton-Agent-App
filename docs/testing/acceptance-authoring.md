@@ -132,6 +132,19 @@ recording, unowned playback, changed structure/media/settings and inconsistent
 counts still deny dispatch. Initial authoring handoff admits no remembered
 clips by default.
 
+The first declared Back to Arrangement setup runs before baseline admission.
+Pin its complete Session structure/playback fingerprints before dispatch and
+compare them after reconnect; do not require a baseline that does not yet exist.
+When an admitted baseline exists, also check it before dispatch. Initial setup
+still rejects remembered Session clips; later handoffs may clear only published
+owned clips. Cancellation and failed post-handoff reads remain explicit failures.
+
+An approved source-scoped Arrangement seek is initial positioning, not recovery.
+Require no prior capture and the unchanged stopped baseline position in both
+loaded-source read brackets before approving it. The original three-minute case
+permits exactly one `seek(0)` in its listen step, as separately reviewed by the
+user; wrong arguments, other steps, extra uses and active/changed state deny it.
+
 Arrangement cleanup has two independent proofs: native release/finalization
 must match the captured generation/epoch, and source release must match the
 authenticated listener connection, pass and agent/session trace. Bounded
@@ -152,9 +165,18 @@ of requested subranges. Admission of a long clip does not establish that the
 unchanged production Session capture supports it. Fix duration/alignment and
 common feature/storage defects from actual case failures, not speculative
 rewrites before the first short smoke. The unchanged
-`long-horizon-comprehension` case remains a separate follow-on gate.
+`long-horizon-comprehension` case is qualified separately; storage-shape checks
+alone do not establish its exact-answer contract.
 
 ## Session-to-Arrangement comprehension authoring
+
+The reviewed twenty-measure / 37.5-second case passes in current `run-V9AxDB`
+on Live Suite 11.3.43 after the comparison fix and consolidated tool contract.
+Earlier failed attempts remain failed. This comprehension case does not
+qualify three-minute or ten-minute listening.
+The [fixture qualification record](../../integration/fixtures/long-horizon-comprehension/README.md)
+owns candidate pins, terminal evidence, approved contract changes and preserved
+failures, including the unresolved intermittent publication rejection.
 
 The approved `long-horizon-comprehension` contract uses one natural user
 message and exactly five successful listens: MIDI Session `clip-1` through
@@ -164,6 +186,24 @@ The terminal answer must contain twenty clip numbers, hyphens within groups
 of four, and leading, trailing and separating vertical bars, without prose or
 internal whitespace. The exact expected sequence is runner-only oracle data.
 Do not inject it into the message or staged project.
+
+The approved budgets are thirty minutes for the agent turn, thirty-five minutes
+overall and two minutes each for cleanup/persistence. Propagate the same turn
+allowance into the isolated Desktop's agent setting. The scoped rules permit
+five Stops and one derivation per original source context; they do not authorize
+seeking, recapture or a changed answer.
+
+Arrangement derivation reuses the canonical scenario source selector when a
+step has no explicit source. It still checks the admitted track/listener and
+the invoking completed job, trace, context and approved range. Mixed-view batches
+retain per-source approvals and atomic use limits in either order.
+
+Comprehension verifies every original chunk without retaining unused diagnostic
+arrays. Diagnostic-specific and original-record byte bounds remain in force.
+Fallback History uses the remaining reviewed cleanup deadline and caller
+cancellation; collection failure must still close owned resources and produce
+an explicit failed cleanup receipt. Controlled regressions exercise delayed
+success beyond five seconds, deadline expiry, cancellation and read failure.
 
 The user approved the supplied Set and all five project-local AIFF files as
 repository test assets. Canonical copy-only intake retained Set SHA256
@@ -240,7 +280,7 @@ keeping the 16-MiB byte ceiling. Count/byte overflow and malformed delivery
 still fail explicitly rather than truncating evidence. Required History and
 Desktop events remain distinct complete inventories, not substitutes.
 
-Latest `run-HFt0eC` preserves a valid executed red after those checker fixes:
+Earlier budget-limited `run-HFt0eC` preserves a valid executed red after those checker fixes:
 five completed captures, responsive bounded summary reads, but no final answer
 before the unchanged 900-second turn deadline. Required History cleanup timed
 out separately; all owned resources closed. The case is not qualified and the

@@ -102,6 +102,41 @@ function rejection(operation: () => unknown): ListeningRuntimeRejection {
 }
 
 describe("Session source admission and independent transport join", () => {
+  it.each([-2, 1])(
+    "uses the Session restart origin after stopped slot %i, not the next target's playing flag",
+    (playingSlotIndex) => {
+      const snapshot = source();
+      const stoppedBeat = 15.974400000000001;
+      for (const state of [snapshot.before, snapshot.after]) {
+        state.globalBeat = stoppedBeat;
+        state.playingSlotIndex = playingSlotIndex;
+        state.selectedClipReference =
+          playingSlotIndex < 0 ? null : "00000000-0000-4000-8000-000000000099";
+      }
+      const before = structuredClone(snapshot);
+      const expected = freezeSessionSourceExpectation(snapshot, target, 4);
+      expect(snapshot).toEqual(before);
+      expect(expected).toMatchObject({
+        stoppedBeat,
+        startBeat: 0,
+        endBeat: 4,
+      });
+      expect(() =>
+        assertTransportCoupledSessionOrigin(expected, {
+          ...origin,
+          observedAtGlobalBeat: 0.06653333333333333,
+        }),
+      ).not.toThrow();
+      expect(() =>
+        assertTransportCoupledSessionOrigin(expected, {
+          ...origin,
+          clipStartTimeBeats: stoppedBeat,
+          observedAtGlobalBeat: stoppedBeat + 0.1,
+        }),
+      ).toThrow("session_native_origin_mismatch");
+    },
+  );
+
   it("consolidation: joins an owned global-16 launch without seeking or relabeling it as clip-local zero", () => {
     const snapshot = source();
     snapshot.before.globalBeat = snapshot.after.globalBeat = 16;

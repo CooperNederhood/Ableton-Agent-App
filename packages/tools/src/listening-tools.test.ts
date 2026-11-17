@@ -45,6 +45,22 @@ const sessionInput = {
 };
 
 describe("optional listening tool contracts", () => {
+  it("binds feature selection to the stored type rather than inventory position", () => {
+    const [, tool] = createListeningTools({
+      executeListeningOperation: async () => ({
+        action: "inspect-listeners",
+        listeners: [],
+        truncated: false,
+      }),
+      executeContextOperation: async () => ({ action: "list", entries: [] }),
+    });
+    for (const guidance of [LISTENING_AGENT_GUIDANCE, tool.description]) {
+      expect(guidance).toContain("filter by featureType");
+      expect(guidance).toContain(
+        "Never infer a feature's type from its position",
+      );
+    }
+  });
   it.each(["completed", "failed", "cancelled"] as const)(
     "puts next-capture prerequisites beside a successful Session result, not a %s recovery instruction",
     async (stage) => {
@@ -132,6 +148,11 @@ describe("optional listening tool contracts", () => {
       expect(guidance).toContain("Before the next Session listen");
       expect(guidance).toContain("set-playing");
       expect(guidance).toContain("stop-clips");
+      expect(guidance).toContain("does not stop song transport");
+      expect(guidance).toContain(
+        "Remembered Session clips are supported while transport is stopped",
+      );
+      expect(guidance).not.toContain("If a different clip remains remembered");
       expect(guidance).toContain(
         "not permission to repair or retry a failed pass",
       );
@@ -201,11 +222,9 @@ describe("optional listening tool contracts", () => {
       }),
       executeContextOperation: async () => ({ action: "list", entries: [] }),
     });
-    expect(
-      tool.description?.startsWith(
-        "All completed captures support the same derive-features",
-      ),
-    ).toBe(true);
+    expect(tool.description).toContain(
+      "All completed captures support the same derive-features",
+    );
     const derive = contextOperationParamsSchema.options.find(
       (option) => option.shape.action.value === "derive-features",
     );
@@ -1104,6 +1123,28 @@ describe("optional listening tool contracts", () => {
       );
     },
   );
+
+  it("publishes shared comparison semantics in the agent-facing tool description", () => {
+    const [, context] = createListeningTools({
+      executeListeningOperation: async () => ({
+        action: "inspect-listeners",
+        listeners: [],
+        truncated: false,
+      }),
+      executeContextOperation: async () => ({ action: "list", entries: [] }),
+    });
+    expect(context.description).toContain(
+      "Loudness-envelope similarity alone cannot establish source identity",
+    );
+    expect(context.description).toContain("mel-grid/v1");
+    expect(context.description).toContain("comparedValues out of totalValues");
+    expect(context.description).toContain(
+      "distances are descriptive, not identity probabilities",
+    );
+    expect(context.description).toContain(
+      "this does not override the user's requested response format",
+    );
+  });
 
   it("requires current-operation persisted feature rereads and separate requested comparison and search", () => {
     const [listening, context] = createListeningTools({

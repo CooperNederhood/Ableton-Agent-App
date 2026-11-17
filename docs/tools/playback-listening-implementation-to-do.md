@@ -1,6 +1,52 @@
 # Playback Listening Implementation To-Do
 
+## User-authorized comprehension follow-on
+
+Qualification, candidate pins and preserved failures are maintained in the
+[fixture record](../../integration/fixtures/long-horizon-comprehension/README.md).
+
+- [x] Qualify the reviewed five-capture, twenty-measure comprehension case;
+      do not conflate its 37.5 seconds with three-to-ten-minute qualification.
+- [x] Select consecutive Session origin from stable track slot state, preserving
+      exact source/native guards and source/full-host regressions.
+- [x] Clarify existing filtered feature discovery and per-page type binding
+      without adding a feature system or teaching the fixture's answer.
+- [x] Forward existing bounded SDK message-type/status failure diagnostics.
+      The precise intermittent publication cause remains unresolved.
+- [x] Reuse canonical Arrangement selection and the existing acceptance driver;
+      retain scoped ownership, capture-count, answer and cleanup guards.
+- [x] Consolidate follow-on documentation; keep harness-specific regression
+      work in the [acceptance checklist](../testing/acceptance-authoring-implementation-to-do.md).
+- [x] Correct initial Arrangement setup ordering without bypassing protected
+      Session state, remembered-clip, cancellation or cleanup guards.
+- [x] Remove unnecessary remembered-clip deselection from Session preparation;
+      share clip-stop/transport semantics across tool descriptions, successful
+      Session results and the successful Clip Stop hook, with red/green coverage.
+- [x] Reproduce independent-window phase and capture-edge-mask comparison
+      refusals with red unit tests; share valid musical-grid dimensions in
+      comparison/search, preserve strict algorithm/grid/summary guards and
+      forward explicit comparison coverage through typed tools.
+- [x] Document level-envelope versus spectral-content feature semantics; prove
+      identical level vectors can have different mel content, and cover shared
+      agent-facing compare/search guidance and response-format precedence without
+      adding identity classification.
+- [x] Complete final selected real-host qualification after bounded cleanup:
+      comprehension `run-V9AxDB` and original three-minute `run-RVpd1e` both pass
+      on candidate `d2049f9553fb038d1c7cedadf0efe080e8ffb9cec36e8eb72766835a53e73233`,
+      Live Suite 11.3.43, with exact capture/answer contracts, protected state,
+      persisted evidence and complete owned cleanup. Original records and
+      manifest survive the three-minute case's owned restart without recapture.
+      Keep `run-F2Gi6p` and `run-LuBbBh` failed; these recovered passes do not
+      establish repeatability, numerical cross-view equivalence or ten minutes.
+
 ## Shared capture and feature consolidation
+
+- [x] Make Desktop stored-context contracts, rendering and persistence tests
+      stream-only. Remove obsolete observation renderers and restore fixtures
+      rather than adding a compatibility adapter; retain bounded typed reads,
+      source ownership, error recovery and late-result isolation.
+- [x] Assert the shared finite-stream startup capability in both normal and
+      automation Electron tests.
 
 - [x] Refresh all four cases on identical final candidate
       `c41d56b9211bf4a912fccd5940ed134d4f535d292e35a9ac4eed7996550bfabd`:
@@ -130,13 +176,10 @@
 - [x] Preserve `run-JAAhev` and reproduce the distinct Desktop observer's
       10,000-event count failure below its byte budget. Retain up to 32,768
       ordered events, keeping the 16-MiB byte ceiling and explicit failure.
-- [ ] Obtain the exact twenty-measure answer and complete terminal evidence
-      under the unchanged five-capture contract. `run-dpVv8M` answered correctly
-      but failed final evidence. Latest `run-HFt0eC` completed all five captures
-      and bounded reads but exhausted the 900-second analysis turn without an
-      answer; History cleanup also failed while owned resources closed.
-      Blocked on bounded comparison completion, not another unchanged retry.
-      All 2,314 deterministic owning tests pass; the real case remains red.
+- [x] Obtain the exact twenty-measure answer and complete terminal evidence
+      under the unchanged five-capture contract: `run-EPE87H` passes with
+      protected state, persisted evidence and complete cleanup. Historical
+      `run-dpVv8M` and `run-HFt0eC` retain their failed verdicts.
 - [ ] Qualify and install an updated candidate only after this case passes.
       The normal installed app remains the earlier `4dae4562` candidate.
 

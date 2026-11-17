@@ -126,6 +126,13 @@ matrix. Incremental persistence is a foundation, not a live-analysis interface.
 
 ## Same-turn Session-to-Arrangement comprehension
 
+**Current terminal `run-V9AxDB` passed on Live Suite 11.3.43 after the
+shared comparison fix and consolidated tool-contract guidance.** This is the twenty-measure / 37.5-second
+comprehension case, not three-to-ten-minute qualification.
+The [fixture qualification record](../../integration/fixtures/long-horizon-comprehension/README.md)
+owns exact coverage, candidate pins, approved follow-on changes and preserved
+failures. The intermittent publication rejection remains unresolved.
+
 The five-listen fixture covers a sequence absent from the older two-MIDI test:
 four consecutive Session captures and one full Arrangement in a single user
 turn, without harness transport stops. The older case's between-turn setup
@@ -139,6 +146,12 @@ does not restore the source. These are pre-capture preparations, not permission
 to repair or retry a failed pass. Shared guidance leads with those prerequisites;
 completed leave-running Session results also carry bounded `nextCaptureGuidance`.
 Failed/cancelled results do not advertise a successful next-pass handoff.
+Session clips and song transport are independent: track Clip Stop does not stop
+transport. Shared tool guidance reinforces this at successful Clip Stop results.
+Remembered Session clips are supported while transport is stopped; deselecting
+them is not a prerequisite for another listen. The listening call owns launch,
+so preparation must not start transport separately. Failure retry/approval
+policy remains unchanged.
 Whole-Arrangement bounds come from the requested track's actual clips, never
 the transport loop or a guessed default. No native admission guard is relaxed.
 
@@ -234,18 +247,35 @@ without changing the 16-MiB byte guard or dropping required evidence.
 All owned resources closed, but the failed observer and History cleanup mean
 this receipt is not a pass.
 
-The latest `run-HFt0eC` used the unchanged signed `1439e040` candidate with both
+The earlier budget-limited `run-HFt0eC` used the signed `1439e040` candidate with both
 runner capacity fixes and no concurrent build/tests. All four Session captures
 and the complete Arrangement capture finished; 28 bounded summary reads also
 completed, with final tool durations below one second. The agent nevertheless
 exhausted the reviewed 900-second turn during analysis without a final answer.
 No native launch timeout or bridge wedge was reproduced. The turn and required
 History cleanup remain failed, although all owned resources closed.
-Qualification is blocked on completing the comparison within the existing
-budget, not on another capture. Do not extend the budget, change the answer,
-inject an analysis strategy, install this unqualified candidate or repeat
-unchanged runs merely to obtain a pass. All 2,314 deterministic owning tests
-pass; that does not make the real case green.
+At that checkpoint, qualification was blocked on completing the comparison,
+not on another capture. All 2,314 then-owning deterministic tests passed;
+that did not make the real case green.
+
+Consecutive Session launch origin follows the stable track slot state: Session
+slots and Clip Stop (`-2`) restart at zero; idle/Arrangement (`-1`) retains the
+stopped song anchor. The next target's playing flag cannot distinguish these
+states. Exact source/native origin and cleanup guards remain enforced.
+
+For persisted feature selection, use the existing `contextId`/`featureType`
+filters and each page's metadata references; inventory position does not identify
+a feature family. This guidance supplies neither fixture-specific strategy nor
+expected answers.
+
+Comprehension evidence streams and verifies the original records without
+retaining unused whole diagnostic arrays. Diagnostic consumers keep their
+existing bounds. Harness budget, approval and cleanup behavior is specified in
+[acceptance authoring](../testing/acceptance-authoring.md#session-to-arrangement-comprehension-authoring);
+later attempt chronology is maintained in the fixture qualification record.
+Native failure diagnostics forward existing bounded SDK message-type/status
+operands without relaxing wire validation or claiming to fix the intermittent
+publication rejection.
 
 ## Installed Session launch incident: investigation still open
 
@@ -315,6 +345,40 @@ Compare the exact failing Set and loaded-device/process conditions before
 changing timeouts, replacing its listener, or claiming the coverage gap fixed.
 
 ## Long-form Arrangement listening
+
+**Current three-minute qualification passed in `run-RVpd1e` on Live Suite
+11.3.43.** One complete capture covered exactly 8,640,000 samples at 48 kHz,
+with all six metric families, native/source cleanup and playback left running.
+Independent protected-state and owned-restart persistence assertions passed,
+with no recapture and complete final owned-resource cleanup. Total runtime was
+340.971 seconds. Candidate `app.asar` SHA256:
+`d2049f9553fb038d1c7cedadf0efe080e8ffb9cec36e8eb72766835a53e73233`;
+active frozen listener SHA256:
+`d6bbf85c78062c835d06825d43c5256bbfa69303e0a3609c19433b6fd679af26`.
+All 1,536 level, 4,219 native-phase centroid, 1,800 attack and 4,218 each
+mel/pitch/spectral-shape records were verified without missing records.
+The same package passes comprehension in `run-V9AxDB`; the fixture record owns
+that separate twenty-measure contract. Earlier three-minute passes
+`run-16IY6f` and `run-MRFKAH` remain preserved. This is recovered qualification
+after the failures below, not first-attempt reliability or ten-minute
+qualification.
+
+Final follow-on requalification first stopped in `run-SFBwxl` before any
+message or capture: initial Back to Arrangement setup incorrectly required the
+baseline that the coordinator reads afterward. All owned cleanup completed.
+Controlled regressions reproduce the ordering error; setup now pins and
+rechecks complete protected Session fingerprints across handoff while still
+rejecting initial remembered clips and checking any admitted baseline.
+This setup correction is not itself a new capture qualification.
+The corrected-driver attempt `run-brDAI1` passed setup/baseline but stopped on
+an unreviewed `ableton_transport.seek` to beat zero before capture. The existing
+message permits one stopped positioning from beat 72 to zero, while its manifest
+permitted only the listening action. Both attempts remain failed with complete
+owned cleanup. The user explicitly approved aligning the manifest: exactly one
+`seek(0)` in the listen step. The existing driver additionally requires the
+unchanged stopped baseline position and no prior capture before approving that
+seek. No other permission, prompt, source, capture count or assertion changes.
+The separate final comprehension result is maintained in its fixture record.
 
 The long-form target is one continuous, fixed-tempo Arrangement pass through
 one track listener, retaining level, spectral centroid, attacks, mel bands,
@@ -710,6 +774,16 @@ state. Desktop shows retained seconds separately from lifecycle completion;
 even full progress is not terminal source/metric/cleanup verification. No audio
 or measurement vectors are included in these progress events.
 
+Desktop stored-context contracts and rendering accept only the shared
+`metric-record-stream-context/v1` format. Obsolete observation renderers and
+version-restoration fixtures are removed rather than adapted. The detail shows
+the bounded capture reference, source view, geometry and requested metrics;
+it does not fabricate whole-observation summaries or infer completion from a
+reference. Original values and terminal evidence remain available through the
+existing typed, bounded capture/chunk queries. Current-stream persistence,
+foreign-identity rejection, error recovery and late-result isolation retain
+component, contract and Electron coverage.
+
 The coordinator distinguishes prepared `metric-record-stream/v1` captures from
 whole observations. A stream returns manifests, never an empty observation
 array standing in for success. Before publication it checks Arrangement scope,
@@ -981,6 +1055,35 @@ agent access, comparison and bounded search with the simplest pair,
 with at least one feature. Each feature type/version owns exactly one canonical
 comparison. Shared arithmetic does not combine incompatible units into one
 musical-similarity score.
+
+Musical-grid comparisons use the same shared-valid-cell calculation for explicit
+pairs and bounded search. Analysis-window sample phase is acquisition metadata,
+not a different algorithm: grid profile comparison ignores only `phaseSamples`,
+preserving all other profile settings and the stored key. Feature type, units,
+sample-rate restrictions and musical meter, phase, cell extents and vector shape
+remain checked. Corresponding scalar values participate only when both inputs
+are valid, including independent channel masks. No shared values is an explicit
+insufficient-support refusal, never a zero-distance match.
+
+For joint-L2 grids, the calculator renormalizes each common valid subvector
+before applying its canonical distance; stored vectors, supports and original
+measurements remain unchanged. A zero-norm shared subvector remains unavailable.
+Grid results and search hits expose `coverage` with policy
+`shared-valid-musical-cells`, `comparedValues` and `totalValues`. These count
+scalar feature dimensions, not audio samples or whole-segment equivalence.
+There is no new classifier, recapture, temporal shifting or invented sample
+alignment. Non-grid summaries retain their strict support requirements: their
+already-aggregated values cannot be recomputed over a shared subrange by merely
+masking vector dimensions. Peak summaries still require complete source support.
+
+Feature selection remains explicit, not a classifier: level grids compare
+loudness envelopes and cannot establish source identity. Different timbres can
+have identical level vectors. Existing tool and catalog descriptions distinguish
+this from mel grids' time-varying spectral content, with level/onset evidence as
+corroboration rather than proof of identity.
+Shared comparison guidance lives once in the top-level agent-facing context-tool
+description rather than only in nested action schemas. Generic measurement
+reporting must not override a user-requested response format.
 
 The first vertical slice, `peak-summary/v1`, now shares the derived-storage and
 query path with all fourteen other definitions. It takes the
@@ -1456,8 +1559,9 @@ smoke verifier checks the owned process's exact path, inode/device and pinned
 bytes independently of SpectralShape. Dependency inventory checking is confined
 to the pinned dependency tree, not a changing snapshot of unrelated source
 files; unexpected dependency siblings, substitutions and symlinks remain denied.
-The Desktop detail exposes complete stereo vectors, frequencies, frame paging,
-ratio reasons and gaps through the existing typed context path.
+That earlier observation-based Desktop detail exposed stereo vectors,
+frequencies, frame paging, ratio reasons and gaps. It is superseded by the
+shared stream-reference detail and bounded capture/chunk queries described above.
 
 Latest offline checkpoints: 5,119 TypeScript tests across 237 files, 928 Max
 tests, workspace build/lint, and two Electron context-persistence tests pass.
@@ -1891,9 +1995,14 @@ remain unchanged.
 The zero-origin launch above is the reviewed **remembered-playing Session**
 case, not a requirement for every stopped Session launch. The consolidation
 fixture exposed a fresh launch at saved global beat 16 in `run-yh0GVa`.
-Source expectations now retain the stopped global anchor for a fresh target,
-while preserving the independently observed zero-origin remembered-target
-path. Native geometry/source transport use the global range (16-20 here);
+Source expectations retain the stopped global anchor only for an idle/Arrangement
+track (`playingSlotIndex === -1`). A remembered Session slot or Clip Stop (`-2`)
+retains zero-origin Session restart semantics even when the requested next clip
+has `targetPlaying === false`. Predicting from the target flag alone caused
+`run-BMEXv8`'s second-clip mismatch at stopped beat 15.9744. Source and full-host
+regressions reproduce that failure for MIDI/audio, preserve the independently
+pinned stopped clock, and reject a wrong nonzero origin after a Clip Stop.
+Native geometry/source transport use the global range (16-20 for the idle case);
 clip coordinates remain 0-4. Ready/arm clocks still use the pinned stopped
 position, and launch plus final sealing must match the frozen global origin.
 Neither path seeks, edits launch settings, or substitutes message-rate evidence

@@ -1,10 +1,5 @@
 import { z } from "zod";
-import {
-  audioObservationKindSchema,
-  storedAudioObservationSchema,
-  metricRecordStreamContextReferenceSchema,
-} from "@ableton-agent/protocol";
-import type { ContextOperationResult } from "@ableton-agent/tools";
+import { metricRecordStreamContextReferenceSchema } from "@ableton-agent/protocol";
 import {
   metricCaptureRecordSchema,
   metricChunkPageSchema,
@@ -56,52 +51,26 @@ export const desktopMetricChunkPageSchema = metricChunkPageSchema.transform(
   }),
 );
 
-type ContextSummary = Extract<
-  ContextOperationResult,
-  { action: "list" }
->["entries"][number];
-export const desktopContextSummarySchema: z.ZodType<ContextSummary> =
-  z.strictObject({
-    contextId: id,
-    passId: id,
-    listenerId: id,
-    subjectId: id,
-    kind: z.union([
-      audioObservationKindSchema,
-      z.literal("metric-record-stream-context/v1"),
-    ]),
-    createdAt: z.string().datetime(),
-    freshness: z.enum([
-      "fresh",
-      "stale",
-      "unknown",
-      "unresolved",
-      "historical",
-    ]),
-    summary: z.string().max(2048),
-  });
-export const desktopContextPageSchema: z.ZodType<
-  Extract<ContextOperationResult, { action: "list" }>
-> = z.strictObject({
+export const desktopContextSummarySchema = z.strictObject({
+  contextId: id,
+  passId: id,
+  listenerId: id,
+  subjectId: id,
+  kind: z.literal("metric-record-stream-context/v1"),
+  createdAt: z.string().datetime(),
+  freshness: z.enum(["fresh", "stale", "unknown", "unresolved", "historical"]),
+  summary: z.string().max(2048),
+});
+export const desktopContextPageSchema = z.strictObject({
   action: z.literal("list"),
   entries: z.array(desktopContextSummarySchema).max(100),
   nextCursor: z.string().min(1).max(2048).optional(),
 });
-export const desktopContextDetailSchema: z.ZodType<
-  Extract<ContextOperationResult, { action: "get" }>
-> = z
-  .strictObject({
-    action: z.literal("get"),
-    entry: desktopContextSummarySchema,
-    observation: z.union([
-      storedAudioObservationSchema,
-      metricRecordStreamContextReferenceSchema,
-    ]),
-  })
-  .refine(
-    (value) => value.entry.kind === value.observation.schema,
-    "Context detail kind must match its observation schema",
-  );
+export const desktopContextDetailSchema = z.strictObject({
+  action: z.literal("get"),
+  entry: desktopContextSummarySchema,
+  observation: metricRecordStreamContextReferenceSchema,
+});
 
 export type DesktopContextListRequest = z.input<
   typeof desktopContextListRequestSchema

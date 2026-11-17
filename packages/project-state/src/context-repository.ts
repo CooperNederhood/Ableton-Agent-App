@@ -1579,7 +1579,7 @@ export class SessionContextStore implements EntityContextRepository {
       );
       const limitsHit: ("candidates" | "bytes" | "time")[] =
         eligibleCount > query.candidateLimit ? ["candidates"] : [];
-      const matches: { feature: ContextFeature; distance: number }[] = [];
+      const matches: ContextFeatureSearchResult["matches"][number][] = [];
       const exclusionReasons: Record<string, number> = {};
       let scannedCount = 0;
       let comparableCount = 0;
@@ -1652,6 +1652,9 @@ export class SessionContextStore implements EntityContextRepository {
                   ).subjectId,
                 },
                 distance: comparison.distance,
+                ...(comparison.coverage === undefined
+                  ? {}
+                  : { coverage: comparison.coverage }),
               });
             } else exclude(comparison.reason);
           }

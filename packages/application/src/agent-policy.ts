@@ -7,6 +7,7 @@ import {
   FEATURE_VALUE_DETAIL_GUIDANCE,
   METRIC_REPORT_PAGE_GUIDANCE,
   METRIC_STREAM_READ_GUIDANCE,
+  SESSION_TRANSPORT_GUIDANCE,
   abletonToolMetadata,
   parseAbletonToolFailure,
   resolveAbletonOperation,
@@ -369,6 +370,10 @@ export function createAgentPolicy(services: AgentPolicyServices): AgentPolicy {
           VERIFIED_TOOL_RESULT_GUIDANCE,
           ...(input.toolName === "ableton_transport"
             ? [TRANSPORT_SOURCE_FLAG_GUIDANCE]
+            : []),
+          ...(resolveInvocationOperation(input.toolName, input.toolArgs)
+            ?.metadata.operationId === "tracks.stop_clips"
+            ? [SESSION_TRANSPORT_GUIDANCE]
             : []),
           ...(input.toolName === "ableton_browser"
             ? [BROWSER_IDENTITY_GUIDANCE]

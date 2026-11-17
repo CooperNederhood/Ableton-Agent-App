@@ -99,10 +99,10 @@ async function seed() {
     startBeat: fixture.descriptor.geometry.startBeat,
     endBeat: fixture.descriptor.geometry.endBeat,
   };
-  const previousRuntimeBinding: unknown =
+  if (fixture.descriptor.source.view !== "arrangement")
+    throw new Error("Expected an Arrangement stream fixture");
+  const previousRuntimeBinding =
     fixture.descriptor.source.target.expectedReference;
-  if (typeof previousRuntimeBinding !== "string")
-    throw new Error("Synthetic source is missing its runtime binding");
   const start: MetricCaptureStart = {
     descriptor: fixture.descriptor,
     metadata: {

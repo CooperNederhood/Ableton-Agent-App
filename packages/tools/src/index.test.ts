@@ -9,7 +9,7 @@ import {
   createAbletonTools,
   deprecatedAbletonToolNames,
   parseAbletonToolFailure,
-  projectListeningFeatureInventory,
+  analysisPageSchema,
   resolveAbletonToolMetadata,
   resolveAbletonOperation,
   scopeAbletonTools,
@@ -2236,8 +2236,8 @@ describe("Ableton tools", () => {
                 "listening.inspect_listeners",
                 "listening.play_arrangement_and_listen",
                 "listening.get_pass",
-                "context.list",
-                "context.get",
+                "context.read",
+                "context.compare",
               ],
             });
       const listening = tools.find(({ name }) => name === "ableton_listening")!;
@@ -2265,8 +2265,10 @@ describe("Ableton tools", () => {
         "absolute ending beat",
       );
       expect(arrangement?.required).toEqual(
-        expect.arrayContaining(["listenerIds", "startBeat", "endBeat"]),
+        expect.arrayContaining(["action", "maximumDurationMs"]),
       );
+      expect(arrangement?.properties).toHaveProperty("sources");
+      expect(arrangement?.required).not.toContain("listenerIds");
       const invalidCalls = [
         {
           tool: listening,
@@ -2298,19 +2300,55 @@ describe("Ableton tools", () => {
   );
 
   it.each(["default", "mixed", "list-only"] as const)(
-    "exposes cursor-only feature inventory pagination in the %s SDK schema",
+    "exposes cursor-only musical read pagination in the %s SDK schema",
     async (scope) => {
       const nextCursor = "opaque-feature-cursor+/=page-2";
+      const target = {
+        kind: "capture" as const,
+        sessionId: "session",
+        liveSetId: "set",
+        contextId: "context",
+        coordinate: "transport-beats" as const,
+        range: { startBeat: 0, endBeat: 4 },
+      };
+      const analysis = analysisPageSchema.parse({
+        source: {
+          name: "track",
+          nameTruncated: false,
+          location: "Arrangement regular track 1",
+          capturedAt: "2026-10-25T23:00:00.000Z",
+          coordinate: target.coordinate,
+          observedRange: target.range,
+          requestedRange: target.range,
+          readTarget: target,
+          freshness: "fresh",
+        },
+        readTarget: target,
+        status: "unavailable",
+        reason: "not-measured",
+        overview: [],
+        overviewIncluded: true,
+        timeline: [],
+        overviewExtent: target.range,
+        detail: {
+          offset: 0,
+          returnedItems: 0,
+          totalItems: 0,
+          truncated: false,
+          nextCursor: null,
+        },
+      });
       const executeContextOperation = vi
         .fn<NonNullable<AbletonToolServices["executeContextOperation"]>>()
         .mockResolvedValueOnce({
-          action: "list-features",
-          inventory: projectListeningFeatureInventory([]),
+          action: "read",
+          analyses: [analysis],
           nextCursor,
         })
         .mockResolvedValueOnce({
-          action: "list-features",
-          inventory: projectListeningFeatureInventory([]),
+          action: "read",
+          analyses: [analysis],
+          nextCursor: null,
         });
       const set = createAbletonTools({
         ...services(),
@@ -2323,12 +2361,8 @@ describe("Ableton tools", () => {
               allowedToolNames: ["ableton_context"],
               allowedOperationIds:
                 scope === "list-only"
-                  ? ["context.list-features"]
-                  : [
-                      "context.list-features",
-                      "context.get-feature",
-                      "context.report",
-                    ],
+                  ? ["context.read"]
+                  : ["context.read", "context.compare", "context.search"],
             })[0]!;
       interface Variant {
         description?: string;
@@ -2341,42 +2375,29 @@ describe("Ableton tools", () => {
         toJSONSchema(): Variant;
         safeParse(value: unknown): { success: boolean };
       };
+      expect(tool.description).toContain("pinned continuations");
       expect(tool.description).toContain(
-        "list-features and list use cursor, never offset",
+        "Follow nextCursor with the same request",
       );
+      expect(tool.description).toContain("no discovery or Bash is needed");
       expect(tool.description).toContain(
-        "omit cursor initially, then copy nextCursor until absent",
-      );
-      expect(tool.description).toContain(
-        "Only report and get-feature accept offset; only get-feature accepts supportOffset",
-      );
-      expect(tool.description).toContain(
-        "feature-definitions accepts only action, with no pagination",
+        "copy a returned readTarget unchanged",
       );
       const wire = JSON.parse(
         JSON.stringify(parameters.toJSONSchema()),
       ) as Variant;
       expect(wire.properties).not.toHaveProperty("offset");
       const inventory = (wire.oneOf ?? wire.anyOf ?? [wire]).find(
-        (variant) => variant.properties?.action?.const === "list-features",
+        (variant) => variant.properties?.action?.const === "read",
       );
-      expect(inventory?.description).toContain("cursor pagination, not offset");
-      expect(inventory?.properties?.cursor?.description).toContain(
-        "Omit cursor on the first request",
-      );
-      expect(inventory?.properties?.cursor?.description).toContain(
-        "returned nextCursor unchanged",
-      );
-      expect(inventory?.properties?.limit?.description).toContain(
-        "default and maximum 100",
-      );
+      expect(inventory?.properties).toHaveProperty("cursor");
+      expect(inventory?.properties).toHaveProperty("target");
+      expect(inventory?.properties).not.toHaveProperty("limit");
       expect(inventory?.properties).not.toHaveProperty("offset");
       expect(inventory?.additionalProperties).toBe(false);
       const args = {
-        action: "list-features",
-        contextId: "context",
-        featureType: "peak-summary/v1",
-        limit: 8,
+        action: "read",
+        target,
       };
       const invoke = (
         arguments_: Record<string, unknown>,
@@ -2397,27 +2418,16 @@ describe("Ableton tools", () => {
       );
       expect(executeContextOperation).not.toHaveBeenCalled();
       await expect(invoke(args, "first-page")).resolves.toEqual({
-        action: "list-features",
-        inventory: {
-          features: [],
-          provenance: [],
-          segments: [],
-          sources: [],
-          metadata: [],
-        },
+        action: "read",
+        analyses: [analysis],
         nextCursor,
       });
       await expect(
         invoke({ ...args, cursor: nextCursor }, "second-page"),
       ).resolves.toEqual({
-        action: "list-features",
-        inventory: {
-          features: [],
-          provenance: [],
-          segments: [],
-          sources: [],
-          metadata: [],
-        },
+        action: "read",
+        analyses: [analysis],
+        nextCursor: null,
       });
       expect(
         executeContextOperation.mock.calls.map(([request]) => request),

@@ -128,6 +128,22 @@ async function fixture(
 }
 
 describe("features backed by persisted measurement streams", () => {
+  it("joins automatic stream derivation outside publication without scheduling it twice", async () => {
+    const { store, owner, publish } = await fixture();
+    const publishing = publish();
+    const waiting = store.waitForFeatureDerivation(owner.captureId);
+    await publishing;
+    const state = await waiting;
+    expect(state.status).toBe("ready");
+    expect(state.featureIds).toHaveLength(LISTENING_FEATURE_DEFINITIONS.length);
+    expect(await store.waitForFeatureDerivation(owner.captureId)).toEqual(
+      state,
+    );
+    expect(
+      (await store.listFeatures({ entryId: owner.captureId })).items,
+    ).toHaveLength(LISTENING_FEATURE_DEFINITIONS.length);
+  });
+
   it("searches stored musical grids across acquisition phases and preserves comparison coverage", async () => {
     const sourceOrigin = 100_000;
     const { store, owner, publish } = await fixture(8, {

@@ -185,6 +185,56 @@ async function fixture(
   const inspectListeningContext = vi.fn(
     async (input: InspectListeningContextParams) => inspection(input),
   );
+  const inspectSession = vi.fn(async () => ({
+    tempo: 120,
+    timeSignature: { numerator: 4, denominator: 4 },
+    isPlaying: false,
+    trackCount: 1,
+    tracks: [
+      {
+        index: 0,
+        reference: uuid(10),
+        name: "Track",
+        kind: "audio" as const,
+        color: null,
+        isMuted: false,
+        isSoloed: false,
+        isArmed: false,
+        volume: 0.8,
+        pan: 0,
+      },
+    ],
+    clips: [
+      {
+        reference: uuid(30),
+        trackReference: uuid(10),
+        trackIndex: 0,
+        sceneIndex: 0,
+        name: "Clip",
+        kind: "audio" as const,
+        length: 8,
+        noteCount: null,
+      },
+    ],
+  }));
+  const inspectArrangement = vi.fn(async () => ({
+    offset: 0,
+    limit: 512,
+    total: 1,
+    clips: [
+      {
+        reference: uuid(30),
+        trackReference: uuid(10),
+        trackIndex: 0,
+        name: "Clip",
+        kind: "audio" as const,
+        startTime: 4,
+        endTime: 12,
+        length: 8,
+        noteCount: null,
+      },
+    ],
+  }));
   const positionListeningPlayback = vi.fn<
     NonNullable<
       ListeningRuntimeDependencies["ableton"]["positionListeningPlayback"]
@@ -228,6 +278,8 @@ async function fixture(
         diagnostics: [],
       })),
       inspectListeningContext,
+      inspectSession,
+      inspectArrangement,
       positionListeningPlayback,
       startListeningPlayback,
     },
@@ -274,12 +326,314 @@ async function fixture(
     requestListenerControl,
     positionListeningPlayback,
     startListeningPlayback,
+    inspectSession,
+    inspectArrangement,
     begin,
     run: async () => host.waitForListeningPass(await begin(), context),
   };
 }
 
 describe("production v5 Arrangement listening host with synthetic native peer", () => {
+  const sourceTrack = {
+    kind: "regular" as const,
+    index: 0,
+    expectedReference: uuid(10),
+    expectedName: "Track",
+  };
+  const sourceRequest = {
+    action: "play-arrangement-and-listen" as const,
+    sources: [{ track: sourceTrack }],
+    maximumDurationMs: 5000,
+  };
+
+  it("resolves only selected Arrangement clips and records cancellable attributed range resolution", async () => {
+    const f = await fixture();
+    const first = (await f.inspectArrangement()).clips[0]!;
+    f.inspectArrangement.mockResolvedValue({
+      offset: 0,
+      limit: 512,
+      total: 3,
+      clips: [
+        first,
+        {
+          ...first,
+          reference: uuid(31),
+          startTime: 16,
+          endTime: 20,
+          length: 4,
+        },
+        {
+          ...first,
+          reference: uuid(32),
+          trackReference: uuid(99),
+          startTime: 0,
+          endTime: 200,
+          length: 200,
+        },
+      ],
+    });
+    expect(
+      await f.host.resolveListeningOperation(sourceRequest, context),
+    ).toMatchObject({
+      listenerIds: ["listener-0"],
+      startBeat: 4,
+      endBeat: 20,
+    });
+    expect(f.requestListenerControl).not.toHaveBeenCalled();
+    expect(f.startListeningPlayback).not.toHaveBeenCalled();
+    const events = f.telemetryEnqueue.mock.calls
+      .map(([event]) => event)
+      .filter((event) =>
+        event.name.startsWith(
+          "listening.runtime.arrangement-range-resolution.",
+        ),
+      );
+    expect(events.map((event) => event.name.split(".").at(-1))).toEqual([
+      "queued",
+      "started",
+      "progress",
+      "completed",
+    ]);
+    expect(
+      events.every(
+        (event) =>
+          event.trace?.traceId === context.trace.traceId &&
+          event.sessionId === owner.sessionId,
+      ),
+    ).toBe(true);
+  });
+
+  it.each(["renamed", "reordered"])(
+    "rejects %s source guards even with explicit bounds",
+    async (change) => {
+      const f = await fixture();
+      await expect(
+        f.host.resolveListeningOperation(
+          {
+            ...sourceRequest,
+            sources: [
+              {
+                track: {
+                  ...sourceTrack,
+                  ...(change === "renamed"
+                    ? { expectedName: "Other" }
+                    : { index: 3 }),
+                },
+              },
+            ],
+            startBeat: 0,
+            endBeat: 8,
+          },
+          context,
+        ),
+      ).rejects.toThrow();
+      expect(f.startListeningPlayback).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    "empty",
+    "wrong-index",
+    "duplicate",
+    "bad-range",
+    "wrong-offset",
+    "changing-total",
+  ])(
+    "rejects %s Arrangement clip inventory rather than guessing bounds",
+    async (fault) => {
+      const f = await fixture();
+      const clip = (await f.inspectArrangement()).clips[0]!;
+      if (fault === "empty")
+        f.inspectArrangement.mockResolvedValue({
+          offset: 0,
+          limit: 512,
+          total: 0,
+          clips: [],
+        });
+      if (fault === "wrong-index")
+        f.inspectArrangement.mockResolvedValue({
+          offset: 0,
+          limit: 512,
+          total: 1,
+          clips: [{ ...clip, trackIndex: 9 }],
+        });
+      if (fault === "duplicate")
+        f.inspectArrangement.mockResolvedValue({
+          offset: 0,
+          limit: 512,
+          total: 2,
+          clips: [clip, clip],
+        });
+      if (fault === "bad-range")
+        f.inspectArrangement.mockResolvedValue({
+          offset: 0,
+          limit: 512,
+          total: 1,
+          clips: [{ ...clip, endTime: 2 }],
+        });
+      if (fault === "wrong-offset")
+        f.inspectArrangement.mockResolvedValue({
+          offset: 1,
+          limit: 512,
+          total: 1,
+          clips: [clip],
+        });
+      if (fault === "changing-total")
+        f.inspectArrangement
+          .mockResolvedValueOnce({
+            offset: 0,
+            limit: 512,
+            total: 2,
+            clips: [clip],
+          })
+          .mockResolvedValueOnce({
+            offset: 1,
+            limit: 512,
+            total: 3,
+            clips: [{ ...clip, reference: uuid(31) }],
+          });
+      await expect(
+        f.host.resolveListeningOperation(sourceRequest, context),
+      ).rejects.toThrow();
+      expect(f.startListeningPlayback).not.toHaveBeenCalled();
+      expect(f.reservePass).not.toHaveBeenCalled();
+    },
+  );
+
+  it("resolves a listener after eight unrelated devices without selecting an arbitrary one", async () => {
+    const f = await fixture();
+    const descriptors = Array.from({ length: 9 }, (_, index) => {
+      const descriptor = {
+        ...structuredClone(f.listener),
+        connectionId: uuid(100 + index),
+      };
+      descriptor.producer.producerId = `listener-${index}`;
+      descriptor.producer.instanceId = `instance-${index}`;
+      descriptor.registration.connectionEpoch = uuid(200 + index);
+      descriptor.registration.deviceCanonicalPath = `live_set tracks ${index} devices 0`;
+      descriptor.registration.trackCanonicalPath = `live_set tracks ${index}`;
+      return descriptor;
+    });
+    vi.spyOn(
+      f.dependencies.signals.listeners!,
+      "inspectListeners",
+    ).mockReturnValue(descriptors);
+    f.dependencies.ableton.inspectListeningContext = async (input) => {
+      const result = inspection(input);
+      const index = Number(result.listeners[0]!.canonicalPath.split(" ")[2]);
+      const bound = result.listeners[0]!;
+      bound.binding.track = {
+        ...sourceTrack,
+        index,
+        expectedReference: uuid(10 + index),
+      };
+      bound.pathAttestation!.trackReference = uuid(10 + index);
+      bound.pathAttestation!.canonicalTrackPath = `live_set tracks ${index}`;
+      return result;
+    };
+    expect(
+      await f.host.resolveListeningOperation(
+        {
+          ...sourceRequest,
+          sources: [
+            {
+              track: { ...sourceTrack, index: 8, expectedReference: uuid(18) },
+            },
+          ],
+          startBeat: 0,
+          endBeat: 8,
+        },
+        context,
+      ),
+    ).toMatchObject({ listenerIds: ["listener-8"] });
+    expect(f.startListeningPlayback).not.toHaveBeenCalled();
+  });
+
+  it("pages actual Arrangement clip extents and never falls back to transport loops", async () => {
+    const f = await fixture();
+    const clip = (await f.inspectArrangement()).clips[0]!;
+    f.inspectArrangement.mockClear();
+    f.inspectArrangement
+      .mockResolvedValueOnce({ offset: 0, limit: 512, total: 2, clips: [clip] })
+      .mockResolvedValueOnce({
+        offset: 1,
+        limit: 512,
+        total: 2,
+        clips: [{ ...clip, reference: uuid(31), startTime: 24, endTime: 32 }],
+      });
+    expect(
+      await f.host.resolveListeningOperation(sourceRequest, context),
+    ).toMatchObject({
+      startBeat: 4,
+      endBeat: 32,
+    });
+    expect(f.inspectArrangement.mock.calls).toEqual([
+      [{ offset: 0, limit: 512 }],
+      [{ offset: 1, limit: 512 }],
+    ]);
+    expect(f.startListeningPlayback).not.toHaveBeenCalled();
+  });
+
+  it("rejects incomplete bounded Arrangement inventories without returning partial extents", async () => {
+    const f = await fixture();
+    const clip = (await f.inspectArrangement()).clips[0]!;
+    f.inspectArrangement.mockClear();
+    f.inspectArrangement.mockResolvedValue({
+      offset: 0,
+      limit: 512,
+      total: 4097,
+      clips: [clip],
+    });
+    await expect(
+      f.host.resolveListeningOperation(sourceRequest, context),
+    ).rejects.toThrow("arrangement_inventory_limit");
+    expect(f.inspectArrangement).toHaveBeenCalledTimes(1);
+    expect(f.reservePass).not.toHaveBeenCalled();
+    expect(f.startListeningPlayback).not.toHaveBeenCalled();
+  });
+
+  it("cancels range inspection without resource allocation and discards late results", async () => {
+    const f = await fixture();
+    const page = await f.inspectArrangement();
+    let release!: (value: typeof page) => void;
+    let reached!: () => void;
+    const atRange = new Promise<void>((resolve) => {
+      reached = resolve;
+    });
+    f.inspectArrangement.mockImplementation(() => {
+      reached();
+      return new Promise((resolve) => {
+        release = resolve;
+      });
+    });
+    const controller = new AbortController();
+    const pending = f.host.resolveListeningOperation(sourceRequest, {
+      ...context,
+      signal: controller.signal,
+    });
+    await atRange;
+    controller.abort(new Error("token=range-private-secret"));
+    await expect(pending).rejects.toThrow();
+    release(page);
+    await Promise.resolve();
+    expect(f.reservePass).not.toHaveBeenCalled();
+    expect(f.startListeningPlayback).not.toHaveBeenCalled();
+    const events = f.telemetryEnqueue.mock.calls
+      .map(([event]) => event)
+      .filter((event) =>
+        event.name.startsWith(
+          "listening.runtime.arrangement-range-resolution.",
+        ),
+      );
+    expect(events.at(-1)?.name).toBe(
+      "listening.runtime.arrangement-range-resolution.cancelled",
+    );
+    expect(events.some((event) => event.name.endsWith(".completed"))).toBe(
+      false,
+    );
+    expect(JSON.stringify(events)).not.toContain("range-private-secret");
+  });
+
   it("persists monitored Arrangement meter as canonical musical alignment", async () => {
     const f = await fixture();
     const result = await f.run();

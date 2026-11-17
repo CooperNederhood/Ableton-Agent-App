@@ -4,6 +4,10 @@ Companion specification: [Project State](project-state.md)
 
 ## Models and storage
 
+- [x] Add an owner-scoped automatic-feature completion wait without duplicate
+  derivation or serialized-queue deadlock. Cover terminal/race, waiter-only
+  abort, admission failure, prune/shutdown/reopen and attributed lifecycle
+  behavior with red/green regressions and the owning repository suite.
 - [x] Implement App-session-owned typed entries/passes/links, quota/pruning,
   specific-session Desktop publication and durable bounded resume inventory.
 - [x] Add closed-handle context relocation leases, ownership-header rollback,

@@ -164,6 +164,12 @@ export interface EntityContextRepository {
     entryId: string,
     options?: ContextOperationOptions,
   ): Promise<ContextFeatureDerivation>;
+  /** Join existing work or read its durable terminal state; never starts/retries derivation.
+   * Aborting detaches only this caller. Failed/cancelled derivation states are returned. */
+  waitForFeatureDerivation(
+    entryId: string,
+    options?: ContextOperationOptions,
+  ): Promise<ContextFeatureDerivation>;
   getFeatureDerivation(
     entryId: string,
     options?: ContextOperationOptions,
@@ -700,6 +706,10 @@ export class SessionContextStore implements EntityContextRepository {
   #closePromise: Promise<void> | undefined;
   #sessionPublicationReady = false;
   readonly #featureJobs = new Map<AbortController, string>();
+  readonly #featureCompletions = new Map<
+    string,
+    { owner: string; promise: Promise<ContextFeatureDerivation> }
+  >();
   readonly #metricCaptures: MetricCaptureRepository;
 
   private constructor(
@@ -1146,6 +1156,7 @@ export class SessionContextStore implements EntityContextRepository {
     const owner = this.liveSetId;
     const admitted =
       !this.#closed && !this.#closing && this.#pending < this.#maxPending;
+    let failureState: ContextFeatureDerivation | undefined;
     const result = this.#operation(
       "derive-features",
       options.trace,
@@ -1356,8 +1367,10 @@ export class SessionContextStore implements EntityContextRepository {
         )
           return;
         const prior = this.#getDerivation(entryId);
-        if (prior?.status === "ready" || prior?.status === "unavailable")
+        if (prior?.status === "ready" || prior?.status === "unavailable") {
+          failureState = prior;
           return;
+        }
         const reason =
           error instanceof ContextQuotaError
             ? "derived-store-quota-exceeded"
@@ -1367,19 +1380,136 @@ export class SessionContextStore implements EntityContextRepository {
                   error.message.startsWith("feature_")
                 ? `unsupported-geometry:${error.message}`
                 : "derivation-failed";
-        await this.#transaction(() =>
-          this.#putDerivation(
-            derivationState(
-              entryId,
-              signal.aborted ? "cancelled" : "failed",
-              reason,
-            ),
-          ),
+        const state = derivationState(
+          entryId,
+          signal.aborted ? "cancelled" : "failed",
+          reason,
         );
+        await this.#transaction(() => this.#putDerivation(state));
+        failureState = state;
       },
     );
-    if (admitted) this.#featureJobs.set(controller, entryId);
+    if (admitted) {
+      this.#featureJobs.set(controller, entryId);
+      // Capture the durable outcome before later queue work can prune or close the database.
+      const completion = result
+        .catch((error: unknown) => {
+          if (failureState !== undefined) return failureState;
+          throw error;
+        })
+        .finally(() => {
+          if (this.#featureCompletions.get(entryId)?.promise === completion)
+            this.#featureCompletions.delete(entryId);
+        });
+      this.#featureCompletions.set(entryId, { owner, promise: completion });
+      void completion.catch(() => undefined);
+    }
     return result.finally(() => this.#featureJobs.delete(controller));
+  }
+
+  public async waitForFeatureDerivation(
+    entryId: string,
+    options: ContextOperationOptions = {},
+  ): Promise<ContextFeatureDerivation> {
+    const owner = this.liveSetId;
+    const trace = contextTraceSchema.parse(options.trace ?? newTrace());
+    const startedAt = performance.now();
+    const emit = lifecycleEmitter(
+      this.#recorder,
+      { sessionId: this.sessionId, liveSetId: owner },
+      "wait-feature-derivation",
+      trace,
+      () => this.#now(),
+      options.activeAgentId === undefined
+        ? undefined
+        : contextSubjectSchema.shape.id.parse(
+            sanitizePersistedText(options.activeAgentId),
+          ),
+    );
+    emit("queued");
+    emit("started", 0, { queueWaitMs: 0 });
+    const signal = options.signal;
+    let onAbort: (() => void) | undefined;
+    try {
+      signal?.throwIfAborted();
+      contextSubjectSchema.shape.id.parse(entryId);
+      if (this.#closed || this.#closing)
+        throw new Error("Session context store is closed");
+      emit("progress", 0, { phase: "joining-existing-derivation", entryId });
+      const running = this.#featureCompletions.get(entryId);
+      const pending =
+        running?.owner === owner
+          ? running.promise
+          : this.#queue(async () => {
+              signal?.throwIfAborted();
+              this.#assertFeatureSource(entryId);
+              if (
+                owner !== this.liveSetId ||
+                this.#featureSource(entryId) === undefined
+              )
+                throw new RepositoryConflictError(
+                  "Feature source is outside current ownership or no longer exists",
+                );
+              // Publication may have scheduled work after this snapshot was enqueued.
+              // Return a wrapper: awaiting completion here would deadlock that work.
+              const scheduled = this.#featureCompletions.get(entryId);
+              if (scheduled?.owner === owner)
+                return { completion: scheduled.promise };
+              const state = this.#getDerivation(entryId);
+              if (state === undefined || state.status === "pending")
+                throw new RepositoryConflictError(
+                  "Feature derivation is not scheduled",
+                );
+              return { completion: Promise.resolve(state) };
+            }).then(({ completion }) => completion);
+      const state =
+        signal === undefined
+          ? await pending
+          : await new Promise<ContextFeatureDerivation>((resolve, reject) => {
+              onAbort = () => {
+                const reason: unknown = signal.reason;
+                reject(
+                  reason instanceof Error
+                    ? reason
+                    : new Error("Feature derivation wait cancelled", {
+                        cause: reason,
+                      }),
+                );
+              };
+              signal.addEventListener("abort", onAbort, { once: true });
+              if (signal.aborted) onAbort();
+              void pending.then(resolve, reject);
+            });
+      signal?.throwIfAborted();
+      if (owner !== this.liveSetId)
+        throw new RepositoryConflictError(
+          "Feature source ownership changed while waiting",
+        );
+      const durationMs = performance.now() - startedAt;
+      emit(
+        state.status === "failed" || state.status === "cancelled"
+          ? state.status
+          : "completed",
+        durationMs,
+        {
+          entryId,
+          status: state.status,
+          reason: state.reason,
+          waitMs: durationMs,
+        },
+      );
+      return state;
+    } catch (error) {
+      const durationMs = performance.now() - startedAt;
+      emit(signal?.aborted === true ? "cancelled" : "failed", durationMs, {
+        entryId,
+        error,
+        waitMs: durationMs,
+      });
+      throw error;
+    } finally {
+      if (onAbort !== undefined) signal?.removeEventListener("abort", onAbort);
+    }
   }
 
   public getFeatureDerivation(

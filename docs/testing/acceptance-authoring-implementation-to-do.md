@@ -2,6 +2,28 @@
 
 Companion specification: [Acceptance test authoring](acceptance-authoring.md).
 
+## Musical-analysis contract migration
+
+- [x] Reproduce rejection of valid typed analysis pagination, then distinguish
+      it from actual lossy History truncation without accepting malformed pages.
+- [x] Accept actual canonical values delivered by the original listening call
+      rather than require an extra storage read. Independently verify mel shape,
+      regions and ratios against original frames and reject altered source,
+      owner, geometry, units, values and missing dimensions.
+- [x] Migrate feature-search and storage-shape assertions/prompts to composable
+      source/passage targets while retaining independent mathematical,
+      provenance, complete-extent and original/restart checks.
+- [x] Fix and re-review modern-oracle false passes for missing restart
+      provenance and forged original/restored sample coverage; retain independent
+      native support-union and channel-validity checks.
+- [x] Reconcile the migrated oracles with the compact default projection and
+      explicitly requested technical-detail pages.
+- [ ] Run simple listening regressions followed by every registered packaged
+      message scenario and the terminal suite verifier on the final candidate.
+- [ ] Invoke final code review, resolve findings and requalify any changed
+      candidate before the PR. Record justified finite budget or small
+      tooling-contract adjustments under the user's explicit permission.
+
 ## User-authorized comprehension follow-on
 
 Qualification and preserved failures are maintained in the

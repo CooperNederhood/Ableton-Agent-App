@@ -45,32 +45,6 @@
       }
     },
     {
-      "sourceId": "session-long-audio",
-      "tool": "ableton_context",
-      "action": "derive-features",
-      "risk": "medium",
-      "maxUses": 1,
-      "stepIds": ["listen-session"],
-      "arguments": {
-        "action": "derive-features",
-        "contextIds.0": "$source.contextId",
-        "includeHistorical": false
-      }
-    },
-    {
-      "sourceId": "arrangement-audio",
-      "tool": "ableton_context",
-      "action": "derive-features",
-      "risk": "medium",
-      "maxUses": 1,
-      "stepIds": ["listen-arrangement"],
-      "arguments": {
-        "action": "derive-features",
-        "contextIds.0": "$source.contextId",
-        "includeHistorical": false
-      }
-    },
-    {
       "tool": "ableton_transport",
       "action": "set-playing",
       "risk": "medium",
@@ -92,7 +66,7 @@
     {
       "id": "listen-session",
       "sourceId": "session-long-audio",
-      "message": "Listen exactly once to the entire Session clip long-audio on track 2-Audio, scene 4, for durationBeats 80 (twenty 4/4 measures) using that track's existing listener and all six metric families. Do not substitute or loop a shorter clip. Read the resulting original stored measurement report and derive its canonical stored features if needed. List the complete feature inventory, following pagination, and report its context ID, measure count, feature definitions/counts and grid dimensions. This is a storage-shape check: do not compare numerical values or make another capture. Preserve all source, launch, device and routing settings. Leave playback running. Stop immediately on any failure without repairing or retrying.",
+      "message": "Listen exactly once to the entire Session clip long-audio on track 2-Audio, scene 4, for durationBeats 80 (twenty 4/4 measures) using that track's existing listener and all six metric families. Do not substitute or loop a shorter clip. Consume the automatically returned analysis, then follow every continuation with ableton_context read using its pinned readTarget through the full eighty-beat range. Inspect all fifteen canonical feature types on each of twenty complete measures, measured ranges, units, coverage and complete grid dimensions from default musical rows; counts alone are insufficient. No raw measurements, verbose evidence detail or storage-ID discovery is needed. Retain the readTarget and report context, stored source schema, measure count and shapes. This is a storage-shape check: do not compare numerical values, explicitly derive or make another capture. Preserve all source, launch, device and routing settings. Leave playback running. Stop immediately on any failure without repairing or retrying.",
       "timeoutMs": 300000,
       "assertions": [
         {
@@ -110,14 +84,14 @@
       "id": "listen-arrangement",
       "sourceId": "arrangement-audio",
       "setupActions": ["stop-transport", "back-to-arrangement"],
-      "message": "Listen exactly once to the Arrangement on track 2-Audio from startBeat 0 through endBeat 80, all twenty 4/4 measures, using that track's existing listener and all six metric families. The runner has stopped transport and restored Back to Arrangement; the normal listening operation may position and start it. Read the original stored measurements and derive canonical stored features for this new context if needed. List the complete feature inventory, following pagination, and report context ID, measure count, feature definitions/counts and grid dimensions. Do not compare numerical values, recapture, change settings, or stop/reset transport. Leave playback running. Stop immediately on any failure without repairing or retrying.",
+      "message": "Listen exactly once to the Arrangement on track 2-Audio from startBeat 0 through endBeat 80, all twenty 4/4 measures, using that track's existing listener and all six metric families. The runner has stopped transport and restored Back to Arrangement; the normal listening operation may position and start it. Consume the returned analysis, then follow every continuation with ableton_context read using its pinned readTarget through the full eighty-beat range. Inspect all fifteen canonical feature types on each of twenty complete measures, measured ranges, units, coverage and complete grid dimensions from default musical rows, not counts alone. No raw measurements, verbose evidence detail or storage-ID discovery is needed. Retain the readTarget and report context, stored source schema, measure count and shapes. Do not compare numerical values, explicitly derive, recapture, change settings or stop/reset transport. Leave playback running. Stop immediately on any failure without repairing or retrying.",
       "timeoutMs": 300000,
       "assertions": []
     },
     {
       "id": "restored",
       "setupActions": ["stop-transport", "restart-owned-desktop"],
-      "message": "Without capturing, deriving, editing or changing transport, read the two original stored contexts and their complete feature inventories from the preceding Session and Arrangement listens. Use includeHistorical=true where needed and follow pagination. Report original context/feature IDs, stored schema, all twenty measure segments, feature definitions/counts and grid dimensions. Do not compare numerical values. Stop immediately if an original context or inventory is missing or changed; do not repair, rederive or recapture.",
+      "message": "Without capturing, deriving, editing or changing transport, use ableton_context read with each original pinned capture readTarget from the preceding Session and Arrangement listens and includeHistorical true. Follow every continuation through both complete eighty-beat ranges. Inspect all fifteen canonical feature types on each of twenty complete measures, measured ranges, units, coverage and complete grid dimensions. Use default musical rows; no raw measurements, verbose evidence detail or storage-ID discovery is needed. Verify the stored source schema and complete feature shapes are unchanged, not counts alone. Report original contexts and shapes without comparing numerical values. Stop immediately if original evidence is missing or changed; do not repair, rederive or recapture.",
       "timeoutMs": 300000,
       "assertions": [{ "name": "no-capture", "parameters": {} }]
     }

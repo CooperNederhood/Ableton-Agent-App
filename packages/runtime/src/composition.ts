@@ -713,6 +713,7 @@ export interface AgentSettings {
 }
 
 export interface ListeningRuntimeHost {
+  resolveListeningOperation?: CopilotAgentServiceOptions["resolveListeningOperation"];
   executeListeningOperation?: CopilotAgentServiceOptions["executeListeningOperation"];
   executeContextOperation?: CopilotAgentServiceOptions["executeContextOperation"];
   waitForListeningPass?: CopilotAgentServiceOptions["waitForListeningPass"];
@@ -1191,6 +1192,9 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
       : {
           executeListeningOperation: listening.executeListeningOperation,
         }),
+    ...(listening?.resolveListeningOperation === undefined
+      ? {}
+      : { resolveListeningOperation: listening.resolveListeningOperation }),
     ...(listening?.executeContextOperation === undefined
       ? {}
       : { executeContextOperation: listening.executeContextOperation }),

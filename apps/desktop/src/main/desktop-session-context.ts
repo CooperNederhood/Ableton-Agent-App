@@ -127,34 +127,39 @@ export function createDesktopSessionContextManager(
       );
     }
   };
+  const operationForActor = (
+    context: ListeningExecutionContext,
+    operation: ContextOperationOptions = {},
+    cleanup = false,
+  ): ContextOperationOptions => {
+    const {
+      activeAgentId: _actor,
+      signal: operationSignal,
+      ...rest
+    } = operation;
+    void _actor;
+    const signals = [
+      cleanup ? undefined : context.signal,
+      operationSignal,
+    ].filter((signal): signal is AbortSignal => signal !== undefined);
+    return {
+      ...rest,
+      trace: operation.trace ?? context.trace,
+      ...(context.actorKind === "application"
+        ? {}
+        : { activeAgentId: context.agentId }),
+      ...(signals.length === 0 ? {} : { signal: AbortSignal.any(signals) }),
+    };
+  };
   const incrementalForActor = (
     metrics: IncrementalMetricContextRepository,
     context: ListeningExecutionContext,
     deny?: () => Promise<never>,
   ): IncrementalMetricContextRepository => {
     const operationFor = (
-      operation: ContextOperationOptions = {},
+      operation?: ContextOperationOptions,
       cleanup = false,
-    ): ContextOperationOptions => {
-      const {
-        activeAgentId: _actor,
-        signal: operationSignal,
-        ...rest
-      } = operation;
-      void _actor;
-      const signals = [
-        cleanup ? undefined : context.signal,
-        operationSignal,
-      ].filter((signal): signal is AbortSignal => signal !== undefined);
-      return {
-        ...rest,
-        trace: operation.trace ?? context.trace,
-        ...(context.actorKind === "application"
-          ? {}
-          : { activeAgentId: context.agentId }),
-        ...(signals.length === 0 ? {} : { signal: AbortSignal.any(signals) }),
-      };
-    };
+    ) => operationForActor(context, operation, cleanup);
     return {
       beginMetricCapture: (input, operation) =>
         deny?.() ?? metrics.beginMetricCapture(input, operationFor(operation)),
@@ -214,19 +219,13 @@ export function createDesktopSessionContextManager(
         get liveSetId() {
           return handle.liveSetId;
         },
-        deriveFeatures: (entryId, operation) => {
-          const signals = [context.signal, operation?.signal].filter(
-            (signal): signal is AbortSignal => signal !== undefined,
-          );
-          return handle.deriveFeatures(entryId, {
-            ...operation,
-            trace: operation?.trace ?? context.trace,
-            activeAgentId: context.agentId,
-            ...(signals.length === 0
-              ? {}
-              : { signal: AbortSignal.any(signals) }),
-          });
-        },
+        deriveFeatures: (entryId, operation) =>
+          handle.deriveFeatures(entryId, operationForActor(context, operation)),
+        waitForFeatureDerivation: (entryId, operation) =>
+          handle.waitForFeatureDerivation(
+            entryId,
+            operationForActor(context, operation),
+          ),
       };
       handles.set(context, actorHandle);
       actorHandles.set(handle, handles);
@@ -258,6 +257,11 @@ export function createDesktopSessionContextManager(
       },
       appendPass: deny,
       deriveFeatures: deny,
+      waitForFeatureDerivation: (entryId, operation) =>
+        handle.waitForFeatureDerivation(
+          entryId,
+          operationForActor(context, operation),
+        ),
       assessLink: deny,
       prune: deny,
       reservePass: deny,
@@ -932,6 +936,8 @@ export function createDesktopSessionContextManager(
               },
               getFeatureDerivation: (...args) =>
                 repository.getFeatureDerivation(...args),
+              waitForFeatureDerivation: (...args) =>
+                repository.waitForFeatureDerivation(...args),
               getFeature: (...args) => repository.getFeature(...args),
               getSegment: (...args) => repository.getSegment(...args),
               listFeatures: (...args) => repository.listFeatures(...args),

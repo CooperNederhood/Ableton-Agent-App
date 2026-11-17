@@ -9,10 +9,853 @@ import {
   type ContextFeature,
   type ContextFeatureDerivation,
   type ListeningFeature,
+  type ContextSegment,
+  clipLocationSchema,
+  trackLocationSchema,
+  listeningFeatureTypeSchema,
+  listeningFeatureComparisonSchema,
+  LISTENING_FEATURE_DEFINITIONS,
+  listeningMusicalAlignmentSchema,
+  listeningFeatureDefinitionSchema,
+  audioObservationKindSchema,
+  metricRecordChunkSchema,
+  metricRecordStreamDescriptorSchema,
+  metricRecordStreamManifestSchema,
+  metricContinuousListeningGeometrySchema,
+  metricListeningReportSchema,
 } from "@ableton-agent/protocol";
 import { z } from "zod";
 
 export const MAX_FEATURE_PAGE_CELLS = 32;
+
+const analysisId = z.string().min(1).max(256);
+export const analysisRangeSchema = z
+  .strictObject({
+    startBeat: z.number().finite().nonnegative(),
+    endBeat: z.number().finite().positive(),
+  })
+  .refine((value) => value.endBeat > value.startBeat);
+const featureSelection = z.array(listeningFeatureTypeSchema).min(1).max(15);
+export const captureAnalysisTargetSchema = z.strictObject({
+  kind: z.literal("capture"),
+  sessionId: analysisId,
+  liveSetId: analysisId,
+  contextId: analysisId,
+  coordinate: z.enum(["clip-local-beats", "transport-beats"]),
+  range: analysisRangeSchema,
+  featureTypes: featureSelection.optional(),
+});
+export const sourceAnalysisTargetSchema = z.strictObject({
+  kind: z.literal("source"),
+  source: z.union([
+    clipLocationSchema.options[0],
+    z.strictObject({
+      view: z.literal("arrangement"),
+      track: trackLocationSchema,
+    }),
+  ]),
+  range: analysisRangeSchema.optional(),
+  featureTypes: featureSelection.optional(),
+});
+export const passageAnalysisTargetSchema = z.union([
+  sourceAnalysisTargetSchema,
+  captureAnalysisTargetSchema,
+]);
+export const comparisonAnalysisTargetSchema = z.strictObject({
+  kind: z.literal("comparison"),
+  left: captureAnalysisTargetSchema,
+  right: captureAnalysisTargetSchema,
+});
+export const analysisTargetSchema = z.union([
+  passageAnalysisTargetSchema,
+  comparisonAnalysisTargetSchema,
+]);
+const analysisCursor = z.string().min(1).max(32768);
+export const analysisOperationParamsSchema = z.discriminatedUnion("action", [
+  z
+    .strictObject({
+      action: z.literal("read"),
+      target: analysisTargetSchema,
+      includeHistorical: z.boolean().default(false),
+      cursor: analysisCursor.optional(),
+      detail: z
+        .enum(["evidence", "original-measurements"])
+        .optional()
+        .describe(
+          "Omit for compact musical values and coverage. Use evidence for canonical metadata, definitions and complete native support intervals, or original-measurements for original analyzer frames. Reuse the same target and follow nextCursor for the requested detail only.",
+        ),
+    })
+    .refine(
+      (value) =>
+        value.detail !== "original-measurements" ||
+        value.target.kind !== "comparison",
+      "Original measurements require a single source or capture target",
+    ),
+  z.strictObject({
+    action: z.literal("compare"),
+    left: passageAnalysisTargetSchema,
+    right: passageAnalysisTargetSchema,
+    featureTypes: featureSelection.optional(),
+    includeHistorical: z.boolean().default(false),
+    cursor: analysisCursor.optional(),
+  }),
+  z.strictObject({
+    action: z.literal("search"),
+    query: passageAnalysisTargetSchema,
+    scope: z.array(passageAnalysisTargetSchema).min(1).max(100),
+    featureType: listeningFeatureTypeSchema.default("mel-grid/v1"),
+    topK: z.number().int().min(1).max(20).default(10),
+    withinCapture: z.boolean().default(false),
+    includeHistorical: z.boolean().default(false),
+    cursor: analysisCursor.optional(),
+  }),
+]);
+export const LISTENING_FEATURE_CATALOG = LISTENING_FEATURE_DEFINITIONS.map(
+  (definition) =>
+    `${definition.type} (${definition.units}): ${definition.description}.`,
+).join(" ");
+
+export const analysisSourceSchema = z.strictObject({
+  schema: z
+    .union([
+      audioObservationKindSchema,
+      z.literal("metric-record-stream-context/v1"),
+    ])
+    .optional(),
+  name: z.string().max(128),
+  nameTruncated: z.boolean(),
+  location: z.string().max(128),
+  capturedAt: z.string().datetime().max(40),
+  coordinate: captureAnalysisTargetSchema.shape.coordinate,
+  observedRange: analysisRangeSchema,
+  requestedRange: analysisRangeSchema,
+  readTarget: captureAnalysisTargetSchema,
+  freshness: z.enum(["fresh", "stale", "unknown", "unresolved", "historical"]),
+  geometry: z
+    .strictObject({
+      sampleRate: z.number().positive(),
+      tempoBpm: z.number().positive(),
+      captureStartSample: z.number().nonnegative(),
+      transportStartBeat: z.number().nonnegative(),
+    })
+    .optional(),
+});
+const analysisFeatureBlockSchema = z.strictObject({
+  featureId: analysisId.optional(),
+  segmentId: analysisId.optional(),
+  sourceFingerprint: z.string().length(64).optional(),
+  readTarget: captureAnalysisTargetSchema.optional(),
+  type: listeningFeatureTypeSchema,
+  units: listeningFeatureSchema.shape.units,
+  normalization: listeningFeatureSchema.shape.normalization,
+  dimensions: z.array(z.string().max(64)).max(48),
+  dimensionOffset: z.number().int().nonnegative().optional(),
+  totalDimensions: z.number().int().positive().max(48).optional(),
+  status: listeningFeatureSchema.shape.status,
+  reason: z.string().max(512).nullable(),
+  values: z.array(z.number().finite().nullable()).max(48).nullable(),
+  coveredSamples: z.number().nonnegative(),
+  expectedSamples: z.number().nonnegative(),
+  channelReasons: listeningFeatureSchema.shape.channelReasons,
+  channelCoveredSamples:
+    listeningFeatureGridSchema.shape.cells.element.shape.channelCoveredSamples,
+  supportExtent: listeningFeatureSchema.shape.support.element
+    .refine(([start, end]) => end > start)
+    .nullable()
+    .optional()
+    .describe(
+      "Bounding native support intersecting this interval, in segment-relative samples; not a claim of continuous support. Use read detail=evidence for complete support intervals.",
+    ),
+});
+export const analysisTimelineItemSchema = z.strictObject({
+  kind: z.enum(["segment-summary", "interval", "availability", "support", "feature-metadata"]),
+  segment: z.strictObject({
+    id: analysisId.optional(),
+    entryId: analysisId.optional(),
+    sessionId: analysisId.optional(),
+    liveSetId: analysisId.optional(),
+    order: z.number().int().nonnegative().optional(),
+    coordinate: captureAnalysisTargetSchema.shape.coordinate.optional(),
+    startBeat: z.number().finite(),
+    endBeat: z.number().finite(),
+    startSample: z.number().nonnegative(),
+    endSample: z.number().nonnegative(),
+    sampleRate: z.number().positive(),
+    kind: z.enum(["unaligned", "short", "bar", "partial"]),
+    alignment: listeningMusicalAlignmentSchema.nullable().optional(),
+    meter: listeningMusicalAlignmentSchema.shape.meter.optional(),
+    barOriginBeat:
+      listeningMusicalAlignmentSchema.shape.barOriginBeat.optional(),
+    alignmentReason: z.string().max(128).nullable(),
+  }),
+  startBeat: z.number().finite(),
+  endBeat: z.number().finite(),
+  elapsedStartSeconds: z.number().finite(),
+  elapsedEndSeconds: z.number().finite(),
+  fragment: z.number().int().nonnegative(),
+  fragmentCount: z.number().int().positive().optional(),
+  complete: z.boolean(),
+  features: z.array(analysisFeatureBlockSchema).max(15),
+  featureType: listeningFeatureTypeSchema.optional(),
+  featureRecord: z.lazy(() => contextFeatureMetadataSchema).optional(),
+  definition: listeningFeatureDefinitionSchema.optional(),
+  featureStatus: listeningFeatureSchema.shape.status.optional(),
+  reason: z.string().max(512).nullable().optional(),
+  readTarget: captureAnalysisTargetSchema.optional(),
+  support: z.tuple([z.number(), z.number()]).optional(),
+  supportCoordinate: z.literal("segment-relative-samples").optional(),
+  supportChannel: z.enum(["aggregate", "left", "right"]).optional(),
+  supportOffset: z.number().int().nonnegative().optional(),
+  profileKey: z.string().max(1024).optional(),
+  limitations: z.array(z.string().max(256)).max(8).optional(),
+});
+export const analysisOverviewSchema = z
+  .array(
+    z.strictObject({
+      type: listeningFeatureTypeSchema,
+      units: listeningFeatureSchema.shape.units,
+      basis: z.enum(["grid-cells", "segment-summaries"]),
+      availableSegments: z.number().int().nonnegative(),
+      totalSegments: z.number().int().nonnegative(),
+      validValues: z.number().int().nonnegative(),
+      expectedValues: z.number().int().nonnegative(),
+      minimum: z.number().finite().nullable(),
+      maximum: z.number().finite().nullable(),
+      reason: z.string().max(512).nullable(),
+    }),
+  )
+  .max(15);
+export const analysisPageSchema = z.strictObject({
+  source: analysisSourceSchema,
+  readTarget: captureAnalysisTargetSchema,
+  status: z.enum([
+    "pending",
+    "ready",
+    "unavailable",
+    "failed",
+    "cancelled",
+    "timed-out",
+  ]),
+  reason: z.string().max(512).nullable(),
+  overview: analysisOverviewSchema,
+  overviewIncluded: z.boolean(),
+  timeline: z.array(analysisTimelineItemSchema),
+  overviewExtent: analysisRangeSchema,
+  detail: z.strictObject({
+    offset: z.number().int().nonnegative(),
+    returnedItems: z.number().int().nonnegative(),
+    totalItems: z.number().int().nonnegative(),
+    truncated: z.boolean(),
+    nextCursor: analysisCursor.nullable(),
+  }),
+});
+export const captureAnalysisFailureSchema = z.strictObject({
+  contextId: captureAnalysisTargetSchema.shape.contextId,
+  readTarget: captureAnalysisTargetSchema.optional(),
+  status: z.literal("failed"),
+  code: z.string().min(1).max(128),
+  reason: z.string().max(512),
+});
+const { rows: _streamRows, ...streamGeometryShape } =
+  metricContinuousListeningGeometrySchema.shape;
+void _streamRows;
+export const metricStreamOverviewSchema = z
+  .strictObject({
+    descriptorDigest: metricRecordChunkSchema.options[0].shape.descriptorDigest,
+    geometry: z.strictObject(streamGeometryShape),
+    source: metricRecordStreamDescriptorSchema.shape.source,
+    timingPolicy: metricRecordStreamDescriptorSchema.shape.timingPolicy,
+    algorithms: metricRecordStreamDescriptorSchema.shape.algorithms,
+    metrics: metricRecordStreamManifestSchema.shape.metrics,
+    outcome: z.enum(["complete", "partial"]),
+    nativeStatus: z.literal("completed"),
+    nativeCoverage: z.strictObject({
+      capturedSamples:
+        metricRecordStreamManifestSchema.shape.nativeProof.shape
+          .capturedSamples,
+      sourceOrigin:
+        metricRecordStreamManifestSchema.shape.nativeProof.shape.sourceOrigin,
+      sourceEnd:
+        metricRecordStreamManifestSchema.shape.nativeProof.shape.sourceEnd,
+      drain: z.literal("completed"),
+    }),
+    chunkCount: z.number().int().nonnegative(),
+    storedBytes: z.number().int().nonnegative(),
+    limitations: metricRecordStreamManifestSchema.shape.limitations,
+    featureDerivation: z.literal("supported"),
+  })
+  .superRefine((value, ctx) => {
+    if (
+      value.nativeCoverage.capturedSamples !== value.geometry.totalSamples ||
+      value.nativeCoverage.sourceOrigin !== value.geometry.startSample ||
+      value.nativeCoverage.sourceEnd !== value.geometry.endSample
+    )
+      ctx.addIssue({
+        code: "custom",
+        message: "Completed stream native coverage must match its geometry",
+      });
+  });
+const streamRecordProjections = metricRecordChunkSchema.options.map((chunk) =>
+  z.strictObject({
+    kind: z.literal("metric-record-chunk-projection/v1"),
+    metric: chunk.shape.metric,
+    descriptorDigest: chunk.shape.descriptorDigest,
+    chunkDigest: chunk.shape.digest,
+    previousDigest: chunk.shape.previousDigest,
+    chunkSequence: chunk.shape.chunkSequence,
+    recordOffset: chunk.shape.recordOffset,
+    slotOffset: chunk.shape.slotOffset,
+    totalRecords: z.number().int().min(0).max(256),
+    totalGaps: z.number().int().min(0).max(256),
+    entryOffset: z.number().int().min(0).max(255),
+    records: chunk.shape.records.max(64),
+    gaps: chunk.shape.gaps.max(64),
+  }),
+);
+export const metricStreamRecordPageSchema = z
+  .discriminatedUnion("metric", [
+    streamRecordProjections[0]!,
+    ...streamRecordProjections.slice(1),
+  ])
+  .superRefine((value, ctx) => {
+    const count = value.records.length + value.gaps.length;
+    if (
+      count > 64 ||
+      (count === 0 && value.entryOffset !== 0) ||
+      value.records.length > value.totalRecords ||
+      value.gaps.length > value.totalGaps ||
+      value.totalRecords + value.totalGaps < 1 ||
+      value.totalRecords + value.totalGaps > 256 ||
+      value.entryOffset + count > value.totalRecords + value.totalGaps
+    )
+      ctx.addIssue({
+        code: "custom",
+        message: "Invalid bounded stream record projection",
+      });
+  });
+export const originalMeasurementsSchema = z.discriminatedUnion("kind", [
+  z.strictObject({
+    kind: z.literal("stream-overview"),
+    source: analysisSourceSchema,
+    overview: metricStreamOverviewSchema,
+  }),
+  z.strictObject({
+    kind: z.literal("stream-records"),
+    source: analysisSourceSchema,
+    page: metricStreamRecordPageSchema.nullable(),
+  }),
+  z.strictObject({
+    kind: z.literal("report"),
+    source: analysisSourceSchema,
+    report: metricListeningReportSchema,
+  }),
+]);
+export const analysisComparisonItemSchema = z.strictObject({
+  type: listeningFeatureTypeSchema,
+  left: analysisRangeSchema,
+  right: analysisRangeSchema.nullable(),
+  comparison: listeningFeatureComparisonSchema.nullable(),
+  reason: z.string().max(512).nullable(),
+  definition: listeningFeatureDefinitionSchema.optional(),
+  leftFeature: z
+    .strictObject({
+      featureId: analysisId,
+      segmentId: analysisId,
+      sourceFingerprint: z.string().length(64),
+      readTarget: captureAnalysisTargetSchema,
+    })
+    .optional(),
+  rightFeature: z
+    .strictObject({
+      featureId: analysisId,
+      segmentId: analysisId,
+      sourceFingerprint: z.string().length(64),
+      readTarget: captureAnalysisTargetSchema,
+    })
+    .optional(),
+  evidence: z
+    .strictObject({
+      units: listeningFeatureSchema.shape.units,
+      normalization: listeningFeatureSchema.shape.normalization,
+      leftRange: analysisRangeSchema,
+      rightRange: analysisRangeSchema,
+      leftValues: z.array(z.number().finite().nullable()).max(48).nullable(),
+      rightValues: z.array(z.number().finite().nullable()).max(48).nullable(),
+      scope: z.enum(["first-canonical-cell", "segment-summary"]),
+    })
+    .optional(),
+});
+const comparisonResultFields = {
+  readTarget: comparisonAnalysisTargetSchema,
+  left: analysisSourceSchema,
+  right: analysisSourceSchema,
+  comparisons: z.array(analysisComparisonItemSchema),
+  completeExtent: z.boolean(),
+  nextCursor: analysisCursor.nullable(),
+  truncated: z.boolean(),
+};
+export const analysisOperationResultSchema = z.discriminatedUnion("action", [
+  z
+    .strictObject({
+      action: z.literal("read"),
+      analyses: z.array(analysisPageSchema).max(2),
+      originalMeasurements: originalMeasurementsSchema.optional(),
+      comparison: z
+        .strictObject({
+          action: z.literal("compare"),
+          ...comparisonResultFields,
+        })
+        .optional(),
+      nextCursor: analysisCursor.nullable(),
+    })
+    .refine(
+      (value) =>
+        value.originalMeasurements
+          ? value.analyses.length === 0 && value.comparison === undefined
+          : value.analyses.length > 0,
+      "A read returns either canonical analyses or original measurement evidence",
+    ),
+  z.strictObject({ action: z.literal("compare"), ...comparisonResultFields }),
+  z.strictObject({
+    action: z.literal("search"),
+    query: analysisSourceSchema,
+    featureType: listeningFeatureTypeSchema,
+    distanceUnits: listeningFeatureSchema.shape.distanceUnits,
+    aggregation: z.literal("compared-value-weighted-rms-of-segment-distances"),
+    requestedTopK: z.number().int().min(1).max(20),
+    selectedCount: z.number().int().min(0).max(20),
+    returnedCount: z.number().int().min(0).max(20),
+    scannedCount: z.number().int().nonnegative(),
+    skippedCount: z.number().int().nonnegative(),
+    exhaustive: z.boolean(),
+    matches: z
+      .array(
+        z.strictObject({
+          rank: z.number().int().min(1).max(20),
+          source: analysisSourceSchema,
+          match: analysisSourceSchema,
+          distance: z.number().finite().nonnegative(),
+          comparisons: z.array(analysisComparisonItemSchema),
+          evidence: z.strictObject({
+            offset: z.number().int().nonnegative(),
+            total: z.number().int().nonnegative(),
+            complete: z.boolean(),
+          }),
+        }),
+      )
+      .max(20),
+    nextCursor: analysisCursor.nullable(),
+    truncated: z.boolean(),
+  }),
+]);
+export type CaptureAnalysisTarget = z.infer<typeof captureAnalysisTargetSchema>;
+export type PassageAnalysisTarget = z.infer<typeof passageAnalysisTargetSchema>;
+export type AnalysisSource = z.infer<typeof analysisSourceSchema>;
+export type AnalysisPage = z.infer<typeof analysisPageSchema>;
+export type AnalysisOperationParams = z.infer<
+  typeof analysisOperationParamsSchema
+>;
+export type AnalysisOperationResult = z.infer<
+  typeof analysisOperationResultSchema
+>;
+export type AnalysisTimelineItem = z.infer<typeof analysisTimelineItemSchema>;
+export interface ListeningAnalysisFeature {
+  record: ContextFeature;
+  segment: ContextSegment;
+}
+
+function dimensionLabels(feature: ListeningFeature): string[] {
+  const definition = listeningFeatureDefinition(feature.type);
+  if (definition.dimensions === 48)
+    return ["left", "right"].flatMap((channel) =>
+      Array.from(
+        { length: 24 },
+        (_, index) => `${channel}.mel-band-${index + 1}`,
+      ),
+    );
+  if (definition.dimensions === 2) return ["left", "right"];
+  if (feature.type === "mel-region-summary/v1")
+    return ["left", "right"].flatMap((channel) =>
+      ["low", "mid", "high"].map((region) => `${channel}.${region}`),
+    );
+  if (feature.type === "mel-ratio-summary/v1")
+    return ["left", "right"].flatMap((channel) =>
+      ["low/mid", "high/mid"].map((ratio) => `${channel}.${ratio}`),
+    );
+  return Array.from({ length: definition.dimensions }, (_, index) =>
+    definition.dimensions === 1
+      ? definition.measurement
+      : `${definition.measurement}.${index + 1}`,
+  );
+}
+
+/** Project the stored canonical grid, never resample or normalize a page. */
+export function projectListeningTimeline(
+  views: readonly ListeningAnalysisFeature[],
+  captureStartSample: number,
+  target?: CaptureAnalysisTarget,
+  detail?: "evidence",
+): AnalysisTimelineItem[] {
+  const rows = new Map<string, AnalysisTimelineItem>();
+  const details: AnalysisTimelineItem[] = [];
+  for (const { record, segment } of views) {
+    if (
+      target &&
+      (segment.endBeat <= target.range.startBeat ||
+        segment.startBeat >= target.range.endBeat)
+    )
+      continue;
+    const feature = record.feature;
+    const definition = listeningFeatureDefinition(feature.type);
+    const featureReadTarget = target
+      ? {
+          ...target,
+          range: {
+            startBeat: Math.max(target.range.startBeat, segment.startBeat),
+            endBeat: Math.min(target.range.endBeat, segment.endBeat),
+          },
+          featureTypes: [feature.type],
+        }
+      : undefined;
+    const base = {
+      segment: {
+        ...(detail === "evidence"
+          ? {
+              id: segment.id,
+              entryId: segment.entryId,
+              sessionId: segment.sessionId,
+              liveSetId: segment.liveSetId,
+            }
+          : {}),
+        order: segment.order,
+        coordinate: segment.coordinate,
+        startBeat: segment.startBeat,
+        endBeat: segment.endBeat,
+        startSample: segment.startSample,
+        endSample: segment.endSample,
+        sampleRate: segment.sampleRate,
+        kind: segment.kind,
+        ...(detail === "evidence"
+          ? { alignment: segment.alignment ?? null }
+          : segment.alignment
+            ? {
+                meter: segment.alignment.meter,
+                barOriginBeat: segment.alignment.barOriginBeat,
+              }
+            : {}),
+        alignmentReason: segment.alignmentReason,
+      },
+      fragment: 0,
+      complete: true,
+    };
+    const bounds = (startBeat: number, endBeat: number) => ({
+      startBeat,
+      endBeat,
+      elapsedStartSeconds:
+        (segment.startSample - captureStartSample) / segment.sampleRate +
+        ((startBeat - segment.startBeat) /
+          (segment.endBeat - segment.startBeat)) *
+          feature.durationSeconds,
+      elapsedEndSeconds:
+        (segment.startSample - captureStartSample) / segment.sampleRate +
+        ((endBeat - segment.startBeat) /
+          (segment.endBeat - segment.startBeat)) *
+          feature.durationSeconds,
+    });
+    const unavailable = feature.values === null;
+    const cells =
+      detail === "evidence"
+        ? []
+        : unavailable
+          ? [null]
+          : definition.grid
+            ? (feature.grid?.cells ?? [])
+            : [null];
+    for (const [index, cell] of cells.entries()) {
+      const startBeat = segment.startBeat + (cell?.startBeat ?? 0);
+      const endBeat = cell ? segment.startBeat + cell.endBeat : segment.endBeat;
+      if (
+        target &&
+        (endBeat <= target.range.startBeat || startBeat >= target.range.endBeat)
+      )
+        continue;
+      // Segment summaries cannot be relabelled as aggregates of a clipped extent.
+      if (
+        !unavailable &&
+        !definition.grid &&
+        target &&
+        (segment.startBeat < target.range.startBeat ||
+          segment.endBeat > target.range.endBeat)
+      )
+        continue;
+      const kind = unavailable ? "availability" : definition.grid ? "interval" : "segment-summary";
+      const key = `${segment.id}:${kind}:${startBeat}:${endBeat}`;
+      const row: AnalysisTimelineItem = rows.get(key) ?? {
+        ...base,
+        ...bounds(startBeat, endBeat),
+        kind,
+        features: [],
+        supportCoordinate: "segment-relative-samples" as const,
+      };
+      const sampleStart =
+        ((startBeat - segment.startBeat) /
+          (segment.endBeat - segment.startBeat)) *
+        feature.expectedSamples;
+      const sampleEnd =
+        ((endBeat - segment.startBeat) /
+          (segment.endBeat - segment.startBeat)) *
+        feature.expectedSamples;
+      const extent = (
+        support: readonly (readonly [number, number])[],
+      ): [number, number] | null => {
+        let start = Infinity,
+          end = -Infinity;
+        for (const [left, right] of support)
+          if (right > sampleStart && left < sampleEnd) {
+            start = Math.min(start, left);
+            end = Math.max(end, right);
+          }
+        return Number.isFinite(start) ? [start, end] : null;
+      };
+      row.features.push({
+        type: feature.type,
+        units: feature.units,
+        normalization: feature.normalization,
+        dimensions: dimensionLabels(feature),
+        status: feature.status,
+        reason: cell?.reason ?? feature.reason,
+        values:
+          feature.values?.slice(
+            index * definition.dimensions,
+            (index + 1) * definition.dimensions,
+          ) ?? null,
+        coveredSamples: cell?.coveredSamples ?? feature.coveredSamples,
+        expectedSamples: cell?.expectedSamples ?? feature.expectedSamples,
+        supportExtent: extent(feature.support),
+        ...(feature.channelReasons
+          ? { channelReasons: cell?.channelReasons ?? feature.channelReasons }
+          : {}),
+        ...(cell?.channelCoveredSamples
+          ? { channelCoveredSamples: cell.channelCoveredSamples }
+          : {}),
+      });
+      rows.set(key, row);
+    }
+    if (detail !== "evidence") continue;
+    const detailBase = {
+      ...base,
+      ...bounds(segment.startBeat, segment.endBeat),
+      features: [],
+      featureType: feature.type,
+    };
+    const partialSummary =
+      !definition.grid &&
+      target !== undefined &&
+      (segment.startBeat < target.range.startBeat ||
+        segment.endBeat > target.range.endBeat);
+    details.push({
+      ...detailBase,
+      kind: "feature-metadata",
+      featureRecord: projectListeningFeatureRecord(record),
+      definition,
+      profileKey: feature.profileKey,
+      featureStatus: partialSummary ? "unavailable" : feature.status,
+      reason: partialSummary
+        ? "partial-segment-summary-not-aggregated"
+        : feature.reason,
+      limitations: feature.limitations,
+      ...(featureReadTarget ? { readTarget: featureReadTarget } : {}),
+    });
+    const supports = [
+      { channel: "aggregate" as const, values: feature.support },
+      ...(feature.channelSupport
+        ? [
+            { channel: "left" as const, values: feature.channelSupport[0] },
+            { channel: "right" as const, values: feature.channelSupport[1] },
+          ]
+        : []),
+    ];
+    for (const { channel, values } of supports)
+      for (const [offset, support] of values.entries()) {
+        const startBeat =
+          segment.startBeat +
+          (support[0] / feature.expectedSamples) *
+            (segment.endBeat - segment.startBeat);
+        const endBeat =
+          segment.startBeat +
+          (support[1] / feature.expectedSamples) *
+            (segment.endBeat - segment.startBeat);
+        if (
+          target &&
+          (endBeat <= target.range.startBeat ||
+            startBeat >= target.range.endBeat)
+        )
+          continue;
+        details.push({
+          ...detailBase,
+          ...bounds(startBeat, endBeat),
+          kind: "support",
+          support,
+          supportCoordinate: "segment-relative-samples",
+          supportChannel: channel,
+          supportOffset: offset,
+        });
+      }
+  }
+  const rank = {
+    "segment-summary": 0,
+    interval: 1,
+    availability: 2,
+    "feature-metadata": 3,
+    support: 4,
+  };
+  const ordered = [...rows.values(), ...details].sort(
+    (a, b) =>
+      a.segment.startBeat - b.segment.startBeat ||
+      rank[a.kind] - rank[b.kind] ||
+      a.startBeat - b.startBeat,
+  );
+  return ordered.flatMap((row) => {
+    if (new TextEncoder().encode(JSON.stringify(row)).byteLength <= 2048)
+      return [row];
+    if (row.kind === "feature-metadata") {
+      const fragments = [
+        { ...row, limitations: [] },
+        ...(row.limitations ?? []).map((limitation) => ({
+          ...row,
+          profileKey: undefined,
+          featureRecord: undefined,
+          definition: undefined,
+          limitations: [limitation],
+        })),
+      ];
+      return fragments.map((fragment, index) => ({
+        ...fragment,
+        fragment: index,
+        fragmentCount: fragments.length,
+        complete: index === fragments.length - 1,
+      }));
+    }
+    if (row.features.length === 0) return [row];
+    const size = (features: typeof row.features) =>
+      new TextEncoder().encode(JSON.stringify({ ...row, features })).byteLength;
+    const blocks = row.features.flatMap((feature) => {
+      if (size([feature]) <= 1984) return [feature];
+      const fragments: typeof row.features = [];
+      let offset = 0;
+      while (offset < feature.dimensions.length) {
+        let end = offset + 1;
+        const fragment = (end: number) => ({
+          ...feature,
+          dimensionOffset: offset,
+          totalDimensions: feature.dimensions.length,
+          dimensions: feature.dimensions.slice(offset, end),
+          values: feature.values?.slice(offset, end) ?? null,
+        });
+        while (
+          end < feature.dimensions.length &&
+          size([fragment(end + 1)]) <= 1984
+        )
+          end++;
+        fragments.push(fragment(end));
+        offset = end;
+      }
+      return fragments;
+    });
+    const groups: (typeof row.features)[] = [];
+    for (const block of blocks) {
+      const last = groups.at(-1);
+      if (last && size([...last, block]) <= 1984) last.push(block);
+      else groups.push([block]);
+    }
+    return groups.map((features, index) => ({
+      ...row,
+      features,
+      fragment: index,
+      fragmentCount: groups.length,
+      complete: index === groups.length - 1,
+    }));
+  });
+}
+
+export function projectListeningOverview(
+  views: readonly ListeningAnalysisFeature[],
+  target: CaptureAnalysisTarget,
+): z.infer<typeof analysisOverviewSchema> {
+  return LISTENING_FEATURE_DEFINITIONS.filter(
+    (definition) =>
+      target.featureTypes === undefined ||
+      target.featureTypes.includes(definition.type),
+  ).map((definition) => {
+    const selected = views.filter(
+      ({ record }) => record.feature.type === definition.type,
+    );
+    const values: (number | null)[] = [];
+    let expectedValues = 0;
+    for (const {
+      record: { feature },
+      segment,
+    } of selected) {
+      if (definition.grid) {
+        for (const [index, cell] of (feature.grid?.cells ?? []).entries()) {
+          if (
+            segment.startBeat + cell.endBeat <= target.range.startBeat ||
+            segment.startBeat + cell.startBeat >= target.range.endBeat
+          )
+            continue;
+          expectedValues += definition.dimensions;
+          values.push(
+            ...(feature.values?.slice(
+              index * definition.dimensions,
+              (index + 1) * definition.dimensions,
+            ) ?? []),
+          );
+        }
+      } else if (
+        segment.startBeat >= target.range.startBeat &&
+        segment.endBeat <= target.range.endBeat
+      ) {
+        expectedValues += definition.dimensions;
+        values.push(...(feature.values ?? []));
+      }
+    }
+    const valid = values.filter((value): value is number => value !== null);
+    return {
+      type: definition.type,
+      units: definition.units,
+      basis: definition.grid
+        ? ("grid-cells" as const)
+        : ("segment-summaries" as const),
+      availableSegments: selected.filter(
+        ({ record }) => record.feature.status === "ready",
+      ).length,
+      totalSegments: selected.length,
+      validValues: valid.length,
+      expectedValues,
+      minimum: valid.length ? valid.reduce((a, b) => Math.min(a, b)) : null,
+      maximum: valid.length ? valid.reduce((a, b) => Math.max(a, b)) : null,
+      reason: valid.length
+        ? null
+        : [
+            ...new Set(
+              selected
+                .map(({ record }) => record.feature.reason)
+                .filter((reason) => reason !== null),
+            ),
+          ]
+            .join("; ")
+            .slice(0, 512) ||
+          (!definition.grid &&
+          selected.some(
+            ({ segment }) =>
+              segment.startBeat < target.range.startBeat ||
+              segment.endBeat > target.range.endBeat,
+          )
+            ? "partial-segment-summary-not-aggregated"
+            : "unavailable-for-selected-extent"),
+    };
+  });
+}
 export const contextFeatureDerivationViewSchema = z
   .strictObject(contextFeatureDerivationSchema.shape)
   .omit({ featureIds: true })

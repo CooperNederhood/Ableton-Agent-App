@@ -59,6 +59,24 @@ native timing verification, physical-ID/bridge-UUID attestation, and isolated
 visible/end-to-end acceptance remain separate gates, not inferred from durable
 inventory availability.
 
+### Automatic feature completion
+
+`EntityContextRepository.waitForFeatureDerivation(entryId, options)` joins the
+existing application-owned automatic derivation; it does not schedule another
+calculation. Waiting occurs outside the serialized publication/derivation
+operation so it cannot block the work it awaits. Already terminal durable
+`ready`, `unavailable`, `failed` and `cancelled` states return without retry.
+Missing or unscheduled sources, ownership changes and closed repositories fail
+explicitly.
+
+Each caller has its own cancellation and lifecycle attribution. Aborting a
+wait detaches that caller without cancelling shared automatic work; pruning,
+shutdown and source removal still preserve their repository-owned semantics.
+`context.wait-feature-derivation` records queued, started, progress and terminal
+events with elapsed time and the caller's trace/correlation/causation context.
+The existing feature store remains authoritative across reopen; no new
+completion registry or storage layout is persisted.
+
 ## Live Set snapshot
 
 A normalized snapshot should include:

@@ -18,7 +18,13 @@ import {
   expandListeningFeatureInventory,
 } from "@ableton-agent/tools";
 import type { AssertionInput, TurnEvidence } from "./contracts.js";
-import { readFeatureToolPairs } from "./feature-search.js";
+import {
+  readFeatureToolPairs,
+  readCompleteAnalyses,
+  deliveredAnalysisFeatures,
+  immutableDeliveredAnalysis,
+  declaresUnavailableFeature,
+} from "./feature-search.js";
 import {
   validateAgentListeningEvidence,
   type AgentListeningEvidence,
@@ -45,6 +51,12 @@ function list(value: unknown, maximum: number): asserts value is unknown[] {
 
 /** Counts are local integrity checks, never cross-capture native frame comparisons. */
 export interface StorageShapeEvidence {
+  readonly geometry?: {
+    readonly sampleRate: number;
+    readonly tempoBpm: number;
+    readonly startSample: number;
+    readonly endSample: number;
+  };
   readonly incrementalDurability?: {
     readonly captureStartedAt: string;
     readonly firstDurableAt: string;
@@ -65,7 +77,22 @@ export interface StorageShapeEvidence {
     readonly expectedRecords: number;
     readonly retainedRecords: number;
     readonly missingRecords: number;
+    readonly acquiredSupport?: readonly (readonly [number, number])[];
   }[];
+}
+function acquiredSupport(
+  supports: readonly { startSample: number; endSample: number }[],
+): [number, number][] {
+  const intervals: [number, number][] = [];
+  for (const support of [...supports].sort(
+    (a, b) => a.startSample - b.startSample,
+  )) {
+    const previous = intervals.at(-1);
+    if (previous && support.startSample <= previous[1])
+      previous[1] = Math.max(previous[1], support.endSample);
+    else intervals.push([support.startSample, support.endSample]);
+  }
+  return intervals;
 }
 
 export function projectIncrementalDurability(
@@ -123,6 +150,12 @@ export function projectStreamStorageShape(
     passId: proof.passId,
     schema: "metric-record-stream-context/v1",
     contentSha256: streamProofContentSha256(proof),
+    geometry: {
+      sampleRate: descriptor.geometry.sampleRate,
+      tempoBpm: descriptor.geometry.tempoBpm,
+      startSample: descriptor.geometry.startSample,
+      endSample: descriptor.geometry.endSample,
+    },
     metricSchemas: descriptor.requestedMetrics
       .map((metric) => `${descriptor.schema}:${metric}`)
       .sort(),
@@ -133,12 +166,29 @@ export function projectStreamStorageShape(
         ? descriptor.geometry.endBeat - descriptor.geometry.startBeat
         : descriptor.geometry.endBeat,
     afterOwnedRestart: proof.afterOwnedRestart,
-    metrics: manifest.metrics.map((metric) => ({
-      metric: metric.metric,
-      expectedRecords: metric.expectedRecords,
-      retainedRecords: metric.nextRecordOffset,
-      missingRecords: metric.missingRecords,
-    })),
+    metrics: manifest.metrics.map((metric) => {
+      const algorithm = descriptor.algorithms.find(
+        (item) => item.metric === metric.metric,
+      );
+      const first =
+        algorithm?.metric === "spectral-centroid"
+          ? algorithm.algorithm?.firstFrameEndSample
+          : undefined;
+      const start =
+        first == null
+          ? descriptor.geometry.startSample
+          : Math.max(descriptor.geometry.startSample, first - 2048);
+      return {
+        metric: metric.metric,
+        expectedRecords: metric.expectedRecords,
+        retainedRecords: metric.nextRecordOffset,
+        missingRecords: metric.missingRecords,
+        acquiredSupport:
+          metric.nextRecordOffset > 0 && metric.lastRecordEndSample !== null
+            ? [[start, metric.lastRecordEndSample] as const]
+            : [],
+      };
+    }),
   };
 }
 
@@ -148,10 +198,20 @@ export function projectObservationStorageShape(
   afterOwnedRestart: boolean,
 ): StorageShapeEvidence {
   const observation = metricAudioObservationSchema.parse(input);
+  const startSample =
+    observation.metrics.level.records[0]?.support.startSample ?? 0;
+  const endSample =
+    observation.metrics.level.records.at(-1)?.support.endSample ?? 0;
   return {
     contextId,
     passId: observation.ownership.passId,
     schema: observation.schema,
+    geometry: {
+      sampleRate: observation.geometry.sampleRate,
+      tempoBpm: observation.geometry.tempoBpm,
+      startSample,
+      endSample,
+    },
     contentSha256: createHash("sha256")
       .update(JSON.stringify(observation))
       .digest("hex"),
@@ -178,6 +238,14 @@ export function projectObservationStorageShape(
         retainedRecords:
           "records" in metric ? metric.records.length : metric.frames.length,
         missingRecords: metric.gaps.reduce((sum, gap) => sum + gap.count, 0),
+        acquiredSupport: acquiredSupport(
+          ("records" in metric ? metric.records : metric.frames)
+            .map((record) => ({
+              startSample: Math.max(startSample, record.support.startSample),
+              endSample: Math.min(endSample, record.support.endSample),
+            }))
+            .filter((support) => support.endSample > support.startSample),
+        ),
       };
     }),
   };
@@ -198,7 +266,29 @@ export function validateStorageShapeEvidence(
     "metrics",
     "contentSha256",
     "incrementalDurability",
+    "geometry",
   ]);
+  if (value.geometry !== undefined) {
+    object(value.geometry);
+    rejectUnknownFields(value.geometry, [
+      "sampleRate",
+      "tempoBpm",
+      "startSample",
+      "endSample",
+    ]);
+    requireCondition(
+      Object.values(value.geometry).every(
+        (number) => typeof number === "number" && Number.isFinite(number),
+      ) &&
+        Number(value.geometry.sampleRate) > 0 &&
+        Number(value.geometry.tempoBpm) > 0 &&
+        Number.isSafeInteger(value.geometry.startSample) &&
+        Number(value.geometry.startSample) >= 0 &&
+        Number.isSafeInteger(value.geometry.endSample) &&
+        Number(value.geometry.endSample) > Number(value.geometry.startSample),
+      "Invalid independent native storage geometry",
+    );
+  }
   if (value.incrementalDurability !== undefined) {
     object(value.incrementalDurability);
     const proof = value.incrementalDurability;
@@ -282,7 +372,28 @@ export function validateStorageShapeEvidence(
       "expectedRecords",
       "retainedRecords",
       "missingRecords",
+      "acquiredSupport",
     ]);
+    if (metric.acquiredSupport !== undefined) {
+      list(metric.acquiredSupport, 4096);
+      let end = -1;
+      for (const support of metric.acquiredSupport) {
+        list(support, 2);
+        requireCondition(
+          support.length === 2 &&
+            Number.isSafeInteger(support[0]) &&
+            Number.isSafeInteger(support[1]) &&
+            Number(support[0]) >= 0 &&
+            Number(support[0]) >= end &&
+            Number(support[1]) > Number(support[0]) &&
+            (value.geometry === undefined ||
+              (Number(support[0]) >= Number(value.geometry.startSample) &&
+                Number(support[1]) <= Number(value.geometry.endSample))),
+          "Invalid independent native acquisition support",
+        );
+        end = Number(support[1]);
+      }
+    }
     requireCondition(
       [
         "level",
@@ -895,6 +1006,13 @@ export function verifyStorageShape(
       "Missing or additional actual SDK capture tool call",
     );
     const job = starts[0]!.data.job;
+    requireCondition(
+      starts[0]!.call.arguments.listenerIds === undefined ||
+        isDeepStrictEqual(starts[0]!.call.arguments.listenerIds, [
+          capture.listenerId,
+        ]),
+      "Requested listener differs from admitted native capture",
+    );
     object(job);
     requireCondition(
       job.passId === capture.passId &&
@@ -968,6 +1086,268 @@ export function verifyStorageShape(
     "Production persisted measurement schemas differ (no test-side normalization)",
   );
   const inventories = shapes.map(({ source, view }) => {
+    if (
+      turns.some((turn) =>
+        readFeatureToolPairs(turn, true).some(
+          (pair) => pair.action === "read" || Array.isArray(pair.data.analyses),
+        ),
+      )
+    ) {
+      const read = (restored: boolean) => {
+        const selected = turns.filter(
+          (turn) => turn.agentListening?.afterOwnedRestart === restored,
+        );
+        const pages = readCompleteAnalyses(selected, true).filter(
+          (page) =>
+            page.detail === undefined &&
+            page.readTarget.contextId === source.contextId,
+        );
+        requireCondition(
+          pages.length > 0,
+          "Missing delivered original analysis",
+        );
+        for (const page of pages)
+          requireCondition(
+            page.readTarget.featureTypes === undefined &&
+              page.readTarget.coordinate ===
+                (view === "session" ? "clip-local-beats" : "transport-beats") &&
+              isDeepStrictEqual(page.readTarget.range, {
+                startBeat: source.startBeat,
+                endBeat: source.endBeat,
+              }) &&
+              isDeepStrictEqual(
+                page.source.observedRange,
+                page.readTarget.range,
+              ) &&
+              (page.source.schema === undefined ||
+                page.source.schema === source.schema) &&
+              isDeepStrictEqual(
+                immutableDeliveredAnalysis(page),
+                immutableDeliveredAnalysis(pages[0]!),
+              ),
+            "Delivered analysis changed original source, extent or inventory",
+          );
+        return pages[0]!;
+      };
+      const before = read(false);
+      const after = read(true);
+      requireCondition(
+        isDeepStrictEqual(
+          immutableDeliveredAnalysis(before),
+          immutableDeliveredAnalysis(after),
+        ),
+        "Original pinned analysis values, coverage or shapes changed after restart",
+      );
+      const features = deliveredAnalysisFeatures(before);
+      requireCondition(
+        source.geometry &&
+          before.source.geometry?.sampleRate === source.geometry.sampleRate &&
+          before.source.geometry.tempoBpm === source.geometry.tempoBpm &&
+          before.source.geometry.captureStartSample ===
+            source.geometry.startSample,
+        "Delivered storage geometry differs from independent original acquisition",
+      );
+      const segments = [
+        ...new Map(
+          features.map((feature) => [
+            JSON.stringify(feature.row.segment),
+            feature.row.segment,
+          ]),
+        ).values(),
+      ].sort((a, b) => a.startBeat - b.startBeat);
+      requireCondition(
+        segments.length === expectedMeasures &&
+          features.length <= expectedMeasures * 15,
+        "Incomplete delivered fifteen-definition measure inventory",
+      );
+      return segments.map((segment, index) => {
+        requireCondition(
+          segment.kind === "bar" &&
+            segment.sampleRate === source.geometry!.sampleRate &&
+            Math.abs(
+              segment.startSample -
+                (source.geometry!.startSample +
+                  (index * 4 * source.geometry!.sampleRate * 60) /
+                    source.geometry!.tempoBpm),
+            ) < 1 &&
+            Math.abs(
+              segment.endSample -
+                (source.geometry!.startSample +
+                  ((index + 1) * 4 * source.geometry!.sampleRate * 60) /
+                    source.geometry!.tempoBpm),
+            ) < 1 &&
+            segment.endSample <= source.geometry!.endSample &&
+            segment.startBeat === source.startBeat + index * 4 &&
+            segment.endBeat === source.startBeat + (index + 1) * 4 &&
+            (segment.meter ?? segment.alignment?.meter)?.numerator === 4 &&
+            (segment.meter ?? segment.alignment?.meter)?.denominator === 4 &&
+            (segment.coordinate === undefined ||
+              segment.coordinate === before.readTarget.coordinate),
+          "Delivered analysis lacks corresponding complete 4/4 measures",
+        );
+        return LISTENING_FEATURE_DEFINITIONS.map((definition) => {
+          const matches = features.filter(
+            (feature) =>
+              feature.definition.type === definition.type &&
+              isDeepStrictEqual(feature.row.segment, segment),
+          );
+          if (matches.length === 0) {
+            const cells = definition.grid ? 16 : 1;
+            requireCondition(
+              !["peak-summary/v1", "level-grid/v1"].includes(definition.type) &&
+                declaresUnavailableFeature(
+                  before,
+                  features,
+                  definition,
+                  expectedMeasures,
+                  expectedMeasures * cells * definition.dimensions,
+                ),
+              "Missing explicit unavailable feature shape",
+            );
+            // This is the declared canonical layout, not fabricated measured cells.
+            return {
+              type: definition.type,
+              units: definition.units,
+              normalization: definition.normalization,
+              dimensions: definition.dimensions,
+              sampleRate: segment.sampleRate,
+              durationSeconds:
+                (segment.endSample - segment.startSample) / segment.sampleRate,
+              cells: Array.from({ length: cells }, (_, cell) => ({
+                startBeat: definition.grid ? cell * 0.25 : 0,
+                endBeat: definition.grid ? (cell + 1) * 0.25 : 4,
+                dimensions: definition.dimensions,
+              })),
+            };
+          }
+          requireCondition(
+            matches.length === 1,
+            "Missing or duplicate delivered canonical definition",
+          );
+          const feature = matches[0]!;
+          const metric = {
+            "sample-grid-peak-rms/v1": "level",
+            "fft-energy-centroid/v1": "spectral-centroid",
+            "level-window-rise/v1": "attacks",
+            "mel-band-profile/v1": "mel-bands",
+            "pitch-profile/v1": "pitch",
+            "spectral-shape-profile/v1": "spectral-shape",
+          }[definition.profile];
+          const acquisition = source.metrics.find(
+            (item) => item.metric === metric,
+          )?.acquiredSupport;
+          requireCondition(
+            acquisition,
+            "Missing independent native acquisition coverage",
+          );
+          const sample = (beat: number) =>
+            source.geometry!.startSample +
+            Math.round(
+              ((beat - source.startBeat) * source.geometry!.sampleRate * 60) /
+                source.geometry!.tempoBpm,
+            );
+          const overlap = (
+            intervals: readonly (readonly [number, number])[],
+            start: number,
+            end: number,
+          ) =>
+            intervals.reduce(
+              (sum, [a, b]) =>
+                sum + Math.max(0, Math.min(end, b) - Math.max(start, a)),
+              0,
+            );
+          requireCondition(
+            feature.blocks.length === (definition.grid ? 16 : 1) &&
+              feature.blocks.every(
+                (value, cell) =>
+                  value.startBeat ===
+                    segment.startBeat + (definition.grid ? cell * 0.25 : 0) &&
+                  value.endBeat ===
+                    segment.startBeat +
+                      (definition.grid ? (cell + 1) * 0.25 : 4),
+              ),
+            "Delivered canonical grid is incomplete or not sixteenth-note cells",
+          );
+          for (const { block, startBeat, endBeat } of feature.blocks) {
+            const start = sample(startBeat),
+              end = sample(endBeat);
+            requireCondition(
+              block.expectedSamples === end - start &&
+                block.coveredSamples === overlap(acquisition, start, end),
+              "Delivered coverage differs from independent native acquisition",
+            );
+            if (block.channelCoveredSamples) {
+              const acquired = block.coveredSamples;
+              for (const [
+                channel,
+                count,
+              ] of block.channelCoveredSamples.entries()) {
+                const supports = acquiredSupport(
+                  feature.supports
+                    .filter(
+                      (row) =>
+                        row.supportChannel ===
+                        (channel === 0 ? "left" : "right"),
+                    )
+                    .map((row) => ({
+                      startSample: segment.startSample + row.support![0],
+                      endSample: segment.startSample + row.support![1],
+                    })),
+                );
+                const valid = count === block.expectedSamples;
+                requireCondition(
+                  Number.isSafeInteger(count) &&
+                    count >= 0 &&
+                    count <= acquired &&
+                    (feature.supports.length === 0 ||
+                      count === overlap(supports, start, end)) &&
+                    (valid
+                      ? block.channelReasons?.[channel] === null &&
+                        typeof block.values?.[channel] === "number"
+                      : typeof block.channelReasons?.[channel] === "string" &&
+                        (block.values === null ||
+                          block.values[channel] === null)),
+                  "Delivered channel coverage or validity disagrees with native support",
+                );
+              }
+            }
+          }
+          const actual = feature.row.featureRecord?.feature;
+          if (actual)
+            requireCondition(
+              actual.type === definition.type &&
+                actual.profile === definition.profile &&
+                actual.distanceDefinition === definition.distanceDefinition &&
+                actual.distanceUnits === definition.distanceUnits &&
+                actual.sampleRate === segment.sampleRate &&
+                actual.expectedSamples ===
+                  segment.endSample - segment.startSample &&
+                (actual.grid === null
+                  ? !definition.grid
+                  : actual.grid.cellCount === 16 &&
+                    actual.grid.stepBeats === 0.25 &&
+                    actual.grid.meter.numerator === 4 &&
+                    actual.grid.meter.denominator === 4 &&
+                    actual.grid.phaseBeats === 0),
+              "Delivered canonical definition or stored dimensions changed",
+            );
+          return {
+            type: definition.type,
+            units: feature.blocks[0]!.block.units,
+            normalization: feature.blocks[0]!.block.normalization,
+            dimensions: feature.blocks[0]!.block.dimensions.length,
+            sampleRate: segment.sampleRate,
+            durationSeconds:
+              (segment.endSample - segment.startSample) / segment.sampleRate,
+            cells: feature.blocks.map((value) => ({
+              startBeat: value.startBeat - segment.startBeat,
+              endBeat: value.endBeat - segment.startBeat,
+              dimensions: value.block.dimensions.length,
+            })),
+          };
+        });
+      });
+    }
     const before = inventory(turns, source.contextId, false);
     const after = inventory(turns, source.contextId, true);
     requireCondition(

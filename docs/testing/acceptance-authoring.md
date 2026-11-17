@@ -1,5 +1,46 @@
 # Acceptance test authoring
 
+## Listening analysis contract migration
+
+The musical-analysis tool redesign replaces explicit feature derivation and
+inventory/value lookups with automatic listening results and source-based
+read/compare/search. Existing fixture assets, musical answers, capture counts,
+source guards, persistence and cleanup remain the acceptance contract.
+Tool-call choreography is not itself the musical outcome: a real analysis
+delivered in the original listening result satisfies consumption without a
+redundant second storage call.
+
+The user explicitly authorized small tooling-driven prompt/expectation changes
+and reasonable finite budget adjustments for this migration.
+Document each adjustment and its cause; preserve failed receipts. This is not
+permission to substitute expected answers, invent consumed evidence, weaken
+ownership/native checks, skip registered cases or ignore cleanup failures.
+Final qualification requires all registered user-message scenarios and the
+independent suite verifier green on the final candidate, after code review.
+
+Typed analysis pagination differs from lost History content. A validated result
+may explicitly mark remaining detail and return a continuation; journal-level
+truncation, invalid continuation and omitted binary/audio bodies still cannot
+establish complete evidence. Oracles verify the required returned values and
+coverage rather than accepting a count or a generated assistant explanation.
+Acquisition proof belongs to the independent harness: retain its native
+identity, source hash, pass, geometry and original-frame checks without
+requiring the model to reread or echo those raw records. Bind delivered
+features through the pinned context, musical extent and canonical feature
+type; literal storage feature IDs are not a required agent interaction.
+Restart checks must still compare the original pinned source and actual
+returned values, not just a successful tool status.
+The acceptance-only History collector permits at most 1,024 records and
+24 MiB per turn, so complete multi-page twenty-measure evidence can be retained
+through restart. This replaces the 256-record/8-MiB limit; neither the product's
+64-KiB analysis response budget nor journal redaction/truncation rules change.
+Boundary regressions admit a complete 720-record history and reject excess
+records or bytes instead of silently dropping pages.
+For mel analysis, independently aggregate original linear frame magnitudes over
+the reported segment supports, then verify the full stereo normalized shape,
+regional sums and ratios. Do not compare normalized features to raw frame units
+or reuse the product feature extractor as the correctness oracle.
+
 ## Listening consolidation: message-driven storage shape and counts
 
 All four cases use the **existing user-message integration path**:

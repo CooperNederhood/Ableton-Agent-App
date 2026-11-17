@@ -16,7 +16,10 @@ import {
   contextOperationParamsSchema,
   contextOperationResultSchema,
   MAX_METRIC_CONTEXT_RESPONSE_BYTES,
-  createListeningTools,
+  createListeningTools as createRegisteredListeningTools,
+  executeContextDiagnosticOperation,
+  agentContextOperationParamsSchema,
+  type ListeningToolServices,
   listeningOperationParamsSchema,
   listeningOperationResultSchema,
   LISTENING_AGENT_GUIDANCE,
@@ -44,6 +47,26 @@ const sessionInput = {
   listenerIds: ["tap-after"],
 };
 
+// Storage contracts remain exercised through the typed application boundary,
+// independently of the smaller registered agent union tested below.
+function createListeningTools(services: ListeningToolServices) {
+  const [listening, context] = createRegisteredListeningTools(services);
+  return [
+    listening,
+    {
+      ...context,
+      handler: (
+        ...args: Parameters<typeof executeContextDiagnosticOperation> extends [
+          unknown,
+          ...infer Rest,
+        ]
+          ? Rest
+          : never
+      ) => executeContextDiagnosticOperation(services, ...args),
+    },
+  ] as const;
+}
+
 describe("optional listening tool contracts", () => {
   it("binds feature selection to the stored type rather than inventory position", () => {
     const [, tool] = createListeningTools({
@@ -55,10 +78,9 @@ describe("optional listening tool contracts", () => {
       executeContextOperation: async () => ({ action: "list", entries: [] }),
     });
     for (const guidance of [LISTENING_AGENT_GUIDANCE, tool.description]) {
-      expect(guidance).toContain("filter by featureType");
-      expect(guidance).toContain(
-        "Never infer a feature's type from its position",
-      );
+      expect(guidance).toContain("readTarget");
+      expect(guidance).toContain("level-grid/v1");
+      expect(guidance).not.toContain("list-features");
     }
   });
   it.each(["completed", "failed", "cancelled"] as const)(
@@ -112,22 +134,18 @@ describe("optional listening tool contracts", () => {
     },
   );
 
-  it("uses typed stream and feature reads for count checks, not shell scratch work", () => {
+  it("returns typed measured values without storage discovery", () => {
     expect(LISTENING_AGENT_GUIDANCE).toContain(
-      'For "list-features", omit limit to use its default and maximum 100',
+      "automatically derived musical values",
     );
     expect(LISTENING_AGENT_GUIDANCE).toContain(
-      'For stored schema, shape and count checks, use "stream-overview" and complete "list-features" inventories',
+      "no playback, derivation or inventory call is needed",
     );
-    expect(LISTENING_AGENT_GUIDANCE).toContain(
-      "Never use bash for scratch calculations, output formatting, progress markers or no-op checks",
-    );
+    expect(LISTENING_AGENT_GUIDANCE).toContain("Follow nextCursor");
   });
 
   it("explains safe consecutive-listen preparation before submitting another capture", () => {
-    expect(LISTENING_AGENT_GUIDANCE).toMatch(
-      /^Before each capture finish the preceding pass/,
-    );
+    expect(LISTENING_AGENT_GUIDANCE).toContain("Prepare stopped transport");
     const [listening] = createListeningTools({
       executeListeningOperation: async () => ({
         action: "inspect-listeners",
@@ -138,8 +156,6 @@ describe("optional listening tool contracts", () => {
     });
 
     for (const guidance of [
-      LISTENING_AGENT_GUIDANCE,
-      listening.description,
       listeningOperationParamsSchema.options[1].description,
     ]) {
       expect(guidance).toContain(
@@ -158,8 +174,6 @@ describe("optional listening tool contracts", () => {
       );
     }
     for (const guidance of [
-      LISTENING_AGENT_GUIDANCE,
-      listening.description,
       listeningOperationParamsSchema.options[2].description,
     ]) {
       expect(guidance).toContain("planned Session-to-Arrangement handoff");
@@ -169,43 +183,40 @@ describe("optional listening tool contracts", () => {
     expect(listeningOperationParamsSchema.options[2].description).not.toContain(
       "Returns a queued job",
     );
+    expect(listening.description).toContain("STOP and Back to Arrangement");
   });
 
   it("shares finite streaming admission across Session and Arrangement", () => {
-    expect(LISTENING_AGENT_GUIDANCE).toContain(
-      "Session and Arrangement use the same incrementally persisted six-metric capture pipeline",
+    expect(listeningOperationParamsSchema.options[1].description).toContain(
+      "600-second acquisition ceiling",
     );
-    expect(LISTENING_AGENT_GUIDANCE).toContain(
-      "audio-listener/finite-metric-stream-v1",
-    );
-    expect(LISTENING_AGENT_GUIDANCE).toContain("up to 600 seconds");
     expect(LISTENING_AGENT_GUIDANCE).not.toContain(
       "Session requests exceeding thirty seconds are rejected",
     );
-    expect(LISTENING_AGENT_GUIDANCE).toContain(
-      "do not seek or start transport separately",
+    expect(listeningOperationParamsSchema.options[1].description).toContain(
+      "Never seek or change launch settings",
     );
   });
-  it("classifies feature derivation as local mutation, while comparisons and search are reads", () => {
+  it("registers musical reads and removes explicit derivation from agent authorization", () => {
     expect(
-      resolveAbletonOperation("ableton_context", {
+      agentContextOperationParamsSchema.safeParse({
         action: "derive-features",
         contextIds: ["entry"],
-      })?.descriptor,
-    ).toMatchObject({
-      operationId: "context.derive-features",
-      risk: "reversible",
-      mutationTarget: "session",
-    });
-    for (const action of [
-      "feature-definitions",
-      "list-features",
-      "search-features",
+      }).success,
+    ).toBe(false);
+    const target = {
+      kind: "capture",
+      sessionId: "session",
+      liveSetId: "set",
+      contextId: "entry",
+      coordinate: "transport-beats",
+      range: { startBeat: 0, endBeat: 4 },
+    };
+    for (const input of [
+      { action: "read", target },
+      { action: "compare", left: target, right: target },
+      { action: "search", query: target, scope: [target] },
     ]) {
-      const input =
-        action === "search-features"
-          ? { action, featureId: "feature" }
-          : { action };
       expect(
         resolveAbletonOperation("ableton_context", input)?.descriptor,
       ).toMatchObject({
@@ -222,9 +233,8 @@ describe("optional listening tool contracts", () => {
       }),
       executeContextOperation: async () => ({ action: "list", entries: [] }),
     });
-    expect(tool.description).toContain(
-      "All completed captures support the same derive-features",
-    );
+    expect(tool.description).toContain("Read stored musical analysis");
+    expect(tool.description).not.toContain("derive-features");
     const derive = contextOperationParamsSchema.options.find(
       (option) => option.shape.action.value === "derive-features",
     );
@@ -283,18 +293,11 @@ describe("optional listening tool contracts", () => {
   });
   it("distinguishes authoritative pitch from historical diagnostics and limits accuracy claims", () => {
     for (const statement of [
-      "not historical smoke diagnostics",
-      "YinFFT",
-      "50-2000 Hz",
-      "0 Hz is the undefined sentinel",
-      "not a calibrated probability",
-      "not proof of noise",
-      "Historical polled diagnostics cannot be promoted into frames",
-      "not verified pitch or input class",
-      "2000 Hz sine produces a high-confidence estimate near 1000 Hz",
-      "zero confidence is a legitimate score",
-      "octave errors",
-      "polyphonic mixtures",
+      "pitch-grid/v1",
+      "midi-semitones",
+      "continuous MIDI-semitone log pitch",
+      "pitch-confidence-summary/v1",
+      "not probability",
     ])
       expect(LISTENING_AGENT_GUIDANCE).toContain(statement);
     expect(
@@ -305,38 +308,26 @@ describe("optional listening tool contracts", () => {
     ).toBe(false);
   });
   it("directs pitch requests to bounded authoritative reports without filesystem fallback or retries", () => {
+    expect(LISTENING_AGENT_GUIDANCE).toContain("ableton_context read");
+    expect(LISTENING_AGENT_GUIDANCE).toContain("pitch-grid/v1");
     expect(LISTENING_AGENT_GUIDANCE).toContain(
-      'use ableton_context action "stream-records"',
+      "Missing evidence never authorizes replay",
     );
     expect(LISTENING_AGENT_GUIDANCE).toContain(
-      'metric "pitch" and a narrow native sample range for original paired Hz/confidence',
-    );
-    expect(LISTENING_AGENT_GUIDANCE).toContain(
-      "If authoritative pitch is absent or unavailable, report that rather than inventing fields or retrying",
-    );
-    expect(LISTENING_AGENT_GUIDANCE).toContain(
-      "Do not search tool-output files or use shell/filesystem commands to find pitch",
+      "no playback, derivation or inventory call is needed",
     );
   });
   it("directs mel reads to typed contexts without promoting SpectralShape diagnostics", () => {
-    expect(LISTENING_AGENT_GUIDANCE).toContain("all 24 bands");
+    expect(LISTENING_AGENT_GUIDANCE).toContain("mel-grid/v1");
     expect(LISTENING_AGENT_GUIDANCE).toContain(
-      "full frame supports, exact gaps and the pinned profile",
+      "one joint L2 normalization across the sequence",
     );
+    expect(LISTENING_AGENT_GUIDANCE).toContain("normalized-magnitude");
+    expect(LISTENING_AGENT_GUIDANCE).toContain("Low/mid and high/mid ratios");
+    expect(LISTENING_AGENT_GUIDANCE).toContain("never averaged frame ratios");
+    expect(LISTENING_AGENT_GUIDANCE).toContain("mel-shape/v1");
     expect(LISTENING_AGENT_GUIDANCE).toContain(
-      "uncalibrated linear FFT magnitudes",
-    );
-    expect(LISTENING_AGENT_GUIDANCE).toContain(
-      "zero-denominator and below-floor",
-    );
-    expect(LISTENING_AGENT_GUIDANCE).toContain(
-      "No-frame and missing support are not measured silence",
-    );
-    expect(LISTENING_AGENT_GUIDANCE).toContain(
-      "not SpectralShape smoke diagnostics",
-    );
-    expect(LISTENING_AGENT_GUIDANCE).toContain(
-      "Historical smoke diagnostics remain in typed Desktop History and cannot substitute for an absent authoritative timeline",
+      "Follow nextCursor for remaining values",
     );
   });
   const reportEntry = {
@@ -356,19 +347,14 @@ describe("optional listening tool contracts", () => {
       "stream-summary",
     ]) {
       expect(
-        resolveAbletonOperation("ableton_context", {
+        agentContextOperationParamsSchema.safeParse({
           action,
           contextId: "context",
           ...(action === "stream-summary"
             ? { range: { startSample: 10_000, endSample: 14_096 } }
             : {}),
-        })?.descriptor,
-      ).toMatchObject({
-        operationId: `context.${action}`,
-        risk: "read",
-        mutationTarget: "read",
-        editScope: "none",
-      });
+        }).success,
+      ).toBe(false);
       expect(
         contextOperationParamsSchema.safeParse({
           action,
@@ -397,10 +383,10 @@ describe("optional listening tool contracts", () => {
         }).success,
       ).toBe(false);
     expect(LISTENING_AGENT_GUIDANCE).toContain(
-      "do not exhaust a long timeline merely to establish coverage",
+      "Follow nextCursor for remaining values",
     );
     expect(LISTENING_AGENT_GUIDANCE).toContain(
-      "All completed captures support the same derive-features",
+      "automatically derived musical values",
     );
   });
   it("validates explicitly labelled stream projections, context identity and the total UTF8 tool budget", async () => {
@@ -749,11 +735,18 @@ describe("optional listening tool contracts", () => {
       ).toBe(false);
     }
     const operation = resolveAbletonOperation("ableton_context", {
-      action: "report",
-      contextId: "context",
+      action: "read",
+      target: {
+        kind: "capture",
+        contextId: "context",
+        sessionId: "session",
+        liveSetId: "set",
+        coordinate: "transport-beats",
+        range: { startBeat: 0, endBeat: 4 },
+      },
     });
     expect(operation?.descriptor).toMatchObject({
-      operationId: "context.report",
+      operationId: "context.read",
       risk: "read",
       mutationTarget: "read",
       editScope: "none",
@@ -768,10 +761,10 @@ describe("optional listening tool contracts", () => {
     });
     expect(
       operation?.descriptor.lifecycleIdentity({
-        action: "report",
+        action: "read",
         contextId: "context",
       }),
-    ).toMatchObject({ domain: "context", action: "report" });
+    ).toMatchObject({ domain: "context", action: "read" });
   });
 
   it("accepts retained-position paging without renumbering selected metric rows", async () => {
@@ -860,8 +853,8 @@ describe("optional listening tool contracts", () => {
       report: { offset: 8, nextOffset: 10 },
     });
     expect(executeContextOperation).toHaveBeenCalledWith(params, invocation);
-    expect(tool.description).toContain("follow report.nextOffset");
-    expect(tool.description).toContain("missing/no-frame is not silence");
+    expect(tool.description).toContain("Follow nextCursor");
+    expect(tool.description).toContain("Null/unavailable is not zero");
     expect(
       JSON.stringify(await tool.handler?.(params, invocation)),
     ).not.toContain('"observation":');
@@ -930,78 +923,41 @@ describe("optional listening tool contracts", () => {
 
   it("guides the agent to read usable partial context without inventing evidence or retrying", () => {
     expect(LISTENING_AGENT_GUIDANCE).toContain(
-      "Report unavailable metrics, gaps and unmeasured tails",
+      "Missing evidence never authorizes replay",
     );
+    expect(LISTENING_AGENT_GUIDANCE).toContain("linear-amplitude");
     expect(LISTENING_AGENT_GUIDANCE).toContain(
-      "Shared source, clock, ownership or cleanup failures prevent publication",
+      "zero only for fully covered event-free cells",
     );
+    expect(LISTENING_AGENT_GUIDANCE).toContain("detector endpoints");
     expect(LISTENING_AGENT_GUIDANCE).toContain(
-      "Report unavailable metrics, gaps and unmeasured tails",
-    );
-    expect(LISTENING_AGENT_GUIDANCE).toContain(
-      "Valid measured zeros and empty attack lists are evidence",
-    );
-    expect(LISTENING_AGENT_GUIDANCE).toContain(
-      "Musical measures are not storage chunks",
-    );
-    expect(LISTENING_AGENT_GUIDANCE).toContain(
-      "rather than inferring silence or recapturing",
-    );
-    expect(LISTENING_AGENT_GUIDANCE).toContain("linear amplitudes, not dBFS");
-    expect(LISTENING_AGENT_GUIDANCE).toContain(
-      "detector-window end, not precise onset",
-    );
-    expect(LISTENING_AGENT_GUIDANCE).toContain(
-      "Partial coverage cannot establish absence of attacks",
-    );
-    expect(LISTENING_AGENT_GUIDANCE).toContain(
-      "Descriptive mode can accept disagreement above that advisory target",
-    );
-    expect(LISTENING_AGENT_GUIDANCE).toContain("not a uniform audio delay");
-    expect(LISTENING_AGENT_GUIDANCE).toContain(
-      "Completion is not proof that observed disagreement is within the configured target",
+      "timing is descriptive, not sample-accurate",
     );
   });
   it("preserves zero-based beat phase and tempo-dependent interpretation", () => {
-    expect(LISTENING_AGENT_GUIDANCE).toContain(
-      "integer zero-based beat positions are on-beats; n+0.5 positions are offbeats",
-    );
-    expect(LISTENING_AGENT_GUIDANCE).toContain(
-      "Do not round fractional detector-window endpoints onto integer beats",
-    );
-    expect(LISTENING_AGENT_GUIDANCE).toContain("sampleRate * 60 / tempoBpm");
-    expect(LISTENING_AGENT_GUIDANCE).toContain(
-      "corroborate placement with native support and level-row intervals",
-    );
+    expect(LISTENING_AGENT_GUIDANCE).toContain("source/range");
+    expect(LISTENING_AGENT_GUIDANCE).toContain("detector endpoints");
+    expect(LISTENING_AGENT_GUIDANCE).toContain("readTarget");
+    expect(LISTENING_AGENT_GUIDANCE).toContain("not sample-accurate");
   });
   it("uses supported spectral descriptors without promoting historical diagnostics or inventing arguments", () => {
     expect(LISTENING_AGENT_GUIDANCE).toContain(
-      "not an extra capture or invented requestedMetrics argument",
+      "no playback, derivation or inventory call is needed",
     );
+    expect(LISTENING_AGENT_GUIDANCE).toContain("flatness-summary/v1");
     expect(LISTENING_AGENT_GUIDANCE).toContain(
-      'bounded original "stream-records" for metric "spectral-shape"',
+      "silence and undefined output are not zero",
     );
+    expect(LISTENING_AGENT_GUIDANCE).toContain("signed dB flatness");
+    expect(LISTENING_AGENT_GUIDANCE).toContain("spread-summary/v1");
+    expect(LISTENING_AGENT_GUIDANCE).toContain("95-percent magnitude rolloff");
     expect(LISTENING_AGENT_GUIDANCE).toContain(
-      "Complete acquisition does not imply defined descriptors",
+      "magnitude-weighted spectral spread in Hz",
     );
+    expect(LISTENING_AGENT_GUIDANCE).toContain("rolloff-summary/v1 (Hz)");
+    expect(LISTENING_AGENT_GUIDANCE).toContain("support-weighted valid");
     expect(LISTENING_AGENT_GUIDANCE).toContain(
-      "do not invent flatness report values",
-    );
-    expect(LISTENING_AGENT_GUIDANCE).toContain(
-      "spread report values or rolloff report values",
-    );
-    expect(LISTENING_AGENT_GUIDANCE).toContain(
-      "Rolloff is explicitly configured at 95 percent",
-    );
-    expect(LISTENING_AGENT_GUIDANCE).toContain(
-      "not an actual synth/filter cutoff or an automatic EQ prescription",
-    );
-    expect(LISTENING_AGENT_GUIDANCE).toContain("nonnegative Hz values");
-    expect(LISTENING_AGENT_GUIDANCE).toContain(
-      "Delivery counts are not FFT frame counts",
-    );
-    expect(LISTENING_AGENT_GUIDANCE).toContain(
-      "not physical filter bandwidth or source count",
+      "Source attribution is not exclusive",
     );
   });
   it("returns partial as a published outcome rather than a failure or full success", () => {
@@ -1095,10 +1051,10 @@ describe("optional listening tool contracts", () => {
     expect(
       listeningOperationResultSchema.parse({ action: "get-pass", job: legacy }),
     ).not.toHaveProperty("job.failureEvidence");
-    expect(LISTENING_AGENT_GUIDANCE).toContain(
+    expect(listeningOperationParamsSchema.options[0].description).toContain(
       "not a permanent commissioning failure",
     );
-    expect(LISTENING_AGENT_GUIDANCE).toContain(
+    expect(listeningOperationParamsSchema.options[0].description).toContain(
       "An error code alone is not a precise cause",
     );
     expect(listeningOperationParamsSchema.options[0].description).toContain(
@@ -1134,16 +1090,12 @@ describe("optional listening tool contracts", () => {
       executeContextOperation: async () => ({ action: "list", entries: [] }),
     });
     expect(context.description).toContain(
-      "Loudness-envelope similarity alone cannot establish source identity",
+      "measures the loudness envelope, not timbre or source identity",
     );
     expect(context.description).toContain("mel-grid/v1");
-    expect(context.description).toContain("comparedValues out of totalValues");
-    expect(context.description).toContain(
-      "distances are descriptive, not identity probabilities",
-    );
-    expect(context.description).toContain(
-      "this does not override the user's requested response format",
-    );
+    expect(context.description).toContain("complete requested extent");
+    expect(context.description).toContain("not identity probabilities");
+    expect(context.description).toContain("Null/unavailable is not zero");
   });
 
   it("requires current-operation persisted feature rereads and separate requested comparison and search", () => {
@@ -1160,18 +1112,10 @@ describe("optional listening tool contracts", () => {
       listening.description,
       context.description,
     ]) {
-      expect(guidance).toContain(
-        "call get-feature for each requested feature from every requested context in the current operation",
-      );
-      expect(guidance).toContain(
-        "Conversation memory or a previous turn's read does not satisfy an explicit persisted reread",
-      );
-      expect(guidance).toContain(
-        "call compare-features with pairs of leftFeatureId and rightFeatureId, and call search-features separately",
-      );
-      expect(guidance).toContain(
-        "A search hit or its distance is not a substitute for the requested pair comparison",
-      );
+      expect(guidance).toContain("readTarget");
+      expect(guidance).not.toContain("get-feature");
+      expect(guidance).not.toContain("compare-features");
+      expect(guidance).not.toContain("search-features");
     }
   });
 
@@ -1185,62 +1129,50 @@ describe("optional listening tool contracts", () => {
       executeContextOperation: async () => ({ action: "list", entries: [] }),
     });
     expect(listening.description).toContain(
-      "play-arrangement-and-listen requires listenerIds, startBeat and the absolute endBeat, not durationBeats",
+      "Listen returns capture status and automatically derived musical values",
     );
     expect(listening.description).toContain(
-      "play-session-and-listen explicitly fires one exact MIDI or warped-audio clip",
+      "Session clips and Arrangement are distinct",
     );
     expect(listening.description).toContain(
-      "Queued or arming is not completion",
+      "Missing evidence never authorizes replay",
     );
     expect(listening.description).toContain(
-      "Start calls wait for terminal capture, durable publication and cleanup",
+      "no playback, derivation or inventory call is needed",
     );
     expect(listening.description).toContain(
-      "no get-pass polling, second capture, bash or sleep is needed to wait",
+      "Follow nextCursor for remaining values",
+    );
+    expect(listening.description).toContain("Read stored values");
+    expect(listening.description).toContain("through ordinary approvals");
+    expect(listening.description).toContain("STOP and Back to Arrangement");
+    expect(listening.description).toContain(
+      "Session clips and Arrangement are distinct",
     );
     expect(listening.description).toContain(
-      "Read the returned stored contexts before drawing musical conclusions",
+      "Never repair/retry a rejected pass automatically",
     );
-    expect(listening.description).toContain(
-      "The App owns Arrangement positioning and playback start",
-    );
-    expect(listening.description).toContain(
-      "Back to Arrangement restores the playback source, not the view",
-    );
-    expect(listening.description).toContain(
-      "Switching views or stopping transport alone does not clear a Session override",
-    );
-    expect(listening.description).toContain(
-      "do not repair or retry automatically",
+    expect(context.description).toContain("Read stored musical analysis");
+    expect(context.description).not.toContain("list-features");
+    expect(context.description).toContain(
+      "copy a returned readTarget unchanged",
     );
     expect(context.description).toContain(
-      "For other or small contexts, use get",
-    );
-    expect(context.description).toContain("list does not accept contextId");
-    expect(context.description).toContain(
-      "list-features uses singular contextId, not contextIds",
-    );
-    expect(context.description).toContain(
-      'use "stream-overview" with its returned contextId to read original persisted coverage',
+      "temporal coverage and pinned continuations",
     );
     expect(context.description).not.toContain("get or report");
     expect(listening.description).not.toContain("get or report");
     expect(listening.description).toContain(
-      "Every new Session or Arrangement capture returns metric-record-stream-context/v1",
+      "automatically derived musical values",
+    );
+    expect(context.description).toContain("actual canonical values");
+    expect(context.description).toContain(
+      "newest positively fresh covering capture",
     );
     expect(context.description).toContain(
-      "Canonical feature metadata and values use the same shared actions for both playback views",
+      "Compare returns separate canonical feature distances",
     );
-    expect(context.description).toContain(
-      "derive-features uses the contextIds array",
-    );
-    expect(context.description).toContain(
-      "compare-features uses pairs of leftFeatureId and rightFeatureId",
-    );
-    expect(context.description).toContain(
-      "search-features uses featureId and excludeContextIds",
-    );
+    expect(context.description).toContain("Search defaults to mel-grid/v1");
     expect(
       contextOperationParamsSchema.safeParse({
         action: "list-features",
@@ -1272,74 +1204,35 @@ describe("optional listening tool contracts", () => {
         entries: [],
       }),
     });
+    expect(tool.description).toContain("Capture leaves playback running");
+    expect(tool.description).toContain("Source attribution is not exclusive");
     expect(tool.description).toContain(
-      "Playback continues after completion, cancellation, failure or timeout",
-    );
-    expect(tool.description).toContain("cancel stops capture, not transport");
-    expect(tool.description).toContain(
-      "Discover the negotiated audio-listener/finite-metric-stream-v1 capability",
-    );
-    expect(tool.description).toContain(
-      "same incrementally persisted six-metric capture pipeline",
-    );
-    expect(tool.description).toContain(
-      "Report unavailable metrics, gaps and unmeasured tails",
+      "Missing evidence never authorizes replay",
     );
     expect(tool.description).not.toContain("wire3 or wire4");
-    expect(tool.description).toContain(
-      "stopped transport at a nonnegative position",
-    );
+    expect(tool.description).toContain("Prepare stopped transport");
     expect(listeningOperationParamsSchema.options[1].description).toContain(
       "stopped transport at a nonnegative position",
     );
-    expect(tool.description).toContain("clip Global or One Bar quantization");
-    expect(tool.description).toContain(
+    expect(listeningOperationParamsSchema.options[1].description).toContain(
+      "clip Global or One Bar quantization",
+    );
+    expect(listeningOperationParamsSchema.options[1].description).toContain(
       "remembered active clips while transport is stopped",
     );
     expect(tool.description).not.toContain(
       "one-bar and nonzero stopped anchors are not qualified",
     );
-    expect(tool.description).toContain(
-      "unknown settings remain explicit and monitored",
+    expect(listeningOperationParamsSchema.options[1].description).toContain(
+      "Cancellation never retracts an accepted launch or stops transport",
     );
-    expect(tool.description).toContain(
-      "does not retract an accepted or queued Session launch",
+    expect(listeningOperationParamsSchema.options[1].description).toContain(
+      "600-second acquisition ceiling",
     );
-    expect(tool.description).toContain(
-      "Shared source, clock, ownership or cleanup failures prevent publication",
+    expect(listeningOperationParamsSchema.options[0].description).toContain(
+      "native_per_pass_validation_required",
     );
-    expect(tool.description).toContain("native_per_pass_validation_required");
-    expect(tool.description).toContain(
-      "globally anchored quarter-beat level grid",
-    );
-    expect(tool.description).toContain("up to 600 seconds");
-    expect(tool.description).toContain(
-      "Source, tempo and meter monitoring are message-rate evidence",
-    );
-    expect(tool.description).toContain("unsupported changes deny publication");
-    expect(tool.description).toContain("not absolute accuracy");
-    expect(tool.description).toContain(
-      "There is no whole-observation capture fallback",
-    );
-    expect(tool.description).toContain(
-      "Timing policy is frozen from trusted Settings",
-    );
-    expect(tool.description).toContain("even while ready=false");
-    expect(tool.description).toContain(
-      "Fresh generation-bound arm, launch, source coverage and cleanup proof are required",
-    );
-    expect(tool.description).toContain(
-      "contexts publish only after verified durable publication",
-    );
-    expect(tool.description).toContain(
-      "unsupported or unbound listeners remain denied",
-    );
-    expect(tool.description).toContain(
-      "globally anchored quarter-beat level grid",
-    );
-    expect(tool.description).toContain(
-      "independent 100 ms attack-detector cadence",
-    );
+    expect(tool.description).toContain("not sample-accurate");
     expect(tool.description).not.toContain("Descriptive v2");
     expect(tool.description).not.toContain(
       "one approximately 100 ms reporting hop",

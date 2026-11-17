@@ -1,5 +1,165 @@
 # Playback Listening and Entity Context
 
+## Agent-facing analysis contract
+
+The normal workflow is **listen, read, compare, search**, not measurement-stream
+discovery followed by feature-ID discovery. The application owns capture
+publication, automatic feature derivation, source resolution and projection into
+musical results. Existing immutable measurements and canonical feature math
+remain authoritative. Historical qualification notes below describe their
+original tool contracts; they are not instructions to restore retired agent
+actions.
+
+A successful listen returns the capture outcome and its derived analysis in the
+same tool result. It joins the already-scheduled derivation rather than issuing
+another calculation or asking the agent to poll. Capture and analysis outcomes
+are separate: an analysis quota, cancellation or integrity failure does not erase
+an already durable capture or authorize replay. Playback preparation, source
+guards, approvals and leave-running cleanup are unchanged.
+For multi-source captures, retain successful analyses and their pinned targets
+alongside typed source-local failures. A mixed outcome is partial analysis, not
+an empty generic failure. Invocation cancellation and global ownership failures
+still stop the operation rather than being downgraded to source-local warnings.
+
+Stored reads accept ordinary inspected clip/track targets and musical ranges.
+An unpinned request selects the newest positively fresh capture covering the
+requested source and extent in the invoking App session and Live Set. Unknown
+freshness, duplicate names, missing listeners and incomplete coverage do not
+permit guessing, stitching separate captures or automatic playback. A pinned
+reference reads the exact observation that produced it, even after newer captures
+arrive; ordinary ownership and freshness authorization still applies.
+
+### Results organized by musical time
+
+Return a bounded whole-request overview plus a chronological page of actual
+values. Within a musical segment, group grid features by their explicit
+half-open beat interval: RMS level, centroid, attack activity/strength, mel bands
+and pitch appear together, with units, channel/dimension labels and validity.
+Keep segment-wide peak, spectral energy, mel summaries, pitch confidence and
+spectral-shape summaries at segment level, with their full temporal extent.
+Do not repeat a segment summary as if it were an instantaneous row measurement.
+
+Session clip-local beats and Arrangement transport beats are different
+coordinate systems. Preserve the recorded origin and geometry; include
+capture-relative time and human bar/beat labels only where established by the
+timing and alignment evidence. Without alignment, report supported summaries
+and explicit unavailable grid reasons rather than manufacturing a musical grid.
+
+A shared grid is a projection, not evidence that all measurements were taken
+simultaneously. FFT supports can cross row boundaries, attack timestamps are
+detector-window endpoints, and level records retain their own supports.
+Per-feature/channel gaps, unavailable values and unmeasured tails remain
+visible. Zero is not a substitute for missing data. Whole-segment normalization
+must survive row projection and pagination unchanged.
+
+The tool description contains a concise catalog generated from the canonical
+fifteen feature definitions. The agent need not call a catalog tool to learn
+what can be measured. Availability is still observation-specific; this catalog
+does not promise transcription, source recognition, LUFS, perceptual identity
+or sample-accurate synchronization.
+
+### Bounded results and composable targets
+
+Response size alone must not fail a valid analysis request. Use the existing
+64-KiB serialized budget to choose a page automatically, reserving room for
+coverage and continuation. Prefer complete chronological rows; split oversized
+value/support blocks with repeated interval bounds and explicit fragment
+completeness. Default pages contain musical values and compact coverage, not
+repeated storage identities, full definitions or native support arrays.
+`read` with `detail: "evidence"` returns the corresponding paged definitions,
+feature metadata and complete supports; `detail: "original-measurements"`
+returns original measurement evidence. Both use the same source target.
+A compact `supportExtent` is only a bounding interval, not a claim that every
+sample inside it was measured. Detailed provenance can also be paged, but the
+tool is not a full native-proof or storage-manifest export. Preserve all stored
+evidence and indicate which detail remains unread. The full-extent overview is
+not proof that all detailed values have been returned.
+Continuation payloads are authenticated, including search rankings and
+statistics; callers cannot edit them to invent distances or change candidates.
+They are ephemeral to the running host. After a host restart, begin a new read
+using the durable pinned target instead of reusing an old cursor.
+Overview extrema are aggregate values rather than precisely located events;
+use interval values for musical timing rather than inventing extrema timestamps.
+
+The application-host regression retains every canonical value from a synthetic
+twenty-measure, six-analyzer capture within 28 default pages and 1.8 MB.
+This tests the real host pager, not Live latency or a claim that every source
+fits one page. Complete technical detail is separately checked losslessly.
+
+Use one typed returned-target contract for one-call drill-down:
+
+- Listen/read return a target for their exact recorded source and extent.
+- Search hits expose a source target for the clip/track's recorded results and
+  a matched-passage target for the exact hit.
+- Referenced features expose their selected feature/extent and containing source.
+- Comparisons expose left/right targets and a readable comparison-evidence
+  target returning both sides' aligned values.
+
+The agent passes a returned target directly to `read`, without discovering,
+joining or reconstructing context/segment/feature IDs. Compatible targets also
+feed comparison and search. References are not authorization tokens, and a
+source target describes the observed extent, not unmeasured parts of a clip.
+Further calls may retrieve detail pages, but must not be required just to resolve
+a reference. Do not rely on SDK spill files or Bash for ordinary analysis reads.
+
+Comparison processes the requested extent and returns separate canonical
+distances with paired musical intervals, units and valid/expected coverage.
+It must not silently compare only the first measure or combine unlike units
+into an invented universal score. Search defaults to mel-grid spectral content
+and returns readable matched locations and query-to-hit correspondence.
+`topK` selects the desired number of matches, default 10 and maximum 20.
+It is independent of candidate-scan limits and response paging: rank the bounded
+eligible scan before selecting matches, then page their evidence if necessary.
+Fewer eligible matches, incomplete scans and paged output are distinct states.
+
+### Lifecycle and retained diagnostic access
+
+Resolve ordinary capture targets before the SDK requests human approval, not
+merely before the later mutation executor. Approval must see the exact listener
+IDs and musical range. Bind the resolved request to its SDK tool-call ID,
+original arguments, canonical fingerprint and invocation trace; execution
+consumes that frozen request rather than choosing a different listener after
+approval. Denial, cancellation or an argument/identity mismatch must not start
+playback. The `agent.listening_resolution` lifecycle records this pre-approval
+stage separately from capture and analysis.
+
+Automatic derivation retains its existing independent lifecycle. Waiting for
+analysis must not enqueue duplicate derivation or deadlock publication. Aborting
+a waiter releases that waiter without cancelling shared application-owned work.
+Record queue, computation and result-projection timing separately from playback,
+with attributable queued/started/progress/completed/failed/cancelled events.
+Preserve trace, correlation and causation through the actual SDK result and
+typed, redacted Desktop History.
+
+Typed stream inspection and repository feature operations remain useful for
+application diagnostics and verification. They are not the registered default
+agent analysis workflow. No new storage location, reference registry, native
+acquisition pipeline or renderer filesystem/SQL access is introduced.
+
+### Current redesign qualification
+
+The first packaged `session-clip-identify` attempts on Live **11.3.43**
+(`run-7XXMeI`, `run-v8k8hG`, `run-mzFbEk`) stopped at readiness before submitting
+any message. Desktop and the Default agent became ready and Live connected,
+but the required listener inventory stayed empty. All three terminal receipts
+report complete cleanup. The installed baseline reproduced the same setup
+failure (`run-Jjso3R`), so these are not evidence of an agent-tool regression
+or successful listening. The host was screen-locked; computer-use returned
+black windows. No authentication or lock-screen bypass was attempted.
+
+An earlier idle-sleep interruption also invalidated timing checks. A temporary,
+owned sleep inhibitor allowed the complete test-support suite to pass
+**1,123 tests** without increasing its deadlines. This lower-layer result does
+not qualify any of the **19 registered user-message scenarios**. Their final
+candidate qualification and visible UX gate remain open until the host
+precondition is resolved; preserve these failed attempts alongside later runs.
+After compact-result and review fixes, the full deterministic suites passed:
+**6,813 TypeScript, 1,096 Max, and 321 Python tests**, plus workspace build and
+typechecks. Code review rechecked and resolved cursor integrity, mixed-source
+failure delivery, restart provenance, and sample-coverage findings. The global
+format check still reports two unchanged pre-existing `.github` Markdown files;
+all changed files pass formatting.
+
 ## Consolidation target: shared measurements and musical features
 
 Both playback adapters now use the shared finite native measurement stream,
@@ -48,8 +208,9 @@ as historical contexts. This does not qualify ten-minute feature grids.
 
 Typed History recognizes the exact application-owned stream-read hook before
 validating results; an arbitrary suffix or mismatched action is still rejected.
-For stored shape/count requests, agents use typed stream overviews and complete
-feature inventories, not shell scratch calculations or no-op checks.
+Earlier stored shape/count qualification used typed stream overviews and complete
+feature inventories, not shell scratch calculations or no-op checks. The current
+agent analysis contract above replaces that discovery-oriented interaction.
 
 The approved real-host matrix is one and twenty measures for MIDI and audio,
 each comparing Session and Arrangement through production application services.

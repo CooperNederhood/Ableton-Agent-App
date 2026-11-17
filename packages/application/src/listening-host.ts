@@ -1,5 +1,10 @@
+import { randomUUID } from "node:crypto";
 import { z } from "zod";
-import { sanitizePersistedText } from "@ableton-agent/observability";
+import {
+  sanitizePersistedText,
+  sanitizeTelemetryAttributes,
+} from "@ableton-agent/observability";
+import { METRIC_CONTINUOUS_LISTENING_CAPABILITY } from "@ableton-agent/protocol";
 import {
   listeningOperationParamsSchema,
   listeningOperationResultSchema,
@@ -33,6 +38,18 @@ type SessionTarget = Extract<
   ListeningOperationParams,
   { action: "play-session-and-listen" }
 >["target"];
+type ArrangementSources = NonNullable<
+  Extract<
+    ListeningOperationParams,
+    { action: "play-arrangement-and-listen" }
+  >["sources"]
+>;
+type CaptureParams = Extract<
+  ListeningOperationParams,
+  {
+    action: "play-session-and-listen" | "play-arrangement-and-listen";
+  }
+>;
 
 export interface ListeningHostOptions extends Pick<
   ListeningCoordinatorOptions,
@@ -43,6 +60,7 @@ export interface ListeningHostOptions extends Pick<
   ) => Promise<ListeningOwner>;
   readonly inspectListeners: (
     context: ListeningExecutionContext,
+    tracks?: readonly ArrangementSources[number]["track"][],
   ) => Promise<ListenerViews>;
   readonly resolveSessionTarget: (
     target: SessionTarget,
@@ -54,6 +72,10 @@ export interface ListeningHostOptions extends Pick<
       Extract<ListeningRequest, { mode: "session" }>["target"]
     >;
   }>;
+  readonly resolveArrangementRange?: (
+    sources: ArrangementSources,
+    context: ListeningExecutionContext,
+  ) => Promise<{ startBeat: number; endBeat: number }>;
 }
 
 const cursorSchema = z.strictObject({
@@ -135,12 +157,182 @@ function publicJob(job: ListeningJob) {
 export function createListeningHost(options: ListeningHostOptions): Required<
   Pick<CopilotAgentServiceOptions, "executeListeningOperation">
 > & {
+  resolveListeningOperation(
+    input: ListeningOperationParams,
+    context: ListeningExecutionContext,
+  ): Promise<ListeningOperationParams>;
   waitForListeningPass(
     passId: string,
     context: ListeningExecutionContext,
   ): Promise<ListeningJobView>;
   shutdown(): Promise<void>;
 } {
+  const resolveListenerIds = async (
+    params: CaptureParams,
+    context: ListeningExecutionContext,
+  ): Promise<string[]> => {
+    const sources =
+      params.action === "play-session-and-listen"
+        ? [
+            {
+              track: params.target.track,
+              listenerDeviceReference: params.listenerDeviceReference,
+            },
+          ]
+        : params.sources;
+    if (sources === undefined) return params.listenerIds!;
+    if (
+      params.listenerIds !== undefined &&
+      params.listenerIds.length !== sources.length
+    )
+      throw new ListeningFailure(
+        "listener_source_mismatch",
+        "Each selected source must have exactly one corresponding listener",
+      );
+    const inventory = listeningOperationResultSchema.parse(
+      await awaitListeningBoundary(
+        options.inspectListeners(
+          context,
+          sources.map(({ track }) => track),
+        ),
+        context.signal,
+      ),
+    );
+    if (inventory.action !== "inspect-listeners")
+      throw new ListeningFailure(
+        "invalid_result",
+        "Listener inspection returned a mismatched action",
+      );
+    if (inventory.truncated)
+      throw new ListeningFailure(
+        "listener_selection_incomplete",
+        "Listener inventory is incomplete; no automatic selection is safe",
+      );
+    return sources.map((source, index) => {
+      const selectedId = params.listenerIds?.[index];
+      const candidates = inventory.listeners.filter(
+        (listener) =>
+          listener.trackReference === source.track.expectedReference &&
+          listener.capabilities.includes(
+            METRIC_CONTINUOUS_LISTENING_CAPABILITY,
+          ) &&
+          !listener.limitations.includes("listener_not_idle") &&
+          !(
+            params.action === "play-session-and-listen" &&
+            listener.limitations.includes("session_mode_unsupported")
+          ) &&
+          (selectedId === undefined || listener.listenerId === selectedId) &&
+          (source.listenerDeviceReference === undefined ||
+            listener.deviceReference === source.listenerDeviceReference),
+      );
+      if (candidates.length !== 1)
+        throw new ListeningFailure(
+          candidates.length ? "ambiguous_listener" : "listener_not_found",
+          `Expected one eligible listener on ${sanitizePersistedText(source.track.expectedName).slice(0, 128)}; found ${candidates.length}. Specify listenerDeviceReference to disambiguate`,
+        );
+      return candidates[0]!.listenerId;
+    });
+  };
+  const resolveListeningOperation = async (
+    input: ListeningOperationParams,
+    context: ListeningExecutionContext,
+  ): Promise<ListeningOperationParams> => {
+    const startedAt = (options.now ?? Date.now)();
+    let cause = context.trace.causationId;
+    const emit = (
+      stage:
+        | "queued"
+        | "started"
+        | "progress"
+        | "completed"
+        | "failed"
+        | "cancelled",
+      attributes = {},
+    ) => {
+      const id = randomUUID();
+      const now = (options.now ?? Date.now)();
+      options.telemetry?.enqueue({
+        version: 2,
+        id,
+        occurredAt: new Date(now).toISOString(),
+        name: `listening.source-resolution.${stage}`,
+        source: "listening-host",
+        level: stage === "failed" ? "error" : "info",
+        stage,
+        durationMs: Math.max(0, now - startedAt),
+        sessionId: sanitizePersistedText(context.sessionId),
+        activeAgentId: sanitizePersistedText(context.agentId),
+        correlationId: sanitizePersistedText(context.trace.correlationId),
+        causationId: sanitizePersistedText(cause),
+        trace: { traceId: context.trace.traceId, spanId: id },
+        outcome:
+          stage === "failed"
+            ? "failure"
+            : stage === "cancelled"
+              ? "cancelled"
+              : stage === "completed"
+                ? "success"
+                : "unknown",
+        attributes: sanitizeTelemetryAttributes(attributes),
+      });
+      cause = id;
+    };
+    emit("queued");
+    emit("started");
+    try {
+      const params = listeningOperationParamsSchema.parse(input);
+      context.signal?.throwIfAborted();
+      emit("progress", { phase: "resolving-exact-capture-scope" });
+      if (
+        params.action !== "play-session-and-listen" &&
+        params.action !== "play-arrangement-and-listen"
+      ) {
+        emit("completed");
+        return params;
+      }
+      if (context.actorKind === "application")
+        throw new ListeningFailure(
+          "permission_denied",
+          "Playback listening requires an initiating agent owner",
+        );
+      if (params.action === "play-session-and-listen")
+        await awaitListeningBoundary(
+          options.resolveSessionTarget(params.target, context),
+          context.signal,
+        );
+      const ids =
+        params.action === "play-session-and-listen" &&
+        params.listenerIds !== undefined &&
+        params.listenerDeviceReference === undefined
+          ? params.listenerIds
+          : await resolveListenerIds(params, context);
+      const range =
+        params.action === "play-arrangement-and-listen" &&
+        (params.startBeat === undefined || params.endBeat === undefined)
+          ? await awaitListeningBoundary(
+              options.resolveArrangementRange?.(params.sources!, context) ??
+                Promise.reject(
+                  new ListeningFailure(
+                    "arrangement_range_unavailable",
+                    "Typed Arrangement clip inspection is unavailable; provide inspected explicit bounds",
+                  ),
+                ),
+              context.signal,
+            )
+          : {};
+      context.signal?.throwIfAborted();
+      const result = listeningOperationParamsSchema.parse({
+        ...params,
+        listenerIds: ids,
+        ...range,
+      });
+      emit("completed", { listenerCount: ids.length });
+      return result;
+    } catch (error) {
+      emit(context.signal?.aborted ? "cancelled" : "failed", { error });
+      throw error;
+    }
+  };
   const jobs = new Map<string, ListeningJob>();
   const coordinator = new ListeningCoordinator({
     ...options,
@@ -201,6 +393,7 @@ export function createListeningHost(options: ListeningHostOptions): Required<
     return job;
   };
   return {
+    resolveListeningOperation,
     executeListeningOperation: async (input, context) => {
       const startedAt = (options.now ?? Date.now)();
       let schemaInput: unknown = input;
@@ -327,6 +520,22 @@ export function createListeningHost(options: ListeningHostOptions): Required<
               },
             );
           }
+          if (
+            params.listenerIds === undefined ||
+            (params.action === "play-arrangement-and-listen" &&
+              (params.startBeat === undefined || params.endBeat === undefined))
+          )
+            throw new ListeningFailure(
+              "unresolved_capture_scope",
+              "Capture listener identities and range must be resolved before approval",
+            );
+          if (
+            (params.action === "play-arrangement-and-listen" &&
+              params.sources !== undefined) ||
+            (params.action === "play-session-and-listen" &&
+              params.listenerDeviceReference !== undefined)
+          )
+            await resolveListeningOperation(params, context);
           checkId = "application.host.resolve-owner";
           const owner = await awaitListeningBoundary(
             options.resolveOwner(context),
@@ -369,8 +578,8 @@ export function createListeningHost(options: ListeningHostOptions): Required<
                   {
                     mode: "arrangement",
                     listenerIds: params.listenerIds,
-                    startBeat: params.startBeat,
-                    endBeat: params.endBeat,
+                    startBeat: params.startBeat!,
+                    endBeat: params.endBeat!,
                     maximumDurationMs: params.maximumDurationMs,
                   },
                   owner,

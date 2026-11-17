@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { NonBlockingObservabilityRecorder } from "@ableton-agent/observability";
 import {
   createInMemorySessionContextStore,
   type AppendContextPass,
@@ -25,6 +26,10 @@ import {
   METRIC_CONTINUOUS_LISTENING_CAPABILITY,
   DEFAULT_LISTENING_TIMING_POLICY,
   MEL_BAND_PROFILE,
+  LISTENING_FEATURE_DEFINITIONS,
+  projectMetricFeatureSource,
+  classifyPitchEstimate,
+  melBandTimelineFrameSchema,
   type MetricRecordStreamManifest,
   type MetricRecordChunk,
 } from "@ableton-agent/protocol";
@@ -36,6 +41,9 @@ import {
 import {
   contextOperationParamsSchema,
   contextOperationResultSchema,
+  MAX_METRIC_CONTEXT_RESPONSE_BYTES,
+  type CaptureAnalysisTarget,
+  type AnalysisTimelineItem,
 } from "@ableton-agent/tools";
 import { createSessionContextHost } from "./session-context-host.js";
 import { buildListeningPublication } from "./listening-publication.js";
@@ -51,7 +59,10 @@ const stores: EntityContextRepository[] = [];
 const reportDefaults = { includeHistorical: false, offset: 0, limit: 8 };
 const featurePageDefaults = { offset: 0, supportOffset: 0, limit: 8 };
 
-async function streamFixture(persist = false) {
+async function streamFixture(
+  persist = false,
+  requestedMetrics: MetricAudioObservation["requestedMetrics"] = ["mel-bands"],
+) {
   const seeded = await fixture();
   const observation = createSyntheticMetricListeningObservation();
   const geometry = createContinuousMetricListeningGeometry({
@@ -204,7 +215,7 @@ async function streamFixture(persist = false) {
       source: descriptor.source,
       ownership: descriptor.ownership,
       timingPolicy: descriptor.timingPolicy,
-      requestedMetrics: ["mel-bands"],
+      requestedMetrics,
       recordsPerChunk: 96,
     });
     const owner = await metrics.beginMetricCapture({
@@ -932,6 +943,1640 @@ async function featureFixture(grid = false) {
   vi.spyOn(seeded.store, "getSegment").mockResolvedValue(segment);
   return { ...seeded, record, segment, getFeature };
 }
+
+async function analysisFixture() {
+  const seeded = await featureFixture(true);
+  const listLinks = seeded.store.listLinks.bind(seeded.store);
+  vi.spyOn(seeded.store, "listLinks").mockImplementation(async (...args) => {
+    const page = await listLinks(...args);
+    return {
+      ...page,
+      items: page.items.map((link) => ({
+        ...link,
+        freshness: { ...link.freshness, status: "fresh" as const },
+      })),
+    };
+  });
+  vi.spyOn(seeded.store, "listFeatures").mockResolvedValue({
+    items: [seeded.record],
+  });
+  const wait = vi
+    .spyOn(seeded.store, "waitForFeatureDerivation")
+    .mockResolvedValue({
+      entryId: "entry",
+      status: "ready",
+      definitionSet: "qualified-listening/v1",
+      reason: null,
+      featureIds: [seeded.record.id],
+    });
+  const target: CaptureAnalysisTarget = {
+    kind: "capture",
+    contextId: "entry",
+    sessionId: context.sessionId,
+    liveSetId: "set-a",
+    coordinate: "transport-beats",
+    range: { startBeat: 0, endBeat: 1 },
+  };
+  return { ...seeded, target, wait };
+}
+
+describe("musical analysis host", () => {
+  it("delivers twenty complete measures through compact musical pages rather than mandatory provenance pages", async () => {
+    const { host, store, record, segment, target } = await analysisFixture();
+    const seed = await createSyntheticMetricRecordStreamFixture({
+      seconds: 2,
+      requestedMetrics: [
+        "level",
+        "spectral-centroid",
+        "attacks",
+        "mel-bands",
+        "pitch",
+        "spectral-shape",
+      ],
+    });
+    type Records = NonNullable<
+      NonNullable<
+        Parameters<typeof createSyntheticMetricRecordStreamFixture>[0]
+      >["records"]
+    >;
+    const measured: { -readonly [K in keyof Records]: Records[K] } = {};
+    for await (const chunk of seed.chunks()) {
+      switch (chunk.metric) {
+        case "level":
+          measured.level = [
+            ...(measured.level ?? []),
+            ...chunk.records.map((frame) => ({
+              ...frame,
+              peak: [0.8, 0.7] as [number, number],
+              rms: [0.5, 0.4] as [number, number],
+            })),
+          ];
+          break;
+        case "spectral-centroid":
+          measured["spectral-centroid"] = [
+            ...(measured["spectral-centroid"] ?? []),
+            ...chunk.records.map((frame) => ({
+              ...frame,
+              spectralEnergy: 2,
+              centroidHz: 500 + frame.index / 3,
+            })),
+          ];
+          break;
+        case "attacks":
+          measured.attacks = [...(measured.attacks ?? []), ...chunk.records];
+          break;
+        case "mel-bands":
+          measured["mel-bands"] = [
+            ...(measured["mel-bands"] ?? []),
+            ...chunk.records.map((frame) =>
+              melBandTimelineFrameSchema.parse({
+                ...frame,
+                magnitudes: [
+                  Array.from(
+                    { length: 24 },
+                    (_, i) => (i + 1 + frame.index / 10) / 31,
+                  ),
+                  Array.from({ length: 24 }, (_, i) => (i + 1) / 37),
+                ],
+              }),
+            ),
+          ];
+          break;
+        case "pitch":
+          measured.pitch = [
+            ...(measured.pitch ?? []),
+            ...chunk.records.map((frame) => ({
+              ...frame,
+              channels: [
+                classifyPitchEstimate(440, 0.95),
+                classifyPitchEstimate(220, 0.97),
+              ] as const,
+            })),
+          ];
+          break;
+        case "spectral-shape":
+          measured["spectral-shape"] = [
+            ...(measured["spectral-shape"] ?? []),
+            ...chunk.records.map((frame) => ({
+              ...frame,
+              channels: [
+                {
+                  state: "valid" as const,
+                  flatnessDb: -20,
+                  spreadHz: 500 + frame.index / 7,
+                  rolloffHz: 1000,
+                },
+                {
+                  state: "valid" as const,
+                  flatnessDb: -15,
+                  spreadHz: 600,
+                  rolloffHz: 1200,
+                },
+              ] as const,
+            })),
+          ];
+          break;
+      }
+    }
+    const stream = await createSyntheticMetricRecordStreamFixture({
+      seconds: 2,
+      requestedMetrics: seed.descriptor.requestedMetrics,
+      records: measured,
+    });
+    const chunks: MetricRecordChunk[] = [];
+    for await (const chunk of stream.chunks()) chunks.push(chunk);
+    const source = projectMetricFeatureSource(
+      {
+        schema: "metric-record-stream-context/v1",
+        captureId: "entry",
+        descriptorDigest: stream.state.descriptorDigest,
+        descriptor: stream.descriptor,
+      },
+      chunks,
+    );
+    const aligned = segmentListeningObservation(source, {
+      version: 1,
+      coordinate: "transport-beats",
+      meter: { numerator: 4, denominator: 4 },
+      barOriginBeat: 0,
+      tempoBpm: 120,
+      tempoEvidence: "message-rate-monitored-constant",
+      provenance: "capture-snapshot/v1",
+    })[0]!;
+    const records = Array.from({ length: 20 }, (_, index) =>
+      LISTENING_FEATURE_DEFINITIONS.map(({ type }) => ({
+        ...record,
+        id: `${type.replace("/", "-")}:${index}`,
+        segmentId: `measure-${index}`,
+        feature: extractListeningFeature(type, source, aligned),
+      })),
+    ).flat();
+    for (const item of records.slice(0, 15)) {
+      expect(item.feature.status).toBe("ready");
+      expect(item.feature.values?.some((value) => value !== null)).toBe(true);
+    }
+    vi.spyOn(store, "listFeatures").mockImplementation(async (query) => {
+      const offset = Number(query?.cursor ?? 0);
+      return {
+        items: records.slice(offset, offset + 100),
+        ...(offset + 100 < records.length
+          ? { nextCursor: String(offset + 100) }
+          : {}),
+      };
+    });
+    vi.spyOn(store, "getSegment").mockImplementation(async (id) => {
+      const index = Number(id.split("-").at(-1));
+      return {
+        ...segment,
+        ...aligned,
+        id,
+        order: index,
+        startBeat: index * 4,
+        endBeat: (index + 1) * 4,
+        startSample: aligned.startSample + index * 96000,
+        endSample: aligned.endSample + index * 96000,
+      };
+    });
+    const links = await store.listLinks({ entryId: "entry" });
+    vi.spyOn(store, "listLinks").mockResolvedValue({
+      items: links.items.map((link) => ({
+        ...link,
+        coverage: { startBeat: 0, endBeat: 80 },
+      })),
+    });
+    const selected = { ...target, range: { startBeat: 0, endBeat: 80 } };
+    let cursor: string | undefined;
+    let pages = 0;
+    let bytes = 0;
+    let finalBeat = 0;
+    let finalSeconds = 0;
+    const delivered = new Map<string, (number | null)[]>();
+    do {
+      const result = await host.executeContextOperation(
+        {
+          action: "read",
+          target: selected,
+          includeHistorical: false,
+          ...(cursor ? { cursor } : {}),
+        },
+        context,
+      );
+      if (result.action !== "read") throw new Error("Expected musical read");
+      const page = result.analyses[0]!;
+      if (pages === 0)
+        expect(page.timeline[0]!.elapsedStartSeconds).toBe(
+          aligned.startSample / aligned.sampleRate,
+        );
+      expect(
+        page.timeline.every(
+          (row) => row.kind === "interval" || row.kind === "segment-summary",
+        ),
+      ).toBe(true);
+      for (const row of page.timeline)
+        for (const block of row.features) {
+          finalBeat = Math.max(finalBeat, row.endBeat);
+          finalSeconds = Math.max(finalSeconds, row.elapsedEndSeconds);
+          expect(block).not.toHaveProperty("readTarget");
+          expect(block).not.toHaveProperty("sourceFingerprint");
+          const key = `${row.segment.startBeat}:${block.type}`;
+          delivered.set(key, [
+            ...(delivered.get(key) ?? []),
+            ...(block.values ?? []),
+          ]);
+        }
+      const encoded = Buffer.byteLength(JSON.stringify(result));
+      expect(encoded).toBeLessThanOrEqual(MAX_METRIC_CONTEXT_RESPONSE_BYTES);
+      bytes += encoded;
+      cursor = result.nextCursor ?? undefined;
+      expect(++pages).toBeLessThanOrEqual(28);
+    } while (cursor);
+    expect(bytes).toBeLessThan(1800000);
+    for (const [index, item] of records.entries()) {
+      const startBeat = Math.floor(index / 15) * 4;
+      expect(delivered.get(`${startBeat}:${item.feature.type}`)).toEqual(
+        item.feature.values ?? [],
+      );
+    }
+    expect(delivered.size).toBe(300);
+    expect(finalBeat).toBe(80);
+    expect(finalSeconds).toBeCloseTo(
+      40 + aligned.startSample / aligned.sampleRate,
+      10,
+    );
+    const metadata = new Map<
+      string,
+      NonNullable<AnalysisTimelineItem["featureRecord"]>
+    >();
+    const support = new Map<string, number[][]>();
+    let evidencePages = 0;
+    do {
+      const request = {
+        action: "read" as const,
+        target: { ...selected, range: { startBeat: 0, endBeat: 4 } },
+        includeHistorical: false,
+        detail: "evidence" as const,
+        ...(cursor ? { cursor } : {}),
+      };
+      const result = await host.executeContextOperation(request, context);
+      if (result.action !== "read") throw new Error("Expected evidence read");
+      expect(Buffer.byteLength(JSON.stringify(result))).toBeLessThanOrEqual(
+        MAX_METRIC_CONTEXT_RESPONSE_BYTES,
+      );
+      for (const row of result.analyses[0]!.timeline) {
+        expect(row.features).toEqual([]);
+        if (row.featureRecord)
+          metadata.set(row.featureType!, row.featureRecord);
+        if (row.support) {
+          const key = `${row.featureType}:${row.supportChannel}`;
+          support.set(key, [...(support.get(key) ?? []), row.support]);
+        }
+      }
+      cursor = result.nextCursor ?? undefined;
+      if (cursor && evidencePages === 0)
+        await expect(
+          host.executeContextOperation(
+            { ...request, detail: undefined, cursor },
+            context,
+          ),
+        ).rejects.toMatchObject({ code: "invalid_cursor" });
+      expect(++evidencePages).toBeLessThanOrEqual(32);
+    } while (cursor);
+    expect(metadata.size).toBe(15);
+    for (const item of records.slice(0, 15)) {
+      expect(metadata.get(item.feature.type)).toMatchObject({
+        id: item.id,
+        segmentId: item.segmentId,
+        sourceFingerprint: item.sourceFingerprint,
+        feature: { valueCount: item.feature.values!.length },
+      });
+      expect(support.get(`${item.feature.type}:aggregate`) ?? []).toEqual(
+        item.feature.support,
+      );
+      if (item.feature.channelSupport) {
+        expect(support.get(`${item.feature.type}:left`) ?? []).toEqual(
+          item.feature.channelSupport[0],
+        );
+        expect(support.get(`${item.feature.type}:right`) ?? []).toEqual(
+          item.feature.channelSupport[1],
+        );
+      }
+    }
+  });
+
+  it("preserves original inline reports and their exact measured rows through musical read continuations", async () => {
+    const observation = createSyntheticMetricListeningObservation({
+      endBeat: 4,
+    });
+    const { host } = await fixture("Original measurements", observation);
+    const request = {
+      action: "read" as const,
+      detail: "original-measurements" as const,
+      includeHistorical: true,
+      target: {
+        kind: "capture" as const,
+        contextId: "entry",
+        sessionId: context.sessionId,
+        liveSetId: "set-a",
+        coordinate: "transport-beats" as const,
+        range: { startBeat: 0, endBeat: 4 },
+      },
+    };
+    const first = await host.executeContextOperation(request, context);
+    if (
+      first.action !== "read" ||
+      first.originalMeasurements?.kind !== "report" ||
+      !first.nextCursor
+    )
+      throw new Error("Expected original report continuation");
+    const expectedFirst = await host.executeContextOperation(
+      {
+        action: "report",
+        contextId: "entry",
+        includeHistorical: true,
+        offset: 0,
+        limit: 8,
+      },
+      context,
+    );
+    if (expectedFirst.action !== "report")
+      throw new Error("Expected original typed report");
+    expect(first.originalMeasurements.report).toEqual(expectedFirst.report);
+    const second = await host.executeContextOperation(
+      { ...request, cursor: first.nextCursor },
+      context,
+    );
+    if (
+      second.action !== "read" ||
+      second.originalMeasurements?.kind !== "report"
+    )
+      throw new Error("Expected final original report");
+    const expectedSecond = await host.executeContextOperation(
+      {
+        action: "report",
+        contextId: "entry",
+        includeHistorical: true,
+        offset: 8,
+        limit: 8,
+      },
+      context,
+    );
+    if (expectedSecond.action !== "report")
+      throw new Error("Expected original typed report");
+    expect(second.originalMeasurements.report).toEqual(expectedSecond.report);
+    expect(second.nextCursor).toBeNull();
+    expect(first.analyses).toEqual([]);
+    await expect(
+      host.executeContextOperation(
+        { ...request, includeHistorical: false },
+        context,
+      ),
+    ).rejects.toMatchObject({ code: "analysis_not_fresh" });
+  });
+
+  it("reads authoritative original acquisition and every native frame through bounded pinned reads", async () => {
+    const { host, store, record } = await streamFixture(true, [
+      "level",
+      "spectral-centroid",
+      "attacks",
+      "mel-bands",
+      "pitch",
+      "spectral-shape",
+    ]);
+    await store.waitForFeatureDerivation(record.metadata.id);
+    const wait = vi.spyOn(store, "waitForFeatureDerivation");
+    const derive = vi.spyOn(store, "deriveFeatures");
+    const chunks = [];
+    let afterSequence = -1;
+    for (;;) {
+      const page = await store.incrementalMetrics!.listMetricChunks({
+        captureId: record.metadata.id,
+        afterSequence,
+        limit: 1,
+        maxBytes: 1024 * 1024,
+      });
+      chunks.push(...page.items);
+      if (page.nextSequence === undefined) break;
+      afterSequence = page.nextSequence;
+    }
+    const target: CaptureAnalysisTarget = {
+      kind: "capture",
+      sessionId: context.sessionId,
+      liveSetId: "set-a",
+      contextId: record.metadata.id,
+      coordinate: "transport-beats",
+      range: {
+        startBeat: record.descriptor.geometry.startBeat,
+        endBeat: record.descriptor.geometry.endBeat,
+      },
+    };
+    const request = {
+      action: "read" as const,
+      target,
+      detail: "original-measurements" as const,
+      includeHistorical: true,
+    };
+    const delivered = new Map<
+      string,
+      { records: unknown[]; gaps: unknown[] }
+    >();
+    let cursor: string | undefined;
+    let pages = 0;
+    do {
+      const result = await host.executeContextOperation(
+        { ...request, ...(cursor ? { cursor } : {}) },
+        context,
+      );
+      if (result.action !== "read" || !result.originalMeasurements)
+        throw new Error("Expected original evidence");
+      expect(result.analyses).toEqual([]);
+      expect(Buffer.byteLength(JSON.stringify(result))).toBeLessThanOrEqual(
+        MAX_METRIC_CONTEXT_RESPONSE_BYTES,
+      );
+      const original = result.originalMeasurements;
+      expect(original.source.readTarget).toEqual(target);
+      if (original.kind === "stream-overview") {
+        expect(pages).toBe(0);
+        expect(original.overview.algorithms).toEqual(
+          record.descriptor.algorithms,
+        );
+        expect(original.overview.metrics).toEqual(record.manifest!.metrics);
+        expect(original.overview.nativeCoverage).toMatchObject({
+          capturedSamples: record.manifest!.nativeProof.capturedSamples,
+          sourceOrigin: record.manifest!.nativeProof.sourceOrigin,
+          sourceEnd: record.manifest!.nativeProof.sourceEnd,
+        });
+      } else if (original.kind === "stream-records" && original.page) {
+        const page = original.page;
+        const collected = delivered.get(page.chunkDigest) ?? {
+          records: [],
+          gaps: [],
+        };
+        expect(page.entryOffset).toBe(
+          collected.records.length + collected.gaps.length,
+        );
+        collected.records.push(...page.records);
+        collected.gaps.push(...page.gaps);
+        delivered.set(page.chunkDigest, collected);
+      } else throw new Error("Unexpected original evidence variant");
+      cursor = result.nextCursor ?? undefined;
+      if (cursor && pages === 0) {
+        await expect(
+          host.executeContextOperation(
+            { ...request, includeHistorical: false, cursor },
+            context,
+          ),
+        ).rejects.toMatchObject({ code: "invalid_cursor" });
+        const payload = JSON.parse(
+          Buffer.from(cursor, "base64url").toString("utf8"),
+        ) as Record<string, unknown>;
+        await expect(
+          host.executeContextOperation(
+            {
+              ...request,
+              cursor: Buffer.from(
+                JSON.stringify({ ...payload, offset: 12345 }),
+              ).toString("base64url"),
+            },
+            context,
+          ),
+        ).rejects.toMatchObject({ code: "invalid_cursor" });
+      }
+      expect(++pages).toBeLessThan(200);
+    } while (cursor);
+    expect(pages).toBeGreaterThan(2);
+    expect(delivered.size).toBe(chunks.length);
+    for (const chunk of chunks)
+      expect(delivered.get(chunk.digest)).toEqual({
+        records: chunk.records,
+        gaps: chunk.gaps,
+      });
+    expect(wait).not.toHaveBeenCalled();
+    expect(derive).not.toHaveBeenCalled();
+    const cancelled = new AbortController();
+    cancelled.abort(new Error("reader cancelled"));
+    await expect(
+      host.executeContextOperation(request, {
+        ...context,
+        signal: cancelled.signal,
+      }),
+    ).rejects.toThrow();
+    await expect(
+      host.executeContextOperation(
+        { ...request, target: { ...target, sessionId: "foreign" } },
+        context,
+      ),
+    ).rejects.toMatchObject({ code: "permission_denied" });
+  });
+
+  it("resolves Session source names against the clip rather than its distinct track name", async () => {
+    const { host, store, segment } = await analysisFixture();
+    const { record: stream } = await streamFixture();
+    const entry = (await store.listEntries({ entryId: "entry" })).items[0]!;
+    const target = {
+      view: "session" as const,
+      track: {
+        kind: "regular" as const,
+        index: 0,
+        expectedReference: "00000000-0000-4000-8000-000000000001",
+        expectedName: "Different track",
+      },
+      sceneIndex: 0,
+      expectedClipReference: "00000000-0000-4000-8000-000000000002",
+      expectedClipName: "Known sine",
+    };
+    const source = {
+      view: "session" as const,
+      target,
+      clipReference: target.expectedClipReference,
+      kind: "midi" as const,
+      coordinate: {
+        unit: "beats" as const,
+        iteration: 0 as const,
+        startBeat: 0 as const,
+        endBeat: 4,
+      },
+      transport: { startBeat: 0, endBeat: 4 },
+      clipStartTimeBeats: 0,
+      synchronization: "transport-coupled-first-iteration" as const,
+    };
+    const capture = {
+      ...entry,
+      kind: "metric-record-stream-context/v1" as const,
+      payload: {
+        schema: "metric-record-stream-context/v1" as const,
+        captureId: entry.id,
+        descriptorDigest: stream.state.descriptorDigest,
+        descriptor: { ...stream.descriptor, source },
+      },
+    };
+    vi.spyOn(store, "listEntries").mockResolvedValue({ items: [capture] });
+    vi.spyOn(store, "getEntry").mockResolvedValue(capture);
+    vi.spyOn(store, "getSegment").mockResolvedValue({
+      ...segment,
+      coordinate: "clip-local-beats",
+    });
+    const result = await host.executeContextOperation(
+      {
+        action: "read",
+        target: {
+          kind: "source",
+          source: target,
+          range: { startBeat: 0, endBeat: 1 },
+        },
+        includeHistorical: false,
+      },
+      context,
+    );
+    expect(result).toMatchObject({
+      action: "read",
+      analyses: [
+        {
+          source: { name: "Known sine", coordinate: "clip-local-beats" },
+          readTarget: {
+            coordinate: "clip-local-beats",
+            range: { startBeat: 0, endBeat: 1 },
+          },
+        },
+      ],
+    });
+  });
+
+  it.each([
+    "none",
+    "wait",
+    "projection",
+    "ownership",
+    "cancellation",
+    "missing-segment",
+    "stale-link",
+    "stale-entry",
+    "missing-source",
+    "foreign-source",
+    "missing-subject",
+    "foreign-subject",
+    "entry-read-failure",
+  ] as const)(
+    "retains prior and later values within the source budget after %s faults",
+    async (fault) => {
+      const { store, record, segment, wait } = await analysisFixture();
+      const enqueue = vi.fn<NonBlockingObservabilityRecorder["enqueue"]>();
+      const host = createSessionContextHost({
+        resolveRepository: async () => store,
+        telemetry: { enqueue },
+      });
+      const entry = (await store.getEntry("entry"))!;
+      const summary = (await store.listEntries({ entryId: "entry" })).items[0]!;
+      const links = await store.listLinks({ entryId: "entry" });
+      const subject = (await store.getSubject(links.items[0]!.subjectId))!;
+      const ids = Array.from(
+        { length: ["none", "wait", "projection"].includes(fault) ? 8 : 3 },
+        (_, index) => `captured-source-${index}`,
+      );
+      const observation = createSyntheticMetricListeningObservation();
+      const aligned = segmentListeningObservation(observation, {
+        version: 1,
+        coordinate: "transport-beats",
+        meter: { numerator: 4, denominator: 4 },
+        barOriginBeat: 0,
+        tempoBpm: observation.geometry.tempoBpm,
+        tempoEvidence: "message-rate-monitored-constant",
+        provenance: "capture-snapshot/v1",
+      })[0]!;
+      const features = LISTENING_FEATURE_DEFINITIONS.map(({ type }) => ({
+        ...extractListeningFeature(type, observation, aligned),
+        limitations: Array.from({ length: 8 }, () => "界".repeat(256)),
+      }));
+      vi.spyOn(store, "listEntries").mockImplementation(async (query) => ({
+        items:
+          ids.includes(query?.entryId ?? "") &&
+          !(
+            (fault === "missing-source" || fault === "stale-entry") &&
+            query?.entryId === ids[1]
+          )
+            ? [{ ...summary, id: query!.entryId! }]
+            : [],
+      }));
+      vi.spyOn(store, "getEntry").mockImplementation(async (id) => {
+        if (fault === "entry-read-failure" && id === ids[1])
+          throw new Error("Source metadata unavailable");
+        return fault === "missing-source" && id === ids[1]
+          ? undefined
+          : {
+              ...entry,
+              id,
+              ...(fault === "foreign-source" && id === ids[1]
+                ? { sessionId: "foreign-session" }
+                : {}),
+            };
+      });
+      vi.spyOn(store, "listLinks").mockImplementation(async (query) => ({
+        items: links.items.map((link) => ({
+          ...link,
+          entryId: query!.entryId!,
+          ...((fault === "missing-subject" || fault === "foreign-subject") &&
+          query?.entryId === ids[1]
+            ? { subjectId: "bad-subject" }
+            : {}),
+          ...(fault === "stale-link" && query?.entryId === ids[1]
+            ? {
+                freshness: { ...link.freshness, status: "stale" as const },
+              }
+            : {}),
+        })),
+      }));
+      vi.spyOn(store, "getSubject").mockImplementation(async (id) =>
+        id === "bad-subject"
+          ? fault === "missing-subject"
+            ? undefined
+            : { ...subject, id, sessionId: "foreign-session" }
+          : subject,
+      );
+      vi.spyOn(store, "listFeatures").mockImplementation(async (query) => ({
+        items: features.map((feature) => ({
+          ...record,
+          feature,
+          id: `${query!.entryId}:${feature.type.replace("/", "-")}`,
+          entryId: query!.entryId!,
+          segmentId: query!.entryId!,
+        })),
+      }));
+      const controller = new AbortController();
+      const ready = await store.waitForFeatureDerivation("entry");
+      wait.mockClear();
+      const secret = `ghp_${"x".repeat(36)}`;
+      wait.mockImplementation(async (id) => {
+        if (id === ids[1]) {
+          if (fault === "wait")
+            throw new Error(
+              `Source derivation failed token=${secret} ${"界".repeat(600)}`,
+            );
+          if (fault === "cancellation") {
+            controller.abort();
+            throw controller.signal.reason;
+          }
+        }
+        return { ...ready, entryId: id };
+      });
+      vi.spyOn(store, "getSegment").mockImplementation(async (id) => {
+        if (id === ids[1] && fault === "missing-segment") return undefined;
+        if (id === ids[1] && fault === "projection")
+          throw new Error("Source projection failed");
+        return {
+          ...segment,
+          id,
+          entryId: id,
+          ...(fault === "ownership" && id === ids[1]
+            ? { sessionId: "foreign-session" }
+            : {}),
+        };
+      });
+      const response = host.executeContextOperation(
+        { action: "read-captures", contextIds: ids },
+        { ...context, signal: controller.signal },
+      );
+      if (
+        fault === "ownership" ||
+        fault === "foreign-source" ||
+        fault === "foreign-subject" ||
+        fault === "cancellation"
+      ) {
+        if (fault === "cancellation")
+          await expect(response).rejects.toBeDefined();
+        else
+          await expect(response).rejects.toMatchObject({
+            code: "permission_denied",
+          });
+        expect(wait).not.toHaveBeenCalledWith(ids[2], expect.anything());
+        if (fault === "foreign-source") {
+          expect(wait).toHaveBeenCalledWith(ids[0], expect.anything());
+          expect(wait).not.toHaveBeenCalledWith(ids[1], expect.anything());
+        }
+        expect(enqueue.mock.calls.at(-1)?.[0]).toMatchObject({
+          name: `listening.analysis.read-captures.${fault === "cancellation" ? "cancelled" : "failed"}`,
+        });
+        return;
+      }
+      const result = await response;
+      if (result.action !== "read-captures")
+        throw new Error("Expected automatic capture analysis");
+      expect(result.analyses.map((page) => page.readTarget.contextId)).toEqual(
+        fault === "none" ? ids : ids.filter((id) => id !== ids[1]),
+      );
+      expect(result).toMatchObject({
+        failures:
+          fault === "none"
+            ? []
+            : [
+                {
+                  contextId: ids[1],
+                  status: "failed",
+                  code:
+                    fault === "missing-segment" || fault === "missing-subject"
+                      ? "context_binding_unavailable"
+                      : fault === "stale-link"
+                        ? "analysis_not_fresh"
+                        : fault === "missing-source" || fault === "stale-entry"
+                          ? "not_found"
+                          : "analysis_source_failed",
+                },
+              ],
+      });
+      expect(JSON.stringify(result)).not.toContain(secret);
+      for (const failure of result.failures) {
+        expect(failure.reason.length).toBeLessThanOrEqual(512);
+        if (fault === "wait" || fault === "projection")
+          expect(failure.reason).toContain(
+            `Source ${fault === "wait" ? "derivation" : "projection"} failed`,
+          );
+        if (
+          fault === "stale-link" ||
+          fault === "stale-entry" ||
+          fault === "missing-source" ||
+          fault === "missing-subject" ||
+          fault === "entry-read-failure"
+        )
+          expect(failure.readTarget).toBeUndefined();
+        else expect(failure.readTarget?.contextId).toBe(ids[1]);
+        if (fault === "entry-read-failure")
+          expect(failure.reason).toBe("Source metadata unavailable");
+      }
+      if (fault !== "none") {
+        const failed = enqueue.mock.calls
+          .map(([event]) => event)
+          .find(
+            (event) => event.name === "listening.analysis.capture-read.failed",
+          );
+        expect(failed).toMatchObject({
+          sessionId: context.sessionId,
+          correlationId: trace.correlationId,
+          causationId: trace.causationId,
+          trace: { traceId: trace.traceId },
+          attributes: { contextId: ids[1] },
+        });
+        expect(failed?.durationMs).toBeGreaterThanOrEqual(0);
+      }
+      expect(enqueue.mock.calls.at(-1)?.[0]).toMatchObject({
+        name: "listening.analysis.read-captures.completed",
+      });
+      expect(Buffer.byteLength(JSON.stringify(result))).toBeLessThan(
+        MAX_METRIC_CONTEXT_RESPONSE_BYTES - 8192,
+      );
+      for (const page of result.analyses) {
+        expect(page.status).toBe("ready");
+        expect(
+          page.timeline.some((row) =>
+            row.features.some((feature) => feature.values !== null),
+          ),
+        ).toBe(true);
+        if (ids.length === 8) expect(page.detail.truncated).toBe(true);
+        if (!page.detail.truncated) {
+          expect(page.detail.nextCursor).toBeNull();
+          continue;
+        }
+        expect(page.detail.nextCursor).not.toBeNull();
+        const continuation = await host.executeContextOperation(
+          {
+            action: "read",
+            target: page.readTarget,
+            includeHistorical: false,
+            cursor: page.detail.nextCursor!,
+          },
+          context,
+        );
+        if (continuation.action !== "read")
+          throw new Error("Expected source continuation");
+        expect(continuation.analyses[0]!.detail.offset).toBe(
+          page.detail.returnedItems,
+        );
+        expect(continuation.analyses[0]!.detail.returnedItems).toBeGreaterThan(
+          0,
+        );
+      }
+    },
+  );
+
+  it("joins automatic work and returns aligned canonical values in one read", async () => {
+    const { host, store, record, target, wait } = await analysisFixture();
+    const derive = vi.spyOn(store, "deriveFeatures");
+    const result = await host.executeContextOperation(
+      { action: "read", target, includeHistorical: false },
+      context,
+    );
+    expect(result.action).toBe("read");
+    if (result.action !== "read") throw new Error("Expected read");
+    const analysis = result.analyses[0]!;
+    expect(analysis.overview).toHaveLength(15);
+    expect(analysis.readTarget).toEqual(target);
+    const rows = analysis.timeline.filter((item) => item.kind === "interval");
+    expect(rows[0]).toMatchObject({
+      startBeat: 0,
+      endBeat: 0.25,
+      elapsedStartSeconds: 10000 / 48000,
+      features: [
+        {
+          type: "level-grid/v1",
+          units: "linear-amplitude",
+          dimensions: ["left", "right"],
+        },
+      ],
+    });
+    expect(
+      rows.flatMap((row) =>
+        row.features.flatMap((feature) => feature.values ?? []),
+      ),
+    ).toEqual(record.feature.values);
+    expect(wait).toHaveBeenCalledTimes(1);
+    expect(derive).not.toHaveBeenCalled();
+    const featureTarget = {
+      ...analysis.readTarget,
+      featureTypes: ["level-grid/v1" as const],
+    };
+    const detail = await host.executeContextOperation(
+      { action: "read", target: featureTarget, includeHistorical: false },
+      context,
+    );
+    if (detail.action !== "read") throw new Error("Expected read");
+    expect(
+      detail.analyses[0]!.timeline.some((item) => item.kind === "interval"),
+    ).toBe(true);
+    const evidence = await host.executeContextOperation(
+      {
+        action: "read",
+        target: featureTarget,
+        includeHistorical: false,
+        detail: "evidence",
+      },
+      context,
+    );
+    if (evidence.action !== "read") throw new Error("Expected evidence read");
+    expect(
+      evidence.analyses[0]!.timeline.find(
+        (item) => item.kind === "feature-metadata",
+      )!.readTarget,
+    ).toEqual(featureTarget);
+    expect(
+      evidence.analyses[0]!.timeline.every(
+        (item) => item.features.length === 0,
+      ),
+    ).toBe(true);
+  });
+
+  it("rejects foreign, stale, and uncovered targets without derivation", async () => {
+    const { host, store, target, wait } = await analysisFixture();
+    const read = (next: CaptureAnalysisTarget) =>
+      host.executeContextOperation(
+        { action: "read", target: next, includeHistorical: false },
+        context,
+      );
+    await expect(
+      read({ ...target, sessionId: "foreign" }),
+    ).rejects.toMatchObject({ code: "permission_denied" });
+    await expect(
+      read({ ...target, range: { startBeat: 0, endBeat: 5 } }),
+    ).rejects.toMatchObject({ code: "analysis_range_not_covered" });
+    const available = await store.listEntries({ entryId: target.contextId });
+    const entries = vi.spyOn(store, "listEntries");
+    for (const mismatch of [
+      { sessionId: "foreign" },
+      { id: "another-capture" },
+    ]) {
+      entries.mockResolvedValueOnce({
+        items: available.items.map((entry) => ({ ...entry, ...mismatch })),
+      });
+      await expect(read(target)).rejects.toMatchObject({
+        code: "permission_denied",
+      });
+    }
+    const links = await store.listLinks({ entryId: "entry" });
+    vi.spyOn(store, "listLinks").mockResolvedValue({
+      items: links.items.map((link) => ({
+        ...link,
+        freshness: { ...link.freshness, status: "unknown" },
+      })),
+    });
+    await expect(read(target)).rejects.toMatchObject({
+      code: "analysis_not_fresh",
+    });
+    expect(wait).not.toHaveBeenCalled();
+  });
+
+  it("pages oversized support losslessly with one pinned continuation and a whole-extent overview", async () => {
+    const { host, store, record, target } = await analysisFixture();
+    const dense = structuredClone(record);
+    dense.feature.support = Array.from({ length: 2000 }, (_, index) => [
+      index * 2,
+      index * 2 + 1,
+    ]);
+    vi.spyOn(store, "listFeatures").mockResolvedValue({ items: [dense] });
+    const intervals: number[][] = [];
+    let cursor: string | undefined;
+    let pages = 0;
+    do {
+      const result = await host.executeContextOperation(
+        {
+          action: "read",
+          target,
+          detail: "evidence",
+          includeHistorical: false,
+          ...(cursor ? { cursor } : {}),
+        },
+        context,
+      );
+      if (result.action !== "read") throw new Error("Expected read");
+      expect(Buffer.byteLength(JSON.stringify(result))).toBeLessThanOrEqual(
+        MAX_METRIC_CONTEXT_RESPONSE_BYTES,
+      );
+      expect(result.analyses[0]!.overviewExtent).toEqual(target.range);
+      expect(result.analyses[0]!.detail.returnedItems).toBeGreaterThan(0);
+      intervals.push(
+        ...result.analyses[0]!.timeline.flatMap((item) =>
+          item.support ? [item.support] : [],
+        ),
+      );
+      cursor = result.nextCursor ?? undefined;
+      expect(++pages).toBeLessThan(100);
+    } while (cursor);
+    expect(pages).toBeGreaterThan(1);
+    expect(intervals).toEqual(dense.feature.support);
+  });
+
+  it("compares entire extents and reads both sides through the returned bundle", async () => {
+    const { host, target, record } = await analysisFixture();
+    const result = await host.executeContextOperation(
+      {
+        action: "compare",
+        left: target,
+        right: target,
+        includeHistorical: false,
+      },
+      context,
+    );
+    if (result.action !== "compare") throw new Error("Expected comparison");
+    expect(result.comparisons[0]).not.toHaveProperty("leftFeature");
+    expect(result.comparisons[0]).not.toHaveProperty("definition");
+    expect(result).toMatchObject({
+      completeExtent: true,
+      comparisons: [
+        {
+          type: "level-grid/v1",
+          comparison: { status: "comparable", distance: 0 },
+        },
+      ],
+    });
+    const read = await host.executeContextOperation(
+      { action: "read", target: result.readTarget, includeHistorical: false },
+      context,
+    );
+    expect(read).toMatchObject({
+      action: "read",
+      analyses: [{ status: "ready" }, { status: "ready" }],
+      comparison: { completeExtent: true },
+    });
+    const evidence = await host.executeContextOperation(
+      {
+        action: "read",
+        target: result.readTarget,
+        includeHistorical: false,
+        detail: "evidence",
+      },
+      context,
+    );
+    if (evidence.action !== "read") throw new Error("Expected evidence read");
+    expect(evidence.comparison?.comparisons[0]!.leftFeature).toMatchObject({
+      featureId: record.id,
+      segmentId: record.segmentId,
+    });
+    expect(evidence.comparison?.comparisons[0]!.rightFeature).toEqual(
+      evidence.comparison?.comparisons[0]!.leftFeature,
+    );
+    expect(evidence.comparison?.comparisons[0]!.definition?.type).toBe(
+      "level-grid/v1",
+    );
+    const incomplete = await host.executeContextOperation(
+      {
+        action: "compare",
+        left: { ...target, range: { startBeat: 0, endBeat: 4 } },
+        right: { ...target, range: { startBeat: 0, endBeat: 4 } },
+        includeHistorical: false,
+      },
+      context,
+    );
+    if (incomplete.action !== "compare") throw new Error("Expected comparison");
+    expect(incomplete.completeExtent).toBe(false);
+    expect(
+      incomplete.comparisons.some(
+        (item) => item.reason === "unmeasured-requested-extent",
+      ),
+    ).toBe(true);
+  });
+
+  it("searches full query passages, honors self exclusion, and exposes directly readable hit targets", async () => {
+    const { host, target } = await analysisFixture();
+    const request = {
+      action: "search" as const,
+      query: target,
+      scope: [target],
+      topK: 10,
+      featureType: "level-grid/v1" as const,
+      includeHistorical: false,
+      withinCapture: false,
+    };
+    expect(await host.executeContextOperation(request, context)).toMatchObject({
+      selectedCount: 0,
+      skippedCount: 1,
+      requestedTopK: 10,
+    });
+    const result = await host.executeContextOperation(
+      { ...request, withinCapture: true },
+      context,
+    );
+    if (result.action !== "search") throw new Error("Expected search");
+    expect(result).toMatchObject({
+      selectedCount: 1,
+      matches: [{ distance: 0 }],
+    });
+    for (const target of [
+      result.matches[0]!.source.readTarget,
+      result.matches[0]!.match.readTarget,
+    ]) {
+      const read = await host.executeContextOperation(
+        { action: "read", target, includeHistorical: false },
+        context,
+      );
+      if (read.action !== "read") throw new Error("Expected read");
+      expect(
+        read.analyses[0]!.timeline.some((item) => item.kind === "interval"),
+      ).toBe(true);
+    }
+  });
+
+  it("keeps unavailable derivation explicit and emits attributed lifecycle timing", async () => {
+    const { store, target, wait } = await analysisFixture();
+    wait.mockResolvedValue({
+      entryId: "entry",
+      status: "failed",
+      reason: "quota",
+      definitionSet: "qualified-listening/v1",
+      featureIds: [],
+    });
+    vi.spyOn(store, "listFeatures").mockResolvedValue({ items: [] });
+    const enqueue = vi.fn<NonBlockingObservabilityRecorder["enqueue"]>();
+    const host = createSessionContextHost({
+      resolveRepository: async () => store,
+      telemetry: { enqueue },
+    });
+    const result = await host.executeContextOperation(
+      { action: "read", target, includeHistorical: false },
+      context,
+    );
+    expect(result).toMatchObject({
+      analyses: [{ status: "failed", reason: "quota", timeline: [] }],
+    });
+    const events = enqueue.mock.calls.map(([event]) => event);
+    expect(
+      events
+        .filter((event) => event.name.startsWith("listening.analysis.read."))
+        .map((event) => event.name.split(".").at(-1)),
+    ).toEqual(["queued", "started", "progress", "completed"]);
+    for (const event of events) {
+      expect(event).toMatchObject({
+        sessionId: context.sessionId,
+        liveSetId: "set-a",
+        activeAgentId: "reader",
+        correlationId: trace.correlationId,
+        causationId: trace.causationId,
+        trace: { traceId: trace.traceId },
+      });
+      expect(event.durationMs).toBeGreaterThanOrEqual(0);
+    }
+  });
+
+  it("selects topK after the complete scan, including late matches, and compares all query segments", async () => {
+    const { host, store, record, segment, target } = await analysisFixture();
+    const records = Array.from({ length: 4 }, (_, index) => ({
+      ...record,
+      id: `feature-${index}`,
+      segmentId: `segment-${index}`,
+      feature: {
+        ...record.feature,
+        values:
+          index === 0 || index === 3
+            ? record.feature.values
+            : record.feature.values!.map((value) =>
+                value === null ? null : value + index,
+              ),
+      },
+    }));
+    vi.spyOn(store, "listFeatures").mockResolvedValue({ items: records });
+    vi.spyOn(store, "getSegment").mockImplementation(async (id) => {
+      const index = Number(id.split("-").at(-1));
+      return {
+        ...segment,
+        id,
+        order: index,
+        startBeat: index,
+        endBeat: index + 1,
+        startSample: segment.startSample + index * 24000,
+        endSample: segment.endSample + index * 24000,
+      };
+    });
+
+    const scope = { ...target, range: { startBeat: 0, endBeat: 4 } };
+    const result = await host.executeContextOperation(
+      {
+        action: "search",
+        query: target,
+        scope: [scope],
+        withinCapture: true,
+        featureType: "level-grid/v1",
+        topK: 2,
+        includeHistorical: false,
+      },
+      context,
+    );
+    if (result.action !== "search") throw new Error("Expected search");
+    expect(result.scannedCount).toBe(4);
+    expect(
+      result.matches.map((hit) => hit.match.requestedRange.startBeat),
+    ).toEqual([0, 3]);
+    expect(result.matches[1]!.source.observedRange).toEqual({
+      startBeat: 0,
+      endBeat: 4,
+    });
+    expect(result.matches[1]!.match.readTarget.range).toEqual({
+      startBeat: 3,
+      endBeat: 4,
+    });
+    const comparison = await host.executeContextOperation(
+      {
+        action: "compare",
+        left: { ...target, range: { startBeat: 0, endBeat: 2 } },
+        right: { ...target, range: { startBeat: 2, endBeat: 4 } },
+        includeHistorical: false,
+      },
+      context,
+    );
+    if (comparison.action !== "compare") throw new Error("Expected compare");
+    expect(comparison.completeExtent).toBe(true);
+    expect(comparison.comparisons).toHaveLength(2);
+    expect(
+      comparison.comparisons.map((item) => [
+        item.left.startBeat,
+        item.right?.startBeat,
+      ]),
+    ).toEqual([
+      [0, 2],
+      [1, 3],
+    ]);
+  });
+
+  it("byte-pages complete comparisons and pinned top-k evidence without rescanning or dropping features", async () => {
+    const { host, store, record, segment, target } = await analysisFixture();
+    const observation = createSyntheticMetricListeningObservation();
+    const aligned = segmentListeningObservation(observation, {
+      version: 1,
+      coordinate: "transport-beats",
+      meter: { numerator: 4, denominator: 4 },
+      barOriginBeat: 0,
+      tempoBpm: observation.geometry.tempoBpm,
+      tempoEvidence: "message-rate-monitored-constant",
+      provenance: "capture-snapshot/v1",
+    })[0]!;
+    const records = Array.from({ length: 20 }, (_, index) =>
+      LISTENING_FEATURE_DEFINITIONS.map(({ type }) => ({
+        ...record,
+        id: `${type.replace("/", "-")}:${index}`,
+        segmentId: `segment-${index}`,
+        feature: extractListeningFeature(type, observation, aligned),
+      })),
+    ).flat();
+    vi.spyOn(store, "listFeatures").mockImplementation(async (query) => {
+      const offset = Number(query?.cursor ?? 0);
+      return {
+        items: records.slice(offset, offset + 100),
+        ...(offset + 100 < records.length
+          ? { nextCursor: String(offset + 100) }
+          : {}),
+      };
+    });
+    vi.spyOn(store, "getSegment").mockImplementation(async (id) => {
+      const index = Number(id.split("-").at(-1));
+      return {
+        ...segment,
+        id,
+        order: index,
+        startBeat: index,
+        endBeat: index + 1,
+        startSample: segment.startSample + index * 24000,
+        endSample: segment.endSample + index * 24000,
+      };
+    });
+    const links = await store.listLinks({ entryId: "entry" });
+    vi.spyOn(store, "listLinks").mockResolvedValue({
+      items: links.items.map((link) => ({
+        ...link,
+        coverage: { startBeat: 0, endBeat: 20 },
+      })),
+    });
+    const full = { ...target, range: { startBeat: 0, endBeat: 20 } };
+    let cursor: string | undefined;
+    let comparisons = 0,
+      pages = 0;
+    do {
+      const result = await host.executeContextOperation(
+        {
+          action: "compare",
+          left: full,
+          right: full,
+          includeHistorical: false,
+          ...(cursor ? { cursor } : {}),
+        },
+        context,
+      );
+      if (result.action !== "compare") throw new Error("Expected compare");
+      expect(result.completeExtent).toBe(true);
+      expect(Buffer.byteLength(JSON.stringify(result))).toBeLessThanOrEqual(
+        MAX_METRIC_CONTEXT_RESPONSE_BYTES,
+      );
+      expect(result.comparisons.length).toBeGreaterThan(0);
+      comparisons += result.comparisons.length;
+      cursor = result.nextCursor ?? undefined;
+      if (cursor && pages === 0) {
+        const payload = JSON.parse(
+          Buffer.from(cursor, "base64url").toString("utf8"),
+        ) as Record<string, unknown>;
+        await expect(
+          host.executeContextOperation(
+            {
+              action: "compare",
+              left: full,
+              right: full,
+              includeHistorical: false,
+              cursor: Buffer.from(
+                JSON.stringify({ ...payload, offsets: [299] }),
+              ).toString("base64url"),
+            },
+            context,
+          ),
+        ).rejects.toMatchObject({ code: "invalid_cursor" });
+      }
+      expect(++pages).toBeLessThan(30);
+    } while (cursor);
+    expect(pages).toBeGreaterThan(1);
+    expect(comparisons).toBe(300);
+    const ranks = new Map<number, number>();
+    cursor = undefined;
+    pages = 0;
+    do {
+      const result = await host.executeContextOperation(
+        {
+          action: "search",
+          query: target,
+          scope: [full],
+          topK: 20,
+          withinCapture: true,
+          featureType: "level-grid/v1",
+          includeHistorical: false,
+          ...(cursor ? { cursor } : {}),
+        },
+        context,
+      );
+      if (result.action !== "search") throw new Error("Expected search");
+      expect(result).toMatchObject({
+        requestedTopK: 20,
+        selectedCount: 20,
+        scannedCount: 20,
+        exhaustive: true,
+      });
+      expect(Buffer.byteLength(JSON.stringify(result))).toBeLessThanOrEqual(
+        MAX_METRIC_CONTEXT_RESPONSE_BYTES,
+      );
+      expect(result.matches.length).toBeGreaterThan(0);
+      for (const match of result.matches) {
+        expect(match.evidence.offset).toBe(ranks.get(match.rank) ?? 0);
+        ranks.set(match.rank, match.evidence.offset + match.comparisons.length);
+        expect(match.distance).toBe(0);
+      }
+      cursor = result.nextCursor ?? undefined;
+      if (cursor && pages === 0) {
+        const request = {
+          action: "search" as const,
+          query: target,
+          scope: [full],
+          topK: 20,
+          withinCapture: true,
+          featureType: "level-grid/v1" as const,
+          includeHistorical: false,
+        };
+        const payload = JSON.parse(
+          Buffer.from(cursor, "base64url").toString("utf8"),
+        ) as {
+          ranking: number[];
+          targets: CaptureAnalysisTarget[];
+          offsets: number[];
+          scanned: number;
+          skipped: number;
+          exhaustive: boolean;
+        };
+        for (const patch of [
+          { ranking: payload.ranking.map(() => 12345) },
+          {
+            targets: payload.targets.map((item, index) =>
+              index === 0 ? { ...item, contextId: "forged-query" } : item,
+            ),
+          },
+          {
+            targets: payload.targets.map((item, index) =>
+              index === 1
+                ? { ...item, range: { startBeat: 0, endBeat: 20 } }
+                : item,
+            ),
+          },
+          { offsets: [19, 0] },
+          { scanned: 12345 },
+          { skipped: 12345 },
+          { exhaustive: false },
+          { scopeIndices: payload.ranking.map(() => 99) },
+          {
+            scopeRanges: payload.ranking.map(() => ({
+              startBeat: 0,
+              endBeat: 19,
+            })),
+          },
+          { signature: "0".repeat(64) },
+        ]) {
+          const forged = Buffer.from(
+            JSON.stringify({ ...payload, ...patch }),
+          ).toString("base64url");
+          await expect(
+            host.executeContextOperation(
+              { ...request, cursor: forged },
+              context,
+            ),
+          ).rejects.toMatchObject({ code: "invalid_cursor" });
+        }
+        await expect(
+          host.executeContextOperation(
+            { ...request, cursor, withinCapture: false },
+            context,
+          ),
+        ).rejects.toMatchObject({ code: "invalid_cursor" });
+        await expect(
+          host.executeContextOperation(
+            { ...request, cursor, scope: [target] },
+            context,
+          ),
+        ).rejects.toMatchObject({ code: "invalid_cursor" });
+      }
+      expect(++pages).toBeLessThan(60);
+    } while (cursor);
+    expect(pages).toBeGreaterThan(1);
+    expect(ranks.size).toBe(20);
+    expect([...ranks.values()]).toEqual(Array(20).fill(15));
+  });
+
+  it("cancels the reader with attributed failure rather than requesting a new derivation", async () => {
+    const { store, target, wait } = await analysisFixture();
+    const controller = new AbortController();
+    const enqueue = vi.fn();
+    wait.mockImplementation(async (_id, options) => {
+      controller.abort(new Error("reader detached"));
+      options?.signal?.throwIfAborted();
+      throw new Error("Expected cancellation");
+    });
+    const host = createSessionContextHost({
+      resolveRepository: async () => store,
+      telemetry: { enqueue },
+    });
+    await expect(
+      host.executeContextOperation(
+        { action: "read", target, includeHistorical: false },
+        { ...context, signal: controller.signal },
+      ),
+    ).rejects.toThrow("reader detached");
+    expect(enqueue.mock.calls.at(-1)?.[0]).toMatchObject({
+      name: "listening.analysis.read.cancelled",
+      outcome: "cancelled",
+    });
+  });
+
+  it("finds the newest fresh covering capture across ID-ordered pages and pins continuations", async () => {
+    const { host, store, record: feature, segment } = await analysisFixture();
+    const { record: stream } = await streamFixture();
+    const base = (await store.getEntry("entry"))!;
+    const capture = (id: string, capturedAt: string) => ({
+      ...base,
+      id,
+      capturedAt,
+      kind: "metric-record-stream-context/v1" as const,
+      payload: {
+        schema: "metric-record-stream-context/v1" as const,
+        captureId: id,
+        descriptorDigest: stream.state.descriptorDigest,
+        descriptor: stream.descriptor,
+      },
+    });
+    const old = capture("z-old", "2026-10-11T00:00:00.000Z");
+    const newest = capture("a-new", "2026-10-13T00:00:00.000Z");
+    let newer = false;
+    const listEntries = vi
+      .spyOn(store, "listEntries")
+      .mockImplementation(async (query) => {
+        if (query?.entryId) {
+          const found = [old, newest].find(
+            (entry) => entry.id === query.entryId,
+          );
+          return { items: found ? [found] : [] };
+        }
+        if (query?.cursor) return { items: [newest] };
+        return {
+          items: newer
+            ? [capture("latest", "2026-10-15T00:00:00.000Z")]
+            : [old],
+          nextCursor: "second",
+        };
+      });
+    const links = await store.listLinks({ entryId: "entry" });
+    vi.spyOn(store, "listLinks").mockImplementation(async (query) => ({
+      items: links.items.map((link) => ({
+        ...link,
+        entryId: query?.entryId ?? "entry",
+      })),
+    }));
+    vi.spyOn(store, "listFeatures").mockImplementation(async (query) => ({
+      items: [
+        {
+          ...feature,
+          entryId: query!.entryId!,
+          segmentId: `${query!.entryId}:segment`,
+          feature: {
+            ...feature.feature,
+            support: Array.from(
+              { length: 1000 },
+              (_, index) => [index * 2, index * 2 + 1] as [number, number],
+            ),
+          },
+        },
+      ],
+    }));
+    vi.spyOn(store, "getSegment").mockImplementation(async (id) => ({
+      ...segment,
+      id,
+      entryId: id.split(":")[0]!,
+    }));
+    vi.spyOn(store, "getEntry").mockImplementation(async (id) =>
+      [old, newest].find((entry) => entry.id === id),
+    );
+    if (stream.descriptor.source.view !== "arrangement")
+      throw new Error("Expected arrangement");
+    const source = stream.descriptor.source.target;
+    const request = contextOperationParamsSchema.parse({
+      action: "read",
+      detail: "evidence",
+      target: {
+        kind: "source",
+        source: {
+          view: "arrangement",
+          track: {
+            kind: source.kind,
+            ...(source.index === null ? {} : { index: source.index }),
+            expectedReference: source.expectedReference,
+            expectedName: "Known sine",
+          },
+        },
+        range: { startBeat: 0, endBeat: 1 },
+      },
+    });
+    if (
+      request.action !== "read" ||
+      request.target.kind !== "source" ||
+      request.target.source.view !== "arrangement"
+    )
+      throw new Error("Expected source read request");
+    await expect(
+      host.executeContextOperation(
+        {
+          ...request,
+          target: {
+            ...request.target,
+            source: {
+              ...request.target.source,
+              track: {
+                ...request.target.source.track,
+                expectedName: "Wrong name",
+              },
+            },
+          },
+        },
+        context,
+      ),
+    ).rejects.toMatchObject({ code: "analysis_not_found" });
+    const first = await host.executeContextOperation(request, context);
+    if (first.action !== "read") throw new Error("Expected read");
+    expect(first.analyses[0]!.readTarget.contextId).toBe("a-new");
+    expect(first.nextCursor).not.toBeNull();
+    const restarted = createSessionContextHost({
+      resolveRepository: async () => store,
+    });
+    await expect(
+      restarted.executeContextOperation(
+        { ...request, cursor: first.nextCursor! },
+        context,
+      ),
+    ).rejects.toMatchObject({ code: "invalid_cursor" });
+    await expect(
+      restarted.executeContextOperation(
+        {
+          action: "read",
+          target: first.analyses[0]!.readTarget,
+          includeHistorical: false,
+        },
+        context,
+      ),
+    ).resolves.toMatchObject({ action: "read" });
+    const altered = JSON.parse(
+      Buffer.from(first.nextCursor!, "base64url").toString("utf8"),
+    ) as {
+      targets: CaptureAnalysisTarget[];
+    };
+    altered.targets[0]!.range.endBeat = 0.5;
+    await expect(
+      host.executeContextOperation(
+        {
+          ...request,
+          cursor: Buffer.from(JSON.stringify(altered)).toString("base64url"),
+        },
+        context,
+      ),
+    ).rejects.toMatchObject({ code: "invalid_cursor" });
+    const scansBefore = listEntries.mock.calls.filter(
+      ([query]) => !query?.entryId,
+    ).length;
+    newer = true;
+    const next = await host.executeContextOperation(
+      { ...request, cursor: first.nextCursor! },
+      context,
+    );
+    if (next.action !== "read") throw new Error("Expected read");
+    expect(next.analyses[0]!.readTarget.contextId).toBe("a-new");
+    expect(
+      listEntries.mock.calls.filter(([query]) => !query?.entryId),
+    ).toHaveLength(scansBefore);
+    await expect(
+      host.executeContextOperation(
+        {
+          ...request,
+          target: {
+            ...first.analyses[0]!.readTarget,
+            range: { startBeat: 1, endBeat: 2 },
+          },
+          cursor: first.nextCursor!,
+        },
+        context,
+      ),
+    ).rejects.toMatchObject({ code: "invalid_cursor" });
+  });
+});
 
 describe("typed listening feature host", () => {
   it("discovers canonical registered comparisons without touching Live", async () => {

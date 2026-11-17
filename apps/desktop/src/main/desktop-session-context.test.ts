@@ -1321,6 +1321,9 @@ describe("Desktop session context manager", () => {
       "cannot mutate",
     );
     expect(await reader.getFeatureDerivation("missing")).toBeUndefined();
+    await expect(reader.waitForFeatureDerivation("missing")).rejects.toThrow(
+      "outside current ownership",
+    );
     expect(await reader.getFeature("missing")).toBeUndefined();
     expect(await reader.getSegment("missing")).toBeUndefined();
     expect(await reader.listFeatures()).toEqual({ items: [] });
@@ -1413,6 +1416,7 @@ describe("Desktop session context manager", () => {
     await repository.appendPass(input);
     const entryId = input.entries[0]!.id;
     const result = await repository.deriveFeatures(entryId);
+    expect(await repository.waitForFeatureDerivation(entryId)).toEqual(result);
     expect(await repository.getFeatureDerivation(entryId)).toEqual(result);
     expect(h.sessions[0]?.contextStore?.schemaVersion).toBe(4);
 
@@ -1420,6 +1424,11 @@ describe("Desktop session context manager", () => {
     cancelled.abort();
     await expect(
       repository.deriveFeatures(entryId, { signal: cancelled.signal }),
+    ).rejects.toThrow();
+    await expect(
+      repository.waitForFeatureDerivation(entryId, {
+        signal: cancelled.signal,
+      }),
     ).rejects.toThrow();
     const replacement = session().activeAgents[0]!;
     await h.save(
@@ -1545,13 +1554,14 @@ describe("Desktop session context manager", () => {
     };
     await repository.appendPass(value);
     const entryId = value.entries[0]!.id;
-    const derived = await repository.deriveFeatures(entryId);
+    const derived = await repository.waitForFeatureDerivation(entryId);
     expect(derived.status).toBe("ready");
     const reader = await h.manager.resolveRepository({
       ...context,
       actorKind: "application",
       agentId: "desktop-context",
     });
+    expect(await reader.waitForFeatureDerivation(entryId)).toEqual(derived);
     const page = await reader.listFeatures({
       entryId,
       featureType: "peak-summary/v1",

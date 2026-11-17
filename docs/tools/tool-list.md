@@ -39,16 +39,34 @@ if the target changed.
 ## Set History
 
 App-session entity context is separate from event/Set History retention. The
-optional `ableton_context` surface uses typed list/get/report/prune actions, not SQL;
-`report` reads only versioned metric observations as stacked musical-value pages
-(offset zero and eight rows by default, maximum thirty-two; follow nextOffset
-until null). It returns availability, gaps and actual native support without full
-observation arrays or legacy conversion. This read path does not commission new
-capture capability.
-The optional `ableton_listening` surface discovers listeners and coordinates
-bounded Arrangement playback and guarded explicit Session capture. Session
+optional `ableton_context` analysis surface uses typed musical operations, not SQL
+or a catalog/inventory/value-discovery sequence:
+
+| Action | Purpose | Risk | Duration |
+| --- | --- | --- | --- |
+| `read` | Return recorded analysis for a musical source/range or a directly reusable returned target. | `read` | `short` |
+| `compare` | Compare complete requested musical extents with separate canonical feature distances and aligned evidence. | `read` | `short` |
+| `search` | Find matching recorded passages; `topK` defaults to 10, maximum 20, independently of scan/paging limits. | `read` | `short` |
+
+Results contain an overview and actual values grouped by musical time, with
+separate segment summaries, units, channels, availability and native support.
+Defaults omit bulky technical repetition. Use the same target with
+`read.detail: "evidence"` for full definitions and supports, or
+`read.detail: "original-measurements"` for original measured records.
+Oversized results automatically paginate rather than fail. Search, feature and
+comparison results provide targets that can be passed directly to `read` in one
+call. A source target reads the recorded clip/track extent; a match target reads
+only that passage. Newer captures do not change pinned targets.
+Unpinned requests select the newest positively fresh covering capture; they never
+start playback when stored evidence is missing. Typed application diagnostics and
+explicitly authorized context maintenance remain separate from normal analysis.
+
+The optional `ableton_listening` surface coordinates bounded Arrangement playback
+and guarded explicit Session capture, then joins automatic feature derivation and
+returns the analysis directly. Session
 publication requires independently established source onset and native coverage;
-queued acceptance is not measured audio. They are registered only
+queued acceptance is not measured audio. Capture and analysis outcomes remain
+distinct. The tools are registered only
 when their application services are configured. Production enablement requires
 the timing, device, and integration gates in
 [Playback Listening](playback-listening.md).
@@ -57,7 +75,9 @@ the timing, device, and integration gates in
 once for the pass; the agent cannot raise its budget. Current wire5 uses a
 globally anchored quarter-beat reporting grid, clipped range endpoints, actual
 FFT support and an independent 100 ms attack-detector cadence through
-30 seconds at actual 44.1/48 kHz DSP geometry. Guarded nonzero/fractional
+the finite capture ceiling at actual 44.1/48 kHz DSP geometry. Supported capture
+duration does not guarantee every derived-feature geometry fits its independent
+computation/storage limits. Guarded nonzero/fractional
 Arrangement positioning occurs before arm. Completion, cancellation and failure
 leave playback running. Results retain approximate/descriptive-only alignment
 and unknown absolute timing error. Strict mode enforces the configured observed

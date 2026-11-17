@@ -2322,6 +2322,321 @@ describe("context persistence lifecycle and recovery", () => {
 });
 
 describe("phase 1 derived context features", () => {
+  it("joins automatic derivation before scheduling and after fast completion without retrying", async () => {
+    const events: TelemetryEventEnvelope[] = [];
+    const store = await memory({
+      ...ownership,
+      recorder: {
+        enqueue: (event) => {
+          events.push(event);
+        },
+      },
+    });
+    const publishing = store.appendPass(metricPublication());
+    const waiting = store.waitForFeatureDerivation("entry:metric:0", {
+      trace,
+      activeAgentId: "agent:reader",
+    });
+    await publishing;
+    const state = await waiting;
+    expect(state.status).toBe("ready");
+    expect(await store.waitForFeatureDerivation("entry:metric:0")).toEqual(
+      state,
+    );
+    expect(
+      events.filter((event) => event.name === "context.derive-features.queued"),
+    ).toHaveLength(1);
+    const lifecycle = events
+      .filter((event) =>
+        event.name.startsWith("context.wait-feature-derivation."),
+      )
+      .slice(0, 4);
+    expect(lifecycle.map((event) => event.stage)).toEqual([
+      "queued",
+      "started",
+      "progress",
+      "completed",
+    ]);
+    for (const event of lifecycle) {
+      expect(event).toMatchObject({
+        activeAgentId: "agent:reader",
+        correlationId: trace.correlationId,
+        trace: { traceId: trace.traceId },
+      });
+    }
+    for (let index = 1; index < lifecycle.length; index++)
+      expect(lifecycle[index]!.causationId).toBe(lifecycle[index - 1]!.id);
+    expect(lifecycle.at(-1)?.durationMs).toBeGreaterThanOrEqual(0);
+    const derivation = events.filter((event) =>
+      event.name.startsWith("context.derive-features."),
+    );
+    expect(derivation.every((event) => event.activeAgentId === "agent:1")).toBe(
+      true,
+    );
+    expect(events.indexOf(lifecycle.at(-1)!)).toBeGreaterThan(
+      events.findIndex(
+        (event) => event.name === "context.derive-features.completed",
+      ),
+    );
+  });
+
+  it("detaches an aborted waiter without cancelling shared automatic analysis", async () => {
+    const events: TelemetryEventEnvelope[] = [];
+    const store = await memory({
+      ...ownership,
+      recorder: {
+        enqueue: (event) => {
+          events.push(event);
+        },
+      },
+    });
+    await store.appendPass(metricPublication());
+    const controller = new AbortController();
+    const remove = vi.spyOn(controller.signal, "removeEventListener");
+    const waiting = store.waitForFeatureDerivation("entry:metric:0", {
+      signal: controller.signal,
+      trace,
+      activeAgentId: "agent:reader",
+    });
+    const another = store.waitForFeatureDerivation("entry:metric:0");
+    controller.abort(new Error("token=wait-secret"));
+    await expect(waiting).rejects.toThrow("token=wait-secret");
+    expect(remove).toHaveBeenCalledWith("abort", expect.any(Function));
+    await expect(another).resolves.toMatchObject({ status: "ready" });
+    expect(
+      events.filter((event) => event.name === "context.derive-features.queued"),
+    ).toHaveLength(1);
+    expect(
+      events.some(
+        (event) => event.name === "context.derive-features.cancelled",
+      ),
+    ).toBe(false);
+    expect(
+      events.find(
+        (event) => event.name === "context.wait-feature-derivation.cancelled",
+      ),
+    ).toMatchObject({
+      activeAgentId: "agent:reader",
+      correlationId: trace.correlationId,
+    });
+    expect(JSON.stringify(events)).not.toContain("wait-secret");
+  });
+
+  it.each(["quota", "admission"])(
+    "returns durable %s failure without restarting analysis",
+    async (failure) => {
+      const events: TelemetryEventEnvelope[] = [];
+      const store = await memory({
+        ...ownership,
+        recorder: {
+          enqueue: (event) => {
+            events.push(event);
+          },
+        },
+        ...(failure === "quota"
+          ? { maxFeatureBytes: 1 }
+          : { maxPendingOperations: 1 }),
+      });
+      await store.appendPass(metricPublication());
+      await expect(
+        store.waitForFeatureDerivation("entry:metric:0"),
+      ).resolves.toMatchObject({
+        status: "failed",
+        reason:
+          failure === "quota"
+            ? "derived-store-quota-exceeded"
+            : "derivation-queue-full",
+      });
+      await expect(
+        store.waitForFeatureDerivation("entry:metric:0"),
+      ).resolves.toMatchObject({ status: "failed" });
+      expect(await store.getEntry("entry:metric:0")).toBeDefined();
+      expect(
+        events.filter(
+          (event) => event.name === "context.derive-features.queued",
+        ),
+      ).toHaveLength(1);
+      expect(
+        events.filter(
+          (event) => event.name === "context.wait-feature-derivation.failed",
+        ),
+      ).toHaveLength(2);
+    },
+  );
+
+  it.each(["prune", "shutdown"])(
+    "settles joined waiters when %s cancels automatic analysis",
+    async (action) => {
+      const store = await memory();
+      await store.appendPass(metricPublication());
+      const waiting = store.waitForFeatureDerivation("entry:metric:0");
+      const cleanup =
+        action === "prune"
+          ? store.prune({ entryIds: ["entry:metric:0"], trace })
+          : store.close();
+      await expect(waiting).resolves.toMatchObject({
+        status: "cancelled",
+        reason: "derivation-cancelled",
+      });
+      await cleanup;
+      if (action === "prune")
+        await expect(
+          store.waitForFeatureDerivation("entry:metric:0"),
+        ).rejects.toThrow("no longer exists");
+      else
+        await expect(
+          store.waitForFeatureDerivation("entry:metric:0"),
+        ).rejects.toThrow("closed");
+    },
+  );
+
+  it("returns unavailable and rejects absent or foreign sources without implicitly deriving", async () => {
+    const store = await memory();
+    await store.appendPass(publication());
+    await expect(store.waitForFeatureDerivation("entry:1:0")).rejects.toThrow(
+      "not scheduled",
+    );
+    await store.deriveFeatures("entry:1:0");
+    await expect(
+      store.waitForFeatureDerivation("entry:1:0"),
+    ).resolves.toMatchObject({ status: "unavailable" });
+    await expect(
+      store.waitForFeatureDerivation("entry:missing"),
+    ).rejects.toThrow("no longer exists");
+    await store.transitionLiveSetOwnership("set:other");
+    await expect(store.waitForFeatureDerivation("entry:1:0")).rejects.toThrow();
+  });
+
+  it("joins active work even when the serialized queue is full", async () => {
+    const store = await memory({ ...ownership, maxPendingOperations: 2 });
+    await store.appendPass(metricPublication());
+    const reading = store.getPass("pass:metric");
+    await expect(store.getEntry("entry:metric:0")).rejects.toThrow(
+      "queue is full",
+    );
+    await expect(
+      store.waitForFeatureDerivation("entry:metric:0"),
+    ).resolves.toMatchObject({ status: "ready" });
+    await reading;
+  });
+
+  it("rejects snapshot admission failure without starting derivation", async () => {
+    let unblock!: () => void;
+    const blocker = new Promise<void>((resolve) => {
+      unblock = resolve;
+    });
+    const events: TelemetryEventEnvelope[] = [];
+    const store = await memory({
+      ...ownership,
+      maxPendingOperations: 1,
+      recorder: {
+        enqueue: (event) => {
+          events.push(event);
+        },
+      },
+      revalidate: async () => {
+        await blocker;
+        return { status: "fresh", assessedAt: timestamp, reason: "Verified" };
+      },
+    });
+    await store.appendPass(publication());
+    const reading = store.listLinks();
+    try {
+      await expect(store.waitForFeatureDerivation("entry:1:0")).rejects.toThrow(
+        "queue is full",
+      );
+    } finally {
+      unblock();
+    }
+    await reading;
+    expect(
+      events.some((event) => event.name === "context.derive-features.queued"),
+    ).toBe(false);
+    expect(
+      events
+        .filter((event) =>
+          event.name.startsWith("context.wait-feature-derivation."),
+        )
+        .map((event) => event.stage),
+    ).toEqual(["queued", "started", "progress", "failed"]);
+  });
+
+  it.each(["abort", "ownership"])(
+    "settles a queued waiter on %s without holding the mutation queue",
+    async (action) => {
+      let unblock!: () => void;
+      const blocker = new Promise<void>((resolve) => {
+        unblock = resolve;
+      });
+      const store = await memory({
+        ...ownership,
+        revalidate: async () => {
+          await blocker;
+          return { status: "fresh", assessedAt: timestamp, reason: "Verified" };
+        },
+      });
+      await store.appendPass(metricPublication());
+      await store.waitForFeatureDerivation("entry:metric:0");
+      const reading = store.listLinks();
+      const transition =
+        action === "ownership"
+          ? store.transitionLiveSetOwnership("set:other")
+          : Promise.resolve();
+      const controller = new AbortController();
+      const waiting = store.waitForFeatureDerivation("entry:metric:0", {
+        signal: controller.signal,
+      });
+      const rejected = expect(waiting).rejects.toThrow(
+        action === "abort" ? "Wait cancelled" : "ownership",
+      );
+      try {
+        if (action === "abort") {
+          controller.abort(new Error("Wait cancelled"));
+          await rejected;
+        }
+      } finally {
+        unblock();
+      }
+      await Promise.all([reading, transition, rejected]);
+    },
+  );
+
+  it("removes successful and pre-aborted waiter signal listeners with one terminal event each", async () => {
+    const events: TelemetryEventEnvelope[] = [];
+    const store = await memory({
+      ...ownership,
+      recorder: {
+        enqueue: (event) => {
+          events.push(event);
+        },
+      },
+    });
+    await store.appendPass(metricPublication());
+    const controller = new AbortController();
+    const remove = vi.spyOn(controller.signal, "removeEventListener");
+    await store.waitForFeatureDerivation("entry:metric:0", {
+      signal: controller.signal,
+    });
+    expect(remove).toHaveBeenCalledTimes(1);
+    controller.abort(new Error("Already aborted"));
+    await expect(
+      store.waitForFeatureDerivation("entry:metric:0", {
+        signal: controller.signal,
+      }),
+    ).rejects.toThrow("Already aborted");
+    expect(remove).toHaveBeenCalledTimes(1);
+    expect(
+      events.filter(
+        (event) => event.name === "context.wait-feature-derivation.completed",
+      ),
+    ).toHaveLength(1);
+    expect(
+      events.filter(
+        (event) => event.name === "context.wait-feature-derivation.cancelled",
+      ),
+    ).toHaveLength(1);
+  });
+
   it("publishes after measurements, preserves exact source bytes, and reopens stable identities without backfill", async () => {
     const path = await diskPath();
     const events: TelemetryEventEnvelope[] = [];
@@ -2479,6 +2794,15 @@ describe("phase 1 derived context features", () => {
       reason: "interrupted-before-publication",
       featureIds: [],
     });
+    expect(
+      await resumed.waitForFeatureDerivation("entry:metric:0"),
+    ).toMatchObject({
+      status: "failed",
+      reason: "interrupted-before-publication",
+    });
+    expect(
+      events.some((event) => event.name === "context.derive-features.queued"),
+    ).toBe(false);
     expect((await resumed.listFeatures()).items).toEqual([]);
     expect(
       events.some(

@@ -5,6 +5,8 @@ import {
   extractListeningFeature,
   segmentListeningObservation,
   type ContextFeature,
+  createMetricObservationReportRows,
+  pitchTimelineSchema,
 } from "@ableton-agent/protocol";
 import {
   createSyntheticMetricRecordStreamFixture,
@@ -16,6 +18,10 @@ import {
   expandListeningFeatureInventory,
   contextFeatureViewSchema,
   contextOperationResultSchema,
+  projectListeningTimeline,
+  projectListeningOverview,
+  type ListeningAnalysisFeature,
+  type AnalysisPage,
 } from "@ableton-agent/tools";
 import type {
   AgentHistoryPage,
@@ -25,17 +31,26 @@ import { OBSERVABILITY_CONTRACT_VERSION } from "@ableton-agent/observability";
 import { agentListeningFixture } from "./agent-listening-test-support.js";
 import { arrangementTestEvidence } from "./arrangement-test-support.js";
 import { melSmokeFixture } from "./mel-smoke-test-support.js";
-import { projectFeatureSearchHistory } from "./feature-search.js";
+import {
+  projectFeatureSearchHistory,
+  readCompleteAnalyses,
+  deliveredAnalysisFeatures,
+} from "./feature-search.js";
 import { createDefaultAssertions } from "./assertions.js";
 import {
   projectObservationStorageShape,
+  projectStreamStorageShape,
   projectIncrementalDurability,
   projectStorageShapeHistory,
   verifyStorageShape,
 } from "./storage-shape.js";
 import type { AssertionInput, TurnEvidence } from "./contracts.js";
 
-function fixture(measures = 1) {
+function fixture(
+  measures = 1,
+  modern = false,
+  unavailablePitch: boolean | "first-measure" = false,
+) {
   const base = agentListeningFixture();
   const arrangement = arrangementTestEvidence();
   Reflect.set(
@@ -46,6 +61,21 @@ function fixture(measures = 1) {
   const observation = withSyntheticAnalyzerTimelines(
     melSmokeFixture().observation,
   );
+  const readyObservation = structuredClone(observation);
+  if (unavailablePitch) {
+    observation.metrics.pitch = pitchTimelineSchema.parse({
+      ...observation.metrics.pitch!,
+      frames: observation.metrics.pitch!.frames.map((frame) => ({
+        ...frame,
+        channels: [
+          { state: "low-confidence", hz: 110, confidence: 0.1 },
+          { state: "low-confidence", hz: 110, confidence: 0.1 },
+        ],
+      })),
+    });
+    observation.rows = createMetricObservationReportRows(observation);
+  }
+  const analysisGroups: ListeningAnalysisFeature[][] = [[], []];
   const featureGroups = (["session", "arrangement"] as const).map(
     (view, side) => {
       const coordinate =
@@ -102,10 +132,13 @@ function fixture(measures = 1) {
             },
             feature: extractListeningFeature(
               definition.type,
-              observation,
+              unavailablePitch === "first-measure" && order > 0
+                ? readyObservation
+                : observation,
               range,
             ),
           };
+          analysisGroups[side]!.push({ record, segment });
           return contextFeatureViewSchema.parse({
             record: projectListeningFeatureRecord(record),
             segment,
@@ -141,15 +174,26 @@ function fixture(measures = 1) {
     passId: `pass-${side}`,
     startBeat: 0,
     endBeat: measures * 4,
+    geometry: {
+      sampleRate: 48000,
+      tempoBpm: 128,
+      startSample: 0,
+      endSample: measures * 90000,
+    },
     metrics: projectObservationStorageShape(
       `context-${side}`,
       observation,
       false,
     ).metrics.map((metric) => ({
       ...metric,
-      ...(metric.metric === "level"
-        ? { expectedRecords: measures * 16, retainedRecords: measures * 16 }
-        : {}),
+      expectedRecords: metric.expectedRecords * measures,
+      retainedRecords: metric.retainedRecords * measures,
+      acquiredSupport: Array.from({ length: measures }, (_, measure) =>
+        (metric.acquiredSupport ?? []).map(
+          ([start, end]) =>
+            [start + measure * 90000, end + measure * 90000] as const,
+        ),
+      ).flat(),
     })),
   }));
   const restoredFeatures = structuredClone(featureGroups);
@@ -214,6 +258,7 @@ function fixture(measures = 1) {
     groups: typeof featureGroups,
     restored: boolean,
     side?: number,
+    detail?: "evidence",
   ) {
     const records: AgentHistoryPage["items"] = [];
     function pair(
@@ -235,12 +280,85 @@ function fixture(measures = 1) {
           ...resultTemplate,
           id: `result-${toolCallId}`,
           toolCallId,
-          result: { result: { content: data } },
+          result: {
+            result: {
+              content: modern
+                ? (JSON.parse(JSON.stringify(data)) as unknown)
+                : data,
+            },
+          },
           metadata: { toolName },
           correlationId: toolCallId,
         },
       );
     }
+    const analyses = modern
+      ? groups.map((features) => {
+          const sourceSide = Number(features[0]!.record.entryId.at(-1));
+          const target = {
+            kind: "capture" as const,
+            sessionId: turn.appSessionId,
+            liveSetId: "set",
+            contextId: `context-${sourceSide}`,
+            coordinate:
+              sourceSide === 0
+                ? ("clip-local-beats" as const)
+                : ("transport-beats" as const),
+            range: { startBeat: 0, endBeat: measures * 4 },
+          };
+          const records = analysisGroups[sourceSide]!;
+          const timeline = projectListeningTimeline(records, 0, target, detail);
+          const chunks: (typeof timeline)[] = [[]];
+          for (const row of timeline) {
+            let chunk = chunks.at(-1)!;
+            if (Buffer.byteLength(JSON.stringify([...chunk, row])) > 44_000) {
+              chunk = [];
+              chunks.push(chunk);
+            }
+            chunk.push(row);
+          }
+          return chunks.map((chunk, index): AnalysisPage => ({
+            source: {
+              schema: "metric-record-stream-context/v1",
+              name: "Original capture",
+              nameTruncated: false,
+              location: sourceSide === 0 ? "Session" : "Arrangement",
+              capturedAt: "2026-11-15T00:00:00.000Z",
+              coordinate: target.coordinate,
+              observedRange: target.range,
+              requestedRange: target.range,
+              readTarget: target,
+              freshness: restored ? "historical" : "fresh",
+              geometry: {
+                sampleRate: 48000,
+                tempoBpm: 128,
+                captureStartSample: 0,
+                transportStartBeat: 0,
+              },
+            },
+            readTarget: target,
+            status: "ready",
+            reason: null,
+            overview:
+              index === 0 ? projectListeningOverview(records, target) : [],
+            overviewIncluded: index === 0,
+            overviewExtent: target.range,
+            timeline: chunk,
+            detail: {
+              offset: chunks
+                .slice(0, index)
+                .reduce((sum, values) => sum + values.length, 0),
+              returnedItems: chunk.length,
+              totalItems: timeline.length,
+              truncated: index + 1 < chunks.length,
+              nextCursor:
+                index + 1 < chunks.length
+                  ? `analysis-${sourceSide}-${index + 1}`
+                  : null,
+            },
+          }));
+        })
+      : [];
     if (side !== undefined)
       pair(
         "ableton_listening",
@@ -260,33 +378,61 @@ function fixture(measures = 1) {
             stage: "completed",
             contextIds: [`context-${side}`],
           },
+          ...(modern ? { analyses: analyses.map((pages) => pages[0]!) } : {}),
         },
       );
-    for (const features of groups)
-      for (let offset = 0; offset < features.length; offset += 100) {
-        const contextId = features[0]!.record.entryId;
-        const cursor = offset === 0 ? undefined : `page-${offset}`;
-        pair(
-          "ableton_context",
-          { action: "list-features", contextId, ...(cursor ? { cursor } : {}) },
-          {
-            action: "list-features",
-            inventory: projectListeningFeatureInventory(
-              features.slice(offset, offset + 100),
-            ),
-            derivation: {
-              entryId: contextId,
-              status: "ready",
-              definitionSet: "qualified-listening/v1",
-              reason: null,
-              featureCount: features.length,
+    if (modern)
+      for (const pages of analyses)
+        for (const [index, page] of pages.entries()) {
+          if (side !== undefined && index === 0) continue;
+          pair(
+            "ableton_context",
+            {
+              action: "read",
+              target: page.readTarget,
+              includeHistorical: restored,
+              ...(detail ? { detail } : {}),
+              ...(index > 0
+                ? { cursor: pages[index - 1]!.detail.nextCursor }
+                : {}),
             },
-            ...(offset + 100 < features.length
-              ? { nextCursor: `page-${offset + 100}` }
-              : {}),
-          },
-        );
-      }
+            {
+              action: "read",
+              analyses: [page],
+              nextCursor: page.detail.nextCursor,
+            },
+          );
+        }
+    if (!modern)
+      for (const features of groups)
+        for (let offset = 0; offset < features.length; offset += 100) {
+          const contextId = features[0]!.record.entryId;
+          const cursor = offset === 0 ? undefined : `page-${offset}`;
+          pair(
+            "ableton_context",
+            {
+              action: "list-features",
+              contextId,
+              ...(cursor ? { cursor } : {}),
+            },
+            {
+              action: "list-features",
+              inventory: projectListeningFeatureInventory(
+                features.slice(offset, offset + 100),
+              ),
+              derivation: {
+                entryId: contextId,
+                status: "ready",
+                definitionSet: "qualified-listening/v1",
+                reason: null,
+                featureCount: features.length,
+              },
+              ...(offset + 100 < features.length
+                ? { nextCursor: `page-${offset + 100}` }
+                : {}),
+            },
+          );
+        }
     records.push(
       ...base.records.filter((r) => r.kind === "message" || r.kind === "turn"),
     );
@@ -335,10 +481,243 @@ function fixture(measures = 1) {
     session,
     other,
     restart,
+    history,
   };
 }
 
 describe("message-driven storage shape acceptance", () => {
+  it("verifies mixed unavailable measures but rejects an extra missing measured range", () => {
+    const f = fixture(20, true, "first-measure");
+    expect(() => verifyStorageShape(f.input, 20)).not.toThrow();
+    for (const turn of f.input.turns)
+      for (const record of turn.agentListening!.records) {
+        if (record.kind !== "tool_result") continue;
+        const content = (
+          record.result?.result as { content: { analyses?: AnalysisPage[] } }
+        ).content;
+        for (const page of content.analyses ?? [])
+          for (const row of page.timeline)
+            if (row.segment.startBeat === 4)
+              row.features = row.features.filter(
+                (block) => block.type !== "pitch-grid/v1",
+              );
+      }
+    expect(() => verifyStorageShape(f.input, 20)).toThrow(
+      "Missing explicit unavailable feature shape",
+    );
+  }, 30_000);
+  it("verifies declared unavailable pitch layout without inventing measured pitch cells", () => {
+    const f = fixture(1, true, true);
+    expect(() => verifyStorageShape(f.input, 1)).not.toThrow();
+    for (const turn of f.input.turns)
+      for (const record of turn.agentListening!.records) {
+        if (record.kind !== "tool_result") continue;
+        const content = (
+          record.result?.result as { content: { analyses?: AnalysisPage[] } }
+        ).content;
+        for (const page of content.analyses ?? [])
+          page.overview = page.overview.filter(
+            (item) => item.type !== "pitch-grid/v1",
+          );
+      }
+    expect(() => verifyStorageShape(f.input, 1)).toThrow(
+      "Missing explicit unavailable feature shape",
+    );
+  });
+  it("preserves independently acquired native support and excludes the unmeasured FFT tail", async () => {
+    const native = await createSyntheticMetricRecordStreamFixture({
+      seconds: 1.875,
+      tempoBpm: 128,
+    });
+    const shape = projectStreamStorageShape(
+      native.descriptor,
+      native.manifest,
+      fixture().other.arrangementCaptures![0]!.stream!,
+    );
+    const { startSample, endSample } = native.descriptor.geometry;
+    expect(
+      shape.metrics.find((metric) => metric.metric === "level")!
+        .acquiredSupport,
+    ).toEqual([[startSample, endSample]]);
+    for (const name of ["pitch", "mel-bands", "spectral-shape"])
+      expect(
+        shape.metrics.find((metric) => metric.metric === name)!.acquiredSupport,
+      ).toEqual([
+        [
+          startSample,
+          startSample + Math.floor((endSample - startSample) / 2048) * 2048,
+        ],
+      ]);
+  });
+  it.each([
+    "expected",
+    "covered",
+    "both",
+    "channel",
+    "support-extent",
+    "ready-values",
+  ] as const)(
+    "rejects identically corrupted original/restored %s coverage without storage IDs",
+    (mode) => {
+      const f = fixture(1, true);
+      for (const turn of f.input.turns)
+        for (const record of turn.agentListening!.records) {
+          if (record.kind !== "tool_result") continue;
+          const content = (
+            record.result?.result as { content: { analyses?: AnalysisPage[] } }
+          ).content;
+          for (const page of content.analyses ?? [])
+            for (const row of page.timeline) {
+              delete row.featureRecord;
+              for (const block of row.features) {
+                if (mode === "expected" || mode === "both")
+                  block.expectedSamples = 1e9;
+                if (mode === "covered" || mode === "both")
+                  block.coveredSamples = 0;
+                if (mode === "channel" && block.channelCoveredSamples)
+                  block.channelCoveredSamples = [0, 0];
+                if (mode === "support-extent" && block.supportExtent)
+                  block.supportExtent = [0, 1e9];
+                if (mode === "ready-values" && block.type === "mel-shape/v1")
+                  block.values = block.values!.map(() => null);
+              }
+            }
+        }
+      expect(() => verifyStorageShape(f.input, 1)).toThrow(
+        /coverage|validity/u,
+      );
+    },
+  );
+  it("verifies genuine automatic analyses and restored pinned reads without inventory tool calls", () => {
+    const f = fixture(1, true);
+    expect(() => verifyStorageShape(f.input, 1)).not.toThrow();
+    expect(
+      JSON.stringify(f.input.turns.map((turn) => turn.agentListening)),
+    ).not.toContain("list-features");
+  });
+  it("reads full canonical metadata/support only through explicitly requested evidence detail", () => {
+    const f = fixture(1, true);
+    const defaults = readCompleteAnalyses([f.session], true);
+    expect(
+      defaults[0]!.timeline.every(
+        (row) => row.kind === "interval" || row.kind === "segment-summary",
+      ),
+    ).toBe(true);
+    f.history(f.restart, f.restoredFeatures, true, undefined, "evidence");
+    const evidence = readCompleteAnalyses([f.restart], true);
+    expect(evidence).toHaveLength(2);
+    for (const analysis of evidence) {
+      expect(analysis.detail).toBe("evidence");
+      expect(analysis.timeline.every((row) => row.features.length === 0)).toBe(
+        true,
+      );
+      const features = deliveredAnalysisFeatures(analysis);
+      expect(features).toHaveLength(15);
+      expect(
+        features.every(
+          (feature) => feature.row.featureRecord && feature.row.definition,
+        ),
+      ).toBe(true);
+      expect(features.some((feature) => feature.supports.length > 0)).toBe(
+        true,
+      );
+    }
+    expect(() => verifyStorageShape(f.input, 1)).toThrow(
+      "Missing delivered original analysis",
+    );
+  });
+  it("verifies all twenty measures from actual paged analyses without storage identity discovery", () => {
+    const f = fixture(20, true);
+    for (const turn of f.input.turns)
+      for (const record of turn.agentListening!.records) {
+        if (record.kind !== "tool_result") continue;
+        const content = (
+          record.result?.result as { content: { analyses?: AnalysisPage[] } }
+        ).content;
+        for (const page of content.analyses ?? [])
+          for (const row of page.timeline) {
+            delete row.featureRecord;
+            delete row.definition;
+            for (const key of [
+              "id",
+              "entryId",
+              "sessionId",
+              "liveSetId",
+              "order",
+              "coordinate",
+            ])
+              Reflect.deleteProperty(row.segment, key);
+          }
+      }
+    expect(() => verifyStorageShape(f.input, 20)).not.toThrow();
+  }, 30_000);
+  it.each([
+    "values",
+    "units",
+    "extent",
+    "owner",
+    "missing-page",
+    "definition",
+    "dimensions",
+  ] as const)("rejects modern delivered %s corruption", (mode) => {
+    const f = fixture(1, true);
+    const results = f.restart.agentListening!.records.filter(
+      (record) => record.kind === "tool_result",
+    );
+    const pages = results.flatMap((record) => {
+      const content = (
+        record.result?.result as { content: { analyses: AnalysisPage[] } }
+      ).content;
+      return content.analyses;
+    });
+    if (mode === "missing-page") {
+      const result = results[1]!;
+      Reflect.set(
+        f.restart.agentListening!,
+        "records",
+        f.restart.agentListening!.records.filter(
+          (record) =>
+            !("toolCallId" in record) ||
+            record.toolCallId !== result.toolCallId,
+        ),
+      );
+    } else if (mode === "extent") pages[0]!.readTarget.range.endBeat = 3;
+    else if (mode === "owner") pages[0]!.readTarget.sessionId = "foreign";
+    else if (mode === "definition") {
+      const block = pages
+        .flatMap((page) => page.timeline)
+        .flatMap((row) => row.features)[0]!;
+      block.type =
+        block.type === "peak-summary/v1" ? "level-grid/v1" : "peak-summary/v1";
+    } else {
+      const block = pages
+        .flatMap((page) => page.timeline)
+        .flatMap((row) => row.features)
+        .find((block) => block.type === "peak-summary/v1")!;
+      if (mode === "values") block.values![0] = 999;
+      if (mode === "units") Reflect.set(block, "units", "hz");
+      if (mode === "dimensions") block.dimensions[0] = "wrong";
+    }
+    expect(() => verifyStorageShape(f.input, 1)).toThrow();
+  });
+  it.each(["session", "other"] as const)(
+    "rejects a wrong explicitly requested listener for %s despite matching native ownership",
+    (side) => {
+      const fixtureData = fixture();
+      expect(() => verifyStorageShape(fixtureData.input, 1)).not.toThrow();
+      const call = fixtureData[side].agentListening!.records.find(
+        (record) =>
+          record.kind === "tool_call" &&
+          record.toolName === "ableton_listening",
+      );
+      if (call?.kind !== "tool_call")
+        throw new Error("Missing capture fixture");
+      call.arguments.listenerIds = ["foreign-listener"];
+      expect(() => verifyStorageShape(fixtureData.input, 1)).toThrow(
+        "Requested listener differs from admitted native capture",
+      );
+    },
+  );
   it("preserves 100 original inventory identities and shapes below 64 KiB without repeated metadata", () => {
     const f = fixture(20);
     const original = f.featureGroups[0]!.slice(0, 100).map((view, index) => ({

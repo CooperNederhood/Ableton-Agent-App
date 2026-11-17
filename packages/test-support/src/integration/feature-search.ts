@@ -35,6 +35,13 @@ import {
   expandListeningFeatureInventory,
   metricStreamOverviewSchema,
   metricStreamRecordPageSchema,
+  analysisOperationParamsSchema,
+  analysisOperationResultSchema,
+  analysisPageSchema,
+  captureAnalysisTargetSchema,
+  type AnalysisPage,
+  type AnalysisTimelineItem,
+  type AnalysisOperationResult,
 } from "@ableton-agent/tools";
 import type {
   AssertionInput,
@@ -624,9 +631,19 @@ export function readFeatureToolPairs(turn: TurnEvidence, storageShape = false) {
       "structured tool failure",
     );
     const action = String(call.arguments.action);
+    if (
+      call.toolName === "ableton_context" &&
+      ["read", "compare", "search"].includes(action)
+    ) {
+      analysisOperationParamsSchema.parse(call.arguments);
+      analysisOperationResultSchema.parse(data);
+    }
     check(
       (call.toolName === "ableton_context" &&
         [
+          "read",
+          "compare",
+          "search",
           "feature-definitions",
           "derive-features",
           "list-features",
@@ -655,6 +672,515 @@ export function readFeatureToolPairs(turn: TurnEvidence, storageShape = false) {
     );
     return { call, data, action };
   });
+}
+export interface CompleteAnalysis {
+  detail?: "evidence";
+  source: AnalysisPage["source"];
+  readTarget: AnalysisPage["readTarget"];
+  overview: AnalysisPage["overview"];
+  timeline: AnalysisPage["timeline"];
+}
+export function immutableDeliveredAnalysis(analysis: CompleteAnalysis) {
+  const { freshness, ...source } = analysis.source;
+  void freshness;
+  const timeline = structuredClone(analysis.timeline);
+  for (const row of timeline)
+    if (row.featureRecord)
+      Reflect.deleteProperty(row.featureRecord, "freshness");
+  return { ...analysis, source, timeline };
+}
+
+/** Collect delivered pages, including listen's first page, without manufacturing tool calls. */
+export function readCompleteAnalyses(
+  turns: readonly TurnEvidence[],
+  storageShape = false,
+): CompleteAnalysis[] {
+  type Chain = {
+    request: Record<string, unknown>;
+    analyses: CompleteAnalysis[];
+    totals: number[];
+  };
+  const pending = new Map<string, Chain>();
+  const complete: CompleteAnalysis[] = [];
+  const accept = (
+    pages: AnalysisPage[],
+    request: Record<string, unknown>,
+    cursor: string | undefined,
+    nextCursor: string | null,
+  ) => {
+    const chain = cursor ? pending.get(cursor) : undefined;
+    check(
+      !cursor || (chain && isDeepStrictEqual(chain.request, request)),
+      "analysis continuation changed its request or skipped a page",
+    );
+    if (cursor) pending.delete(cursor);
+    const target = object(request.target);
+    const targets =
+      target.kind === "comparison" ? [target.left, target.right] : [target];
+    check(pages.length === targets.length, "analysis target count changed");
+    const state: Chain = chain ?? {
+      request,
+      analyses: pages.map((page) => ({
+        ...(request.detail === "evidence"
+          ? { detail: "evidence" as const }
+          : {}),
+        source: page.source,
+        readTarget: page.readTarget,
+        overview: page.overview,
+        timeline: [],
+      })),
+      totals: pages.map((page) => page.detail.totalItems),
+    };
+    check(
+      state.analyses.length === pages.length,
+      "analysis page count changed",
+    );
+    pages.forEach((page, index) => {
+      const previous = state.analyses[index]!;
+      check(
+        isDeepStrictEqual(
+          captureAnalysisTargetSchema.parse(targets[index]),
+          page.readTarget,
+        ) &&
+          isDeepStrictEqual(page.source.readTarget, page.readTarget) &&
+          page.readTarget.sessionId === turns[0]?.appSessionId &&
+          page.status === "ready" &&
+          page.reason === null &&
+          isDeepStrictEqual(page.source, previous.source) &&
+          isDeepStrictEqual(page.overviewExtent, page.readTarget.range),
+        "analysis source, ownership, range or status changed",
+      );
+      check(
+        page.detail.offset === previous.timeline.length &&
+          page.detail.returnedItems === page.timeline.length &&
+          page.detail.totalItems === state.totals[index] &&
+          page.detail.offset + page.detail.returnedItems <=
+            page.detail.totalItems &&
+          page.detail.truncated ===
+            page.detail.offset + page.detail.returnedItems <
+              page.detail.totalItems &&
+          page.detail.nextCursor === nextCursor &&
+          (chain
+            ? !page.overviewIncluded && page.overview.length === 0
+            : page.overviewIncluded),
+        "analysis pagination is incomplete or inconsistent",
+      );
+      previous.timeline.push(...page.timeline);
+    });
+    if (nextCursor) {
+      check(
+        !pending.has(nextCursor) &&
+          pages.some((page) => page.detail.returnedItems > 0),
+        "analysis pagination failed to advance",
+      );
+      pending.set(nextCursor, state);
+    } else {
+      check(
+        state.analyses.every(
+          (analysis, index) => analysis.timeline.length === state.totals[index],
+        ),
+        "analysis omitted terminal detail",
+      );
+      complete.push(...state.analyses);
+    }
+  };
+  for (const turn of turns) {
+    for (const pair of readFeatureToolPairs(turn, storageShape)) {
+      if (
+        pair.call.toolName === "ableton_listening" &&
+        Array.isArray(pair.data.analyses)
+      ) {
+        for (const raw of pair.data.analyses) {
+          const page = analysisPageSchema.parse(raw);
+          accept(
+            [page],
+            {
+              action: "read",
+              target: page.readTarget,
+              includeHistorical: false,
+            },
+            undefined,
+            page.detail.nextCursor,
+          );
+        }
+      } else if (
+        pair.call.toolName === "ableton_context" &&
+        pair.action === "read"
+      ) {
+        const query = analysisOperationParamsSchema.parse(pair.call.arguments);
+        const result = analysisOperationResultSchema.parse(pair.data);
+        check(
+          query.action === "read" && result.action === "read",
+          "invalid analysis read",
+        );
+        if (result.originalMeasurements) continue;
+        const { cursor, ...request } = query;
+        accept(result.analyses, request, cursor, result.nextCursor);
+      }
+    }
+  }
+  check(pending.size === 0, "analysis continuation was not consumed");
+  return complete;
+}
+export function deliveredAnalysisFeatures(analysis: CompleteAnalysis) {
+  const grouped = new Map<string, AnalysisTimelineItem[]>();
+  for (const row of analysis.timeline) {
+    check(
+      row.segment.startBeat >= analysis.readTarget.range.startBeat &&
+        row.segment.endBeat <= analysis.readTarget.range.endBeat &&
+        row.startBeat >= row.segment.startBeat &&
+        row.endBeat <= row.segment.endBeat &&
+        row.startBeat < row.endBeat &&
+        row.segment.startSample < row.segment.endSample,
+      "analysis row exceeds its pinned segment or capture",
+    );
+    if (analysis.source.geometry) {
+      const start =
+        (row.segment.startSample -
+          analysis.source.geometry.captureStartSample) /
+        row.segment.sampleRate;
+      const duration =
+        (row.segment.endSample - row.segment.startSample) /
+        row.segment.sampleRate;
+      const elapsed = (beat: number) =>
+        start +
+        ((beat - row.segment.startBeat) /
+          (row.segment.endBeat - row.segment.startBeat)) *
+          duration;
+      check(
+        Math.abs(row.elapsedStartSeconds - elapsed(row.startBeat)) < 1e-9 &&
+          Math.abs(row.elapsedEndSeconds - elapsed(row.endBeat)) < 1e-9,
+        "delivered elapsed timing differs from native segment coordinates",
+      );
+    }
+    const key = JSON.stringify([
+      row.kind,
+      row.segment,
+      row.startBeat,
+      row.endBeat,
+      row.featureType,
+      row.supportChannel,
+      row.supportOffset,
+    ]);
+    const group = grouped.get(key) ?? [];
+    group.push(row);
+    grouped.set(key, group);
+  }
+  const rows = [...grouped.values()].map((fragments) => {
+    const first = fragments[0]!;
+    const count = first.fragmentCount ?? 1;
+    check(
+      fragments.length === count &&
+        fragments.every(
+          (row, index) =>
+            row.fragment === index &&
+            (row.fragmentCount ?? 1) === count &&
+            row.complete === (index === count - 1) &&
+            row.featureStatus === first.featureStatus &&
+            row.reason === first.reason &&
+            isDeepStrictEqual(row.readTarget, first.readTarget) &&
+            (row.profileKey === undefined ||
+              row.profileKey === first.profileKey) &&
+            (row.featureRecord === undefined ||
+              isDeepStrictEqual(row.featureRecord, first.featureRecord)) &&
+            (row.definition === undefined ||
+              isDeepStrictEqual(row.definition, first.definition)),
+        ),
+      "analysis row fragments are missing, duplicated or reordered",
+    );
+    const byType = new Map<string, AnalysisTimelineItem["features"]>();
+    for (const row of fragments)
+      for (const block of row.features) {
+        const blocks = byType.get(block.type) ?? [];
+        blocks.push(block);
+        byType.set(block.type, blocks);
+      }
+    const features = [...byType.values()].map((blocks) => {
+      const base = blocks[0]!;
+      const dimensions: string[] = [];
+      const values: (number | null)[] = [];
+      for (const block of blocks) {
+        const {
+          dimensions: names,
+          values: numbers,
+          dimensionOffset,
+          totalDimensions,
+          ...metadata
+        } = block;
+        const {
+          dimensions: _names,
+          values: _numbers,
+          dimensionOffset: _offset,
+          totalDimensions: _total,
+          ...expected
+        } = base;
+        void _names;
+        void _numbers;
+        void _offset;
+        void _total;
+        check(
+          isDeepStrictEqual(metadata, expected) &&
+            (dimensionOffset ?? 0) === dimensions.length &&
+            (totalDimensions ?? names.length) ===
+              (base.totalDimensions ?? base.dimensions.length) &&
+            (numbers === null) === (base.values === null) &&
+            (numbers === null || numbers.length === names.length),
+          "analysis dimensions or values are incomplete",
+        );
+        dimensions.push(...names);
+        if (numbers) values.push(...numbers);
+      }
+      const definition = LISTENING_FEATURE_DEFINITIONS.find(
+        (item) => item.type === base.type,
+      )!;
+      const names =
+        definition.dimensions === 2
+          ? ["left", "right"]
+          : definition.dimensions === 48
+            ? ["left", "right"].flatMap((channel) =>
+                Array.from(
+                  { length: 24 },
+                  (_, index) => `${channel}.mel-band-${index + 1}`,
+                ),
+              )
+            : definition.type === "mel-region-summary/v1"
+              ? ["left", "right"].flatMap((channel) =>
+                  ["low", "mid", "high"].map(
+                    (region) => `${channel}.${region}`,
+                  ),
+                )
+              : definition.type === "mel-ratio-summary/v1"
+                ? ["left", "right"].flatMap((channel) =>
+                    ["low/mid", "high/mid"].map(
+                      (ratio) => `${channel}.${ratio}`,
+                    ),
+                  )
+                : Array.from({ length: definition.dimensions }, (_, index) =>
+                    definition.dimensions === 1
+                      ? definition.measurement
+                      : `${definition.measurement}.${index + 1}`,
+                  );
+      check(
+        dimensions.length === definition.dimensions &&
+          isDeepStrictEqual(dimensions, names) &&
+          new Set(dimensions).size === dimensions.length &&
+          base.units === definition.units &&
+          base.normalization === definition.normalization &&
+          base.coveredSamples <= base.expectedSamples,
+        "analysis canonical dimensions, units or coverage changed",
+      );
+      const { dimensionOffset, totalDimensions, ...metadata } = base;
+      void dimensionOffset;
+      void totalDimensions;
+      if (base.supportExtent !== undefined) {
+        const extent = base.supportExtent;
+        const span = first.segment.endSample - first.segment.startSample;
+        const position = (beat: number) =>
+          ((beat - first.segment.startBeat) /
+            (first.segment.endBeat - first.segment.startBeat)) *
+          span;
+        check(
+          first.supportCoordinate === "segment-relative-samples" &&
+            (extent === null
+              ? base.coveredSamples === 0
+              : extent[0] >= 0 &&
+                extent[1] > extent[0] &&
+                extent[1] <= span &&
+                base.coveredSamples > 0 &&
+                base.coveredSamples <=
+                  Math.max(
+                    0,
+                    Math.min(Math.ceil(position(first.endBeat)), extent[1]) -
+                      Math.max(
+                        Math.floor(position(first.startBeat)),
+                        extent[0],
+                      ),
+                  )),
+          "compact support extent contradicts native coverage",
+        );
+      }
+      return {
+        ...metadata,
+        dimensions,
+        values: base.values === null ? null : values,
+      };
+    });
+    return {
+      ...first,
+      fragment: 0,
+      fragmentCount: 1,
+      complete: true,
+      features,
+      limitations: fragments.flatMap((row) => row.limitations ?? []),
+    };
+  });
+  const identities = new Map<
+    string,
+    {
+      row: AnalysisTimelineItem;
+      type: AnalysisTimelineItem["features"][number]["type"];
+      status: AnalysisTimelineItem["features"][number]["status"];
+    }
+  >();
+  for (const row of rows) {
+    if (analysis.detail === "evidence") {
+      if (row.kind !== "feature-metadata") continue;
+      check(
+        row.featureType && row.featureStatus,
+        "evidence omitted canonical feature identity",
+      );
+      const key = JSON.stringify([row.segment, row.featureType]);
+      check(!identities.has(key), "duplicate delivered feature identity");
+      identities.set(key, {
+        row,
+        type: row.featureType,
+        status: row.featureStatus,
+      });
+    } else {
+      check(
+        row.kind === "segment-summary" || row.kind === "interval",
+        "default analysis contains unrequested verbose evidence",
+      );
+      for (const block of row.features) {
+        const key = JSON.stringify([row.segment, block.type]);
+        const previous = identities.get(key);
+        check(
+          !previous || previous.status === block.status,
+          "feature status changed within its segment",
+        );
+        if (!previous)
+          identities.set(key, { row, type: block.type, status: block.status });
+      }
+    }
+  }
+  check(identities.size > 0, "analysis omitted canonical musical features");
+  const features = [...identities.values()].map(({ row, type, status }) => {
+    const definition = LISTENING_FEATURE_DEFINITIONS.find(
+      (item) => item.type === type,
+    );
+    check(definition, "analysis has unknown feature definition");
+    if (analysis.detail === "evidence")
+      check(
+        row.readTarget &&
+          isDeepStrictEqual(row.readTarget, {
+            ...analysis.readTarget,
+            range: {
+              startBeat: row.segment.startBeat,
+              endBeat: row.segment.endBeat,
+            },
+            featureTypes: [type],
+          }) &&
+          typeof row.profileKey === "string" &&
+          (row.definition === undefined ||
+            isDeepStrictEqual(row.definition, definition)),
+        "analysis feature target or canonical definition changed",
+      );
+    const blocks = rows.flatMap((value) =>
+      isDeepStrictEqual(value.segment, row.segment) &&
+      value.kind === (definition.grid ? "interval" : "segment-summary")
+        ? value.features
+            .filter((block) => block.type === type)
+            .map((block) => ({
+              startBeat: value.startBeat,
+              endBeat: value.endBeat,
+              block,
+            }))
+        : [],
+    );
+    const supports = rows.filter(
+      (value) =>
+        value.kind === "support" &&
+        value.featureType === type &&
+        isDeepStrictEqual(value.segment, row.segment),
+    );
+    for (const channel of ["aggregate", "left", "right"] as const) {
+      const intervals = supports.filter(
+        (value) => value.supportChannel === channel,
+      );
+      intervals.forEach((value, index) =>
+        check(
+          value.supportCoordinate === "segment-relative-samples" &&
+            value.supportOffset === index &&
+            value.support &&
+            value.support[0] >= 0 &&
+            value.support[1] > value.support[0] &&
+            value.support[1] <= row.segment.endSample - row.segment.startSample,
+          "invalid delivered native feature support",
+        ),
+      );
+    }
+    if (analysis.detail !== "evidence" && status === "ready") {
+      check(
+        blocks.some(({ block }) =>
+          block.values?.some((value) => value !== null),
+        ),
+        "ready feature validity lacks measured numeric values",
+      );
+      let end = row.segment.startBeat;
+      for (const block of blocks) {
+        check(
+          block.startBeat === end && block.endBeat > end,
+          "feature interval gap or overlap",
+        );
+        end = block.endBeat;
+      }
+      check(
+        end === row.segment.endBeat,
+        "feature intervals omit the requested extent",
+      );
+    }
+    return { row, definition, status, blocks, supports };
+  });
+  for (const row of rows)
+    for (const block of row.features)
+      check(
+        features.some(
+          (feature) =>
+            feature.definition.type === block.type &&
+            isDeepStrictEqual(feature.row.segment, row.segment),
+        ),
+        "delivered values have no matching musical identity",
+      );
+  return features;
+}
+export function declaresUnavailableFeature(
+  analysis: CompleteAnalysis,
+  features: ReturnType<typeof deliveredAnalysisFeatures>,
+  definition: (typeof LISTENING_FEATURE_DEFINITIONS)[number],
+  expectedSegments: number,
+  expectedValues: number,
+) {
+  const observed = features.filter(
+    (feature) => feature.definition.type === definition.type,
+  );
+  const values = observed
+    .flatMap((feature) =>
+      feature.blocks.flatMap(({ block }) => block.values ?? []),
+    )
+    .filter((value): value is number => value !== null);
+  const summaries = analysis.overview.filter(
+    (item) => item.type === definition.type,
+  );
+  const summary = summaries[0];
+  return (
+    summaries.length === 1 &&
+    summary !== undefined &&
+    summary.units === definition.units &&
+    summary.basis === (definition.grid ? "grid-cells" : "segment-summaries") &&
+    summary.totalSegments === expectedSegments &&
+    summary.availableSegments ===
+      observed.filter((feature) => feature.status === "ready").length &&
+    summary.availableSegments < expectedSegments &&
+    summary.validValues === values.length &&
+    summary.expectedValues === expectedValues &&
+    summary.minimum ===
+      (values.length ? values.reduce((a, b) => Math.min(a, b)) : null) &&
+    summary.maximum ===
+      (values.length ? values.reduce((a, b) => Math.max(a, b)) : null) &&
+    (values.length
+      ? summary.reason === null
+      : typeof summary.reason === "string" && summary.reason.length > 0)
+  );
 }
 const toolPairs = (turn: TurnEvidence) => readFeatureToolPairs(turn);
 function view(value: unknown) {
@@ -1244,6 +1770,494 @@ function verifyAnalyzerFeatures(
       }
     }
 }
+function verifyDeliveredFeatures(
+  turns: readonly TurnEvidence[],
+  selected: TurnEvidence,
+  sources: FeatureSourceEvidence[],
+  phase: string,
+  coverage: FeatureSearchCoverage,
+) {
+  const available = readCompleteAnalyses(
+    phase === "restored" ? [selected] : turns,
+  );
+  const bySource = new Map<
+    string,
+    {
+      analysis: CompleteAnalysis;
+      peaks: ReturnType<typeof deliveredAnalysisFeatures>;
+    }
+  >();
+  const close = (actual: unknown, expected: number) =>
+    typeof actual === "number" &&
+    Number.isFinite(actual) &&
+    Math.abs(actual - expected) <= 1e-10 * Math.max(1, Math.abs(expected));
+  for (const analysis of available)
+    check(
+      sources.some(
+        (source) => source.contextId === analysis.readTarget.contextId,
+      ),
+      "delivered analysis contains a foreign capture",
+    );
+  for (const source of sources) {
+    const analyses = available.filter(
+      (analysis) =>
+        analysis.detail === undefined &&
+        analysis.readTarget.contextId === source.contextId &&
+        analysis.readTarget.featureTypes === undefined &&
+        isDeepStrictEqual(
+          analysis.readTarget.range,
+          analysis.source.observedRange,
+        ),
+    );
+    check(analyses.length > 0, "missing complete pinned capture analysis");
+    const analysis = analyses[0]!;
+    check(
+      analyses.every((other) =>
+        isDeepStrictEqual(
+          immutableDeliveredAnalysis(other),
+          immutableDeliveredAnalysis(analysis),
+        ),
+      ),
+      "delivered original capture content changed",
+    );
+    const geometry = analysis.source.geometry;
+    const start = source.records[0]!.startSample;
+    const end = source.records.at(-1)!.endSample;
+    check(
+      geometry &&
+        geometry.sampleRate === source.sampleRate &&
+        geometry.captureStartSample === start &&
+        analysis.readTarget.coordinate === "clip-local-beats" &&
+        analysis.source.coordinate === analysis.readTarget.coordinate &&
+        isDeepStrictEqual(
+          analysis.source.requestedRange,
+          analysis.readTarget.range,
+        ) &&
+        close(
+          ((analysis.readTarget.range.endBeat -
+            analysis.readTarget.range.startBeat) *
+            source.sampleRate *
+            60) /
+            geometry.tempoBpm,
+          end - start,
+        ),
+      "delivered geometry differs from independent original acquisition",
+    );
+    const features = deliveredAnalysisFeatures(analysis);
+    const segments = [
+      ...new Map(
+        features.map((feature) => [
+          JSON.stringify(feature.row.segment),
+          feature.row.segment,
+        ]),
+      ).values(),
+    ].sort((a, b) => a.startBeat - b.startBeat);
+    const explicitlyUnavailable = (type: string) => {
+      const definition = LISTENING_FEATURE_DEFINITIONS.find(
+        (item) => item.type === type,
+      )!;
+      const expectedValues =
+        definition.dimensions *
+        (definition.grid
+          ? segments.reduce((sum, segment) => {
+              if (segment.kind === "unaligned") return sum;
+              const origin =
+                segment.barOriginBeat ?? segment.alignment?.barOriginBeat ?? 0;
+              return (
+                sum +
+                Math.ceil((segment.endBeat - origin) / 0.25) -
+                Math.floor((segment.startBeat - origin) / 0.25)
+              );
+            }, 0)
+          : segments.length);
+      return declaresUnavailableFeature(
+        analysis,
+        features,
+        definition,
+        segments.length,
+        expectedValues,
+      );
+    };
+    let nextBeat = analysis.readTarget.range.startBeat;
+    for (const segment of segments) {
+      check(
+        segment.startBeat === nextBeat &&
+          segment.sampleRate === source.sampleRate &&
+          close(
+            segment.startSample,
+            start +
+              ((segment.startBeat - analysis.readTarget.range.startBeat) *
+                source.sampleRate *
+                60) /
+                geometry.tempoBpm,
+          ) &&
+          close(
+            segment.endSample,
+            start +
+              ((segment.endBeat - analysis.readTarget.range.startBeat) *
+                source.sampleRate *
+                60) /
+                geometry.tempoBpm,
+          ),
+        "delivered segment omits or changes original acquisition extent",
+      );
+      nextBeat = segment.endBeat;
+      const onSegment = features.filter((feature) =>
+        isDeepStrictEqual(feature.row.segment, segment),
+      );
+      check(
+        coverage === "peak-only" ||
+          LISTENING_FEATURE_DEFINITIONS.every(
+            (definition) =>
+              onSegment.some(
+                (feature) => feature.definition.type === definition.type,
+              ) || explicitlyUnavailable(definition.type),
+          ),
+        "missing delivered canonical feature families",
+      );
+      for (const feature of onSegment) {
+        const record = feature.row.featureRecord;
+        if (record)
+          check(
+            record.entryId === source.contextId &&
+              record.sessionId === selected.appSessionId &&
+              record.liveSetId === analysis.readTarget.liveSetId &&
+              record.sourceFingerprint ===
+                (source.stream?.sourceFingerprint ?? source.contentSha256) &&
+              record.feature.type === feature.definition.type,
+            "delivered feature attribution differs from original source",
+          );
+      }
+      for (const type of [
+        "peak-summary/v1",
+        ...(coverage === "full" ? analyzerFeatureTypes : []),
+      ]) {
+        const feature = onSegment.find((item) => item.definition.type === type);
+        const block = feature?.blocks[0]?.block;
+        let expected: (number | null)[];
+        let covered: number;
+        if (type === "peak-summary/v1") {
+          expected = measuredPeak(
+            source,
+            segment.startSample,
+            segment.endSample,
+          );
+          covered = segment.endSample - segment.startSample;
+        } else {
+          check(source.analyzers, "missing independent native analyzers");
+          const timeline =
+            type === "pitch-confidence-summary/v1"
+              ? source.analyzers.pitch
+              : source.analyzers.spectralShape;
+          const overlap = (support: {
+            startSample: number;
+            endSample: number;
+          }) =>
+            Math.max(
+              0,
+              Math.min(segment.endSample, support.endSample) -
+                Math.max(segment.startSample, support.startSample),
+            );
+          expected = [0, 1].map((channelIndex) => {
+            let sum = 0,
+              weight = 0;
+            for (const frame of timeline.frames) {
+              const channel = frame.channels[channelIndex]!;
+              const value =
+                "confidence" in channel
+                  ? channel.state === "invalid"
+                    ? null
+                    : channel.confidence
+                  : channel.state !== "valid"
+                    ? null
+                    : type === "flatness-summary/v1"
+                      ? channel.flatnessDb
+                      : type === "spread-summary/v1"
+                        ? channel.spreadHz
+                        : channel.rolloffHz;
+              if (value !== null) {
+                const n = overlap(frame.support);
+                sum += value * n;
+                weight += n;
+              }
+            }
+            return weight ? sum / weight : null;
+          });
+          covered = timeline.frames.reduce(
+            (count, frame) => count + overlap(frame.support),
+            0,
+          );
+          if (block)
+            check(
+              block.channelReasons?.every((reason, index) =>
+                expected[index] === null
+                  ? typeof reason === "string" && reason.length > 0
+                  : reason === null,
+              ),
+              "delivered analyzer channel validity changed",
+            );
+        }
+        const ready = expected.some((value) => value !== null);
+        if (!feature && !ready) {
+          check(
+            explicitlyUnavailable(type),
+            `missing explicit unavailable ${type} evidence`,
+          );
+          continue;
+        }
+        check(
+          feature && feature.blocks.length === 1 && block,
+          `missing delivered ${type} values`,
+        );
+        check(
+          feature.status === (ready ? "ready" : "unavailable") &&
+            block.status === (ready ? "ready" : "unavailable") &&
+            block.expectedSamples === segment.endSample - segment.startSample &&
+            block.coveredSamples === covered &&
+            (ready
+              ? block.reason === null &&
+                block.values?.length === 2 &&
+                block.values.every((value, index) =>
+                  expected[index] === null
+                    ? value === null
+                    : close(value, expected[index]!),
+                )
+              : block.values === null &&
+                typeof block.reason === "string" &&
+                block.reason.length > 0),
+          "delivered values, acquisition coverage or validity differ from independent native measurements",
+        );
+      }
+    }
+    check(
+      nextBeat === analysis.readTarget.range.endBeat,
+      "analysis omitted final captured segment",
+    );
+    bySource.set(source.contextId, {
+      analysis,
+      peaks: features.filter(
+        (feature) => feature.definition.type === "peak-summary/v1",
+      ),
+    });
+    if (phase === "restored") {
+      const originals = readCompleteAnalyses(turns.slice(0, -1)).filter(
+        (page) =>
+          page.detail === undefined &&
+          page.readTarget.contextId === source.contextId &&
+          page.readTarget.featureTypes === undefined,
+      );
+      check(
+        originals.some((page) =>
+          isDeepStrictEqual(
+            immutableDeliveredAnalysis(page),
+            immutableDeliveredAnalysis(analysis),
+          ),
+        ),
+        "restored pinned analysis changed original numeric data or feature content",
+      );
+    }
+  }
+  if (phase === "first") return;
+  const first = bySource.get(sources[0]!.contextId)!;
+  const second = bySource.get(sources[1]!.contextId)!;
+  const targetMatches = (target: unknown, expected: CompleteAnalysis) => {
+    const { featureTypes, ...scope } =
+      captureAnalysisTargetSchema.parse(target);
+    const { featureTypes: _types, ...expectedScope } = expected.readTarget;
+    void _types;
+    return (
+      (featureTypes === undefined ||
+        featureTypes.includes("peak-summary/v1")) &&
+      isDeepStrictEqual(scope, expectedScope)
+    );
+  };
+  const sourceMatches = (
+    actual: AnalysisPage["source"],
+    expected: CompleteAnalysis,
+  ) => {
+    const { freshness, readTarget, ...source } = actual;
+    const {
+      freshness: _freshness,
+      readTarget: _target,
+      ...original
+    } = expected.source;
+    void freshness;
+    void _freshness;
+    void _target;
+    return (
+      targetMatches(readTarget, expected) && isDeepStrictEqual(source, original)
+    );
+  };
+  const compareItems = (
+    items: Extract<
+      AnalysisOperationResult,
+      { action: "compare" }
+    >["comparisons"],
+  ) => {
+    const peaks = items.filter((item) => item.type === "peak-summary/v1");
+    check(
+      peaks.length === first.peaks.length &&
+        peaks.length === second.peaks.length,
+      "comparison omitted the complete peak extent",
+    );
+    const distances: number[] = [];
+    for (const [index, item] of peaks.entries()) {
+      const left = first.peaks[index]!,
+        right = second.peaks[index]!;
+      check(
+        isDeepStrictEqual(item.left, {
+          startBeat: left.row.segment.startBeat,
+          endBeat: left.row.segment.endBeat,
+        }) &&
+          isDeepStrictEqual(item.right, {
+            startBeat: right.row.segment.startBeat,
+            endBeat: right.row.segment.endBeat,
+          }) &&
+          item.reason === null,
+        "comparison selected foreign or incomplete segment ranges",
+      );
+      const distance = Math.hypot(
+        ...left.blocks[0]!.block.values!.map(
+          (value, channel) =>
+            Number(value) - Number(right.blocks[0]!.block.values![channel]),
+        ),
+      );
+      const result = item.comparison;
+      check(
+        result?.status === "comparable" &&
+          result.distanceDefinition === "euclidean-linear-amplitude/v1" &&
+          result.units === "linear-amplitude" &&
+          "distance" in result &&
+          close(result.distance, distance),
+        "bad independently verified Euclidean comparison",
+      );
+      if (item.evidence)
+        check(
+          item.evidence.scope === "segment-summary" &&
+            isDeepStrictEqual(
+              item.evidence.leftValues,
+              left.blocks[0]!.block.values,
+            ) &&
+            isDeepStrictEqual(
+              item.evidence.rightValues,
+              right.blocks[0]!.block.values,
+            ) &&
+            isDeepStrictEqual(item.evidence.leftRange, item.left) &&
+            isDeepStrictEqual(item.evidence.rightRange, item.right),
+          "comparison evidence differs from delivered original values",
+        );
+      distances.push(distance);
+    }
+    return Math.sqrt(
+      distances.reduce((sum, distance) => sum + distance * distance, 0) /
+        distances.length,
+    );
+  };
+  const pairs = readFeatureToolPairs(selected);
+  let compared = false,
+    searched = false;
+  for (const action of ["compare", "search"] as const) {
+    let cursor: string | null = null;
+    let request: unknown;
+    let items: Extract<
+      AnalysisOperationResult,
+      { action: "compare" }
+    >["comparisons"] = [];
+    let searchDistance: number | undefined;
+    let searchTotal: number | undefined;
+    for (const pair of pairs.filter((pair) => pair.action === action)) {
+      const parsed = analysisOperationParamsSchema.parse(pair.call.arguments);
+      const result = analysisOperationResultSchema.parse(pair.data);
+      const { cursor: supplied, ...query } = parsed;
+      check(
+        (supplied ?? null) === cursor &&
+          (!cursor || isDeepStrictEqual(request, query)),
+        "comparison/search continuation changed request or skipped a page",
+      );
+      if (!cursor) {
+        request = query;
+        items = [];
+        searchDistance = undefined;
+        searchTotal = undefined;
+      }
+      if (parsed.action === "compare" && result.action === "compare") {
+        check(
+          targetMatches(parsed.left, first.analysis) &&
+            targetMatches(parsed.right, second.analysis) &&
+            targetMatches(result.readTarget.left, first.analysis) &&
+            targetMatches(result.readTarget.right, second.analysis) &&
+            sourceMatches(result.left, first.analysis) &&
+            sourceMatches(result.right, second.analysis) &&
+            result.completeExtent &&
+            result.truncated === (result.nextCursor !== null),
+          "comparison changed pinned source ownership or complete extent",
+        );
+        items.push(...result.comparisons);
+        cursor = result.nextCursor;
+        if (!cursor) {
+          compareItems(items);
+          compared = true;
+        }
+      } else {
+        check(
+          parsed.action === "search" && result.action === "search",
+          "unexpected analysis action",
+        );
+        check(
+          targetMatches(parsed.query, first.analysis) &&
+            parsed.scope.length === 1 &&
+            targetMatches(parsed.scope[0], second.analysis) &&
+            !parsed.withinCapture &&
+            parsed.featureType === "peak-summary/v1" &&
+            result.featureType === "peak-summary/v1" &&
+            sourceMatches(result.query, first.analysis) &&
+            result.distanceUnits === "linear-amplitude" &&
+            result.exhaustive &&
+            result.scannedCount === 1 &&
+            result.skippedCount === 0 &&
+            result.selectedCount === 1 &&
+            result.returnedCount === result.matches.length &&
+            result.requestedTopK === parsed.topK &&
+            result.matches.length === 1 &&
+            result.truncated === (result.nextCursor !== null),
+          "search changed query exclusion, bounded scope or coverage",
+        );
+        const match = result.matches[0]!;
+        check(
+          match.rank === 1 &&
+            sourceMatches(match.source, second.analysis) &&
+            sourceMatches(match.match, second.analysis) &&
+            match.evidence.offset === items.length &&
+            (searchTotal === undefined ||
+              searchTotal === match.evidence.total) &&
+            (searchDistance === undefined || searchDistance === match.distance),
+          "search changed original match or skipped evidence",
+        );
+        items.push(...match.comparisons);
+        searchTotal = match.evidence.total;
+        searchDistance = match.distance;
+        check(
+          match.evidence.complete === (items.length === searchTotal),
+          "search evidence extent changed",
+        );
+        cursor = result.nextCursor;
+        if (!cursor) {
+          check(
+            items.length === searchTotal &&
+              close(searchDistance, compareItems(items)),
+            "search distance differs from independently measured complete extent",
+          );
+          searched = true;
+        }
+      }
+    }
+    check(cursor === null, "comparison/search continuation was not consumed");
+  }
+  check(
+    compared && (phase !== "second" || searched),
+    "missing actual pinned comparison or search",
+  );
+}
 /** Independent oracle: no product distance/extractor calls and no assistant-text claims. */
 export function verifyFeatureSearch(
   input: AssertionInput,
@@ -1334,6 +2348,29 @@ export function verifyFeatureSearch(
       "peak-only smoke must remain in the same session without restart",
     );
   const pairs = toolPairs(selected);
+  if (phase === "restored")
+    check(
+      selected.agentListening?.afterOwnedRestart &&
+        sources.every((source) => source.afterOwnedRestart),
+      "no owned restart evidence",
+    );
+  if (phase === "second") {
+    check(
+      turns.length === 2 &&
+        isDeepStrictEqual(selected, turns[1]) &&
+        turns[0]!.facts.sdkTurnId !== selected.facts.sdkTurnId &&
+        turns.every(
+          (turn) =>
+            !turn.agentListening?.afterOwnedRestart &&
+            turn.featureSources?.every((source) => !source.afterOwnedRestart),
+        ),
+      "second-turn evidence mismatch",
+    );
+    check(
+      isDeepStrictEqual(turns[0]!.featureSources![0], sources[0]),
+      "prior stored source changed",
+    );
+  }
   const consumedCatalog = verifyCatalogs(pairs);
   const captures = turns.flatMap((turn) => turn.captures);
   const expected = phase === "first" ? 1 : 2;
@@ -1365,6 +2402,7 @@ export function verifyFeatureSearch(
     expectedSource &&
       captures.every(
         (capture) =>
+          capture.listenerId === input.baseline.sources?.a?.listenerId &&
           JSON.stringify(capture.source) === JSON.stringify(expectedSource),
       ),
     "foreign capture source",
@@ -1421,13 +2459,28 @@ export function verifyFeatureSearch(
         object(target.track).expectedReference === expectedSource.trackId &&
         target.expectedClipReference === expectedSource.clipId &&
         target.sceneIndex === expectedSource.slotIndex &&
-        JSON.stringify(start.call.arguments.listenerIds) ===
-          JSON.stringify([input.baseline.sources.a!.listenerId]) &&
+        (start.call.arguments.listenerIds === undefined ||
+          JSON.stringify(start.call.arguments.listenerIds) ===
+            JSON.stringify([input.baseline.sources.a!.listenerId])) &&
         job.stage === "completed" &&
         job.passId === source.passId &&
         JSON.stringify(job.contextIds) === JSON.stringify([source.contextId]),
       "capture tool result is foreign or incomplete",
     );
+  }
+  if (
+    pairs.some(
+      (pair) =>
+        Array.isArray(pair.data.analyses) ||
+        ["read", "compare", "search"].includes(pair.action),
+    )
+  ) {
+    check(
+      derivations.length === 0,
+      "modern listening must not explicitly derive",
+    );
+    verifyDeliveredFeatures(turns, selected, sources, phase, coverage);
+    return;
   }
   for (const source of phase === "restored" ? sources : [sources.at(-1)!]) {
     if (source.stream) {
@@ -1544,26 +2597,11 @@ export function verifyFeatureSearch(
   const reads = pairs.filter((pair) => pair.action === "get-feature");
   let priorReads: typeof reads = [];
   if (phase === "second") {
-    check(
-      turns.length === 2 &&
-        isDeepStrictEqual(selected, turns[1]) &&
-        turns[0]!.facts.sdkTurnId !== selected.facts.sdkTurnId &&
-        turns.every(
-          (turn) =>
-            !turn.agentListening?.afterOwnedRestart &&
-            turn.featureSources?.every((source) => !source.afterOwnedRestart),
-        ),
-      "second-turn evidence mismatch",
-    );
     const prior = turns[0]!;
     verifyFeatureSearch(
       { ...input, turns: [prior], turn: prior },
       "first",
       coverage,
-    );
-    check(
-      isDeepStrictEqual(prior.featureSources![0], sources[0]),
-      "prior stored source changed",
     );
     priorReads = toolPairs(prior).filter((pair) => {
       if (pair.action !== "get-feature") return false;
@@ -1839,11 +2877,6 @@ export function verifyFeatureSearch(
     }
   }
   if (phase === "restored") {
-    check(
-      selected.agentListening?.afterOwnedRestart &&
-        sources.every((source) => source.afterOwnedRestart),
-      "no owned restart evidence",
-    );
     const original = turns[1]!;
     verifyFeatureSearch(
       { ...input, turns: turns.slice(0, 2), turn: original },

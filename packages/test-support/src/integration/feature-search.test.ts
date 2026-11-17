@@ -14,6 +14,10 @@ import {
   projectMetricListeningReport,
   metricRecordDigest,
   type MetricRecordChunk,
+  segmentListeningObservation,
+  extractListeningFeature,
+  compareListeningFeatures,
+  type ContextFeature,
 } from "@ableton-agent/protocol";
 import {
   withSyntheticAnalyzerTimelines,
@@ -24,6 +28,10 @@ import {
   expandListeningFeatureInventory,
   contextFeatureViewSchema,
   metricStreamRecordPageSchema,
+  analysisPageSchema,
+  projectListeningTimeline,
+  projectListeningOverview,
+  type AnalysisPage,
 } from "@ableton-agent/tools";
 import type { AgentHistoryPage } from "@ableton-agent/observability";
 import { melSmokeFixture } from "./mel-smoke-test-support.js";
@@ -33,12 +41,250 @@ import {
   verifyFeatureSearch,
   projectFeatureSearchHistory,
   readFeatureToolPairs,
+  readCompleteAnalyses,
   verifyStreamFeatureReads,
 } from "./feature-search.js";
 import { createDefaultAssertions } from "./assertions.js";
 import { validateFixture, validateScenario } from "./validation.js";
 import type { AssertionInput, TurnEvidence } from "./contracts.js";
 import { streamProofContentSha256 } from "./arrangement-stream.js";
+
+function deliveredAnalysisFixture() {
+  const base = melSmokeFixture();
+  const turn = structuredClone(base.turn);
+  const target = {
+    kind: "capture" as const,
+    sessionId: turn.appSessionId,
+    liveSetId: "set",
+    contextId: "context-1",
+    coordinate: "clip-local-beats" as const,
+    range: { startBeat: 0, endBeat: 4 },
+  };
+  const page = analysisPageSchema.parse({
+    source: {
+      name: "Clip",
+      nameTruncated: false,
+      location: "Session clip",
+      capturedAt: "2026-11-05T00:00:00.000Z",
+      coordinate: target.coordinate,
+      observedRange: target.range,
+      requestedRange: target.range,
+      freshness: "fresh",
+      readTarget: target,
+    },
+    readTarget: target,
+    status: "ready",
+    reason: null,
+    overview: [],
+    overviewIncluded: true,
+    timeline: [],
+    overviewExtent: target.range,
+    detail: {
+      offset: 0,
+      returnedItems: 0,
+      totalItems: 0,
+      truncated: false,
+      nextCursor: null,
+    },
+  });
+  const history = turn.agentListening!;
+  const call = history.records.find((record) => record.kind === "tool_call")!;
+  const result = history.records.find(
+    (record) => record.kind === "tool_result",
+  )!;
+  if (call.kind !== "tool_call" || result.kind !== "tool_result")
+    throw new Error("fixture");
+  const terminals = history.records.filter(
+    (record) => record.kind === "message" || record.kind === "turn",
+  );
+  const setPairs = (
+    pairs: {
+      tool?: string;
+      arguments: Record<string, unknown>;
+      data: Record<string, unknown>;
+    }[],
+  ) =>
+    Reflect.set(history, "records", [
+      ...pairs.flatMap((pair, index) => {
+        const toolName = pair.tool ?? "ableton_context";
+        const toolCallId = `analysis-call-${index}`;
+        return [
+          {
+            ...call,
+            id: `analysis-call-record-${index}`,
+            correlationId: toolCallId,
+            toolCallId,
+            toolName,
+            arguments: pair.arguments,
+          },
+          {
+            ...result,
+            id: `analysis-result-record-${index}`,
+            correlationId: toolCallId,
+            toolCallId,
+            metadata: { toolName },
+            result: { result: { content: pair.data } },
+          },
+        ];
+      }),
+      ...terminals,
+    ]);
+  const data = { action: "read", analyses: [page], nextCursor: null };
+  setPairs([{ arguments: { action: "read", target }, data }]);
+  return { turn, target, page, data, setPairs };
+}
+describe("delivered musical analysis evidence", () => {
+  it("accepts a genuine read result without inventing legacy discovery calls", () => {
+    const { turn, data, page, target } = deliveredAnalysisFixture();
+    expect(readFeatureToolPairs(turn).map((pair) => pair.action)).toEqual([
+      "read",
+    ]);
+    expect(readFeatureToolPairs(turn)[0]!.data).toEqual(data);
+    expect(readCompleteAnalyses([turn])).toEqual([
+      {
+        source: page.source,
+        readTarget: target,
+        overview: [],
+        timeline: [],
+      },
+    ]);
+  });
+  function pagedFixture() {
+    const fixture = deliveredAnalysisFixture();
+    const row = {
+      kind: "segment-summary" as const,
+      segment: {
+        startBeat: 0,
+        endBeat: 4,
+        startSample: 0,
+        endSample: 90000,
+        sampleRate: 48000,
+        kind: "bar" as const,
+        alignment: null,
+        alignmentReason: null,
+      },
+      startBeat: 0,
+      endBeat: 4,
+      elapsedStartSeconds: 0,
+      elapsedEndSeconds: 1.875,
+      fragment: 0,
+      complete: true,
+      features: [],
+    };
+    const first = {
+      ...fixture.page,
+      timeline: [row],
+      detail: {
+        offset: 0,
+        returnedItems: 1,
+        totalItems: 2,
+        truncated: true,
+        nextCursor: "next-page",
+      },
+    };
+    const last = {
+      ...fixture.page,
+      overviewIncluded: false,
+      timeline: [
+        {
+          ...row,
+          kind: "feature-metadata" as const,
+          featureType: "peak-summary/v1" as const,
+        },
+      ],
+      detail: {
+        offset: 1,
+        returnedItems: 1,
+        totalItems: 2,
+        truncated: false,
+        nextCursor: null,
+      },
+    };
+    const pairs = [
+      {
+        tool: "ableton_listening",
+        arguments: { action: "play-session-and-listen" },
+        data: { action: "play-session-and-listen", analyses: [first] },
+      },
+      {
+        tool: "ableton_context",
+        arguments: {
+          action: "read",
+          target: fixture.target,
+          cursor: "next-page",
+        },
+        data: { action: "read", analyses: [last], nextCursor: null },
+      },
+    ];
+    fixture.setPairs(pairs);
+    return { ...fixture, pairs, first, last };
+  }
+  it("counts listen's delivered analysis and its actual pinned continuation as consumption", () => {
+    const { turn, first, last } = pagedFixture();
+    expect(readCompleteAnalyses([turn])[0]!.timeline).toEqual([
+      ...first.timeline,
+      ...last.timeline,
+    ]);
+  });
+  it.each([
+    [
+      "unread continuation",
+      (f: ReturnType<typeof pagedFixture>) => {
+        f.pairs.pop();
+      },
+    ],
+    [
+      "wrong cursor",
+      (f: ReturnType<typeof pagedFixture>) => {
+        Reflect.set(f.pairs[1]!.arguments, "cursor", "wrong-page");
+      },
+    ],
+    [
+      "foreign owner",
+      (f: ReturnType<typeof pagedFixture>) => {
+        f.target.sessionId = "foreign";
+      },
+    ],
+    [
+      "changed range",
+      (f: ReturnType<typeof pagedFixture>) => {
+        Reflect.set(f.pairs[1]!.arguments, "target", {
+          ...f.target,
+          range: { startBeat: 0, endBeat: 1 },
+        });
+      },
+    ],
+    [
+      "skipped rows",
+      (f: ReturnType<typeof pagedFixture>) => {
+        f.last.detail.offset = 2;
+      },
+    ],
+    [
+      "changed total",
+      (f: ReturnType<typeof pagedFixture>) => {
+        f.last.detail.totalItems = 3;
+      },
+    ],
+    [
+      "false row count",
+      (f: ReturnType<typeof pagedFixture>) => {
+        f.last.detail.returnedItems = 0;
+      },
+    ],
+    [
+      "failed analysis",
+      (f: ReturnType<typeof pagedFixture>) => {
+        Reflect.set(f.first, "status", "failed");
+      },
+    ],
+  ])("rejects %s without filling evidence from old calls", (_name, mutate) => {
+    const fixture = pagedFixture();
+    mutate(fixture);
+    fixture.setPairs(fixture.pairs);
+    expect(() => readCompleteAnalyses([fixture.turn])).toThrow();
+  });
+});
 
 describe("canonical stream feature-source reads", () => {
   it("binds original records and feature provenance separately and rejects unread or changed measurements", async () => {
@@ -784,8 +1030,391 @@ function fixture(
       ),
     },
   };
-  return { input, turns, search, comparison };
+  return { input, turns, search, comparison, observations };
 }
+function deliveredFeatureFixture(unavailableConfidence = false) {
+  const f = fixture(false, unavailableConfidence);
+  const sources = f.turns[1]!.featureSources!;
+  const groups = f.observations.map((observation, index) => {
+    const source = sources[index]!;
+    const range = segmentListeningObservation(observation)[0]!;
+    const segment = {
+      ...range,
+      id: `segment-modern-${index}`,
+      entryId: source.contextId,
+      sessionId: f.turns[0]!.appSessionId,
+      liveSetId: "set",
+      order: 0,
+    };
+    return LISTENING_FEATURE_DEFINITIONS.map((definition) => ({
+      segment,
+      record: {
+        id: `feature-modern-${index}-${definition.type.replace("/", "-")}`,
+        entryId: source.contextId,
+        segmentId: segment.id,
+        sessionId: segment.sessionId,
+        liveSetId: segment.liveSetId,
+        createdAt: "2026-11-05T00:00:00.000Z",
+        sourceFingerprint: source.contentSha256,
+        trace: {
+          traceId: observation.ownership.traceId,
+          correlationId: observation.ownership.correlationId,
+          causationId: observation.ownership.causationId,
+        },
+        feature: extractListeningFeature(definition.type, observation, range),
+      } satisfies ContextFeature,
+    }));
+  });
+  const allPages = groups.map((group, index) => {
+    const target = {
+      kind: "capture" as const,
+      sessionId: f.turns[0]!.appSessionId,
+      liveSetId: "set",
+      contextId: sources[index]!.contextId,
+      coordinate: "clip-local-beats" as const,
+      range: { startBeat: 0, endBeat: 4 },
+    };
+    const timeline = projectListeningTimeline(group, 0, target);
+    return Array.from(
+      { length: Math.ceil(timeline.length / 20) },
+      (_, page): AnalysisPage => ({
+        source: {
+          schema: "metric-audio-observation/v1",
+          name: "clip-1",
+          nameTruncated: false,
+          location: "Session",
+          capturedAt: "2026-11-05T00:00:00.000Z",
+          coordinate: target.coordinate,
+          observedRange: target.range,
+          requestedRange: target.range,
+          readTarget: target,
+          freshness: "fresh",
+          geometry: {
+            sampleRate: 48000,
+            tempoBpm: 128,
+            captureStartSample: 0,
+            transportStartBeat: 0,
+          },
+        },
+        readTarget: target,
+        status: "ready",
+        reason: null,
+        overview: page === 0 ? projectListeningOverview(group, target) : [],
+        overviewIncluded: page === 0,
+        overviewExtent: target.range,
+        timeline: timeline.slice(page * 20, (page + 1) * 20),
+        detail: {
+          offset: page * 20,
+          returnedItems: Math.min(20, timeline.length - page * 20),
+          totalItems: timeline.length,
+          truncated: (page + 1) * 20 < timeline.length,
+          nextCursor:
+            (page + 1) * 20 < timeline.length
+              ? `modern-${index}-${page + 1}`
+              : null,
+        },
+      }),
+    );
+  });
+  const left = allPages[0]![0]!,
+    right = allPages[1]![0]!;
+  const peak = groups.map((group) =>
+    group.find((item) => item.record.feature.type === "peak-summary/v1")!,
+  );
+  const comparison = {
+    type: "peak-summary/v1",
+    left: left.readTarget.range,
+    right: right.readTarget.range,
+    comparison: compareListeningFeatures(
+      peak[0]!.record.feature,
+      peak[1]!.record.feature,
+    ),
+    reason: null,
+  };
+  for (const [index, turn] of f.turns.entries()) {
+    const history = turn.agentListening!;
+    const old = readFeatureToolPairs(turn);
+    const seedCall = history.records.find(
+      (record) => record.kind === "tool_call",
+    )!;
+    const seedResult = history.records.find(
+      (record) => record.kind === "tool_result",
+    )!;
+    if (seedCall.kind !== "tool_call" || seedResult.kind !== "tool_result")
+      throw new Error("Missing seed");
+    const records: AgentHistoryPage["items"] = [];
+    const pair = (
+      toolName: string,
+      args: Record<string, unknown>,
+      data: unknown,
+    ) => {
+      const toolCallId = `modern-${index}-${records.length}`;
+      records.push(
+        {
+          ...seedCall,
+          id: `${toolCallId}-call`,
+          toolCallId,
+          correlationId: toolCallId,
+          toolName,
+          arguments: args,
+        },
+        {
+          ...seedResult,
+          id: `${toolCallId}-result`,
+          toolCallId,
+          correlationId: toolCallId,
+          metadata: { toolName },
+          result: {
+            result: { content: JSON.parse(JSON.stringify(data)) as unknown },
+          },
+        },
+      );
+    };
+    const pages = structuredClone(allPages);
+    if (index === 2)
+      for (const capture of pages)
+        for (const page of capture) page.source.freshness = "historical";
+    if (index < 2) {
+      const capture = old.find(
+        (pair) => pair.action === "play-session-and-listen",
+      )!;
+      pair("ableton_listening", capture.call.arguments, {
+        ...capture.data,
+        analyses: [pages[index]![0]!],
+      });
+    }
+    for (const [sourceIndex, capture] of pages.entries()) {
+      if (index === 0 && sourceIndex === 1) continue;
+      for (const [pageIndex, page] of capture.entries()) {
+        if (index === sourceIndex && pageIndex === 0) continue;
+        pair(
+          "ableton_context",
+          {
+            action: "read",
+            target: page.readTarget,
+            includeHistorical: index === 2,
+            ...(pageIndex
+              ? { cursor: capture[pageIndex - 1]!.detail.nextCursor }
+              : {}),
+          },
+          {
+            action: "read",
+            analyses: [page],
+            nextCursor: page.detail.nextCursor,
+          },
+        );
+      }
+    }
+    if (index > 0) {
+      pair(
+        "ableton_context",
+        {
+          action: "compare",
+          left: left.readTarget,
+          right: right.readTarget,
+          featureTypes: ["peak-summary/v1"],
+          includeHistorical: index === 2,
+        },
+        {
+          action: "compare",
+          readTarget: {
+            kind: "comparison",
+            left: left.readTarget,
+            right: right.readTarget,
+          },
+          left: pages[0]![0]!.source,
+          right: pages[1]![0]!.source,
+          comparisons: [comparison],
+          completeExtent: true,
+          nextCursor: null,
+          truncated: false,
+        },
+      );
+      if (index === 1) {
+        const distance =
+          comparison.comparison.status === "comparable"
+            ? comparison.comparison.distance
+            : null;
+        pair(
+          "ableton_context",
+          {
+            action: "search",
+            query: left.readTarget,
+            scope: [right.readTarget],
+            featureType: "peak-summary/v1",
+            withinCapture: false,
+          },
+          {
+            action: "search",
+            query: left.source,
+            featureType: "peak-summary/v1",
+            distanceUnits: "linear-amplitude",
+            aggregation: "compared-value-weighted-rms-of-segment-distances",
+            requestedTopK: 10,
+            selectedCount: 1,
+            returnedCount: 1,
+            scannedCount: 1,
+            skippedCount: 0,
+            exhaustive: true,
+            matches: [
+              {
+                rank: 1,
+                source: right.source,
+                match: right.source,
+                distance,
+                comparisons: [comparison],
+                evidence: { offset: 0, total: 1, complete: true },
+              },
+            ],
+            nextCursor: null,
+            truncated: false,
+          },
+        );
+      }
+    }
+    records.push(
+      ...history.records.filter(
+        (record) => record.kind === "turn" || record.kind === "message",
+      ),
+    );
+    Reflect.set(history, "records", records);
+  }
+  return f;
+}
+describe("direct musical feature-search evidence", () => {
+  it("accepts explicitly unavailable confidence without inventing empty measured rows", () => {
+    const f = deliveredFeatureFixture(true);
+    expect(() => verifyFeatureSearch(f.input, "final")).not.toThrow();
+  });
+  it("requires explicit unavailable grid evidence even when default unaligned analysis has no grid rows", () => {
+    const f = deliveredFeatureFixture();
+    expect(() => verifyFeatureSearch(f.input, "final")).not.toThrow();
+    for (const turn of f.turns)
+      for (const pair of readFeatureToolPairs(turn))
+        for (const page of (pair.data.analyses ?? []) as AnalysisPage[])
+          page.overview = page.overview.filter(
+            (item) => item.type !== "pitch-grid/v1",
+          );
+    expect(() => verifyFeatureSearch(f.input, "final")).toThrow(
+      "missing delivered canonical feature families",
+    );
+  });
+  it.each(["history", "sources", "both", "second"] as const)(
+    "rejects modern %s restart-provenance corruption",
+    (mode) => {
+      const f = deliveredFeatureFixture();
+      const turn = mode === "second" ? f.turns[1]! : f.turns[2]!;
+      if (mode !== "sources")
+        Reflect.set(
+          turn.agentListening!,
+          "afterOwnedRestart",
+          mode === "second",
+        );
+      if (mode !== "history")
+        for (const source of turn.featureSources!)
+          Reflect.set(source, "afterOwnedRestart", mode === "second");
+      expect(() => verifyFeatureSearch(f.input, "final")).toThrow(
+        mode === "second"
+          ? "second-turn evidence mismatch"
+          : "no owned restart evidence",
+      );
+    },
+  );
+  it("verifies actual listen analyses, read continuations, comparison, search and restored numbers", () => {
+    const f = deliveredFeatureFixture();
+    expect(() => verifyFeatureSearch(f.input, "final")).not.toThrow();
+    expect(
+      JSON.stringify(f.turns.map((turn) => turn.agentListening)),
+    ).not.toContain("get-feature");
+  });
+  it("uses pinned source/range/type identity without requiring storage IDs or raw measurement reads", () => {
+    const f = deliveredFeatureFixture();
+    for (const turn of f.turns)
+      for (const pair of readFeatureToolPairs(turn))
+        for (const page of (pair.data.analyses ?? []) as AnalysisPage[])
+          for (const row of page.timeline) {
+            delete row.featureRecord;
+            delete row.definition;
+            for (const key of [
+              "id",
+              "entryId",
+              "sessionId",
+              "liveSetId",
+              "order",
+              "coordinate",
+            ])
+              Reflect.deleteProperty(row.segment, key);
+          }
+    expect(() => verifyFeatureSearch(f.input, "final")).not.toThrow();
+  });
+  it.each([
+    "peak",
+    "flatness",
+    "confidence",
+    "coverage",
+    "units",
+    "range",
+    "owner",
+    "comparison",
+    "search",
+    "compare-continuation",
+    "search-continuation",
+    "missing-page",
+    "restored",
+  ] as const)("rejects actual delivered %s corruption", (mode) => {
+    const f = deliveredFeatureFixture();
+    const turn = mode === "restored" ? f.turns[2]! : f.turns[1]!;
+    const pairs = readFeatureToolPairs(turn);
+    if (mode === "compare-continuation" || mode === "search-continuation") {
+      const data = pairs.find(
+        (pair) =>
+          pair.action ===
+          (mode === "compare-continuation" ? "compare" : "search"),
+      )!.data;
+      data.nextCursor = "unread-continuation";
+      data.truncated = true;
+    } else if (mode === "comparison")
+      Reflect.set(
+        pairs.find((pair) => pair.action === "compare")!.data,
+        "completeExtent",
+        false,
+      );
+    else if (mode === "search") {
+      const data = pairs.find((pair) => pair.action === "search")!.data;
+      Reflect.set((data.matches as { distance: number }[])[0]!, "distance", 99);
+    } else if (mode === "missing-page") {
+      const page = (
+        pairs.find((pair) => Array.isArray(pair.data.analyses))!.data
+          .analyses as AnalysisPage[]
+      )[0]!;
+      page.detail.totalItems++;
+      page.detail.truncated = true;
+      page.detail.nextCursor = "missing-musical-continuation";
+    } else {
+      const pages = pairs.flatMap(
+        (pair) => (pair.data.analyses ?? []) as AnalysisPage[],
+      );
+      if (mode === "range") pages[0]!.readTarget.range.endBeat = 3;
+      else if (mode === "owner") pages[0]!.readTarget.sessionId = "foreign";
+      else {
+        const type =
+          mode === "flatness"
+            ? "flatness-summary/v1"
+            : mode === "confidence"
+              ? "pitch-confidence-summary/v1"
+              : "peak-summary/v1";
+        const block = pages
+          .flatMap((page) => page.timeline)
+          .flatMap((row) => row.features)
+          .find((block) => block.type === type)!;
+        if (mode === "coverage") block.coveredSamples--;
+        else if (mode === "units") Reflect.set(block, "units", "hz");
+        else block.values![0] = 123;
+      }
+    }
+    expect(() => verifyFeatureSearch(f.input, "final")).toThrow();
+  });
+});
 function result(turn: TurnEvidence, action: string) {
   const found = turn.agentListening!.records.find(
     (record) =>
@@ -1281,6 +1910,35 @@ describe("inventory discovery and equality persistence", () => {
   );
 });
 describe("same-session peak fundamentals coverage", () => {
+  it("accepts omitted public listener IDs only with independently admitted native capture ownership", () => {
+    const { input, turns } = peakFixture();
+    for (const turn of turns)
+      for (const record of turn.agentListening!.records)
+        if (
+          record.kind === "tool_call" &&
+          record.arguments.action === "play-session-and-listen"
+        )
+          delete record.arguments.listenerIds;
+    expect(() =>
+      verifyFeatureSearch(input, "final", "peak-only"),
+    ).not.toThrow();
+    Reflect.set(turns[0]!.captures[0]!, "listenerId", "other-listener");
+    expect(() => verifyFeatureSearch(input, "final", "peak-only")).toThrow(
+      "foreign capture source",
+    );
+  });
+  it("rejects a wrong explicitly requested listener even when native ownership matches", () => {
+    const { input, turns } = peakFixture();
+    for (const record of turns[0]!.agentListening!.records)
+      if (
+        record.kind === "tool_call" &&
+        record.arguments.action === "play-session-and-listen"
+      )
+        record.arguments.listenerIds = ["other-listener"];
+    expect(() => verifyFeatureSearch(input, "final", "peak-only")).toThrow(
+      "capture tool result is foreign",
+    );
+  });
   it("accepts a prior immutable typed first-feature read, with genuine second-turn read/comparison/search", () => {
     const { input } = priorPeakFixture();
     expect(() =>

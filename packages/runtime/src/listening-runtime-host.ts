@@ -33,6 +33,8 @@ import {
   MAX_CONTINUOUS_METRIC_LISTENING_SECONDS,
   type MetricRecordStreamManifest,
   inspectListeningContextResultSchema,
+  inspectArrangementResultSchema,
+  sessionSnapshotSchema,
   positionListeningPlaybackResultSchema,
   type InspectListeningContextResult,
   type PositionListeningPlaybackParams,
@@ -121,6 +123,9 @@ export interface MetricStreamPublication {
 }
 
 export interface ConcreteListeningRuntimeHost extends ListeningRuntimeHost {
+  resolveListeningOperation: NonNullable<
+    CopilotAgentServiceOptions["resolveListeningOperation"]
+  >;
   executeListeningOperation: NonNullable<
     CopilotAgentServiceOptions["executeListeningOperation"]
   >;
@@ -1876,15 +1881,22 @@ export function createListeningRuntimeHost(
     ...(dependencies.telemetry ? { telemetry: dependencies.telemetry } : {}),
     resolveOwner: (context) =>
       stage("owner-resolution", context, () => owner(context)),
-    inspectListeners: (context) =>
+    inspectListeners: (context, tracks) =>
       stage("discovery", context, async () => {
         const resolved = await owner(context);
         const inventory = listeners().inspectListeners();
         const candidates = connected(inventory);
         const views = [];
-        for (const candidate of candidates.slice(0, 8)) {
+        let incomplete = false;
+        // Eight bounds the requested capture, not discovery of eligible devices on selected tracks.
+        for (const candidate of tracks === undefined
+          ? candidates.slice(0, 8)
+          : candidates) {
           let trackReference = "unresolved";
           let deviceReference = "unresolved";
+          let binding:
+            | InspectListeningContextResult["listeners"][number]["binding"]
+            | undefined;
           const limitations: string[] = [];
           try {
             const snapshot = await inspect(
@@ -1895,17 +1907,40 @@ export function createListeningRuntimeHost(
               undefined,
               true,
             );
-            const binding = snapshot.inspection.listeners[0]!.binding;
+            binding = snapshot.inspection.listeners[0]!.binding;
             trackReference = binding.track.expectedReference;
             deviceReference = binding.expectedDeviceReference;
           } catch (cause) {
             context.signal?.throwIfAborted();
+            incomplete = true;
             limitations.push(
               sanitizePersistedText(
                 cause instanceof Error ? cause.message : "unresolved",
               ).slice(0, 128),
             );
           }
+          if (tracks !== undefined) {
+            if (binding === undefined) continue;
+            const selected = tracks.filter(
+              (track) => track.expectedReference === trackReference,
+            );
+            if (selected.length === 0) continue;
+            if (
+              selected.some((track) => !isDeepStrictEqual(track, binding.track))
+            )
+              deny(
+                "stale_listening_source",
+                "Selected track identity, name, or position changed",
+              );
+          }
+          if (
+            inventory.find(
+              (item) => item.connectionId === candidate.connectionId,
+            )?.phase !== "idle"
+          )
+            limitations.push("listener_not_idle");
+          if (!candidate.nativeStatus.supportedModes.includes("session"))
+            limitations.push("session_mode_unsupported");
           // Producer self-report is never independent commissioning evidence.
           limitations.push(
             "native_per_pass_validation_required",
@@ -1939,7 +1974,99 @@ export function createListeningRuntimeHost(
         return {
           action: "inspect-listeners",
           listeners: views,
-          truncated: inventory.length > views.length,
+          truncated:
+            tracks === undefined ? inventory.length > views.length : incomplete,
+        };
+      }),
+    resolveArrangementRange: (sources, context) =>
+      stage("arrangement-range-resolution", context, async (progress) => {
+        const resolved = await owner(context);
+        const sessionSnapshot = sessionSnapshotSchema.parse(
+          await dependencies.ableton.inspectSession(),
+        );
+        context.signal?.throwIfAborted();
+        const references = new Set(
+          sources.map(({ track }) => track.expectedReference),
+        );
+        for (const { track } of sources) {
+          if (
+            track.kind !== "regular" ||
+            !sessionSnapshot.tracks.some(
+              (item) =>
+                item.reference === track.expectedReference &&
+                item.index === track.index &&
+                item.name === track.expectedName,
+            )
+          )
+            deny("arrangement_range_unavailable");
+        }
+        let offset = 0;
+        const extents: { reference: string; start: number; end: number }[] = [];
+        const clips = new Set<string>();
+        let total: number | undefined;
+        do {
+          progress(`Inspecting Arrangement clips from offset ${offset}`);
+          const page = inspectArrangementResultSchema.parse(
+            await dependencies.ableton.inspectArrangement({
+              offset,
+              limit: 512,
+            }),
+          );
+          context.signal?.throwIfAborted();
+          if (
+            page.offset !== offset ||
+            (total !== undefined && total !== page.total) ||
+            page.clips.length > 512 ||
+            page.limit > 512 ||
+            offset + page.clips.length > page.total ||
+            (page.clips.length === 0 && offset < page.total)
+          )
+            deny("arrangement_inventory_changed");
+          total = page.total;
+          if (total > 4096) deny("arrangement_inventory_limit");
+          for (const clip of page.clips) {
+            if (clips.has(clip.reference))
+              deny("arrangement_inventory_changed");
+            clips.add(clip.reference);
+            if (references.has(clip.trackReference)) {
+              const track = sources.find(
+                (source) =>
+                  source.track.expectedReference === clip.trackReference,
+              )!.track;
+              if (
+                track.kind !== "regular" ||
+                clip.trackIndex !== track.index ||
+                !Number.isFinite(clip.startTime) ||
+                !Number.isFinite(clip.endTime) ||
+                clip.endTime <= clip.startTime
+              )
+                deny("arrangement_inventory_changed");
+              extents.push({
+                reference: clip.trackReference,
+                start: clip.startTime,
+                end: clip.endTime,
+              });
+            }
+          }
+          offset += page.clips.length;
+        } while (offset < total);
+        if (
+          sources.some(
+            ({ track }) =>
+              !extents.some(
+                (extent) => extent.reference === track.expectedReference,
+              ),
+          )
+        )
+          deny("arrangement_source_has_no_clips");
+        if (
+          (await dependencies.ableton.getLiveIdentity()).liveSetId !==
+          resolved.liveSetId
+        )
+          deny("live_set_changed");
+        return {
+          startBeat: Math.min(...extents.map(({ start }) => start)),
+          endBeat: Math.max(...extents.map(({ end }) => end)),
         };
       }),
     resolveSessionTarget: (target, context) =>
@@ -2035,6 +2162,13 @@ export function createListeningRuntimeHost(
     },
   });
   const ports: ConcreteListeningRuntimeHost = {
+    resolveListeningOperation: (input, context) =>
+      stage("source-resolution", context, async (progress) => {
+        progress(
+          "Resolving the exact listener and musical range before approval",
+        );
+        return host.resolveListeningOperation(input, context);
+      }),
     executeListeningOperation: (input, context) =>
       stage("operation", context, () =>
         host.executeListeningOperation(input, context),

@@ -151,7 +151,7 @@ import type { MutationTarget } from "./mutation-policy.js";
 import {
   createListeningTools,
   SESSION_TRANSPORT_GUIDANCE,
-  type ContextOperationParams,
+  type AgentContextOperationParams,
   type ListeningOperationParams,
   type ListeningToolServices,
 } from "./listening-tools.js";
@@ -561,7 +561,7 @@ export interface AbletonToolSet {
     Tool<WarpMarkerOperationParams>,
     Tool<SpecializedDeviceOperationParams>,
     Tool<WorkflowJobOperationParams>,
-    ...(Tool<ListeningOperationParams> | Tool<ContextOperationParams>)[],
+    ...(Tool<ListeningOperationParams> | Tool<AgentContextOperationParams>)[],
     Tool<{
       sql: string;
       parameters?: SetSqlParameters | undefined;
@@ -858,7 +858,7 @@ export function createAbletonTools(
     );
   }
   const contextTools: (
-    Tool<ListeningOperationParams> | Tool<ContextOperationParams>
+    Tool<ListeningOperationParams> | Tool<AgentContextOperationParams>
   )[] = [];
   if (
     services.executeListeningOperation !== undefined ||

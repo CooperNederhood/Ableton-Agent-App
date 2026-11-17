@@ -870,6 +870,7 @@ export async function createDesktopComposition(
       : createSessionContextHost({
           resolveRepository: contextManager.resolveRepository,
           signal: contextLifetime.signal,
+          telemetry,
         });
   let listeningHost: ListeningRuntimeHost | undefined;
   const snapshotHistory =

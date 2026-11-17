@@ -429,8 +429,8 @@ describe("agent policy", () => {
     expect(unrelated?.additionalContext).not.toContain("opaque strings");
   });
 
-  it.each(["list-features", "compare-features", "search-features"])(
-    "directs requested value reads after %s without rewriting summary evidence",
+  it.each(["read", "compare", "search"])(
+    "does not add storage-discovery instructions after %s",
     async (action) => {
       const hooks = createAgentHooks({
         getAbletonStatus: async () => connected,
@@ -451,22 +451,9 @@ describe("agent policy", () => {
         },
         { sessionId: "sdk" },
       );
-      expect(result?.additionalContext).toContain(
-        "metadata and distances, not feature value arrays",
-      );
-      expect(result?.additionalContext).toContain(
-        "If the user requested values or persisted rereads",
-      );
-      expect(result?.additionalContext).toContain(
-        "get-feature for each requested featureId in this operation",
-      );
-      expect(result?.additionalContext).toContain(
-        "Comparison/search alone does not require these extra reads",
-      );
-      expect(result?.additionalContext).toContain("page.values");
-      expect(result?.additionalContext).toContain(
-        "A requested complete inventory is incomplete while nextCursor exists",
-      );
+      expect(result?.additionalContext).not.toContain("get-feature");
+      expect(result?.additionalContext).not.toContain("list-features");
+      expect(result?.additionalContext).toContain("verified tool result");
       expect(result?.additionalContext?.length).toBeLessThan(800);
       expect(result?.modifiedResult).toBeUndefined();
       expect(toolResult).toEqual(before);
@@ -494,13 +481,8 @@ describe("agent policy", () => {
       },
       { sessionId: "sdk" },
     );
-    expect(result?.additionalContext).toContain("report.nextOffset");
-    expect(result?.additionalContext).toContain(
-      "fewer rows than the requested limit",
-    );
-    expect(result?.additionalContext).toContain("not offset + limit");
-    expect(result?.additionalContext).toContain("fresh complete pages");
-    expect(result?.additionalContext).toContain("after restart");
+    expect(result?.additionalContext).not.toContain("report.nextOffset");
+    expect(result?.additionalContext).toContain("verified tool result");
     expect(result?.modifiedResult).toBeUndefined();
     expect(toolResult).toEqual(before);
   });
@@ -603,12 +585,7 @@ describe("agent policy", () => {
         },
         { sessionId: "sdk" },
       );
-      expect(result?.additionalContext).toContain(
-        "do not exhaust a long timeline merely to establish coverage",
-      );
-      expect(result?.additionalContext).toContain(
-        "digest-checked immutable chunk",
-      );
+      expect(result?.additionalContext).toContain("verified tool result");
       expect(result?.additionalContext).not.toContain(
         "Follow every continuation",
       );

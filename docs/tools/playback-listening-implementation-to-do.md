@@ -1,5 +1,41 @@
 # Playback Listening Implementation To-Do
 
+## Musical analysis tool topology
+
+- [x] Return automatically derived analysis in the terminal listening result,
+      with distinct capture/analysis outcomes and no extra calculation call.
+- [x] Join existing automatic derivation without duplicate queue work; cover
+      completion races, independent waiter cancellation, failure and shutdown.
+- [x] Replace registered discovery/derive/feature-ID actions with source-based
+      read, compare and search while preserving typed diagnostic consumers.
+- [x] Resolve the newest positively fresh covering capture; preserve exact
+      source/owner guards and pin returned references to immutable evidence.
+- [x] Resolve capture arguments before the actual SDK human-approval callback;
+      bind frozen canonical arguments to the tool-call ID and invocation trace,
+      with no playback after denial, cancellation or mismatch.
+- [x] Present canonical grid values together in chronological musical intervals,
+      separate segment summaries, and disclose native supports and uncertainty.
+- [x] Automatically page oversized results and nested value/support blocks;
+      prove forward progress and lossless detail without response-size failures.
+- [x] Keep default musical values compact across twenty measures; do not make
+      repeated metadata/envelopes require hundreds of reads. Retain complete
+      technical evidence through explicit typed detail, not default repetition.
+- [x] Support direct output-to-input source, passage, feature and comparison
+      targets with one-call drill-down and no intervening discovery.
+- [x] Compare full requested extents and search passages with explicit temporal
+      correspondence, canonical distances and configurable `topK`.
+- [x] Update scoped tool descriptions, permission metadata, typed History,
+      lifecycle timing, redaction and trace propagation.
+- [x] Prove red/green regressions and owning deterministic suites.
+- [ ] Run basic simple listening cases as message-driven regressions, then all
+      registered packaged acceptance scenarios on a clean committed candidate
+      and verify their aggregate terminal receipt. Preserve failures and cleanup;
+      no skipped, failed or unrun case is green. Fixture authoring stays deferred.
+- [x] Before the final PR, invoke the code-review tool against the completed
+      diff for reuse/code sprawl, modularity, meaningful tests and current docs;
+      address findings. Any changed candidate requires renewed final-candidate
+      acceptance qualification rather than inheriting an earlier green receipt.
+
 ## User-authorized comprehension follow-on
 
 Qualification, candidate pins and preserved failures are maintained in the

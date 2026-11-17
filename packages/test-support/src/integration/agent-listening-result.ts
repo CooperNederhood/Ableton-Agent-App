@@ -12,10 +12,16 @@ import {
   metricListeningReportSchema,
   projectMetricListeningReport,
   metricRecordStreamContextReferenceSchema,
+  MEL_BAND_PROFILE,
+  listeningFeatureDefinition,
+  isListeningFeatureValueValid,
 } from "@ableton-agent/protocol";
 import {
+  analysisOperationResultSchema,
+  analysisPageSchema,
   metricStreamOverviewSchema,
   metricStreamRecordPageSchema,
+  type AnalysisPage,
 } from "@ableton-agent/tools";
 import { streamProofContentSha256 } from "./arrangement-stream.js";
 import type {
@@ -31,8 +37,8 @@ export interface AgentListeningEvidence extends SessionIdentity {
   readonly records: AgentHistoryPage["items"];
 }
 
-const MAX_RECORDS = 256;
-const MAX_BYTES = 8 * 1024 * 1024;
+const MAX_RECORDS = 1024;
+const MAX_BYTES = 24 * 1024 * 1024;
 function requireEvidence(value: unknown, detail: string): asserts value {
   if (!value) throw new Error(`Agent listening evidence: ${detail}`);
 }
@@ -43,7 +49,7 @@ function object(value: unknown): Record<string, unknown> {
   );
   return value as Record<string, unknown>;
 }
-function complete(value: unknown): void {
+function complete(value: unknown, typedPagination = false): void {
   if (typeof value === "string")
     requireEvidence(
       value.length <= 16_384 &&
@@ -52,11 +58,37 @@ function complete(value: unknown): void {
         ),
       "truncated result",
     );
-  else if (Array.isArray(value)) value.forEach(complete);
+  else if (Array.isArray(value))
+    value.forEach((item) => complete(item, typedPagination));
   else if (value && typeof value === "object") {
     const record = object(value);
-    requireEvidence(record.truncated !== true, "truncated result");
-    Object.values(record).forEach(complete);
+    if (!typedPagination) {
+      if (
+        (record.action === "read" && "analyses" in record) ||
+        (record.action === "compare" && "comparisons" in record) ||
+        (record.action === "search" && "matches" in record)
+      ) {
+        requireEvidence(
+          analysisOperationResultSchema.safeParse(record).success,
+          "invalid typed analysis result",
+        );
+        typedPagination = true;
+      } else if ("readTarget" in record && "timeline" in record) {
+        requireEvidence(
+          analysisPageSchema.safeParse(record).success,
+          "invalid typed analysis page",
+        );
+        typedPagination = true;
+      }
+    }
+    requireEvidence(
+      record.truncated !== true ||
+        (typedPagination &&
+          typeof record.nextCursor === "string" &&
+          record.nextCursor.length > 0),
+      "truncated result",
+    );
+    Object.values(record).forEach((item) => complete(item, typedPagination));
   }
 }
 
@@ -233,6 +265,179 @@ function payload(
   return result;
 }
 
+function verifyAnalysisValues(
+  analyses: readonly AnalysisPage[],
+  turn: TurnEvidence,
+  contextId: string,
+): void {
+  const capture = turn.captures[0]!;
+  const initial = analyses[0]!;
+  requireEvidence(
+    initial.readTarget.range.startBeat === 0 &&
+      initial.readTarget.coordinate === "clip-local-beats",
+    "analysis did not describe the original Session extent",
+  );
+  let measuredValues = 0;
+  for (const analysis of analyses) {
+    const target = analysis.readTarget;
+    const geometry = analysis.source.geometry;
+    requireEvidence(
+      target.contextId === contextId &&
+        target.sessionId === turn.appSessionId &&
+        target.liveSetId === initial.readTarget.liveSetId &&
+        target.coordinate === initial.readTarget.coordinate &&
+        analysis.status === "ready" &&
+        geometry?.sampleRate === capture.sampleRate &&
+        geometry.captureStartSample === capture.startSample &&
+        isDeepStrictEqual(target, analysis.source.readTarget) &&
+        analysis.overviewExtent.startBeat === target.range.startBeat &&
+        analysis.overviewExtent.endBeat === target.range.endBeat &&
+        Math.abs(
+          ((analysis.source.observedRange.endBeat -
+            analysis.source.observedRange.startBeat) *
+            60) /
+            geometry.tempoBpm -
+            (capture.endSample - capture.startSample) / capture.sampleRate,
+        ) <
+          1 / capture.sampleRate,
+      "analysis ownership, geometry or source extent differs from capture",
+    );
+    for (const row of analysis.timeline) {
+      requireEvidence(
+        row.startBeat >= target.range.startBeat &&
+          row.endBeat <= target.range.endBeat &&
+          row.endBeat > row.startBeat &&
+          row.elapsedEndSeconds > row.elapsedStartSeconds,
+        "analysis row falls outside its declared extent",
+      );
+      for (const feature of row.features) {
+        const definition = listeningFeatureDefinition(feature.type);
+        requireEvidence(
+          feature.units === definition.units &&
+            feature.normalization === definition.normalization &&
+            feature.coveredSamples <= feature.expectedSamples &&
+            (feature.values === null
+              ? feature.status === "unavailable" && feature.reason !== null
+              : feature.status === "ready" &&
+                feature.values.length === feature.dimensions.length &&
+                (feature.dimensionOffset ?? 0) + feature.values.length <=
+                  definition.dimensions &&
+                feature.values.every((value) =>
+                  isListeningFeatureValueValid(
+                    feature.type,
+                    value,
+                    capture.sampleRate,
+                  ),
+                )),
+          "invalid canonical feature values or coverage",
+        );
+        measuredValues +=
+          feature.values?.filter((value) => value !== null).length ?? 0;
+      }
+    }
+  }
+  requireEvidence(
+    measuredValues > 0,
+    "analysis contains metadata but no measured values",
+  );
+
+  const mel = turn.melSmoke?.[0];
+  if (!mel) return;
+  const frames =
+    "chunks" in mel
+      ? mel.chunks.flatMap((chunk) =>
+          chunk.metric === "mel-bands" ? [...chunk.records] : [],
+        )
+      : [...(mel.observation.metrics["mel-bands"]?.frames ?? [])];
+  requireEvidence(frames.length > 0, "missing independent mel measurements");
+  const found = new Set<string>();
+  for (const analysis of analyses) {
+    const geometry = analysis.source.geometry!;
+    const sampleAt = (beat: number) =>
+      geometry.captureStartSample +
+      Math.round(
+        ((beat - analysis.source.observedRange.startBeat) *
+          capture.sampleRate *
+          60) /
+          geometry.tempoBpm,
+      );
+    for (const row of analysis.timeline) {
+      if (row.kind !== "segment-summary") continue;
+      const start = sampleAt(row.startBeat);
+      const end = sampleAt(row.endBeat);
+      let weight = 0;
+      const means = Array.from({ length: 48 }, () => 0);
+      for (const frame of frames) {
+        const overlap = Math.max(
+          0,
+          Math.min(end, frame.support.endSample) -
+            Math.max(start, frame.support.startSample),
+        );
+        if (overlap === 0) continue;
+        weight += overlap;
+        frame.magnitudes.flat().forEach((value, index) => {
+          means[index] = means[index]! + value * overlap;
+        });
+      }
+      if (weight === 0) continue;
+      for (let index = 0; index < means.length; index++)
+        means[index] = means[index]! / weight;
+      const norm = Math.hypot(...means);
+      const regions = [0, 1].map((channel) => {
+        const sums = { low: 0, mid: 0, high: 0 };
+        MEL_BAND_PROFILE.bands.forEach((band, index) => {
+          sums[band.region] += means[channel * 24 + index]!;
+        });
+        return sums;
+      });
+      for (const feature of row.features) {
+        const expected =
+          feature.type === "mel-shape/v1"
+            ? means.map((value) => value / norm)
+            : feature.type === "mel-region-summary/v1"
+              ? regions.flatMap((value) => [value.low, value.mid, value.high])
+              : feature.type === "mel-ratio-summary/v1"
+                ? regions.flatMap((value) => [
+                    value.low / value.mid,
+                    value.high / value.mid,
+                  ])
+                : undefined;
+        if (!expected) continue;
+        requireEvidence(
+          feature.values !== null &&
+            feature.values.every((value, index) => {
+              const original = expected[(feature.dimensionOffset ?? 0) + index];
+              return (
+                value !== null &&
+                original !== undefined &&
+                Number.isFinite(original) &&
+                Math.abs(value - original) <=
+                  1e-10 * Math.max(1, Math.abs(original))
+              );
+            }),
+          "analysis mel values differ from independent original measurements",
+        );
+        feature.values.forEach((_, index) =>
+          found.add(
+            `${feature.type}:${(feature.dimensionOffset ?? 0) + index}`,
+          ),
+        );
+      }
+    }
+  }
+  for (const [type, dimensions] of [
+    ["mel-shape/v1", 48],
+    ["mel-region-summary/v1", 6],
+    ["mel-ratio-summary/v1", 4],
+  ] as const)
+    requireEvidence(
+      Array.from({ length: dimensions }, (_, index) =>
+        found.has(`${type}:${index}`),
+      ).every(Boolean),
+      "agent did not consume all mel summary dimensions and ratios",
+    );
+}
+
 export function verifyAgentListeningResult(
   input: AssertionInput,
   sourceId: string,
@@ -341,14 +546,35 @@ export function verifyAgentListeningResult(
       track.expectedReference === source.source.trackId &&
       target.expectedClipReference === source.source.clipId &&
       target.sceneIndex === source.source.slotIndex &&
-      JSON.stringify(start.call.arguments.listenerIds) ===
-        JSON.stringify([source.listenerId]) &&
+      (start.call.arguments.listenerIds === undefined ||
+        JSON.stringify(start.call.arguments.listenerIds) ===
+          JSON.stringify([source.listenerId])) &&
       job.stage === "completed" &&
       (job.error === undefined || job.error === null) &&
       job.passId === capture.passId &&
       JSON.stringify(job.contextIds) === JSON.stringify([context.contextId]),
     "original start did not deliver the completed matching pass/context",
   );
+  const analyses: AnalysisPage[] = [];
+  for (const pair of pairs) {
+    if (!Array.isArray(pair.data.analyses)) continue;
+    requireEvidence(
+      pair === start ||
+        (pair.call.toolName === "ableton_context" &&
+          pair.call.arguments.action === "read" &&
+          pair.data.action === "read" &&
+          Date.parse(pair.result.occurredAt) - pair.result.durationMs! >=
+            Date.parse(start.result.occurredAt)),
+      "analysis was not delivered by the listen or a subsequent typed read",
+    );
+    analyses.push(
+      ...pair.data.analyses.map((page) => analysisPageSchema.parse(page)),
+    );
+  }
+  if (analyses.length > 0) {
+    verifyAnalysisValues(analyses, turn, context.contextId);
+    return;
+  }
   const reads = pairs.filter(
     ({ call }) =>
       call.toolName === "ableton_context" &&

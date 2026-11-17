@@ -12,8 +12,241 @@ import {
 } from "./agent-listening-test-support.js";
 import { sanitizeTelemetryAttributes } from "@ableton-agent/observability";
 import { validateTurn } from "./validation.js";
+import { analysisPageSchema } from "@ableton-agent/tools";
+import {
+  extractListeningFeature,
+  listeningFeatureDefinition,
+} from "@ableton-agent/protocol";
+import { melSmokeFixture } from "./mel-smoke-test-support.js";
+
+function automaticAnalysisFixture() {
+  const f = melSmokeFixture();
+  const geometry = f.observation.geometry;
+  const range = { startBeat: 0, endBeat: 4 };
+  const target = {
+    kind: "capture",
+    sessionId: f.owner.appSessionId,
+    liveSetId: "set",
+    contextId: f.contextId,
+    coordinate: "clip-local-beats",
+    range,
+  };
+  const features = (
+    [
+      "peak-summary/v1",
+      "mel-shape/v1",
+      "mel-region-summary/v1",
+      "mel-ratio-summary/v1",
+    ] as const
+  ).map((type) => {
+    const feature = extractListeningFeature(type, f.observation);
+    const definition = listeningFeatureDefinition(type);
+    return {
+      type,
+      units: definition.units,
+      normalization: definition.normalization,
+      dimensions: Array.from({ length: definition.dimensions }, (_, index) =>
+        String(index),
+      ),
+      status: feature.status,
+      reason: feature.reason,
+      values: feature.values,
+      coveredSamples: feature.coveredSamples,
+      expectedSamples: feature.expectedSamples,
+    };
+  });
+  const analysis = analysisPageSchema.parse({
+    source: {
+      name: "clip-1",
+      nameTruncated: false,
+      location: "Session",
+      capturedAt: f.start.job.createdAt,
+      coordinate: target.coordinate,
+      observedRange: range,
+      requestedRange: range,
+      readTarget: target,
+      freshness: "fresh",
+      geometry: {
+        sampleRate: geometry.sampleRate,
+        tempoBpm: geometry.tempoBpm,
+        captureStartSample: geometry.startSample,
+        transportStartBeat: 0,
+      },
+    },
+    readTarget: target,
+    status: "ready",
+    reason: null,
+    overview: [],
+    overviewIncluded: true,
+    overviewExtent: range,
+    timeline: [
+      {
+        kind: "segment-summary",
+        segment: {
+          ...range,
+          kind: "unaligned",
+          alignment: null,
+          alignmentReason: "musical-bar-alignment-not-established",
+          startSample: geometry.startSample,
+          endSample: geometry.endSample,
+          sampleRate: geometry.sampleRate,
+        },
+        ...range,
+        elapsedStartSeconds: 0,
+        elapsedEndSeconds: (4 * 60) / geometry.tempoBpm,
+        fragment: 0,
+        complete: true,
+        features,
+      },
+    ],
+    detail: {
+      offset: 0,
+      returnedItems: 1,
+      totalItems: 1,
+      truncated: false,
+      nextCursor: null,
+    },
+  });
+  f.records.splice(2, 2);
+  const start = f.records.find(
+    (record) => record.kind === "tool_result" && record.toolCallId === "start",
+  );
+  if (start?.kind !== "tool_result") throw new Error("fixture");
+  start.result = { result: { content: { ...f.start, analyses: [analysis] } } };
+  return { ...f, analysis };
+}
 
 describe("agent listening result acceptance", () => {
+  it.each([false, true])(
+    "verifies automatic listen analysis without a second storage read (resolved listener=%s)",
+    (resolved) => {
+      const f = automaticAnalysisFixture();
+      const call = f.records[0];
+      if (call?.kind !== "tool_call") throw new Error("fixture");
+      if (resolved) delete call.arguments.listenerIds;
+      expect(() => verifyAgentListeningResult(f.input, "a")).not.toThrow();
+    },
+  );
+
+  it.each([
+    "context",
+    "owner",
+    "listener",
+    "sample-rate",
+    "extent",
+    "units",
+    "value",
+    "missing-bands",
+    "metadata-only",
+  ])("rejects %s in delivered automatic analysis", (fault) => {
+    const f = automaticAnalysisFixture();
+    const row = f.analysis.timeline[0]!;
+    if (fault === "context") f.analysis.readTarget.contextId = "foreign";
+    if (fault === "owner") f.analysis.readTarget.sessionId = "foreign";
+    if (fault === "listener") {
+      const call = f.records[0];
+      if (call?.kind !== "tool_call") throw new Error("fixture");
+      call.arguments.listenerIds = ["foreign"];
+    }
+    if (fault === "sample-rate") f.analysis.source.geometry!.sampleRate = 44100;
+    if (fault === "extent") row.endBeat = 5;
+    if (fault === "units") row.features[0]!.units = "Hz";
+    if (fault === "value") row.features[1]!.values![0] = 0.99;
+    if (fault === "missing-bands") {
+      row.features[1]!.values!.pop();
+      row.features[1]!.dimensions.pop();
+    }
+    if (fault === "metadata-only") row.features = [];
+    expect(() => verifyAgentListeningResult(f.input, "a")).toThrow();
+  });
+  it("retains complete typed history of an explicitly paginated analysis result", () => {
+    const f = agentListeningFixture();
+    const record = f.records.find(
+      (item) => item.kind === "tool_result" && item.toolCallId === "context",
+    );
+    if (record?.kind !== "tool_result") throw new Error("fixture");
+    const target = {
+      kind: "capture",
+      sessionId: f.owner.appSessionId,
+      liveSetId: "set",
+      contextId: "context",
+      coordinate: "clip-local-beats",
+      range: { startBeat: 0, endBeat: 4 },
+    };
+    const analysis = {
+      source: {
+        name: "clip",
+        nameTruncated: false,
+        location: "Session",
+        capturedAt: "2026-11-05T00:00:00.000Z",
+        coordinate: "clip-local-beats",
+        observedRange: target.range,
+        requestedRange: target.range,
+        readTarget: target,
+        freshness: "fresh",
+      },
+      readTarget: target,
+      status: "ready",
+      reason: null,
+      overview: [],
+      overviewIncluded: true,
+      timeline: [
+        {
+          kind: "support",
+          segment: {
+            ...target.range,
+            startSample: 0,
+            endSample: 96000,
+            sampleRate: 48000,
+            kind: "unaligned",
+            alignment: null,
+            alignmentReason: "musical-bar-alignment-not-established",
+          },
+          ...target.range,
+          elapsedStartSeconds: 0,
+          elapsedEndSeconds: 2,
+          fragment: 0,
+          complete: true,
+          features: [],
+          featureType: "peak-summary/v1",
+          support: [0, 96000],
+          supportCoordinate: "segment-relative-samples",
+          supportChannel: "aggregate",
+          supportOffset: 0,
+        },
+      ],
+      overviewExtent: target.range,
+      detail: {
+        offset: 0,
+        returnedItems: 1,
+        totalItems: 2,
+        truncated: true,
+        nextCursor: "analysis-page-2",
+      },
+    };
+    record.result = {
+      result: {
+        content: {
+          action: "read",
+          analyses: [analysis],
+          nextCursor: "analysis-page-2",
+        },
+      },
+    };
+    expect(() =>
+      validateAgentListeningEvidence(f.turn.agentListening),
+    ).not.toThrow();
+    analysis.detail.nextCursor = "";
+    expect(() =>
+      validateAgentListeningEvidence(f.turn.agentListening),
+    ).toThrow();
+    analysis.detail.nextCursor = "analysis-page-2";
+    record.result = { ...record.result, truncated: true };
+    expect(() =>
+      validateAgentListeningEvidence(f.turn.agentListening),
+    ).toThrow();
+  });
+
   it("requires typed agent consumption rather than backend-only success", () => {
     const registry = createDefaultAssertions();
     const { fixture, baseline } = agentListeningFixture().input;
@@ -282,6 +515,51 @@ describe("agent listening result acceptance", () => {
       ),
     ).rejects.toThrow("truncated");
   });
+  it.each([
+    { count: 720, fieldLength: 12_000, admitted: true },
+    { count: 1025, fieldLength: 0, admitted: false },
+    { count: 900, fieldLength: 14_000, admitted: false },
+  ])(
+    "bounds complete paged History ($count records, $fieldLength-character fields)",
+    async ({ count, fieldLength, admitted }) => {
+      const f = agentListeningFixture();
+      const original = f.records.find((record) => record.kind === "tool_call");
+      if (!original) throw new Error("Missing fixture tool call");
+      const records = Array.from({ length: count }, (_, index) => ({
+        ...original,
+        id: `page-call-${index}`,
+        toolCallId: `page-call-${index}`,
+        correlationId: `page-call-${index}`,
+        metadata: {
+          ...original.metadata,
+          first: "x".repeat(fieldLength),
+          second: "y".repeat(fieldLength),
+        },
+      }));
+      let offset = 0;
+      const collected = collectAgentListeningEvidence(
+        f.owner,
+        true,
+        async () => {
+          const page = records.slice(offset, offset + 100);
+          offset += page.length;
+          return agentHistoryPage(
+            page,
+            offset < records.length ? String(offset) : undefined,
+            records.length,
+          );
+        },
+      );
+      if (admitted) {
+        const evidence = await collected;
+        expect(evidence.records).toHaveLength(count);
+        expect(evidence.afterOwnedRestart).toBe(true);
+        expect(evidence.records.at(-1)?.id).toBe(`page-call-${count - 1}`);
+      } else {
+        await expect(collected).rejects.toThrow("history bound exceeded");
+      }
+    },
+  );
   it.each([
     "cursor",
     "missing-page",

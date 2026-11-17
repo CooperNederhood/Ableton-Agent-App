@@ -22,18 +22,6 @@
         "target.expectedClipName": "clip-1",
         "listenerIds.0": "$source.listenerId"
       }
-    },
-    {
-      "tool": "ableton_context",
-      "action": "derive-features",
-      "risk": "medium",
-      "maxUses": 2,
-      "stepIds": ["first", "second"],
-      "arguments": {
-        "action": "derive-features",
-        "contextIds.0": "$source.contextId",
-        "includeHistorical": false
-      }
     }
   ],
   "budget": { "runMs": 780000, "cleanupMs": 30000, "persistenceMs": 30000 },
@@ -41,7 +29,7 @@
     {
       "id": "first",
       "sourceId": "a",
-      "message": "Listen exactly once to the first Session clip on track audio-track with all six metric families: level, spectral-centroid, attacks, mel-bands, pitch and spectral-shape. Read its stored measurements including authoritative pitch/confidence and SpectralShape acquisition and validity. List its peak-summary/v1 features, derive stored features for this context only if needed, and read the peak feature values. Also read available stored flatness, spread, rolloff and confidence feature values, following feature pagination. Report IDs, source ranges, coverage and validity honestly: confidence is an algorithm score, not accuracy; pitch may be unavailable on this kick. Diagnostic snapshots are not qualified measurements. Do not capture again, change any source or launch settings, stop transport, seek, or reset anything. Stop immediately on any failure.",
+      "message": "Listen exactly once to the first Session clip on track audio-track with all six metric families: level, spectral-centroid, attacks, mel-bands, pitch and spectral-shape. Consume the automatically returned analysis and use its pinned readTarget with ableton_context read to follow every continuation through the full captured range, including measured feature values, native support coverage and unavailable reasons. Report the measured stereo peak, available flatness, spread, rolloff and confidence values with their context, source ranges, definitions and coverage. Confidence is an algorithm score, not accuracy; pitch may be unavailable on this kick. Diagnostic snapshots are not qualified measurements. Retain the returned readTarget for later comparison; no raw measurement read or feature-ID discovery is needed. Do not capture again, change any source or launch settings, stop transport, seek, reset, or explicitly derive anything. Stop immediately on any failure.",
       "timeoutMs": 150000,
       "assertions": [
         {
@@ -60,7 +48,7 @@
       "id": "second",
       "sourceId": "a",
       "setupActions": ["stop-transport"],
-      "message": "Listen exactly once more to the same first Session clip on track audio-track with all six metric families: level, spectral-centroid, attacks, mel-bands, pitch and spectral-shape. Read the new stored measurements, including authoritative analyzer acquisition and validity. Read both contexts' peak-summary/v1 feature values, deriving features for the new context only if needed. Compare the first peak feature to the second, then search from the first peak feature excluding its entire source context with excludeContextIds. Report the other context, feature ID, source range, Euclidean distance definition, distance and coverage. Discover the complete 15-definition feature catalog and inspect the stored families, following pagination. Read both contexts' available flatness, spread, rolloff and confidence feature values; inspect pitch-grid availability without inventing valid pitch for this kick. Confidence is an algorithm score, not accuracy, and diagnostic snapshots are not qualified measurements. Do not make another capture, stop transport, seek, reset, edit clips, or change launch/source settings. Stop immediately on any failure.",
+      "message": "Listen exactly once more to the same first Session clip on track audio-track with all six metric families: level, spectral-centroid, attacks, mel-bands, pitch and spectral-shape. Consume the returned analysis, using its pinned readTarget with ableton_context read for every continuation through the full range, including measured values, native support coverage and unavailable reasons. Read both captures' measured stereo peak, available flatness, spread, rolloff and confidence values. Compare their returned capture readTargets with featureTypes [peak-summary/v1], then search using the first readTarget as query, the second as scope, featureType peak-summary/v1 and withinCapture false. Follow all comparison/search continuations. Report the matched context and source range, canonical Euclidean distance definition, distance units, measured distance and coverage. Inspect all 15 canonical feature types and every measure's default musical values, units, timing and coverage from complete analysis pages, including pitch-grid availability without inventing valid pitch for this kick. Confidence is an algorithm score, not accuracy; no raw measurement read, verbose evidence detail or feature-ID discovery is needed. Do not make another capture, explicitly derive, stop transport, seek, reset, edit clips or change launch/source settings. Stop immediately on any failure.",
       "timeoutMs": 300000,
       "assertions": [
         {
@@ -78,7 +66,7 @@
     {
       "id": "restored",
       "setupActions": ["restart-owned-desktop"],
-      "message": "Without capturing, deriving, editing, seeking, stopping transport or resetting anything, read the same stored peak, flatness, spread, rolloff and confidence feature IDs from both previous captures, following value pagination. Read the original stored analyzer acquisition/validity evidence too. Report original context IDs, source ranges, definitions and coverage; do not treat confidence as accuracy or unavailable kick pitch as valid. Compare the original peak feature IDs again and report their persisted-values distance. Stop immediately if any previously available original source or feature is unavailable or changed.",
+      "message": "Without capturing, deriving, editing, seeking, stopping transport or resetting anything, use ableton_context read with the two original pinned capture readTargets and includeHistorical true. Follow every continuation through each full range, including every feature's measured values, units, timing, coverage and unavailable reasons. Report the original contexts, measured peak, flatness, spread, rolloff and confidence, source ranges, definitions and coverage; do not treat confidence as accuracy or unavailable kick pitch as valid. Compare the original readTargets again with featureTypes [peak-summary/v1] and includeHistorical true, following every continuation, and report the persisted-values distance. No raw measurement read, verbose evidence detail or feature-ID discovery is needed. Stop immediately if any previously available original source or feature is unavailable or changed.",
       "timeoutMs": 300000,
       "assertions": [
         { "name": "no-capture", "parameters": {} },

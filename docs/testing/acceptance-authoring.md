@@ -1,5 +1,79 @@
 # Acceptance test authoring
 
+## Listening analysis contract migration
+
+The musical-analysis tool redesign replaces explicit feature derivation and
+inventory/value lookups with automatic listening results and source-based
+read/compare/search. Existing fixture assets, musical answers, capture counts,
+source guards, persistence and cleanup remain the acceptance contract.
+Tool-call choreography is not itself the musical outcome: a real analysis
+delivered in the original listening result satisfies consumption without a
+redundant second storage call.
+
+The user explicitly authorized small tooling-driven prompt/expectation changes
+and reasonable finite budget adjustments for this migration.
+Document each adjustment and its cause; preserve failed receipts. This is not
+permission to substitute expected answers, invent consumed evidence, weaken
+ownership/native checks, skip registered cases or ignore cleanup failures.
+Final qualification requires all registered user-message scenarios and the
+independent suite verifier green on the final candidate, after code review.
+
+`suite-3kErcF` completed all nineteen cases with fourteen passes, five failures
+and complete cleanup. Three failures were correctly denied ungranted actions,
+not approval-matcher equivalence bugs. The authorized prompt corrections make
+existing scope explicit: the second two-MIDI turn starts with already stopped
+transport; the three-minute Arrangement listen starts playback itself, rather
+than a separate Play command; comprehension listens once to each of five sources
+and reuses recorded analysis. Permissions, counts, musical answers and fixture
+assets are unchanged. Both long consolidation failures genuinely omitted most
+value pages, not an oracle paging-equivalence bug. Preserve this failed suite
+separately from qualification. The subsequent user-approved structural-report
+migration below restores the original consolidation intent; it does not
+reclassify those historical failures or relax feature-search numerical checks.
+
+Pre-approval capture resolution inserts the tool schema's default
+`maximumDurationMs`. The scoped approval matcher treats that exact current
+default as equivalent to omission for both single-source and named-source
+grants. It reads the default from the canonical schema rather than maintaining
+a second timeout constant. Explicit non-default deadlines, source/listener
+identities, extra arguments, step scopes and finite use counts remain exact.
+This fixes `run-lk3EFX`, which reached the actual listening request but was denied
+before capture by the older matcher; it is not permission to increase a
+reviewed explicit deadline or replay a capture.
+
+Typed analysis pagination differs from lost History content. A validated result
+may explicitly mark remaining detail and return a continuation; journal-level
+truncation, invalid continuation and omitted binary/audio bodies still cannot
+establish complete evidence. Oracles verify the required returned values and
+coverage rather than accepting a count or a generated assistant explanation.
+Acquisition proof belongs to the independent harness: retain its native
+identity, source hash, pass, geometry and original-frame checks without
+requiring the model to reread or echo those raw records. Bind delivered
+features through the pinned context, musical extent and canonical feature
+type; literal storage feature IDs are not a required agent interaction.
+Restart checks must still compare the original pinned source and actual
+returned values for numerical scenarios, or complete returned per-measure
+metadata for structural scenarios, not just a successful tool status.
+The acceptance-only History collector permits at most 1,024 records and
+24 MiB per turn, so complete multi-page twenty-measure evidence can be retained
+through restart. This replaces the 256-record/8-MiB limit; neither the product's
+64-KiB analysis response budget nor journal redaction/truncation rules change.
+Boundary regressions admit a complete 720-record history and reject excess
+records or bytes instead of silently dropping pages.
+The receipt coordinator gives these validated typed histories a separate
+24-MiB aggregate allowance across retained turns and final collected evidence,
+including repeated copies. It no longer forces complete musical pages into
+the older 512-KiB generic turn-history budget. Generic facts, assertions,
+redaction, structural completeness and instrument-tree limits stay unchanged.
+`run-wngPT7` passed both capture/feature-search phases, then failed while retaining
+the restored turn under that old wrapper limit; the failed receipt is preserved.
+The user-authorized correction admits complete histories, rejects aggregate
+exhaustion, and retains cleanup and durable failed-receipt behavior.
+For mel analysis, independently aggregate original linear frame magnitudes over
+the reported segment supports, then verify the full stereo normalized shape,
+regional sums and ratios. Do not compare normalized features to raw frame units
+or reuse the product feature extractor as the correctness oracle.
+
 ## Listening consolidation: message-driven storage shape and counts
 
 All four cases use the **existing user-message integration path**:
@@ -50,6 +124,60 @@ applicable channel/vector/grid dimensions. Aligned 4/4 sixteenth grids have
 sixteen cells. Expected counts come from the canonical contract, not just
 another equally empty/truncated output. Do not normalize distinct production
 formats in the test to hide a remaining storage fork.
+
+On 2026-11-17 the user approved a compact, complete per-measure structural
+report and restoration of the original consolidation scope. The pre-redesign
+long-audio scenario at `930d3063^` requested complete inventory, definitions,
+counts and grid dimensions, explicitly excluding numerical comparisons.
+All four prompts now request `ableton_context read` with
+`detail: "feature-shapes"` on each original pinned capture and again with
+`includeHistorical: true` after the owned restart. Exhaust every authentic
+returned shape cursor to `nextCursor: null`; never replace late measures or
+feature types with overview totals, repeated templates or sampled rows.
+An unfinished default numeric timeline from the listening response does not
+invalidate an otherwise complete, explicit structural read. Numeric
+feature-search consumption remains strict: a shape report cannot satisfy it.
+Budgets, permissions, source assets, musical answers, capture/native proofs,
+persisted-stream integrity and cleanup requirements do not change.
+
+Structural rows describe whole stored segments, not estimates of cropped
+features. The oracle joins complete row fragments, requires all fifteen
+canonical types on every one or twenty complete 4/4 measures, and verifies
+musical/sample ranges, elapsed timing, units, normalization, channel/vector
+dimensions, actual stored value counts, applicable sixteen-cell grid metadata,
+availability and native acquired-support coverage. Unavailable features remain
+explicit with zero measured values; they never become fabricated cells.
+Original and restored reports must agree for each pinned source, including
+availability, coverage and every feature's required `contentSha256`. Complete
+shape reads must come from successful,
+attributable turns with unchanged target/detail/historical cursor scope.
+
+The checksum is SHA-256 over
+`canonicalMetricRecordJson({schema: "stored-listening-feature/v1", feature: record.feature})`:
+the full persisted feature, including numeric vectors, grid validity/masks,
+supports and profile metadata, not merely its reported dimensions/counts.
+Require an original/restored checksum match for every exact pinned source,
+segment and canonical type. This retains the previous tool-delivered numerical
+change-detection boundary without requiring the agent to page all vectors.
+It relies on the same trusted product producer as the previous numeric result
+comparison; it is not an independent stored-vector IPC read or a DSP oracle.
+A changed value with identical shape metadata must fail restart equality.
+
+Independent `storageShapes` evidence establishes original source/pass binding,
+geometry, six-family expected/retained/missing record counts, acquired-support
+unions, restart-stable content fingerprints and (for long captures) attributed
+durable appends during capture. It does not independently recompute every
+derived value, per-channel validity mask or availability classification, and
+its native-record hash does not cover derived-feature values. The structural
+report supplies persisted metadata and producer-bound full-feature equality
+checksums, not numerical ground truth. Separate feature-search/equivalence
+mathematics and native
+tests remain responsible for numerical correctness; their required value
+pages and original-frame comparisons are not waived by this migration.
+Bounded regressions retain each twenty-measure report within four pages and
+160,000 bytes. Combined typed histories use the already-established shared
+24-MiB allowance, not the superseded 512-KiB inventory-only fixture threshold;
+adding full-feature checksums does not change configured retention budgets.
 
 Both views are verified from original committed descriptor/chunks/manifest
 through typed Desktop reads. Restart fingerprints bind original descriptor,
@@ -183,15 +311,40 @@ message and exactly five successful listens: MIDI Session `clip-1` through
 `clip-4` on `1-808 Core Kit`, then the complete Arrangement on `2-Audio`.
 Each Session clip is four beats; the Arrangement is beats 0-80 at 128 BPM.
 The terminal answer must contain twenty clip numbers, hyphens within groups
-of four, and leading, trailing and separating vertical bars, without prose or
-internal whitespace. The exact expected sequence is runner-only oracle data.
+of four, and leading, trailing and separating vertical bars, without internal
+whitespace. The user subsequently approved brief explanatory text outside exactly
+one sequence block. The oracle extracts the entire first-to-last-pipe span from
+each pipe-bearing line and requires exactly one block equal to the expected
+twenty-measure sequence. It does not search for the expected answer as a substring:
+duplicate, contradictory, malformed, partial and overlong blocks remain failures.
+The exact expected sequence is runner-only oracle data.
 Do not inject it into the message or staged project.
 
 The approved budgets are thirty minutes for the agent turn, thirty-five minutes
 overall and two minutes each for cleanup/persistence. Propagate the same turn
 allowance into the isolated Desktop's agent setting. The scoped rules permit
-five Stops and one derivation per original source context; they do not authorize
-seeking, recapture or a changed answer.
+up to sixteen uses each of Stop, Back to Arrangement and unquantized stop-clips
+on the authorized Session track. These are finite safety ceilings, not a required
+execution sequence. The user explicitly approved flexible setup/read paths while
+retaining exactly one capture per source. Repeated source preparation and the
+choice/order of read-only analysis, comparisons and searches are not comprehension
+failures. The twenty-measure answer, all five attributable native captures,
+unchanged musical content and cleanup remain the scoring requirements.
+Standalone Play, seeking, foreign-track actions, destructive edits and recapture
+remain unauthorized. Existing capture-specific tests retain their tighter policies.
+
+The prior one-use Back-to-Arrangement allowance failed `suite-x9zfXS` case 15:
+the agent cleared an initial override, captured four Session clips, then correctly
+needed to clear the new override before Arrangement listening. All other eighteen
+cases passed and the suite reclaimed its resources. Preserve that failed receipt;
+the revised contract requires a new run rather than reclassifying the old result.
+
+The next full run, `suite-fd5iAj`, again passed eighteen cases; comprehension supplied
+the correct sequence but added explanatory prose. Replaying its unchanged native
+evidence with the actually supplied sequence line satisfied the full comprehension
+oracle. The approved presentation relaxation does not change the musical answer
+or five-capture, source, ownership, unchanged-content and cleanup checks.
+Retain the original failed receipt; qualify the revised contract separately.
 
 Arrangement derivation reuses the canonical scenario source selector when a
 step has no explicit source. It still checks the admitted track/listener and
@@ -1920,6 +2073,24 @@ arguments with no extras, actual metadata/risk, ownership and pending operation,
 and consume the declared usage budget. Declarations cannot override high,
 destructive, or unknown runtime metadata.
 
+For `play-arrangement-and-listen`, canonical `sources` may accompany the exact
+reviewed listener and bounds without changing the permission manifest. The
+matcher first validates the public argument schema and requires exactly one
+source and one listener bound by `$source.listenerId`. Every supplied selector
+leaf must match the independently reviewed Arrangement source: regular-track
+kind, index, runtime reference and track name. Only these verified leaves
+extend the exact comparison; explicit manifest fields still take precedence.
+Multiple, foreign, malformed or extra selectors remain denied. An explicit
+`listenerDeviceReference` is not inferred from a listener ID or device index:
+the existing source evidence cannot independently bind that device reference,
+so such ambiguous requests remain denied. Listener-only requests remain valid.
+Schema-default deadline insertion is equivalent to omission, but arbitrary
+explicit deadlines are not: the saved `suite-uDqogv` case-13 `30000`-ms request
+remains denied when the manifest did not grant it. Bounds, ownership, step
+guards and usage counts remain exact. These matcher regressions replay the
+reviewed case-14 and case-16–19 manifest contracts without changing musical
+fixtures, prompts or allowlists; they are not new real-host qualification.
+
 Review the mutation oracle's actual extent. `session-structure` hashes public
 snapshot track/clip/device identities and exposed mixer/routing fields, with
 scenes/Arrangement/cues when present; it does not enumerate every plug-in/device
@@ -2192,8 +2363,26 @@ and run evidence and reports their paths. Retained directory/byte limits reject
 new admission rather than automatically deleting old evidence.
 
 The CLI uses the existing `.test-artifacts/acceptance/` tooling location, not a
-second application-profile layout. Admission limits are 16 immediate entries,
-8,192 recursive entries, and 2 GiB with a 256 MiB reservation for a new run.
+second application-profile layout. Admission limits are 64 immediate entries,
+16,384 recursive entries, and 8 GiB with a shared 256 MiB reservation per selected
+case. The 19-case suite reserves 4.75 GiB before launching anything, leaving
+3.25 GiB for earlier evidence. The former 2 GiB budget rejected the entire
+registered suite before any case could run. This finite budget increase uses
+the user's explicit authorization; it changes no case, oracle or cleanup guard.
+The separately authorized increases from 16 through 32 to 64 immediate entries admit
+preserved prior attempts alongside new suites; it leaves the 8 GiB total,
+256 MiB per-case reservation unchanged.
+The shared exported `acceptanceArtifactRetention` governs single/suite admission
+and its boundary tests. The 32-entry limit blocked a new comprehension run before
+execution with only 1.48 GiB retained; the finite 64-entry allowance preserves
+those earlier receipts while admitting focused regressions and another suite.
+At 64 retained entries, further allocation fails without
+deleting or altering prior evidence.
+The aggregate recursive-entry allowance increased separately from 8,192 to 16,384
+under the same finite-budget authorization after preserved evidence reached
+9,616 entries (2.08 GiB). It is distinct from the unchanged per-working-copy
+8,192-entry ceiling; overflow still preserves evidence and releases only the
+allocator's own lock.
 Working-tree retention is bounded to 256 MiB, 8,192 inventory entries, and 256
 allowlisted paths. An atomic admission lock protects concurrent allocations;
 inspect a stale lock and retained evidence before any manual cleanup. There is

@@ -22,18 +22,6 @@
         "target.expectedClipName": "clip-1",
         "listenerIds.0": "$source.listenerId"
       }
-    },
-    {
-      "tool": "ableton_context",
-      "action": "derive-features",
-      "risk": "medium",
-      "maxUses": 2,
-      "stepIds": ["first", "second"],
-      "arguments": {
-        "action": "derive-features",
-        "contextIds.0": "$source.contextId",
-        "includeHistorical": false
-      }
     }
   ],
   "budget": { "runMs": 360000, "cleanupMs": 30000, "persistenceMs": 30000 },
@@ -41,7 +29,7 @@
     {
       "id": "first",
       "sourceId": "a",
-      "message": "Listen exactly once to the first Session clip on track audio-track using normal listening. Read its stored measurements, list its peak-summary/v1 feature, derive stored features for this context only if needed, and read the persisted stereo peak feature values. Report the context ID, peak feature ID, source range, definition and coverage. Do not capture again, stop transport, seek, reset, edit clips or change any source or launch settings. Stop immediately on any failure.",
+      "message": "Listen exactly once to the first Session clip on track audio-track using normal listening. Consume the returned analysis and follow every continuation with ableton_context read using its pinned readTarget through the full captured range. Report the persisted stereo peak-summary/v1 values, context, source range, definition and coverage; retain the readTarget for later comparison. Do not capture again, explicitly derive, stop transport, seek, reset, edit clips or change any source or launch settings. Stop immediately on any failure.",
       "timeoutMs": 150000,
       "assertions": [
         {
@@ -63,7 +51,7 @@
       "id": "second",
       "sourceId": "a",
       "setupActions": ["stop-transport"],
-      "message": "Listen exactly once more to the same first Session clip on track audio-track using normal listening. Read its stored measurements and both contexts' persisted stereo peak-summary/v1 values, deriving features for the new context only if needed. Compare the first peak feature to the second. Search from the first peak feature, excluding its entire source context with excludeContextIds. Report the other context and feature ID, source range, canonical Euclidean distance definition, distance units, measured distance and coverage. Do not make another capture, stop transport, seek, reset, edit clips or change source or launch settings. Stay in this same conversation; no restart is needed. Stop immediately on any failure.",
+      "message": "Listen exactly once more to the same first Session clip on track audio-track using normal listening. Consume the returned analysis and follow every continuation with ableton_context read using its pinned readTarget through the full captured range. Read both captures' persisted stereo peak-summary/v1 values. Compare their returned capture readTargets with featureTypes [peak-summary/v1]. Search with the first readTarget as query, the second as scope, featureType peak-summary/v1 and withinCapture false. Follow all comparison/search continuations. Report the other context, source range, canonical Euclidean distance definition, distance units, measured distance and coverage. Do not make another capture, explicitly derive, stop transport, seek, reset, edit clips or change source or launch settings. Stay in this same conversation; no restart is needed. Stop immediately on any failure.",
       "timeoutMs": 180000,
       "assertions": [
         {

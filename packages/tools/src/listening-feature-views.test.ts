@@ -17,7 +17,7 @@ import {
 import {
   contextOperationParamsSchema,
   contextOperationResultSchema,
-  createListeningTools,
+  executeContextDiagnosticOperation,
 } from "./listening-tools.js";
 
 const peak = () =>
@@ -323,14 +323,17 @@ describe("bounded listening feature views", () => {
     if (response.action !== "get-feature")
       throw new Error("Expected feature page");
     const executeContextOperation = vi.fn(async () => response);
-    const [, tool] = createListeningTools({
-      executeListeningOperation: async () => ({
-        action: "inspect-listeners",
-        listeners: [],
-        truncated: false,
-      }),
-      executeContextOperation,
-    });
+    const tool = {
+      handler: (
+        ...args: Parameters<typeof executeContextDiagnosticOperation> extends [
+          unknown,
+          ...infer Rest,
+        ]
+          ? Rest
+          : never
+      ) =>
+        executeContextDiagnosticOperation({ executeContextOperation }, ...args),
+    };
     const params = contextOperationParamsSchema.parse({
       action: "get-feature",
       featureId: "feature",

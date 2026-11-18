@@ -1,5 +1,106 @@
 # Playback Listening Implementation To-Do
 
+- [x] Retain bounded metric launch-binding operands through the existing
+      lifecycle before validation, with actual runtime/SDK delivery, failure
+      and cancellation cleanup regressions.
+- [ ] Diagnose the native third-Session launch refusal in `run-6mxmAH`
+      using recorded operands; do not treat an uninstrumented rerun as a fix.
+- [x] Reproduce `suite-9TpkqF`'s two-MIDI pre-onset clock race and wait for an
+      observed native clock covering the DSP origin, within the existing launch
+      deadline and without changing the binding validator or native DSP.
+      Cover one attributed progress event, actual runtime/SDK delivery, success,
+      strict-policy denial, timeout, cancellation and cleanup.
+- [x] Qualify `478b9887` with two consecutive fresh two-MIDI passes
+      (`run-W7jtTN`, `run-0I92qM`), then all 19 in `suite-tj2y9i` and independent
+      receipt verification, with complete cleanup and no unrun/unknown cases.
+- [x] Complete an isolated packaged Default-agent visual listen/stop workflow
+      with ordinary approvals and typed history; preserve the strict host's
+      post-UI-closure refusal separately from verified operator cleanup.
+
+## Musical analysis tool topology
+
+- [x] Return automatically derived analysis in the terminal listening result,
+      with distinct capture/analysis outcomes and no extra calculation call.
+- [x] Join existing automatic derivation without duplicate queue work; cover
+      completion races, independent waiter cancellation, failure and shutdown.
+- [x] Replace registered discovery/derive/feature-ID actions with source-based
+      read, compare and search while preserving typed diagnostic consumers.
+- [x] Resolve the newest positively fresh covering capture; preserve exact
+      source/owner guards and pin returned references to immutable evidence.
+- [x] Read exact native captures with honestly unknown current-source freshness,
+      without weakening fresh source selection or stale/ownership guards.
+      Preserve `run-IP1P9O`: capture succeeded but automatic analysis was denied;
+      the subsequent unsolicited prune request was denied with no deletion.
+      Cover real repository publication/derivation rather than mocking freshness.
+- [x] Resolve capture arguments before the actual SDK human-approval callback;
+      bind frozen canonical arguments to the tool-call ID and invocation trace,
+      with no playback after denial, cancellation or mismatch.
+- [x] Present canonical grid values together in chronological musical intervals,
+      separate segment summaries, and disclose native supports and uncertainty.
+- [x] Automatically page oversized results and nested value/support blocks;
+      prove forward progress and lossless detail without response-size failures.
+- [x] Keep default musical values compact across twenty measures; do not make
+      repeated metadata/envelopes require hundreds of reads. Retain complete
+      technical evidence through explicit typed detail, not default repetition.
+- [x] Support direct output-to-input source, passage, feature and comparison
+      targets with one-call drill-down and no intervening discovery.
+- [x] Compare full requested extents and search passages with explicit temporal
+      correspondence, canonical distances and configurable `topK`.
+- [x] Update scoped tool descriptions, permission metadata, typed History,
+      lifecycle timing, redaction and trace propagation.
+- [x] Generate scoped context action argument names from canonical schemas so
+      compare filters and the single search ranking feature are explicit.
+      Keep the rejected-call oracle and original peak failure receipt intact.
+- [x] Remove the obsolete mandatory listener-discovery instruction from the
+      Default scoped description; preserve automatic resolution and optional
+      inventory for disambiguation.
+- [x] Advertise accepted input schemas so default deadlines are optional;
+      enumerate capture action arguments and put sequence preparation ahead of
+      musical values without changing playback or retry authorization.
+- [x] Disambiguate Session location `target.view` from track/analysis `kind` in
+      Default and scoped descriptions; preserve strict malformed-target denial.
+- [x] State automatic metric-family acquisition and optional installed-device
+      listener identity explicitly; keep metric-name arrays rejected before
+      playback and retain the original six-family acceptance assertions.
+- [x] Reuse concise next-Session preparation guidance in the post-tool policy
+      hook, including fresh/resumed SDK sessions. Preserve result bytes,
+      leave-running behavior, approvals and failed-capture retry barriers.
+- [x] Put shared-transport serialization and between-capture preparation in
+      initial Default/scoped guidance, before any captures can be batched.
+- [x] Make preparation conditional on current moving transport, not remembered
+      capture state; neither listening action needs a separate playback start.
+- [x] Put existing pagination/truncation fields before bulk SDK value arrays;
+      distinguish exhaustive detail consumption from overview counts or samples.
+      Keep exact cursors, byte limits, values and independent oracles unchanged.
+- [x] Add user-approved `read.detail: "feature-shapes"` by projecting existing
+      stored metadata into complete per-segment feature shapes. Keep defaults
+      numeric, label whole-segment scope, preserve unavailable reasons and use
+      the existing signed paging, lifecycle, cancellation and History paths.
+- [x] Cover all fifteen feature types across twenty measures within four pages
+      and 160 KiB, exact vector/cell counts, fragments, historical cursor binding,
+      wrong-owner/stale/range denial, failure, cancellation and credential redaction.
+- [x] Include a canonical full-feature SHA-256 commitment in compact reports;
+      preserve original/restored numeric-content equality without agent vector
+      paging. Regress value, grid-support and profile changes with unchanged shapes.
+- [x] Round-trip actual Session post-tool hooks through typed History using the
+      shared guidance builder and exact action binding; reject altered, duplicated,
+      foreign-tool and mismatched-action suffixes without losing valid values.
+- [x] Continue reads with a self-contained signed cursor, retaining the original
+      target/detail/history scope and rechecking ownership, freshness and expiry.
+      Keep exact byte bounds, complete reconstruction and tamper denial.
+- [x] Reserve the actual encoded cursor at every comparison-bundle occurrence,
+      size the complete response, and preserve progress and lossless values and
+      technical evidence across continuations.
+- [x] Prove red/green regressions and owning deterministic suites.
+- [ ] Run basic simple listening cases as message-driven regressions, then all
+      registered packaged acceptance scenarios on a clean committed candidate
+      and verify their aggregate terminal receipt. Preserve failures and cleanup;
+      no skipped, failed or unrun case is green. Fixture authoring stays deferred.
+- [x] Before the final PR, invoke the code-review tool against the completed
+      diff for reuse/code sprawl, modularity, meaningful tests and current docs;
+      address findings. Any changed candidate requires renewed final-candidate
+      acceptance qualification rather than inheriting an earlier green receipt.
+
 ## User-authorized comprehension follow-on
 
 Qualification, candidate pins and preserved failures are maintained in the

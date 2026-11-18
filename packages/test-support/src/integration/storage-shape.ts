@@ -3,7 +3,6 @@ import { createHash } from "node:crypto";
 import {
   LISTENING_FEATURE_DEFINITIONS,
   metricAudioObservationSchema,
-  contextSegmentSchema,
   type MetricAudioObservation,
   type MetricRecordStreamDescriptor,
   type MetricRecordStreamManifest,
@@ -15,17 +14,22 @@ import {
 import type { TelemetryEventPage } from "@ableton-agent/observability";
 import {
   contextOperationResultSchema,
-  expandListeningFeatureInventory,
+  type expandListeningFeatureInventory,
 } from "@ableton-agent/tools";
-import type { AssertionInput, TurnEvidence } from "./contracts.js";
-import { readFeatureToolPairs } from "./feature-search.js";
+import type { AssertionInput } from "./contracts.js";
+import {
+  readFeatureToolPairs,
+  readCompleteAnalyses,
+  deliveredAnalysisRowGroups,
+  immutableDeliveredAnalysis,
+  type CompleteAnalysis,
+} from "./feature-search.js";
 import {
   validateAgentListeningEvidence,
   type AgentListeningEvidence,
 } from "./agent-listening-result.js";
 import {
   identifier,
-  listenerIdentifier,
   rejectUnknownFields,
   requireCondition,
 } from "./validation.js";
@@ -45,6 +49,12 @@ function list(value: unknown, maximum: number): asserts value is unknown[] {
 
 /** Counts are local integrity checks, never cross-capture native frame comparisons. */
 export interface StorageShapeEvidence {
+  readonly geometry?: {
+    readonly sampleRate: number;
+    readonly tempoBpm: number;
+    readonly startSample: number;
+    readonly endSample: number;
+  };
   readonly incrementalDurability?: {
     readonly captureStartedAt: string;
     readonly firstDurableAt: string;
@@ -65,7 +75,22 @@ export interface StorageShapeEvidence {
     readonly expectedRecords: number;
     readonly retainedRecords: number;
     readonly missingRecords: number;
+    readonly acquiredSupport?: readonly (readonly [number, number])[];
   }[];
+}
+function acquiredSupport(
+  supports: readonly { startSample: number; endSample: number }[],
+): [number, number][] {
+  const intervals: [number, number][] = [];
+  for (const support of [...supports].sort(
+    (a, b) => a.startSample - b.startSample,
+  )) {
+    const previous = intervals.at(-1);
+    if (previous && support.startSample <= previous[1])
+      previous[1] = Math.max(previous[1], support.endSample);
+    else intervals.push([support.startSample, support.endSample]);
+  }
+  return intervals;
 }
 
 export function projectIncrementalDurability(
@@ -123,6 +148,12 @@ export function projectStreamStorageShape(
     passId: proof.passId,
     schema: "metric-record-stream-context/v1",
     contentSha256: streamProofContentSha256(proof),
+    geometry: {
+      sampleRate: descriptor.geometry.sampleRate,
+      tempoBpm: descriptor.geometry.tempoBpm,
+      startSample: descriptor.geometry.startSample,
+      endSample: descriptor.geometry.endSample,
+    },
     metricSchemas: descriptor.requestedMetrics
       .map((metric) => `${descriptor.schema}:${metric}`)
       .sort(),
@@ -133,12 +164,29 @@ export function projectStreamStorageShape(
         ? descriptor.geometry.endBeat - descriptor.geometry.startBeat
         : descriptor.geometry.endBeat,
     afterOwnedRestart: proof.afterOwnedRestart,
-    metrics: manifest.metrics.map((metric) => ({
-      metric: metric.metric,
-      expectedRecords: metric.expectedRecords,
-      retainedRecords: metric.nextRecordOffset,
-      missingRecords: metric.missingRecords,
-    })),
+    metrics: manifest.metrics.map((metric) => {
+      const algorithm = descriptor.algorithms.find(
+        (item) => item.metric === metric.metric,
+      );
+      const first =
+        algorithm?.metric === "spectral-centroid"
+          ? algorithm.algorithm?.firstFrameEndSample
+          : undefined;
+      const start =
+        first == null
+          ? descriptor.geometry.startSample
+          : Math.max(descriptor.geometry.startSample, first - 2048);
+      return {
+        metric: metric.metric,
+        expectedRecords: metric.expectedRecords,
+        retainedRecords: metric.nextRecordOffset,
+        missingRecords: metric.missingRecords,
+        acquiredSupport:
+          metric.nextRecordOffset > 0 && metric.lastRecordEndSample !== null
+            ? [[start, metric.lastRecordEndSample] as const]
+            : [],
+      };
+    }),
   };
 }
 
@@ -148,10 +196,20 @@ export function projectObservationStorageShape(
   afterOwnedRestart: boolean,
 ): StorageShapeEvidence {
   const observation = metricAudioObservationSchema.parse(input);
+  const startSample =
+    observation.metrics.level.records[0]?.support.startSample ?? 0;
+  const endSample =
+    observation.metrics.level.records.at(-1)?.support.endSample ?? 0;
   return {
     contextId,
     passId: observation.ownership.passId,
     schema: observation.schema,
+    geometry: {
+      sampleRate: observation.geometry.sampleRate,
+      tempoBpm: observation.geometry.tempoBpm,
+      startSample,
+      endSample,
+    },
     contentSha256: createHash("sha256")
       .update(JSON.stringify(observation))
       .digest("hex"),
@@ -178,6 +236,14 @@ export function projectObservationStorageShape(
         retainedRecords:
           "records" in metric ? metric.records.length : metric.frames.length,
         missingRecords: metric.gaps.reduce((sum, gap) => sum + gap.count, 0),
+        acquiredSupport: acquiredSupport(
+          ("records" in metric ? metric.records : metric.frames)
+            .map((record) => ({
+              startSample: Math.max(startSample, record.support.startSample),
+              endSample: Math.min(endSample, record.support.endSample),
+            }))
+            .filter((support) => support.endSample > support.startSample),
+        ),
       };
     }),
   };
@@ -198,7 +264,29 @@ export function validateStorageShapeEvidence(
     "metrics",
     "contentSha256",
     "incrementalDurability",
+    "geometry",
   ]);
+  if (value.geometry !== undefined) {
+    object(value.geometry);
+    rejectUnknownFields(value.geometry, [
+      "sampleRate",
+      "tempoBpm",
+      "startSample",
+      "endSample",
+    ]);
+    requireCondition(
+      Object.values(value.geometry).every(
+        (number) => typeof number === "number" && Number.isFinite(number),
+      ) &&
+        Number(value.geometry.sampleRate) > 0 &&
+        Number(value.geometry.tempoBpm) > 0 &&
+        Number.isSafeInteger(value.geometry.startSample) &&
+        Number(value.geometry.startSample) >= 0 &&
+        Number.isSafeInteger(value.geometry.endSample) &&
+        Number(value.geometry.endSample) > Number(value.geometry.startSample),
+      "Invalid independent native storage geometry",
+    );
+  }
   if (value.incrementalDurability !== undefined) {
     object(value.incrementalDurability);
     const proof = value.incrementalDurability;
@@ -282,7 +370,28 @@ export function validateStorageShapeEvidence(
       "expectedRecords",
       "retainedRecords",
       "missingRecords",
+      "acquiredSupport",
     ]);
+    if (metric.acquiredSupport !== undefined) {
+      list(metric.acquiredSupport, 4096);
+      let end = -1;
+      for (const support of metric.acquiredSupport) {
+        list(support, 2);
+        requireCondition(
+          support.length === 2 &&
+            Number.isSafeInteger(support[0]) &&
+            Number.isSafeInteger(support[1]) &&
+            Number(support[0]) >= 0 &&
+            Number(support[0]) >= end &&
+            Number(support[1]) > Number(support[0]) &&
+            (value.geometry === undefined ||
+              (Number(support[0]) >= Number(value.geometry.startSample) &&
+                Number(support[1]) <= Number(value.geometry.endSample))),
+          "Invalid independent native acquisition support",
+        );
+        end = Number(support[1]);
+      }
+    }
     requireCondition(
       [
         "level",
@@ -315,23 +424,6 @@ export function validateStorageShapeEvidence(
 }
 
 type FeatureView = ReturnType<typeof expandListeningFeatureInventory>[number];
-function compactFeature(view: FeatureView) {
-  const { id, entryId, segmentId, sessionId, liveSetId, sourceFingerprint } =
-    view.record;
-  return {
-    id,
-    entryId,
-    segmentId,
-    sessionId,
-    liveSetId,
-    sourceFingerprint,
-    passId: view.source.passId,
-    segment: view.segment,
-    shape: featureShape(view.record.feature),
-    valueCount: view.record.feature.valueCount,
-  };
-}
-type StoredShape = ReturnType<typeof compactFeature>;
 const FEATURE_REFERENCE_FIELDS = [
   "id",
   "provenance",
@@ -441,297 +533,6 @@ export function projectStorageShapeHistory(
   return projected;
 }
 
-function inventoryPage(data: Record<string, unknown>) {
-  if (data.projection !== "acceptance-storage-inventory/v1") {
-    const page = contextOperationResultSchema.parse(data);
-    requireCondition(
-      page.action === "list-features",
-      "Expected typed feature inventory",
-    );
-    return {
-      ...page,
-      features: expandListeningFeatureInventory(page.inventory).map(
-        compactFeature,
-      ),
-    };
-  }
-  rejectUnknownFields(data, [
-    "action",
-    "projection",
-    "inventory",
-    "derivation",
-    "nextCursor",
-  ]);
-  object(data.inventory);
-  const inventory = data.inventory;
-  const tables = [
-    "features",
-    "provenance",
-    "segments",
-    "alignments",
-    "sources",
-    "metadata",
-  ] as const;
-  rejectUnknownFields(inventory, [...tables, "featureFields"]);
-  list(inventory.featureFields, FEATURE_REFERENCE_FIELDS.length);
-  requireCondition(
-    inventory.featureFields.length === FEATURE_REFERENCE_FIELDS.length &&
-      inventory.featureFields.every(
-        (field, index) => field === FEATURE_REFERENCE_FIELDS[index],
-      ),
-    "Invalid feature reference field order",
-  );
-  for (const table of tables) list(inventory[table], 100);
-  const reference = (table: (typeof tables)[number], index: unknown) => {
-    requireCondition(
-      Number.isSafeInteger(index) && Number(index) >= 0,
-      "Invalid inventory table index",
-    );
-    const values = inventory[table] as unknown[];
-    const value = values[Number(index)];
-    requireCondition(value !== undefined, "Missing inventory table reference");
-    return value;
-  };
-  const features = (inventory.features as unknown[]).map((row) => {
-    list(row, FEATURE_REFERENCE_FIELDS.length);
-    requireCondition(
-      row.length === FEATURE_REFERENCE_FIELDS.length,
-      "Invalid feature reference row width",
-    );
-    const raw = Object.fromEntries(
-      FEATURE_REFERENCE_FIELDS.map((field, index) => [field, row[index]]),
-    );
-    const provenance = reference("provenance", raw.provenance);
-    object(provenance);
-    rejectUnknownFields(provenance, [
-      "entryId",
-      "sessionId",
-      "liveSetId",
-      "sourceFingerprint",
-    ]);
-    const source = reference("sources", raw.source);
-    object(source);
-    rejectUnknownFields(source, ["passId"]);
-    const metadata = reference("metadata", raw.metadata);
-    object(metadata);
-    rejectUnknownFields(metadata, ["shape", "valueCount"]);
-    const compactSegment = reference("segments", raw.segment);
-    object(compactSegment);
-    const alignment = reference("alignments", compactSegment.alignment);
-    const originalSegment: Record<string, unknown> = {
-      ...compactSegment,
-      alignment: alignment === null ? undefined : alignment,
-    };
-    const value: Record<string, unknown> = {
-      id: raw.id,
-      ...provenance,
-      segmentId: originalSegment.id,
-      segment: originalSegment,
-      passId: source.passId,
-      ...metadata,
-    };
-    object(value);
-    rejectUnknownFields(value, [
-      "id",
-      "entryId",
-      "segmentId",
-      "sessionId",
-      "liveSetId",
-      "sourceFingerprint",
-      "passId",
-      "segment",
-      "shape",
-      "valueCount",
-    ]);
-    for (const id of [
-      value.id,
-      value.entryId,
-      value.segmentId,
-      value.sessionId,
-      value.liveSetId,
-      value.passId,
-    ])
-      listenerIdentifier(id);
-    requireCondition(
-      typeof value.sourceFingerprint === "string" &&
-        /^[a-f0-9]{64}$/u.test(value.sourceFingerprint),
-      "Invalid stored feature source fingerprint",
-    );
-    const segment = contextSegmentSchema.parse(value.segment);
-    requireCondition(
-      segment.id === value.segmentId &&
-        segment.entryId === value.entryId &&
-        segment.sessionId === value.sessionId &&
-        segment.liveSetId === value.liveSetId,
-      "Foreign feature segment ownership",
-    );
-    object(value.shape);
-    const shape = value.shape;
-    rejectUnknownFields(shape, [
-      "type",
-      "units",
-      "profile",
-      "distanceDefinition",
-      "distanceUnits",
-      "normalization",
-      "supportPolicy",
-      "sampleRate",
-      "durationSeconds",
-      "dimensions",
-      "channels",
-      "grid",
-    ]);
-    const definition = LISTENING_FEATURE_DEFINITIONS.find(
-      ({ type }) => type === shape.type,
-    );
-    requireCondition(
-      definition &&
-        shape.units === definition.units &&
-        shape.profile === definition.profile &&
-        shape.distanceDefinition === definition.distanceDefinition &&
-        shape.distanceUnits === definition.distanceUnits &&
-        shape.normalization === definition.normalization &&
-        shape.dimensions === definition.dimensions &&
-        [44100, 48000].includes(Number(shape.sampleRate)) &&
-        typeof shape.durationSeconds === "number" &&
-        Number.isFinite(shape.durationSeconds) &&
-        shape.durationSeconds > 0 &&
-        shape.durationSeconds <= 30,
-      "Invalid canonical feature shape",
-    );
-    const analyzer =
-      definition.profile === "pitch-profile/v1" ||
-      definition.profile === "spectral-shape-profile/v1";
-    requireCondition(
-      shape.channels === (analyzer ? 2 : null) &&
-        shape.supportPolicy ===
-          (definition.grid
-            ? "matching-cell-mask"
-            : definition.type === "peak-summary/v1"
-              ? "complete-required"
-              : "retained-overlap"),
-      "Invalid channel/support dimensions",
-    );
-    if (definition.grid) {
-      object(shape.grid);
-      object(shape.grid.meter);
-      rejectUnknownFields(shape.grid, [
-        "stepBeats",
-        "meter",
-        "phaseBeats",
-        "cellCount",
-      ]);
-      rejectUnknownFields(shape.grid.meter, ["numerator", "denominator"]);
-      requireCondition(
-        shape.grid.stepBeats === 0.25 &&
-          shape.grid.cellCount === 16 &&
-          shape.grid.phaseBeats === 0 &&
-          shape.grid.meter.numerator === 4 &&
-          shape.grid.meter.denominator === 4,
-        "Invalid applicable grid dimensions",
-      );
-    } else requireCondition(shape.grid === null, "Unexpected feature grid");
-    requireCondition(
-      value.valueCount === 0 ||
-        value.valueCount === definition.dimensions * (definition.grid ? 16 : 1),
-      "Invalid stored vector count",
-    );
-    return value as unknown as StoredShape;
-  });
-  const derivation =
-    data.derivation === undefined
-      ? undefined
-      : contextOperationResultSchema.parse({
-          action: "derive-features",
-          derivations: [data.derivation],
-        });
-  requireCondition(
-    data.nextCursor === undefined ||
-      (typeof data.nextCursor === "string" &&
-        /^[A-Za-z0-9_-]{1,2048}$/u.test(data.nextCursor)),
-    "Invalid inventory continuation",
-  );
-  return {
-    action: "list-features",
-    features,
-    derivation:
-      derivation?.action === "derive-features"
-        ? derivation.derivations[0]
-        : undefined,
-    nextCursor: data.nextCursor,
-  };
-}
-function inventory(
-  turns: readonly TurnEvidence[],
-  contextId: string,
-  restored: boolean,
-) {
-  const features: StoredShape[] = [];
-  let cursor: string | undefined;
-  let started = false;
-  let finished = false;
-  let expectedCount: number | undefined;
-  for (const turn of turns) {
-    if (turn.agentListening?.afterOwnedRestart !== restored) continue;
-    for (const pair of readFeatureToolPairs(turn, true)) {
-      if (restored)
-        requireCondition(
-          pair.action !== "derive-features" && !pair.action.startsWith("play-"),
-          "Restart must not recapture or rederive",
-        );
-      if (
-        pair.action !== "list-features" ||
-        pair.call.arguments.contextId !== contextId
-      )
-        continue;
-      requireCondition(
-        pair.call.arguments.featureType === undefined &&
-          !finished &&
-          pair.call.arguments.cursor === cursor,
-        "Missing, duplicate or out-of-order feature inventory page",
-      );
-      const page = inventoryPage(pair.data);
-      requireCondition(
-        page.features.every(
-          (feature) => feature.sessionId === turn.appSessionId,
-        ),
-        "Feature inventory belongs to another App session",
-      );
-      started = true;
-      if (page.derivation) {
-        requireCondition(
-          page.derivation.entryId === contextId &&
-            page.derivation.status === "ready" &&
-            page.derivation.definitionSet === "qualified-listening/v1",
-          "Missing canonical stored feature derivation",
-        );
-        requireCondition(
-          expectedCount === undefined ||
-            expectedCount === page.derivation.featureCount,
-          "Feature count changed during inventory",
-        );
-        expectedCount = page.derivation.featureCount;
-      }
-      features.push(...page.features);
-      cursor = page.nextCursor;
-      finished = cursor === undefined;
-    }
-  }
-  requireCondition(
-    started &&
-      finished &&
-      expectedCount === features.length &&
-      features.length <= 512 * 15,
-    "Missing or truncated stored feature inventory",
-  );
-  requireCondition(
-    new Set(features.map(({ id }) => id)).size === features.length &&
-      features.every((feature) => feature.entryId === contextId),
-    "Duplicate or foreign feature inventory",
-  );
-  return features;
-}
-
 function featureShape(f: FeatureView["record"]["feature"]) {
   const definition = LISTENING_FEATURE_DEFINITIONS.find(
     ({ type }) => type === f.type,
@@ -752,55 +553,131 @@ function featureShape(f: FeatureView["record"]["feature"]) {
   };
 }
 
-function measureShapes(
-  features: readonly StoredShape[],
+function deliveredMeasureShapes(
+  analysis: CompleteAnalysis,
   source: StorageShapeEvidence,
   measures: number,
-  view: "session" | "arrangement",
 ) {
-  const segments = new Map(features.map((f) => [f.segment.id, f.segment]));
-  const ordered = [...segments.values()].sort((a, b) => a.order - b.order);
+  const geometry = source.geometry;
   requireCondition(
-    ordered.length === measures &&
-      features.length === measures * LISTENING_FEATURE_DEFINITIONS.length,
-    "Unexpected complete measure or fifteen-definition feature count",
+    geometry &&
+      analysis.source.geometry?.sampleRate === geometry.sampleRate &&
+      analysis.source.geometry.tempoBpm === geometry.tempoBpm &&
+      analysis.source.geometry.captureStartSample === geometry.startSample,
+    "Delivered storage geometry differs from independent original acquisition",
   );
-  return ordered.map((segment, index) => {
+  const groups = deliveredAnalysisRowGroups(analysis).sort(
+    (a, b) => a[0]!.segment.startBeat - b[0]!.segment.startBeat,
+  );
+  requireCondition(
+    groups.length === measures,
+    "Incomplete delivered feature-shape measure inventory",
+  );
+  return groups.map((fragments, index) => {
+    const row = fragments[0]!;
+    const segment = row.segment;
     requireCondition(
-      segment.kind === "bar" &&
-        segment.order === index &&
-        segment.coordinate ===
-          (view === "session" ? "clip-local-beats" : "transport-beats") &&
+      fragments.every(
+        (part) =>
+          part.kind === "feature-shapes" &&
+          part.shapeScope === "whole-stored-segment" &&
+          part.features.length === 0 &&
+          part.startBeat === segment.startBeat &&
+          part.endBeat === segment.endBeat,
+      ) &&
+        segment.kind === "bar" &&
+        segment.sampleRate === geometry.sampleRate &&
+        Math.abs(
+          segment.startSample -
+            (geometry.startSample +
+              (index * 4 * geometry.sampleRate * 60) / geometry.tempoBpm),
+        ) < 1 &&
+        Math.abs(
+          segment.endSample -
+            (geometry.startSample +
+              ((index + 1) * 4 * geometry.sampleRate * 60) / geometry.tempoBpm),
+        ) < 1 &&
+        segment.endSample <= geometry.endSample &&
         segment.startBeat === source.startBeat + index * 4 &&
         segment.endBeat === source.startBeat + (index + 1) * 4 &&
-        segment.alignment?.meter.numerator === 4 &&
-        segment.alignment.meter.denominator === 4,
-      "Missing or incompatible corresponding 4/4 measure",
+        (segment.meter ?? segment.alignment?.meter)?.numerator === 4 &&
+        (segment.meter ?? segment.alignment?.meter)?.denominator === 4,
+      "Delivered feature shapes lack corresponding complete 4/4 measures",
     );
-    const records = features.filter((f) => f.segment.id === segment.id);
+    const shapes = fragments.flatMap((part) => part.featureShapes ?? []);
     requireCondition(
-      records.length === 15 &&
-        new Set(records.map((f) => f.shape.type)).size === 15,
-      "Missing canonical feature definition on a measure",
+      shapes.length === LISTENING_FEATURE_DEFINITIONS.length &&
+        new Set(shapes.map((shape) => shape.type)).size === shapes.length,
+      "Missing or duplicate delivered canonical feature shape",
     );
     return LISTENING_FEATURE_DEFINITIONS.map((definition) => {
-      const record = records.find((f) => f.shape.type === definition.type)!;
+      const shape = shapes.find((item) => item.type === definition.type);
+      requireCondition(shape, "Missing delivered canonical feature shape");
+      const metric = {
+        "sample-grid-peak-rms/v1": "level",
+        "fft-energy-centroid/v1": "spectral-centroid",
+        "level-window-rise/v1": "attacks",
+        "mel-band-profile/v1": "mel-bands",
+        "pitch-profile/v1": "pitch",
+        "spectral-shape-profile/v1": "spectral-shape",
+      }[definition.profile];
+      const acquisition = source.metrics.find(
+        (item) => item.metric === metric,
+      )?.acquiredSupport;
       requireCondition(
-        record && record.passId === source.passId,
-        "Feature source pass differs from persisted capture",
+        acquisition,
+        "Missing independent native acquisition coverage",
       );
-      const shape = record.shape;
+      const covered = acquisition.reduce(
+        (sum, [a, b]) =>
+          sum +
+          Math.max(
+            0,
+            Math.min(segment.endSample, b) - Math.max(segment.startSample, a),
+          ),
+        0,
+      );
+      requireCondition(
+        typeof shape.contentSha256 === "string" &&
+          /^[a-f0-9]{64}$/u.test(shape.contentSha256) &&
+          shape.units === definition.units &&
+          shape.normalization === definition.normalization &&
+          shape.dimensions === definition.dimensions &&
+          shape.expectedSamples === segment.endSample - segment.startSample &&
+          shape.coveredSamples === covered &&
+          (shape.status === "unavailable"
+            ? shape.valueCount === 0 &&
+              shape.reason !== null &&
+              !["peak-summary/v1", "level-grid/v1"].includes(shape.type) &&
+              (shape.channelReasons === undefined ||
+                shape.channelReasons.every((reason) => reason !== null))
+            : shape.status === "ready" &&
+              shape.reason === null &&
+              shape.valueCount ===
+                definition.dimensions * (definition.grid ? 16 : 1)),
+        "Delivered feature shape, availability or native coverage changed",
+      );
       requireCondition(
         definition.grid
-          ? shape.grid?.cellCount === 16 &&
-              shape.grid.stepBeats === 0.25 &&
-              shape.grid.meter.numerator === 4 &&
-              shape.grid.meter.denominator === 4 &&
-              shape.grid.phaseBeats === 0
+          ? (shape.status === "unavailable" && shape.grid === null) ||
+              (shape.grid?.cellCount === 16 &&
+                shape.grid.stepBeats === 0.25 &&
+                shape.grid.phaseBeats === 0 &&
+                shape.grid.meter.numerator === 4 &&
+                shape.grid.meter.denominator === 4)
           : shape.grid === null,
-        "Invalid applicable sixteenth-note grid",
+        "Invalid delivered applicable sixteenth-note grid",
       );
-      return shape;
+      return {
+        type: shape.type,
+        units: shape.units,
+        normalization: shape.normalization,
+        dimensions: shape.dimensions,
+        sampleRate: segment.sampleRate,
+        durationSeconds:
+          (segment.endSample - segment.startSample) / segment.sampleRate,
+        grid: definition.grid,
+      };
     });
   });
 }
@@ -895,6 +772,13 @@ export function verifyStorageShape(
       "Missing or additional actual SDK capture tool call",
     );
     const job = starts[0]!.data.job;
+    requireCondition(
+      starts[0]!.call.arguments.listenerIds === undefined ||
+        isDeepStrictEqual(starts[0]!.call.arguments.listenerIds, [
+          capture.listenerId,
+        ]),
+      "Requested listener differs from admitted native capture",
+    );
     object(job);
     requireCondition(
       job.passId === capture.passId &&
@@ -968,13 +852,69 @@ export function verifyStorageShape(
     "Production persisted measurement schemas differ (no test-side normalization)",
   );
   const inventories = shapes.map(({ source, view }) => {
-    const before = inventory(turns, source.contextId, false);
-    const after = inventory(turns, source.contextId, true);
+    const read = (restored: boolean) => {
+      const selected = turns.filter(
+        (turn) => turn.agentListening?.afterOwnedRestart === restored,
+      );
+      requireCondition(
+        selected.every(
+          (turn) =>
+            turn.status === "completed" &&
+            (!restored ||
+              readFeatureToolPairs(turn, true).every(
+                (pair) =>
+                  pair.action !== "derive-features" &&
+                  !pair.action.startsWith("play-"),
+              )),
+        ),
+        "Shape reads require completed turns without restart recapture or rederivation",
+      );
+      const pages = readCompleteAnalyses(
+        selected,
+        true,
+        "feature-shapes",
+      ).filter(
+        (page) =>
+          page.detail === "feature-shapes" &&
+          page.readTarget.contextId === source.contextId,
+      );
+      requireCondition(pages.length > 0, "Missing delivered original analysis");
+      for (const page of pages)
+        requireCondition(
+          page.readTarget.featureTypes === undefined &&
+            page.readTarget.coordinate ===
+              (view === "session" ? "clip-local-beats" : "transport-beats") &&
+            isDeepStrictEqual(page.readTarget.range, {
+              startBeat: source.startBeat,
+              endBeat: source.endBeat,
+            }) &&
+            isDeepStrictEqual(
+              page.source.observedRange,
+              page.readTarget.range,
+            ) &&
+            isDeepStrictEqual(
+              page.source.requestedRange,
+              page.readTarget.range,
+            ) &&
+            page.source.schema === source.schema &&
+            isDeepStrictEqual(
+              immutableDeliveredAnalysis(page),
+              immutableDeliveredAnalysis(pages[0]!),
+            ),
+          "Delivered analysis changed original source, extent or inventory",
+        );
+      return pages[0]!;
+    };
+    const before = read(false);
+    const after = read(true);
     requireCondition(
-      isDeepStrictEqual(before, after),
-      "Original feature identities, inventories or shapes changed after restart",
+      isDeepStrictEqual(
+        immutableDeliveredAnalysis(before),
+        immutableDeliveredAnalysis(after),
+      ),
+      "Original pinned analysis values, coverage or shapes changed after restart",
     );
-    return measureShapes(before, source, expectedMeasures, view);
+    return deliveredMeasureShapes(before, source, expectedMeasures);
   });
   requireCondition(
     isDeepStrictEqual(inventories[0], inventories[1]),

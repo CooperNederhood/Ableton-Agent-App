@@ -70,6 +70,7 @@ async function controllerHarness({
   initialMelDrains = 0,
   delayedLevelBank = false,
   clockHoldHostAdvance = false,
+  timingPolicy = { mode: "descriptive", maxClockDisagreementSamples: 64 },
   totalSamples = 9000,
   deadlineMs = 10000,
   streamSend,
@@ -99,7 +100,7 @@ async function controllerHarness({
     mode: "arrangement",
     sourceEvidence: "transport-only",
     geometry,
-    timingPolicy: { mode: "descriptive", maxClockDisagreementSamples: 64 },
+    timingPolicy,
     grid: {
       beats: 0.25,
       anchor: "global-beat-grid",
@@ -804,11 +805,21 @@ async function controllerHarness({
       }),
     );
   }
-  function launch() {
+  function launch({ clockBeforeOnset = false } = {}) {
     until(() => replies.some((r) => r.payload.status === "ready"));
     if (sdkStreamBridge) bridgeClient.handleListenerControl(arm);
     controller.arm(arm);
     until(() => replies.some((r) => r.payload.status === "armed"));
+    if (clockBeforeOnset) {
+      clockPausedUntil = counter + 2048;
+      for (let sample = 0; sample < vectorSize; sample++) step();
+      // Host playback can arrive with the native clock immediately before
+      // the DSP onset receipt, whose origin is the following sample.
+      const tuple = [1, startBeat, counter + 800000, 31];
+      clockIO.anchorPre(tuple);
+      clockIO.anchorClock([counter, 0, counter, sourceClock[7]]);
+      clockIO.anchorPost(tuple);
+    }
     playingOrigin = counter + 1;
   }
   return {
@@ -2107,6 +2118,211 @@ for (const [value, last] of [
     assert.equal(evidence.traceId, h.prepare.traceId);
     assert.equal(evidence.passId, h.prepare.passId);
     assert.ok(expected.length <= 256);
+  });
+}
+
+test("launch waits for a native clock at or beyond the observed DSP origin", async () => {
+  const h = await controllerHarness({
+    session: true,
+    runtimeBridge: true,
+    sdkStreamBridge: true,
+    streamSend: () => true,
+  });
+  h.launch({ clockBeforeOnset: true });
+  await h.until(
+    () =>
+      h.events.some(
+        (event) =>
+          event.nativeLifecycle.reason === "native_launch_clock_pending",
+      ) || h.controller.snapshot().reason !== null,
+  );
+  assert.equal(h.controller.snapshot().reason, null);
+  assert.equal(h.controller.snapshot().state, "armed");
+  assert.ok(
+    h.results.every(({ payload }) => payload.nativeLaunch === undefined),
+  );
+  const pending = h.events.filter(
+    (event) => event.nativeLifecycle.reason === "native_launch_clock_pending",
+  );
+  assert.equal(pending.length, 1);
+  const facts = Object.fromEntries(
+    pending[0].nativeLifecycle.facts.map((fact) => [
+      fact.field,
+      fact.actual.value,
+    ]),
+  );
+  assert.equal(
+    facts["native.launch.nativeCounter"],
+    facts["native.launch.originCounter"] - 1,
+  );
+  await h.until(() => h.controller.snapshot().state === "completed");
+  assert.equal(h.controller.snapshot().cleanup, "completed");
+  const launches = h.results.filter(({ payload }) => payload.nativeLaunch);
+  assert.equal(launches.length, 1);
+  assert.ok(
+    launches[0].payload.nativeLaunch.clock[4] >=
+      launches[0].payload.nativeLaunch.timing[6],
+  );
+  const wire = h.diagnosticWrites.find(
+    (message) =>
+      message.nativeLifecycle?.reason === "native_launch_clock_pending",
+  );
+  assert.ok(wire);
+  h.codec.listenerResultMetricSchema.parse(wire);
+  assert.equal(wire.traceId, h.prepare.traceId);
+  assert.equal(wire.passId, h.prepare.passId);
+  assert.ok(wire.nativeLifecycle.causationId);
+  const launchEvents = h.events
+    .filter((event) => event.phase === "launch")
+    .map(
+      (event) => event.nativeLifecycle.reason ?? event.nativeLifecycle.stage,
+    );
+  assert.deepEqual(launchEvents, [
+    "queued",
+    "started",
+    "native_launch_clock_pending",
+    "native_launch_binding_operands",
+    "completed",
+  ]);
+  const stream = await verifiedStream(h);
+  assert.equal(stream.metric("level").status, "complete");
+});
+
+for (const interruption of ["cancel", "observer-failure", "timeout"]) {
+  test(`pending launch clock preserves bounded ${interruption} and cleanup`, async () => {
+    const h = await controllerHarness({
+      session: true,
+      deadlineMs: 20000,
+      onEvent(event, controller, cancel) {
+        if (event.nativeLifecycle.reason !== "native_launch_clock_pending")
+          return;
+        if (interruption === "cancel") controller.cancel(cancel);
+        if (interruption === "observer-failure")
+          throw new Error("controlled_observer_failure");
+      },
+    });
+    h.launch({ clockBeforeOnset: true });
+    if (interruption === "timeout") {
+      h.pauseClock(600000);
+      await h.until(() => h.controller.snapshot().reason !== null, 600000);
+      assert.equal(h.controller.snapshot().reason, "metric_launch_timeout");
+      h.pauseClock(0);
+    }
+    const state = interruption === "cancel" ? "cancelled" : "failed";
+    await h.until(() => h.controller.snapshot().state === state);
+    assert.equal(h.controller.snapshot().cleanup, "completed");
+    if (interruption === "observer-failure")
+      assert.equal(
+        h.controller.snapshot().reason,
+        "metric_event_delivery_failed",
+      );
+    assert.ok(
+      h.results.every(
+        ({ payload }) =>
+          payload.nativeLaunch === undefined &&
+          payload.metricManifest === undefined,
+      ),
+    );
+  });
+}
+
+for (const delayed of [false, true]) {
+  test(`launch binding operands survive actual runtime delivery before validation (delayed=${delayed})`, async () => {
+    const h = await controllerHarness({
+      session: true,
+      runtimeBridge: true,
+      sdkStreamBridge: true,
+      streamSend: () => true,
+      timingPolicy: { mode: "strict", maxClockDisagreementSamples: 0 },
+    });
+    h.launch();
+    if (delayed) h.pauseClock(6000);
+    await h.until(() =>
+      ["completed", "failed"].includes(h.controller.snapshot().state),
+    );
+    assert.equal(
+      h.controller.snapshot().state,
+      delayed ? "failed" : "completed",
+    );
+    if (delayed)
+      assert.equal(
+        h.controller.snapshot().reason,
+        "native_metric_launch_binding_mismatch",
+      );
+    assert.equal(h.controller.snapshot().cleanup, "completed");
+    const diagnostic = h.events.find(
+      (event) =>
+        event.nativeLifecycle.reason === "native_launch_binding_operands",
+    );
+    assert.ok(diagnostic);
+    assert.equal(diagnostic.phase, "launch");
+    assert.equal(diagnostic.nativeLifecycle.generation, GENERATION);
+    assert.ok(Object.isFrozen(diagnostic.nativeLifecycle.facts));
+    assert.equal(diagnostic.nativeLifecycle.facts.length, 19);
+    const facts = Object.fromEntries(
+      diagnostic.nativeLifecycle.facts.map((fact) => [
+        fact.field,
+        fact.actual.value,
+      ]),
+    );
+    assert.equal(facts["native.launch.ownershipMatches"], true);
+    assert.equal(facts["native.launch.sampleRate"], 48000);
+    assert.equal(facts["native.launch.vectorSize"], 64);
+    assert.equal(facts["native.launch.timingMode"], "strict");
+    const wire = h.diagnosticWrites.find(
+      (message) =>
+        message.nativeLifecycle?.reason === "native_launch_binding_operands",
+    );
+    assert.ok(wire, "operands must cross the actual runtime/SDK wire");
+    h.codec.listenerResultMetricSchema.parse(wire);
+    assert.equal(wire.traceId, h.prepare.traceId);
+    assert.equal(wire.passId, h.prepare.passId);
+    assert.deepEqual(
+      wire.nativeLifecycle.facts,
+      diagnostic.nativeLifecycle.facts,
+    );
+    if (delayed) {
+      assert.ok(
+        h.results.every(({ payload }) => payload.metricManifest === undefined),
+      );
+      const start =
+        facts["native.launch.armCounter"] +
+        facts["native.launch.elapsedSamples"] -
+        facts["native.launch.offsetSamples"] +
+        facts["native.launch.armHostSample"] -
+        facts["native.launch.armNativeCounter"];
+      assert.ok(facts["native.launch.hostSample"] - start > 4800 + 64);
+    }
+  });
+}
+
+for (const interruption of ["cancel", "observer-failure"]) {
+  test(`launch binding operands preserve ${interruption} cleanup without publishing launch authority`, async () => {
+    const h = await controllerHarness({
+      session: true,
+      onEvent(event, controller, cancel) {
+        if (event.nativeLifecycle.reason !== "native_launch_binding_operands")
+          return;
+        if (interruption === "cancel") controller.cancel(cancel);
+        else throw new Error("controlled_observer_failure");
+      },
+    });
+    h.launch();
+    const state = interruption === "cancel" ? "cancelled" : "failed";
+    await h.until(() => h.controller.snapshot().state === state);
+    assert.equal(h.controller.snapshot().cleanup, "completed");
+    assert.ok(
+      h.results.every(
+        ({ payload }) =>
+          payload.nativeLaunch === undefined &&
+          payload.metricManifest === undefined,
+      ),
+    );
+    if (interruption === "observer-failure")
+      assert.equal(
+        h.controller.snapshot().reason,
+        "metric_event_delivery_failed",
+      );
   });
 }
 

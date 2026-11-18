@@ -33,7 +33,7 @@
       "id": "listen",
       "sourceId": "arrangement-source",
       "setupActions": ["back-to-arrangement"],
-      "message": "Listen to the Arrangement on track Drums-audio from beat 0 through beat 384 at its existing 128 BPM, exactly three minutes. Use the existing listener on that track. Make exactly one new capture with all six metric families. You may position the stopped transport from its saved beat 72 to beat 0 once, then start playback once. Preserve all tracks, clips, MIDI, devices, returns, routing and settings. Leave playback running after capture. If anything fails or coverage has gaps, duplicates or truncation, stop and report it without rearming, repairing, retrying or recapturing.",
+      "message": "Listen to the Arrangement on track Drums-audio from beat 0 through beat 384 at its existing 128 BPM, exactly three minutes. Use the existing listener on that track. Make exactly one new capture with all six metric families. You may position the stopped transport from its saved beat 72 to beat 0 once. The listening operation must start playback itself; do not separately start transport. Preserve all tracks, clips, MIDI, devices, returns, routing and settings. Leave playback running after capture. If anything fails or coverage has gaps, duplicates or truncation, stop and report it without rearming, repairing, retrying or recapturing.",
       "timeoutMs": 480000,
       "assertions": [
         {

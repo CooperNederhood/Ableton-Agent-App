@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import type { MetricRecordStreamManifest } from "@ableton-agent/protocol";
+import {
+  METRIC_CONTINUOUS_LISTENING_CAPABILITY,
+  type MetricRecordStreamManifest,
+} from "@ableton-agent/protocol";
 import { createSyntheticMetricRecordStreamManifest } from "@ableton-agent/protocol/testing";
 import type { TelemetryEventEnvelope } from "@ableton-agent/observability";
 import { createListeningTools } from "@ableton-agent/tools";
@@ -112,6 +115,288 @@ async function complete(f: ReturnType<typeof fixture>) {
 }
 
 describe("owned listening tool host", () => {
+  const track = {
+    kind: "regular" as const,
+    index: 0,
+    expectedReference: "00000000-0000-4000-8000-000000000010",
+    expectedName: "Track",
+  };
+  const target = {
+    view: "session" as const,
+    track,
+    sceneIndex: 0,
+    expectedClipName: "Clip",
+    expectedClipReference: "00000000-0000-4000-8000-000000000011",
+  };
+  const listener = {
+    listenerId: "listener",
+    instanceId: "instance",
+    trackReference: track.expectedReference,
+    deviceReference: "00000000-0000-4000-8000-000000000012",
+    displayName: "Listener",
+    capabilities: [METRIC_CONTINUOUS_LISTENING_CAPABILITY],
+    ready: false,
+    limitations: ["native_per_pass_validation_required"],
+  };
+  const sessionRequest = {
+    action: "play-session-and-listen" as const,
+    target,
+    maximumDurationMs: 1000,
+  };
+  const selectionFixture = (listeners = [listener], truncated = false) => {
+    const inspectListeners = vi.fn(async () => ({
+      action: "inspect-listeners" as const,
+      listeners,
+      truncated,
+    }));
+    const resolveSessionTarget = vi.fn(async () => ({
+      clipReference: target.expectedClipReference,
+      trackReference: track.expectedReference,
+      target,
+    }));
+    const resolveArrangementRange = vi.fn(async () => ({
+      startBeat: 4,
+      endBeat: 12,
+    }));
+    return {
+      ...fixture({
+        inspectListeners,
+        resolveSessionTarget,
+        resolveArrangementRange,
+      }),
+      inspectListeners,
+      resolveSessionTarget,
+      resolveArrangementRange,
+    };
+  };
+
+  it("resolves the sole eligible Session listener before playback without requiring native readiness", async () => {
+    const f = selectionFixture([
+      listener,
+      {
+        ...listener,
+        listenerId: "unrelated",
+        trackReference: context.trace.traceId,
+      },
+      { ...listener, listenerId: "unsupported", capabilities: [] },
+    ]);
+    expect(
+      await f.host.resolveListeningOperation(sessionRequest, context),
+    ).toEqual({
+      ...sessionRequest,
+      listenerIds: ["listener"],
+    });
+    expect(f.resolveSessionTarget).toHaveBeenCalledWith(target, context);
+    expect(f.services.prepare).not.toHaveBeenCalled();
+    expect(f.services.startPlayback).not.toHaveBeenCalled();
+    const events = f.enqueue.mock.calls
+      .map(([event]) => event)
+      .filter((event) => event.name.startsWith("listening.source-resolution."));
+    expect(events.map((event) => event.stage)).toEqual([
+      "queued",
+      "started",
+      "progress",
+      "completed",
+    ]);
+    expect(
+      events.every(
+        (event) =>
+          event.trace?.traceId === context.trace.traceId &&
+          event.activeAgentId === context.agentId &&
+          event.correlationId === context.trace.correlationId,
+      ),
+    ).toBe(true);
+    expect(events.at(-1)?.durationMs).toBeGreaterThanOrEqual(0);
+    await f.host.shutdown();
+  });
+
+  it("requires ordinary device disambiguation rather than selecting the first same-track listener", async () => {
+    const other = {
+      ...listener,
+      listenerId: "other",
+      deviceReference: context.trace.traceId,
+    };
+    const f = selectionFixture([listener, other]);
+    await expect(
+      f.host.resolveListeningOperation(sessionRequest, context),
+    ).rejects.toThrow("found 2");
+    expect(
+      await f.host.resolveListeningOperation(
+        {
+          ...sessionRequest,
+          listenerDeviceReference: other.deviceReference,
+        },
+        context,
+      ),
+    ).toMatchObject({ listenerIds: ["other"] });
+    expect(f.services.prepare).not.toHaveBeenCalled();
+    await f.host.shutdown();
+  });
+
+  it.each(["missing", "truncated", "busy", "unsupported-mode"])(
+    "rejects %s automatic listener selection before playback",
+    async (mode) => {
+      const f = selectionFixture(
+        mode === "missing"
+          ? []
+          : [
+              {
+                ...listener,
+                limitations:
+                  mode === "busy"
+                    ? ["listener_not_idle"]
+                    : mode === "unsupported-mode"
+                      ? ["session_mode_unsupported"]
+                      : [],
+              },
+            ],
+        mode === "truncated",
+      );
+      await expect(
+        f.host.resolveListeningOperation(sessionRequest, context),
+      ).rejects.toThrow();
+      expect(f.services.prepare).not.toHaveBeenCalled();
+      await f.host.shutdown();
+    },
+  );
+
+  it("resolves Arrangement track bounds once and preserves the exact canonical request on execution", async () => {
+    const f = selectionFixture();
+    const resolved = await f.host.resolveListeningOperation(
+      {
+        action: "play-arrangement-and-listen",
+        sources: [{ track }],
+        maximumDurationMs: 1000,
+      },
+      context,
+    );
+    expect(resolved).toEqual({
+      action: "play-arrangement-and-listen",
+      sources: [{ track }],
+      listenerIds: ["listener"],
+      startBeat: 4,
+      endBeat: 12,
+      maximumDurationMs: 1000,
+    });
+    await f.host.executeListeningOperation(resolved, context);
+    expect(f.resolveArrangementRange).toHaveBeenCalledTimes(1);
+    await f.host.shutdown();
+  });
+
+  it("does not allow unresolved capture scope to reach post-approval execution", async () => {
+    const f = selectionFixture();
+    await expect(
+      f.host.executeListeningOperation(sessionRequest, context),
+    ).rejects.toThrow("resolved before approval");
+    await expect(
+      f.host.executeListeningOperation(
+        {
+          action: "play-arrangement-and-listen",
+          sources: [{ track }],
+          maximumDurationMs: 1000,
+        },
+        context,
+      ),
+    ).rejects.toThrow("resolved before approval");
+    expect(f.services.prepare).not.toHaveBeenCalled();
+    expect(f.inspectListeners).not.toHaveBeenCalled();
+    await f.host.shutdown();
+  });
+
+  it("rejects a selected listener moving outside the approved Arrangement source", async () => {
+    const f = selectionFixture();
+    const resolved = await f.host.resolveListeningOperation(
+      {
+        ...request,
+        sources: [{ track }],
+      },
+      context,
+    );
+    f.inspectListeners.mockResolvedValue({
+      action: "inspect-listeners",
+      truncated: false,
+      listeners: [{ ...listener, trackReference: context.trace.traceId }],
+    });
+    await expect(
+      f.host.executeListeningOperation(resolved, context),
+    ).rejects.toThrow();
+    expect(f.services.prepare).not.toHaveBeenCalled();
+    expect(f.services.startPlayback).not.toHaveBeenCalled();
+    await f.host.shutdown();
+  });
+
+  it("cancels source resolution promptly when inventory ignores cancellation", async () => {
+    const f = selectionFixture();
+    const controller = new AbortController();
+    f.inspectListeners.mockReturnValue(new Promise(() => {}));
+    const pending = f.host.resolveListeningOperation(sessionRequest, {
+      ...context,
+      signal: controller.signal,
+    });
+    controller.abort(new Error("token=private-selection-secret"));
+    await expect(pending).rejects.toThrow();
+    const events = f.enqueue.mock.calls.map(([event]) => event);
+    expect(
+      events.some(
+        (event) => event.name === "listening.source-resolution.cancelled",
+      ),
+    ).toBe(true);
+    expect(JSON.stringify(events)).not.toContain("private-selection-secret");
+    expect(f.services.prepare).not.toHaveBeenCalled();
+    await f.host.shutdown();
+  });
+
+  it("resolves eight requested tracks but rejects duplicate or oversized capture scopes", async () => {
+    const listeners = Array.from({ length: 8 }, (_, index) => ({
+      ...listener,
+      listenerId: `listener-${index}`,
+      trackReference: `00000000-0000-4000-8000-${String(index + 100).padStart(12, "0")}`,
+    }));
+    const sources = listeners.map((item, index) => ({
+      track: { ...track, index, expectedReference: item.trackReference },
+    }));
+    const f = selectionFixture(listeners);
+    const input = { ...request, listenerIds: undefined, sources };
+    expect(
+      await f.host.resolveListeningOperation(input, context),
+    ).toMatchObject({
+      listenerIds: listeners.map((item) => item.listenerId),
+      startBeat: request.startBeat,
+      endBeat: request.endBeat,
+    });
+    await expect(
+      f.host.resolveListeningOperation(
+        {
+          ...input,
+          sources: [...sources, sources[0]!],
+        },
+        context,
+      ),
+    ).rejects.toThrow();
+    await expect(
+      f.host.resolveListeningOperation(
+        {
+          ...input,
+          sources: [sources[0]!, sources[0]!],
+        },
+        context,
+      ),
+    ).rejects.toThrow("distinct");
+    expect(f.services.prepare).not.toHaveBeenCalled();
+    await f.host.shutdown();
+  });
+
+  it("keeps explicit canonical listening requests unchanged without discovery or range guessing", async () => {
+    const f = selectionFixture();
+    expect(await f.host.resolveListeningOperation(request, context)).toEqual(
+      request,
+    );
+    expect(f.inspectListeners).not.toHaveBeenCalled();
+    expect(f.resolveArrangementRange).not.toHaveBeenCalled();
+    await complete(f);
+    await f.host.shutdown();
+  });
+
   it("preserves published partial metrics through public get, list and terminal cancellation", async () => {
     const f = fixture();
     vi.mocked(f.services.prepare).mockImplementation(

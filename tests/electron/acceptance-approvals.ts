@@ -6,6 +6,7 @@ import {
   type SessionSourceEvidence,
   type ArrangementSourceEvidence,
 } from "@ableton-agent/test-support/integration";
+import { listeningOperationParamsSchema } from "@ableton-agent/tools";
 
 export type ScopedPermission = ScenarioPermission;
 export interface ScopedApproval {
@@ -127,13 +128,44 @@ export class ScopedApprovalPolicy {
         return [];
       }
       const normalized = { ...actual };
-      if (rule.sourceId && rule.tool === "ableton_listening") {
+      if (rule.tool === "ableton_listening") {
+        const operation = listeningOperationParamsSchema.options.find(
+          ({ shape }) => shape.action.value === rule.action,
+        );
+        const selectors = Object.entries(actual).filter(([key]) =>
+          key.startsWith("sources."),
+        );
+        if (
+          rule.action === "play-arrangement-and-listen" &&
+          selectors.length > 0
+        ) {
+          const parsed = operation?.safeParse(request.arguments);
+          if (
+            !selected ||
+            !("trackName" in selected) ||
+            selected.source.view !== "arrangement" ||
+            rule.arguments["listenerIds.0"] !== "$source.listenerId" ||
+            !parsed?.success ||
+            parsed.data.action !== "play-arrangement-and-listen" ||
+            parsed.data.sources?.length !== 1 ||
+            parsed.data.listenerIds?.length !== 1 ||
+            parsed.data.listenerIds[0] !== selected.listenerId
+          )
+            return [];
+          const expected: Facts = {
+            "sources.0.track.kind": "regular",
+            "sources.0.track.index": selected.source.trackIndex,
+            "sources.0.track.expectedReference": selected.source.trackId,
+            "sources.0.track.expectedName": selected.trackName,
+          };
+          if (selectors.some(([key, value]) => expected[key] !== value))
+            return [];
+          resolved = { ...Object.fromEntries(selectors), ...resolved };
+        }
         const defaultDuration =
-          rule.action === "play-session-and-listen"
-            ? 300_000
-            : rule.action === "play-arrangement-and-listen"
-              ? 900_000
-              : undefined;
+          operation && "maximumDurationMs" in operation.shape
+            ? operation.shape.maximumDurationMs.parse(undefined)
+            : undefined;
         if (
           defaultDuration !== undefined &&
           !Object.hasOwn(resolved, "maximumDurationMs") &&
@@ -147,6 +179,7 @@ export class ScopedApprovalPolicy {
         )
           normalized.maximumDurationMs = defaultDuration;
         if (
+          rule.sourceId &&
           rule.action === "play-session-and-listen" &&
           selected &&
           "midi" in selected

@@ -2,6 +2,12 @@
 
 ## Playback listening and entity context
 
+- [x] Replace discovery-driven analysis with automatic listen results and
+      source-based read/compare/search; retain typed diagnostic services.
+- [x] Share directly reusable input/output targets for one-call drill-down,
+      chronological feature presentation and automatic byte-bounded paging.
+- [x] Preserve independent capture/analysis lifecycle, scoped permissions,
+      redacted History and trace attribution across the revised tool surface.
 - [x] Document current audio metadata and bounded meter coverage.
 - [x] Define playback-first, App-session-owned context architecture in
   [ADR 0006](../architecture/decisions/0006-playback-listening-and-entity-context.md).

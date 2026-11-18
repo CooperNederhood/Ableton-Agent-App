@@ -424,12 +424,17 @@ describe("one-turn mixed listening comprehension", () => {
   });
   it.each([
     pattern.replace("1-2", "2-1"),
-    `Answer: ${pattern}`,
-    `\`${pattern}\``,
     pattern.replace("1-2", "1 -2"),
     pattern.slice(1),
     "|1-2-3|",
     pattern.replace("|2-2-2-2|", ""),
+    `${pattern}\n${pattern}`,
+    `${pattern} or ${pattern.replace("1-2", "2-1")}`,
+    `${pattern.replace("1-2", "2-1")}\n${pattern}`,
+    `${pattern}1-1-1-1|`,
+    `|1-2-3-A${pattern}`,
+    `|1-2-\n${pattern}`,
+    "The sequence is clear, but no sequence block is provided.",
   ])("rejects incorrect or malformed answer %s", (assistantText) => {
     const input = fixture();
     const turn = { ...input.turn!, assistantText };
@@ -440,6 +445,20 @@ describe("one-turn mixed listening comprehension", () => {
     const turn = { ...input.turn!, assistantText: ` \n${pattern}\n` };
     expect(evaluate({ ...input, turn, turns: [turn] }).passed).toBe(true);
   });
+  it.each([
+    `Answer: ${pattern}`,
+    `\`${pattern}\``,
+    `The last three bars match clip-4.\n\n${pattern}`,
+    `${pattern}\n\nThe captures support this sequence.`,
+    `\`\`\`text\n${pattern}\n\`\`\``,
+  ])(
+    "accepts explanatory text around one exact sequence: %s",
+    (assistantText) => {
+      const input = fixture();
+      const turn = { ...input.turn!, assistantText };
+      expect(evaluate({ ...input, turn, turns: [turn] }).passed).toBe(true);
+    },
+  );
   it("does not prescribe discovery, capture enumeration order or report reading", () => {
     const input = fixture();
     const turn = {
@@ -470,7 +489,10 @@ describe("one-turn mixed listening comprehension", () => {
     "protected",
   ])("rejects %s evidence despite a correct answer", (mode) => {
     const input = fixture();
-    const original = input.turn!;
+    const original = {
+      ...input.turn!,
+      assistantText: `The recordings support this sequence:\n${pattern}`,
+    };
     let captures: readonly CaptureEvidence[] = original.captures;
     if (mode === "missing") captures = captures.slice(1);
     if (mode === "extra") captures = [...captures, captures[0]!];

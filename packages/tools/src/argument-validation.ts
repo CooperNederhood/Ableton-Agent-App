@@ -11,7 +11,7 @@ interface RuntimeParameterSchema {
           readonly issues: readonly Record<string, unknown>[];
         };
       };
-  readonly toJSONSchema: () => JsonSchema;
+  readonly toJSONSchema: (options?: { readonly io: "input" }) => JsonSchema;
 }
 
 interface RequiredAlternative {
@@ -32,6 +32,11 @@ interface SemanticPreconditionRule {
 }
 
 export const abletonAgentSchemaRequirements = [
+  {
+    toolName: "ableton_context",
+    action: "read",
+    alternatives: [{ fields: ["target"] }, { fields: ["cursor"] }],
+  },
   {
     toolName: "ableton_recording",
     action: "set-punch",
@@ -422,7 +427,10 @@ export function agentFacingParameters<T>(
     [agentParametersMarker]: true,
     safeParse: runtimeSchema.safeParse.bind(runtimeSchema),
     toJSONSchema: () =>
-      enrichAgentJsonSchema(toolName, runtimeSchema.toJSONSchema()),
+      enrichAgentJsonSchema(
+        toolName,
+        runtimeSchema.toJSONSchema({ io: "input" }),
+      ),
   } as Tool<T>["parameters"];
 }
 
@@ -541,7 +549,7 @@ export class AbletonInvalidToolArgumentsError extends Error {
       !Array.isArray(suppliedArguments)
         ? (suppliedArguments as Record<string, unknown>).action
         : undefined;
-    const jsonSchema = schema.toJSONSchema();
+    const jsonSchema = schema.toJSONSchema({ io: "input" });
     const validActions = collectActionValues(jsonSchema);
     const suppliedActionDetail =
       typeof suppliedAction === "string"

@@ -429,8 +429,8 @@ describe("agent policy", () => {
     expect(unrelated?.additionalContext).not.toContain("opaque strings");
   });
 
-  it.each(["list-features", "compare-features", "search-features"])(
-    "directs requested value reads after %s without rewriting summary evidence",
+  it.each(["read", "compare", "search"])(
+    "does not add storage-discovery instructions after %s",
     async (action) => {
       const hooks = createAgentHooks({
         getAbletonStatus: async () => connected,
@@ -451,22 +451,9 @@ describe("agent policy", () => {
         },
         { sessionId: "sdk" },
       );
-      expect(result?.additionalContext).toContain(
-        "metadata and distances, not feature value arrays",
-      );
-      expect(result?.additionalContext).toContain(
-        "If the user requested values or persisted rereads",
-      );
-      expect(result?.additionalContext).toContain(
-        "get-feature for each requested featureId in this operation",
-      );
-      expect(result?.additionalContext).toContain(
-        "Comparison/search alone does not require these extra reads",
-      );
-      expect(result?.additionalContext).toContain("page.values");
-      expect(result?.additionalContext).toContain(
-        "A requested complete inventory is incomplete while nextCursor exists",
-      );
+      expect(result?.additionalContext).not.toContain("get-feature");
+      expect(result?.additionalContext).not.toContain("list-features");
+      expect(result?.additionalContext).toContain("verified tool result");
       expect(result?.additionalContext?.length).toBeLessThan(800);
       expect(result?.modifiedResult).toBeUndefined();
       expect(toolResult).toEqual(before);
@@ -494,13 +481,8 @@ describe("agent policy", () => {
       },
       { sessionId: "sdk" },
     );
-    expect(result?.additionalContext).toContain("report.nextOffset");
-    expect(result?.additionalContext).toContain(
-      "fewer rows than the requested limit",
-    );
-    expect(result?.additionalContext).toContain("not offset + limit");
-    expect(result?.additionalContext).toContain("fresh complete pages");
-    expect(result?.additionalContext).toContain("after restart");
+    expect(result?.additionalContext).not.toContain("report.nextOffset");
+    expect(result?.additionalContext).toContain("verified tool result");
     expect(result?.modifiedResult).toBeUndefined();
     expect(toolResult).toEqual(before);
   });
@@ -586,6 +568,91 @@ describe("agent policy", () => {
     },
   );
 
+  it("reinforces stopped transport immediately after a Session listen without modifying results or authorizing replay", async () => {
+    const hooks = createAgentHooks({ getAbletonStatus: async () => connected });
+    const toolResult = {
+      resultType: "success" as const,
+      textResultForLlm: JSON.stringify({
+        action: "play-session-and-listen",
+        job: { phase: "completed", cleanupPolicy: "leave-running" },
+      }),
+    };
+    const before = structuredClone(toolResult);
+    const input = {
+      sessionId: "sdk",
+      timestamp: new Date(),
+      workingDirectory: "/tmp",
+      toolName: "ableton_listening",
+      toolArgs: {
+        action: "play-session-and-listen",
+        target: {
+          view: "session",
+          track: {
+            kind: "regular",
+            index: 0,
+            expectedReference: "00000000-0000-4000-8000-000000000001",
+            expectedName: "track",
+          },
+          sceneIndex: 0,
+          expectedClipReference: "00000000-0000-4000-8000-000000000002",
+          expectedClipName: "clip",
+        },
+      },
+      toolResult,
+    };
+    const result = await hooks.onPostToolUse?.(input, { sessionId: "sdk" });
+    expect(result?.additionalContext).toContain(
+      "Before the next Session listen",
+    );
+    expect(result?.additionalContext).toContain("FIRST stop transport");
+    expect(result?.additionalContext).toContain("only if it is moving");
+    expect(result?.additionalContext).toContain("already stopped");
+    expect(result?.additionalContext).toContain("isPlaying=false");
+    expect(result?.additionalContext).toContain("through ordinary approval");
+    expect(result?.additionalContext).toContain(
+      "Otherwise leave playback running",
+    );
+    expect(result?.additionalContext).toContain(
+      "repair or retry a failed pass",
+    );
+    expect(result?.additionalContext?.length).toBeLessThan(1100);
+    expect(result?.modifiedResult).toBeUndefined();
+    expect(toolResult).toEqual(before);
+    for (const action of ["play-arrangement-and-listen", "cancel", "get-pass"])
+      expect(
+        (
+          await hooks.onPostToolUse?.(
+            { ...input, toolArgs: { action } },
+            { sessionId: "sdk" },
+          )
+        )?.additionalContext,
+      ).not.toContain("FIRST stop transport");
+    await hooks.onPostToolUseFailure?.(
+      {
+        ...input,
+        error: serializeAbletonToolFailure(
+          Object.assign(new Error("Transport must be stopped"), {
+            code: "session_launch_state_unknown_or_active",
+            retryable: false,
+          }),
+        ),
+      },
+      { sessionId: "sdk" },
+    );
+    await hooks.onPostToolUse?.(
+      {
+        ...input,
+        toolName: "ableton_transport",
+        toolArgs: { action: "set-playing", isPlaying: false },
+      },
+      { sessionId: "sdk" },
+    );
+    expect(
+      (await hooks.onPreToolUse?.(input, { sessionId: "sdk" }))
+        ?.permissionDecision,
+    ).toBe("deny");
+  });
+
   it.each(["stream-overview", "stream-records", "stream-summary"])(
     "keeps %s guidance coverage-first without demanding exhaustive record reads",
     async (action) => {
@@ -603,12 +670,7 @@ describe("agent policy", () => {
         },
         { sessionId: "sdk" },
       );
-      expect(result?.additionalContext).toContain(
-        "do not exhaust a long timeline merely to establish coverage",
-      );
-      expect(result?.additionalContext).toContain(
-        "digest-checked immutable chunk",
-      );
+      expect(result?.additionalContext).toContain("verified tool result");
       expect(result?.additionalContext).not.toContain(
         "Follow every continuation",
       );

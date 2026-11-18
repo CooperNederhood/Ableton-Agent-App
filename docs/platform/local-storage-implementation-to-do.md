@@ -83,6 +83,10 @@ Companion specification: [Local Storage Layout](local-storage.md)
 
 ## Canonical layout
 
+- [x] Separate the authorized 16,384-entry aggregate acceptance allowance from
+  the unchanged 8,192-entry working-copy bound; verify admission/exhaustion,
+  failure receipts, lock release and preservation without deleting prior evidence.
+
 - [x] Keep initial FluCoMa flatness snapshots in the existing bounded/redacted
   metric lifecycle journal, with explicitly unqualified support and validity.
   Reuse typed History and existing ownership/retention; do not insert diagnostic
@@ -117,6 +121,17 @@ Companion specification: [Local Storage Layout](local-storage.md)
   successful or failed attempts, and refuse pruning while owned process shutdown
   is unconfirmed. Keep credential-bearing profiles out of ordinary preserved
   artifacts and remove them only after both owned applications stop.
+- [x] Share the 256 MiB per-case reservation between single and suite admission;
+  use a finite 8 GiB aggregate budget so all 19 registered cases fit alongside
+  prior evidence. Preserve count, ownership, exhaustion and no-deletion guards.
+- [x] Bound retained typed listening histories separately from generic receipt
+  fields, sharing the existing 24-MiB limit across all retained copies. Preserve
+  complete pages, redaction, cleanup, durable failure and existing storage paths.
+- [x] Apply the explicitly authorized immediate-entry bound of 64 after 32
+  preserved attempts exhausted the earlier 16-to-32 increase
+  for retained acceptance attempts/suites. Share the exported retention policy
+  with admission/exhaustion/no-deletion regressions; preserve the 8 GiB total,
+  256 MiB per-case reservation, 8,192 recursive entries and existing ownership.
 - [ ] Qualify the acceptance storage/cleanup contract with the jointly reviewed
   real fixture; controlled lifecycle and CLI tests do not establish physical
   host qualification.

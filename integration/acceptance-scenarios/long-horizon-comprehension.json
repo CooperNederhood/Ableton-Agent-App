@@ -163,7 +163,7 @@
       "tool": "ableton_tracks",
       "action": "stop-clips",
       "risk": "medium",
-      "maxUses": 4,
+      "maxUses": 16,
       "sourceId": "clip-1",
       "arguments": {
         "action": "stop-clips",
@@ -178,14 +178,14 @@
       "tool": "ableton_transport",
       "action": "set-playing",
       "risk": "medium",
-      "maxUses": 5,
+      "maxUses": 16,
       "arguments": { "action": "set-playing", "isPlaying": false }
     },
     {
       "tool": "ableton_transport",
       "action": "back-to-arrangement",
       "risk": "medium",
-      "maxUses": 1,
+      "maxUses": 16,
       "arguments": { "action": "back-to-arrangement" }
     }
   ],
@@ -197,7 +197,7 @@
   "steps": [
     {
       "id": "comprehend",
-      "message": "Listen to clip-1 through clip-4 on 1-808 Core Kit, then listen to the Arrangement on 2-Audio and work out the clip sequence. Reply only with one clip number per measure, using hyphens within groups of four and vertical bars between groups, including a leading and trailing bar. No spaces.",
+      "message": "Listen exactly once to each of clip-1 through clip-4 on 1-808 Core Kit, then exactly once to the whole Arrangement on 2-Audio and work out the clip sequence. Reuse those five captures' stored analysis for matching; do not recapture a source to recover forgotten context or obtain more detail. Include exactly one clip-sequence block on one line, with one clip number per measure, using hyphens within groups of four and vertical bars between groups, including a leading and trailing bar. No spaces inside the sequence. Brief explanatory text outside that block is allowed.",
       "timeoutMs": 1800000,
       "assertions": []
     }

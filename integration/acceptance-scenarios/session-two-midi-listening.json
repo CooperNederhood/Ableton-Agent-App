@@ -69,7 +69,7 @@
       "id": "listen-drums",
       "sourceId": "b",
       "setupActions": ["stop-transport"],
-      "message": "Listen to the first Session clip clip-2 on track 2-808 Core Kit for four beats. Make exactly one new capture. If it fails, stop and report the failure without retrying.",
+      "message": "Listen to the first Session clip clip-2 on track 2-808 Core Kit for four beats. Transport has already been stopped; inspect its current state if needed rather than assuming it is still playing from the earlier listen. Do not change transport separately; the listening operation starts playback. Make exactly one new capture. If it fails, stop and report the failure without retrying.",
       "timeoutMs": 300000,
       "assertions": [
         {

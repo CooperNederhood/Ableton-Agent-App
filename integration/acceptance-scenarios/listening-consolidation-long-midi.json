@@ -45,32 +45,6 @@
       }
     },
     {
-      "sourceId": "session-long-midi",
-      "tool": "ableton_context",
-      "action": "derive-features",
-      "risk": "medium",
-      "maxUses": 1,
-      "stepIds": ["listen-session"],
-      "arguments": {
-        "action": "derive-features",
-        "contextIds.0": "$source.contextId",
-        "includeHistorical": false
-      }
-    },
-    {
-      "sourceId": "arrangement-long-midi",
-      "tool": "ableton_context",
-      "action": "derive-features",
-      "risk": "medium",
-      "maxUses": 1,
-      "stepIds": ["listen-arrangement"],
-      "arguments": {
-        "action": "derive-features",
-        "contextIds.0": "$source.contextId",
-        "includeHistorical": false
-      }
-    },
-    {
       "tool": "ableton_transport",
       "action": "set-playing",
       "risk": "medium",
@@ -92,7 +66,7 @@
     {
       "id": "listen-session",
       "sourceId": "session-long-midi",
-      "message": "Listen exactly once to the entire Session clip long-clip on track 1-808 Core Kit, scene 4, for durationBeats 80 (twenty 4/4 measures) using that track's existing listener and all six metric families. Do not substitute or loop a shorter clip. Read the resulting original stored measurement report and derive its canonical stored features if needed. List the complete feature inventory, following pagination, and report its context ID, measure count, feature definitions/counts and grid dimensions. This is a storage-shape check: do not compare numerical values or make another capture. Preserve all source, launch, device and routing settings. Leave playback running. Stop immediately on any failure without repairing or retrying.",
+      "message": "Listen exactly once to the entire Session clip long-clip on track 1-808 Core Kit, scene 4, for durationBeats 80 (twenty 4/4 measures) using that track's existing listener and all six metric families. Do not substitute or loop a shorter clip. Using the returned pinned readTarget, request ableton_context read with detail feature-shapes for the full eighty-beat range. Consume every shape-report continuation until nextCursor is null. Inspect all fifteen canonical feature types on each of twenty complete measures, including ranges, units, normalization, availability, coverage, actual stored value counts and channel/vector/grid dimensions. Overview totals or sampled measures are insufficient. This is a structure check, not a numerical-value comparison; do not exhaust the unrelated default numeric timeline, request raw measurements, discover storage IDs, explicitly derive or make another capture. Retain the readTarget and report context, stored source schema, measure count and complete shapes. Preserve all source, launch, device and routing settings. Leave playback running. Stop immediately on any failure without repairing or retrying; report incomplete coverage if unable to finish.",
       "timeoutMs": 300000,
       "assertions": [
         {
@@ -110,14 +84,14 @@
       "id": "listen-arrangement",
       "sourceId": "arrangement-long-midi",
       "setupActions": ["stop-transport", "back-to-arrangement"],
-      "message": "Listen exactly once to the Arrangement on track 1-808 Core Kit from startBeat 0 through endBeat 80, all twenty 4/4 measures, using that track's existing listener and all six metric families. The runner has stopped transport and restored Back to Arrangement; the normal listening operation may position and start it. Read the original stored measurements and derive canonical stored features for this new context if needed. List the complete feature inventory, following pagination, and report context ID, measure count, feature definitions/counts and grid dimensions. Do not compare numerical values, recapture, change settings, or stop/reset transport. Leave playback running. Stop immediately on any failure without repairing or retrying.",
+      "message": "Listen exactly once to the Arrangement on track 1-808 Core Kit from startBeat 0 through endBeat 80, all twenty 4/4 measures, using that track's existing listener and all six metric families. The runner has stopped transport and restored Back to Arrangement; the normal listening operation may position and start it. Using the returned pinned readTarget, request ableton_context read with detail feature-shapes for the full eighty-beat range. Consume every shape-report continuation until nextCursor is null. Inspect all fifteen canonical feature types on each of twenty complete measures, including ranges, units, normalization, availability, coverage, actual stored value counts and channel/vector/grid dimensions. Overview totals or sampled measures are insufficient. Do not exhaust the unrelated default numeric timeline or request raw measurements or storage-ID discovery. Retain the readTarget and report context, stored source schema, measure count and complete shapes. Do not compare numerical values, explicitly derive, recapture, change settings or stop/reset transport. Leave playback running. Stop immediately on any failure without repairing or retrying; report incomplete coverage if unable to finish.",
       "timeoutMs": 300000,
       "assertions": []
     },
     {
       "id": "restored",
       "setupActions": ["stop-transport", "restart-owned-desktop"],
-      "message": "Without capturing, deriving, editing or changing transport, read the two original stored contexts and their complete feature inventories from the preceding Session and Arrangement listens. Use includeHistorical=true where needed and follow pagination. Report original context/feature IDs, stored schema, all twenty measure segments, feature definitions/counts and grid dimensions. Do not compare numerical values. Stop immediately if an original context or inventory is missing or changed; do not repair, rederive or recapture.",
+      "message": "Without capturing, deriving, editing or changing transport, request ableton_context read with detail feature-shapes, includeHistorical true and each original pinned capture readTarget from the preceding Session and Arrangement listens. Consume every shape-report continuation until nextCursor is null for each complete eighty-beat range. Inspect all fifteen canonical feature types on each of twenty complete measures, including ranges, units, normalization, availability, coverage, actual stored value counts and channel/vector/grid dimensions. Verify the stored source schema and complete shapes are unchanged; overview totals or sampled measures are insufficient. Do not exhaust unrelated default numeric timelines or request raw measurements or storage-ID discovery. Report original contexts and complete shapes without comparing numerical values. Stop immediately if original evidence is missing or changed; do not repair, rederive or recapture. Report incomplete coverage if unable to finish.",
       "timeoutMs": 300000,
       "assertions": [{ "name": "no-capture", "parameters": {} }]
     }

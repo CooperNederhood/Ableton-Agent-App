@@ -8,6 +8,7 @@ import {
   acceptanceCli,
   acceptanceDefinition,
   allocateAcceptanceRun,
+  acceptanceArtifactRetention,
 } from "./acceptance-cli.js";
 import {
   readSuiteAttempt,
@@ -139,7 +140,8 @@ export async function acceptanceSuiteCli(
       directory = await allocateAcceptanceRun(
         root,
         "suite-",
-        Math.max(1, selected.length) * 256 * 1024 * 1024,
+        Math.max(1, selected.length) *
+          acceptanceArtifactRetention.reservedRunBytes,
       );
     let executable: string | undefined;
     const getExecutable = async () =>

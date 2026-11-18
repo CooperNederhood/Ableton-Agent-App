@@ -1663,8 +1663,9 @@ describe("packaged acceptance adapter lifecycle (controlled processes)", () => {
     for (const [extra, expected] of [
       [{}, true],
       [{ durationBeats: 4 }, true],
-      [{ maximumDurationMs: 300_000 }, true],
-      [{ durationBeats: 4, maximumDurationMs: 300_000 }, true],
+      [{ maximumDurationMs: 900_000 }, true],
+      [{ durationBeats: 4, maximumDurationMs: 900_000 }, true],
+      [{ maximumDurationMs: 300_000 }, false],
       [{ durationBeats: 3 }, false],
       [{ durationBeats: 5 }, false],
       [{ maximumDurationMs: 1 }, false],

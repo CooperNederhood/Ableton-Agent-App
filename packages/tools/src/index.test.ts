@@ -9,7 +9,8 @@ import {
   createAbletonTools,
   deprecatedAbletonToolNames,
   parseAbletonToolFailure,
-  projectListeningFeatureInventory,
+  analysisPageSchema,
+  analysisOperationResultSchema,
   resolveAbletonToolMetadata,
   resolveAbletonOperation,
   scopeAbletonTools,
@@ -2130,7 +2131,7 @@ describe("Ableton tools", () => {
     }
   });
 
-  it("advertises listener discovery in the full Default scope without changing its serialized schema", () => {
+  it("advertises automatic listener resolution in the full Default scope without changing its serialized schema", () => {
     const set = createAbletonTools({
       ...services(),
       executeListeningOperation:
@@ -2144,11 +2145,60 @@ describe("Ableton tools", () => {
       "Allowed action values in this scope: inspect-listeners, play-session-and-listen, play-arrangement-and-listen, get-pass, list-passes, cancel.",
     );
     expect(tool?.description).toContain(
-      "Discover listenerIds with inspect-listeners before the first capture; never guess them from track or device references.",
+      "Eligible listeners are resolved automatically from the requested source; inspect-listeners is optional for disambiguation, never a prerequisite.",
     );
+    expect(tool?.description).not.toContain("before the first capture");
     expect(tool?.parameters).toBe(original.parameters);
     expect(tool?.handler).toBe(original.handler);
   });
+
+  it.each([["read", "compare", "search", "prune"], ["read"], ["prune"]])(
+    "advertises the context action alternatives for scope %j",
+    (...actions) => {
+      const [tool] = scopeAbletonTools(
+        createAbletonTools({
+          ...services(),
+          executeListeningOperation:
+            vi.fn<
+              NonNullable<AbletonToolServices["executeListeningOperation"]>
+            >(),
+          executeContextOperation:
+            vi.fn<
+              NonNullable<AbletonToolServices["executeContextOperation"]>
+            >(),
+        }),
+        {
+          allowedToolNames: ["ableton_context"],
+          allowedOperationIds: actions.map((action) => `context.${action}`),
+        },
+      );
+      expect(tool?.description).toContain(
+        `Allowed action values in this scope: ${actions.join(", ")}.`,
+      );
+      expect(tool?.description).toContain(
+        "Each schema variant is an alternative selected by action, not a restriction to only the final variant.",
+      );
+      expect(tool?.description).not.toContain("Discover listenerIds");
+      if (!actions.includes("prune"))
+        expect(tool?.description).not.toMatch(/\bprune\b/iu);
+      const parameters = tool?.parameters as {
+        toJSONSchema(): Record<string, unknown>;
+      };
+      const schema = JSON.stringify(parameters.toJSONSchema());
+      for (const action of ["read", "compare", "search", "prune"])
+        expect(schema.includes(`"${action}"`)).toBe(actions.includes(action));
+      if (actions.includes("search")) {
+        expect(tool?.description).toContain(
+          "search(query, scope, featureType, topK, withinCapture, includeHistorical, cursor)",
+        );
+        expect(tool?.description).toContain(
+          "compare(left, right, featureTypes, includeHistorical, cursor)",
+        );
+      } else {
+        expect(tool?.description).not.toContain("search(query");
+      }
+    },
+  );
 
   it("explicitly advertises every scoped listening action without widening its runtime schema", () => {
     const scoped = scopeAbletonTools(
@@ -2212,6 +2262,116 @@ describe("Ableton tools", () => {
     });
   });
 
+  it.each(["default", "full", "session-only"] as const)(
+    "advertises the Session location discriminator and denies a kind-based target (%s)",
+    async (scope) => {
+      const executeListeningOperation =
+        vi.fn<NonNullable<AbletonToolServices["executeListeningOperation"]>>();
+      const set = createAbletonTools({
+        ...services(),
+        executeListeningOperation,
+      });
+      const listening =
+        scope === "default"
+          ? toolByName(set, "ableton_listening")
+          : scopeAbletonTools(set, {
+              allowedToolNames: ["ableton_listening"],
+              ...(scope === "session-only"
+                ? { allowedOperationIds: ["listening.play_session_and_listen"] }
+                : {}),
+            })[0]!;
+      expect(listening.description).toContain(
+        'play-session-and-listen requires target.view="session", not target.kind',
+      );
+      expect(listening.description).toContain(
+        "captures available metric families automatically",
+      );
+      expect(listening.description).toContain(
+        "never batch or parallelize listening calls",
+      );
+      expect(listening.description).toContain(
+        "stop transport only if it is moving",
+      );
+      expect(listening.description).toContain(
+        "Do not start playback separately",
+      );
+      expect(listening.description).toContain(
+        "Normally omit listenerIds; these identify installed devices, not metric or feature names",
+      );
+      interface Schema {
+        const?: unknown;
+        properties?: Record<string, Schema>;
+        oneOf?: Schema[];
+        anyOf?: Schema[];
+      }
+      const parameters = listening.parameters as {
+        toJSONSchema(): Schema;
+        safeParse(value: unknown): { success: boolean };
+      };
+      const wire = parameters.toJSONSchema();
+      const variants = wire.properties?.action?.const
+        ? [wire]
+        : (wire.oneOf ?? wire.anyOf ?? []);
+      const targetSchema = variants.find(
+        (variant) =>
+          variant.properties?.action?.const === "play-session-and-listen",
+      )?.properties?.target;
+      expect(targetSchema?.properties?.view?.const).toBe("session");
+      expect(targetSchema?.properties).not.toHaveProperty("kind");
+      const target = {
+        view: "session",
+        track: {
+          kind: "regular",
+          index: 0,
+          expectedReference: "00000000-0000-4000-8000-000000000001",
+          expectedName: "audio-track",
+        },
+        sceneIndex: 0,
+        expectedClipReference: "00000000-0000-4000-8000-000000000010",
+        expectedClipName: "clip-1",
+      };
+      expect(
+        parameters.safeParse({ action: "play-session-and-listen", target })
+          .success,
+      ).toBe(true);
+      const { view, ...location } = target;
+      const args = {
+        action: "play-session-and-listen",
+        target: { kind: view, ...location },
+      };
+      await expect(
+        listening.handler?.(args, {
+          sessionId: "session",
+          toolCallId: "wrong-location-discriminator",
+          toolName: "ableton_listening",
+          arguments: args,
+        }),
+      ).resolves.toMatchObject({ resultType: "failure" });
+      expect(executeListeningOperation).not.toHaveBeenCalled();
+      const metricNames = {
+        action: "play-session-and-listen",
+        target,
+        listenerIds: [
+          "level",
+          "spectral-centroid",
+          "attacks",
+          "mel-bands",
+          "pitch",
+          "spectral-shape",
+        ],
+      };
+      await expect(
+        listening.handler?.(metricNames, {
+          sessionId: "session",
+          toolCallId: "metric-names-are-not-listeners",
+          toolName: "ableton_listening",
+          arguments: metricNames,
+        }),
+      ).resolves.toMatchObject({ resultType: "failure" });
+      expect(executeListeningOperation).not.toHaveBeenCalled();
+    },
+  );
+
   it.each(["default", "scoped"] as const)(
     "preserves action-specific listening guidance in the %s SDK schema and rejects the recorded invalid calls before execution",
     async (scope) => {
@@ -2236,8 +2396,8 @@ describe("Ableton tools", () => {
                 "listening.inspect_listeners",
                 "listening.play_arrangement_and_listen",
                 "listening.get_pass",
-                "context.list",
-                "context.get",
+                "context.read",
+                "context.compare",
               ],
             });
       const listening = tools.find(({ name }) => name === "ableton_listening")!;
@@ -2264,9 +2424,13 @@ describe("Ableton tools", () => {
       expect(arrangement?.properties?.endBeat?.description).toContain(
         "absolute ending beat",
       );
-      expect(arrangement?.required).toEqual(
-        expect.arrayContaining(["listenerIds", "startBeat", "endBeat"]),
-      );
+      expect(arrangement?.required).toEqual(expect.arrayContaining(["action"]));
+      expect(arrangement?.required).not.toContain("maximumDurationMs");
+      expect(arrangement?.properties?.maximumDurationMs).toMatchObject({
+        default: 900000,
+      });
+      expect(arrangement?.properties).toHaveProperty("sources");
+      expect(arrangement?.required).not.toContain("listenerIds");
       const invalidCalls = [
         {
           tool: listening,
@@ -2298,19 +2462,55 @@ describe("Ableton tools", () => {
   );
 
   it.each(["default", "mixed", "list-only"] as const)(
-    "exposes cursor-only feature inventory pagination in the %s SDK schema",
+    "exposes cursor-only musical read pagination in the %s SDK schema",
     async (scope) => {
       const nextCursor = "opaque-feature-cursor+/=page-2";
+      const target = {
+        kind: "capture" as const,
+        sessionId: "session",
+        liveSetId: "set",
+        contextId: "context",
+        coordinate: "transport-beats" as const,
+        range: { startBeat: 0, endBeat: 4 },
+      };
+      const analysis = analysisPageSchema.parse({
+        source: {
+          name: "track",
+          nameTruncated: false,
+          location: "Arrangement regular track 1",
+          capturedAt: "2026-10-25T23:00:00.000Z",
+          coordinate: target.coordinate,
+          observedRange: target.range,
+          requestedRange: target.range,
+          readTarget: target,
+          freshness: "fresh",
+        },
+        readTarget: target,
+        status: "unavailable",
+        reason: "not-measured",
+        overview: [],
+        overviewIncluded: true,
+        timeline: [],
+        overviewExtent: target.range,
+        detail: {
+          offset: 0,
+          returnedItems: 0,
+          totalItems: 0,
+          truncated: false,
+          nextCursor: null,
+        },
+      });
       const executeContextOperation = vi
         .fn<NonNullable<AbletonToolServices["executeContextOperation"]>>()
         .mockResolvedValueOnce({
-          action: "list-features",
-          inventory: projectListeningFeatureInventory([]),
+          action: "read",
+          analyses: [analysis],
           nextCursor,
         })
         .mockResolvedValueOnce({
-          action: "list-features",
-          inventory: projectListeningFeatureInventory([]),
+          action: "read",
+          analyses: [analysis],
+          nextCursor: null,
         });
       const set = createAbletonTools({
         ...services(),
@@ -2323,12 +2523,8 @@ describe("Ableton tools", () => {
               allowedToolNames: ["ableton_context"],
               allowedOperationIds:
                 scope === "list-only"
-                  ? ["context.list-features"]
-                  : [
-                      "context.list-features",
-                      "context.get-feature",
-                      "context.report",
-                    ],
+                  ? ["context.read"]
+                  : ["context.read", "context.compare", "context.search"],
             })[0]!;
       interface Variant {
         description?: string;
@@ -2341,43 +2537,39 @@ describe("Ableton tools", () => {
         toJSONSchema(): Variant;
         safeParse(value: unknown): { success: boolean };
       };
+      expect(tool.description).toContain("pinned continuations");
       expect(tool.description).toContain(
-        "list-features and list use cursor, never offset",
+        'Read continuations need only {action:"read",cursor:nextCursor}',
       );
+      expect(tool.description).toContain("no discovery or Bash is needed");
       expect(tool.description).toContain(
-        "omit cursor initially, then copy nextCursor until absent",
+        "Overview counts and sampled measures do not replace unread values",
       );
+      expect(tool.description).toContain('read detail="feature-shapes"');
       expect(tool.description).toContain(
-        "Only report and get-feature accept offset; only get-feature accepts supportOffset",
-      );
-      expect(tool.description).toContain(
-        "feature-definitions accepts only action, with no pagination",
+        "copy a returned readTarget unchanged",
       );
       const wire = JSON.parse(
         JSON.stringify(parameters.toJSONSchema()),
       ) as Variant;
       expect(wire.properties).not.toHaveProperty("offset");
-      const inventory = (wire.oneOf ?? wire.anyOf ?? [wire]).find(
-        (variant) => variant.properties?.action?.const === "list-features",
-      );
-      expect(inventory?.description).toContain("cursor pagination, not offset");
-      expect(inventory?.properties?.cursor?.description).toContain(
-        "Omit cursor on the first request",
-      );
-      expect(inventory?.properties?.cursor?.description).toContain(
-        "returned nextCursor unchanged",
-      );
-      expect(inventory?.properties?.limit?.description).toContain(
-        "default and maximum 100",
-      );
+      const inventory = (
+        wire.properties?.action?.const === "read"
+          ? [wire]
+          : (wire.oneOf ?? wire.anyOf ?? [wire])
+      ).find((variant) => variant.properties?.action?.const === "read");
+      expect(inventory?.properties).toHaveProperty("cursor");
+      expect(inventory?.properties).toHaveProperty("target");
+      expect(inventory?.properties).not.toHaveProperty("limit");
       expect(inventory?.properties).not.toHaveProperty("offset");
       expect(inventory?.additionalProperties).toBe(false);
       const args = {
-        action: "list-features",
-        contextId: "context",
-        featureType: "peak-summary/v1",
-        limit: 8,
+        action: "read",
+        target,
       };
+      expect(
+        parameters.safeParse({ ...args, detail: "feature-shapes" }).success,
+      ).toBe(true);
       const invoke = (
         arguments_: Record<string, unknown>,
         toolCallId: string,
@@ -2396,35 +2588,45 @@ describe("Ableton tools", () => {
         expect.stringContaining("invalid_tool_arguments"),
       );
       expect(executeContextOperation).not.toHaveBeenCalled();
-      await expect(invoke(args, "first-page")).resolves.toEqual({
-        action: "list-features",
-        inventory: {
-          features: [],
-          provenance: [],
-          segments: [],
-          sources: [],
-          metadata: [],
-        },
+      const firstPage = await invoke(args, "first-page");
+      expect(firstPage).toEqual({
+        action: "read",
+        analyses: [analysis],
         nextCursor,
       });
+      const encoded = JSON.stringify(firstPage);
+      expect(encoded.indexOf('"nextCursor"')).toBeLessThan(
+        encoded.indexOf('"analyses"'),
+      );
+      expect(encoded.indexOf('"detail"')).toBeLessThan(
+        encoded.indexOf('"timeline"'),
+      );
       await expect(
-        invoke({ ...args, cursor: nextCursor }, "second-page"),
+        invoke({ action: "read", cursor: nextCursor }, "second-page"),
       ).resolves.toEqual({
-        action: "list-features",
-        inventory: {
-          features: [],
-          provenance: [],
-          segments: [],
-          sources: [],
-          metadata: [],
-        },
+        action: "read",
+        analyses: [analysis],
+        nextCursor: null,
       });
       expect(
         executeContextOperation.mock.calls.map(([request]) => request),
-      ).toEqual([
-        { ...args, includeHistorical: false },
-        { ...args, cursor: nextCursor, includeHistorical: false },
-      ]);
+      ).toEqual([args, { action: "read", cursor: nextCursor }]);
+    },
+  );
+
+  it.each([
+    ["read", "analyses"],
+    ["compare", "comparisons"],
+    ["search", "matches"],
+  ] as const)(
+    "puts %s continuation before bulk %s in the wire schema",
+    (action, collection) => {
+      const schema = analysisOperationResultSchema.options.find(
+        (option) => option.shape.action.value === action,
+      )!;
+      const keys = Object.keys(schema.shape);
+      expect(keys.indexOf("nextCursor")).toBeGreaterThanOrEqual(0);
+      expect(keys.indexOf("nextCursor")).toBeLessThan(keys.indexOf(collection));
     },
   );
 

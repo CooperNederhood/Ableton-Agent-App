@@ -9,11 +9,13 @@ import {
   projectMetricListeningReport,
   summarizeMetricListeningResult,
   extractPeakFeature,
+  listeningFeatureDefinition,
   type MetricAudioObservation,
   compactMetricRecordStreamDescriptor,
 } from "@ableton-agent/protocol";
 import {
-  createListeningTools,
+  executeContextDiagnosticOperation,
+  type ListeningToolServices,
   contextOperationParamsSchema,
   contextOperationResultSchema,
   MAX_METRIC_CONTEXT_RESPONSE_BYTES,
@@ -21,8 +23,9 @@ import {
   projectListeningFeatureInventory,
   contextFeatureViewSchema,
   FEATURE_VALUE_DETAIL_GUIDANCE,
-  METRIC_REPORT_PAGE_GUIDANCE,
-  METRIC_STREAM_READ_GUIDANCE,
+  SESSION_SEQUENCE_GUIDANCE,
+  projectListeningTimeline,
+  projectListeningOverview,
 } from "@ableton-agent/tools";
 const { denseSyntheticMetricObservation } = await vi.importActual<{
   denseSyntheticMetricObservation(this: void): MetricAudioObservation;
@@ -59,6 +62,68 @@ function context(action: "get" | "report", limit = 32) {
 }
 
 describe("typed listening SDK result History projection", () => {
+  it("retains typed original analyzer frame evidence returned by public read", async () => {
+    const fixture = await createSyntheticMetricRecordStreamFixture({
+      seconds: 0.1,
+      requestedMetrics: ["pitch", "spectral-shape"],
+      recordsPerChunk: 8,
+    });
+    const first = await fixture.chunks().next();
+    if (first.done) throw new Error("Expected native analyzer frames");
+    const chunk = first.value;
+    const target = {
+      kind: "capture",
+      contextId: "context",
+      sessionId: "session",
+      liveSetId: "set",
+      coordinate: "transport-beats",
+      range: {
+        startBeat: fixture.descriptor.geometry.startBeat,
+        endBeat: fixture.descriptor.geometry.endBeat,
+      },
+    };
+    const body = contextOperationResultSchema.parse({
+      action: "read",
+      analyses: [],
+      nextCursor: "continuation",
+      originalMeasurements: {
+        kind: "stream-records",
+        source: {
+          schema: "metric-record-stream-context/v1",
+          name: "Original",
+          nameTruncated: false,
+          location: "Arrangement track 1",
+          capturedAt: "2026-11-06T00:00:00.000Z",
+          coordinate: target.coordinate,
+          observedRange: target.range,
+          requestedRange: target.range,
+          readTarget: target,
+          freshness: "historical",
+        },
+        page: {
+          kind: "metric-record-chunk-projection/v1",
+          metric: chunk.metric,
+          descriptorDigest: chunk.descriptorDigest,
+          chunkDigest: chunk.digest,
+          previousDigest: chunk.previousDigest,
+          chunkSequence: chunk.chunkSequence,
+          recordOffset: chunk.recordOffset,
+          slotOffset: chunk.slotOffset,
+          totalRecords: chunk.records.length,
+          totalGaps: chunk.gaps.length,
+          entryOffset: 0,
+          records: chunk.records,
+          gaps: chunk.gaps,
+        },
+      },
+    });
+    expect(
+      listeningHistoryResult("ableton_context", {
+        content: JSON.stringify(body) + suffix("ableton_context"),
+      }),
+    ).toEqual({ result: { content: body } });
+  });
+
   it.each(["stream-overview", "stream-records"] as const)(
     "retains typed %s with the actual stream guidance hook",
     async (action) => {
@@ -115,7 +180,7 @@ describe("typed listening SDK result History projection", () => {
         },
         { sessionId: "session" },
       );
-      expect(hook?.additionalContext).toContain(METRIC_STREAM_READ_GUIDANCE);
+      expect(hook?.additionalContext).toBe(guidance);
       const sdk = {
         content: `${JSON.stringify(body)}\n\nTool "ableton_context" succeeded. Additional guidance from postToolUse hooks:\n${hook!.additionalContext}`,
       };
@@ -189,9 +254,7 @@ describe("typed listening SDK result History projection", () => {
         },
         { sessionId: "sdk" },
       );
-      expect(hook?.additionalContext).toBe(
-        `${guidance}\n${METRIC_REPORT_PAGE_GUIDANCE}`,
-      );
+      expect(hook?.additionalContext).toBe(guidance);
       const tail = `\n\nTool "ableton_context" succeeded. Additional guidance from postToolUse hooks:\n${hook?.additionalContext}`;
       expect(
         listeningHistoryResult("ableton_context", {
@@ -210,9 +273,8 @@ describe("typed listening SDK result History projection", () => {
         ),
       ).not.toContain("report-secret-credential");
       for (const [value, ending] of [
-        [context("get"), tail],
         [body, tail + tail],
-        [body, tail.replace("not offset + limit", "offset + limit")],
+        [body, tail.replace("verified tool result", "unverified result")],
         [
           body,
           tail.replace('Tool "ableton_context"', 'Tool "ableton_listening"'),
@@ -228,7 +290,12 @@ describe("typed listening SDK result History projection", () => {
       }
     },
   );
-  it.each(["list-features", "compare-features", "search-features"] as const)(
+  it.each([
+    "list-features",
+    "compare-features",
+    "search-features",
+    "read",
+  ] as const)(
     "retains typed %s metadata with the actual conditional value-read hook suffix",
     async (action) => {
       const observation = createSyntheticMetricListeningObservation();
@@ -266,27 +333,255 @@ describe("typed listening SDK result History projection", () => {
         },
         source: context("report").entry,
       });
+      const readTarget = {
+        kind: "capture" as const,
+        sessionId: "session",
+        liveSetId: "set",
+        contextId: "context",
+        coordinate: "transport-beats" as const,
+        range: { startBeat: 0, endBeat: 4 },
+      };
+      const values = [{ ...view, record: { ...view.record, feature } }];
+      const timeline = projectListeningTimeline(values, 0, readTarget);
+      const analysis = {
+        readTarget,
+        source: {
+          name: "Measured",
+          nameTruncated: false,
+          location: "Arrangement track 1",
+          capturedAt: "2026-11-06T00:00:00.000Z",
+          coordinate: readTarget.coordinate,
+          observedRange: readTarget.range,
+          requestedRange: readTarget.range,
+          readTarget,
+          freshness: "fresh",
+        },
+        status: "ready",
+        reason: null,
+        overview: projectListeningOverview(values, readTarget),
+        overviewIncluded: true,
+        overviewExtent: readTarget.range,
+        timeline,
+        detail: {
+          offset: 0,
+          returnedItems: timeline.length,
+          totalItems: timeline.length,
+          truncated: false,
+          nextCursor: null,
+        },
+      };
       const body = contextOperationResultSchema.parse(
-        action === "list-features"
-          ? { action, inventory: projectListeningFeatureInventory([view]) }
-          : action === "compare-features"
-            ? { action, comparisons: [] }
-            : {
-                action,
-                query: view,
-                matches: [{ feature: view, distance: 0 }],
-                distanceDefinition: feature.distanceDefinition,
-                distanceUnits: feature.distanceUnits,
-                scannedCount: 1,
-                comparableCount: 1,
-                eligibleCount: 1,
-                excludedCount: 0,
-                exhaustive: true,
-                limitsHit: [],
-                exclusionReasons: {},
-              },
+        action === "read"
+          ? { action, analyses: [analysis], nextCursor: null }
+          : action === "list-features"
+            ? { action, inventory: projectListeningFeatureInventory([view]) }
+            : action === "compare-features"
+              ? { action, comparisons: [] }
+              : {
+                  action,
+                  query: view,
+                  matches: [{ feature: view, distance: 0 }],
+                  distanceDefinition: feature.distanceDefinition,
+                  distanceUnits: feature.distanceUnits,
+                  scannedCount: 1,
+                  comparableCount: 1,
+                  eligibleCount: 1,
+                  excludedCount: 0,
+                  exhaustive: true,
+                  limitsHit: [],
+                  exclusionReasons: {},
+                },
       );
       const serialized = JSON.stringify(body);
+      if (action === "read") {
+        expect(
+          timeline.some((row) =>
+            row.features.some((block) =>
+              block.values?.some((value) => typeof value === "number"),
+            ),
+          ),
+        ).toBe(true);
+        const listened = {
+          action: "play-session-and-listen",
+          job: {
+            passId: "pass",
+            stage: "completed",
+            createdAt: "2026-11-06T00:00:00.000Z",
+            updatedAt: "2026-11-06T00:00:01.000Z",
+            durationMs: 1000,
+            contextIds: ["context"],
+          },
+          analysisStatus: "ready",
+          analyses: [analysis],
+        };
+        const listeningHooks = createAgentHooks({
+          getAbletonStatus: async () => {
+            throw new Error("Post-tool guidance must not inspect Live");
+          },
+        });
+        const hookInput = {
+          sessionId: "sdk",
+          timestamp: new Date(),
+          workingDirectory: "/tmp",
+          toolName: "ableton_listening",
+          toolArgs: {
+            action: "play-session-and-listen",
+            target: {
+              view: "session",
+              track: {
+                kind: "regular",
+                index: 0,
+                expectedReference: "00000000-0000-4000-8000-000000000001",
+                expectedName: "track",
+              },
+              sceneIndex: 0,
+              expectedClipReference: "00000000-0000-4000-8000-000000000002",
+              expectedClipName: "clip",
+            },
+          },
+          toolResult: {
+            resultType: "success" as const,
+            textResultForLlm: JSON.stringify(listened),
+          },
+        };
+        const listeningHook = await listeningHooks.onPostToolUse?.(hookInput, {
+          sessionId: "sdk",
+        });
+        expect(listeningHook?.additionalContext).toContain(
+          "Before the next Session listen",
+        );
+        expect(listeningHook?.modifiedResult).toBeUndefined();
+        const listeningSuffix = `\n\nTool "ableton_listening" succeeded. Additional guidance from postToolUse hooks:\n${listeningHook?.additionalContext}`;
+        expect(
+          listeningHistoryResult("ableton_listening", {
+            content: JSON.stringify(listened) + listeningSuffix,
+          }),
+        ).toEqual({ result: { content: listened } });
+        const arrangement = {
+          ...listened,
+          action: "play-arrangement-and-listen",
+        };
+        expect(
+          listeningHistoryResult("ableton_listening", {
+            content: JSON.stringify(arrangement) + suffix("ableton_listening"),
+          }),
+        ).toEqual({ result: { content: arrangement } });
+        for (const altered of [
+          JSON.stringify(listened) + listeningSuffix + "\nUnexpected guidance",
+          JSON.stringify(listened) + listeningSuffix + listeningSuffix,
+          JSON.stringify(listened) +
+            listeningSuffix.replace(
+              'Tool "ableton_listening"',
+              'Tool "ableton_context"',
+            ),
+          JSON.stringify(arrangement) + listeningSuffix,
+          JSON.stringify(listened) + suffix("ableton_listening"),
+        ]) {
+          expect(
+            listeningHistoryResult("ableton_listening", { content: altered }),
+          ).toMatchObject({
+            result: {
+              content: {
+                error: "history_projection_unavailable",
+                reason: "malformed_json",
+              },
+            },
+          });
+        }
+        const partial = {
+          ...listened,
+          job: { ...listened.job, contextIds: ["context", "failed-context"] },
+          analysisStatus: "partial",
+          analysisFailures: [
+            {
+              contextId: "failed-context",
+              readTarget: { ...readTarget, contextId: "failed-context" },
+              status: "failed",
+              code: "analysis_source_failed",
+              reason: "Source derivation failed",
+            },
+          ],
+        };
+        expect(
+          listeningHistoryResult("ableton_listening", {
+            content: JSON.stringify(partial) + listeningSuffix,
+          }),
+        ).toEqual({ result: { content: partial } });
+        const unselected = {
+          ...partial,
+          analysisFailures: [
+            {
+              contextId: "failed-context",
+              status: "failed",
+              code: "analysis_not_fresh",
+              reason: "Source is stale",
+            },
+          ],
+        };
+        expect(
+          listeningHistoryResult("ableton_listening", {
+            content: JSON.stringify(unselected) + listeningSuffix,
+          }),
+        ).toEqual({ result: { content: unselected } });
+        const evidenceTimeline = projectListeningTimeline(
+          values,
+          0,
+          readTarget,
+          "evidence",
+        );
+        const evidenceRead = {
+          action: "read",
+          analyses: [
+            {
+              ...analysis,
+              timeline: evidenceTimeline,
+              detail: {
+                ...analysis.detail,
+                returnedItems: evidenceTimeline.length,
+                totalItems: evidenceTimeline.length,
+              },
+            },
+          ],
+          nextCursor: null,
+        };
+        expect(
+          listeningHistoryResult("ableton_context", {
+            content: JSON.stringify(evidenceRead) + suffix("ableton_context"),
+          }),
+        ).toEqual({ result: { content: evidenceRead } });
+        const availabilityRead = contextOperationResultSchema.parse({
+          action: "read",
+          analyses: [
+            {
+              ...analysis,
+              timeline: [
+                {
+                  ...analysis.timeline[0]!,
+                  kind: "availability",
+                  features: [
+                    {
+                      ...analysis.timeline[0]!.features[0]!,
+                      status: "unavailable",
+                      reason: "no-level-records",
+                      values: null,
+                      coveredSamples: 0,
+                      supportExtent: null,
+                    },
+                  ],
+                },
+              ],
+              detail: { ...analysis.detail, returnedItems: 1, totalItems: 1 },
+            },
+          ],
+          nextCursor: null,
+        });
+        expect(
+          listeningHistoryResult("ableton_context", {
+            content:
+              JSON.stringify(availabilityRead) + suffix("ableton_context"),
+          }),
+        ).toEqual({ result: { content: availabilityRead } });
+      }
       const hooks = createAgentHooks({
         getAbletonStatus: async () => {
           throw new Error("Post-tool guidance must not inspect Live");
@@ -303,9 +598,7 @@ describe("typed listening SDK result History projection", () => {
         },
         { sessionId: "sdk" },
       );
-      expect(result?.additionalContext).toBe(
-        `${guidance}\n${FEATURE_VALUE_DETAIL_GUIDANCE}`,
-      );
+      expect(result?.additionalContext).toBe(guidance);
       const frame =
         serialized +
         `\n\nTool "ableton_context" succeeded. Additional guidance from postToolUse hooks:\n${result?.additionalContext}`;
@@ -316,6 +609,102 @@ describe("typed listening SDK result History projection", () => {
       });
       expect(JSON.stringify(body)).toBe(serialized);
       expect(view.record.feature).not.toHaveProperty("values");
+      if (action === "read") {
+        const shapeTimeline = projectListeningTimeline(
+          values,
+          0,
+          readTarget,
+          "feature-shapes",
+        );
+        const shapeBody = contextOperationResultSchema.parse({
+          action: "read",
+          nextCursor: null,
+          analyses: [
+            {
+              ...analysis,
+              source: {
+                ...analysis.source,
+                name: "Measured token=history-shape-secret",
+              },
+              timeline: shapeTimeline,
+              detail: {
+                offset: 0,
+                returnedItems: shapeTimeline.length,
+                totalItems: shapeTimeline.length,
+                truncated: false,
+                nextCursor: null,
+              },
+            },
+          ],
+        });
+        const shapeHook = await hooks.onPostToolUse?.(
+          {
+            sessionId: "sdk",
+            timestamp: new Date(),
+            workingDirectory: "/tmp",
+            toolName: "ableton_context",
+            toolArgs: {
+              action: "read",
+              target: readTarget,
+              detail: "feature-shapes",
+            },
+            toolResult: {
+              resultType: "success",
+              textResultForLlm: JSON.stringify(shapeBody),
+            },
+          },
+          { sessionId: "sdk" },
+        );
+        expect(shapeHook?.additionalContext).toBe(guidance);
+        const projected = listeningHistoryResult("ableton_context", {
+          content:
+            JSON.stringify(shapeBody) +
+            `\n\nTool "ableton_context" succeeded. Additional guidance from postToolUse hooks:\n${shapeHook?.additionalContext}`,
+        });
+        expect(projected).toMatchObject({
+          result: { content: { analyses: [{ timeline: shapeTimeline }] } },
+        });
+        expect(JSON.stringify(projected)).not.toContain("history-shape-secret");
+        expect(JSON.stringify(projected)).toContain("REDACTED");
+        if (shapeBody.action !== "read") throw new Error("Expected shape read");
+        const pitchDefinition = listeningFeatureDefinition("pitch-grid/v1");
+        for (const alteration of [
+          { valueCount: 3 },
+          { contentSha256: "not-a-content-hash" },
+          { contentSha256: undefined },
+          { contentSha256: "A".repeat(64) },
+          { type: "level-grid/v1", grid: null, valueCount: 0 },
+          { status: "unavailable", reason: null, valueCount: 0 },
+          { reason: "missing-alignment" },
+          { channelReasons: [null, null] },
+          {
+            type: pitchDefinition.type,
+            units: pitchDefinition.units,
+            normalization: pitchDefinition.normalization,
+            status: "unavailable",
+            reason: "missing-alignment",
+            valueCount: 0,
+            grid: null,
+            channelReasons: undefined,
+          },
+        ]) {
+          const corrupted = structuredClone(shapeBody);
+          Object.assign(
+            corrupted.analyses[0]!.timeline[0]!.featureShapes![0]!,
+            alteration,
+          );
+          expect(
+            listeningHistoryResult("ableton_context", { content: corrupted }),
+          ).toMatchObject({
+            result: {
+              content: {
+                error: "history_projection_unavailable",
+                reason: "invalid_typed_result",
+              },
+            },
+          });
+        }
+      }
       for (const altered of [
         frame + "\nUnexpected guidance",
         frame + suffix("ableton_context"),
@@ -347,12 +736,12 @@ describe("typed listening SDK result History projection", () => {
       result: {
         content: {
           error: "history_projection_unavailable",
-          reason: "invalid_typed_result",
+          reason: "malformed_json",
         },
       },
     });
   });
-  it("retains dense all-six-family report pages from the actual agent handler as typed History with native units and supports", async () => {
+  it("retains dense all-six-family diagnostic pages as typed History with native units and supports", async () => {
     const observation = denseSyntheticMetricObservation();
     const entry = {
       contextId: "dense-context",
@@ -364,12 +753,7 @@ describe("typed listening SDK result History projection", () => {
       freshness: "fresh" as const,
       summary: "Synthetic original measurement",
     };
-    const [, tool] = createListeningTools({
-      executeListeningOperation: async () => ({
-        action: "inspect-listeners",
-        listeners: [],
-        truncated: false,
-      }),
+    const services: Pick<ListeningToolServices, "executeContextOperation"> = {
       executeContextOperation: async (request) => {
         if (request.action !== "report")
           throw new Error("Expected original report read");
@@ -379,7 +763,17 @@ describe("typed listening SDK result History projection", () => {
           report: projectMetricListeningReport(observation, request),
         };
       },
-    });
+    };
+    const tool = {
+      handler: (
+        ...args: Parameters<typeof executeContextDiagnosticOperation> extends [
+          unknown,
+          ...infer Rest,
+        ]
+          ? Rest
+          : never
+      ) => executeContextDiagnosticOperation(services, ...args),
+    };
     const raw = { action: "get", entry, observation };
     expect(Buffer.byteLength(JSON.stringify(raw))).toBeGreaterThan(
       MAX_METRIC_CONTEXT_RESPONSE_BYTES,
@@ -545,7 +939,10 @@ describe("typed listening SDK result History projection", () => {
             : {}),
         },
       };
-      for (const tail of ["", suffix("ableton_listening")]) {
+      for (const tail of [
+        "",
+        `${suffix("ableton_listening")}\n${SESSION_SEQUENCE_GUIDANCE}`,
+      ]) {
         expect(
           listeningHistoryResult("ableton_listening", {
             content: JSON.stringify(body) + tail,

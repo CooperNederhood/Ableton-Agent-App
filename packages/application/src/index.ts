@@ -197,6 +197,8 @@ import {
   SET_SQL_SEARCH_TOOL_NAME,
   LISTENING_AGENT_GUIDANCE,
   listeningJobSchema,
+  listeningOperationParamsSchema,
+  listeningOperationResultSchema,
   type AbletonMutationAuthorizationContext,
   type ContextOperationParams,
   type ContextOperationResult,
@@ -267,6 +269,7 @@ export {
   createAgentHooks,
   createAgentPolicy,
   formatAgentIdentityContext,
+  postToolUseGuidance,
   retryGuidance,
   structuredErrorCode,
   TRANSPORT_SOURCE_FLAG_GUIDANCE,
@@ -701,6 +704,11 @@ export interface ListeningExecutionContext {
 }
 
 export interface CopilotAgentServiceOptions {
+  /** Side-effect-free resolution freezes capture sources and bounds before authorization. */
+  resolveListeningOperation?: (
+    params: ListeningOperationParams,
+    context: ListeningExecutionContext,
+  ) => Promise<ListeningOperationParams>;
   executeListeningOperation?: (
     params: ListeningOperationParams,
     context: ListeningExecutionContext,
@@ -1346,6 +1354,14 @@ interface MutableRuntimeTrace {
   occurrenceIds: string[];
   deliveryIds: string[];
 }
+interface PendingListeningApproval {
+  readonly input: string;
+  readonly sdkSessionId: string;
+  resolved: ListeningOperationParams;
+  fingerprint: string;
+  readonly context: ListeningExecutionContext;
+  approved: boolean;
+}
 
 interface InstrumentedTurn {
   id: string;
@@ -1391,6 +1407,7 @@ interface ManagedSessionState {
     }
   >;
   readonly listeningInvocations: Set<Promise<ListeningOperationResult>>;
+  readonly listeningApprovals: Map<string, PendingListeningApproval>;
   readonly permissionRejections: Map<string, PendingPermissionRejection>;
   readonly directPlanRequests: Map<
     string,
@@ -2053,6 +2070,65 @@ export class CopilotAgentService implements AgentService {
     return context;
   }
 
+  async #resolveListeningArguments(
+    state: ManagedSessionState,
+    params: ListeningOperationParams,
+    invocation: ToolInvocation,
+  ): Promise<{
+    params: ListeningOperationParams;
+    context: ListeningExecutionContext;
+  }> {
+    const context = this.#listeningExecutionContext(state, invocation);
+    const startedAt = Date.now();
+    const trace = {
+      traceId: context.trace.traceId,
+      turnId: context.trace.correlationId,
+      occurrenceIds: [...(state.activeTurn?.trace.occurrenceIds ?? [])],
+      deliveryIds: [...(state.activeTurn?.trace.deliveryIds ?? [])],
+    };
+    const record = (
+      stage: string,
+      extra: Readonly<Record<string, unknown>> = {},
+    ) =>
+      this.#recordRuntime(
+        state,
+        `agent.listening_resolution.${stage}`,
+        {
+          toolCallId: invocation.toolCallId,
+          appSessionId: context.sessionId,
+          durationMs: Math.max(0, Date.now() - startedAt),
+          ...extra,
+        },
+        { sessionId: invocation.sessionId, trace },
+      );
+    record("queued");
+    record("started");
+    try {
+      context.signal?.throwIfAborted();
+      const resolved = await this.options.resolveListeningOperation!(
+        params,
+        context,
+      );
+      context.signal?.throwIfAborted();
+      listeningOperationParamsSchema.parse(resolved);
+      if (resolved.action !== params.action)
+        throw new ListeningFailure(
+          "invalid_result",
+          "Listening resolution changed the requested action",
+        );
+      record("progress", { arguments: sanitizeOperationRecord(resolved) });
+      record("completed");
+      return { params: resolved, context };
+    } catch (error) {
+      record(context.signal?.aborted ? "cancelled" : "failed", {
+        error: sanitizeOperationRecord({
+          message: error instanceof Error ? error.message : String(error),
+        }),
+      });
+      throw error;
+    }
+  }
+
   #abletonToolSet(
     state: ManagedSessionState,
   ): ReturnType<typeof createAbletonTools> {
@@ -2383,11 +2459,9 @@ export class CopilotAgentService implements AgentService {
           );
           const result = await execute();
           // The SDK tool boundary serializes read errors before this observer.
-          // Keep report/feature terminal events honest without changing legacy reads.
+          // Musical context failures must not become successful read lifecycle events.
           if (
-            (operation.descriptor.operationId === "context.report" ||
-              (tool.name === "ableton_context" &&
-                operation.descriptor.action.includes("feature"))) &&
+            tool.name === "ableton_context" &&
             result !== null &&
             typeof result === "object" &&
             Reflect.get(result, "resultType") === "failure"
@@ -2399,20 +2473,15 @@ export class CopilotAgentService implements AgentService {
                 : undefined;
             this.#recordRuntime(
               state,
-              operation.descriptor.lifecycleEvents.failed,
+              failure?.code === "cancelled"
+                ? operation.descriptor.lifecycleEvents.cancelled
+                : operation.descriptor.lifecycleEvents.failed,
               {
                 ...base,
                 durationMs: Math.max(0, Date.now() - requestedAt),
-                errorCode:
-                  failure?.code ??
-                  (operation.descriptor.action === "report"
-                    ? "context_report_failed"
-                    : "context_feature_failed"),
+                errorCode: failure?.code ?? "context_analysis_failed",
                 error:
-                  failure?.message ??
-                  (operation.descriptor.action === "report"
-                    ? "Metric context report failed"
-                    : "Listening feature operation failed"),
+                  failure?.message ?? "Listening analysis operation failed",
               },
             );
             return result;
@@ -2506,6 +2575,59 @@ export class CopilotAgentService implements AgentService {
             }
             return failureToolResult(argumentError);
           }
+          if (
+            tool.name === "ableton_listening" &&
+            this.options.resolveListeningOperation !== undefined
+          ) {
+            const params = listeningOperationParamsSchema.parse(args);
+            const starts =
+              params.action === "play-session-and-listen" ||
+              params.action === "play-arrangement-and-listen";
+            const receipt = state.listeningApprovals.get(invocation.toolCallId);
+            if (starts && receipt) {
+              state.listeningApprovals.delete(invocation.toolCallId);
+              if (
+                !receipt.approved ||
+                receipt.sdkSessionId !== invocation.sessionId ||
+                receipt.input !== JSON.stringify(params) ||
+                receipt.fingerprint !== JSON.stringify(receipt.resolved)
+              )
+                return failureToolResult(
+                  new ListeningFailure(
+                    "permission_denied",
+                    "Capture arguments do not match this call's approved resolved scope",
+                  ),
+                );
+              const signals = [
+                receipt.context.signal,
+                invocation.signal,
+              ].filter((signal): signal is AbortSignal => signal !== undefined);
+              const context = {
+                ...receipt.context,
+                ...(signals.length ? { signal: AbortSignal.any(signals) } : {}),
+              };
+              context.signal?.throwIfAborted();
+              args = listeningOperationParamsSchema.parse(receipt.resolved);
+              this.#listeningContexts.set(invocation, context);
+            } else if (
+              starts &&
+              this.options.requestToolApproval !== undefined
+            ) {
+              return failureToolResult(
+                new ListeningFailure(
+                  "permission_denied",
+                  "Capture requires a resolved approval for this exact tool call",
+                ),
+              );
+            } else {
+              const resolved = await this.#resolveListeningArguments(
+                state,
+                params,
+                invocation,
+              );
+              args = resolved.params;
+            }
+          }
           const executionArgs = this.#workflowExecutionArgs(
             state,
             tool.name,
@@ -2517,6 +2639,10 @@ export class CopilotAgentService implements AgentService {
             arguments: args,
             __abletonArgumentsValidated: true,
           };
+          if (tool.name === "ableton_listening") {
+            const context = this.#listeningContexts.get(invocation);
+            if (context) this.#listeningContexts.set(modelInvocation, context);
+          }
           const mutationTarget = this.#mutationAuthorizer.resolveMutationTarget(
             tool.name,
             args,
@@ -2545,7 +2671,7 @@ export class CopilotAgentService implements AgentService {
           const requestedAt = Date.now();
           let queuedAt: number | undefined;
           let startedAt: number | undefined;
-          return runAuthorizedAbletonMutation({
+          const captureResult = await runAuthorizedAbletonMutation({
             authorizer: this.#mutationAuthorizer,
             lockManager: this.#mutationLockManager,
             getContext: () => this.#mutationContext(state),
@@ -2624,6 +2750,85 @@ export class CopilotAgentService implements AgentService {
               });
             },
           });
+          if (tool.name !== "ableton_listening") return captureResult;
+          const captured =
+            listeningOperationResultSchema.safeParse(captureResult);
+          if (
+            !captured.success ||
+            (captured.data.action !== "play-session-and-listen" &&
+              captured.data.action !== "play-arrangement-and-listen") ||
+            captured.data.job.contextIds.length === 0
+          )
+            return captureResult;
+          // The capture lease has been released. Waiting for shared analysis is read-only.
+          if (this.options.executeContextOperation === undefined)
+            return {
+              ...captured.data,
+              analysisStatus: "unavailable" as const,
+              analysisError:
+                "Automatic analysis reader is unavailable; durable capture is preserved",
+            };
+          const context = this.#listeningExecutionContext(
+            state,
+            modelInvocation,
+          );
+          const request = listeningOperationParamsSchema.parse(args);
+          const timeout = AbortSignal.timeout(
+            Math.max(
+              1,
+              ("maximumDurationMs" in request
+                ? request.maximumDurationMs
+                : 900000) -
+                (Date.now() - requestedAt),
+            ),
+          );
+          const signal = context.signal
+            ? AbortSignal.any([context.signal, timeout])
+            : timeout;
+          try {
+            const analysis = await this.options.executeContextOperation(
+              {
+                action: "read-captures",
+                contextIds: captured.data.job.contextIds,
+              },
+              { ...context, signal },
+            );
+            if (analysis.action !== "read-captures")
+              throw new ListeningFailure(
+                "invalid_result",
+                "Analysis reader returned a mismatched result",
+              );
+            return listeningOperationResultSchema.parse({
+              ...captured.data,
+              analyses: analysis.analyses,
+              analysisFailures: analysis.failures,
+              analysisStatus:
+                analysis.failures.length === 0 &&
+                analysis.analyses.every((page) => page.status === "ready")
+                  ? "ready"
+                  : analysis.analyses.some((page) => page.status === "ready")
+                    ? "partial"
+                    : analysis.failures.length > 0
+                      ? "failed"
+                      : ((["failed", "cancelled", "timed-out"] as const).find(
+                          (status) =>
+                            analysis.analyses.some(
+                              (page) => page.status === status,
+                            ),
+                        ) ?? "unavailable"),
+            });
+          } catch {
+            return {
+              ...captured.data,
+              analysisStatus: timeout.aborted
+                ? ("timed-out" as const)
+                : signal.aborted
+                  ? ("cancelled" as const)
+                  : ("failed" as const),
+              analysisError:
+                "Analysis wait ended without values; durable capture is preserved. Read this recorded source later; do not replay",
+            };
+          }
         },
       };
     });
@@ -2721,6 +2926,7 @@ export class CopilotAgentService implements AgentService {
       listeningAbortController: new AbortController(),
       listeningPasses: new Map(),
       listeningInvocations: new Set(),
+      listeningApprovals: new Map(),
       permissionRejections: new Map(),
       directPlanRequests: new Map(),
       elicitationRequests: new Map(),
@@ -3644,11 +3850,96 @@ export class CopilotAgentService implements AgentService {
         const permissionHandler = createAbletonPermissionHandler(
           this.options.requestToolApproval === undefined
             ? undefined
-            : (approval) =>
-                this.options.requestToolApproval!({
+            : async (approval) => {
+                if (
+                  approval.metadata.name === "ableton_listening" &&
+                  this.options.resolveListeningOperation !== undefined
+                ) {
+                  const params = listeningOperationParamsSchema.parse(
+                    approval.arguments,
+                  );
+                  if (
+                    params.action === "play-session-and-listen" ||
+                    params.action === "play-arrangement-and-listen"
+                  ) {
+                    if (state.session?.sessionId !== invocation.sessionId)
+                      throw new ListeningFailure(
+                        "permission_denied",
+                        "Capture approval belongs to a different SDK session",
+                      );
+                    if (
+                      !("toolCallId" in request) ||
+                      typeof request.toolCallId !== "string"
+                    )
+                      throw new ListeningFailure(
+                        "permission_denied",
+                        "Capture approval requires an exact SDK tool call ID",
+                      );
+                    if (state.listeningApprovals.has(request.toolCallId))
+                      throw new ListeningFailure(
+                        "permission_denied",
+                        "Capture tool call already has a resolved approval",
+                      );
+                    const call = {
+                      sessionId: invocation.sessionId,
+                      toolCallId: request.toolCallId,
+                      toolName: "ableton_listening",
+                      arguments: params,
+                    };
+                    const receipt: PendingListeningApproval = {
+                      input: JSON.stringify(params),
+                      sdkSessionId: invocation.sessionId,
+                      resolved: params,
+                      fingerprint: JSON.stringify(params),
+                      context: this.#listeningExecutionContext(state, call),
+                      approved: false,
+                    };
+                    state.listeningApprovals.set(request.toolCallId, receipt);
+                    try {
+                      const resolved = await this.#resolveListeningArguments(
+                        state,
+                        params,
+                        call,
+                      );
+                      if (
+                        state.listeningApprovals.get(request.toolCallId) !==
+                        receipt
+                      )
+                        throw new ListeningFailure(
+                          "cancelled",
+                          "Capture approval was invalidated before resolution completed",
+                        );
+                      receipt.resolved = resolved.params;
+                      receipt.fingerprint = JSON.stringify(resolved.params);
+                      const approved = await this.options.requestToolApproval!({
+                        ...approval,
+                        metadata:
+                          resolveAbletonToolMetadata(
+                            approval.metadata.name,
+                            resolved.params,
+                          ) ?? approval.metadata,
+                        arguments: resolved.params,
+                        ...approvalAttribution,
+                        trace: resolved.context.trace,
+                      });
+                      resolved.context.signal?.throwIfAborted();
+                      receipt.approved = approved;
+                      return approved;
+                    } catch (error) {
+                      if (
+                        state.listeningApprovals.get(request.toolCallId) ===
+                        receipt
+                      )
+                        state.listeningApprovals.delete(request.toolCallId);
+                      throw error;
+                    }
+                  }
+                }
+                return this.options.requestToolApproval!({
                   ...approval,
                   ...approvalAttribution,
-                }),
+                });
+              },
           this.options.askForReadApproval,
         );
         const resolvedMetadata =
@@ -4273,6 +4564,7 @@ export class CopilotAgentService implements AgentService {
         );
       } else if (event.type === "abort") {
         state.permissionRejections.clear();
+        state.listeningApprovals.clear();
         if (activeTurn !== undefined) {
           this.#finishWorkingTurn(
             state,
@@ -4350,6 +4642,7 @@ export class CopilotAgentService implements AgentService {
         );
         state.operations.delete(event.data.toolCallId);
         state.permissionRejections.delete(event.data.toolCallId);
+        state.listeningApprovals.delete(event.data.toolCallId);
         if (event.data.success) {
           this.#logger.debug("Agent tool completed", {
             sessionId: session.sessionId,
@@ -4643,6 +4936,7 @@ export class CopilotAgentService implements AgentService {
     state.queuedTurns = 0;
     state.operations.clear();
     state.permissionRejections.clear();
+    state.listeningApprovals.clear();
     this.#cancelPendingPlans(state, "session_disconnected");
     this.#cancelPendingElicitations(state, "session_disconnected");
     this.#rejectPendingAutomatic(
@@ -4876,6 +5170,7 @@ export class CopilotAgentService implements AgentService {
     previous.queuedTurns = 0;
     previous.operations.clear();
     previous.permissionRejections.clear();
+    previous.listeningApprovals.clear();
     this.#cancelActiveTurnTimeout(previous, "session_replaced");
     this.#cancelPendingPlans(previous, "session_replaced");
     this.#rejectPendingAutomatic(previous, reason);
@@ -4966,6 +5261,7 @@ export class CopilotAgentService implements AgentService {
     }
     state.operations.clear();
     state.permissionRejections.clear();
+    state.listeningApprovals.clear();
 
     let abortError: unknown;
     this.#recordRuntime(

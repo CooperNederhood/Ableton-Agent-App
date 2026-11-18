@@ -2,6 +2,82 @@
 
 Companion specification: [Acceptance test authoring](acceptance-authoring.md).
 
+## Musical-analysis contract migration
+
+- [x] Reproduce rejection of valid typed analysis pagination, then distinguish
+      it from actual lossy History truncation without accepting malformed pages.
+- [x] Accept actual canonical values delivered by the original listening call
+      rather than require an extra storage read. Independently verify mel shape,
+      regions and ratios against original frames and reject altered source,
+      owner, geometry, units, values and missing dimensions.
+- [x] Migrate feature-search and storage-shape assertions/prompts to composable
+      source/passage targets while retaining independent mathematical,
+      provenance, complete-extent and original/restart checks.
+- [x] Fix and re-review modern-oracle false passes for missing restart
+      provenance and forged original/restored sample coverage; retain independent
+      native support-union and channel-validity checks.
+- [x] Reconcile the migrated oracles with the compact default projection and
+      explicitly requested technical-detail pages.
+- [x] Match schema-inserted capture deadlines equivalently to omission for
+      single/named source grants; reject non-default, foreign-listener and reused
+      requests. Preserve explicit deadlines and all source/capture guards.
+- [x] Reproduce the saved suite's valid Arrangement selector denials against
+      actual reviewed manifests; validate each selector against the existing
+      source binding before exact matching. Reject foreign/multiple/extra or
+      device-ambiguous selectors, altered bounds/deadlines, wrong owners/steps
+      and reuse. Keep case 13's ungranted explicit 30000-ms deadline denied.
+- [x] Admit the complete registered suite within a finite 8 GiB aggregate
+      artifact budget, sharing the existing 256 MiB per-case reservation.
+      Cover admission alongside prior evidence and retain invalid-reservation,
+      capacity-exhaustion, ownership, lock and no-deletion checks.
+- [x] Raise only the user-authorized immediate-entry admission bound from 16 to
+      32, then 64 using shared `acceptanceArtifactRetention`; demonstrate admission after
+      thirty-two preserved attempts and exhaustion at 64 without deletion. Keep
+      8 GiB total, 256 MiB per case and 8,192 recursive entries unchanged.
+- [x] Subsequently expand only aggregate recursive-entry admission to 16,384
+      under the authorized finite budget; retain the 8,192-entry working-copy
+      bound and test both boundaries with real retained files and no deletion.
+- [x] Carry the existing typed-History byte allowance through coordinator turns,
+      final evidence and receipt sanitization with a shared finite 24-MiB
+      aggregate cap. Preserve generic wrapper limits and prove lossless success,
+      aggregate rejection, redaction and cleanup without discarding earlier turns.
+- [x] Clarify already-stopped two-MIDI setup, tool-owned Arrangement playback
+      start and exactly-five-source comprehension under the authorized prompt
+      migration. Do not grant the denied extra transport or recapture actions.
+- [x] Apply the subsequent user-approved comprehension-only relaxation: permit
+      bounded repeated Stop, Back to Arrangement and source-track stop-clips
+      without prescribing a setup/read sequence. Keep exactly one capture per
+      source, exact answer, ownership, unchanged-content and cleanup checks;
+      regress actual-manifest allowance, exhaustion, recapture and unsafe-action denial.
+- [x] Accept user-approved explanatory prose around exactly one correct
+      twenty-measure sequence. Reject ambiguous, duplicate, wrong, malformed
+      and overlong blocks; retain native/capture/ownership/cleanup denial coverage
+      with prose-wrapped answers and preserve prior failed receipts.
+- [x] Preserve complete original/restarted long-consolidation page requirements;
+      actual missing continuations in `suite-3kErcF` are failures, not oracle bugs.
+- [x] Restore the user-approved structural scope from `930d3063^`: all four
+      consolidation prompts request complete `detail: "feature-shapes"` reads
+      of each original and restarted source, not exhaustive numeric arrays.
+      Keep budgets, permissions, assets and musical answers unchanged.
+- [x] Reuse typed result attribution, authentic cursor chaining, pinned scope
+      and fragment validation for shape reports. Require every measure/type,
+      canonical dimensions/units/counts/ranges and native support coverage;
+      reject omitted late detail, duplicates, foreign ownership, incomplete
+      cursors, failures/cancellation and restored omissions/tampering.
+- [x] Keep numeric feature-search consumption strict and distinguish native
+      persisted-stream integrity from independent derived numerical truth.
+      Do not reclassify historical failures or substitute summaries/samples.
+- [x] Preserve the former tool-delivered original/restored value equality
+      boundary with required producer SHA-256 checksums of each full persisted
+      feature (vectors, masks, support and profile), not metadata-only hashes.
+      Reject missing/malformed/mutant checksums and an actual projected stored
+      value change with unchanged shape fields; keep native hashes separate.
+- [ ] Run simple listening regressions followed by every registered packaged
+      message scenario and the terminal suite verifier on the final candidate.
+- [ ] Invoke final code review, resolve findings and requalify any changed
+      candidate before the PR. Record justified finite budget or small
+      tooling-contract adjustments under the user's explicit permission.
+
 ## User-authorized comprehension follow-on
 
 Qualification and preserved failures are maintained in the

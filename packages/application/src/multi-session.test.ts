@@ -23,15 +23,10 @@ import type {
 } from "@ableton-agent/protocol";
 import {
   PROTOCOL_VERSION,
-  projectMetricListeningReport,
   summarizeMetricListeningResult,
-  nativeMetricObservationMetricSchema,
   LISTENING_FEATURE_DEFINITIONS,
 } from "@ableton-agent/protocol";
-import {
-  createSyntheticMetricListeningObservation,
-  createSyntheticPartialMetricListeningObservation,
-} from "@ableton-agent/protocol/testing";
+import { createSyntheticPartialMetricListeningObservation } from "@ableton-agent/protocol/testing";
 
 import {
   CopilotAgentService,
@@ -51,6 +46,10 @@ import {
 import type { SignalTurnRequest } from "./signal-delivery.js";
 import type { LiveEventTurnRequest } from "./live-event-delivery.js";
 import { ListeningFailure } from "./listening-coordinator.js";
+import {
+  analysisPageSchema,
+  type ListeningOperationParams,
+} from "@ableton-agent/tools";
 
 const disconnected = { state: "disconnected" } as const;
 const trackAReference = "00000000-0000-4000-8000-000000000001";
@@ -62,6 +61,94 @@ const emptySnapshot = {
   trackCount: 0,
   tracks: [],
 };
+
+function musicalReadFixture(sessionId = "production-metric-reader") {
+  const target = {
+    kind: "capture" as const,
+    sessionId,
+    liveSetId: "set",
+    contextId: "context",
+    coordinate: "transport-beats" as const,
+    range: { startBeat: 0, endBeat: 4 },
+  };
+  return {
+    action: "read" as const,
+    nextCursor: null,
+    analyses: [
+      analysisPageSchema.parse({
+        source: {
+          name: "Measured track",
+          nameTruncated: false,
+          location: "Arrangement regular track 1",
+          capturedAt: "2026-10-25T23:00:00.000Z",
+          coordinate: target.coordinate,
+          observedRange: target.range,
+          requestedRange: target.range,
+          freshness: "fresh",
+          readTarget: target,
+        },
+        readTarget: target,
+        status: "ready",
+        reason: null,
+        overviewIncluded: true,
+        overview: LISTENING_FEATURE_DEFINITIONS.map((definition) => ({
+          type: definition.type,
+          units: definition.units,
+          basis: definition.grid ? "grid-cells" : "segment-summaries",
+          availableSegments: definition.type === "peak-summary/v1" ? 1 : 0,
+          totalSegments: 1,
+          validValues: definition.type === "peak-summary/v1" ? 2 : 0,
+          expectedValues: definition.dimensions,
+          minimum: definition.type === "peak-summary/v1" ? 0.5 : null,
+          maximum: definition.type === "peak-summary/v1" ? 0.5 : null,
+          reason: definition.type === "peak-summary/v1" ? null : "unavailable",
+        })),
+        timeline: [
+          {
+            kind: "segment-summary",
+            segment: {
+              startBeat: 0,
+              endBeat: 4,
+              kind: "unaligned",
+              startSample: 0,
+              endSample: 96000,
+              sampleRate: 48000,
+              alignment: null,
+              alignmentReason: "musical-bar-alignment-not-established",
+            },
+            startBeat: 0,
+            endBeat: 4,
+            elapsedStartSeconds: 0,
+            elapsedEndSeconds: 2,
+            fragment: 0,
+            complete: true,
+            features: [
+              {
+                type: "peak-summary/v1",
+                units: "linear-amplitude",
+                normalization: "none",
+                dimensions: ["left", "right"],
+                status: "ready",
+                reason: null,
+                values: [0.5, 0.5],
+                coveredSamples: 96000,
+                expectedSamples: 96000,
+              },
+            ],
+          },
+        ],
+        overviewExtent: target.range,
+        detail: {
+          offset: 0,
+          returnedItems: 1,
+          totalItems: 1,
+          truncated: false,
+          nextCursor: null,
+        },
+      }),
+    ],
+  };
+}
 
 function skillDescriptor(name: string): AgentSkillDescriptor {
   return {
@@ -2181,38 +2268,62 @@ describe("CopilotAgentService managed sessions", () => {
       );
       for (const index of [1, 3]) {
         const prompt = configs[index]?.customAgents?.[0]?.prompt;
-        expect(prompt).toContain("Queued or arming is not completion.");
+        expect(prompt).toContain("automatically derived musical values");
+        expect(prompt).toContain("Listen returns capture status");
+        expect(prompt).toContain("never batch or parallelize listening calls");
         expect(prompt).toContain(
-          "Start calls wait for terminal capture, durable publication and cleanup",
+          "no playback, derivation or inventory call is needed",
         );
+        expect(prompt).toContain("through ordinary approvals");
+        expect(prompt).toContain("stopped transport and Back to Arrangement");
+        expect(prompt).toContain("Session clips and Arrangement are distinct");
         expect(prompt).toContain(
-          "no get-pass polling, second capture, bash or sleep is needed to wait",
+          "Never repair/retry a rejected pass automatically",
         );
-        expect(prompt).toContain(
-          "The App owns Arrangement positioning and playback start; do not seek or start transport separately",
+        const postListen = await configs[index]?.hooks?.onPostToolUse?.(
+          {
+            sessionId: `session-${index}`,
+            timestamp: new Date(),
+            workingDirectory: "/tmp",
+            toolName: "ableton_listening",
+            toolArgs: {
+              action: "play-session-and-listen",
+              target: {
+                view: "session",
+                track: {
+                  kind: "regular",
+                  index: 0,
+                  expectedReference: "00000000-0000-4000-8000-000000000001",
+                  expectedName: "track",
+                },
+                sceneIndex: 0,
+                expectedClipReference: "00000000-0000-4000-8000-000000000002",
+                expectedClipName: "clip",
+              },
+            },
+            toolResult: {
+              resultType: "success",
+              textResultForLlm:
+                '{"action":"play-session-and-listen","job":{"phase":"completed","cleanupPolicy":"leave-running"}}',
+            },
+          },
+          { sessionId: `session-${index}` },
         );
+        expect(postListen?.additionalContext).toContain("FIRST stop transport");
+        expect(postListen?.additionalContext).toContain("only if it is moving");
+        expect(postListen?.additionalContext).toContain("already stopped");
+        expect(postListen?.additionalContext).toContain("isPlaying=false");
+        expect(postListen?.additionalContext).not.toContain("derive-features");
+        expect(postListen?.modifiedResult).toBeUndefined();
+        expect(prompt).toContain("source/range");
         expect(prompt).toContain(
-          "Back to Arrangement restores the playback source, not the view",
+          "Read stored values with ableton_context read",
         );
+        expect(prompt).toContain("readTarget");
+        expect(prompt).toContain("Follow nextCursor for remaining values");
+        expect(prompt).toContain("Missing evidence never authorizes replay");
         expect(prompt).toContain(
-          "Switching views or stopping transport alone does not clear a Session override",
-        );
-        expect(prompt).toContain(
-          "after a rejected pass do not repair or retry automatically",
-        );
-        expect(prompt).toContain("absolute endBeat, not durationBeats");
-        expect(prompt).toContain(
-          'Historical bounded observations retain action "report"; do not call it on a new stream context',
-        );
-        expect(prompt).toContain("Use its known contextId directly");
-        expect(prompt).toContain(
-          '"stream-overview" gives independently verified terminal counts, gaps, native status and digests',
-        );
-        expect(prompt).toContain(
-          "An explicit user instruction to stop on any failure includes argument-validation and permission failures",
-        );
-        expect(prompt).toContain(
-          "retryable is technical recoverability, not permission to retry",
+          "Never repair/retry a rejected pass automatically",
         );
       }
       for (const index of [1, 2, 3]) {
@@ -2231,12 +2342,8 @@ describe("CopilotAgentService managed sessions", () => {
           },
           { sessionId: `session-${index}` },
         );
-        expect(postTool?.additionalContext).toContain(
-          "If the user requested values or persisted rereads",
-        );
-        expect(postTool?.additionalContext).toContain(
-          "metadata and distances, not feature value arrays",
-        );
+        expect(postTool?.additionalContext).not.toContain("get-feature");
+        expect(postTool?.additionalContext).toContain("verified tool result");
         const contextTool = configs[index]?.tools?.find(
           ({ name }) => name === "ableton_context",
         );
@@ -2245,18 +2352,10 @@ describe("CopilotAgentService managed sessions", () => {
           ...(index === 2 ? [] : [configs[index]?.customAgents?.[0]?.prompt]),
         ];
         for (const text of guidance) {
-          expect(text).toContain(
-            "call get-feature for each requested feature from every requested context in the current operation",
-          );
-          expect(text).toContain(
-            "Conversation memory or a previous turn's read does not satisfy an explicit persisted reread",
-          );
-          expect(text).toContain(
-            "call compare-features with pairs of leftFeatureId and rightFeatureId, and call search-features separately",
-          );
-          expect(text).toContain(
-            "A search hit or its distance is not a substitute for the requested pair comparison",
-          );
+          expect(text).toContain("readTarget");
+          expect(text).toContain("peak-summary/v1");
+          expect(text).toContain("mel-grid/v1");
+          expect(text).toContain("pitch-grid/v1");
         }
       }
       expect(configs[2]?.customAgents?.[0]?.prompt).not.toContain(
@@ -2270,15 +2369,11 @@ describe("CopilotAgentService managed sessions", () => {
   it.each([
     { operations: undefined },
     {
-      operations: [
-        "context.list-features",
-        "context.get-feature",
-        "context.report",
-      ],
+      operations: ["context.read", "context.compare", "context.search"],
     },
-    { operations: ["context.list-features"] },
+    { operations: ["context.read"] },
   ])(
-    "registers cursor-only list-features pagination and attributes offset denial ($operations)",
+    "registers cursor-only musical reads and attributes offset denial ($operations)",
     async ({ operations }) => {
       const configs: SessionConfig[] = [];
       const events: AgentRuntimeEvent[] = [];
@@ -2286,16 +2381,7 @@ describe("CopilotAgentService managed sessions", () => {
         .fn<
           NonNullable<CopilotAgentServiceOptions["executeContextOperation"]>
         >()
-        .mockResolvedValue({
-          action: "list-features",
-          inventory: {
-            features: [],
-            provenance: [],
-            segments: [],
-            sources: [],
-            metadata: [],
-          },
-        });
+        .mockResolvedValue(musicalReadFixture());
       const service = new CopilotAgentService(
         baseOptions({
           executeContextOperation,
@@ -2331,16 +2417,14 @@ describe("CopilotAgentService managed sessions", () => {
           JSON.stringify({ description: tool.description }),
         ) as { description: string };
         expect(sdkDescription.description).toContain(
-          "list-features and list use cursor, never offset",
+          'Read continuations need only {action:"read",cursor:nextCursor}',
+        );
+        expect(sdkDescription.description).toContain("pinned continuations");
+        expect(sdkDescription.description).toContain(
+          "no discovery or Bash is needed",
         );
         expect(sdkDescription.description).toContain(
-          "omit cursor initially, then copy nextCursor until absent",
-        );
-        expect(sdkDescription.description).toContain(
-          "Only report and get-feature accept offset; only get-feature accepts supportOffset",
-        );
-        expect(sdkDescription.description).toContain(
-          "feature-definitions accepts only action, with no pagination",
+          "Read stored musical analysis",
         );
         interface Variant {
           description?: string;
@@ -2355,19 +2439,17 @@ describe("CopilotAgentService managed sessions", () => {
         const wire = JSON.parse(
           JSON.stringify(parameters.toJSONSchema()),
         ) as Variant;
-        const inventory = (wire.oneOf ?? wire.anyOf ?? [wire]).find(
-          (variant) => variant.properties?.action?.const === "list-features",
-        );
-        expect(inventory?.description).toContain(
-          "cursor pagination, not offset",
-        );
-        expect(inventory?.properties?.cursor?.description).toContain(
-          "returned nextCursor unchanged",
-        );
+        const inventory = (
+          wire.properties?.action?.const === "read"
+            ? [wire]
+            : (wire.oneOf ?? wire.anyOf ?? [])
+        ).find((variant) => variant.properties?.action?.const === "read");
+        expect(inventory?.properties).toHaveProperty("cursor");
+        expect(inventory?.properties).toHaveProperty("target");
         expect(inventory?.properties).not.toHaveProperty("offset");
         const args = {
-          action: "list-features",
-          contextId: "source",
+          action: "read",
+          target: musicalReadFixture().analyses[0]!.readTarget,
           offset: 0,
           limit: 8,
         };
@@ -2396,15 +2478,28 @@ describe("CopilotAgentService managed sessions", () => {
           data: {
             toolCallId: "invalid-offset",
             toolName: "ableton_context",
-            operationDescriptorId: "context.list-features",
+            operationDescriptorId: "context.read",
             errorCode: "invalid_tool_arguments",
             targetIdentity: {
               domain: "context",
-              action: "list-features",
+              action: "read",
               targetKind: "invalid-arguments",
             },
           },
         });
+        const continuation = { action: "read", cursor: "signed-cursor" };
+        await expect(
+          tool.handler?.(continuation, {
+            sessionId: "feature-pages-2",
+            toolCallId: "cursor-read",
+            toolName: "ableton_context",
+            arguments: continuation,
+          }),
+        ).resolves.toEqual(musicalReadFixture());
+        expect(executeContextOperation).toHaveBeenCalledOnce();
+        expect(executeContextOperation.mock.lastCall?.[0]).toEqual(
+          continuation,
+        );
         expect(failures[0]?.data.durationMs).toEqual(expect.any(Number));
       } finally {
         await service.stop();
@@ -2412,124 +2507,140 @@ describe("CopilotAgentService managed sessions", () => {
     },
   );
 
-  it("routes feature discovery through scoped SDK context with attributed lifecycle and failures", async () => {
-    const configs: SessionConfig[] = [];
-    const events: AgentRuntimeEvent[] = [];
-    const executeContextOperation = vi.fn<
-      NonNullable<CopilotAgentServiceOptions["executeContextOperation"]>
-    >(async () => ({
-      action: "feature-definitions",
-      definitions: [...LISTENING_FEATURE_DEFINITIONS],
-    }));
-    const service = new CopilotAgentService(
-      baseOptions({
-        executeContextOperation,
-        runtimeObserver: { enqueue: (event) => events.push(event) },
-        clientFactory: () => ({
-          createSession: vi.fn(async (config: SessionConfig) => {
-            configs.push(config);
-            return createFakeSession(`session-${configs.length}`);
+  it.each([undefined, "evidence"] as const)(
+    "routes musical reads (%s) through scoped SDK context with attributed lifecycle and failures",
+    async (detail) => {
+      const configs: SessionConfig[] = [];
+      const events: AgentRuntimeEvent[] = [];
+      const executeContextOperation = vi.fn<
+        NonNullable<CopilotAgentServiceOptions["executeContextOperation"]>
+      >(async () => {
+        const read = musicalReadFixture("production-feature-reader");
+        if (detail === "evidence") {
+          const page = read.analyses[0]!;
+          page.timeline = [
+            {
+              ...page.timeline[0]!,
+              kind: "support",
+              features: [],
+              featureType: "level-grid/v1",
+              support: [0, 6000],
+              supportCoordinate: "segment-relative-samples",
+              supportChannel: "aggregate",
+              supportOffset: 0,
+            },
+          ];
+        }
+        return read;
+      });
+      const service = new CopilotAgentService(
+        baseOptions({
+          executeContextOperation,
+          runtimeObserver: { enqueue: (event) => events.push(event) },
+          clientFactory: () => ({
+            createSession: vi.fn(async (config: SessionConfig) => {
+              configs.push(config);
+              return createFakeSession(`session-${configs.length}`);
+            }),
+            resumeSession: vi.fn(async () => {
+              throw new Error("resume not expected");
+            }),
+            stop: vi.fn(async () => undefined),
           }),
-          resumeSession: vi.fn(async () => {
-            throw new Error("resume not expected");
-          }),
-          stop: vi.fn(async () => undefined),
-        }),
-      }),
-    );
-    try {
-      await service.start();
-      await service.createManagedAgent(
-        configuration("feature-reader", {
-          resolvedTools: ["ableton_context"],
-          resolvedOperations: ["context.feature-definitions"],
         }),
       );
-      const handler = configs[1]?.tools?.find(
-        ({ name }) => name === "ableton_context",
-      )?.handler;
-      expect(handler).toBeDefined();
-      const args = { action: "feature-definitions" };
-      await expect(
-        handler?.(args, {
-          sessionId: "session-2",
+      try {
+        await service.start();
+        await service.createManagedAgent(
+          configuration("feature-reader", {
+            resolvedTools: ["ableton_context"],
+            resolvedOperations: ["context.read"],
+          }),
+        );
+        const handler = configs[1]?.tools?.find(
+          ({ name }) => name === "ableton_context",
+        )?.handler;
+        expect(handler).toBeDefined();
+        const args = {
+          action: "read",
+          target: musicalReadFixture("production-feature-reader").analyses[0]!
+            .readTarget,
+          ...(detail ? { detail } : {}),
+        };
+        await expect(
+          handler?.(args, {
+            sessionId: "session-2",
+            toolCallId: "feature-call",
+            toolName: "ableton_context",
+            arguments: args,
+          }),
+        ).resolves.toMatchObject({
+          action: "read",
+          analyses: [
+            {
+              timeline: [
+                detail === "evidence"
+                  ? { kind: "support", support: [0, 6000], features: [] }
+                  : { features: [{ values: [0.5, 0.5] }] },
+              ],
+            },
+          ],
+        });
+        expect(executeContextOperation.mock.lastCall?.[0]).toMatchObject(args);
+        expect(executeContextOperation.mock.lastCall?.[1]).toMatchObject({
+          sessionId: "production-feature-reader",
+          agentId: "feature-reader",
+          trace: { causationId: "feature-call" },
+        });
+        const operations = events.filter((event) =>
+          event.type.startsWith("agent.operation."),
+        );
+        expect(operations.map((event) => event.type)).toEqual([
+          "agent.operation.requested",
+          "agent.operation.started",
+          "agent.operation.verification",
+          "agent.operation.completed",
+        ]);
+        expect(operations.at(-1)?.data).toMatchObject({
+          operationDescriptorId: "context.read",
           toolCallId: "feature-call",
-          toolName: "ableton_context",
-          arguments: args,
-        }),
-      ).resolves.toMatchObject({
-        action: "feature-definitions",
-        definitions: [...LISTENING_FEATURE_DEFINITIONS],
-      });
-      expect(executeContextOperation.mock.lastCall?.[1]).toMatchObject({
-        sessionId: "production-feature-reader",
-        agentId: "feature-reader",
-        trace: { causationId: "feature-call" },
-      });
-      const operations = events.filter((event) =>
-        event.type.startsWith("agent.operation."),
-      );
-      expect(operations.map((event) => event.type)).toEqual([
-        "agent.operation.requested",
-        "agent.operation.started",
-        "agent.operation.verification",
-        "agent.operation.completed",
-      ]);
-      expect(operations.at(-1)?.data).toMatchObject({
-        operationDescriptorId: "context.feature-definitions",
-        toolCallId: "feature-call",
-      });
-      expect(typeof operations.at(-1)?.data?.durationMs).toBe("number");
-      executeContextOperation.mockRejectedValueOnce(
-        new Error("Feature source unavailable"),
-      );
-      await Promise.resolve(
-        handler?.(args, {
-          sessionId: "session-2",
-          toolCallId: "feature-failure",
-          toolName: "ableton_context",
-          arguments: args,
-        }),
-      ).catch(() => undefined);
-      expect(
-        events
-          .filter((event) => event.type.startsWith("agent.operation."))
-          .at(-1),
-      ).toMatchObject({
-        type: "agent.operation.failed",
-        data: {
-          operationDescriptorId: "context.feature-definitions",
-          toolCallId: "feature-failure",
-        },
-      });
-    } finally {
-      await service.stop();
-    }
-  });
+        });
+        expect(typeof operations.at(-1)?.data?.durationMs).toBe("number");
+        executeContextOperation.mockRejectedValueOnce(
+          new Error("Feature source unavailable"),
+        );
+        await Promise.resolve(
+          handler?.(args, {
+            sessionId: "session-2",
+            toolCallId: "feature-failure",
+            toolName: "ableton_context",
+            arguments: args,
+          }),
+        ).catch(() => undefined);
+        expect(
+          events
+            .filter((event) => event.type.startsWith("agent.operation."))
+            .at(-1),
+        ).toMatchObject({
+          type: "agent.operation.failed",
+          data: {
+            operationDescriptorId: "context.read",
+            toolCallId: "feature-failure",
+          },
+        });
+      } finally {
+        await service.stop();
+      }
+    },
+  );
 
-  it("routes bounded context reports through the SDK with ordered owner-attributed lifecycle and failures", async () => {
+  it("routes bounded musical values through the SDK with ordered owner-attributed lifecycle and failures", async () => {
     const configs: SessionConfig[] = [];
     const runtimeEvents: AgentRuntimeEvent[] = [];
-    const report = projectMetricListeningReport(
-      createSyntheticMetricListeningObservation({ endBeat: 4 }),
-    );
-    const reportEntry = {
-      contextId: "context",
-      passId: "pass",
-      listenerId: "listener",
-      subjectId: "subject",
-      kind: "metric-audio-observation/v1" as const,
-      createdAt: "2026-10-25T23:00:00.000Z",
-      freshness: "unknown" as const,
-      summary: "Stored metric report",
-    };
+    const read = musicalReadFixture();
     const executeContextOperation = vi.fn<
       NonNullable<CopilotAgentServiceOptions["executeContextOperation"]>
-    >(async () => ({
-      action: "report",
-      entry: reportEntry,
-      report,
-    }));
+    >(async () => read);
     const service = new CopilotAgentService(
       baseOptions({
         executeContextOperation,
@@ -2551,7 +2662,7 @@ describe("CopilotAgentService managed sessions", () => {
       await service.createManagedAgent(
         configuration("metric-reader", {
           resolvedTools: ["ableton_context"],
-          resolvedOperations: ["context.report"],
+          resolvedOperations: ["context.read"],
         }),
       );
       const handler = configs[1]?.tools?.find(
@@ -2559,8 +2670,8 @@ describe("CopilotAgentService managed sessions", () => {
       )?.handler;
       expect(handler).toBeDefined();
       const args = {
-        action: "report",
-        contextId: "context",
+        action: "read",
+        target: read.analyses[0]!.readTarget,
       };
       await expect(
         handler?.(args, {
@@ -2570,19 +2681,17 @@ describe("CopilotAgentService managed sessions", () => {
           arguments: args,
         }),
       ).resolves.toMatchObject({
-        action: "report",
-        report: { offset: 0, nextOffset: 8 },
+        action: "read",
+        analyses: [{ timeline: [{ features: [{ values: [0.5, 0.5] }] }] }],
       });
       expect(executeContextOperation.mock.lastCall?.[1]).toMatchObject({
         sessionId: "production-metric-reader",
         agentId: "metric-reader",
         trace: { causationId: "report-call" },
       });
-      expect(executeContextOperation.mock.lastCall?.[0]).toMatchObject({
-        action: "report",
-        offset: 0,
-        limit: 8,
-        includeHistorical: false,
+      expect(executeContextOperation.mock.lastCall?.[0]).toEqual({
+        action: "read",
+        target: read.analyses[0]!.readTarget,
       });
       const events = runtimeEvents.filter((event) =>
         event.type.startsWith("agent.operation."),
@@ -2596,7 +2705,7 @@ describe("CopilotAgentService managed sessions", () => {
       expect(events.at(-1)).toMatchObject({
         agentInstanceId: "metric-reader",
         data: {
-          operationDescriptorId: "context.report",
+          operationDescriptorId: "context.read",
           toolCallId: "report-call",
         },
       });
@@ -2619,7 +2728,7 @@ describe("CopilotAgentService managed sessions", () => {
       ).toMatchObject({
         type: "agent.operation.failed",
         data: {
-          operationDescriptorId: "context.report",
+          operationDescriptorId: "context.read",
           toolCallId: "report-failure",
         },
       });
@@ -2630,29 +2739,13 @@ describe("CopilotAgentService managed sessions", () => {
             .at(-1),
         ),
       ).not.toContain("report-secret");
-      const byteHeavyObservation = createSyntheticMetricListeningObservation({
-        tempoBpm: 20,
-        endBeat: 10,
-      });
-      byteHeavyObservation.limitations = Array.from({ length: 16 }, () =>
-        "界".repeat(240),
+      const dense = structuredClone(read);
+      dense.analyses[0]!.timeline = Array.from({ length: 48 }, () =>
+        structuredClone(read.analyses[0]!.timeline[0]!),
       );
-      for (const name of nativeMetricObservationMetricSchema.options) {
-        byteHeavyObservation.metrics[name].limitations = Array.from(
-          { length: 8 },
-          () => "界".repeat(240),
-        );
-      }
-      const byteHeavyReport =
-        projectMetricListeningReport(byteHeavyObservation);
-      expect(
-        new TextEncoder().encode(JSON.stringify(byteHeavyReport)).byteLength,
-      ).toBeLessThanOrEqual(48 * 1024);
-      executeContextOperation.mockResolvedValueOnce({
-        action: "report",
-        entry: reportEntry,
-        report: byteHeavyReport,
-      });
+      dense.analyses[0]!.detail.returnedItems = 48;
+      dense.analyses[0]!.detail.totalItems = 48;
+      executeContextOperation.mockResolvedValueOnce(dense);
       const boundedResult = await handler?.(args, {
         sessionId: "session-2",
         toolCallId: "report-inline-budget",
@@ -2667,59 +2760,11 @@ describe("CopilotAgentService managed sessions", () => {
       expect(modelBytes).toBeLessThanOrEqual(
         configs[1]?.largeOutput?.maxSizeBytes ?? 0,
       );
-      const uncappedReport = projectMetricListeningReport(
-        createSyntheticMetricListeningObservation({
-          tempoBpm: 20,
-          endBeat: 10,
-        }),
-        { limit: 32 },
-      );
-      const oversizedMetadataReport = {
-        ...uncappedReport,
-        limitations: byteHeavyObservation.limitations,
-        metricMetadata: {
-          level: {
-            ...uncappedReport.metricMetadata.level,
-            limitations: byteHeavyObservation.metrics.level.limitations,
-          },
-          "spectral-centroid": {
-            ...uncappedReport.metricMetadata["spectral-centroid"],
-            limitations:
-              byteHeavyObservation.metrics["spectral-centroid"].limitations,
-          },
-          attacks: {
-            ...uncappedReport.metricMetadata.attacks,
-            limitations: byteHeavyObservation.metrics.attacks.limitations,
-          },
-        },
-      };
-      expect(
-        new TextEncoder().encode(JSON.stringify(oversizedMetadataReport))
-          .byteLength,
-      ).toBeGreaterThan(48 * 1024);
-      for (const [part, invalid] of [
-        [
-          "entry",
-          {
-            action: "report" as const,
-            entry: {
-              ...reportEntry,
-              createdAt: `2026-10-25T23:00:00.${"0".repeat(30_000)}Z`,
-            },
-            report: byteHeavyReport,
-          },
-        ],
-        [
-          "metadata",
-          {
-            action: "report" as const,
-            entry: reportEntry,
-            report: oversizedMetadataReport,
-          },
-        ],
-      ] as const) {
+      for (const part of ["status", "timeline"] as const) {
+        const invalid = structuredClone(read);
+        Reflect.set(invalid.analyses[0]!, part, "invalid-evidence");
         executeContextOperation.mockResolvedValueOnce(invalid);
-        const toolCallId = `report-oversized-${part}`;
+        const toolCallId = `read-invalid-${part}`;
         const result = await handler?.(args, {
           sessionId: "session-2",
           toolCallId,
@@ -2727,14 +2772,7 @@ describe("CopilotAgentService managed sessions", () => {
           arguments: args,
         });
         expect(result).toMatchObject({ resultType: "failure" });
-        expect(result).toHaveProperty(
-          "textResultForLlm",
-          expect.stringContaining(
-            part === "entry" ? "64 KiB UTF-8" : "48 KiB UTF-8",
-          ),
-        );
-        expect(result).not.toHaveProperty("report");
-        expect(result).not.toHaveProperty("entry");
+        expect(result).not.toHaveProperty("analyses");
         expect(executeContextOperation.mock.lastCall?.[1]).toMatchObject({
           sessionId: "production-metric-reader",
           agentId: "metric-reader",
@@ -2746,7 +2784,7 @@ describe("CopilotAgentService managed sessions", () => {
         expect(events.at(-1)).toMatchObject({
           type: "agent.operation.failed",
           agentInstanceId: "metric-reader",
-          data: { operationDescriptorId: "context.report", toolCallId },
+          data: { operationDescriptorId: "context.read", toolCallId },
         });
         expect(
           events.filter(
@@ -2765,7 +2803,7 @@ describe("CopilotAgentService managed sessions", () => {
     const configs: SessionConfig[] = [];
     const executeContextOperation = vi.fn<
       NonNullable<CopilotAgentServiceOptions["executeContextOperation"]>
-    >(async () => ({ action: "list", entries: [] }));
+    >(async (_params, context) => musicalReadFixture(context.sessionId));
     const service = new CopilotAgentService(
       baseOptions({
         executeContextOperation,
@@ -2801,15 +2839,23 @@ describe("CopilotAgentService managed sessions", () => {
       )?.handler;
       expect(handler).toBeDefined();
       await handler?.(
-        { action: "list" },
+        {
+          action: "read",
+          target: musicalReadFixture(`production-${agent}`).analyses[0]!
+            .readTarget,
+        },
         {
           sessionId: `session-${index + 1}`,
           toolCallId: `context-${agent}`,
           toolName: "ableton_context",
-          arguments: { action: "list" },
+          arguments: {
+            action: "read",
+            target: musicalReadFixture(`production-${agent}`).analyses[0]!
+              .readTarget,
+          },
         },
       );
-      expect(executeContextOperation.mock.lastCall?.[0].action).toBe("list");
+      expect(executeContextOperation.mock.lastCall?.[0].action).toBe("read");
       expect(executeContextOperation.mock.lastCall?.[1]).toMatchObject({
         sessionId: `production-${agent}`,
         agentId: agent,
@@ -2825,16 +2871,85 @@ describe("CopilotAgentService managed sessions", () => {
     ).flatMap((action) => [
       ...(
         ["completed", "partial", "failed", "cancelled", "interrupted"] as const
-      ).map((stage) => ({ action, stage, fault: undefined })),
+      ).map((stage) => ({
+        action,
+        stage,
+        fault: undefined,
+        analysisFault: undefined,
+      })),
       ...(["foreign-pass", "missing-context", "nonterminal"] as const).map(
-        (fault) => ({ action, stage: "completed" as const, fault }),
+        (fault) => ({
+          action,
+          stage: "completed" as const,
+          fault,
+          analysisFault: undefined,
+        }),
       ),
+      ...(
+        [
+          "failed",
+          "cancelled",
+          "timed-out",
+          "unavailable",
+          "throw",
+          "source-failure",
+        ] as const
+      ).map((analysisFault) => ({
+        action,
+        stage: "completed" as const,
+        fault: undefined,
+        analysisFault,
+      })),
     ]),
   )(
-    "$action delivers the terminal $stage result (fault=$fault) while retaining its transport lease",
-    async ({ action, stage, fault }) => {
+    "$action delivers the terminal $stage result (fault=$fault, analysis=$analysisFault) while retaining its transport lease",
+    async ({ action, stage, fault, analysisFault }) => {
       const configs: SessionConfig[] = [];
       const runtimeEvents: AgentRuntimeEvent[] = [];
+      const contextIds =
+        analysisFault === "source-failure"
+          ? ["published-context", "failed-context", "later-context"]
+          : ["published-context"];
+      let queuedMutation: Promise<unknown> = Promise.resolve();
+      const executeContextOperation = vi.fn<
+        NonNullable<CopilotAgentServiceOptions["executeContextOperation"]>
+      >(async (params, context) => {
+        expect(params).toEqual({
+          action: "read-captures",
+          contextIds,
+        });
+        // This would deadlock if analysis waiting retained the capture mutation lease.
+        await queuedMutation;
+        if (analysisFault === "throw")
+          throw new Error("Shared derivation unavailable");
+        const analysis = musicalReadFixture(context.sessionId).analyses[0]!;
+        if (analysisFault && analysisFault !== "source-failure") {
+          analysis.status = analysisFault;
+          analysis.timeline = [];
+          analysis.reason = "Automatic derivation did not produce values";
+        }
+        analysis.readTarget.contextId = "published-context";
+        analysis.source.readTarget.contextId = "published-context";
+        const later = structuredClone(analysis);
+        later.readTarget.contextId = "later-context";
+        later.source.readTarget.contextId = "later-context";
+        return {
+          action: "read-captures",
+          analyses:
+            analysisFault === "source-failure" ? [analysis, later] : [analysis],
+          failures:
+            analysisFault === "source-failure"
+              ? [
+                  {
+                    contextId: "failed-context",
+                    status: "failed",
+                    code: "analysis_not_fresh",
+                    reason: "Source is stale",
+                  },
+                ]
+              : [],
+        };
+      });
       const terminal =
         deferred<
           Awaited<
@@ -2882,6 +2997,7 @@ describe("CopilotAgentService managed sessions", () => {
           }),
           executeListeningOperation,
           waitForListeningPass,
+          executeContextOperation,
           createTrack,
           runtimeObserver: { enqueue: (event) => runtimeEvents.push(event) },
           clientFactory: () => ({
@@ -2957,6 +3073,7 @@ describe("CopilotAgentService managed sessions", () => {
           arguments: {},
         },
       );
+      queuedMutation = Promise.resolve(queued);
       await flushMicrotasks();
       expect(createTrack).not.toHaveBeenCalled();
       expect(waitForListeningPass).toHaveBeenCalledOnce();
@@ -2973,7 +3090,7 @@ describe("CopilotAgentService managed sessions", () => {
         contextIds:
           fault !== "missing-context" &&
           (stage === "completed" || stage === "partial")
-            ? ["published-context"]
+            ? contextIds
             : [],
         ...(stage === "partial"
           ? {
@@ -2993,15 +3110,49 @@ describe("CopilotAgentService managed sessions", () => {
       if (successful) {
         expect(result).toMatchObject({
           action,
+          analysisStatus:
+            analysisFault === "source-failure"
+              ? "partial"
+              : analysisFault === "throw"
+                ? "failed"
+                : (analysisFault ?? "ready"),
           job: {
             passId: "owned-pass",
             stage,
-            contextIds: ["published-context"],
+            contextIds,
             durationMs: 42,
           },
         });
+        if (!analysisFault || analysisFault === "source-failure")
+          expect(result).toMatchObject({
+            analyses: (analysisFault === "source-failure"
+              ? ["published-context", "later-context"]
+              : ["published-context"]
+            ).map((contextId) => ({
+              readTarget: { contextId },
+              timeline: [{ features: [{ values: [0.5, 0.5] }] }],
+            })),
+          });
+        if (analysisFault === "source-failure")
+          expect(result).toMatchObject({
+            analysisFailures: [
+              {
+                contextId: "failed-context",
+                status: "failed",
+                code: "analysis_not_fresh",
+                reason: "Source is stale",
+              },
+            ],
+          });
+        if (analysisFault === "throw")
+          expect(result).toMatchObject({
+            analysisError:
+              "Analysis wait ended without values; durable capture is preserved. Read this recorded source later; do not replay",
+          });
+        expect(executeContextOperation).toHaveBeenCalledOnce();
       } else {
         expect(result).toMatchObject({ resultType: "failure" });
+        expect(executeContextOperation).not.toHaveBeenCalled();
       }
       expect(executeListeningOperation).toHaveBeenCalledOnce();
       expect(createTrack).toHaveBeenCalledOnce();
@@ -3191,6 +3342,304 @@ describe("CopilotAgentService managed sessions", () => {
       }
       await expect(response).resolves.toMatchObject({ resultType: "failure" });
       await service.stop();
+    },
+  );
+
+  it.each(
+    (
+      ["play-session-and-listen", "play-arrangement-and-listen"] as const
+    ).flatMap((action) =>
+      (
+        [
+          "approved",
+          "explicit",
+          "denied",
+          "changed-arguments",
+          "resolution-failed",
+          "mutated-resolution",
+          "sdk-cancelled",
+          "missing-tool-call-id",
+          "changed-action",
+          "cancel-resolution",
+          "foreign-sdk-session",
+        ] as const
+      ).map((outcome) => ({ action, outcome })),
+    ),
+  )(
+    "freezes $action canonical listenerIds.0 before SDK user approval ($outcome)",
+    async ({ action, outcome }) => {
+      const configs: SessionConfig[] = [];
+      const events: AgentRuntimeEvent[] = [];
+      const phases: string[] = [];
+      let frozen: ListeningOperationParams | undefined;
+      const resolutionGate = deferred<void>();
+      const track = {
+        kind: "regular" as const,
+        index: 0,
+        expectedReference: trackAReference,
+        expectedName: "Track",
+      };
+      const sourceArgs =
+        action === "play-session-and-listen"
+          ? {
+              action,
+              target: {
+                view: "session" as const,
+                track,
+                sceneIndex: 0,
+                expectedClipReference: trackBReference,
+                expectedClipName: "Clip",
+              },
+            }
+          : { action, sources: [{ track }] };
+      const args =
+        outcome === "explicit"
+          ? {
+              ...sourceArgs,
+              listenerIds: ["approved-tap"],
+              ...(action === "play-session-and-listen"
+                ? { durationBeats: 4 }
+                : { startBeat: 0, endBeat: 64 }),
+            }
+          : sourceArgs;
+      const resolve = vi.fn<
+        NonNullable<CopilotAgentServiceOptions["resolveListeningOperation"]>
+      >(async (input) => {
+        phases.push("resolve");
+        if (outcome === "resolution-failed")
+          throw new ListeningFailure(
+            "source_changed",
+            "Source changed before approval",
+          );
+        if (outcome === "changed-action")
+          return { action: "inspect-listeners" };
+        if (outcome === "cancel-resolution") await resolutionGate.promise;
+        if (
+          input.action !== "play-session-and-listen" &&
+          input.action !== "play-arrangement-and-listen"
+        )
+          return input;
+        frozen = {
+          ...input,
+          listenerIds: [
+            phases.filter((phase) => phase === "resolve").length === 1
+              ? "approved-tap"
+              : "different-tap",
+          ],
+          ...(input.action === "play-arrangement-and-listen"
+            ? { startBeat: 0, endBeat: 64 }
+            : { durationBeats: 4 }),
+        };
+        return frozen;
+      });
+      const approve = vi.fn<
+        NonNullable<CopilotAgentServiceOptions["requestToolApproval"]>
+      >(async (request) => {
+        phases.push("approval");
+        const listeners = request.arguments.listenerIds;
+        return (
+          outcome !== "denied" &&
+          Array.isArray(listeners) &&
+          listeners[0] === "approved-tap" &&
+          (action === "play-session-and-listen"
+            ? request.arguments.durationBeats === 4
+            : request.arguments.startBeat === 0 &&
+              request.arguments.endBeat === 64)
+        );
+      });
+      const job = {
+        passId: "approved-pass",
+        stage: "completed" as const,
+        createdAt: "2026-11-17T00:00:00.000Z",
+        updatedAt: "2026-11-17T00:00:01.000Z",
+        durationMs: 1000,
+        contextIds: ["captured-context"],
+      };
+      const execute = vi.fn<
+        NonNullable<CopilotAgentServiceOptions["executeListeningOperation"]>
+      >(async () => {
+        phases.push("capture");
+        return { action, job: { ...job, stage: "queued", contextIds: [] } };
+      });
+      const service = new CopilotAgentService(
+        baseOptions({
+          getAbletonStatus: async () => ({
+            state: "connected",
+            liveVersion: "11.3.43",
+            remoteScriptVersion: "0.4.0",
+            liveSetId: "set",
+            liveSetName: "Test",
+            saved: true,
+          }),
+          resolveListeningOperation: resolve,
+          executeListeningOperation: execute,
+          waitForListeningPass: async () => job,
+          requestToolApproval: approve,
+          runtimeObserver: { enqueue: (event) => events.push(event) },
+          clientFactory: () => ({
+            createSession: vi.fn(async (config: SessionConfig) => {
+              configs.push(config);
+              return createFakeSession(`approval-session-${configs.length}`);
+            }),
+            resumeSession: vi.fn(async () => {
+              throw new Error("Unexpected resume");
+            }),
+            stop: vi.fn(async () => undefined),
+          }),
+        }),
+      );
+      try {
+        await service.start();
+        await service.createManagedAgent(
+          configuration("listener", { resolvedTools: ["ableton_listening"] }),
+        );
+        const config = configs[1]!;
+        const handler = config.tools?.find(
+          ({ name }) => name === "ableton_listening",
+        )?.handler;
+        if (!handler || !config.onPermissionRequest)
+          throw new Error("Missing SDK listening boundary");
+        const permission = config.onPermissionRequest(
+          {
+            kind: "custom-tool",
+            toolName: "ableton_listening",
+            toolDescription: "Listen",
+            ...(outcome === "missing-tool-call-id"
+              ? {}
+              : { toolCallId: "capture-rule" }),
+            args,
+          },
+          { sessionId: "approval-session-2" },
+        );
+        if (outcome === "approved")
+          await expect(
+            config.onPermissionRequest(
+              {
+                kind: "custom-tool",
+                toolName: "ableton_listening",
+                toolDescription: "Listen",
+                toolCallId: "capture-rule",
+                args,
+              },
+              { sessionId: "approval-session-2" },
+            ),
+          ).rejects.toThrow("already has a resolved approval");
+        if (outcome === "cancel-resolution") {
+          const rejected = expect(permission).rejects.toThrow(
+            "Listening caller cancelled",
+          );
+          await flushMicrotasks();
+          await service.stop();
+          resolutionGate.resolve(undefined);
+          await rejected;
+          expect(approve).not.toHaveBeenCalled();
+        } else if (
+          outcome === "resolution-failed" ||
+          outcome === "missing-tool-call-id" ||
+          outcome === "changed-action"
+        ) {
+          await expect(permission).rejects.toThrow(
+            outcome === "resolution-failed"
+              ? "Source changed before approval"
+              : outcome === "changed-action"
+                ? "changed the requested action"
+                : "exact SDK tool call ID",
+          );
+          expect(approve).not.toHaveBeenCalled();
+        } else {
+          await expect(permission).resolves.toMatchObject({
+            kind: outcome === "denied" ? "reject" : "approve-once",
+          });
+          expect(approve.mock.calls[0]![0].arguments).toMatchObject({
+            ...args,
+            listenerIds: ["approved-tap"],
+          });
+          if (
+            outcome === "mutated-resolution" &&
+            frozen &&
+            "listenerIds" in frozen
+          )
+            frozen.listenerIds = ["unapproved-tap"];
+          const executionArgs =
+            outcome === "changed-arguments"
+              ? { ...args, maximumDurationMs: 1 }
+              : args;
+          const cancelled = new AbortController();
+          if (outcome === "sdk-cancelled")
+            cancelled.abort(new Error("SDK cancelled capture"));
+          const response = Promise.resolve(
+            handler(executionArgs, {
+              sessionId:
+                outcome === "foreign-sdk-session"
+                  ? "another-sdk-session"
+                  : "approval-session-2",
+              toolCallId: "capture-rule",
+              toolName: "ableton_listening",
+              arguments: executionArgs,
+              signal: cancelled.signal,
+            }),
+          );
+          if (outcome === "sdk-cancelled") {
+            await expect(response).rejects.toThrow("SDK cancelled capture");
+          } else if (outcome === "approved" || outcome === "explicit") {
+            const result = await response;
+            expect(result).toMatchObject({
+              action,
+              job: { stage: "completed", passId: "approved-pass" },
+            });
+            expect(execute.mock.calls[0]![0]).toMatchObject({
+              ...args,
+              listenerIds: ["approved-tap"],
+            });
+            if (outcome === "explicit")
+              expect(execute.mock.calls[0]![0]).toEqual({
+                ...args,
+                maximumDurationMs: 900000,
+              });
+            expect(execute.mock.calls[0]![1].trace).toEqual(
+              resolve.mock.calls[0]![1].trace,
+            );
+            expect(phases).toEqual(["resolve", "approval", "capture"]);
+          } else
+            await expect(response).resolves.toMatchObject({
+              resultType: "failure",
+            });
+        }
+        expect(resolve).toHaveBeenCalledTimes(
+          outcome === "missing-tool-call-id" ? 0 : 1,
+        );
+        expect(execute).toHaveBeenCalledTimes(
+          outcome === "approved" || outcome === "explicit" ? 1 : 0,
+        );
+        const resolution = events.filter((event) =>
+          event.type.startsWith("agent.listening_resolution."),
+        );
+        expect(resolution.map((event) => event.type.split(".").at(-1))).toEqual(
+          outcome === "missing-tool-call-id"
+            ? []
+            : outcome === "cancel-resolution"
+              ? ["queued", "started", "cancelled"]
+              : outcome === "resolution-failed" || outcome === "changed-action"
+                ? ["queued", "started", "failed"]
+                : ["queued", "started", "progress", "completed"],
+        );
+        for (const event of resolution) {
+          expect(event).toMatchObject({
+            sessionId: "approval-session-2",
+            agentInstanceId: "listener",
+            data: {
+              appSessionId: "production-listener",
+              toolCallId: "capture-rule",
+            },
+          });
+          expect(event.trace?.traceId).toBe(
+            resolve.mock.calls[0]![1].trace.traceId,
+          );
+          expect(event.data.durationMs).toBeGreaterThanOrEqual(0);
+        }
+      } finally {
+        await service.stop();
+      }
     },
   );
 

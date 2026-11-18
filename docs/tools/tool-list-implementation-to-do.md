@@ -1,5 +1,13 @@
 # Tool List Implementation To-Do
 
+- [x] Document and register musical `read`, `compare` and `search`, with direct
+      reusable targets and configurable search `topK`, replacing agent-facing
+      feature discovery/calculation actions.
+- [x] Return time-aligned canonical analysis from listen and automatically page
+      large results without response-size failures or SDK spill-file workflows.
+- [x] Cover public/scoped registration, one-call drill-down, exact capture
+      pinning, canonical values and typed History for the revised surface.
+
 - [x] Make Arrangement's SDK description explicitly distinguish read-only
       `inspect` from `set-clip-properties` edits. Cover the actual scoped schema
       after `run-hBR3As` attempted an invalid edit while intending inspection.
@@ -75,3 +83,10 @@ Companion reference: [Ableton Tool List](tool-list.md)
 - [x] Document the agent-facing Drum Rack pad and Session MIDI creation
   actions, direct versus destination track identities, explicit note-expression
   loss choice, and exact parameter-name handoff.
+
+## Compact feature-shape reads
+
+- [x] Document the existing read tool's `feature-shapes` detail projection,
+      without another tool, calculation or feature-ID discovery workflow.
+- [x] Preserve persisted numerical-content equality through full-feature
+      checksums, while keeping numeric reads and musical comparisons distinct.

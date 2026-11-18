@@ -13,7 +13,10 @@ import {
   scenarioArrangementSource,
   declaredArrangementBaseline,
 } from "./arrangement.js";
-import type { AgentListeningEvidence } from "./agent-listening-result.js";
+import {
+  MAX_AGENT_LISTENING_EVIDENCE_BYTES,
+  type AgentListeningEvidence,
+} from "./agent-listening-result.js";
 import {
   validateFixtureSourceEvidence,
   validateMidiSourcePreconditions,
@@ -236,6 +239,20 @@ function instrumentTreeBytes(baseline?: BaselineEvidence): number {
   );
   return bytes;
 }
+function listeningHistoryBytes(
+  histories: readonly (AgentListeningEvidence | undefined)[],
+): number {
+  const bytes = histories.reduce(
+    (total, history) =>
+      total + (history ? Buffer.byteLength(JSON.stringify(history)) : 0),
+    0,
+  );
+  requireCondition(
+    bytes <= MAX_AGENT_LISTENING_EVIDENCE_BYTES,
+    "Agent listening history exceeds report budget",
+  );
+  return bytes;
+}
 export async function runAcceptance(
   options: RunAcceptanceOptions,
 ): Promise<RunResult> {
@@ -305,7 +322,12 @@ export async function runAcceptance(
           ...replacement,
         }),
       ) <=
-        1_500_000 + instrumentTreeBytes(replacement.baseline ?? baseline),
+        1_500_000 +
+          instrumentTreeBytes(replacement.baseline ?? baseline) +
+          listeningHistoryBytes([
+            ...(replacement.turns ?? turns).map((turn) => turn.agentListening),
+            ...((replacement.evidence ?? evidence)?.agentListening ?? []),
+          ]),
       "Combined evidence exceeds report budget",
     );
   };
@@ -699,11 +721,15 @@ export async function runAcceptance(
           const retained = safeCopy(
             observed,
             validateTurn,
-            524_288,
+            524_288 + listeningHistoryBytes([observed.agentListening]),
             sanitizeTurn,
           );
           requireCondition(
-            Buffer.byteLength(JSON.stringify([...turns, retained])) <= 524_288,
+            Buffer.byteLength(JSON.stringify([...turns, retained])) <=
+              524_288 +
+                listeningHistoryBytes(
+                  [...turns, retained].map((turn) => turn.agentListening),
+                ),
             "Turn history exceeds report budget",
           );
           ensureReportBudget({ turns: [...turns, retained] });
@@ -758,7 +784,7 @@ export async function runAcceptance(
         const retained = safeCopy(
           collected,
           validateEvidence,
-          524_288,
+          524_288 + listeningHistoryBytes(collected.agentListening ?? []),
           sanitizeRunEvidence,
         );
         ensureReportBudget({ evidence: retained });
@@ -904,7 +930,12 @@ export async function runAcceptance(
         persisted,
       },
       validateResult,
-      1_900_000 + instrumentTreeBytes(baseline),
+      1_900_000 +
+        instrumentTreeBytes(baseline) +
+        listeningHistoryBytes([
+          ...turns.map((turn) => turn.agentListening),
+          ...(evidence?.agentListening ?? []),
+        ]),
       sanitizeResult,
     );
     validateResult(result);

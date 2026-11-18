@@ -73,7 +73,7 @@ import {
   type CommandName,
 } from "@ableton-agent/protocol";
 import {
-  contextOperationParamsSchema,
+  agentContextOperationParamsSchema,
   contextOperationResultSchema,
   listeningOperationParamsSchema,
   listeningOperationResultSchema,
@@ -376,25 +376,22 @@ function applicationContextDescriptors(): readonly AbletonOperationDescriptor[] 
         }),
       } satisfies AbletonOperationDescriptor;
     }),
-    ...contextOperationParamsSchema.options.map((inputSchema) => {
+    ...agentContextOperationParamsSchema.options.map((inputSchema) => {
       const action = inputSchema.shape.action.value;
       const prunes = action === "prune";
-      const derives = action === "derive-features";
       return {
         operationId: `context.${action}`,
         action,
         toolName: "ableton_context",
         title: prunes
           ? "Prune App-session context"
-          : derives
-            ? "Derive App-session listening features"
-            : "Read App-session context",
+          : "Read App-session musical analysis",
         inputSchema,
         resultSchema: contextOperationResultSchema,
-        risk: prunes ? "destructive" : derives ? "reversible" : "read",
+        risk: prunes ? "destructive" : "read",
         duration: "short",
-        mutationTarget: prunes || derives ? "session" : "read",
-        editScope: prunes || derives ? "session" : "none",
+        mutationTarget: prunes ? "session" : "read",
+        editScope: prunes ? "session" : "none",
         requiredCapability: "application.context",
         handlerBinding: "executeContextOperation",
         lifecycleEvents: operationLifecycleEvents,

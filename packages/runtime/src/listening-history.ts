@@ -1,10 +1,7 @@
-import { VERIFIED_TOOL_RESULT_GUIDANCE } from "@ableton-agent/application";
+import { postToolUseGuidance } from "@ableton-agent/application";
 import { sanitizeTelemetryAttributes } from "@ableton-agent/observability";
 import {
   contextOperationResultSchema,
-  FEATURE_VALUE_DETAIL_GUIDANCE,
-  METRIC_REPORT_PAGE_GUIDANCE,
-  METRIC_STREAM_READ_GUIDANCE,
   listeningOperationResultSchema,
 } from "@ableton-agent/tools";
 
@@ -28,32 +25,17 @@ export function listeningHistoryResult(toolName: string, sdkResult: unknown) {
   if (!sdkResult || typeof sdkResult !== "object" || !("content" in sdkResult))
     return unavailable("missing_sdk_content");
   let content: unknown = sdkResult.content;
-  let featureSummaryGuidance = false;
-  let reportPageGuidance = false;
-  let streamReadGuidance = false;
+  let appendedGuidance: string | undefined;
   if (typeof content === "string") {
     if (Buffer.byteLength(content) > MAX_LISTENING_HISTORY_RESULT_BYTES)
       return unavailable("result_byte_limit");
-    // The SDK appends this application-owned post-tool hook to model-visible JSON.
-    const suffix = `\n\nTool "${toolName}" succeeded. Additional guidance from postToolUse hooks:\n${VERIFIED_TOOL_RESULT_GUIDANCE}`;
-    const featureSuffix = `${suffix}\n${FEATURE_VALUE_DETAIL_GUIDANCE}`;
-    const reportSuffix = `${suffix}\n${METRIC_REPORT_PAGE_GUIDANCE}`;
-    const streamSuffix = `${suffix}\n${METRIC_STREAM_READ_GUIDANCE}`;
-    featureSummaryGuidance =
-      toolName === "ableton_context" && content.endsWith(featureSuffix);
-    reportPageGuidance =
-      toolName === "ableton_context" && content.endsWith(reportSuffix);
-    streamReadGuidance =
-      toolName === "ableton_context" && content.endsWith(streamSuffix);
-    const json = featureSummaryGuidance
-      ? content.slice(0, -featureSuffix.length)
-      : reportPageGuidance
-        ? content.slice(0, -reportSuffix.length)
-        : streamReadGuidance
-          ? content.slice(0, -streamSuffix.length)
-          : content.endsWith(suffix)
-            ? content.slice(0, -suffix.length)
-            : content;
+    // Validate the entire SDK suffix against the typed action below.
+    const separator = `\n\nTool "${toolName}" succeeded. Additional guidance from postToolUse hooks:\n`;
+    const guidanceOffset = content.lastIndexOf(separator);
+    const json =
+      guidanceOffset === -1 ? content : content.slice(0, guidanceOffset);
+    if (guidanceOffset !== -1)
+      appendedGuidance = content.slice(guidanceOffset + separator.length);
     try {
       content = JSON.parse(json);
     } catch (error) {
@@ -67,22 +49,18 @@ export function listeningHistoryResult(toolName: string, sdkResult: unknown) {
       : contextOperationResultSchema
   ).safeParse(content);
   if (!parsed.success) return unavailable("invalid_typed_result");
-  if (reportPageGuidance && parsed.data.action !== "report")
-    return unavailable("invalid_typed_result");
   if (
-    streamReadGuidance &&
-    !["stream-overview", "stream-records", "stream-summary"].includes(
-      parsed.data.action,
-    )
+    appendedGuidance !== undefined &&
+    appendedGuidance !==
+      postToolUseGuidance(
+        toolName,
+        toolName === "ableton_listening" &&
+          parsed.data.action === "play-session-and-listen"
+          ? "listening.play_session_and_listen"
+          : undefined,
+      )
   )
-    return unavailable("invalid_typed_result");
-  if (
-    featureSummaryGuidance &&
-    !["list-features", "compare-features", "search-features"].includes(
-      parsed.data.action,
-    )
-  )
-    return unavailable("invalid_typed_result");
+    return unavailable("malformed_json");
   if (
     Buffer.byteLength(JSON.stringify(parsed.data)) >
     MAX_LISTENING_HISTORY_RESULT_BYTES

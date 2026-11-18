@@ -104,6 +104,28 @@ Perform deterministic multi-step operations:
 Workflow tools call application services and bridge primitives; they should not
 recursively ask the agent to call more tools.
 
+### Composable musical analysis
+
+Listening returns useful analysis, not a workflow recipe for retrieving it.
+The application joins automatic derivation and returns chronological,
+time-aligned values with segment-level summaries and explicit coverage.
+Read/compare/search use musical source selectors or directly reusable returned
+targets. A search hit or comparison result must be readable in one follow-up
+call without catalog, inventory or ID-join calls.
+
+The same strict target schema is shared between producing results and consuming
+requests. Returned targets pin their observation and range; unpinned musical
+selectors choose the newest fresh covering evidence. Neither form bypasses
+ownership, freshness or source guards. Source and matched-passage targets remain
+distinct so drill-down does not silently change the requested extent.
+
+Response limits are presentation budgets, not response-size errors. Page
+variable-length values, supports and evidence automatically with an explicit
+continuation and complete temporal coordinates. Do not rely on shell reads of SDK
+overflow files for normal tool consumption. Search `topK` controls ranked match
+count separately from scan limits and response pages. See the detailed
+[listening analysis contract](playback-listening.md#agent-facing-analysis-contract).
+
 ## Tool metadata
 
 Every tool definition should include application-owned metadata:

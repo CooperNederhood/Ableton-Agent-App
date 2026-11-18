@@ -1265,6 +1265,7 @@ function createMetricController(options) {
       armProof: null,
       coordinates: null,
       launch: null,
+      launchClockPending: false,
       sourceProof: null,
       after: [],
       playingClocks: [],
@@ -2001,6 +2002,27 @@ function createMetricController(options) {
       requireValue(now - p.armStarted < 10000, "metric_launch_timeout");
       const timing = p.samples.currentEpoch.timing.at(-1)?.raw;
       if (!timing || timing[1] < 0 || p.lastClock[0] !== 1) return;
+      if (p.lastClock[4] < timing[6]) {
+        if (!p.launchClockPending) {
+          p.launchClockPending = true;
+          emit(
+            p,
+            "launch",
+            "progress",
+            undefined,
+            "native_launch_clock_pending",
+            undefined,
+            [
+              ["nativeCounter", p.lastClock[4]],
+              ["originCounter", timing[6]],
+            ].map(([field, value]) => ({
+              field: `native.launch.${field}`,
+              actual: { state: "observed", value },
+            })),
+          );
+        }
+        return;
+      }
       if (
         timing[3] === 0 &&
         p.lastClock[4] <

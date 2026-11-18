@@ -5,6 +5,13 @@
       and cancellation cleanup regressions.
 - [ ] Diagnose the native third-Session launch refusal in `run-6mxmAH`
       using recorded operands; do not treat an uninstrumented rerun as a fix.
+- [x] Reproduce `suite-9TpkqF`'s two-MIDI pre-onset clock race and wait for an
+      observed native clock covering the DSP origin, within the existing launch
+      deadline and without changing the binding validator or native DSP.
+      Cover one attributed progress event, actual runtime/SDK delivery, success,
+      strict-policy denial, timeout, cancellation and cleanup.
+- [ ] Qualify the clock-wait correction with the failed two-MIDI case first,
+      then a fresh all-19 suite and independent receipt verification.
 
 ## Musical analysis tool topology
 

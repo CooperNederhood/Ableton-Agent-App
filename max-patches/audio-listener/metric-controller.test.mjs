@@ -805,11 +805,21 @@ async function controllerHarness({
       }),
     );
   }
-  function launch() {
+  function launch({ clockBeforeOnset = false } = {}) {
     until(() => replies.some((r) => r.payload.status === "ready"));
     if (sdkStreamBridge) bridgeClient.handleListenerControl(arm);
     controller.arm(arm);
     until(() => replies.some((r) => r.payload.status === "armed"));
+    if (clockBeforeOnset) {
+      clockPausedUntil = counter + 2048;
+      for (let sample = 0; sample < vectorSize; sample++) step();
+      // Host playback can arrive with the native clock immediately before
+      // the DSP onset receipt, whose origin is the following sample.
+      const tuple = [1, startBeat, counter + 800000, 31];
+      clockIO.anchorPre(tuple);
+      clockIO.anchorClock([counter, 0, counter, sourceClock[7]]);
+      clockIO.anchorPost(tuple);
+    }
     playingOrigin = counter + 1;
   }
   return {
@@ -2108,6 +2118,111 @@ for (const [value, last] of [
     assert.equal(evidence.traceId, h.prepare.traceId);
     assert.equal(evidence.passId, h.prepare.passId);
     assert.ok(expected.length <= 256);
+  });
+}
+
+test("launch waits for a native clock at or beyond the observed DSP origin", async () => {
+  const h = await controllerHarness({
+    session: true,
+    runtimeBridge: true,
+    sdkStreamBridge: true,
+    streamSend: () => true,
+  });
+  h.launch({ clockBeforeOnset: true });
+  await h.until(
+    () =>
+      h.events.some(
+        (event) =>
+          event.nativeLifecycle.reason === "native_launch_clock_pending",
+      ) || h.controller.snapshot().reason !== null,
+  );
+  assert.equal(h.controller.snapshot().reason, null);
+  assert.equal(h.controller.snapshot().state, "armed");
+  assert.ok(
+    h.results.every(({ payload }) => payload.nativeLaunch === undefined),
+  );
+  const pending = h.events.filter(
+    (event) => event.nativeLifecycle.reason === "native_launch_clock_pending",
+  );
+  assert.equal(pending.length, 1);
+  const facts = Object.fromEntries(
+    pending[0].nativeLifecycle.facts.map((fact) => [
+      fact.field,
+      fact.actual.value,
+    ]),
+  );
+  assert.equal(
+    facts["native.launch.nativeCounter"],
+    facts["native.launch.originCounter"] - 1,
+  );
+  await h.until(() => h.controller.snapshot().state === "completed");
+  assert.equal(h.controller.snapshot().cleanup, "completed");
+  const launches = h.results.filter(({ payload }) => payload.nativeLaunch);
+  assert.equal(launches.length, 1);
+  assert.ok(
+    launches[0].payload.nativeLaunch.clock[4] >=
+      launches[0].payload.nativeLaunch.timing[6],
+  );
+  const wire = h.diagnosticWrites.find(
+    (message) =>
+      message.nativeLifecycle?.reason === "native_launch_clock_pending",
+  );
+  assert.ok(wire);
+  h.codec.listenerResultMetricSchema.parse(wire);
+  assert.equal(wire.traceId, h.prepare.traceId);
+  assert.equal(wire.passId, h.prepare.passId);
+  assert.ok(wire.nativeLifecycle.causationId);
+  const launchEvents = h.events
+    .filter((event) => event.phase === "launch")
+    .map(
+      (event) => event.nativeLifecycle.reason ?? event.nativeLifecycle.stage,
+    );
+  assert.deepEqual(launchEvents, [
+    "queued",
+    "started",
+    "native_launch_clock_pending",
+    "native_launch_binding_operands",
+    "completed",
+  ]);
+  const stream = await verifiedStream(h);
+  assert.equal(stream.metric("level").status, "complete");
+});
+
+for (const interruption of ["cancel", "observer-failure", "timeout"]) {
+  test(`pending launch clock preserves bounded ${interruption} and cleanup`, async () => {
+    const h = await controllerHarness({
+      session: true,
+      deadlineMs: 20000,
+      onEvent(event, controller, cancel) {
+        if (event.nativeLifecycle.reason !== "native_launch_clock_pending")
+          return;
+        if (interruption === "cancel") controller.cancel(cancel);
+        if (interruption === "observer-failure")
+          throw new Error("controlled_observer_failure");
+      },
+    });
+    h.launch({ clockBeforeOnset: true });
+    if (interruption === "timeout") {
+      h.pauseClock(600000);
+      await h.until(() => h.controller.snapshot().reason !== null, 600000);
+      assert.equal(h.controller.snapshot().reason, "metric_launch_timeout");
+      h.pauseClock(0);
+    }
+    const state = interruption === "cancel" ? "cancelled" : "failed";
+    await h.until(() => h.controller.snapshot().state === state);
+    assert.equal(h.controller.snapshot().cleanup, "completed");
+    if (interruption === "observer-failure")
+      assert.equal(
+        h.controller.snapshot().reason,
+        "metric_event_delivery_failed",
+      );
+    assert.ok(
+      h.results.every(
+        ({ payload }) =>
+          payload.nativeLaunch === undefined &&
+          payload.metricManifest === undefined,
+      ),
+    );
   });
 }
 

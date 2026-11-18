@@ -4406,6 +4406,21 @@ the third Session capture in `run-6mxmAH`; that native binding refusal remains
 unresolved until its actual operands identify the cause. Observer failure or
 cancellation still prevents launch publication and performs owned cleanup.
 
+The completed `suite-9TpkqF` passed 18/19, including comprehension, with all
+cleanup and resources reclaimed. Its two-MIDI failure recorded a launch origin
+of 2,820,416 but the latest native clock at 2,820,415: the DSP onset receipt
+arrived before a clock witness covering that onset. The controller now waits
+within the existing ten-second launch deadline for the native clock to reach
+the observed origin, just as it already waits for endpoint passage when the
+capture has finished. It does not change counters, replay capture, widen timing
+tolerances or bypass launch validation. One bounded, attributed
+`native_launch_clock_pending` progress event records the two counters.
+Controller/runtime/SDK regressions reproduce the one-sample race and cover
+subsequent publication, unchanged strict late-launch rejection, timeout,
+cancellation and observer-failure cleanup. The earlier uninstrumented refusal
+cannot retroactively be assigned this cause. Targeted real-host and complete
+suite qualification of this correction remain pending.
+
 The #57 timing investigation also identified a clock-acquisition hazard:
 [`snapshot~`](https://docs.cycling74.com/reference/snapshot~/) with offset zero
 can select the scheduler's sub-vector sample when Scheduler in Audio Interrupt

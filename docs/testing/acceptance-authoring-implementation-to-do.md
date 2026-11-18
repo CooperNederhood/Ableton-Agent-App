@@ -49,6 +49,10 @@ Companion specification: [Acceptance test authoring](acceptance-authoring.md).
       without prescribing a setup/read sequence. Keep exactly one capture per
       source, exact answer, ownership, unchanged-content and cleanup checks;
       regress actual-manifest allowance, exhaustion, recapture and unsafe-action denial.
+- [x] Accept user-approved explanatory prose around exactly one correct
+      twenty-measure sequence. Reject ambiguous, duplicate, wrong, malformed
+      and overlong blocks; retain native/capture/ownership/cleanup denial coverage
+      with prose-wrapped answers and preserve prior failed receipts.
 - [x] Preserve complete original/restarted long-consolidation page requirements;
       actual missing continuations in `suite-3kErcF` are failures, not oracle bugs.
 - [x] Restore the user-approved structural scope from `930d3063^`: all four

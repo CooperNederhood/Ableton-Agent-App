@@ -72,11 +72,16 @@ export function verifyListeningComprehension(
     "Missing final comprehension evidence",
   );
   const turn = input.turns[0]!;
+  const answerBlocks = turn.assistantText
+    .split(/\r?\n/u)
+    .filter((line) => line.includes("|"))
+    .map((line) => line.slice(line.indexOf("|"), line.lastIndexOf("|") + 1));
   requireCondition(
     (!input.turn || input.turn.operationId === turn.operationId) &&
       turn.status === "completed" &&
       turn.terminal &&
-      turn.assistantText.trim() === parameters.expectedPattern,
+      answerBlocks.length === 1 &&
+      answerBlocks[0] === parameters.expectedPattern,
     "Incorrect comprehension answer or noncompleted turn",
   );
   requireCondition(

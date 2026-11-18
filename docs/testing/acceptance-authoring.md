@@ -311,8 +311,13 @@ message and exactly five successful listens: MIDI Session `clip-1` through
 `clip-4` on `1-808 Core Kit`, then the complete Arrangement on `2-Audio`.
 Each Session clip is four beats; the Arrangement is beats 0-80 at 128 BPM.
 The terminal answer must contain twenty clip numbers, hyphens within groups
-of four, and leading, trailing and separating vertical bars, without prose or
-internal whitespace. The exact expected sequence is runner-only oracle data.
+of four, and leading, trailing and separating vertical bars, without internal
+whitespace. The user subsequently approved brief explanatory text outside exactly
+one sequence block. The oracle extracts the entire first-to-last-pipe span from
+each pipe-bearing line and requires exactly one block equal to the expected
+twenty-measure sequence. It does not search for the expected answer as a substring:
+duplicate, contradictory, malformed, partial and overlong blocks remain failures.
+The exact expected sequence is runner-only oracle data.
 Do not inject it into the message or staged project.
 
 The approved budgets are thirty minutes for the agent turn, thirty-five minutes
@@ -333,6 +338,13 @@ the agent cleared an initial override, captured four Session clips, then correct
 needed to clear the new override before Arrangement listening. All other eighteen
 cases passed and the suite reclaimed its resources. Preserve that failed receipt;
 the revised contract requires a new run rather than reclassifying the old result.
+
+The next full run, `suite-fd5iAj`, again passed eighteen cases; comprehension supplied
+the correct sequence but added explanatory prose. Replaying its unchanged native
+evidence with the actually supplied sequence line satisfied the full comprehension
+oracle. The approved presentation relaxation does not change the musical answer
+or five-capture, source, ownership, unchanged-content and cleanup checks.
+Retain the original failed receipt; qualify the revised contract separately.
 
 Arrangement derivation reuses the canonical scenario source selector when a
 step has no explicit source. It still checks the admitted track/listener and

@@ -10,8 +10,12 @@
       deadline and without changing the binding validator or native DSP.
       Cover one attributed progress event, actual runtime/SDK delivery, success,
       strict-policy denial, timeout, cancellation and cleanup.
-- [ ] Qualify the clock-wait correction with the failed two-MIDI case first,
-      then a fresh all-19 suite and independent receipt verification.
+- [x] Qualify `478b9887` with two consecutive fresh two-MIDI passes
+      (`run-W7jtTN`, `run-0I92qM`), then all 19 in `suite-tj2y9i` and independent
+      receipt verification, with complete cleanup and no unrun/unknown cases.
+- [x] Complete an isolated packaged Default-agent visual listen/stop workflow
+      with ordinary approvals and typed history; preserve the strict host's
+      post-UI-closure refusal separately from verified operator cleanup.
 
 ## Musical analysis tool topology
 

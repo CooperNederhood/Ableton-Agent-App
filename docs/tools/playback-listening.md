@@ -4418,8 +4418,27 @@ tolerances or bypass launch validation. One bounded, attributed
 Controller/runtime/SDK regressions reproduce the one-sample race and cover
 subsequent publication, unchanged strict late-launch rejection, timeout,
 cancellation and observer-failure cleanup. The earlier uninstrumented refusal
-cannot retroactively be assigned this cause. Targeted real-host and complete
-suite qualification of this correction remain pending.
+cannot retroactively be assigned this cause.
+
+Candidate `478b9887` passed two consecutive fresh-process two-MIDI regressions
+(`run-W7jtTN`, `run-0I92qM`), then all 19 registered user-message cases in
+`suite-tj2y9i`, with no unrun/unknown cases and complete cleanup/resource
+reclamation. The independent receipt verifier returned `qualified` for candidate
+identity `7d934b708b82c719ef73f704dd8a5c609b8367c4ce597235bead82083bb34e66`.
+This identity covers the packaged candidate; the archive alone does not pin
+external native resources.
+
+The subsequent isolated visual workflow on Live 11.3.43 used the packaged
+Default agent and ordinary approvals. One debug-MCP message produced one
+successful listen returning measured features and the separately requested
+transport stop, with no discovery or explicit derivation tool calls. Both
+applications displayed completion/stopped state and were closed through their
+UI. Typed redacted history and observations are retained under
+`.test-artifacts/desktop-ux/listening-final-478b9887/`. The strict UX-host wrapper
+retained its lease after that deliberate UI closure; bounded operator recovery
+verified all owned processes and handles absent, released only its exact lease,
+and removed the isolated profile. This cleanup is recorded separately, not
+misrepresented as a successful wrapper exit or unrestricted reliability.
 
 The #57 timing investigation also identified a clock-acquisition hazard:
 [`snapshot~`](https://docs.cycling74.com/reference/snapshot~/) with offset zero

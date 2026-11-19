@@ -986,6 +986,8 @@ Companion specification: [Playback Listening](playback-listening.md).
 - [x] Separate the pinned pre-launch `stoppedBeat` from Live's actual zero-origin
       Session launch. Validate ready/arm clocks against the former and native
       coverage against the latter; retain later-regression and origin guards.
+- [x] Accept one floating-point step between independently read Session stopped
+      beats without rewriting clock evidence or admitting a moving bracket.
 - [x] Correct fresh stopped Session launches to retain their nonzero global
       anchor independently of clip-local zero, preserving the reviewed
       remembered-playing zero-origin path. Global-16 source/host regressions

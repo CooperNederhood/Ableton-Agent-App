@@ -2272,7 +2272,11 @@ remain unchanged.
 
 A `metric_source_position_mismatch` preflight rejection retains the expected and
 observed beat and the rejected native clock row in the existing attributed
-failure diagnostics. This does not relax the stopped-clock check.
+failure diagnostics. Session preflight and proof validation allow adjacent
+positive floating-point values for the same stopped beat reported independently
+by Live and the native listener. The original readings are retained. The
+stopped bracket must still be internally stable, and the Arrangement, source
+identity, launch, and cleanup guards are unchanged.
 
 The zero-origin launch above is the reviewed **remembered-playing Session**
 case, not a requirement for every stopped Session launch. The consolidation
@@ -2765,8 +2769,13 @@ fault-point diagnostics in `run-iq1Ltd` identify a native counter held at
 2,525,183 while only the host counter advanced from 2,525,119 to 2,525,183.
 The host `plugsync~` and native `mc.snapshot~` readings can therefore straddle
 different DSP updates even when each individual bracket is coherent.
-The reader now discards the narrowly identified combination: host-counter-only
+The reader discards the narrowly identified combination: host-counter-only
 advance of exactly one declared DSP vector, with every other field unchanged.
+Packaged Session acceptance also observed two exact boundary patterns: a
+same-beat start with a one-vector host advance to one sample past the held
+native counter, and a stopped host advance of one vector minus one sample
+ending exactly at the held native counter. Both require zero native phase and
+preserve all other fields. Neither is accepted as launch evidence.
 It preserves the previously admitted immutable binding and waits for fresh
 native evidence. Existing bounded `native_clock_cohort_skipped` events carry
 the operands; state resets on release and new ownership. No values are repaired,

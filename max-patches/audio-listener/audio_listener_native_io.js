@@ -1597,9 +1597,25 @@ NativeMessageIO.prototype.anchorPost = function (values) {
   }
   var row = pre.concat(clock, values);
   var previous = this.clockAccepted;
+  var stoppedAtHeldSample =
+    previous &&
+    this.clockVectorSize > 1 &&
+    previous[0] === 0 &&
+    row[0] === 0 &&
+    row[5] === 0 &&
+    row[2] === row[4] &&
+    row[2] - previous[2] === this.clockVectorSize - 1;
+  var sameBeatStart =
+    previous &&
+    previous[0] === 0 &&
+    row[0] === 1 &&
+    row[1] === previous[1] &&
+    row[5] === 0 &&
+    row[2] === row[4] + 1;
   var beatAdvanceMatches =
     previous &&
-    ((row[0] === 0 && row[1] === previous[1]) ||
+    (sameBeatStart ||
+      (row[0] === 0 && row[1] === previous[1]) ||
       (row[0] === 1 &&
         (this.clockSampleRate === 44100 || this.clockSampleRate === 48000) &&
         this.clockTempoBpm >= 20 &&
@@ -1613,19 +1629,20 @@ NativeMessageIO.prototype.anchorPost = function (values) {
           8 *
             2.220446049250313e-16 *
             Math.max(1, Math.abs(row[1]), Math.abs(previous[1]))));
-  // plugsync~ can advance one vector while mc.snapshot~ still holds its prior
-  // native sample. Beat tolerance covers floating-point subtraction only.
+  // Host snapshots can reach either side of the held native vector boundary.
+  // Discard these exact mixed cohorts and wait for fresh native evidence.
   if (
     previous &&
     beatAdvanceMatches &&
     this.clockVectorSize > 0 &&
-    row[2] - previous[2] === this.clockVectorSize &&
+    (row[2] - previous[2] === this.clockVectorSize || stoppedAtHeldSample) &&
     row.every(function (value, index) {
       return (
         index === 1 ||
         index === 2 ||
         index === 8 ||
         index === 9 ||
+        (sameBeatStart && (index === 0 || index === 7)) ||
         value === previous[index]
       );
     })

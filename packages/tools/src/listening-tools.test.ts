@@ -132,6 +132,16 @@ describe("optional listening tool contracts", () => {
         expect(Object.keys(result)[0]).toBe("nextCaptureGuidance");
         expect(result).toHaveProperty(
           "nextCaptureGuidance",
+          expect.stringContaining("readTarget as target, unchanged"),
+        );
+        expect(result).toHaveProperty(
+          "nextCaptureGuidance",
+          expect.stringContaining(
+            "until nextCursor is null, even if the requested feature is already on an earlier page",
+          ),
+        );
+        expect(result).toHaveProperty(
+          "nextCaptureGuidance",
           expect.stringContaining("Before the next Session listen"),
         );
         expect(result).toHaveProperty(
@@ -141,6 +151,54 @@ describe("optional listening tool contracts", () => {
           ),
         );
       } else expect(result).not.toHaveProperty("nextCaptureGuidance");
+    },
+  );
+
+  it.each(["leave-running", "stop-owned"] as const)(
+    "reports final Arrangement playback guidance only for %s when appropriate",
+    async (cleanupPolicy) => {
+      const request = listeningOperationParamsSchema.parse({
+        action: "play-arrangement-and-listen",
+        listenerIds: ["tap"],
+        startBeat: 0,
+        endBeat: 4,
+      });
+      const [tool] = createListeningTools({
+        executeListeningOperation: async () => ({
+          action: "play-arrangement-and-listen",
+          job: {
+            passId: "pass",
+            stage: "completed",
+            createdAt: "2026-10-25T23:00:00.000Z",
+            updatedAt: "2026-10-25T23:00:01.000Z",
+            durationMs: 1000,
+            cleanupPolicy,
+            contextIds: ["context"],
+            metricResults: [
+              summarizeMetricListeningResult(
+                createSyntheticMetricListeningObservation(),
+              ),
+            ],
+          },
+        }),
+        executeContextOperation: async () => ({ action: "list", entries: [] }),
+      });
+      const result = await tool.handler?.(request, {
+        sessionId: "sdk",
+        toolCallId: "listen",
+        toolName: "ableton_listening",
+        arguments: request,
+      });
+      if (cleanupPolicy === "leave-running") {
+        expect(result).toHaveProperty(
+          "nextCaptureGuidance",
+          expect.stringContaining(
+            "Do not stop or reposition playback to finish analyzing, comparing, or reporting the capture",
+          ),
+        );
+      } else {
+        expect(result).not.toHaveProperty("nextCaptureGuidance");
+      }
     },
   );
 
@@ -1173,6 +1231,10 @@ describe("optional listening tool contracts", () => {
     expect(context.description).toContain(
       "copy a returned readTarget unchanged",
     );
+    expect(context.description).toContain(
+      "A pinned read with a non-null nextCursor is incomplete",
+    );
+    expect(context.description).not.toContain("one-call drill-down");
     expect(context.description).toContain(
       "temporal coverage and pinned continuations",
     );

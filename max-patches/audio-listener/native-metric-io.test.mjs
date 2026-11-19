@@ -99,10 +99,16 @@ function clockFixture({
   io.begin(GENERATION, EPOCH, sampleRate);
   io.packet("dsp", [1, sampleRate, vectorSize]);
   io.packet("tempo", [tempoBpm]);
-  function read(host, counter, phase = 0, beat = 2.059377861721612) {
-    io.anchorPre([playing, beat, host, 31]);
+  function read(
+    host,
+    counter,
+    phase = 0,
+    beat = 2.059377861721612,
+    isPlaying = playing,
+  ) {
+    io.anchorPre([isPlaying, beat, host, 31]);
     io.anchorClock([counter, phase, counter, 2]);
-    return io.anchorPost([playing, beat, host, 31]);
+    return io.anchorPost([isPlaying, beat, host, 31]);
   }
   return { io, packets, read };
 }
@@ -129,6 +135,52 @@ test("clock reader discards the observed running one-vector mixed acquisition", 
   );
   assert.equal(f.packets.filter((p) => p[2] === "clock").length, 1);
 });
+
+test("clock reader discards the observed stopped-clock advance to the held native sample", () => {
+  const f = clockFixture();
+  assert.equal(f.read(1890240, 1890303, 0, 16), true);
+  assert.equal(f.read(1890303, 1890303, 0, 16), false);
+  assert.deepEqual(
+    f.packets.at(-1).slice(3),
+    [1, 1890240, 1890303, 1890303, 1890303],
+  );
+  assert.equal(f.read(1890304, 1890367, 0, 16), true);
+  assert.equal(f.packets.filter((p) => p[2] === "clock").length, 2);
+});
+
+test("clock reader waits for a new native vector when Live starts at the same beat", () => {
+  const f = clockFixture();
+  assert.equal(f.read(1449920, 1449983, 0, 0), true);
+  assert.equal(f.read(1449984, 1449983, 0, 0, 1), false);
+  assert.deepEqual(f.packets.at(-1), [
+    "native",
+    GENERATION,
+    "clock-cohort-skipped",
+    1,
+    1449920,
+    1449984,
+    1449983,
+    1449983,
+  ]);
+  assert.equal(f.packets.filter((p) => p[2] === "clock").length, 1);
+  assert.equal(f.read(1449984, 1450047, 0, 0, 1), true);
+  assert.equal(f.packets.filter((p) => p[2] === "clock").length, 2);
+});
+
+for (const [label, host, counter, phase, beat, wasPlaying, isPlaying] of [
+  ["seek", 1449984, 1449983, 0, 1, 0, 1],
+  ["phase change", 1449984, 1449983, 0.1, 0, 0, 1],
+  ["over one vector", 1450048, 1449983, 0, 0, 0, 1],
+  ["native counter regression", 1449984, 1449919, 0, 0, 0, 1],
+  ["transport stop", 1449984, 1449983, 0, 0, 1, 0],
+]) {
+  test(`clock reader forwards a held transport transition with ${label}`, () => {
+    const f = clockFixture({ playing: wasPlaying });
+    assert.equal(f.read(1449920, 1449983, 0, 0), true);
+    assert.equal(f.read(host, counter, phase, beat, isPlaying), true);
+    assert.equal(f.packets.filter((p) => p[2] === "clock").length, 2);
+  });
+}
 
 for (const sampleRate of [44100, 48000])
   for (const vectorSize of [32, 64, 128])
@@ -174,6 +226,7 @@ for (const [name, host, counter, phase, beat] of [
   ["native phase mutation", 2525183, 2525183, 0.1, 2.059377861721612],
   ["host position mutation", 2525183, 2525183, 0, 3],
   ["host counter regression", 2525055, 2525183, 0, 2.059377861721612],
+  ["misaligned short host advance", 2525182, 2525183, 0, 2.059377861721612],
   ["more than one vector", 2525247, 2525183, 0, 2.059377861721612],
   ["native counter regression", 2525183, 2525119, 0, 2.059377861721612],
 ]) {

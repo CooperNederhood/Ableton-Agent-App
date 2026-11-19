@@ -99,6 +99,7 @@ function createMetricController(options) {
   for (const key of [
     "listenerControlMetricSchema",
     "nativeMetricLaunchProofSchema",
+    "matchesNativeSessionStoppedBeat",
     "snapshotNativeContinuousMetricListeningExpectation",
     "assertNativeContinuousMetricReadyProof",
     "assertNativeContinuousMetricArmProof",
@@ -450,7 +451,12 @@ function createMetricController(options) {
       p.config.mode === "session"
         ? p.config.stoppedBeat
         : p.config.geometry.startBeat;
-    if (!p.armProof && row[1] !== expectedBeat) {
+    if (
+      !p.armProof &&
+      (p.config.mode === "session"
+        ? !codec.matchesNativeSessionStoppedBeat(row[1], expectedBeat)
+        : row[1] !== expectedBeat)
+    ) {
       p.failedClockReadback = row;
       p.inputFailureDetail ??= JSON.stringify({
         check: "metric_source_position_mismatch",

@@ -24,7 +24,7 @@
     "@ableton-agent/shared": "workspace:*",
     "@ableton-agent/storage": "workspace:*",
     "@ableton-agent/tools": "workspace:*",
-    "@github/copilot-sdk": "^1.0.14",
+    "@github/copilot-sdk": "1.0.28",
     "zod": "^4.3.6"
   }
 }

@@ -101,8 +101,12 @@ A few Workspace details worth knowing:
 - **Composer.** Type a message or a slash command. `/plan` (or Shift+Tab)
   switches the selected agent between plan and interactive mode. Selected
   tracks, clips and devices are attached as context chips.
-- **Inspector.** Modular tabs for the current Selection, the session Plan, and
-  pending Approvals. You can reorder and split them.
+- **Inspector.** Modular tabs for the current Selection, the session Plan,
+  pending Approvals, and Context. You can reorder and split them. Context shows
+  the selected conversation's latest Copilot-reported token usage and limit
+  (system messages, conversation, and tool definitions when reported) and
+  counts completed and failed compactions observed since the app connected to
+  that conversation, not historical ones.
 - **Hiding panels.** Both sidebars and the top bar can be hidden, down to a
   small chat-only window (320×360).
 

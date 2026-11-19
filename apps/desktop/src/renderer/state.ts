@@ -72,7 +72,13 @@ export interface SubagentWorkingView {
 
 const maxSubagentsPerTurn = 32;
 
+type ContextUsageEvent = Extract<
+  DesktopAppEvent,
+  { type: "agent.context_usage_changed" }
+>;
+
 export interface AgentWorkspaceState {
+  contextUsage?: readonly ContextUsageEvent[] | undefined;
   messages: MessageView[];
   operations: OperationView[];
   triggers: LiveEventTrigger[];
@@ -561,6 +567,25 @@ function reduceEvent(
       };
     case "agent.plan_changed":
       return state;
+    case "agent.context_usage_changed": {
+      const { agentInstanceId, sdkSessionId } = event;
+      const currentSdkSessionId = state.sessions
+        .flatMap(({ activeAgents }) => activeAgents)
+        .find(({ id }) => id === agentInstanceId)?.sdkSessionId;
+      return updateAgentWorkspace(state, agentInstanceId, (workspace) => ({
+        ...workspace,
+        // A newly connected SDK session can report usage before its Desktop
+        // instance update arrives. Retain one candidate alongside the current one.
+        contextUsage: [
+          event,
+          ...(workspace.contextUsage ?? []).filter((snapshot) =>
+            sdkSessionId === currentSdkSessionId
+              ? snapshot.sdkSessionId !== currentSdkSessionId
+              : snapshot.sdkSessionId === currentSdkSessionId,
+          ),
+        ],
+      }));
+    }
     case "agent.plan_approval_requested":
       if (event.agentInstanceId === undefined) return state;
       return updateAgentWorkspace(
@@ -658,6 +683,12 @@ function reduceEvent(
               ...(state.activeSessionId === event.session.id
                 ? (state.agentWorkspaces[instance.id] ?? emptyAgentWorkspace())
                 : emptyAgentWorkspace()),
+              ...(state.agentWorkspaces[instance.id]?.contextUsage === undefined
+                ? {}
+                : {
+                    contextUsage:
+                      state.agentWorkspaces[instance.id]?.contextUsage,
+                  }),
               triggers: [...(instance.triggerHistory ?? [])],
             },
           ]),
@@ -1156,13 +1187,25 @@ function reduceAgentInstanceChanged(
           session.selectedAgentInstanceId === instance.id
         ? activeAgents[0]?.id
         : session.selectedAgentInstanceId;
+  const replacementUsage = state.agentWorkspaces[
+    instance.id
+  ]?.contextUsage?.find(
+    ({ sdkSessionId }) => sdkSessionId === instance.sdkSessionId,
+  );
   return {
     ...state,
     ...(change === "conversation-settings-changed"
       ? {
           agentWorkspaces: {
             ...state.agentWorkspaces,
-            [instance.id]: emptyAgentWorkspace(),
+            [instance.id]: {
+              messages: [],
+              operations: [],
+              triggers: [],
+              ...(replacementUsage === undefined
+                ? {}
+                : { contextUsage: [replacementUsage] }),
+            },
           },
         }
       : {}),

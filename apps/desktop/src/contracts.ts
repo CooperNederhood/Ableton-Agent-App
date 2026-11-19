@@ -1694,6 +1694,20 @@ export const appEventSchema = z.discriminatedUnion("type", [
     causationId: z.string().uuid(),
   }),
   z.object({
+    type: z.literal("agent.context_usage_changed"),
+    usage: z.strictObject({
+      currentTokens: z.number().int().nonnegative().optional(),
+      tokenLimit: z.number().int().positive().optional(),
+      conversationTokens: z.number().int().nonnegative().optional(),
+      systemTokens: z.number().int().nonnegative().optional(),
+      toolDefinitionsTokens: z.number().int().nonnegative().optional(),
+      compactions: z.number().int().nonnegative(),
+      failedCompactions: z.number().int().nonnegative(),
+    }),
+    agentInstanceId: z.string().uuid(),
+    sdkSessionId: z.string().min(1),
+  }),
+  z.object({
     type: z.literal("agent.mode_changed"),
     mode: agentModeSchema,
     previousMode: agentModeSchema,

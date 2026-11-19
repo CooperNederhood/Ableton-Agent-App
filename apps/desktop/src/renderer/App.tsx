@@ -6660,13 +6660,19 @@ export function Inspector({
     (candidate) => candidate.id === state.selectedDeviceId,
   );
   const workspace = selectedAgentWorkspace(state);
+  const agent = selectedAgentInstance(state);
+  const contextUsage = workspace.contextUsage?.find(
+    ({ sdkSessionId }) => sdkSessionId === agent?.sdkSessionId,
+  )?.usage;
+  const hasAgent = agent !== undefined;
   const available = useMemo<InspectorModuleId[]>(() => {
     const modules: InspectorModuleId[] = [];
     if (track !== undefined) modules.push("selection");
     if (workspace.planArtifact?.exists === true) modules.push("plan");
     if (workspace.approval !== undefined) modules.push("approval");
+    if (hasAgent) modules.push("context");
     return modules;
-  }, [track, workspace.approval, workspace.planArtifact]);
+  }, [hasAgent, track, workspace.approval, workspace.planArtifact]);
   const [layout, updateLayout] = useReducer(
     inspectorLayoutReducer,
     available,
@@ -6712,6 +6718,7 @@ export function Inspector({
     if (moduleId === "approval") {
       return <ApprovalPanel state={state} dispatch={dispatch} embedded />;
     }
+    if (moduleId === "context") return <ContextBudget usage={contextUsage} />;
     return null;
   };
   const handleTabDragStart = (
@@ -6729,7 +6736,8 @@ export function Inspector({
     const moduleId = event.dataTransfer.getData("text/inspector-module");
     return moduleId === "selection" ||
       moduleId === "plan" ||
-      moduleId === "approval"
+      moduleId === "approval" ||
+      moduleId === "context"
       ? moduleId
       : undefined;
   };
@@ -6976,7 +6984,60 @@ export function Inspector({
 function inspectorModuleLabel(moduleId: InspectorModuleId): string {
   if (moduleId === "selection") return "Selection";
   if (moduleId === "plan") return "Plan";
+  if (moduleId === "context") return "Context";
   return "Approval";
+}
+
+function ContextBudget({
+  usage,
+}: {
+  usage:
+    | NonNullable<AgentWorkspaceState["contextUsage"]>[number]["usage"]
+    | undefined;
+}): React.JSX.Element {
+  const format = (count: number | undefined): string =>
+    count?.toLocaleString() ?? "Not reported";
+  const used = usage?.currentTokens;
+  const limit = usage?.tokenLimit;
+  const rows = [
+    ["System messages", format(usage?.systemTokens)],
+    ["Conversation", format(usage?.conversationTokens)],
+    ["Tool definitions", format(usage?.toolDefinitionsTokens)],
+    ["Compactions", format(usage?.compactions)],
+    ...(usage?.failedCompactions
+      ? [["Failed compactions", format(usage.failedCompactions)]]
+      : []),
+  ];
+  return (
+    <section className="context-budget" aria-label="Context budget">
+      <h3>Context budget</h3>
+      <p>
+        {used === undefined && limit === undefined
+          ? "Waiting for token usage from Copilot."
+          : `${format(used)} / ${format(limit)} tokens used`}
+      </p>
+      {used !== undefined && limit !== undefined && (
+        <meter
+          aria-label="Context window usage"
+          min={0}
+          max={limit}
+          value={Math.min(used, limit)}
+        />
+      )}
+      <dl>
+        {rows.map(([label, value]) => (
+          <div key={label}>
+            <dt>{label}</dt>
+            <dd>{value}</dd>
+          </div>
+        ))}
+      </dl>
+      <p className="context-budget-caption">
+        Latest reported tokens. Compactions counted since connecting to this
+        conversation.
+      </p>
+    </section>
+  );
 }
 
 function InspectorModuleIcon({
@@ -6996,6 +7057,8 @@ function InspectorModuleIcon({
           <path d="M5 4h9M5 9h9M5 14h9" />
           <path d="m2.5 4 .7.7 1.3-1.4M2.5 9l.7.7 1.3-1.4M2.5 14l.7.7 1.3-1.4" />
         </>
+      ) : moduleId === "context" ? (
+        <path d="M3 14h12M5 11V8m4 3V4m4 7V6" />
       ) : (
         <>
           <path d="M9 2.5 14 4v4.2c0 3-2 5.7-5 7.3-3-1.6-5-4.3-5-7.3V4l5-1.5Z" />

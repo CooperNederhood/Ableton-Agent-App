@@ -2538,6 +2538,76 @@ describe("desktop component interactions", () => {
     expect(onClose).toHaveBeenCalledOnce();
   });
 
+  it("shows reported context usage only for the matching SDK conversation", async () => {
+    let state = rendererState();
+    const instance = activeAgent({ sdkSessionId: "sdk-current" });
+    state.sessions[0]!.activeAgents = [instance];
+    const render = async () => {
+      await act(async () =>
+        root.render(<Inspector state={state} dispatch={vi.fn()} />),
+      );
+    };
+    const report = (
+      sdkSessionId: string,
+      currentTokens: number,
+      agentInstanceId = agentId,
+    ) => {
+      state = desktopReducer(state, {
+        type: "event",
+        event: {
+          type: "agent.context_usage_changed",
+          agentInstanceId,
+          sdkSessionId,
+          usage: {
+            currentTokens,
+            tokenLimit: 4000,
+            systemTokens: 0,
+            compactions: 2,
+            failedCompactions: 1,
+          },
+        },
+      });
+    };
+    await render();
+    expect(container.textContent).toContain("Waiting for token usage");
+    report("sdk-current", 400);
+    report("sdk-next", 500);
+    report("sdk-current", 900, "00000000-0000-4000-8000-000000000009");
+    await render();
+    expect(container.textContent).toContain(
+      `400 / ${(4000).toLocaleString()} tokens used`,
+    );
+    expect(container.querySelector("meter")?.value).toBe(400);
+    expect(container.querySelector("dl")?.textContent).toContain(
+      "System messages0ConversationNot reported",
+    );
+    expect(container.querySelector("dl")?.textContent).toContain(
+      "Compactions2Failed compactions1",
+    );
+    state = desktopReducer(state, {
+      type: "event",
+      event: {
+        type: "agent.instance_changed",
+        instance: { ...instance, sdkSessionId: "sdk-next" },
+        change: "session-rotated",
+      },
+    });
+    report("sdk-current", 600);
+    await render();
+    expect(container.querySelector("meter")?.value).toBe(500);
+    state = desktopReducer(state, {
+      type: "event",
+      event: {
+        type: "agent.instance_changed",
+        instance: { ...instance, sdkSessionId: "sdk-reset" },
+        change: "reset",
+      },
+    });
+    await render();
+    expect(container.textContent).toContain("Waiting for token usage");
+    expect(container.querySelector("meter")).toBeNull();
+  });
+
   it("switches, closes, and re-adds modular inspector views", async () => {
     const state = rendererState();
     state.agentWorkspaces[agentId] = {

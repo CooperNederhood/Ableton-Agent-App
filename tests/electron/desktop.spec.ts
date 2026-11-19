@@ -2212,6 +2212,63 @@ test("renders plan.md in the Inspector and routes composer approval through IPC"
     ).toBeVisible();
     await expect(window.getByRole("tab", { name: "Plan" })).toBeVisible();
     await expect(window.getByRole("tab", { name: "Approval" })).toBeVisible();
+    const contextTab = window.getByRole("tab", { name: "Context" });
+    await contextTab.click();
+    await expect(
+      window.getByText("Waiting for token usage from Copilot."),
+    ).toBeVisible();
+    const contextAgent = await window.evaluate(async (id) => {
+      const { desktop } = window as unknown as {
+        desktop: ElectronTestDesktopApi;
+      };
+      return (await desktop.agent.getSessions())
+        .flatMap(({ activeAgents }) => activeAgents)
+        .find((agent) => agent.id === id);
+    }, agentInstanceId);
+    if (contextAgent === undefined) throw new Error("Context agent missing");
+    const sdkSessionId =
+      contextAgent.sdkSessionId ?? "synthetic-context-session";
+    const contextEvents: DesktopAppEvent[] = [
+      {
+        type: "agent.context_usage_changed",
+        agentInstanceId,
+        sdkSessionId,
+        usage: {
+          currentTokens: 300,
+          tokenLimit: 800,
+          systemTokens: 100,
+          conversationTokens: 200,
+          compactions: 1,
+          failedCompactions: 0,
+        },
+      },
+      ...(contextAgent.sdkSessionId === undefined
+        ? [
+            {
+              type: "agent.instance_changed" as const,
+              instance: { ...contextAgent, sdkSessionId },
+              change: "session-rotated" as const,
+            },
+          ]
+        : []),
+    ];
+    await application.evaluate(({ BrowserWindow }, events) => {
+      const target = BrowserWindow.getAllWindows()[0];
+      if (target === undefined) throw new Error("Desktop window missing");
+      for (const event of events) target.webContents.send("app:event", event);
+    }, contextEvents);
+    const contextBudget = window.getByRole("region", {
+      name: "Context budget",
+    });
+    await expect(
+      contextBudget.getByText("300 / 800 tokens used"),
+    ).toBeVisible();
+    await expect(contextBudget.locator("dd")).toHaveText([
+      "100",
+      "200",
+      "Not reported",
+      "1",
+    ]);
     await expect(window.getByText("Electron approval plan")).toHaveCount(0);
     await window.getByRole("tab", { name: "Plan" }).click();
     await expect(window.locator(".plan-approval-content li")).toHaveCount(2);

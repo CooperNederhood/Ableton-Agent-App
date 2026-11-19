@@ -24,6 +24,16 @@ export type ConnectionStatus =
     }
   | { state: "error"; code: string; message: string };
 
+export interface AgentContextUsage {
+  currentTokens?: number;
+  tokenLimit?: number;
+  conversationTokens?: number;
+  systemTokens?: number;
+  toolDefinitionsTokens?: number;
+  compactions: number;
+  failedCompactions: number;
+}
+
 export interface AgentEventAttribution {
   agentInstanceId?: string;
   sdkSessionId?: string;
@@ -273,6 +283,12 @@ export type AppEvent =
       type: "agent.working_update";
       update: AgentWorkingUpdate;
     } & AgentEventAttribution)
+  | {
+      type: "agent.context_usage_changed";
+      usage: AgentContextUsage;
+      agentInstanceId: string;
+      sdkSessionId: string;
+    }
   | ({
       type: "agent.mode_changed";
       previousMode: AgentMode;

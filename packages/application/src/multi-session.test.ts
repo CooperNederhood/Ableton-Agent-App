@@ -434,6 +434,143 @@ function modelInfo(id: string, overrides: Partial<ModelInfo> = {}): ModelInfo {
 }
 
 describe("CopilotAgentService managed sessions", () => {
+  it("reports only root context snapshots and counts each completed attempt once", async () => {
+    const events = new InMemoryEventPublisher();
+    const received: AppEvent[] = [];
+    events.subscribe((event) => received.push(event));
+    const service = new CopilotAgentService(
+      baseOptions({
+        events,
+        clientFactory: () => ({
+          createSession: async () =>
+            createFakeSession("sdk-context", {
+              onSend: async (_prompt, emit) => {
+                const base = {
+                  parentId: null,
+                  timestamp: new Date().toISOString(),
+                  ephemeral: true as const,
+                };
+                const data = {
+                  currentTokens: 14000,
+                  tokenLimit: 64000,
+                  messagesLength: 4,
+                  conversationTokens: 2000,
+                  systemTokens: 0,
+                  toolDefinitionsTokens: 12000,
+                };
+                emit({
+                  ...base,
+                  id: "usage",
+                  type: "session.usage_info",
+                  data,
+                });
+                emit({
+                  ...base,
+                  id: "child",
+                  agentId: "child-agent",
+                  type: "session.usage_info",
+                  data: { ...data, currentTokens: 1 },
+                });
+                emit({
+                  ...base,
+                  id: "start",
+                  type: "session.compaction_start",
+                  data: { currentTokens: 14000, tokenLimit: 64000 },
+                });
+                emit({
+                  ...base,
+                  id: "complete",
+                  type: "session.compaction_complete",
+                  data: {
+                    success: true,
+                    compactionAttemptId: "attempt",
+                    postCompactionTokens: 42,
+                    summaryContent: "private",
+                  },
+                });
+                emit({
+                  ...base,
+                  id: "duplicate",
+                  type: "session.compaction_complete",
+                  data: { success: true, compactionAttemptId: "attempt" },
+                });
+                emit({
+                  ...base,
+                  id: "failed",
+                  type: "session.compaction_complete",
+                  data: { success: false },
+                });
+                emit({
+                  ...base,
+                  id: "failed",
+                  type: "session.compaction_complete",
+                  data: { success: false },
+                });
+                emit({
+                  ...base,
+                  id: "updated",
+                  type: "session.usage_info",
+                  data: {
+                    currentTokens: 7000,
+                    tokenLimit: 64000,
+                    messagesLength: 3,
+                    systemTokens: -1,
+                  },
+                });
+                return { data: { content: "done" } };
+              },
+            }),
+          resumeSession: async () => {
+            throw new Error("unused");
+          },
+          stop: async () => undefined,
+        }),
+      }),
+    );
+    try {
+      await service.start();
+      await service.createManagedAgent(configuration("context"));
+      await service.sendToManagedAgent("context", "Inspect context");
+      const shared = {
+        type: "agent.context_usage_changed",
+        agentInstanceId: "context",
+        sdkSessionId: "sdk-context",
+      };
+      const first = {
+        currentTokens: 14000,
+        tokenLimit: 64000,
+        systemTokens: 0,
+        conversationTokens: 2000,
+        toolDefinitionsTokens: 12000,
+      };
+      expect(received.filter(({ type }) => type === shared.type)).toEqual([
+        {
+          ...shared,
+          usage: { ...first, compactions: 0, failedCompactions: 0 },
+        },
+        {
+          ...shared,
+          usage: { ...first, compactions: 1, failedCompactions: 0 },
+        },
+        {
+          ...shared,
+          usage: { ...first, compactions: 1, failedCompactions: 1 },
+        },
+        {
+          ...shared,
+          usage: {
+            currentTokens: 7000,
+            tokenLimit: 64000,
+            compactions: 1,
+            failedCompactions: 1,
+          },
+        },
+      ]);
+    } finally {
+      await service.stop();
+    }
+  });
+
   it.each([true, false])(
     "retains attributable SDK latency and compaction diagnostics (success=%s)",
     async (success) => {

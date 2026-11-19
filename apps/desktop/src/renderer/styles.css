@@ -2344,6 +2344,29 @@ small,
   flex: 1;
   overflow: auto;
 }
+.context-budget {
+  padding: 12px;
+}
+.context-budget h3 {
+  margin: 0;
+}
+.context-budget meter {
+  width: 100%;
+}
+.context-budget dl > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-block: 4px;
+}
+.context-budget dd {
+  margin: 0;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.context-budget-caption {
+  opacity: 0.75;
+}
 .inspector-pane-content .inspection,
 .inspector-pane-content .approval-panel,
 .inspector-pane-content .plan-artifact-preview {

@@ -163,6 +163,7 @@ import {
 } from "@ableton-agent/observability";
 import type {
   AppEvent,
+  AgentContextUsage,
   AgentMode,
   AgentReasoningSummary,
   AgentWorkingUpdate,
@@ -1430,6 +1431,11 @@ interface ManagedSessionState {
   session: CopilotSessionAdapter | undefined;
   appliedReasoningSummary: AgentReasoningSummary | undefined;
   unsubscribe: (() => void) | undefined;
+  contextUsage?: {
+    sessionId: string;
+    usage: AgentContextUsage;
+    compactionIds: Set<string>;
+  };
   inFlightTurns: number;
   queuedTurns: number;
   turnQueue: Promise<void>;
@@ -4438,6 +4444,15 @@ export class CopilotAgentService implements AgentService {
 
   #observe(state: ManagedSessionState, session: CopilotSessionAdapter): void {
     state.unsubscribe?.();
+    const context: NonNullable<ManagedSessionState["contextUsage"]> =
+      state.contextUsage?.sessionId === session.sessionId
+        ? state.contextUsage
+        : {
+            sessionId: session.sessionId,
+            usage: { compactions: 0, failedCompactions: 0 },
+            compactionIds: new Set<string>(),
+          };
+    state.contextUsage = context;
     state.unsubscribe = session.on((event) => {
       if (this.#states.get(state.key) !== state) return;
       if (event.type === "subagent.started" && event.agentId !== undefined) {
@@ -4655,6 +4670,68 @@ export class CopilotAgentService implements AgentService {
         event.type === "session.compaction_start" ||
         event.type === "session.compaction_complete"
       ) {
+        if (
+          state.exposeInstanceId &&
+          state.session === session &&
+          event.agentId === undefined
+        ) {
+          let usage = context.usage;
+          if (event.type === "session.usage_info") {
+            const counts = {
+              currentTokens: event.data.currentTokens,
+              tokenLimit: event.data.tokenLimit,
+              conversationTokens: event.data.conversationTokens,
+              systemTokens: event.data.systemTokens,
+              toolDefinitionsTokens: event.data.toolDefinitionsTokens,
+            };
+            const validCount = (value: number | undefined): value is number =>
+              value !== undefined && Number.isSafeInteger(value) && value >= 0;
+            usage = {
+              compactions: usage.compactions,
+              failedCompactions: usage.failedCompactions,
+              ...(validCount(counts.currentTokens)
+                ? { currentTokens: counts.currentTokens }
+                : {}),
+              ...(validCount(counts.tokenLimit) && counts.tokenLimit > 0
+                ? { tokenLimit: counts.tokenLimit }
+                : {}),
+              ...(validCount(counts.conversationTokens)
+                ? { conversationTokens: counts.conversationTokens }
+                : {}),
+              ...(validCount(counts.systemTokens)
+                ? { systemTokens: counts.systemTokens }
+                : {}),
+              ...(validCount(counts.toolDefinitionsTokens)
+                ? { toolDefinitionsTokens: counts.toolDefinitionsTokens }
+                : {}),
+            };
+          } else if (
+            event.type === "session.compaction_complete" &&
+            typeof event.data.success === "boolean"
+          ) {
+            const id = event.data.compactionAttemptId ?? event.id;
+            if (!context.compactionIds.has(id)) {
+              context.compactionIds.add(id);
+              usage = {
+                ...usage,
+                compactions:
+                  usage.compactions + Number(event.data.success === true),
+                failedCompactions:
+                  usage.failedCompactions +
+                  Number(event.data.success === false),
+              };
+            }
+          }
+          if (usage !== context.usage) {
+            context.usage = usage;
+            this.options.events.publish({
+              type: "agent.context_usage_changed",
+              usage,
+              agentInstanceId: state.configuration.instanceId,
+              sdkSessionId: session.sessionId,
+            });
+          }
+        }
         const fields = [
           "model",
           "inputTokens",

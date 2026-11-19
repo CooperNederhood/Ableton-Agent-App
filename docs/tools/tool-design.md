@@ -289,6 +289,14 @@ Session MIDI clips use `create-midi` with the inspected track's direct
 identity. Corrective failures preserve the strict action enum and branch
 shape; descriptions emphasize valid next calls rather than guessed aliases.
 
+The pinned Copilot SDK/runtime preserves the root action enum on the OpenAI
+Chat Completions and Responses routes, including restricted multi-action scopes.
+The runtime may flatten the branch schemas and put the action-specific
+constraints in `parameters.description` rather than a structural union. The
+application still enforces the strict branch schema and the allowed actions
+locally. A loopback provider test covers this contract; it does not establish
+schema parity with managed Copilot routing.
+
 For every Session clip action, `index`, `expectedReference`, and `expectedName`
 identify the containing track, not the clip. In particular, `expectedName` is
 the inspected track name even after a clip is renamed; `expectedClipReference`

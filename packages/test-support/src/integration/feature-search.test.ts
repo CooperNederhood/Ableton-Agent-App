@@ -35,6 +35,7 @@ import {
 } from "@ableton-agent/tools";
 import type { AgentHistoryPage } from "@ableton-agent/observability";
 import { melSmokeFixture } from "./mel-smoke-test-support.js";
+import { listeningSummaryFixture } from "./agent-listening-test-support.js";
 import {
   projectFeatureSource,
   validateFeatureSources,
@@ -205,7 +206,17 @@ describe("delivered musical analysis evidence", () => {
       {
         tool: "ableton_listening",
         arguments: { action: "play-session-and-listen" },
-        data: { action: "play-session-and-listen", analyses: [first] },
+        data: {
+          action: "play-session-and-listen",
+          summaries: [
+            listeningSummaryFixture(fixture.target, first.source.capturedAt),
+          ],
+        },
+      },
+      {
+        tool: "ableton_context",
+        arguments: { action: "read", target: fixture.target },
+        data: { action: "read", analyses: [first], nextCursor: "next-page" },
       },
       {
         tool: "ableton_context",
@@ -224,7 +235,7 @@ describe("delivered musical analysis evidence", () => {
     "counts actual pinned continuation consumption (cursor-only=%s)",
     (cursorOnly) => {
       const { turn, first, last, pairs, setPairs } = pagedFixture();
-      if (cursorOnly) Reflect.deleteProperty(pairs[1]!.arguments, "target");
+      if (cursorOnly) Reflect.deleteProperty(pairs[2]!.arguments, "target");
       setPairs(pairs);
       expect(readCompleteAnalyses([turn])[0]!.timeline).toEqual([
         ...first.timeline,
@@ -240,22 +251,28 @@ describe("delivered musical analysis evidence", () => {
       },
     ],
     [
+      "no explicit first page",
+      (f: ReturnType<typeof pagedFixture>) => {
+        f.pairs.splice(1, 1);
+      },
+    ],
+    [
       "wrong cursor",
       (f: ReturnType<typeof pagedFixture>) => {
-        Reflect.set(f.pairs[1]!.arguments, "cursor", "wrong-page");
-        Reflect.deleteProperty(f.pairs[1]!.arguments, "target");
+        Reflect.set(f.pairs[2]!.arguments, "cursor", "wrong-page");
+        Reflect.deleteProperty(f.pairs[2]!.arguments, "target");
       },
     ],
     [
       "changed historical scope",
       (f: ReturnType<typeof pagedFixture>) => {
-        Reflect.set(f.pairs[1]!.arguments, "includeHistorical", true);
+        Reflect.set(f.pairs[2]!.arguments, "includeHistorical", true);
       },
     ],
     [
       "changed detail",
       (f: ReturnType<typeof pagedFixture>) => {
-        Reflect.set(f.pairs[1]!.arguments, "detail", "evidence");
+        Reflect.set(f.pairs[2]!.arguments, "detail", "evidence");
       },
     ],
     [
@@ -267,7 +284,7 @@ describe("delivered musical analysis evidence", () => {
     [
       "changed range",
       (f: ReturnType<typeof pagedFixture>) => {
-        Reflect.set(f.pairs[1]!.arguments, "target", {
+        Reflect.set(f.pairs[2]!.arguments, "target", {
           ...f.target,
           range: { startBeat: 0, endBeat: 1 },
         });
@@ -817,6 +834,19 @@ function fixture(
             passId: sources[index]!.passId,
             contextIds: [sources[index]!.contextId],
           },
+          summaries: [
+            listeningSummaryFixture(
+              {
+                kind: "capture",
+                sessionId: base.owner.appSessionId,
+                liveSetId: "set",
+                contextId: sources[index]!.contextId,
+                coordinate: "clip-local-beats",
+                range: { startBeat: 0, endBeat: 4 },
+              },
+              "2026-11-05T00:00:00.000Z",
+            ),
+          ],
         },
       );
       pair(
@@ -1197,15 +1227,11 @@ function deliveredFeatureFixture(unavailableConfidence = false) {
       const capture = old.find(
         (pair) => pair.action === "play-session-and-listen",
       )!;
-      pair("ableton_listening", capture.call.arguments, {
-        ...capture.data,
-        analyses: [pages[index]![0]!],
-      });
+      pair("ableton_listening", capture.call.arguments, capture.data);
     }
     for (const [sourceIndex, capture] of pages.entries()) {
       if (index === 0 && sourceIndex === 1) continue;
       for (const [pageIndex, page] of capture.entries()) {
-        if (index === sourceIndex && pageIndex === 0) continue;
         pair(
           "ableton_context",
           {

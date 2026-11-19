@@ -156,6 +156,7 @@ import {
   type ListeningToolServices,
 } from "./listening-tools.js";
 export * from "./listening-tools.js";
+export { projectListeningSummary } from "./listening-summary.js";
 import {
   abletonOperationDescriptors,
   getAbletonOperationDescriptorForAction,

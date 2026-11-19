@@ -199,6 +199,7 @@ import {
   listeningJobSchema,
   listeningOperationParamsSchema,
   listeningOperationResultSchema,
+  MAX_METRIC_CONTEXT_RESPONSE_BYTES,
   type AbletonMutationAuthorizationContext,
   type ContextOperationParams,
   type ContextOperationResult,
@@ -936,7 +937,7 @@ export interface AgentRuntimeObserver {
 }
 
 export const DEFAULT_AGENT_TURN_TIMEOUT_MS = 600_000;
-export const BASE_SYSTEM_MESSAGE_VERSION = 7;
+export const BASE_SYSTEM_MESSAGE_VERSION = 8;
 export const PLAN_REMINDER_VERSION = 2;
 const baseSystemMessageCandidates = [
   new URL("../prompts/base-system-message.md", import.meta.url),
@@ -2790,6 +2791,12 @@ export class CopilotAgentService implements AgentService {
               {
                 action: "read-captures",
                 contextIds: captured.data.job.contextIds,
+                summaryBudgetBytes: Math.max(
+                  1,
+                  MAX_METRIC_CONTEXT_RESPONSE_BYTES -
+                    8192 -
+                    Buffer.byteLength(JSON.stringify(captured.data)),
+                ),
               },
               { ...context, signal },
             );
@@ -2798,25 +2805,38 @@ export class CopilotAgentService implements AgentService {
                 "invalid_result",
                 "Analysis reader returned a mismatched result",
               );
-            return listeningOperationResultSchema.parse({
+            const result = listeningOperationResultSchema.parse({
               ...captured.data,
-              analyses: analysis.analyses,
+              summaries: analysis.summaries,
               analysisFailures: analysis.failures,
               analysisStatus:
                 analysis.failures.length === 0 &&
-                analysis.analyses.every((page) => page.status === "ready")
+                analysis.summaries.every(
+                  (summary) => summary.status === "ready",
+                )
                   ? "ready"
-                  : analysis.analyses.some((page) => page.status === "ready")
+                  : analysis.summaries.some(
+                        (summary) => summary.status === "ready",
+                      )
                     ? "partial"
                     : analysis.failures.length > 0
                       ? "failed"
                       : ((["failed", "cancelled", "timed-out"] as const).find(
                           (status) =>
-                            analysis.analyses.some(
-                              (page) => page.status === status,
+                            analysis.summaries.some(
+                              (summary) => summary.status === status,
                             ),
                         ) ?? "unavailable"),
             });
+            if (
+              Buffer.byteLength(JSON.stringify(result)) >
+              MAX_METRIC_CONTEXT_RESPONSE_BYTES
+            )
+              throw new ListeningFailure(
+                "analysis_response_budget",
+                "Listening summary exceeds its response budget",
+              );
+            return result;
           } catch {
             return {
               ...captured.data,
@@ -3847,6 +3867,7 @@ export class CopilotAgentService implements AgentService {
                 },
               }),
         };
+        let listeningPreflightRejection: PendingPermissionRejection | undefined;
         const permissionHandler = createAbletonPermissionHandler(
           this.options.requestToolApproval === undefined
             ? undefined
@@ -3900,7 +3921,42 @@ export class CopilotAgentService implements AgentService {
                         state,
                         params,
                         call,
-                      );
+                      ).catch((error: unknown) => {
+                        if (
+                          !(error instanceof ListeningFailure) ||
+                          (error.code !== "live_set_changed" &&
+                            error.code !== "stale_session_target") ||
+                          receipt.context.signal?.aborted
+                        )
+                          throw error;
+                        listeningPreflightRejection = {
+                          code: error.code,
+                          source: "application_policy",
+                          ...(error.code === "live_set_changed"
+                            ? {
+                                message:
+                                  "This chat is bound to a different Ableton Live Set.",
+                                recovery:
+                                  "Start a new chat with the current Live Set open.",
+                              }
+                            : {
+                                message:
+                                  "The Session clip did not match the requested target.",
+                                recovery:
+                                  "Inspect the Session again and use the exact track, slot, clip reference, and clip name before requesting a new capture.",
+                              }),
+                          details: {},
+                        };
+                        return undefined;
+                      });
+                      if (resolved === undefined) {
+                        if (
+                          state.listeningApprovals.get(request.toolCallId) ===
+                          receipt
+                        )
+                          state.listeningApprovals.delete(request.toolCallId);
+                        return false;
+                      }
                       if (
                         state.listeningApprovals.get(request.toolCallId) !==
                         receipt
@@ -3998,6 +4054,13 @@ export class CopilotAgentService implements AgentService {
           } finally {
             resumeTimeout();
           }
+          if (listeningPreflightRejection !== undefined) {
+            const { message, recovery } = listeningPreflightRejection;
+            result = {
+              kind: "reject" as const,
+              feedback: `${message} ${recovery}`,
+            };
+          }
         }
         if (result.kind === "reject" && request.kind === "custom-tool") {
           agentPolicy.blockAttempt(
@@ -4013,27 +4076,30 @@ export class CopilotAgentService implements AgentService {
             const userDenied =
               !shellPolicyBlocked &&
               result.feedback === "User denied the Ableton mutation";
-            state.permissionRejections.set(request.toolCallId, {
-              code: shellPolicyBlocked
-                ? "shell_policy_blocked"
-                : userDenied
-                  ? "user_denied"
-                  : "permission_denied",
-              message: shellPolicyBlocked
-                ? "Blocked by shell safety policy"
-                : userDenied
-                  ? "User denied the tool call"
-                  : "Tool call blocked by application policy",
-              source: userDenied ? "user" : "application_policy",
-              ...(result.feedback === undefined
-                ? {}
-                : { recovery: result.feedback }),
-              details: sanitizeOperationRecord(
-                shellEvaluation.diagnostics === undefined
+            state.permissionRejections.set(
+              request.toolCallId,
+              listeningPreflightRejection ?? {
+                code: shellPolicyBlocked
+                  ? "shell_policy_blocked"
+                  : userDenied
+                    ? "user_denied"
+                    : "permission_denied",
+                message: shellPolicyBlocked
+                  ? "Blocked by shell safety policy"
+                  : userDenied
+                    ? "User denied the tool call"
+                    : "Tool call blocked by application policy",
+                source: userDenied ? "user" : "application_policy",
+                ...(result.feedback === undefined
                   ? {}
-                  : { shellPolicy: shellEvaluation.diagnostics },
-              ),
-            });
+                  : { recovery: result.feedback }),
+                details: sanitizeOperationRecord(
+                  shellEvaluation.diagnostics === undefined
+                    ? {}
+                    : { shellPolicy: shellEvaluation.diagnostics },
+                ),
+              },
+            );
           } else {
             state.permissionRejections.delete(request.toolCallId);
           }

@@ -313,6 +313,10 @@ The base system message should teach every custom agent:
 - When user approval is required.
 - How to report assumptions and partial failures.
 - That tool results, not chat memory, determine current Live state.
+- How to present musical patterns in ASCII, preserving sixteenth-note detail
+  in 4/4 when available without inventing detail from a coarser summary.
+- When to consult stored mel-band evidence for ambiguous attack centroid
+  readings, without treating spectral resemblance as sample identity.
 
 Detailed genre recipes and composition guidance belong in skills or reference
 content, not in an ever-growing base system message.

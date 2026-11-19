@@ -35,6 +35,7 @@ async function startSimulator(
     delayMs?: number;
     emitSaveEvent?: boolean;
     listeningFixture?: boolean;
+    sessionLaunchTimeoutFixture?: boolean;
   } = {},
 ): Promise<number> {
   const args = [
@@ -49,6 +50,9 @@ async function startSimulator(
       : ["--delay-ms", String(options.delayMs)]),
     ...(options.emitSaveEvent === true ? ["--emit-save-event"] : []),
     ...(options.listeningFixture === true ? ["--listening-fixture"] : []),
+    ...(options.sessionLaunchTimeoutFixture === true
+      ? ["--session-launch-timeout-fixture"]
+      : []),
   ];
   simulator = spawn("python3", args, {
     cwd: new URL("../../..", import.meta.url),
@@ -2900,6 +2904,38 @@ describe("AbletonBridgeService", () => {
         { timeoutClass: "long", timeoutMs: 1_000 },
         { timeoutClass: "normal", timeoutMs: 200 },
       ]);
+    } finally {
+      await service.stop();
+    }
+  });
+
+  it("receives a deferred Session launch outcome past the ordinary bridge deadline without poisoning later reads", async () => {
+    const port = await startSimulator(token, {
+      delayCommand: "listening.launch_session_pass",
+      delayMs: 350,
+      sessionLaunchTimeoutFixture: true,
+    });
+    const service = new AbletonBridgeService({
+      authenticationToken: token,
+      events: new InMemoryEventPublisher(),
+      port,
+      requestTimeoutMs: 200,
+      longRequestTimeoutMs: 2_000,
+    });
+    try {
+      await service.start();
+      await expect(
+        service.sessionListeningPass({
+          action: "launch",
+          schemaVersion: 1,
+          ownerId: "00000000-0000-4000-8000-000000000001",
+          passId: "00000000-0000-4000-8000-000000000002",
+        }),
+      ).rejects.toMatchObject({
+        code: "conflict",
+        message: "Fixture: Session launch onset was not confirmed",
+      });
+      await expect(service.inspectSession()).resolves.toHaveProperty("tracks");
     } finally {
       await service.stop();
     }

@@ -321,6 +321,84 @@ export const analysisPageSchema = z.strictObject({
   timeline: z.array(analysisTimelineItemSchema),
   overviewExtent: analysisRangeSchema,
 });
+
+const relationshipEvidenceSchema = z.strictObject({
+  action: z.literal("read"),
+  range: analysisRangeSchema,
+  featureTypes: featureSelection,
+});
+const relationshipBase = {
+  version: z.literal(1),
+  observations: z.number().int().positive(),
+  evidence: z.array(relationshipEvidenceSchema).min(1).max(4),
+};
+export const featureRelationshipSchema = z.discriminatedUnion("kind", [
+  z.strictObject({
+    ...relationshipBase,
+    kind: z.literal("repeated-attack-spacing"),
+    spacingBeats: z.number().positive(),
+  }),
+  z.strictObject({
+    ...relationshipBase,
+    kind: z.literal("alternating-attack-brightness"),
+    centroidHzByPhase: z.tuple([z.number(), z.number()]),
+  }),
+  z.strictObject({
+    ...relationshipBase,
+    kind: z.literal("local-change"),
+    metric: z.enum(["attackCount", "rmsAmplitude", "centroidHz"]),
+    before: z.number(),
+    after: z.number(),
+  }),
+]);
+const summarySeries = z.array(z.number().nonnegative().nullable()).max(2048);
+export const listeningSummarySchema = analysisPageSchema
+  .pick({ source: true, readTarget: true, status: true, reason: true })
+  .extend({
+    grid: z
+      .strictObject({
+        startBeat: z.number().nonnegative(),
+        firstBinBeats: z.number().positive(),
+        stepBeats: z.number().positive(),
+        binCount: z.number().int().min(1).max(2048),
+        aggregation: z.enum(["native", "sum-and-mean"]),
+        attacks: z
+          .array(
+            z.tuple([
+              z.number().int().nonnegative(),
+              z.number().int().positive(),
+            ]),
+          )
+          .max(2048),
+        attackCoverage: z
+          .array(
+            z.tuple([
+              z.number().int().nonnegative(),
+              z.number().int().positive(),
+            ]),
+          )
+          .max(2048),
+        rmsAmplitude: summarySeries,
+        centroidHz: summarySeries,
+      })
+      .nullable()
+      .describe(
+        "Zero-based bins start at startBeat; the first has width firstBinBeats, subsequent bins have width stepBeats except the last is clipped at the read target end. Attacks are sparse [bin, count]; unlisted bins are zero only inside attackCoverage [first bin, exclusive end] runs. Null means incomplete or unavailable support. RMS is linear stereo aggregate; coarser bins report duration-weighted means of native values and summed attack counts.",
+      ),
+    peakAmplitude: z.number().nonnegative().nullable(),
+    featureRelationships: z.array(featureRelationshipSchema).max(8),
+    candidateChecks: z
+      .array(
+        z.strictObject({
+          kind: z.literal("spectral-recurrence"),
+          version: z.literal(1),
+          evidence: z.array(relationshipEvidenceSchema).min(2).max(4),
+        }),
+      )
+      .max(4),
+  });
+export type ListeningSummary = z.infer<typeof listeningSummarySchema>;
+export type FeatureRelationship = z.infer<typeof featureRelationshipSchema>;
 export const captureAnalysisFailureSchema = z.strictObject({
   contextId: captureAnalysisTargetSchema.shape.contextId,
   readTarget: captureAnalysisTargetSchema.optional(),

@@ -1826,6 +1826,29 @@ test("renders useful successful and blocked tool disclosures", async () => {
           timestamp: 3,
         },
       },
+      {
+        type: "operation.changed",
+        agentInstanceId,
+        operation: {
+          id: "changed-set-listening",
+          label: "Play Session clip and listen",
+          toolName: "ableton_listening",
+          status: "failed",
+          failure: {
+            source: "application_policy",
+            code: "live_set_changed",
+            message: "This chat is bound to a different Ableton Live Set.",
+            recovery: "Start a new chat with the current Live Set open.",
+            details: [],
+          },
+          warnings: [],
+          changed: [],
+          unchanged: [],
+          retryable: false,
+          undoable: false,
+          timestamp: 4,
+        },
+      },
     ];
 
     await publish(disclosureEvents);
@@ -1849,6 +1872,15 @@ test("renders useful successful and blocked tool disclosures", async () => {
     await expect(blocked).toContainText("How to correct it");
     await expect(blocked).toContainText("tail -n +32 <spill-file>");
     await expect(blocked).not.toContainText("The user rejected this tool call");
+    const changedSet = window
+      .locator("details.operation")
+      .filter({ hasText: "Play Session clip and listen" });
+    await changedSet.locator("summary").click();
+    await expect(changedSet).toContainText("live_set_changed");
+    await expect(changedSet).toContainText(
+      "Start a new chat with the current Live Set open.",
+    );
+    await expect(changedSet).not.toContainText("Permission denied");
   } finally {
     await application.close();
     await rm(profile, { recursive: true, force: true });

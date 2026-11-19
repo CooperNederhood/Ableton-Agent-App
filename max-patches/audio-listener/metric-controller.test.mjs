@@ -52,6 +52,7 @@ async function controllerHarness({
   engineeringRuntime = false,
   session = false,
   sessionStartBeat = 0,
+  observedStoppedBeat,
   melEnabled = false,
   analyzerEnabled = false,
   malformedPitchFrame = false,
@@ -572,7 +573,7 @@ async function controllerHarness({
     const beat = playing
       ? startBeat + ((counter - playingOrigin) * tempoBpm) / (sampleRate * 60)
       : session
-        ? config.stoppedBeat
+        ? (observedStoppedBeat ?? config.stoppedBeat)
         : startBeat;
     const phase = playing ? beat % 1 : 0.618;
     sourceClock = clockModel.step();
@@ -3329,6 +3330,47 @@ test("Session capture completes with independently advancing host-clock snapshot
   assert.ok(skipped.length > 0);
   assert.ok(
     skipped.every((e) => e.generation === GENERATION && e.stage === "progress"),
+  );
+});
+
+test("Session clock mismatch retains expected and observed beats on the diagnostic wire", async () => {
+  const expectedBeat = 1.3653333333333335;
+  const observedBeat = 1.3653333333333333;
+  const h = await controllerHarness({
+    session: true,
+    sessionStartBeat: expectedBeat,
+    observedStoppedBeat: observedBeat,
+    runtimeBridge: true,
+    sdkStreamBridge: true,
+  });
+  await h.until(() => h.controller.snapshot().state === "failed");
+  assert.equal(
+    h.controller.snapshot().reason,
+    "metric_source_position_mismatch",
+  );
+  const diagnostic = h.diagnosticWrites.find(
+    ({ nativeLifecycle }) =>
+      nativeLifecycle?.reason === "native_failure_evidence" &&
+      nativeLifecycle.facts?.some(({ field }) => field === "capture.clock.1"),
+  );
+  assert.ok(
+    diagnostic,
+    "the rejected clock row must survive cleanup and wire projection",
+  );
+  h.codec.listenerResultMetricSchema.parse(diagnostic);
+  assert.equal(diagnostic.passId, h.prepare.passId);
+  const fact = (field) =>
+    diagnostic.nativeLifecycle.facts.find((value) => value.field === field)
+      ?.actual.value;
+  assert.equal(fact("capture.clock.1"), observedBeat);
+  assert.deepEqual(JSON.parse(fact("capture.inputFailureDetail")), {
+    check: "metric_source_position_mismatch",
+    expectedBeat,
+    observedBeat,
+  });
+  assert.ok(h.replies.every(({ payload }) => payload.status !== "ready"));
+  assert.ok(
+    h.results.every(({ payload }) => payload.metricManifest === undefined),
   );
 });
 

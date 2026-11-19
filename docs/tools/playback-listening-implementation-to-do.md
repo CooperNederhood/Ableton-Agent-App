@@ -1,5 +1,11 @@
 # Playback Listening Implementation To-Do
 
+- [x] Resolve blank Session clip names from exact inspected identities before
+      approval; keep execution strict and surface genuine stale targets.
+- [x] Cover the deferred Session launch deadline race at the bridge and
+      preserve the typed Set-mismatch reason through the SDK permission boundary.
+- [ ] Establish why playback onset was not confirmed in the affected real-Live
+      launch; the bridge deadline fix does not establish a Max-side root cause.
 - [x] Retain bounded metric launch-binding operands through the existing
       lifecycle before validation, with actual runtime/SDK delivery, failure
       and cancellation cleanup regressions.
@@ -3863,3 +3869,18 @@ guarded playback and real attribution remain acceptance gates. Synthetic Electro
 persistence/resume passes and is not actual listening evidence.
 Synthetic coverage distinguishes the candidate's FFT analysis window from its
 separate 100 ms reporting hop so centroid tolerances do not use the wrong size.
+## Compact initial listening results
+
+- Retain the expected stopped beat and rejected native clock row on a position
+  mismatch; use the next user repro to identify the actual clock disagreement.
+
+- Replace initial timeline pages for both capture modes with per-source compact
+  grids, whole-range coarsening, and versioned feature relationships.
+- Keep evidence reads pinned and bounded; measure summary projection separately
+  from derivation on the existing attributed listening analysis lifecycle.
+- Qualification for this change is deterministic only, not a new real-Live run.
+- A local synthetic projection benchmark (already-loaded features, 30 measured
+  samples, including JSON serialization) returned 2,133 bytes for one bar and
+  15,465 bytes for 64 bars. At 64 bars, summary projection was about 38 ms p95
+  versus 100 ms p95 for unpaged timeline projection and serialization. This is
+  not end-to-end capture latency or a measurement of the SDK tool envelope.

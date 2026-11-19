@@ -16,6 +16,23 @@ another calculation or asking the agent to poll. Capture and analysis outcomes
 are separate: an analysis quota, cancellation or integrity failure does not erase
 an already durable capture or authorize replay. Playback preparation, source
 guards, approvals and leave-running cleanup are unchanged.
+
+Session and Arrangement initial results carry `summaries`, not timeline pages.
+Each source has a pinned `readTarget`, status, and a compact zero-based grid
+where canonical alignment is available. The grid preserves sixteenth-note cells
+when they fit and otherwise coarsens across the full observed extent. Sparse
+attacks distinguish measured zero (within an attack coverage run) from missing
+support. Null levels and centroids are not silence. Peak, where supplied, is
+the largest stored channel peak across the complete source extent.
+
+Versioned `featureRelationships` summarize measured relationships across
+canonical cells before output coarsening. Unverified `candidateChecks` are not
+findings or claims about sample identity. Each evidence pointer can be followed
+by copying `readTarget` into `ableton_context` `read` and replacing `range` and
+`featureTypes` with those in the pointer. The existing detail cursor applies
+only once a detail read is requested. Compare currently works at full canonical
+segment scope; use a narrowed read for hit-local evidence. No second model or
+capture is involved.
 An ordinary source with one eligible listener resolves automatically before
 approval. Listener inventory is optional for disambiguation, not a prerequisite
 added by the Default agent's scoped tool description.
@@ -522,6 +539,23 @@ operands without relaxing wire validation or claiming to fix the intermittent
 publication rejection.
 
 ## Installed Session launch incident: investigation still open
+
+The Session launch bridge request uses the bounded long response budget (15
+seconds by default) so the Remote Script can return its result after its
+five-second onset observation window. It still launches at most once; a
+missing acknowledgement is not permission to retry. This fixes a deadline
+race, not the underlying cause of missing onset on the affected Set.
+
+If pre-approval resolution finds that the chat belongs to a different Live Set,
+the request is rejected without opening a capture approval or starting
+playback. The failure tells the user to start a new chat with the current Set
+open. It does not rebind the prior chat or its context.
+
+For Session capture, pre-approval resolution can fill a blank clip name only
+when the current Set, track, slot, and clip reference match. The resolved Live
+name is included in approval and checked again at execution. A different
+explicit name or stale reference is rejected before approval with guidance to
+inspect the Session again.
 
 The normal-profile Session attempt on `1-808 Core Kit` / `clip-1` failed at
 `2026-11-15T03:31:22.590Z` with `operation_timeout` for
@@ -2235,6 +2269,10 @@ track links retain transport beats. Actual source origin must still match the
 independently frozen native anchor; a delayed source cannot publish an earlier
 capture. Existing arm-before-launch, traced stages and leave-running cleanup
 remain unchanged.
+
+A `metric_source_position_mismatch` preflight rejection retains the expected and
+observed beat and the rejected native clock row in the existing attributed
+failure diagnostics. This does not relax the stopped-clock check.
 
 The zero-origin launch above is the reviewed **remembered-playing Session**
 case, not a requirement for every stopped Session launch. The consolidation

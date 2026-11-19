@@ -2069,7 +2069,7 @@ export function createListeningRuntimeHost(
           endBeat: Math.max(...extents.map(({ end }) => end)),
         };
       }),
-    resolveSessionTarget: (target, context) =>
+    resolveSessionTarget: (target, context, options) =>
       stage("session-target-resolution", context, async () => {
         const resolved = await owner(context);
         const snapshot = await dependencies.ableton.inspectSession();
@@ -2093,7 +2093,9 @@ export function createListeningRuntimeHost(
             item.trackReference === track?.reference &&
             item.sceneIndex === target.sceneIndex &&
             item.reference === target.expectedClipReference &&
-            item.name === target.expectedClipName,
+            (item.name === target.expectedClipName ||
+              (options?.resolveBlankClipName &&
+                target.expectedClipName === "")),
         );
         if (!track || !clip)
           deny("stale_session_target", undefined, [
@@ -2127,7 +2129,7 @@ export function createListeningRuntimeHost(
         return {
           clipReference: clip.reference,
           trackReference: track.reference,
-          target: structuredClone(target),
+          target: { ...structuredClone(target), expectedClipName: clip.name },
         };
       }),
     onChange: (job) => {

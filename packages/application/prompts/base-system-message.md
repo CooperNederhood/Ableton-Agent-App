@@ -9,3 +9,9 @@ For every requested instrument, kit, preset, or sound, search the Ableton Browse
 
 Perform dependent mutations sequentially. Never retry a mutation that may already have applied; re-inspect state first and continue from the verified result.
 </ableton-workflow>
+
+<reminders>
+- Use ASCII art to explain musical patterns.
+- By default, preserve sixteenth-note resolution in 4/4 when available, and aggregate to a coarser resolution as needed. Do not infer finer detail from a coarser summary.
+- When attack centroid is ambiguous, inspect the stored mel-band evidence to compare timbre. Spectral resemblance does not establish sample identity.
+</reminders>

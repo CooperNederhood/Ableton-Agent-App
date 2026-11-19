@@ -125,6 +125,8 @@ Companion specification: [Agent Runtime](agent-runtime.md)
 ## Agent behavior
 
 - [x] Write and version the base Ableton system message.
+- [x] Cover ASCII musical-pattern guidance and evidence-aware resolution in
+  the base system message tests.
 - [x] Keep shared agent guidance in the canonical editable
   `packages/application/prompts/base-system-message.md`, copy it into the
   compiled package, and fail explicitly when it is missing or empty.

@@ -377,12 +377,52 @@ async function fixture(
     positionListeningPlayback,
     startListeningPlayback,
     receipt,
+    listenerId: listener.producer.producerId,
     begin,
     run: async () => host.waitForListeningPass(await begin(), context),
   };
 }
 
 describe("production v5 Session host with synthetic native peer", () => {
+  it("resolves a blank clip name only before approval and only for the exact inspected slot and clip ID", async () => {
+    const f = await fixture("midi");
+    const request = {
+      action: "play-session-and-listen" as const,
+      target: { ...target, expectedClipName: "" },
+      listenerIds: [f.listenerId],
+      durationBeats: 1,
+      maximumDurationMs: 5_000,
+    };
+    const resolved = await f.host.resolveListeningOperation(request, context);
+    expect(resolved).toMatchObject({ target });
+    await expect(
+      f.host.executeListeningOperation(request, context),
+    ).rejects.toMatchObject({ code: "stale_session_target" });
+    for (const mismatch of [
+      { ...request.target, expectedClipName: "Wrong name" },
+      { ...request.target, sceneIndex: 1 },
+      {
+        ...request.target,
+        expectedClipReference: target.track.expectedReference,
+      },
+    ]) {
+      await expect(
+        f.host.resolveListeningOperation(
+          { ...request, target: mismatch },
+          context,
+        ),
+      ).rejects.toMatchObject({ code: "stale_session_target" });
+    }
+    expect(f.sessionListeningPass).not.toHaveBeenCalled();
+    expect(f.requestListenerControl).not.toHaveBeenCalled();
+    const result = await f.host.executeListeningOperation(resolved, context);
+    if (!("job" in result)) throw new Error("Expected owned Session job");
+    const job = await f.host.waitForListeningPass(result.job.passId, context);
+    expect(job.stage, JSON.stringify({ job, log: f.log })).toBe("completed");
+    expect(f.log.filter((event) => event === "session:launch")).toHaveLength(1);
+    expect(f.log).toContain("session:release");
+  });
+
   it.each(["midi", "warped-audio"] as const)(
     "publishes the next %s clip after a Session Clip Stop without seeking or reusing its stopped song beat",
     async (kind) => {

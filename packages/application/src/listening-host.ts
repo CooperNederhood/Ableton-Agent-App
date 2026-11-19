@@ -65,6 +65,7 @@ export interface ListeningHostOptions extends Pick<
   readonly resolveSessionTarget: (
     target: SessionTarget,
     context: ListeningExecutionContext,
+    options?: { readonly resolveBlankClipName: boolean },
   ) => Promise<{
     clipReference: string;
     trackReference: string;
@@ -295,11 +296,15 @@ export function createListeningHost(options: ListeningHostOptions): Required<
           "permission_denied",
           "Playback listening requires an initiating agent owner",
         );
-      if (params.action === "play-session-and-listen")
-        await awaitListeningBoundary(
-          options.resolveSessionTarget(params.target, context),
-          context.signal,
-        );
+      const sessionTarget =
+        params.action === "play-session-and-listen"
+          ? await awaitListeningBoundary(
+              options.resolveSessionTarget(params.target, context, {
+                resolveBlankClipName: true,
+              }),
+              context.signal,
+            )
+          : undefined;
       const ids =
         params.action === "play-session-and-listen" &&
         params.listenerIds !== undefined &&
@@ -323,6 +328,9 @@ export function createListeningHost(options: ListeningHostOptions): Required<
       context.signal?.throwIfAborted();
       const result = listeningOperationParamsSchema.parse({
         ...params,
+        ...(sessionTarget?.target === undefined
+          ? {}
+          : { target: sessionTarget.target }),
         listenerIds: ids,
         ...range,
       });

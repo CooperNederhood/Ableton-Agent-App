@@ -759,7 +759,8 @@ export const commandCatalog = {
   "listening.launch_session_pass": command(
     launchSessionListeningPassParamsSchema,
     sessionListeningPassResultSchema,
-    { mutates: true },
+    // Live may spend five seconds waiting for onset before replying.
+    { mutates: true, timeoutClass: "long" },
   ),
   "listening.inspect_session_pass": command(
     inspectSessionListeningPassParamsSchema,

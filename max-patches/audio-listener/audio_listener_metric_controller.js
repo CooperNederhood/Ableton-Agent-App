@@ -446,14 +446,19 @@ function createMetricController(options) {
     );
     if (!p.armProof && row[0] !== 0)
       throw new Error("metric_transport_not_stopped");
-    if (
-      !p.armProof &&
-      row[1] !==
-        (p.config.mode === "session"
-          ? p.config.stoppedBeat
-          : p.config.geometry.startBeat)
-    )
+    const expectedBeat =
+      p.config.mode === "session"
+        ? p.config.stoppedBeat
+        : p.config.geometry.startBeat;
+    if (!p.armProof && row[1] !== expectedBeat) {
+      p.failedClockReadback = row;
+      p.inputFailureDetail ??= JSON.stringify({
+        check: "metric_source_position_mismatch",
+        expectedBeat,
+        observedBeat: row[1],
+      });
       throw new Error("metric_source_position_mismatch");
+    }
     p.lastClock = row;
     p.clockHistory.push(row);
     while (

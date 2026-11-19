@@ -5,7 +5,39 @@ import {
 } from "@ableton-agent/protocol";
 import { createSyntheticMetricListeningObservation } from "@ableton-agent/protocol/testing";
 import type { AgentHistoryPage } from "@ableton-agent/observability";
+import type { ListeningSummary } from "@ableton-agent/tools";
 import type { AssertionInput, TurnEvidence } from "./contracts.js";
+
+export function listeningSummaryFixture(
+  readTarget: ListeningSummary["readTarget"],
+  capturedAt: string,
+  geometry?: ListeningSummary["source"]["geometry"],
+): ListeningSummary {
+  return {
+    source: {
+      name: "Original capture",
+      nameTruncated: false,
+      location:
+        readTarget.coordinate === "clip-local-beats"
+          ? "Session"
+          : "Arrangement",
+      capturedAt,
+      coordinate: readTarget.coordinate,
+      observedRange: readTarget.range,
+      requestedRange: readTarget.range,
+      readTarget,
+      freshness: "unknown",
+      ...(geometry ? { geometry } : {}),
+    },
+    readTarget,
+    status: "ready",
+    reason: null,
+    grid: null,
+    peakAmplitude: null,
+    featureRelationships: [],
+    candidateChecks: [],
+  };
+}
 
 export function agentListeningFixture(action: "get" | "report" = "get") {
   const sdkTurnId = "00000000-0000-4000-8000-000000000001";
@@ -71,6 +103,25 @@ export function agentListeningFixture(action: "get" | "report" = "get") {
       updatedAt: "2026-11-05T00:00:02.000Z",
       durationMs: 1000,
     },
+    summaries: [
+      listeningSummaryFixture(
+        {
+          kind: "capture",
+          sessionId: owner.appSessionId,
+          liveSetId: "set",
+          contextId,
+          coordinate: "clip-local-beats",
+          range: { startBeat: 0, endBeat: 4 },
+        },
+        "2026-11-05T00:00:01.000Z",
+        {
+          sampleRate: observation.geometry.sampleRate,
+          tempoBpm: observation.geometry.tempoBpm,
+          captureStartSample: observation.geometry.startSample,
+          transportStartBeat: 0,
+        },
+      ),
+    ],
   };
   const entry = {
     contextId,

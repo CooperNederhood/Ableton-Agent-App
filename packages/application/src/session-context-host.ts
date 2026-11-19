@@ -29,6 +29,7 @@ import {
   MAX_METRIC_CONTEXT_RESPONSE_BYTES,
   captureAnalysisTargetSchema,
   projectListeningTimeline,
+  projectListeningSummary,
   projectListeningOverview,
   analysisOperationResultSchema,
   analysisReadParamsSchema,
@@ -36,6 +37,7 @@ import {
   type PassageAnalysisTarget,
   type AnalysisSource,
   type AnalysisPage,
+  type ListeningSummary,
   type AnalysisOperationParams,
   type AnalysisOperationResult,
   type ListeningAnalysisFeature,
@@ -1044,6 +1046,7 @@ export function createSessionContextHost(
     includeHistorical: boolean,
     operation: ContextOperationOptions,
     detail?: "evidence" | "feature-shapes",
+    includeTimeline = true,
   ) => {
     const derivation = await analysisStage(
       "wait",
@@ -1135,6 +1138,7 @@ export function createSessionContextHost(
         a.segment.order - b.segment.order ||
         a.record.feature.type.localeCompare(b.record.feature.type),
     );
+    if (!includeTimeline) return { source, derivation, views, timeline: [] };
     const entry = await repository.getEntry(
       source.readTarget.contextId,
       operation,
@@ -1425,7 +1429,6 @@ export function createSessionContextHost(
     query: CompleteAnalysisOperationParams,
     operation: ContextOperationOptions,
     responseBudget = MAX_METRIC_CONTEXT_RESPONSE_BYTES,
-    embedded = false,
   ): Promise<AnalysisOperationResult> => {
     const { cursor, ...request } = query;
     const binding = fingerprint({
@@ -1568,7 +1571,7 @@ export function createSessionContextHost(
       });
       const continuationReserve =
         512 +
-        (loaded.length + (comparison ? 1 : 0) + (embedded ? 0 : 1)) *
+        (loaded.length + (comparison ? 1 : 0) + 1) *
           Buffer.byteLength(reservedCursor) +
         (comparison
           ? Buffer.byteLength(
@@ -2157,7 +2160,7 @@ export function createSessionContextHost(
           repository,
           operation,
           async () => {
-            const analyses: AnalysisPage[] = [];
+            const summaries: ListeningSummary[] = [];
             const failures: Extract<
               ContextOperationResult,
               { action: "read-captures" }
@@ -2192,24 +2195,58 @@ export function createSessionContextHost(
                         captureSource(repository, contextId, false, operation),
                       { contextId },
                     );
-                    return executeAnalysis(
+                    const { derivation, views } = await loadAnalysis(
                       repository,
-                      {
-                        action: "read",
-                        target: source.readTarget,
-                        includeHistorical: false,
-                      },
+                      source,
+                      false,
                       operation,
-                      Math.floor(
-                        (MAX_METRIC_CONTEXT_RESPONSE_BYTES - 8192) /
-                          query.contextIds.length,
-                      ),
-                      true,
+                      undefined,
+                      false,
+                    );
+                    const selected = source;
+                    const attributes = {
+                      contextId,
+                      featureCount: views.length,
+                      summaryBytes: 0,
+                      relationshipCount: 0,
+                    };
+                    return analysisStage(
+                      "summary",
+                      repository,
+                      operation,
+                      async () => {
+                        const summary = projectListeningSummary(
+                          {
+                            source: selected,
+                            readTarget: selected.readTarget,
+                            status: derivation?.status ?? "unavailable",
+                            reason:
+                              derivation?.reason ??
+                              (derivation
+                                ? null
+                                : "Automatic analysis is unavailable"),
+                          },
+                          views,
+                          Math.floor(
+                            (query.summaryBudgetBytes ??
+                              MAX_METRIC_CONTEXT_RESPONSE_BYTES - 8192) /
+                              query.contextIds.length,
+                          ),
+                          operation.signal,
+                        );
+                        attributes.summaryBytes = Buffer.byteLength(
+                          JSON.stringify(summary),
+                        );
+                        attributes.relationshipCount =
+                          summary.featureRelationships.length;
+                        return summary;
+                      },
+                      attributes,
                     );
                   },
                   { contextId },
                 );
-                if (result.action === "read") analyses.push(...result.analyses);
+                summaries.push(result);
               } catch (error) {
                 throwIfGlobalFailure(error);
                 let failure = error;
@@ -2242,7 +2279,7 @@ export function createSessionContextHost(
             }
             return contextOperationResultSchema.parse({
               action: "read-captures",
-              analyses,
+              summaries,
               failures,
             });
           },

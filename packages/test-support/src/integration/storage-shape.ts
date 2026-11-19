@@ -25,6 +25,7 @@ import {
   type CompleteAnalysis,
 } from "./feature-search.js";
 import {
+  requireListeningSummary,
   validateAgentListeningEvidence,
   type AgentListeningEvidence,
 } from "./agent-listening-result.js";
@@ -786,6 +787,13 @@ export function verifyStorageShape(
         isDeepStrictEqual(job.contextIds, [source.contextId]),
       "Tool result is not the completed original persisted capture",
     );
+    requireListeningSummary(starts[0]!.data, {
+      contextId: source.contextId,
+      sessionId: turn.appSessionId,
+      liveSetId: starts[0]!.call.liveSetId,
+      coordinate: view === "session" ? "clip-local-beats" : "transport-beats",
+      range: { startBeat: source.startBeat, endBeat: source.endBeat },
+    });
     if ("cleanupComplete" in capture) {
       requireCondition(
         capture.cleanupComplete &&

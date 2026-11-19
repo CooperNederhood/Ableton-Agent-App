@@ -412,7 +412,18 @@ describe("typed listening SDK result History projection", () => {
             contextIds: ["context"],
           },
           analysisStatus: "ready",
-          analyses: [analysis],
+          summaries: [
+            {
+              source: analysis.source,
+              readTarget,
+              status: "ready",
+              reason: null,
+              grid: null,
+              peakAmplitude: 0.5,
+              featureRelationships: [],
+              candidateChecks: [],
+            },
+          ],
         };
         const listeningHooks = createAgentHooks({
           getAbletonStatus: async () => {

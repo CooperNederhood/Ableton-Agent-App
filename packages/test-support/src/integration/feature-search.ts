@@ -37,7 +37,6 @@ import {
   metricStreamRecordPageSchema,
   analysisOperationParamsSchema,
   analysisOperationResultSchema,
-  analysisPageSchema,
   captureAnalysisTargetSchema,
   type AnalysisPage,
   type AnalysisTimelineItem,
@@ -49,6 +48,7 @@ import type {
   SourceIdentity,
 } from "./contracts.js";
 import {
+  requireListeningSummary,
   validateAgentListeningEvidence,
   type AgentListeningEvidence,
 } from "./agent-listening-result.js";
@@ -690,7 +690,7 @@ export function immutableDeliveredAnalysis(analysis: CompleteAnalysis) {
   return { ...analysis, source, timeline };
 }
 
-/** Collect delivered pages, including listen's first page, without manufacturing tool calls. */
+/** Collect complete detail chains from explicit context reads only. */
 export function readCompleteAnalyses(
   turns: readonly TurnEvidence[],
   storageShape = false,
@@ -799,28 +799,7 @@ export function readCompleteAnalyses(
   };
   for (const turn of turns) {
     for (const pair of readFeatureToolPairs(turn, storageShape)) {
-      if (
-        pair.call.toolName === "ableton_listening" &&
-        Array.isArray(pair.data.analyses)
-      ) {
-        for (const raw of pair.data.analyses) {
-          const page = analysisPageSchema.parse(raw);
-          accept(
-            [page],
-            {
-              action: "read",
-              target: page.readTarget,
-              includeHistorical: false,
-            },
-            undefined,
-            page.detail.nextCursor,
-            turn.agentListening!.afterOwnedRestart,
-          );
-        }
-      } else if (
-        pair.call.toolName === "ableton_context" &&
-        pair.action === "read"
-      ) {
+      if (pair.call.toolName === "ableton_context" && pair.action === "read") {
         const query = analysisOperationParamsSchema.parse(pair.call.arguments);
         const result = analysisOperationResultSchema.parse(pair.data);
         check(
@@ -2597,13 +2576,15 @@ export function verifyFeatureSearch(
         JSON.stringify(job.contextIds) === JSON.stringify([source.contextId]),
       "capture tool result is foreign or incomplete",
     );
+    requireListeningSummary(start.data, {
+      contextId: source.contextId,
+      sessionId: selected.appSessionId,
+      liveSetId: start.call.liveSetId,
+      coordinate: "clip-local-beats",
+    });
   }
   if (
-    pairs.some(
-      (pair) =>
-        Array.isArray(pair.data.analyses) ||
-        ["read", "compare", "search"].includes(pair.action),
-    )
+    pairs.some((pair) => ["read", "compare", "search"].includes(pair.action))
   ) {
     check(
       derivations.length === 0,

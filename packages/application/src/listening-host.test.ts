@@ -186,7 +186,9 @@ describe("owned listening tool host", () => {
       ...sessionRequest,
       listenerIds: ["listener"],
     });
-    expect(f.resolveSessionTarget).toHaveBeenCalledWith(target, context);
+    expect(f.resolveSessionTarget).toHaveBeenCalledWith(target, context, {
+      resolveBlankClipName: true,
+    });
     expect(f.services.prepare).not.toHaveBeenCalled();
     expect(f.services.startPlayback).not.toHaveBeenCalled();
     const events = f.enqueue.mock.calls

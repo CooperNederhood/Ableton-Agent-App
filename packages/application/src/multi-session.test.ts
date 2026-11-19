@@ -2917,15 +2917,25 @@ describe("CopilotAgentService managed sessions", () => {
         expect(params).toEqual({
           action: "read-captures",
           contextIds,
+          summaryBudgetBytes: expect.any(Number),
         });
         // This would deadlock if analysis waiting retained the capture mutation lease.
         await queuedMutation;
         if (analysisFault === "throw")
           throw new Error("Shared derivation unavailable");
-        const analysis = musicalReadFixture(context.sessionId).analyses[0]!;
+        const page = musicalReadFixture(context.sessionId).analyses[0]!;
+        const analysis = {
+          source: page.source,
+          readTarget: page.readTarget,
+          status: page.status,
+          reason: page.reason,
+          grid: null,
+          peakAmplitude: null,
+          featureRelationships: [],
+          candidateChecks: [],
+        };
         if (analysisFault && analysisFault !== "source-failure") {
           analysis.status = analysisFault;
-          analysis.timeline = [];
           analysis.reason = "Automatic derivation did not produce values";
         }
         analysis.readTarget.contextId = "published-context";
@@ -2935,7 +2945,7 @@ describe("CopilotAgentService managed sessions", () => {
         later.source.readTarget.contextId = "later-context";
         return {
           action: "read-captures",
-          analyses:
+          summaries:
             analysisFault === "source-failure" ? [analysis, later] : [analysis],
           failures:
             analysisFault === "source-failure"
@@ -3104,6 +3114,9 @@ describe("CopilotAgentService managed sessions", () => {
       });
       const result = await response;
       await queued;
+      expect(Buffer.byteLength(JSON.stringify(result))).toBeLessThanOrEqual(
+        64 * 1024,
+      );
       expect(deliveredBeforeCompletion).toBe(false);
       const successful =
         fault === undefined && (stage === "completed" || stage === "partial");
@@ -3125,12 +3138,12 @@ describe("CopilotAgentService managed sessions", () => {
         });
         if (!analysisFault || analysisFault === "source-failure")
           expect(result).toMatchObject({
-            analyses: (analysisFault === "source-failure"
+            summaries: (analysisFault === "source-failure"
               ? ["published-context", "later-context"]
               : ["published-context"]
             ).map((contextId) => ({
               readTarget: { contextId },
-              timeline: [{ features: [{ values: [0.5, 0.5] }] }],
+              featureRelationships: [],
             })),
           });
         if (analysisFault === "source-failure")
@@ -3342,6 +3355,127 @@ describe("CopilotAgentService managed sessions", () => {
       }
       await expect(response).resolves.toMatchObject({ resultType: "failure" });
       await service.stop();
+    },
+  );
+
+  it.each([
+    {
+      code: "live_set_changed",
+      message: "This chat is bound to a different Ableton Live Set.",
+      recovery: "Start a new chat with the current Live Set open.",
+    },
+    {
+      code: "stale_session_target",
+      message: "The Session clip did not match the requested target.",
+      recovery:
+        "Inspect the Session again and use the exact track, slot, clip reference, and clip name before requesting a new capture.",
+    },
+  ])(
+    "reports $code instead of a generic SDK permission denial",
+    async ({ code, message, recovery }) => {
+      const events = new InMemoryEventPublisher();
+      const received: AppEvent[] = [];
+      events.subscribe((event) => received.push(event));
+      const session = createFakeSession("changed-set-session");
+      const configs: SessionConfig[] = [];
+      const approve = vi.fn(async () => true);
+      const resolve = vi.fn(async () => {
+        throw new ListeningFailure(code, code);
+      });
+      const execute = vi.fn(async () => {
+        throw new Error("Unexpected listening execution");
+      });
+      const service = new CopilotAgentService(
+        baseOptions({
+          events,
+          requestToolApproval: approve,
+          resolveListeningOperation: resolve,
+          executeListeningOperation: execute,
+          waitForListeningPass: async () => {
+            throw new Error("Unexpected listening completion wait");
+          },
+          clientFactory: () => ({
+            createSession: vi.fn(async (config: SessionConfig) => {
+              configs.push(config);
+              return configs.length === 1
+                ? createFakeSession("default")
+                : session;
+            }),
+            resumeSession: vi.fn(async () => {
+              throw new Error("Unexpected resume");
+            }),
+            stop: vi.fn(async () => undefined),
+          }),
+        }),
+      );
+      try {
+        await service.start();
+        await service.createManagedAgent(
+          configuration("listener", { resolvedTools: ["ableton_listening"] }),
+        );
+        const args = {
+          action: "play-session-and-listen",
+          target: {
+            view: "session",
+            track: {
+              kind: "regular",
+              index: 0,
+              expectedReference: trackAReference,
+              expectedName: "Track",
+            },
+            sceneIndex: 0,
+            expectedClipReference: trackBReference,
+            expectedClipName: "Clip",
+          },
+        };
+        const toolCallId = "changed-set-capture";
+        session.emit(toolStart(toolCallId, "ableton_listening", args));
+        const denial = await configs[1]?.onPermissionRequest?.(
+          {
+            kind: "custom-tool",
+            toolName: "ableton_listening",
+            toolDescription: "Listen",
+            toolCallId,
+            args,
+          },
+          { sessionId: session.sessionId },
+        );
+        expect(denial).toMatchObject({
+          kind: "reject",
+          feedback: `${message} ${recovery}`,
+        });
+        session.emit({
+          type: "tool.execution_complete",
+          id: "changed-set-complete",
+          parentId: null,
+          timestamp: "2026-11-18T18:37:40.885Z",
+          data: {
+            toolCallId,
+            success: false,
+            error: {
+              code: "denied",
+              message:
+                "Permission denied and could not request permission from user",
+            },
+          },
+        });
+        expect(received).toContainEqual(
+          expect.objectContaining({
+            type: "operation.failed",
+            operationId: toolCallId,
+            code,
+            message,
+            failureSource: "application_policy",
+            retryable: false,
+            recovery,
+          }),
+        );
+        expect(resolve).toHaveBeenCalledOnce();
+        expect(approve).not.toHaveBeenCalled();
+        expect(execute).not.toHaveBeenCalled();
+      } finally {
+        await service.stop();
+      }
     },
   );
 

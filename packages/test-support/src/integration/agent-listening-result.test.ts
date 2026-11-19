@@ -19,7 +19,7 @@ import {
 } from "@ableton-agent/protocol";
 import { melSmokeFixture } from "./mel-smoke-test-support.js";
 
-function automaticAnalysisFixture() {
+function pinnedAnalysisFixture() {
   const f = melSmokeFixture();
   const geometry = f.observation.geometry;
   const range = { startBeat: 0, endBeat: 4 };
@@ -107,20 +107,109 @@ function automaticAnalysisFixture() {
       nextCursor: null,
     },
   });
-  f.records.splice(2, 2);
-  const start = f.records.find(
-    (record) => record.kind === "tool_result" && record.toolCallId === "start",
-  );
-  if (start?.kind !== "tool_result") throw new Error("fixture");
-  start.result = { result: { content: { ...f.start, analyses: [analysis] } } };
+  const [call, result] = f.records.slice(2, 4);
+  if (call?.kind !== "tool_call" || result?.kind !== "tool_result")
+    throw new Error("fixture");
+  call.arguments = { action: "read", target: f.start.summaries[0]!.readTarget };
+  result.result = {
+    result: {
+      content: { action: "read", analyses: [analysis], nextCursor: null },
+    },
+  };
   return { ...f, analysis };
 }
 
 describe("agent listening result acceptance", () => {
+  it.each(["native", "sum-and-mean"] as const)(
+    "accepts a measured %s summary for basic listening without a detail read",
+    (aggregation) => {
+      const f = agentListeningFixture();
+      const stepBeats = aggregation === "native" ? 0.25 : 0.5;
+      const binCount = 4 / stepBeats;
+      f.records.splice(2, 2);
+      f.start.summaries[0]!.grid = {
+        startBeat: 0,
+        firstBinBeats: stepBeats,
+        stepBeats,
+        binCount,
+        aggregation,
+        attacks: [],
+        attackCoverage: [],
+        rmsAmplitude: Array<number>(binCount).fill(0.25),
+        centroidHz: Array<null>(binCount).fill(null),
+      };
+      expect(() => verifyAgentListeningResult(f.input, "a")).not.toThrow();
+    },
+  );
+
+  it("accepts a measured peak with no aligned summary grid", () => {
+    const f = agentListeningFixture();
+    f.records.splice(2, 2);
+    f.start.summaries[0]!.peakAmplitude = 0.25;
+    expect(() => verifyAgentListeningResult(f.input, "a")).not.toThrow();
+  });
+
+  it("does not substitute a measured grid for required mel detail", () => {
+    const f = melSmokeFixture();
+    f.records.splice(2, 2);
+    f.start.summaries[0]!.grid = {
+      startBeat: 0,
+      firstBinBeats: 4,
+      stepBeats: 4,
+      binCount: 1,
+      aggregation: "sum-and-mean",
+      attacks: [],
+      attackCoverage: [[0, 1]],
+      rmsAmplitude: [0.25],
+      centroidHz: [400],
+    };
+    expect(() => verifyAgentListeningResult(f.input, "a")).toThrow(
+      "missing agent context consumption",
+    );
+  });
+
+  it.each([
+    "request",
+    "summary",
+    "unread-continuation",
+    "initial-analyses",
+  ] as const)("rejects %s when verifying mel detail", (fault) => {
+    const f = pinnedAnalysisFixture();
+    const [start, read] = f.records.slice(1, 3);
+    if (start?.kind !== "tool_result" || read?.kind !== "tool_call")
+      throw new Error("fixture");
+    if (fault === "request") Reflect.deleteProperty(read.arguments, "target");
+    if (fault === "summary")
+      f.start.summaries[0]!.readTarget.sessionId = "foreign";
+    if (fault === "unread-continuation") {
+      const result = f.records[3];
+      if (result?.kind !== "tool_result") throw new Error("fixture");
+      Object.assign(f.analysis.detail, {
+        totalItems: 2,
+        truncated: true,
+        nextCursor: "unread",
+      });
+      result.result = {
+        result: {
+          content: {
+            action: "read",
+            analyses: [f.analysis],
+            nextCursor: "unread",
+          },
+        },
+      };
+    }
+    if (fault === "initial-analyses")
+      start.result = {
+        result: { content: { ...f.start, analyses: [f.analysis] } },
+      };
+    expect(() => verifyAgentListeningResult(f.input, "a")).toThrow();
+  });
+
   it.each([false, true])(
-    "verifies automatic listen analysis without a second storage read (resolved listener=%s)",
+    "verifies mel values through a pinned detail read (resolved listener=%s)",
     (resolved) => {
-      const f = automaticAnalysisFixture();
+      const f = pinnedAnalysisFixture();
       const call = f.records[0];
       if (call?.kind !== "tool_call") throw new Error("fixture");
       if (resolved) delete call.arguments.listenerIds;
@@ -138,8 +227,8 @@ describe("agent listening result acceptance", () => {
     "value",
     "missing-bands",
     "metadata-only",
-  ])("rejects %s in delivered automatic analysis", (fault) => {
-    const f = automaticAnalysisFixture();
+  ])("rejects %s in delivered pinned analysis", (fault) => {
+    const f = pinnedAnalysisFixture();
     const row = f.analysis.timeline[0]!;
     if (fault === "context") f.analysis.readTarget.contextId = "foreign";
     if (fault === "owner") f.analysis.readTarget.sessionId = "foreign";

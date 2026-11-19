@@ -31,7 +31,7 @@ describe("agent safety evaluations", () => {
   });
 
   it("loads separate canonical base and plan reminder prompts", () => {
-    expect(BASE_SYSTEM_MESSAGE_VERSION).toBe(7);
+    expect(BASE_SYSTEM_MESSAGE_VERSION).toBe(8);
     expect(BASE_SYSTEM_MESSAGE).toContain("<ableton-workflow>");
     expect(BASE_SYSTEM_MESSAGE).not.toContain("Active plan-mode reminder");
     expect(PLAN_REMINDER_VERSION).toBe(2);
@@ -52,6 +52,21 @@ describe("agent safety evaluations", () => {
       "Make the change",
     );
     expect(composeAgentTurnPrompt("Inspect", undefined)).toBe("Inspect");
+  });
+
+  it("explains musical patterns in ASCII without inventing finer listening detail", () => {
+    expect(BASE_SYSTEM_MESSAGE).toContain(
+      "Use ASCII art to explain musical patterns",
+    );
+    expect(BASE_SYSTEM_MESSAGE).toContain(
+      "preserve sixteenth-note resolution in 4/4 when available",
+    );
+    expect(BASE_SYSTEM_MESSAGE).toContain(
+      "Do not infer finer detail from a coarser summary",
+    );
+    expect(BASE_SYSTEM_MESSAGE).toContain(
+      "When attack centroid is ambiguous, inspect the stored mel-band evidence",
+    );
   });
 
   it("normalizes prompt trailing newlines and rejects missing or empty prompt files", async () => {

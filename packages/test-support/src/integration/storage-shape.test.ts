@@ -28,7 +28,10 @@ import type {
   TelemetryEventPage,
 } from "@ableton-agent/observability";
 import { OBSERVABILITY_CONTRACT_VERSION } from "@ableton-agent/observability";
-import { agentListeningFixture } from "./agent-listening-test-support.js";
+import {
+  agentListeningFixture,
+  listeningSummaryFixture,
+} from "./agent-listening-test-support.js";
 import { MAX_AGENT_LISTENING_EVIDENCE_BYTES } from "./agent-listening-result.js";
 import { arrangementTestEvidence } from "./arrangement-test-support.js";
 import { melSmokeFixture } from "./mel-smoke-test-support.js";
@@ -387,36 +390,24 @@ function fixture(
             stage: "completed",
             contextIds: [`context-${side}`],
           },
-          ...(modern
-            ? {
-                analyses: analyses.map((pages) =>
-                  modern === "feature-shapes"
-                    ? {
-                        ...pages[0]!,
-                        timeline: projectListeningTimeline(
-                          analysisGroups[side]!,
-                          0,
-                          pages[0]!.readTarget,
-                        ).slice(0, 1),
-                        detail: {
-                          offset: 0,
-                          returnedItems: 1,
-                          totalItems: 100,
-                          truncated: true,
-                          nextCursor: `unread-numeric-${side}`,
-                        },
-                      }
-                    : pages[0]!,
-                ),
-              }
-            : {}),
+          summaries: [
+            listeningSummaryFixture(
+              {
+                kind: "capture",
+                sessionId: turn.appSessionId,
+                liveSetId: "set",
+                contextId: `context-${side}`,
+                coordinate: side === 0 ? "clip-local-beats" : "transport-beats",
+                range: { startBeat: 0, endBeat: measures * 4 },
+              },
+              "2026-11-15T00:00:00.000Z",
+            ),
+          ],
         },
       );
     if (modern)
       for (const pages of analyses)
         for (const [index, page] of pages.entries()) {
-          if (side !== undefined && index === 0 && modern !== "feature-shapes")
-            continue;
           pair(
             "ableton_context",
             {
@@ -603,13 +594,11 @@ describe("message-driven storage shape acceptance", () => {
     );
   });
   it.each([1, 20])(
-    "requires complete explicit shape reads for %i measures, not unrelated numeric pages",
+    "requires complete explicit shape reads for %i measures without implicit numeric detail",
     (measures) => {
       const f = fixture(measures, "feature-shapes");
       expect(() => verifyStorageShape(f.input, measures)).not.toThrow();
-      expect(() => readCompleteAnalyses([f.session], true)).toThrow(
-        "analysis continuation was not consumed",
-      );
+      expect(readCompleteAnalyses([f.session], true)).toEqual([]);
       const shapes = readCompleteAnalyses([f.session], true, "feature-shapes");
       expect(shapes).toHaveLength(1);
       expect(deliveredAnalysisRowGroups(shapes[0]!)).toHaveLength(measures);

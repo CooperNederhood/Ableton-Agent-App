@@ -40,7 +40,7 @@ import {
   MAX_FEATURE_PAGE_CELLS,
   analysisOperationParamsSchema,
   analysisOperationResultSchema,
-  analysisPageSchema,
+  listeningSummarySchema,
   captureAnalysisFailureSchema,
   LISTENING_FEATURE_CATALOG,
   metricStreamOverviewSchema,
@@ -273,7 +273,7 @@ export const listeningOperationResultSchema = z.discriminatedUnion("action", [
       .object({
         action: z.literal(action),
         job: listeningJobSchema,
-        analyses: z.array(analysisPageSchema).max(8).optional(),
+        summaries: z.array(listeningSummarySchema).max(8).optional(),
         analysisFailures: z
           .array(captureAnalysisFailureSchema)
           .max(8)
@@ -316,6 +316,12 @@ export const contextOperationParamsSchema = z.discriminatedUnion("action", [
   z.strictObject({
     action: z.literal("read-captures"),
     contextIds: z.array(id).min(1).max(8),
+    summaryBudgetBytes: z
+      .number()
+      .int()
+      .positive()
+      .max(MAX_METRIC_CONTEXT_RESPONSE_BYTES)
+      .optional(),
   }),
   z
     .strictObject({
@@ -666,7 +672,7 @@ export const contextOperationResultSchema = z.discriminatedUnion("action", [
   ...analysisOperationResultSchema.options,
   z.strictObject({
     action: z.literal("read-captures"),
-    analyses: z.array(analysisPageSchema).max(8),
+    summaries: z.array(listeningSummarySchema).max(8),
     failures: z.array(captureAnalysisFailureSchema).max(8),
   }),
   z
@@ -858,7 +864,7 @@ export function createListeningTools(
 ): [Tool<ListeningOperationParams>, Tool<AgentContextOperationParams>] {
   return [
     defineTool("ableton_listening", {
-      description: `${LISTENING_AGENT_GUIDANCE} ${CAPTURE_READ_GUIDANCE}`,
+      description: `${LISTENING_AGENT_GUIDANCE} Initial results include a compact full-range grid, measured featureRelationships, and unverified candidateChecks, not a paginated timeline. To resolve evidence with ableton_context read, copy the summary readTarget and replace range and featureTypes with the pointer's values. Spectral resemblance does not establish sample identity. ${CAPTURE_READ_GUIDANCE}`,
       parameters: listeningOperationParamsSchema,
       handler: async (params, invocation) => {
         const result = listeningOperationResultSchema.parse(

@@ -17,11 +17,14 @@ import {
   isListeningFeatureValueValid,
 } from "@ableton-agent/protocol";
 import {
+  analysisOperationParamsSchema,
   analysisOperationResultSchema,
   analysisPageSchema,
+  listeningSummarySchema,
   metricStreamOverviewSchema,
   metricStreamRecordPageSchema,
   type AnalysisPage,
+  type ListeningSummary,
 } from "@ableton-agent/tools";
 import { streamProofContentSha256 } from "./arrangement-stream.js";
 import type {
@@ -49,6 +52,46 @@ function object(value: unknown): Record<string, unknown> {
   );
   return value as Record<string, unknown>;
 }
+export function requireListeningSummary(
+  result: Record<string, unknown>,
+  expected: Pick<
+    ListeningSummary["readTarget"],
+    "contextId" | "sessionId" | "coordinate"
+  > & {
+    liveSetId: string | undefined;
+    range?: ListeningSummary["readTarget"]["range"];
+  },
+): ListeningSummary {
+  const summaries = listeningSummarySchema.array().parse(result.summaries);
+  const summary = summaries[0];
+  requireEvidence(
+    !("analyses" in result) &&
+      summaries.length === 1 &&
+      summary?.status === "ready" &&
+      summary.reason === null &&
+      summary.readTarget.featureTypes === undefined &&
+      isDeepStrictEqual(summary.source.readTarget, summary.readTarget) &&
+      isDeepStrictEqual(
+        summary.source.requestedRange,
+        summary.readTarget.range,
+      ) &&
+      isDeepStrictEqual(
+        summary.source.observedRange,
+        summary.readTarget.range,
+      ) &&
+      summary.source.coordinate === summary.readTarget.coordinate &&
+      summary.readTarget.contextId === expected.contextId &&
+      summary.readTarget.sessionId === expected.sessionId &&
+      summary.readTarget.coordinate === expected.coordinate &&
+      (expected.liveSetId === undefined ||
+        summary.readTarget.liveSetId === expected.liveSetId) &&
+      (expected.range === undefined ||
+        isDeepStrictEqual(summary.readTarget.range, expected.range)),
+    "missing or foreign initial listening summary",
+  );
+  return summary;
+}
+
 function complete(value: unknown, typedPagination = false): void {
   if (typeof value === "string")
     requireEvidence(
@@ -62,6 +105,17 @@ function complete(value: unknown, typedPagination = false): void {
     value.forEach((item) => complete(item, typedPagination));
   else if (value && typeof value === "object") {
     const record = object(value);
+    if (
+      (record.action === "play-session-and-listen" ||
+        record.action === "play-arrangement-and-listen") &&
+      ("job" in record || "summaries" in record || "analyses" in record)
+    )
+      requireEvidence(
+        !("analyses" in record) &&
+          (!("summaries" in record) ||
+            listeningSummarySchema.array().safeParse(record.summaries).success),
+        "invalid initial listening result",
+      );
     if (!typedPagination) {
       if (
         (record.action === "read" && "analyses" in record) ||
@@ -557,23 +611,77 @@ export function verifyAgentListeningResult(
       JSON.stringify(job.contextIds) === JSON.stringify([context.contextId]),
     "original start did not deliver the completed matching pass/context",
   );
+  const summary = requireListeningSummary(start.data, {
+    contextId: context.contextId,
+    sessionId: turn.appSessionId,
+    coordinate: "clip-local-beats",
+    liveSetId: start.call.liveSetId,
+  });
+  const geometry = summary.source.geometry;
+  requireEvidence(
+    summary.readTarget.range.startBeat === 0 &&
+      geometry?.sampleRate === capture.sampleRate &&
+      geometry.captureStartSample === capture.startSample &&
+      Math.abs(
+        (summary.readTarget.range.endBeat * 60) / geometry.tempoBpm -
+          (capture.endSample - capture.startSample) / capture.sampleRate,
+      ) <
+        1 / capture.sampleRate,
+    "listening summary geometry differs from capture",
+  );
   const analyses: AnalysisPage[] = [];
-  for (const pair of pairs) {
-    if (!Array.isArray(pair.data.analyses)) continue;
+  let nextCursor: string | null = null;
+  let offset = 0;
+  const cursors = new Set<string>();
+  for (const pair of pairs.filter(
+    ({ call }) =>
+      call.toolName === "ableton_context" && call.arguments.action === "read",
+  )) {
+    const request = analysisOperationParamsSchema.parse(pair.call.arguments);
+    const result = analysisOperationResultSchema.parse(pair.data);
     requireEvidence(
-      pair === start ||
-        (pair.call.toolName === "ableton_context" &&
-          pair.call.arguments.action === "read" &&
-          pair.data.action === "read" &&
-          Date.parse(pair.result.occurredAt) - pair.result.durationMs! >=
-            Date.parse(start.result.occurredAt)),
-      "analysis was not delivered by the listen or a subsequent typed read",
+      request.action === "read" &&
+        result.action === "read" &&
+        result.analyses.length === 1 &&
+        !result.originalMeasurements &&
+        request.includeHistorical !== true &&
+        request.detail === undefined &&
+        (request.cursor ?? null) === nextCursor &&
+        (request.target === undefined
+          ? nextCursor !== null
+          : isDeepStrictEqual(request.target, summary.readTarget)) &&
+        (analyses.length === 0 || nextCursor !== null) &&
+        Date.parse(pair.result.occurredAt) - pair.result.durationMs! >=
+          Date.parse(start.result.occurredAt),
+      "analysis was not delivered by a subsequent pinned read",
     );
-    analyses.push(
-      ...pair.data.analyses.map((page) => analysisPageSchema.parse(page)),
+    const page = result.analyses[0]!;
+    const end = offset + page.timeline.length;
+    requireEvidence(
+      isDeepStrictEqual(page.readTarget, summary.readTarget) &&
+        page.reason === null &&
+        page.detail.offset === offset &&
+        page.detail.returnedItems === page.timeline.length &&
+        page.detail.totalItems ===
+          (analyses[0]?.detail.totalItems ?? page.detail.totalItems) &&
+        end <= page.detail.totalItems &&
+        page.detail.truncated === end < page.detail.totalItems &&
+        page.detail.truncated === (result.nextCursor !== null) &&
+        page.detail.nextCursor === result.nextCursor &&
+        (result.nextCursor === null ||
+          (end > offset && !cursors.has(result.nextCursor))) &&
+        (analyses.length === 0
+          ? page.overviewIncluded
+          : !page.overviewIncluded && page.overview.length === 0),
+      "incomplete pinned analysis pagination",
     );
+    nextCursor = result.nextCursor;
+    if (nextCursor !== null) cursors.add(nextCursor);
+    offset = end;
+    analyses.push(page);
   }
   if (analyses.length > 0) {
+    requireEvidence(nextCursor === null, "unread pinned analysis continuation");
     verifyAnalysisValues(analyses, turn, context.contextId);
     return;
   }
@@ -584,6 +692,32 @@ export function verifyAgentListeningResult(
         String(call.arguments.action),
       ),
   );
+  if (!turn.melSmoke?.length && reads.length === 0) {
+    const grid = summary.grid;
+    if (grid)
+      requireEvidence(
+        grid.rmsAmplitude.length === grid.binCount &&
+          grid.centroidHz.length === grid.binCount &&
+          grid.attackCoverage.every(
+            ([start, end]) => start < end && end <= grid.binCount,
+          ) &&
+          grid.attacks.every(([bin]) =>
+            grid.attackCoverage.some(
+              ([start, end]) => start <= bin && bin < end,
+            ),
+          ),
+        "invalid listening summary grid coverage",
+      );
+    requireEvidence(
+      summary.peakAmplitude !== null ||
+        (grid &&
+          (grid.attackCoverage.length > 0 ||
+            grid.rmsAmplitude.some((value) => value !== null) ||
+            grid.centroidHz.some((value) => value !== null))),
+      "missing measured listening summary or context consumption",
+    );
+    return;
+  }
   requireEvidence(reads.length > 0, "missing agent context consumption");
   const melSmoke = turn.melSmoke?.[0];
   if (melSmoke && "chunks" in melSmoke)

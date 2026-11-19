@@ -991,16 +991,12 @@ describe("musical analysis host", () => {
     if (result.action !== "read-captures")
       throw new Error("Expected automatic capture analysis");
     expect(result.failures).toEqual([]);
-    expect(result.analyses).toHaveLength(1);
-    const analysis = result.analyses[0]!;
+    expect(result).not.toHaveProperty("analyses");
+    expect(result.summaries).toHaveLength(1);
+    const analysis = result.summaries[0]!;
     expect(analysis.source.freshness).toBe("unknown");
-    expect(
-      analysis.timeline.some((item) =>
-        item.features.some((feature) =>
-          feature.values?.some((value) => value !== null),
-        ),
-      ),
-    ).toBe(true);
+    expect(analysis.peakAmplitude).toEqual(expect.any(Number));
+    expect(analysis.grid).toBeNull();
     const read = await host.executeContextOperation(
       { action: "read", target: analysis.readTarget, includeHistorical: false },
       context,
@@ -1011,6 +1007,7 @@ describe("musical analysis host", () => {
         { source: { freshness: "unknown" }, readTarget: analysis.readTarget },
       ],
     });
+
     const source = record.descriptor.source;
     if (source.view !== "arrangement" || source.target.kind !== "master")
       throw new Error("Expected Arrangement master fixture");
@@ -1037,6 +1034,85 @@ describe("musical analysis host", () => {
     ).rejects.toMatchObject({ code: "analysis_not_found" });
   });
 
+  it("reports spaced attacks on the whole aligned grid and resolves the pinned evidence", async () => {
+    const { host, store, record } = await analysisFixture();
+    const observation = createSyntheticMetricListeningObservation();
+    const [range] = segmentListeningObservation(observation, {
+      version: 1,
+      coordinate: "transport-beats",
+      meter: { numerator: 4, denominator: 4 },
+      barOriginBeat: 0,
+      tempoBpm: observation.geometry.tempoBpm,
+      tempoEvidence: "message-rate-monitored-constant",
+      provenance: "capture-snapshot/v1",
+    });
+    vi.mocked(store.listFeatures).mockResolvedValue({
+      items: [
+        {
+          ...record,
+          id: "attacks",
+          feature: {
+            ...extractListeningFeature(
+              "attack-activity-grid/v1",
+              observation,
+              range!,
+            ),
+            values: [1, 1, 1, 1],
+          },
+        },
+      ],
+    });
+    const result = await host.executeContextOperation(
+      { action: "read-captures", contextIds: ["entry"] },
+      context,
+    );
+    if (result.action !== "read-captures") throw new Error("Expected summary");
+    const summary = result.summaries[0]!;
+    const compact = await host.executeContextOperation(
+      {
+        action: "read-captures",
+        contextIds: ["entry"],
+        summaryBudgetBytes: Buffer.byteLength(JSON.stringify(summary)) - 10,
+      },
+      context,
+    );
+    if (compact.action !== "read-captures") throw new Error("Expected summary");
+    const coarse = compact.summaries[0]!;
+    expect(coarse.grid?.stepBeats).toBeGreaterThan(0.25);
+    expect(coarse.readTarget.range).toEqual(summary.readTarget.range);
+    expect(coarse.featureRelationships).toEqual(summary.featureRelationships);
+    expect(summary.grid?.attacks).toEqual([
+      [0, 1],
+      [1, 1],
+      [2, 1],
+      [3, 1],
+    ]);
+    expect(summary.grid?.attackCoverage).toEqual([[0, 4]]);
+    const finding = summary.featureRelationships.find(
+      ({ kind }) => kind === "repeated-attack-spacing",
+    );
+    if (finding?.kind !== "repeated-attack-spacing")
+      throw new Error("Expected spaced attacks");
+    expect(finding.spacingBeats).toBe(0.25);
+    const pointer = finding!.evidence[0]!;
+    const read = await host.executeContextOperation(
+      {
+        action: "read",
+        target: {
+          ...summary.readTarget,
+          range: pointer.range,
+          featureTypes: pointer.featureTypes,
+        },
+        includeHistorical: false,
+      },
+      context,
+    );
+    expect(read).toMatchObject({
+      action: "read",
+      analyses: [{ overviewExtent: pointer.range }],
+    });
+  });
+
   it.each(["stale", "unresolved", "historical"] as const)(
     "does not let unknown capture freshness hide %s feature evidence",
     async (status) => {
@@ -1061,7 +1137,7 @@ describe("musical analysis host", () => {
       );
       expect(result).toMatchObject({
         action: "read-captures",
-        analyses: [],
+        summaries: [],
         failures: [
           { contextId: record.metadata.id, code: "analysis_not_fresh" },
         ],
@@ -1962,7 +2038,7 @@ describe("musical analysis host", () => {
       const result = await response;
       if (result.action !== "read-captures")
         throw new Error("Expected automatic capture analysis");
-      expect(result.analyses.map((page) => page.readTarget.contextId)).toEqual(
+      expect(result.summaries.map((page) => page.readTarget.contextId)).toEqual(
         fault === "none" ? ids : ids.filter((id) => id !== ids[1]),
       );
       expect(result).toMatchObject({
@@ -2021,39 +2097,36 @@ describe("musical analysis host", () => {
       expect(enqueue.mock.calls.at(-1)?.[0]).toMatchObject({
         name: "listening.analysis.read-captures.completed",
       });
+      const summaryEvents = enqueue.mock.calls
+        .map(([event]) => event)
+        .filter((event) =>
+          event.name.startsWith("listening.analysis.summary."),
+        );
+      expect(
+        summaryEvents.slice(0, 4).map(({ name }) => name.split(".").at(-1)),
+      ).toEqual(["queued", "started", "progress", "completed"]);
+      expect(summaryEvents[3]).toMatchObject({
+        correlationId: trace.correlationId,
+        causationId: trace.causationId,
+        trace: { traceId: trace.traceId },
+        attributes: { contextId: ids[0], summaryBytes: expect.any(Number) },
+      });
       expect(Buffer.byteLength(JSON.stringify(result))).toBeLessThan(
         MAX_METRIC_CONTEXT_RESPONSE_BYTES - 8192,
       );
-      for (const page of result.analyses) {
+      for (const page of result.summaries) {
         expect(page.status).toBe("ready");
-        expect(
-          page.timeline.some((row) =>
-            row.features.some((feature) => feature.values !== null),
-          ),
-        ).toBe(true);
-        if (ids.length === 8) expect(page.detail.truncated).toBe(true);
-        if (!page.detail.truncated) {
-          expect(page.detail.nextCursor).toBeNull();
-          continue;
-        }
-        expect(page.detail.nextCursor).not.toBeNull();
-        const continuation = await host.executeContextOperation(
+        expect(page).not.toHaveProperty("timeline");
+        const detail = await host.executeContextOperation(
           {
             action: "read",
             target: page.readTarget,
             includeHistorical: false,
-            cursor: page.detail.nextCursor!,
           },
           context,
         );
-        if (continuation.action !== "read")
-          throw new Error("Expected source continuation");
-        expect(continuation.analyses[0]!.detail.offset).toBe(
-          page.detail.returnedItems,
-        );
-        expect(continuation.analyses[0]!.detail.returnedItems).toBeGreaterThan(
-          0,
-        );
+        if (detail.action !== "read") throw new Error("Expected source detail");
+        expect(detail.analyses[0]!.detail.returnedItems).toBeGreaterThan(0);
       }
     },
   );

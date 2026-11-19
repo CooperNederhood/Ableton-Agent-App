@@ -66,6 +66,7 @@ def simulated_palette_color(color_index):
 class SimulatorState(object):
     def __init__(self):
         self.saved_live_set = False
+        self.session_launch_timeout_fixture = False
         self.tempo = 120.0
         self.is_playing = False
         self.loop_enabled = False
@@ -2615,6 +2616,8 @@ def handle(request, token, state):
         error = validate_session_pass_action(params, SESSION_PASS_COMMANDS[command])
         if error:
             return failure(request, "invalid_params", error)
+        if command == "listening.launch_session_pass" and state.session_launch_timeout_fixture:
+            return failure(request, "conflict", "Fixture: Session launch onset was not confirmed")
         return failure(
             request, "unsupported_capability",
             "Simulator does not provide pass-owned public Session source monitors",
@@ -2666,7 +2669,7 @@ def handle(request, token, state):
                     "listening.inspect_session_source": True,
                     "listening.inspect_arrangement_source": True,
                     "listening.prepare_session_pass": False,
-                    "listening.launch_session_pass": False,
+                    "listening.launch_session_pass": state.session_launch_timeout_fixture,
                     "listening.inspect_session_pass": False,
                     "listening.release_session_pass": False,
                     "listening.position_playback": True,
@@ -5476,6 +5479,7 @@ def serve(
     emit_save_event=False,
     listening_fixture=False,
     saved_live_set=False,
+    session_launch_timeout_fixture=False,
 ):
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -5487,6 +5491,7 @@ def serve(
     )
     state = SimulatorState()
     state.saved_live_set = saved_live_set
+    state.session_launch_timeout_fixture = session_launch_timeout_fixture
     if listening_fixture:
         listener = state.simulated_leaf_device("Audio Listener")
         listener["className"] = "MxDeviceAudioEffect"
@@ -5572,6 +5577,7 @@ def main():
     parser.add_argument("--emit-save-event", action="store_true")
     parser.add_argument("--listening-fixture", action="store_true")
     parser.add_argument("--saved-live-set", action="store_true")
+    parser.add_argument("--session-launch-timeout-fixture", action="store_true")
     args = parser.parse_args()
     if args.connections < 1:
         parser.error("--connections must be at least 1")
@@ -5587,6 +5593,7 @@ def main():
         args.emit_save_event,
         args.listening_fixture,
         args.saved_live_set,
+        args.session_launch_timeout_fixture,
     )
 
 

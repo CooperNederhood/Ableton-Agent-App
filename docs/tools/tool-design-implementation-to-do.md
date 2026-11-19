@@ -28,8 +28,8 @@ Companion specification: [Tool Design](tool-design.md)
 - [x] Add provider-wire regression coverage for full and restricted device
       action discovery on Chat Completions and Responses (#134).
 - [x] Assert stable device inspection headings without Live. Guide pinned
-      listening reads and avoid redundant playback mutations without changing
-      tool validation or approval rules.
+      listening reads through the final cursor and preserve playback after
+      leave-running captures without changing approval rules.
 - [x] Standardize runtime validation and structured failure results.
   - [x] Preserve bounded code, message, retryability, and sanitized details
     across the Copilot SDK custom-tool boundary without throwing away the

@@ -298,10 +298,11 @@ locally. A loopback provider test covers this contract; it does not establish
 schema parity with managed Copilot routing.
 
 When a user asks to consume pinned listening analysis, read the returned
-`readTarget` unchanged and follow all continuations before selecting a feature
-for the answer. Narrow the read only for an explicitly requested subset or
-an evidence pointer. Listening owns capture positioning and launch; generic
-guidance must not induce redundant transport or clip-launch calls.
+`readTarget` unchanged and follow all continuations before answering, even if
+an earlier page already contains the requested feature. Narrow the read only
+for an explicitly requested subset or an evidence pointer. Listening owns
+capture positioning and launch; a completed leave-running capture should not
+be followed by a stop just to analyze or report its results.
 
 For every Session clip action, `index`, `expectedReference`, and `expectedName`
 identify the containing track, not the clip. In particular, `expectedName` is

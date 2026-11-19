@@ -860,7 +860,10 @@ const CAPTURE_READ_GUIDANCE =
   'Exact capture targets read recorded evidence even when freshness is unknown; this does not prove the live source unchanged. Ordinary source lookups require positive freshness. Stale, unresolved or historical evidence requires explicit includeHistorical. For structure/count checks, read detail="feature-shapes": complete per-segment feature types, dimensions, stored value/cell counts and availability without numeric arrays. These are whole stored segment shapes, not recomputed cropped shapes or numerical-value evidence. Read continuations need only {action:"read",cursor:nextCursor}; the signed cursor retains target, detail and historical scope. Any resupplied fields must match; no discovery or Bash is needed. For complete values or shape reports, consume every continuation until nextCursor is null, for each capture and again after restart. Overview counts and sampled measures do not replace unread values or feature shapes. If you cannot finish, explicitly report incomplete coverage; never claim all pages were consumed.';
 
 const PINNED_CAPTURE_GUIDANCE =
-  'When asked to consume pinned analysis, first use ableton_context action "read" with the returned summary readTarget as target, unchanged; do not add featureTypes or alter its range merely because the answer concerns one feature. Follow nextCursor to completion and select the requested values from the results. Only narrow the target for an explicitly requested subset read or a specific evidence pointer.';
+  'For musical analysis after a capture, first use ableton_context action "read" with the returned summary readTarget as target, unchanged; do not add featureTypes or alter its range merely because the answer concerns one feature. Before answering from a pinned capture, complete the read until nextCursor is null, even if the requested feature is already on an earlier page. Only narrow the target for an explicitly requested subset read or a specific evidence pointer.';
+
+const LEAVE_RUNNING_GUIDANCE =
+  "This capture is complete and intentionally leaves playback running. Do not stop or reposition playback to finish analyzing, comparing, or reporting the capture. Stop only if the user requested it or another requested operation requires stopped transport.";
 
 const CAPTURE_INVOCATION_GUIDANCE =
   "Use one listening call per source: it positions the Arrangement at startBeat or launches the Session clip itself. Do not separately seek for a specified Arrangement range, launch a Session clip, or stop playback after the final capture just to report results. Supply exact source identities only in the fields needed by that action. For Arrangement, if you have the exact existing listenerIds, use those with startBeat and endBeat; do not also send sources. Omit optional listenerDeviceReference and maximumDurationMs unless needed to disambiguate a source or enforce a requested deadline.";
@@ -879,24 +882,28 @@ export function createListeningTools(
         if (result.action !== params.action)
           throw new Error("Listening result action mismatch");
         if (
-          result.action === "play-session-and-listen" &&
+          (result.action === "play-session-and-listen" ||
+            result.action === "play-arrangement-and-listen") &&
           result.job.stage === "completed" &&
           result.job.cleanupPolicy === "leave-running"
         )
           return {
             nextCaptureGuidance:
-              PINNED_CAPTURE_GUIDANCE +
-              " " +
-              SESSION_SEQUENCE_GUIDANCE +
-              " " +
-              PLANNED_ARRANGEMENT_HANDOFF_GUIDANCE,
+              result.action === "play-session-and-listen"
+                ? [
+                    LEAVE_RUNNING_GUIDANCE,
+                    PINNED_CAPTURE_GUIDANCE,
+                    SESSION_SEQUENCE_GUIDANCE,
+                    PLANNED_ARRANGEMENT_HANDOFF_GUIDANCE,
+                  ].join(" ")
+                : LEAVE_RUNNING_GUIDANCE,
             ...result,
           };
         return result;
       },
     }),
     defineTool("ableton_context", {
-      description: `Read stored musical analysis by inspected source and optional beat range, or copy a returned readTarget unchanged for one-call drill-down. Ordinary source reads choose the newest positively fresh covering capture; never recapture. Default read pages prioritize actual musical values and coverage without repeated storage identities, definitions or full support arrays. For optional canonical metadata and complete native support, request detail="evidence" with the same target; original-measurements instead reads original analyzer frames. Select range/featureTypes on the target to narrow either detail stream. Compare returns separate canonical feature distances across the complete requested extent, not identity probabilities. Search defaults to mel-grid/v1 spectral content, topK=10 (maximum 20), excludes its query capture unless withinCapture=true, and scans the complete bounded scope before ranking. Results contain actual canonical values, temporal coverage and pinned continuations within 64 KiB. Compare/search continuations reuse the original arguments with nextCursor; no discovery or Bash is needed. Null/unavailable is not zero. Prune requires approval and only deletes explicitly named App-session evidence. ${CAPTURE_READ_GUIDANCE} ${LISTENING_FEATURE_CATALOG}`,
+      description: `Read stored musical analysis by inspected source and optional beat range, or copy a returned readTarget unchanged for a pinned read. A pinned read with a non-null nextCursor is incomplete, even if the requested feature is already on an earlier page. Read continuations before answering. Ordinary source reads choose the newest positively fresh covering capture; never recapture. Default read pages prioritize actual musical values and coverage without repeated storage identities, definitions or full support arrays. For optional canonical metadata and complete native support, request detail="evidence" with the same target; original-measurements instead reads original analyzer frames. Select range/featureTypes on the target to narrow either detail stream. Compare returns separate canonical feature distances across the complete requested extent, not identity probabilities. Search defaults to mel-grid/v1 spectral content, topK=10 (maximum 20), excludes its query capture unless withinCapture=true, and scans the complete bounded scope before ranking. Results contain actual canonical values, temporal coverage and pinned continuations within 64 KiB. Compare/search continuations reuse the original arguments with nextCursor; no discovery or Bash is needed. Null/unavailable is not zero. Prune requires approval and only deletes explicitly named App-session evidence. ${CAPTURE_READ_GUIDANCE} ${LISTENING_FEATURE_CATALOG}`,
       parameters: agentContextOperationParamsSchema,
       handler: async (params, invocation) =>
         executeContextDiagnosticOperation(

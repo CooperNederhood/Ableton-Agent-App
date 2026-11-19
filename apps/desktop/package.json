@@ -41,8 +41,8 @@
     "zod": "^4.0.17"
   },
   "optionalDependencies": {
-    "@github/copilot-sdk-darwin-arm64": "1.0.34",
-    "@github/copilot-sdk-darwin-x64": "1.0.34",
+    "@github/copilot-sdk-darwin-arm64": "1.0.28",
+    "@github/copilot-sdk-darwin-x64": "1.0.28",
     "@koromix/koffi-darwin-arm64": "3.3.0",
     "@koromix/koffi-darwin-x64": "3.3.0"
   },

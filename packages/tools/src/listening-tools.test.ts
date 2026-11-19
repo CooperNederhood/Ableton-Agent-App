@@ -132,6 +132,10 @@ describe("optional listening tool contracts", () => {
         expect(Object.keys(result)[0]).toBe("nextCaptureGuidance");
         expect(result).toHaveProperty(
           "nextCaptureGuidance",
+          expect.stringContaining("readTarget as target, unchanged"),
+        );
+        expect(result).toHaveProperty(
+          "nextCaptureGuidance",
           expect.stringContaining("Before the next Session listen"),
         );
         expect(result).toHaveProperty(

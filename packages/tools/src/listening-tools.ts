@@ -859,12 +859,18 @@ export interface ListeningToolServices {
 const CAPTURE_READ_GUIDANCE =
   'Exact capture targets read recorded evidence even when freshness is unknown; this does not prove the live source unchanged. Ordinary source lookups require positive freshness. Stale, unresolved or historical evidence requires explicit includeHistorical. For structure/count checks, read detail="feature-shapes": complete per-segment feature types, dimensions, stored value/cell counts and availability without numeric arrays. These are whole stored segment shapes, not recomputed cropped shapes or numerical-value evidence. Read continuations need only {action:"read",cursor:nextCursor}; the signed cursor retains target, detail and historical scope. Any resupplied fields must match; no discovery or Bash is needed. For complete values or shape reports, consume every continuation until nextCursor is null, for each capture and again after restart. Overview counts and sampled measures do not replace unread values or feature shapes. If you cannot finish, explicitly report incomplete coverage; never claim all pages were consumed.';
 
+const PINNED_CAPTURE_GUIDANCE =
+  'When asked to consume pinned analysis, first use ableton_context action "read" with the returned summary readTarget as target, unchanged; do not add featureTypes or alter its range merely because the answer concerns one feature. Follow nextCursor to completion and select the requested values from the results. Only narrow the target for an explicitly requested subset read or a specific evidence pointer.';
+
+const CAPTURE_INVOCATION_GUIDANCE =
+  "Use one listening call per source: it positions the Arrangement at startBeat or launches the Session clip itself. Do not separately seek for a specified Arrangement range, launch a Session clip, or stop playback after the final capture just to report results. Supply exact source identities only in the fields needed by that action. For Arrangement, if you have the exact existing listenerIds, use those with startBeat and endBeat; do not also send sources. Omit optional listenerDeviceReference and maximumDurationMs unless needed to disambiguate a source or enforce a requested deadline.";
+
 export function createListeningTools(
   services: ListeningToolServices,
 ): [Tool<ListeningOperationParams>, Tool<AgentContextOperationParams>] {
   return [
     defineTool("ableton_listening", {
-      description: `${LISTENING_AGENT_GUIDANCE} Initial results include a compact full-range grid, measured featureRelationships, and unverified candidateChecks, not a paginated timeline. To resolve evidence with ableton_context read, copy the summary readTarget and replace range and featureTypes with the pointer's values. Spectral resemblance does not establish sample identity. ${CAPTURE_READ_GUIDANCE}`,
+      description: `${CAPTURE_INVOCATION_GUIDANCE} ${LISTENING_AGENT_GUIDANCE} Initial results include a compact full-range grid, measured featureRelationships, and unverified candidateChecks, not a paginated timeline. ${PINNED_CAPTURE_GUIDANCE} For a specific evidence pointer only, use its range and featureTypes with the summary readTarget. Spectral resemblance does not establish sample identity. ${CAPTURE_READ_GUIDANCE}`,
       parameters: listeningOperationParamsSchema,
       handler: async (params, invocation) => {
         const result = listeningOperationResultSchema.parse(
@@ -879,6 +885,8 @@ export function createListeningTools(
         )
           return {
             nextCaptureGuidance:
+              PINNED_CAPTURE_GUIDANCE +
+              " " +
               SESSION_SEQUENCE_GUIDANCE +
               " " +
               PLANNED_ARRANGEMENT_HANDOFF_GUIDANCE,

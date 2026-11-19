@@ -1128,6 +1128,19 @@ function services() {
 }
 
 describe("Ableton tools", () => {
+  it("uses stable headings for device inspection actions", () => {
+    for (const [action, title] of [
+      ["inspect", "Inspect track devices"],
+      ["inspect-parameters", "Inspect device parameters"],
+      ["inspect-chain-mixer", "Inspect rack chain mixer"],
+      ["inspect-drum-rack-pads", "Inspect Drum Rack pads"],
+    ]) {
+      expect(
+        resolveAbletonToolMetadata("ableton_devices", { action })?.title,
+      ).toBe(title);
+    }
+  });
+
   it("returns only occupied Drum Rack pads by default", async () => {
     const ports = services();
     const pads = Array.from({ length: 128 }, (_, index) => ({

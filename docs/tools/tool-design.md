@@ -297,6 +297,12 @@ application still enforces the strict branch schema and the allowed actions
 locally. A loopback provider test covers this contract; it does not establish
 schema parity with managed Copilot routing.
 
+When a user asks to consume pinned listening analysis, read the returned
+`readTarget` unchanged and follow all continuations before selecting a feature
+for the answer. Narrow the read only for an explicitly requested subset or
+an evidence pointer. Listening owns capture positioning and launch; generic
+guidance must not induce redundant transport or clip-launch calls.
+
 For every Session clip action, `index`, `expectedReference`, and `expectedName`
 identify the containing track, not the clip. In particular, `expectedName` is
 the inspected track name even after a clip is renamed; `expectedClipReference`

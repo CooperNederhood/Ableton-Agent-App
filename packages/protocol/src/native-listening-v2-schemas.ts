@@ -27,6 +27,27 @@ const epoch = integer.min(1).max(1_000_000);
 const amplitude = z.number().finite().min(0).max(64);
 type ClockRow = z.infer<typeof nativeHostClockRowSchema>;
 
+const stoppedBeatBits = new DataView(new ArrayBuffer(8));
+
+/** Match independent Session position readings without rounding clock evidence. */
+export function matchesNativeSessionStoppedBeat(
+  observed: number,
+  expected: number | undefined,
+): boolean {
+  if (observed === expected) return true;
+  if (
+    expected === undefined ||
+    !Number.isFinite(expected) ||
+    !Number.isFinite(observed) ||
+    expected <= 0 ||
+    observed <= 0
+  )
+    return false;
+  stoppedBeatBits.setFloat64(0, Math.min(observed, expected));
+  stoppedBeatBits.setBigUint64(0, stoppedBeatBits.getBigUint64(0) + 1n);
+  return stoppedBeatBits.getFloat64(0) === Math.max(observed, expected);
+}
+
 function coherent(row: ClockRow): boolean {
   return (
     row[0] === row[7] &&

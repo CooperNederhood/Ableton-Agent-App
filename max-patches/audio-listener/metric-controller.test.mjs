@@ -3333,9 +3333,26 @@ test("Session capture completes with independently advancing host-clock snapshot
   );
 });
 
+test("Session capture accepts adjacent Live and listener stopped beats without rewriting them", async () => {
+  const expectedBeat = 4.1187555555555555;
+  const observedBeat = 4.118755555555556;
+  const h = await controllerHarness({
+    session: true,
+    sessionStartBeat: expectedBeat,
+    observedStoppedBeat: observedBeat,
+  });
+  h.launch();
+  await h.until(() => h.controller.snapshot().state === "completed");
+  assert.equal(h.controller.snapshot().cleanup, "completed");
+  const ready = h.replies.find(({ payload }) => payload.status === "ready");
+  assert.equal(ready?.payload.nativeReady.config.stoppedBeat, expectedBeat);
+  assert.equal(ready?.payload.nativeReady.before.frames[0][1], observedBeat);
+  assert.ok(h.results.some(({ payload }) => payload.status === "completed"));
+});
+
 test("Session clock mismatch retains expected and observed beats on the diagnostic wire", async () => {
-  const expectedBeat = 1.3653333333333335;
-  const observedBeat = 1.3653333333333333;
+  const expectedBeat = 4.1187555555555555;
+  const observedBeat = 4.118755555555557;
   const h = await controllerHarness({
     session: true,
     sessionStartBeat: expectedBeat,

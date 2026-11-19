@@ -4,6 +4,7 @@ export {
   assertNativeMetricObservationSource,
   assertNativeMetricReadyProof,
   assertNativeMetricSourceCoverage,
+  matchesNativeSessionStoppedBeat,
   createMetricListeningGeometry,
   createMetricObservationReportRows,
   MAX_AUDIO_OBSERVATION_BYTES,

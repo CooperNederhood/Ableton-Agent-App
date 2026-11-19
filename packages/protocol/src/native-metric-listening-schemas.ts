@@ -21,6 +21,7 @@ import { sessionNativeSourceSchema } from "./native-session-listening-schemas.js
 import {
   assertNativeCheckedTransportSourceCoverage,
   isCoherentNativeTransportClock,
+  matchesNativeSessionStoppedBeat,
   nativeCheckedTransportClockBindingSchema,
   nativeTransportTimingWitnessesSchema,
 } from "./native-listening-v2-schemas.js";
@@ -348,12 +349,10 @@ export function validateNativeMetricReadyEvidence(
   if (
     value.before.dsp[1] !== g.sampleRate ||
     value.before.dsp[2] !== g.vectorSize ||
-    value.before.frames.some(
-      (row) =>
-        row[1] !==
-        (value.config.mode === "session"
-          ? value.config.stoppedBeat
-          : g.startBeat),
+    value.before.frames.some((row) =>
+      value.config.mode === "session"
+        ? !matchesNativeSessionStoppedBeat(row[1], value.config.stoppedBeat)
+        : row[1] !== g.startBeat,
     ) ||
     (value.config.timingPolicy.mode === "strict" &&
       value.before.frames.some(
@@ -447,12 +446,10 @@ export function validateNativeMetricArmEvidence(
       Math.ceil(g.totalSamples / (g.sampleRate / 10)) * (g.sampleRate / 10) +
       g.vectorSize >=
       LIMIT ||
-    value.before.frames.some(
-      (row) =>
-        row[1] !==
-        (value.config.mode === "session"
-          ? value.config.stoppedBeat
-          : g.startBeat),
+    value.before.frames.some((row) =>
+      value.config.mode === "session"
+        ? !matchesNativeSessionStoppedBeat(row[1], value.config.stoppedBeat)
+        : row[1] !== g.startBeat,
     ) ||
     (value.config.timingPolicy.mode === "strict" &&
       value.before.frames.some(
@@ -879,9 +876,8 @@ export function nativeMetricEvidenceSourceCoverage(
   const checked = assertNativeCheckedTransportSourceCoverage({
     policy: armed.config.timingPolicy,
     geometry: armed.config.geometry,
-    ...(armed.config.mode === "session" &&
-    armed.config.stoppedBeat !== undefined
-      ? { stoppedBeat: armed.config.stoppedBeat }
+    ...(armed.config.mode === "session"
+      ? { stoppedBeat: armed.before.frames[0]![1] }
       : {}),
     before: armed.before,
     after: proof.after,

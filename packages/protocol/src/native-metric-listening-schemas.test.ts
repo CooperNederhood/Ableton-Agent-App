@@ -1629,6 +1629,30 @@ describe("frozen metric configuration and expected ownership", () => {
     ).toThrow();
   });
 
+  it("accepts one stopped-beat rounding step in Session proofs but not clock drift", () => {
+    const expectedBeat = 4.1187555555555555;
+    const observedBeat = 4.118755555555556;
+    const f = fixture({
+      session: true,
+      startBeat: 0,
+      stoppedBeat: expectedBeat,
+    });
+    const { before } = f.proof.armed;
+    const stoppedRows = [
+      ...before.frames,
+      ...Object.values(f.proof.timingWitnesses).filter((row) => row[0] === 0),
+    ];
+    for (const row of stoppedRows) row[1] = row[8] = observedBeat;
+    expect(() =>
+      assertNativeMetricSourceCoverage(f.proof, f.expected),
+    ).not.toThrow();
+
+    before.frames[1]![1] = before.frames[1]![8] = expectedBeat;
+    expect(() =>
+      assertNativeMetricSourceCoverage(f.proof, f.expected),
+    ).toThrow();
+  });
+
   it("supports nonzero host origins without substituting Arrangement mode", () => {
     expect(
       fixture({ session: true, startBeat: 5.13 }).expected.config.mode,

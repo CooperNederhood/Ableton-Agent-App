@@ -2272,7 +2272,11 @@ remain unchanged.
 
 A `metric_source_position_mismatch` preflight rejection retains the expected and
 observed beat and the rejected native clock row in the existing attributed
-failure diagnostics. This does not relax the stopped-clock check.
+failure diagnostics. Session preflight and proof validation allow adjacent
+positive floating-point values for the same stopped beat reported independently
+by Live and the native listener. The original readings are retained. The
+stopped bracket must still be internally stable, and the Arrangement, source
+identity, launch, and cleanup guards are unchanged.
 
 The zero-origin launch above is the reviewed **remembered-playing Session**
 case, not a requirement for every stopped Session launch. The consolidation

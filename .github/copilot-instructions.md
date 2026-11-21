@@ -1,92 +1,94 @@
 # Repository-wide Copilot instructions
 
-- Every new capability and asynchronous stage must define application-owned
-  observability events for relevant queued, started, progress, completed,
-  failed, and cancelled lifecycle and timing.
-- Sanitize and bound payloads before persistence. The local journal must retain
-  bounded prompts, assistant text, paths, structured musical/MIDI and event
-  payloads, and tool definitions/arguments/results for detailed history. Redact
-  credentials embedded in every string and omit binary/audio bodies with visible
-  markers.
-- Propagate trace, correlation, and causation IDs across SDK, tool/workflow,
-  bridge, Remote Script, Live Event, Output, and UI boundaries.
-- Keep records visible through typed, redacted Desktop History queries; do not
-  add raw SQL/filesystem renderer access or a network upload path.
-- Add tests for event coverage, ordering, redaction, attribution, timing,
-  failure/cancellation, and trace propagation.
-- Update the relevant specifications and implementation to-do files with every
-  behavior or lifecycle change.
-- Follow the canonical application-owned storage contract in
-  [`docs/platform/local-storage.md`](../docs/platform/local-storage.md). New
-  persisted data must use the shared `@ableton-agent/storage` resolver and the
-  documented `~/.live-agent/profiles/{profile}` ownership layout; do not invent
-  independent Electron, OS application-data, repository, or home-directory
-  paths. Update that document and its implementation to-do when the layout,
-  migration, retention, security, or ownership behavior changes.
+## The goal
+
+Ableton Agent lets a musician ask an AI agent to inspect, change, and listen to
+their Ableton Live 11 set. Every change should make that work more reliably for
+a real user sending real messages. Keep that goal in view; do not let process,
+guards, or bookkeeping become the work.
+
+## How to develop
+
+1. **Make it work end to end first.** Build the simplest version of the
+   feature that does the job in real Live.
+2. **Make it general and extensible.** Extend existing code and structures
+   instead of adding parallel ones. Before adding a file, function, or class,
+   check whether something already does most of the job.
+3. **Add checks only for problems that have actually happened.** Do not guard
+   against failures nobody has observed. When a real failure shows up (usually
+   in user testing), follow the bug loop below.
+
+### Runtime checks
+
+- Reject an operation only when continuing would put the user's project at
+  risk: wrong target, unintended recording or edits, data loss, or failed
+  cleanup.
+- Anything else that looks unusual should be **recorded** (logged with its
+  values) and the operation should continue.
+- Prefer trusting what Ableton Live reports over predicting it and comparing.
+
+### Visibility
+
+Make failures easy to diagnose without front-loading work:
+
+- Each user-facing operation records a started event and a completed or failed
+  event, with the values needed to understand what happened. Reuse the existing
+  event and trace plumbing; do not add per-stage event families by default.
+- Redact credentials and omit audio/binary bodies before anything is persisted.
+  History stays local and is read through typed Desktop History queries.
+
+### The bug loop
+
+1. A failure is observed, usually through user testing.
+2. Read the session transcript, Desktop History, and event telemetry to find
+   what actually happened.
+3. Reproduce it in the fastest test that can show it (it should fail).
+4. Fix it (the test should now pass).
+5. Rerun the relevant user-message acceptance scenario.
+
+## Testing
+
+| Layer | Command | Real Live? | Use it for |
+|---|---|---|---|
+| Unit, component, contract | `pnpm test` | No | The inner loop: every change and every bug reproduction. |
+| Real-Live capability | `pnpm live:agent-smoke` | Yes | Checking that a tool, bridge, Remote Script, or Max device path works in real Live, one layer below the Desktop app. |
+| User-message acceptance | `pnpm live:acceptance` | Yes | **The final check** for agent-facing changes: a real message in the packaged Desktop app produces the right result in Live. |
+
+- Unit tests cover logic that is genuinely tricky and every real bug that was
+  fixed. Do not add tests for hypothetical failures.
+- Real-Live runs are slow. Use them to confirm work, not as the inner loop.
+- Check each scenario against what it is testing. When the agent changes the
+  set, read the result back from Live; the agent saying it succeeded is not
+  enough. When the test is about the agent's understanding (for example,
+  describing a clip it listened to), check its answer against the expected
+  answer.
+- Use the `integration-testing` skill to run real-Live tests and
+  `author-integration-test` to build a new scenario with the user.
+- Automation uses an isolated Desktop profile and its own Live process. Never
+  close or change the user's own Live session or work.
 
 ## Documentation
 
-- In `docs/`there are rich implementation details - you should consult these and understand them when adding new features as you should aim to extend existing capabilities and structures when possible, rather than roll new greenfield solutions. This avoids codebloat and ensures extensibility.
+`docs/` is a guide for a new engineer learning how the app works. Update it
+when a main concept or the architecture changes. It is not a changelog,
+to-do list, or record of test runs; those belong in pull requests, issues,
+and git history.
 
-# Testing workflows
+## Storage
 
-- Start with the smallest deterministic unit, component, contract, or Playwright
-  test that owns the changed behavior.
-- Do not only run the existing suite. Every feature or bug fix must add or
-  expand regression coverage at each relevant application-owned boundary.
-- Add success, failure, denial/guard, cancellation where supported, and cleanup
-  coverage for every changed critical path.
-- Add or update React component interaction tests for renderer behavior. Add or
-  update Electron Playwright tests when behavior crosses renderer/preload/main
-  boundaries or changes a critical visible workflow, window state, IPC path,
-  startup mode, approval flow, progress/error presentation, or recovery path.
-- Add TypeScript and Python protocol/contract coverage when schemas, commands,
-  framing, capabilities, or Remote Script behavior change. Add simulator-backed
-  bridge tests for authentication, sequencing, timeout, reconnect, malformed
-  input, or mutation serialization behavior.
-- Add tool/workflow tests with controlled failures and exact postconditions when
-  agent tools, safety policy, workflows, rollback, or verification change.
-- When adding a new user-facing agent capability, ask the user once per
-  capability whether they want to use the human-in-the-loop
-  `author-integration-test` workflow to create or extend a durable fixture-backed
-  test for test-driven development. Offer it early, before implementation when
-  practical, and reuse an existing suitable case rather than duplicating it.
-  Honor an answer already given in the task; an explicit authoring request is
-  already an opt-in. If the user declines or is unavailable, defer fixture
-  authoring without repeatedly asking or blocking ordinary implementation and
-  deterministic regression tests. Opting into authoring is not blanket
-  approval to launch Live or expand real-host coverage.
-- After changing Electron UI, desktop interactions, approvals, progress/error
-  presentation, or visible Ableton Agent/Ableton workflows, invoke the
-  `desktop-ux-testing` skill. Follow its full implement, build, launch, message,
-  wait, inspect, close, fix, and repeat loop.
-- When both deterministic real-Live validation and visual UX inspection are
-  selected for the task, run the exact-state validation before visual
-  inspection. Selecting one does not automatically require the other.
-- Never treat an accepted MCP message, assistant prose, or a screenshot alone
-  as proof of exact Live state. Use deterministic postcondition reads when the
-  requirement depends on counts, identities, ordering, MIDI content, rollback,
-  or mutation scope.
-- Automation must use an isolated Desktop profile and dedicated processes.
-  Track and close only processes started by the validation workflow; never
-  terminate or discard work from a pre-existing user process.
-- A change is not complete until the new regression tests fail without the fix,
-  pass with the fix, and the smallest relevant suites have been escalated to
-  their broader owning suite.
-  This lower-layer regression requirement does not automatically expand
-  real-Live coverage beyond the agreed scenarios.
+Persisted data uses the shared `@ableton-agent/storage` resolver and the
+`~/.live-agent/profiles/{profile}` layout described in
+[`docs/platform/local-storage.md`](../docs/platform/local-storage.md). Do not
+invent other application-data paths.
 
-# Background About Ableton
+## Ableton
 
-- This project supports Ableton Live 11 **only**, not Live 12. Current development
-  and real-host testing use installed Ableton Live Suite 11.3.43 on Apple Silicon.
-  Record the actual full Live version in validation evidence and track changes
-  after automatic updates. The installed patch version is not a support pin:
-  do not require an older patch, downgrade, or block work solely because a Live
-  11 patch changed. Preserve historical version provenance and investigate
-  actual compatibility or capability failures.
+- Supports Ableton Live 11 **only**, not Live 12. Development uses Live Suite
+  11.3.x on Apple Silicon. A Live 11 patch update is not a reason to block
+  work; investigate actual failures.
 
-# Reminders and rules
+## Rules
 
-- **NO BACKWARDS COMPATIBILITY CODE.** We are **developing** this App. So there is absolutely no concern about supporting legacy paths or functionality or backwards compatibility. When we make changes to the codebase we should always just fix forward and assume a clean break. **DO NOT** maintain code for backwards compatibility alone.
-- **NO CODE SPRAWL, EXTEND EXISTING CODE.** Any time you are adding a new file or a new function/class/etc you must check that there isn't already existing solutions that you can build off of. 
+- **No backwards-compatibility code.** The app is in development. Fix forward
+  and make clean breaks; do not keep legacy paths.
+- **No code sprawl.** Extend existing code before adding new code.

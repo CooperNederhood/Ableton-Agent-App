@@ -48,11 +48,11 @@ Make failures easy to diagnose without front-loading work:
 
 ## Testing
 
-| Layer | Command | Real Live? | Use it for |
-|---|---|---|---|
-| Unit, component, contract | `pnpm test` | No | The inner loop: every change and every bug reproduction. |
-| Real-Live capability | `pnpm live:agent-smoke` | Yes | Checking that a tool, bridge, Remote Script, or Max device path works in real Live, one layer below the Desktop app. |
-| User-message acceptance | `pnpm live:acceptance` | Yes | **The final check** for agent-facing changes: a real message in the packaged Desktop app produces the right result in Live. |
+| Layer                     | Command                 | Real Live? | Use it for                                                                                                                  |
+| ------------------------- | ----------------------- | ---------- | --------------------------------------------------------------------------------------------------------------------------- |
+| Unit, component, contract | `pnpm test`             | No         | The inner loop: every change and every bug reproduction.                                                                    |
+| Real-Live capability      | `pnpm live:agent-smoke` | Yes        | Checking that a tool, bridge, Remote Script, or Max device path works in real Live, one layer below the Desktop app.        |
+| User-message acceptance   | `pnpm live:acceptance`  | Yes        | **The final check** for agent-facing changes: a real message in the packaged Desktop app produces the right result in Live. |
 
 - Unit tests cover logic that is genuinely tricky and every real bug that was
   fixed. Do not add tests for hypothetical failures.

@@ -78,7 +78,7 @@ and git history.
 
 Persisted data uses the shared `@ableton-agent/storage` resolver and the
 `~/.live-agent/profiles/{profile}` layout described in
-[`docs/platform/local-storage.md`](../docs/platform/local-storage.md). Do not
+[`docs/storage.md`](../docs/storage.md). Do not
 invent other application-data paths.
 
 ## Ableton

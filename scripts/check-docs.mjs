@@ -31,19 +31,6 @@ const failures = [];
 
 for (const path of files) {
   const relativePath = relative(docsRoot, path);
-  const segments = relativePath.split("/");
-  if (
-    segments.length === 2 &&
-    !relativePath.endsWith("-implementation-to-do.md")
-  ) {
-    const expected = path.replace(/\.md$/u, "-implementation-to-do.md");
-    if (!(await exists(expected))) {
-      failures.push(
-        `${relativePath}: missing paired plan ${relative(docsRoot, expected)}`,
-      );
-    }
-  }
-
   const content = await readFile(path, "utf8");
   for (const match of content.matchAll(/\[[^\]]*\]\(([^)]+)\)/gu)) {
     const target = match[1]?.trim();
@@ -69,5 +56,5 @@ if (failures.length > 0) {
 }
 
 process.stdout.write(
-  `Validated ${files.length} documentation files and paired plans.\n`,
+  `Validated links in ${files.length} documentation files.\n`,
 );

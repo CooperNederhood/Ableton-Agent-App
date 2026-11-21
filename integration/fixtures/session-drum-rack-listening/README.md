@@ -34,10 +34,3 @@ The Default agent receives the exact prompt once. All three metric families
 must complete without gaps over 90,000 samples at 48 kHz. The test also requires
 one attributable capture, unchanged declared scopes, readable context after an
 owned Desktop restart, and complete cleanup.
-
-Ordinary fresh-process listening passed before the fix. A controlled real-Max
-30 ms polling replay reproduced spectrum overflow and passed after paired
-acquisitions; final production-cadence validation passed in `run-Amnyfh`.
-The ordinary fixture alone does not guarantee adverse scheduler conditions.
-See the red/green evidence and qualification boundaries in
-[`acceptance-authoring.md`](../../../docs/testing/acceptance-authoring.md).

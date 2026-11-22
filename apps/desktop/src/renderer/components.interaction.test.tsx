@@ -1698,12 +1698,10 @@ describe("desktop component interactions", () => {
           getStatus: vi.fn().mockResolvedValue({ state: "disconnected" }),
         },
         preferences: {
-          get: vi
-            .fn()
-            .mockResolvedValue({
-              ...initialState.preferences,
-              showAdvancedViews,
-            }),
+          get: vi.fn().mockResolvedValue({
+            ...initialState.preferences,
+            showAdvancedViews,
+          }),
         },
         agent: { getSessions: vi.fn().mockResolvedValue(state.sessions) },
         agents: {

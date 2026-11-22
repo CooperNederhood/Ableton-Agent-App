@@ -96,6 +96,7 @@ import {
   artifactSkillShadow,
   artifactTopicBudget,
 } from "./artifact-review";
+import { MemoryView } from "./MemoryView";
 import { ProfileManagerView } from "./ProfileManagerView";
 import {
   findContextArtifact,
@@ -1129,6 +1130,21 @@ export function App(): React.JSX.Element {
               onProfilesChanged={() =>
                 setProfileRefreshToken((current) => current + 1)
               }
+            />
+          ) : state.activeView === "memory" ? (
+            <MemoryView
+              libraryScope={state.libraryScope}
+              onLibraryScope={(scope) =>
+                dispatch({ type: "library-scope", scope })
+              }
+              profileRefreshToken={profileRefreshToken}
+              onProfilesChanged={() =>
+                setProfileRefreshToken((current) => current + 1)
+              }
+              onAskAgent={(command) => {
+                setComposerValue(command);
+                dispatch({ type: "view", view: "workspace" });
+              }}
             />
           ) : state.activeView === "skills" ? (
             <SkillsView

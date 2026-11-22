@@ -1252,6 +1252,77 @@ small,
   --scope-color: var(--scope-session);
 }
 
+.memory-workspace {
+  grid-template-columns: minmax(260px, 1fr) minmax(0, 1.3fr);
+}
+
+.memory-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  align-content: start;
+  gap: 6px;
+  overflow-y: auto;
+  border-right: 1px solid var(--border);
+  padding: 10px;
+  background: var(--surface);
+}
+
+.memory-tile {
+  min-height: 76px;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0;
+  color: var(--text);
+  text-align: left;
+  background: var(--surface-list);
+}
+
+.memory-tile-top {
+  height: 20px;
+  display: block;
+  overflow: hidden;
+  padding: 0 6px;
+  font-weight: 700;
+  line-height: 20px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background: var(--scope-color);
+}
+
+.memory-tile-text {
+  flex: 1;
+  padding: 6px;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+.memory-tile.active {
+  outline: 2px solid var(--focus);
+  background: var(--selection);
+}
+
+.memory-tile.new {
+  place-content: center;
+  border-style: dashed;
+  color: var(--text-muted);
+  text-align: center;
+  background: transparent;
+}
+
+@media (hover: hover) {
+  .memory-tile:hover {
+    background: var(--surface-raised);
+  }
+}
+
+.memory-reader {
+  overflow-y: auto;
+}
+
 .agent-navigation-item .row-marks {
   display: inline-flex;
   align-items: center;

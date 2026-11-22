@@ -1279,6 +1279,7 @@ describe("desktop component interactions", () => {
       throw new Error("Automatic approval control not found");
     }
     await act(async () => automaticApproval.click());
+    await clickAria(container, "Use color #d47fd4 for New Compose");
     const connectionsTab = visibleDetail.querySelector<HTMLButtonElement>(
       'button[aria-label="Connections"]',
     );
@@ -1317,6 +1318,7 @@ describe("desktop component interactions", () => {
         model: "model-b",
         reasoningEffort: "xhigh",
         autoApprove: true,
+        color: "#d47fd4",
         eventListeners: [
           expect.objectContaining({
             eventId,

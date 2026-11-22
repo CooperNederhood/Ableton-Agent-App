@@ -11,11 +11,14 @@ import {
   type AgentEventListener,
   type CurrentAgentDefinition,
   type PreparedContextConfiguration,
+  AGENT_COLOR_PALETTE,
   defaultAgentColor,
 } from "@ableton-agent/agent-config/schemas";
 import {
+  createContext,
   Fragment,
   useCallback,
+  useContext,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -1031,6 +1034,7 @@ export function App(): React.JSX.Element {
   }, [state]);
 
   return (
+    <AgentDefinitionsContext.Provider value={state.agentCatalog.definitions}>
     <div className={`app-shell ${topChromeVisible ? "" : "top-chrome-hidden"}`}>
       {topChromeVisible && (
         <ConnectionHeader
@@ -1148,6 +1152,7 @@ export function App(): React.JSX.Element {
         )}
       </main>
     </div>
+    </AgentDefinitionsContext.Provider>
   );
 }
 
@@ -1166,6 +1171,22 @@ export function agentColor(
     definitions.find(({ name }) => name === nameOrLabel) ??
     definitions.find(({ label }) => label === nameOrLabel);
   return definition?.color ?? defaultAgentColor(nameOrLabel.toLowerCase());
+}
+
+const AgentDefinitionsContext = createContext<
+  readonly DesktopAgentDefinition[]
+>([]);
+
+/** Inline style that gives a sub-agent lane, chip, or approval its color. */
+function useAgentColorStyle(
+  nameOrLabel: string | undefined,
+): CSSProperties | undefined {
+  const definitions = useContext(AgentDefinitionsContext);
+  return nameOrLabel === undefined
+    ? undefined
+    : ({
+        "--subagent-color": agentColor(definitions, nameOrLabel),
+      } as CSSProperties);
 }
 
 const RAIL_VIEWS: readonly {
@@ -5944,8 +5965,29 @@ function ActiveAgentCard({
                     }))
                   }
                 />
-                Other agents can delegate tasks to this agent as a sub-agent
+                Can be a sub-agent: other agents can hand it tasks
               </label>
+              <fieldset className="agent-color-picker">
+                <legend>Color</legend>
+                {AGENT_COLOR_PALETTE.map((color) => {
+                  const selected =
+                    (draft.color ?? defaultAgentColor(draft.name)) === color;
+                  return (
+                    <button
+                      key={color}
+                      type="button"
+                      className={`swatch ${selected ? "selected" : ""}`}
+                      style={{ "--swatch": color } as CSSProperties}
+                      aria-label={`Use color ${color} for ${title}`}
+                      aria-pressed={selected}
+                      title={color}
+                      onClick={() =>
+                        setDraft((current) => ({ ...current, color }))
+                      }
+                    />
+                  );
+                })}
+              </fieldset>
               <small>
                 Changes become the Session definition default. Active
                 conversations adopt them only after Reset.
@@ -6520,8 +6562,9 @@ export function WorkingDisclosure({
         {working.subagents !== undefined && working.subagents.length > 0 && (
           <ul className="working-subagents" aria-label="Sub-agents">
             {working.subagents.map((subagent) => (
-              <li
+              <AgentColoredItem
                 key={subagent.id}
+                agent={subagent.label}
                 className={`working-subagent working-${subagent.status}`}
               >
                 <strong>{subagent.label}</strong>
@@ -6543,7 +6586,7 @@ export function WorkingDisclosure({
                 {subagent.detail && (
                   <p className="warning">{subagent.detail}</p>
                 )}
-              </li>
+              </AgentColoredItem>
             ))}
           </ul>
         )}
@@ -6581,11 +6624,36 @@ export function TriggerCard({
   );
 }
 
+function AgentColoredItem({
+  agent,
+  className,
+  children,
+}: {
+  agent: string;
+  className: string;
+  children: React.ReactNode;
+}): React.JSX.Element {
+  return (
+    <li className={className} style={useAgentColorStyle(agent)}>
+      {children}
+    </li>
+  );
+}
+
+function ApprovalSubagent({ label }: { label: string }): React.JSX.Element {
+  return (
+    <small className="approval-subagent" style={useAgentColorStyle(label)}>
+      Requested via sub-agent {label}
+    </small>
+  );
+}
+
 export function OperationCard({
   operation,
 }: {
   operation: DesktopState["operations"][number];
 }): React.JSX.Element {
+  const agentStyle = useAgentColorStyle(operation.subagentLabel);
   const presentation = operationPresentation(
     operation.toolName,
     operation.label,
@@ -6607,6 +6675,7 @@ export function OperationCard({
   return (
     <details
       className={`operation operation-${operation.status}${subagentClass}`}
+      style={agentStyle}
     >
       <summary
         className={operation.toolName === undefined ? "" : "has-tool-name"}
@@ -7868,9 +7937,7 @@ export function ApprovalPanel({
             {approval.risk} risk
           </span>
           {approval.subagentLabel !== undefined && (
-            <small className="approval-subagent">
-              Requested via sub-agent {approval.subagentLabel}
-            </small>
+            <ApprovalSubagent label={approval.subagentLabel} />
           )}
           <p>{approval.summary}</p>
           <ul>

@@ -2253,10 +2253,29 @@ small,
   color: var(--status-warn);
 }
 .operation-subagent,
-.operation-subagent-launch {
+.operation-subagent-launch,
+.working-subagent,
+.approval-subagent {
   --subagent-color: var(--agent-default);
-  border-left: 2px solid var(--subagent-color);
+}
+.operation-subagent,
+.operation-subagent-launch {
+  border-left: 4px solid var(--subagent-color);
   padding-left: 8px;
+  background: var(--surface-list);
+}
+.working-subagent {
+  border-left: 4px solid var(--subagent-color);
+  padding-left: 8px;
+}
+.approval-subagent {
+  justify-self: start;
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--subagent-color);
+  border-radius: var(--radius);
+  padding: 1px 6px;
+  background: color-mix(in srgb, var(--subagent-color) 25%, var(--surface-list));
+  color: var(--text);
 }
 .operation-subagent summary {
   grid-template-columns: 18px auto minmax(0, 1fr) auto;
@@ -2264,17 +2283,15 @@ small,
 .operation-subagent summary.has-tool-name {
   grid-template-columns: 18px auto minmax(0, max-content) minmax(0, 1fr) auto;
 }
-.operation-subagent .activity-icon,
-.operation-subagent-launch .activity-icon {
-  color: var(--subagent-color);
-}
+
 .operation-subagent-label {
   max-width: 14ch;
   overflow: hidden;
   border-radius: var(--radius);
   padding: 1px 6px;
-  background: color-mix(in srgb, var(--subagent-color) 25%, var(--surface-list));
-  color: var(--subagent-color);
+  border: 1px solid var(--border);
+  background: var(--subagent-color);
+  color: var(--text);
   font-size: 1rem;
   font-weight: 600;
   text-overflow: ellipsis;
@@ -3638,4 +3655,33 @@ kbd {
 .listening-pass-panel li {
   padding-block: 0.75rem;
   overflow-wrap: anywhere;
+}
+
+.agent-color-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 0;
+  border: 0;
+  padding: 0;
+}
+.agent-color-picker legend {
+  margin-bottom: 4px;
+}
+.swatch {
+  position: relative;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 1px solid var(--border);
+  background: var(--swatch);
+}
+.swatch::before {
+  position: absolute;
+  inset: -3px;
+  content: "";
+}
+.swatch.selected {
+  outline: 2px solid var(--text);
+  outline-offset: 1px;
 }

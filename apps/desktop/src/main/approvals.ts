@@ -82,6 +82,14 @@ export function toDesktopApproval(
     ),
     destructive: request.metadata.risk === "destructive",
     tool,
+    ...(request.subagent === undefined
+      ? {}
+      : {
+          subagentLabel: sanitizePersistedText(request.subagent.label).slice(
+            0,
+            128,
+          ),
+        }),
   };
 }
 

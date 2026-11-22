@@ -30,7 +30,13 @@ describe("agent catalog loading", () => {
     const catalog = await loadAgentCatalog({
       agentsDirectory: resolve(repositoryRoot, "agents"),
       skillsDirectory: resolve(repositoryRoot, "skills"),
-      availableTools: ["ableton_session"],
+      availableTools: [
+        "ableton_session",
+        "task",
+        "read_agent",
+        "write_agent",
+        "list_agents",
+      ],
     });
     const defaultAgent = catalog.agents.find(
       ({ definition }) => definition.name === "default",
@@ -108,6 +114,10 @@ describe("agent catalog loading", () => {
         "ableton_recording",
         "ableton_tracks",
         "legacy_tracks_delete",
+        "task",
+        "read_agent",
+        "write_agent",
+        "list_agents",
       ],
       availableOperations: [
         {
@@ -129,7 +139,14 @@ describe("agent catalog loading", () => {
     );
 
     expect(defaultAgent).toMatchObject({
-      resolvedTools: ["ableton_recording", "ableton_tracks"],
+      resolvedTools: [
+        "ableton_recording",
+        "ableton_tracks",
+        "list_agents",
+        "read_agent",
+        "task",
+        "write_agent",
+      ],
       resolvedOperations: [
         "recording.inspect",
         "recording.set_overdub",

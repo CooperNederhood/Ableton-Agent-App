@@ -1546,9 +1546,21 @@ test("launches the built desktop contract securely", async () => {
       name: "Message the Ableton agent",
     });
     await composer.fill("Keep this draft");
-    await window.getByRole("button", { name: "Events" }).click();
-    await expect(window.getByRole("heading", { name: "Events" })).toBeVisible();
+    const views = window.getByRole("navigation", { name: "Application views" });
+    for (const advanced of ["Events", "Browser", "Diagnostics"]) {
+      await expect(
+        views.getByRole("button", { name: advanced, exact: true }),
+      ).toHaveCount(0);
+    }
+    await views.getByRole("button", { name: "Settings" }).click();
     await expect(composer).toHaveCount(0);
+    await window.getByRole("checkbox", { name: "Show advanced views" }).check();
+    await window.getByRole("button", { name: "Save settings" }).click();
+    await views.getByRole("button", { name: "Events", exact: true }).click();
+    await expect(window.getByRole("heading", { name: "Events" })).toBeVisible();
+    await expect(
+      views.getByRole("button", { name: "Diagnostics", exact: true }),
+    ).toBeVisible();
 
     await window.getByRole("button", { name: "Agents" }).click();
     await expect(

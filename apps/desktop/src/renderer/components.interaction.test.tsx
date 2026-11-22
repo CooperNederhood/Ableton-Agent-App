@@ -367,6 +367,46 @@ describe("desktop component interactions", () => {
     root = createRoot(container);
   });
 
+  it("runs a fully typed slash command on Enter and completes a partial one", async () => {
+    const onChange = vi.fn();
+    const onSubmit = vi.fn((event: React.FormEvent) => {
+      event.preventDefault();
+      return Promise.resolve();
+    });
+    const press = async (value: string) => {
+      await act(async () => {
+        root.render(
+          <Composer
+            state={rendererState()}
+            value={value}
+            busy={false}
+            composerRef={createRef<HTMLTextAreaElement>()}
+            onChange={onChange}
+            onSubmit={onSubmit}
+            dispatch={vi.fn()}
+          />,
+        );
+      });
+      const prompt = container.querySelector("textarea");
+      if (prompt === null) throw new Error("Expected composer textarea");
+      await act(async () => {
+        prompt.dispatchEvent(
+          new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+        );
+        await Promise.resolve();
+      });
+    };
+
+    await press("/yo");
+    expect(onChange).toHaveBeenLastCalledWith("/yolo ");
+    expect(onSubmit).not.toHaveBeenCalled();
+
+    onChange.mockClear();
+    await press("/yolo");
+    expect(onChange).not.toHaveBeenCalled();
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+  });
+
   it("opens the owned failure trace through typed History and navigates to the existing History view", async () => {
     const state = rendererState();
     const dispatch = vi.fn<(action: DesktopAction) => void>();
@@ -1648,78 +1688,99 @@ describe("desktop component interactions", () => {
     expect(hydrateHistory).toHaveBeenCalledWith(agentId);
   });
 
-  it("renders the composer only in Workspace and preserves its draft", async () => {
-    const state = rendererState();
-    const desktop = {
-      lifecycle: { get: vi.fn().mockResolvedValue("ready") },
-      ableton: {
-        getStatus: vi.fn().mockResolvedValue({ state: "disconnected" }),
-      },
-      preferences: {
-        get: vi.fn().mockResolvedValue(initialState.preferences),
-      },
-      agent: { getSessions: vi.fn().mockResolvedValue(state.sessions) },
-      agents: {
-        getCatalog: vi.fn().mockResolvedValue(state.agentCatalog),
-        hydrateHistory: vi.fn().mockResolvedValue([]),
-        readPlan: vi.fn().mockResolvedValue({
-          exists: false,
-          productionSessionId: sessionId,
-        }),
-        getAuthStatus: vi.fn().mockResolvedValue({
-          state: "authenticated",
-          authType: "gh-cli",
-        }),
-        refreshAuthentication: vi.fn().mockResolvedValue({
-          state: "authenticated",
-          authType: "gh-cli",
-        }),
-        listModels: vi.fn().mockResolvedValue(models),
-      },
-      outputs: {
-        list: vi.fn().mockResolvedValue({
-          ...initialState.outputs,
-          activeSessionId: sessionId,
-        }),
-      },
-      events: {
-        list: vi.fn().mockResolvedValue(initialState.events),
-        subscribe: vi.fn(() => vi.fn()),
-      },
-    } as unknown as DesktopApi;
-    Object.defineProperty(window, "desktop", {
-      configurable: true,
-      value: desktop,
-    });
+  it.each([false, true])(
+    "renders the composer only in Workspace and preserves its draft (advanced views %s)",
+    async (showAdvancedViews) => {
+      const state = rendererState();
+      const desktop = {
+        lifecycle: { get: vi.fn().mockResolvedValue("ready") },
+        ableton: {
+          getStatus: vi.fn().mockResolvedValue({ state: "disconnected" }),
+        },
+        preferences: {
+          get: vi
+            .fn()
+            .mockResolvedValue({
+              ...initialState.preferences,
+              showAdvancedViews,
+            }),
+        },
+        agent: { getSessions: vi.fn().mockResolvedValue(state.sessions) },
+        agents: {
+          getCatalog: vi.fn().mockResolvedValue(state.agentCatalog),
+          hydrateHistory: vi.fn().mockResolvedValue([]),
+          readPlan: vi.fn().mockResolvedValue({
+            exists: false,
+            productionSessionId: sessionId,
+          }),
+          getAuthStatus: vi.fn().mockResolvedValue({
+            state: "authenticated",
+            authType: "gh-cli",
+          }),
+          refreshAuthentication: vi.fn().mockResolvedValue({
+            state: "authenticated",
+            authType: "gh-cli",
+          }),
+          listModels: vi.fn().mockResolvedValue(models),
+        },
+        outputs: {
+          list: vi.fn().mockResolvedValue({
+            ...initialState.outputs,
+            activeSessionId: sessionId,
+          }),
+        },
+        events: {
+          list: vi.fn().mockResolvedValue(initialState.events),
+          subscribe: vi.fn(() => vi.fn()),
+        },
+      } as unknown as DesktopApi;
+      Object.defineProperty(window, "desktop", {
+        configurable: true,
+        value: desktop,
+      });
 
-    await act(async () => {
-      root.render(<App />);
-      await Promise.resolve();
-      await Promise.resolve();
-      await Promise.resolve();
-    });
-    const prompt = container.querySelector<HTMLTextAreaElement>("#prompt");
-    if (prompt === null) throw new Error("Expected Workspace composer");
-    await replaceText(prompt, "Preserve this workspace draft");
+      await act(async () => {
+        root.render(<App />);
+        await Promise.resolve();
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      const prompt = container.querySelector<HTMLTextAreaElement>("#prompt");
+      if (prompt === null) throw new Error("Expected Workspace composer");
+      await replaceText(prompt, "Preserve this workspace draft");
 
-    for (const view of ["Agents", "Outputs", "Events", "Settings"]) {
-      await click(container, view);
-      expect(container.querySelector("#prompt")).toBeNull();
-    }
+      const navigation = [
+        ...container.querySelectorAll("#application-views button"),
+      ].map((button) => button.textContent);
+      for (const advanced of ["Events", "Browser", "Diagnostics"]) {
+        expect(navigation.includes(advanced)).toBe(showAdvancedViews);
+      }
+      expect(navigation).toContain("Settings");
 
-    await act(async () => {
-      window.dispatchEvent(
-        new KeyboardEvent("keydown", { key: "k", metaKey: true }),
+      for (const view of [
+        "Agents",
+        "Outputs",
+        ...(showAdvancedViews ? ["Events"] : []),
+        "Settings",
+      ]) {
+        await click(container, view);
+        expect(container.querySelector("#prompt")).toBeNull();
+      }
+
+      await act(async () => {
+        window.dispatchEvent(
+          new KeyboardEvent("keydown", { key: "k", metaKey: true }),
+        );
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+      });
+      expect(
+        container.querySelector<HTMLTextAreaElement>("#prompt")?.value,
+      ).toBe("Preserve this workspace draft");
+      expect(document.activeElement).toBe(
+        container.querySelector<HTMLTextAreaElement>("#prompt"),
       );
-      await new Promise((resolve) => requestAnimationFrame(resolve));
-    });
-    expect(container.querySelector<HTMLTextAreaElement>("#prompt")?.value).toBe(
-      "Preserve this workspace draft",
-    );
-    expect(document.activeElement).toBe(
-      container.querySelector<HTMLTextAreaElement>("#prompt"),
-    );
-  });
+    },
+  );
 
   it("routes only selected-agent interactions and focuses the structured deck", async () => {
     let publish!: (event: DesktopAppEvent) => void;

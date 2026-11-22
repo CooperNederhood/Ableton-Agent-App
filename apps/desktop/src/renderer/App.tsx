@@ -118,6 +118,12 @@ export interface WorkspaceSidebarWidths {
   right: number;
 }
 
+const ADVANCED_VIEWS: ReadonlySet<WorkspaceView> = new Set([
+  "events",
+  "browser",
+  "diagnostics",
+]);
+
 export function initialWorkspaceSidebarWidths(
   viewportWidth: number,
 ): WorkspaceSidebarWidths {
@@ -210,11 +216,14 @@ export function slashCompletionKey(
   key: string,
   selected: number,
   count: number,
+  inputMatchesSelection = false,
 ): number | "complete" | undefined {
   if (count === 0) return undefined;
   if (key === "ArrowDown") return (selected + 1) % count;
   if (key === "ArrowUp") return (selected - 1 + count) % count;
-  if (key === "Tab" || key === "Enter") return "complete";
+  if (key === "Tab") return "complete";
+  // Enter runs a fully typed command instead of re-completing it.
+  if (key === "Enter" && !inputMatchesSelection) return "complete";
   return undefined;
 }
 
@@ -1032,16 +1041,23 @@ export function App(): React.JSX.Element {
               "sessions",
               "settings",
             ] as WorkspaceView[]
-          ).map((view) => (
-            <button
-              key={view}
-              className={state.activeView === view ? "selected" : ""}
-              onClick={() => dispatch({ type: "view", view })}
-            >
-              {view[0]?.toUpperCase()}
-              {view.slice(1)}
-            </button>
-          ))}
+          )
+            .filter(
+              (view) =>
+                state.preferences.showAdvancedViews ||
+                !ADVANCED_VIEWS.has(view) ||
+                state.activeView === view,
+            )
+            .map((view) => (
+              <button
+                key={view}
+                className={state.activeView === view ? "selected" : ""}
+                onClick={() => dispatch({ type: "view", view })}
+              >
+                {view[0]?.toUpperCase()}
+                {view.slice(1)}
+              </button>
+            ))}
         </nav>
       )}
       {!topChromeVisible && (
@@ -7831,6 +7847,19 @@ export function SettingsView({
             Keep Ableton Agent visible above other apps, including across macOS
             Spaces and over full-screen windows.
           </small>
+          <label className="checkbox">
+            <input
+              type="checkbox"
+              checked={draft.showAdvancedViews}
+              onChange={(event) =>
+                setDraft({ ...draft, showAdvancedViews: event.target.checked })
+              }
+            />{" "}
+            Show advanced views
+          </label>
+          <small>
+            Show the Events, Browser, and Diagnostics tabs in the toolbar.
+          </small>
         </fieldset>
         <fieldset className="listening-settings">
           <legend>Listening timing</legend>
@@ -8829,10 +8858,13 @@ export function Composer({
   };
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>): void => {
     if (slashSuggestions.length > 0) {
+      const selectedEntry =
+        slashSuggestions[selectedSuggestion] ?? slashSuggestions[0]!;
       const completion = slashCompletionKey(
         event.key,
         selectedSuggestion,
         slashSuggestions.length,
+        value === `/${selectedEntry.name}`,
       );
       if (typeof completion === "number") {
         event.preventDefault();
@@ -8841,9 +8873,7 @@ export function Composer({
       }
       if (completion === "complete" && !event.shiftKey) {
         event.preventDefault();
-        completeSuggestion(
-          slashSuggestions[selectedSuggestion] ?? slashSuggestions[0]!,
-        );
+        completeSuggestion(selectedEntry);
         return;
       }
     }

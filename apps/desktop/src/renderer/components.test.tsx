@@ -611,6 +611,8 @@ describe("desktop components", () => {
     expect(slashCompletionKey("ArrowUp", 0, 2)).toBe(1);
     expect(slashCompletionKey("Tab", 1, 2)).toBe("complete");
     expect(slashCompletionKey("Enter", 0, 2)).toBe("complete");
+    expect(slashCompletionKey("Enter", 0, 2, true)).toBeUndefined();
+    expect(slashCompletionKey("Tab", 0, 2, true)).toBe("complete");
     expect(slashCompletionKey("Enter", 0, 0)).toBeUndefined();
   });
 

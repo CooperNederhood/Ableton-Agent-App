@@ -1255,6 +1255,7 @@ export const preferencesSchema = z.object({
   eventsViewMode: z.enum(["live", "history"]).default("live"),
   workflowDensity: z.enum(["compact", "comfortable"]).default("comfortable"),
   alwaysOnTop: z.boolean().default(false),
+  showAdvancedViews: z.boolean().default(false),
 });
 export type DesktopPreferences = z.infer<typeof preferencesSchema>;
 

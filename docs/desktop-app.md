@@ -78,7 +78,9 @@ resumes a saved session (`main/lifecycle.ts`).
 ## Screens
 
 The top bar holds the connection status and these tabs (list in
-`renderer/App.tsx`):
+`renderer/App.tsx`). **Events**, **Browser**, and **Diagnostics** are advanced
+views: they are hidden unless **Show advanced views** is on in Settings, but an
+in-app link can still open one and its tab shows while it is open.
 
 | Tab             | What you do there                                                                                                          |
 | --------------- | -------------------------------------------------------------------------------------------------------------------------- |
@@ -91,7 +93,7 @@ The top bar holds the connection status and these tabs (list in
 | **Profiles**    | Manage storage profiles and copy or move agents and skills between sessions.                                               |
 | **Diagnostics** | Check the bridge, Remote Script compatibility, Copilot auth; copy a summary or export a support bundle.                    |
 | **Sessions**    | List saved App sessions and resume one.                                                                                    |
-| **Settings**    | Approval policy, work timeout, reasoning visibility, ports, Remote Script location, logging, history retention, "Always on top". |
+| **Settings**    | Approval policy, work timeout, reasoning visibility, ports, Remote Script location, logging, history retention, "Always on top", "Show advanced views". |
 
 A few Workspace details worth knowing:
 
@@ -103,7 +105,9 @@ A few Workspace details worth knowing:
   tool calls, then the reply. The in-progress reply stays last, and the
   conversation follows new activity while you are scrolled to the end; scroll
   up to stop following, and sending a message resumes it.
-- **Composer.** Type a message or a slash command. `/plan` (or Shift+Tab)
+- **Composer.** Type a message or a slash command. While the slash menu is
+  open, Tab or Enter completes the highlighted command; Enter on a fully typed
+  command such as `/yolo` runs it. `/plan` (or Shift+Tab)
   switches the selected agent between plan and interactive mode. Selected
   tracks, clips and devices are attached as context chips.
 - **Inspector.** Modular tabs for the current Selection, the session Plan,
@@ -137,7 +141,8 @@ a summary, and the affected objects, with **Approve** and **Deny** buttons.
 Destructive changes carry a warning. The decision goes back over the
 `approvals:resolve` channel.
 
-The composer also understands `/yolo`, `/yolo on|off`, and `/yolo on|off all`.
+The composer also understands `/yolo` (same as `/yolo on`), `/yolo on|off`,
+and `/yolo on|off all`.
 It turns on automatic approval for the selected agent (or all active agents)
 without changing the global policy. "Deny all" still wins.
 

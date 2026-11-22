@@ -8,7 +8,10 @@ import {
   type MetricAudioObservation,
 } from "@ableton-agent/protocol";
 import type { TelemetryEventPage } from "@ableton-agent/observability";
-import { agentListeningFixture } from "./agent-listening-test-support.js";
+import {
+  agentListeningFixture,
+  cachedFixture,
+} from "./agent-listening-test-support.js";
 import { projectMelSmoke } from "./mel-smoke.js";
 import {
   NATIVE_MEL_BUNDLE,
@@ -222,23 +225,10 @@ export function melSmokeHistory(
   ];
 }
 
-const melSmokeFixtures = new Map<
-  "get" | "report",
-  ReturnType<typeof buildMelSmokeFixture>
->();
-
-/**
- * Synthetic contract vectors, never an acoustic oracle or native DSP proof.
- * Building is slow, so each variant is built once and callers get a deep copy.
- */
-export function melSmokeFixture(action: "get" | "report" = "get") {
-  let built = melSmokeFixtures.get(action);
-  if (!built) {
-    built = buildMelSmokeFixture(action);
-    melSmokeFixtures.set(action, built);
-  }
-  return structuredClone(built);
-}
+/** Synthetic contract vectors, never an acoustic oracle or native DSP proof. */
+export const melSmokeFixture = cachedFixture(
+  (action: "get" | "report" = "get") => buildMelSmokeFixture(action),
+);
 
 function buildMelSmokeFixture(action: "get" | "report") {
   const fixture = agentListeningFixture("get");

@@ -42,10 +42,9 @@ anything that needs Live.
 | `pnpm check:lint`   | Format, lint, docs, device and contract checks      |
 | `pnpm check:types`  | `pnpm typecheck`                                    |
 | `pnpm check:static` | `check:lint` then `check:types` (everything but tests) |
-| `pnpm check:test`   | `pnpm test`                                         |
 
-CI (`.github/workflows/ci.yml`) runs `check:lint`, `check:types` and
-`check:test` as parallel jobs.
+CI (`.github/workflows/ci.yml`) runs `check:lint`, `check:types` and the tests
+(split into two shards) as parallel jobs.
 
 Keep unit tests fast. A test that checks behaviour at scale should use the
 smallest input that still shows it (for example, a capture long enough to span

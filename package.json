@@ -18,7 +18,6 @@
     "build": "pnpm -r build",
     "check": "pnpm build && pnpm check:quality",
     "check:quality": "pnpm check:static && pnpm test",
-    "check:test": "pnpm test",
     "check:static": "pnpm check:lint && pnpm check:types",
     "check:lint": "pnpm format:check && pnpm lint && pnpm docs:check && pnpm max-patch-knowledge:check && pnpm midi-capture:check && pnpm audio-listener:check && pnpm tests:ownership && pnpm versions:check && pnpm contracts:check && pnpm contracts:compat:self-test",
     "check:types": "pnpm typecheck",

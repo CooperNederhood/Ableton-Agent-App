@@ -14,8 +14,8 @@ concurrency:
 
 jobs:
   # Real-Live qualification is an operator-triggered local suite, not hosted CI.
-  # Lint, typecheck and tests run as parallel jobs so the wait is the longest
-  # of the three, not their sum.
+  # Lint, typecheck and two test shards run as parallel jobs so the wait is
+  # the longest of them, not their sum.
   validate:
     name: validate (${{ matrix.suite }})
     runs-on: ubuntu-latest
@@ -23,7 +23,15 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        suite: [lint, types, test]
+        include:
+          - suite: lint
+            run: pnpm check:lint
+          - suite: types
+            run: pnpm check:types
+          - suite: test-1
+            run: pnpm test:ts --shard=1/2 && pnpm test:max-patches && pnpm test:python
+          - suite: test-2
+            run: pnpm test:ts --shard=2/2
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -45,7 +53,7 @@ jobs:
       - name: Build
         run: pnpm build
       - name: Run ${{ matrix.suite }} checks
-        run: pnpm check:${{ matrix.suite }}
+        run: ${{ matrix.run }}
 
   platform-build:
     runs-on: macos-latest

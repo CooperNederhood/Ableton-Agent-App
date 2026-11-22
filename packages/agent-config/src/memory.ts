@@ -390,16 +390,21 @@ export async function publishMemoryChanges(
     const existed = (await pathKind(change.directory)) === "directory";
     const current = await readMemoryScope(change.directory);
     const byName = new Map(current.topics.map((topic) => [topic.name, topic]));
-    const invalid = new Set(
-      current.diagnostics.map((diagnostic) =>
+    const invalid = new Map(
+      current.diagnostics.map((diagnostic) => [
         basename(diagnostic.path).replace(/\.md$/u, ""),
-      ),
+        diagnostic,
+      ]),
     );
     for (const write of change.writes) {
+      const broken = invalid.get(write.name);
+      if (broken !== undefined) {
+        throw new Error(
+          `${change.scope} memory topic '${write.name}' is not a valid topic file (${broken.message}); fix or delete ${broken.path} first`,
+        );
+      }
       const existing = byName.get(write.name);
-      const actual =
-        existing?.fingerprint ?? (invalid.has(write.name) ? "invalid" : null);
-      if (actual !== write.baseFingerprint) {
+      if ((existing?.fingerprint ?? null) !== write.baseFingerprint) {
         throw new StaleMemoryError(change.scope, write.name);
       }
       byName.set(write.name, parseMemoryTopic(write.name, write.content));

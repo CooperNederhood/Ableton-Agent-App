@@ -547,14 +547,6 @@ export class ArtifactDraft {
         });
       }
     }
-    for (const [scope, entry] of byScope) {
-      const count =
-        (this.#memoryScope(scope)?.topics.length ?? 0) +
-        entry.writes.filter(({ baseFingerprint }) => baseFingerprint === null)
-          .length -
-        entry.deletes.length;
-      assertMemoryTopicBudget(scope, count);
-    }
     return {
       kind: "memory",
       scopes: MEMORY_SCOPE_ORDER.flatMap((scope) => {

@@ -14,16 +14,17 @@ import type {
   PermissionRequestResult,
 } from "@github/copilot-sdk";
 
+import { MAX_ARTIFACT_FILE_CONTENT_LENGTH } from "./artifact-authoring.js";
 import {
   artifactWorkspaceDirectoryError,
   artifactWorkspaceWriteError,
+  isWithin,
   type ArtifactWorkspaceAccess,
 } from "./artifact-workspace.js";
 
 const allowedCommands = new Set(["grep", "head", "jq", "tail", "wc"]);
 const spillFilePattern = /^\d+-copilot-tool-output-[a-f0-9]+\.txt$/u;
 const maximumSpillFileBytes = 16 * 1024 * 1024;
-const maximumWorkspaceFileBytes = 512 * 1024;
 const maximumLineCount = 500;
 const maximumRetainedBytes = 64 * 1024 * 1024;
 const maximumAgeMs = 24 * 60 * 60 * 1000;
@@ -116,13 +117,6 @@ export function prepareSpillDirectory(
 
 function reject(feedback: string): PermissionRequestResult {
   return { kind: "reject", feedback };
-}
-
-function isWithin(parent: string, child: string): boolean {
-  const candidate = relative(parent, child);
-  return (
-    candidate === "" || (!candidate.startsWith("..") && !isAbsolute(candidate))
-  );
 }
 
 function hasUnsafeShellSyntax(command: string): boolean {
@@ -538,48 +532,16 @@ function parseCommand(
   return undefined;
 }
 
-function validateSpillPath(
+/**
+ * Canonical path of a shell file operand when it names a regular file (not a
+ * symbolic link) of at most `maximumBytes` inside `root`.
+ */
+function confinedRegularFile(
   requestedPath: string,
   resolvedPath: string | undefined,
   workingDirectory: string,
-  spillDirectory: string,
-): boolean {
-  const absoluteRequestedPath = isAbsolute(requestedPath)
-    ? requestedPath
-    : resolve(workingDirectory, requestedPath);
-  let requestedDetails;
-  let canonicalRequestedPath;
-  try {
-    requestedDetails = lstatSync(absoluteRequestedPath);
-    canonicalRequestedPath = realpathSync(absoluteRequestedPath);
-    if (
-      resolvedPath !== undefined &&
-      realpathSync.native(resolvedPath) !== canonicalRequestedPath
-    ) {
-      return false;
-    }
-  } catch {
-    return false;
-  }
-  if (requestedDetails.isSymbolicLink() || !requestedDetails.isFile()) {
-    return false;
-  }
-  if (
-    !isWithin(spillDirectory, canonicalRequestedPath) ||
-    !spillFilePattern.test(basename(canonicalRequestedPath)) ||
-    requestedDetails.size > maximumSpillFileBytes
-  ) {
-    return false;
-  }
-  return true;
-}
-
-/** Workspace-relative path of a regular file operand, if it is inside it. */
-function workspaceFilePath(
-  requestedPath: string,
-  resolvedPath: string | undefined,
-  workingDirectory: string,
-  workspaceDirectory: string,
+  root: string,
+  maximumBytes: number,
 ): string | undefined {
   const absoluteRequestedPath = isAbsolute(requestedPath)
     ? requestedPath
@@ -592,15 +554,50 @@ function workspaceFilePath(
         realpathSync.native(resolvedPath) !== canonical) ||
       details.isSymbolicLink() ||
       !details.isFile() ||
-      details.size > maximumWorkspaceFileBytes ||
-      !isWithin(workspaceDirectory, canonical)
+      details.size > maximumBytes ||
+      !isWithin(root, canonical)
     ) {
       return undefined;
     }
-    return relative(workspaceDirectory, canonical).split(sep).join("/");
+    return canonical;
   } catch {
     return undefined;
   }
+}
+
+function validateSpillPath(
+  requestedPath: string,
+  resolvedPath: string | undefined,
+  workingDirectory: string,
+  spillDirectory: string,
+): boolean {
+  const canonical = confinedRegularFile(
+    requestedPath,
+    resolvedPath,
+    workingDirectory,
+    spillDirectory,
+    maximumSpillFileBytes,
+  );
+  return canonical !== undefined && spillFilePattern.test(basename(canonical));
+}
+
+/** Workspace-relative path of a regular file operand, if it is inside it. */
+function workspaceFilePath(
+  requestedPath: string,
+  resolvedPath: string | undefined,
+  workingDirectory: string,
+  workspaceDirectory: string,
+): string | undefined {
+  const canonical = confinedRegularFile(
+    requestedPath,
+    resolvedPath,
+    workingDirectory,
+    workspaceDirectory,
+    MAX_ARTIFACT_FILE_CONTENT_LENGTH,
+  );
+  return canonical === undefined
+    ? undefined
+    : relative(workspaceDirectory, canonical).split(sep).join("/");
 }
 
 /**

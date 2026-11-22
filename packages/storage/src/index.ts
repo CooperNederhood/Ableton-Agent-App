@@ -42,13 +42,6 @@ export type ArtifactScope = "system" | "profile" | "project" | "session";
 /** Memory adds a Live Set level that skills and agents do not have. */
 export type MemoryScope =
   "system" | "profile" | "project" | "live-set" | "session";
-export const MEMORY_SCOPES: readonly MemoryScope[] = [
-  "system",
-  "profile",
-  "project",
-  "live-set",
-  "session",
-];
 
 export interface LiveAgentStorageLayout {
   readonly version: typeof LIVE_AGENT_STORAGE_VERSION;

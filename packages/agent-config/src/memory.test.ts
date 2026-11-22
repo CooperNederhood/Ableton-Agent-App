@@ -162,6 +162,28 @@ describe("memory scope storage", () => {
     expect(await readdir(join(root, "profile"))).toEqual(["memory"]);
   });
 
+  it("names a malformed topic file instead of reporting a stale draft", async () => {
+    const root = await temporaryRoot();
+    const directory = join(root, "memory");
+    await mkdir(directory);
+    await writeFile(join(directory, "bad.md"), "no frontmatter");
+    await expect(
+      publishMemoryChanges([
+        {
+          scope: "profile",
+          directory,
+          writes: [
+            { name: "bad", content: topic("bad"), baseFingerprint: null },
+          ],
+          deletes: [],
+        },
+      ]),
+    ).rejects.toThrow(/not a valid topic file.*fix or delete .*bad\.md/u);
+    expect(await readFile(join(directory, "bad.md"), "utf8")).toBe(
+      "no frontmatter",
+    );
+  });
+
   it("rejects a stale base and leaves every scope unchanged", async () => {
     const root = await temporaryRoot();
     const profile = join(root, "profile");

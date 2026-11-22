@@ -137,8 +137,8 @@ After publishing, memory topics also appear in **Profiles** under a
 **Memory topics** group at each System, Profile, Project and Session node.
 Copy, move (drag, or Cut and Paste), rename and delete work like they do for
 skills, and both scopes' `INDEX.md` files are rebuilt together. Topics can't
-be disabled. Live Set memory isn't shown there yet, because the Profiles tree
-has no Live Set scope.
+be disabled. The Profiles tree has no Live Set level, so Live Set memory is
+managed only through `/update-memory`.
 
 ## Approvals
 

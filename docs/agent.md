@@ -204,8 +204,9 @@ Loading either skill opens one in-memory **draft**
 (`packages/application/src/artifact-authoring.ts`). The agent edits a
 per-session scratch folder, the **artifact workspace**
 (`artifact-workspace.ts`), with the SDK's own file tools. The folder holds
-copies of `memory/{scope}/…` and `skills/{name}/SKILL.md`, and the app reseeds
-it whenever a draft opens or closes so unsaved edits never look saved.
+copies of `memory/{scope}/…` and `skills/{name}/SKILL.md`. The app reseeds it
+when a draft opens, when a draft closes without publishing, and whenever it
+reloads the memory index for a turn, so unsaved edits never look saved.
 
 Every SDK file call asks the permission handler first, and
 `evaluateArtifactWorkspacePermission` decides:
@@ -217,8 +218,9 @@ Every SDK file call asks the permission handler first, and
 | `bash` `rm`                     | A single, flag-free `rm` of a writable draft memory topic. Emptying a topic file also deletes it.                     |
 | `bash` `mkdir`                  | A single `mkdir [-p]` of a new `skills/{name}` folder during a skill draft; `create` refuses a missing parent folder. |
 
-Everything else, including symbolic links, is refused with the code
-`artifact_workspace_blocked` and a hint the model can act on. Skills cannot
+Everything else, including symbolic links, is refused with a hint the model
+can act on. File tool refusals use the code `artifact_workspace_blocked`;
+`bash` refusals use `shell_policy_blocked`. Skills cannot
 be deleted.
 
 ### Review

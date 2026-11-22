@@ -42,7 +42,7 @@ const MAX_WORKSPACE_FILES = 256;
 const MAX_WORKSPACE_DEPTH = 4;
 const IGNORED_FILE_NAMES = new Set([".DS_Store"]);
 
-function isWithin(parent: string, child: string): boolean {
+export function isWithin(parent: string, child: string): boolean {
   const candidate = relative(parent, child);
   return (
     candidate === "" || (!candidate.startsWith("..") && !isAbsolute(candidate))

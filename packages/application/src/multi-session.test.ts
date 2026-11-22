@@ -4622,6 +4622,145 @@ describe("CopilotAgentService managed sessions", () => {
     await vi.waitFor(() => expect(stat(workspace.root)).rejects.toThrow());
   });
 
+  it("reports every review outcome to the agent and keeps unsaved edits out", async () => {
+    const events = new InMemoryEventPublisher();
+    const received: AppEvent[] = [];
+    events.subscribe((event) => received.push(event));
+    const root = await mkdtemp(join(tmpdir(), "ableton-agent-outcomes-"));
+    const updateMemory = await createSkillDescriptor(
+      root,
+      "update-memory",
+      "# Update memory",
+    );
+    const context: ArtifactAuthoringContext = {
+      memory: [{ scope: "session", available: true, topics: [] }],
+      skillScopes: [{ scope: "profile", available: true }],
+      skills: [],
+    };
+    const publish = vi.fn<ArtifactAuthoringPort["publish"]>(async () => {
+      throw new Error("disk full");
+    });
+    const session = createFakeSession("outcome-session");
+    let config: SessionConfig | undefined;
+    const workspaceDirectory = join(root, "workspaces");
+    const workspace = ArtifactWorkspace.forSession(
+      workspaceDirectory,
+      "production-writer",
+    );
+    const service = new CopilotAgentService(
+      baseOptions({
+        events,
+        artifactWorkspaceDirectory: workspaceDirectory,
+        artifactAuthoring: { loadContext: async () => context, publish },
+        clientFactory: () => ({
+          createSession: vi.fn(async (next: SessionConfig) => {
+            config = next;
+            return session;
+          }),
+          resumeSession: vi.fn(async () => {
+            throw new Error("resume not expected");
+          }),
+          stop: vi.fn(async () => undefined),
+        }),
+      }),
+    );
+    await service.start();
+    await service.createManagedAgent(
+      configuration("writer", { skills: [], availableSkills: [updateMemory] }),
+    );
+    const tool = (name: string) => {
+      const found = config?.tools?.find((candidate) => candidate.name === name);
+      if (found?.handler === undefined) throw new Error(`missing ${name}`);
+      return (args: Record<string, unknown>) =>
+        found.handler!(args, {
+          sessionId: "outcome-session",
+          toolCallId: `${name}-call`,
+          toolName: name,
+          arguments: args,
+        }) as Promise<unknown>;
+    };
+    const genres = join(workspace.root, "memory/session/genres.md");
+    const draftGenres = async (body: string) => {
+      await tool("skill")({ skill_name: "update-memory" });
+      await writeFile(
+        genres,
+        `---\nname: genres\ndescription: Genres\n---\n\n${body}\n`,
+      );
+    };
+    const submitForReview = async () => {
+      const before = received.length;
+      const result = tool("submit_artifact_draft")({ summary: "Genres" });
+      await vi.waitFor(() =>
+        expect(
+          received
+            .slice(before)
+            .some((event) => event.type === "agent.artifact_review_requested"),
+        ).toBe(true),
+      );
+      const requested = received
+        .slice(before)
+        .find((event) => event.type === "agent.artifact_review_requested");
+      if (requested?.type !== "agent.artifact_review_requested") {
+        throw new Error("missing review");
+      }
+      return { result, request: requested.request };
+    };
+    const decide = (
+      request: { requestId: string; revision: number },
+      decision: "approve" | "request_changes" | "discard",
+      feedback?: string,
+    ) =>
+      service.resolveManagedAgentArtifactReview("writer", {
+        requestId: request.requestId,
+        revision: request.revision,
+        decision,
+        ...(feedback === undefined ? {} : { feedback }),
+      });
+
+    await draftGenres("House.");
+    const first = await submitForReview();
+    await decide(first.request, "request_changes", "Be specific");
+    await expect(first.result).resolves.toContain(
+      "requested changes: Be specific",
+    );
+    await writeFile(
+      genres,
+      "---\nname: genres\ndescription: Genres\n---\n\nDeep house.\n",
+    );
+    const revised = await submitForReview();
+    expect(revised.request.files[0]?.after).toContain("Deep house.");
+    await decide(revised.request, "discard");
+    await expect(revised.result).resolves.toContain("Nothing was saved");
+    await vi.waitFor(() => expect(stat(genres)).rejects.toThrow());
+
+    await draftGenres("Techno.");
+    const failing = await submitForReview();
+    await expect(decide(failing.request, "approve")).resolves.toMatchObject({
+      outcome: "publish_failed",
+    });
+    await expect(failing.result).resolves.toContain(
+      "Publishing failed and nothing was saved: disk full",
+    );
+    await vi.waitFor(() => expect(stat(genres)).rejects.toThrow());
+
+    await draftGenres("Ambient.");
+    const abandoned = await submitForReview();
+    await service.stop();
+    await expect(abandoned.result).resolves.toContain(
+      "The review was cancelled",
+    );
+    expect(
+      received.flatMap((event) =>
+        event.type === "agent.artifact_review_completed" ? [event.outcome] : [],
+      ),
+    ).toEqual([
+      "changes_requested",
+      "discarded",
+      "publish_failed",
+      "cancelled",
+    ]);
+  });
+
   it("offers SDK file tools only when artifact authoring is configured", async () => {
     let config: SessionConfig | undefined;
     const service = new CopilotAgentService(

@@ -311,7 +311,7 @@ function playbackParameters(
   };
 }
 
-function subject(
+export function listeningSubject(
   owner: ListeningOwner,
   listener: InspectListeningContextResult["listeners"][number],
   range: { startBeat: number; endBeat: number },
@@ -388,8 +388,13 @@ function publicationBindings(
       connectionEpoch: connection.connectionEpoch,
       version: state.descriptors[index]!.registration.algorithmVersion,
       ...(musicalAlignment === undefined ? {} : { musicalAlignment }),
-      primary: subject(state.owner, listener, range, "arrangement-range"),
-      contributors: [subject(state.owner, listener, range, "track")],
+      primary: listeningSubject(
+        state.owner,
+        listener,
+        range,
+        "arrangement-range",
+      ),
+      contributors: [listeningSubject(state.owner, listener, range, "track")],
       // An independently inspected bus can be mixed; never infer exclusive clip audio.
       attribution:
         listener.binding.track.kind !== "regular" &&
@@ -1402,7 +1407,7 @@ export function createListeningRuntimeHost(
         "session",
       ),
     trackSubject: (owner, listener, range) =>
-      subject(owner, listener, range, "track"),
+      listeningSubject(owner, listener, range, "track"),
   });
 
   const services: ListeningCoordinatorServices = {
@@ -1801,7 +1806,10 @@ export function createListeningRuntimeHost(
             release,
           };
         },
-        (playback) => playback.release(),
+        (playback) =>
+          playback.cleanupPolicy === "leave-running"
+            ? playback.release()
+            : playback.stop(),
       ),
     validateStreams: (
       manifests: readonly MetricRecordStreamManifest[],

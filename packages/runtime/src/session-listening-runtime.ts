@@ -42,7 +42,7 @@ import {
 import {
   assertSessionFirstIterationCoverage,
   assertSessionSourceUnchanged,
-  assertTransportCoupledSessionOrigin,
+  assertSessionOriginIdentity,
   freezeSessionSourceExpectation,
   type SessionSourceExpectation,
   type SessionSourceOrigin,
@@ -265,8 +265,8 @@ export function createSessionListeningServices(
     const listener = cached.inspection.listeners[0]!;
     const target = cached.request.target!;
     const inspectedTrack = options.trackSubject(cached.owner, listener, {
-      startBeat: cached.expected.startBeat,
-      endBeat: cached.expected.endBeat,
+      startBeat: 0,
+      endBeat: cached.expected.durationBeats,
     });
     if (
       inspectedTrack.kind !== "track" ||
@@ -275,9 +275,12 @@ export function createSessionListeningServices(
       )
     )
       deny("session_same_track_native_listener_required");
-    const trackId = inspectedTrack.id;
+    // Session track subjects are self-referential, so their ID must not reuse
+    // the Arrangement track subject's ID for the same track and beats.
+    const trackId = digest({ view: "session", track: inspectedTrack.id });
     const contributor = {
       ...inspectedTrack,
+      id: trackId,
       trackId,
       binding: {
         ...inspectedTrack.binding,
@@ -362,23 +365,14 @@ export function createSessionListeningServices(
           request.durationBeats,
         );
       assertSessionSourceUnchanged(expected, snapshot);
-      const current = freezeSessionSourceExpectation(
+      freezeSessionSourceExpectation(
         snapshot,
         request.target,
         request.durationBeats,
       );
-      if (current.stoppedBeat !== expected.stoppedBeat)
-        deny("session_transport_changed", undefined, [
-          failureFact(
-            "source.startBeat",
-            current.stoppedBeat,
-            expected.stoppedBeat,
-            { unit: "beats" },
-          ),
-        ]);
       const binding = await options.inspectBindings({
         request,
-        range: { startBeat: expected.startBeat, endBeat: expected.endBeat },
+        range: { startBeat: 0, endBeat: expected.durationBeats },
         context,
         signal,
         ...(previous ? { previous } : {}),
@@ -451,9 +445,7 @@ export function createSessionListeningServices(
         Object.values(binding.inspection.transport.recording).some(
           (value) => value !== false,
         ) ||
-        binding.inspection.transport.tempo !==
-          expected.source.settings.tempoBpm ||
-        binding.inspection.transport.currentBeat !== expected.stoppedBeat
+        binding.inspection.transport.tempo !== expected.source.settings.tempoBpm
       )
         deny("session_transport_or_recording_unsafe", undefined, [
           failureFact(
@@ -485,12 +477,6 @@ export function createSessionListeningServices(
             binding.inspection.transport.tempo,
             expected.source.settings.tempoBpm,
           ),
-          failureFact(
-            "transport.currentBeat",
-            binding.inspection.transport.currentBeat,
-            expected.stoppedBeat,
-            { unit: "beats" },
-          ),
         ]);
       const policyInput = previous?.policy ?? options.resolveTimingPolicy();
       const policy =
@@ -515,7 +501,6 @@ export function createSessionListeningServices(
             : {}),
           descriptor,
           tempoBpm: binding.inspection.transport.tempo!,
-          stoppedBeat: expected.stoppedBeat,
           timingPolicy: policy,
           source: {
             view: "session",
@@ -528,11 +513,8 @@ export function createSessionListeningServices(
               startBeat: 0,
               endBeat: expected.durationBeats,
             },
-            transport: {
-              startBeat: expected.startBeat,
-              endBeat: expected.endBeat,
-            },
-            clipStartTimeBeats: expected.startBeat,
+            transport: { startBeat: 0, endBeat: expected.durationBeats },
+            clipStartTimeBeats: 0,
             synchronization: "transport-coupled-first-iteration",
           },
         });
@@ -631,7 +613,6 @@ export function createSessionListeningServices(
               ...cached.inspection.listeners[0]!.binding,
               track: cached.request.target!.track,
             },
-            startBeat: cached.expected.stoppedBeat,
           }),
         (lease) => lease.release(),
       );
@@ -888,7 +869,7 @@ export function createSessionListeningServices(
               lease.seal(captureSignal),
             );
             assertSessionSourceUnchanged(cached.expected, seal.source);
-            assertTransportCoupledSessionOrigin(cached.expected, seal.origin);
+            assertSessionOriginIdentity(cached.expected, seal.origin);
             cached.validatedDigest = digest(manifests);
             return manifests;
           }),
@@ -943,16 +924,18 @@ export function createSessionListeningServices(
       const origin = await stage("session-launch", input, () =>
         cached.lease!.launch(input.signal, input.onSessionLaunch),
       );
-      assertTransportCoupledSessionOrigin(cached.expected, origin);
+      assertSessionOriginIdentity(cached.expected, origin);
       await stage("session-native-onset", input, () => cached.nativeLaunch!);
       input.onSessionLaunch?.({
         state: "verified",
         mutationState: "observed-playing",
       });
       cached.startedAt = new Date().toISOString();
+      // Releasing the Session pass stops the transport it started.
       return {
-        cleanupPolicy: "leave-running" as const,
-        release: () => cached.release!(),
+        cleanupPolicy: "stop-owned" as const,
+        isOwned: () => true,
+        stop: () => cached.release!(),
       };
     },
 

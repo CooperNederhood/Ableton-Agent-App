@@ -99,7 +99,6 @@ function createMetricController(options) {
   for (const key of [
     "listenerControlMetricSchema",
     "nativeMetricLaunchProofSchema",
-    "matchesNativeSessionStoppedBeat",
     "snapshotNativeContinuousMetricListeningExpectation",
     "assertNativeContinuousMetricReadyProof",
     "assertNativeContinuousMetricArmProof",
@@ -447,15 +446,12 @@ function createMetricController(options) {
     );
     if (!p.armProof && row[0] !== 0)
       throw new Error("metric_transport_not_stopped");
-    const expectedBeat =
-      p.config.mode === "session"
-        ? p.config.stoppedBeat
-        : p.config.geometry.startBeat;
+    // Session listening does not depend on where the stopped transport sits.
+    const expectedBeat = p.config.geometry.startBeat;
     if (
       !p.armProof &&
-      (p.config.mode === "session"
-        ? !codec.matchesNativeSessionStoppedBeat(row[1], expectedBeat)
-        : row[1] !== expectedBeat)
+      p.config.mode === "arrangement" &&
+      row[1] !== expectedBeat
     ) {
       p.failedClockReadback = row;
       p.inputFailureDetail ??= JSON.stringify({

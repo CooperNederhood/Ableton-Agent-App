@@ -37,6 +37,19 @@ Electron tests use Playwright and run separately:
 typecheck, contract checks, then `pnpm test`. It doesn't run Playwright or
 anything that needs Live.
 
+| Command             | What it runs                                           |
+| ------------------- | ------------------------------------------------------ |
+| `pnpm check:lint`   | Format, lint, docs, device and contract checks         |
+| `pnpm check:types`  | `pnpm typecheck`                                       |
+| `pnpm check:static` | `check:lint` then `check:types` (everything but tests) |
+
+CI (`.github/workflows/ci.yml`) runs `check:lint`, `check:types` and the tests
+(split into two shards) as parallel jobs.
+
+Keep unit tests fast. A test that checks behaviour at scale should use the
+smallest input that still shows it (for example, a capture long enough to span
+two pages, not ten minutes).
+
 ## Capability tests (agent-smoke)
 
 `scripts/agent-smoke.mjs` launches its own Ableton Live process, installs the

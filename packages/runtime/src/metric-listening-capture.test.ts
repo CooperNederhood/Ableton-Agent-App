@@ -95,9 +95,6 @@ class Service extends SyntheticMetricListenerPeer {
       tempoBpm: this.data.config.geometry.tempoBpm,
       timingPolicy: this.data.config.timingPolicy,
       requestedMetrics: this.data.config.requestedMetrics,
-      ...(this.data.config.mode === "session"
-        ? { stoppedBeat: this.data.config.stoppedBeat }
-        : {}),
     });
   }
   get input(): PrepareMetricListenerCaptureInput {
@@ -857,28 +854,6 @@ describe("real version5 ListenerService orchestration", () => {
     ).toBe(true);
   });
 
-  it("streams a full high-density capture without the old whole-observation byte ceiling", async () => {
-    const s = new Service();
-    const large = createSyntheticMetricWireFixture("arrangement", false, {
-      tempoBpm: 999,
-      endBeat: 499.5,
-    });
-    large.observation.source = structuredClone(s.data.observation.source);
-    large.observation.source.transport.endBeat = large.config.geometry.endBeat;
-    large.config.sourceContext = large.observation.source;
-    large.ready.config = structuredClone(large.config);
-    large.proof.armed.config = structuredClone(large.config);
-    s.data = large;
-    const prepared = await prepareMetricListenerStream(s, s.input);
-    s.launch();
-    s.complete();
-    const [manifest] = await prepared.result;
-    expect(manifest?.outcome).toBe("complete");
-    expect(s.stream?.descriptor.geometry.rows).toHaveLength(1998);
-    expect(s.streamSink.append).toHaveBeenCalled();
-    await prepared.disarm();
-  });
-
   it("prepares every independent Arrangement binding before arming any listener", async () => {
     const a = new Service(),
       b = new Service();
@@ -1391,9 +1366,6 @@ describe("real version5 ListenerService orchestration", () => {
                   tempoBpm: config.geometry.tempoBpm,
                   requestedMetrics: config.requestedMetrics,
                   timingPolicy: config.timingPolicy,
-                  ...(config.stoppedBeat === undefined
-                    ? {}
-                    : { stoppedBeat: config.stoppedBeat }),
                   gaps: Object.entries(data.observation.metrics).flatMap(
                     ([metric, timeline]) =>
                       timeline?.gaps.map((gap) => ({
@@ -1569,9 +1541,6 @@ describe("real version5 ListenerService orchestration", () => {
                   source: data.observation.source,
                   tempoBpm: data.config.geometry.tempoBpm,
                   timingPolicy: data.config.timingPolicy,
-                  ...(data.config.mode === "session"
-                    ? { stoppedBeat: data.config.stoppedBeat }
-                    : {}),
                 }),
               ],
               trace,

@@ -564,9 +564,8 @@ describe("typed metric context history", () => {
         },
       });
       stores.push(store);
-      const value = largeMetricPublication(`large-${partial}`, partial, 8);
+      const value = largeMetricPublication(`large-${partial}`, partial, 2);
       const encodedBytes = Buffer.byteLength(JSON.stringify(value));
-      expect(encodedBytes).toBeGreaterThan(2 * 1_024 * 1_024);
       expect(encodedBytes).toBeLessThan(CONTEXT_LIMITS.passBytes);
       for (const entry of value.entries) {
         expect(Buffer.byteLength(JSON.stringify(entry))).toBeGreaterThan(

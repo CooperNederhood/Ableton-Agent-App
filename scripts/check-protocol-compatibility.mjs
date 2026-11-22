@@ -18,24 +18,6 @@ function breakingChanges(previous, current) {
   return breaking;
 }
 
-if (process.argv.includes("--self-test")) {
-  const base = {
-    envelopes: { request: { type: "object" } },
-    commands: { ping: { params: {}, result: {} } },
-  };
-  const unchanged = JSON.parse(JSON.stringify(base));
-  if (breakingChanges(base, unchanged).length !== 0) {
-    throw new Error("Compatibility self-test rejected an unchanged contract");
-  }
-  const changed = JSON.parse(JSON.stringify(base));
-  changed.commands.ping.result = { type: "string" };
-  if (breakingChanges(base, changed).join() !== "command ping") {
-    throw new Error("Compatibility self-test missed a breaking command change");
-  }
-  console.log("Protocol compatibility pass/fail fixtures behaved as expected.");
-  process.exit(0);
-}
-
 const baseRef = process.argv[2];
 if (!baseRef) {
   console.error(

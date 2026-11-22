@@ -793,7 +793,7 @@ def build_capability_document(
             limitations.append(
                 "Requires exact same-track listener binding, real source event subscriptions "
                 "and readable polled origin; unavailable required monitors/reads refuse admission. "
-                "Always leaves playback running."
+                "Stops the transport on release when the requested clip is still playing."
             )
         if name == "listening.inspect_session_source":
             limitations.append(

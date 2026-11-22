@@ -21,7 +21,6 @@ import { sessionNativeSourceSchema } from "./native-session-listening-schemas.js
 import {
   assertNativeCheckedTransportSourceCoverage,
   isCoherentNativeTransportClock,
-  matchesNativeSessionStoppedBeat,
   nativeCheckedTransportClockBindingSchema,
   nativeTransportTimingWitnessesSchema,
 } from "./native-listening-v2-schemas.js";
@@ -111,7 +110,6 @@ export const nativeMetricListeningConfigSchema = z
     z.strictObject({
       ...config,
       mode: z.literal("session"),
-      stoppedBeat: beat,
       sourceEvidence: z.literal("expected-context-only"),
       source: sessionNativeSourceSchema,
     }),
@@ -316,7 +314,6 @@ export interface NativeMetricAdmissionEvidence {
   ownership: z.infer<typeof nativeMetricOwnershipSchema>;
   config: {
     mode: "arrangement" | "session";
-    stoppedBeat?: number | undefined;
     requestedMetrics: readonly string[];
     timingPolicy: z.infer<typeof listeningTimingPolicySchema>;
     geometry: Pick<
@@ -349,11 +346,8 @@ export function validateNativeMetricReadyEvidence(
   if (
     value.before.dsp[1] !== g.sampleRate ||
     value.before.dsp[2] !== g.vectorSize ||
-    value.before.frames.some((row) =>
-      value.config.mode === "session"
-        ? !matchesNativeSessionStoppedBeat(row[1], value.config.stoppedBeat)
-        : row[1] !== g.startBeat,
-    ) ||
+    (value.config.mode === "arrangement" &&
+      value.before.frames.some((row) => row[1] !== g.startBeat)) ||
     (value.config.timingPolicy.mode === "strict" &&
       value.before.frames.some(
         (row) => row[2] - row[4] !== value.before.frames[0]![2] - first,
@@ -446,11 +440,8 @@ export function validateNativeMetricArmEvidence(
       Math.ceil(g.totalSamples / (g.sampleRate / 10)) * (g.sampleRate / 10) +
       g.vectorSize >=
       LIMIT ||
-    value.before.frames.some((row) =>
-      value.config.mode === "session"
-        ? !matchesNativeSessionStoppedBeat(row[1], value.config.stoppedBeat)
-        : row[1] !== g.startBeat,
-    ) ||
+    (value.config.mode === "arrangement" &&
+      value.before.frames.some((row) => row[1] !== g.startBeat)) ||
     (value.config.timingPolicy.mode === "strict" &&
       value.before.frames.some(
         (row) => row[2] - row[4] !== first[2] - first[4],
@@ -788,12 +779,16 @@ export function nativeMetricEvidenceLaunchCoordinates(
       launched.clock[2] - startSample > g.sampleRate / 10 + g.vectorSize)
   )
     throw new Error("native_metric_launch_binding_mismatch");
+  // Session geometry is clip-local and Live picks the transport start beat,
+  // so the launch row is the only start reference: nothing to compare.
   const residual =
-    launched.clock[2] -
-    Math.round(
-      ((launched.clock[1] - g.startBeat) * g.sampleRate * 60) / g.tempoBpm,
-    ) -
-    startSample;
+    armed.config.mode === "session"
+      ? 0
+      : launched.clock[2] -
+        Math.round(
+          ((launched.clock[1] - g.startBeat) * g.sampleRate * 60) / g.tempoBpm,
+        ) -
+        startSample;
   evaluateListeningAlignment(armed.config.timingPolicy, {
     sampleRate: g.sampleRate,
     vectorSize: g.vectorSize,
@@ -852,8 +847,6 @@ export function nativeMetricEvidenceSourceCoverage(
     receipt: { fields: readonly number[]; timing: NativeMetricCompactTiming };
   },
 ) {
-  if (armed.config.mode === "session" && armed.config.stoppedBeat === undefined)
-    throw new Error("native_metric_missing_stopped_beat");
   const coordinates = nativeMetricEvidenceLaunchCoordinates(
     armed,
     proof.launched,

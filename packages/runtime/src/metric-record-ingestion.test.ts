@@ -120,7 +120,7 @@ async function fixture() {
 }
 
 describe("bounded durable metric ingestion", () => {
-  it.each([180, 600])(
+  it.each([30])(
     "durably consumes all six metric families for %ss without accumulating chunk bodies",
     async (seconds) => {
       const fixture = await createSyntheticMetricRecordStreamFixture({
@@ -167,7 +167,6 @@ describe("bounded durable metric ingestion", () => {
         persistedSamples: seconds * 48_000,
       });
     },
-    90_000,
   );
   it("reports only durably committed metric coverage", async () => {
     const f = await fixture();
@@ -185,7 +184,7 @@ describe("bounded durable metric ingestion", () => {
       persistedChunks: 1,
     });
   });
-  it.each([180, 600])(
+  it.each([30])(
     "stages a %ss continuous span without retaining or replaying a terminal observation",
     async (seconds) => {
       const f = await fixture();

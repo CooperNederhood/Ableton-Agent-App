@@ -951,7 +951,7 @@ export function verifyNativeMetricListeningEvidence(input, protocol) {
   } = input;
   check(
     job.stage === (partial ? "partial" : "completed") &&
-      job.cleanupPolicy === "leave-running" &&
+      job.cleanupPolicy === (arrangement ? "leave-running" : "stop-owned") &&
       job.contextIds.length === 1 &&
       pass?.id === job.passId &&
       pass.status === (partial ? "partial" : "completed") &&

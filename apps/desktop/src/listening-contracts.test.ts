@@ -119,8 +119,12 @@ describe("Desktop listening wire contracts", () => {
     expect(() =>
       desktopListeningJobSchema.parse({ ...job, error: "x".repeat(2049) }),
     ).toThrow();
+    expect(
+      desktopListeningJobSchema.parse({ ...job, cleanupPolicy: "stop-owned" })
+        .cleanupPolicy,
+    ).toBe("stop-owned");
     expect(() =>
-      desktopListeningJobSchema.parse({ ...job, cleanupPolicy: "stop-owned" }),
+      desktopListeningJobSchema.parse({ ...job, cleanupPolicy: "stop-all" }),
     ).toThrow();
     expect(() =>
       desktopListeningPageSchema.parse({

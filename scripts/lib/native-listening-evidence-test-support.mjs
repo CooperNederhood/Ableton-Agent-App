@@ -317,7 +317,6 @@ export function sessionEvidence({
               target,
               listener: e.target.binding,
               durationBeats: resolvedDurationBeats,
-              timingAnchor: { globalBeat: startBeat },
             }
           : action === "release"
             ? { reason: "completed" }
@@ -336,7 +335,7 @@ export function sessionEvidence({
         mutationState:
           action === "prepare" ? "not-attempted" : "observed-playing",
         reason: null,
-        cleanupPolicy: "leave-running",
+        cleanupPolicy: "stop-owned",
         evidence: "message-rate-only",
         nativeAlignment: "unverified",
         lastObservedSource: action === "prepare" ? stopped : running,
@@ -348,6 +347,9 @@ export function sessionEvidence({
       },
     }),
   );
+  // Releasing the Session pass stops the transport it started.
+  const released = { ...stopped, globalBeat: running.globalBeat };
+  e.job.cleanupPolicy = "stop-owned";
   e.session = {
     target,
     source,
@@ -355,7 +357,8 @@ export function sessionEvidence({
     geometry: e.expected.geometry,
     durationBeats,
     receipts,
-    after: { ...source, before: running, after: running },
+    running,
+    after: { ...source, before: released, after: released },
   };
   const observation = protocol.mapSessionAudioObservation(native.observation, {
     view: "session",

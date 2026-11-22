@@ -89,7 +89,6 @@ export function createSessionSourceDriver(
       durationBeats: number;
       expectedProjectRevision: number;
       binding: PrepareSessionListeningPassParams["listener"];
-      startBeat: number;
     }): Promise<SessionSourceLease> {
       const { pass } = input;
       const checkSignal = (signal: AbortSignal, check: string) => {
@@ -352,7 +351,6 @@ export function createSessionSourceDriver(
             target: input.target,
             listener: input.binding,
             durationBeats: input.durationBeats,
-            timingAnchor: { globalBeat: input.startBeat },
           },
           pass.signal,
         );

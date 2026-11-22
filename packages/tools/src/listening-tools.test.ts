@@ -227,7 +227,7 @@ describe("optional listening tool contracts", () => {
       listeningOperationParamsSchema.options[1].description,
     ]) {
       expect(guidance).toContain(
-        "Every successful Session listen leaves playback running",
+        "A completed Session listen stops the transport it started",
       );
       expect(guidance).toContain("Before the next Session listen");
       expect(guidance).toContain("set-playing");
@@ -1282,7 +1282,9 @@ describe("optional listening tool contracts", () => {
         entries: [],
       }),
     });
-    expect(tool.description).toContain("Capture leaves playback running");
+    expect(tool.description).toContain(
+      "A Session capture stops the transport it started; an Arrangement capture leaves playback running",
+    );
     expect(tool.description).toContain("Source attribution is not exclusive");
     expect(tool.description).toContain(
       "Missing evidence never authorizes replay",
@@ -1302,7 +1304,7 @@ describe("optional listening tool contracts", () => {
       "one-bar and nonzero stopped anchors are not qualified",
     );
     expect(listeningOperationParamsSchema.options[1].description).toContain(
-      "Cancellation never retracts an accepted launch or stops transport",
+      "Cancellation never retracts an accepted launch; releasing the pass stops the transport it started",
     );
     expect(listeningOperationParamsSchema.options[1].description).toContain(
       "600-second acquisition ceiling",

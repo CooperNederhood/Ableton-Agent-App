@@ -3,6 +3,7 @@ import test from "node:test";
 import { createHash } from "node:crypto";
 import { nativeRuntimeDocuments } from "./native-runtime-source.mjs";
 import { genModel } from "./gen-model.mjs";
+import { reverseOffFractionLaunch } from "./host-timing-history-test-helpers.mjs";
 import {
   descriptiveFiniteWords,
   descriptiveFinitePredicate,
@@ -269,6 +270,7 @@ test("v2 coupled changes reverse exactly to historical clock and envelope code w
       "epoch > seenEpoch && epoch < 17592186044416 && floor(epoch) == epoch",
     );
     if (name === "envelope") {
+      previous = reverseOffFractionLaunch(previous);
       previous = replaceOne(
         previous,
         "periodicPhase = in1 >= 1 && in1 - 1 <= 0.000000001 ? 0 : in1;\n",

@@ -233,13 +233,9 @@ describe("Session wire3 independent source join (synthetic only, not physical qu
       verifyNativeListeningEvidence(e, protocol).physicalClipIdentityProven,
     ).toBe(false);
   });
-  it("does not replace the pre-publication origin with a later leave-running loop epoch", () => {
+  it("does not replace the pre-publication origin with the post-release stopped read", () => {
     const e = sessionEvidence();
-    const after = {
-      ...e.session.after.after,
-      globalBeat: 16.25,
-      startTimeBeats: 16,
-    };
+    const after = { ...e.session.after.after, globalBeat: 16.25 };
     e.session.after = { ...e.session.after, before: after, after };
     const result = verifyNativeListeningEvidence(e, protocol);
     expect(result.transportRange).toEqual({ startBeat: 8, endBeat: 12 });

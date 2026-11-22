@@ -94,7 +94,7 @@ class ControlSurfaceCleanupTest(unittest.TestCase):
         self.assertEqual(self.fixture.fires, 1)
         self.assertTrue(self.fixture.song.is_playing)
         self.assertEqual(self.fixture.results[0]["mutationState"], "indeterminate")
-        self.assertEqual(self.fixture.results[0]["cleanupPolicy"], "leave-running")
+        self.assertEqual(self.fixture.results[0]["cleanupPolicy"], "stop-owned")
         self.fixture.assert_no_monitors()
         self.surface.disconnect()
         self.assertTrue(self.host.base_disconnected)

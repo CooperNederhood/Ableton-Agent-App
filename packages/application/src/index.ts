@@ -157,7 +157,10 @@ import {
   workflowJobCommandParamsSchema,
   workflowJobOperationParamsSchema,
 } from "@ableton-agent/protocol";
-import { sanitizeTelemetryAttributes } from "@ableton-agent/observability";
+import {
+  sanitizePersistedText,
+  sanitizeTelemetryAttributes,
+} from "@ableton-agent/observability";
 import type {
   AppEvent,
   AgentMode,
@@ -4091,8 +4094,6 @@ export class CopilotAgentService implements AgentService {
                       ).catch((error: unknown) => {
                         if (
                           !(error instanceof ListeningFailure) ||
-                          (error.code !== "live_set_changed" &&
-                            error.code !== "stale_session_target") ||
                           receipt.context.signal?.aborted
                         )
                           throw error;
@@ -4106,12 +4107,20 @@ export class CopilotAgentService implements AgentService {
                                 recovery:
                                   "Start a new chat with the current Live Set open.",
                               }
-                            : {
-                                message:
-                                  "The Session clip did not match the requested target.",
-                                recovery:
-                                  "Inspect the Session again and use the exact track, slot, clip reference, and clip name before requesting a new capture.",
-                              }),
+                            : error.code === "stale_session_target"
+                              ? {
+                                  message:
+                                    "The Session clip did not match the requested target.",
+                                  recovery:
+                                    "Inspect the Session again and use the exact track, slot, clip reference, and clip name before requesting a new capture.",
+                                }
+                              : {
+                                  message: sanitizePersistedText(
+                                    error.message,
+                                  ).slice(0, 512),
+                                  recovery:
+                                    "Report this to the user; do not retry until they change the Live Set.",
+                                }),
                           details: {},
                         };
                         return undefined;

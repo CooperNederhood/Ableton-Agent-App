@@ -14,9 +14,24 @@ concurrency:
 
 jobs:
   # Real-Live qualification is an operator-triggered local suite, not hosted CI.
+  # Lint, typecheck and two test shards run as parallel jobs so the wait is
+  # the longest of them, not their sum.
   validate:
+    name: validate (${{ matrix.suite }})
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - suite: lint
+            run: pnpm check:lint
+          - suite: types
+            run: pnpm check:types
+          - suite: test-1
+            run: pnpm test:ts --shard=1/2 && pnpm test:max-patches && pnpm test:python
+          - suite: test-2
+            run: pnpm test:ts --shard=2/2
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -31,34 +46,11 @@ jobs:
           python-version: "3.11"
       - run: pnpm install --frozen-lockfile
       - name: Check protocol backward compatibility
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' && matrix.suite == 'lint'
         run: |
           git fetch --no-tags origin "${{ github.base_ref }}"
           pnpm contracts:compat "origin/${{ github.base_ref }}"
-      - name: Format, lint, typecheck, and test
-        shell: bash
-        run: pnpm check 2>&1 | tee ci-validation.log
-      - name: Upload failure diagnostics
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: validation-diagnostics
-          path: |
-            ci-validation.log
-          if-no-files-found: ignore
-          retention-days: 7
-
-  platform-build:
-    runs-on: macos-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 10.15.1
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm build
+      - name: Build
+        run: pnpm build
+      - name: Run ${{ matrix.suite }} checks
+        run: ${{ matrix.run }}

@@ -1875,10 +1875,6 @@ export class HeadlessDesktopService implements DesktopService {
         );
       return value;
     };
-    if (source.cleanupPolicy === "stop-owned")
-      throw new Error(
-        "Desktop bounded listening has no playback ownership token; stop-owned policy is unsupported.",
-      );
     let job = desktopListeningJobSchema.parse(
       sanitize({
         passId: source.passId,
@@ -1905,7 +1901,7 @@ export class HeadlessDesktopService implements DesktopService {
         ...(source.failureEvidence === undefined
           ? {}
           : { failureEvidence: source.failureEvidence }),
-        cleanupPolicy: "leave-running",
+        cleanupPolicy: source.cleanupPolicy ?? "leave-running",
         evidence: "lifecycle-only",
         ...(source.session === undefined ? {} : { session: source.session }),
       }),

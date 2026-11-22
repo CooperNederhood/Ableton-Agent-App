@@ -264,10 +264,9 @@ function verifySessionSourceJoin(input, observation, raw, expected, protocol) {
           params.expectedLiveSetId === owner.liveSetId &&
           params.expectedProjectRevision === frozen.source.projectRevision &&
           params.durationBeats === frozen.durationBeats &&
-          params.timingAnchor.globalBeat === expected.geometry.startBeat &&
           isDeepStrictEqual(params.target, frozen.target) &&
           isDeepStrictEqual(params.listener, target.binding),
-        "Session preparation did not use the independently frozen fixture target and transport anchor",
+        "Session preparation did not use the independently frozen fixture target",
       );
     } else if (params.action === "launch") {
       requireValue(
@@ -319,8 +318,6 @@ function verifySessionSourceJoin(input, observation, raw, expected, protocol) {
       requireValue(
         launched &&
           epoch.clipReference === frozen.target.expectedClipReference &&
-          Math.abs(epoch.startTimeBeats - expected.geometry.startBeat) <=
-            1e-8 &&
           (state.startTimeBeats === epoch.startTimeBeats ||
             (covered &&
               state.startTimeBeats ===
@@ -331,10 +328,10 @@ function verifySessionSourceJoin(input, observation, raw, expected, protocol) {
           state.targetPlaying === true &&
           state.targetRecording === false &&
           state.transportPlaying === true &&
-          epoch.observedGlobalBeat >= expected.geometry.startBeat &&
+          epoch.observedGlobalBeat >= epoch.startTimeBeats &&
           epoch.observedGlobalBeat <
-            expected.geometry.startBeat + frozen.firstIterationEndBeat,
-        "Actual Session source epoch did not match frozen native transport geometry",
+            epoch.startTimeBeats + frozen.firstIterationEndBeat,
+        "Actual Session source epoch did not match the frozen clip and slot",
       );
       if (result.status === "playing" && !firstPlaying) {
         requireValue(
@@ -365,14 +362,12 @@ function verifySessionSourceJoin(input, observation, raw, expected, protocol) {
       isDeepStrictEqual(after.settings, frozen.source.settings) &&
       [after.before, after.after].every(
         (state) =>
-          state.transportPlaying === true &&
-          state.targetPlaying === true &&
+          state.transportPlaying === false &&
+          state.targetPlaying === false &&
           state.targetRecording === false &&
-          state.targetTriggered === false &&
-          state.selectedClipReference === frozen.target.expectedClipReference &&
-          state.playingSlotIndex === frozen.target.sceneIndex,
+          state.targetTriggered === false,
       ),
-    "Session source identity/settings or leave-running state changed",
+    "Session source identity/settings changed or released transport was not stopped",
   );
   const origin = expected.geometry.startBeat;
   const storedTarget = observation.source.target;
@@ -452,10 +447,19 @@ export function inspectNativeListeningPostconditions(input, sanitizeText) {
     finalListener,
     beforeBinding,
     afterBinding,
+    cleanupPolicy = "leave-running",
   } = input;
+  const running = cleanupPolicy === "leave-running";
   const checks = {
-    snapshotPlaying: finalSnapshot.isPlaying === true,
-    transportPlaying: finalInspection.transport.playing === true,
+    ...(running
+      ? {
+          snapshotPlaying: finalSnapshot.isPlaying === true,
+          transportPlaying: finalInspection.transport.playing === true,
+        }
+      : {
+          snapshotStopped: finalSnapshot.isPlaying === false,
+          transportStopped: finalInspection.transport.playing === false,
+        }),
     recordingInactive: Object.values(finalInspection.transport.recording).every(
       (value) => value === false,
     ),
@@ -623,9 +627,9 @@ export function verifyNativeListeningEvidence(input, protocol) {
   const expectedRate = expected?.geometry.sampleRate ?? 48000;
   requireValue(
     job.stage === "completed" &&
-      job.cleanupPolicy === "leave-running" &&
+      job.cleanupPolicy === (session ? "stop-owned" : "leave-running") &&
       job.contextIds.length === 1,
-    "Listening pass did not complete with owned leave-running cleanup",
+    `Listening pass did not complete with owned ${session ? "stop-owned" : "leave-running"} cleanup`,
   );
   requireValue(
     pass?.id === job.passId &&
@@ -848,7 +852,7 @@ export function verifyNativeListeningEvidence(input, protocol) {
       : {}),
     attribution: "unknown",
     freshness: "unknown",
-    cleanupPolicy: "leave-running",
+    cleanupPolicy: session ? "stop-owned" : "leave-running",
     independentlyAcceptedNativeProof: true,
     ...(session
       ? {

@@ -33,7 +33,10 @@ export function createSyntheticMetricWireFixture(
     | {
         tempoBpm: number;
         startBeat?: number;
+        /** Song beat of the device's stopped clock frames. */
         stoppedBeat?: number;
+        /** Song beat Live's transport starts playing from at the capture origin. */
+        launchBeat?: number;
         endBeat: number;
       } = false,
 ) {
@@ -55,6 +58,8 @@ export function createSyntheticMetricWireFixture(
         ? { tempoBpm: 999, endBeat: 80 }
         : {}),
   });
+  if (mode === "session" && observation.geometry.startBeat !== 0)
+    throw new RangeError("synthetic_session_geometry_must_be_clip_local");
   const ownership = observation.ownership;
   const wire = {
     protocolVersion: 1,
@@ -113,10 +118,6 @@ export function createSyntheticMetricWireFixture(
     ...(mode === "session"
       ? {
           mode,
-          stoppedBeat:
-            typeof large === "object"
-              ? (large.stoppedBeat ?? observation.geometry.startBeat)
-              : observation.geometry.startBeat,
           sourceEvidence: "expected-context-only",
           source: {
             mode,
@@ -136,13 +137,10 @@ export function createSyntheticMetricWireFixture(
         unit: "beats",
         iteration: 0,
         startBeat: 0,
-        endBeat: observation.geometry.endBeat - observation.geometry.startBeat,
-      },
-      transport: {
-        startBeat: observation.geometry.startBeat,
         endBeat: observation.geometry.endBeat,
       },
-      clipStartTimeBeats: observation.geometry.startBeat,
+      transport: { startBeat: 0, endBeat: observation.geometry.endBeat },
+      clipStartTimeBeats: 0,
       synchronization: "transport-coupled-first-iteration",
     };
   const owner = {
@@ -156,12 +154,16 @@ export function createSyntheticMetricWireFixture(
   const g = observation.geometry;
   const origin = 200_000;
   const armCounter = origin - 1_000;
+  const stoppedBeat =
+    typeof large === "object"
+      ? (large.stoppedBeat ?? g.startBeat)
+      : g.startBeat;
+  const launchBeat =
+    typeof large === "object" ? (large.launchBeat ?? g.startBeat) : g.startBeat;
   const row = (counter: number, playing: boolean): NativeHostClockRow => {
     const beat = playing
-      ? g.startBeat + ((counter - origin) * g.tempoBpm) / (g.sampleRate * 60)
-      : config.mode === "session"
-        ? config.stoppedBeat
-        : g.startBeat;
+      ? launchBeat + ((counter - origin) * g.tempoBpm) / (g.sampleRate * 60)
+      : stoppedBeat;
     return [
       Number(playing) as 0 | 1,
       beat,

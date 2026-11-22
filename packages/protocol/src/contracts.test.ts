@@ -40,7 +40,7 @@ describe("generated protocol contracts", () => {
       expect(params.action).toBe(action);
       expect(result.nativeAlignment).toBe("unverified");
       expect(result.evidence).toBe("message-rate-only");
-      expect(result.cleanupPolicy).toBe("leave-running");
+      expect(result.cleanupPolicy).toBe("stop-owned");
       expect(result.followActionState).toBe("unknown");
       expect(result.limitations).toHaveLength(2);
       expect(result.limitations[0]).toContain("Clip.start_time is polled");

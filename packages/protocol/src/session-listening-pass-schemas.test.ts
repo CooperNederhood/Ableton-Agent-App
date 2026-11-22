@@ -35,7 +35,6 @@ const prepare = {
     expectedClassName: "MxDeviceAudioEffect",
   },
   durationBeats: 4,
-  timingAnchor: { globalBeat: 12 },
 };
 const result = {
   schemaVersion: 1,
@@ -44,7 +43,7 @@ const result = {
   status: "prepared",
   mutationState: "not-attempted",
   reason: null,
-  cleanupPolicy: "leave-running",
+  cleanupPolicy: "stop-owned",
   evidence: "message-rate-only",
   nativeAlignment: "unverified",
   lastObservedSource: {
@@ -138,7 +137,6 @@ describe("bounded Session pass authority", () => {
       { target: { ...prepare.target, sceneIndex: 256 } },
       { listener: { ...prepare.listener, deviceIndex: 32 } },
       { listener: { ...prepare.listener, track: { ...track, index: 1 } } },
-      { timingAnchor: { globalBeat: -1 } },
       { sourceEpoch: { startTimeBeats: 12 } },
       { nativeAlignment: "verified" },
       { audio: "body" },
@@ -232,7 +230,7 @@ describe("bounded Session pass authority", () => {
     expect(sessionListeningPassResultSchema.parse(covered)).toMatchObject({
       status: "covered",
       nativeAlignment: "unverified",
-      cleanupPolicy: "leave-running",
+      cleanupPolicy: "stop-owned",
     });
   });
 });

@@ -47,7 +47,6 @@ export const nativeContinuousMetricListeningConfigSchema = z
     mode: z.enum(["arrangement", "session"]),
     captureMode: z.literal("finite-metric-stream"),
     sourceEvidence: z.enum(["transport-only", "expected-context-only"]),
-    stoppedBeat: z.number().finite().min(0).max(1_576_800).optional(),
     source: sessionNativeSourceSchema.optional(),
     geometry: metricContinuousListeningGeometrySchema,
     timingPolicy: listeningTimingPolicySchema,
@@ -109,7 +108,7 @@ export const nativeContinuousMetricListeningConfigSchema = z
         (source.target.kind === "master") !== (source.target.index === null)) ||
       (value.mode === "session"
         ? value.sourceEvidence !== "expected-context-only" ||
-          value.stoppedBeat === undefined ||
+          g.startBeat !== 0 ||
           value.source === undefined ||
           source?.view !== "session" ||
           Math.abs(source.coordinate.endBeat - (g.endBeat - g.startBeat)) >
@@ -118,7 +117,6 @@ export const nativeContinuousMetricListeningConfigSchema = z
           canonicalMetricRecordJson(source.target) !==
             canonicalMetricRecordJson(value.source.target)
         : value.sourceEvidence !== "transport-only" ||
-          value.stoppedBeat !== undefined ||
           value.source !== undefined)
     )
       ctx.addIssue({

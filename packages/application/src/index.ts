@@ -1,6 +1,7 @@
 import { homedir } from "node:os";
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
+import { join } from "node:path";
 
 import type { AbletonService } from "@ableton-agent/ableton-contracts";
 import {
@@ -179,6 +180,7 @@ import {
 } from "./artifact-workspace.js";
 import type {
   AppEvent,
+  AgentContextUsage,
   AgentMode,
   AgentReasoningSummary,
   AgentWorkingUpdate,
@@ -248,6 +250,8 @@ import {
   type ElicitationResult,
   type ModelInfo,
   type ResumeSessionConfig,
+  type CustomAgentConfig,
+  type SandboxConfig,
   type SessionConfig,
   type SessionEvent,
   type Tool,
@@ -346,6 +350,19 @@ export interface AgentSessionConfiguration {
   readonly boundTracks: readonly BoundTrackScope[];
   readonly skills: readonly string[];
   readonly availableSkills?: readonly AgentSkillDescriptor[];
+  /** Agent definitions this agent may start as SDK sub-agents with `task`. */
+  readonly delegates?: readonly AgentDelegateConfiguration[];
+}
+
+export interface AgentDelegateConfiguration {
+  readonly definitionName: string;
+  readonly label: string;
+  readonly description: string;
+  readonly systemPrompt: string;
+  readonly resolvedTools: readonly string[];
+  readonly skills: readonly string[];
+  readonly model?: string;
+  readonly reasoningEffort?: AgentReasoningEffort;
 }
 
 export interface AgentModelDescriptor {
@@ -715,6 +732,7 @@ interface CopilotClientAdapter {
     config: ResumeSessionConfig,
   ): Promise<CopilotSessionAdapter>;
   listModels?(): Promise<ModelInfo[]>;
+  getSandboxHostSupport?(): Promise<{ supported: boolean; reason?: string }>;
   getAuthStatus?(): Promise<{
     isAuthenticated: boolean;
     authType?: "user" | "env" | "gh-cli" | "hmac" | "api-key" | "token";
@@ -1067,6 +1085,52 @@ const CORE_AGENT_TOOL_NAMES = [
   WRITE_PLAN_TOOL_NAME,
 ] as const;
 const directSkillHistoryPrefix = "<!-- ableton-agent:direct-skill ";
+const TASK_TOOL_NAME = "task";
+const SUBAGENT_GUIDANCE =
+  "You are running as a delegated sub-agent of the main Ableton agent. You cannot ask the user questions. Your final message is returned to the main agent as the task result, so make it a complete, self-contained report of what you observed and changed.";
+
+function shellSandboxConfig(
+  deniedPaths: readonly string[],
+  readwritePaths: readonly string[],
+): SandboxConfig {
+  return {
+    enabled: true,
+    allowBypass: false,
+    userPolicy: {
+      filesystem: {
+        deniedPaths: [...deniedPaths],
+        ...(readwritePaths.length === 0
+          ? {}
+          : { readwritePaths: [...readwritePaths] }),
+      },
+      network: { allowOutbound: false, allowLocalNetwork: false },
+      seatbelt: { keychainAccess: false },
+    },
+  };
+}
+
+function toolGuidance(
+  toolNames: readonly string[],
+  shellSandboxed: boolean,
+  artifactWorkspaceRoot?: string,
+): string {
+  const historyGuidance = toolNames.includes("set_sql_search")
+    ? "\n\nFor questions about prior Live Sets, saves, devices, clips, or agent trajectories, use set_sql_search against the local read-only Set History views. Treat it as historical evidence and inspect the current Live Set before acting."
+    : "";
+  const shellGuidance = !toolNames.includes(BASH_TOOL_NAME)
+    ? ""
+    : shellSandboxed
+      ? "\n\nThe bash tool runs inside an OS sandbox with no network access; it can write only inside its current working directory, which is a private scratch directory. Use it freely as a scratchpad for computation, for example python3 or node to generate or transform note data, or to inspect large-output spill files with grep, head, tail, wc, or jq. Bash cannot reach Ableton Live: make every Live change through the Ableton tools. Do not request sandbox bypass or permissive mode."
+      : `\n\nThe bash tool is restricted to bounded, read-only inspection of Copilot large-output spill files${artifactWorkspaceRoot === undefined ? "" : " and the memory and skills workspace"}. Use grep, bounded head/tail, wc, or jq against the exact spill path returned by a tool. Do not attempt writes, network access, arbitrary filesystem reads, or command execution outside that purpose.`;
+  const fileGuidance =
+    artifactWorkspaceRoot === undefined
+      ? ""
+      : `\n\nThe view, glob, grep, create, and edit tools only reach the memory and skills workspace at ${artifactWorkspaceRoot} (and Copilot spill files for reading). It holds copies of this session's memory topics and skills. Edits are allowed only while the update-memory or learn-skill skill has a draft open, and are saved only after the user approves the review.${shellSandboxed ? " The sandboxed bash tool can also write there." : ""}`;
+  const listeningGuidance = toolNames.includes("ableton_listening")
+    ? `\n\n${LISTENING_AGENT_GUIDANCE}`
+    : "";
+  return `${historyGuidance}${shellGuidance}${fileGuidance}${listeningGuidance}`;
+}
 
 function isVerifiedOperationResult(result: unknown): boolean {
   if (result === null || typeof result !== "object") return false;
@@ -1360,7 +1424,7 @@ function waitForSessionCompletion(session: CopilotSessionAdapter): {
   const promise = new Promise<CopilotResponse | undefined>(
     (resolve, reject) => {
       unsubscribe = session.on((event) => {
-        if (event.type === "assistant.message") {
+        if (event.type === "assistant.message" && event.agentId === undefined) {
           lastAssistantMessage = { data: { content: event.data.content } };
         } else if (
           event.type === "session.idle" &&
@@ -1452,6 +1516,15 @@ interface InstrumentedTurn {
   readonly agentMode?: AgentMode;
 }
 
+interface SubagentActivity {
+  readonly agentId: string;
+  readonly name: string;
+  readonly label: string;
+  readonly toolCallId: string;
+  readonly executionMode?: string;
+  readonly startedAt: number;
+}
+
 interface ManagedSessionState {
   readonly key: string;
   configuration: AgentSessionConfiguration;
@@ -1459,7 +1532,13 @@ interface ManagedSessionState {
   signalTargetId: string;
   session: CopilotSessionAdapter | undefined;
   appliedReasoningSummary: AgentReasoningSummary | undefined;
+  shellSandboxed: boolean;
   unsubscribe: (() => void) | undefined;
+  contextUsage?: {
+    sessionId: string;
+    usage: AgentContextUsage;
+    compactionIds: Set<string>;
+  };
   inFlightTurns: number;
   queuedTurns: number;
   turnQueue: Promise<void>;
@@ -1470,6 +1549,10 @@ interface ManagedSessionState {
   automaticDrainScheduled: boolean;
   readonly pendingAutomatic: Map<string, PendingAutomaticTurn>;
   readonly operations: Map<string, ObservedOperation>;
+  /** Running SDK sub-agents keyed by their event `agentId`. */
+  readonly subagents: Map<string, SubagentActivity>;
+  /** Tool call ID to the sub-agent `agentId` that issued it. */
+  readonly subagentToolCalls: Map<string, string>;
   listeningAbortController: AbortController;
   readonly listeningPasses: Map<
     string,
@@ -1863,6 +1946,26 @@ function normalizeSessionConfiguration(
     })),
     skills,
     ...(availableSkills === undefined ? {} : { availableSkills }),
+    ...(configuration.delegates === undefined
+      ? {}
+      : {
+          delegates: configuration.delegates.map((delegate) => ({
+            definitionName: delegate.definitionName,
+            label: delegate.label,
+            description: delegate.description,
+            systemPrompt: delegate.systemPrompt,
+            resolvedTools: bareToolNames(delegate.resolvedTools),
+            skills: dedupeStrings(delegate.skills),
+            ...(delegate.model === undefined ? {} : { model: delegate.model }),
+            ...(delegate.reasoningEffort === undefined
+              ? {}
+              : {
+                  reasoningEffort: agentReasoningEffortSchema.parse(
+                    delegate.reasoningEffort,
+                  ),
+                }),
+          })),
+        }),
   };
 }
 
@@ -1932,6 +2035,8 @@ export class CopilotAgentService implements AgentService {
   readonly #planArtifacts: FilePlanArtifactStore;
   readonly #largeOutputDirectory: string;
   readonly #artifactWorkspaceDirectory: string;
+  readonly #shellSandboxDeniedPaths: readonly string[];
+  #shellSandboxSupported: Promise<boolean> | undefined;
 
   public constructor(private readonly options: CopilotAgentServiceOptions) {
     if (
@@ -1949,6 +2054,13 @@ export class CopilotAgentService implements AgentService {
     this.#artifactWorkspaceDirectory =
       options.artifactWorkspaceDirectory ??
       storage.copilotArtifactWorkspaceDirectory;
+    this.#shellSandboxDeniedPaths = [
+      storage.credentialsDirectory,
+      storage.observabilityDirectory,
+      ...[".ssh", ".gnupg", ".aws", join(".config", "gh")].map((path) =>
+        join(homedir(), path),
+      ),
+    ];
     this.#planArtifacts = new FilePlanArtifactStore(
       options.resolvePlanArtifactPaths ??
         (() => {
@@ -1959,14 +2071,21 @@ export class CopilotAgentService implements AgentService {
     );
     this.#clientFactory =
       options.clientFactory ??
-      (() =>
-        new CopilotClient({
+      (() => {
+        const client = new CopilotClient({
           mode: "empty",
           baseDirectory: options.baseDirectory ?? storage.copilotDirectory,
           ...(options.runtimeEnvironment === undefined
             ? {}
             : { env: options.runtimeEnvironment }),
-        }));
+        });
+        return Object.assign(client, {
+          async getSandboxHostSupport() {
+            await client.start();
+            return client.rpc.sandbox.getHostSupport();
+          },
+        });
+      });
   }
 
   public get sessionId(): string | undefined {
@@ -3032,6 +3151,7 @@ export class CopilotAgentService implements AgentService {
       signalTargetId: exposeInstanceId ? configuration.instanceId : key,
       session: undefined,
       appliedReasoningSummary: undefined,
+      shellSandboxed: false,
       unsubscribe: undefined,
       inFlightTurns: 0,
       queuedTurns: 0,
@@ -3043,6 +3163,8 @@ export class CopilotAgentService implements AgentService {
       automaticDrainScheduled: false,
       pendingAutomatic: new Map(),
       operations: new Map(),
+      subagents: new Map(),
+      subagentToolCalls: new Map(),
       listeningAbortController: new AbortController(),
       listeningPasses: new Map(),
       listeningInvocations: new Set(),
@@ -3056,6 +3178,35 @@ export class CopilotAgentService implements AgentService {
       artifactReviewRequests: new Map(),
       elicitationRequests: new Map(),
     };
+  }
+
+  #shellSandboxSupport(state: ManagedSessionState): Promise<boolean> {
+    this.#shellSandboxSupported ??= (async () => {
+      const startedAt = Date.now();
+      this.#recordRuntime(state, "agent.shell_sandbox.queued", {});
+      this.#recordRuntime(state, "agent.shell_sandbox.started", {});
+      try {
+        const support = await this.#requireClient().getSandboxHostSupport?.();
+        const supported = support?.supported === true;
+        this.#recordRuntime(state, "agent.shell_sandbox.completed", {
+          supported,
+          ...(support?.reason === undefined
+            ? {}
+            : { reason: support.reason.slice(0, 512) }),
+          ...(support === undefined ? { reason: "not_reported" } : {}),
+          durationMs: Date.now() - startedAt,
+        });
+        return supported;
+      } catch (error) {
+        this.#shellSandboxSupported = undefined;
+        this.#recordRuntime(state, "agent.shell_sandbox.failed", {
+          error: error instanceof Error ? error.message : String(error),
+          durationMs: Date.now() - startedAt,
+        });
+        return false;
+      }
+    })();
+    return this.#shellSandboxSupported;
   }
 
   #requireClient(): CopilotClientAdapter {
@@ -3811,7 +3962,13 @@ export class CopilotAgentService implements AgentService {
   }
 
   #skillTool(state: ManagedSessionState): Tool | undefined {
-    if (this.#enabledSkills(state).length === 0) return undefined;
+    if (
+      this.#enabledSkills(state).length === 0 &&
+      !(state.configuration.delegates ?? []).some(
+        (delegate) => delegate.skills.length > 0,
+      )
+    )
+      return undefined;
     return defineTool(SKILL_TOOL_NAME, {
       description:
         "Loads the instructions for one skill enabled for the active agent. Call this when an enabled skill description is relevant to the current work.",
@@ -3822,7 +3979,16 @@ export class CopilotAgentService implements AgentService {
           ),
         })
         .strict(),
-      handler: async ({ skill_name }) => {
+      handler: async ({ skill_name }, invocation) => {
+        if (invocation.agentId !== undefined) {
+          const delegate = this.#invokingDelegate(state, invocation.agentId);
+          if (delegate === undefined || !delegate.skills.includes(skill_name)) {
+            throw new Error(
+              `Skill '${skill_name}' is not enabled for sub-agent '${delegate?.definitionName ?? invocation.agentId}'.`,
+            );
+          }
+          return this.#readSkillBody(state, skill_name, false);
+        }
         const body = await this.#readSkillBody(state, skill_name, true);
         if (
           this.options.artifactAuthoring === undefined ||
@@ -3837,6 +4003,83 @@ export class CopilotAgentService implements AgentService {
         )}`;
       },
     }) as Tool;
+  }
+
+  #invokingDelegate(
+    state: ManagedSessionState,
+    agentId: string,
+  ): AgentDelegateConfiguration | undefined {
+    const name = state.subagents.get(agentId)?.name;
+    return name === undefined
+      ? undefined
+      : state.configuration.delegates?.find(
+          (delegate) => delegate.definitionName === name,
+        );
+  }
+
+  #subagentCustomAgents(
+    state: ManagedSessionState,
+    sessionToolNames: readonly string[],
+    guidance: (toolNames: readonly string[]) => string,
+  ): CustomAgentConfig[] {
+    if (!sessionToolNames.includes(TASK_TOOL_NAME)) return [];
+    const parentOnlyTools = new Set<string>([
+      ...EXPLICIT_ONLY_BUILTIN_TOOL_NAMES,
+      ASK_USER_TOOL_NAME,
+      EXIT_PLAN_MODE_TOOL_NAME,
+      WRITE_PLAN_TOOL_NAME,
+    ]);
+    const delegatableTools = sessionToolNames.filter(
+      (name) => !parentOnlyTools.has(name),
+    );
+    const availableSkills = new Map(
+      (state.configuration.availableSkills ?? []).map((skill) => [
+        skill.name,
+        skill,
+      ]),
+    );
+    const agents: CustomAgentConfig[] = [];
+    for (const delegate of state.configuration.delegates ?? []) {
+      if (delegate.definitionName === state.configuration.definitionName) {
+        continue;
+      }
+      const skills = delegate.skills.flatMap((name) => {
+        const skill = availableSkills.get(name);
+        return skill === undefined ? [] : [skill];
+      });
+      const tools = delegatableTools.filter(
+        (name) =>
+          delegate.resolvedTools.includes(name) ||
+          (name === SKILL_TOOL_NAME && skills.length > 0),
+      );
+      if (tools.length === 0) {
+        this.#recordRuntime(state, "agent.subagent.unavailable", {
+          definitionName: delegate.definitionName,
+          reason: "no_shared_tools",
+        });
+        continue;
+      }
+      const skillInstructions = formatSkillSystemInstructions(skills);
+      agents.push({
+        name: delegate.definitionName,
+        displayName: delegate.label,
+        description: delegate.description,
+        prompt: [
+          `${delegate.systemPrompt}${guidance(tools)}`,
+          SUBAGENT_GUIDANCE,
+          skillInstructions,
+        ]
+          .filter((value): value is string => value !== undefined)
+          .join("\n\n"),
+        tools,
+        infer: true,
+        ...(delegate.model === undefined ? {} : { model: delegate.model }),
+        ...(delegate.reasoningEffort === undefined
+          ? {}
+          : { reasoningEffort: delegate.reasoningEffort }),
+      });
+    }
+    return agents;
   }
 
   #publishPlanArtifact(
@@ -4207,6 +4450,10 @@ export class CopilotAgentService implements AgentService {
     const skillInstructions = formatSkillSystemInstructions(
       this.#enabledSkills(state),
     );
+    const shellSandboxed =
+      configuredToolNames.includes(BASH_TOOL_NAME) &&
+      (await this.#shellSandboxSupport(state));
+    state.shellSandboxed = shellSandboxed;
     const scopedSignalContext = this.#scopedSignalContext(state);
     const scopedLiveEventContext = this.#scopedLiveEventContext(state);
     const initialMemoryIndex = await this.#memoryIndexText(state);
@@ -4357,23 +4604,15 @@ export class CopilotAgentService implements AgentService {
       typeof configuredReasoningSummary === "function"
         ? configuredReasoningSummary()
         : (configuredReasoningSummary ?? "concise");
-    const historyGuidance = configuredToolNames.includes("set_sql_search")
-      ? "\n\nFor questions about prior Live Sets, saves, devices, clips, or agent trajectories, use set_sql_search against the local read-only Set History views. Treat it as historical evidence and inspect the current Live Set before acting."
-      : "";
     const artifactWorkspaceRoot =
       this.options.artifactAuthoring === undefined
         ? undefined
         : this.#artifactWorkspace(state).root;
-    const shellGuidance = configuredToolNames.includes(BASH_TOOL_NAME)
-      ? `\n\nThe bash tool is restricted to bounded, read-only inspection of Copilot large-output spill files${artifactWorkspaceRoot === undefined ? "" : " and the memory and skills workspace"}. Use grep, bounded head/tail, wc, or jq against the exact spill path returned by a tool. Do not attempt writes, network access, arbitrary filesystem reads, or command execution outside that purpose.`
-      : "";
-    const fileGuidance =
-      artifactWorkspaceRoot === undefined
-        ? ""
-        : `\n\nThe view, glob, grep, create, and edit tools only reach the memory and skills workspace at ${artifactWorkspaceRoot} (and Copilot spill files for reading). It holds copies of this session's memory topics and skills. Edits are allowed only while the update-memory or learn-skill skill has a draft open, and are saved only after the user approves the review.`;
-    const listeningGuidance = configuredToolNames.includes("ableton_listening")
-      ? `\n\n${LISTENING_AGENT_GUIDANCE}`
-      : "";
+    const subagents = this.#subagentCustomAgents(
+      state,
+      configuredToolNames,
+      (toolNames) => toolGuidance(toolNames, shellSandboxed),
+    );
     const config: SessionConfig = {
       clientName: "ableton-agent-app",
       ...(model === undefined ? {} : { model }),
@@ -4387,6 +4626,16 @@ export class CopilotAgentService implements AgentService {
         outputDirectory: this.#largeOutputDirectory,
       },
       workingDirectory: this.#largeOutputDirectory,
+      ...(shellSandboxed
+        ? {
+            sandboxConfig: shellSandboxConfig(
+              this.#shellSandboxDeniedPaths,
+              artifactWorkspaceRoot === undefined
+                ? []
+                : [artifactWorkspaceRoot],
+            ),
+          }
+        : {}),
       tools,
       availableTools: qualifyAvailableTools(configuredToolNames),
       toolSearch: { enabled: false },
@@ -4395,9 +4644,10 @@ export class CopilotAgentService implements AgentService {
           name: state.configuration.definitionName,
           displayName: state.configuration.label,
           description: state.configuration.description,
-          prompt: `${state.configuration.systemPrompt}${historyGuidance}${shellGuidance}${fileGuidance}${listeningGuidance}`,
+          prompt: `${state.configuration.systemPrompt}${toolGuidance(configuredToolNames, shellSandboxed, artifactWorkspaceRoot)}`,
           infer: false,
         },
+        ...subagents,
       ],
       agent: state.configuration.definitionName,
       onPermissionRequest: async (request, invocation) => {
@@ -4408,11 +4658,24 @@ export class CopilotAgentService implements AgentService {
           state.session?.sessionId === invocation.sessionId
             ? state.activeTurn
             : undefined;
+        const subagentId =
+          "toolCallId" in request && typeof request.toolCallId === "string"
+            ? state.subagentToolCalls.get(request.toolCallId)
+            : undefined;
+        const subagent =
+          subagentId === undefined
+            ? undefined
+            : state.subagents.get(subagentId);
         const approvalAttribution = {
           ...(state.exposeInstanceId
             ? { agentInstanceId: state.configuration.instanceId }
             : {}),
           sdkSessionId: invocation.sessionId,
+          ...(subagent === undefined
+            ? {}
+            : {
+                subagent: { agentId: subagent.agentId, label: subagent.label },
+              }),
           ...(permissionTurn === undefined
             ? {}
             : {
@@ -4577,7 +4840,12 @@ export class CopilotAgentService implements AgentService {
         const shellEvaluation = evaluateSpillFileShellPolicy(
           request,
           this.#largeOutputDirectory,
-          workspaceAccess,
+          {
+            sandboxed: state.shellSandboxed,
+            ...(workspaceAccess === undefined
+              ? {}
+              : { workspace: workspaceAccess }),
+          },
         );
         const fileEvaluation =
           workspaceAccess === undefined
@@ -4587,6 +4855,9 @@ export class CopilotAgentService implements AgentService {
           permissionId,
           request,
           invocation,
+          ...(subagent === undefined
+            ? {}
+            : { agentId: subagent.agentId, subagentName: subagent.name }),
           ...(shellEvaluation.diagnostics === undefined
             ? {}
             : { shellPolicy: shellEvaluation.diagnostics }),
@@ -4843,8 +5114,35 @@ export class CopilotAgentService implements AgentService {
 
   #observe(state: ManagedSessionState, session: CopilotSessionAdapter): void {
     state.unsubscribe?.();
+    const context: NonNullable<ManagedSessionState["contextUsage"]> =
+      state.contextUsage?.sessionId === session.sessionId
+        ? state.contextUsage
+        : {
+            sessionId: session.sessionId,
+            usage: { compactions: 0, failedCompactions: 0 },
+            compactionIds: new Set<string>(),
+          };
+    state.contextUsage = context;
     state.unsubscribe = session.on((event) => {
       if (this.#states.get(state.key) !== state) return;
+      if (event.type === "subagent.started" && event.agentId !== undefined) {
+        state.subagents.set(event.agentId, {
+          agentId: event.agentId,
+          name: event.data.agentName,
+          label: event.data.agentDisplayName || event.data.agentName,
+          toolCallId: event.data.toolCallId,
+          ...(event.data.executionMode === undefined
+            ? {}
+            : { executionMode: event.data.executionMode }),
+          startedAt: Date.now(),
+        });
+      }
+      const subagent =
+        event.agentId === undefined
+          ? undefined
+          : state.subagents.get(event.agentId);
+      if (event.type === "tool.execution_start" && event.agentId !== undefined)
+        state.subagentToolCalls.set(event.data.toolCallId, event.agentId);
       const structuredToolFailure =
         event.type === "tool.execution_complete" && !event.data.success
           ? parseAbletonToolFailure(event.data.error?.message)
@@ -4856,6 +5154,14 @@ export class CopilotAgentService implements AgentService {
           : { structuredFailure: structuredToolFailure }),
         sdkEventId: event.id,
         parentSdkEventId: event.parentId,
+        ...(event.agentId === undefined
+          ? {}
+          : {
+              agentId: event.agentId,
+              ...(subagent === undefined
+                ? {}
+                : { subagentName: subagent.name }),
+            }),
       };
       let toolMetadata;
       if (event.type === "tool.execution_start") {
@@ -4926,8 +5232,22 @@ export class CopilotAgentService implements AgentService {
           occurredAt: event.timestamp,
           sessionId: session.sessionId,
         });
+      } else if (
+        event.type === "subagent.started" ||
+        event.type === "subagent.completed" ||
+        event.type === "subagent.failed"
+      ) {
+        this.#recordRuntime(
+          state,
+          `agent.${event.type}`,
+          {
+            ...sdkData,
+            runningSubagents: state.subagents.size,
+          },
+          { occurredAt: event.timestamp, sessionId: session.sessionId },
+        );
       } else if (event.type === "assistant.message") {
-        if (state.activeTurn !== undefined) {
+        if (state.activeTurn !== undefined && event.agentId === undefined) {
           state.activeTurn.finalObserved = true;
         }
         this.#recordRuntime(state, "agent.assistant.final", sdkData, {
@@ -5028,6 +5348,68 @@ export class CopilotAgentService implements AgentService {
         event.type === "session.compaction_start" ||
         event.type === "session.compaction_complete"
       ) {
+        if (
+          state.exposeInstanceId &&
+          state.session === session &&
+          event.agentId === undefined
+        ) {
+          let usage = context.usage;
+          if (event.type === "session.usage_info") {
+            const counts = {
+              currentTokens: event.data.currentTokens,
+              tokenLimit: event.data.tokenLimit,
+              conversationTokens: event.data.conversationTokens,
+              systemTokens: event.data.systemTokens,
+              toolDefinitionsTokens: event.data.toolDefinitionsTokens,
+            };
+            const validCount = (value: number | undefined): value is number =>
+              value !== undefined && Number.isSafeInteger(value) && value >= 0;
+            usage = {
+              compactions: usage.compactions,
+              failedCompactions: usage.failedCompactions,
+              ...(validCount(counts.currentTokens)
+                ? { currentTokens: counts.currentTokens }
+                : {}),
+              ...(validCount(counts.tokenLimit) && counts.tokenLimit > 0
+                ? { tokenLimit: counts.tokenLimit }
+                : {}),
+              ...(validCount(counts.conversationTokens)
+                ? { conversationTokens: counts.conversationTokens }
+                : {}),
+              ...(validCount(counts.systemTokens)
+                ? { systemTokens: counts.systemTokens }
+                : {}),
+              ...(validCount(counts.toolDefinitionsTokens)
+                ? { toolDefinitionsTokens: counts.toolDefinitionsTokens }
+                : {}),
+            };
+          } else if (
+            event.type === "session.compaction_complete" &&
+            typeof event.data.success === "boolean"
+          ) {
+            const id = event.data.compactionAttemptId ?? event.id;
+            if (!context.compactionIds.has(id)) {
+              context.compactionIds.add(id);
+              usage = {
+                ...usage,
+                compactions:
+                  usage.compactions + Number(event.data.success === true),
+                failedCompactions:
+                  usage.failedCompactions +
+                  Number(event.data.success === false),
+              };
+            }
+          }
+          if (usage !== context.usage) {
+            context.usage = usage;
+            this.options.events.publish({
+              type: "agent.context_usage_changed",
+              usage,
+              agentInstanceId: state.configuration.instanceId,
+              sdkSessionId: session.sessionId,
+            });
+          }
+        }
         const fields = [
           "model",
           "inputTokens",
@@ -5092,6 +5474,13 @@ export class CopilotAgentService implements AgentService {
               state.activeTurn === undefined
                 ? undefined
                 : new Date(state.activeTurn.queuedAt).toISOString(),
+            runningSubagents: [...state.subagents.values()].map(
+              ({ agentId, name, executionMode }) => ({
+                agentId,
+                name,
+                executionMode,
+              }),
+            ),
           },
           {
             occurredAt: event.timestamp,
@@ -5116,7 +5505,69 @@ export class CopilotAgentService implements AgentService {
       }
       const activeTurn =
         event.agentId === undefined ? state.activeTurn : undefined;
-      if (event.type === "assistant.message_delta") {
+      if (
+        event.type === "subagent.started" &&
+        subagent !== undefined &&
+        state.activeTurn !== undefined
+      ) {
+        this.#publishWorkingUpdate(state, {
+          kind: "subagent_started",
+          activityId: state.activeTurn.id,
+          subagentId: subagent.agentId,
+          label: subagent.label,
+          ...(subagent.executionMode === undefined
+            ? {}
+            : { executionMode: subagent.executionMode }),
+          occurredAt: event.timestamp,
+        });
+      } else if (
+        (event.type === "subagent.completed" ||
+          event.type === "subagent.failed") &&
+        event.agentId !== undefined
+      ) {
+        if (state.activeTurn !== undefined) {
+          const detail =
+            event.type === "subagent.failed" ? event.data.error : undefined;
+          this.#publishWorkingUpdate(state, {
+            kind: "subagent_finished",
+            activityId: state.activeTurn.id,
+            subagentId: event.agentId,
+            outcome: event.type === "subagent.failed" ? "failed" : "completed",
+            ...(detail === undefined
+              ? {}
+              : {
+                  detail: boundedPlanText(detail, MAX_WORKING_CONTENT_LENGTH),
+                }),
+            occurredAt: event.timestamp,
+          });
+        }
+        state.subagents.delete(event.agentId);
+        for (const [toolCallId, agentId] of state.subagentToolCalls) {
+          if (agentId === event.agentId)
+            state.subagentToolCalls.delete(toolCallId);
+        }
+      } else if (
+        event.type === "assistant.intent" &&
+        subagent !== undefined &&
+        state.activeTurn !== undefined
+      ) {
+        this.#publishWorkingUpdate(state, {
+          kind: "intent",
+          activityId: state.activeTurn.id,
+          subagentId: subagent.agentId,
+          content: boundedPlanText(
+            event.data.intent,
+            MAX_WORKING_CONTENT_LENGTH,
+          ),
+          occurredAt: event.timestamp,
+        });
+      } else if (
+        event.agentId !== undefined &&
+        event.type.startsWith("assistant.")
+      ) {
+        // Sub-agent text, reasoning, and turn boundaries stay out of the
+        // parent's chat and working state; the journal records them above.
+      } else if (event.type === "assistant.message_delta") {
         this.options.events.publish({
           type: "agent.message_delta",
           content: event.data.deltaContent,
@@ -5201,7 +5652,8 @@ export class CopilotAgentService implements AgentService {
         });
       } else if (
         event.type === "assistant.turn_end" &&
-        activeTurn !== undefined
+        activeTurn !== undefined &&
+        state.subagents.size === 0
       ) {
         this.#finishWorkingTurn(
           state,
@@ -5223,6 +5675,10 @@ export class CopilotAgentService implements AgentService {
       } else if (event.type === "abort") {
         state.permissionRejections.clear();
         state.listeningApprovals.clear();
+        if (event.agentId === undefined) {
+          state.subagents.clear();
+          state.subagentToolCalls.clear();
+        }
         if (activeTurn !== undefined) {
           this.#finishWorkingTurn(
             state,
@@ -5234,7 +5690,9 @@ export class CopilotAgentService implements AgentService {
         }
       } else if (event.type === "tool.execution_start") {
         const metadata = toolMetadata;
-        const label = metadata?.title ?? event.data.toolName;
+        const title = metadata?.title ?? event.data.toolName;
+        const label =
+          subagent === undefined ? title : `${subagent.label}: ${title}`;
         const operationArguments = sanitizeOperationRecord(
           event.data.arguments,
         );
@@ -5285,6 +5743,7 @@ export class CopilotAgentService implements AgentService {
           ...(metadata?.lifecycleIdentity === undefined
             ? {}
             : { targetIdentity: metadata.lifecycleIdentity }),
+          ...(subagent === undefined ? {} : { subagentLabel: subagent.label }),
           ...this.#eventAttribution(state),
         });
       } else if (event.type === "tool.execution_complete") {

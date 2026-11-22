@@ -24,6 +24,7 @@ import {
   Inspector,
   OperationCard,
   SkillsView,
+  Timeline,
   openListeningFailureHistory,
   slashCompletionsForState,
   WorkingDisclosure,
@@ -364,6 +365,46 @@ describe("desktop component interactions", () => {
     container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
+  });
+
+  it("runs a fully typed slash command on Enter and completes a partial one", async () => {
+    const onChange = vi.fn();
+    const onSubmit = vi.fn((event: React.FormEvent) => {
+      event.preventDefault();
+      return Promise.resolve();
+    });
+    const press = async (value: string) => {
+      await act(async () => {
+        root.render(
+          <Composer
+            state={rendererState()}
+            value={value}
+            busy={false}
+            composerRef={createRef<HTMLTextAreaElement>()}
+            onChange={onChange}
+            onSubmit={onSubmit}
+            dispatch={vi.fn()}
+          />,
+        );
+      });
+      const prompt = container.querySelector("textarea");
+      if (prompt === null) throw new Error("Expected composer textarea");
+      await act(async () => {
+        prompt.dispatchEvent(
+          new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+        );
+        await Promise.resolve();
+      });
+    };
+
+    await press("/yo");
+    expect(onChange).toHaveBeenLastCalledWith("/yolo ");
+    expect(onSubmit).not.toHaveBeenCalled();
+
+    onChange.mockClear();
+    await press("/yolo");
+    expect(onChange).not.toHaveBeenCalled();
+    expect(onSubmit).toHaveBeenCalledTimes(1);
   });
 
   it("opens the owned failure trace through typed History and navigates to the existing History view", async () => {
@@ -1647,78 +1688,99 @@ describe("desktop component interactions", () => {
     expect(hydrateHistory).toHaveBeenCalledWith(agentId);
   });
 
-  it("renders the composer only in Workspace and preserves its draft", async () => {
-    const state = rendererState();
-    const desktop = {
-      lifecycle: { get: vi.fn().mockResolvedValue("ready") },
-      ableton: {
-        getStatus: vi.fn().mockResolvedValue({ state: "disconnected" }),
-      },
-      preferences: {
-        get: vi.fn().mockResolvedValue(initialState.preferences),
-      },
-      agent: { getSessions: vi.fn().mockResolvedValue(state.sessions) },
-      agents: {
-        getCatalog: vi.fn().mockResolvedValue(state.agentCatalog),
-        hydrateHistory: vi.fn().mockResolvedValue([]),
-        readPlan: vi.fn().mockResolvedValue({
-          exists: false,
-          productionSessionId: sessionId,
-        }),
-        getAuthStatus: vi.fn().mockResolvedValue({
-          state: "authenticated",
-          authType: "gh-cli",
-        }),
-        refreshAuthentication: vi.fn().mockResolvedValue({
-          state: "authenticated",
-          authType: "gh-cli",
-        }),
-        listModels: vi.fn().mockResolvedValue(models),
-      },
-      outputs: {
-        list: vi.fn().mockResolvedValue({
-          ...initialState.outputs,
-          activeSessionId: sessionId,
-        }),
-      },
-      events: {
-        list: vi.fn().mockResolvedValue(initialState.events),
-        subscribe: vi.fn(() => vi.fn()),
-      },
-    } as unknown as DesktopApi;
-    Object.defineProperty(window, "desktop", {
-      configurable: true,
-      value: desktop,
-    });
+  it.each([false, true])(
+    "renders the composer only in Workspace and preserves its draft (advanced views %s)",
+    async (showAdvancedViews) => {
+      const state = rendererState();
+      const desktop = {
+        lifecycle: { get: vi.fn().mockResolvedValue("ready") },
+        ableton: {
+          getStatus: vi.fn().mockResolvedValue({ state: "disconnected" }),
+        },
+        preferences: {
+          get: vi
+            .fn()
+            .mockResolvedValue({
+              ...initialState.preferences,
+              showAdvancedViews,
+            }),
+        },
+        agent: { getSessions: vi.fn().mockResolvedValue(state.sessions) },
+        agents: {
+          getCatalog: vi.fn().mockResolvedValue(state.agentCatalog),
+          hydrateHistory: vi.fn().mockResolvedValue([]),
+          readPlan: vi.fn().mockResolvedValue({
+            exists: false,
+            productionSessionId: sessionId,
+          }),
+          getAuthStatus: vi.fn().mockResolvedValue({
+            state: "authenticated",
+            authType: "gh-cli",
+          }),
+          refreshAuthentication: vi.fn().mockResolvedValue({
+            state: "authenticated",
+            authType: "gh-cli",
+          }),
+          listModels: vi.fn().mockResolvedValue(models),
+        },
+        outputs: {
+          list: vi.fn().mockResolvedValue({
+            ...initialState.outputs,
+            activeSessionId: sessionId,
+          }),
+        },
+        events: {
+          list: vi.fn().mockResolvedValue(initialState.events),
+          subscribe: vi.fn(() => vi.fn()),
+        },
+      } as unknown as DesktopApi;
+      Object.defineProperty(window, "desktop", {
+        configurable: true,
+        value: desktop,
+      });
 
-    await act(async () => {
-      root.render(<App />);
-      await Promise.resolve();
-      await Promise.resolve();
-      await Promise.resolve();
-    });
-    const prompt = container.querySelector<HTMLTextAreaElement>("#prompt");
-    if (prompt === null) throw new Error("Expected Workspace composer");
-    await replaceText(prompt, "Preserve this workspace draft");
+      await act(async () => {
+        root.render(<App />);
+        await Promise.resolve();
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      const prompt = container.querySelector<HTMLTextAreaElement>("#prompt");
+      if (prompt === null) throw new Error("Expected Workspace composer");
+      await replaceText(prompt, "Preserve this workspace draft");
 
-    for (const view of ["Agents", "Outputs", "Events", "Settings"]) {
-      await click(container, view);
-      expect(container.querySelector("#prompt")).toBeNull();
-    }
+      const navigation = [
+        ...container.querySelectorAll("#application-views button"),
+      ].map((button) => button.textContent);
+      for (const advanced of ["Events", "Browser", "Diagnostics"]) {
+        expect(navigation.includes(advanced)).toBe(showAdvancedViews);
+      }
+      expect(navigation).toContain("Settings");
 
-    await act(async () => {
-      window.dispatchEvent(
-        new KeyboardEvent("keydown", { key: "k", metaKey: true }),
+      for (const view of [
+        "Agents",
+        "Outputs",
+        ...(showAdvancedViews ? ["Events"] : []),
+        "Settings",
+      ]) {
+        await click(container, view);
+        expect(container.querySelector("#prompt")).toBeNull();
+      }
+
+      await act(async () => {
+        window.dispatchEvent(
+          new KeyboardEvent("keydown", { key: "k", metaKey: true }),
+        );
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+      });
+      expect(
+        container.querySelector<HTMLTextAreaElement>("#prompt")?.value,
+      ).toBe("Preserve this workspace draft");
+      expect(document.activeElement).toBe(
+        container.querySelector<HTMLTextAreaElement>("#prompt"),
       );
-      await new Promise((resolve) => requestAnimationFrame(resolve));
-    });
-    expect(container.querySelector<HTMLTextAreaElement>("#prompt")?.value).toBe(
-      "Preserve this workspace draft",
-    );
-    expect(document.activeElement).toBe(
-      container.querySelector<HTMLTextAreaElement>("#prompt"),
-    );
-  });
+    },
+  );
 
   it("routes only selected-agent interactions and focuses the structured deck", async () => {
     let publish!: (event: DesktopAppEvent) => void;
@@ -2834,6 +2896,156 @@ describe("desktop component interactions", () => {
       expectedRevision: "a".repeat(64),
     });
     expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it("shows reported context usage only for the matching SDK conversation", async () => {
+    let state = rendererState();
+    const instance = activeAgent({ sdkSessionId: "sdk-current" });
+    state.sessions[0]!.activeAgents = [instance];
+    const render = async () => {
+      await act(async () =>
+        root.render(<Inspector state={state} dispatch={vi.fn()} />),
+      );
+    };
+    const report = (
+      sdkSessionId: string,
+      currentTokens: number,
+      agentInstanceId = agentId,
+    ) => {
+      state = desktopReducer(state, {
+        type: "event",
+        event: {
+          type: "agent.context_usage_changed",
+          agentInstanceId,
+          sdkSessionId,
+          usage: {
+            currentTokens,
+            tokenLimit: 4000,
+            systemTokens: 0,
+            compactions: 2,
+            failedCompactions: 1,
+          },
+        },
+      });
+    };
+    await render();
+    expect(container.textContent).toContain("Waiting for token usage");
+    report("sdk-current", 400);
+    report("sdk-next", 500);
+    report("sdk-current", 900, "00000000-0000-4000-8000-000000000009");
+    await render();
+    expect(container.textContent).toContain(
+      `400 / ${(4000).toLocaleString()} tokens used`,
+    );
+    expect(
+      container.querySelector('[role="meter"]')?.getAttribute("aria-valuenow"),
+    ).toBe("400");
+    expect(
+      container.querySelector<HTMLElement>(
+        '[role="meter"] [data-token-kind="unclassified"]',
+      )?.style.width,
+    ).toBe("10%");
+    expect(
+      container.querySelector('[role="meter"] [data-token-kind="system"]'),
+    ).toBeNull();
+    expect(container.querySelector("dl")?.textContent).toContain(
+      "System messages0Tool definitionsNot reportedConversationNot reported",
+    );
+    expect(
+      container.querySelector(".context-budget-compactions")?.textContent,
+    ).toContain("Compactions2Failed compactions1");
+    expect(container.textContent).not.toContain("Latest reported tokens");
+    state = desktopReducer(state, {
+      type: "event",
+      event: {
+        type: "agent.instance_changed",
+        instance: { ...instance, sdkSessionId: "sdk-next" },
+        change: "session-rotated",
+      },
+    });
+    report("sdk-current", 600);
+    await render();
+    expect(
+      container.querySelector('[role="meter"]')?.getAttribute("aria-valuenow"),
+    ).toBe("500");
+    state = desktopReducer(state, {
+      type: "event",
+      event: {
+        type: "agent.instance_changed",
+        instance: { ...instance, sdkSessionId: "sdk-reset" },
+        change: "reset",
+      },
+    });
+    await render();
+    expect(container.textContent).toContain("Waiting for token usage");
+    expect(container.querySelector('[role="meter"]')).toBeNull();
+  });
+
+  it("follows a growing turn only while the timeline is scrolled to the end", async () => {
+    let scrollHeight = 1_000;
+    vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockImplementation(
+      () => scrollHeight,
+    );
+    vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(200);
+    let state = rendererState();
+    const message = (id: string, role: "user" | "assistant", at: number) => {
+      state = desktopReducer(state, {
+        type: "event",
+        event: {
+          type: "agent.user_message_submitted",
+          messageId: id,
+          content: `${role} ${id}`,
+          agentInstanceId: agentId,
+          agentMode: "interactive",
+          origin: "automation",
+          timestamp: at,
+          traceId: "trace",
+          correlationId: "correlation",
+          causationId: "causation",
+        },
+      });
+    };
+    const render = async () => {
+      await act(async () => root.render(<Timeline state={state} />));
+    };
+    const timeline = () =>
+      container.querySelector<HTMLElement>('[aria-label="Recent activity"]')!;
+    message("first", "user", 1);
+    await render();
+    expect(timeline().scrollTop).toBe(1_000);
+
+    scrollHeight = 1_400;
+    state = desktopReducer(state, {
+      type: "event",
+      event: {
+        type: "agent.message_delta",
+        messageId: "answer",
+        content: "Streaming",
+        agentInstanceId: agentId,
+      },
+    });
+    await render();
+    expect(timeline().scrollTop).toBe(1_400);
+
+    timeline().scrollTop = 300;
+    timeline().dispatchEvent(new Event("scroll"));
+    scrollHeight = 1_800;
+    state = desktopReducer(state, {
+      type: "event",
+      event: {
+        type: "agent.message_delta",
+        messageId: "answer",
+        content: " more",
+        agentInstanceId: agentId,
+      },
+    });
+    await render();
+    expect(timeline().scrollTop).toBe(300);
+
+    scrollHeight = 2_000;
+    message("second", "user", Date.now() + 1_000);
+    await render();
+    expect(timeline().scrollTop).toBe(2_000);
   });
 
   it("switches, closes, and re-adds modular inspector views", async () => {

@@ -24,6 +24,16 @@ export type ConnectionStatus =
     }
   | { state: "error"; code: string; message: string };
 
+export interface AgentContextUsage {
+  currentTokens?: number;
+  tokenLimit?: number;
+  conversationTokens?: number;
+  systemTokens?: number;
+  toolDefinitionsTokens?: number;
+  compactions: number;
+  failedCompactions: number;
+}
+
 export interface AgentEventAttribution {
   agentInstanceId?: string;
   sdkSessionId?: string;
@@ -35,6 +45,7 @@ export type OperationFailureSource =
 export interface OperationEventMetadata {
   operationDescriptorId?: string;
   action?: string;
+  subagentLabel?: string;
   targetIdentity?: {
     readonly domain: string;
     readonly action: string;
@@ -56,6 +67,24 @@ export type AgentWorkingUpdate =
       readonly kind: "intent";
       readonly activityId: string;
       readonly content: string;
+      /** Set when the intent belongs to a delegated sub-agent. */
+      readonly subagentId?: string;
+      readonly occurredAt: string;
+    }
+  | {
+      readonly kind: "subagent_started";
+      readonly activityId: string;
+      readonly subagentId: string;
+      readonly label: string;
+      readonly executionMode?: string;
+      readonly occurredAt: string;
+    }
+  | {
+      readonly kind: "subagent_finished";
+      readonly activityId: string;
+      readonly subagentId: string;
+      readonly outcome: "completed" | "failed";
+      readonly detail?: string;
       readonly occurredAt: string;
     }
   | {
@@ -314,6 +343,12 @@ export type AppEvent =
       type: "agent.working_update";
       update: AgentWorkingUpdate;
     } & AgentEventAttribution)
+  | {
+      type: "agent.context_usage_changed";
+      usage: AgentContextUsage;
+      agentInstanceId: string;
+      sdkSessionId: string;
+    }
   | ({
       type: "agent.mode_changed";
       previousMode: AgentMode;

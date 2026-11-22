@@ -69,6 +69,7 @@ export function toDesktopCatalog(
       model: agent.definition.model,
       reasoningEffort: agent.definition.reasoningEffort,
       autoApprove: agent.definition.autoApprove,
+      delegatable: agent.definition.delegatable,
       eventListeners: agent.definition.eventListeners,
       origin: "origin" in agent ? agent.origin : "bundled",
       inherited: "inherited" in agent ? agent.inherited : false,

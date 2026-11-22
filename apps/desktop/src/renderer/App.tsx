@@ -132,6 +132,12 @@ export interface WorkspaceSidebarWidths {
   right: number;
 }
 
+const ADVANCED_VIEWS: ReadonlySet<WorkspaceView> = new Set([
+  "events",
+  "browser",
+  "diagnostics",
+]);
+
 export function initialWorkspaceSidebarWidths(
   viewportWidth: number,
 ): WorkspaceSidebarWidths {
@@ -227,11 +233,14 @@ export function slashCompletionKey(
   key: string,
   selected: number,
   count: number,
+  inputMatchesSelection = false,
 ): number | "complete" | undefined {
   if (count === 0) return undefined;
   if (key === "ArrowDown") return (selected + 1) % count;
   if (key === "ArrowUp") return (selected - 1 + count) % count;
-  if (key === "Tab" || key === "Enter") return "complete";
+  if (key === "Tab") return "complete";
+  // Enter runs a fully typed command instead of re-completing it.
+  if (key === "Enter" && !inputMatchesSelection) return "complete";
   return undefined;
 }
 
@@ -638,6 +647,7 @@ export async function sendComposerMessage(
         : `${agent.label} is ${agent.lifecycle}`,
     );
   }
+  const submittedAt = Date.now();
   let invocation: SkillInvocation | undefined;
   try {
     invocation = parseSkillInvocation(message);
@@ -668,6 +678,7 @@ export async function sendComposerMessage(
       type: "user-message",
       id: accepted.messageId,
       content: message,
+      submittedAt,
       agentInstanceId: agent.id,
       agentMode,
     });
@@ -683,6 +694,7 @@ export async function sendComposerMessage(
     type: "user-message",
     id: accepted.messageId,
     content: message,
+    submittedAt,
     agentInstanceId: agent.id,
     agentMode,
   });
@@ -1046,16 +1058,23 @@ export function App(): React.JSX.Element {
               "sessions",
               "settings",
             ] as WorkspaceView[]
-          ).map((view) => (
-            <button
-              key={view}
-              className={state.activeView === view ? "selected" : ""}
-              onClick={() => dispatch({ type: "view", view })}
-            >
-              {view[0]?.toUpperCase()}
-              {view.slice(1)}
-            </button>
-          ))}
+          )
+            .filter(
+              (view) =>
+                state.preferences.showAdvancedViews ||
+                !ADVANCED_VIEWS.has(view) ||
+                state.activeView === view,
+            )
+            .map((view) => (
+              <button
+                key={view}
+                className={state.activeView === view ? "selected" : ""}
+                onClick={() => dispatch({ type: "view", view })}
+              >
+                {view[0]?.toUpperCase()}
+                {view.slice(1)}
+              </button>
+            ))}
         </nav>
       )}
       {!topChromeVisible && (
@@ -5253,6 +5272,7 @@ function normalizedDefinition(
     model: definition.model ?? null,
     reasoningEffort: definition.reasoningEffort ?? null,
     autoApprove: definition.autoApprove ?? false,
+    delegatable: definition.delegatable ?? false,
     eventListeners: [...(definition.eventListeners ?? [])],
   };
 }
@@ -5807,6 +5827,19 @@ function ActiveAgentCard({
                 />
                 Automatically approve eligible tool requests
               </label>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={draft.delegatable}
+                  onChange={(event) =>
+                    setDraft((current) => ({
+                      ...current,
+                      delegatable: event.target.checked,
+                    }))
+                  }
+                />
+                Other agents can delegate tasks to this agent as a sub-agent
+              </label>
               <small>
                 Changes become the Session definition default. Active
                 conversations adopt them only after Reset.
@@ -6214,11 +6247,14 @@ export function Timeline({
 }): React.JSX.Element {
   const workspace = selectedAgentWorkspace(state);
   const timelineRef = useRef<HTMLDivElement>(null);
+  const followLatest = useRef(true);
   const scrollKey = selectedAgentInstance(state)?.id ?? "no-agent";
   useLayoutEffect(() => {
-    if (timelineRef.current !== null) {
-      timelineRef.current.scrollTop = scrollPositions?.get(scrollKey) ?? 0;
-    }
+    const timeline = timelineRef.current;
+    if (timeline === null) return;
+    const saved = scrollPositions?.get(scrollKey);
+    timeline.scrollTop = saved ?? timeline.scrollHeight;
+    followLatest.current = saved === undefined || isScrolledToEnd(timeline);
   }, [scrollKey, scrollPositions]);
   const items = useMemo(
     () =>
@@ -6237,19 +6273,38 @@ export function Timeline({
           itemType: "trigger" as const,
         })),
       ]
-        .sort((left, right) => left.timestamp - right.timestamp)
+        .sort(
+          (left, right) =>
+            Number(isActiveTimelineMessage(left)) -
+              Number(isActiveTimelineMessage(right)) ||
+            left.timestamp - right.timestamp,
+        )
         .slice(-200),
     [workspace.messages, workspace.operations, workspace.triggers],
   );
+  const latestUserMessageId = [...workspace.messages]
+    .reverse()
+    .find(({ role }) => role === "user")?.id;
+  const followedUserMessageId = useRef(latestUserMessageId);
+  useLayoutEffect(() => {
+    const timeline = timelineRef.current;
+    if (timeline === null) return;
+    if (followedUserMessageId.current !== latestUserMessageId) {
+      followedUserMessageId.current = latestUserMessageId;
+      followLatest.current = true;
+    }
+    if (followLatest.current) timeline.scrollTop = timeline.scrollHeight;
+  }, [items, latestUserMessageId]);
   return (
     <div
       ref={timelineRef}
       className="timeline"
       aria-live="polite"
       aria-label="Recent activity"
-      onScroll={(event) =>
-        scrollPositions?.set(scrollKey, event.currentTarget.scrollTop)
-      }
+      onScroll={(event) => {
+        scrollPositions?.set(scrollKey, event.currentTarget.scrollTop);
+        followLatest.current = isScrolledToEnd(event.currentTarget);
+      }}
     >
       {items.length === 0 && (
         <EmptyState
@@ -6294,6 +6349,21 @@ export function Timeline({
       )}
     </div>
   );
+}
+
+function isActiveTimelineMessage(item: {
+  itemType: string;
+  streaming?: boolean;
+  working?: WorkingView | undefined;
+}): boolean {
+  return (
+    item.itemType === "message" &&
+    (item.streaming === true || item.working?.status === "running")
+  );
+}
+
+function isScrolledToEnd(element: HTMLElement): boolean {
+  return element.scrollHeight - element.scrollTop - element.clientHeight < 48;
 }
 
 export function WorkingDisclosure({
@@ -6341,6 +6411,36 @@ export function WorkingDisclosure({
           <p>{fallback}</p>
         )}
         {working.detail && <p className="warning">{working.detail}</p>}
+        {working.subagents !== undefined && working.subagents.length > 0 && (
+          <ul className="working-subagents" aria-label="Sub-agents">
+            {working.subagents.map((subagent) => (
+              <li
+                key={subagent.id}
+                className={`working-subagent working-${subagent.status}`}
+              >
+                <strong>{subagent.label}</strong>
+                {subagent.executionMode === "background" && (
+                  <small> · background</small>
+                )}
+                <small role="status">
+                  {" "}
+                  ·{" "}
+                  {
+                    {
+                      running: "Working",
+                      completed: "Completed",
+                      failed: "Failed",
+                    }[subagent.status]
+                  }
+                </small>
+                {subagent.intent && <p>{subagent.intent}</p>}
+                {subagent.detail && (
+                  <p className="warning">{subagent.detail}</p>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
     </details>
   );
@@ -6384,13 +6484,37 @@ export function OperationCard({
     operation.toolName,
     operation.label,
   );
+  const subagentPrefix =
+    operation.subagentLabel === undefined
+      ? undefined
+      : `${operation.subagentLabel}: `;
+  const label =
+    subagentPrefix !== undefined && operation.label.startsWith(subagentPrefix)
+      ? operation.label.slice(subagentPrefix.length)
+      : operation.label;
+  const subagentClass =
+    operation.subagentLabel !== undefined
+      ? " operation-subagent"
+      : operation.toolName === "task"
+        ? " operation-subagent-launch"
+        : "";
   return (
-    <details className={`operation operation-${operation.status}`}>
+    <details
+      className={`operation operation-${operation.status}${subagentClass}`}
+    >
       <summary
         className={operation.toolName === undefined ? "" : "has-tool-name"}
       >
         <ActivityIcon type={presentation.type} />
-        <span className="operation-label">{operation.label}</span>
+        {operation.subagentLabel !== undefined && (
+          <span
+            className="operation-subagent-label"
+            title={`Run by sub-agent ${operation.subagentLabel}`}
+          >
+            {operation.subagentLabel}
+          </span>
+        )}
+        <span className="operation-label">{label}</span>
         {operation.toolName !== undefined && (
           <code className="operation-tool-name">
             {operation.toolName}
@@ -6398,7 +6522,7 @@ export function OperationCard({
           </code>
         )}
         <small>
-          {operation.status}
+          <span className="operation-status">{operation.status}</span>
           {operation.durationMs === undefined
             ? ""
             : ` · ${formatOperationDuration(operation.durationMs)}`}
@@ -6633,14 +6757,21 @@ export function Inspector({
     (candidate) => candidate.id === state.selectedDeviceId,
   );
   const workspace = selectedAgentWorkspace(state);
+  const agent = selectedAgentInstance(state);
+  const contextUsage = workspace.contextUsage?.find(
+    ({ sdkSessionId }) => sdkSessionId === agent?.sdkSessionId,
+  )?.usage;
+  const hasAgent = agent !== undefined;
   const available = useMemo<InspectorModuleId[]>(() => {
     const modules: InspectorModuleId[] = [];
     if (track !== undefined) modules.push("selection");
     if (workspace.planArtifact?.exists === true) modules.push("plan");
     if (workspace.approval !== undefined) modules.push("approval");
     if (workspace.artifactReview !== undefined) modules.push("artifact");
+    if (hasAgent) modules.push("context");
     return modules;
   }, [
+    hasAgent,
     track,
     workspace.approval,
     workspace.artifactReview,
@@ -6694,6 +6825,7 @@ export function Inspector({
     if (moduleId === "artifact") {
       return <ArtifactReviewPanel state={state} dispatch={dispatch} />;
     }
+    if (moduleId === "context") return <ContextBudget usage={contextUsage} />;
     return null;
   };
   const handleTabDragStart = (
@@ -6712,7 +6844,8 @@ export function Inspector({
     return moduleId === "selection" ||
       moduleId === "plan" ||
       moduleId === "approval" ||
-      moduleId === "artifact"
+      moduleId === "artifact" ||
+      moduleId === "context"
       ? moduleId
       : undefined;
   };
@@ -6960,7 +7093,110 @@ function inspectorModuleLabel(moduleId: InspectorModuleId): string {
   if (moduleId === "selection") return "Selection";
   if (moduleId === "plan") return "Plan";
   if (moduleId === "artifact") return "Review draft";
+  if (moduleId === "context") return "Context";
   return "Approval";
+}
+
+function ContextBudget({
+  usage,
+}: {
+  usage:
+    | NonNullable<AgentWorkspaceState["contextUsage"]>[number]["usage"]
+    | undefined;
+}): React.JSX.Element {
+  const format = (count: number | undefined): string =>
+    count?.toLocaleString() ?? "Not reported";
+  const used = usage?.currentTokens;
+  const limit = usage?.tokenLimit;
+  const rows = [
+    { key: "system", label: "System messages", count: usage?.systemTokens },
+    {
+      key: "tools",
+      label: "Tool definitions",
+      count: usage?.toolDefinitionsTokens,
+    },
+    {
+      key: "conversation",
+      label: "Conversation",
+      count: usage?.conversationTokens,
+    },
+  ] as const;
+  const known = rows.reduce((total, { count }) => total + (count ?? 0), 0);
+  const segments =
+    used !== undefined && known <= used
+      ? [...rows, { key: "unclassified", count: used - known }]
+      : [{ key: "unclassified", count: used }];
+  return (
+    <section className="context-budget" aria-label="Context budget">
+      <h3>Context budget</h3>
+      <p className="context-budget-total">
+        {used === undefined && limit === undefined ? (
+          "Waiting for token usage from Copilot."
+        ) : (
+          <>
+            <strong>{format(used)}</strong>
+            {" / "}
+            {format(limit)} tokens used
+          </>
+        )}
+      </p>
+      {used !== undefined && limit !== undefined && (
+        <div
+          className="context-budget-meter"
+          role="meter"
+          aria-label="Context window usage"
+          aria-valuemin={0}
+          aria-valuemax={limit}
+          aria-valuenow={Math.min(used, limit)}
+          aria-valuetext={`${format(used)} of ${format(limit)} tokens used`}
+          data-over-budget={used > limit || undefined}
+        >
+          {segments.map(
+            ({ key, count }) =>
+              count !== undefined &&
+              count > 0 && (
+                <span
+                  key={key}
+                  aria-hidden="true"
+                  data-token-kind={key}
+                  style={{ width: `${(count / Math.max(limit, used)) * 100}%` }}
+                />
+              ),
+          )}
+        </div>
+      )}
+      <dl>
+        {rows.map(({ key, label, count }) => (
+          <div key={label}>
+            <dt>
+              <span
+                className="context-budget-swatch"
+                data-token-kind={key}
+                aria-hidden="true"
+              />
+              {label}
+            </dt>
+            <dd>{format(count)}</dd>
+          </div>
+        ))}
+      </dl>
+      <dl
+        className="context-budget-compactions"
+        aria-label="Compactions observed since connecting to this conversation"
+      >
+        <div>
+          <dt>Compactions</dt>
+          <dd>{format(usage?.compactions)}</dd>
+        </div>
+        {usage?.failedCompactions ? (
+          <div className="context-budget-failed">
+            <dt>Failed compactions</dt>
+            <dd>{format(usage.failedCompactions)}</dd>
+          </div>
+        ) : null}
+      </dl>
+    </section>
+  );
 }
 
 function InspectorModuleIcon({
@@ -6985,6 +7221,8 @@ function InspectorModuleIcon({
           <path d="M4 2.5h6.5L14 6v9.5H4Z" />
           <path d="M10.5 2.5V6H14M6.5 9.5h5M6.5 12h3.5" />
         </>
+      ) : moduleId === "context" ? (
+        <path d="M3 14h12M5 11V8m4 3V4m4 7V6" />
       ) : (
         <>
           <path d="M9 2.5 14 4v4.2c0 3-2 5.7-5 7.3-3-1.6-5-4.3-5-7.3V4l5-1.5Z" />
@@ -7523,6 +7761,11 @@ export function ApprovalPanel({
           <span className={`risk risk-${approval.risk}`}>
             {approval.risk} risk
           </span>
+          {approval.subagentLabel !== undefined && (
+            <small className="approval-subagent">
+              Requested via sub-agent {approval.subagentLabel}
+            </small>
+          )}
           <p>{approval.summary}</p>
           <ul>
             {approval.changes.map((change) => (
@@ -7923,6 +8166,19 @@ export function SettingsView({
           <small>
             Keep Ableton Agent visible above other apps, including across macOS
             Spaces and over full-screen windows.
+          </small>
+          <label className="checkbox">
+            <input
+              type="checkbox"
+              checked={draft.showAdvancedViews}
+              onChange={(event) =>
+                setDraft({ ...draft, showAdvancedViews: event.target.checked })
+              }
+            />{" "}
+            Show advanced views
+          </label>
+          <small>
+            Show the Events, Browser, and Diagnostics tabs in the toolbar.
           </small>
         </fieldset>
         <fieldset className="listening-settings">
@@ -9048,10 +9304,13 @@ export function Composer({
   };
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>): void => {
     if (slashSuggestions.length > 0) {
+      const selectedEntry =
+        slashSuggestions[selectedSuggestion] ?? slashSuggestions[0]!;
       const completion = slashCompletionKey(
         event.key,
         selectedSuggestion,
         slashSuggestions.length,
+        value === `/${selectedEntry.name}`,
       );
       if (typeof completion === "number") {
         event.preventDefault();
@@ -9060,9 +9319,7 @@ export function Composer({
       }
       if (completion === "complete" && !event.shiftKey) {
         event.preventDefault();
-        completeSuggestion(
-          slashSuggestions[selectedSuggestion] ?? slashSuggestions[0]!,
-        );
+        completeSuggestion(selectedEntry);
         return;
       }
     }

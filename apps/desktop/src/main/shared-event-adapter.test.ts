@@ -243,6 +243,24 @@ describe("shared application event adapter", () => {
     });
   });
 
+  it("carries sub-agent attribution into operation views", () => {
+    expect(
+      normalizeSharedEvent(
+        {
+          type: "operation.started",
+          operationId: "op-sub",
+          label: "Compose: Read session",
+          toolName: "ableton_session",
+          subagentLabel: ` ${"C".repeat(200)} `,
+        },
+        () => "message-sub",
+      ),
+    ).toMatchObject({
+      type: "operation.changed",
+      operation: { subagentLabel: "C".repeat(128) },
+    });
+  });
+
   it("bounds shared tool names without rejecting shared punctuation", () => {
     const event = normalizeSharedEvent(
       {

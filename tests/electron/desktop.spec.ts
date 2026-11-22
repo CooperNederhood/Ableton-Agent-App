@@ -1546,9 +1546,21 @@ test("launches the built desktop contract securely", async () => {
       name: "Message the Ableton agent",
     });
     await composer.fill("Keep this draft");
-    await window.getByRole("button", { name: "Events" }).click();
-    await expect(window.getByRole("heading", { name: "Events" })).toBeVisible();
+    const views = window.getByRole("navigation", { name: "Application views" });
+    for (const advanced of ["Events", "Browser", "Diagnostics"]) {
+      await expect(
+        views.getByRole("button", { name: advanced, exact: true }),
+      ).toHaveCount(0);
+    }
+    await views.getByRole("button", { name: "Settings" }).click();
     await expect(composer).toHaveCount(0);
+    await window.getByRole("checkbox", { name: "Show advanced views" }).check();
+    await window.getByRole("button", { name: "Save settings" }).click();
+    await views.getByRole("button", { name: "Events", exact: true }).click();
+    await expect(window.getByRole("heading", { name: "Events" })).toBeVisible();
+    await expect(
+      views.getByRole("button", { name: "Diagnostics", exact: true }),
+    ).toBeVisible();
 
     await window.getByRole("button", { name: "Agents" }).click();
     await expect(
@@ -1849,6 +1861,23 @@ test("renders useful successful and blocked tool disclosures", async () => {
           timestamp: 4,
         },
       },
+      {
+        type: "operation.changed",
+        agentInstanceId,
+        operation: {
+          id: "subagent-read",
+          label: "Compose: Read session overview",
+          toolName: "ableton_session",
+          subagentLabel: "Compose",
+          status: "completed",
+          warnings: [],
+          changed: [],
+          unchanged: [],
+          retryable: false,
+          undoable: false,
+          timestamp: 5,
+        },
+      },
     ];
 
     await publish(disclosureEvents);
@@ -1881,6 +1910,20 @@ test("renders useful successful and blocked tool disclosures", async () => {
       "Start a new chat with the current Live Set open.",
     );
     await expect(changedSet).not.toContainText("Permission denied");
+    const subagentOperation = window.locator(
+      "details.operation.operation-subagent",
+    );
+    await expect(subagentOperation).toHaveCount(1);
+    await expect(
+      subagentOperation.locator(".operation-subagent-label"),
+    ).toHaveText("Compose");
+    await expect(subagentOperation.locator(".operation-label")).toHaveText(
+      "Read session overview",
+    );
+    await expect(subagentOperation).toHaveCSS(
+      "border-left-color",
+      "rgb(34, 211, 238)",
+    );
   } finally {
     await application.close();
     await rm(profile, { recursive: true, force: true });
@@ -2212,6 +2255,80 @@ test("renders plan.md in the Inspector and routes composer approval through IPC"
     ).toBeVisible();
     await expect(window.getByRole("tab", { name: "Plan" })).toBeVisible();
     await expect(window.getByRole("tab", { name: "Approval" })).toBeVisible();
+    const contextTab = window.getByRole("tab", { name: "Context" });
+    await contextTab.click();
+    await expect(
+      window.getByText("Waiting for token usage from Copilot."),
+    ).toBeVisible();
+    const contextAgent = await window.evaluate(async (id) => {
+      const { desktop } = window as unknown as {
+        desktop: ElectronTestDesktopApi;
+      };
+      return (await desktop.agent.getSessions())
+        .flatMap(({ activeAgents }) => activeAgents)
+        .find((agent) => agent.id === id);
+    }, agentInstanceId);
+    if (contextAgent === undefined) throw new Error("Context agent missing");
+    const sdkSessionId =
+      contextAgent.sdkSessionId ?? "synthetic-context-session";
+    const contextEvents: DesktopAppEvent[] = [
+      {
+        type: "agent.context_usage_changed",
+        agentInstanceId,
+        sdkSessionId,
+        usage: {
+          currentTokens: 300,
+          tokenLimit: 800,
+          systemTokens: 100,
+          conversationTokens: 200,
+          compactions: 1,
+          failedCompactions: 0,
+        },
+      },
+      ...(contextAgent.sdkSessionId === undefined
+        ? [
+            {
+              type: "agent.instance_changed" as const,
+              instance: { ...contextAgent, sdkSessionId },
+              change: "session-rotated" as const,
+            },
+          ]
+        : []),
+    ];
+    await application.evaluate(({ BrowserWindow }, events) => {
+      const target = BrowserWindow.getAllWindows()[0];
+      if (target === undefined) throw new Error("Desktop window missing");
+      for (const event of events) target.webContents.send("app:event", event);
+    }, contextEvents);
+    const contextBudget = window.getByRole("region", {
+      name: "Context budget",
+    });
+    await expect(contextBudget.locator(".context-budget-total")).toHaveText(
+      "300 / 800 tokens used",
+    );
+    const meter = contextBudget.getByRole("meter", {
+      name: "Context window usage",
+    });
+    await expect(meter).toHaveAttribute("aria-valuenow", "300");
+    await expect(meter.locator('[data-token-kind="system"]')).toHaveCSS(
+      "background-color",
+      "rgb(167, 139, 250)",
+    );
+    await expect(
+      meter.locator('[data-token-kind="conversation"]'),
+    ).toBeVisible();
+    await expect(contextBudget.locator("dt")).toHaveText([
+      "System messages",
+      "Tool definitions",
+      "Conversation",
+      "Compactions",
+    ]);
+    await expect(contextBudget.locator("dd")).toHaveText([
+      "100",
+      "Not reported",
+      "200",
+      "1",
+    ]);
     await expect(window.getByText("Electron approval plan")).toHaveCount(0);
     await window.getByRole("tab", { name: "Plan" }).click();
     await expect(window.locator(".plan-approval-content li")).toHaveCount(2);

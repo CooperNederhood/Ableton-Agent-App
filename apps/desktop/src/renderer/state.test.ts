@@ -816,6 +816,57 @@ describe("desktop reducer", () => {
     });
   });
 
+  it("nests sub-agent progress under the parent Working summary", () => {
+    const messageId = "assistant-message";
+    const activityId = "00000000-0000-4000-8000-000000000022";
+    const updates = [
+      { kind: "started", activityId, occurredAt: "2026-08-08T00:00:00.000Z" },
+      {
+        kind: "subagent_started",
+        activityId,
+        subagentId: "sub-1",
+        label: "Compose",
+        executionMode: "background",
+        occurredAt: "2026-08-08T00:00:01.000Z",
+      },
+      {
+        kind: "intent",
+        activityId,
+        subagentId: "sub-1",
+        content: "Writing the hi-hat clip",
+        occurredAt: "2026-08-08T00:00:02.000Z",
+      },
+      {
+        kind: "subagent_finished",
+        activityId,
+        subagentId: "sub-1",
+        outcome: "completed",
+        occurredAt: "2026-08-08T00:00:03.000Z",
+      },
+    ] as const;
+    let state = initialState;
+    for (const update of updates) {
+      state = desktopReducer(state, {
+        type: "event",
+        event: { type: "agent.working_update", messageId, update },
+      });
+    }
+
+    expect(state.messages[0]?.working).toMatchObject({
+      status: "running",
+      subagents: [
+        {
+          id: "sub-1",
+          label: "Compose",
+          status: "completed",
+          executionMode: "background",
+          intent: "Writing the hi-hat clip",
+        },
+      ],
+    });
+    expect(state.messages[0]?.working).not.toHaveProperty("intent");
+  });
+
   it("keeps two agent conversations and streaming attribution independent", () => {
     let state = desktopReducer(stateWithAgents(), {
       type: "user-message",

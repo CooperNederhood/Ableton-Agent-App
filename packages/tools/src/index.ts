@@ -452,6 +452,8 @@ export interface ToolApprovalRequest {
   arguments: Readonly<Record<string, unknown>>;
   agentInstanceId?: string;
   sdkSessionId?: string;
+  /** Present when a delegated sub-agent of the attributed agent made the call. */
+  subagent?: { readonly agentId: string; readonly label: string };
   trace?: {
     readonly traceId: string;
     readonly correlationId: string;

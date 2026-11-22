@@ -60,9 +60,27 @@ export interface WorkingView {
   detail?: string;
   startedAt: number;
   updatedAt: number;
+  subagents?: SubagentWorkingView[];
 }
 
+export interface SubagentWorkingView {
+  id: string;
+  label: string;
+  status: "running" | "completed" | "failed";
+  executionMode?: string;
+  intent?: string;
+  detail?: string;
+}
+
+const maxSubagentsPerTurn = 32;
+
+type ContextUsageEvent = Extract<
+  DesktopAppEvent,
+  { type: "agent.context_usage_changed" }
+>;
+
 export interface AgentWorkspaceState {
+  contextUsage?: readonly ContextUsageEvent[] | undefined;
   messages: MessageView[];
   operations: OperationView[];
   triggers: LiveEventTrigger[];
@@ -202,6 +220,7 @@ export type DesktopAction =
       type: "user-message";
       id: string;
       content: string;
+      submittedAt?: number;
       agentInstanceId?: string;
       agentMode?: DesktopAgentMode;
     }
@@ -274,7 +293,7 @@ export function desktopReducer(
         role: "user" as const,
         content: action.content,
         streaming: false,
-        timestamp: Date.now(),
+        timestamp: action.submittedAt ?? Date.now(),
         ...(action.agentMode === undefined
           ? {}
           : { agentMode: action.agentMode }),
@@ -589,6 +608,25 @@ function reduceEvent(
       };
     case "agent.plan_changed":
       return state;
+    case "agent.context_usage_changed": {
+      const { agentInstanceId, sdkSessionId } = event;
+      const currentSdkSessionId = state.sessions
+        .flatMap(({ activeAgents }) => activeAgents)
+        .find(({ id }) => id === agentInstanceId)?.sdkSessionId;
+      return updateAgentWorkspace(state, agentInstanceId, (workspace) => ({
+        ...workspace,
+        // A newly connected SDK session can report usage before its Desktop
+        // instance update arrives. Retain one candidate alongside the current one.
+        contextUsage: [
+          event,
+          ...(workspace.contextUsage ?? []).filter((snapshot) =>
+            sdkSessionId === currentSdkSessionId
+              ? snapshot.sdkSessionId !== currentSdkSessionId
+              : snapshot.sdkSessionId === currentSdkSessionId,
+          ),
+        ],
+      }));
+    }
     case "agent.plan_approval_requested":
       if (event.agentInstanceId === undefined) return state;
       return updateAgentWorkspace(
@@ -708,6 +746,12 @@ function reduceEvent(
               ...(state.activeSessionId === event.session.id
                 ? (state.agentWorkspaces[instance.id] ?? emptyAgentWorkspace())
                 : emptyAgentWorkspace()),
+              ...(state.agentWorkspaces[instance.id]?.contextUsage === undefined
+                ? {}
+                : {
+                    contextUsage:
+                      state.agentWorkspaces[instance.id]?.contextUsage,
+                  }),
               triggers: [...(instance.triggerHistory ?? [])],
             },
           ]),
@@ -914,6 +958,8 @@ function upsertOperation(
                   operation.operationDescriptorId ??
                   candidate.operationDescriptorId,
                 action: operation.action ?? candidate.action,
+                subagentLabel:
+                  operation.subagentLabel ?? candidate.subagentLabel,
                 detail: operation.detail ?? candidate.detail,
                 request: operation.request ?? candidate.request,
               }
@@ -975,7 +1021,12 @@ function applyMessageDelta(
   }
   return messages.map((message, messageIndex) =>
     messageIndex === index
-      ? { ...message, content: message.content + content, streaming: true }
+      ? {
+          ...message,
+          content: message.content + content,
+          streaming: true,
+          timestamp: Math.max(message.timestamp, Date.now()),
+        }
       : message,
   );
 }
@@ -989,7 +1040,12 @@ function applyMessageComplete(
   return exists
     ? messages.map((message) =>
         message.id === messageId
-          ? { ...message, content, streaming: false }
+          ? {
+              ...message,
+              content,
+              streaming: false,
+              timestamp: Math.max(message.timestamp, Date.now()),
+            }
           : message,
       )
     : bounded(
@@ -1054,8 +1110,54 @@ function applyWorkingUpdate(
             startedAt: occurredAt,
             updatedAt: occurredAt,
           };
-    if (update.kind === "intent") {
+    if (update.kind === "intent" && update.subagentId !== undefined) {
+      const subagentId = update.subagentId;
+      working = {
+        ...base,
+        subagents: (base.subagents ?? []).map((subagent) =>
+          subagent.id === subagentId
+            ? { ...subagent, intent: update.content }
+            : subagent,
+        ),
+        updatedAt: occurredAt,
+      };
+    } else if (update.kind === "intent") {
       working = { ...base, intent: update.content, updatedAt: occurredAt };
+    } else if (update.kind === "subagent_started") {
+      const started: SubagentWorkingView = {
+        id: update.subagentId,
+        label: update.label,
+        status: "running",
+        ...(update.executionMode === undefined
+          ? {}
+          : { executionMode: update.executionMode }),
+      };
+      working = {
+        ...base,
+        subagents: [
+          ...(base.subagents ?? []).filter(
+            ({ id }) => id !== update.subagentId,
+          ),
+          started,
+        ].slice(-maxSubagentsPerTurn),
+        updatedAt: occurredAt,
+      };
+    } else if (update.kind === "subagent_finished") {
+      working = {
+        ...base,
+        subagents: (base.subagents ?? []).map((subagent) =>
+          subagent.id === update.subagentId
+            ? {
+                ...subagent,
+                status: update.outcome,
+                ...(update.detail === undefined
+                  ? {}
+                  : { detail: update.detail }),
+              }
+            : subagent,
+        ),
+        updatedAt: occurredAt,
+      };
     } else if (update.kind === "reasoning_delta") {
       working = {
         ...base,
@@ -1086,7 +1188,11 @@ function applyWorkingUpdate(
       };
     }
   }
-  const next = { ...existing, working };
+  const next = {
+    ...existing,
+    working,
+    timestamp: Math.max(existing.timestamp, occurredAt),
+  };
   return index < 0
     ? bounded([...messages, next], maxMessages)
     : messages.map((message, messageIndex) =>
@@ -1162,13 +1268,25 @@ function reduceAgentInstanceChanged(
           session.selectedAgentInstanceId === instance.id
         ? activeAgents[0]?.id
         : session.selectedAgentInstanceId;
+  const replacementUsage = state.agentWorkspaces[
+    instance.id
+  ]?.contextUsage?.find(
+    ({ sdkSessionId }) => sdkSessionId === instance.sdkSessionId,
+  );
   return {
     ...state,
     ...(change === "conversation-settings-changed"
       ? {
           agentWorkspaces: {
             ...state.agentWorkspaces,
-            [instance.id]: emptyAgentWorkspace(),
+            [instance.id]: {
+              messages: [],
+              operations: [],
+              triggers: [],
+              ...(replacementUsage === undefined
+                ? {}
+                : { contextUsage: [replacementUsage] }),
+            },
           },
         }
       : {}),

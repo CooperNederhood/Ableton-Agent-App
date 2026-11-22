@@ -41,9 +41,11 @@ When the user activates an agent, `CopilotAgentService` builds a
   `read_plan`, `write_plan`) and a small, approved set of SDK built-ins (for
   example `ask_user`). `availableTools` is an exact allowlist and SDK tool
   search is off, so the model sees every allowed tool up front and nothing else.
-- **One custom agent**: the definition is passed as the only `customAgents`
+- **Custom agents**: the active definition is passed as a `customAgents`
   entry and selected with `agent`, with `infer: false` so the SDK never
-  switches agents on its own.
+  switches to it on its own. Delegatable definitions are added as further
+  entries the active agent can start as sub-agents (see
+  [Sub-agents](#sub-agents)).
 - **System message**: the base system message, an identity block (the current
   Live Set ID, Project ID and app-session ID), the list of enabled skills, and
   a **Memory** section built from every scope's `memory/INDEX.md` (see
@@ -119,8 +121,8 @@ skills:
 inputChannels: []
 ```
 
-Version 2 adds a `label`, `model`, `reasoningEffort`, `autoApprove` and Live
-Event listeners (see [live-events.md](live-events.md)). The schema is in
+Version 2 adds a `label`, `model`, `reasoningEffort`, `autoApprove`,
+`delegatable` and Live Event listeners (see [live-events.md](live-events.md)). The schema is in
 `packages/agent-config/src/schemas.ts`.
 
 Key fields:
@@ -142,6 +144,32 @@ Definitions are layered. The loader
 bundled, system, profile, project and session layers; a later layer overrides
 an earlier one by name. Saving an agent from the Desktop **Agents** tab writes
 a copy into the current session's layer, so bundled files are never changed.
+
+### Sub-agents
+
+An agent can hand a self-contained piece of work to another agent through the
+SDK's `task` tool, and follow up with `read_agent`, `write_agent` and
+`list_agents`. The parent needs those tools named in its `tools` (the bundled
+`default` agent has them). Every definition with `delegatable: true` (for
+example `compose`) is offered to every parent as a `task` agent type; the SDK
+client runs in empty mode, so there are no SDK built-in agents.
+
+Sub-agents run inside the parent's SDK session:
+
+- **Tools** are the delegate's resolved tools intersected with the parent
+  session's tools, minus the parent-only tools (orchestration, `ask_user`,
+  `exit_plan_mode`, `write_plan`). The parent's handlers, edit scope, plan mode
+  and approvals therefore apply unchanged. `skill` only serves the sub-agent
+  its own skills.
+- **Prompt** is the delegate's `systemPrompt`, its tool guidance and a short
+  sub-agent note. The `onSubagentStart` hook adds the same identity and project
+  context as the parent gets.
+- **Approvals** are attributed: the card says which sub-agent asked.
+- **Background** sub-agents (`mode: "background"`) keep the turn open until
+  they finish; aborting the turn stops them too.
+- **Visibility**: sub-agent text never reaches the parent's chat. Its start,
+  intent and finish appear nested in the parent's Working timeline, and
+  `agent.subagent.started|completed|failed` events record it in History.
 
 An **active agent** is a running instance of a definition. It keeps a snapshot
 of its definition, so later edits to the YAML only take effect after the user
@@ -222,6 +250,12 @@ Everything else, including symbolic links, is refused with a hint the model
 can act on. File tool refusals use the code `artifact_workspace_blocked`;
 `bash` refusals use `shell_policy_blocked`. Skills cannot
 be deleted.
+
+When `bash` runs in the OS sandbox, the two `bash` rows don't apply. The
+sandbox lets bash write to its scratch folder and to this session's artifact
+workspace, and nowhere else. Writes there are still published only through
+review: when a draft is submitted, the app compares the workspace with its
+starting copy.
 
 ### Review
 

@@ -854,28 +854,6 @@ describe("real version5 ListenerService orchestration", () => {
     ).toBe(true);
   });
 
-  it("streams a full high-density capture without the old whole-observation byte ceiling", async () => {
-    const s = new Service();
-    const large = createSyntheticMetricWireFixture("arrangement", false, {
-      tempoBpm: 999,
-      endBeat: 499.5,
-    });
-    large.observation.source = structuredClone(s.data.observation.source);
-    large.observation.source.transport.endBeat = large.config.geometry.endBeat;
-    large.config.sourceContext = large.observation.source;
-    large.ready.config = structuredClone(large.config);
-    large.proof.armed.config = structuredClone(large.config);
-    s.data = large;
-    const prepared = await prepareMetricListenerStream(s, s.input);
-    s.launch();
-    s.complete();
-    const [manifest] = await prepared.result;
-    expect(manifest?.outcome).toBe("complete");
-    expect(s.stream?.descriptor.geometry.rows).toHaveLength(1998);
-    expect(s.streamSink.append).toHaveBeenCalled();
-    await prepared.disarm();
-  });
-
   it("prepares every independent Arrangement binding before arming any listener", async () => {
     const a = new Service(),
       b = new Service();

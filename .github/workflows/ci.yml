@@ -14,9 +14,16 @@ concurrency:
 
 jobs:
   # Real-Live qualification is an operator-triggered local suite, not hosted CI.
+  # Static checks and tests run as parallel jobs so the wait is the longer of
+  # the two, not their sum.
   validate:
+    name: validate (${{ matrix.suite }})
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [static, test]
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -31,22 +38,14 @@ jobs:
           python-version: "3.11"
       - run: pnpm install --frozen-lockfile
       - name: Check protocol backward compatibility
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' && matrix.suite == 'static'
         run: |
           git fetch --no-tags origin "${{ github.base_ref }}"
           pnpm contracts:compat "origin/${{ github.base_ref }}"
-      - name: Format, lint, typecheck, and test
-        shell: bash
-        run: pnpm check 2>&1 | tee ci-validation.log
-      - name: Upload failure diagnostics
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: validation-diagnostics
-          path: |
-            ci-validation.log
-          if-no-files-found: ignore
-          retention-days: 7
+      - name: Build
+        run: pnpm build
+      - name: Run ${{ matrix.suite }} checks
+        run: pnpm check:${{ matrix.suite }}
 
   platform-build:
     runs-on: macos-latest

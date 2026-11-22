@@ -222,8 +222,25 @@ export function melSmokeHistory(
   ];
 }
 
-/** Synthetic contract vectors, never an acoustic oracle or native DSP proof. */
+const melSmokeFixtures = new Map<
+  "get" | "report",
+  ReturnType<typeof buildMelSmokeFixture>
+>();
+
+/**
+ * Synthetic contract vectors, never an acoustic oracle or native DSP proof.
+ * Building is slow, so each variant is built once and callers get a deep copy.
+ */
 export function melSmokeFixture(action: "get" | "report" = "get") {
+  let built = melSmokeFixtures.get(action);
+  if (!built) {
+    built = buildMelSmokeFixture(action);
+    melSmokeFixtures.set(action, built);
+  }
+  return structuredClone(built);
+}
+
+function buildMelSmokeFixture(action: "get" | "report") {
   const fixture = agentListeningFixture("get");
   const raw = structuredClone(fixture.context.observation!);
   raw.metrics["mel-bands"] = melBandTimelineSchema.parse({

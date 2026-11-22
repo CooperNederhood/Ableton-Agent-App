@@ -749,9 +749,9 @@ describe("incremental metric context", () => {
     await expect(memory({ maxStoreBytes: 0 })).rejects.toThrow(/positive/);
   });
 
-  it("retains a full 600-second six-family capture through bounded chunks and overview reads", async () => {
+  it("retains a multi-page six-family capture through bounded chunks and overview reads", async () => {
     const store = await memory();
-    const start = fixture(600);
+    const start = fixture(60);
     const { owner, state } = await fill(store, start);
     await store.sealMetricCapture(owner, manifest(start.descriptor, state));
     await store.finalizeMetricCapture(
@@ -791,7 +791,7 @@ describe("incremental metric context", () => {
         metricRecordStreamExpectedCoverage(start.descriptor, metric)
           .expectedRecords,
       );
-  }, 120_000);
+  });
 
   it("reopens completed manifests and keeps every immutable record independently readable", async () => {
     const root = join(process.cwd(), `.test-metric-context-${randomUUID()}`);

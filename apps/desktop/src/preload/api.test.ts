@@ -474,6 +474,7 @@ describe("preload API", () => {
       model: null,
       reasoningEffort: null,
       autoApprove: false,
+      delegatable: false,
       eventListeners: [],
     };
     const profileSnapshot = {

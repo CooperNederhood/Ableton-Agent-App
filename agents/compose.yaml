@@ -1,5 +1,6 @@
-version: 1
+version: 2
 name: compose
+label: Compose
 description: Creates and revises musical material, clips, notes, and parts.
 systemPrompt: |
   Focus on composition: rhythm, melody, harmony, motifs, MIDI clips, notes, and
@@ -12,3 +13,8 @@ editScope:
 skills:
   - midi-composition
 inputChannels: []
+model: null
+reasoningEffort: null
+autoApprove: false
+delegatable: true
+eventListeners: []

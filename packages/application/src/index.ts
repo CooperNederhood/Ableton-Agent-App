@@ -1673,7 +1673,7 @@ function formatDirectSkillPrompt(
 ): string {
   return [
     `${directSkillHistoryPrefix}${skillName} ${Buffer.from(request, "utf8").toString("base64url")} -->`,
-    `The user explicitly invoked the '${skillName}' skill for this turn.`,
+    `The user explicitly invoked the '${skillName}' skill for this turn. Its instructions are included below, so do not call the skill tool for it.`,
     "",
     `<skill_body name="${skillName}">`,
     body,
@@ -3970,6 +3970,7 @@ export class CopilotAgentService implements AgentService {
     )
       return undefined;
     return defineTool(SKILL_TOOL_NAME, {
+      overridesBuiltInTool: true,
       description:
         "Loads the instructions for one skill enabled for the active agent. Call this when an enabled skill description is relevant to the current work.",
       parameters: z

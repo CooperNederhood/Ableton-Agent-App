@@ -4328,6 +4328,8 @@ describe("CopilotAgentService managed sessions", () => {
     const midiSkillTool = midiConfig?.tools?.find(
       (tool) => tool.name === "skill",
     );
+    // Without this the runtime runs its own built-in skill tool instead.
+    expect(midiSkillTool?.overridesBuiltInTool).toBe(true);
     await expect(
       midiSkillTool?.handler?.(
         { skill_name: "midi-compose" },

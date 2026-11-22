@@ -101,13 +101,37 @@ A few Workspace details worth knowing:
 - **Composer.** Type a message or a slash command. `/plan` (or Shift+Tab)
   switches the selected agent between plan and interactive mode. Selected
   tracks, clips and devices are attached as context chips.
-- **Inspector.** Modular tabs for the current Selection, the session Plan, and
-  pending Approvals. You can reorder and split them.
+- **Inspector.** Modular tabs for the current Selection, the session Plan,
+  pending Approvals, and memory or skill drafts to review. You can reorder and
+  split them.
 - **Hiding panels.** Both sidebars and the top bar can be hidden, down to a
   small chat-only window (320×360).
 
 [live-events.md](live-events.md), [listening.md](listening.md) and
 [observability.md](observability.md) cover Events, Outputs and History in depth.
+
+### Memory and skill review
+
+`/update-memory` and `/learn-skill` drafts are reviewed like plans. When the
+agent submits a draft, the Inspector gets a **Review draft** tab and the
+composer shows **Approve & publish**, **Request changes** (with feedback) and
+**Discard**.
+
+The tab shows:
+
+- a scope ladder (System ◆, Profile ●, Project ■, Live Set ▲, Session ○), each
+  with its own colour. Clicking a rung moves every movable file there; locked
+  scopes are disabled and say why on hover;
+- each file with an added, modified or deleted badge, `+N −M` line counts and
+  its own scope picker (deleted topics stay where they are);
+- a topic budget meter per memory scope; and
+- Diff, Preview and Source views. Changing scope re-diffs against that scope's
+  current content.
+
+The publish button takes the target scope's colour. It is disabled, with the
+reason shown, when a move would exceed a topic limit, collide with another
+file, or publish a skill hidden by a narrower one. Code:
+`ArtifactReviewModule` in `renderer/App.tsx`.
 
 ## Approvals
 

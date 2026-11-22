@@ -36,7 +36,7 @@ directories with owner-only (`0700`) permissions.
 ├── storage-version.json            layout version
 ├── config/profiles.json            profile registry + selected profile
 ├── system/                         System-scope agents/skills (all profiles)
-│   ├── agents/  skills/  artifact-state/
+│   ├── agents/  skills/  artifact-state/  memory/
 └── profiles/{profile}/
     ├── config/preferences.json     user preferences
     ├── state/
@@ -48,12 +48,13 @@ directories with owner-only (`0700`) permissions.
     │   └── signal-ingress-secret.json
     ├── copilot/                    Copilot SDK home (owned by the SDK)
     │   ├── session-state/{sdk-session-id}/events.jsonl, workspace.yaml, …
-    │   └── tool-output/            short-lived large tool outputs
+    │   ├── tool-output/            short-lived large tool outputs
+    │   └── artifact-workspaces/    per-session scratch copies of memory and skills
     ├── observability/
     │   └── agent-set-event-history.sqlite   the journal
     ├── logs/desktop.log            Desktop diagnostic log (JSON lines)
     ├── agents/  skills/  artifact-state/    Profile-scope agents/skills
-    ├── memory/                     reserved, empty for now
+    ├── memory/                     Profile-scope memory topics + INDEX.md
     ├── project-state/{live-project-id}/
     │   ├── project.json
     │   ├── agents/  skills/  artifact-state/  memory/
@@ -80,6 +81,8 @@ directories with owner-only (`0700`) permissions.
 | `state/live-projects.json` | Bounded registry of Live Projects | Desktop main (`desktop-service.ts`) |
 | `state/signal-ingress.json`, `credentials/signal-ingress-secret.json` | Address and key Max for Live devices use to reach the app | Desktop main (`signal-credentials.ts`, `ableton-integrations-install.ts`) |
 | `copilot/` | Copilot SDK conversations and session state | Copilot SDK, via `CopilotAgentService` in `packages/application` |
+| `copilot/artifact-workspaces/` | Scratch copies of memory and skills the agent edits before review; reseeded from the real folders and removed when the session ends | `packages/application/src/artifact-workspace.ts` |
+| `system/memory/`, `*/memory/` | Memory topics and generated `INDEX.md`, written only after the user approves a draft | `packages/agent-config/src/memory.ts` |
 | `observability/` | One profile-wide history database | `packages/observability` (see [Observability](observability.md)) |
 | `logs/` | Redacted Desktop log | `apps/desktop/src/main/logger.ts` |
 | `*/session-state/{id}/context/` | Listening passes and derived audio features | `packages/project-state` (`context-repository.ts`) |
@@ -125,6 +128,11 @@ session > project > profile > system > bundled (agents/ and skills/ in the repo)
 A lower scope only gets its own copy when the user edits, copies, or moves an
 artifact there (copy-on-write). `resolveArtifactScopePaths()` returns the
 `agents/`, `skills/`, and tombstone paths for any scope.
+
+Memory uses the same scopes plus Live Set, but nothing is inherited: the agent
+sees every scope's `memory/INDEX.md` at once, broadest first.
+`resolveMemoryScopeDirectory()` returns the folder for a scope. See
+[Memory and skill authoring](agent.md#memory-and-skill-authoring).
 
 ## Adding new persisted data
 

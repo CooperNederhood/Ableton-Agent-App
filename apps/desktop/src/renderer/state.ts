@@ -33,6 +33,7 @@ export type WorkspaceView =
   | "workspace"
   | "agents"
   | "skills"
+  | "memory"
   | "outputs"
   | "events"
   | "browser"

@@ -143,6 +143,7 @@ function rendererState(active = true): DesktopState {
         {
           version: 2,
           name: "default",
+          color: "#ffa529",
           label: "Default",
           description: "General agent.",
           systemPrompt: "Help.",
@@ -1096,6 +1097,7 @@ describe("desktop component interactions", () => {
     state.agentCatalog.definitions.push({
       version: 2,
       name: "compose",
+      color: "#e0e05a",
       label: "Compose",
       description: "Composition agent.",
       systemPrompt: "Compose.",
@@ -1194,6 +1196,7 @@ describe("desktop component interactions", () => {
     state.agentCatalog.definitions.push({
       version: 2,
       name: "compose",
+      color: "#e0e05a",
       label: "Compose",
       description: "Composition agent.",
       systemPrompt: "Compose.",
@@ -1747,20 +1750,25 @@ describe("desktop component interactions", () => {
       if (prompt === null) throw new Error("Expected Workspace composer");
       await replaceText(prompt, "Preserve this workspace draft");
 
+      await click(container, "More");
       const navigation = [
         ...container.querySelectorAll("#application-views button"),
       ].map((button) => button.textContent);
       for (const advanced of ["Events", "Browser", "Diagnostics"]) {
         expect(navigation.includes(advanced)).toBe(showAdvancedViews);
       }
-      expect(navigation).toContain("Settings");
+      expect(navigation).toEqual(
+        expect.arrayContaining(["Agents", "Memory", "Outputs", "Settings"]),
+      );
+      await click(container, "More");
 
-      for (const view of [
-        "Agents",
-        "Outputs",
-        ...(showAdvancedViews ? ["Events"] : []),
-        "Settings",
-      ]) {
+      for (const [view, inMoreMenu] of [
+        ["Agents", false],
+        ["Outputs", true],
+        ...(showAdvancedViews ? [["Events", true] as const] : []),
+        ["Settings", true],
+      ] as const) {
+        if (inMoreMenu) await click(container, "More");
         await click(container, view);
         expect(container.querySelector("#prompt")).toBeNull();
       }
@@ -1837,6 +1845,7 @@ describe("desktop component interactions", () => {
       await Promise.resolve();
       await Promise.resolve();
     });
+    await click(container, "More");
     await click(container, "Outputs");
     const request = {
       requestId: "plan-routing",
@@ -1855,7 +1864,7 @@ describe("desktop component interactions", () => {
       });
       await Promise.resolve();
     });
-    expect(button(container, "Outputs").classList.contains("selected")).toBe(
+    expect(button(container, "More").classList.contains("selected")).toBe(
       true,
     );
 

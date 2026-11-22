@@ -11,6 +11,7 @@ import {
   type AgentEventListener,
   type CurrentAgentDefinition,
   type PreparedContextConfiguration,
+  defaultAgentColor,
 } from "@ableton-agent/agent-config/schemas";
 import {
   Fragment,
@@ -54,6 +55,7 @@ import type {
   LiveEventSelection,
   PlanSection,
 } from "../contracts";
+import { Icon, type IconName } from "./Icon";
 import {
   AssistantMarkdown,
   formatPlanMarkdownForDisplay,
@@ -1039,54 +1041,22 @@ export function App(): React.JSX.Element {
         />
       )}
       <LiveSetTransitionModal state={state} dispatch={dispatch} />
-      {topChromeVisible && (
-        <nav
-          id="application-views"
-          className="view-tabs"
-          aria-label="Application views"
-        >
-          {(
-            [
-              "workspace",
-              "agents",
-              "skills",
-              "outputs",
-              "events",
-              "browser",
-              "profiles",
-              "diagnostics",
-              "sessions",
-              "settings",
-            ] as WorkspaceView[]
-          )
-            .filter(
-              (view) =>
-                state.preferences.showAdvancedViews ||
-                !ADVANCED_VIEWS.has(view) ||
-                state.activeView === view,
-            )
-            .map((view) => (
-              <button
-                key={view}
-                className={state.activeView === view ? "selected" : ""}
-                onClick={() => dispatch({ type: "view", view })}
-              >
-                {view[0]?.toUpperCase()}
-                {view.slice(1)}
-              </button>
-            ))}
-        </nav>
-      )}
+      <NavigationRail
+        activeView={state.activeView}
+        showAdvancedViews={state.preferences.showAdvancedViews}
+        onNavigate={(view) => dispatch({ type: "view", view })}
+      />
       {!topChromeVisible && (
         <button
           type="button"
           className="restore-top-chrome"
           aria-label="Show application toolbar"
+          title="Show toolbar"
           aria-expanded="false"
-          aria-controls="application-toolbar application-views"
+          aria-controls="application-toolbar"
           onClick={() => setTopChromeVisible(true)}
         >
-          <ChromeIcon expanded={false} />
+          <Icon name="down" />
         </button>
       )}
       <main id="main-content">
@@ -1178,6 +1148,136 @@ export function App(): React.JSX.Element {
         )}
       </main>
     </div>
+  );
+}
+
+/**
+ * An agent's own color. Sub-agent events carry only the definition label, so
+ * match on name first and then on label.
+ */
+export function agentColor(
+  definitions: readonly Pick<
+    DesktopAgentDefinition,
+    "name" | "label" | "color"
+  >[],
+  nameOrLabel: string,
+): string {
+  const definition =
+    definitions.find(({ name }) => name === nameOrLabel) ??
+    definitions.find(({ label }) => label === nameOrLabel);
+  return definition?.color ?? defaultAgentColor(nameOrLabel.toLowerCase());
+}
+
+const RAIL_VIEWS: readonly {
+  view: WorkspaceView;
+  icon: IconName;
+  label: string;
+}[] = [
+  { view: "workspace", icon: "chat", label: "Workspace" },
+  { view: "agents", icon: "agent", label: "Agents" },
+  { view: "skills", icon: "skill", label: "Skills" },
+  { view: "memory", icon: "memory", label: "Memory" },
+  { view: "sessions", icon: "sessions", label: "Sessions" },
+];
+
+const MORE_VIEWS: readonly { view: WorkspaceView; label: string }[] = [
+  { view: "outputs", label: "Outputs" },
+  { view: "settings", label: "Settings" },
+  { view: "events", label: "Events" },
+  { view: "browser", label: "Browser" },
+  { view: "diagnostics", label: "Diagnostics" },
+];
+
+export function NavigationRail({
+  activeView,
+  showAdvancedViews,
+  onNavigate,
+}: {
+  activeView: WorkspaceView;
+  showAdvancedViews: boolean;
+  onNavigate: (view: WorkspaceView) => void;
+}): React.JSX.Element {
+  const [moreOpen, setMoreOpen] = useState(false);
+  const moreRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!moreOpen) return;
+    const close = (event: MouseEvent | globalThis.KeyboardEvent): void => {
+      if (event instanceof MouseEvent) {
+        if (moreRef.current?.contains(event.target as Node)) return;
+      } else if (event.key !== "Escape") {
+        return;
+      }
+      setMoreOpen(false);
+    };
+    window.addEventListener("mousedown", close);
+    window.addEventListener("keydown", close);
+    return () => {
+      window.removeEventListener("mousedown", close);
+      window.removeEventListener("keydown", close);
+    };
+  }, [moreOpen]);
+  const moreViews = MORE_VIEWS.filter(
+    ({ view }) =>
+      showAdvancedViews || !ADVANCED_VIEWS.has(view) || activeView === view,
+  );
+  const moreActive = moreViews.some(({ view }) => view === activeView);
+  const item = (
+    view: WorkspaceView,
+    icon: IconName,
+    label: string,
+  ): React.JSX.Element => (
+    <button
+      key={view}
+      type="button"
+      className={`rail-item ${activeView === view ? "selected" : ""}`}
+      aria-current={activeView === view ? "page" : undefined}
+      onClick={() => onNavigate(view)}
+    >
+      <Icon name={icon} />
+      <span>{label}</span>
+    </button>
+  );
+  return (
+    <nav
+      id="application-views"
+      className="navigation-rail"
+      aria-label="Application views"
+    >
+      {RAIL_VIEWS.map(({ view, icon, label }) => item(view, icon, label))}
+      <div className="rail-bottom" ref={moreRef}>
+        <button
+          type="button"
+          className={`rail-item ${moreActive ? "selected" : ""}`}
+          aria-haspopup="menu"
+          aria-expanded={moreOpen}
+          aria-controls="rail-more-menu"
+          onClick={() => setMoreOpen((open) => !open)}
+        >
+          <Icon name="more" />
+          <span>More</span>
+        </button>
+        {moreOpen && (
+          <div id="rail-more-menu" className="rail-menu" role="menu">
+            {moreViews.map(({ view, label }) => (
+              <button
+                key={view}
+                type="button"
+                role="menuitem"
+                className={activeView === view ? "selected" : ""}
+                aria-current={activeView === view ? "page" : undefined}
+                onClick={() => {
+                  setMoreOpen(false);
+                  onNavigate(view);
+                }}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
+        {item("profiles", "profile", "Profile")}
+      </div>
+    </nav>
   );
 }
 
@@ -3262,89 +3362,37 @@ export function ConnectionHeader({
         ? `Error · ${state.connection.message}`
         : state.connection.state[0]?.toUpperCase() +
           state.connection.state.slice(1);
+  const connected = state.connection.state === "connected";
+  const activeAgentColor =
+    activeAgent === undefined
+      ? undefined
+      : agentColor(
+          state.agentCatalog.definitions,
+          activeAgent.definitionName,
+        );
   return (
     <header
       id="application-toolbar"
       className="connection-header"
       aria-label="Application toolbar"
     >
-      <div>
-        <strong>Ableton Agent</strong>
+      <div className="live-status">
+        <span
+          className={`led ${connected ? "on" : state.connection.state === "error" ? "error" : "off"}`}
+          aria-hidden="true"
+        />
         <span
           className={`status status-${state.connection.state}`}
           aria-label={`Ableton status: ${connectionText}`}
+          title={connectionText}
         >
-          ● {connectionText}
+          {state.connection.state === "connected"
+            ? `Live ${state.connection.liveVersion}`
+            : connectionText}
         </span>
-      </div>
-      <div className="live-set-title">
-        {state.snapshot?.liveSetName ?? "No Live Set"}{" "}
-        <small>
-          {state.snapshot
-            ? `${state.snapshot.tempo} BPM · ${state.snapshot.timeSignature}`
-            : "Waiting for snapshot"}
-        </small>
-      </div>
-      <div className="header-controls">
-        <span className="header-divider" aria-hidden="true">
-          |
-        </span>
-        <label className="header-selector">
-          <span>Profile:</span>
-          <select
-            className="profile-selector"
-            aria-label="Active Profile"
-            value={profileStatus?.activeProfile ?? ""}
-            disabled={
-              profileBusy ||
-              profileStatus === undefined ||
-              profileStatus.switchingDisabledReason !== undefined
-            }
-            title={
-              profileStatus?.switchingDisabledReason ??
-              (profileError || undefined)
-            }
-            onChange={(event) => requestProfileSwitch(event.target.value)}
-          >
-            {profileStatus?.profiles
-              .filter(({ reserved, active }) => !reserved || active)
-              .map((profile) => (
-                <option key={profile.name} value={profile.name}>
-                  {profile.name}
-                </option>
-              ))}
-          </select>
-        </label>
-        <span className="header-divider" aria-hidden="true">
-          |
-        </span>
-        <label className="header-selector">
-          <span>Agent:</span>
-          <select
-            className="agent-instance-selector"
-            aria-label="Active Agent"
-            value={activeAgent?.id ?? ""}
-            disabled={(session?.activeAgents.length ?? 0) === 0}
-            onChange={(event) => void selectAgent(event.target.value)}
-          >
-            {session?.activeAgents.length ? null : (
-              <option value="">No active agents</option>
-            )}
-            {session?.activeAgents.map((agent) => (
-              <option key={agent.id} value={agent.id}>
-                {agent.label}
-              </option>
-            ))}
-          </select>
-        </label>
-        <span className="header-divider" aria-hidden="true">
-          |
-        </span>
-        {activeAgent?.autoApprove && (
-          <span className="agent-badge yolo-badge">YOLO</span>
-        )}
-        {state.connection.state !== "connected" && (
+        {!connected && (
           <button
+            type="button"
             onClick={() =>
               void window.desktop.ableton.connect().catch((error: unknown) =>
                 dispatch({
@@ -3364,16 +3412,82 @@ export function ConnectionHeader({
             Connect
           </button>
         )}
+      </div>
+      <div className="live-set-title">
+        <strong title={state.snapshot?.liveSetName ?? "No Live Set"}>
+          {state.snapshot?.liveSetName ?? "No Live Set"}
+        </strong>
+        <small className="tabular">
+          {state.snapshot
+            ? `${state.snapshot.tempo} BPM · ${state.snapshot.timeSignature}`
+            : "Waiting for snapshot"}
+        </small>
+      </div>
+      <div className="header-controls">
+        <select
+          className="profile-selector scope-chip"
+          data-scope="profile"
+          aria-label="Active Profile"
+          value={profileStatus?.activeProfile ?? ""}
+          disabled={
+            profileBusy ||
+            profileStatus === undefined ||
+            profileStatus.switchingDisabledReason !== undefined
+          }
+          title={
+            profileStatus?.switchingDisabledReason ??
+            (profileError || "Active profile")
+          }
+          onChange={(event) => requestProfileSwitch(event.target.value)}
+        >
+          {profileStatus?.profiles
+            .filter(({ reserved, active }) => !reserved || active)
+            .map((profile) => (
+              <option key={profile.name} value={profile.name}>
+                {profile.name}
+              </option>
+            ))}
+        </select>
+        <label
+          className="agent-picker"
+          style={
+            activeAgentColor === undefined
+              ? undefined
+              : ({ "--agent-color": activeAgentColor } as CSSProperties)
+          }
+        >
+          <Icon name="agent" />
+          <select
+            className="agent-instance-selector"
+            aria-label="Active Agent"
+            value={activeAgent?.id ?? ""}
+            disabled={(session?.activeAgents.length ?? 0) === 0}
+            onChange={(event) => void selectAgent(event.target.value)}
+          >
+            {session?.activeAgents.length ? null : (
+              <option value="">No active agents</option>
+            )}
+            {session?.activeAgents.map((agent) => (
+              <option key={agent.id} value={agent.id}>
+                {agent.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        {activeAgent?.autoApprove && (
+          <span className="agent-badge yolo-badge">YOLO</span>
+        )}
         {onHideChrome !== undefined && (
           <button
             type="button"
             className="icon-button"
             aria-label="Hide application toolbar"
+            title="Hide toolbar"
             aria-expanded="true"
-            aria-controls="application-toolbar application-views"
+            aria-controls="application-toolbar"
             onClick={onHideChrome}
           >
-            <ChromeIcon expanded />
+            <Icon name="up" />
           </button>
         )}
       </div>
@@ -3599,16 +3713,6 @@ function SidebarIcon({
       <rect x="2.5" y="2.5" width="13" height="13" rx="2" />
       <path d={`M${panelX} 3v12`} />
       <path d={arrow} />
-    </svg>
-  );
-}
-
-function ChromeIcon({ expanded }: { expanded: boolean }): React.JSX.Element {
-  return (
-    <svg viewBox="0 0 18 18" aria-hidden="true">
-      <rect x="2.5" y="2.5" width="13" height="13" rx="2" />
-      <path d="M3 6h12" />
-      <path d={expanded ? "M7 10l2 2 2-2" : "M7 12l2-2 2 2"} />
     </svg>
   );
 }
@@ -4639,6 +4743,7 @@ function desktopDefinitionFromActiveAgent(
     version: 2,
     name: agent.definitionName,
     label: agent.label,
+    color: defaultAgentColor(agent.definitionName),
     description: agent.config.description,
     systemPrompt: agent.config.systemPrompt,
     tools: agent.config.tools,
@@ -5273,6 +5378,7 @@ function normalizedDefinition(
     reasoningEffort: definition.reasoningEffort ?? null,
     autoApprove: definition.autoApprove ?? false,
     delegatable: definition.delegatable ?? false,
+    color: definition.color,
     eventListeners: [...(definition.eventListeners ?? [])],
   };
 }

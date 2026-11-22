@@ -797,7 +797,7 @@ describe("desktop components", () => {
     expect(html).toContain('aria-label="Application toolbar"');
     expect(html).toContain('aria-label="Hide application toolbar"');
     expect(html).toContain(
-      'aria-controls="application-toolbar application-views"',
+      'aria-controls="application-toolbar"',
     );
   });
 
@@ -1565,6 +1565,7 @@ describe("desktop components", () => {
             definitions: [
               {
                 name: "default",
+                color: "#ffa529",
                 description: "General-purpose Ableton agent.",
                 systemPrompt: "Help with Ableton.",
                 tools: ["*"],
@@ -1578,6 +1579,7 @@ describe("desktop components", () => {
               },
               {
                 name: "compose",
+                color: "#ffa529",
                 description: "Composition-focused Ableton agent.",
                 systemPrompt: "Develop musical ideas.",
                 tools: ["ableton_*"],

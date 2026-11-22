@@ -1415,6 +1415,7 @@ export const desktopAgentDefinitionSchema = z.object({
   reasoningEffort: agentReasoningEffortSchema.nullable().optional(),
   autoApprove: z.boolean().optional(),
   delegatable: z.boolean().optional(),
+  color: z.string().regex(/^#[0-9a-f]{6}$/u),
   eventListeners: z.array(agentEventListenerSchema).optional(),
   origin: z
     .enum(["bundled", "system", "profile", "project", "session"])

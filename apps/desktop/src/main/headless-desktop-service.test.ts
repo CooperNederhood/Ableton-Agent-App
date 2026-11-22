@@ -2004,6 +2004,7 @@ describe("desktop adapter over the shared application", () => {
     const catalog = defaultCatalog();
     catalog.definitions.push({
       name: "bass-editor",
+      color: "#ffa529",
       description: "Edits only the bass track.",
       systemPrompt: "Edit the bound bass track.",
       tools: ["tracks.rename", "session.inspect"],

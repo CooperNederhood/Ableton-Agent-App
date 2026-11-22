@@ -270,6 +270,16 @@ describe("live agent storage", () => {
     expect(production.profileSkillsDirectory).toBe(
       join(home, ".live-agent", "profiles", "default", "skills"),
     );
+    expect(production.copilotArtifactWorkspaceDirectory).toBe(
+      join(
+        home,
+        ".live-agent",
+        "profiles",
+        "default",
+        "copilot",
+        "artifact-workspaces",
+      ),
+    );
     expect(production.copilotToolOutputDirectory).toBe(
       join(
         home,

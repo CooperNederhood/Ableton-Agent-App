@@ -208,7 +208,7 @@ export function formatMemorySystemSection(
   if (ordered.length === 0) return undefined;
   const opening = [
     "<memory_index>",
-    'Durable memory the user has reviewed, grouped by scope from broadest to narrowest. Narrower scopes override broader ones when they conflict. Each row is `topic | description | file`; read a topic with artifact_file_read(path="memory/{scope}/{topic}.md") when it is relevant.',
+    "Durable memory the user has reviewed, grouped by scope from broadest to narrowest. Narrower scopes override broader ones when they conflict. Each row is `topic | description | file`; read a topic file when it is relevant.",
   ].join("\n");
   const closing = "</memory_index>";
   const truncated = "[memory index truncated]";

@@ -80,23 +80,45 @@ describe("artifact authoring drafts", () => {
     expect(() => parseArtifactPath(path)).toThrow();
   });
 
-  it("generates INDEX.md from draft frontmatter and refuses to write it", () => {
+  it("refuses to write the generated INDEX.md", () => {
     const draft = new ArtifactDraft(
       "memory",
       "update-memory",
       context(),
       undefined,
     );
-    draft.write(
-      "memory/profile/sidechain.md",
-      topic("sidechain", "Pump settings"),
-    );
-    expect(draft.read("memory/profile/INDEX.md")).toContain(
-      "sidechain | Pump settings | ./sidechain.md",
-    );
     expect(() => draft.write("memory/profile/INDEX.md", "anything")).toThrow(
       /generated/,
     );
+  });
+
+  it("replaces draft changes with the workspace edits", () => {
+    const draft = new ArtifactDraft(
+      "memory",
+      "update-memory",
+      context(),
+      undefined,
+    );
+    draft.write("memory/session/stale.md", topic("stale", "Stale"));
+    draft.applyWorkspaceChanges(
+      new Map([
+        ["memory/session/genres.md", topic("genres", "Genres")],
+        ["memory/profile/mixing.md", null],
+      ]),
+    );
+    expect(draft.changeCount).toBe(2);
+    expect(draft.describe("/ws")).toContain('workspace="/ws"');
+    expect(draft.writableMemoryScopes).toEqual([
+      "system",
+      "profile",
+      "live-set",
+      "session",
+    ]);
+    expect(() =>
+      draft.applyWorkspaceChanges(
+        new Map([["memory/session/bad.md", topic("other", "Wrong")]]),
+      ),
+    ).toThrow();
   });
 
   it("validates topics on write and guards unavailable or forced scopes", () => {

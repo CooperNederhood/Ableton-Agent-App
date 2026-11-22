@@ -164,14 +164,19 @@ import {
   sanitizeTelemetryAttributes,
 } from "@ableton-agent/observability";
 import {
-  ARTIFACT_AUTHORING_TOOL_NAMES,
   ArtifactDraft,
   authoringKindForSkill,
-  createArtifactAuthoringTools,
+  createSubmitArtifactDraftTool,
+  SUBMIT_ARTIFACT_DRAFT_TOOL_NAME,
   type ArtifactAuthoringContext,
   type ArtifactAuthoringPort,
   type ArtifactPublicationResult,
 } from "./artifact-authoring.js";
+import {
+  ArtifactWorkspace,
+  evaluateArtifactWorkspacePermission,
+  type ArtifactWorkspaceAccess,
+} from "./artifact-workspace.js";
 import type {
   AppEvent,
   AgentMode,
@@ -913,6 +918,8 @@ export interface CopilotAgentServiceOptions {
   baseDirectory?: string;
   runtimeEnvironment?: Record<string, string | undefined>;
   largeOutputDirectory?: string;
+  /** Parent of per-session memory and skills workspaces for SDK file tools. */
+  artifactWorkspaceDirectory?: string;
   resolvePlanArtifactPaths?: PlanArtifactPathResolver;
   model?: string;
   reasoningEffort?: AgentReasoningEffort;
@@ -1033,6 +1040,14 @@ export const EXPLICIT_ONLY_BUILTIN_TOOL_NAMES = [
 export const APPROVED_BUILTIN_TOOL_NAMES = [
   ...BuiltInTools.Isolated.filter((name) => name !== SKILL_TOOL_NAME),
   BASH_TOOL_NAME,
+] as const;
+/** SDK file tools, confined to the memory and skills workspace when enabled. */
+export const ARTIFACT_FILE_TOOL_NAMES = [
+  "view",
+  "create",
+  "edit",
+  "glob",
+  "grep",
 ] as const;
 export const APPLICATION_TOOL_NAMES = [
   SKILL_TOOL_NAME,
@@ -1488,6 +1503,10 @@ interface ManagedSessionState {
   >;
   /** Open memory or skill draft; lives for one turn. */
   artifactDraft: ArtifactDraft | undefined;
+  /** Folder of memory and skill copies the SDK file tools work on. */
+  artifactWorkspace: ArtifactWorkspace | undefined;
+  /** Serializes workspace seeding so a refresh never overwrites a draft. */
+  artifactWorkspaceQueue: Promise<void>;
   readonly artifactReviewRequests: Map<string, PendingArtifactReview>;
 }
 
@@ -1625,6 +1644,10 @@ function liveEventTypedState(
 }
 
 const approvedBuiltinToolNames = new Set(APPROVED_BUILTIN_TOOL_NAMES);
+const builtinToolNames = new Set<string>([
+  ...APPROVED_BUILTIN_TOOL_NAMES,
+  ...ARTIFACT_FILE_TOOL_NAMES,
+]);
 
 function qualifyAvailableTools(toolNames: readonly string[]): string[] {
   const tools = new ToolSet();
@@ -1632,7 +1655,7 @@ function qualifyAvailableTools(toolNames: readonly string[]): string[] {
     ...bareToolNames(toolNames),
     ...CORE_AGENT_TOOL_NAMES,
   ])) {
-    if (approvedBuiltinToolNames.has(toolName)) tools.addBuiltIn(toolName);
+    if (builtinToolNames.has(toolName)) tools.addBuiltIn(toolName);
     else tools.addCustom(toolName);
   }
   return tools.toArray();
@@ -1900,6 +1923,7 @@ export class CopilotAgentService implements AgentService {
   readonly #lifecycleTails = new Map<string, Promise<void>>();
   readonly #planArtifacts: FilePlanArtifactStore;
   readonly #largeOutputDirectory: string;
+  readonly #artifactWorkspaceDirectory: string;
 
   public constructor(private readonly options: CopilotAgentServiceOptions) {
     if (
@@ -1914,6 +1938,9 @@ export class CopilotAgentService implements AgentService {
     const storage = resolveLiveAgentStorage({ homeDirectory: homedir() });
     this.#largeOutputDirectory =
       options.largeOutputDirectory ?? storage.copilotToolOutputDirectory;
+    this.#artifactWorkspaceDirectory =
+      options.artifactWorkspaceDirectory ??
+      storage.copilotArtifactWorkspaceDirectory;
     this.#planArtifacts = new FilePlanArtifactStore(
       options.resolvePlanArtifactPaths ??
         (() => {
@@ -3015,6 +3042,8 @@ export class CopilotAgentService implements AgentService {
       permissionRejections: new Map(),
       directPlanRequests: new Map(),
       artifactDraft: undefined,
+      artifactWorkspace: undefined,
+      artifactWorkspaceQueue: Promise.resolve(),
       artifactReviewRequests: new Map(),
       elicitationRequests: new Map(),
     };
@@ -3391,12 +3420,16 @@ export class CopilotAgentService implements AgentService {
   ): Promise<string> {
     const kind = authoringKindForSkill(skillName)!;
     const port = this.options.artifactAuthoring!;
+    const workspace = this.#artifactWorkspace(state);
     const existing = state.artifactDraft;
     if (existing !== undefined) {
       if (existing.kind === kind && scope === undefined) {
-        return existing.describe();
+        return existing.describe(workspace.root);
       }
-      if (existing.changeCount > 0 || state.artifactReviewRequests.size > 0) {
+      if (
+        state.artifactReviewRequests.size > 0 ||
+        (await this.#artifactWorkspaceHasChanges(workspace))
+      ) {
         throw new Error(
           `A ${existing.kind} draft is already open; submit or discard it before starting another.`,
         );
@@ -3418,11 +3451,13 @@ export class CopilotAgentService implements AgentService {
         state.configuration.productionSessionId,
       );
       const draft = new ArtifactDraft(kind, skillName, context, scope);
+      const files = await this.#seedArtifactWorkspace(state, context, true);
       state.artifactDraft = draft;
       this.#recordRuntime(state, "agent.artifact_draft.completed", {
         draftId: draft.id,
         kind,
         targetScope: draft.targetScope,
+        workspaceFiles: files,
         unavailableScopes: (kind === "memory"
           ? context.memory
           : context.skillScopes
@@ -3431,7 +3466,7 @@ export class CopilotAgentService implements AgentService {
           .map(({ scope: unavailable }) => unavailable),
         durationMs: Date.now() - startedAt,
       });
-      return draft.describe();
+      return draft.describe(workspace.root);
     } catch (error) {
       this.#recordRuntime(state, "agent.artifact_draft.failed", {
         kind,
@@ -3447,6 +3482,12 @@ export class CopilotAgentService implements AgentService {
     const draft = state.artifactDraft;
     if (draft === undefined) return;
     state.artifactDraft = undefined;
+    // Unpublished edits must not linger as if they were saved memory.
+    if (reason !== "published") {
+      void this.#seedArtifactWorkspace(state, draft.context, false).catch(
+        () => undefined,
+      );
+    }
     if (reason === "published" || reason === "discarded") return;
     this.#recordRuntime(state, "agent.artifact_draft.cancelled", {
       draftId: draft.id,
@@ -3457,12 +3498,106 @@ export class CopilotAgentService implements AgentService {
     });
   }
 
-  async #artifactReadView(state: ManagedSessionState): Promise<ArtifactDraft> {
-    if (state.artifactDraft !== undefined) return state.artifactDraft;
-    const context = await this.options.artifactAuthoring!.loadContext(
+  #artifactWorkspace(state: ManagedSessionState): ArtifactWorkspace {
+    state.artifactWorkspace ??= ArtifactWorkspace.forSession(
+      this.#artifactWorkspaceDirectory,
       state.configuration.productionSessionId,
     );
-    return new ArtifactDraft("memory", "update-memory", context, undefined);
+    return state.artifactWorkspace;
+  }
+
+  async #artifactWorkspaceHasChanges(
+    workspace: ArtifactWorkspace,
+  ): Promise<boolean> {
+    try {
+      return (await workspace.changes()).size > 0;
+    } catch {
+      return true;
+    }
+  }
+
+  /**
+   * Replaces the workspace with `context`. Read-only refreshes are skipped
+   * while a draft is open so they never overwrite the agent's edits.
+   */
+  async #seedArtifactWorkspace(
+    state: ManagedSessionState,
+    context: ArtifactAuthoringContext,
+    forDraft: boolean,
+  ): Promise<number | undefined> {
+    const workspace = this.#artifactWorkspace(state);
+    const run = state.artifactWorkspaceQueue.then(async () => {
+      if (!forDraft && state.artifactDraft !== undefined) return undefined;
+      const startedAt = Date.now();
+      this.#recordRuntime(state, "agent.artifact_workspace.started", {
+        purpose: forDraft ? "draft" : "refresh",
+      });
+      try {
+        const files = await workspace.seed(context);
+        this.#recordRuntime(state, "agent.artifact_workspace.completed", {
+          purpose: forDraft ? "draft" : "refresh",
+          files,
+          durationMs: Date.now() - startedAt,
+        });
+        return files;
+      } catch (error) {
+        this.#recordRuntime(state, "agent.artifact_workspace.failed", {
+          purpose: forDraft ? "draft" : "refresh",
+          durationMs: Date.now() - startedAt,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        throw error;
+      }
+    });
+    state.artifactWorkspaceQueue = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
+  }
+
+  #removeArtifactWorkspace(state: ManagedSessionState): void {
+    const workspace = state.artifactWorkspace;
+    if (workspace === undefined) return;
+    state.artifactWorkspace = undefined;
+    // A replacement state for the same production session reuses the folder.
+    const productionSessionId = state.configuration.productionSessionId;
+    for (const other of this.#states.values()) {
+      if (
+        other !== state &&
+        other.configuration.productionSessionId === productionSessionId
+      ) {
+        return;
+      }
+    }
+    state.artifactWorkspaceQueue = state.artifactWorkspaceQueue.then(() =>
+      workspace.remove().catch((error: unknown) => {
+        this.#recordRuntime(state, "agent.artifact_workspace.failed", {
+          purpose: "remove",
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }),
+    );
+  }
+
+  #artifactWorkspaceAccess(
+    state: ManagedSessionState,
+  ): ArtifactWorkspaceAccess | undefined {
+    if (this.options.artifactAuthoring === undefined) return undefined;
+    const draft = state.artifactDraft;
+    return {
+      root: this.#artifactWorkspace(state).root,
+      extraReadRoots: [this.#largeOutputDirectory],
+      ...(draft === undefined
+        ? {}
+        : {
+            draft: {
+              kind: draft.kind,
+              reviewPending: state.artifactReviewRequests.size > 0,
+              writableScopes: draft.writableMemoryScopes,
+            },
+          }),
+    };
   }
 
   #requireArtifactDraft(state: ManagedSessionState): ArtifactDraft {
@@ -3480,34 +3615,11 @@ export class CopilotAgentService implements AgentService {
 
   #artifactTools(state: ManagedSessionState): Tool[] {
     if (this.options.artifactAuthoring === undefined) return [];
-    return createArtifactAuthoringTools({
-      list: async () => (await this.#artifactReadView(state)).list(),
-      read: async (path) => (await this.#artifactReadView(state)).read(path),
-      write: async (path, content) => {
-        const draft = this.#requireArtifactDraft(state);
-        const result = draft.write(path, content);
-        this.#recordRuntime(state, "agent.artifact_draft.progress", {
-          draftId: draft.id,
-          action: "write",
-          path,
-          status: result.status,
-          characters: content.length,
-        });
-        return result;
-      },
-      delete: async (path) => {
-        const draft = this.#requireArtifactDraft(state);
-        const result = draft.delete(path);
-        this.#recordRuntime(state, "agent.artifact_draft.progress", {
-          draftId: draft.id,
-          action: "delete",
-          path,
-          status: result.status,
-        });
-        return result;
-      },
-      submit: async (summary) => this.#submitArtifactDraft(state, summary),
-    });
+    return [
+      createSubmitArtifactDraftTool(async (summary) =>
+        this.#submitArtifactDraft(state, summary),
+      ),
+    ];
   }
 
   async #submitArtifactDraft(
@@ -3515,6 +3627,17 @@ export class CopilotAgentService implements AgentService {
     summary: string,
   ): Promise<string> {
     const draft = this.#requireArtifactDraft(state);
+    const changes = await this.#artifactWorkspace(state).changes();
+    draft.applyWorkspaceChanges(changes);
+    this.#recordRuntime(state, "agent.artifact_draft.progress", {
+      draftId: draft.id,
+      action: "collect",
+      changes: [...changes].map(([path, content]) => ({
+        path,
+        change: content === null ? "deleted" : "written",
+        characters: content?.length ?? 0,
+      })),
+    });
     const requestId = randomUUID();
     const review = draft.review(requestId, summary);
     const sessionId = state.session?.sessionId ?? "";
@@ -3566,7 +3689,7 @@ export class CopilotAgentService implements AgentService {
       case "changes_requested":
         return `The user requested changes${
           result.feedback === undefined ? "." : `: ${result.feedback}`
-        } Revise the draft with artifact_file_write or artifact_file_delete, then call submit_artifact_draft again.`;
+        } Revise the files in the workspace, then call ${SUBMIT_ARTIFACT_DRAFT_TOOL_NAME} again.`;
       case "discarded":
         return `The user discarded the draft${
           result.feedback === undefined ? "." : `: ${result.feedback}`
@@ -3622,9 +3745,15 @@ export class CopilotAgentService implements AgentService {
       });
       return undefined;
     }
-    return formatMemorySystemSection(
+    await this.#seedArtifactWorkspace(state, context, false).catch(
+      () => undefined,
+    );
+    const section = formatMemorySystemSection(
       context.memory.filter(({ available }) => available),
     );
+    return section === undefined
+      ? undefined
+      : `${section}\nRead topics with view at ${this.#artifactWorkspace(state).root}/memory/{scope}/{topic}.md.`;
   }
 
   #skillTool(state: ManagedSessionState): Tool | undefined {
@@ -4017,6 +4146,9 @@ export class CopilotAgentService implements AgentService {
       ...bareToolNames(state.configuration.resolvedTools).filter((name) =>
         approvedBuiltinToolNames.has(name),
       ),
+      ...(this.options.artifactAuthoring === undefined
+        ? []
+        : ARTIFACT_FILE_TOOL_NAMES),
     ]);
     const skillInstructions = formatSkillSystemInstructions(
       this.#enabledSkills(state),
@@ -4174,9 +4306,17 @@ export class CopilotAgentService implements AgentService {
     const historyGuidance = configuredToolNames.includes("set_sql_search")
       ? "\n\nFor questions about prior Live Sets, saves, devices, clips, or agent trajectories, use set_sql_search against the local read-only Set History views. Treat it as historical evidence and inspect the current Live Set before acting."
       : "";
+    const artifactWorkspaceRoot =
+      this.options.artifactAuthoring === undefined
+        ? undefined
+        : this.#artifactWorkspace(state).root;
     const shellGuidance = configuredToolNames.includes(BASH_TOOL_NAME)
-      ? "\n\nThe bash tool is restricted to bounded, read-only inspection of Copilot large-output spill files. Use grep, bounded head/tail, wc, or jq against the exact spill path returned by a tool. Do not attempt writes, network access, arbitrary filesystem reads, or command execution outside that purpose."
+      ? `\n\nThe bash tool is restricted to bounded, read-only inspection of Copilot large-output spill files${artifactWorkspaceRoot === undefined ? "" : " and the memory and skills workspace"}. Use grep, bounded head/tail, wc, or jq against the exact spill path returned by a tool. Do not attempt writes, network access, arbitrary filesystem reads, or command execution outside that purpose.`
       : "";
+    const fileGuidance =
+      artifactWorkspaceRoot === undefined
+        ? ""
+        : `\n\nThe view, glob, grep, create, and edit tools only reach the memory and skills workspace at ${artifactWorkspaceRoot} (and Copilot spill files for reading). It holds copies of this session's memory topics and skills. Edits are allowed only while the update-memory or learn-skill skill has a draft open, and are saved only after the user approves the review.`;
     const listeningGuidance = configuredToolNames.includes("ableton_listening")
       ? `\n\n${LISTENING_AGENT_GUIDANCE}`
       : "";
@@ -4201,7 +4341,7 @@ export class CopilotAgentService implements AgentService {
           name: state.configuration.definitionName,
           displayName: state.configuration.label,
           description: state.configuration.description,
-          prompt: `${state.configuration.systemPrompt}${historyGuidance}${shellGuidance}${listeningGuidance}`,
+          prompt: `${state.configuration.systemPrompt}${historyGuidance}${shellGuidance}${fileGuidance}${listeningGuidance}`,
           infer: false,
         },
       ],
@@ -4379,10 +4519,16 @@ export class CopilotAgentService implements AgentService {
                 }
               })()
             : undefined;
+        const workspaceAccess = this.#artifactWorkspaceAccess(state);
         const shellEvaluation = evaluateSpillFileShellPolicy(
           request,
           this.#largeOutputDirectory,
+          workspaceAccess,
         );
+        const fileEvaluation =
+          workspaceAccess === undefined
+            ? { result: undefined }
+            : evaluateArtifactWorkspacePermission(request, workspaceAccess);
         this.#recordRuntime(state, "agent.permission.requested", {
           permissionId,
           request,
@@ -4390,6 +4536,9 @@ export class CopilotAgentService implements AgentService {
           ...(shellEvaluation.diagnostics === undefined
             ? {}
             : { shellPolicy: shellEvaluation.diagnostics }),
+          ...(fileEvaluation.diagnostics === undefined
+            ? {}
+            : { artifactWorkspacePolicy: fileEvaluation.diagnostics }),
           ...(resolvedMetadata === undefined
             ? {}
             : { operationMetadata: resolvedMetadata }),
@@ -4397,13 +4546,15 @@ export class CopilotAgentService implements AgentService {
         let result;
         if (shellEvaluation.result !== undefined) {
           result = shellEvaluation.result;
+        } else if (fileEvaluation.result !== undefined) {
+          result = fileEvaluation.result;
         } else if (
           request.kind === "custom-tool" &&
           [
             SKILL_TOOL_NAME,
             READ_PLAN_TOOL_NAME,
             WRITE_PLAN_TOOL_NAME,
-            ...ARTIFACT_AUTHORING_TOOL_NAMES,
+            SUBMIT_ARTIFACT_DRAFT_TOOL_NAME,
           ].includes(request.toolName)
         ) {
           result = { kind: "approve-once" } as const;
@@ -4444,22 +4595,29 @@ export class CopilotAgentService implements AgentService {
           if (result.kind === "reject") {
             const shellPolicyBlocked =
               shellEvaluation.result?.kind === "reject";
+            const workspaceBlocked =
+              !shellPolicyBlocked && fileEvaluation.result?.kind === "reject";
             const userDenied =
               !shellPolicyBlocked &&
+              !workspaceBlocked &&
               result.feedback === "User denied the Ableton mutation";
             state.permissionRejections.set(
               request.toolCallId,
               listeningPreflightRejection ?? {
                 code: shellPolicyBlocked
                   ? "shell_policy_blocked"
-                  : userDenied
-                    ? "user_denied"
-                    : "permission_denied",
+                  : workspaceBlocked
+                    ? "artifact_workspace_blocked"
+                    : userDenied
+                      ? "user_denied"
+                      : "permission_denied",
                 message: shellPolicyBlocked
                   ? "Blocked by shell safety policy"
-                  : userDenied
-                    ? "User denied the tool call"
-                    : "Tool call blocked by application policy",
+                  : workspaceBlocked
+                    ? "Blocked by memory and skills workspace policy"
+                    : userDenied
+                      ? "User denied the tool call"
+                      : "Tool call blocked by application policy",
                 source: userDenied ? "user" : "application_policy",
                 ...(result.feedback === undefined
                   ? {}
@@ -5390,6 +5548,7 @@ export class CopilotAgentService implements AgentService {
     ) {
       this.#states.delete(state.key);
     }
+    this.#removeArtifactWorkspace(state);
     if (session !== undefined) {
       await session.disconnect();
     }
@@ -5745,6 +5904,7 @@ export class CopilotAgentService implements AgentService {
       state.session = undefined;
       if (this.#states.get(state.key) === state) {
         this.#states.delete(state.key);
+        this.#removeArtifactWorkspace(state);
       }
       try {
         await session.disconnect();

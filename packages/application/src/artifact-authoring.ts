@@ -2,7 +2,6 @@ import { randomUUID } from "node:crypto";
 
 import {
   assertMemoryTopicBudget,
-  formatMemoryIndex,
   MAX_MEMORY_TOPICS_PER_SCOPE,
   MEMORY_INDEX_FILE_NAME,
   MEMORY_SCOPE_DESCRIPTIONS,
@@ -41,22 +40,11 @@ export function authoringKindForSkill(
     : undefined;
 }
 
-export const ARTIFACT_FILES_LIST_TOOL_NAME = "artifact_files_list";
-export const ARTIFACT_FILE_READ_TOOL_NAME = "artifact_file_read";
-export const ARTIFACT_FILE_WRITE_TOOL_NAME = "artifact_file_write";
-export const ARTIFACT_FILE_DELETE_TOOL_NAME = "artifact_file_delete";
 export const SUBMIT_ARTIFACT_DRAFT_TOOL_NAME = "submit_artifact_draft";
-export const ARTIFACT_AUTHORING_TOOL_NAMES: readonly string[] = [
-  ARTIFACT_FILES_LIST_TOOL_NAME,
-  ARTIFACT_FILE_READ_TOOL_NAME,
-  ARTIFACT_FILE_WRITE_TOOL_NAME,
-  ARTIFACT_FILE_DELETE_TOOL_NAME,
-  SUBMIT_ARTIFACT_DRAFT_TOOL_NAME,
-];
 
 export const SKILL_AUTHORING_DEFAULT_SCOPE: AgentArtifactScope = "profile";
 const MAX_ARTIFACT_SUMMARY_LENGTH = 2_000;
-const MAX_ARTIFACT_FILE_CONTENT_LENGTH = 512 * 1024;
+export const MAX_ARTIFACT_FILE_CONTENT_LENGTH = 512 * 1024;
 
 export interface ArtifactAuthoringMemoryTopic {
   readonly name: string;
@@ -180,10 +168,6 @@ export function parseArtifactPath(path: string): ParsedPath {
   );
 }
 
-function memoryPath(scope: AgentArtifactScope, topic: string): string {
-  return `memory/${scope}/${topic}.md`;
-}
-
 function scopeLabel(scope: AgentArtifactScope): string {
   return MEMORY_SCOPE_DESCRIPTIONS[scope].label;
 }
@@ -229,15 +213,16 @@ export class ArtifactDraft {
   }
 
   /** Instructions appended to the authoring skill body when the draft opens. */
-  describe(): string {
+  describe(workspaceRoot: string): string {
     const lines = [
-      `<artifact_draft id="${this.id}" kind="${this.kind}">`,
-      "A reviewed draft is open for this turn. Use artifact_files_list and artifact_file_read to inspect, artifact_file_write and artifact_file_delete to change the draft, and submit_artifact_draft to send it to the user for review. Nothing is saved until the user approves.",
+      `<artifact_draft id="${this.id}" kind="${this.kind}" workspace="${workspaceRoot}">`,
+      `A reviewed draft is open for this turn. The workspace folder ${workspaceRoot} holds copies of this session's memory and skills. Inspect it with view, glob, and grep, and change it with create and edit (absolute paths). Call ${SUBMIT_ARTIFACT_DRAFT_TOOL_NAME} to send your edits to the user for review. Nothing is saved until the user approves.`,
     ];
     if (this.kind === "memory") {
       lines.push(
+        `Topics live at memory/{scope}/{topic}.md with at most ${MAX_MEMORY_TOPICS_PER_SCOPE} topics per scope. INDEX.md files are generated from topic descriptions and are read-only. To delete a topic, remove it with rm or empty the file.`,
         this.requestedScope === undefined
-          ? "Choose a scope for each topic; write paths are memory/{scope}/{topic}.md."
+          ? `Writable scopes: ${this.writableMemoryScopes.join(", ")}. Choose a scope for each topic.`
           : `The user asked for ${scopeLabel(this.requestedScope)} scope. Write every topic to memory/${this.requestedScope}/.`,
       );
     } else {
@@ -299,98 +284,28 @@ export class ArtifactDraft {
     return [...topics.values()];
   }
 
-  list(): unknown {
-    const status = (path: string, exists: boolean) => {
-      if (!this.#changes.has(path)) return "unchanged";
-      if (this.#changes.get(path) === null) return "deleted";
-      return exists ? "modified" : "added";
-    };
-    const memory = this.context.memory.map((scope) => {
-      const names = new Set(scope.topics.map(({ name }) => name));
-      for (const path of this.#changes.keys()) {
-        const parsed = parseArtifactPath(path);
-        if (parsed.kind === "memory" && parsed.scope === scope.scope) {
-          names.add(parsed.topic);
-        }
-      }
-      return {
-        scope: scope.scope,
-        meaning: MEMORY_SCOPE_DESCRIPTIONS[scope.scope].meaning,
-        available: scope.available,
-        ...(scope.unavailableReason === undefined
-          ? {}
-          : { unavailableReason: scope.unavailableReason }),
-        topicLimit: MAX_MEMORY_TOPICS_PER_SCOPE,
-        files: [...names].sort().map((name) => {
-          const path = memoryPath(scope.scope, name);
-          const published = scope.topics.find((topic) => topic.name === name);
-          return {
-            path,
-            status: status(path, published !== undefined),
-            ...(published === undefined
-              ? {}
-              : { description: published.description }),
-          };
-        }),
-      };
-    });
-    const skills = this.context.skills.map((skill) => {
-      const path = `skills/${skill.name}/SKILL.md`;
-      return {
-        path,
-        description: skill.description,
-        origin: skill.origin,
-        status: status(path, true),
-      };
-    });
-    for (const path of this.#changes.keys()) {
-      const parsed = parseArtifactPath(path);
-      if (
-        parsed.kind === "skill" &&
-        !this.context.skills.some(({ name }) => name === parsed.name)
-      ) {
-        skills.push({
-          path,
-          description: "",
-          origin: this.targetScope,
-          status: "added",
-        });
-      }
-    }
-    return {
-      draft: {
-        id: this.id,
-        kind: this.kind,
-        targetScope: this.targetScope,
-        changes: this.#changes.size,
-      },
-      memory,
-      skills,
-    };
+  /** Memory scopes this draft may write, honoring a requested scope. */
+  get writableMemoryScopes(): AgentArtifactScope[] {
+    if (this.kind !== "memory") return [];
+    return this.context.memory
+      .filter(
+        ({ scope, available }) =>
+          available &&
+          (this.requestedScope === undefined || scope === this.requestedScope),
+      )
+      .map(({ scope }) => scope);
   }
 
-  read(path: string): string {
-    const parsed = parseArtifactPath(path);
-    if (parsed.kind === "memory") {
-      if (parsed.topic === "INDEX") {
-        return formatMemoryIndex(this.#draftTopics(parsed.scope));
-      }
-      if (this.#changes.has(path)) {
-        const content = this.#changes.get(path);
-        if (content === null) {
-          throw new Error(`'${path}' is deleted in this draft`);
-        }
-        return content!;
-      }
-      const topic = this.#publishedTopic(parsed.scope, parsed.topic);
-      if (topic === undefined) throw new Error(`'${path}' does not exist`);
-      return topic.content;
+  /**
+   * Replaces the pending changes with edits made in the workspace folder,
+   * validating each one as if it had been written directly.
+   */
+  applyWorkspaceChanges(changes: ReadonlyMap<string, string | null>): void {
+    this.#changes.clear();
+    for (const [path, content] of changes) {
+      if (content === null) this.delete(path);
+      else this.write(path, content);
     }
-    const draft = this.#changes.get(path);
-    if (typeof draft === "string") return draft;
-    const skill = this.context.skills.find(({ name }) => name === parsed.name);
-    if (skill === undefined) throw new Error(`'${path}' does not exist`);
-    return skill.content;
   }
 
   write(path: string, content: string): { path: string; status: string } {
@@ -650,82 +565,25 @@ export class ArtifactDraft {
   }
 }
 
-export interface ArtifactAuthoringToolHandlers {
-  list(): Promise<unknown>;
-  read(path: string): Promise<string>;
-  write(path: string, content: string): Promise<unknown>;
-  delete(path: string): Promise<unknown>;
-  submit(summary: string): Promise<unknown>;
-}
-
-const artifactPathSchema = z
-  .string()
-  .min(1)
-  .max(256)
-  .describe(
-    "memory/{scope}/{topic}.md, memory/{scope}/INDEX.md, or skills/{name}/SKILL.md",
-  );
-
-/** Plain file tools over memory and skills; writes only reach the draft. */
-export function createArtifactAuthoringTools(
-  handlers: ArtifactAuthoringToolHandlers,
-): Tool[] {
-  return [
-    defineTool(ARTIFACT_FILES_LIST_TOOL_NAME, {
-      description:
-        "List memory topics in every scope of this session and the effective skills, with draft status when a memory or skill draft is open.",
-      parameters: z.object({}).strict(),
-      skipPermission: true,
-      defer: "never",
-      handler: async () => handlers.list(),
-    }) as Tool,
-    defineTool(ARTIFACT_FILE_READ_TOOL_NAME, {
-      description:
-        "Read one memory topic, a generated memory INDEX.md, or a skill's SKILL.md. Reads include unsaved draft changes.",
-      parameters: z.object({ path: artifactPathSchema }).strict(),
-      skipPermission: true,
-      defer: "never",
-      handler: async ({ path }) => handlers.read(path),
-    }) as Tool,
-    defineTool(ARTIFACT_FILE_WRITE_TOOL_NAME, {
-      description:
-        "Create or replace one file in the open draft. Memory topics need frontmatter with name (the file name) and a one-line description. Only available after loading update-memory or learn-skill.",
-      parameters: z
-        .object({
-          path: artifactPathSchema,
-          content: z.string().min(1).max(MAX_ARTIFACT_FILE_CONTENT_LENGTH),
-        })
-        .strict(),
-      skipPermission: true,
-      defer: "never",
-      handler: async ({ path, content }) => handlers.write(path, content),
-    }) as Tool,
-    defineTool(ARTIFACT_FILE_DELETE_TOOL_NAME, {
-      description:
-        "Delete one memory topic in the open draft, for example after merging it into a broader topic.",
-      parameters: z.object({ path: artifactPathSchema }).strict(),
-      skipPermission: true,
-      defer: "never",
-      handler: async ({ path }) => handlers.delete(path),
-    }) as Tool,
-    defineTool(SUBMIT_ARTIFACT_DRAFT_TOOL_NAME, {
-      description:
-        "Send the open draft to the user for review and wait for their decision. The result says whether it was published, needs changes, or was discarded.",
-      parameters: z
-        .object({
-          summary: z
-            .string()
-            .trim()
-            .min(1)
-            .max(MAX_ARTIFACT_SUMMARY_LENGTH)
-            .describe(
-              "What changed and why, including merges and replacements",
-            ),
-        })
-        .strict(),
-      skipPermission: true,
-      defer: "never",
-      handler: async ({ summary }) => handlers.submit(summary),
-    }) as Tool,
-  ];
+/** Sends the workspace edits to the user's review and waits for the decision. */
+export function createSubmitArtifactDraftTool(
+  submit: (summary: string) => Promise<unknown>,
+): Tool {
+  return defineTool(SUBMIT_ARTIFACT_DRAFT_TOOL_NAME, {
+    description:
+      "Send the edits in the memory and skills workspace to the user for review and wait for their decision. The result says whether it was published, needs changes, or was discarded.",
+    parameters: z
+      .object({
+        summary: z
+          .string()
+          .trim()
+          .min(1)
+          .max(MAX_ARTIFACT_SUMMARY_LENGTH)
+          .describe("What changed and why, including merges and replacements"),
+      })
+      .strict(),
+    skipPermission: true,
+    defer: "never",
+    handler: async ({ summary }) => submit(summary),
+  }) as Tool;
 }

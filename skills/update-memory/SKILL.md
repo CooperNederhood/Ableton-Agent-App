@@ -10,6 +10,11 @@ every scope's `INDEX.md` in your system message, generates `INDEX.md` from each
 topic's frontmatter `description`, and saves nothing until the user approves
 your draft in the review pane.
 
+Loading this skill opens a draft and names a workspace folder. It holds
+copies of the memory as `memory/{scope}/{topic}.md`. Use `view`, `glob`, and
+`grep` to read it and `create` and `edit` to change it, always with absolute
+paths inside the workspace. Only the scopes the draft lists are writable.
+
 ## Scopes
 
 - **System:** always true for all of Ableton Live. For example, Live
@@ -33,8 +38,8 @@ If the request contains a scope, every topic must use that scope.
    session ID and Live Set ID. Skip transient chatter and anything already
    recorded.
 2. **Choose the scope** for each item using the guide above.
-3. **Check existing memory.** Call `artifact_files_list`, then
-   `artifact_file_read` on each topic you might change.
+3. **Check existing memory.** `glob` the workspace's `memory/` folder, then
+   `view` each topic you might change.
    - Add the item to the existing general topic it belongs to, under the right
      heading.
    - Replace a fact that is outdated or contradicted; do not keep both.
@@ -42,10 +47,10 @@ If the request contains a scope, every topic must use that scope.
      theme, not the single fact.
 4. **Consolidate.** Merge related topics into a more general one, for example
    `kick-tuning` and `bass-sidechain` into `low-end-mixing`, then delete the
-   old files with `artifact_file_delete`. Keep each scope under 20 topics;
+   old files with `rm` (or empty them). Keep each scope under 20 topics;
    merge before adding when it nears the limit.
-5. **Write** each topic with `artifact_file_write` to
-   `memory/{scope}/{topic}.md`:
+5. **Write** each topic with `create` or `edit` at
+   `{workspace}/memory/{scope}/{topic}.md`:
 
    ```markdown
    ---
@@ -64,5 +69,5 @@ If the request contains a scope, every topic must use that scope.
    provenance IDs such as Live Set or turn IDs when they help.
 
 6. **Submit** with `submit_artifact_draft({ summary })`. List what you added,
-   replaced, merged, and deleted. If the user requests changes, revise the
-   draft and submit again.
+   replaced, merged, and deleted. If the user requests changes, edit the
+   workspace files and submit again.

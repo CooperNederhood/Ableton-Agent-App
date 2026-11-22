@@ -1,5 +1,12 @@
 import { randomUUID } from "node:crypto";
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import {
+  mkdtemp,
+  mkdir,
+  readFile,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -49,6 +56,7 @@ import {
 import type { SignalTurnRequest } from "./signal-delivery.js";
 import type { LiveEventTurnRequest } from "./live-event-delivery.js";
 import { ListeningFailure } from "./listening-coordinator.js";
+import { ArtifactWorkspace } from "./artifact-workspace.js";
 import {
   agentSchemaActionVariant,
   analysisPageSchema,
@@ -226,6 +234,7 @@ function baseOptions(
   return {
     events: new InMemoryEventPublisher(),
     largeOutputDirectory: join(sessionStateDirectory, "tool-output"),
+    artifactWorkspaceDirectory: join(sessionStateDirectory, "workspaces"),
     resolvePlanArtifactPaths: (productionSessionId: string) => {
       const sessionDirectory = join(sessionStateDirectory, productionSessionId);
       const artifactsDirectory = join(sessionDirectory, "artifacts");
@@ -4372,9 +4381,15 @@ describe("CopilotAgentService managed sessions", () => {
     }));
     const session = createFakeSession("authoring-session");
     let config: SessionConfig | undefined;
+    const workspaceDirectory = join(root, "workspaces");
+    const workspace = ArtifactWorkspace.forSession(
+      workspaceDirectory,
+      "production-writer",
+    );
     const service = new CopilotAgentService(
       baseOptions({
         events,
+        artifactWorkspaceDirectory: workspaceDirectory,
         artifactAuthoring: { loadContext: async () => context, publish },
         runtimeObserver: { enqueue: (event) => runtimeEvents.push(event) },
         clientFactory: () => ({
@@ -4408,20 +4423,81 @@ describe("CopilotAgentService managed sessions", () => {
           arguments: args,
         });
     };
+    expect(config?.availableTools).toEqual(
+      expect.arrayContaining(
+        ["view", "create", "edit", "glob", "grep"].map((n) => `builtin:${n}`),
+      ),
+    );
+    expect(config?.systemMessage?.content).toContain(workspace.root);
+    const permission = async (request: Record<string, unknown>) =>
+      config!.onPermissionRequest!(request as never, {
+        sessionId: "authoring-session",
+      });
+    const genres = join(workspace.root, "memory/session/genres.md");
     await expect(
-      tool("artifact_file_write")({
-        path: "memory/profile/genres.md",
-        content: "x",
+      readFile(join(workspace.root, "memory/profile/mixing.md"), "utf8"),
+    ).resolves.toBe(existing);
+    await expect(
+      permission({
+        kind: "read",
+        toolCallId: "view-1",
+        intention: "Read",
+        path: join(workspace.root, "memory/profile/mixing.md"),
       }),
-    ).rejects.toThrow("No draft is open");
+    ).resolves.toMatchObject({ kind: "approve-once" });
+    await expect(
+      permission({
+        kind: "read",
+        toolCallId: "view-2",
+        intention: "Read",
+        path: join(root, "update-memory/SKILL.md"),
+      }),
+    ).resolves.toMatchObject({ kind: "reject" });
+    await expect(
+      permission({
+        kind: "write",
+        toolCallId: "create-1",
+        intention: "Create",
+        fileName: genres,
+        diff: "",
+      }),
+    ).resolves.toMatchObject({ kind: "reject" });
+    expect(
+      JSON.stringify(
+        await permission({
+          kind: "write",
+          toolCallId: "create-1b",
+          intention: "Create",
+          fileName: genres,
+          diff: "",
+        }),
+      ),
+    ).toContain("read-only");
     await expect(
       tool("skill")({ skill_name: "update-memory" }),
-    ).resolves.toContain("<artifact_draft");
-    await tool("artifact_file_write")({
-      path: "memory/session/genres.md",
-      content:
-        "---\nname: genres\ndescription: Genres the user makes\n---\n\nDrum and bass only.\n",
-    });
+    ).resolves.toContain(workspace.root);
+    await expect(
+      permission({
+        kind: "write",
+        toolCallId: "create-2",
+        intention: "Create",
+        fileName: genres,
+        diff: "",
+      }),
+    ).resolves.toMatchObject({ kind: "approve-once" });
+    await expect(
+      permission({
+        kind: "write",
+        toolCallId: "edit-index",
+        intention: "Edit",
+        fileName: join(workspace.root, "memory/session/INDEX.md"),
+        diff: "",
+      }),
+    ).resolves.toMatchObject({ kind: "reject" });
+    await writeFile(
+      genres,
+      "---\nname: genres\ndescription: Genres the user makes\n---\n\nDrum and bass only.\n",
+    );
     const submitted = tool("submit_artifact_draft")({
       summary: "Remember the user's genre",
     });
@@ -4439,11 +4515,17 @@ describe("CopilotAgentService managed sessions", () => {
       throw new Error("missing review");
     }
     await expect(
-      tool("artifact_file_write")({
-        path: "memory/session/other.md",
-        content: "---\nname: other\ndescription: O\n---\n\nO.\n",
+      permission({
+        kind: "write",
+        toolCallId: "create-3",
+        intention: "Create",
+        fileName: join(workspace.root, "memory/session/other.md"),
+        diff: "",
       }),
-    ).rejects.toThrow("waiting for the user's review");
+    ).resolves.toMatchObject({
+      kind: "reject",
+      feedback: "The draft is waiting for the user's review.",
+    });
     await expect(
       service.resolveManagedAgentArtifactReview("writer", {
         requestId: requested.request.requestId,
@@ -4480,11 +4562,27 @@ describe("CopilotAgentService managed sessions", () => {
     );
     expect(runtimeEvents.map(({ type }) => type)).toEqual(
       expect.arrayContaining([
+        "agent.artifact_workspace.completed",
         "agent.artifact_draft.started",
+        "agent.artifact_draft.progress",
         "agent.artifact_review.scope_changed",
         "agent.artifact_publish.completed",
       ]),
     );
+    expect(
+      runtimeEvents.find(
+        (event) =>
+          event.type === "agent.permission.requested" &&
+          JSON.stringify(event).includes("generated_index"),
+      ),
+    ).toMatchObject({
+      data: {
+        artifactWorkspacePolicy: {
+          stage: "generated_index",
+          workspacePath: "memory/session/INDEX.md",
+        },
+      },
+    });
     expect(JSON.stringify(runtimeEvents)).not.toContain("Drum and bass only.");
 
     const prompt = await service.sendToManagedAgent(
@@ -4497,11 +4595,51 @@ describe("CopilotAgentService managed sessions", () => {
     );
     expect(session.prompts.at(-1)).not.toContain("--scope");
     await expect(
-      tool("artifact_file_write")({
-        path: "memory/session/genres.md",
-        content: "x",
+      permission({
+        kind: "write",
+        toolCallId: "create-4",
+        intention: "Create",
+        fileName: genres,
+        diff: "",
       }),
-    ).rejects.toThrow("No draft is open");
+    ).resolves.toMatchObject({ kind: "reject" });
+    await service.stop();
+    await vi.waitFor(() => expect(stat(workspace.root)).rejects.toThrow());
+  });
+
+  it("offers SDK file tools only when artifact authoring is configured", async () => {
+    let config: SessionConfig | undefined;
+    const service = new CopilotAgentService(
+      baseOptions({
+        clientFactory: () => ({
+          createSession: vi.fn(async (next: SessionConfig) => {
+            config = next;
+            return createFakeSession("plain-session");
+          }),
+          resumeSession: vi.fn(async () => {
+            throw new Error("resume not expected");
+          }),
+          stop: vi.fn(async () => undefined),
+        }),
+      }),
+    );
+    await service.start();
+    await service.createManagedAgent(configuration("plain"));
+    for (const name of ["view", "create", "edit", "glob", "grep"]) {
+      expect(config?.availableTools).not.toContain(`builtin:${name}`);
+    }
+    await expect(
+      config!.onPermissionRequest!(
+        {
+          kind: "write",
+          toolCallId: "w",
+          intention: "Create",
+          fileName: "/tmp/anything.md",
+          diff: "",
+        } as never,
+        { sessionId: "plain-session" },
+      ),
+    ).resolves.not.toMatchObject({ kind: "approve-once" });
     await service.stop();
   });
 

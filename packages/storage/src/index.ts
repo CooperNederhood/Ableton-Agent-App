@@ -78,6 +78,8 @@ export interface LiveAgentStorageLayout {
   readonly legacySignalIngressSecretPath: string;
   readonly copilotDirectory: string;
   readonly copilotToolOutputDirectory: string;
+  /** Transient per-session staging copies of memory and skills for SDK file tools. */
+  readonly copilotArtifactWorkspaceDirectory: string;
   readonly observabilityDirectory: string;
   readonly eventJournalPath: string;
   readonly logsDirectory: string;
@@ -454,6 +456,11 @@ export function resolveLiveAgentStorage(
     ),
     copilotDirectory: join(profileRoot, "copilot"),
     copilotToolOutputDirectory: join(profileRoot, "copilot", "tool-output"),
+    copilotArtifactWorkspaceDirectory: join(
+      profileRoot,
+      "copilot",
+      "artifact-workspaces",
+    ),
     observabilityDirectory: join(profileRoot, "observability"),
     eventJournalPath: join(
       profileRoot,

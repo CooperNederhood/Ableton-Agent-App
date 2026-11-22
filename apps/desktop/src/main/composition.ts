@@ -929,6 +929,9 @@ export async function createDesktopComposition(
       largeOutputDirectory:
         storage?.copilotToolOutputDirectory ??
         join(options.agentBaseDirectory, "tool-output"),
+      artifactWorkspaceDirectory:
+        storage?.copilotArtifactWorkspaceDirectory ??
+        join(options.agentBaseDirectory, "artifact-workspaces"),
       turnTimeoutMs: () => agentTurnTimeoutMs,
       reasoningSummary: () => agentReasoningVisibility,
       resolveSkill: (sessionId: string, skillName: string) =>

@@ -705,6 +705,7 @@ export interface AgentSettings {
   baseDirectory?: string | undefined;
   runtimeEnvironment?: CopilotAgentServiceOptions["runtimeEnvironment"];
   largeOutputDirectory?: string | undefined;
+  artifactWorkspaceDirectory?: string | undefined;
   resolvePlanArtifactPaths?: CopilotAgentServiceOptions["resolvePlanArtifactPaths"];
   turnTimeoutMs?: number | (() => number) | undefined;
   /** Replaces the Copilot client; used by tests and fakes. */
@@ -1228,6 +1229,11 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
     ...(agentSettings.largeOutputDirectory === undefined
       ? {}
       : { largeOutputDirectory: agentSettings.largeOutputDirectory }),
+    ...(agentSettings.artifactWorkspaceDirectory === undefined
+      ? {}
+      : {
+          artifactWorkspaceDirectory: agentSettings.artifactWorkspaceDirectory,
+        }),
     ...(agentSettings.resolvePlanArtifactPaths === undefined
       ? {}
       : { resolvePlanArtifactPaths: agentSettings.resolvePlanArtifactPaths }),

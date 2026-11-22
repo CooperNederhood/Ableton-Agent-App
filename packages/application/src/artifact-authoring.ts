@@ -584,6 +584,19 @@ export function createSubmitArtifactDraftTool(
       .strict(),
     skipPermission: true,
     defer: "never",
-    handler: async ({ summary }) => submit(summary),
+    // Thrown messages reach the model only as a generic failure, so return
+    // the reason as text the agent can act on.
+    handler: async ({ summary }) => {
+      try {
+        return await submit(summary);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return {
+          resultType: "failure",
+          textResultForLlm: `Submit failed: ${message}`,
+          error: message,
+        };
+      }
+    },
   }) as Tool;
 }

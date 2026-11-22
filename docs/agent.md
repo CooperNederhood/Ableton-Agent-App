@@ -219,7 +219,10 @@ be deleted.
 
 ### Review
 
-The agent calls `submit_artifact_draft` when it is done. The app collects the
+The agent calls `submit_artifact_draft` when it is done. It first waits (up to
+30 seconds) for any `create` or `edit` calls still running alongside it, so a
+parallel write is not missed. If submit fails, the agent gets the reason
+as text. The app then collects the
 workspace changes, checks them, and blocks the tool call until the user
 decides in the Inspector (see [Desktop app](desktop-app.md#memory-and-skill-review)):
 

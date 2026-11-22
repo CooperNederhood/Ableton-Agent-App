@@ -1049,6 +1049,12 @@ export const ARTIFACT_FILE_TOOL_NAMES = [
   "glob",
   "grep",
 ] as const;
+const ARTIFACT_FILE_WRITE_TOOL_NAMES: ReadonlySet<string> = new Set([
+  "create",
+  "edit",
+]);
+/** How long submit waits for parallel file edits before giving up. */
+const ARTIFACT_FILE_WRITE_SETTLE_MS = 30_000;
 export const APPLICATION_TOOL_NAMES = [
   SKILL_TOOL_NAME,
   READ_PLAN_TOOL_NAME,
@@ -1507,6 +1513,8 @@ interface ManagedSessionState {
   artifactWorkspace: ArtifactWorkspace | undefined;
   /** Serializes workspace seeding so a refresh never overwrites a draft. */
   artifactWorkspaceQueue: Promise<void>;
+  /** SDK create/edit calls still running, by tool call id; submit waits for them. */
+  readonly artifactFileWrites: Map<string, () => void>;
   readonly artifactReviewRequests: Map<string, PendingArtifactReview>;
 }
 
@@ -3044,6 +3052,7 @@ export class CopilotAgentService implements AgentService {
       artifactDraft: undefined,
       artifactWorkspace: undefined,
       artifactWorkspaceQueue: Promise.resolve(),
+      artifactFileWrites: new Map(),
       artifactReviewRequests: new Map(),
       elicitationRequests: new Map(),
     };
@@ -3622,10 +3631,53 @@ export class CopilotAgentService implements AgentService {
     ];
   }
 
+  /**
+   * Waits for file edits the model issued alongside submit, so a parallel
+   * `create` is collected rather than racing the review.
+   */
+  async #settleArtifactFileWrites(state: ManagedSessionState): Promise<void> {
+    if (state.artifactFileWrites.size === 0) return;
+    const pending = [...state.artifactFileWrites.keys()];
+    const startedAt = Date.now();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const settled = await Promise.race([
+      Promise.all(
+        pending.map(
+          (toolCallId) =>
+            new Promise<void>((resolve) => {
+              const previous = state.artifactFileWrites.get(toolCallId);
+              if (previous === undefined) return resolve();
+              state.artifactFileWrites.set(toolCallId, () => {
+                previous();
+                resolve();
+              });
+            }),
+        ),
+      ).then(() => true),
+      new Promise<false>((resolve) => {
+        timer = setTimeout(() => resolve(false), ARTIFACT_FILE_WRITE_SETTLE_MS);
+      }),
+    ]);
+    clearTimeout(timer);
+    this.#recordRuntime(state, "agent.artifact_draft.progress", {
+      action: "await_file_writes",
+      pending: pending.length,
+      settled,
+      durationMs: Date.now() - startedAt,
+    });
+    if (!settled) {
+      throw new Error(
+        "A file edit is still running. Wait for it to finish, then submit again.",
+      );
+    }
+  }
+
   async #submitArtifactDraft(
     state: ManagedSessionState,
     summary: string,
   ): Promise<string> {
+    this.#requireArtifactDraft(state);
+    await this.#settleArtifactFileWrites(state);
     const draft = this.#requireArtifactDraft(state);
     const changes = await this.#artifactWorkspace(state).changes();
     draft.applyWorkspaceChanges(changes);
@@ -3728,6 +3780,8 @@ export class CopilotAgentService implements AgentService {
       });
     }
     state.artifactReviewRequests.clear();
+    for (const settle of state.artifactFileWrites.values()) settle();
+    state.artifactFileWrites.clear();
     this.#closeArtifactDraft(state, reason);
   }
 
@@ -4882,6 +4936,9 @@ export class CopilotAgentService implements AgentService {
         });
       } else if (event.type === "tool.execution_start") {
         if (state.activeTurn !== undefined) state.activeTurn.toolStarted = true;
+        if (ARTIFACT_FILE_WRITE_TOOL_NAMES.has(event.data.toolName)) {
+          state.artifactFileWrites.set(event.data.toolCallId, () => undefined);
+        }
         this.#recordRuntime(
           state,
           "agent.tool.started",
@@ -4933,6 +4990,11 @@ export class CopilotAgentService implements AgentService {
         );
       } else if (event.type === "tool.execution_complete") {
         const operation = state.operations.get(event.data.toolCallId);
+        const settleWrite = state.artifactFileWrites.get(event.data.toolCallId);
+        if (settleWrite !== undefined) {
+          state.artifactFileWrites.delete(event.data.toolCallId);
+          settleWrite();
+        }
         this.#recordRuntime(
           state,
           event.data.success ? "agent.tool.completed" : "agent.tool.failed",

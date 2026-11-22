@@ -4474,6 +4474,12 @@ describe("CopilotAgentService managed sessions", () => {
       ),
     ).toContain("read-only");
     await expect(
+      tool("submit_artifact_draft")({ summary: "Too early" }),
+    ).resolves.toMatchObject({
+      resultType: "failure",
+      textResultForLlm: expect.stringContaining("No draft is open"),
+    });
+    await expect(
       tool("skill")({ skill_name: "update-memory" }),
     ).resolves.toContain(workspace.root);
     await expect(
@@ -4494,13 +4500,22 @@ describe("CopilotAgentService managed sessions", () => {
         diff: "",
       }),
     ).resolves.toMatchObject({ kind: "reject" });
+    // The model may issue create and submit in parallel; submit must wait.
+    session.emit(toolStart("create-2", "create"));
+    const submitted = tool("submit_artifact_draft")({
+      summary: "Remember the user's genre",
+    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(
+      received.some(
+        (event) => event.type === "agent.artifact_review_requested",
+      ),
+    ).toBe(false);
     await writeFile(
       genres,
       "---\nname: genres\ndescription: Genres the user makes\n---\n\nDrum and bass only.\n",
     );
-    const submitted = tool("submit_artifact_draft")({
-      summary: "Remember the user's genre",
-    });
+    session.emit(toolComplete("create-2"));
     await vi.waitFor(() =>
       expect(
         received.some(

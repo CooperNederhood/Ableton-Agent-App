@@ -12,15 +12,22 @@ import {
 
 import type {
   DesktopArtifactConflict,
+  DesktopArtifactKind,
   DesktopArtifactLocation,
   DesktopArtifactMutationResult,
+  DesktopArtifactScope,
   DesktopProfileLiveProjectSummary,
   DesktopProfileLiveSetSummary,
   DesktopProfileManagerSnapshot,
   DesktopProfileSessionSummary,
   DesktopScopedArtifact,
 } from "../contracts";
-import { artifactLocation, ownedLocation, sameLocation } from "./scope-library";
+import {
+  artifactLocation,
+  ownedLocation,
+  sameLocation,
+  ScopeLadder,
+} from "./scope-library";
 
 type ArtifactTransfer = {
   operation: "copy" | "move";
@@ -401,10 +408,15 @@ export function ProfileManagerView({
   activeSessionId,
   refreshToken = 0,
   onProfilesChanged,
+  onOpenLibrary,
 }: {
   activeSessionId?: string;
   refreshToken?: number;
   onProfilesChanged?: () => void;
+  onOpenLibrary?: (
+    kind: DesktopArtifactKind,
+    scope: DesktopArtifactScope,
+  ) => void;
 }): React.JSX.Element {
   const [snapshot, setSnapshot] = useState<DesktopProfileManagerSnapshot>();
   const [expandedNodes, setExpandedNodes] = useState<Set<string>>(
@@ -642,7 +654,9 @@ export function ProfileManagerView({
       <div className="profile-manager-heading">
         <div>
           <h1 id="profiles-title">Profiles</h1>
-          <p className="muted">System / profile / project / session</p>
+          <p className="muted">
+            Each scope adds to the one above it; narrower wins.
+          </p>
         </div>
         <div className="profile-heading-actions">
           <button
@@ -664,7 +678,7 @@ export function ProfileManagerView({
             onClick={() => void load(snapshot.selectedProfile)}
             disabled={busy}
           >
-            R
+            ↻
           </button>
           {createOpen && (
             <form
@@ -720,6 +734,9 @@ export function ProfileManagerView({
         </p>
       )}
 
+      <ScopeLadder snapshot={snapshot} onOpen={onOpenLibrary} />
+
+      <h2 className="section-label">Manage files</h2>
       <div className="profile-tree" aria-label="Profile scope hierarchy">
         <section className="profile-tree-node system-node">
           <header

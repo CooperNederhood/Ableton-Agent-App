@@ -1176,6 +1176,18 @@ export function App(): React.JSX.Element {
               onProfilesChanged={() =>
                 setProfileRefreshToken((current) => current + 1)
               }
+              onOpenLibrary={(kind, scope) =>
+                dispatch({
+                  type: "view",
+                  view:
+                    kind === "agent"
+                      ? "agents"
+                      : kind === "skill"
+                        ? "skills"
+                        : "memory",
+                  libraryScope: scope,
+                })
+              }
             />
           ) : state.activeView === "diagnostics" ? (
             <DiagnosticsView state={state} dispatch={dispatch} />

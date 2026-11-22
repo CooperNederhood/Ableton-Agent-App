@@ -1252,6 +1252,84 @@ small,
   --scope-color: var(--scope-session);
 }
 
+.scope-ladder {
+  display: grid;
+  gap: 4px;
+  margin: 0 0 14px;
+  padding: 0;
+  list-style: none;
+}
+
+.scope-rung {
+  min-height: 56px;
+  display: grid;
+  grid-template-columns: 150px repeat(3, minmax(0, 1fr));
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-list);
+}
+
+.scope-band {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  border-right: 1px solid var(--border);
+  padding: 0 10px;
+  color: var(--text);
+  background: var(--scope-color);
+}
+
+.scope-band strong {
+  font-size: 0.9167rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.scope-band span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.scope-cell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  border-right: 1px solid var(--border);
+  border-radius: 0;
+  padding: 0 14px;
+  color: var(--text);
+  background: transparent;
+}
+
+.scope-cell-count {
+  min-width: 24px;
+  font-size: 1.6667rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  text-align: right;
+}
+
+.scope-cell-kind {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-muted);
+}
+
+.scope-cell.zero .scope-cell-count {
+  color: var(--text-faint);
+}
+
+@media (hover: hover) {
+  .scope-cell:not(:disabled):hover {
+    background: var(--surface-raised);
+  }
+}
+
 .memory-workspace {
   grid-template-columns: minmax(260px, 1fr) minmax(0, 1.3fr);
 }

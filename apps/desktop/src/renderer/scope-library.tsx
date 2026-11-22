@@ -465,3 +465,69 @@ export function ScopeActions({
     </div>
   );
 }
+
+const LADDER_KINDS: readonly {
+  kind: DesktopArtifactKind;
+  label: string;
+  icon: "agent" | "skill" | "memory";
+}[] = [
+  { kind: "agent", label: "agents", icon: "agent" },
+  { kind: "skill", label: "skills", icon: "skill" },
+  { kind: "memory", label: "memory", icon: "memory" },
+];
+
+/** Broad to narrow: how many agents, skills, and memory topics each scope holds. */
+export function ScopeLadder({
+  snapshot,
+  onOpen,
+}: {
+  snapshot: DesktopProfileManagerSnapshot;
+  onOpen?:
+    | ((kind: DesktopArtifactKind, scope: DesktopArtifactScope) => void)
+    | undefined;
+}): React.JSX.Element {
+  const context = activeScopeContext(snapshot);
+  const artifacts = contextArtifacts(snapshot);
+  const subtitle: Record<DesktopArtifactScope, string> = {
+    system: "Bundled with the app",
+    profile: context.profile,
+    project: context.liveProjectName ?? "No saved Live project open",
+    session: "This conversation",
+  };
+  return (
+    <ol
+      className="scope-ladder"
+      aria-label="What applies right now, broad to narrow"
+    >
+      {LIBRARY_SCOPES.map((scope) => (
+        <li className="scope-rung" key={scope}>
+          <div className="scope-band" data-scope={scope}>
+            <strong>{SCOPE_LABELS[scope]}</strong>
+            <span title={subtitle[scope]}>{subtitle[scope]}</span>
+          </div>
+          {LADDER_KINDS.map(({ kind, label, icon }) => {
+            const count = artifacts.filter(
+              (artifact) => artifact.kind === kind && artifact.scope === scope,
+            ).length;
+            return (
+              <button
+                type="button"
+                key={kind}
+                className={`scope-cell ${count === 0 ? "zero" : ""}`}
+                aria-label={`Show ${count} ${SCOPE_LABELS[scope]} ${label}`}
+                disabled={onOpen === undefined}
+                onClick={() => onOpen?.(kind, scope)}
+              >
+                <span className="scope-cell-count">{count}</span>
+                <span className="scope-cell-kind">
+                  <Icon name={icon} />
+                  {label}
+                </span>
+              </button>
+            );
+          })}
+        </li>
+      ))}
+    </ol>
+  );
+}

@@ -44,6 +44,7 @@ function fixture(
     total?: number;
     startBeat?: number;
     stoppedBeat?: number;
+    launchBeat?: number;
     session?: boolean;
     completedLaunch?: boolean;
     strict?: boolean;
@@ -84,7 +85,6 @@ function fixture(
     ...(options.session
       ? {
           mode: "session",
-          stoppedBeat: options.stoppedBeat ?? startBeat,
           sourceEvidence: "expected-context-only",
           source: {
             mode: "session",
@@ -124,7 +124,7 @@ function fixture(
   const samplesPerBeat = (rate * 60) / tempo;
   const row = (counter: number, playing: boolean, shift = 0): Row => {
     const beat = playing
-      ? startBeat + (counter - origin) / samplesPerBeat
+      ? (options.launchBeat ?? startBeat) + (counter - origin) / samplesPerBeat
       : (options.stoppedBeat ?? startBeat);
     const sample = counter + offset + shift;
     return [
@@ -1605,75 +1605,46 @@ describe("frozen metric configuration and expected ownership", () => {
       false,
     );
   });
-  it("pins the nonzero stopped clock separately from Live's zero Session launch origin", () => {
-    const f = fixture({
-      session: true,
-      startBeat: 0,
-      stoppedBeat: 2.059377861721612,
-    });
-    expect(() =>
-      assertNativeMetricSourceCoverage(f.proof, f.expected),
-    ).not.toThrow();
-    const changed = structuredClone(f.proof);
-    if (changed.armed.config.mode !== "session")
-      throw new Error("Expected Session");
-    changed.armed.config.stoppedBeat = 0;
-    expect(() =>
-      assertNativeMetricSourceCoverage(changed, f.expected),
-    ).toThrow();
-    const regressed = structuredClone(f.proof);
-    regressed.after.frames[1]![1] = regressed.after.frames[0]![1] - 0.1;
-    regressed.after.frames[1]![8] = regressed.after.frames[1]![1];
-    expect(() =>
-      assertNativeMetricSourceCoverage(regressed, f.expected),
-    ).toThrow();
-  });
-
-  it("accepts one stopped-beat rounding step in Session proofs but not clock drift", () => {
-    const expectedBeat = 4.1187555555555555;
-    const observedBeat = 4.118755555555556;
-    const f = fixture({
-      session: true,
-      startBeat: 0,
-      stoppedBeat: expectedBeat,
-    });
-    const { before } = f.proof.armed;
-    const stoppedRows = [
-      ...before.frames,
-      ...Object.values(f.proof.timingWitnesses).filter((row) => row[0] === 0),
-    ];
-    for (const row of stoppedRows) row[1] = row[8] = observedBeat;
-    expect(() =>
-      assertNativeMetricSourceCoverage(f.proof, f.expected),
-    ).not.toThrow();
-
-    before.frames[1]![1] = before.frames[1]![8] = expectedBeat;
-    expect(() =>
-      assertNativeMetricSourceCoverage(f.proof, f.expected),
-    ).toThrow();
-  });
-
-  it("supports nonzero host origins without substituting Arrangement mode", () => {
-    expect(
-      fixture({ session: true, startBeat: 5.13 }).expected.config.mode,
-    ).toBe("session");
-    expect(() => fixture({ session: false, startBeat: 5.13 })).not.toThrow();
-  });
-  it.each([2.0593777777777778, 5.13])(
-    "verifies native Session proofs at the nonzero stopped anchor %s",
-    (startBeat) => {
-      const f = fixture({ session: true, startBeat });
+  it.each([
+    [2.0593777777777778, 0],
+    [5.13, 4],
+    [130.84, 128],
+    [130.84, 130.84],
+  ])(
+    "accepts clip-local Session proofs with the stopped clock at %s and Live starting at %s",
+    (stoppedBeat, launchBeat) => {
+      const f = fixture({ session: true, stoppedBeat, launchBeat });
+      expect(f.expected.config.geometry.startBeat).toBe(0);
+      expect(f.expected.config.geometry.startSample).toBe(0);
+      expect(f.proof.armed.before.frames[0]![1]).toBe(stoppedBeat);
+      expect(f.proof.launched.clock[1]).toBeGreaterThanOrEqual(launchBeat);
       expect(() =>
         assertNativeMetricSourceCoverage(f.proof, f.expected),
       ).not.toThrow();
-      expect(f.expected.config.geometry.startBeat).toBe(startBeat);
-      expect(f.expected.config.geometry.startSample).toBe(0);
+      const regressed = structuredClone(f.proof);
+      regressed.after.frames[1]![1] = regressed.after.frames[0]![1] - 0.1;
+      regressed.after.frames[1]![8] = regressed.after.frames[1]![1];
+      expect(() =>
+        assertNativeMetricSourceCoverage(regressed, f.expected),
+      ).toThrow();
     },
   );
-  it("keeps clip-local duration separate from the nonzero global/native grid", () => {
+
+  it("still pins the Arrangement stopped clock to the frozen start beat", () => {
+    const f = fixture({ session: false, startBeat: 5.13 });
+    expect(() =>
+      assertNativeMetricSourceCoverage(f.proof, f.expected),
+    ).not.toThrow();
+    expect(() =>
+      fixture({ session: false, startBeat: 5.13, stoppedBeat: 6 }),
+    ).toThrow();
+  });
+
+  it("keeps Session source context clip-local while the native clock is global", () => {
     const f = observationFixture({
       session: true,
-      startBeat: 2.059377861721612,
+      stoppedBeat: 130.84,
+      launchBeat: 128,
       total: 90_000,
     });
     const config = nativeMetricListeningConfigSchema.parse({
@@ -1685,13 +1656,13 @@ describe("frozen metric configuration and expected ownership", () => {
       metricAudioObservationSchema.parse(f.observation).source,
     ).toMatchObject({
       coordinate: { startBeat: 0, endBeat: 4 },
-      transport: { startBeat: 2.059377861721612, endBeat: 6.059377861721612 },
-      clipStartTimeBeats: 2.059377861721612,
+      transport: { startBeat: 0, endBeat: 4 },
+      clipStartTimeBeats: 0,
     });
     const source = structuredClone(f.observation.source);
     if (source.view !== "session")
       throw new Error("Session test source expected");
-    source.coordinate.endBeat = config.geometry.endBeat;
+    source.coordinate.endBeat = config.geometry.endBeat + 1;
     expect(() =>
       nativeMetricListeningConfigSchema.parse({
         ...config,

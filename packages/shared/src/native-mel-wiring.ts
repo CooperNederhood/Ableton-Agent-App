@@ -7,7 +7,7 @@ export const NATIVE_MEL_GEN_PINS = Object.freeze({
   "audio_listener_native_clock.gendsp":
     "cc072d2bc9f529740db48e66d94417bc072d041a75cd537bc3328207ef93bbb3",
   "audio_listener_native_envelope.gendsp":
-    "10a122e9a2faad7070c25fa7356a55c0649013965cc591af90a3fb3e87467965",
+    "ca2fe9753429decb6969de1a2c5f0ed959ca9d2ddfb8d30237277d19ab44d841",
 });
 
 function object(value: unknown): Record<string, unknown> {

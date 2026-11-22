@@ -224,9 +224,10 @@ if (armed > 0 && periodicPhase != previousPhase) {
  phaseDistance = periodicPhase - passFraction;
  if (phaseDistance < 0) { phaseDistance = phaseDistance + 1; }
  launchPhaseSamples = round(phaseDistance * beatSamples);
+ // Live chooses the start beat; off the configured fraction, the first moving sample is the origin.
+ if (launchPhaseSamples > passVector) { launchPhaseSamples = 0; }
  origin = clock - launchPhaseSamples;
- if (launchPhaseSamples < 0 || launchPhaseSamples > passVector ||
-     origin < 0 || retainedSamples < passVector) {
+ if (launchPhaseSamples < 0 || origin < 0 || retainedSamples < passVector) {
   armed = 0; rejected = 9;
  } else {
   launchClock = clock; armed = 0; active = 1;

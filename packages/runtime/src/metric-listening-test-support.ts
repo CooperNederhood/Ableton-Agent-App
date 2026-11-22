@@ -94,6 +94,19 @@ export class SyntheticMetricListenerPeer implements ListenerService {
     this.descriptor = descriptor;
   }
 
+  /** Live's own stopped/start song beats from the wire fixture, independent of clip-local geometry. */
+  private sessionClockBeats() {
+    const { armed, launched } = this.data.proof;
+    const g = this.data.config.geometry;
+    return {
+      stoppedBeat: armed.before.frames[0]![1],
+      launchBeat:
+        launched.clock[1] -
+        ((launched.clock[4] - launched.timing[6]) * g.tempoBpm) /
+          (g.sampleRate * 60),
+    };
+  }
+
   inspectListeners(): readonly ListenerDescriptor[] {
     return structuredClone([this.descriptor]);
   }
@@ -191,9 +204,7 @@ export class SyntheticMetricListenerPeer implements ListenerService {
         ...(this.options.provideMelBands === false
           ? { unavailableMetrics: ["mel-bands"] }
           : {}),
-        ...(config.stoppedBeat === undefined
-          ? {}
-          : { stoppedBeat: config.stoppedBeat }),
+        ...(config.mode === "session" ? this.sessionClockBeats() : {}),
       });
       this.descriptor.phase = "preparing";
       this.descriptor.jobId = input.jobId;

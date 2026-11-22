@@ -16,9 +16,9 @@ const hash = (value) =>
   createHash("sha256").update(JSON.stringify(value)).digest("hex");
 const legacyHashes = [
   "d102081c366e48f040661f4d08d0ae8c597f8549ee0493a341c3f0fd2fe4473e",
-  "31f79ee084b39a3eead7d7a63dd7781aa1ee38f33b88fd2537efaef1efe7136e",
-  "31f79ee084b39a3eead7d7a63dd7781aa1ee38f33b88fd2537efaef1efe7136e",
-  "e5920c7de60c8eead4bd0633f58d94833c4c8905a3a485f37a95cd49ad32689e",
+  "c97ded54e5a62f7a63586ed35c6ebff712a0f9ca11b9139c7126c27f1828ec70",
+  "c97ded54e5a62f7a63586ed35c6ebff712a0f9ca11b9139c7126c27f1828ec70",
+  "7d2b61d3b3c926010529f2cad7aaed4f6291ff7f9b906b287cb14434b12eb09a",
 ];
 const boxes = (doc) =>
   new Map(doc.patcher.boxes.map(({ box }) => [box.id, box]));

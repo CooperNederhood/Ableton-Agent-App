@@ -51,7 +51,8 @@ async function controllerHarness({
   suppressSpectrumCleanup = false,
   engineeringRuntime = false,
   session = false,
-  sessionStartBeat = 0,
+  // Song beats Live reports: Session geometry stays clip-local regardless.
+  sessionLaunchBeat = 0,
   observedStoppedBeat,
   melEnabled = false,
   analyzerEnabled = false,
@@ -80,7 +81,10 @@ async function controllerHarness({
   const sampleRate = 48000,
     vectorSize = 64,
     tempoBpm = 128;
-  const startBeat = session ? sessionStartBeat : 5.13;
+  const startBeat = session ? 0 : 5.13;
+  const launchBeat = session ? sessionLaunchBeat : startBeat;
+  const stoppedBeat =
+    observedStoppedBeat ?? (session ? 2.059377861721612 : startBeat);
   const endBeat = startBeat + (totalSamples * tempoBpm) / (sampleRate * 60);
   const geometry = codec.createContinuousMetricListeningGeometry({
     captureMode: "finite-metric-stream",
@@ -132,7 +136,6 @@ async function controllerHarness({
       expectedClipName: "Clip",
     };
     config.mode = "session";
-    config.stoppedBeat = sessionStartBeat || 2.059377861721612;
     config.sourceEvidence = "expected-context-only";
     config.source = {
       mode: "session",
@@ -571,10 +574,8 @@ async function controllerHarness({
     now = (counter * 1000) / sampleRate;
     const playing = playingOrigin !== null;
     const beat = playing
-      ? startBeat + ((counter - playingOrigin) * tempoBpm) / (sampleRate * 60)
-      : session
-        ? (observedStoppedBeat ?? config.stoppedBeat)
-        : startBeat;
+      ? launchBeat + ((counter - playingOrigin) * tempoBpm) / (sampleRate * 60)
+      : stoppedBeat;
     const phase = playing ? beat % 1 : 0.618;
     sourceClock = clockModel.step();
     assert.equal(sourceClock[1], counter);
@@ -816,7 +817,7 @@ async function controllerHarness({
       for (let sample = 0; sample < vectorSize; sample++) step();
       // Host playback can arrive with the native clock immediately before
       // the DSP onset receipt, whose origin is the following sample.
-      const tuple = [1, startBeat, counter + 800000, 31];
+      const tuple = [1, launchBeat, counter + 800000, 31];
       clockIO.anchorPre(tuple);
       clockIO.anchorClock([counter, 0, counter, sourceClock[7]]);
       clockIO.anchorPost(tuple);
@@ -932,7 +933,7 @@ for (const session of [false, true])
       h;
     h = await controllerHarness({
       session,
-      sessionStartBeat: 16,
+      sessionLaunchBeat: 16,
       runtimeBridge: true,
       sdkStreamBridge: true,
       analyzerEnabled: true,
@@ -2548,7 +2549,7 @@ for (const session of [false, true])
   test(`cold spectrum preparation retains genuine phase proof for ${session ? "Session" : "Arrangement"}`, async () => {
     const h = await controllerHarness({
       session,
-      sessionStartBeat: 16,
+      sessionLaunchBeat: 16,
       spectrumEnabled: true,
       spectrumWarmupMs: 1700,
       melEnabled: true,
@@ -3333,29 +3334,31 @@ test("Session capture completes with independently advancing host-clock snapshot
   );
 });
 
-test("Session capture accepts adjacent Live and listener stopped beats without rewriting them", async () => {
-  const expectedBeat = 4.1187555555555555;
-  const observedBeat = 4.118755555555556;
-  const h = await controllerHarness({
-    session: true,
-    sessionStartBeat: expectedBeat,
-    observedStoppedBeat: observedBeat,
+for (const [stoppedBeat, launchBeat] of [
+  [2.059377861721612, 0],
+  [4.118755555555556, 4],
+  [130.84, 128],
+])
+  test(`Session capture accepts a stopped clock at ${stoppedBeat} and Live starting at ${launchBeat}`, async () => {
+    const h = await controllerHarness({
+      session: true,
+      sessionLaunchBeat: launchBeat,
+      observedStoppedBeat: stoppedBeat,
+    });
+    h.launch();
+    await h.until(() => h.controller.snapshot().state === "completed");
+    assert.equal(h.controller.snapshot().cleanup, "completed");
+    const ready = h.replies.find(({ payload }) => payload.status === "ready");
+    assert.equal(ready?.payload.nativeReady.config.geometry.startBeat, 0);
+    assert.equal("stoppedBeat" in ready.payload.nativeReady.config, false);
+    assert.equal(ready?.payload.nativeReady.before.frames[0][1], stoppedBeat);
+    assert.ok(h.results.some(({ payload }) => payload.status === "completed"));
   });
-  h.launch();
-  await h.until(() => h.controller.snapshot().state === "completed");
-  assert.equal(h.controller.snapshot().cleanup, "completed");
-  const ready = h.replies.find(({ payload }) => payload.status === "ready");
-  assert.equal(ready?.payload.nativeReady.config.stoppedBeat, expectedBeat);
-  assert.equal(ready?.payload.nativeReady.before.frames[0][1], observedBeat);
-  assert.ok(h.results.some(({ payload }) => payload.status === "completed"));
-});
 
-test("Session clock mismatch retains expected and observed beats on the diagnostic wire", async () => {
-  const expectedBeat = 4.1187555555555555;
-  const observedBeat = 4.118755555555557;
+test("Arrangement clock mismatch retains expected and observed beats on the diagnostic wire", async () => {
+  const expectedBeat = 5.13;
+  const observedBeat = 5.130000000000001;
   const h = await controllerHarness({
-    session: true,
-    sessionStartBeat: expectedBeat,
     observedStoppedBeat: observedBeat,
     runtimeBridge: true,
     sdkStreamBridge: true,

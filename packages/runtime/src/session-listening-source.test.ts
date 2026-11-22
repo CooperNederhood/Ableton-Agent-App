@@ -9,7 +9,7 @@ import {
 import {
   freezeSessionSourceExpectation,
   assertSessionSourceUnchanged,
-  assertTransportCoupledSessionOrigin,
+  assertSessionOriginIdentity,
   assertSessionFirstIterationCoverage,
   attributeSessionRejection,
   assertSessionSignal,
@@ -103,7 +103,7 @@ function rejection(operation: () => unknown): ListeningRuntimeRejection {
 
 describe("Session source admission and independent transport join", () => {
   it.each([-2, 1])(
-    "uses the Session restart origin after stopped slot %i, not the next target's playing flag",
+    "freezes a clip-local range after stopped slot %i and accepts whichever beat Live starts at",
     (playingSlotIndex) => {
       const snapshot = source();
       const stoppedBeat = 15.974400000000001;
@@ -116,46 +116,52 @@ describe("Session source admission and independent transport join", () => {
       const before = structuredClone(snapshot);
       const expected = freezeSessionSourceExpectation(snapshot, target, 4);
       expect(snapshot).toEqual(before);
-      expect(expected).toMatchObject({
-        stoppedBeat,
-        startBeat: 0,
-        endBeat: 4,
-      });
+      expect(expected).toMatchObject({ durationBeats: 4 });
+      expect(expected).not.toHaveProperty("stoppedBeat");
+      expect(expected).not.toHaveProperty("startBeat");
       expect(() =>
-        assertTransportCoupledSessionOrigin(expected, {
+        assertSessionOriginIdentity(expected, {
           ...origin,
           observedAtGlobalBeat: 0.06653333333333333,
         }),
       ).not.toThrow();
       expect(() =>
-        assertTransportCoupledSessionOrigin(expected, {
+        assertSessionOriginIdentity(expected, {
           ...origin,
           clipStartTimeBeats: stoppedBeat,
           observedAtGlobalBeat: stoppedBeat + 0.1,
+        }),
+      ).not.toThrow();
+      expect(() =>
+        assertSessionOriginIdentity(expected, {
+          ...origin,
+          playingSlotIndex: 1,
         }),
       ).toThrow("session_native_origin_mismatch");
     },
   );
 
-  it("consolidation: joins an owned global-16 launch without seeking or relabeling it as clip-local zero", () => {
+  it("consolidation: joins an owned launch at whatever global beat Live chooses without seeking", () => {
     const snapshot = source();
     snapshot.before.globalBeat = snapshot.after.globalBeat = 16;
     const before = structuredClone(snapshot);
     const expected = freezeSessionSourceExpectation(snapshot, target, 4);
-    expect(expected.stoppedBeat).toBe(16);
+    expect(expected.durationBeats).toBe(4);
     expect(snapshot).toEqual(before);
+    for (const clipStartTimeBeats of [16, 0])
+      expect(() =>
+        assertSessionOriginIdentity(expected, {
+          ...origin,
+          clipStartTimeBeats,
+          observedAtGlobalBeat: clipStartTimeBeats + 0.2,
+        }),
+      ).not.toThrow();
     expect(() =>
-      assertTransportCoupledSessionOrigin(expected, {
+      assertSessionOriginIdentity(expected, {
         ...origin,
+        clipReference: "00000000-0000-4000-8000-000000000099",
         clipStartTimeBeats: 16,
         observedAtGlobalBeat: 16.2,
-      }),
-    ).not.toThrow();
-    expect(() =>
-      assertTransportCoupledSessionOrigin(expected, {
-        ...origin,
-        clipStartTimeBeats: 0,
-        observedAtGlobalBeat: 0.2,
       }),
     ).toThrow("session_native_origin_mismatch");
   });
@@ -170,8 +176,6 @@ describe("Session source admission and independent transport join", () => {
       const before = structuredClone(snapshot);
       const expected = freezeSessionSourceExpectation(snapshot, target, 80);
       expect(expected).toMatchObject({
-        startBeat: 0,
-        endBeat: 80,
         durationBeats: 80,
         firstIterationEndBeat: 80,
       });
@@ -314,12 +318,7 @@ describe("Session source admission and independent transport join", () => {
       const before = structuredClone(snapshot);
       const expected = freezeSessionSourceExpectation(snapshot, target, 4);
       expect(snapshot).toEqual(before);
-      expect(expected).toMatchObject({
-        stoppedBeat: anchor,
-        startBeat: 0,
-        endBeat: 4,
-        durationBeats: 4,
-      });
+      expect(expected).toMatchObject({ durationBeats: 4 });
       expect(() =>
         assertSessionFirstIterationCoverage(
           expected,
@@ -334,15 +333,23 @@ describe("Session source admission and independent transport join", () => {
         ),
       ).not.toThrow();
       expect(() =>
-        assertTransportCoupledSessionOrigin(expected, {
+        assertSessionOriginIdentity(expected, {
           ...origin,
           clipStartTimeBeats: 0,
           observedAtGlobalBeat: 0.1,
         }),
       ).not.toThrow();
       expect(() =>
-        assertTransportCoupledSessionOrigin(expected, {
+        assertSessionOriginIdentity(expected, {
           ...origin,
+          clipStartTimeBeats: 4,
+          observedAtGlobalBeat: 4.1,
+        }),
+      ).not.toThrow();
+      expect(() =>
+        assertSessionOriginIdentity(expected, {
+          ...origin,
+          playingSlotIndex: 1,
           clipStartTimeBeats: 4,
           observedAtGlobalBeat: 4.1,
         }),
@@ -439,7 +446,7 @@ describe("Session source admission and independent transport join", () => {
     });
   });
 
-  it("records changed settings, rounded geometry operands and origin tolerance instead of opaque error codes", () => {
+  it("records changed settings, rounded geometry operands and origin identity instead of opaque error codes", () => {
     const expected = freezeSessionSourceExpectation(source(), target, 4);
     const edited = source();
     edited.settings.loopEnd = 5;
@@ -475,18 +482,30 @@ describe("Session source admission and independent transport join", () => {
         comparison: "at-most",
       }),
     );
-    expect(
-      rejection(() =>
-        assertTransportCoupledSessionOrigin(expected, {
-          ...origin,
-          clipStartTimeBeats: 1,
-        }),
-      ).rejectionFacts,
-    ).toContainEqual(
-      expect.objectContaining({
-        field: "origin.anchorToleranceBeats",
-        actual: { state: "observed", value: 1e-8 },
+    const foreign = rejection(() =>
+      assertSessionOriginIdentity(expected, {
+        ...origin,
+        clipReference: "00000000-0000-4000-8000-000000000099",
+        playingSlotIndex: 1,
       }),
+    );
+    expect(foreign.code).toBe("session_native_origin_mismatch");
+    expect(foreign.rejectionFacts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          field: "origin.clipReference",
+          actual: {
+            state: "observed",
+            value: "00000000-0000-4000-8000-000000000099",
+          },
+          expected: { state: "observed", value: target.expectedClipReference },
+        }),
+        expect.objectContaining({
+          field: "origin.playingSlotIndex",
+          actual: { state: "observed", value: 1 },
+          expected: { state: "observed", value: target.sceneIndex },
+        }),
+      ]),
     );
   });
 
@@ -561,17 +580,14 @@ describe("Session source admission and independent transport join", () => {
       snapshot.sourceKind = kind;
       const expected = freezeSessionSourceExpectation(snapshot, target, 4);
       expect(expected).toMatchObject({
-        startBeat: 0,
-        endBeat: 4,
+        durationBeats: 4,
         followActions: "unknown",
       });
       expect(expected.limitations.join(" ")).toContain("message-rate");
       snapshot.settings.loopEnd = 1;
       expect(expected.source.settings.loopEnd).toBe(8);
       expect(Object.isFrozen(expected.source.target.track)).toBe(true);
-      expect(() =>
-        assertTransportCoupledSessionOrigin(expected, origin),
-      ).not.toThrow();
+      expect(() => assertSessionOriginIdentity(expected, origin)).not.toThrow();
     },
   );
 
@@ -619,28 +635,17 @@ describe("Session source admission and independent transport join", () => {
       const snapshot = source();
       snapshot.before.globalBeat = snapshot.after.globalBeat = globalBeat;
       snapshot.settings.globalQuantization = globalQuantization;
-      expect(freezeSessionSourceExpectation(snapshot, target, 4)).toMatchObject(
-        {
-          stoppedBeat: globalBeat,
-          startBeat: globalBeat,
-          endBeat: globalBeat + 4,
-        },
-      );
       const expected = freezeSessionSourceExpectation(snapshot, target, 4);
-      expect(() =>
-        assertTransportCoupledSessionOrigin(expected, {
-          ...origin,
-          clipStartTimeBeats: globalBeat,
-          observedAtGlobalBeat: globalBeat + 0.1,
-        }),
-      ).not.toThrow();
-      expect(() =>
-        assertTransportCoupledSessionOrigin(expected, {
-          ...origin,
-          clipStartTimeBeats: globalBeat + 1,
-          observedAtGlobalBeat: globalBeat + 1.1,
-        }),
-      ).toThrow("session_native_origin_mismatch");
+      expect(expected).toMatchObject({ durationBeats: 4 });
+      expect(expected).not.toHaveProperty("stoppedBeat");
+      for (const clipStartTimeBeats of [globalBeat, globalBeat + 1])
+        expect(() =>
+          assertSessionOriginIdentity(expected, {
+            ...origin,
+            clipStartTimeBeats,
+            observedAtGlobalBeat: clipStartTimeBeats + 0.1,
+          }),
+        ).not.toThrow();
     },
   );
 
@@ -648,7 +653,7 @@ describe("Session source admission and independent transport join", () => {
     const snapshot = source();
     snapshot.settings.followActionEnabled = false;
     expect(freezeSessionSourceExpectation(snapshot, target, 4)).toMatchObject({
-      startBeat: 0,
+      durationBeats: 4,
       followActions: "disabled",
     });
   });
@@ -702,22 +707,85 @@ describe("Session source admission and independent transport join", () => {
     ).toBe(4);
   });
 
-  it.each([
-    { clipReference: "other" },
-    { playingSlotIndex: 1 },
-    { clipStartTimeBeats: 16 },
-    { clipStartTimeBeats: -4 },
-    { observedAtGlobalBeat: 11 },
-    { observedAtGlobalBeat: 20 },
-  ])(
-    "does not join another epoch or a delayed/wrapped origin: %j",
+  it.each([{ clipReference: "other" }, { playingSlotIndex: 1 }])(
+    "does not join a different clip or slot: %j",
     (change) => {
       const expected = freezeSessionSourceExpectation(source(), target, 4);
       expect(() =>
-        assertTransportCoupledSessionOrigin(expected, { ...origin, ...change }),
-      ).toThrow();
+        assertSessionOriginIdentity(expected, { ...origin, ...change }),
+      ).toThrow("session_native_origin_mismatch");
     },
   );
+
+  it.each([
+    { clipStartTimeBeats: 16 },
+    { observedAtGlobalBeat: 11 },
+    { clipStartTimeBeats: 128, observedAtGlobalBeat: 128.25 },
+  ])(
+    "leaves the transport start beat to Live for the requested clip/slot: %j",
+    (change) => {
+      const expected = freezeSessionSourceExpectation(source(), target, 4);
+      expect(() =>
+        assertSessionOriginIdentity(expected, { ...origin, ...change }),
+      ).not.toThrow();
+    },
+  );
+
+  it("regression: admits a stopped One Bar launch that Live snaps from 130.84 back to bar 128", () => {
+    const snapshot = source();
+    snapshot.settings.tempoBpm = 128;
+    snapshot.settings.globalQuantization = 4;
+    snapshot.settings.loopEnd = snapshot.settings.endMarker = 4;
+    for (const state of [snapshot.before, snapshot.after]) {
+      state.globalBeat = 130.84;
+      state.playingSlotIndex = -1;
+      state.selectedClipReference = null;
+    }
+    const before = structuredClone(snapshot);
+    const expected = freezeSessionSourceExpectation(snapshot, target, 4);
+    expect(snapshot).toEqual(before);
+    expect(expected).toMatchObject({
+      durationBeats: 4,
+      firstIterationEndBeat: 4,
+    });
+    expect(expected).not.toHaveProperty("stoppedBeat");
+    expect(expected).not.toHaveProperty("startBeat");
+    const clipLocal = {
+      sampleRate: 48_000 as const,
+      vectorSize: 64,
+      tempoBpm: 128,
+    };
+    expect(() =>
+      assertSessionFirstIterationCoverage(
+        expected,
+        createMetricListeningGeometry({
+          ...clipLocal,
+          startBeat: 0,
+          endBeat: expected.durationBeats,
+          startSample: 0,
+        }),
+      ),
+    ).not.toThrow();
+    expect(() =>
+      assertSessionFirstIterationCoverage(
+        expected,
+        createMetricListeningGeometry({
+          ...clipLocal,
+          startBeat: 130.84,
+          endBeat: 134.84,
+          startSample: 0,
+        }),
+      ),
+    ).toThrow("session_first_iteration_exceeded");
+    expect(() =>
+      assertSessionOriginIdentity(expected, {
+        clipReference: target.expectedClipReference,
+        playingSlotIndex: target.sceneIndex,
+        clipStartTimeBeats: 128,
+        observedAtGlobalBeat: 128.25,
+      }),
+    ).not.toThrow();
+  });
 
   it("rechecks the settings/identity fingerprint without confusing dynamic launch changes with edits", () => {
     const expected = freezeSessionSourceExpectation(source(), target, 4);

@@ -57,7 +57,7 @@ flowchart LR
 | ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
 | Agent tools      | `packages/tools/src/listening-tools.ts`, `listening-feature-views.ts`, `listening-summary.ts`                                                                                                                   | `ableton_listening` starts and inspects captures. `ableton_context` reads, compares and searches results. |
 | Job coordinator  | `packages/application/src/listening-coordinator.ts`, `listening-host.ts`                                                                                                                                         | Runs one capture as a job through fixed stages, one at a time.                                           |
-| Session runtime  | `packages/runtime/src/session-listening-runtime.ts`, `session-listening-driver.ts`, `session-listening-source.ts`                                                                                               | Checks the clip, predicts the start, drives the Remote Script pass, validates the result.                |
+| Session runtime  | `packages/runtime/src/session-listening-runtime.ts`, `session-listening-driver.ts`, `session-listening-source.ts`                                                                                               | Checks the clip, drives the Remote Script pass, validates the result.                        |
 | Arrangement runtime | `packages/runtime/src/listening-runtime-host.ts`                                                                                                                                                             | Same job stages for an Arrangement range. Also wires Session services in.                                |
 | Capture plumbing | `packages/runtime/src/metric-listening-capture.ts`, `metric-listening-config.ts`, `metric-stream-publication.ts`                                                                                                | Arms listeners, collects measurement streams, publishes them to storage.                                 |
 | Remote Script    | `remote-script/AbletonAgent/session_listening_source.py`, `session_listening_pass.py`, `listening_commands.py`, `listening_playback.py`, `arrangement_listening_source.py`                                    | Reads clip and transport state, launches the clip, monitors it, positions Arrangement playback.          |
@@ -93,20 +93,19 @@ beat, you need four things:
 
 The hard part is (2): the Remote Script sees the clip start only at message
 rate (a few times per second), while the device sees samples but doesn't know
-which clip is playing. Today these are joined with an **anchor** and an
-**onset window**:
+which clip is playing. Session listening joins them by **observing** the start,
+not predicting it:
 
-- Before launch, the runtime predicts the global beat where the clip will start
-  (the anchor) from the stopped transport position.
-- The Max device refuses to arm unless the transport is stopped exactly at that
-  beat.
-- After `clip.fire()`, the Remote Script accepts the clip's reported start time
-  only if it falls inside a small window after the anchor (exactly the anchor
-  without quantization, up to one bar later with One Bar quantization).
-- The runtime then checks that start matches the prediction, and the device
-  counts samples from its own clock.
-
-This alignment design is under review.
+- Listening always begins from a stopped transport, so `clip.fire()` starts the
+  transport and the clip together. Live picks the song position it starts from
+  (with One Bar quantization it snaps back to the bar start, e.g. stopped at
+  130.84 starts at 128), and we don't need to know it in advance.
+- The device marks beat 0 at the **first sample where the transport moves**.
+  Capture geometry is clip-local: `[0, durationBeats)`.
+- The Remote Script reports which clip started and the song beat it started at
+  (`sourceEpoch.startTimeBeats`). It accepts the start once the clip's start time
+  and playing position agree with the song clock; that beat is recorded, not
+  checked against a prediction.
 
 ## Session flow, start to finish
 
@@ -130,26 +129,27 @@ sequenceDiagram
     RS-->>App: clip identity, settings, stopped transport beat
     App->>U: approval request (plays audio)
     U-->>App: approve
-    App->>App: freeze expectation, predict anchor
-    App->>RS: prepare_session_pass (timingAnchor)
+    App->>App: freeze expectation
+    App->>RS: prepare_session_pass
     RS-->>App: prepared (monitors installed)
     App->>M: configure + arm
-    M->>M: check transport stopped at anchor beat
+    M->>M: check transport stopped
     M-->>App: armed
     App->>RS: launch_session_pass
     RS->>L: clip.fire()
     loop every tick, up to 5 s
         RS->>L: read clip + transport state
     end
-    RS-->>App: playing (clip start within onset window)
+    RS-->>App: playing (observed clip start)
     L-->>M: audio
     M-->>App: measurement records
     App->>RS: inspect_session_pass (continuity, every ~100 ms)
     App->>App: seal: check covered boundary and source unchanged
     App->>App: publish measurements to storage
     App->>RS: release_session_pass
+    RS->>L: stop transport
     App->>M: disarm
-    App-->>A: job + summary (playback left running)
+    App-->>A: job + summary
 ```
 
 Step by step:
@@ -159,34 +159,35 @@ Step by step:
    transport state twice (before/after) so a changing Set is caught.
 2. **Approval.** Play actions are mutations (they start playback), so the user
    approves them like any other change. See [safety.md](safety.md).
-3. **Freeze and predict.** `freezeSessionSourceExpectation` in
+3. **Freeze.** `freezeSessionSourceExpectation` in
    `session-listening-source.ts` checks the supported case and computes
-   `stoppedBeat`, `startBeat` (the anchor) and `durationBeats`. By default the
-   capture covers one loop, or the start/end region of a non-looping clip.
+   `durationBeats`. By default the capture covers one loop, or the start/end
+   region of a non-looping clip.
 4. **Prepare.** The driver (`createSessionSourceDriver`) sends
-   `listening.prepare_session_pass` with `timingAnchor: { globalBeat }`. The
-   Remote Script records a baseline and subscribes to LOM change listeners.
+   `listening.prepare_session_pass`. The Remote Script records a baseline and
+   subscribes to LOM change listeners.
 5. **Arm the device.** `prepareMetricListenerStream` configures and arms the
    listener. The controller's `clock()` check throws
-   `metric_transport_not_stopped` or `metric_source_position_mismatch` if the
-   transport isn't stopped at the expected beat.
+   `metric_transport_not_stopped` if the transport is playing.
 6. **Launch.** `listening.launch_session_pass` makes the Remote Script call
    `clip.fire()` once. It polls every Live tick; the runtime polls with
    `inspect` every 50 ms. If the clip isn't seen playing within 5 seconds the
    pass fails as `session_launch_unverified`.
 7. **Onset.** The Remote Script sets the clip's "epoch" when the clip is playing,
-   its slot matches, and its start time is inside the onset window. The runtime
-   runs `assertTransportCoupledSessionOrigin`, then waits for the device to
-   confirm its own onset.
+   its slot matches, and its start time agrees with the song clock and playing
+   position. The runtime checks it is the requested clip and slot
+   (`assertSessionOriginIdentity`), then waits for the device to confirm its
+   own onset (the first moving sample).
 8. **Capture.** The device streams records for each metric family
    independently. Meanwhile the runtime checks continuity every ~100 ms; any
    retrigger, other launch, wrap or settings change invalidates the pass.
 9. **Seal.** When capture finishes, `seal()` waits for evidence that the clip
    reached its boundary, re-reads the source and checks nothing changed.
-10. **Publish and clean up.** Measurements are written to storage. Cleanup
-    releases the Remote Script monitors and disarms the device. **Playback is
-    left running** (`cleanupPolicy: "leave-running"`); the agent stops
-    transport only if asked.
+10. **Publish and clean up.** Measurements are written to storage. Releasing
+    the pass **stops the transport** (`cleanupPolicy: "stop-owned"`) so the
+    next listen can start from stopped, unless another clip on the track has
+    taken over. A dropped connection releases monitors but leaves playback
+    alone. Then the device is disarmed.
 
 ### What Session listening supports
 
@@ -270,10 +271,10 @@ already heard without loading all the data into the prompt.
 | ------------------------------------- | ------------------------------------------------------------------------ |
 | What can the agent ask for?           | `packages/tools/src/listening-tools.ts`                                  |
 | Job stages and ordering               | `packages/application/src/listening-coordinator.ts`                      |
-| Session checks and anchor prediction  | `packages/runtime/src/session-listening-source.ts`                       |
+| Session checks and expectation        | `packages/runtime/src/session-listening-source.ts`                       |
 | Session pass driver                   | `packages/runtime/src/session-listening-driver.ts`                       |
 | Arrangement flow                      | `packages/runtime/src/listening-runtime-host.ts`                         |
-| Clip launch and onset window          | `remote-script/AbletonAgent/session_listening_pass.py`                   |
+| Clip launch and observed start        | `remote-script/AbletonAgent/session_listening_pass.py`                   |
 | Device arm and clock checks           | `max-patches/audio-listener/audio_listener_metric_controller.js`         |
 | Feature definitions                   | `packages/protocol/src/listening-feature-contracts.ts`                   |
 | Stored captures                       | `packages/project-state/src/context-repository.ts`                       |

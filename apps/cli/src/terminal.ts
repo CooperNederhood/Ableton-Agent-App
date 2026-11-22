@@ -3,7 +3,7 @@
  * interactive and non-interactive CLI entry points.
  *
  * Behavior follows the terminal client specification
- * (docs/cli/terminal-client.md#output-formats-and-exit-codes):
+ * (docs/cli.md#exit-codes):
  * - Color is only enabled for an actual TTY stream.
  * - `NO_COLOR` (any value, including empty string) always disables color,
  *   matching the https://no-color.org convention.

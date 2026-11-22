@@ -4076,9 +4076,7 @@ describe("typed App-session context host", () => {
     expect(summary).toContain("silence (measured zero)");
     expect(summary).toContain("attacks not-requested");
     expect(summary).toContain("spectral-centroid failed");
-    expect(summary).toContain(
-      "clip-local beats 0-4; global transport beats 0-4; midi",
-    );
+    expect(summary).toContain("clip-local beats 0-4; midi");
     expect(summary).not.toContain("Infinity");
     expect(summary).not.toContain("0 estimated attacks");
   });

@@ -27,27 +27,6 @@ const epoch = integer.min(1).max(1_000_000);
 const amplitude = z.number().finite().min(0).max(64);
 type ClockRow = z.infer<typeof nativeHostClockRowSchema>;
 
-const stoppedBeatBits = new DataView(new ArrayBuffer(8));
-
-/** Match independent Session position readings without rounding clock evidence. */
-export function matchesNativeSessionStoppedBeat(
-  observed: number,
-  expected: number | undefined,
-): boolean {
-  if (observed === expected) return true;
-  if (
-    expected === undefined ||
-    !Number.isFinite(expected) ||
-    !Number.isFinite(observed) ||
-    expected <= 0 ||
-    observed <= 0
-  )
-    return false;
-  stoppedBeatBits.setFloat64(0, Math.min(observed, expected));
-  stoppedBeatBits.setBigUint64(0, stoppedBeatBits.getBigUint64(0) + 1n);
-  return stoppedBeatBits.getFloat64(0) === Math.max(observed, expected);
-}
-
 function coherent(row: ClockRow): boolean {
   return (
     row[0] === row[7] &&
@@ -403,22 +382,22 @@ export function assertNativeCheckedTransportSourceCoverage(input: {
   )
     throw new Error(`${errorPrefix}_capture_coverage_mismatch`);
 
-  let clockDisagreement = 0;
-  let beatDisagreement = Math.abs(
+  // Session geometry is clip-local and Live picks the transport start beat,
+  // so Session beat residuals are measured from the launch row itself.
+  const session = input.stoppedBeat !== undefined;
+  const launchBeatOrigin =
     launchedHost.sample -
-      Math.round((launchedHost.beat - geometry.startBeat) * samplesPerBeat) -
-      startSample,
-  );
+    Math.round((launchedHost.beat - geometry.startBeat) * samplesPerBeat);
+  const beatReference = session ? launchBeatOrigin : startSample;
+  let clockDisagreement = 0;
+  let beatDisagreement = Math.abs(launchBeatOrigin - beatReference);
   const firstBefore = before.frames[0];
   if (!firstBefore) throw new Error(`invalid_${errorPrefix}_host_binding`);
   const firstCounter = firstBefore[4];
   const witnessRows = Object.values(timingWitnesses);
   const offsets: number[] = [];
   const phases: number[] = [];
-  const beatOrigins: number[] = [
-    launchedHost.sample -
-      Math.round((launchedHost.beat - geometry.startBeat) * samplesPerBeat),
-  ];
+  const beatOrigins: number[] = [launchBeatOrigin];
   const retainedClocks = [
     ...before.frames,
     ...after.frames,
@@ -447,7 +426,7 @@ export function assertNativeCheckedTransportSourceCoverage(input: {
       ((policy.mode === "strict" && row[2] < previousClock[2]) ||
         (row[1] < previousClock[1] &&
           !(
-            input.stoppedBeat !== undefined &&
+            session &&
             geometry.startBeat === 0 &&
             previousClock[0] === 0 &&
             row[0] === 1
@@ -467,7 +446,7 @@ export function assertNativeCheckedTransportSourceCoverage(input: {
       const beatOrigin =
         row[2] - Math.round((row[1] - geometry.startBeat) * samplesPerBeat);
       beatOrigins.push(beatOrigin);
-      const residual = beatOrigin - startSample;
+      const residual = beatOrigin - beatReference;
       const circularDifference = phaseDisagreement(row, samplesPerBeat);
       phases.push(circularDifference);
       beatDisagreement = Math.max(

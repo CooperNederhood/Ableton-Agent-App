@@ -95,9 +95,6 @@ class Service extends SyntheticMetricListenerPeer {
       tempoBpm: this.data.config.geometry.tempoBpm,
       timingPolicy: this.data.config.timingPolicy,
       requestedMetrics: this.data.config.requestedMetrics,
-      ...(this.data.config.mode === "session"
-        ? { stoppedBeat: this.data.config.stoppedBeat }
-        : {}),
     });
   }
   get input(): PrepareMetricListenerCaptureInput {
@@ -1391,9 +1388,6 @@ describe("real version5 ListenerService orchestration", () => {
                   tempoBpm: config.geometry.tempoBpm,
                   requestedMetrics: config.requestedMetrics,
                   timingPolicy: config.timingPolicy,
-                  ...(config.stoppedBeat === undefined
-                    ? {}
-                    : { stoppedBeat: config.stoppedBeat }),
                   gaps: Object.entries(data.observation.metrics).flatMap(
                     ([metric, timeline]) =>
                       timeline?.gaps.map((gap) => ({
@@ -1569,9 +1563,6 @@ describe("real version5 ListenerService orchestration", () => {
                   source: data.observation.source,
                   tempoBpm: data.config.geometry.tempoBpm,
                   timingPolicy: data.config.timingPolicy,
-                  ...(data.config.mode === "session"
-                    ? { stoppedBeat: data.config.stoppedBeat }
-                    : {}),
                 }),
               ],
               trace,

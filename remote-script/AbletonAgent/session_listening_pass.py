@@ -80,7 +80,7 @@ def validate_session_listening_pass(params):
     action = params.get("action")
     extra = {
         "prepare": ("expectedLiveSetId", "expectedProjectRevision", "target",
-                    "listener", "durationBeats", "timingAnchor"),
+                    "listener", "durationBeats"),
         "launch": (), "inspect": (), "release": ("reason",),
     }
     if action not in extra or not _strict(params, common + extra[action]):
@@ -100,10 +100,8 @@ def validate_session_listening_pass(params):
         and params["listener"]["deviceIndex"] < 32
         and params["listener"]["track"] == params["target"]["track"]
         and _number(params["durationBeats"], positive=True)
-        and _strict(params["timingAnchor"], ("globalBeat",))
-        and _number(params["timingAnchor"]["globalBeat"], 0, 1576800)
     ):
-        return "Invalid Session pass exact identities, binding, duration or anchor"
+        return "Invalid Session pass exact identities, binding or duration"
     return None
 
 
@@ -118,7 +116,7 @@ def validate_session_pass_action(params, action):
 
 def _fail(message, code="conflict"):
     raise ProtocolFailure(code, message, details={
-        "mutationState": "not-attempted", "cleanupPolicy": "leave-running",
+        "mutationState": "not-attempted", "cleanupPolicy": "stop-owned",
     })
 
 
@@ -145,7 +143,6 @@ class _Pass(object):
         self.last_dynamic = None
         self.transition_counts = {}
         self.launch_deadline = None
-        self.launch_anchor = params["timingAnchor"]["globalBeat"]
         self.pending_launch = None
         self.monitor_ticks = 0
         self.boundary_deadline = None
@@ -213,8 +210,6 @@ class _Pass(object):
                     or sample["targetTriggered"] is not False
                     or sample["targetRecording"] is not False):
                 _fail("Session target must be stopped or consistently remembered, unqueued and recording-off")
-            if sample["globalBeat"] != self.params["timingAnchor"]["globalBeat"]:
-                _fail("Session pass stopped timing anchor changed")
         if any(evidence["before"][field] != state[field] for field in (
                 "targetPlaying", "playingSlotIndex", "selectedClipReference")):
             _fail("Session remembered state changed during admission")
@@ -297,7 +292,7 @@ class _Pass(object):
         except (RuntimeError, AttributeError) as error:
             raise ProtocolFailure("unsupported_capability", "Could not subscribe Session monitor: " + field,
                                   details={"mutationState": "not-attempted",
-                                           "cleanupPolicy": "leave-running"}) from error
+                                           "cleanupPolicy": "stop-owned"}) from error
         self.registrations.append((obj, field, remove, changed))
 
     def invalidate(self, reason):
@@ -371,15 +366,11 @@ class _Pass(object):
                         "targetPlaying", "targetTriggered", "playingSlotIndex", "firedSlotIndex")
             if any(state[field] is None for field in required):
                 _fail("Required Session state became unknown")
-            owned_start = (
-                self.mutation != "not-attempted" and self.epoch is None
-                and self.last_dynamic["transportPlaying"] is False
-                and state["transportPlaying"] is True
-            )
-            if owned_start and state["globalBeat"] < self.launch_anchor:
-                self.launch_anchor = 0
-            if (self.last_dynamic is not None and state["globalBeat"] < self.last_dynamic["globalBeat"]
-                    and not owned_start):
+            # Live chooses where the transport starts (it may snap back to the
+            # bar or to 0), so position only has to move forward once our clip
+            # has started.
+            if (self.epoch is not None
+                    and state["globalBeat"] < self.last_dynamic["globalBeat"]):
                 _fail("Session transport moved backwards during pass: {0} -> {1}; source origin {2}".format(
                     self.last_dynamic["globalBeat"], state["globalBeat"], state["startTimeBeats"]))
             if self.mutation == "not-attempted":
@@ -454,31 +445,20 @@ class _Pass(object):
                     and state["playingSlotIndex"] == scene and state["firedSlotIndex"] == -1
                     and state["selectedClipReference"] == self.params["target"]["expectedClipReference"]):
                 origin = state["startTimeBeats"]
-                anchor = self.launch_anchor
-                quantized = (
-                    self.baseline["settings"]["launchQuantization"] == 5
-                    or self.baseline["settings"]["globalQuantization"] == 4
-                )
-                # Public reads/callbacks need not become visible atomically.
-                # A stale start_time never becomes an epoch by acceptance time;
-                # wait boundedly for the actual independently readable origin.
-                if anchor <= origin <= anchor + (4 if quantized else 0) and origin <= state["globalBeat"]:
-                    elapsed = state["globalBeat"] - origin
-                    end = (self.baseline["settings"]["loopEnd"] if self.baseline["settings"]["looping"]
-                           else self.baseline["settings"]["endMarker"])
-                    if elapsed >= end:
-                        _fail("Session first iteration elapsed before source readback")
-                    # The stopped clip can retain its previous position until
-                    # our own launch resets it. Do not mistake that one reset
-                    # for a retrigger/wrap, or accept stale position as onset.
-                    if 0 <= position < end and position <= elapsed + 0.25:
-                        self.epoch = {
-                            "startTimeBeats": origin,
-                            "clipReference": state["selectedClipReference"],
-                            "observedGlobalBeat": state["globalBeat"],
-                        }
-                        self.last_position = position
-                        self.status, self.mutation = "playing", "observed-playing"
+                elapsed = state["globalBeat"] - origin
+                end = (self.baseline["settings"]["loopEnd"] if self.baseline["settings"]["looping"]
+                       else self.baseline["settings"]["endMarker"])
+                # Reads need not update together: start_time or playing_position
+                # can still hold values from the previous play. Accept the start
+                # once they agree (start marker is 0, so position == elapsed).
+                if 0 <= origin and 0 <= elapsed < end and abs(position - elapsed) <= 0.25:
+                    self.epoch = {
+                        "startTimeBeats": origin,
+                        "clipReference": state["selectedClipReference"],
+                        "observedGlobalBeat": state["globalBeat"],
+                    }
+                    self.last_position = position
+                    self.status, self.mutation = "playing", "observed-playing"
             elif self.epoch is None and state["targetTriggered"] is True:
                 self.status = "queued"
         except ProtocolFailure as error:
@@ -490,7 +470,7 @@ class _Pass(object):
         return {
             "schemaVersion": 1, "ownerId": self.params["ownerId"], "passId": self.params["passId"],
             "status": self.status, "mutationState": self.mutation, "reason": self.reason,
-            "cleanupPolicy": "leave-running", "evidence": "message-rate-only",
+            "cleanupPolicy": "stop-owned", "evidence": "message-rate-only",
             "nativeAlignment": "unverified", "sourceEpoch": self.epoch,
             "lastObservedSource": copy.deepcopy(self.last_source),
             "followActionState": "unknown" if self.follow_unknown else "known-disabled",
@@ -505,7 +485,7 @@ class _Pass(object):
             self.pending_launch = None
             success(self.result())
 
-    def close(self, status, reason=None):
+    def close(self, status, reason=None, stop_transport=False):
         if status == "invalidated":
             self.invalidate(reason)
         self.status, self.reason, self.closed = status, self.invalidation_reason or reason, True
@@ -520,14 +500,33 @@ class _Pass(object):
         if failures:
             self.reason = "Session monitor removal failed; cleanup must be retried"
             raise ProtocolFailure("lom_error", self.reason, details={
-                "mutationState": self.mutation, "cleanupPolicy": "leave-running",
+                "mutationState": self.mutation, "cleanupPolicy": "stop-owned",
             })
+        if stop_transport:
+            self.stop_owned_transport()
         if getattr(self.context, "_session_listening_pass", None) is self:
             self.context._session_listening_pass = None
         receipts = getattr(self.context, "_session_listening_pass_releases", [])
         receipts.append(copy.deepcopy(self.result()))
         self.context._session_listening_pass_releases = receipts[-RELEASE_RECEIPTS:]
         self.settle_launch()
+
+    def stop_owned_transport(self):
+        """Stop playback this pass started, unless another clip on the track has taken over."""
+        if self.mutation == "not-attempted":
+            return
+        song = self.context.song
+        # -1: nothing playing; -2: Live 11's stop slot after a non-looping clip ends.
+        if not (_safe_lom_getattr(song, "is_playing") is True
+                and _safe_lom_getattr(self.track, "playing_slot_index")
+                in (self.params["target"]["sceneIndex"], -1, -2)):
+            return
+        try:
+            song.stop_playing()
+        except (RuntimeError, AttributeError) as error:
+            raise ProtocolFailure("lom_error", "Session pass could not stop playback", details={
+                "mutationState": self.mutation, "cleanupPolicy": "stop-owned",
+            }) from error
 
     def poll(self):
         if self.closed:
@@ -560,7 +559,7 @@ class _Pass(object):
                 return
             if self.status != "prepared":
                 failure(ProtocolFailure("conflict", "Session pass no longer prepared", details={
-                    "mutationState": self.mutation, "cleanupPolicy": "leave-running",
+                    "mutationState": self.mutation, "cleanupPolicy": "stop-owned",
                 }))
                 return
             try:
@@ -592,7 +591,7 @@ class _Pass(object):
                 failure(ProtocolFailure(
                     error.code if isinstance(error, ProtocolFailure) else "lom_error",
                     self.reason, details={
-                        "mutationState": self.mutation, "cleanupPolicy": "leave-running",
+                        "mutationState": self.mutation, "cleanupPolicy": "stop-owned",
                     },
                 ))
         return DeferredResult(begin, supports_progress=True)
@@ -639,7 +638,8 @@ def session_listening_pass(context, params, identity_builder=build_live_identity
             or active.params["passId"] != params["passId"]):
         _fail("Session pass is stale or belongs to another owner")
     if params["action"] == "release":
-        active.close("cancelled" if params["reason"] == "cancelled" else "released")
+        active.close("cancelled" if params["reason"] == "cancelled" else "released",
+                     stop_transport=True)
     elif params["action"] == "launch":
         return active.launch()
     else:

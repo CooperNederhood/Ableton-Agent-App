@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { URL } from "node:url";
 import test from "node:test";
 import { genModel } from "./gen-model.mjs";
+import { reverseOffFractionLaunch } from "./host-timing-history-test-helpers.mjs";
 import { nativeRuntimeDocuments } from "./native-runtime-source.mjs";
 
 const { structuredClone } = globalThis;
@@ -218,7 +219,7 @@ test("archive differs only in bounded endpoint normalization and elapsed-sample 
   const stepGuard =
     "if (abs(phaseStep * beatSamples - (stablePhaseSamples + 1)) > 0.01)";
   assert.ok(text.includes(stepGuard));
-  const reversed = text
+  const reversed = reverseOffFractionLaunch(text)
     .replace(canonicalAssignment, "")
     .replaceAll(/\bperiodicPhase\b/g, "in1")
     .replace(stepGuard, "if (abs(phaseStep * beatSamples - 1) > 0.01)");
@@ -340,12 +341,6 @@ for (const rate of [44100, 48000]) {
     const belowStep = fixture({ rate, fraction: 0.25 });
     belowStep.to(128);
     assert.equal(belowStep.advance(0.25 + 1.009 / (rate / 2))[4], 0);
-    const missed = fixture({ rate, fraction: 0.25 });
-    assert.equal(
-      missed.advance(1)[4],
-      9,
-      "normalization never relabels a late launch",
-    );
   });
   test(`periodic history stays consistent through stationary aliases, guard priority, cancel and queued epochs at${rate}`, () => {
     const f = fixture({ rate });
@@ -409,3 +404,17 @@ test("native math, analysis geometry and default/v1 documents remain byte-identi
     nativeRuntimeDocuments(),
   );
 });
+
+for (const rate of [44100, 48000]) {
+  test(`a transport start off the configured beat fraction launches at its first moving sample at ${rate}`, () => {
+    // Live with quantization None starts where it stopped (0.84 of a beat),
+    // while Session geometry is clip-local with beat fraction 0.
+    const f = fixture({ rate, fraction: 0, stopped: 0.84, compare: false });
+    f.to(127);
+    const launched = f.advance(0.84 + 1 / ((rate * 60) / 120));
+    assert.equal(launched[4], 0, "not rejected");
+    assert.equal(launched[5], 1, "active");
+    assert.equal(launched[1], 128, "launch clock is the first moving sample");
+    assert.equal(launched[6], 0, "no phase offset is assumed");
+  });
+}

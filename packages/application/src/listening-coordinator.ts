@@ -863,7 +863,7 @@ export class ListeningCoordinator {
       contextIds: [],
       ...(request.mode === "session"
         ? {
-            cleanupPolicy: "leave-running" as const,
+            cleanupPolicy: "stop-owned" as const,
             ...(request.target
               ? {
                   session: {

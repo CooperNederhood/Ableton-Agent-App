@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import test from "node:test";
 import { genModel } from "./gen-model.mjs";
+import { reverseOffFractionLaunch } from "./host-timing-history-test-helpers.mjs";
 import { nativeRuntimeDocuments } from "./native-runtime-source.mjs";
 
 const sha = (text) => createHash("sha256").update(text).digest("hex");
@@ -26,7 +27,7 @@ const predicate = ["L", "R"]
   )
   .join(" &&\n    ");
 function historical(text) {
-  return text
+  return reverseOffFractionLaunch(text)
     .replace(
       "periodicPhase = in1 >= 1 && in1 - 1 <= 0.000000001 ? 0 : in1;\n",
       "",

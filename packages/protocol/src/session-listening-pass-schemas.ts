@@ -27,7 +27,6 @@ export const prepareSessionListeningPassParamsSchema = z
       deviceIndex: z.number().int().min(0).max(31),
     }),
     durationBeats,
-    timingAnchor: z.strictObject({ globalBeat }),
   })
   .refine(
     (value) =>
@@ -83,7 +82,7 @@ export const sessionListeningPassResultSchema = z
       "observed-playing",
     ]),
     reason: z.string().min(1).max(512).nullable(),
-    cleanupPolicy: z.literal("leave-running"),
+    cleanupPolicy: z.literal("stop-owned"),
     evidence: z.literal("message-rate-only"),
     nativeAlignment: z.literal("unverified"),
     lastObservedSource: inspectSessionListeningSourceResultSchema.shape.after,

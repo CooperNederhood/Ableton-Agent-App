@@ -1460,7 +1460,7 @@ describe("desktop adapter over the shared application", () => {
     ).toThrow("rebound");
     expect(() =>
       service.reportListeningJob({ ...job, cleanupPolicy: "stop-owned" }),
-    ).toThrow("ownership token");
+    ).not.toThrow();
     expect(() =>
       service.reportListeningJob({ ...job, passId: "x".repeat(129) }),
     ).toThrow();

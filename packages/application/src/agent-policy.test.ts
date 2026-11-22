@@ -610,7 +610,7 @@ describe("agent policy", () => {
     expect(result?.additionalContext).toContain("isPlaying=false");
     expect(result?.additionalContext).toContain("through ordinary approval");
     expect(result?.additionalContext).toContain(
-      "Otherwise leave playback running",
+      "A completed Session listen stops the transport it started",
     );
     expect(result?.additionalContext).toContain(
       "repair or retry a failed pass",

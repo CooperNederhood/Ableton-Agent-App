@@ -289,9 +289,9 @@ for (const rate of [44100, 48000]) {
 test("opt-in is explicit and every default shipping graph/source remains byte-identical", () => {
   for (const [version, expected] of [
     [1, "d102081c366e48f040661f4d08d0ae8c597f8549ee0493a341c3f0fd2fe4473e"],
-    [2, "31f79ee084b39a3eead7d7a63dd7781aa1ee38f33b88fd2537efaef1efe7136e"],
-    [3, "31f79ee084b39a3eead7d7a63dd7781aa1ee38f33b88fd2537efaef1efe7136e"],
-    [4, "e5920c7de60c8eead4bd0633f58d94833c4c8905a3a485f37a95cd49ad32689e"],
+    [2, "c97ded54e5a62f7a63586ed35c6ebff712a0f9ca11b9139c7126c27f1828ec70"],
+    [3, "c97ded54e5a62f7a63586ed35c6ebff712a0f9ca11b9139c7126c27f1828ec70"],
+    [4, "7d2b61d3b3c926010529f2cad7aaed4f6291ff7f9b906b287cb14434b12eb09a"],
   ])
     assert.equal(
       hash(JSON.stringify(nativeRuntimeDocuments({ nativeVersion: version }))),
@@ -299,11 +299,11 @@ test("opt-in is explicit and every default shipping graph/source remains byte-id
     );
   assert.equal(
     hash(descriptiveEnvelopeCode({ configurationReadback: true })),
-    "02051b221f89df2c1280c89f210d1c8882edff0651be9dae6b98b87c1a57e3a7",
+    "a1626464bbcdce928c73b68188bc76cacd4a155d18bfef1ba5870683bd1c791a",
   );
   assert.equal(
     hash(retainedNativeEnvelopeSource().code),
-    "9fdaa673f0b5bf999234f2929871478f9cf65babfad961f750dc2295a0b25e93",
+    "3b381745b581100498c059a7f5fcc70127344a18d4f5f8491849cff2bc51abbf",
   );
   assert.equal(
     musicalEnvelopeDocument().patcher.boxes[0].box.code,

@@ -1801,7 +1801,10 @@ export function createListeningRuntimeHost(
             release,
           };
         },
-        (playback) => playback.release(),
+        (playback) =>
+          playback.cleanupPolicy === "leave-running"
+            ? playback.release()
+            : playback.stop(),
       ),
     validateStreams: (
       manifests: readonly MetricRecordStreamManifest[],

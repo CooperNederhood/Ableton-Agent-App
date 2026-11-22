@@ -123,7 +123,9 @@ async function fixture({
   const log = [],
     events = new Set(),
     results = new Set();
+  // Synthetic fixture edits remain observable after release stops playback.
   let playing = false,
+    launched = false,
     host,
     job,
     actorContext,
@@ -243,9 +245,10 @@ async function fixture({
         length: loopEnd,
         noteCount: index === 0 ? 1 : null,
         isPlaying:
-          playing &&
-          ((index === selectedIndex && (!repeated || subpass !== 1)) ||
-            failure === "unselected-launch"),
+          (playing &&
+            index === selectedIndex &&
+            (!repeated || subpass !== 1)) ||
+          (launched && failure === "unselected-launch"),
         isTriggered: false,
         muted: false,
         looping: true,
@@ -315,6 +318,7 @@ async function fixture({
     log.push("harness-stop");
     mutations.push("harness-stop");
     playing = false;
+    launched = false;
     repeatBeat = 20.330666666666666;
     if (failure === "repeat-stop-throws")
       throw new Error("Synthetic partially applied harness stop");
@@ -353,7 +357,7 @@ async function fixture({
     ...e.session.source.after,
     ...(repeated && !running ? { globalBeat: repeatBeat } : {}),
     ...(running
-      ? { ...e.session.after.after, globalBeat: 12.25, playingPosition: 4.25 }
+      ? { ...e.session.running, globalBeat: 12.25, playingPosition: 4.25 }
       : {}),
     ...(clipStopped
       ? {
@@ -525,7 +529,7 @@ async function fixture({
           interval: null,
           settings: { looping: true },
         }));
-        if (playing && subpass === 1) {
+        if (launched && subpass === 1) {
           inspectedTarget.clips.reverse();
           if (failure === "repeat-inventory-active-first-mutation")
             inspectedTarget.clips[0].settings.looping = false;
@@ -618,7 +622,7 @@ async function fixture({
                 ? `Operator parameter ${index}`
                 : "Device On",
             value:
-              playing &&
+              launched &&
               ((failure === "parameter-edit" &&
                 track.index !== selectedIndex) ||
                 (failure === "operator-hidden-parameter-edit" &&
@@ -649,7 +653,7 @@ async function fixture({
           pitch:
             params.sceneIndex === 1 && failure !== "repeat-identical-clips"
               ? 67
-              : playing && failure === "midi-edit"
+              : launched && failure === "midi-edit"
                 ? 61
                 : 60,
           startTime: 0,
@@ -672,7 +676,7 @@ async function fixture({
                 index: 1,
                 beatTime: loopEnd,
                 sampleTime:
-                  playing && failure === "warp-edit" ? 3 : loopEnd / 2,
+                  launched && failure === "warp-edit" ? 3 : loopEnd / 2,
               },
             ],
           }
@@ -682,7 +686,7 @@ async function fixture({
               reference: params.target.expectedClipReference,
               name: params.target.expectedClipName,
               length: loopEnd,
-              gain: playing && failure === "audio-edit" ? 0.5 : 1,
+              gain: launched && failure === "audio-edit" ? 0.5 : 1,
               pitchCoarse: 0,
               pitchFine: 0,
               warping: true,
@@ -720,9 +724,11 @@ async function fixture({
           "AbortError",
         );
       if (params.action === "launch") {
-        playing = true;
+        playing = launched = true;
         mutations.push("launch");
       }
+      // Releasing a launched pass stops the transport it started.
+      if (params.action === "release") playing = false;
       const original = e.session.receipts.find(
         (receipt) => receipt.params.action === params.action,
       ).result;
@@ -818,7 +824,7 @@ async function fixture({
               owner: await options.resolveOwner(context),
               stage: "queued",
               contextIds: [],
-              cleanupPolicy: "leave-running",
+              cleanupPolicy: "stop-owned",
             };
             options.onChange(job);
             log.push("queued");
@@ -1289,7 +1295,7 @@ describe("native Session runner composition (no Live launched, not physical qual
         });
         expect(persisted.items).toHaveLength(1);
         expect(persisted.items[0].attributes.result.after).toMatchObject({
-          transportPlaying: true,
+          transportPlaying: false,
           targetPlaying: false,
           playingSlotIndex: -2,
           firedSlotIndex: -1,
@@ -1298,7 +1304,7 @@ describe("native Session runner composition (no Live launched, not physical qual
           read.name.startsWith("source-"),
         ))
           expect(read.result.after).toMatchObject({
-            transportPlaying: true,
+            transportPlaying: false,
             targetPlaying: false,
             targetTriggered: false,
             targetRecording: false,
@@ -1846,7 +1852,7 @@ describe("native Session runner composition (no Live launched, not physical qual
     },
   );
   it.each(["cancelled", "capture"])(
-    "retains %s failure, releases monitoring and publishes no context without stopping playback",
+    "retains %s failure, publishes no context and stops playback only through the owned pass release",
     async (failure) => {
       const f = await fixture({ failure });
       try {

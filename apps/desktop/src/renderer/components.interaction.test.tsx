@@ -1866,9 +1866,7 @@ describe("desktop component interactions", () => {
       });
       await Promise.resolve();
     });
-    expect(button(container, "More").classList.contains("selected")).toBe(
-      true,
-    );
+    expect(button(container, "More").classList.contains("selected")).toBe(true);
 
     await act(async () => {
       publish({
@@ -3092,7 +3090,7 @@ describe("desktop component interactions", () => {
     expect(container.textContent).toContain("Create two arrangement clips.");
 
     const closeApproval = container.querySelector<HTMLButtonElement>(
-      'button[aria-label="Close Approval"]',
+      'button[aria-label="Close Approval tab"]',
     );
     if (closeApproval === null) throw new Error("Approval close not found");
     await act(async () => closeApproval.click());

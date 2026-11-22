@@ -99,7 +99,9 @@ button.danger {
 button:focus-visible,
 input:focus-visible,
 select:focus-visible,
-textarea:focus-visible {
+textarea:focus-visible,
+[role="separator"]:focus-visible,
+summary:focus-visible {
   outline: 2px solid var(--focus);
   outline-offset: 2px;
 }
@@ -1858,7 +1860,8 @@ small,
   content: "";
 }
 .sidebar-resize-handle:hover::after,
-.sidebar-resize-handle:active::after {
+.sidebar-resize-handle:active::after,
+.sidebar-resize-handle:focus-visible::after {
   background: var(--focus);
 }
 .sidebar-resize-handle-left {
@@ -1919,9 +1922,11 @@ small,
   background: var(--surface-raised);
 }
 .track-color {
-  width: 8px;
-  height: 22px;
-  border-radius: 2px;
+  width: 6px;
+  height: 18px;
+  border: 1px solid var(--border);
+  border-radius: 1px;
+  background: var(--track-color, var(--track-none));
 }
 .timeline {
   flex: 1;
@@ -2274,7 +2279,11 @@ small,
   border-left: 4px solid var(--subagent-color);
   border-radius: var(--radius);
   padding: 1px 6px;
-  background: color-mix(in srgb, var(--subagent-color) 25%, var(--surface-list));
+  background: color-mix(
+    in srgb,
+    var(--subagent-color) 25%,
+    var(--surface-list)
+  );
   color: var(--text);
 }
 .operation-subagent summary {
@@ -2409,29 +2418,55 @@ small,
   position: relative;
   display: flex;
 }
+.inspector-tab-item {
+  --module-ink: var(--text-muted);
+}
+.inspector-tab-item[data-module="plan"] {
+  --module-ink: var(--mode-plan-edge);
+}
+.inspector-tab-item[data-module="artifact"] {
+  --module-ink: var(--status-warn);
+}
+.inspector-tab-item[data-module="approval"] {
+  --module-ink: var(--accent-ink);
+}
 .inspector-tab,
 .inspector-add-button {
-  width: 28px;
-  height: 28px;
-  display: grid;
-  place-items: center;
-  border-color: transparent;
+  min-width: 26px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  border: 0;
+  border-bottom: 2px solid transparent;
   border-radius: var(--radius);
-  padding: 5px;
-  color: var(--muted);
+  padding: 0 5px;
+  color: var(--module-ink, var(--text-muted));
   background: transparent;
 }
-.inspector-tab:hover,
-.inspector-tab:focus-visible,
-.inspector-tab.active,
-.inspector-add-button:hover,
-.inspector-add-button:focus-visible {
-  color: var(--text);
-  border-color: var(--border);
-  background: var(--surface-raised);
+.inspector-add-button {
+  border: 1px dashed var(--border);
 }
 .inspector-tab.active {
-  box-shadow: inset 0 -2px var(--accent);
+  color: var(--text);
+  border-bottom-color: var(--module-ink);
+  background: var(--surface-raised);
+}
+.inspector-tab.active svg {
+  color: var(--module-ink);
+}
+.inspector-tab-label {
+  font-size: 0.9167rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+@media (hover: hover) {
+  .inspector-tab:hover,
+  .inspector-add-button:hover {
+    color: var(--text);
+    background: var(--surface-hover);
+  }
 }
 .inspector-tab svg,
 .inspector-add-menu svg {
@@ -2442,6 +2477,11 @@ small,
   stroke-linecap: round;
   stroke-linejoin: round;
   stroke-width: 1.4;
+}
+.inspector-tab-close::before {
+  position: absolute;
+  inset: -5px;
+  content: "";
 }
 .inspector-tab-close {
   position: absolute;
@@ -2595,7 +2635,8 @@ small,
   content: "";
 }
 .inspector-pane-divider:hover::after,
-.inspector-pane-divider:active::after {
+.inspector-pane-divider:active::after,
+.inspector-pane-divider:focus-visible::after {
   background: var(--focus);
 }
 .inspector-split-drop {
@@ -2938,22 +2979,6 @@ progress {
   align-items: center;
   justify-content: space-between;
   min-height: 28px;
-}
-.composer-mode-button {
-  border: 0;
-  padding: 2px 4px;
-  color: var(--muted);
-  background: transparent;
-  font-size: 1rem;
-  text-transform: capitalize;
-}
-.composer-mode-button.plan {
-  color: var(--mode-plan-edge);
-}
-.composer-mode-button:hover,
-.composer-mode-button:focus-visible {
-  color: var(--text);
-  text-decoration: underline;
 }
 .composer-action-button {
   width: 30px;
@@ -3337,9 +3362,14 @@ progress {
   letter-spacing: 0.05em;
 }
 .context-chips button {
-  padding: 3px 7px;
+  padding: 1px 7px;
   font-size: 1rem;
   white-space: nowrap;
+}
+.track-chip {
+  border: 1px solid var(--border);
+  color: var(--text);
+  background: var(--track-color, var(--track-none));
 }
 .context-chips em {
   color: var(--muted);
@@ -3684,4 +3714,91 @@ kbd {
 .swatch.selected {
   outline: 2px solid var(--text);
   outline-offset: 1px;
+}
+
+/* Composer mode: Plan is blue, Interactive is orange. */
+.composer form {
+  border: 2px solid var(--accent);
+  background: var(--surface-list);
+}
+.composer[data-mode="plan"] form {
+  border-color: var(--mode-plan-edge);
+  background: var(--mode-plan-tint);
+}
+.mode-switch {
+  display: inline-flex;
+  justify-self: start;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.composer-mode-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 24px;
+  border: 0;
+  border-radius: 0;
+  padding: 0 10px;
+  color: var(--text-muted);
+  background: var(--surface-raised);
+  font-weight: 600;
+}
+.composer-mode-button + .composer-mode-button {
+  border-left: 1px solid var(--border);
+}
+.composer-mode-button .icon {
+  width: 14px;
+  height: 14px;
+}
+.composer-mode-button.interactive.selected {
+  color: var(--on-accent);
+  background: var(--accent);
+}
+.composer-mode-button.plan.selected {
+  color: var(--text);
+  background: var(--mode-plan-fill);
+}
+.composer-mode-hint {
+  color: var(--text-muted);
+}
+.composer[data-mode="plan"] .composer-mode-hint {
+  color: var(--mode-plan-edge);
+  font-weight: 600;
+}
+.composer-action-button.primary {
+  border-color: var(--border);
+  color: var(--on-accent);
+  background: var(--accent);
+}
+.composer[data-mode="plan"] .composer-action-button.primary {
+  color: var(--text);
+  background: var(--mode-plan-fill);
+}
+.conversation[data-mode="plan"] {
+  box-shadow: inset 3px 0 0 var(--mode-plan-edge);
+}
+.plan-mode-banner {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 22px;
+  padding: 0 10px;
+  color: var(--text);
+  background: var(--mode-plan-fill);
+  border-bottom: 1px solid var(--mode-plan-edge);
+}
+.plan-mode-banner strong {
+  font-size: 0.9167rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.plan-mode-banner .icon {
+  width: 14px;
+  height: 14px;
+}
+
+.track-card {
+  border-left: 4px solid var(--track-color, var(--track-none));
+  padding-left: 8px;
 }

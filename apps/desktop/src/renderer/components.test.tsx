@@ -633,7 +633,10 @@ describe("desktop components", () => {
       />,
     );
 
-    expect(idle).toContain('class="composer-mode-button interactive"');
+    expect(idle).toContain('aria-label="Agent mode"');
+    expect(idle).toMatch(
+      /aria-checked="true" class="composer-mode-button interactive selected"/,
+    );
     expect(idle).toContain('aria-label="Send message"');
     expect(idle).not.toContain("Send <kbd>");
     expect(busy).toContain('aria-label="Stop agent"');
@@ -796,9 +799,7 @@ describe("desktop components", () => {
 
     expect(html).toContain('aria-label="Application toolbar"');
     expect(html).toContain('aria-label="Hide application toolbar"');
-    expect(html).toContain(
-      'aria-controls="application-toolbar"',
-    );
+    expect(html).toContain('aria-controls="application-toolbar"');
   });
 
   it("renders only the selected agent conversation", () => {

@@ -33,6 +33,7 @@ import {
 } from "react";
 
 import type {
+  ContextChip,
   DesktopApi,
   DesktopActiveAgent,
   DesktopAgentArtifactReviewRequest,
@@ -1035,123 +1036,125 @@ export function App(): React.JSX.Element {
 
   return (
     <AgentDefinitionsContext.Provider value={state.agentCatalog.definitions}>
-    <div className={`app-shell ${topChromeVisible ? "" : "top-chrome-hidden"}`}>
-      {topChromeVisible && (
-        <ConnectionHeader
-          state={state}
-          dispatch={dispatch}
-          profileRefreshToken={profileRefreshToken}
-          onHideChrome={() => setTopChromeVisible(false)}
-        />
-      )}
-      <LiveSetTransitionModal state={state} dispatch={dispatch} />
-      <NavigationRail
-        activeView={state.activeView}
-        showAdvancedViews={state.preferences.showAdvancedViews}
-        onNavigate={(view) => dispatch({ type: "view", view })}
-      />
-      {!topChromeVisible && (
-        <button
-          type="button"
-          className="restore-top-chrome"
-          aria-label="Show application toolbar"
-          title="Show toolbar"
-          aria-expanded="false"
-          aria-controls="application-toolbar"
-          onClick={() => setTopChromeVisible(true)}
-        >
-          <Icon name="down" />
-        </button>
-      )}
-      <main id="main-content">
-        {state.lifecycle === "starting" ? (
-          <PresentationState
-            title="Starting desktop services…"
-            detail="Loading preferences, sessions, and project state."
-          />
-        ) : state.lifecycle === "crashed" ? (
-          <PresentationState
-            title="Renderer recovery mode"
-            detail="Reload the window; main-process services remain isolated."
-          />
-        ) : state.activeView === "workspace" ? (
-          <Workspace
+      <div
+        className={`app-shell ${topChromeVisible ? "" : "top-chrome-hidden"}`}
+      >
+        {topChromeVisible && (
+          <ConnectionHeader
             state={state}
             dispatch={dispatch}
-            timelineScrollPositions={timelineScrollPositions.current}
-            composer={
-              <DesktopComposer
-                state={state}
-                composerRef={composerRef}
-                dispatch={dispatch}
-                value={composerValue}
-                error={composerError}
-                onValueChange={setComposerValue}
-                onErrorChange={setComposerError}
-                planEditorOpen={planEditorOpen}
-                onPlanEditorClose={() => setPlanEditorOpen(false)}
-              />
-            }
-            leftSidebarVisible={leftSidebarVisible}
-            rightSidebarVisible={rightSidebarVisible}
-            sidebarWidths={sidebarWidths}
-            onSidebarWidthChange={(side, width) =>
-              setSidebarWidths((current) => ({
-                ...current,
-                [side]: width,
-              }))
-            }
-            onToggleLeftSidebar={() =>
-              setLeftSidebarVisible((visible) => !visible)
-            }
-            onToggleRightSidebar={() =>
-              setRightSidebarVisible((visible) => !visible)
-            }
-            onEditPlan={() => setPlanEditorOpen(true)}
+            profileRefreshToken={profileRefreshToken}
+            onHideChrome={() => setTopChromeVisible(false)}
           />
-        ) : state.activeView === "agents" ? (
-          <AgentsView
-            state={state}
-            dispatch={dispatch}
-            onProfilesChanged={() =>
-              setProfileRefreshToken((current) => current + 1)
-            }
-          />
-        ) : state.activeView === "skills" ? (
-          <SkillsView
-            state={state}
-            dispatch={dispatch}
-            onProfilesChanged={() =>
-              setProfileRefreshToken((current) => current + 1)
-            }
-          />
-        ) : state.activeView === "outputs" ? (
-          <OutputsView
-            state={state}
-            dispatch={dispatch}
-            contextEpoch={profileRefreshToken}
-          />
-        ) : state.activeView === "events" ? (
-          <EventsView state={state} dispatch={dispatch} />
-        ) : state.activeView === "browser" ? (
-          <BrowserView state={state} dispatch={dispatch} />
-        ) : state.activeView === "profiles" ? (
-          <ProfileManagerView
-            {...(activeSessionId === undefined ? {} : { activeSessionId })}
-            refreshToken={profileRefreshToken}
-            onProfilesChanged={() =>
-              setProfileRefreshToken((current) => current + 1)
-            }
-          />
-        ) : state.activeView === "diagnostics" ? (
-          <DiagnosticsView state={state} dispatch={dispatch} />
-        ) : state.activeView === "sessions" ? (
-          <SessionsView state={state} />
-        ) : (
-          <SettingsView state={state} dispatch={dispatch} />
         )}
-      </main>
-    </div>
+        <LiveSetTransitionModal state={state} dispatch={dispatch} />
+        <NavigationRail
+          activeView={state.activeView}
+          showAdvancedViews={state.preferences.showAdvancedViews}
+          onNavigate={(view) => dispatch({ type: "view", view })}
+        />
+        {!topChromeVisible && (
+          <button
+            type="button"
+            className="restore-top-chrome"
+            aria-label="Show application toolbar"
+            title="Show toolbar"
+            aria-expanded="false"
+            aria-controls="application-toolbar"
+            onClick={() => setTopChromeVisible(true)}
+          >
+            <Icon name="down" />
+          </button>
+        )}
+        <main id="main-content">
+          {state.lifecycle === "starting" ? (
+            <PresentationState
+              title="Starting desktop services…"
+              detail="Loading preferences, sessions, and project state."
+            />
+          ) : state.lifecycle === "crashed" ? (
+            <PresentationState
+              title="Renderer recovery mode"
+              detail="Reload the window; main-process services remain isolated."
+            />
+          ) : state.activeView === "workspace" ? (
+            <Workspace
+              state={state}
+              dispatch={dispatch}
+              timelineScrollPositions={timelineScrollPositions.current}
+              composer={
+                <DesktopComposer
+                  state={state}
+                  composerRef={composerRef}
+                  dispatch={dispatch}
+                  value={composerValue}
+                  error={composerError}
+                  onValueChange={setComposerValue}
+                  onErrorChange={setComposerError}
+                  planEditorOpen={planEditorOpen}
+                  onPlanEditorClose={() => setPlanEditorOpen(false)}
+                />
+              }
+              leftSidebarVisible={leftSidebarVisible}
+              rightSidebarVisible={rightSidebarVisible}
+              sidebarWidths={sidebarWidths}
+              onSidebarWidthChange={(side, width) =>
+                setSidebarWidths((current) => ({
+                  ...current,
+                  [side]: width,
+                }))
+              }
+              onToggleLeftSidebar={() =>
+                setLeftSidebarVisible((visible) => !visible)
+              }
+              onToggleRightSidebar={() =>
+                setRightSidebarVisible((visible) => !visible)
+              }
+              onEditPlan={() => setPlanEditorOpen(true)}
+            />
+          ) : state.activeView === "agents" ? (
+            <AgentsView
+              state={state}
+              dispatch={dispatch}
+              onProfilesChanged={() =>
+                setProfileRefreshToken((current) => current + 1)
+              }
+            />
+          ) : state.activeView === "skills" ? (
+            <SkillsView
+              state={state}
+              dispatch={dispatch}
+              onProfilesChanged={() =>
+                setProfileRefreshToken((current) => current + 1)
+              }
+            />
+          ) : state.activeView === "outputs" ? (
+            <OutputsView
+              state={state}
+              dispatch={dispatch}
+              contextEpoch={profileRefreshToken}
+            />
+          ) : state.activeView === "events" ? (
+            <EventsView state={state} dispatch={dispatch} />
+          ) : state.activeView === "browser" ? (
+            <BrowserView state={state} dispatch={dispatch} />
+          ) : state.activeView === "profiles" ? (
+            <ProfileManagerView
+              {...(activeSessionId === undefined ? {} : { activeSessionId })}
+              refreshToken={profileRefreshToken}
+              onProfilesChanged={() =>
+                setProfileRefreshToken((current) => current + 1)
+              }
+            />
+          ) : state.activeView === "diagnostics" ? (
+            <DiagnosticsView state={state} dispatch={dispatch} />
+          ) : state.activeView === "sessions" ? (
+            <SessionsView state={state} />
+          ) : (
+            <SettingsView state={state} dispatch={dispatch} />
+          )}
+        </main>
+      </div>
     </AgentDefinitionsContext.Provider>
   );
 }
@@ -3387,10 +3390,7 @@ export function ConnectionHeader({
   const activeAgentColor =
     activeAgent === undefined
       ? undefined
-      : agentColor(
-          state.agentCatalog.definitions,
-          activeAgent.definitionName,
-        );
+      : agentColor(state.agentCatalog.definitions, activeAgent.definitionName);
   return (
     <header
       id="application-toolbar"
@@ -3635,6 +3635,59 @@ export function Workspace({
     event.currentTarget.releasePointerCapture?.(event.pointerId);
     drag.current = undefined;
   };
+  const keyResize = (
+    event: KeyboardEvent<HTMLDivElement>,
+    side: keyof WorkspaceSidebarWidths,
+  ): void => {
+    const step = { ArrowLeft: -16, ArrowRight: 16 }[event.key];
+    const workspace = event.currentTarget.parentElement;
+    if (
+      step === undefined ||
+      workspace === null ||
+      onSidebarWidthChange === undefined
+    ) {
+      return;
+    }
+    event.preventDefault();
+    const otherSide = side === "left" ? "right" : "left";
+    onSidebarWidthChange(
+      side,
+      resizedSidebarWidth({
+        side,
+        startWidth: widths[side],
+        startClientX: 0,
+        clientX: step,
+        workspaceWidth: workspace.getBoundingClientRect().width,
+        otherSidebarWidth: widths[otherSide],
+        otherSidebarVisible:
+          otherSide === "left" ? leftSidebarVisible : rightSidebarVisible,
+      }),
+    );
+  };
+  const resizeHandle = (side: keyof WorkspaceSidebarWidths) => (
+    <div
+      className={`sidebar-resize-handle sidebar-resize-handle-${side}`}
+      role="separator"
+      tabIndex={0}
+      aria-orientation="vertical"
+      aria-label={
+        side === "left" ? "Resize project sidebar" : "Resize inspector sidebar"
+      }
+      aria-controls={side === "left" ? "project-sidebar" : "inspector-sidebar"}
+      aria-valuenow={Math.round(widths[side])}
+      aria-valuemin={
+        side === "left"
+          ? PROJECT_SIDEBAR_MIN_WIDTH
+          : INSPECTOR_SIDEBAR_MIN_WIDTH
+      }
+      onPointerDown={(event) => resize(event, side)}
+      onPointerMove={moveResize}
+      onPointerUp={endResize}
+      onPointerCancel={endResize}
+      onKeyDown={(event) => keyResize(event, side)}
+    />
+  );
+  const planMode = selectedAgentInstance(state)?.mode === "plan";
   const workspaceStyle = {
     "--project-sidebar-width": `${widths.left}px`,
     "--inspector-sidebar-width": `${widths.right}px`,
@@ -3677,33 +3730,27 @@ export function Workspace({
       {leftSidebarVisible && (
         <ProjectOutline state={state} dispatch={dispatch} />
       )}
-      {leftSidebarVisible && onSidebarWidthChange !== undefined && (
-        <div
-          className="sidebar-resize-handle sidebar-resize-handle-left"
-          aria-hidden="true"
-          onPointerDown={(event) => resize(event, "left")}
-          onPointerMove={moveResize}
-          onPointerUp={endResize}
-          onPointerCancel={endResize}
-        />
-      )}
+      {leftSidebarVisible &&
+        onSidebarWidthChange !== undefined &&
+        resizeHandle("left")}
       <section
         className="conversation"
+        data-mode={planMode ? "plan" : "interactive"}
         aria-label="Conversation and operation timeline"
       >
+        {planMode && (
+          <div className="plan-mode-banner" role="status">
+            <Icon name="plan" />
+            <strong>Plan mode</strong>
+            <span>· the agent will propose, not change Live</span>
+          </div>
+        )}
         <Timeline state={state} scrollPositions={timelineScrollPositions} />
         {composer}
       </section>
-      {rightSidebarVisible && onSidebarWidthChange !== undefined && (
-        <div
-          className="sidebar-resize-handle sidebar-resize-handle-right"
-          aria-hidden="true"
-          onPointerDown={(event) => resize(event, "right")}
-          onPointerMove={moveResize}
-          onPointerUp={endResize}
-          onPointerCancel={endResize}
-        />
-      )}
+      {rightSidebarVisible &&
+        onSidebarWidthChange !== undefined &&
+        resizeHandle("right")}
       <Inspector
         state={state}
         dispatch={dispatch}
@@ -6330,13 +6377,12 @@ export function ProjectOutline({
               aria-selected={state.selectedTrackId === track.id}
             >
               <button
-                className={state.selectedTrackId === track.id ? "active" : ""}
+                className={`track-row ${state.selectedTrackId === track.id ? "active" : ""}`}
+                style={{ "--track-color": track.color } as CSSProperties}
+                title={track.name}
                 onClick={() => dispatch({ type: "select-track", id: track.id })}
               >
-                <span
-                  className="track-color"
-                  style={{ background: track.color }}
-                />{" "}
+                <span className="track-color" aria-hidden="true" />{" "}
                 <strong>{track.name}</strong>
                 <small>{track.kind}</small>
               </button>
@@ -7124,7 +7170,11 @@ export function Inspector({
                   }}
                 >
                   {pane.tabs.map((moduleId, tabIndex) => (
-                    <div className="inspector-tab-item" key={moduleId}>
+                    <div
+                      className="inspector-tab-item"
+                      data-module={moduleId}
+                      key={moduleId}
+                    >
                       <button
                         type="button"
                         className={`inspector-tab ${pane.activeTab === moduleId ? "active" : ""}`}
@@ -7166,12 +7216,17 @@ export function Inspector({
                         }
                       >
                         <InspectorModuleIcon moduleId={moduleId} />
+                        {pane.activeTab === moduleId && (
+                          <span className="inspector-tab-label">
+                            {inspectorModuleLabel(moduleId)}
+                          </span>
+                        )}
                       </button>
                       <button
                         type="button"
                         className="inspector-tab-close"
-                        aria-label={`Close ${inspectorModuleLabel(moduleId)}`}
-                        title={`Close ${inspectorModuleLabel(moduleId)}`}
+                        aria-label={`Close ${inspectorModuleLabel(moduleId)} tab`}
+                        title={`Close ${inspectorModuleLabel(moduleId)} tab`}
                         onClick={() =>
                           updateLayout({ type: "close", moduleId })
                         }
@@ -7248,6 +7303,30 @@ export function Inspector({
                   role="separator"
                   aria-orientation="horizontal"
                   aria-label={`Resize ${inspectorModuleLabel(pane.activeTab)} inspector`}
+                  tabIndex={0}
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={Math.round(
+                    (pane.weight /
+                      layout.panes.reduce(
+                        (total, { weight }) => total + weight,
+                        0,
+                      )) *
+                      100,
+                  )}
+                  onKeyDown={(event) => {
+                    const delta = { ArrowUp: -0.05, ArrowDown: 0.05 }[
+                      event.key
+                    ];
+                    if (delta === undefined) return;
+                    event.preventDefault();
+                    updateLayout({
+                      type: "resize",
+                      dividerIndex: paneIndex,
+                      delta,
+                      minimumWeight: 0.15,
+                    });
+                  }}
                   onPointerDown={(event) =>
                     startDividerResize(event, paneIndex)
                   }
@@ -7792,7 +7871,10 @@ function TrackInspector({
     label: track.name,
   };
   return (
-    <div className="inspection">
+    <div
+      className="inspection track-card"
+      style={{ "--track-color": track.color } as CSSProperties}
+    >
       <h3>{track.name}</h3>
       <p>
         {track.kind} track · {track.clips.length} clips · {track.devices.length}{" "}
@@ -7817,7 +7899,10 @@ function ClipInspector({
   dispatch: React.Dispatch<Parameters<typeof desktopReducer>[1]>;
 }): React.JSX.Element {
   return (
-    <div className="inspection">
+    <div
+      className="inspection track-card"
+      style={{ "--track-color": track.color } as CSSProperties}
+    >
       <h3>{clip.name}</h3>
       <dl>
         <dt>Track</dt>
@@ -7853,7 +7938,10 @@ function DeviceInspector({
   dispatch: React.Dispatch<Parameters<typeof desktopReducer>[1]>;
 }): React.JSX.Element {
   return (
-    <div className="inspection">
+    <div
+      className="inspection track-card"
+      style={{ "--track-color": track.color } as CSSProperties}
+    >
       <h3>{device.name}</h3>
       <p>
         {device.type} on {track.name} ·{" "}
@@ -9427,6 +9515,26 @@ function ElicitationComposer({
   );
 }
 
+/** The Live color of the track a context chip belongs to. */
+function contextChipTrackColor(
+  state: DesktopState,
+  chip: ContextChip,
+): string | undefined {
+  const [kind, id] = [
+    chip.id.slice(0, chip.id.indexOf(":")),
+    chip.id.slice(chip.id.indexOf(":") + 1),
+  ];
+  return state.snapshot?.tracks.find((track) =>
+    kind === "track"
+      ? track.id === id
+      : kind === "clip"
+        ? track.clips.some((clip) => clip.id === id)
+        : kind === "device"
+          ? track.devices.some((device) => device.id === id)
+          : false,
+  )?.color;
+}
+
 export function Composer({
   state,
   value,
@@ -9475,6 +9583,23 @@ export function Composer({
     onChange(slashCompletionText(entry));
     composerRef.current?.focus();
   };
+  const changeMode = (mode: "plan" | "interactive"): void => {
+    if (mode === agentMode) return;
+    void setSelectedAgentMode(window.desktop, state, mode, dispatch).catch(
+      (modeError: unknown) =>
+        dispatch({
+          type: "event",
+          event: {
+            type: "diagnostic",
+            level: "error",
+            message:
+              modeError instanceof Error
+                ? modeError.message
+                : "Agent mode could not be changed",
+          },
+        }),
+    );
+  };
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>): void => {
     if (slashSuggestions.length > 0) {
       const selectedEntry =
@@ -9502,7 +9627,7 @@ export function Composer({
     }
   };
   return (
-    <footer className="composer">
+    <footer className="composer" data-mode={agentMode}>
       <div className="context-chips" aria-label="Prompt context">
         <span>Context</span>
         {context.length === 0 ? (
@@ -9512,6 +9637,13 @@ export function Composer({
             <button
               type="button"
               key={chip.id}
+              className="track-chip"
+              style={
+                {
+                  "--track-color":
+                    contextChipTrackColor(state, chip) ?? "var(--track-none)",
+                } as CSSProperties
+              }
               title="Remove context"
               aria-label={`Remove ${chip.kind} ${chip.label} from context`}
               onClick={() => dispatch({ type: "remove-context", chip })}
@@ -9522,6 +9654,29 @@ export function Composer({
         )}
       </div>
       <form onSubmit={(event) => void onSubmit(event)}>
+        {activeAgent !== undefined && (
+          <div
+            className="mode-switch"
+            role="radiogroup"
+            aria-label="Agent mode"
+            title="Press Shift+Tab to switch mode"
+          >
+            {(["plan", "interactive"] as const).map((mode) => (
+              <button
+                key={mode}
+                type="button"
+                role="radio"
+                aria-checked={agentMode === mode}
+                className={`composer-mode-button ${mode} ${agentMode === mode ? "selected" : ""}`}
+                disabled={unavailable || activeBusy}
+                onClick={() => changeMode(mode)}
+              >
+                <Icon name={mode === "plan" ? "plan" : "bolt"} />
+                {mode === "plan" ? "Plan" : "Interactive"}
+              </button>
+            ))}
+          </div>
+        )}
         <SlashCompletionSuggestions
           entries={slashSuggestions}
           selected={selectedSuggestion}
@@ -9550,43 +9705,21 @@ export function Composer({
           placeholder={
             activeAgent === undefined
               ? "Select or create an active agent to begin…"
-              : state.connection.state === "connected"
-                ? `Ask ${activeAgent.label}…`
-                : "Ask using the demo adapter, or connect to Ableton…"
+              : agentMode === "plan"
+                ? `Plan with ${activeAgent.label}… (nothing in Live will change)`
+                : state.connection.state === "connected"
+                  ? `Ask ${activeAgent.label}… (/ for skills)`
+                  : "Ask using the demo adapter, or connect to Ableton…"
           }
           rows={2}
         />
         <div className="composer-actions">
           {activeAgent !== undefined ? (
-            <button
-              type="button"
-              className={`composer-mode-button ${agentMode}`}
-              aria-label={`Switch to ${agentMode === "plan" ? "interactive" : "plan"} mode`}
-              title="Click or press Shift+Tab to switch mode"
-              disabled={unavailable || activeBusy}
-              onClick={() =>
-                void setSelectedAgentMode(
-                  window.desktop,
-                  state,
-                  agentMode === "plan" ? "interactive" : "plan",
-                  dispatch,
-                ).catch((modeError: unknown) =>
-                  dispatch({
-                    type: "event",
-                    event: {
-                      type: "diagnostic",
-                      level: "error",
-                      message:
-                        modeError instanceof Error
-                          ? modeError.message
-                          : "Agent mode could not be changed",
-                    },
-                  }),
-                )
-              }
-            >
-              {agentMode}
-            </button>
+            <small className="composer-mode-hint">
+              {agentMode === "plan"
+                ? "Plan · the agent writes a plan you can review in the Inspector. ⇧Tab to switch."
+                : "Interactive · the agent can edit your Live set. ⇧Tab to switch."}
+            </small>
           ) : (
             <span />
           )}

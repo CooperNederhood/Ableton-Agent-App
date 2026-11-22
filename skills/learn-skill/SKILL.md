@@ -23,7 +23,8 @@ inside the workspace.
    related skills. Prefer improving an existing skill's body over adding a
    near-duplicate.
 3. **Write one skill** with `create` or `edit` at
-   `{workspace}/skills/{name}/SKILL.md`:
+   `{workspace}/skills/{name}/SKILL.md`. For a new skill, first run
+   `mkdir -p {workspace}/skills/{name}`; `create` needs the folder to exist:
 
    ```markdown
    ---

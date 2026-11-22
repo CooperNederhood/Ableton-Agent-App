@@ -212,6 +212,7 @@ Every SDK file call asks the permission handler first, and
 | Read (`view`, `glob`, `grep`)   | The path is inside the workspace or the tool-output spill folder.                                                     |
 | Write (`create`, `edit`)        | A draft of the matching kind is open, no review is pending, the path is a valid artifact path (not `INDEX.md`), and the scope is writable. |
 | `bash` `rm`                     | A single, flag-free `rm` of a writable draft memory topic. Emptying a topic file also deletes it.                     |
+| `bash` `mkdir`                  | A single `mkdir [-p]` of a new `skills/{name}` folder during a skill draft; `create` refuses a missing parent folder. |
 
 Everything else, including symbolic links, is refused with the code
 `artifact_workspace_blocked` and a hint the model can act on. Skills cannot

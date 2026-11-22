@@ -15,6 +15,7 @@ import type {
 } from "@github/copilot-sdk";
 
 import {
+  artifactWorkspaceDirectoryError,
   artifactWorkspaceWriteError,
   type ArtifactWorkspaceAccess,
 } from "./artifact-workspace.js";
@@ -40,6 +41,7 @@ export type SpillShellPolicyStage =
   | "invalid_spill_path"
   | "invalid_syntax"
   | "invalid_workspace_delete"
+  | "invalid_workspace_directory"
   | "managed_approval_required"
   | "missing_segments"
   | "missing_spill_operand"
@@ -527,6 +529,12 @@ function parseCommand(
       ? undefined
       : { fileOperands: operands };
   }
+  if (identifier === "mkdir") {
+    const operands = tokens.slice(1).filter((token) => token !== "-p");
+    return operands.length === 1 && !operands[0]!.startsWith("-")
+      ? { fileOperands: operands }
+      : undefined;
+  }
   return undefined;
 }
 
@@ -687,7 +695,7 @@ export function evaluateSpillFileShellPolicy(
     if (
       !(
         allowedCommands.has(segment.identifier) ||
-        (segment.identifier === "rm" &&
+        ((segment.identifier === "rm" || segment.identifier === "mkdir") &&
           workspace?.draft !== undefined &&
           request.commandSegments.length === 1)
       ) ||
@@ -764,6 +772,22 @@ export function evaluateSpillFileShellPolicy(
           workingDirectory,
           canonicalWorkspaceDirectory,
         );
+  if (request.commandSegments[0]!.identifier === "mkdir") {
+    for (const path of new Set([...fileOperands, ...request.possiblePaths])) {
+      const error = artifactWorkspaceDirectoryError(
+        workspace!,
+        isAbsolute(path) ? path : resolve(workingDirectory, path),
+      );
+      if (error !== undefined) {
+        return finish(
+          reject(error),
+          "invalid_workspace_directory",
+          fileOperands,
+        );
+      }
+    }
+    return finish({ kind: "approve-once" }, "approved", fileOperands);
+  }
   if (request.commandSegments[0]!.identifier === "rm") {
     for (const path of new Set([...fileOperands, ...request.possiblePaths])) {
       const relativePath = inWorkspace(path);

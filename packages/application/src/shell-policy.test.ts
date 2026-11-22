@@ -494,4 +494,43 @@ describe("artifact workspace shell permission", () => {
       ).diagnostics?.stage,
     ).toBe("invalid_workspace_delete");
   });
+
+  const skillDraft = { ...draft, kind: "skill" as const };
+
+  it.each(["mkdir", "mkdir -p"])(
+    "allows %s of a new skill folder during a skill draft",
+    async (mkdir) => {
+      const { directory, root } = await workspaceFixture();
+      const folder = join(root, "skills/drum-rack");
+      expect(
+        evaluateSpillFileShellPolicy(
+          command(folder, `${mkdir} '${folder}'`, "mkdir"),
+          directory,
+          { root, draft: skillDraft },
+        ),
+      ).toMatchObject({
+        result: { kind: "approve-once" },
+        diagnostics: { stage: "approved" },
+      });
+    },
+  );
+
+  it.each([
+    ["without a draft", undefined, "skills/drum-rack"],
+    ["during a memory draft", draft, "skills/drum-rack"],
+    ["with an invalid skill name", skillDraft, "skills/Drum Rack"],
+    ["of a nested folder", skillDraft, "skills/drum-rack/refs"],
+    ["of a memory folder", skillDraft, "memory/session/x"],
+    ["outside the workspace", skillDraft, "../outside"],
+  ])("rejects mkdir %s", async (_label, open, path) => {
+    const { directory, root } = await workspaceFixture();
+    const folder = join(root, path);
+    const evaluation = evaluateSpillFileShellPolicy(
+      command(folder, `mkdir -p '${folder}'`, "mkdir"),
+      directory,
+      { root, ...(open === undefined ? {} : { draft: open }) },
+    );
+    expect(evaluation.result).toMatchObject({ kind: "reject" });
+    expect(evaluation.diagnostics?.stage).not.toBe("approved");
+  });
 });

@@ -325,6 +325,32 @@ export function artifactWorkspaceWriteError(
 }
 
 /**
+ * Why the open draft may not create the absolute directory `path`, if
+ * anything. Only a new skill's folder needs creating: memory scope folders
+ * already exist, and SDK `create` refuses a missing parent directory.
+ */
+export function artifactWorkspaceDirectoryError(
+  access: ArtifactWorkspaceAccess,
+  path: string,
+): string | undefined {
+  let workspaceRoot: string;
+  try {
+    workspaceRoot = realpathSync(access.root);
+  } catch {
+    return "The memory and skills workspace is unavailable.";
+  }
+  const located = locate(path, [workspaceRoot]);
+  if ("error" in located || !/^skills\/[^/]+$/u.test(located.path)) {
+    return "mkdir is limited to a new skills/{name} folder in the workspace.";
+  }
+  return artifactWorkspaceWriteError(
+    access,
+    `${located.path}/SKILL.md`,
+    "write",
+  )?.feedback;
+}
+
+/**
  * Confines SDK `read` and `write` permission requests to the artifact
  * workspace. Reads are always allowed inside it; writes need an open draft of
  * the matching kind. Other request kinds are left to the caller.

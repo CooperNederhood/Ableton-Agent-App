@@ -1438,6 +1438,7 @@ export const desktopAgentCatalogSchema = z.object({
       z.object({
         name: z.string().min(1),
         description: z.string().min(1),
+        argumentHint: z.string().min(1).max(160).optional(),
         origin: z
           .enum(["bundled", "system", "profile", "project", "session"])
           .optional(),

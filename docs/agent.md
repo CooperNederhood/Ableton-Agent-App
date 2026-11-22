@@ -150,7 +150,10 @@ resets that agent.
 ## Agent Skills
 
 A **skill** is a folder with a `SKILL.md`: YAML front matter (`name`,
-`description`) followed by Markdown instructions. Bundled skills are in
+`description`, and an optional `argument-hint`) followed by Markdown
+instructions. Typing `/` in the composer lists skills, and an
+`argument-hint` is shown there as the usage line (`/{name} {argument-hint}`).
+Bundled skills are in
 `skills/` (for example `midi-composition`, `mix-review`,
 `set-history-sql-search`).
 

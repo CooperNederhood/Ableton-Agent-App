@@ -79,6 +79,9 @@ export function toDesktopCatalog(
     skills: catalog.skills.map((skill) => ({
       name: skill.metadata.name,
       description: skill.metadata.description,
+      ...(skill.metadata["argument-hint"] === undefined
+        ? {}
+        : { argumentHint: skill.metadata["argument-hint"] }),
       origin: "origin" in skill ? skill.origin : "bundled",
       inherited: "inherited" in skill ? skill.inherited : false,
       overrides: "overrides" in skill ? skill.overrides : [],

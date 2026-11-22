@@ -193,10 +193,13 @@ export function matchingSlashCompletions(
     ...builtInSlashCompletions,
     ...(skills ?? [])
       .filter(({ name }) => !reservedSlashCompletionNames.has(name))
-      .map(({ name, description }) => ({
+      .map(({ name, description, argumentHint }) => ({
         name,
         description,
         source: "skill" as const,
+        ...(argumentHint === undefined
+          ? {}
+          : { usage: `/${name} ${argumentHint}` }),
       })),
   ];
   return entries

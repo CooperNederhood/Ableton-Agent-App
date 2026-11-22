@@ -1,6 +1,7 @@
 ---
 name: update-memory
 description: Save durable facts, preferences, and decisions to scoped memory when the user asks you to remember something or important context should outlive this session.
+argument-hint: "[what to remember] [--scope system|profile|project|live-set|session]"
 ---
 
 # Update memory

@@ -366,6 +366,7 @@ export type AgentDefinition = z.infer<typeof agentDefinitionSchema>;
 export const skillMetadataSchema = z.object({
   name: skillNameSchema,
   description: z.string().trim().min(1).max(512),
+  "argument-hint": z.string().trim().min(1).max(160).optional(),
 });
 export type SkillMetadata = z.infer<typeof skillMetadataSchema>;
 

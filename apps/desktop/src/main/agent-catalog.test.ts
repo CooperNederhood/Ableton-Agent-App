@@ -72,6 +72,35 @@ describe("desktop agent catalog", () => {
     );
   });
 
+  it("carries a skill's argument hint to the renderer catalog", async () => {
+    const root = await temporaryRoot();
+    const agentsDirectory = join(root, "agents");
+    const skillsDirectory = join(root, "skills");
+    await mkdir(agentsDirectory);
+    await mkdir(join(skillsDirectory, "learn-skill"), { recursive: true });
+    await mkdir(join(skillsDirectory, "mix-review"));
+    await writeFile(
+      join(skillsDirectory, "learn-skill", "SKILL.md"),
+      '---\nname: learn-skill\ndescription: Learn a skill.\nargument-hint: "[what to learn]"\n---\n\nLearn.\n',
+    );
+    await writeFile(
+      join(skillsDirectory, "mix-review", "SKILL.md"),
+      "---\nname: mix-review\ndescription: Review a mix.\n---\n\nReview.\n",
+    );
+    const service = new AgentCatalogService({
+      agentsDirectory,
+      skillsDirectory,
+      availableTools: [],
+    });
+
+    const [learn, mix] = (await service.refresh()).skills;
+    expect(learn).toMatchObject({
+      name: "learn-skill",
+      argumentHint: "[what to learn]",
+    });
+    expect(mix).not.toHaveProperty("argumentHint");
+  });
+
   it("resolves a wildcard across Ableton, application, and SDK tools", async () => {
     const root = await temporaryRoot();
     const agentsDirectory = join(root, "agents");

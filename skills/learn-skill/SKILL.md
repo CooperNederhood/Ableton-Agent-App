@@ -1,6 +1,7 @@
 ---
 name: learn-skill
 description: Turn a repeatable procedure from this session into a reusable skill, or improve an existing skill, when the user asks you to learn or remember how to do something.
+argument-hint: "[what to learn] [--scope system|profile|project|session]"
 ---
 
 # Learn skill

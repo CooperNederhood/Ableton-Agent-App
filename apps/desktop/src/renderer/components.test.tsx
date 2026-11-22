@@ -471,6 +471,40 @@ describe("desktop components", () => {
     expect(matchingSlashCompletions(" /mix", skills)).toEqual([]);
   });
 
+  it("shows a skill's argument hint as its usage", () => {
+    const [hinted, plain] = matchingSlashCompletions("/", [
+      {
+        name: "learn-skill",
+        description: "Learn a skill.",
+        argumentHint: "[what to learn] [--scope profile]",
+        sourceFile: "learn-skill/SKILL.md",
+        fingerprint: "b".repeat(64),
+      },
+      {
+        name: "mix-review",
+        description: "Review a mix.",
+        sourceFile: "mix-review/SKILL.md",
+        fingerprint: "c".repeat(64),
+      },
+    ]);
+
+    expect(hinted).toMatchObject({
+      name: "learn-skill",
+      usage: "/learn-skill [what to learn] [--scope profile]",
+    });
+    expect(plain).toMatchObject({ name: "mix-review" });
+    expect(plain).not.toHaveProperty("usage");
+    expect(
+      renderToStaticMarkup(
+        SlashCompletionSuggestions({
+          entries: [hinted!],
+          selected: 0,
+          onComplete: vi.fn(),
+        }),
+      ),
+    ).toContain("Usage: <code>/learn-skill [what to learn] [--scope profile]");
+  });
+
   it("uses every catalog skill for any selected agent", () => {
     const state = workspaceState(firstAgentId);
     state.sessions[0]!.activeAgents[0]!.config.skills = ["mix-review"];
